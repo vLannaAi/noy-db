@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 520" font-family="'SF Mono','Fira Code','Cascadia Code',monospace">
+  <defs>
+    <linearGradient id="bg2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0d1117"/>
+      <stop offset="100%" stop-color="#161b22"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="880" height="520" rx="12" fill="url(#bg2)"/>
+  <rect x="1" y="1" width="878" height="518" rx="11" fill="none" stroke="#30363d" stroke-width="1"/>
+
+  <!-- Title -->
+  <text x="440" y="40" text-anchor="middle" fill="#f0f6fc" font-size="18" font-weight="700">Encryption Key Hierarchy</text>
+  <text x="440" y="58" text-anchor="middle" fill="#8b949e" font-size="11">Three-layer key isolation with zero persisted secrets</text>
+
+  <!-- Layer labels on left -->
+  <text x="32" y="120" fill="#484f58" font-size="9" font-weight="600" transform="rotate(-90,32,120)">USER</text>
+  <text x="32" y="248" fill="#484f58" font-size="9" font-weight="600" transform="rotate(-90,32,248)">MEMORY</text>
+  <text x="32" y="368" fill="#484f58" font-size="9" font-weight="600" transform="rotate(-90,32,368)">STORAGE</text>
+
+  <!-- Horizontal dividers -->
+  <line x1="55" y1="168" x2="840" y2="168" stroke="#21262d" stroke-width="1" stroke-dasharray="4,4"/>
+  <line x1="55" y1="308" x2="840" y2="308" stroke="#21262d" stroke-width="1" stroke-dasharray="4,4"/>
+
+  <!-- Layer 1: Passphrase (USER) -->
+  <rect x="320" y="80" width="240" height="54" rx="8" fill="#0d1117" stroke="#58a6ff" stroke-width="1.5"/>
+  <text x="440" y="103" text-anchor="middle" fill="#58a6ff" font-size="12" font-weight="600">Passphrase</text>
+  <text x="440" y="122" text-anchor="middle" fill="#484f58" font-size="9">Known only to user. Never stored.</text>
+
+  <!-- OR biometric -->
+  <rect x="620" y="80" width="200" height="54" rx="8" fill="#0d1117" stroke="#bc8cff" stroke-width="1" stroke-dasharray="5,3"/>
+  <text x="720" y="103" text-anchor="middle" fill="#bc8cff" font-size="11" font-weight="600">Biometric</text>
+  <text x="720" y="122" text-anchor="middle" fill="#484f58" font-size="9">WebAuthn / Secure Enclave</text>
+
+  <text x="580" y="110" text-anchor="middle" fill="#484f58" font-size="10">or</text>
+
+  <!-- Arrow: Passphrase -> KEK -->
+  <line x1="440" y1="134" x2="440" y2="187" stroke="#58a6ff" stroke-width="1.5"/>
+  <polygon points="435,184 440,192 445,184" fill="#58a6ff"/>
+
+  <!-- Derivation label -->
+  <rect x="455" y="148" width="200" height="28" rx="4" fill="#0d1117"/>
+  <text x="555" y="160" text-anchor="middle" fill="#d29922" font-size="9" font-weight="600">PBKDF2-SHA256</text>
+  <text x="555" y="172" text-anchor="middle" fill="#484f58" font-size="8">600,000 iterations + per-user salt</text>
+
+  <!-- Layer 2: KEK (MEMORY) -->
+  <rect x="320" y="194" width="240" height="62" rx="8" fill="#0d1117" stroke="#f85149" stroke-width="2"/>
+  <rect x="320" y="194" width="240" height="62" rx="8" fill="#f8514906"/>
+  <text x="440" y="218" text-anchor="middle" fill="#f85149" font-size="12" font-weight="700">KEK</text>
+  <text x="440" y="234" text-anchor="middle" fill="#f0f6fc" font-size="9">Key Encryption Key</text>
+  <text x="440" y="248" text-anchor="middle" fill="#484f58" font-size="8">IN MEMORY ONLY. Never persisted to disk.</text>
+
+  <!-- Warning badge -->
+  <rect x="580" y="204" width="200" height="40" rx="6" fill="#f8514910" stroke="#f85149" stroke-width="1"/>
+  <text x="680" y="221" text-anchor="middle" fill="#f85149" font-size="9" font-weight="600">NEVER PERSISTED</text>
+  <text x="680" y="236" text-anchor="middle" fill="#484f58" font-size="8">Cleared on close / timeout</text>
+
+  <!-- Arrow: KEK -> DEKs -->
+  <line x1="440" y1="256" x2="440" y2="286" stroke="#f85149" stroke-width="1.5"/>
+
+  <!-- Unwrap label -->
+  <rect x="455" y="262" width="160" height="18" rx="4" fill="#0d1117"/>
+  <text x="535" y="275" text-anchor="middle" fill="#d29922" font-size="9" font-weight="600">AES-KW unwrap</text>
+
+  <!-- Branch to DEKs -->
+  <line x1="440" y1="286" x2="440" y2="296" stroke="#f85149" stroke-width="1.5"/>
+  <line x1="200" y1="296" x2="680" y2="296" stroke="#30363d" stroke-width="1.5"/>
+  <line x1="200" y1="296" x2="200" y2="330" stroke="#30363d" stroke-width="1.5"/>
+  <line x1="360" y1="296" x2="360" y2="330" stroke="#30363d" stroke-width="1.5"/>
+  <line x1="520" y1="296" x2="520" y2="330" stroke="#30363d" stroke-width="1.5"/>
+  <line x1="680" y1="296" x2="680" y2="330" stroke="#30363d" stroke-width="1.5"/>
+
+  <!-- Layer 3: DEKs (STORAGE - but wrapped) -->
+  <rect x="130" y="332" width="140" height="74" rx="8" fill="#0d1117" stroke="#3fb950" stroke-width="1.5"/>
+  <text x="200" y="354" text-anchor="middle" fill="#3fb950" font-size="11" font-weight="600">DEK</text>
+  <text x="200" y="370" text-anchor="middle" fill="#8b949e" font-size="9">invoices</text>
+  <line x1="145" y1="378" x2="255" y2="378" stroke="#21262d" stroke-width="1"/>
+  <text x="200" y="393" text-anchor="middle" fill="#484f58" font-size="8">AES-256 random key</text>
+
+  <rect x="290" y="332" width="140" height="74" rx="8" fill="#0d1117" stroke="#3fb950" stroke-width="1.5"/>
+  <text x="360" y="354" text-anchor="middle" fill="#3fb950" font-size="11" font-weight="600">DEK</text>
+  <text x="360" y="370" text-anchor="middle" fill="#8b949e" font-size="9">payments</text>
+  <line x1="305" y1="378" x2="415" y2="378" stroke="#21262d" stroke-width="1"/>
+  <text x="360" y="393" text-anchor="middle" fill="#484f58" font-size="8">AES-256 random key</text>
+
+  <rect x="450" y="332" width="140" height="74" rx="8" fill="#0d1117" stroke="#3fb950" stroke-width="1.5"/>
+  <text x="520" y="354" text-anchor="middle" fill="#3fb950" font-size="11" font-weight="600">DEK</text>
+  <text x="520" y="370" text-anchor="middle" fill="#8b949e" font-size="9">clients</text>
+  <line x1="465" y1="378" x2="575" y2="378" stroke="#21262d" stroke-width="1"/>
+  <text x="520" y="393" text-anchor="middle" fill="#484f58" font-size="8">AES-256 random key</text>
+
+  <rect x="610" y="332" width="140" height="74" rx="8" fill="#0d1117" stroke="#3fb950" stroke-width="1.5"/>
+  <text x="680" y="354" text-anchor="middle" fill="#3fb950" font-size="11" font-weight="600">DEK</text>
+  <text x="680" y="370" text-anchor="middle" fill="#8b949e" font-size="9">reports</text>
+  <line x1="625" y1="378" x2="735" y2="378" stroke="#21262d" stroke-width="1"/>
+  <text x="680" y="393" text-anchor="middle" fill="#484f58" font-size="8">AES-256 random key</text>
+
+  <!-- Blast radius annotation -->
+  <rect x="100" y="430" width="680" height="62" rx="8" fill="#21262d" stroke="#30363d" stroke-width="1"/>
+  <text x="440" y="449" text-anchor="middle" fill="#8b949e" font-size="10" font-weight="600">Blast Radius</text>
+  <text x="440" y="466" text-anchor="middle" fill="#484f58" font-size="9">1 DEK compromised = 1 collection exposed  |  KEK compromised = all collections</text>
+  <text x="440" y="481" text-anchor="middle" fill="#484f58" font-size="9">Passphrase never stored. KEK never stored. DEKs wrapped (useless without KEK).</text>
+
+  <!-- Footer -->
+  <text x="440" y="510" text-anchor="middle" fill="#30363d" font-size="9">noydb</text>
+</svg>
