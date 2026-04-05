@@ -1,0 +1,15 @@
+{
+  "name": "@noydb/playground",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Interactive guided demo of NOYDB features",
+  "scripts": {
+    "demo": "node --experimental-vm-modules demo.mjs"
+  },
+  "dependencies": {
+    "@noydb/core": "workspace:*",
+    "@noydb/memory": "workspace:*",
+    "@noydb/file": "workspace:*"
+  }
+}

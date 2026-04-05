@@ -102,6 +102,18 @@ importers:
         specifier: ^3.5.32
         version: 3.5.32(typescript@5.9.3)
 
+  playground:
+    dependencies:
+      '@noydb/core':
+        specifier: workspace:*
+        version: link:../packages/core
+      '@noydb/file':
+        specifier: workspace:*
+        version: link:../packages/adapter-file
+      '@noydb/memory':
+        specifier: workspace:*
+        version: link:../packages/adapter-memory
+
   test-harnesses/adapter-conformance:
     devDependencies:
       '@noydb/core':
