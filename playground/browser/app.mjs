@@ -42,8 +42,19 @@ function updateBadges() {
   const keys = Object.keys(localStorage).filter(k => k.startsWith(PREFIX))
   storageBadge.textContent = `localStorage: ${keys.length} keys`
 
-  const recordKeys = keys.filter(k => !k.includes(':_keyring:') && !k.includes(':_sync:'))
-  recordsBadge.textContent = `${recordKeys.length} records`
+  let recordCount = 0
+  for (const k of keys) {
+    const val = localStorage.getItem(k)
+    if (!val) continue
+    try {
+      const parsed = JSON.parse(val)
+      // Obfuscated: check _origCol; non-obfuscated: check key
+      const col = parsed._origCol ?? ''
+      const isInternal = col.startsWith('_') || k.includes(':_keyring:') || k.includes(':_sync:')
+      if (!isInternal) recordCount++
+    } catch { /* skip */ }
+  }
+  recordsBadge.textContent = `${recordCount} records`
 }
 
 function showStorage() {
@@ -58,9 +69,15 @@ function showStorage() {
     const shortKey = key.replace(PREFIX + ':', '')
     const val = localStorage.getItem(key)
     let preview = ''
+    let label = shortKey
     try {
       const parsed = JSON.parse(val)
-      if (parsed._data) {
+      // Obfuscated format: { _origId, _origCol, _env: { _v, _iv, _data } }
+      if (parsed._env) {
+        const env = parsed._env
+        preview = `{ _v:${env._v}, _iv:"${(env._iv || '').slice(0, 12)}…", _data:"${env._data.slice(0, 24)}…" }`
+        label = shortKey
+      } else if (parsed._data) {
         preview = `{ _v:${parsed._v}, _iv:"${(parsed._iv || '').slice(0, 12)}…", _data:"${parsed._data.slice(0, 24)}…" }`
       } else {
         preview = val.slice(0, 60) + (val.length > 60 ? '…' : '')
@@ -68,7 +85,7 @@ function showStorage() {
     } catch {
       preview = val.slice(0, 60)
     }
-    html += `<div><span class="key">${shortKey}</span>\n  <span class="cipher">${preview}</span></div>\n`
+    html += `<div><span class="key">${label}</span>\n  <span class="cipher">${preview}</span></div>\n`
   }
   storageEl.innerHTML = html
 }
@@ -96,7 +113,7 @@ window.step1_init = async function() {
   logStep('Initializing encrypted store with browser adapter')
 
   ownerDb = await createNoydb({
-    adapter: browser({ prefix: PREFIX, backend: 'localStorage' }),
+    adapter: browser({ prefix: PREFIX, backend: 'localStorage', obfuscate: true }),
     user: 'owner-niwat',
     secret: 'demo-passphrase-2026',
   })
@@ -209,12 +226,12 @@ window.step2_grant = async function() {
 
   // Login as each user
   opDb = await createNoydb({
-    adapter: browser({ prefix: PREFIX, backend: 'localStorage' }),
+    adapter: browser({ prefix: PREFIX, backend: 'localStorage', obfuscate: true }),
     user: 'op-somchai',
     secret: 'somchai-pass',
   })
   viewerDb = await createNoydb({
-    adapter: browser({ prefix: PREFIX, backend: 'localStorage' }),
+    adapter: browser({ prefix: PREFIX, backend: 'localStorage', obfuscate: true }),
     user: 'viewer-audit',
     secret: 'audit-pass',
   })
@@ -367,7 +384,7 @@ window.step4_add = async function() {
   if (!ownerDb) {
     // Re-open after potential reload
     ownerDb = await createNoydb({
-      adapter: browser({ prefix: PREFIX, backend: 'localStorage' }),
+      adapter: browser({ prefix: PREFIX, backend: 'localStorage', obfuscate: true }),
       user: 'owner-niwat',
       secret: 'demo-passphrase-2026',
     })
@@ -387,7 +404,7 @@ window.step4_verify = async function() {
   logStep('Verifying data after reload')
   try {
     const db = await createNoydb({
-      adapter: browser({ prefix: PREFIX, backend: 'localStorage' }),
+      adapter: browser({ prefix: PREFIX, backend: 'localStorage', obfuscate: true }),
       user: 'owner-niwat',
       secret: 'demo-passphrase-2026',
     })
@@ -455,7 +472,7 @@ window.step5_clearAndRestore = async function() {
   logWarn(`Cleared ${keys.length} keys`)
 
   ownerDb = await createNoydb({
-    adapter: browser({ prefix: PREFIX, backend: 'localStorage' }),
+    adapter: browser({ prefix: PREFIX, backend: 'localStorage', obfuscate: true }),
     user: 'owner-niwat',
     secret: 'demo-passphrase-2026',
   })

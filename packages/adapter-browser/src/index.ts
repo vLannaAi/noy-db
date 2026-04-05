@@ -6,48 +6,95 @@ export interface BrowserOptions {
   prefix?: string
   /** Force a specific storage backend. Default: auto-detect. */
   backend?: 'localStorage' | 'indexedDB'
+  /** Obfuscate storage keys so collection/record names are not readable. Default: false. */
+  obfuscate?: boolean
 }
 
 /**
  * Create a browser storage adapter.
  * Uses localStorage for small datasets (<5MB) or IndexedDB for larger ones.
  *
- * Key scheme: `{prefix}:{compartment}:{collection}:{id}`
+ * Key scheme (normal):    `{prefix}:{compartment}:{collection}:{id}`
+ * Key scheme (obfuscated): `{prefix}:{hash}:{hash}:{hash}`
  */
 export function browser(options: BrowserOptions = {}): NoydbAdapter {
   const prefix = options.prefix ?? 'noydb'
+  const obfuscate = options.obfuscate ?? false
 
-  // Detect best backend
   const useIndexedDB = options.backend === 'indexedDB' ||
     (options.backend !== 'localStorage' && typeof indexedDB !== 'undefined')
 
   if (useIndexedDB && typeof indexedDB !== 'undefined') {
-    return createIndexedDBAdapter(prefix)
+    return createIndexedDBAdapter(prefix, obfuscate)
   }
 
-  return createLocalStorageAdapter(prefix)
+  return createLocalStorageAdapter(prefix, obfuscate)
+}
+
+// ─── Key Obfuscation ───────────────────────────────────────────────────
+
+/**
+ * FNV-1a 32-bit hash → 8-char hex string.
+ * Not cryptographic — just makes keys opaque to casual inspection.
+ */
+function fnv1a(str: string): string {
+  let hash = 0x811c9dc5
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0')
+}
+
+function hashComponent(value: string, obfuscate: boolean): string {
+  return obfuscate ? fnv1a(value) : value
+}
+
+/** Stored value wraps envelope + original key parts (for reverse lookup when obfuscated). */
+interface StoredValue {
+  /** Original record ID (needed for list() to return usable IDs). */
+  _origId: string
+  /** Original collection name. */
+  _origCol: string
+  /** The encrypted envelope. */
+  _env: EncryptedEnvelope
+}
+
+function wrapValue(envelope: EncryptedEnvelope, collection: string, id: string, obfuscate: boolean): string {
+  if (!obfuscate) return JSON.stringify(envelope)
+  const stored: StoredValue = { _origId: id, _origCol: collection, _env: envelope }
+  return JSON.stringify(stored)
+}
+
+function unwrapValue(raw: string, obfuscate: boolean): { envelope: EncryptedEnvelope; origId: string; origCol: string } {
+  const parsed = JSON.parse(raw) as StoredValue | EncryptedEnvelope
+  if (!obfuscate || !('_env' in parsed)) {
+    const env = parsed as EncryptedEnvelope
+    return { envelope: env, origId: '', origCol: '' }
+  }
+  return { envelope: parsed._env, origId: parsed._origId, origCol: parsed._origCol }
 }
 
 // ─── localStorage Backend ──────────────────────────────────────────────
 
-function createLocalStorageAdapter(prefix: string): NoydbAdapter {
+function createLocalStorageAdapter(prefix: string, obfuscate: boolean): NoydbAdapter {
   function key(compartment: string, collection: string, id: string): string {
-    return `${prefix}:${compartment}:${collection}:${id}`
+    return `${prefix}:${hashComponent(compartment, obfuscate)}:${hashComponent(collection, obfuscate)}:${hashComponent(id, obfuscate)}`
   }
 
   function collectionPrefix(compartment: string, collection: string): string {
-    return `${prefix}:${compartment}:${collection}:`
+    return `${prefix}:${hashComponent(compartment, obfuscate)}:${hashComponent(collection, obfuscate)}:`
   }
 
   function compartmentPrefix(compartment: string): string {
-    return `${prefix}:${compartment}:`
+    return `${prefix}:${hashComponent(compartment, obfuscate)}:`
   }
 
   return {
     async get(compartment, collection, id) {
       const data = localStorage.getItem(key(compartment, collection, id))
       if (!data) return null
-      return JSON.parse(data) as EncryptedEnvelope
+      return unwrapValue(data, obfuscate).envelope
     },
 
     async put(compartment, collection, id, envelope, expectedVersion) {
@@ -56,14 +103,14 @@ function createLocalStorageAdapter(prefix: string): NoydbAdapter {
       if (expectedVersion !== undefined) {
         const existing = localStorage.getItem(k)
         if (existing) {
-          const current = JSON.parse(existing) as EncryptedEnvelope
+          const current = unwrapValue(existing, obfuscate).envelope
           if (current._v !== expectedVersion) {
             throw new ConflictError(current._v, `Version conflict: expected ${expectedVersion}, found ${current._v}`)
           }
         }
       }
 
-      localStorage.setItem(k, JSON.stringify(envelope))
+      localStorage.setItem(k, wrapValue(envelope, collection, id, obfuscate))
     },
 
     async delete(compartment, collection, id) {
@@ -75,7 +122,16 @@ function createLocalStorageAdapter(prefix: string): NoydbAdapter {
       const ids: string[] = []
       for (let i = 0; i < localStorage.length; i++) {
         const k = localStorage.key(i)
-        if (k?.startsWith(pfx)) {
+        if (!k?.startsWith(pfx)) continue
+
+        if (obfuscate) {
+          // Read stored value to get original ID
+          const raw = localStorage.getItem(k)
+          if (raw) {
+            const { origId } = unwrapValue(raw, true)
+            ids.push(origId)
+          }
+        } else {
           ids.push(k.slice(pfx.length))
         }
       }
@@ -90,19 +146,28 @@ function createLocalStorageAdapter(prefix: string): NoydbAdapter {
         const k = localStorage.key(i)
         if (!k?.startsWith(pfx)) continue
 
-        const rest = k.slice(pfx.length)
-        const colonIdx = rest.indexOf(':')
-        if (colonIdx < 0) continue
+        const raw = localStorage.getItem(k)
+        if (!raw) continue
 
-        const collection = rest.slice(0, colonIdx)
-        const id = rest.slice(colonIdx + 1)
+        let collection: string
+        let id: string
 
-        if (collection.startsWith('_')) continue
-
-        if (!snapshot[collection]) snapshot[collection] = {}
-        const data = localStorage.getItem(k)
-        if (data) {
-          snapshot[collection]![id] = JSON.parse(data) as EncryptedEnvelope
+        if (obfuscate) {
+          const { envelope, origId, origCol } = unwrapValue(raw, true)
+          if (origCol.startsWith('_')) continue
+          collection = origCol
+          id = origId
+          if (!snapshot[collection]) snapshot[collection] = {}
+          snapshot[collection]![id] = envelope
+        } else {
+          const rest = k.slice(pfx.length)
+          const colonIdx = rest.indexOf(':')
+          if (colonIdx < 0) continue
+          collection = rest.slice(0, colonIdx)
+          id = rest.slice(colonIdx + 1)
+          if (collection.startsWith('_')) continue
+          if (!snapshot[collection]) snapshot[collection] = {}
+          snapshot[collection]![id] = JSON.parse(raw) as EncryptedEnvelope
         }
       }
 
@@ -114,7 +179,7 @@ function createLocalStorageAdapter(prefix: string): NoydbAdapter {
         for (const [id, envelope] of Object.entries(records)) {
           localStorage.setItem(
             key(compartment, collection, id),
-            JSON.stringify(envelope),
+            wrapValue(envelope, collection, id, obfuscate),
           )
         }
       }
@@ -135,7 +200,7 @@ function createLocalStorageAdapter(prefix: string): NoydbAdapter {
 
 // ─── IndexedDB Backend ─────────────────────────────────────────────────
 
-function createIndexedDBAdapter(prefix: string): NoydbAdapter {
+function createIndexedDBAdapter(prefix: string, obfuscate: boolean): NoydbAdapter {
   const DB_NAME = `${prefix}_noydb`
   const STORE_NAME = 'records'
   let dbPromise: Promise<IDBDatabase> | null = null
@@ -158,7 +223,7 @@ function createIndexedDBAdapter(prefix: string): NoydbAdapter {
   }
 
   function key(compartment: string, collection: string, id: string): string {
-    return `${compartment}:${collection}:${id}`
+    return `${hashComponent(compartment, obfuscate)}:${hashComponent(collection, obfuscate)}:${hashComponent(id, obfuscate)}`
   }
 
   function tx(mode: IDBTransactionMode): Promise<{ store: IDBObjectStore; complete: Promise<void> }> {
@@ -183,8 +248,12 @@ function createIndexedDBAdapter(prefix: string): NoydbAdapter {
   return {
     async get(compartment, collection, id) {
       const { store } = await tx('readonly')
-      const result = await idbRequest(store.get(key(compartment, collection, id)))
-      return (result as EncryptedEnvelope | undefined) ?? null
+      const raw = await idbRequest(store.get(key(compartment, collection, id)))
+      if (!raw) return null
+      if (obfuscate && typeof raw === 'object' && '_env' in (raw as StoredValue)) {
+        return (raw as StoredValue)._env
+      }
+      return raw as EncryptedEnvelope
     },
 
     async put(compartment, collection, id, envelope, expectedVersion) {
@@ -192,14 +261,18 @@ function createIndexedDBAdapter(prefix: string): NoydbAdapter {
 
       if (expectedVersion !== undefined) {
         const { store: readStore } = await tx('readonly')
-        const existing = await idbRequest(readStore.get(k)) as EncryptedEnvelope | undefined
-        if (existing && existing._v !== expectedVersion) {
-          throw new ConflictError(existing._v, `Version conflict: expected ${expectedVersion}, found ${existing._v}`)
+        const existing = await idbRequest(readStore.get(k))
+        if (existing) {
+          const env = obfuscate && '_env' in (existing as StoredValue) ? (existing as StoredValue)._env : existing as EncryptedEnvelope
+          if (env._v !== expectedVersion) {
+            throw new ConflictError(env._v, `Version conflict: expected ${expectedVersion}, found ${env._v}`)
+          }
         }
       }
 
+      const value = obfuscate ? { _origId: id, _origCol: collection, _env: envelope } : envelope
       const { store, complete } = await tx('readwrite')
-      store.put(envelope, k)
+      store.put(value, k)
       await complete
     },
 
@@ -210,33 +283,61 @@ function createIndexedDBAdapter(prefix: string): NoydbAdapter {
     },
 
     async list(compartment, collection) {
-      const pfx = `${compartment}:${collection}:`
+      const pfx = `${hashComponent(compartment, obfuscate)}:${hashComponent(collection, obfuscate)}:`
       const { store } = await tx('readonly')
-      const keys = await idbRequest(store.getAllKeys()) as string[]
-      return keys
-        .filter(k => typeof k === 'string' && k.startsWith(pfx))
-        .map(k => k.slice(pfx.length))
+      const allKeys = await idbRequest(store.getAllKeys()) as string[]
+
+      if (!obfuscate) {
+        return allKeys
+          .filter(k => typeof k === 'string' && k.startsWith(pfx))
+          .map(k => k.slice(pfx.length))
+      }
+
+      // Obfuscated: need to read values for original IDs
+      const ids: string[] = []
+      for (const k of allKeys) {
+        if (typeof k !== 'string' || !k.startsWith(pfx)) continue
+        const raw = await idbRequest(store.get(k))
+        if (raw && typeof raw === 'object' && '_origId' in (raw as StoredValue)) {
+          ids.push((raw as StoredValue)._origId)
+        }
+      }
+      return ids
     },
 
     async loadAll(compartment) {
-      const pfx = `${compartment}:`
+      const pfx = `${hashComponent(compartment, obfuscate)}:`
       const { store } = await tx('readonly')
-      const keys = await idbRequest(store.getAllKeys()) as string[]
+      const allKeys = await idbRequest(store.getAllKeys()) as string[]
       const snapshot: CompartmentSnapshot = {}
 
-      for (const k of keys) {
+      for (const k of allKeys) {
         if (typeof k !== 'string' || !k.startsWith(pfx)) continue
-        const rest = k.slice(pfx.length)
-        const colonIdx = rest.indexOf(':')
-        if (colonIdx < 0) continue
 
-        const collection = rest.slice(0, colonIdx)
-        const id = rest.slice(colonIdx + 1)
+        const raw = await idbRequest(store.get(k))
+        if (!raw) continue
+
+        let collection: string
+        let id: string
+        let envelope: EncryptedEnvelope
+
+        if (obfuscate && typeof raw === 'object' && '_env' in (raw as StoredValue)) {
+          const stored = raw as StoredValue
+          collection = stored._origCol
+          id = stored._origId
+          envelope = stored._env
+        } else {
+          const rest = k.slice(pfx.length)
+          const colonIdx = rest.indexOf(':')
+          if (colonIdx < 0) continue
+          collection = rest.slice(0, colonIdx)
+          id = rest.slice(colonIdx + 1)
+          envelope = raw as EncryptedEnvelope
+        }
+
         if (collection.startsWith('_')) continue
-
         if (!snapshot[collection]) snapshot[collection] = {}
-        const data = await idbRequest(store.get(k)) as EncryptedEnvelope
-        if (data) snapshot[collection]![id] = data
+        snapshot[collection]![id] = envelope
       }
 
       return snapshot
@@ -246,7 +347,8 @@ function createIndexedDBAdapter(prefix: string): NoydbAdapter {
       const { store, complete } = await tx('readwrite')
       for (const [collection, records] of Object.entries(data)) {
         for (const [id, envelope] of Object.entries(records)) {
-          store.put(envelope, key(compartment, collection, id))
+          const value = obfuscate ? { _origId: id, _origCol: collection, _env: envelope } : envelope
+          store.put(value, key(compartment, collection, id))
         }
       }
       await complete
