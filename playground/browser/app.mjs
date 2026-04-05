@@ -481,31 +481,51 @@ window.step5_clearAndRestore = async function() {
   logStep('Clearing all localStorage and restoring from backup')
   const keys = Object.keys(localStorage).filter(k => k.startsWith(PREFIX))
   keys.forEach(k => localStorage.removeItem(k))
+  ownerDb = null
+  opDb = null
+  viewerDb = null
   logWarn(`Cleared ${keys.length} keys`)
 
-  ownerDb = await createNoydb({
-    adapter: browser({ prefix: PREFIX, backend: 'localStorage', obfuscate: true }),
-    user: 'owner-niwat',
-    secret: 'demo-passphrase-2026',
-    history: { enabled: true },
-  })
+  // Write backup data directly to adapter BEFORE creating the Noydb instance.
+  // This way, createNoydb will find and load the restored keyring
+  // instead of creating a new one with different DEKs.
+  const adapter = browser({ prefix: PREFIX, backend: 'localStorage', obfuscate: true })
+  const backup = JSON.parse(backupJson)
 
-  const comp = await ownerDb.openCompartment(COMP)
-  await comp.load(backupJson)
-  logOk('Backup restored!')
+  // Restore keyrings first
+  for (const [userId, keyringFile] of Object.entries(backup.keyrings)) {
+    await adapter.put(COMP, '_keyring', userId, {
+      _noydb: 1, _v: 1, _ts: new Date().toISOString(), _iv: '', _data: JSON.stringify(keyringFile),
+    })
+  }
+  // Restore collection data
+  await adapter.saveAll(COMP, backup.collections)
+
+  logOk('Backup restored to localStorage!')
   showStorage()
   updateBadges()
 }
 
 window.step5_verify = async function() {
-  if (!ownerDb) return logErr('Restore first')
-  const comp = await ownerDb.openCompartment(COMP)
-  const all = await comp.collection('invoices').list()
-  logOk(`Verified: ${all.length} invoices restored from backup`)
-  for (const inv of all) {
-    logInfo(`  ฿${inv.amount.toLocaleString()} — ${inv.status} — ${inv.client}`)
+  logStep('Verifying restored data')
+  try {
+    // Create fresh instance — it will load the restored keyring from localStorage
+    ownerDb = await createNoydb({
+      adapter: browser({ prefix: PREFIX, backend: 'localStorage', obfuscate: true }),
+      user: 'owner-niwat',
+      secret: 'demo-passphrase-2026',
+      history: { enabled: true },
+    })
+    const comp = await ownerDb.openCompartment(COMP)
+    const all = await comp.collection('invoices').list()
+    logOk(`Verified: ${all.length} invoices restored from backup`)
+    for (const inv of all) {
+      logInfo(`  ฿${inv.amount.toLocaleString()} — ${inv.status} — ${inv.client}`)
+    }
+    markStepDone(5)
+  } catch (e) {
+    logErr(`Verification failed: ${e.message}`)
   }
-  markStepDone(5)
 }
 
 // ─── Step 6: History & Diff ─────────────────────────────────────────────
