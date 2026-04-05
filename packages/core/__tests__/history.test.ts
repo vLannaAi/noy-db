@@ -317,6 +317,89 @@ describe('audit history', () => {
     })
   })
 
+  describe('diff', () => {
+    it('shows changed fields between two versions', async () => {
+      const comp = await db.openCompartment(COMP)
+      const invoices = comp.collection<Invoice>('invoices')
+      await invoices.put('inv-1', { amount: 1000, status: 'draft' })
+      await invoices.put('inv-1', { amount: 2000, status: 'draft' }) // amount changed
+      await invoices.put('inv-1', { amount: 2000, status: 'sent' })  // status changed
+
+      const changes = await invoices.diff('inv-1', 1, 2)
+      expect(changes).toHaveLength(1)
+      expect(changes[0]).toEqual({ path: 'amount', type: 'changed', from: 1000, to: 2000 })
+    })
+
+    it('shows multiple field changes', async () => {
+      const comp = await db.openCompartment(COMP)
+      const invoices = comp.collection<Invoice>('invoices')
+      await invoices.put('inv-1', { amount: 1000, status: 'draft' })
+      await invoices.put('inv-1', { amount: 5000, status: 'paid' })
+
+      const changes = await invoices.diff('inv-1', 1, 2)
+      expect(changes).toHaveLength(2)
+      expect(changes.find(c => c.path === 'amount')).toEqual({
+        path: 'amount', type: 'changed', from: 1000, to: 5000,
+      })
+      expect(changes.find(c => c.path === 'status')).toEqual({
+        path: 'status', type: 'changed', from: 'draft', to: 'paid',
+      })
+    })
+
+    it('compares against current version when versionB omitted', async () => {
+      const comp = await db.openCompartment(COMP)
+      const invoices = comp.collection<Invoice>('invoices')
+      await invoices.put('inv-1', { amount: 1000, status: 'draft' })
+      await invoices.put('inv-1', { amount: 9999, status: 'final' })
+
+      // Compare v1 against current (v2)
+      const changes = await invoices.diff('inv-1', 1)
+      expect(changes).toHaveLength(2)
+      expect(changes.find(c => c.path === 'amount')?.to).toBe(9999)
+    })
+
+    it('returns empty array for identical versions', async () => {
+      const comp = await db.openCompartment(COMP)
+      const invoices = comp.collection<Invoice>('invoices')
+      await invoices.put('inv-1', { amount: 1000, status: 'same' })
+      await invoices.put('inv-1', { amount: 1000, status: 'same' }) // same content
+
+      const changes = await invoices.diff('inv-1', 1, 2)
+      expect(changes).toHaveLength(0)
+    })
+
+    it('detects added and removed fields', async () => {
+      const comp = await db.openCompartment(COMP)
+      const items = comp.collection<Record<string, unknown>>('items')
+      await items.put('item-1', { name: 'old', color: 'red' })
+      await items.put('item-1', { name: 'new', size: 'large' })
+
+      const changes = await items.diff('item-1', 1, 2)
+      expect(changes.find(c => c.path === 'name')).toEqual({
+        path: 'name', type: 'changed', from: 'old', to: 'new',
+      })
+      expect(changes.find(c => c.path === 'color')).toEqual({
+        path: 'color', type: 'removed', from: 'red',
+      })
+      expect(changes.find(c => c.path === 'size')).toEqual({
+        path: 'size', type: 'added', to: 'large',
+      })
+    })
+
+    it('handles nested object diffs', async () => {
+      const comp = await db.openCompartment(COMP)
+      const items = comp.collection<Record<string, unknown>>('items')
+      await items.put('item-1', { meta: { city: 'Bangkok', zip: '10100' } })
+      await items.put('item-1', { meta: { city: 'Chiang Mai', zip: '10100' } })
+
+      const changes = await items.diff('item-1', 1, 2)
+      expect(changes).toHaveLength(1)
+      expect(changes[0]).toEqual({
+        path: 'meta.city', type: 'changed', from: 'Bangkok', to: 'Chiang Mai',
+      })
+    })
+  })
+
   describe('multi-record isolation', () => {
     it('history is per-record, not mixed between records', async () => {
       const comp = await db.openCompartment(COMP)

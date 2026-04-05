@@ -70,5 +70,9 @@ export {
 } from './biometric.js'
 export type { BiometricCredential } from './biometric.js'
 
+// Diff
+export { diff, formatDiff } from './diff.js'
+export type { DiffEntry, ChangeType } from './diff.js'
+
 // Validation
 export { validatePassphrase, estimateEntropy } from './validation.js'

@@ -12,6 +12,8 @@ import {
   pruneHistory as pruneHistoryEntries,
   clearHistory,
 } from './history.js'
+import { diff as computeDiff } from './diff.js'
+import type { DiffEntry } from './diff.js'
 
 /** Callback for dirty tracking (sync engine integration). */
 export type OnDirtyCallback = (collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>
@@ -182,6 +184,36 @@ export class Collection<T> {
       throw new Error(`Version ${version} not found for record "${id}"`)
     }
     await this.put(id, oldRecord)
+  }
+
+  /**
+   * Compare two versions of a record and return the differences.
+   * Use version 0 to represent "before creation" (empty).
+   * Omit versionB to compare against the current version.
+   */
+  async diff(id: string, versionA: number, versionB?: number): Promise<DiffEntry[]> {
+    const recordA = versionA === 0 ? null : await this.resolveVersion(id, versionA)
+    const recordB = versionB === undefined || versionB === 0
+      ? (versionB === 0 ? null : await this.resolveCurrentOrVersion(id))
+      : await this.resolveVersion(id, versionB)
+    return computeDiff(recordA, recordB)
+  }
+
+  /** Resolve a version: try history first, then check if it's the current version. */
+  private async resolveVersion(id: string, version: number): Promise<T | null> {
+    // Check history
+    const fromHistory = await this.getVersion(id, version)
+    if (fromHistory) return fromHistory
+    // Check if it's the current live version
+    await this.ensureHydrated()
+    const current = this.cache.get(id)
+    if (current && current.version === version) return current.record
+    return null
+  }
+
+  private async resolveCurrentOrVersion(id: string): Promise<T | null> {
+    await this.ensureHydrated()
+    return this.cache.get(id)?.record ?? null
   }
 
   /** Prune history entries for a record (or all records if id is undefined). */
