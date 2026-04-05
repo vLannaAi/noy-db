@@ -218,4 +218,8 @@ export interface NoydbOptions {
   readonly autoSync?: boolean
   /** Periodic sync interval in ms. Default: 30000. */
   readonly syncInterval?: number
+  /** Session timeout in ms. Clears keys after inactivity. Default: none. */
+  readonly sessionTimeout?: number
+  /** Validate passphrase strength on creation. Default: true. */
+  readonly validatePassphrase?: boolean
 }

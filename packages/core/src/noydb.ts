@@ -34,14 +34,26 @@ export class Noydb {
   private readonly keyringCache = new Map<string, UnlockedKeyring>()
   private readonly syncEngines = new Map<string, SyncEngine>()
   private closed = false
+  private sessionTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(options: NoydbOptions) {
     this.options = options
+    this.resetSessionTimer()
+  }
+
+  private resetSessionTimer(): void {
+    if (this.sessionTimer) clearTimeout(this.sessionTimer)
+    if (this.options.sessionTimeout && this.options.sessionTimeout > 0) {
+      this.sessionTimer = setTimeout(() => {
+        this.close()
+      }, this.options.sessionTimeout)
+    }
   }
 
   /** Open a compartment by name. */
   async openCompartment(name: string): Promise<Compartment> {
     if (this.closed) throw new ValidationError('Instance is closed')
+    this.resetSessionTimer()
 
     let comp = this.compartmentCache.get(name)
     if (comp) return comp
@@ -192,6 +204,15 @@ export class Noydb {
 
   close(): void {
     this.closed = true
+    if (this.sessionTimer) {
+      clearTimeout(this.sessionTimer)
+      this.sessionTimer = null
+    }
+    // Stop all sync engines
+    for (const engine of this.syncEngines.values()) {
+      engine.stopAutoSync()
+    }
+    this.syncEngines.clear()
     this.keyringCache.clear()
     this.compartmentCache.clear()
     this.emitter.removeAllListeners()

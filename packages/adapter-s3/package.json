@@ -35,6 +35,10 @@
     "@noydb/core": "workspace:*",
     "@aws-sdk/client-s3": "^3.0.0"
   },
+  "devDependencies": {
+    "@noydb/core": "workspace:*",
+    "@aws-sdk/client-s3": "^3.0.0"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/vLannaAi/noydb.git",

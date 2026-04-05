@@ -73,7 +73,7 @@ importers:
         version: link:../../test-harnesses/adapter-conformance
 
   packages/adapter-s3:
-    dependencies:
+    devDependencies:
       '@aws-sdk/client-s3':
         specifier: ^3.0.0
         version: 3.1024.0

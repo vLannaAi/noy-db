@@ -65,3 +65,6 @@ export {
   loadBiometric,
 } from './biometric.js'
 export type { BiometricCredential } from './biometric.js'
+
+// Validation
+export { validatePassphrase, estimateEntropy } from './validation.js'

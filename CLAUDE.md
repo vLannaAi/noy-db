@@ -8,7 +8,7 @@ NOYDB ("None Of Your Damn Business") is a zero-knowledge, offline-first, encrypt
 
 The primary spec is `NOYDB_SPEC.md` — read it before any non-trivial work. It is the source of truth for all design decisions.
 
-**Status:** Phase 2 complete. Core MVP + multi-user access control are implemented. Phase 3 (sync engine + DynamoDB adapter) is next.
+**Status:** All 5 phases implemented. Core, all adapters (memory, file, dynamo, s3, browser), sync engine, Vue composables, biometric auth, session management. Ready for testing and npm publish.
 
 ## Architecture
 
