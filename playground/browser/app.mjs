@@ -48,9 +48,10 @@ function updateBadges() {
     if (!val) continue
     try {
       const parsed = JSON.parse(val)
-      // Obfuscated: check _origCol; non-obfuscated: check key
-      const col = parsed._origCol ?? ''
-      const isInternal = col.startsWith('_') || k.includes(':_keyring:') || k.includes(':_sync:')
+      // Detect internal entries: keyrings have empty _iv, records have real _iv
+      const env = parsed._e ?? parsed
+      const hasIv = env._iv && env._iv.length > 0
+      const isInternal = !hasIv || k.includes(':_keyring:') || k.includes(':_sync:')
       if (!isInternal) recordCount++
     } catch { /* skip */ }
   }
@@ -72,9 +73,9 @@ function showStorage() {
     let label = shortKey
     try {
       const parsed = JSON.parse(val)
-      // Obfuscated format: { _origId, _origCol, _env: { _v, _iv, _data } }
-      if (parsed._env) {
-        const env = parsed._env
+      // Obfuscated format: { _oi, _oc, _e: { _v, _iv, _data } }
+      if (parsed._e) {
+        const env = parsed._e
         preview = `{ _v:${env._v}, _iv:"${(env._iv || '').slice(0, 12)}…", _data:"${env._data.slice(0, 24)}…" }`
         label = shortKey
       } else if (parsed._data) {
