@@ -34,6 +34,11 @@
   "peerDependencies": {
     "@noydb/core": "workspace:*"
   },
+  "devDependencies": {
+    "@noydb/core": "workspace:*",
+    "@noydb/test-adapter-conformance": "workspace:*",
+    "happy-dom": "^18.0.0"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/vLannaAi/noydb.git",

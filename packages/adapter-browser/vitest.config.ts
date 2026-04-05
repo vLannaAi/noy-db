@@ -4,6 +4,6 @@ export default defineConfig({
   test: {
     name: 'adapter-browser',
     include: ['__tests__/**/*.test.ts'],
-    environment: 'node',
+    environment: 'happy-dom',
   },
 })
