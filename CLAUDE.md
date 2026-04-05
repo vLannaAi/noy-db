@@ -8,7 +8,7 @@ NOYDB ("None Of Your Damn Business") is a zero-knowledge, offline-first, encrypt
 
 The primary spec is `NOYDB_SPEC.md` — read it before any non-trivial work. It is the source of truth for all design decisions.
 
-**Status:** Pre-implementation (spec only). No code has been written yet.
+**Status:** Phase 0 complete (scaffolding). Monorepo structure, tooling, and CI/CD are in place. Phase 1 implementation (core + memory + file adapters) is next.
 
 ## Architecture
 
@@ -43,13 +43,14 @@ Build tooling: Turbo for orchestration, Vitest for tests, ESM primary + CJS seco
 ## Build & Test Commands
 
 ```bash
-# Once the monorepo is scaffolded:
-npm install                          # install all workspace deps
-npx turbo build                      # build all packages
-npx turbo test                       # run all tests
-npx vitest run                       # run tests (alternative)
-npx vitest run packages/core         # run tests for a single package
-npx vitest run -t "encrypt"          # run tests matching a pattern
+pnpm install                         # install all workspace deps
+pnpm turbo build                     # build all packages
+pnpm turbo test                      # run all tests
+pnpm turbo lint                      # lint all packages
+pnpm turbo typecheck                 # typecheck all packages
+pnpm vitest run                      # run tests (alternative)
+pnpm vitest run packages/core        # run tests for a single package
+pnpm vitest run -t "encrypt"         # run tests matching a pattern
 ```
 
 ## Implementation Order

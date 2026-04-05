@@ -1,0 +1,42 @@
+{
+  "name": "@noydb/browser",
+  "version": "0.0.1",
+  "description": "Browser storage adapter for NOYDB (localStorage / IndexedDB)",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@noydb/core": "workspace:*"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vLannaAi/noydb.git",
+    "directory": "packages/adapter-browser"
+  }
+}
