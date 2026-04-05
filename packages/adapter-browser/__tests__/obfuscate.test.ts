@@ -77,6 +77,30 @@ describe('obfuscation: value opacity', () => {
     }
   })
 
+  it('stored keyring value does not contain plaintext user ID or collection names', async () => {
+    const adapter = browser({ prefix: 'test', backend: 'localStorage', obfuscate: true })
+
+    // Keyrings are stored with empty _iv and plaintext _data
+    // Obfuscation should encode the _data field too
+    await adapter.put('C1', '_keyring', 'owner-secret', {
+      _noydb: 1, _v: 1, _ts: '',
+      _iv: '', // empty IV = plaintext _data (keyring)
+      _data: '{"user_id":"owner-secret","deks":{"invoices":"wrapped-key"}}',
+    })
+
+    for (let i = 0; i < localStorage.length; i++) {
+      const raw = localStorage.getItem(localStorage.key(i)!)!
+      expect(raw).not.toContain('owner-secret')
+      expect(raw).not.toContain('"invoices"')
+      expect(raw).not.toContain('wrapped-key')
+    }
+
+    // But reading back should return the original plaintext _data
+    const result = await adapter.get('C1', '_keyring', 'owner-secret')
+    expect(result?._data).toContain('owner-secret')
+    expect(result?._data).toContain('invoices')
+  })
+
   it('stored value does not contain plaintext record ID', async () => {
     const adapter = browser({ prefix: 'test', backend: 'localStorage', obfuscate: true })
 

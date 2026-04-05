@@ -95,10 +95,17 @@ function makeObfKey(prefix: string): string {
 
 function wrapValue(envelope: EncryptedEnvelope, collection: string, id: string, obfuscate: boolean, obfKey: string): string {
   if (!obfuscate) return JSON.stringify(envelope)
+
+  // If _data is plaintext (e.g. keyring: _iv is empty), XOR-encode it too
+  let safeEnvelope = envelope
+  if (!envelope._iv && envelope._data) {
+    safeEnvelope = { ...envelope, _data: xorEncode(envelope._data, obfKey) }
+  }
+
   const stored: StoredValue = {
     _oi: xorEncode(id, obfKey),
     _oc: xorEncode(collection, obfKey),
-    _e: envelope,
+    _e: safeEnvelope,
   }
   return JSON.stringify(stored)
 }
@@ -109,8 +116,15 @@ function unwrapValue(raw: string, obfuscate: boolean, obfKey: string): { envelop
     const env = parsed as EncryptedEnvelope
     return { envelope: env, origId: '', origCol: '' }
   }
+
+  let envelope = parsed._e
+  // Decode _data if it was XOR-encoded (keyring entries with empty _iv)
+  if (!envelope._iv && envelope._data) {
+    envelope = { ...envelope, _data: xorDecode(envelope._data, obfKey) }
+  }
+
   return {
-    envelope: parsed._e,
+    envelope,
     origId: xorDecode(parsed._oi, obfKey),
     origCol: xorDecode(parsed._oc, obfKey),
   }
