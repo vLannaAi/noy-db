@@ -1,5 +1,5 @@
 import type { NoydbOptions, NoydbEventMap, GrantOptions, RevokeOptions, UserInfo, PushResult, PullResult, SyncStatus } from './types.js'
-import { ValidationError } from './errors.js'
+import { ValidationError, NoAccessError } from './errors.js'
 import { Compartment } from './compartment.js'
 import { NoydbEventEmitter } from './events.js'
 import {
@@ -234,9 +234,14 @@ export class Noydb {
     let keyring: UnlockedKeyring
     try {
       keyring = await loadKeyring(this.options.adapter, compartment, this.options.user, this.options.secret)
-    } catch {
-      // No keyring exists — create owner keyring for this compartment
-      keyring = await createOwnerKeyring(this.options.adapter, compartment, this.options.user, this.options.secret)
+    } catch (err) {
+      // Only create a new keyring if no keyring exists (NoAccessError).
+      // If the keyring exists but the passphrase is wrong (InvalidKeyError), propagate the error.
+      if (err instanceof NoAccessError) {
+        keyring = await createOwnerKeyring(this.options.adapter, compartment, this.options.user, this.options.secret)
+      } else {
+        throw err
+      }
     }
 
     this.keyringCache.set(compartment, keyring)

@@ -21,16 +21,16 @@ export function browser(options: BrowserOptions = {}): NoydbAdapter {
   const prefix = options.prefix ?? 'noydb'
   const obfuscate = options.obfuscate ?? false
 
-  if (obfuscate) setObfuscationKey(prefix)
+  const obfKey = obfuscate ? makeObfKey(prefix) : ''
 
   const useIndexedDB = options.backend === 'indexedDB' ||
     (options.backend !== 'localStorage' && typeof indexedDB !== 'undefined')
 
   if (useIndexedDB && typeof indexedDB !== 'undefined') {
-    return createIndexedDBAdapter(prefix, obfuscate)
+    return createIndexedDBAdapter(prefix, obfuscate, obfKey)
   }
 
-  return createLocalStorageAdapter(prefix, obfuscate)
+  return createLocalStorageAdapter(prefix, obfuscate, obfKey)
 }
 
 // ─── Key Obfuscation ───────────────────────────────────────────────────
@@ -89,24 +89,21 @@ interface StoredValue {
   _e: EncryptedEnvelope
 }
 
-let obfuscationKey = ''
-
-function setObfuscationKey(prefix: string): void {
-  // Use prefix + salt as XOR key so encoded values differ per app
-  obfuscationKey = prefix + ':noydb-obf-key'
+function makeObfKey(prefix: string): string {
+  return prefix + ':noydb-obf-key'
 }
 
-function wrapValue(envelope: EncryptedEnvelope, collection: string, id: string, obfuscate: boolean): string {
+function wrapValue(envelope: EncryptedEnvelope, collection: string, id: string, obfuscate: boolean, obfKey: string): string {
   if (!obfuscate) return JSON.stringify(envelope)
   const stored: StoredValue = {
-    _oi: xorEncode(id, obfuscationKey),
-    _oc: xorEncode(collection, obfuscationKey),
+    _oi: xorEncode(id, obfKey),
+    _oc: xorEncode(collection, obfKey),
     _e: envelope,
   }
   return JSON.stringify(stored)
 }
 
-function unwrapValue(raw: string, obfuscate: boolean): { envelope: EncryptedEnvelope; origId: string; origCol: string } {
+function unwrapValue(raw: string, obfuscate: boolean, obfKey: string): { envelope: EncryptedEnvelope; origId: string; origCol: string } {
   const parsed = JSON.parse(raw) as StoredValue | EncryptedEnvelope
   if (!obfuscate || !('_e' in parsed)) {
     const env = parsed as EncryptedEnvelope
@@ -114,14 +111,14 @@ function unwrapValue(raw: string, obfuscate: boolean): { envelope: EncryptedEnve
   }
   return {
     envelope: parsed._e,
-    origId: xorDecode(parsed._oi, obfuscationKey),
-    origCol: xorDecode(parsed._oc, obfuscationKey),
+    origId: xorDecode(parsed._oi, obfKey),
+    origCol: xorDecode(parsed._oc, obfKey),
   }
 }
 
 // ─── localStorage Backend ──────────────────────────────────────────────
 
-function createLocalStorageAdapter(prefix: string, obfuscate: boolean): NoydbAdapter {
+function createLocalStorageAdapter(prefix: string, obfuscate: boolean, obfKey: string): NoydbAdapter {
   function key(compartment: string, collection: string, id: string): string {
     return `${prefix}:${hashComponent(compartment, obfuscate)}:${hashComponent(collection, obfuscate)}:${hashComponent(id, obfuscate)}`
   }
@@ -138,7 +135,7 @@ function createLocalStorageAdapter(prefix: string, obfuscate: boolean): NoydbAda
     async get(compartment, collection, id) {
       const data = localStorage.getItem(key(compartment, collection, id))
       if (!data) return null
-      return unwrapValue(data, obfuscate).envelope
+      return unwrapValue(data, obfuscate, obfKey).envelope
     },
 
     async put(compartment, collection, id, envelope, expectedVersion) {
@@ -147,14 +144,14 @@ function createLocalStorageAdapter(prefix: string, obfuscate: boolean): NoydbAda
       if (expectedVersion !== undefined) {
         const existing = localStorage.getItem(k)
         if (existing) {
-          const current = unwrapValue(existing, obfuscate).envelope
+          const current = unwrapValue(existing, obfuscate, obfKey).envelope
           if (current._v !== expectedVersion) {
             throw new ConflictError(current._v, `Version conflict: expected ${expectedVersion}, found ${current._v}`)
           }
         }
       }
 
-      localStorage.setItem(k, wrapValue(envelope, collection, id, obfuscate))
+      localStorage.setItem(k, wrapValue(envelope, collection, id, obfuscate, obfKey))
     },
 
     async delete(compartment, collection, id) {
@@ -172,7 +169,7 @@ function createLocalStorageAdapter(prefix: string, obfuscate: boolean): NoydbAda
           // Read stored value to get original ID
           const raw = localStorage.getItem(k)
           if (raw) {
-            const { origId } = unwrapValue(raw, true)
+            const { origId } = unwrapValue(raw, true, obfKey)
             ids.push(origId)
           }
         } else {
@@ -197,7 +194,7 @@ function createLocalStorageAdapter(prefix: string, obfuscate: boolean): NoydbAda
         let id: string
 
         if (obfuscate) {
-          const { envelope, origId, origCol } = unwrapValue(raw, true)
+          const { envelope, origId, origCol } = unwrapValue(raw, true, obfKey)
           if (origCol.startsWith('_')) continue
           collection = origCol
           id = origId
@@ -223,7 +220,7 @@ function createLocalStorageAdapter(prefix: string, obfuscate: boolean): NoydbAda
         for (const [id, envelope] of Object.entries(records)) {
           localStorage.setItem(
             key(compartment, collection, id),
-            wrapValue(envelope, collection, id, obfuscate),
+            wrapValue(envelope, collection, id, obfuscate, obfKey),
           )
         }
       }
@@ -244,7 +241,7 @@ function createLocalStorageAdapter(prefix: string, obfuscate: boolean): NoydbAda
 
 // ─── IndexedDB Backend ─────────────────────────────────────────────────
 
-function createIndexedDBAdapter(prefix: string, obfuscate: boolean): NoydbAdapter {
+function createIndexedDBAdapter(prefix: string, obfuscate: boolean, obfKey: string): NoydbAdapter {
   const DB_NAME = `${prefix}_noydb`
   const STORE_NAME = 'records'
   let dbPromise: Promise<IDBDatabase> | null = null
@@ -314,7 +311,7 @@ function createIndexedDBAdapter(prefix: string, obfuscate: boolean): NoydbAdapte
         }
       }
 
-      const value = obfuscate ? { _oi: xorEncode(id, obfuscationKey), _oc: xorEncode(collection, obfuscationKey), _e: envelope } : envelope
+      const value = obfuscate ? { _oi: xorEncode(id, obfKey), _oc: xorEncode(collection, obfKey), _e: envelope } : envelope
       const { store, complete } = await tx('readwrite')
       store.put(value, k)
       await complete
@@ -343,7 +340,7 @@ function createIndexedDBAdapter(prefix: string, obfuscate: boolean): NoydbAdapte
         if (typeof k !== 'string' || !k.startsWith(pfx)) continue
         const raw = await idbRequest(store.get(k))
         if (raw && typeof raw === 'object' && '_oi' in (raw as StoredValue)) {
-          ids.push(xorDecode((raw as StoredValue)._oi, obfuscationKey))
+          ids.push(xorDecode((raw as StoredValue)._oi, obfKey))
         }
       }
       return ids
@@ -367,8 +364,8 @@ function createIndexedDBAdapter(prefix: string, obfuscate: boolean): NoydbAdapte
 
         if (obfuscate && typeof raw === 'object' && '_e' in (raw as StoredValue)) {
           const stored = raw as StoredValue
-          collection = xorDecode(stored._oc, obfuscationKey)
-          id = xorDecode(stored._oi, obfuscationKey)
+          collection = xorDecode(stored._oc, obfKey)
+          id = xorDecode(stored._oi, obfKey)
           envelope = stored._e
         } else {
           const rest = k.slice(pfx.length)
@@ -391,7 +388,7 @@ function createIndexedDBAdapter(prefix: string, obfuscate: boolean): NoydbAdapte
       const { store, complete } = await tx('readwrite')
       for (const [collection, records] of Object.entries(data)) {
         for (const [id, envelope] of Object.entries(records)) {
-          const value = obfuscate ? { _oi: xorEncode(id, obfuscationKey), _oc: xorEncode(collection, obfuscationKey), _e: envelope } : envelope
+          const value = obfuscate ? { _oi: xorEncode(id, obfKey), _oc: xorEncode(collection, obfKey), _e: envelope } : envelope
           store.put(value, key(compartment, collection, id))
         }
       }

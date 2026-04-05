@@ -240,5 +240,34 @@ export function runAdapterConformanceTests(
         expect(result?._data).toBe('')
       })
     })
+
+    // ─── Internal Collection Filtering ─────────────────────────────
+
+    describe('internal collection filtering', () => {
+      it('loadAll excludes _keyring collection', async () => {
+        await adapter.put('comp1', 'invoices', 'inv-1', makeEnvelope(1, 'record'))
+        await adapter.put('comp1', '_keyring', 'user-01', makeEnvelope(1, 'keyring'))
+        const snapshot = await adapter.loadAll('comp1')
+        expect(snapshot['invoices']).toBeDefined()
+        expect(snapshot['_keyring']).toBeUndefined()
+      })
+
+      it('loadAll excludes _sync collection', async () => {
+        await adapter.put('comp1', 'invoices', 'inv-1', makeEnvelope(1, 'record'))
+        await adapter.put('comp1', '_sync', 'meta', makeEnvelope(1, 'sync'))
+        const snapshot = await adapter.loadAll('comp1')
+        expect(snapshot['invoices']).toBeDefined()
+        expect(snapshot['_sync']).toBeUndefined()
+      })
+
+      it('get/put/delete still work on _keyring collection directly', async () => {
+        await adapter.put('comp1', '_keyring', 'user-01', makeEnvelope(1, 'keyring'))
+        const result = await adapter.get('comp1', '_keyring', 'user-01')
+        expect(result).not.toBeNull()
+        await adapter.delete('comp1', '_keyring', 'user-01')
+        const deleted = await adapter.get('comp1', '_keyring', 'user-01')
+        expect(deleted).toBeNull()
+      })
+    })
   })
 }
