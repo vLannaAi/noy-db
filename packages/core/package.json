@@ -36,6 +36,9 @@
     "url": "https://github.com/vLannaAi/noydb.git",
     "directory": "packages/core"
   },
+  "devDependencies": {
+    "@types/node": "^22.0.0"
+  },
   "keywords": [
     "encryption",
     "zero-knowledge",

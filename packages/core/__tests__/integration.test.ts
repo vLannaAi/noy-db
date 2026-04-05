@@ -1,0 +1,197 @@
+import { describe, it, expect, beforeEach } from 'vitest'
+import { createNoydb } from '../src/noydb.js'
+import type { Noydb } from '../src/noydb.js'
+import type { NoydbAdapter, EncryptedEnvelope, CompartmentSnapshot } from '../src/types.js'
+import { ConflictError } from '../src/errors.js'
+
+/** Inline memory adapter to avoid circular workspace dependency. */
+function memory(): NoydbAdapter {
+  const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
+  function getCollection(c: string, col: string) {
+    let comp = store.get(c)
+    if (!comp) { comp = new Map(); store.set(c, comp) }
+    let coll = comp.get(col)
+    if (!coll) { coll = new Map(); comp.set(col, coll) }
+    return coll
+  }
+  return {
+    async get(c, col, id) { return store.get(c)?.get(col)?.get(id) ?? null },
+    async put(c, col, id, env, ev) {
+      const coll = getCollection(c, col)
+      const ex = coll.get(id)
+      if (ev !== undefined && ex && ex._v !== ev) throw new ConflictError(ex._v)
+      coll.set(id, env)
+    },
+    async delete(c, col, id) { store.get(c)?.get(col)?.delete(id) },
+    async list(c, col) { const coll = store.get(c)?.get(col); return coll ? [...coll.keys()] : [] },
+    async loadAll(c) {
+      const comp = store.get(c); const s: CompartmentSnapshot = {}
+      if (comp) for (const [n, coll] of comp) { if (!n.startsWith('_')) { const r: Record<string, EncryptedEnvelope> = {}; for (const [id, e] of coll) r[id] = e; s[n] = r } }
+      return s
+    },
+    async saveAll(c, data) {
+      for (const [n, recs] of Object.entries(data)) { const coll = getCollection(c, n); for (const [id, e] of Object.entries(recs)) coll.set(id, e) }
+    },
+  }
+}
+
+interface Invoice {
+  amount: number
+  status: string
+  client: string
+}
+
+describe('integration: full lifecycle', () => {
+  let db: Noydb
+
+  describe('encrypted mode', () => {
+    beforeEach(async () => {
+      db = await createNoydb({
+        adapter: memory(),
+        user: 'owner-01',
+        secret: 'test-passphrase-12345',
+      })
+    })
+
+    it('creates instance and opens compartment', () => {
+      const company = db.compartment('C101')
+      expect(company).toBeDefined()
+    })
+
+    it('put + get round-trips with encryption', async () => {
+      const company = db.compartment('C101')
+      const invoices = company.collection<Invoice>('invoices')
+
+      await invoices.put('inv-001', {
+        amount: 5000,
+        status: 'draft',
+        client: 'บริษัท ABC',
+      })
+
+      const result = await invoices.get('inv-001')
+      expect(result).toEqual({
+        amount: 5000,
+        status: 'draft',
+        client: 'บริษัท ABC',
+      })
+    })
+
+    it('list returns all records', async () => {
+      const company = db.compartment('C101')
+      const invoices = company.collection<Invoice>('invoices')
+
+      await invoices.put('inv-001', { amount: 1000, status: 'draft', client: 'A' })
+      await invoices.put('inv-002', { amount: 2000, status: 'paid', client: 'B' })
+      await invoices.put('inv-003', { amount: 3000, status: 'draft', client: 'C' })
+
+      const all = await invoices.list()
+      expect(all).toHaveLength(3)
+    })
+
+    it('query filters records', async () => {
+      const company = db.compartment('C101')
+      const invoices = company.collection<Invoice>('invoices')
+
+      await invoices.put('inv-001', { amount: 1000, status: 'draft', client: 'A' })
+      await invoices.put('inv-002', { amount: 2000, status: 'paid', client: 'B' })
+      await invoices.put('inv-003', { amount: 3000, status: 'draft', client: 'C' })
+
+      const drafts = invoices.query(i => i.status === 'draft')
+      expect(drafts).toHaveLength(2)
+
+      const large = invoices.query(i => i.amount > 1500)
+      expect(large).toHaveLength(2)
+    })
+
+    it('delete removes a record', async () => {
+      const company = db.compartment('C101')
+      const invoices = company.collection<Invoice>('invoices')
+
+      await invoices.put('inv-001', { amount: 1000, status: 'draft', client: 'A' })
+      await invoices.delete('inv-001')
+
+      const result = await invoices.get('inv-001')
+      expect(result).toBeNull()
+    })
+
+    it('count returns correct number', async () => {
+      const company = db.compartment('C101')
+      const invoices = company.collection<Invoice>('invoices')
+
+      await invoices.put('inv-001', { amount: 1000, status: 'draft', client: 'A' })
+      await invoices.put('inv-002', { amount: 2000, status: 'paid', client: 'B' })
+
+      expect(await invoices.count()).toBe(2)
+    })
+
+    it('get non-existent returns null', async () => {
+      const company = db.compartment('C101')
+      const invoices = company.collection<Invoice>('invoices')
+      expect(await invoices.get('nonexistent')).toBeNull()
+    })
+
+    it('emits change events on put and delete', async () => {
+      const events: string[] = []
+      db.on('change', (e) => events.push(`${e.action}:${e.id}`))
+
+      const company = db.compartment('C101')
+      const invoices = company.collection<Invoice>('invoices')
+
+      await invoices.put('inv-001', { amount: 1000, status: 'draft', client: 'A' })
+      await invoices.delete('inv-001')
+
+      expect(events).toEqual(['put:inv-001', 'delete:inv-001'])
+    })
+
+    it('dump and load round-trips', async () => {
+      const company = db.compartment('C101')
+      const invoices = company.collection<Invoice>('invoices')
+
+      await invoices.put('inv-001', { amount: 5000, status: 'draft', client: 'ABC' })
+      await invoices.put('inv-002', { amount: 3000, status: 'paid', client: 'DEF' })
+
+      const backup = await company.dump()
+      expect(typeof backup).toBe('string')
+      expect(backup.length).toBeGreaterThan(0)
+
+      // Restore backup on the SAME db instance (same keys in memory)
+      // This tests dump/load round-trip integrity, not cross-instance restore
+      // (cross-instance restore requires keyring transfer, tested in Phase 2)
+      const company2 = db.compartment('C101-restored')
+      await company2.load(backup)
+
+      // The restored compartment uses the same keyring/DEKs since same db instance
+      const invoices2 = company2.collection<Invoice>('invoices')
+      const inv1 = await invoices2.get('inv-001')
+      expect(inv1).toEqual({ amount: 5000, status: 'draft', client: 'ABC' })
+
+      const inv2 = await invoices2.get('inv-002')
+      expect(inv2).toEqual({ amount: 3000, status: 'paid', client: 'DEF' })
+    })
+
+    it('close clears state', () => {
+      db.close()
+      // After close, creating a compartment should fail gracefully
+      expect(() => db.compartment('C101')).toThrow()
+    })
+  })
+
+  describe('unencrypted mode', () => {
+    beforeEach(async () => {
+      db = await createNoydb({
+        adapter: memory(),
+        user: 'dev',
+        encrypt: false,
+      })
+    })
+
+    it('put + get works without encryption', async () => {
+      const company = db.compartment('C101')
+      const invoices = company.collection<Invoice>('invoices')
+
+      await invoices.put('inv-001', { amount: 5000, status: 'draft', client: 'Test' })
+      const result = await invoices.get('inv-001')
+      expect(result).toEqual({ amount: 5000, status: 'draft', client: 'Test' })
+    })
+  })
+})
