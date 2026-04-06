@@ -1,6 +1,8 @@
 <div align="center">
 
-# NOYDB
+<img alt="noy-db logo" src="docs/assets/brand.svg" width="180">
+
+# noy-db
 
 ### None Of Your Damn Business
 
@@ -8,6 +10,7 @@ Your data. Your device. Your keys. Not your DB's business.
 
 A zero-knowledge, offline-first, encrypted document store with pluggable backends and multi-user access control.
 
+[![npm](https://img.shields.io/npm/v/@noy-db/core.svg?label=%40noy-db%2Fcore)](https://www.npmjs.com/package/@noy-db/core)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-green.svg)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Strict-blue.svg)](https://www.typescriptlang.org)
