@@ -11,7 +11,7 @@ How NOYDB stores, encrypts, and protects your data.
 | Idea                  | What it means                                                                                          |
 |-----------------------|--------------------------------------------------------------------------------------------------------|
 | Zero-knowledge        | Backends store ciphertext only. The server, the disk, the cloud — none of them ever see plaintext.   |
-| Memory-first          | A compartment is loaded into memory on open. Queries are `Array.filter`. Target scale: 1K–50K records. |
+| Memory-first          | Eager hydration is the default (v0.2 behavior). As of v0.3, opt into lazy mode via `cache: {...}` for larger collections — see [Caching and lazy hydration](#caching-and-lazy-hydration). Target scale for eager mode: 1K–50K records. |
 | Pluggable backends    | One 6-method adapter contract. Same API for USB, DynamoDB, S3, browser storage, or your own.          |
 | Multi-user ACL        | 5 roles, per-collection permissions, portable keyrings. Revocation rotates keys.                       |
 | Zero runtime crypto deps | Web Crypto API only. Never an npm crypto package.                                                   |
@@ -162,6 +162,54 @@ What every adapter actually stores:
 | `_data`  | **yes**    | AES-256-GCM ciphertext of the record body                     |
 
 `_v` and `_ts` are unencrypted by design — the sync engine needs to compare versions and timestamps without holding the encryption key.
+
+---
+
+## Caching and lazy hydration
+
+As of v0.3, a `Collection` has two hydration modes:
+
+**Eager (default, v0.2 behavior):** `openCompartment()` loads every record from the adapter, decrypts it, and keeps it in memory. `list()` and `query()` are `Array.filter` over the in-memory map. Indexes are allowed.
+
+**Lazy:** triggered by passing `cache: { maxRecords, maxBytes }` at collection construction. Records are fetched on demand and cached in an LRU keyed by `(compartment, collection, id)`. Eviction is O(1) via a `Map` + delete/set promotion. On cache miss, `get(id)` hits the adapter, decrypts, and populates the LRU. `list()` and `query()` throw — use `scan()` (async iterator, bypasses the LRU) or `loadMore()` (via `listPage`, populates the LRU) instead. Declaring `indexes` is rejected at construction because indexes require full hydration to be correct.
+
+`prefetch: true` restores eager behavior even when `cache` is set, which is useful for small compartments inside a larger lazy database.
+
+```mermaid
+flowchart LR
+    Get["get(id)"] --> Hit{LRU hit?}
+    Hit -->|yes| Promote["promote to MRU<br/>return cached"]
+    Hit -->|no| Fetch["adapter.get()"]
+    Fetch --> Decrypt["decrypt with DEK"]
+    Decrypt --> Insert["insert into LRU<br/>(evict if over budget)"]
+    Insert --> Return["return"]
+```
+
+The cache stores decrypted plaintext. It never leaves process memory and is cleared on `db.close()`.
+
+---
+
+## Pinia layering
+
+The v0.3 Pinia integration sits *on top of* `Collection` without weakening the encryption boundary. A `defineNoydbStore` call produces a Pinia store whose reactive state is a view of the collection's in-memory map (eager mode) or LRU (lazy mode):
+
+```mermaid
+flowchart TB
+    Component["Vue component"]
+    Store["Pinia store<br/>(defineNoydbStore)"]
+    Col["Collection&lt;T&gt;"]
+    Crypto["Crypto layer<br/>(DEK + IV per record)"]
+    Adapter["Adapter"]
+
+    Component -->|items, query(), add(), remove()| Store
+    Store -->|get/put/delete/scan| Col
+    Col --> Crypto
+    Crypto -->|ciphertext only| Adapter
+```
+
+The Pinia store never touches crypto directly — every operation goes through `Collection`, which means every invariant documented above (DEK per collection, fresh IV per encrypt, adapter sees only ciphertext) still holds. The only thing the store adds is Vue reactivity: mutations push into `items`, and live queries recompute via `ref`/`computed`.
+
+SSR safety: the `@noy-db/nuxt` runtime plugin is registered with `mode: 'client'`, so the server bundle contains zero crypto symbols. During SSR, stores return empty reactive refs; the client hydrates after decrypt.
 
 ---
 

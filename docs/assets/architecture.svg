@@ -91,27 +91,27 @@
 
   <!-- Adapter boxes -->
   <rect x="40" y="492" width="136" height="56" rx="6" fill="#0d1117" stroke="#3fb950" stroke-width="1" opacity="0.8"/>
-  <text x="108" y="514" text-anchor="middle" fill="#3fb950" font-size="10" font-weight="600">@noydb/file</text>
+  <text x="108" y="514" text-anchor="middle" fill="#3fb950" font-size="10" font-weight="600">@noy-db/file</text>
   <text x="108" y="530" text-anchor="middle" fill="#484f58" font-size="9">USB / Local disk</text>
   <text x="108" y="542" text-anchor="middle" fill="#484f58" font-size="8">JSON files</text>
 
   <rect x="200" y="492" width="136" height="56" rx="6" fill="#0d1117" stroke="#3fb950" stroke-width="1" opacity="0.8"/>
-  <text x="268" y="514" text-anchor="middle" fill="#3fb950" font-size="10" font-weight="600">@noydb/dynamo</text>
+  <text x="268" y="514" text-anchor="middle" fill="#3fb950" font-size="10" font-weight="600">@noy-db/dynamo</text>
   <text x="268" y="530" text-anchor="middle" fill="#484f58" font-size="9">AWS DynamoDB</text>
   <text x="268" y="542" text-anchor="middle" fill="#484f58" font-size="8">Single-table</text>
 
   <rect x="372" y="492" width="136" height="56" rx="6" fill="#0d1117" stroke="#3fb950" stroke-width="1" opacity="0.8"/>
-  <text x="440" y="514" text-anchor="middle" fill="#3fb950" font-size="10" font-weight="600">@noydb/s3</text>
+  <text x="440" y="514" text-anchor="middle" fill="#3fb950" font-size="10" font-weight="600">@noy-db/s3</text>
   <text x="440" y="530" text-anchor="middle" fill="#484f58" font-size="9">AWS S3</text>
   <text x="440" y="542" text-anchor="middle" fill="#484f58" font-size="8">ETag concurrency</text>
 
   <rect x="544" y="492" width="136" height="56" rx="6" fill="#0d1117" stroke="#3fb950" stroke-width="1" opacity="0.8"/>
-  <text x="612" y="514" text-anchor="middle" fill="#3fb950" font-size="10" font-weight="600">@noydb/browser</text>
+  <text x="612" y="514" text-anchor="middle" fill="#3fb950" font-size="10" font-weight="600">@noy-db/browser</text>
   <text x="612" y="530" text-anchor="middle" fill="#484f58" font-size="9">IndexedDB / LS</text>
   <text x="612" y="542" text-anchor="middle" fill="#484f58" font-size="8">PWA / SPA</text>
 
   <rect x="704" y="492" width="136" height="56" rx="6" fill="#0d1117" stroke="#3fb950" stroke-width="1" opacity="0.8"/>
-  <text x="772" y="514" text-anchor="middle" fill="#3fb950" font-size="10" font-weight="600">@noydb/memory</text>
+  <text x="772" y="514" text-anchor="middle" fill="#3fb950" font-size="10" font-weight="600">@noy-db/memory</text>
   <text x="772" y="530" text-anchor="middle" fill="#484f58" font-size="9">In-memory Map</text>
   <text x="772" y="542" text-anchor="middle" fill="#484f58" font-size="8">Testing</text>
 

@@ -11,21 +11,21 @@ NOYDB is a zero-knowledge encrypted document store. You give it a passphrase; it
 
 ```bash
 # Pick your backend:
-npm install @noydb/core @noydb/file      # local filesystem / USB
-npm install @noydb/core @noydb/dynamo    # AWS DynamoDB
-npm install @noydb/core @noydb/s3        # AWS S3
-npm install @noydb/core @noydb/browser   # browser localStorage/IndexedDB
-npm install @noydb/core @noydb/memory    # testing (no persistence)
+npm install @noy-db/core @noy-db/file      # local filesystem / USB
+npm install @noy-db/core @noy-db/dynamo    # AWS DynamoDB
+npm install @noy-db/core @noy-db/s3        # AWS S3
+npm install @noy-db/core @noy-db/browser   # browser localStorage/IndexedDB
+npm install @noy-db/core @noy-db/memory    # testing (no persistence)
 
 # Optional:
-npm install @noydb/vue                   # Vue/Nuxt composables
+npm install @noy-db/vue                   # Vue/Nuxt composables
 ```
 
 ## Minimal Working Example
 
 ```typescript
-import { createNoydb } from '@noydb/core'
-import { jsonFile } from '@noydb/file'
+import { createNoydb } from '@noy-db/core'
+import { jsonFile } from '@noy-db/file'
 
 // 1. Create instance
 const db = await createNoydb({
@@ -95,7 +95,7 @@ const drafts = invoices.query(i => i.status === 'draft')  // now works
 ### File Adapter (USB, local disk)
 
 ```typescript
-import { jsonFile } from '@noydb/file'
+import { jsonFile } from '@noy-db/file'
 
 const adapter = jsonFile({
   dir: './data',       // base directory
@@ -107,7 +107,7 @@ const adapter = jsonFile({
 ### DynamoDB Adapter
 
 ```typescript
-import { dynamo } from '@noydb/dynamo'
+import { dynamo } from '@noy-db/dynamo'
 
 const adapter = dynamo({
   table: 'noydb-prod',
@@ -121,7 +121,7 @@ const adapter = dynamo({
 ### S3 Adapter
 
 ```typescript
-import { s3 } from '@noydb/s3'
+import { s3 } from '@noy-db/s3'
 
 const adapter = s3({
   bucket: 'my-bucket',
@@ -136,7 +136,7 @@ const adapter = s3({
 ### Browser Adapter
 
 ```typescript
-import { browser } from '@noydb/browser'
+import { browser } from '@noy-db/browser'
 
 const adapter = browser({
   prefix: 'myapp',            // localStorage key prefix (default: 'noydb')
@@ -150,7 +150,7 @@ const adapter = browser({
 ### Memory Adapter (testing)
 
 ```typescript
-import { memory } from '@noydb/memory'
+import { memory } from '@noy-db/memory'
 
 const adapter = memory()
 // No persistence. Lost when process exits.
@@ -299,7 +299,7 @@ const range = await invoices.history('inv-1', { from: '2026-01-01', to: '2026-03
 const v1 = await invoices.getVersion('inv-1', 1)
 
 // Diff between versions
-import { formatDiff } from '@noydb/core'
+import { formatDiff } from '@noy-db/core'
 const changes = await invoices.diff('inv-1', 1, 2)
 // [{ path: 'amount', type: 'changed', from: 1000, to: 2000 },
 //  { path: 'status', type: 'changed', from: 'draft', to: 'sent' }]
@@ -338,13 +338,13 @@ const plaintext = await comp.export()
 
 ```typescript
 // Plugin setup
-import { NoydbPlugin } from '@noydb/vue'
+import { NoydbPlugin } from '@noy-db/vue'
 app.use(NoydbPlugin, { instance: db })
 ```
 
 ```vue
 <script setup lang="ts">
-import { useNoydb, useCollection, useSync } from '@noydb/vue'
+import { useNoydb, useCollection, useSync } from '@noy-db/vue'
 
 const db = useNoydb()
 const { data: invoices, loading, error, refresh } = useCollection<Invoice>(db, 'C101', 'invoices')
@@ -393,7 +393,7 @@ import {
   NetworkError,         // code: 'NETWORK_ERROR'
   NotFoundError,        // code: 'NOT_FOUND'
   ValidationError,      // code: 'VALIDATION_ERROR'
-} from '@noydb/core'
+} from '@noy-db/core'
 
 try {
   await collection.put('id', data)
@@ -407,8 +407,8 @@ try {
 ## Writing a Custom Adapter
 
 ```typescript
-import { defineAdapter, ConflictError } from '@noydb/core'
-import type { NoydbAdapter, EncryptedEnvelope, CompartmentSnapshot } from '@noydb/core'
+import { defineAdapter, ConflictError } from '@noy-db/core'
+import type { NoydbAdapter, EncryptedEnvelope, CompartmentSnapshot } from '@noy-db/core'
 
 export const redis = defineAdapter((opts: { url: string }) => ({
   async get(compartment, collection, id) {
@@ -433,7 +433,7 @@ export const redis = defineAdapter((opts: { url: string }) => ({
 }))
 
 // Test with the conformance suite (22+ tests):
-import { runAdapterConformanceTests } from '@noydb/test-adapter-conformance'
+import { runAdapterConformanceTests } from '@noy-db/test-adapter-conformance'
 runAdapterConformanceTests('redis', async () => redis({ url: 'redis://localhost' }))
 ```
 
@@ -454,7 +454,7 @@ const db = await createNoydb({
 2. **Never import crypto libraries** — NOYDB uses Web Crypto API only (`crypto.subtle`)
 3. **Fresh IV per encrypt** — never reuse IVs. The crypto module handles this automatically
 4. **KEK is never stored** — derived from passphrase at runtime, cleared on `close()`
-5. **Adapters see only ciphertext** — encryption happens in `@noydb/core`, not in adapters
+5. **Adapters see only ciphertext** — encryption happens in `@noy-db/core`, not in adapters
 6. **`loadAll()` must skip `_`-prefixed collections** — `_keyring`, `_sync`, `_history` are internal
 7. **`query()` is synchronous** — it reads from cache. Call an async method first to hydrate
 8. **Passphrase persistence** — after page reload, use the same passphrase to load the existing keyring. Wrong passphrase throws `InvalidKeyError`
@@ -465,7 +465,7 @@ const db = await createNoydb({
 
 ```typescript
 // Core
-export { createNoydb, Noydb, Compartment, Collection, SyncEngine } from '@noydb/core'
+export { createNoydb, Noydb, Compartment, Collection, SyncEngine } from '@noy-db/core'
 
 // Types
 export type {
@@ -474,27 +474,27 @@ export type {
   Conflict, ConflictStrategy, PushResult, PullResult, SyncStatus,
   ChangeEvent, NoydbEventMap, HistoryConfig, HistoryOptions, HistoryEntry,
   PruneOptions, KeyringFile, CompartmentBackup,
-} from '@noydb/core'
+} from '@noy-db/core'
 
 // Errors
 export {
   NoydbError, DecryptionError, TamperedError, InvalidKeyError,
   NoAccessError, ReadOnlyError, PermissionDeniedError,
   ConflictError, NetworkError, NotFoundError, ValidationError,
-} from '@noydb/core'
+} from '@noy-db/core'
 
 // Utilities
-export { defineAdapter, formatDiff, diff, validatePassphrase } from '@noydb/core'
-export type { DiffEntry, ChangeType } from '@noydb/core'
-export { isBiometricAvailable, enrollBiometric, unlockBiometric } from '@noydb/core'
+export { defineAdapter, formatDiff, diff, validatePassphrase } from '@noy-db/core'
+export type { DiffEntry, ChangeType } from '@noy-db/core'
+export { isBiometricAvailable, enrollBiometric, unlockBiometric } from '@noy-db/core'
 
 // Adapters
-export { jsonFile } from '@noydb/file'
-export { dynamo } from '@noydb/dynamo'
-export { s3 } from '@noydb/s3'
-export { browser } from '@noydb/browser'
-export { memory } from '@noydb/memory'
+export { jsonFile } from '@noy-db/file'
+export { dynamo } from '@noy-db/dynamo'
+export { s3 } from '@noy-db/s3'
+export { browser } from '@noy-db/browser'
+export { memory } from '@noy-db/memory'
 
 // Vue
-export { NoydbPlugin, useNoydb, useCollection, useSync } from '@noydb/vue'
+export { NoydbPlugin, useNoydb, useCollection, useSync } from '@noy-db/vue'
 ```

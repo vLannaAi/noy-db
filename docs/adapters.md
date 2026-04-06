@@ -4,12 +4,12 @@ NOYDB uses a pluggable adapter system. Every adapter implements the same 6-metho
 
 ## Built-in Adapters
 
-### @noydb/file — JSON File Adapter
+### @noy-db/file — JSON File Adapter
 
 Maps data to the filesystem. One JSON file per record.
 
 ```typescript
-import { jsonFile } from '@noydb/file'
+import { jsonFile } from '@noy-db/file'
 
 const adapter = jsonFile({
   dir: './data',        // base directory
@@ -25,12 +25,12 @@ const adapter = jsonFile({
 
 **Use cases:** USB sticks, local disk, network drives, portable data.
 
-### @noydb/dynamo — DynamoDB Adapter
+### @noy-db/dynamo — DynamoDB Adapter
 
 Single-table design for AWS DynamoDB.
 
 ```typescript
-import { dynamo } from '@noydb/dynamo'
+import { dynamo } from '@noy-db/dynamo'
 
 const adapter = dynamo({
   table: 'noydb-prod',
@@ -49,12 +49,12 @@ const adapter = dynamo({
 
 **Requires:** `@aws-sdk/client-dynamodb` and `@aws-sdk/lib-dynamodb` as peer dependencies.
 
-### @noydb/s3 — S3 Adapter
+### @noy-db/s3 — S3 Adapter
 
 Stores records as JSON objects in S3.
 
 ```typescript
-import { s3 } from '@noydb/s3'
+import { s3 } from '@noy-db/s3'
 
 const adapter = s3({
   bucket: 'noydb-archive',
@@ -68,12 +68,12 @@ const adapter = s3({
 
 **Requires:** `@aws-sdk/client-s3` as a peer dependency.
 
-### @noydb/browser — Browser Storage Adapter
+### @noy-db/browser — Browser Storage Adapter
 
 Uses localStorage or IndexedDB.
 
 ```typescript
-import { browser } from '@noydb/browser'
+import { browser } from '@noy-db/browser'
 
 const adapter = browser({
   prefix: 'myapp',              // storage key prefix (default: 'noydb')
@@ -83,12 +83,12 @@ const adapter = browser({
 
 Auto-selects localStorage for small datasets, IndexedDB for larger ones.
 
-### @noydb/memory — In-Memory Adapter
+### @noy-db/memory — In-Memory Adapter
 
 No persistence. For testing and development.
 
 ```typescript
-import { memory } from '@noydb/memory'
+import { memory } from '@noy-db/memory'
 
 const adapter = memory()
 ```
@@ -98,8 +98,8 @@ const adapter = memory()
 Implement the `NoydbAdapter` interface (6 methods):
 
 ```typescript
-import { defineAdapter } from '@noydb/core'
-import type { NoydbAdapter, EncryptedEnvelope, CompartmentSnapshot } from '@noydb/core'
+import { defineAdapter } from '@noy-db/core'
+import type { NoydbAdapter, EncryptedEnvelope, CompartmentSnapshot } from '@noy-db/core'
 
 export const myAdapter = defineAdapter((options: MyOptions) => ({
   async get(compartment, collection, id): Promise<EncryptedEnvelope | null> {
@@ -126,19 +126,77 @@ export const myAdapter = defineAdapter((options: MyOptions) => ({
     // Bulk write all records for a compartment
   },
 
-  // Optional: connectivity check for sync engine
+  // Optional: connectivity check for sync engine (v0.2+)
   async ping?(): Promise<boolean> {
     return true
   },
+
+  // Optional: pagination capability (v0.3+) — see "Optional capabilities" below
+  async listPage?(compartment, collection, cursor?, limit?): Promise<ListPageResult> {
+    return { records: [], cursor: undefined }
+  },
 }))
 ```
+
+## Optional capabilities (v0.3+)
+
+The 6-method core contract is sacred. New optional methods are surfaced as **capability flags** the core checks at runtime — adapters that don't implement them simply opt out, and the Collection layer falls back to the eager API.
+
+### `listPage` — pagination
+
+```ts
+interface ListPageResult {
+  records: EncryptedEnvelope[]
+  cursor: string | undefined   // opaque, adapter-specific
+}
+
+interface NoydbAdapter {
+  // ... 6 mandatory methods
+  listPage?(
+    compartment: string,
+    collection: string,
+    cursor?: string,
+    limit?: number,
+  ): Promise<ListPageResult>
+}
+```
+
+Adapters that implement `listPage` enable `Collection.listPage()` and the Pinia store's `loadMore()` method. The cursor is **opaque** — its format is up to the adapter (DynamoDB uses `LastEvaluatedKey` JSON; the file adapter uses an offset). Core never inspects it.
+
+| Adapter           | `listPage` | Cursor format                       |
+|-------------------|:----------:|-------------------------------------|
+| `@noy-db/memory`  | ✓          | numeric offset                      |
+| `@noy-db/file`    | ✓          | numeric offset                      |
+| `@noy-db/browser` | ✓          | numeric offset                      |
+| `@noy-db/dynamo`  | ✓          | base64-encoded `LastEvaluatedKey`   |
+| `@noy-db/s3`      | ✓          | S3 `ContinuationToken`              |
+
+### Capability detection
+
+Core checks for the method at runtime — no flag, no registration:
+
+```ts
+// Inside Collection.loadMore()
+if (typeof this.adapter.listPage !== 'function') {
+  throw new Error(
+    `Adapter '${this.adapter.name}' does not support pagination. ` +
+    `Use scan() for streaming iteration instead.`
+  )
+}
+```
+
+The same pattern applies to `ping?` (sync engine connectivity check) and any future optional method.
+
+### Streaming `scan()` — no adapter changes required
+
+`Collection.scan()` is built on `loadAll()` (or `listPage()` if available) and yields decrypted records via an `AsyncIterableIterator`. It bypasses the LRU entirely, so peak memory stays bounded regardless of collection size. No adapter needs to opt in — `scan()` works on every adapter.
 
 ### Testing Your Adapter
 
 Use the conformance test suite (22 tests):
 
 ```typescript
-import { runAdapterConformanceTests } from '@noydb/test-adapter-conformance'
+import { runAdapterConformanceTests } from '@noy-db/test-adapter-conformance'
 import { myAdapter } from './index.js'
 
 runAdapterConformanceTests(

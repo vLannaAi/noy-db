@@ -85,57 +85,108 @@ Every record on disk, DynamoDB, or S3 is an encrypted envelope. Metadata (`_v`, 
 ### Install
 
 ```bash
+# Nuxt 4 + Pinia (recommended — the v0.3 happy path)
+pnpm add @noy-db/nuxt @noy-db/pinia @noy-db/core @noy-db/browser @pinia/nuxt pinia
+
+# Plain Vue 3 + Pinia (no Nuxt)
+pnpm add @noy-db/pinia @noy-db/core @noy-db/browser pinia vue
+
 # USB / Local disk only
-npm install @noydb/core @noydb/file
+pnpm add @noy-db/core @noy-db/file
 
 # Cloud only (DynamoDB)
-npm install @noydb/core @noydb/dynamo
+pnpm add @noy-db/core @noy-db/dynamo
 
 # Offline-first with cloud sync
-npm install @noydb/core @noydb/file @noydb/dynamo
-
-# Browser SPA / PWA
-npm install @noydb/core @noydb/browser
-
-# Vue / Nuxt full stack
-npm install @noydb/core @noydb/file @noydb/dynamo @noydb/vue
+pnpm add @noy-db/core @noy-db/file @noy-db/dynamo
 
 # Development / testing
-npm install @noydb/core @noydb/memory
+pnpm add @noy-db/core @noy-db/memory
 ```
 
 ---
 
-## Quick Start
+## Quick Start — Nuxt 4 + Pinia (two minutes)
+
+The v0.3 happy path is one config block, one store file, one component. Everything below is encrypted with AES-256-GCM before it touches localStorage / IndexedDB.
 
 ```ts
-import { createNoydb } from '@noydb/core'
-import { jsonFile } from '@noydb/file'
+// nuxt.config.ts
+export default defineNuxtConfig({
+  modules: ['@pinia/nuxt', '@noy-db/nuxt'],
+  noydb: {
+    adapter: 'browser',
+    pinia: true,
+    devtools: true,
+  },
+})
+```
 
-// Create an encrypted store
+```ts
+// app/stores/invoices.ts — defineNoydbStore is auto-imported
+export interface Invoice {
+  id: string
+  client: string
+  amount: number
+  status: 'draft' | 'open' | 'paid'
+}
+
+export const useInvoices = defineNoydbStore<Invoice>('invoices', {
+  compartment: 'demo-co',
+})
+```
+
+```vue
+<!-- app/pages/invoices.vue -->
+<script setup lang="ts">
+const invoices = useInvoices()
+await invoices.$ready
+
+const drafts = invoices.query()
+  .where('status', '==', 'draft')
+  .live()
+</script>
+
+<template>
+  <ul>
+    <li v-for="inv in drafts" :key="inv.id">
+      {{ inv.client }} — {{ inv.amount }}
+    </li>
+  </ul>
+</template>
+```
+
+That's the whole app. Reactive Pinia store, encrypted storage, SSR-safe. See [`docs/getting-started.md`](docs/getting-started.md) for the complete walkthrough and the [`playground/nuxt/`](playground/nuxt/) demo for a runnable reference.
+
+### Lower-level API (no Vue/Pinia)
+
+For CLIs, tests, or backends, use `@noy-db/core` directly:
+
+```ts
+import { createNoydb } from '@noy-db/core'
+import { jsonFile } from '@noy-db/file'
+
 const db = await createNoydb({
   adapter: jsonFile({ dir: './data' }),
   user: 'owner-01',
   secret: 'my-passphrase',
 })
 
-// Open a compartment and collection
-const company = db.compartment('C101')
+const company = await db.openCompartment('C101')
 const invoices = company.collection<Invoice>('invoices')
 
-// CRUD — everything is encrypted transparently
 await invoices.put('inv-001', { amount: 5000, status: 'draft' })
 const inv = await invoices.get('inv-001')
-const drafts = invoices.query(i => i.status === 'draft')
+const drafts = invoices.query().where('status', '==', 'draft').toArray()
 
-// Backup — output is all ciphertext, safe to transport
-const backup = await company.dump()
+const backup = await company.dump()   // ciphertext, safe to transport
+db.close()                            // clears KEK/DEK from memory
 ```
 
 ### With Cloud Sync
 
 ```ts
-import { dynamo } from '@noydb/dynamo'
+import { dynamo } from '@noy-db/dynamo'
 
 const db = await createNoydb({
   adapter: jsonFile({ dir: './data' }),       // primary (local)
@@ -189,17 +240,19 @@ await db.revoke('C101', {
 ## Zero Dependencies
 
 ```
-┌────────────────────┬──────────────┬─────────────────────────┐
-│ Package            │ Runtime deps │ Peer deps               │
-├────────────────────┼──────────────┼─────────────────────────┤
-│ @noydb/core        │ 0            │ —                       │
-│ @noydb/file        │ 0            │ @noydb/core             │
-│ @noydb/dynamo      │ 0            │ @noydb/core, @aws-sdk/* │
-│ @noydb/s3          │ 0            │ @noydb/core, @aws-sdk/* │
-│ @noydb/browser     │ 0            │ @noydb/core             │
-│ @noydb/memory      │ 0            │ @noydb/core             │
-│ @noydb/vue         │ 0            │ @noydb/core, vue        │
-└────────────────────┴──────────────┴─────────────────────────┘
+┌────────────────────┬──────────────┬───────────────────────────────────────┐
+│ Package            │ Runtime deps │ Peer deps                             │
+├────────────────────┼──────────────┼───────────────────────────────────────┤
+│ @noy-db/core       │ 0            │ —                                     │
+│ @noy-db/file       │ 0            │ @noy-db/core                          │
+│ @noy-db/dynamo     │ 0            │ @noy-db/core, @aws-sdk/*              │
+│ @noy-db/s3         │ 0            │ @noy-db/core, @aws-sdk/*              │
+│ @noy-db/browser    │ 0            │ @noy-db/core                          │
+│ @noy-db/memory     │ 0            │ @noy-db/core                          │
+│ @noy-db/vue        │ 0            │ @noy-db/core, vue                     │
+│ @noy-db/pinia      │ 0            │ @noy-db/core, pinia, vue              │
+│ @noy-db/nuxt       │ 0            │ @noy-db/core, @noy-db/pinia, nuxt ^4  │
+└────────────────────┴──────────────┴───────────────────────────────────────┘
 ```
 
 Every package has **zero runtime dependencies**. AWS SDKs and Vue are peer dependencies — your app already has them.
@@ -224,7 +277,7 @@ Every package has **zero runtime dependencies**. AWS SDKs and Vue are peer depen
 The adapter interface is 6 methods. Anything that can store a blob works with NOYDB:
 
 ```ts
-import { defineAdapter } from '@noydb/core'
+import { defineAdapter } from '@noy-db/core'
 
 export const myAdapter = defineAdapter((options) => ({
   name: 'my-backend',
@@ -241,17 +294,14 @@ export const myAdapter = defineAdapter((options) => ({
 
 ## Status
 
-**Pre-release.** See the [Roadmap](ROADMAP.md) for the full build plan.
+**v0.3 in development.** v0.1 and v0.2 are shipped on npm. See the [Roadmap](ROADMAP.md) for the full plan.
 
-| Phase | Status | Scope |
-|-------|--------|-------|
-| 0 — Scaffolding | Planned | Monorepo, CI, tooling |
-| 0.5 — Test Architecture | Planned | Conformance suites, simulation harnesses |
-| 1 — Core MVP | Planned | Crypto, CRUD, file + memory adapters |
-| 2 — Multi-User | Planned | Keyring, grant/revoke, roles |
-| 3 — Sync | Planned | Dirty tracking, push/pull, DynamoDB adapter |
-| 4 — Browser | Planned | IndexedDB, WebAuthn, Vue composables |
-| 5 — Polish | Planned | S3 adapter, migration, docs, npm publish |
+| Version | Status   | Scope                                                              |
+|---------|----------|--------------------------------------------------------------------|
+| 0.1     | shipped  | Core MVP, multi-user, file + memory adapters, 5-role ACL           |
+| 0.2     | shipped  | Sync engine, DynamoDB/S3/browser adapters, WebAuthn, Vue composables |
+| 0.3     | in dev   | Nuxt 4 module, Pinia integration, query DSL, indexes, lazy hydration |
+| 0.4+    | planned  | Hash-chained ledger, schema validation, sessions, CRDT sync         |
 
 ---
 

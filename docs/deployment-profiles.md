@@ -17,6 +17,8 @@ NOYDB supports many topologies. Pick the one that matches your stack.
 | Browser + cloud sync         |  ✓   |      |   ✓    |    |    ✓    |     |
 | S3 archive                   |  ✓   |      |        | ✓  |         |     |
 | Vue/Nuxt full stack          |  ✓   |  ✓   |   ✓    |    |         |  ✓  |
+| Nuxt 4 + browser + sync (v0.3) | ✓ |      |   ✓    |    |    ✓    |  ✓  |
+| Nuxt 4 + file (USB, v0.3)    |  ✓   |  ✓   |        |    |         |  ✓  |
 | Testing / dev                |  ✓   |      |        |    |         |     |
 
 ---
@@ -190,7 +192,86 @@ flowchart TB
 
 **Use case:** Regional accounting firm platform.
 **Pros:** Reactive UI, type-safe, auto-sync, full offline support.
-**Pinia integration (v0.3):** see [`ROADMAP.md#v03--pinia-first-dx--query--scale`](../ROADMAP.md#v03--pinia-first-dx--query--scale).
+**Pinia integration (v0.3):** see profiles 7a and 7b below for the two v0.3 idiomatic Nuxt 4 topologies.
+
+---
+
+## 7a. Nuxt 4 + browser adapter + Dynamo sync (v0.3)
+
+The default v0.3 web topology: store everything in the browser (localStorage / IndexedDB), sync to DynamoDB when online. Auto-imports + Pinia stores via `@noy-db/nuxt`. SSR-safe (client-only runtime plugin).
+
+```bash
+pnpm add @noy-db/nuxt @noy-db/pinia @noy-db/core @noy-db/browser @noy-db/dynamo @pinia/nuxt pinia
+```
+
+```ts
+// nuxt.config.ts
+export default defineNuxtConfig({
+  modules: ['@pinia/nuxt', '@noy-db/nuxt'],
+  noydb: {
+    adapter: 'browser',
+    sync: { adapter: 'dynamo', table: 'myapp-prod', mode: 'auto' },
+    pinia: true,
+    devtools: true,
+  },
+})
+```
+
+```mermaid
+flowchart LR
+    subgraph Client["Browser (Nuxt 4 client)"]
+        Comp["Vue components"]
+        Store["Pinia stores<br/>(defineNoydbStore)"]
+        Core["@noy-db/core"]
+        B["@noy-db/browser<br/>(LOCAL primary)"]
+        Comp --> Store --> Core --> B
+    end
+    Core <-->|sync engine<br/>auto online/offline| Dyn["@noy-db/dynamo<br/>(REMOTE)"]
+    Dyn --> DDB[("DynamoDB")]
+```
+
+**Use case:** Multi-device web app for the accounting firm — staff log in from any browser, pick up where they left off, work offline at client sites.
+**Pros:** Zero install on the client (PWA), instant cache hydration, multi-device via cloud, full reactivity through Pinia.
+**Cons:** Browser storage limits (use lazy hydration + LRU for >50K records — see [Caching and lazy hydration](./architecture.md#caching-and-lazy-hydration)).
+**SSR safety:** Module registers the runtime plugin with `mode: 'client'`. Server bundle has zero crypto symbols (CI-verified).
+
+---
+
+## 7b. Nuxt 4 + file adapter (USB workflow)
+
+Same Nuxt 4 + Pinia DX, but the adapter is `@noy-db/file` writing to a USB stick or local directory. The Nuxt app runs locally (Electron, Tauri, or `nuxt preview` on a workstation) and the encrypted JSON files travel between sites on the USB.
+
+```bash
+pnpm add @noy-db/nuxt @noy-db/pinia @noy-db/core @noy-db/file @pinia/nuxt pinia
+```
+
+```ts
+// nuxt.config.ts
+export default defineNuxtConfig({
+  modules: ['@pinia/nuxt', '@noy-db/nuxt'],
+  noydb: {
+    adapter: 'file',
+    file: { dir: process.env['NOYDB_DATA_DIR'] ?? './data' },
+    pinia: true,
+  },
+})
+```
+
+```mermaid
+flowchart LR
+    subgraph Workstation["Local workstation (Electron / Tauri / nuxt preview)"]
+        Comp["Vue components"]
+        Store["Pinia stores"]
+        Core["@noy-db/core"]
+        F["@noy-db/file"]
+        Comp --> Store --> Core --> F
+    end
+    F --> USB[("USB drive<br/>/Volumes/USB/noydb-data/")]
+```
+
+**Use case:** Accountant carries client compartments on a USB between home and office. Same code as profile 7a — only the adapter and the data location change.
+**Pros:** Same Pinia DX as the cloud profile, but fully offline; auditable on-disk format; ideal for compliance scenarios where data must stay on-prem.
+**Cons:** Single-writer (USB lock contention if multiple instances open the same compartment). Pair with profile 7a for hybrid offices.
 
 ---
 

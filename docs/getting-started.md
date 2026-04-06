@@ -1,217 +1,317 @@
 # Getting Started with NOYDB
 
-## Installation
+> **NOYDB** — a zero-knowledge, offline-first, encrypted document store with pluggable backends and multi-user access control. This guide gets you from zero to a working encrypted Pinia store in under two minutes.
 
-Pick the packages for your use case:
-
-```bash
-# Local-only (USB stick, local disk)
-npm install @noydb/core @noydb/file
-
-# Cloud-only (DynamoDB)
-npm install @noydb/core @noydb/dynamo
-
-# Offline-first with cloud sync
-npm install @noydb/core @noydb/file @noydb/dynamo
-
-# Browser app
-npm install @noydb/core @noydb/browser
-
-# Vue / Nuxt
-npm install @noydb/core @noydb/file @noydb/vue
-
-# Testing / development
-npm install @noydb/core @noydb/memory
-```
+---
 
 ## Requirements
 
-- **Node.js** 18+ (for Web Crypto API)
+- **Node.js** 18+ (for Web Crypto API) — 20+ recommended
 - **Browsers:** Chrome 63+, Firefox 57+, Safari 13+
+- **Nuxt 4+** for the module path (Nuxt 3 is not supported)
 
-## Quick Start
+---
 
-### 1. Create an encrypted store
+## Path 1 — Nuxt 4 project (recommended)
 
-```typescript
-import { createNoydb } from '@noydb/core'
-import { jsonFile } from '@noydb/file'
+If you already have a Nuxt 4 app, `@noy-db/nuxt` is a one-line install. It auto-imports every composable, wires up the Pinia plugin, and keeps the runtime client-only so SSR stays safe.
+
+### Install
+
+```bash
+pnpm add @noy-db/nuxt @noy-db/pinia @noy-db/core @noy-db/browser @pinia/nuxt pinia
+```
+
+### Register the module
+
+```ts
+// nuxt.config.ts
+export default defineNuxtConfig({
+  modules: [
+    '@pinia/nuxt',
+    '@noy-db/nuxt',
+  ],
+  noydb: {
+    adapter: 'browser',   // 'browser' | 'file' | 'memory'
+    pinia: true,          // install the Pinia augmentation plugin
+    devtools: true,       // devtools tab in dev
+  },
+})
+```
+
+The `noydb:` key is fully typed — hovering it in your editor gives you autocomplete on every option because `@noy-db/nuxt` augments `@nuxt/schema`.
+
+### Declare a store
+
+```ts
+// app/stores/invoices.ts — defineNoydbStore is auto-imported by @noy-db/nuxt
+export interface Invoice {
+  id: string
+  client: string
+  amount: number
+  status: 'draft' | 'open' | 'paid' | 'overdue'
+  dueDate: string
+}
+
+export const useInvoices = defineNoydbStore<Invoice>('invoices', {
+  compartment: 'demo-co',
+})
+```
+
+### Use it in a component
+
+```vue
+<script setup lang="ts">
+const invoices = useInvoices()
+await invoices.$ready
+
+function addDraft() {
+  invoices.add({
+    id: crypto.randomUUID(),
+    client: 'Demo Client',
+    amount: 1000,
+    status: 'draft',
+    dueDate: new Date().toISOString(),
+  })
+}
+</script>
+
+<template>
+  <button @click="addDraft">New draft</button>
+  <ul>
+    <li v-for="inv in invoices.items" :key="inv.id">
+      {{ inv.client }} — {{ inv.amount }} ({{ inv.status }})
+    </li>
+  </ul>
+</template>
+```
+
+That's the whole app. Everything on disk — localStorage, IndexedDB, or a USB stick — is encrypted. The adapter never sees plaintext.
+
+See the reference Nuxt 4 demo in [`playground/nuxt/`](../playground/nuxt/) for a fully runnable version.
+
+---
+
+## Path 2 — Plain Vue 3 + Pinia (no Nuxt)
+
+For Vite + Vue 3 + Pinia apps without Nuxt, `@noy-db/pinia` works directly:
+
+```bash
+pnpm add @noy-db/pinia @noy-db/core @noy-db/browser pinia vue
+```
+
+```ts
+// main.ts
+import { createApp } from 'vue'
+import { createPinia } from 'pinia'
+import { createNoydbPiniaPlugin } from '@noy-db/pinia'
+import { browser } from '@noy-db/browser'
+import App from './App.vue'
+
+const pinia = createPinia()
+pinia.use(createNoydbPiniaPlugin({
+  adapter: browser(),
+  user: 'demo-user',
+  secret: 'demo-passphrase', // in real apps, prompt the user
+}))
+
+const app = createApp(App)
+app.use(pinia)
+app.mount('#app')
+```
+
+Stores are then declared with `defineNoydbStore` exactly as in Path 1.
+
+See [`playground/pinia/`](../playground/pinia/) for a working example.
+
+---
+
+## v0.3 feature highlights
+
+Once you have a store, these features are one line away:
+
+### Reactive query DSL
+
+```ts
+const invoices = useInvoices()
+
+const openInvoices = invoices.query()
+  .where('status', '==', 'open')
+  .where('amount', '>', 1000)
+  .orderBy('dueDate')
+  .live()                      // Vue ref — recomputes on mutations
+```
+
+Operators: `==`, `!=`, `<`, `<=`, `>`, `>=`, `in`, `contains`, `startsWith`, `between`, plus `.filter(fn)` for custom predicates. Composite via `.and()` / `.or()`. Everything runs client-side after decryption — zero-knowledge is preserved.
+
+### Secondary indexes
+
+Declare indexes in the store options to make equality/`in` queries O(1):
+
+```ts
+export const useInvoices = defineNoydbStore<Invoice>('invoices', {
+  compartment: 'demo-co',
+  indexes: ['status', 'client'],
+})
+```
+
+Indexes are built client-side from decrypted records and live only in memory — they're never written to the adapter in plaintext.
+
+### Pagination and streaming scan
+
+For large collections, use `loadMore()` for pagination or `scan()` for memory-bounded iteration:
+
+```ts
+// Pagination — requires adapter with listPage capability (browser, dynamo)
+await invoices.loadMore({ limit: 100 })
+
+// Streaming scan — bypasses LRU, safe for 100K+ records
+for await (const inv of invoices.scan()) {
+  if (inv.status === 'overdue') notifyClient(inv)
+}
+```
+
+### Lazy hydration + LRU eviction
+
+By default a compartment loads every record on open. For large datasets, switch to lazy mode and set a cache budget:
+
+```ts
+export const useInvoices = defineNoydbStore<Invoice>('invoices', {
+  compartment: 'demo-co',
+  cache: {
+    maxRecords: 5_000,
+    maxBytes: '50MB',
+  },
+})
+```
+
+In lazy mode, `get(id)` hits the adapter on cache miss and populates the LRU; `list()` and `query()` throw (use `scan()` or `loadMore()` instead). Setting `prefetch: true` restores the v0.2 eager behavior.
+
+See [`end-user-features.md`](./end-user-features.md) for runnable examples of every feature.
+
+---
+
+## Cloud sync
+
+Wire a remote adapter as the `sync` target. The local adapter stays primary; the sync engine pushes/pulls encrypted envelopes when online:
+
+```ts
+// nuxt.config.ts
+noydb: {
+  adapter: 'file',   // primary (USB / disk)
+  sync: {
+    adapter: 'dynamo',
+    table: 'myapp-prod',
+    mode: 'auto',    // 'auto' | 'manual' | 'none'
+  },
+}
+```
+
+Manual sync from any component:
+
+```ts
+const invoices = useInvoices()
+await invoices.$noydb.push()   // local → remote
+await invoices.$noydb.pull()   // remote → local
+await invoices.$noydb.sync()   // bidirectional
+```
+
+Conflict strategies: `'version'` (default, higher `_v` wins), `'local-wins'`, `'remote-wins'`, or a custom merge function.
+
+---
+
+## Multi-user access
+
+Grant and revoke are owner/admin-only operations. The keyring file for the new user holds wrapped DEKs for exactly the collections they're allowed to read or write.
+
+```ts
+// Grant access
+await invoices.$noydb.grant('demo-co', {
+  userId: 'accountant-ann',
+  displayName: 'Ann',
+  role: 'operator',
+  passphrase: 'temporary-passphrase',
+  permissions: { invoices: 'rw', payments: 'rw' },
+})
+
+// Revoke with key rotation — old wrapped DEKs decrypt nothing
+await invoices.$noydb.revoke('demo-co', {
+  userId: 'accountant-ann',
+  rotateKeys: true,
+})
+```
+
+| Role     | Read     | Write    | Grant                  | Export |
+|----------|:--------:|:--------:|:----------------------:|:------:|
+| owner    | all      | all      | all roles              | yes    |
+| admin    | all      | all      | operator/viewer/client | yes    |
+| operator | granted  | granted  | —                      | —      |
+| viewer   | all      | —        | —                      | —      |
+| client   | granted  | —        | —                      | —      |
+
+See [`architecture.md`](./architecture.md) for the key hierarchy and rotation flow.
+
+---
+
+## Appendix — low-level `createNoydb()` API
+
+The Pinia store sits on top of the low-level `Compartment` / `Collection` API. You only need this for non-Vue contexts (CLIs, tests, backends).
+
+```ts
+import { createNoydb } from '@noy-db/core'
+import { jsonFile } from '@noy-db/file'
 
 const db = await createNoydb({
   adapter: jsonFile({ dir: './data' }),
   user: 'owner-01',
   secret: 'my-secure-passphrase',
 })
-```
 
-### 2. Open a compartment and collection
-
-```typescript
-// Compartments isolate tenants, companies, or projects
-const company = await db.openCompartment('C101')
-
-// Collections are typed sets of records
-interface Invoice {
-  amount: number
-  status: 'draft' | 'sent' | 'paid'
-  client: string
-}
-
+const company = await db.openCompartment('demo-co')
 const invoices = company.collection<Invoice>('invoices')
-```
 
-### 3. CRUD operations
-
-```typescript
-// Create / update
 await invoices.put('inv-001', {
+  id: 'inv-001',
+  client: 'ABC Corp',
   amount: 5000,
   status: 'draft',
-  client: 'ABC Corp',
+  dueDate: '2026-05-01',
 })
 
-// Read
 const inv = await invoices.get('inv-001')
-// => { amount: 5000, status: 'draft', client: 'ABC Corp' }
+const drafts = invoices.query().where('status', '==', 'draft').toArray()
 
-// List all
-const all = await invoices.list()
-
-// Query (in-memory filter)
-const drafts = invoices.query(i => i.status === 'draft')
-const large = invoices.query(i => i.amount > 10000)
-
-// Count
-const count = await invoices.count()
-
-// Delete
-await invoices.delete('inv-001')
-```
-
-Everything is encrypted transparently. The adapter only sees ciphertext.
-
-### 4. Backup and restore
-
-```typescript
-// Dump as encrypted JSON (safe to transport)
+// Backup — output is all ciphertext, safe to transport
 const backup = await company.dump()
-
-// Restore from backup
 await company.load(backup)
 
-// Export as decrypted JSON (owner only)
-const plaintext = await company.export()
+db.close()   // clears KEK/DEK from memory
 ```
 
-## Multi-User Access
+The store path should be your first choice — it handles SSR, reactivity, and Pinia devtools integration for free.
 
-### Grant access
+---
 
-```typescript
-await db.grant('C101', {
-  userId: 'operator-somchai',
-  displayName: 'Somchai',
-  role: 'operator',
-  passphrase: 'temporary-passphrase',
-  permissions: { invoices: 'rw', payments: 'rw' },
-})
-```
+## Testing / development adapter
 
-### Roles
+For unit tests and prototypes, use `@noy-db/memory` with `encrypt: false` to inspect plaintext:
 
-| Role | Read | Write | Grant | Export |
-|------|:----:|:-----:|:-----:|:------:|
-| owner | all | all | all roles | yes |
-| admin | all | all | operator/viewer/client | yes |
-| operator | granted | granted | — | — |
-| viewer | all | — | — | — |
-| client | granted | — | — | — |
-
-### Revoke with key rotation
-
-```typescript
-await db.revoke('C101', {
-  userId: 'operator-somchai',
-  rotateKeys: true, // re-encrypts affected collections
-})
-```
-
-## Cloud Sync
-
-### Setup
-
-```typescript
-import { dynamo } from '@noydb/dynamo'
-
-const db = await createNoydb({
-  adapter: jsonFile({ dir: './data' }),     // primary (local)
-  sync: dynamo({ table: 'myapp-prod' }),    // secondary (cloud)
-  user: 'owner-01',
-  secret: 'my-passphrase',
-  conflict: 'version',                      // conflict strategy
-})
-```
-
-### Sync operations
-
-```typescript
-const company = await db.openCompartment('C101')
-
-// Push local changes to cloud
-const pushResult = await db.push('C101')
-// => { pushed: 5, conflicts: [], errors: [] }
-
-// Pull cloud changes to local
-const pullResult = await db.pull('C101')
-// => { pulled: 3, conflicts: [], errors: [] }
-
-// Bidirectional sync (pull then push)
-await db.sync('C101')
-
-// Check sync status
-const status = db.syncStatus('C101')
-// => { dirty: 0, lastPush: '2026-...', lastPull: '2026-...', online: true }
-```
-
-### Conflict strategies
-
-- `'version'` — higher version wins (default)
-- `'local-wins'` — always keep local
-- `'remote-wins'` — always accept remote
-- Custom function: `(conflict) => 'local' | 'remote'`
-
-## Vue / Nuxt Integration
-
-```typescript
-// main.ts or plugin
-import { NoydbPlugin } from '@noydb/vue'
-
-app.use(NoydbPlugin, { instance: db })
-```
-
-```vue
-<script setup lang="ts">
-import { useCollection, useSync } from '@noydb/vue'
-
-const { data: invoices, loading } = useCollection<Invoice>(db, 'C101', 'invoices')
-const { status, push, pull, syncing } = useSync(db, 'C101')
-</script>
-```
-
-## Unencrypted Mode (Development)
-
-```typescript
-import { memory } from '@noydb/memory'
+```ts
+import { memory } from '@noy-db/memory'
 
 const db = await createNoydb({
   adapter: memory(),
   user: 'dev',
-  encrypt: false,
+  encrypt: false,     // development only — never in production
 })
 ```
 
-## Next Steps
+---
 
-- [API Reference](api-reference.md) — Full API documentation
-- [Adapters Guide](adapters.md) — Built-in adapters and custom adapter development
-- [Security Model](../SECURITY.md) — Threat model and crypto details
+## Next steps
+
+- [End-user features](./end-user-features.md) — runnable examples of every v0.3 feature
+- [Architecture](./architecture.md) — data flow, key hierarchy, threat model
+- [Adapters](./adapters.md) — built-in adapters and custom adapter development
+- [Deployment profiles](./deployment-profiles.md) — pick a topology for your stack
+- [Roadmap](../ROADMAP.md) — what's shipped and what's next
