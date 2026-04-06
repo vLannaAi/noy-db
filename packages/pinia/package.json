@@ -1,0 +1,70 @@
+{
+  "name": "@noy-db/pinia",
+  "version": "0.3.0",
+  "description": "Pinia integration for noy-db — defineNoydbStore() and the augmentation plugin for existing stores",
+  "license": "MIT",
+  "author": "vLannaAi <vicio@lanna.ai>",
+  "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/pinia#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vLannaAi/noy-db.git",
+    "directory": "packages/pinia"
+  },
+  "bugs": {
+    "url": "https://github.com/vLannaAi/noy-db/issues"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@noy-db/core": "workspace:*",
+    "pinia": "^2.1.0 || ^3.0.0",
+    "vue": "^3.4.0"
+  },
+  "devDependencies": {
+    "@noy-db/core": "workspace:*",
+    "@vue/test-utils": "^2.4.6",
+    "happy-dom": "^15.11.7",
+    "pinia": "^3.0.1",
+    "vue": "^3.5.32"
+  },
+  "keywords": [
+    "noy-db",
+    "pinia",
+    "vue",
+    "vue3",
+    "nuxt",
+    "store",
+    "encryption",
+    "zero-knowledge",
+    "offline-first"
+  ]
+}
