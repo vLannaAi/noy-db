@@ -1,5 +1,17 @@
 # @noy-db/core
 
+## 0.2.0
+
+### Minor Changes
+
+- Add brand logo SVG to main README
+- Remove all references to the private client firm name from docs, playgrounds, and examples (replaced with generic accounting-firm terminology)
+- Add privacy-guard script and wire it into CI and the release workflow
+- Fix all pre-existing CI lint and typecheck failures
+- Relax ESLint rules that produced false positives on web-API boundary code
+
+Previous `0.1.x` versions have been deprecated on npm. Please install `>=0.2.0`.
+
 ## 0.1.1
 
 ### Patch Changes

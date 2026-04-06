@@ -1,5 +1,19 @@
 # @noy-db/file
 
+## 0.2.0
+
+### Minor Changes
+
+- Versioned in lockstep with `@noy-db/core@0.2.0` (privacy cleanup + release-pipeline hardening).
+- README example no longer uses a specific client-firm path.
+
+Previous `0.1.x` versions have been deprecated on npm. `@noy-db/file@0.1.1` was also unpublished because its README tarball contained a client-name reference. Please install `>=0.2.0`.
+
+### Patch Changes
+
+- Updated dependencies
+  - @noy-db/core@0.2.0
+
 ## 0.1.1
 
 ### Patch Changes

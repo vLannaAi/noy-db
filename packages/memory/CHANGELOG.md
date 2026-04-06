@@ -1,5 +1,18 @@
 # @noy-db/memory
 
+## 0.2.0
+
+### Minor Changes
+
+- Versioned in lockstep with `@noy-db/core@0.2.0` (privacy cleanup + release-pipeline hardening, no API changes in this package).
+
+Previous `0.1.x` versions have been deprecated on npm. Please install `>=0.2.0`.
+
+### Patch Changes
+
+- Updated dependencies
+  - @noy-db/core@0.2.0
+
 ## 0.1.1
 
 ### Patch Changes
