@@ -1,5 +1,13 @@
 # @noy-db/core
 
+## 2.0.0
+
+### Minor Changes
+
+- 41fa3f6: Add the noy-db brand logo (yellow "dead-end" road sign) to the main README and verify the full automated release workflow end-to-end (changesets → Version Packages PR → npm publish → GitHub Release).
+
+  No code changes — this release exercises the publish pipeline.
+
 ## 0.1.1
 
 ### Patch Changes

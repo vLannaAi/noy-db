@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/playground",
-  "version": "1.0.1",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "description": "Interactive guided demo of NOYDB features",

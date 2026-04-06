@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/browser",
-  "version": "0.1.1",
+  "version": "2.0.0",
   "description": "Browser storage adapter for noy-db — localStorage and IndexedDB with optional key obfuscation",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",

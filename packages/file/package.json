@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/file",
-  "version": "0.1.1",
+  "version": "2.0.0",
   "description": "JSON file adapter for noy-db — encrypted document store on local disk, USB sticks, or network drives",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",

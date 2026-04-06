@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/vue",
-  "version": "0.1.1",
+  "version": "2.0.0",
   "description": "Vue 3 / Nuxt composables for noy-db — reactive useNoydb, useCollection, useSync, and biometric plugin",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",

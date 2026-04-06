@@ -1,5 +1,14 @@
 # @noy-db/playground
 
+## 2.0.0
+
+### Patch Changes
+
+- Updated dependencies [41fa3f6]
+  - @noy-db/core@2.0.0
+  - @noy-db/memory@2.0.0
+  - @noy-db/file@2.0.0
+
 ## 1.0.1
 
 ### Patch Changes
