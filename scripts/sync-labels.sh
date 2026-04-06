@@ -28,13 +28,10 @@ description=""
 
 flush() {
   if [[ -n "$name" ]]; then
-    if gh label list --limit 200 --json name -q '.[].name' | grep -Fxq "$name"; then
-      echo "  update: $name"
-      gh label edit "$name" --color "$color" --description "$description" >/dev/null
-    else
-      echo "  create: $name"
-      gh label create "$name" --color "$color" --description "$description" >/dev/null
-    fi
+    # `gh label create --force` upserts: creates if missing, updates color/description if present.
+    # Avoids race conditions and pagination issues when checking existence first.
+    echo "  upsert: $name"
+    gh label create "$name" --color "$color" --description "$description" --force >/dev/null
   fi
   name=""; color=""; description=""
 }
