@@ -1,9 +1,20 @@
 {
   "name": "@noy-db/vue",
-  "version": "0.1.0",
-  "description": "Vue/Nuxt composables for NOYDB (useNoydb, useCollection, useSync)",
+  "version": "0.1.1",
+  "description": "Vue 3 / Nuxt composables for noy-db — reactive useNoydb, useCollection, useSync, and biometric plugin",
   "license": "MIT",
+  "author": "vLannaAi <vicio@lanna.ai>",
+  "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/vue#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vLannaAi/noy-db.git",
+    "directory": "packages/vue"
+  },
+  "bugs": {
+    "url": "https://github.com/vLannaAi/noy-db/issues"
+  },
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": {
       "import": {
@@ -20,14 +31,16 @@
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=18.0.0"
   },
   "scripts": {
     "build": "tsup",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit"
   },
@@ -39,9 +52,16 @@
     "@noy-db/core": "workspace:*",
     "vue": "^3.5.32"
   },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/vLannaAi/noydb.git",
-    "directory": "packages/vue"
-  }
+  "keywords": [
+    "noy-db",
+    "vue",
+    "vue3",
+    "nuxt",
+    "composables",
+    "reactive",
+    "encryption",
+    "offline-first",
+    "biometric",
+    "webauthn"
+  ]
 }

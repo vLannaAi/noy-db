@@ -2,8 +2,8 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   test: {
-    name: 'adapter-browser',
+    name: 'memory',
     include: ['__tests__/**/*.test.ts'],
-    environment: 'happy-dom',
+    environment: 'node',
   },
 })

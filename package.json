@@ -1,8 +1,18 @@
 {
-  "name": "noydb-monorepo",
+  "name": "noy-db-monorepo",
   "version": "0.0.0",
   "private": true,
-  "description": "Zero-knowledge, offline-first, encrypted document store",
+  "description": "Zero-knowledge, offline-first, encrypted document store with pluggable backends and multi-user access control",
+  "license": "MIT",
+  "author": "vLannaAi <vicio@lanna.ai>",
+  "homepage": "https://github.com/vLannaAi/noy-db#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vLannaAi/noy-db.git"
+  },
+  "bugs": {
+    "url": "https://github.com/vLannaAi/noy-db/issues"
+  },
   "packageManager": "pnpm@9.15.4",
   "engines": {
     "node": ">=18.0.0"

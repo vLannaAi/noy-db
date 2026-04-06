@@ -33,7 +33,7 @@ importers:
         specifier: ^3.0.0
         version: 3.2.4(@types/node@22.19.17)(happy-dom@18.0.1)
 
-  packages/adapter-browser:
+  packages/browser:
     devDependencies:
       '@noy-db/core':
         specifier: workspace:*
@@ -45,7 +45,13 @@ importers:
         specifier: ^18.0.0
         version: 18.0.1
 
-  packages/adapter-dynamo:
+  packages/core:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.17
+
+  packages/dynamo:
     devDependencies:
       '@aws-sdk/client-dynamodb':
         specifier: ^3.0.0
@@ -57,7 +63,7 @@ importers:
         specifier: workspace:*
         version: link:../core
 
-  packages/adapter-file:
+  packages/file:
     devDependencies:
       '@noy-db/core':
         specifier: workspace:*
@@ -69,7 +75,7 @@ importers:
         specifier: ^22.0.0
         version: 22.19.17
 
-  packages/adapter-memory:
+  packages/memory:
     devDependencies:
       '@noy-db/core':
         specifier: workspace:*
@@ -78,7 +84,7 @@ importers:
         specifier: workspace:*
         version: link:../../test-harnesses/adapter-conformance
 
-  packages/adapter-s3:
+  packages/s3:
     devDependencies:
       '@aws-sdk/client-s3':
         specifier: ^3.0.0
@@ -86,12 +92,6 @@ importers:
       '@noy-db/core':
         specifier: workspace:*
         version: link:../core
-
-  packages/core:
-    devDependencies:
-      '@types/node':
-        specifier: ^22.0.0
-        version: 22.19.17
 
   packages/vue:
     devDependencies:
@@ -109,22 +109,22 @@ importers:
         version: link:../packages/core
       '@noy-db/file':
         specifier: workspace:*
-        version: link:../packages/adapter-file
+        version: link:../packages/file
       '@noy-db/memory':
         specifier: workspace:*
-        version: link:../packages/adapter-memory
+        version: link:../packages/memory
 
   playground/browser:
     dependencies:
       '@noy-db/browser':
         specifier: workspace:*
-        version: link:../../packages/adapter-browser
+        version: link:../../packages/browser
       '@noy-db/core':
         specifier: workspace:*
         version: link:../../packages/core
       '@noy-db/memory':
         specifier: workspace:*
-        version: link:../../packages/adapter-memory
+        version: link:../../packages/memory
     devDependencies:
       vite:
         specifier: ^6.0.0

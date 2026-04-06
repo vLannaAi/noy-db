@@ -2,7 +2,7 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   test: {
-    name: 'adapter-s3',
+    name: 'file',
     include: ['__tests__/**/*.test.ts'],
     environment: 'node',
   },

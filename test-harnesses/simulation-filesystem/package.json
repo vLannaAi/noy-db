@@ -5,7 +5,7 @@
   "description": "File adapter edge cases (USB, permissions, corrupt)",
   "type": "module",
   "scripts": {
-    "test": "vitest run"
+    "test": "vitest run --passWithNoTests"
   },
   "devDependencies": {
     "@noy-db/core": "workspace:*"

@@ -1,9 +1,20 @@
 {
   "name": "@noy-db/core",
-  "version": "0.1.0",
-  "description": "Zero-knowledge, offline-first, encrypted document store",
+  "version": "0.1.1",
+  "description": "Zero-knowledge, offline-first, encrypted document store — core library with AES-256-GCM, PBKDF2, multi-user keyring, and sync engine",
   "license": "MIT",
+  "author": "vLannaAi <vicio@lanna.ai>",
+  "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/core#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vLannaAi/noy-db.git",
+    "directory": "packages/core"
+  },
+  "bugs": {
+    "url": "https://github.com/vLannaAi/noy-db/issues"
+  },
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": {
       "import": {
@@ -20,7 +31,9 @@
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=18.0.0"
@@ -31,20 +44,24 @@
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit"
   },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/vLannaAi/noydb.git",
-    "directory": "packages/core"
-  },
   "devDependencies": {
     "@types/node": "^22.0.0"
   },
   "keywords": [
+    "noy-db",
     "encryption",
     "zero-knowledge",
     "offline-first",
     "document-store",
+    "database",
     "aes-256-gcm",
-    "web-crypto"
+    "pbkdf2",
+    "web-crypto",
+    "crypto",
+    "e2ee",
+    "privacy",
+    "multi-user",
+    "sync",
+    "audit-log"
   ]
 }

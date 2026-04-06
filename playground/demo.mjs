@@ -480,7 +480,7 @@ async function main() {
     NOYDB_SPEC.md             — Full specification
     SECURITY.md               — Threat model and crypto details
 
-  GitHub: https://github.com/vLannaAi/noydb
+  GitHub: https://github.com/vLannaAi/noy-db
   `)
 
     // Close all instances

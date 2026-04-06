@@ -1,9 +1,20 @@
 {
   "name": "@noy-db/memory",
-  "version": "0.1.0",
-  "description": "In-memory adapter for NOYDB (testing and development)",
+  "version": "0.1.1",
+  "description": "In-memory adapter for noy-db — ideal for testing, development, and ephemeral workloads",
   "license": "MIT",
+  "author": "vLannaAi <vicio@lanna.ai>",
+  "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/memory#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vLannaAi/noy-db.git",
+    "directory": "packages/memory"
+  },
+  "bugs": {
+    "url": "https://github.com/vLannaAi/noy-db/issues"
+  },
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": {
       "import": {
@@ -20,7 +31,9 @@
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=18.0.0"
@@ -38,9 +51,14 @@
     "@noy-db/core": "workspace:*",
     "@noy-db/test-adapter-conformance": "workspace:*"
   },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/vLannaAi/noydb.git",
-    "directory": "packages/adapter-memory"
-  }
+  "keywords": [
+    "noy-db",
+    "adapter",
+    "in-memory",
+    "memory",
+    "storage",
+    "testing",
+    "encryption",
+    "zero-knowledge"
+  ]
 }

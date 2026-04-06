@@ -1,9 +1,20 @@
 {
   "name": "@noy-db/dynamo",
-  "version": "0.1.0",
-  "description": "AWS DynamoDB adapter for NOYDB (single-table design)",
+  "version": "0.1.1",
+  "description": "AWS DynamoDB adapter for noy-db — single-table design, zero-knowledge cloud sync",
   "license": "MIT",
+  "author": "vLannaAi <vicio@lanna.ai>",
+  "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/dynamo#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vLannaAi/noy-db.git",
+    "directory": "packages/dynamo"
+  },
+  "bugs": {
+    "url": "https://github.com/vLannaAi/noy-db/issues"
+  },
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": {
       "import": {
@@ -20,14 +31,16 @@
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=18.0.0"
   },
   "scripts": {
     "build": "tsup",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit"
   },
@@ -41,9 +54,15 @@
     "@aws-sdk/client-dynamodb": "^3.0.0",
     "@aws-sdk/lib-dynamodb": "^3.0.0"
   },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/vLannaAi/noydb.git",
-    "directory": "packages/adapter-dynamo"
-  }
+  "keywords": [
+    "noy-db",
+    "adapter",
+    "dynamodb",
+    "aws",
+    "single-table",
+    "cloud",
+    "sync",
+    "encryption",
+    "zero-knowledge"
+  ]
 }

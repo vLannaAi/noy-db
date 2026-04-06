@@ -1,13 +1,13 @@
-# Contributing to NOYDB
+# Contributing to noy-db
 
-Thank you for your interest in contributing to NOYDB!
+Thank you for your interest in contributing to noy-db!
 
 ## Development Setup
 
 ```bash
 # Clone the repository
-git clone https://github.com/vLannaAi/noydb.git
-cd noydb
+git clone https://github.com/vLannaAi/noy-db.git
+cd noy-db
 
 # Install dependencies (requires pnpm)
 pnpm install
@@ -27,18 +27,18 @@ pnpm turbo typecheck
 
 ## Project Structure
 
-- `packages/` — Published npm packages (`@noydb/*`)
+- `packages/` — Published npm packages (`@noy-db/*`)
 - `test-harnesses/` — Private test infrastructure (never published)
 
 ## Adding a New Adapter
 
-1. Create `packages/adapter-{name}/` following the existing adapter structure
+1. Create `packages/{name}/` following the existing adapter structure
 2. Implement the `NoydbAdapter` interface (6 methods)
 3. Import and run the conformance test suite:
 
 ```ts
-// packages/adapter-{name}/__tests__/conformance.test.ts
-import { runAdapterConformanceTests } from '@noydb/test-adapter-conformance'
+// packages/{name}/__tests__/conformance.test.ts
+import { runAdapterConformanceTests } from '@noy-db/test-adapter-conformance'
 import { myAdapter } from '../src/index.js'
 
 runAdapterConformanceTests('my-adapter', async () => myAdapter(/* opts */))

@@ -1,9 +1,20 @@
 {
   "name": "@noy-db/s3",
-  "version": "0.1.0",
-  "description": "AWS S3 adapter for NOYDB (encrypted object storage)",
+  "version": "0.1.1",
+  "description": "AWS S3 adapter for noy-db — encrypted object storage with zero-knowledge cloud sync",
   "license": "MIT",
+  "author": "vLannaAi <vicio@lanna.ai>",
+  "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/s3#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vLannaAi/noy-db.git",
+    "directory": "packages/s3"
+  },
+  "bugs": {
+    "url": "https://github.com/vLannaAi/noy-db/issues"
+  },
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": {
       "import": {
@@ -20,14 +31,16 @@
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=18.0.0"
   },
   "scripts": {
     "build": "tsup",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit"
   },
@@ -39,9 +52,14 @@
     "@noy-db/core": "workspace:*",
     "@aws-sdk/client-s3": "^3.0.0"
   },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/vLannaAi/noydb.git",
-    "directory": "packages/adapter-s3"
-  }
+  "keywords": [
+    "noy-db",
+    "adapter",
+    "s3",
+    "aws",
+    "object-storage",
+    "cloud",
+    "encryption",
+    "zero-knowledge"
+  ]
 }

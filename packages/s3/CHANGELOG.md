@@ -1,4 +1,4 @@
-# @noy-db/vue
+# @noy-db/s3
 
 ## 0.1.1
 

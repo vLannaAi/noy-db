@@ -29,13 +29,13 @@ The primary spec is `NOYDB_SPEC.md` — read it before any non-trivial work. It 
 
 ```
 packages/
-  core/             # @noydb/core — createNoydb, Compartment, Collection, crypto, keyring, sync
-  adapter-file/     # @noydb/file — JSON file adapter (USB, local disk)
-  adapter-dynamo/   # @noydb/dynamo — DynamoDB single-table adapter
-  adapter-s3/       # @noydb/s3 — S3 adapter
-  adapter-memory/   # @noydb/memory — in-memory adapter (testing)
-  adapter-browser/  # @noydb/browser — localStorage/IndexedDB adapter
-  vue/              # @noydb/vue — Vue/Nuxt composables (useNoydb, useCollection, useSync)
+  core/     # @noy-db/core — createNoydb, Compartment, Collection, crypto, keyring, sync
+  file/     # @noy-db/file — JSON file adapter (USB, local disk)
+  dynamo/   # @noy-db/dynamo — DynamoDB single-table adapter
+  s3/       # @noy-db/s3 — S3 adapter
+  memory/   # @noy-db/memory — in-memory adapter (testing)
+  browser/  # @noy-db/browser — localStorage/IndexedDB adapter
+  vue/      # @noy-db/vue — Vue/Nuxt composables (useNoydb, useCollection, useSync)
 ```
 
 Build tooling: Turbo for orchestration, Vitest for tests, ESM primary + CJS secondary output, full `.d.ts` generation.

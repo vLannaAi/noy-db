@@ -1,9 +1,20 @@
 {
   "name": "@noy-db/file",
-  "version": "0.1.0",
-  "description": "JSON file adapter for NOYDB (USB, local disk, network drive)",
+  "version": "0.1.1",
+  "description": "JSON file adapter for noy-db — encrypted document store on local disk, USB sticks, or network drives",
   "license": "MIT",
+  "author": "vLannaAi <vicio@lanna.ai>",
+  "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/file#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vLannaAi/noy-db.git",
+    "directory": "packages/file"
+  },
+  "bugs": {
+    "url": "https://github.com/vLannaAi/noy-db/issues"
+  },
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": {
       "import": {
@@ -20,7 +31,9 @@
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=18.0.0"
@@ -39,9 +52,16 @@
     "@noy-db/test-adapter-conformance": "workspace:*",
     "@types/node": "^22.0.0"
   },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/vLannaAi/noydb.git",
-    "directory": "packages/adapter-file"
-  }
+  "keywords": [
+    "noy-db",
+    "adapter",
+    "file",
+    "json",
+    "filesystem",
+    "local-disk",
+    "usb",
+    "storage",
+    "encryption",
+    "offline-first"
+  ]
 }

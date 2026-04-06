@@ -1,4 +1,4 @@
-# @noy-db/vue
+# @noy-db/dynamo
 
 ## 0.1.1
 

@@ -5,7 +5,7 @@
   "description": "Concurrent write simulation",
   "type": "module",
   "scripts": {
-    "test": "vitest run"
+    "test": "vitest run --passWithNoTests"
   },
   "devDependencies": {
     "@noy-db/core": "workspace:*"
