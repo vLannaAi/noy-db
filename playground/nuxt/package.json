@@ -7,8 +7,7 @@
   "scripts": {
     "dev": "nuxt dev",
     "build": "nuxt build",
-    "preview": "nuxt preview",
-    "typecheck": "nuxt typecheck"
+    "preview": "nuxt preview"
   },
   "dependencies": {
     "@noy-db/browser": "workspace:*",
