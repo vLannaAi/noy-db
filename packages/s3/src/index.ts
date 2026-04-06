@@ -9,6 +9,15 @@ import {
   HeadBucketCommand,
 } from '@aws-sdk/client-s3'
 
+/**
+ * Minimal interface for an S3 client. Compatible with @aws-sdk/client-s3's
+ * S3Client. Exposed so tests (and advanced consumers) can inject a mock or
+ * a pre-configured client without going through the default constructor.
+ */
+export interface S3ClientLike {
+  send(command: unknown): Promise<unknown>
+}
+
 export interface S3Options {
   /** S3 bucket name. */
   bucket: string
@@ -18,6 +27,12 @@ export interface S3Options {
   region?: string
   /** Custom endpoint (e.g., for MinIO or LocalStack). */
   endpoint?: string
+  /**
+   * Pre-built S3 client. If provided, the adapter uses this client
+   * directly and ignores `region` / `endpoint`. Useful for tests and
+   * for apps that want to share a client across adapters.
+   */
+  client?: S3ClientLike
 }
 
 /**
@@ -27,10 +42,14 @@ export interface S3Options {
 export function s3(options: S3Options): NoydbAdapter {
   const { bucket, prefix = '' } = options
 
-  const client = new AwsS3Client({
+  // Use the injected client if provided (tests, advanced consumers).
+  // The cast through `S3ClientLike` is safe because the AWS S3Client's
+  // `send()` method matches the structural shape — we only call `send`
+  // and inspect the documented response fields.
+  const client = (options.client ?? new AwsS3Client({
     ...(options.region ? { region: options.region } : {}),
     ...(options.endpoint ? { endpoint: options.endpoint, forcePathStyle: true } : {}),
-  })
+  })) as AwsS3Client
 
   function objectKey(compartment: string, collection: string, id: string): string {
     const parts = [compartment, collection, `${id}.json`]
@@ -47,6 +66,8 @@ export function s3(options: S3Options): NoydbAdapter {
   }
 
   return {
+    name: 's3',
+
     async get(compartment, collection, id) {
       try {
         const result = await client.send(new GetObjectCommand({
@@ -151,6 +172,52 @@ export function s3(options: S3Options): NoydbAdapter {
         return true
       } catch {
         return false
+      }
+    },
+
+    /**
+     * Paginate over a collection using S3's native `ContinuationToken`.
+     *
+     * Each page does:
+     *   1. ListObjectsV2 with MaxKeys = limit and the previous token
+     *   2. GetObject for every key on the page (in parallel)
+     *
+     * The 2-step pattern is necessary because S3 list responses don't
+     * include object bodies. For very large collections this is N+1 — but
+     * the parallel GETs amortize well, and consumers willing to pay for
+     * stronger pagination should use a different adapter (Dynamo).
+     */
+    async listPage(compartment, collection, cursor, limit = 100) {
+      const pfx = collPrefix(compartment, collection)
+      const listResult = await client.send(new ListObjectsV2Command({
+        Bucket: bucket,
+        Prefix: pfx,
+        MaxKeys: limit,
+        ...(cursor ? { ContinuationToken: cursor } : {}),
+      }))
+
+      const keys = (listResult.Contents ?? [])
+        .map(obj => obj.Key ?? '')
+        .filter(k => k.endsWith('.json'))
+
+      // Fetch every body in parallel — bounded by `limit` so we never
+      // fan out beyond the page size.
+      const items = await Promise.all(keys.map(async (key) => {
+        const id = key.slice(pfx.length, -5)
+        const getResult = await client.send(new GetObjectCommand({
+          Bucket: bucket,
+          Key: key,
+        }))
+        if (!getResult.Body) return null
+        const body = await getResult.Body.transformToString()
+        return { id, envelope: JSON.parse(body) as EncryptedEnvelope }
+      }))
+
+      return {
+        items: items.filter((x): x is { id: string; envelope: EncryptedEnvelope } => x !== null),
+        nextCursor: listResult.IsTruncated && listResult.NextContinuationToken
+          ? listResult.NextContinuationToken
+          : null,
       }
     },
   }

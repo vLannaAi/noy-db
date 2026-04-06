@@ -24,7 +24,14 @@ export interface DynamoDocClient {
 interface GetCommandInput { TableName: string; Key: Record<string, unknown> }
 interface PutCommandInput { TableName: string; Item: Record<string, unknown>; ConditionExpression?: string; ExpressionAttributeNames?: Record<string, string>; ExpressionAttributeValues?: Record<string, unknown> }
 interface DeleteCommandInput { TableName: string; Key: Record<string, unknown> }
-interface QueryCommandInput { TableName: string; KeyConditionExpression: string; ExpressionAttributeNames?: Record<string, string>; ExpressionAttributeValues?: Record<string, unknown> }
+interface QueryCommandInput {
+  TableName: string
+  KeyConditionExpression: string
+  ExpressionAttributeNames?: Record<string, string>
+  ExpressionAttributeValues?: Record<string, unknown>
+  Limit?: number
+  ExclusiveStartKey?: Record<string, unknown>
+}
 
 /**
  * Create a DynamoDB adapter using single-table design.
@@ -87,6 +94,8 @@ export function dynamo(options: DynamoOptions): NoydbAdapter {
   }
 
   return {
+    name: 'dynamo',
+
     async get(compartment, collection, id) {
       const client = await getClient()
       const { GetCommand } = await import('@aws-sdk/lib-dynamodb') as { GetCommand: new (input: GetCommandInput) => unknown }
@@ -217,5 +226,65 @@ export function dynamo(options: DynamoOptions): NoydbAdapter {
         return false
       }
     },
+
+    /**
+     * Paginate over a collection using DynamoDB's native `LastEvaluatedKey`
+     * cursor. The cursor is base64-encoded JSON of the LastEvaluatedKey
+     * object so it round-trips through any caller transport.
+     *
+     * Each page is a single Query call against the partition key, so the
+     * read cost is `pageSize ÷ 4 KB` RCUs (eventually consistent) per page.
+     */
+    async listPage(compartment, collection, cursor, limit = 100) {
+      const client = await getClient()
+      const { QueryCommand } = await import('@aws-sdk/lib-dynamodb') as { QueryCommand: new (input: QueryCommandInput) => unknown }
+
+      const input: QueryCommandInput = {
+        TableName: table,
+        KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+        ExpressionAttributeValues: {
+          ':pk': compartment,
+          ':prefix': `${collection}#`,
+        },
+        Limit: limit,
+      }
+      if (cursor) {
+        input.ExclusiveStartKey = JSON.parse(b64decode(cursor)) as Record<string, unknown>
+      }
+
+      const result = await client.send(new QueryCommand(input)) as {
+        Items?: Record<string, unknown>[]
+        LastEvaluatedKey?: Record<string, unknown>
+      }
+
+      const items: Array<{ id: string; envelope: EncryptedEnvelope }> = []
+      for (const item of result.Items ?? []) {
+        const { id } = parseSk(item['sk'] as string)
+        items.push({ id, envelope: itemToEnvelope(item) })
+      }
+
+      const nextCursor = result.LastEvaluatedKey
+        ? b64encode(JSON.stringify(result.LastEvaluatedKey))
+        : null
+
+      return { items, nextCursor }
+    },
   }
+}
+
+/**
+ * Tiny base64 helpers that work in both Node 20+ and any modern browser
+ * without pulling in @types/node or relying on a Buffer polyfill. The
+ * dynamo adapter has zero non-AWS dependencies and we want to keep it
+ * that way — listPage cursors are short JSON blobs so the per-call cost
+ * of these helpers is negligible.
+ */
+function b64encode(input: string): string {
+  // btoa expects a Latin-1 string; encodeURIComponent + unescape is the
+  // canonical trick for utf-8 → btoa-safe payloads.
+  return btoa(unescape(encodeURIComponent(input)))
+}
+
+function b64decode(input: string): string {
+  return decodeURIComponent(escape(atob(input)))
 }

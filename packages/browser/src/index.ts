@@ -157,6 +157,8 @@ function createLocalStorageAdapter(prefix: string, obfuscate: boolean, obfKey: s
   }
 
   return {
+    name: 'browser:localStorage',
+
     async get(compartment, collection, id) {
       const data = localStorage.getItem(key(compartment, collection, id))
       if (!data) return null
@@ -261,6 +263,44 @@ function createLocalStorageAdapter(prefix: string, obfuscate: boolean, obfKey: s
         return false
       }
     },
+
+    /**
+     * Paginate over a collection. Cursor is a numeric offset (as a string)
+     * into the sorted localStorage key list. Sorting by key gives stable
+     * ordering across page fetches even when other code is mutating
+     * unrelated keys in the same prefix.
+     *
+     * Note: localStorage's `length` and `key(i)` are O(N) per call in some
+     * browsers, so listing the matching keys upfront is faster than
+     * iterating in slices.
+     */
+    async listPage(compartment, collection, cursor, limit = 100) {
+      const pfx = collectionPrefix(compartment, collection)
+      const matchedKeys: string[] = []
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i)
+        if (k?.startsWith(pfx)) matchedKeys.push(k)
+      }
+      matchedKeys.sort()
+
+      const start = cursor ? parseInt(cursor, 10) : 0
+      const end = Math.min(start + limit, matchedKeys.length)
+
+      const items: Array<{ id: string; envelope: EncryptedEnvelope }> = []
+      for (let i = start; i < end; i++) {
+        const k = matchedKeys[i]!
+        const raw = localStorage.getItem(k)
+        if (!raw) continue
+        const { envelope, origId } = unwrapValue(raw, obfuscate, obfKey)
+        const id = obfuscate ? origId : k.slice(pfx.length)
+        items.push({ id, envelope })
+      }
+
+      return {
+        items,
+        nextCursor: end < matchedKeys.length ? String(end) : null,
+      }
+    },
   }
 }
 
@@ -312,6 +352,8 @@ function createIndexedDBAdapter(prefix: string, obfuscate: boolean, obfKey: stri
   }
 
   return {
+    name: 'browser:indexedDB',
+
     async get(compartment, collection, id) {
       const { store } = await tx('readonly')
       const raw = await idbRequest(store.get(key(compartment, collection, id)))
@@ -426,6 +468,51 @@ function createIndexedDBAdapter(prefix: string, obfuscate: boolean, obfKey: stri
         return true
       } catch {
         return false
+      }
+    },
+
+    /**
+     * Paginate over a collection backed by IndexedDB.
+     *
+     * Strategy: read every key in the prefix once (sorted), then slice
+     * by cursor offset. IndexedDB's `getAllKeys()` returns sorted keys
+     * efficiently for the modern browsers we target (Chrome 87+,
+     * Firefox 78+, Safari 14+, Edge 88+ — same baseline as the rest of
+     * the v0.3 build target).
+     */
+    async listPage(compartment, collection, cursor, limit = 100) {
+      const pfx = `${hashComponent(compartment, obfuscate)}:${hashComponent(collection, obfuscate)}:`
+      const { store } = await tx('readonly')
+      const allKeys = await idbRequest(store.getAllKeys()) as string[]
+      const matchedKeys = allKeys
+        .filter(k => typeof k === 'string' && k.startsWith(pfx))
+        .sort()
+
+      const start = cursor ? parseInt(cursor, 10) : 0
+      const end = Math.min(start + limit, matchedKeys.length)
+
+      const items: Array<{ id: string; envelope: EncryptedEnvelope }> = []
+      for (let i = start; i < end; i++) {
+        const k = matchedKeys[i]!
+        const raw = await idbRequest(store.get(k))
+        if (!raw) continue
+
+        let envelope: EncryptedEnvelope
+        let id: string
+        if (obfuscate && typeof raw === 'object' && '_e' in (raw as StoredValue)) {
+          const stored = raw as StoredValue
+          envelope = stored._e
+          id = xorDecode(stored._oi, obfKey)
+        } else {
+          envelope = raw as EncryptedEnvelope
+          id = k.slice(pfx.length)
+        }
+        items.push({ id, envelope })
+      }
+
+      return {
+        items,
+        nextCursor: end < matchedKeys.length ? String(end) : null,
       }
     },
   }
