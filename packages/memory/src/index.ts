@@ -25,6 +25,8 @@ export function memory(): NoydbAdapter {
   }
 
   return {
+    name: 'memory',
+
     async get(compartment, collection, id) {
       return store.get(compartment)?.get(collection)?.get(id) ?? null
     },
@@ -87,6 +89,36 @@ export function memory(): NoydbAdapter {
 
     async ping() {
       return true
+    },
+
+    /**
+     * Paginate over a collection. Cursor is a numeric offset (as a string)
+     * into the sorted id list — same ordering on every call so pages are
+     * stable across runs.
+     *
+     * The default `limit` is 100. Final page returns `nextCursor: null`.
+     */
+    async listPage(compartment, collection, cursor, limit = 100) {
+      const coll = store.get(compartment)?.get(collection)
+      if (!coll) return { items: [], nextCursor: null }
+
+      // Sorted ids for stable pagination — Map preserves insertion order
+      // but tests rely on lexicographic order across different inserts.
+      const ids = [...coll.keys()].sort()
+      const start = cursor ? parseInt(cursor, 10) : 0
+      const end = Math.min(start + limit, ids.length)
+
+      const items: Array<{ id: string; envelope: EncryptedEnvelope }> = []
+      for (let i = start; i < end; i++) {
+        const id = ids[i]!
+        const envelope = coll.get(id)
+        if (envelope) items.push({ id, envelope })
+      }
+
+      return {
+        items,
+        nextCursor: end < ids.length ? String(end) : null,
+      }
     },
   }
 }

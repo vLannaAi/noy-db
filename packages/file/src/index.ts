@@ -48,6 +48,8 @@ export function jsonFile(options: JsonFileOptions): NoydbAdapter {
   }
 
   return {
+    name: 'file',
+
     async get(compartment, collection, id) {
       const path = recordPath(compartment, collection, id)
       try {
@@ -138,6 +140,49 @@ export function jsonFile(options: JsonFileOptions): NoydbAdapter {
         return true
       } catch {
         return false
+      }
+    },
+
+    /**
+     * Paginate over a collection. Cursor is a numeric offset (as a string)
+     * into the sorted filename list. Files are sorted alphabetically so
+     * pages are stable across runs and across processes that share the
+     * same data directory.
+     *
+     * The default `limit` is 100. Each item carries its decoded envelope
+     * so callers don't need an extra `get()` round-trip per id.
+     */
+    async listPage(compartment, collection, cursor, limit = 100) {
+      const dirPath = collectionDir(compartment, collection)
+      let files: string[]
+      try {
+        files = await readdir(dirPath)
+      } catch {
+        return { items: [], nextCursor: null }
+      }
+
+      const ids = files
+        .filter(f => f.endsWith('.json'))
+        .map(f => f.slice(0, -5))
+        .sort()
+
+      const start = cursor ? parseInt(cursor, 10) : 0
+      const end = Math.min(start + limit, ids.length)
+
+      const items: Array<{ id: string; envelope: EncryptedEnvelope }> = []
+      for (let i = start; i < end; i++) {
+        const id = ids[i]!
+        try {
+          const content = await readFile(join(dirPath, `${id}.json`), 'utf-8')
+          items.push({ id, envelope: JSON.parse(content) as EncryptedEnvelope })
+        } catch {
+          // File disappeared between readdir and readFile — skip silently.
+        }
+      }
+
+      return {
+        items,
+        nextCursor: end < ids.length ? String(end) : null,
       }
     },
   }

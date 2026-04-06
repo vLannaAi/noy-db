@@ -1,4 +1,4 @@
-import type { NoydbAdapter, EncryptedEnvelope, ChangeEvent, HistoryConfig, HistoryOptions, HistoryEntry, PruneOptions } from './types.js'
+import type { NoydbAdapter, EncryptedEnvelope, ChangeEvent, HistoryConfig, HistoryOptions, HistoryEntry, PruneOptions, ListPageResult } from './types.js'
 import { NOYDB_FORMAT_VERSION } from './types.js'
 import { encrypt, decrypt } from './crypto.js'
 import { ReadOnlyError } from './errors.js'
@@ -20,6 +20,25 @@ import { CollectionIndexes, type IndexDef } from './query/indexes.js'
 
 /** Callback for dirty tracking (sync engine integration). */
 export type OnDirtyCallback = (collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>
+
+/**
+ * Track which adapter names have already triggered the listPage fallback
+ * warning. We only emit once per adapter per process so consumers see the
+ * heads-up without log spam.
+ */
+const fallbackWarned = new Set<string>()
+function warnOnceFallback(adapterName: string): void {
+  if (fallbackWarned.has(adapterName)) return
+  fallbackWarned.add(adapterName)
+  // Only warn in non-test environments — vitest runs are noisy enough.
+  if (typeof process !== 'undefined' && process.env['NODE_ENV'] === 'test') return
+  // eslint-disable-next-line no-console
+  console.warn(
+    `[noy-db] Adapter "${adapterName}" does not implement listPage(); ` +
+    `Collection.scan()/listPage() are using a synthetic fallback (slower). ` +
+    `Add a listPage method to opt into the streaming fast path.`,
+  )
+}
 
 /** A typed collection of records within a compartment. */
 export class Collection<T> {
@@ -318,6 +337,108 @@ export class Collection<T> {
   async count(): Promise<number> {
     await this.ensureHydrated()
     return this.cache.size
+  }
+
+  // ─── Pagination & Streaming ───────────────────────────────────
+
+  /**
+   * Fetch a single page of records via the adapter's optional `listPage`
+   * extension. Returns the decrypted records for this page plus an opaque
+   * cursor for the next page.
+   *
+   * Pass `cursor: undefined` (or omit it) to start from the beginning.
+   * The final page returns `nextCursor: null`.
+   *
+   * If the adapter does NOT implement `listPage`, this falls back to a
+   * synthetic implementation: it loads all ids via `list()`, sorts them,
+   * and slices a window. The first call emits a one-time console.warn so
+   * developers can spot adapters that should opt into the fast path.
+   */
+  async listPage(opts: { cursor?: string; limit?: number } = {}): Promise<{
+    items: T[]
+    nextCursor: string | null
+  }> {
+    const limit = opts.limit ?? 100
+
+    if (this.adapter.listPage) {
+      const result = await this.adapter.listPage(this.compartment, this.name, opts.cursor, limit)
+      const decrypted: T[] = []
+      for (const { record, version, id } of await this.decryptPage(result.items)) {
+        // Update cache opportunistically — if the page-fetched record isn't
+        // in cache yet, populate it. This makes a subsequent .get(id) free.
+        if (!this.cache.has(id)) {
+          this.cache.set(id, { record, version })
+        }
+        decrypted.push(record)
+      }
+      return { items: decrypted, nextCursor: result.nextCursor }
+    }
+
+    // Fallback: synthetic pagination over list() + get(). Slower than the
+    // native path because every id requires its own round-trip, but
+    // correct for adapters that haven't opted in.
+    warnOnceFallback(this.adapter.name ?? 'unknown')
+    const ids = (await this.adapter.list(this.compartment, this.name)).slice().sort()
+    const start = opts.cursor ? parseInt(opts.cursor, 10) : 0
+    const end = Math.min(start + limit, ids.length)
+    const items: T[] = []
+    for (let i = start; i < end; i++) {
+      const id = ids[i]!
+      const envelope = await this.adapter.get(this.compartment, this.name, id)
+      if (envelope) {
+        const record = await this.decryptRecord(envelope)
+        items.push(record)
+        if (!this.cache.has(id)) {
+          this.cache.set(id, { record, version: envelope._v })
+        }
+      }
+    }
+    return {
+      items,
+      nextCursor: end < ids.length ? String(end) : null,
+    }
+  }
+
+  /**
+   * Stream every record in the collection page-by-page, yielding decrypted
+   * records as an `AsyncIterable<T>`. The whole point: process collections
+   * larger than RAM without ever holding more than `pageSize` records
+   * decrypted at once.
+   *
+   * @example
+   * ```ts
+   * for await (const record of invoices.scan({ pageSize: 500 })) {
+   *   await processOne(record)
+   * }
+   * ```
+   *
+   * Uses `adapter.listPage` when available; otherwise falls back to the
+   * synthetic pagination path with the same one-time warning.
+   */
+  async *scan(opts: { pageSize?: number } = {}): AsyncIterableIterator<T> {
+    const pageSize = opts.pageSize ?? 100
+    // Start with no cursor (first page) and walk forward until the
+    // adapter signals exhaustion via nextCursor === null.
+    let page: { items: T[]; nextCursor: string | null } = await this.listPage({ limit: pageSize })
+    while (true) {
+      for (const item of page.items) {
+        yield item
+      }
+      if (page.nextCursor === null) return
+      page = await this.listPage({ cursor: page.nextCursor, limit: pageSize })
+    }
+  }
+
+  /** Decrypt a page of envelopes returned by `adapter.listPage`. */
+  private async decryptPage(
+    items: ListPageResult['items'],
+  ): Promise<Array<{ id: string; record: T; version: number }>> {
+    const out: Array<{ id: string; record: T; version: number }> = []
+    for (const { id, envelope } of items) {
+      const record = await this.decryptRecord(envelope)
+      out.push({ id, record, version: envelope._v })
+    }
+    return out
   }
 
   // ─── Internal ──────────────────────────────────────────────────

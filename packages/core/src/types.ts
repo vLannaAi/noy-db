@@ -36,9 +36,31 @@ export interface EncryptedEnvelope {
 /** All records across all collections for a compartment. */
 export type CompartmentSnapshot = Record<string, Record<string, EncryptedEnvelope>>
 
+/**
+ * Result of a single page fetch via the optional `listPage` adapter extension.
+ *
+ * `items` carries the actual encrypted envelopes (not just ids) so the
+ * caller can decrypt and emit a single record without an extra `get()`
+ * round-trip per id. `nextCursor` is `null` on the final page.
+ */
+export interface ListPageResult {
+  /** Encrypted envelopes for this page, in adapter-defined order. */
+  items: Array<{ id: string; envelope: EncryptedEnvelope }>
+  /** Opaque cursor for the next page, or `null` if this was the last page. */
+  nextCursor: string | null
+}
+
 // ─── Adapter Interface ─────────────────────────────────────────────────
 
 export interface NoydbAdapter {
+  /**
+   * Optional human-readable adapter name (e.g. 'memory', 'file', 'dynamo').
+   * Used in diagnostic messages and the listPage fallback warning. Adapters
+   * are encouraged to set this so logs are clearer about which backend is
+   * involved when something goes wrong.
+   */
+  name?: string
+
   /** Get a single record. Returns null if not found. */
   get(compartment: string, collection: string, id: string): Promise<EncryptedEnvelope | null>
 
@@ -65,6 +87,32 @@ export interface NoydbAdapter {
 
   /** Optional connectivity check for sync engine. */
   ping?(): Promise<boolean>
+
+  /**
+   * Optional pagination extension. Adapters that implement `listPage` get
+   * the streaming `Collection.scan()` fast path; adapters that don't are
+   * silently fallen back to a full `loadAll()` + slice (with a one-time
+   * console.warn).
+   *
+   * `cursor` is opaque to the core — each adapter encodes its own paging
+   * state (DynamoDB: base64 LastEvaluatedKey JSON; S3: ContinuationToken;
+   * memory/file/browser: numeric offset of a sorted id list). Pass
+   * `undefined` to start from the beginning.
+   *
+   * `limit` is a soft upper bound on `items.length`. Adapters MAY return
+   * fewer items even when more exist (e.g. if the underlying store has
+   * its own page size cap), and MUST signal "no more pages" by returning
+   * `nextCursor: null`.
+   *
+   * The 6-method core contract is unchanged — this is an additive
+   * extension discovered via `'listPage' in adapter`.
+   */
+  listPage?(
+    compartment: string,
+    collection: string,
+    cursor?: string,
+    limit?: number,
+  ): Promise<ListPageResult>
 }
 
 // ─── Adapter Factory Helper ────────────────────────────────────────────

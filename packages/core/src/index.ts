@@ -9,6 +9,7 @@ export type {
   EncryptedEnvelope,
   CompartmentSnapshot,
   NoydbAdapter,
+  ListPageResult,
   KeyringFile,
   CompartmentBackup,
   DirtyEntry,
