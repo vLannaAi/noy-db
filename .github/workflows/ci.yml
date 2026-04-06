@@ -39,7 +39,10 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [18, 20, 22]
+        # Node 18 is supported at runtime (no eslint in published output),
+        # but removed from CI because transitive dev deps (eslint-visitor-keys)
+        # now require Node >= 20.19.
+        node-version: [20, 22]
     steps:
       - uses: actions/checkout@v4
 
@@ -75,14 +78,14 @@ jobs:
         run: |
           for pkg in packages/*/; do
             if [ -f "$pkg/package.json" ]; then
-              cd "$pkg"
-              output=$(pnpm pack --dry-run 2>&1)
+              pushd "$pkg" > /dev/null
+              output=$(npm pack --dry-run 2>&1)
               if echo "$output" | grep -qE '\.(test|spec)\.(ts|js)'; then
-                echo "FAIL: test files found in $(basename $pkg)"
+                echo "FAIL: test files found in $(basename "$pkg")"
                 echo "$output"
                 exit 1
               fi
-              echo "OK: $(basename $pkg) — no test files in pack"
-              cd - > /dev/null
+              echo "OK: $(basename "$pkg") — no test files in pack"
+              popd > /dev/null
             fi
           done

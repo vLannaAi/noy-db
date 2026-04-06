@@ -16,6 +16,11 @@ export default tseslint.config(
       '@typescript-eslint/no-floating-promises': 'error',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
       '@typescript-eslint/consistent-type-imports': 'error',
+      // Adapter methods must be declared async to match the NoydbAdapter
+      // interface, even when the implementation is purely synchronous.
+      '@typescript-eslint/require-await': 'off',
+      // Number interpolation in template literals is safe and common.
+      '@typescript-eslint/restrict-template-expressions': ['error', { allowNumber: true }],
     },
   },
   {
