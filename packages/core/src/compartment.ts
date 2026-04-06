@@ -1,6 +1,7 @@
 import type { NoydbAdapter, CompartmentBackup, HistoryConfig } from './types.js'
 import { NOYDB_BACKUP_VERSION } from './types.js'
 import { Collection } from './collection.js'
+import type { CacheOptions } from './collection.js'
 import type { IndexDef } from './query/indexes.js'
 import type { OnDirtyCallback } from './collection.js'
 import type { UnlockedKeyring } from './keyring.js'
@@ -51,15 +52,26 @@ export class Compartment {
   /**
    * Open a typed collection within this compartment.
    *
-   * Pass `options.indexes` to declare secondary indexes on top-level
-   * fields. Indexes are computed in memory after decryption and accelerate
-   * `collection.query().where(field, '==', value)` lookups for the given
-   * fields. Adapters never see plaintext index data.
+   * - `options.indexes` declares secondary indexes for the query DSL.
+   *   Indexes are computed in memory after decryption; adapters never
+   *   see plaintext index data.
+   * - `options.prefetch` (default `true`) controls hydration. Eager mode
+   *   loads everything on first access; lazy mode (`prefetch: false`)
+   *   loads records on demand and bounds memory via the LRU cache.
+   * - `options.cache` configures the LRU bounds. Required in lazy mode.
+   *   Accepts `{ maxRecords, maxBytes: '50MB' | 1024 }`.
+   *
+   * Lazy mode + indexes is rejected at construction time — see the
+   * Collection constructor for the rationale.
    */
-  collection<T>(collectionName: string, options?: { indexes?: IndexDef[] }): Collection<T> {
+  collection<T>(collectionName: string, options?: {
+    indexes?: IndexDef[]
+    prefetch?: boolean
+    cache?: CacheOptions
+  }): Collection<T> {
     let coll = this.collectionCache.get(collectionName)
     if (!coll) {
-      coll = new Collection<T>({
+      const collOpts: ConstructorParameters<typeof Collection>[0] = {
         adapter: this.adapter,
         compartment: this.name,
         name: collectionName,
@@ -69,8 +81,11 @@ export class Compartment {
         getDEK: this.getDEK,
         onDirty: this.onDirty,
         historyConfig: this.historyConfig,
-        indexes: options?.indexes,
-      })
+      }
+      if (options?.indexes !== undefined) collOpts.indexes = options.indexes
+      if (options?.prefetch !== undefined) collOpts.prefetch = options.prefetch
+      if (options?.cache !== undefined) collOpts.cache = options.cache
+      coll = new Collection<T>(collOpts)
       this.collectionCache.set(collectionName, coll)
     }
     return coll as Collection<T>

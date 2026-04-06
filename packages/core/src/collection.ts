@@ -17,9 +17,33 @@ import type { DiffEntry } from './diff.js'
 import { Query } from './query/index.js'
 import type { QuerySource } from './query/index.js'
 import { CollectionIndexes, type IndexDef } from './query/indexes.js'
+import { Lru, parseBytes, estimateRecordBytes, type LruStats } from './cache/index.js'
 
 /** Callback for dirty tracking (sync engine integration). */
 export type OnDirtyCallback = (collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>
+
+/**
+ * Per-collection cache configuration. Only meaningful when paired with
+ * `prefetch: false` (lazy mode); eager mode keeps the entire decrypted
+ * cache in memory and ignores these bounds.
+ */
+export interface CacheOptions {
+  /** Maximum number of records to keep in memory before LRU eviction. */
+  maxRecords?: number
+  /**
+   * Maximum total decrypted byte size before LRU eviction. Accepts a raw
+   * number or a human-friendly string: `'50KB'`, `'50MB'`, `'1GB'`.
+   * Eviction picks the least-recently-used entry until both budgets
+   * (maxRecords AND maxBytes, if both are set) are satisfied.
+   */
+  maxBytes?: number | string
+}
+
+/** Statistics exposed via `Collection.cacheStats()`. */
+export interface CacheStats extends LruStats {
+  /** True if this collection is in lazy mode. */
+  lazy: boolean
+}
 
 /**
  * Track which adapter names have already triggered the listPage fallback
@@ -52,9 +76,27 @@ export class Collection<T> {
   private readonly onDirty: OnDirtyCallback | undefined
   private readonly historyConfig: HistoryConfig
 
-  // In-memory cache of decrypted records
+  // In-memory cache of decrypted records (eager mode only). Lazy mode
+  // uses `lru` instead. Both fields exist so a single Collection instance
+  // doesn't need a runtime branch on every cache access.
   private readonly cache = new Map<string, { record: T; version: number }>()
   private hydrated = false
+
+  /**
+   * Lazy mode flag. `true` when constructed with `prefetch: false`.
+   * In lazy mode the cache is bounded by an LRU and `list()`/`query()`
+   * throw — callers must use `scan()` or per-id `get()` instead.
+   */
+  private readonly lazy: boolean
+
+  /**
+   * LRU cache for lazy mode. Only allocated when `prefetch: false` is set.
+   * Stores `{ record, version }` entries the same shape as `this.cache`.
+   * Tree-shaking note: importing Collection without setting `prefetch:false`
+   * still pulls in the Lru class today; future bundle-size work could
+   * lazy-import the cache module.
+   */
+  private readonly lru: Lru<string, { record: T; version: number }> | null
 
   /**
    * In-memory secondary indexes for the query DSL.
@@ -66,6 +108,10 @@ export class Collection<T> {
    *
    * v0.3 ships in-memory only — persistence as encrypted blobs is a
    * follow-up. See `query/indexes.ts` for the design rationale.
+   *
+   * Indexes are INCOMPATIBLE with lazy mode in v0.3 — the constructor
+   * rejects the combination because evicted records would silently
+   * disappear from the index without notification.
    */
   private readonly indexes = new CollectionIndexes()
 
@@ -80,6 +126,18 @@ export class Collection<T> {
     historyConfig?: HistoryConfig | undefined
     onDirty?: OnDirtyCallback | undefined
     indexes?: IndexDef[] | undefined
+    /**
+     * Hydration mode. `'eager'` (default) loads everything into memory on
+     * first access — matches v0.2 behavior exactly. `'lazy'` defers loads
+     * to per-id `get()` calls and bounds memory via the `cache` option.
+     */
+    prefetch?: boolean
+    /**
+     * LRU cache options. Only meaningful when `prefetch: false`. At least
+     * one of `maxRecords` or `maxBytes` must be set in lazy mode — an
+     * unbounded lazy cache defeats the purpose.
+     */
+    cache?: CacheOptions | undefined
   }) {
     this.adapter = opts.adapter
     this.compartment = opts.compartment
@@ -90,15 +148,58 @@ export class Collection<T> {
     this.getDEK = opts.getDEK
     this.onDirty = opts.onDirty
     this.historyConfig = opts.historyConfig ?? { enabled: true }
-    if (opts.indexes) {
-      for (const def of opts.indexes) {
-        this.indexes.declare(def)
+
+    // Default `prefetch: true` keeps v0.2 semantics. Only opt-in to lazy
+    // mode when the consumer explicitly sets `prefetch: false`.
+    this.lazy = opts.prefetch === false
+
+    if (this.lazy) {
+      // Lazy mode is incompatible with eager-cache features. Reject the
+      // combinations early so users see the error at construction time
+      // rather than at first query.
+      if (opts.indexes && opts.indexes.length > 0) {
+        throw new Error(
+          `Collection "${this.name}": secondary indexes are not supported in lazy mode (prefetch: false). ` +
+          `Either remove the indexes option or use prefetch: true. ` +
+          `Index + lazy support is tracked as a v0.4 follow-up.`,
+        )
+      }
+      if (!opts.cache || (opts.cache.maxRecords === undefined && opts.cache.maxBytes === undefined)) {
+        throw new Error(
+          `Collection "${this.name}": lazy mode (prefetch: false) requires a cache option ` +
+          `with maxRecords and/or maxBytes. An unbounded lazy cache defeats the purpose.`,
+        )
+      }
+      const lruOptions: { maxRecords?: number; maxBytes?: number } = {}
+      if (opts.cache.maxRecords !== undefined) lruOptions.maxRecords = opts.cache.maxRecords
+      if (opts.cache.maxBytes !== undefined) lruOptions.maxBytes = parseBytes(opts.cache.maxBytes)
+      this.lru = new Lru<string, { record: T; version: number }>(lruOptions)
+      this.hydrated = true // lazy mode is always "hydrated" — no bulk load
+    } else {
+      this.lru = null
+      if (opts.indexes) {
+        for (const def of opts.indexes) {
+          this.indexes.declare(def)
+        }
       }
     }
   }
 
   /** Get a single record by ID. Returns null if not found. */
   async get(id: string): Promise<T | null> {
+    if (this.lazy && this.lru) {
+      // Cache hit: promote and return.
+      const cached = this.lru.get(id)
+      if (cached) return cached.record
+      // Cache miss: hit the adapter, decrypt, populate the LRU.
+      const envelope = await this.adapter.get(this.compartment, this.name, id)
+      if (!envelope) return null
+      const record = await this.decryptRecord(envelope)
+      this.lru.set(id, { record, version: envelope._v }, estimateRecordBytes(record))
+      return record
+    }
+
+    // Eager mode: load everything once, then serve from the in-memory map.
     await this.ensureHydrated()
     const entry = this.cache.get(id)
     return entry ? entry.record : null
@@ -110,9 +211,24 @@ export class Collection<T> {
       throw new ReadOnlyError()
     }
 
-    await this.ensureHydrated()
+    // Resolve the previous record. In eager mode this comes from the
+    // in-memory map (no I/O); in lazy mode we have to ask the adapter
+    // because the record may have been evicted (or never loaded).
+    let existing: { record: T; version: number } | undefined
+    if (this.lazy && this.lru) {
+      existing = this.lru.get(id)
+      if (!existing) {
+        const previousEnvelope = await this.adapter.get(this.compartment, this.name, id)
+        if (previousEnvelope) {
+          const previousRecord = await this.decryptRecord(previousEnvelope)
+          existing = { record: previousRecord, version: previousEnvelope._v }
+        }
+      }
+    } else {
+      await this.ensureHydrated()
+      existing = this.cache.get(id)
+    }
 
-    const existing = this.cache.get(id)
     const version = existing ? existing.version + 1 : 1
 
     // Save history snapshot of the PREVIOUS version before overwriting
@@ -138,11 +254,16 @@ export class Collection<T> {
     const envelope = await this.encryptRecord(record, version)
     await this.adapter.put(this.compartment, this.name, id, envelope)
 
-    this.cache.set(id, { record, version })
-    // Update secondary indexes incrementally — no-op if no indexes are
-    // declared. Pass the previous record (if any) so old buckets are
-    // cleaned up before the new value is added.
-    this.indexes.upsert(id, record, existing ? existing.record : null)
+    if (this.lazy && this.lru) {
+      this.lru.set(id, { record, version }, estimateRecordBytes(record))
+    } else {
+      this.cache.set(id, { record, version })
+      // Update secondary indexes incrementally — no-op if no indexes are
+      // declared. Pass the previous record (if any) so old buckets are
+      // cleaned up before the new value is added. Indexes are NEVER
+      // touched in lazy mode (rejected at construction).
+      this.indexes.upsert(id, record, existing ? existing.record : null)
+    }
 
     await this.onDirty?.(this.name, id, 'put', version)
 
@@ -160,7 +281,21 @@ export class Collection<T> {
       throw new ReadOnlyError()
     }
 
-    const existing = this.cache.get(id)
+    // In lazy mode the record may not be cached; ask the adapter so we
+    // can still write a history snapshot if history is enabled.
+    let existing: { record: T; version: number } | undefined
+    if (this.lazy && this.lru) {
+      existing = this.lru.get(id)
+      if (!existing && this.historyConfig.enabled !== false) {
+        const previousEnvelope = await this.adapter.get(this.compartment, this.name, id)
+        if (previousEnvelope) {
+          const previousRecord = await this.decryptRecord(previousEnvelope)
+          existing = { record: previousRecord, version: previousEnvelope._v }
+        }
+      }
+    } else {
+      existing = this.cache.get(id)
+    }
 
     // Save history snapshot before deleting
     if (existing && this.historyConfig.enabled !== false) {
@@ -169,11 +304,17 @@ export class Collection<T> {
     }
 
     await this.adapter.delete(this.compartment, this.name, id)
-    this.cache.delete(id)
-    // Remove from secondary indexes — no-op if no indexes are declared
-    // or the record wasn't previously indexed.
-    if (existing) {
-      this.indexes.remove(id, existing.record)
+
+    if (this.lazy && this.lru) {
+      this.lru.remove(id)
+    } else {
+      this.cache.delete(id)
+      // Remove from secondary indexes — no-op if no indexes are declared
+      // or the record wasn't previously indexed. Indexes are never
+      // declared in lazy mode (rejected at construction).
+      if (existing) {
+        this.indexes.remove(id, existing.record)
+      }
     }
 
     await this.onDirty?.(this.name, id, 'delete', existing?.version ?? 0)
@@ -186,8 +327,20 @@ export class Collection<T> {
     } satisfies ChangeEvent)
   }
 
-  /** List all records in the collection. */
+  /**
+   * List all records in the collection.
+   *
+   * Throws in lazy mode — bulk listing defeats the purpose of lazy
+   * hydration. Use `scan()` to iterate over the full collection
+   * page-by-page without holding more than `pageSize` records in memory.
+   */
   async list(): Promise<T[]> {
+    if (this.lazy) {
+      throw new Error(
+        `Collection "${this.name}": list() is not available in lazy mode (prefetch: false). ` +
+        `Use collection.scan({ pageSize }) to iterate over the full collection.`,
+      )
+    }
     await this.ensureHydrated()
     return [...this.cache.values()].map(e => e.record)
   }
@@ -216,6 +369,13 @@ export class Collection<T> {
   query(): Query<T>
   query(predicate: (record: T) => boolean): T[]
   query(predicate?: (record: T) => boolean): Query<T> | T[] {
+    if (this.lazy) {
+      throw new Error(
+        `Collection "${this.name}": query() is not available in lazy mode (prefetch: false). ` +
+        `Use collection.scan({ pageSize }) and filter the streamed records with a regular ` +
+        `for-await loop. Streaming queries land in v0.4.`,
+      )
+    }
     if (predicate !== undefined) {
       // Legacy form: synchronous predicate filter against the cache.
       return [...this.cache.values()].map(e => e.record).filter(predicate)
@@ -239,6 +399,28 @@ export class Collection<T> {
       lookupById: (id: string) => this.cache.get(id)?.record,
     }
     return new Query<T>(source)
+  }
+
+  /**
+   * Cache statistics — useful for devtools, monitoring, and verifying
+   * that LRU eviction is happening as expected in lazy mode.
+   *
+   * In eager mode, returns size only (no hits/misses are tracked because
+   * every read is a cache hit by construction). In lazy mode, returns
+   * the full LRU stats: `{ hits, misses, evictions, size, bytes }`.
+   */
+  cacheStats(): CacheStats {
+    if (this.lazy && this.lru) {
+      return { ...this.lru.stats(), lazy: true }
+    }
+    return {
+      hits: 0,
+      misses: 0,
+      evictions: 0,
+      size: this.cache.size,
+      bytes: 0,
+      lazy: false,
+    }
   }
 
   // ─── History Methods ────────────────────────────────────────────
@@ -333,8 +515,18 @@ export class Collection<T> {
 
   // ─── Core Methods ─────────────────────────────────────────────
 
-  /** Count records in the collection. */
+  /**
+   * Count records in the collection.
+   *
+   * In eager mode this returns the in-memory cache size (instant). In
+   * lazy mode it asks the adapter via `list()` to enumerate ids — slower
+   * but still correct, and avoids loading any record bodies into memory.
+   */
   async count(): Promise<number> {
+    if (this.lazy) {
+      const ids = await this.adapter.list(this.compartment, this.name)
+      return ids.length
+    }
     await this.ensureHydrated()
     return this.cache.size
   }
@@ -366,7 +558,11 @@ export class Collection<T> {
       for (const { record, version, id } of await this.decryptPage(result.items)) {
         // Update cache opportunistically — if the page-fetched record isn't
         // in cache yet, populate it. This makes a subsequent .get(id) free.
-        if (!this.cache.has(id)) {
+        // In LAZY mode we deliberately do NOT populate the LRU here:
+        // streaming a 100K-record collection should not turn the LRU into
+        // a giant write-once buffer that immediately evicts everything.
+        // Random-access workloads via .get() are what the LRU is for.
+        if (!this.lazy && !this.cache.has(id)) {
           this.cache.set(id, { record, version })
         }
         decrypted.push(record)
@@ -388,7 +584,9 @@ export class Collection<T> {
       if (envelope) {
         const record = await this.decryptRecord(envelope)
         items.push(record)
-        if (!this.cache.has(id)) {
+        // Same lazy-mode skip as the native path: don't pollute the LRU
+        // with sequential scan results.
+        if (!this.lazy && !this.cache.has(id)) {
           this.cache.set(id, { record, version: envelope._v })
         }
       }
