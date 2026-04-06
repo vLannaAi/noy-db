@@ -241,7 +241,7 @@ export const myAdapter = defineAdapter((options) => ({
 
 ## Status
 
-**Pre-release.** See the [Implementation Roadmap](docs/ROADMAP.md) for the full build plan.
+**Pre-release.** See the [Roadmap](ROADMAP.md) for the full build plan.
 
 | Phase | Status | Scope |
 |-------|--------|-------|

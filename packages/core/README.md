@@ -49,7 +49,7 @@ const all = await invoices.list()
 
 - Full docs: https://github.com/vLannaAi/noy-db#readme
 - Spec: https://github.com/vLannaAi/noy-db/blob/main/NOYDB_SPEC.md
-- AI reference: https://github.com/vLannaAi/noy-db/blob/main/docs/NOYDB_FOR_AI.md
+- AI reference: https://github.com/vLannaAi/noy-db/blob/main/docs/noydb-for-ai.md
 
 ## License
 
