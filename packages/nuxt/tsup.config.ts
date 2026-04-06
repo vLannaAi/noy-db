@@ -1,11 +1,17 @@
 import { defineConfig } from 'tsup'
 
 export default defineConfig({
-  // Single entry point — `index.ts` re-exports the module factory and
-  // its option types. Runtime files are NOT bundled into dist; they're
-  // referenced via @nuxt/kit's resolver at install time and ship as
-  // separate files inside dist/runtime/.
-  entry: ['src/index.ts'],
+  // Two entry points:
+  //   - `src/index.ts` → `dist/index.js` — the module factory that Nuxt
+  //     imports during `nuxt.config.ts` processing
+  //   - `src/runtime/plugin.client.ts` → `dist/runtime/plugin.client.js`
+  //     — the client-only runtime plugin that `createResolver().resolve()`
+  //     points at. Nuxt loads it during app boot on the client side.
+  //
+  // Runtime files get their own output so the module's `resolver.resolve()`
+  // path (`./runtime/plugin.client.js`) finds a real file on disk in the
+  // published dist tree.
+  entry: ['src/index.ts', 'src/runtime/plugin.client.ts'],
   // ESM-only: Nuxt 4 modules use `import.meta.url` which doesn't work
   // in CJS, and Nuxt itself is ESM-only as of v4. Shipping CJS would
   // be dead code that triggers a build warning.

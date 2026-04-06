@@ -164,8 +164,11 @@ export default defineNuxtModule<ModuleOptions>({
     // never imports any code that touches `crypto.subtle`. The CI
     // bundle assertion (planned for a follow-up) verifies this by
     // grepping the built nitro output for forbidden symbols.
+    //
+    // The path resolves to the COMPILED runtime file in `dist/runtime/`.
+    // tsup builds this as a separate entry alongside the module index.
     addPlugin({
-      src: resolver.resolve('./runtime/plugin.client.ts'),
+      src: resolver.resolve('./runtime/plugin.client.js'),
       mode: 'client',
     })
   },
