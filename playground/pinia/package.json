@@ -1,0 +1,25 @@
+{
+  "name": "@noy-db/playground-pinia",
+  "version": "0.3.0",
+  "private": true,
+  "description": "Vue 3 + Vite + Pinia demo using @noy-db/pinia defineNoydbStore — encrypted reactive store with the chainable query DSL",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@noy-db/browser": "workspace:*",
+    "@noy-db/core": "workspace:*",
+    "@noy-db/pinia": "workspace:*",
+    "pinia": "^3.0.1",
+    "vue": "^3.5.32"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "vite": "^6.0.0",
+    "vue-tsc": "^2.1.10"
+  }
+}
