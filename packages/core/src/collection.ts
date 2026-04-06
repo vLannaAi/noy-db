@@ -14,6 +14,8 @@ import {
 } from './history.js'
 import { diff as computeDiff } from './diff.js'
 import type { DiffEntry } from './diff.js'
+import { Query } from './query/index.js'
+import type { QuerySource } from './query/index.js'
 
 /** Callback for dirty tracking (sync engine integration). */
 export type OnDirtyCallback = (collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>
@@ -142,9 +144,48 @@ export class Collection<T> {
     return [...this.cache.values()].map(e => e.record)
   }
 
-  /** Filter records by a predicate. */
-  query(predicate: (record: T) => boolean): T[] {
-    return [...this.cache.values()].map(e => e.record).filter(predicate)
+  /**
+   * Build a chainable query against the collection. Returns a `Query<T>`
+   * builder when called with no arguments.
+   *
+   * Backward-compatible overload: passing a predicate function returns
+   * the filtered records directly (the v0.2 API). Prefer the chainable
+   * form for new code.
+   *
+   * @example
+   * ```ts
+   * // New chainable API:
+   * const overdue = invoices.query()
+   *   .where('status', '==', 'open')
+   *   .where('dueDate', '<', new Date())
+   *   .orderBy('dueDate')
+   *   .toArray();
+   *
+   * // Legacy predicate form (still supported):
+   * const drafts = invoices.query(i => i.status === 'draft');
+   * ```
+   */
+  query(): Query<T>
+  query(predicate: (record: T) => boolean): T[]
+  query(predicate?: (record: T) => boolean): Query<T> | T[] {
+    if (predicate !== undefined) {
+      // Legacy form: synchronous predicate filter against the cache.
+      return [...this.cache.values()].map(e => e.record).filter(predicate)
+    }
+    // New form: return a chainable builder bound to this collection's cache.
+    const source: QuerySource<T> = {
+      snapshot: () => [...this.cache.values()].map(e => e.record),
+      subscribe: (cb: () => void) => {
+        const handler = (event: ChangeEvent): void => {
+          if (event.compartment === this.compartment && event.collection === this.name) {
+            cb()
+          }
+        }
+        this.emitter.on('change', handler)
+        return () => this.emitter.off('change', handler)
+      },
+    }
+    return new Query<T>(source)
   }
 
   // ─── History Methods ────────────────────────────────────────────
