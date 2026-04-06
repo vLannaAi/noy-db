@@ -2,9 +2,17 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # Run CI on main and on long-lived release branches (vX.Y-dev).
+    branches:
+      - main
+      - 'v[0-9]+.[0-9]+-dev'
   pull_request:
-    branches: [main]
+    # Run CI for PRs targeting main, any vX.Y-dev release branch,
+    # or any feat/* branch (so stacked PRs against feat/v0.3/* still get CI).
+    branches:
+      - main
+      - 'v[0-9]+.[0-9]+-dev'
+      - 'feat/**'
 
 jobs:
   privacy-guard:
