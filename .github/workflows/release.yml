@@ -35,6 +35,9 @@ jobs:
           cache: pnpm
           registry-url: 'https://registry.npmjs.org'
 
+      - name: Privacy guard
+        run: bash scripts/check-privacy.sh
+
       - run: pnpm install --frozen-lockfile
       - run: pnpm turbo build
       - run: pnpm turbo test
@@ -74,6 +77,9 @@ jobs:
           node-version: 20
           cache: pnpm
           registry-url: 'https://registry.npmjs.org'
+
+      - name: Privacy guard
+        run: bash scripts/check-privacy.sh
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm turbo build

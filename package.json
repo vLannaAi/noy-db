@@ -23,7 +23,8 @@
     "test:ci": "turbo run test -- --coverage",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
-    "release": "pnpm run build && changeset publish",
+    "guard:privacy": "bash scripts/check-privacy.sh",
+    "release": "pnpm run guard:privacy && pnpm run build && changeset publish",
     "changeset": "changeset"
   },
   "devDependencies": {
