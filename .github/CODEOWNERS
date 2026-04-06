@@ -1,1 +1,36 @@
-* @vLannaAi
+# Default — anything not matched below
+*                              @vLannaAi
+
+# Top-level governance and metadata
+/ROADMAP.md                    @vLannaAi
+/NOYDB_SPEC.md                 @vLannaAi
+/CLAUDE.md                     @vLannaAi
+/SECURITY.md                   @vLannaAi
+/.github/                      @vLannaAi
+
+# Documentation
+/docs/                         @vLannaAi
+
+# Core — security-sensitive, always reviewed
+/packages/core/                @vLannaAi
+
+# Adapters
+/packages/memory/              @vLannaAi
+/packages/file/                @vLannaAi
+/packages/dynamo/              @vLannaAi
+/packages/s3/                  @vLannaAi
+/packages/browser/             @vLannaAi
+
+# Vue / Pinia / Nuxt — v0.3 surface
+/packages/vue/                 @vLannaAi
+/packages/pinia/               @vLannaAi
+/packages/nuxt/                @vLannaAi
+
+# Scaffolder
+/packages/create-noy-db/       @vLannaAi
+
+# Build, CI, release pipeline
+/turbo.json                    @vLannaAi
+/pnpm-workspace.yaml           @vLannaAi
+/.changeset/                   @vLannaAi
+/scripts/                      @vLannaAi
