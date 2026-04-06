@@ -7,6 +7,7 @@
 
 import type { Clause, FieldClause, FilterClause, GroupClause, Operator } from './predicate.js'
 import { evaluateClause } from './predicate.js'
+import type { CollectionIndexes } from './indexes.js'
 
 export interface OrderBy {
   readonly field: string
@@ -39,17 +40,28 @@ const EMPTY_PLAN: QueryPlan = {
  *
  * The interface is non-parametric to keep variance friendly: callers cast
  * their typed source (e.g. `QuerySource<Invoice>`) into this opaque shape.
+ *
+ * `getIndexes` and `lookupById` are optional fast-path hooks. When both are
+ * present and a where clause matches an indexed field, the executor uses
+ * the index to skip a linear scan. Sources without these methods (or with
+ * `getIndexes` returning `null`) always fall back to a linear scan.
  */
 export interface QuerySource<T> {
   /** Snapshot of all current records. The query never mutates this array. */
   snapshot(): readonly T[]
   /** Subscribe to mutations; returns an unsubscribe function. */
   subscribe?(cb: () => void): () => void
+  /** Index store for the indexed-fast-path. Optional. */
+  getIndexes?(): CollectionIndexes | null
+  /** O(1) record lookup by id, used to materialize index hits. */
+  lookupById?(id: string): T | undefined
 }
 
 interface InternalSource {
   snapshot(): readonly unknown[]
   subscribe?(cb: () => void): () => void
+  getIndexes?(): CollectionIndexes | null
+  lookupById?(id: string): unknown
 }
 
 /**
@@ -145,19 +157,23 @@ export class Query<T> {
 
   /** Execute the plan and return the matching records. */
   toArray(): T[] {
-    return executePlan(this.source.snapshot(), this.plan) as T[]
+    return executePlanWithSource(this.source, this.plan) as T[]
   }
 
   /** Return the first matching record, or null. */
   first(): T | null {
-    const result = executePlan(this.source.snapshot(), { ...this.plan, limit: 1 })
+    const result = executePlanWithSource(this.source, { ...this.plan, limit: 1 })
     return (result[0] as T | undefined) ?? null
   }
 
   /** Return the number of matching records (after where/filter, before limit). */
   count(): number {
-    const filtered = filterRecords(this.source.snapshot(), this.plan.clauses)
-    return filtered.length
+    // Use the same index-aware candidate machinery as toArray(); skip the
+    // index-driving clause from re-evaluation. The length BEFORE limit/offset
+    // is what `count()` documents.
+    const { candidates, remainingClauses } = candidateRecords(this.source, this.plan.clauses)
+    if (remainingClauses.length === 0) return candidates.length
+    return filterRecords(candidates, remainingClauses).length
   }
 
   /**
@@ -181,6 +197,105 @@ export class Query<T> {
   toPlan(): unknown {
     return serializePlan(this.plan)
   }
+}
+
+/**
+ * Index-aware execution: try the indexed fast path first, fall back to a
+ * full scan otherwise. Mirrors `executePlan` for the public surface but
+ * takes a `QuerySource` so it can consult `getIndexes()` and `lookupById()`.
+ */
+function executePlanWithSource(source: InternalSource, plan: QueryPlan): unknown[] {
+  const { candidates, remainingClauses } = candidateRecords(source, plan.clauses)
+  // Only the clauses NOT consumed by the index need re-evaluation. This is
+  // the key optimization that makes indexed queries dominate linear scans:
+  // for a single-clause query against an indexed field, `remainingClauses`
+  // is empty and we skip the per-record predicate evaluation entirely.
+  let result = remainingClauses.length === 0
+    ? [...candidates]
+    : filterRecords(candidates, remainingClauses)
+  if (plan.orderBy.length > 0) {
+    result = sortRecords(result, plan.orderBy)
+  }
+  if (plan.offset > 0) {
+    result = result.slice(plan.offset)
+  }
+  if (plan.limit !== undefined) {
+    result = result.slice(0, plan.limit)
+  }
+  return result
+}
+
+interface CandidateResult {
+  /** The reduced candidate set, materialized to record objects. */
+  readonly candidates: readonly unknown[]
+  /** The clauses that the index could not satisfy and must still be evaluated. */
+  readonly remainingClauses: readonly Clause[]
+}
+
+/**
+ * Pick a candidate record set using the index store when possible.
+ *
+ * Strategy: scan the top-level clauses for the FIRST `==` or `in` clause
+ * against an indexed field. If found, use the index to materialize a
+ * candidate set and return the OTHER clauses as `remainingClauses`. The
+ * caller skips re-evaluating the index-driving clause because the index
+ * is authoritative for that field.
+ *
+ * This is a deliberately simple planner. A future optimizer could pick
+ * the most selective index, intersect multiple indexes, or push composite
+ * keys through. For v0.3 the single-index fast path is good enough.
+ */
+function candidateRecords(source: InternalSource, clauses: readonly Clause[]): CandidateResult {
+  const indexes = source.getIndexes?.()
+  if (!indexes || !source.lookupById || clauses.length === 0) {
+    return { candidates: source.snapshot(), remainingClauses: clauses }
+  }
+  // Bind the lookup method through an arrow so it doesn't drift from
+  // its `this` context — keeps the unbound-method lint rule happy.
+  const lookupById = (id: string): unknown => source.lookupById?.(id)
+
+  for (let i = 0; i < clauses.length; i++) {
+    const clause = clauses[i]!
+    if (clause.type !== 'field') continue
+    if (!indexes.has(clause.field)) continue
+
+    let ids: ReadonlySet<string> | null = null
+    if (clause.op === '==') {
+      ids = indexes.lookupEqual(clause.field, clause.value)
+    } else if (clause.op === 'in' && Array.isArray(clause.value)) {
+      ids = indexes.lookupIn(clause.field, clause.value)
+    }
+
+    if (ids !== null) {
+      // Found an index-eligible clause: materialize the candidate set and
+      // remove this clause from the remaining list.
+      const remaining: Clause[] = []
+      for (let j = 0; j < clauses.length; j++) {
+        if (j !== i) remaining.push(clauses[j]!)
+      }
+      return {
+        candidates: materializeIds(ids, lookupById),
+        remainingClauses: remaining,
+      }
+    }
+    // Not index-eligible — keep scanning in case a later clause is a
+    // better candidate.
+  }
+
+  // No clause was index-eligible — fall back to a full scan.
+  return { candidates: source.snapshot(), remainingClauses: clauses }
+}
+
+function materializeIds(
+  ids: ReadonlySet<string>,
+  lookupById: (id: string) => unknown,
+): unknown[] {
+  const out: unknown[] = []
+  for (const id of ids) {
+    const record = lookupById(id)
+    if (record !== undefined) out.push(record)
+  }
+  return out
 }
 
 /**

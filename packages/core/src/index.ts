@@ -78,7 +78,14 @@ export type { DiffEntry, ChangeType } from './diff.js'
 export { validatePassphrase, estimateEntropy } from './validation.js'
 
 // Query DSL
-export { Query, executePlan, evaluateClause, evaluateFieldClause, readPath } from './query/index.js'
+export {
+  Query,
+  executePlan,
+  evaluateClause,
+  evaluateFieldClause,
+  readPath,
+  CollectionIndexes,
+} from './query/index.js'
 export type {
   QueryPlan,
   QuerySource,
@@ -88,4 +95,6 @@ export type {
   FieldClause,
   FilterClause,
   GroupClause,
+  IndexDef,
+  HashIndex,
 } from './query/index.js'
