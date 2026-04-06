@@ -115,13 +115,13 @@ window.step1_init = async function() {
 
   ownerDb = await createNoydb({
     adapter: browser({ prefix: PREFIX, backend: 'localStorage', obfuscate: true }),
-    user: 'owner-niwat',
+    user: 'owner-firm',
     secret: 'demo-passphrase-2026',
     history: { enabled: true },
   })
 
   const comp = await ownerDb.openCompartment(COMP)
-  logOk('Store initialized — owner: owner-niwat')
+  logOk('Store initialized — owner: owner-firm')
   logInfo('Adapter: localStorage (encrypted with AES-256-GCM)')
   logInfo('Key derivation: PBKDF2-SHA256 (600,000 iterations)')
 
@@ -397,7 +397,7 @@ window.step4_add = async function() {
     // Re-open after potential reload
     ownerDb = await createNoydb({
       adapter: browser({ prefix: PREFIX, backend: 'localStorage', obfuscate: true }),
-      user: 'owner-niwat',
+      user: 'owner-firm',
       secret: 'demo-passphrase-2026',
     })
   }
@@ -417,7 +417,7 @@ window.step4_verify = async function() {
   try {
     const db = await createNoydb({
       adapter: browser({ prefix: PREFIX, backend: 'localStorage', obfuscate: true }),
-      user: 'owner-niwat',
+      user: 'owner-firm',
       secret: 'demo-passphrase-2026',
     })
     const comp = await db.openCompartment(COMP)
@@ -512,7 +512,7 @@ window.step5_verify = async function() {
     // Create fresh instance — it will load the restored keyring from localStorage
     ownerDb = await createNoydb({
       adapter: browser({ prefix: PREFIX, backend: 'localStorage', obfuscate: true }),
-      user: 'owner-niwat',
+      user: 'owner-firm',
       secret: 'demo-passphrase-2026',
       history: { enabled: true },
     })

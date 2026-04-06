@@ -105,4 +105,4 @@ All adapters implement exactly 6 async methods:
 
 ## First Consumer
 
-Niwat (Thai accounting firm platform). Compartments = companies, collections = invoices/payments/disbursements/clients. USB stick workflow via file adapter, cloud via DynamoDB. Vue/Nuxt frontend with Pinia stores.
+An established regional accounting firm platform. Compartments = companies, collections = invoices/payments/disbursements/clients. USB stick workflow via file adapter, cloud via DynamoDB. Vue/Nuxt frontend with Pinia stores.

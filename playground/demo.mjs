@@ -105,11 +105,11 @@ async function main() {
 
     const ownerDb = await createNoydb({
       adapter: jsonFile({ dir: tempDir }),
-      user: 'owner-niwat',
-      secret: 'niwat-secure-passphrase-2026',
+      user: 'owner-firm',
+      secret: 'firm-secure-passphrase-2026',
       history: { enabled: true },
     })
-    success('NOYDB instance created (owner-niwat, encrypted)')
+    success('noy-db instance created (owner-firm, encrypted)')
 
     info('Opening compartment "C101" (company: บริษัท ABC จำกัด)...')
     const company = await ownerDb.openCompartment('C101')

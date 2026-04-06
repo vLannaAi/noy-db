@@ -22,14 +22,14 @@ A zero-knowledge, offline-first, encrypted document store with pluggable backend
 - [Package Structure](#package-structure)
 - [Security Model](#security-model)
 - [Implementation Notes](#implementation-notes)
-- [First Consumer: Niwat](#first-consumer-niwat)
+- [First Consumer](#first-consumer)
 - [Appendix](#appendix)
 
 ---
 
 ## Origin Story
 
-NOYDB was born from a real-world problem at **Niwat**, a Thai accounting firm managing ~30 SME clients. The firm needed a storage layer for their web-based financial management platform that could:
+noy-db was born from a real-world problem at an **established regional accounting firm** managing ~30 SME clients. The firm needed a storage layer for their web-based financial management platform that could:
 
 1. **Work on a USB stick** — accountants carry client data between office and home on removable media
 2. **Sync to AWS DynamoDB** — for cloud access when online
@@ -1155,11 +1155,11 @@ class ValidationError extends NoydbError { code = 'VALIDATION_ERROR' }
 
 ---
 
-## First Consumer: Niwat
+## First Consumer
 
-NOYDB was designed for Niwat's accounting platform but is generic by construction. Here's how Niwat maps to NOYDB concepts:
+noy-db was designed for an established accounting firm's platform but is generic by construction. Here's how an accounting-firm domain maps to noy-db concepts:
 
-| Niwat Concept | NOYDB Concept |
+| Domain Concept | noy-db Concept |
 |---------------|---------------|
 | Company (e.g., บริษัท ABC จำกัด) | Compartment (`C101`) |
 | Invoice records | Collection<Invoice>(`invoices`) |
@@ -1167,22 +1167,22 @@ NOYDB was designed for Niwat's accounting platform but is generic by constructio
 | Payment records | Collection<Payment>(`payments`) |
 | Client profile | Collection<Client>(`clients`) |
 | Report metadata | Collection<ReportMeta>(`reports`) |
-| Niwat principal (firm owner) | Role: `owner` |
+| Firm principal (firm owner) | Role: `owner` |
 | Senior accountant | Role: `admin` |
-| Junior staff (สมชาย, สมหญิง) | Role: `operator` (with per-collection permissions) |
+| Junior staff | Role: `operator` (with per-collection permissions) |
 | External auditor | Role: `viewer` |
 | Client company (views own invoices) | Role: `client` |
-| USB stick workflow | `@noydb/file` adapter, dir: `/Volumes/USB/niwat` |
-| Cloud access | `@noydb/dynamo` adapter, table: `niwat-prod` |
+| USB stick workflow | `@noy-db/file` adapter, dir: `/Volumes/USB/firm-data` |
+| Cloud access | `@noy-db/dynamo` adapter, table: `firm-prod` |
 | Monthly backup | `company.dump()` → encrypted JSON file |
 
-### Niwat-Specific Configuration
+### Example Configuration
 
 ```ts
 const db = await createNoydb({
-  adapter: jsonFile({ dir: process.env.NIWAT_DATA_DIR || './data' }),
-  sync: process.env.NIWAT_STORAGE === 'dynamodb'
-    ? dynamo({ table: 'niwat-prod', region: 'ap-southeast-1' })
+  adapter: jsonFile({ dir: process.env.FIRM_DATA_DIR || './data' }),
+  sync: process.env.STORAGE_BACKEND === 'dynamodb'
+    ? dynamo({ table: 'firm-prod', region: 'ap-southeast-1' })
     : undefined,
   user: currentUser.id,
   secret: currentUser.passphrase,
@@ -1257,5 +1257,4 @@ This replaces the current mock data imports (`import mockInvoices from '~/data/m
 ---
 
 *Document version: 1.0.0 — 2026-04-04*
-*Origin project: Niwat (github.com/vLannaAi/niwat)*
 *Author: vicio + Claude*

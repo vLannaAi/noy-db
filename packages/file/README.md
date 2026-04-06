@@ -17,7 +17,7 @@ import { createNoydb } from '@noy-db/core'
 import { file } from '@noy-db/file'
 
 const db = await createNoydb({
-  adapter: file({ dir: '/Volumes/USB/niwat-data' }),
+  adapter: file({ dir: '/Volumes/USB/firm-data' }),
   userId: 'alice',
   passphrase: process.env.NOYDB_PASSPHRASE!,
 })

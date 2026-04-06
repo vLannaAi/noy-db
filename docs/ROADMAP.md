@@ -256,7 +256,7 @@ NOYDB supports 8 deployment profiles. Each diagram shows the data flow and which
                          │   (version/local/remote) │
                          └──────────────────────────┘
 
-  Use case: Niwat — USB at home, DynamoDB at office, auto-sync
+  Use case: Regional accounting firm — USB at home, DynamoDB at office, auto-sync
   Pros:     Best of both worlds, works offline, syncs when available
   Cons:     Conflicts possible (mitigated by strategies)
 ```
@@ -349,7 +349,7 @@ NOYDB supports 8 deployment profiles. Each diagram shows the data flow and which
   │     @noydb/file (local)    @noydb/dynamo (sync)            │
   └────────────────────────────────────────────────────────────┘
 
-  Use case: Niwat accounting platform (production target)
+  Use case: Regional accounting firm platform (production target)
   Pros:     Reactive UI, type-safe, auto-sync, full offline support
 ```
 
