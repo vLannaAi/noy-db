@@ -15,6 +15,8 @@ export { Query, executePlan } from './builder.js'
 export type { QueryPlan, QuerySource, OrderBy } from './builder.js'
 export type { Operator, Clause, FieldClause, FilterClause, GroupClause } from './predicate.js'
 export { evaluateClause, evaluateFieldClause, readPath } from './predicate.js'
+export { CollectionIndexes } from './indexes.js'
+export type { IndexDef, HashIndex } from './indexes.js'
 
 // Re-export note: QueryPlan, Clause, FilterClause, GroupClause are intentionally
 // non-parametric — their `T` was removed for variance reasons. The Query<T> type

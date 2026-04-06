@@ -1,6 +1,7 @@
 import type { NoydbAdapter, CompartmentBackup, HistoryConfig } from './types.js'
 import { NOYDB_BACKUP_VERSION } from './types.js'
 import { Collection } from './collection.js'
+import type { IndexDef } from './query/indexes.js'
 import type { OnDirtyCallback } from './collection.js'
 import type { UnlockedKeyring } from './keyring.js'
 import { ensureCollectionDEK } from './keyring.js'
@@ -47,8 +48,15 @@ export class Compartment {
     }
   }
 
-  /** Open a typed collection within this compartment. */
-  collection<T>(collectionName: string): Collection<T> {
+  /**
+   * Open a typed collection within this compartment.
+   *
+   * Pass `options.indexes` to declare secondary indexes on top-level
+   * fields. Indexes are computed in memory after decryption and accelerate
+   * `collection.query().where(field, '==', value)` lookups for the given
+   * fields. Adapters never see plaintext index data.
+   */
+  collection<T>(collectionName: string, options?: { indexes?: IndexDef[] }): Collection<T> {
     let coll = this.collectionCache.get(collectionName)
     if (!coll) {
       coll = new Collection<T>({
@@ -61,6 +69,7 @@ export class Compartment {
         getDEK: this.getDEK,
         onDirty: this.onDirty,
         historyConfig: this.historyConfig,
+        indexes: options?.indexes,
       })
       this.collectionCache.set(collectionName, coll)
     }

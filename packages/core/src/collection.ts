@@ -16,6 +16,7 @@ import { diff as computeDiff } from './diff.js'
 import type { DiffEntry } from './diff.js'
 import { Query } from './query/index.js'
 import type { QuerySource } from './query/index.js'
+import { CollectionIndexes, type IndexDef } from './query/indexes.js'
 
 /** Callback for dirty tracking (sync engine integration). */
 export type OnDirtyCallback = (collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>
@@ -36,6 +37,19 @@ export class Collection<T> {
   private readonly cache = new Map<string, { record: T; version: number }>()
   private hydrated = false
 
+  /**
+   * In-memory secondary indexes for the query DSL.
+   *
+   * Built during `ensureHydrated()` and maintained on every put/delete.
+   * The query executor consults these for `==` and `in` operators on
+   * indexed fields, falling back to a linear scan for unindexed fields
+   * or unsupported operators.
+   *
+   * v0.3 ships in-memory only — persistence as encrypted blobs is a
+   * follow-up. See `query/indexes.ts` for the design rationale.
+   */
+  private readonly indexes = new CollectionIndexes()
+
   constructor(opts: {
     adapter: NoydbAdapter
     compartment: string
@@ -46,6 +60,7 @@ export class Collection<T> {
     getDEK: (collectionName: string) => Promise<CryptoKey>
     historyConfig?: HistoryConfig | undefined
     onDirty?: OnDirtyCallback | undefined
+    indexes?: IndexDef[] | undefined
   }) {
     this.adapter = opts.adapter
     this.compartment = opts.compartment
@@ -56,6 +71,11 @@ export class Collection<T> {
     this.getDEK = opts.getDEK
     this.onDirty = opts.onDirty
     this.historyConfig = opts.historyConfig ?? { enabled: true }
+    if (opts.indexes) {
+      for (const def of opts.indexes) {
+        this.indexes.declare(def)
+      }
+    }
   }
 
   /** Get a single record by ID. Returns null if not found. */
@@ -100,6 +120,10 @@ export class Collection<T> {
     await this.adapter.put(this.compartment, this.name, id, envelope)
 
     this.cache.set(id, { record, version })
+    // Update secondary indexes incrementally — no-op if no indexes are
+    // declared. Pass the previous record (if any) so old buckets are
+    // cleaned up before the new value is added.
+    this.indexes.upsert(id, record, existing ? existing.record : null)
 
     await this.onDirty?.(this.name, id, 'put', version)
 
@@ -127,6 +151,11 @@ export class Collection<T> {
 
     await this.adapter.delete(this.compartment, this.name, id)
     this.cache.delete(id)
+    // Remove from secondary indexes — no-op if no indexes are declared
+    // or the record wasn't previously indexed.
+    if (existing) {
+      this.indexes.remove(id, existing.record)
+    }
 
     await this.onDirty?.(this.name, id, 'delete', existing?.version ?? 0)
 
@@ -184,6 +213,11 @@ export class Collection<T> {
         this.emitter.on('change', handler)
         return () => this.emitter.off('change', handler)
       },
+      // Index-aware fast path for `==` and `in` operators on indexed
+      // fields. The Query builder consults these when present and falls
+      // back to a linear scan otherwise.
+      getIndexes: () => this.getIndexes(),
+      lookupById: (id: string) => this.cache.get(id)?.record,
     }
     return new Query<T>(source)
   }
@@ -301,6 +335,7 @@ export class Collection<T> {
       }
     }
     this.hydrated = true
+    this.rebuildIndexes()
   }
 
   /** Hydrate from a pre-loaded snapshot (used by Compartment). */
@@ -310,6 +345,36 @@ export class Collection<T> {
       this.cache.set(id, { record, version: envelope._v })
     }
     this.hydrated = true
+    this.rebuildIndexes()
+  }
+
+  /**
+   * Rebuild secondary indexes from the current in-memory cache.
+   *
+   * Called after any bulk hydration. Incremental put/delete updates
+   * are handled by `indexes.upsert()` / `indexes.remove()` directly,
+   * so this only fires for full reloads.
+   *
+   * Synchronous and O(N × indexes.size); for the v0.3 target scale of
+   * 1K–50K records this completes in single-digit milliseconds.
+   */
+  private rebuildIndexes(): void {
+    if (this.indexes.fields().length === 0) return
+    const snapshot: Array<{ id: string; record: T }> = []
+    for (const [id, entry] of this.cache) {
+      snapshot.push({ id, record: entry.record })
+    }
+    this.indexes.build(snapshot)
+  }
+
+  /**
+   * Get the in-memory index store. Used by `Query` to short-circuit
+   * `==` and `in` lookups when an index covers the where clause.
+   *
+   * Returns `null` if no indexes are declared on this collection.
+   */
+  getIndexes(): CollectionIndexes | null {
+    return this.indexes.fields().length > 0 ? this.indexes : null
   }
 
   /** Get all records as encrypted envelopes (for dump). */
