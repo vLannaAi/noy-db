@@ -1,0 +1,66 @@
+{
+  "name": "create-noy-db",
+  "version": "0.3.1",
+  "description": "Wizard + CLI tool for noy-db: scaffold a fresh Nuxt 4 + Pinia encrypted store, or add collections to an existing project",
+  "license": "MIT",
+  "author": "vLannaAi <vicio@lanna.ai>",
+  "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/create-noy-db#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vLannaAi/noy-db.git",
+    "directory": "packages/create-noy-db"
+  },
+  "bugs": {
+    "url": "https://github.com/vLannaAi/noy-db/issues"
+  },
+  "type": "module",
+  "bin": {
+    "create-noy-db": "./dist/bin/create-noy-db.js",
+    "noy-db": "./dist/bin/noy-db.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "templates",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "tsup && node scripts/postbuild.mjs",
+    "test": "vitest run",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.9.1",
+    "picocolors": "^1.1.1"
+  },
+  "devDependencies": {
+    "@noy-db/core": "workspace:*",
+    "@noy-db/memory": "workspace:*",
+    "@types/node": "^22.0.0"
+  },
+  "keywords": [
+    "noy-db",
+    "create",
+    "scaffolder",
+    "wizard",
+    "cli",
+    "nuxt",
+    "nuxt4",
+    "pinia",
+    "vue",
+    "encryption",
+    "zero-knowledge"
+  ]
+}

@@ -1,6 +1,6 @@
 # Roadmap
 
-> **Current:** v0.3 shipped on npm — Pinia-first DX + query & scale. **Next:** v0.4 — Integrity & trust.
+> **Current:** v0.3.1 shipped on npm — `create-noy-db` wizard + `noy-db` CLI on top of v0.3's Pinia-first DX. **Next:** v0.4 — Integrity & trust.
 >
 > Related docs:
 > - [Architecture](./docs/architecture.md) — data flow, key hierarchy, threat model
@@ -25,6 +25,7 @@ v0.3 shipped on npm. Nine packages now published: `@noy-db/core`, `@noy-db/memor
 | 0.1     | ✅ shipped  | Core MVP + multi-user              | crypto, keyring, file/memory adapters, 5-role ACL                         |
 | 0.2     | ✅ shipped  | Sync + browser + Vue               | DynamoDB/S3/browser adapters, sync engine, WebAuthn, Vue composables      |
 | 0.3     | ✅ shipped  | Pinia-first DX + query & scale     | Nuxt 4 module, `@noy-db/pinia`, query DSL, secondary indexes, pagination, lazy LRU |
+| 0.3.1   | ✅ shipped  | Scaffolder + CLI                   | `create-noy-db` wizard, `noy-db add`/`verify`, Nuxt 4 starter template       |
 | **0.4** | 🚧 **next** | **Integrity & trust**              | Hash-chained audit log, schema validation, foreign-key refs               |
 | 0.5     | 📋 planned  | Identity & sessions                | Session tokens, OIDC bridge, magic links, hardware-key keyrings           |
 | 0.6     | 📋 planned  | Sync v2                            | CRDT mode, pluggable conflict policies, presence, partial sync            |

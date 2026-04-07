@@ -12,9 +12,55 @@
 
 ---
 
-## Path 1 — Nuxt 4 project (recommended)
+## Fastest path — `create-noy-db` wizard
 
-If you already have a Nuxt 4 app, `@noy-db/nuxt` is a one-line install. It auto-imports every composable, wires up the Pinia plugin, and keeps the runtime client-only so SSR stays safe.
+The `create-noy-db` scaffolder (shipped in v0.3.1) is the fastest way to get a working Nuxt 4 + Pinia + encrypted-store starter. It asks at most 3 questions and generates a fully wired project.
+
+```bash
+npm  create noy-db@latest my-app
+pnpm create noy-db        my-app
+yarn create noy-db        my-app
+bun  create noy-db        my-app
+```
+
+Skip every prompt with `--yes`:
+
+```bash
+npm create noy-db@latest my-app --yes                     # all defaults
+npm create noy-db@latest my-app --yes --adapter file      # pick the file adapter
+npm create noy-db@latest my-app --yes --no-sample-data    # start empty
+```
+
+After the wizard finishes, install and run:
+
+```bash
+cd my-app
+pnpm install
+pnpm dev        # http://localhost:3000
+```
+
+The generated project ships with:
+- `nuxt.config.ts` with `@noy-db/nuxt` wired up and your chosen adapter
+- `app/stores/invoices.ts` — a `defineNoydbStore<Invoice>()` store
+- `app/pages/invoices.vue` — a CRUD page using the reactive query DSL
+- A demo `index` page and a working `@pinia/nuxt` install
+
+### Adding collections to an existing project
+
+Once you have a project, add new collections from the command line:
+
+```bash
+pnpm exec noy-db add clients     # scaffolds stores/clients.ts + pages/clients.vue
+pnpm exec noy-db verify          # end-to-end crypto integrity check
+```
+
+See [`packages/create-noy-db/README.md`](../packages/create-noy-db/README.md) for the full CLI reference.
+
+---
+
+## Path 1 — Manual install in an existing Nuxt 4 project
+
+If you already have a Nuxt 4 app and don't want to regenerate it with the wizard above, `@noy-db/nuxt` is a one-line install. It auto-imports every composable, wires up the Pinia plugin, and keeps the runtime client-only so SSR stays safe.
 
 ### Install
 
