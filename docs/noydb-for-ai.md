@@ -428,11 +428,11 @@ const db = await createNoydb({
 
 | Role | Read | Write | Grant | Revoke | Export |
 |------|:----:|:-----:|:-----:|:------:|:------:|
-| owner | all | all | all roles | all | yes |
-| admin | all | all | operator/viewer/client | same | yes |
-| operator | granted | granted | — | — | — |
-| viewer | all | — | — | — | — |
-| client | granted | — | — | — | — |
+| owner | all | all | all roles | all (except owner) | yes |
+| admin | all | all | admin/operator/viewer/client (v0.5 #62) | same, plus cascade | yes |
+| operator | granted | granted | — | — | granted (v0.5 #72) |
+| viewer | all | — | — | — | yes |
+| client | granted | — | — | — | granted (v0.5 #72) |
 
 ### Grant Access
 

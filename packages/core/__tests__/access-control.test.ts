@@ -129,10 +129,19 @@ describe('access control: permission matrix', () => {
       ).rejects.toThrow(PermissionDeniedError)
     })
 
-    it('cannot grant admin', async () => {
+    it('can grant another admin (v0.5 #62 — bounded delegation)', async () => {
+      // v0.5 opens admin↔admin lateral delegation. The v0.4 rule was
+      // "only owner can grant admin" — this is the explicit counter-
+      // assertion. Full coverage of the feature (including cascade on
+      // revoke and the subset rule) lives in admin-delegation.test.ts.
       await expect(
-        adminDb.grant(COMP, { userId: 'fake-admin', displayName: 'X', role: 'admin', passphrase: 'p' }),
-      ).rejects.toThrow(PermissionDeniedError)
+        adminDb.grant(COMP, {
+          userId: 'admin-from-admin',
+          displayName: 'Peer Admin',
+          role: 'admin',
+          passphrase: 'p',
+        }),
+      ).resolves.not.toThrow()
     })
 
     it('cannot revoke owner', async () => {

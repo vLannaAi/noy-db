@@ -54,6 +54,43 @@ export class PermissionDeniedError extends NoydbError {
   }
 }
 
+/**
+ * Thrown when a grant would give the grantee a permission the grantor
+ * does not themselves hold — the "admin cannot grant what admin cannot
+ * do" rule from the v0.5 #62 admin-delegation work.
+ *
+ * Distinct from `PermissionDeniedError` so callers can tell the two
+ * cases apart in logs and tests:
+ *
+ *   - `PermissionDeniedError` — "you are not allowed to perform this
+ *     operation at all" (wrong role).
+ *   - `PrivilegeEscalationError` — "you are allowed to grant, but not
+ *     with these specific permissions" (widening attempt).
+ *
+ * Under the v0.5 admin model the grantee of an admin-grants-admin call
+ * inherits the caller's entire DEK set by construction, so this error
+ * is structurally unreachable in typical flows. The check and error
+ * class exist so that future per-collection admin scoping (tracked
+ * under v0.6+ deputy-admin work) cannot accidentally bypass the subset
+ * rule — the guard is already wired in.
+ *
+ * `offendingCollection` carries the first collection name that failed
+ * the subset check, to make the violation actionable in error output.
+ */
+export class PrivilegeEscalationError extends NoydbError {
+  readonly offendingCollection: string
+
+  constructor(offendingCollection: string, message?: string) {
+    super(
+      'PRIVILEGE_ESCALATION',
+      message ??
+        `Privilege escalation: grantor has no DEK for collection "${offendingCollection}" and cannot grant access to it.`,
+    )
+    this.name = 'PrivilegeEscalationError'
+    this.offendingCollection = offendingCollection
+  }
+}
+
 // ─── Sync Errors ───────────────────────────────────────────────────────
 
 export class ConflictError extends NoydbError {

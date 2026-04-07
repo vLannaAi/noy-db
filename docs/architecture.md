@@ -106,16 +106,18 @@ flowchart LR
 
 **Permission matrix:**
 
-| Operation | owner | admin   | operator | viewer | client  |
-|-----------|:-----:|:-------:|:--------:|:------:|:-------:|
-| read      | all   | all     | granted  | all    | granted |
-| write     | all   | all     | granted  | —      | —       |
-| grant     | all   | ↓ roles | —        | —      | —       |
-| revoke    | all   | ↓ roles | —        | —      | —       |
-| export    | yes   | yes     | —        | —      | —       |
-| rotate    | yes   | yes     | —        | —      | —       |
+| Operation | owner | admin    | operator | viewer | client  |
+|-----------|:-----:|:--------:|:--------:|:------:|:-------:|
+| read      | all   | all      | granted  | all    | granted |
+| write     | all   | all      | granted  | —      | —       |
+| grant     | all   | ↓ roles* | —        | —      | —       |
+| revoke    | all   | ↓ roles* | —        | —      | —       |
+| export    | yes   | yes      | granted  | yes    | granted |
+| rotate    | yes   | yes      | —        | —      | —       |
 
-`↓ roles` = admin can grant/revoke operator, viewer, client (not other admins or owners).
+`↓ roles*` (v0.5 #62) = admin can grant/revoke any role except `owner`, **including other admins**. The v0.4 rule of "admin can only grant operator/viewer/client" has been replaced with bounded delegation: a grant cannot widen access beyond what the grantor holds (`PrivilegeEscalationError`), and revoking an admin cascades to every admin they transitively granted (`cascade: 'strict'` default, `cascade: 'warn'` opt-in for diagnostic dry runs).
+
+`export` (v0.5 #72) is ACL-scoped via `exportStream()`/`exportJSON()` — every role that can read collections can export what they can read. Operators and clients see only their explicitly-permitted collections.
 
 ---
 

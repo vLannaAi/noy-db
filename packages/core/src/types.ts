@@ -344,6 +344,28 @@ export interface GrantOptions {
 export interface RevokeOptions {
   readonly userId: string
   readonly rotateKeys?: boolean
+
+  /**
+   * Cascade behavior when the revoked user is an admin who has granted
+   * other admins (v0.5 #62 admin-delegation work).
+   *
+   * - `'strict'` (default) — recursively revoke every admin that the
+   *   target (transitively) granted. The cascade walks the
+   *   `granted_by` field on each keyring file and stops at non-admin
+   *   leaves. All affected collections are accumulated and rotated in
+   *   a single pass at the end, so cascade cost is O(records in
+   *   affected collections), not O(records × cascade depth).
+   *
+   * - `'warn'` — leave the descendant admins in place but emit a
+   *   `console.warn` listing them. Useful for diagnostic dry runs and
+   *   for environments where the operator wants to clean up the
+   *   delegation tree manually.
+   *
+   * No effect when the target is not an admin (operators, viewers, and
+   * clients cannot grant other users, so they have no delegation
+   * subtree to cascade through). Defaults to `'strict'`.
+   */
+  readonly cascade?: 'strict' | 'warn'
 }
 
 // ─── User Info ─────────────────────────────────────────────────────────

@@ -50,6 +50,7 @@ export {
   NoAccessError,
   ReadOnlyError,
   PermissionDeniedError,
+  PrivilegeEscalationError,
   ConflictError,
   NetworkError,
   NotFoundError,

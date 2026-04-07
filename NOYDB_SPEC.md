@@ -308,13 +308,21 @@ Biometrics do not replace encryption — they protect access to the KEK via the 
 
 | Role | Default Permissions | Can Grant | Can Revoke | Can Export | Description |
 |------|-------------------|:---------:|:----------:|:----------:|-------------|
-| `owner` | `*: rw` | Yes (all roles) | Yes (all) | Yes | Data owner. One per compartment. Cannot be revoked. |
-| `admin` | `*: rw` | Yes (operator, viewer, client) | Yes (same) | Yes | Full access. Manages team. Multiple allowed. |
-| `operator` | Explicit collections: `rw` | No | No | No | Day-to-day work on assigned collections. |
-| `viewer` | `*: ro` | No | No | No | Read-only access to all collections. For auditors. |
-| `client` | Explicit collections: `ro` | No | No | No | Limited read-only. For external stakeholders. |
+| `owner` | `*: rw` | Yes (all roles) | Yes (all except owner) | Yes | Data owner. One per compartment. Cannot be revoked. |
+| `admin` | `*: rw` | Yes (admin, operator, viewer, client) | Yes (same, plus cascade) | Yes | Full access. Manages team. Multiple allowed. |
+| `operator` | Explicit collections: `rw` | No | No | ACL-scoped | Day-to-day work on assigned collections. |
+| `viewer` | `*: ro` | No | No | Yes | Read-only access to all collections. For auditors. |
+| `client` | Explicit collections: `ro` | No | No | ACL-scoped | Limited read-only. For external stakeholders. |
 
 Roles are defaults — the `permissions` field in the keyring can override on a per-collection basis.
+
+**v0.5 #62 — admin-grants-admin (bounded delegation).** Admins can grant and revoke other admins, removing the v0.4 bottleneck where every new admin had to go through the single `owner` principal. Two guardrails apply:
+
+1. **No privilege escalation.** A grant cannot widen access beyond what the grantor holds. Enforced in `grant()` by checking that every DEK wrapped into the new keyring comes from the grantor's own DEK set. Throws `PrivilegeEscalationError`. Structurally trivially true under the v0.5 admin model (admin grants always inherit the full caller DEK set) but wired in so future per-collection admin scoping cannot accidentally bypass it.
+
+2. **Cascade on revoke.** When an admin is revoked, every admin they (transitively) granted is either revoked too (`cascade: 'strict'`, default) or left in place with a `console.warn` listing the orphans (`cascade: 'warn'`). The walk uses the `granted_by` field on each keyring file as the parent pointer. A single key-rotation pass at the end covers the union of affected collections — cost is O(records in affected collections), not O(records × cascade depth).
+
+**v0.5 #72 — exportStream / exportJSON are ACL-scoped.** The "Can Export" column in v0.4 was owner-only; in v0.5 every role that can read collections can export what they can read. Operators and clients see only their explicitly-permitted collections. Viewers (read-all) and admins (read-all) see everything.
 
 ### Keyring File Format
 

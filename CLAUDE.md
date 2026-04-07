@@ -90,10 +90,10 @@ All adapters implement exactly 6 async methods:
 | Role | Permissions | Can Grant/Revoke | Can Export |
 |------|------------|:----------------:|:---------:|
 | owner | `*: rw` | Yes (all) | Yes |
-| admin | `*: rw` | Yes (operator, viewer, client) | Yes |
-| operator | Explicit collections: rw | No | No |
-| viewer | `*: ro` | No | No |
-| client | Explicit collections: ro | No | No |
+| admin | `*: rw` | Yes (admin, operator, viewer, client — v0.5 #62; cascade on revoke) | Yes |
+| operator | Explicit collections: rw | No | ACL-scoped (v0.5 #72) |
+| viewer | `*: ro` | No | Yes |
+| client | Explicit collections: ro | No | ACL-scoped (v0.5 #72) |
 
 ## Testing Strategy
 

@@ -394,10 +394,10 @@ await invoices.$noydb.revoke('demo-co', {
 | Role     | Read     | Write    | Grant                  | Export |
 |----------|:--------:|:--------:|:----------------------:|:------:|
 | owner    | all      | all      | all roles              | yes    |
-| admin    | all      | all      | operator/viewer/client | yes    |
-| operator | granted  | granted  | —                      | —      |
-| viewer   | all      | —        | —                      | —      |
-| client   | granted  | —        | —                      | —      |
+| admin    | all      | all      | admin/operator/viewer/client (v0.5 #62) | yes    |
+| operator | granted  | granted  | —                      | granted (v0.5 #72) |
+| viewer   | all      | —        | —                      | yes    |
+| client   | granted  | —        | —                      | granted (v0.5 #72) |
 
 See [`architecture.md`](./architecture.md) for the key hierarchy and rotation flow.
 
