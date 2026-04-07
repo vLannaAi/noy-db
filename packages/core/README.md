@@ -45,6 +45,56 @@ const all = await invoices.list()
 - **Audit history** — full-copy snapshots with `history()`, `diff()`, `revert()`, `pruneHistory()`
 - **Zero runtime dependencies**
 
+## Cross-compartment queries
+
+When a single principal holds grants across many compartments — multi-tenant apps, multi-project setups, multi-workspace tools — there are two new APIs (v0.5 #63) for enumerating and fanning out across them:
+
+### `db.listAccessibleCompartments(options?)` — enumerate
+
+Returns every compartment the calling principal can unwrap, optionally filtered by minimum role. The walk is bounded by the local keyring index — compartments where the user has no keyring file or where the passphrase doesn't unwrap are silently dropped from the result.
+
+```ts
+// All compartments I can unlock
+const all = await db.listAccessibleCompartments()
+// → [{ id: 'T1', role: 'owner' }, { id: 'T7', role: 'admin' }, ...]
+
+// Only compartments where I'm at least admin
+const admin = await db.listAccessibleCompartments({ minRole: 'admin' })
+```
+
+**Existence-leak guarantee.** The return value never reveals the existence of a compartment the caller cannot unwrap. The adapter sees the enumeration call (it owns the storage), but downstream consumers of `listAccessibleCompartments()` only see the filtered list.
+
+**Adapter capability.** Requires the optional `NoydbAdapter.listCompartments()` method. The `@noy-db/memory` and `@noy-db/file` adapters implement it; cloud adapters (`@noy-db/dynamo`, `@noy-db/s3`) and `@noy-db/browser` do not in v0.5 (cloud enumeration needs a GSI or list-bucket permission that has to be configured by the consumer). Calling `listAccessibleCompartments()` against an adapter that doesn't implement `listCompartments` throws `AdapterCapabilityError`. Workaround: maintain the candidate list out of band and pass it directly to `queryAcross()`.
+
+### `db.queryAcross(ids, fn, options?)` — fan out
+
+Runs a per-compartment callback against a list of compartment ids and collects the results, tagged by compartment. Per-compartment errors do not abort the others — each result slot carries either `result` or `error`.
+
+```ts
+const accessible = await db.listAccessibleCompartments({ minRole: 'admin' })
+
+const results = await db.queryAcross(
+  accessible.map((c) => c.id),
+  async (comp) => {
+    return comp.collection<Invoice>('invoices').query()
+      .where('month', '==', '2026-03')
+      .toArray()
+  },
+  { concurrency: 4 }, // default 1 — bump for cloud adapters
+)
+// results: Array<{ compartment, result?: Invoice[], error?: Error }>
+```
+
+**Composes with `exportStream()` for cross-compartment plaintext export:**
+
+```ts
+await db.queryAcross(accessible.map((c) => c.id), async (comp) => {
+  const out: unknown[] = []
+  for await (const chunk of comp.exportStream()) out.push(chunk)
+  return out
+})
+```
+
 ## Backup and export
 
 noy-db ships two distinct paths for getting data out of a compartment. They are not interchangeable — use the one that matches your goal.

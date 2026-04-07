@@ -1,5 +1,19 @@
-import type { NoydbOptions, NoydbEventMap, GrantOptions, RevokeOptions, UserInfo, PushResult, PullResult, SyncStatus } from './types.js'
-import { ValidationError, NoAccessError } from './errors.js'
+import type {
+  NoydbOptions,
+  NoydbEventMap,
+  GrantOptions,
+  RevokeOptions,
+  UserInfo,
+  PushResult,
+  PullResult,
+  SyncStatus,
+  Role,
+  AccessibleCompartment,
+  ListAccessibleCompartmentsOptions,
+  QueryAcrossOptions,
+  QueryAcrossResult,
+} from './types.js'
+import { ValidationError, NoAccessError, InvalidKeyError, AdapterCapabilityError } from './errors.js'
 import { Compartment } from './compartment.js'
 import { NoydbEventEmitter } from './events.js'
 import {
@@ -13,6 +27,22 @@ import {
 } from './keyring.js'
 import type { UnlockedKeyring } from './keyring.js'
 import { SyncEngine } from './sync.js'
+
+/**
+ * Privilege rank used by `listAccessibleCompartments({ minRole })` to
+ * filter the result. Higher number = more privileged. Owner is at the
+ * top; client is at the bottom. Viewer outranks client because viewer
+ * has read-all access while client has only explicit-collection read
+ * — the ordering reflects "how much can this principal see," not
+ * "how much can this principal modify."
+ */
+const ROLE_RANK: Record<Role, number> = {
+  client: 1,
+  viewer: 2,
+  operator: 3,
+  admin: 4,
+  owner: 5,
+}
 
 /** Dummy keyring for unencrypted mode. */
 function createPlaintextKeyring(userId: string): UnlockedKeyring {
@@ -193,6 +223,248 @@ export class Noydb {
   /** List all users with access to a compartment. */
   async listUsers(compartment: string): Promise<UserInfo[]> {
     return keyringListUsers(this.options.adapter, compartment)
+  }
+
+  // ─── Cross-compartment queries (v0.5 #63) ──────────────────────
+
+  /**
+   * Enumerate every compartment the calling principal can unwrap,
+   * optionally filtered by minimum role.
+   *
+   * The walk is a two-step pipeline: first ask the adapter for the
+   * universe of compartments it stores, then for each one attempt to
+   * load the calling user's keyring with the in-memory passphrase.
+   * Compartments where the user has no keyring file (`NoAccessError`)
+   * or where the passphrase doesn't unwrap (`InvalidKeyError`) are
+   * silently dropped from the result — the existence of those
+   * compartments is **not** confirmed in the return value.
+   *
+   * Requires the optional `NoydbAdapter.listCompartments()` capability.
+   * Throws `AdapterCapabilityError` against adapters that don't
+   * implement it (today: dynamo, s3, browser). For those backends the
+   * consumer should either pass an explicit candidate list to
+   * `queryAcross()` directly, or maintain a compartment index out of
+   * band.
+   *
+   * **Privacy note.** This method's return value never reveals the
+   * existence of a compartment the caller cannot unwrap. The adapter
+   * sees the enumeration call (it has to — it owns the storage), but
+   * downstream consumers of `listAccessibleCompartments()` only see
+   * the filtered list. That's the boundary the existence-leak
+   * guarantee draws.
+   *
+   * **Known v0.4 edge case.** A compartment whose keyring file
+   * happens to have an empty wrapped-DEKs map (because the owner
+   * granted access before any collection was created) will pass the
+   * `loadKeyring` probe with *any* passphrase — there are no DEKs to
+   * unwrap, so the integrity-checked unwrap that normally rejects
+   * wrong passphrases never runs. The result is that an unrelated
+   * principal who happens to know the user-id and the compartment
+   * name can show up in `listAccessibleCompartments()` as having
+   * access to that empty compartment. They cannot read any actual
+   * data (their DEK set is empty), so this is a metadata leak
+   * (compartment name + user-id), not a content leak. Hardening this
+   * via a passphrase canary in the keyring file is tracked as a
+   * v0.6+ follow-up.
+   *
+   * **Cost.** O(compartments × keyring-load) — one `loadKeyring`
+   * attempt per compartment in the universe. Each attempt does one
+   * adapter `get` + one PBKDF2 derivation + N AES-KW unwraps. For
+   * dozens of compartments this is fine; for thousands the consumer
+   * should cache the result and refresh on grant/revoke events. A
+   * future optimization could batch the keyring reads via
+   * `loadAll('_keyring')` if such a thing existed at the adapter
+   * layer, but the v0.5 contract doesn't expose that.
+   *
+   * @example
+   * ```ts
+   * // All compartments I can unwrap
+   * const all = await db.listAccessibleCompartments()
+   *
+   * // Only compartments where I'm at least admin
+   * const admin = await db.listAccessibleCompartments({ minRole: 'admin' })
+   *
+   * // Only compartments I own
+   * const owned = await db.listAccessibleCompartments({ minRole: 'owner' })
+   * ```
+   */
+  async listAccessibleCompartments(
+    options: ListAccessibleCompartmentsOptions = {},
+  ): Promise<AccessibleCompartment[]> {
+    if (this.closed) throw new ValidationError('Instance is closed')
+    this.resetSessionTimer()
+
+    const adapter = this.options.adapter
+    if (typeof adapter.listCompartments !== 'function') {
+      throw new AdapterCapabilityError(
+        'listCompartments',
+        'Noydb.listAccessibleCompartments()',
+        adapter.name,
+      )
+    }
+
+    if (this.options.encrypt === false) {
+      // Plaintext mode: no keyrings exist; every compartment the
+      // adapter knows about is "accessible" trivially as owner.
+      const all = await adapter.listCompartments()
+      return all.map((id) => ({ id, role: 'owner' as Role }))
+    }
+
+    if (!this.options.secret) {
+      throw new ValidationError(
+        'Noydb.listAccessibleCompartments(): a secret (passphrase) is required ' +
+          'when encryption is enabled.',
+      )
+    }
+
+    const minRank = ROLE_RANK[options.minRole ?? 'client']
+    const universe = await adapter.listCompartments()
+    const accessible: AccessibleCompartment[] = []
+
+    for (const compartment of universe) {
+      // Probe with loadKeyring directly (NOT getKeyring, which would
+      // auto-create a fresh owner keyring on miss — that would
+      // silently grant access to every empty compartment in the
+      // universe and is exactly the wrong shape for an enumeration
+      // API). The two expected failure modes — no keyring file, or
+      // wrong passphrase — are caught and silently dropped so the
+      // return value never leaks existence.
+      let keyring: UnlockedKeyring
+      try {
+        keyring = await loadKeyring(
+          adapter,
+          compartment,
+          this.options.user,
+          this.options.secret,
+        )
+      } catch (err) {
+        if (err instanceof NoAccessError || err instanceof InvalidKeyError) {
+          continue // silent: caller has no key material for this compartment
+        }
+        throw err // unexpected error — surface it
+      }
+
+      if (ROLE_RANK[keyring.role] < minRank) continue
+      accessible.push({ id: compartment, role: keyring.role })
+
+      // Opportunistically prime the keyring cache so a subsequent
+      // openCompartment() doesn't have to re-derive the KEK. The cost
+      // is one Map.set per compartment we already paid to unwrap.
+      this.keyringCache.set(compartment, keyring)
+    }
+
+    return accessible
+  }
+
+  /**
+   * Run a per-compartment callback against a list of compartments and
+   * collect the results.
+   *
+   * Pure orchestration — there is no new crypto, no new sync, no new
+   * authorization layer. Each compartment is opened via the existing
+   * `openCompartment()` path (which honors the cache primed by
+   * `listAccessibleCompartments`), the callback runs against the
+   * resulting `Compartment` instance, and the result (or thrown
+   * error) is captured into the per-compartment slot.
+   *
+   * **Per-compartment errors do not abort the fan-out.** If one
+   * compartment's callback throws, that compartment's slot carries
+   * the error and the remaining compartments still run. The caller
+   * decides how to handle the partition between success and failure.
+   * This is the right shape for cross-tenant reports where one
+   * tenant's outage shouldn't hide the other tenants' data.
+   *
+   * **Concurrency** is opt-in via `options.concurrency`. The default
+   * is `1` (sequential) — conservative because per-compartment
+   * callbacks typically do their own I/O and an unbounded fan-out
+   * can exhaust adapter connections (DynamoDB throughput, S3 socket
+   * limits, browser fetch concurrency). Bump to 4-8 for cloud-backed
+   * adapters where parallelism is the whole point.
+   *
+   * @example
+   * ```ts
+   * // Cross-tenant invoice totals as a flat list
+   * const accessible = await db.listAccessibleCompartments({ minRole: 'admin' })
+   * const results = await db.queryAcross(
+   *   accessible.map((c) => c.id),
+   *   async (comp) => {
+   *     return comp.collection<Invoice>('invoices').query()
+   *       .where('month', '==', '2026-03')
+   *       .toArray()
+   *   },
+   *   { concurrency: 4 },
+   * )
+   * // results: Array<{ compartment, result?: Invoice[], error?: Error }>
+   *
+   * // Compose with exportStream() — cross-compartment plaintext export
+   * const exports = await db.queryAcross(accessible.map((c) => c.id), async (comp) => {
+   *   const out: unknown[] = []
+   *   for await (const chunk of comp.exportStream()) out.push(chunk)
+   *   return out
+   * })
+   * ```
+   */
+  async queryAcross<T>(
+    compartmentIds: string[],
+    fn: (compartment: Compartment) => Promise<T>,
+    options: QueryAcrossOptions = {},
+  ): Promise<QueryAcrossResult<T>[]> {
+    if (this.closed) throw new ValidationError('Instance is closed')
+    this.resetSessionTimer()
+
+    const concurrency = Math.max(1, options.concurrency ?? 1)
+    const results: QueryAcrossResult<T>[] = new Array(compartmentIds.length)
+
+    // Tiny inline p-limit. Maintains a sliding window of `concurrency`
+    // in-flight promises and schedules the next compartment as each
+    // one settles. No external dep. Index-keyed result array so the
+    // output preserves caller-supplied order even when concurrency
+    // > 1 lets later compartments finish before earlier ones.
+    let nextIndex = 0
+    const inFlight: Set<Promise<void>> = new Set()
+
+    const launch = (): Promise<void> | null => {
+      if (nextIndex >= compartmentIds.length) return null
+      const idx = nextIndex++
+      const compartmentId = compartmentIds[idx]!
+      const task = (async () => {
+        try {
+          const comp = await this.openCompartment(compartmentId)
+          const result = await fn(comp)
+          results[idx] = { compartment: compartmentId, result }
+        } catch (err) {
+          results[idx] = {
+            compartment: compartmentId,
+            error: err instanceof Error ? err : new Error(String(err)),
+          }
+        }
+      })()
+      inFlight.add(task)
+      // Fire-and-forget cleanup. The task itself never rejects (the
+      // try/catch above swallows everything into the result slot), so
+      // there's no rejection to handle here — `void` tells the linter
+      // we know what we're doing.
+      void task.finally(() => inFlight.delete(task))
+      return task
+    }
+
+    // Prime the window.
+    for (let i = 0; i < concurrency; i++) {
+      if (launch() === null) break
+    }
+
+    // Drain. As each task settles, kick off the next one until the
+    // input is exhausted. `Promise.race` against the live set is the
+    // simplest way to "wake up on whichever finishes first" without
+    // pulling in p-limit / async-pool / etc.
+    while (inFlight.size > 0) {
+      await Promise.race(inFlight)
+      while (inFlight.size < concurrency && nextIndex < compartmentIds.length) {
+        if (launch() === null) break
+      }
+    }
+
+    return results
   }
 
   /** Change the current user's passphrase for a compartment. */

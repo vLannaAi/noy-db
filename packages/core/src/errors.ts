@@ -77,6 +77,43 @@ export class PermissionDeniedError extends NoydbError {
  * `offendingCollection` carries the first collection name that failed
  * the subset check, to make the violation actionable in error output.
  */
+/**
+ * Thrown when a caller invokes an API that requires an optional
+ * adapter capability the active adapter does not implement (v0.5
+ * #63).
+ *
+ * Today the only call site is `Noydb.listAccessibleCompartments()`,
+ * which depends on the optional `NoydbAdapter.listCompartments()`
+ * method. The error message names the missing method and the calling
+ * API so consumers know exactly which combination is unsupported,
+ * and the `capability` field is machine-readable so library code can
+ * pattern-match in catch blocks (e.g. fall back to a candidate-list
+ * shape).
+ *
+ * The class lives in `errors.ts` rather than as a generic
+ * `ValidationError` because the diagnostic shape is different: a
+ * `ValidationError` says "the inputs you passed are wrong"; this
+ * error says "the inputs are fine, but the adapter you wired up
+ * doesn't support what you're asking for." Different fix, different
+ * documentation.
+ */
+export class AdapterCapabilityError extends NoydbError {
+  /** The adapter method/capability that was missing. */
+  readonly capability: string
+
+  constructor(capability: string, callerApi: string, adapterName?: string) {
+    super(
+      'ADAPTER_CAPABILITY',
+      `${callerApi} requires the optional adapter capability "${capability}" ` +
+        `but the active adapter${adapterName ? ` (${adapterName})` : ''} does not implement it. ` +
+        `Use an adapter that supports "${capability}" (memory, file) or pass an explicit ` +
+        `compartment list to bypass enumeration.`,
+    )
+    this.name = 'AdapterCapabilityError'
+    this.capability = capability
+  }
+}
+
 export class PrivilegeEscalationError extends NoydbError {
   readonly offendingCollection: string
 

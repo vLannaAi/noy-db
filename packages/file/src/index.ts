@@ -144,6 +144,37 @@ export function jsonFile(options: JsonFileOptions): NoydbAdapter {
     },
 
     /**
+     * Enumerate every top-level compartment subdirectory under the
+     * configured base directory. Used by
+     * `Noydb.listAccessibleCompartments()` (v0.5 #63).
+     *
+     * The implementation is `readdir(dir)` filtered to entries that
+     * are themselves directories — files at the top level (READMEs,
+     * .DS_Store, etc.) are skipped, and missing base directory
+     * returns an empty array rather than throwing. Result order is
+     * filesystem-defined; consumers that want stable order should
+     * sort themselves.
+     */
+    async listCompartments() {
+      let entries: string[]
+      try {
+        entries = await readdir(dir)
+      } catch {
+        return []
+      }
+      const compartments: string[] = []
+      for (const entry of entries) {
+        try {
+          const entryStat = await stat(join(dir, entry))
+          if (entryStat.isDirectory()) compartments.push(entry)
+        } catch {
+          // Entry vanished between readdir and stat — skip silently.
+        }
+      }
+      return compartments
+    },
+
+    /**
      * Paginate over a collection. Cursor is a numeric offset (as a string)
      * into the sorted filename list. Files are sorted alphabetically so
      * pages are stable across runs and across processes that share the

@@ -31,6 +31,10 @@ export type {
   PruneOptions,
   ExportStreamOptions,
   ExportChunk,
+  AccessibleCompartment,
+  ListAccessibleCompartmentsOptions,
+  QueryAcrossOptions,
+  QueryAcrossResult,
 } from './types.js'
 
 export {
@@ -51,6 +55,7 @@ export {
   ReadOnlyError,
   PermissionDeniedError,
   PrivilegeEscalationError,
+  AdapterCapabilityError,
   ConflictError,
   NetworkError,
   NotFoundError,

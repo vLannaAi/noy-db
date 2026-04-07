@@ -92,6 +92,20 @@ export function memory(): NoydbAdapter {
     },
 
     /**
+     * Enumerate every top-level compartment held by this in-memory
+     * store. Used by `Noydb.listAccessibleCompartments()` (v0.5 #63)
+     * to get the universe of compartments before filtering down to
+     * the ones the calling principal can unwrap.
+     *
+     * Returns the outer Map's keys directly — O(compartments) and
+     * cheap. The result is intentionally unsorted; consumers that
+     * want a stable order should sort themselves.
+     */
+    async listCompartments() {
+      return [...store.keys()]
+    },
+
+    /**
      * Paginate over a collection. Cursor is a numeric offset (as a string)
      * into the sorted id list — same ordering on every call so pages are
      * stable across runs.

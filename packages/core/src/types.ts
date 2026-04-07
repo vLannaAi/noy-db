@@ -115,6 +115,47 @@ export interface NoydbAdapter {
     cursor?: string,
     limit?: number,
   ): Promise<ListPageResult>
+
+  /**
+   * Optional cross-compartment enumeration extension (v0.5 #63).
+   *
+   * Returns the names of every top-level compartment the adapter
+   * currently stores. Used by `Noydb.listAccessibleCompartments()` to
+   * enumerate the universe of compartments before filtering down to
+   * the ones the calling principal can actually unwrap.
+   *
+   * **Why this is optional:** the storage shape of compartments
+   * differs across backends. Memory and file adapters store
+   * compartments as top-level keys / directories and can enumerate
+   * them in O(1) calls. DynamoDB stores everything in a single table
+   * keyed by `(compartment#collection, id)` — enumerating compartments
+   * requires either a Scan (expensive, eventually consistent, leaks
+   * ciphertext metadata) or a dedicated GSI that the consumer
+   * provisioned. S3 needs a prefix list (cheap if enabled, ACL-sensitive
+   * otherwise). Browser localStorage can scan keys by prefix.
+   *
+   * Adapters that cannot implement `listCompartments` cheaply or
+   * cleanly should omit it. Core surfaces an `AdapterCapabilityError`
+   * with a clear message when a caller invokes
+   * `listAccessibleCompartments()` against an adapter that doesn't
+   * provide this method, so consumers know to either upgrade their
+   * adapter, provide a candidate list explicitly to `queryAcross()`,
+   * or fall back to maintaining the compartment index out of band.
+   *
+   * **Privacy note:** `listCompartments` returns *every* compartment
+   * the adapter has, not just the ones the caller can access. The
+   * existence-leak filtering (returning only compartments whose
+   * keyring the caller can unwrap) happens in core, not in the
+   * adapter. The adapter is trusted to know its own contents — that
+   * is not a leak in the threat model. The leak the API guards
+   * against is the *return value* of `listAccessibleCompartments()`
+   * exposing existence to a downstream observer who only sees that
+   * function's output.
+   *
+   * The 6-method core contract is unchanged — this is an additive
+   * extension discovered via `'listCompartments' in adapter`.
+   */
+  listCompartments?(): Promise<string[]>
 }
 
 // ─── Adapter Factory Helper ────────────────────────────────────────────
@@ -367,6 +408,76 @@ export interface RevokeOptions {
    */
   readonly cascade?: 'strict' | 'warn'
 }
+
+// ─── Cross-compartment queries (v0.5 #63) ──────────────────────────────
+
+/**
+ * One entry returned by `Noydb.listAccessibleCompartments()`. Carries
+ * the compartment id and the role the calling principal holds in it,
+ * so the consumer can decide how to fan out without re-checking
+ * permissions per compartment.
+ */
+export interface AccessibleCompartment {
+  readonly id: string
+  readonly role: Role
+}
+
+/**
+ * Options for `Noydb.listAccessibleCompartments()`.
+ */
+export interface ListAccessibleCompartmentsOptions {
+  /**
+   * Minimum role the caller must hold to include a compartment in the
+   * result. Compartments where the caller's role is strictly *below*
+   * this threshold are silently excluded. Defaults to `'client'`,
+   * which means "every compartment I can unwrap is returned." Set to
+   * `'admin'` for "compartments where I can grant/revoke," or
+   * `'owner'` for "compartments I own."
+   *
+   * The privilege ordering used:
+   *   `client (1) < viewer (2) < operator (3) < admin (4) < owner (5)`
+   *
+   * Note: `viewer` and `client` are conceptually peers in the v0.4 ACL
+   * (neither can grant), but `viewer` has read-all access while
+   * `client` has only explicit-collection read. The numeric order
+   * reflects "how much can this principal see," not "how much can
+   * this principal modify."
+   */
+  readonly minRole?: Role
+}
+
+/**
+ * Options for `Noydb.queryAcross()`.
+ */
+export interface QueryAcrossOptions {
+  /**
+   * Maximum number of compartments to process in parallel. Defaults
+   * to `1` (sequential) — conservative because the per-compartment
+   * callback typically does its own I/O and an unbounded fan-out can
+   * exhaust adapter connections (DynamoDB throughput, S3 socket
+   * limits, browser fetch concurrency).
+   *
+   * Set to `4` or `8` for cloud-backed compartments where parallelism
+   * is the whole point of fanning out. Set to `1` (default) for local
+   * adapters where the disk I/O serializes anyway.
+   */
+  readonly concurrency?: number
+}
+
+/**
+ * One entry in the array returned by `Noydb.queryAcross()`. Either
+ * `result` is set (callback succeeded for this compartment) or
+ * `error` is set (callback threw, or compartment failed to open).
+ *
+ * Per-compartment errors do **not** abort the overall fan-out — every
+ * compartment is given a chance to run its callback, and the
+ * partition between success and failure is exposed in the return
+ * value. Consumers that want fail-fast semantics can check
+ * `r.error !== undefined` and short-circuit themselves.
+ */
+export type QueryAcrossResult<T> =
+  | { readonly compartment: string; readonly result: T; readonly error?: undefined }
+  | { readonly compartment: string; readonly result?: undefined; readonly error: Error }
 
 // ─── User Info ─────────────────────────────────────────────────────────
 

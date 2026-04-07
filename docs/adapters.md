@@ -171,6 +171,27 @@ Adapters that implement `listPage` enable `Collection.listPage()` and the Pinia 
 | `@noy-db/dynamo`  | ✓          | base64-encoded `LastEvaluatedKey`   |
 | `@noy-db/s3`      | ✓          | S3 `ContinuationToken`              |
 
+### `listCompartments` — cross-compartment enumeration (v0.5+, #63)
+
+```ts
+interface NoydbAdapter {
+  // ... 6 mandatory methods
+  listCompartments?(): Promise<string[]>
+}
+```
+
+Adapters that implement `listCompartments` enable `Noydb.listAccessibleCompartments()` and the cross-compartment fan-out pattern: enumerate the universe of compartments stored in the adapter, then filter down (in core) to the ones the calling principal can unwrap. Calling `listAccessibleCompartments()` against an adapter that doesn't implement this method throws `AdapterCapabilityError` with a clear remediation hint.
+
+| Adapter           | `listCompartments` | Notes                                                                       |
+|-------------------|:------------------:|-----------------------------------------------------------------------------|
+| `@noy-db/memory`  | ✓                  | `[...store.keys()]` — O(compartments)                                       |
+| `@noy-db/file`    | ✓                  | `readdir(dir)` filtered to subdirectories                                   |
+| `@noy-db/browser` | —                  | Could scan localStorage prefixes; not implemented in v0.5                   |
+| `@noy-db/dynamo`  | —                  | Requires a GSI on the compartment partition key — consumer-provisioned     |
+| `@noy-db/s3`      | —                  | Requires `s3:ListBucket` permission with the noy-db prefix                 |
+
+**Privacy note.** `listCompartments` returns *every* compartment the adapter has, not just the ones the caller can access. The existence-leak filtering (returning only compartments whose keyring the caller can unwrap) happens in core, not in the adapter — the adapter is trusted to know its own contents. The leak the v0.5 #63 API guards against is the *return value* of `Noydb.listAccessibleCompartments()` exposing existence to a downstream observer who only sees that function's output, never the raw adapter call.
+
 ### Capability detection
 
 Core checks for the method at runtime — no flag, no registration:

@@ -324,6 +324,13 @@ Roles are defaults — the `permissions` field in the keyring can override on a 
 
 **v0.5 #72 — exportStream / exportJSON are ACL-scoped.** The "Can Export" column in v0.4 was owner-only; in v0.5 every role that can read collections can export what they can read. Operators and clients see only their explicitly-permitted collections. Viewers (read-all) and admins (read-all) see everything.
 
+**v0.5 #63 — cross-compartment role-scoped queries.** Two new top-level Noydb methods enable consolidated views across the compartments a single principal can unwrap:
+
+- `Noydb.listAccessibleCompartments({ minRole? })` enumerates every compartment where the calling principal can unwrap a keyring at the requested minimum role. Existence-leak guarantee: compartments the caller cannot unwrap are silently dropped from the return value, so a downstream observer of `listAccessibleCompartments()` only sees the filtered list.
+- `Noydb.queryAcross(ids, fn, { concurrency? })` runs a per-compartment callback against the supplied list and returns results tagged by compartment id. Per-compartment errors are captured into the result slot and do not abort the fan-out.
+
+These methods require an optional 7th adapter capability — `NoydbAdapter.listCompartments?(): Promise<string[]>` — to enumerate the compartment universe before filtering. The memory and file adapters implement it; cloud adapters (dynamo, s3) and browser do not in v0.5 because cloud enumeration needs a GSI or list-bucket permission configured by the consumer. Calling `listAccessibleCompartments()` against an adapter without the capability throws `AdapterCapabilityError` with a clear message naming the missing capability and the calling API.
+
 ### Keyring File Format
 
 Each user has one keyring file per compartment, stored at `{compartment}/_keyring/{userId}.json`:
