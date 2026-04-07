@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/create",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Wizard + CLI tool for noy-db: scaffold a fresh Nuxt 4 + Pinia encrypted store, or add collections to an existing project. Invoke via `npm create @noy-db`.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
@@ -43,11 +43,11 @@
   },
   "dependencies": {
     "@clack/prompts": "^0.9.1",
-    "picocolors": "^1.1.1"
+    "picocolors": "^1.1.1",
+    "@noy-db/core": "workspace:*",
+    "@noy-db/memory": "workspace:*"
   },
   "devDependencies": {
-    "@noy-db/core": "workspace:*",
-    "@noy-db/memory": "workspace:*",
     "@types/node": "^22.0.0"
   },
   "keywords": [
