@@ -1,5 +1,26 @@
 # @noy-db/pinia
 
+## 0.4.0
+
+### Minor Changes
+
+- **Schema validation propagated to `defineNoydbStore`** (#42). The `schema` option now accepts any [Standard Schema v1](https://standardschema.dev) validator (Zod, Valibot, ArkType, Effect Schema) and threads it down to the underlying `Collection`. Validation runs before encryption on every `add()`/`update()` and after decryption on every read — duplicate `.parse()` calls in the store layer were removed because the Collection handles it.
+
+  ```ts
+  import { z } from 'zod'
+
+  const InvoiceSchema = z.object({ /* ... */ })
+
+  export const useInvoices = defineNoydbStore<z.infer<typeof InvoiceSchema>>('invoices', {
+    compartment: 'demo-co',
+    schema: InvoiceSchema,
+  })
+  ```
+
+  **Breaking change**: the `schema` option now expects a Standard Schema v1 validator instead of a hand-rolled `{ parse }` shim. Zod schemas already implement the protocol; consumers using a custom `{ parse }` object need to wrap it in the v1 protocol shape. See `packages/pinia/__tests__/defineNoydbStore.test.ts` for an inline example.
+
+- Bumps `@noy-db/core` peer to `^0.4.0` for the new `StandardSchemaV1` types and the schema option on `Collection`.
+
 ## 0.3.0
 
 ### Minor Changes

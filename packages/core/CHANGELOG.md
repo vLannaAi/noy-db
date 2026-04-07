@@ -1,5 +1,29 @@
 # @noy-db/core
 
+## 0.4.0
+
+### Minor Changes — Integrity & trust
+
+The v0.4 release adds the **integrity** layer on top of v0.3's adoption surface. Five new features land together; every record can now be schema-validated, every mutation is recorded in a tamper-evident hash-chained ledger, history is delta-encoded for storage efficiency, soft FK references are enforceable per-collection, and backups verify end-to-end on load.
+
+- **Schema validation via Standard Schema v1** (#42). Attach any [Standard Schema v1](https://standardschema.dev) validator (Zod, Valibot, ArkType, Effect Schema) to a `Collection` or `defineNoydbStore`. Validation runs **before encryption on `put()`** (rejecting bad input with the validator's full issue list) and **after decryption on every read** (catching stored data that has drifted from the current schema). New exports: `StandardSchemaV1`, `StandardSchemaV1Issue`, `InferOutput`, `validateSchemaInput`, `validateSchemaOutput`, `SchemaValidationError`. History reads (`getVersion`, `history`) intentionally skip validation.
+
+- **Hash-chained audit log (the ledger)** (#43). Every `Collection.put` and `Collection.delete` appends an encrypted entry to the compartment's `_ledger/` internal collection. Entries are linked by `prevHash = sha256(canonicalJson(previousEntry))` so any tampering breaks the chain. `payloadHash` is over the **encrypted** envelope, not plaintext, preserving zero-knowledge. `Compartment.ledger()` returns a `LedgerStore` with `head()`, `entries({ from, to })`, `verify()`, `loadAllEntries()`. New exports: `LedgerStore`, `LedgerEntry`, `VerifyResult`, `AppendInput`, `LEDGER_COLLECTION`, `canonicalJson`, `sha256Hex`, `hashEntry`, `paddedIndex`, `parseIndex`, `envelopePayloadHash`. Side fix: `grant()` now propagates ALL system-prefixed collection DEKs (`_ledger`, `_history`, `_sync`) to every grant target so operators with write access on a single collection can append to the shared ledger.
+
+- **Delta history via RFC 6902 JSON Patch** (#44). Every put after the genesis computes a **reverse** JSON Patch from the new record to the previous version and stores it in `_ledger_deltas/`. New `LedgerStore.reconstruct(collection, id, current, atVersion)` walks the chain backward from the current state, applying reverse patches to rebuild any historical version. Storage scales with edit size, not record size — a 1 KB record edited 100 times costs ~1 KB of deltas, not 100 KB of snapshots. Hand-rolled JSON Patch implementation (subset: add/remove/replace; arrays atomic; RFC 6902 path escaping); zero deps. New exports: `JsonPatch`, `JsonPatchOp`, `computePatch`, `applyPatch`, `LEDGER_DELTAS_COLLECTION`. Known limitation: ambiguous across delete+recreate cycles because version counters reset.
+
+- **Foreign-key references via `ref()`** (#45). Soft FK enforcement at the collection level. Three modes: **`strict`** (default — put rejects missing target, delete of target rejects with referencing records), **`warn`** (both succeed, `checkIntegrity()` surfaces orphans), **`cascade`** (delete of target propagates with cycle-safe termination). New exports: `ref(target, mode?)`, `RefRegistry`, `RefIntegrityError`, `RefScopeError`, `RefMode`, `RefDescriptor`, `RefViolation`. New method: `Compartment.checkIntegrity()`. Cross-compartment refs rejected at construction with `RefScopeError`.
+
+- **Verifiable backups** (#46). `dump()` embeds the current ledger head + the full `_ledger` and `_ledger_deltas` internal collections so the receiver can replay the chain. `load()` re-runs verification after restoring and rejects any backup whose chain or data has been tampered with. New `Compartment.verifyBackupIntegrity()` method runs both `ledger.verify()` AND a data envelope cross-check (recomputes `payloadHash` for every current record and compares to the latest matching ledger entry) — catches three independent attack surfaces: chain tampering, ciphertext substitution, and out-of-band writes that bypassed `Collection.put`. New exports: `BackupLedgerError`, `BackupCorruptedError`. Backwards compat: pre-v0.4 backups load with a console warning and skip the integrity check.
+
+  **Side fix**: encrypted dump→load round-trips work for the first time. The old `load()` restored a different keyring file but the in-memory `Compartment.keyring` still held the pre-load session's DEKs. New `reloadKeyring` callback wired through Noydb → Compartment refreshes the in-memory keyring from the freshly-loaded keyring file using the active user's passphrase.
+
+### Stats
+
+- 376 tests in `@noy-db/core` (was 269 at v0.3 ship); +107 across the v0.4 epic
+- 654 tests across the monorepo
+- Zero new runtime dependencies — Standard Schema and JSON Patch are both vendored as types-only / hand-rolled
+
 ## 0.3.0
 
 ### Minor Changes
