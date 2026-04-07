@@ -1,3 +1,5 @@
+import type { StandardSchemaV1 } from './schema.js'
+
 /** Format version for encrypted record envelopes. */
 export const NOYDB_FORMAT_VERSION = 1 as const
 
@@ -171,6 +173,86 @@ export interface CompartmentBackup {
     /** Sequential index of the last ledger entry. */
     readonly index: number
     /** ISO timestamp captured at dump time. */
+    readonly ts: string
+  }
+}
+
+// ─── Export ────────────────────────────────────────────────────────────
+
+/**
+ * Options for `Compartment.exportStream()` and `Compartment.exportJSON()`.
+ *
+ * The defaults match the most common consumer pattern: one chunk per
+ * collection, no ledger metadata. Per-record streaming and ledger-head
+ * inclusion are opt-in because both add structure most consumers don't
+ * need.
+ */
+export interface ExportStreamOptions {
+  /**
+   * `'collection'` (default) yields one chunk per collection with all
+   * records bundled in `chunk.records`. `'record'` yields one chunk per
+   * record, useful for arbitrarily large collections that should never
+   * be materialized as a single array.
+   */
+  readonly granularity?: 'collection' | 'record'
+
+  /**
+   * When `true`, every chunk includes the current compartment ledger
+   * head under `chunk.ledgerHead`. The value is identical across every
+   * chunk in a single export (one ledger per compartment). Forward-
+   * compatible with future partition work where the head would become
+   * per-partition. Default: `false`.
+   */
+  readonly withLedgerHead?: boolean
+}
+
+/**
+ * One chunk yielded by `Compartment.exportStream()`.
+ *
+ * `granularity: 'collection'` yields one chunk per collection with the
+ * full record array in `records`. `granularity: 'record'` yields one
+ * chunk per record with `records` containing exactly one element — the
+ * `schema` and `refs` metadata is repeated on every chunk so consumers
+ * doing per-record streaming don't have to thread state across yields.
+ */
+export interface ExportChunk<T = unknown> {
+  /** Collection name (no leading underscore — internal collections are filtered out). */
+  readonly collection: string
+
+  /**
+   * Standard Schema validator attached to the collection at `collection()`
+   * construction time, or `null` if no schema was provided. Surfaced so
+   * downstream serializers (`@noy-db/decrypt-*` packages, custom
+   * exporters) can produce schema-aware output (typed CSV headers, XSD
+   * generation, etc.) without poking at collection internals.
+   */
+  readonly schema: StandardSchemaV1<unknown, T> | null
+
+  /**
+   * Foreign-key references declared on the collection via the `refs`
+   * option, as the `{ field → { target, mode } }` map produced by
+   * `RefRegistry.getOutbound`. Empty object when no refs were declared.
+   */
+  readonly refs: Record<string, { readonly target: string; readonly mode: 'strict' | 'warn' | 'cascade' }>
+
+  /**
+   * Decrypted, ACL-scoped, schema-validated records. Length 1 in
+   * `granularity: 'record'` mode, full collection in `granularity: 'collection'`
+   * mode. Records are returned by reference from the collection's eager
+   * cache where applicable — consumers must treat them as immutable.
+   */
+  readonly records: T[]
+
+  /**
+   * Compartment ledger head at export time. Present only when
+   * `exportStream({ withLedgerHead: true })` was called. Identical
+   * across every chunk in the same export — included on every chunk
+   * for forward-compatibility with future per-partition ledgers, where
+   * the value will differ per chunk.
+   */
+  readonly ledgerHead?: {
+    readonly hash: string
+    readonly index: number
     readonly ts: string
   }
 }

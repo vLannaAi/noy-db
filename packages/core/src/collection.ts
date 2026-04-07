@@ -279,6 +279,21 @@ export class Collection<T> {
     }
   }
 
+  /**
+   * Return the Standard Schema validator attached to this collection,
+   * or `undefined` if none was provided at construction time.
+   *
+   * Exposed (read-only) for the Compartment-level export primitive,
+   * which surfaces each collection's schema in the per-chunk metadata
+   * so downstream serializers (`@noy-db/decrypt-*` packages, custom
+   * exporters) can produce schema-aware output without poking at
+   * collection internals. The validator object is returned by
+   * reference — callers must treat it as immutable.
+   */
+  getSchema(): StandardSchemaV1<unknown, T> | undefined {
+    return this.schema
+  }
+
   /** Get a single record by ID. Returns null if not found. */
   async get(id: string): Promise<T | null> {
     if (this.lazy && this.lru) {

@@ -88,9 +88,11 @@ describe('access control: permission matrix', () => {
       ).resolves.not.toThrow()
     })
 
-    it('can export', async () => {
+    it('can export every collection', async () => {
       const comp = await ownerDb.openCompartment(COMP)
-      await expect(comp.export()).resolves.toBeDefined()
+      const json = await comp.exportJSON()
+      const parsed = JSON.parse(json) as { collections: Record<string, unknown> }
+      expect(parsed.collections).toHaveProperty('invoices')
     })
   })
 
@@ -179,9 +181,16 @@ describe('access control: permission matrix', () => {
       ).rejects.toThrow(PermissionDeniedError)
     })
 
-    it('cannot export', async () => {
+    it('export is ACL-scoped — operator sees only permitted collections', async () => {
+      // v0.5 #72: exportStream/exportJSON are no longer owner-only.
+      // They silently scope to collections the caller can read, matching
+      // the same hasAccess() rule as Collection.list().
       const comp = await opDb.openCompartment(COMP)
-      await expect(comp.export()).rejects.toThrow(PermissionDeniedError)
+      const json = await comp.exportJSON()
+      const parsed = JSON.parse(json) as { collections: Record<string, unknown> }
+      // Operator was granted invoices: 'rw' only — that's the only
+      // collection that should appear in the export.
+      expect(Object.keys(parsed.collections)).toEqual(['invoices'])
     })
   })
 

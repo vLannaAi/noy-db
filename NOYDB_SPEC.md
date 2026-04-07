@@ -179,9 +179,10 @@ The library should be learnable in 10 minutes. The core API is: `createNoydb()`,
 │  └───────────────────────────────────────────────────────┘   │
 │                                                              │
 │  ┌─ Backup / Restore ───────────────────────────────────┐   │
-│  │  .dump()    → encrypted JSON blob (safe to transport)  │   │
-│  │  .load()    → restore from encrypted backup            │   │
-│  │  .export()  → decrypted JSON (owner only, migration)   │   │
+│  │  .dump()         → encrypted JSON (safe to transport)  │   │
+│  │  .load()         → restore from encrypted backup       │   │
+│  │  .exportStream() → decrypted async iterator (ACL-scoped) │ │
+│  │  .exportJSON()   → decrypted JSON string (ACL-scoped)   │  │
 │  └───────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -785,10 +786,15 @@ const backup: string = await company.dump()
 await company.load(backup)
 // Requires user's passphrase to be correct (must be in the backup's keyrings)
 
-// Export as decrypted JSON (owner only)
-const plaintext: string = await company.export()
-// Throws PERMISSION_DENIED unless role is 'owner'
-// WARNING: output is unencrypted — handle with care
+// Export as decrypted JSON (v0.5+, ACL-scoped — #72)
+const plaintext: string = await company.exportJSON()
+// Silently skips collections the caller cannot read (same rule as Collection.list).
+// WARNING: output is unencrypted — handle with care.
+
+// Streaming variant for large compartments or format-aware serializers
+for await (const chunk of company.exportStream()) {
+  // chunk.collection, chunk.schema, chunk.refs, chunk.records
+}
 
 // Dump to file (convenience)
 await company.dumpToFile('/path/to/backup.noydb.json')

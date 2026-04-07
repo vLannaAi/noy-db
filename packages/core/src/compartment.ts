@@ -1,13 +1,21 @@
-import type { NoydbAdapter, EncryptedEnvelope, CompartmentBackup, CompartmentSnapshot, HistoryConfig } from './types.js'
+import type {
+  NoydbAdapter,
+  EncryptedEnvelope,
+  CompartmentBackup,
+  CompartmentSnapshot,
+  HistoryConfig,
+  ExportStreamOptions,
+  ExportChunk,
+} from './types.js'
 import { NOYDB_BACKUP_VERSION } from './types.js'
 import { Collection } from './collection.js'
 import type { CacheOptions } from './collection.js'
 import type { IndexDef } from './query/indexes.js'
 import type { OnDirtyCallback } from './collection.js'
 import type { UnlockedKeyring } from './keyring.js'
-import { ensureCollectionDEK } from './keyring.js'
+import { ensureCollectionDEK, hasAccess } from './keyring.js'
 import type { NoydbEventEmitter } from './events.js'
-import { PermissionDeniedError, BackupLedgerError, BackupCorruptedError } from './errors.js'
+import { BackupLedgerError, BackupCorruptedError } from './errors.js'
 import type { StandardSchemaV1 } from './schema.js'
 import { LedgerStore, sha256Hex, LEDGER_COLLECTION, LEDGER_DELTAS_COLLECTION } from './ledger/index.js'
 import {
@@ -697,24 +705,256 @@ export class Compartment {
     }
   }
 
-  /** Export compartment as decrypted JSON (owner only). */
-  async export(): Promise<string> {
-    if (this.keyring.role !== 'owner') {
-      throw new PermissionDeniedError('Only the owner can export decrypted data')
-    }
+  /**
+   * Stream every collection in this compartment as decrypted, ACL-scoped
+   * chunks.
+   *
+   * ⚠ **This method decrypts your records.** noy-db's threat model assumes
+   * that records on disk are encrypted; the values yielded here are
+   * plaintext. The consumer is responsible for ensuring the yielded data
+   * is handled in a way that matches the data's sensitivity. If your goal
+   * is encrypted backup or transport between noy-db instances, use
+   * `dump()` instead — it produces a tamper-evident encrypted envelope and
+   * never exposes plaintext.
+   *
+   * ## Behavior
+   *
+   * - **ACL-scoped.** Collections the calling principal cannot read are
+   *   silently skipped (same rule as `Collection.list()`). An operator
+   *   with `{ invoices: 'rw', clients: 'ro' }` permissions on a
+   *   five-collection compartment exports only `invoices` and `clients`,
+   *   with no error on the others.
+   * - **Streaming.** Returns an `AsyncIterableIterator` so consumers can
+   *   process chunks as they arrive without holding the full export in
+   *   memory. Note: the underlying adapter call (`loadAll`) is still a
+   *   single bulk read — the streaming benefit is on the *output* side.
+   *   True per-record adapter streaming arrives with the v0.6 query DSL.
+   * - **Schema + refs surfaced** as metadata on every chunk so downstream
+   *   serializers (`@noy-db/decrypt-csv`, `@noy-db/decrypt-xlsx`, custom
+   *   exporters) can produce schema-aware output without reaching into
+   *   collection internals.
+   * - **Internal collections filtered.** `_ledger`, `_keyring`, etc. are
+   *   never yielded — they're noy-db's own bookkeeping and have no value
+   *   in a plaintext export. Use `dump()` for full backup including
+   *   internal collections.
+   *
+   * ## Composition
+   *
+   * Once cross-compartment queries land (#63), fanning this out across
+   * every compartment the caller can unlock is `queryAcross(ids, c =>
+   * c.exportStream())` — no new primitive needed. That's part of why this
+   * method belongs in core: it's the single decrypt+ACL+metadata path
+   * that every export-format package will build on, and pushing it into
+   * a `@noy-db/decrypt-*` package would force every format to re-solve
+   * the same problems independently.
+   *
+   * @example
+   * ```ts
+   * for await (const chunk of company.exportStream()) {
+   *   // chunk.collection: 'invoices'
+   *   // chunk.schema: ZodObject | null
+   *   // chunk.refs: { clientId: { target: 'clients', mode: 'strict' } }
+   *   // chunk.records: Invoice[]
+   * }
+   * ```
+   *
+   * @example
+   * ```ts
+   * // Per-record streaming for arbitrarily large collections.
+   * for await (const chunk of company.exportStream({ granularity: 'record' })) {
+   *   // chunk.records is always length 1
+   *   await writer.write(serialize(chunk.records[0]))
+   * }
+   * ```
+   */
+  async *exportStream(opts: ExportStreamOptions = {}): AsyncIterableIterator<ExportChunk> {
+    const granularity = opts.granularity ?? 'collection'
 
-    const result: Record<string, Record<string, unknown>> = {}
+    // One bulk read to enumerate collections. `loadAll` filters out
+    // underscore-prefixed internal collections, which is exactly what we
+    // want — internal bookkeeping has no place in a plaintext export.
     const snapshot = await this.adapter.loadAll(this.name)
+    const collectionNames = Object.keys(snapshot).sort()
 
-    for (const [collName, records] of Object.entries(snapshot)) {
-      const coll = this.collection(collName)
-      const decrypted: Record<string, unknown> = {}
-      for (const id of Object.keys(records)) {
-        decrypted[id] = await coll.get(id)
+    // Resolve the ledger head once if requested. The head is identical
+    // across every yielded chunk (one ledger per compartment) — we copy
+    // it onto each chunk so consumers doing per-record streaming don't
+    // have to thread state across yields, and so the chunk shape stays
+    // forward-compatible with future per-partition ledgers where the
+    // head genuinely will differ per chunk.
+    const ledgerHead = opts.withLedgerHead
+      ? await (async () => {
+          const head = await this.ledger().head()
+          return head
+            ? { hash: head.hash, index: head.entry.index, ts: head.entry.ts }
+            : undefined
+        })()
+      : undefined
+
+    for (const collectionName of collectionNames) {
+      // ACL gate. The same `hasAccess` check that `Collection.list()`
+      // honors — silent skip, no error, matches the "operator can read
+      // some but not all" pattern.
+      if (!hasAccess(this.keyring, collectionName)) continue
+
+      const coll = this.collection(collectionName)
+      const schema = coll.getSchema() ?? null
+      const refs = this.refRegistry.getOutbound(collectionName)
+      const ids = Object.keys(snapshot[collectionName] ?? {})
+
+      if (granularity === 'collection') {
+        // Decrypt every record in the collection, then yield once.
+        // Using `coll.get(id)` rather than the loadAll envelope directly
+        // because `get()` is the canonical decrypt+schema-validate path
+        // and any future cache/index plumbing rides through it.
+        const records: unknown[] = []
+        for (const id of ids) {
+          const record = await coll.get(id)
+          if (record !== null) records.push(record)
+        }
+        const chunk: ExportChunk = {
+          collection: collectionName,
+          schema,
+          refs,
+          records,
+          ...(ledgerHead ? { ledgerHead } : {}),
+        }
+        yield chunk
+      } else {
+        // Per-record yield. Memory profile: O(1 record) at a time.
+        // The schema/refs metadata is repeated on every chunk so
+        // consumers don't have to thread state across yields.
+        for (const id of ids) {
+          const record = await coll.get(id)
+          if (record === null) continue
+          const chunk: ExportChunk = {
+            collection: collectionName,
+            schema,
+            refs,
+            records: [record],
+            ...(ledgerHead ? { ledgerHead } : {}),
+          }
+          yield chunk
+        }
       }
-      result[collName] = decrypted
+    }
+  }
+
+  /**
+   * Convenience wrapper that consumes `exportStream()` and serializes the
+   * result to a single JSON string.
+   *
+   * ⚠ **`exportJSON()` decrypts your records and produces plaintext.**
+   *
+   * noy-db's threat model assumes that records on disk are encrypted.
+   * This function deliberately violates that assumption: it produces a
+   * JSON string in plaintext, which the consumer is then responsible for
+   * protecting (filesystem permissions, full-disk encryption, secure
+   * transfer, secure deletion).
+   *
+   * Use this function only when:
+   * - You are the authorized owner of the data, **and**
+   * - You have a legitimate downstream tool that requires plaintext
+   *   JSON, **and**
+   * - You have a documented plan for how the resulting plaintext will be
+   *   protected and eventually destroyed.
+   *
+   * If your goal is encrypted backup or transport between noy-db
+   * instances, use `dump()` instead — it produces a tamper-evident
+   * encrypted envelope, never plaintext.
+   *
+   * ## Why `Promise<string>` instead of writing to a file path
+   *
+   * Core has zero `node:` imports — it runs unchanged in browsers, Node,
+   * Bun, Deno, and edge runtimes. Accepting a file path would force a
+   * `node:fs` import (breaks browsers) or a runtime dynamic import
+   * (doesn't tree-shake, inflates bundles). Returning a string lets the
+   * consumer choose any sink and forces the destination decision to be
+   * explicit at the call site — which is also better for the security
+   * warning.
+   *
+   * @example
+   * ```ts
+   * // Node: write to a file
+   * import { writeFile } from 'node:fs/promises'
+   * await writeFile('./backup.json', await company.exportJSON())
+   * ```
+   *
+   * @example
+   * ```ts
+   * // Browser: download as a file
+   * const json = await company.exportJSON()
+   * const blob = new Blob([json], { type: 'application/json' })
+   * const url = URL.createObjectURL(blob)
+   * // ... attach to an <a download> and click
+   * ```
+   *
+   * @example
+   * ```ts
+   * // Stream upload to a server
+   * await fetch('/upload', {
+   *   method: 'POST',
+   *   body: await company.exportJSON(),
+   * })
+   * ```
+   *
+   * ## On-disk shape
+   *
+   * ```json
+   * {
+   *   "_noydb_export": 1,
+   *   "_compartment": "acme",
+   *   "_exported_at": "2026-04-07T12:00:00.000Z",
+   *   "_exported_by": "alice@acme.example",
+   *   "collections": {
+   *     "invoices": {
+   *       "schema": null,
+   *       "refs": { "clientId": { "target": "clients", "mode": "strict" } },
+   *       "records": [ ... ]
+   *     }
+   *   },
+   *   "ledgerHead": { "hash": "...", "index": 42, "ts": "..." }
+   * }
+   * ```
+   *
+   * `schema` is included for forward compatibility but is currently
+   * always `null` because Standard Schema validators are not JSON-
+   * serializable. Format-package serializers that need the schema
+   * should use `exportStream()` directly and read `chunk.schema` (which
+   * is the live validator object, not a serialization of it).
+   */
+  async exportJSON(opts: ExportStreamOptions = {}): Promise<string> {
+    // Force per-collection granularity regardless of caller setting:
+    // record-by-record output doesn't make sense in a single string.
+    const collections: Record<
+      string,
+      {
+        schema: null
+        refs: Record<string, { target: string; mode: 'strict' | 'warn' | 'cascade' }>
+        records: unknown[]
+      }
+    > = {}
+    let ledgerHead: ExportChunk['ledgerHead'] | undefined
+
+    for await (const chunk of this.exportStream({
+      granularity: 'collection',
+      withLedgerHead: opts.withLedgerHead === true,
+    })) {
+      collections[chunk.collection] = {
+        schema: null, // Standard Schema validators are not JSON-serializable
+        refs: chunk.refs,
+        records: chunk.records,
+      }
+      if (chunk.ledgerHead) ledgerHead = chunk.ledgerHead
     }
 
-    return JSON.stringify(result)
+    return JSON.stringify({
+      _noydb_export: 1,
+      _compartment: this.name,
+      _exported_at: new Date().toISOString(),
+      _exported_by: this.keyring.userId,
+      collections,
+      ...(ledgerHead ? { ledgerHead } : {}),
+    })
   }
 }

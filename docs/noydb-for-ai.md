@@ -567,8 +567,14 @@ const backup = await comp.dump()
 // Restore
 await comp.load(backup)
 
-// Export decrypted JSON (owner only)
-const plaintext = await comp.export()
+// Export decrypted JSON (v0.5+ — ACL-scoped, silently skips
+// collections the caller cannot read; warns about plaintext on disk)
+const plaintext = await comp.exportJSON()
+
+// Streaming variant for large compartments
+for await (const chunk of comp.exportStream()) {
+  // chunk.collection, chunk.schema, chunk.refs, chunk.records
+}
 ```
 
 ## Vue / Nuxt Integration

@@ -29,6 +29,8 @@ export type {
   HistoryOptions,
   HistoryEntry,
   PruneOptions,
+  ExportStreamOptions,
+  ExportChunk,
 } from './types.js'
 
 export {
