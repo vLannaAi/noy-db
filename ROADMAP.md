@@ -1,6 +1,6 @@
 # Roadmap
 
-> **Current:** v0.4.1 shipped on npm — all 10 `@noy-db/*` packages unified on a single version line. Integrity & trust features: schema validation, hash-chained ledger, delta history, FK refs, verifiable backups. **Next:** v0.5 — Identity & sessions.
+> **Current:** v0.4.1 shipped on npm — all 10 `@noy-db/*` packages unified on a single version line. Integrity & trust features: schema validation, hash-chained ledger, delta history, FK refs, verifiable backups. **Next:** v0.5 — Core enhancements + scaffolder polish.
 >
 > Related docs:
 > - [Architecture](./docs/architecture.md) — data flow, key hierarchy, threat model
@@ -14,7 +14,7 @@
 
 ## Status
 
-v0.4.1 shipped on npm. All 10 `@noy-db/*` packages are now unified on the **0.4.1** version line — `core`, `pinia`, `memory`, `file`, `dynamo`, `s3`, `browser`, `vue`, `nuxt`, `create`. **654 tests** passing across the monorepo (376 in `@noy-db/core` alone — up from 269 at v0.3 ship). The v0.4 epic added the integrity layer on top of v0.3's adoption surface: every record can be schema-validated, every mutation recorded in a tamper-evident hash chain, history delta-encoded for storage efficiency, soft FK references enforced per-collection, and backups verified end-to-end on load. The 0.4.1 patch fixes a release-hygiene bug where `workspace:*` in `peerDependencies` published as exact-version pins, making the 0.4.0 adapters uninstallable alongside a newer core. The reference Nuxt 4 demo at `playground/nuxt/` is the integration test for v0.3 AND v0.4 — its invoices store is backed by a Zod schema, exercising the validation path end-to-end. v0.5 turns to **identity & sessions**: passphrase unlock UX, session tokens, OIDC bridge, hardware-key keyrings.
+v0.4.1 shipped on npm. All 10 `@noy-db/*` packages are now unified on the **0.4.1** version line — `core`, `pinia`, `memory`, `file`, `dynamo`, `s3`, `browser`, `vue`, `nuxt`, `create`. **654 tests** passing across the monorepo (376 in `@noy-db/core` alone — up from 269 at v0.3 ship). The v0.4 epic added the integrity layer on top of v0.3's adoption surface: every record can be schema-validated, every mutation recorded in a tamper-evident hash chain, history delta-encoded for storage efficiency, soft FK references enforced per-collection, and backups verified end-to-end on load. The 0.4.1 patch fixes a release-hygiene bug where `workspace:*` in `peerDependencies` published as exact-version pins, making the 0.4.0 adapters uninstallable alongside a newer core. The reference Nuxt 4 demo at `playground/nuxt/` is the integration test for v0.3 AND v0.4 — its invoices store is backed by a Zod schema, exercising the validation path end-to-end. v0.5 turns to **core enhancements + scaffolder polish**: the wizard work (i18n, augment mode, CLI subcommands) is already shipped, and the release adds three small core enhancements — `exportStream()`/`exportJSON()` for plaintext export with the `@noy-db/decrypt-*` family policy locked in, `queryAcross` for cross-compartment role-scoped reads, and admin-grants-admin bounded delegation to remove the single-owner bus-factor. Identity & sessions slipped one slot to v0.7 to make room for the smaller, more orthogonal enhancements that were ready sooner.
 
 ---
 
@@ -28,11 +28,13 @@ v0.4.1 shipped on npm. All 10 `@noy-db/*` packages are now unified on the **0.4.
 | 0.3.1   | ✅ shipped  | Scaffolder + CLI                   | `@noy-db/create` wizard, `noy-db add`/`verify`, Nuxt 4 starter template      |
 | 0.4     | ✅ shipped  | Integrity & trust                  | Schema validation, hash-chained ledger, delta history, FK refs, verifiable backups |
 | 0.4.1   | ✅ shipped  | Release hygiene patch              | Peer dep pinning fix (`workspace:^`); unified `@noy-db/*` on one version line  |
-| **0.5** | 🚧 **next** | **Identity & sessions**            | Session tokens, OIDC bridge, magic links, hardware-key keyrings           |
-| 0.6     | 📋 planned  | Sync v2                            | CRDT mode, pluggable conflict policies, presence, partial sync            |
-| 0.7     | 📋 planned  | Developer experience               | `noydb` CLI, devtools panel, schema codegen, importers                    |
-| 0.8     | 📋 planned  | Adapter expansion                  | R2, D1, Supabase, IPFS, Git, WebDAV, encrypted SQLite, Turso              |
-| 0.9     | 📋 planned  | Other framework integrations       | React, Svelte, Solid, Qwik, TanStack Query/Table, Zustand                 |
+| **0.5** | 🚧 **next** | **Core enhancements + scaffolder polish** | Wizard i18n + augment mode + CLI subcommands (shipped), `exportStream`/`exportJSON`, cross-compartment queries, admin-grants-admin delegation |
+| 0.6     | 📋 planned  | Query DSL completion               | Joins (eager + live + multi-FK chaining), aggregations v1 (built-in reducers + groupBy + scan)        |
+| 0.7     | 📋 planned  | Identity & sessions                | Session tokens, OIDC bridge, magic links, hardware-key keyrings           |
+| 0.8     | 📋 planned  | Sync v2                            | CRDT mode, pluggable conflict policies, presence, partial sync            |
+| 0.9     | 📋 planned  | Developer experience               | `noydb` CLI, devtools panel, schema codegen, importers                    |
+| 0.10    | 📋 planned  | Adapter expansion                  | R2, D1, Supabase, IPFS, Git, WebDAV, encrypted SQLite, Turso              |
+| 0.11    | 📋 planned  | Other framework integrations       | React, Svelte, Solid, Qwik, TanStack Query/Table, Zustand                 |
 | 1.0     | 📋 planned  | Stability + LTS release            | API freeze, third-party audit, perf benchmarks, migration tooling         |
 | 1.x     | 🔭 vision   | Edge & realtime                    | Edge worker adapter, WebRTC peer sync, encrypted BroadcastChannel         |
 | 2.0     | 🔭 vision   | Federation                         | Multi-instance federation, verifiable credentials, ZK proof exports       |
@@ -48,13 +50,15 @@ gantt
     v0.3 Nuxt 4 + Pinia + query/scale :done,   v03, 2026-04, 7d
     v0.4 integrity & trust           :done,    v04, after v03, 7d
     section Next
-    v0.5 identity & sessions         :active,  v05, after v04, 45d
+    v0.5 core enhancements           :active,  v05, after v04, 30d
     section Planned
-    v0.6 sync v2                     :         v06, after v05, 60d
-    v0.7 developer experience        :         v07, after v06, 45d
-    v0.8 adapter expansion           :         v08, after v07, 45d
-    v0.9 other frameworks            :         v09, after v08, 45d
-    v1.0 stability + LTS             :crit,    v10, after v09, 60d
+    v0.6 query DSL completion        :         v06, after v05, 30d
+    v0.7 identity & sessions         :         v07, after v06, 45d
+    v0.8 sync v2                     :         v08, after v07, 60d
+    v0.9 developer experience        :         v09, after v08, 45d
+    v0.10 adapter expansion          :         v010, after v09, 45d
+    v0.11 other frameworks           :         v011, after v010, 45d
+    v1.0 stability + LTS             :crit,    v10, after v011, 60d
 ```
 
 ---
@@ -246,20 +250,68 @@ export const useClients = defineStore('clients', {
 
 ---
 
-## v0.5 — Identity & sessions
+## v0.5 — Core enhancements + scaffolder polish
 
-**Goal:** Solve "passphrase unlock is awkward for client portals."
+**Goal:** Tighten the v0.4 core surface with the small, orthogonal enhancements that real consumers have asked for, and finish the scaffolder polish from v0.3.1. This release is **deliberately not themed around a single big epic** — it's a focused bundle of independent improvements that all share "low risk, high consumer value, no shared planner work."
+
+### Scaffolder polish (already shipped)
+
+- **Wizard i18n** (#36) — Thai prompts and notes, `--lang` flag, POSIX env-var auto-detection
+- **Augment mode** (#37) — wizard patches an existing `nuxt.config.ts` via magicast with a confirmable diff
+- **CLI subcommands** (#38) — `noy-db rotate`, `noy-db add user`, `noy-db backup` for ongoing project maintenance
+- **E2E CI matrix** (#40) — wizard validated on every PR across OS × Node × package-manager cells
+
+### Core enhancements (this release)
+
+- **`exportStream()` + `exportJSON()` core primitive (#72).** Authorization-aware streaming export of plaintext records. `exportStream()` yields per-collection chunks with schema + ref metadata, going through the normal ACL path. `exportJSON()` is the universal default helper. Both APIs carry an explicit "this writes plaintext to disk" warning block in JSDoc and README — see the `@noy-db/decrypt-*` section below for the surrounding package family policy.
+- **Cross-compartment role-scoped queries (#63).** `Noydb.listAccessibleCompartments({ minRole })` enumerates compartments the current keyring can unlock (no existence leaks — the local keyring is the source of truth, no adapter probes), and `Noydb.queryAcross(ids, fn)` fans out a per-compartment callback over them with opt-in concurrency. Composes with `exportStream()` to give cross-compartment plaintext export for free.
+- **Admin-grants-admin bounded delegation (#62).** Allow `admin` role-holders to grant another `admin`, with two guardrails: (1) the granted admin's permissions must be a **subset** of the granting admin's (no privilege escalation, enforced at `grant()` time via `PrivilegeEscalationError`); (2) **cascade revoke** — when an admin is revoked, every admin they granted is revoked too (the ledger already records grantor attribution, so the delegation tree is reconstructable). Solves the single-owner bus-factor risk for multi-admin teams.
+- **SVG infographics refresh** (#57) — update the diagrams in `docs/` to reflect v0.4 positioning.
+
+### What's NOT in v0.5
+
+- **Identity & sessions** — moved to v0.7. The session-token / OIDC / magic-link / WebAuthn epic was the original v0.5 theme; it slipped one slot to make room for the smaller core enhancements that were ready to ship sooner.
+- **Joins / aggregations** — moved to v0.6 (see below). They're a coherent epic of their own and want their own focused review pass.
+
+---
+
+## v0.6 — Query DSL completion
+
+**Goal:** Finish the query DSL story so consumers can express joins and aggregations directly in `.query()` instead of folding in userland. Both features extend the same `.query()` builder; they should land in the same release so the docs cover them together.
+
+### Joins (spawned from discussion #64)
+
+- **Eager single-FK join (#73)** — `.join('clientId', { as: 'client' })` resolves through the existing v0.4 `ref()` declaration. Two planner paths: indexed nested-loop (when the FK target field is in the right side's `indexes`) and hash join (otherwise). Hard memory ceiling at `JoinTooLargeError` (default 50k rows per side, override via `{ maxRows }`). Same-compartment only — cross-compartment correlation goes through `queryAcross` (#63).
+- **Live joins (#74)** — `.join().live()` produces a merged subscription over both collections' change streams. Right-side disappearance follows the v0.4 ref mode (`strict` / `warn` / `cascade`).
+- **Multi-FK chaining (#75)** — `.join('clientId').join('parentId')` for queries that follow more than one relationship. Each join uses its own planner strategy.
+
+### Aggregations v1 (spawned from discussion #65)
+
+- **Built-in reducers** — `count()`, `sum(field)`, `avg(field)`, `min(field)`, `max(field)` reducer factories.
+- **`.aggregate({ ... })` terminal** with a `.live()` mode that incrementally maintains running totals for `sum`/`count`/`avg`. Documented O(N) worst case for `min`/`max` on the "current extremum was just deleted" edge case.
+- **`groupBy(field)`** with a documented cardinality warn at 10k groups.
+- **`scan().aggregate(...)`** for memory-bounded aggregation over collections beyond the in-memory ceiling.
+- **Out of scope for v1, tracked separately:** per-row callback reducers (`.reduce(fn, init)`), index-backed aggregation planner, multi-level groupBy, aggregations across joins. These wait for a real consumer ask before being scheduled.
+
+### Out of v0.6 (deferred)
+
+- **Streaming joins over `scan()`** (#76) — different planner shape, lower priority. Graduates to a milestone when a consumer hits the v1 row ceiling and asks for it.
+
+---
+
+## v0.7 — Identity & sessions
+
+**Goal:** Solve "passphrase unlock is awkward for client portals." (Slipped from v0.5 to make room for core enhancements + query DSL — the epic is unchanged.)
 
 - **Session tokens.** Unlock once with passphrase or biometric, get a JWE valid for N minutes. KEK wrapped with a session-scoped non-extractable WebCrypto key. Closing the tab destroys the session.
 - **OAuth/OIDC bridge (`@noy-db/auth-oidc`).** Federated login → server returns a wrapped DEK fragment → combined client-side with a device secret to reconstruct the KEK. Server never sees plaintext or the unwrapped key. Same split-key pattern as Bitwarden's SSO key connector.
 - **Magic-link unlock.** Email a one-time link → derives a *viewer-only* KEK from a server-issued ephemeral secret. Read-only client portals.
 - **Hardware-key keyrings (`@noy-db/auth-webauthn`).** Full WebAuthn unwrap (YubiKey, Touch ID, Face ID, Windows Hello).
 - **Session policies.** `{ idleTimeout: '15m', absoluteTimeout: '8h', requireBiometricForExport: true }`.
-- **`exportStream()` + `exportJSON()` core primitive (#72).** Authorization-aware streaming export of plaintext records. `exportStream()` yields per-collection chunks with schema + ref metadata, going through the normal ACL path. `exportJSON()` is the universal default helper. Both APIs carry an explicit "this writes plaintext to disk" warning block in JSDoc and README — see the `@noy-db/decrypt-*` section below for the surrounding package family policy.
 
 ---
 
-## v0.6 — Sync v2
+## v0.8 — Sync v2
 
 **Goal:** Deterministic conflict resolution; collaborative editing where it matters.
 
@@ -272,7 +324,7 @@ export const useClients = defineStore('clients', {
 
 ---
 
-## v0.7 — Developer experience
+## v0.9 — Developer experience
 
 **Goal:** Make NOYDB easy to use, easy to debug, easy to import existing data into.
 
@@ -285,7 +337,7 @@ export const useClients = defineStore('clients', {
 
 ---
 
-## v0.8 — Adapter expansion
+## v0.10 — Adapter expansion
 
 | Adapter                       | Why                                                                  |
 |-------------------------------|----------------------------------------------------------------------|
@@ -302,9 +354,9 @@ export const useClients = defineStore('clients', {
 
 ---
 
-## v0.9 — Other framework integrations
+## v0.11 — Other framework integrations
 
-Pinia/Vue is already covered in v0.3. v0.9 brings the same first-class story to other ecosystems.
+Pinia/Vue is already covered in v0.3. v0.11 brings the same first-class story to other ecosystems.
 
 | Package                     | Provides                                                       |
 |-----------------------------|----------------------------------------------------------------|
@@ -381,9 +433,9 @@ await decryptToCSV(company.exportStream(), './invoices.csv')
 
 | Package                  | Deps                                          | Risk profile                                                                                                       | Target  |
 |--------------------------|-----------------------------------------------|--------------------------------------------------------------------------------------------------------------------|---------|
-| `@noy-db/decrypt-csv`    | **Zero.** ~50 LOC of correctly-escaped CSV.   | Plaintext-on-disk only. No supply chain surface.                                                                   | v0.6    |
-| `@noy-db/decrypt-xml`    | **Zero.** Hand-rolled subset, ~200–300 LOC. Covers elements, attributes, namespaces, CDATA, XSD generation. | Plaintext-on-disk only. No supply chain surface. Schema-aware via XSD; XSLT downstream story is the deciding factor for enterprise / regulated industries. | v0.6    |
-| `@noy-db/decrypt-xlsx`   | **Peer dep on `xlsx` or `exceljs`.**          | Plaintext-on-disk **plus** an external library with its own CVE history living inside the consumer's node_modules. **Highest-risk package in the family.** Ships last so the warning + review process is well-rehearsed by then. | v0.7    |
+| `@noy-db/decrypt-csv`    | **Zero.** ~50 LOC of correctly-escaped CSV.   | Plaintext-on-disk only. No supply chain surface.                                                                   | post-v0.5, opportunistic |
+| `@noy-db/decrypt-xml`    | **Zero.** Hand-rolled subset, ~200–300 LOC. Covers elements, attributes, namespaces, CDATA, XSD generation. | Plaintext-on-disk only. No supply chain surface. Schema-aware via XSD; XSLT downstream story is the deciding factor for enterprise / regulated industries. | post-v0.5, opportunistic |
+| `@noy-db/decrypt-xlsx`   | **Peer dep on `xlsx` or `exceljs`.**          | Plaintext-on-disk **plus** an external library with its own CVE history living inside the consumer's node_modules. **Highest-risk package in the family.** Ships last so the warning + review process is well-rehearsed by then. | v0.8+ |
 
 JSON is **not** in this family. The `exportJSON()` helper lives in `@noy-db/core` (v0.5, #72) because it is zero-dep, trivial, and is the universal default every consumer wants. The plaintext-on-disk warning still applies and is documented identically; the package boundary just isn't justified for five lines of code with no external deps.
 
@@ -425,8 +477,12 @@ This position is documented here so consumers stop asking. If you arrived at thi
 | Audit history = full snapshots                       | v0.4                                  |
 | No relational integrity                              | v0.4                                  |
 | Blockchain ledger usefulness                         | v0.4 (hash-chain, optional anchoring) |
-| Passphrase unlock awkward for client portals         | v0.5                                  |
-| Sync conflict resolution model unclear               | v0.6                                  |
+| Cross-tenant consolidated reporting needs out-of-band index | v0.5 (`queryAcross`)             |
+| Owner is single point of failure for admin onboarding | v0.5 (admin-grants-admin)            |
+| No plaintext export path for downstream tooling      | v0.5 (`exportStream`/`exportJSON`) + post-v0.5 `@noy-db/decrypt-*` family |
+| Joins / aggregations folded in userland              | v0.6                                  |
+| Passphrase unlock awkward for client portals         | v0.7                                  |
+| Sync conflict resolution model unclear               | v0.8                                  |
 
 ---
 
@@ -447,4 +503,4 @@ Open a discussion before opening a PR that touches anything past v0.4 — the fu
 
 ---
 
-*Roadmap v3.1 — 2026-04-06*
+*Roadmap v3.2 — 2026-04-07*
