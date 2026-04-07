@@ -4,11 +4,12 @@
 
 # noy-db
 
-### None Of Your Damn Business
+## None Of Your DataBase
+<sub><em>(formerly shortened as: "None Of Your <strong>Damn Business</strong>")</em></sub>
 
-Your data. Your device. Your keys. Not your DB's business.
+**Your data. Your device. Your keys. Nobody else's server.**
 
-A zero-knowledge, offline-first, encrypted document store with pluggable backends and multi-user access control.
+An encrypted, offline-first, **serverless** document store. The library lives inside your app, stores in whatever backend you choose, and nobody in the middle ever sees plaintext — not the cloud provider, not the sysadmin, not the database vendor. Not noy-db either.
 
 [![npm](https://img.shields.io/npm/v/@noy-db/core.svg?label=%40noy-db%2Fcore)](https://www.npmjs.com/package/@noy-db/core)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -21,11 +22,65 @@ A zero-knowledge, offline-first, encrypted document store with pluggable backend
 
 ---
 
-## The Problem
+## Why noy-db exists
 
-You have a small, sensitive dataset (1K–50K records). It needs to work offline, sync to the cloud when available, be encrypted at rest on every backend, and support multiple users with different access levels. You want to swap storage backends without changing your app code.
+Most data-storage tools assume you'll rent a database from somebody. noy-db assumes the opposite: **your data belongs on your devices**, not in somebody's cloud.
 
-**No existing library does all of this.** NOYDB does.
+Every design choice in this project is built around that inversion. The default mode is **offline**. The default trust boundary is **your own process**. The default backend is **a file you control**. Sync, multi-user access, cloud storage — those are optional capabilities you layer on when you need them, not baseline assumptions you can't escape.
+
+If a breach happens at your cloud provider, the attacker gets ciphertext. If a sysadmin reads the DynamoDB table, they see ciphertext. If you lose the USB stick, whoever finds it sees ciphertext. Encryption happens before the data leaves the library — there's no "encrypted in transit" layer you're supposed to trust. The keys stay in your process memory and are derived from a passphrase that nothing in the system ever stores.
+
+**Data ownership isn't a feature we shipped. It's the shape of the whole project.**
+
+---
+
+## Key factors
+
+- **🔒 Zero-knowledge encryption** — AES-256-GCM with per-user keys. Every adapter (file, DynamoDB, S3, browser storage) only ever sees ciphertext. Lose the USB stick, breach the cloud, subpoena the provider — none of them can read your records.
+- **☁️ Serverless by design** — there's **no noy-db server to run**. No Docker image, no managed service, no backend to keep alive. The library is a ~30 KB TypeScript package that embeds directly in your app. You pick the storage backend; you own the data end-to-end. If you shut your computer off, the database is off. If you open your app, the database is on.
+- **📱 Runs on any OS, any device** — macOS, Linux, Windows, iOS, Android, Raspberry Pi, an old laptop, a shared browser tab. Any JavaScript runtime (Node 18+, Bun, Deno, every modern browser). **Minimum requirements: a JS engine and the Web Crypto API.** That's it. No GPU, no heavy dependencies, no system-level service.
+- **🌐 Offline-first** — every operation works without internet. Sync to a remote is opportunistic, not mandatory. The library doesn't distinguish between "I'm online" and "I'm offline" — both modes use the same code path.
+- **👥 Multi-user built in** — 5 role types (owner / admin / operator / viewer / client), per-collection permissions, portable keyrings, key rotation on revoke. **No auth server required** — the keyring file travels with your data and lives on the same backend.
+
+---
+
+## Runs on whatever you've got
+
+| Platform | Runtime | Storage backend | Status |
+|---|---|---|---|
+| 🖥️ **Desktop** — macOS / Linux / Windows | Node 18+, Bun, Deno | `@noy-db/file` (JSON on disk) | ✅ |
+| 📱 **Mobile browser** — iOS Safari 14+, Android Chrome 90+ | Browser JS | `@noy-db/browser` (IndexedDB / localStorage) | ✅ |
+| 🌐 **Desktop browser** — Chrome, Firefox, Safari, Edge | Browser JS | `@noy-db/browser` | ✅ |
+| ⚡ **PWA / offline web app** | Service Worker + browser | `@noy-db/browser` | ✅ |
+| 🖧 **Server (headless)** | Node 18+ | `@noy-db/file`, `@noy-db/dynamo`, `@noy-db/s3` | ✅ |
+| 💾 **USB stick / removable disk** | Any OS + any runtime | `@noy-db/file` | ✅ |
+| 🔌 **Electron / Tauri desktop app** | Desktop shell | `@noy-db/file` or `@noy-db/browser` | ✅ |
+| 🧪 **Testing / CI** | Any JS runtime | `@noy-db/memory` (no persistence) | ✅ |
+
+**No database server to install. No Docker. No Docker Compose. No managed service bill.** The entire storage layer runs inside your app process. Hardware-wise, anything that can run a modern browser can run noy-db — including phones, tablets, Raspberry Pi, and low-end cloud VMs.
+
+---
+
+## International project, Thailand focus
+
+noy-db is an international open-source project, developed and maintained from **Thailand**. The first production consumer is a regional accounting firm in Chiang Mai — the library's design assumptions (offline-first, multi-user, sensitive financial data, per-tenant isolation, USB-based workflows for poor connectivity) come directly from that real-world deployment.
+
+Thai language and regional format support is a first-class concern, not an afterthought:
+
+- **Thai text handling** — Unicode throughout. Record IDs, field values, user display names, error messages, and backup files all round-trip Thai characters cleanly (including combining marks and the full BE character set). Verified in the test suite.
+- **Regional formats** — Buddhist Era dates (`พ.ศ. 2568`), Thai numerals (`๐ ๑ ๒ ๓`), and THB currency formatting flow through the standard `Intl` APIs — no special-case code, works in both Node and browser environments.
+- **Thai prompts in the scaffolder** — the `npm create @noy-db` wizard is planned to ship in both English and Thai, auto-detecting from `LANG` / `LC_ALL` (tracked in issue [#36](https://github.com/vLannaAi/noy-db/issues/36), scheduled for a future release).
+- **Timezones** — ISO-8601 with explicit offsets everywhere. `Asia/Bangkok` is never hardcoded but is the default assumption for the reference demos.
+
+International contributors and users are welcome. Open an issue or PR in whatever language you're comfortable with — English, Thai (ไทย), or anything else — and we'll work with it. The code and API stay in English (for consistency with the JavaScript ecosystem), but docs, examples, and issues can use either language.
+
+---
+
+## The Problem noy-db solves
+
+You have a small, sensitive dataset (1K–50K records). It needs to work **offline**, sync to the cloud when available, be **encrypted at rest** on every backend, and support **multiple users with different access levels**. You want to **swap storage backends** without changing your app code. And you don't want to stand up, pay for, or trust a database server to do any of this.
+
+**No existing library does all of this.** noy-db does.
 
 | Library | What's Missing |
 |---------|---------------|
@@ -36,6 +91,8 @@ You have a small, sensitive dataset (1K–50K records). It needs to work offline
 | LowDB | No sync. No encryption. No multi-user. |
 | Dexie | Browser only. No server-side. |
 | Replicache | BSL license (paid). Browser only. |
+
+None of these run fully serverless AND zero-knowledge AND multi-user AND offline-first AND across every JS runtime. That combination is the point.
 
 ---
 
@@ -315,5 +372,7 @@ export const myAdapter = defineAdapter((options) => ({
 ---
 
 <div align="center">
-  <sub>Your data. Your device. Your keys. <b>None of your DB's damn business.</b></sub>
+  <sub>Your data. Your device. Your keys. <b>None Of Your DataBase.</b></sub>
+  <br>
+  <sub><em>(Originally, and still occasionally: "None Of Your <strong>Damn Business</strong>".)</em></sub>
 </div>
