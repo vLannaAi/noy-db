@@ -1,5 +1,19 @@
 # @noy-db/create
 
+## 0.3.2
+
+### Patch Changes
+
+- **Fix `noy-db verify` broken on npm installs.** In v0.3.1, `@noy-db/core` and `@noy-db/memory` were declared as `devDependencies` instead of `dependencies`. The wizard (`create` bin) worked fine because it only writes files, but the `noy-db verify` command imports both packages at runtime and threw `ERR_MODULE_NOT_FOUND` as soon as a user installed `@noy-db/create` from npm and ran `pnpm exec noy-db verify`.
+
+  The fix moves both to `dependencies` so they land in `node_modules/@noy-db/create/node_modules/` on install. No API changes, no code changes beyond the manifest.
+
+  **v0.3.1 has been deprecated on npm.** Please upgrade:
+
+  ```bash
+  pnpm add -D @noy-db/create@latest
+  ```
+
 ## 0.3.1
 
 ### Minor Changes

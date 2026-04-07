@@ -27,10 +27,12 @@ export default defineConfig({
   splitting: false,
   sourcemap: true,
   target: 'es2022',
-  // External: @clack/prompts and picocolors are runtime deps; we don't bundle
-  // them. @noy-db/core and @noy-db/memory are devDependencies used only by
-  // the integrity check (verify command), and we want them resolved from the
-  // user's project (or from create-noy-db's own node_modules at install time).
+  // External: @clack/prompts, picocolors, @noy-db/core, and @noy-db/memory
+  // are all runtime deps. We don't bundle them — they're resolved from the
+  // installed package's own node_modules at runtime. (In v0.3.1, core and
+  // memory were mistakenly declared as devDependencies, which meant the
+  // `noy-db verify` command threw ERR_MODULE_NOT_FOUND on any install from
+  // npm. Fixed in v0.3.2 by moving them to `dependencies`.)
   external: [
     '@clack/prompts',
     'picocolors',
