@@ -1,0 +1,284 @@
+name: E2E scaffolder
+
+# End-to-end test for @noy-db/create. Packs the relevant @noy-db/*
+# packages as real tarballs, installs them into a fresh consumer
+# directory with a real package manager, runs the `create` wizard to
+# generate a starter project, and exercises an end-to-end smoke test
+# against the installed libraries.
+#
+# Why this workflow exists
+# ------------------------
+# Every release since v0.3.1 has been bitten by a bug that only shows
+# up when you install packed tarballs in a fresh directory. The
+# workspace's symlinked `node_modules` hides at least three separate
+# classes of failure that all surface at consumer-install time:
+#
+#   1. Runtime deps declared as `devDependencies` — workspace
+#      symlinks make them resolve anyway; a real `npm install` can't
+#      find them. (v0.3.1 → v0.3.2 patch.)
+#
+#   2. `workspace:*` in `peerDependencies` publishes as a pinned
+#      version string, not a caret range, so adapter packages refuse
+#      to install alongside a newer `@noy-db/core`. (v0.4.0 → v0.4.1
+#      patch.)
+#
+#   3. Missing files in the `files` list — the workspace sees the
+#      source tree; the published tarball doesn't.
+#
+# Unit tests cover the WORKSPACE version of every package. They
+# cannot catch any of the three classes above — those only show up
+# when you leave the workspace. This job is that escape hatch: it
+# reproduces the consumer's perspective on every PR that changes the
+# affected packages, and on every push to main for belt-and-braces.
+#
+# Matrix scope
+# ------------
+# We run across (OS × Node version × package manager), holding the
+# adapter fixed at `memory` (it's the one the smoke test actually
+# exercises at runtime). Adapter variety is already covered by the
+# per-package unit tests inside the workspace — the matrix here is
+# specifically about the consumer install path.
+#
+# Windows is deferred: its PM tooling has quirks (shebang handling,
+# .cmd shims, path separators) that produce flakes without adding
+# much signal over macOS. Bun and Yarn are also out of scope for
+# now — npm and pnpm cover 95% of the install paths our users will
+# encounter, and they exercise the two most different resolution
+# models (npm's strict peer deps vs pnpm's isolated virtual store).
+#
+# Path filter
+# -----------
+# The workflow only runs when something that could affect the
+# consumer install path changes: the scaffolder itself, the four
+# runtime packages it depends on, or this workflow file. Regular
+# feature PRs against other packages don't pay this cost.
+
+on:
+  pull_request:
+    paths:
+      - 'packages/create-noy-db/**'
+      - 'packages/core/**'
+      - 'packages/memory/**'
+      - 'packages/pinia/**'
+      - 'packages/browser/**'
+      - '.github/workflows/e2e-scaffolder.yml'
+  push:
+    branches:
+      - main
+
+jobs:
+  pack-install-smoke:
+    name: ${{ matrix.os }} · Node ${{ matrix.node }} · ${{ matrix.pm }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: [20, 22]
+        pm: [npm, pnpm]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # We always build the workspace with pnpm because it's a pnpm
+      # workspace; the matrix `pm` only controls how the CONSUMER
+      # (the fresh temp dir) installs the packed tarballs.
+      - name: Set up pnpm (for the workspace build)
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node ${{ matrix.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - name: Install workspace deps
+        run: pnpm install --frozen-lockfile
+
+      # Filter the build so we only touch the packages that actually
+      # ship to consumers via the scaffolder. Turbo's ^build pattern
+      # pulls in the transitive dependencies automatically.
+      - name: Build scaffolder + runtime deps
+        run: |
+          pnpm turbo build \
+            --filter='@noy-db/create' \
+            --filter='@noy-db/core' \
+            --filter='@noy-db/memory' \
+            --filter='@noy-db/browser' \
+            --filter='@noy-db/pinia'
+
+      # Each pnpm pack leaves a .tgz in the package directory. We
+      # capture the exact filenames via a shell glob so the rest of
+      # the job doesn't need to know the version string.
+      - name: Pack tarballs
+        id: pack
+        run: |
+          set -eux
+          for pkg in core memory browser pinia create-noy-db; do
+            (cd "packages/$pkg" && pnpm pack)
+          done
+          ls -la packages/core/*.tgz packages/memory/*.tgz \
+                 packages/browser/*.tgz packages/pinia/*.tgz \
+                 packages/create-noy-db/*.tgz
+
+      # Create a consumer project in a scratch directory OUTSIDE the
+      # workspace so pnpm/npm don't find the workspace root by
+      # walking up. This is the load-bearing isolation step.
+      - name: Scaffold fresh consumer directory
+        run: |
+          set -eux
+          mkdir -p "$RUNNER_TEMP/consumer"
+          cd "$RUNNER_TEMP/consumer"
+          echo '{"name":"e2e-consumer","version":"1.0.0","private":true,"type":"module"}' > package.json
+
+      # Resolve the actual tarball paths once and export them as env
+      # vars so both the install step and the smoke step can see the
+      # same files. The paths contain the version string so we have
+      # to glob-resolve — but we bail if any glob doesn't match
+      # exactly one file.
+      - name: Resolve tarball paths
+        id: tarballs
+        run: |
+          set -eux
+          resolve() {
+            local glob="$1"
+            local matches
+            matches=$(ls -1 $glob 2>/dev/null || true)
+            local count
+            count=$(printf '%s\n' "$matches" | grep -c . || true)
+            if [ "$count" != "1" ]; then
+              echo "FAIL: expected exactly one file matching $glob, got $count:" >&2
+              echo "$matches" >&2
+              exit 1
+            fi
+            printf '%s' "$matches"
+          }
+          CORE_TGZ=$(resolve "$GITHUB_WORKSPACE/packages/core/noy-db-core-*.tgz")
+          MEMORY_TGZ=$(resolve "$GITHUB_WORKSPACE/packages/memory/noy-db-memory-*.tgz")
+          BROWSER_TGZ=$(resolve "$GITHUB_WORKSPACE/packages/browser/noy-db-browser-*.tgz")
+          PINIA_TGZ=$(resolve "$GITHUB_WORKSPACE/packages/pinia/noy-db-pinia-*.tgz")
+          CREATE_TGZ=$(resolve "$GITHUB_WORKSPACE/packages/create-noy-db/noy-db-create-*.tgz")
+          {
+            echo "core=$CORE_TGZ"
+            echo "memory=$MEMORY_TGZ"
+            echo "browser=$BROWSER_TGZ"
+            echo "pinia=$PINIA_TGZ"
+            echo "create=$CREATE_TGZ"
+          } >> "$GITHUB_OUTPUT"
+
+      # Install the tarballs via the matrix's package manager. This
+      # is THE step that catches peer-dep pinning bugs, missing
+      # runtime deps, and missing files in the published tarball.
+      #
+      # pnpm needs `vue` + `pinia` as explicit installs because
+      # @noy-db/pinia declares them as peer deps; npm would hoist
+      # them automatically but pnpm's isolation model requires they
+      # live in the consumer's top-level deps. We add them both for
+      # consistency across the matrix.
+      - name: Install tarballs (${{ matrix.pm }})
+        working-directory: ${{ runner.temp }}/consumer
+        run: |
+          set -eux
+          ${{ matrix.pm }} install \
+            "${{ steps.tarballs.outputs.core }}" \
+            "${{ steps.tarballs.outputs.memory }}" \
+            "${{ steps.tarballs.outputs.browser }}" \
+            "${{ steps.tarballs.outputs.pinia }}" \
+            "${{ steps.tarballs.outputs.create }}" \
+            pinia vue
+
+      # Invoke the `create` bin through its installed path. We run
+      # it with --yes --adapter memory to skip all interactive
+      # prompts; the resulting project should be a fully formed
+      # Nuxt 4 starter that does NOT depend on network access.
+      - name: Run the scaffolder wizard
+        working-directory: ${{ runner.temp }}/consumer
+        run: |
+          set -eux
+          node ./node_modules/@noy-db/create/dist/bin/create.js \
+            my-app --yes --adapter memory --no-sample-data
+          # The wizard should have produced a minimal Nuxt 4 starter.
+          # Confirm the load-bearing files landed where we expect.
+          test -f my-app/package.json
+          test -f my-app/nuxt.config.ts
+          test -f my-app/app/app.vue
+
+      # Actually USE the installed packages. If any of the three
+      # regression classes (missing runtime dep, broken peer dep,
+      # missing file in pack) are present, one of these imports
+      # will throw.
+      - name: End-to-end smoke test
+        working-directory: ${{ runner.temp }}/consumer
+        run: |
+          set -eux
+          cat > smoke.mjs <<'EOF'
+          import { createNoydb, ref, LedgerStore, computePatch, applyPatch, SchemaValidationError, BackupLedgerError } from '@noy-db/core'
+          import { memory } from '@noy-db/memory'
+
+          const db = await createNoydb({
+            adapter: memory(),
+            user: 'e2e',
+            secret: 'e2e-passphrase-2026',
+          })
+          const c = await db.openCompartment('demo')
+          const invoices = c.collection('invoices')
+
+          // Basic round-trip
+          await invoices.put('inv-1', { id: 'inv-1', amount: 100 })
+          await invoices.put('inv-1', { id: 'inv-1', amount: 200 })
+          const current = await invoices.get('inv-1')
+          if (!current || current.amount !== 200) {
+            throw new Error('roundtrip: expected amount=200, got ' + JSON.stringify(current))
+          }
+
+          // Ledger (v0.4 #43)
+          const verify = await c.ledger().verify()
+          if (!verify.ok) throw new Error('ledger verify failed: ' + JSON.stringify(verify))
+
+          // Delta reconstruct (v0.4 #44)
+          const v1 = await c.ledger().reconstruct('invoices', 'inv-1', current, 1)
+          if (!v1 || v1.amount !== 100) {
+            throw new Error('reconstruct v1: expected amount=100, got ' + JSON.stringify(v1))
+          }
+
+          // Verifiable backup (v0.4 #46)
+          const backup = await c.dump()
+          const parsed = JSON.parse(backup)
+          if (!parsed.ledgerHead) throw new Error('dump: missing ledgerHead')
+
+          // Refs helper (v0.4 #45) — just verify it's exported and callable
+          const desc = ref('clients')
+          if (desc.target !== 'clients') throw new Error('ref() returned wrong target')
+
+          // Schema validation error class export (v0.4 #42)
+          if (typeof SchemaValidationError !== 'function') {
+            throw new Error('SchemaValidationError not exported as a class')
+          }
+          if (typeof BackupLedgerError !== 'function') {
+            throw new Error('BackupLedgerError not exported as a class')
+          }
+
+          // JSON Patch exports (v0.4 #44)
+          const patch = computePatch({ a: 1 }, { a: 2 })
+          const restored = applyPatch({ a: 1 }, patch)
+          if (restored.a !== 2) throw new Error('applyPatch result wrong')
+
+          // LedgerStore class export (v0.4 #43)
+          if (typeof LedgerStore !== 'function') {
+            throw new Error('LedgerStore not exported as a class')
+          }
+
+          db.close()
+          console.log('E2E smoke: OK')
+          EOF
+          node smoke.mjs
+
+      # Also exercise the `noy-db` bin — the ongoing CLI tool.
+      # `verify` runs an in-memory integrity check; it doesn't need
+      # a real compartment on disk and has no user prompts.
+      - name: noy-db verify bin
+        working-directory: ${{ runner.temp }}/consumer
+        run: |
+          set -eux
+          node ./node_modules/@noy-db/create/dist/bin/noy-db.js verify
