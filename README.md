@@ -294,7 +294,7 @@ export const myAdapter = defineAdapter((options) => ({
 
 ## Status
 
-**v0.4 shipped on npm.** All releases through 0.4 are published. See the [Roadmap](ROADMAP.md) for the full plan.
+**v0.4.1 shipped on npm.** All 10 `@noy-db/*` packages are unified on the `0.4.1` line. See the [Roadmap](ROADMAP.md) for the full plan.
 
 | Version | Status   | Scope                                                              |
 |---------|----------|--------------------------------------------------------------------|
@@ -303,6 +303,7 @@ export const myAdapter = defineAdapter((options) => ({
 | 0.3     | shipped  | Nuxt 4 module, Pinia integration, query DSL, indexes, lazy hydration |
 | 0.3.1   | shipped  | `@noy-db/create` scaffolder + `noy-db` CLI                          |
 | 0.4     | shipped  | Schema validation, hash-chained ledger, delta history, FK refs, verifiable backups |
+| 0.4.1   | shipped  | Peer dep pinning fix; unified `@noy-db/*` on a single version line  |
 | 0.5+    | planned  | Identity & sessions, CRDT sync, ledger devtools                     |
 
 ---

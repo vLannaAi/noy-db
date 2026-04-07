@@ -1,6 +1,6 @@
 # Roadmap
 
-> **Current:** v0.4 shipped on npm — Integrity & trust: schema validation, hash-chained ledger, delta history, FK refs, verifiable backups. **Next:** v0.5 — Identity & sessions.
+> **Current:** v0.4.1 shipped on npm — all 10 `@noy-db/*` packages unified on a single version line. Integrity & trust features: schema validation, hash-chained ledger, delta history, FK refs, verifiable backups. **Next:** v0.5 — Identity & sessions.
 >
 > Related docs:
 > - [Architecture](./docs/architecture.md) — data flow, key hierarchy, threat model
@@ -14,7 +14,7 @@
 
 ## Status
 
-v0.4 shipped on npm. Ten packages published: `@noy-db/core` (now 0.4.0), `@noy-db/pinia` (now 0.4.0), `@noy-db/memory`, `@noy-db/file`, `@noy-db/dynamo`, `@noy-db/s3`, `@noy-db/browser`, `@noy-db/vue`, `@noy-db/nuxt`, `@noy-db/create`. **654 tests** passing across the monorepo (376 in `@noy-db/core` alone — up from 269 at v0.3 ship). The v0.4 epic added the integrity layer on top of v0.3's adoption surface: every record can be schema-validated, every mutation recorded in a tamper-evident hash chain, history delta-encoded for storage efficiency, soft FK references enforced per-collection, and backups verified end-to-end on load. The reference Nuxt 4 demo at `playground/nuxt/` is now the integration test for v0.3 AND v0.4 — its invoices store is backed by a Zod schema, exercising the validation path for free. v0.5 turns to **identity & sessions**: passphrase unlock UX, session tokens, OIDC bridge, hardware-key keyrings.
+v0.4.1 shipped on npm. All 10 `@noy-db/*` packages are now unified on the **0.4.1** version line — `core`, `pinia`, `memory`, `file`, `dynamo`, `s3`, `browser`, `vue`, `nuxt`, `create`. **654 tests** passing across the monorepo (376 in `@noy-db/core` alone — up from 269 at v0.3 ship). The v0.4 epic added the integrity layer on top of v0.3's adoption surface: every record can be schema-validated, every mutation recorded in a tamper-evident hash chain, history delta-encoded for storage efficiency, soft FK references enforced per-collection, and backups verified end-to-end on load. The 0.4.1 patch fixes a release-hygiene bug where `workspace:*` in `peerDependencies` published as exact-version pins, making the 0.4.0 adapters uninstallable alongside a newer core. The reference Nuxt 4 demo at `playground/nuxt/` is the integration test for v0.3 AND v0.4 — its invoices store is backed by a Zod schema, exercising the validation path end-to-end. v0.5 turns to **identity & sessions**: passphrase unlock UX, session tokens, OIDC bridge, hardware-key keyrings.
 
 ---
 
@@ -27,6 +27,7 @@ v0.4 shipped on npm. Ten packages published: `@noy-db/core` (now 0.4.0), `@noy-d
 | 0.3     | ✅ shipped  | Pinia-first DX + query & scale     | Nuxt 4 module, `@noy-db/pinia`, query DSL, secondary indexes, pagination, lazy LRU |
 | 0.3.1   | ✅ shipped  | Scaffolder + CLI                   | `@noy-db/create` wizard, `noy-db add`/`verify`, Nuxt 4 starter template      |
 | 0.4     | ✅ shipped  | Integrity & trust                  | Schema validation, hash-chained ledger, delta history, FK refs, verifiable backups |
+| 0.4.1   | ✅ shipped  | Release hygiene patch              | Peer dep pinning fix (`workspace:^`); unified `@noy-db/*` on one version line  |
 | **0.5** | 🚧 **next** | **Identity & sessions**            | Session tokens, OIDC bridge, magic links, hardware-key keyrings           |
 | 0.6     | 📋 planned  | Sync v2                            | CRDT mode, pluggable conflict policies, presence, partial sync            |
 | 0.7     | 📋 planned  | Developer experience               | `noydb` CLI, devtools panel, schema codegen, importers                    |

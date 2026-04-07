@@ -2,24 +2,34 @@
 
 > This document is optimized for AI coding assistants (Claude Code, Copilot, Cursor).
 > It provides the fastest path to using NOYDB correctly in any project.
+>
+> **Current version:** `@noy-db/*@0.4.1` — all 10 packages are on a unified version line. **Current release theme:** v0.4 Integrity & trust (schema validation, hash-chained ledger, delta history, FK refs, verifiable backups).
 
 ## What NOYDB Is
 
 NOYDB is a zero-knowledge encrypted document store. You give it a passphrase; it encrypts everything with AES-256-GCM before storing. Backends (file, DynamoDB, S3, browser localStorage) only see ciphertext. Multi-user access control with 5 roles. Offline-first with optional cloud sync. Zero runtime dependencies.
 
+**As of v0.4:** every record can be schema-validated via [Standard Schema v1](https://standardschema.dev) (Zod, Valibot, ArkType, Effect Schema), every mutation is recorded in a tamper-evident hash-chained ledger, history is delta-encoded via RFC 6902 JSON Patch, soft foreign-key references are enforceable per-collection, and backups verify end-to-end on load.
+
 ## Install
 
 ```bash
-# Pick your backend:
-npm install @noy-db/core @noy-db/file      # local filesystem / USB
-npm install @noy-db/core @noy-db/dynamo    # AWS DynamoDB
-npm install @noy-db/core @noy-db/s3        # AWS S3
-npm install @noy-db/core @noy-db/browser   # browser localStorage/IndexedDB
-npm install @noy-db/core @noy-db/memory    # testing (no persistence)
+# Fastest: the wizard for a new Nuxt 4 + Pinia + noy-db project
+npm  create @noy-db my-app
+pnpm create @noy-db my-app
 
-# Optional:
-npm install @noy-db/vue                   # Vue/Nuxt composables
+# Or install manually. Pick your backend:
+npm install @noy-db/core @noy-db/file       # local filesystem / USB
+npm install @noy-db/core @noy-db/dynamo     # AWS DynamoDB
+npm install @noy-db/core @noy-db/s3         # AWS S3
+npm install @noy-db/core @noy-db/browser    # browser localStorage/IndexedDB
+npm install @noy-db/core @noy-db/memory     # testing (no persistence)
+
+# Vue / Nuxt / Pinia
+npm install @noy-db/core @noy-db/browser @noy-db/pinia @noy-db/nuxt @pinia/nuxt pinia
 ```
+
+All `@noy-db/*` packages are on the same version line (`0.4.1` at time of writing). Installing any combination from the same line is guaranteed to work — peer deps use `workspace:^` so minor upgrades are transparent.
 
 ## Minimal Working Example
 
@@ -56,6 +66,139 @@ await invoices.delete('inv-001')
 // 5. Close (clears all keys from memory)
 db.close()
 ```
+
+## v0.4 Feature Reference
+
+The v0.4 line adds five composable features. Each one is opt-in; a collection with none of them behaves exactly like v0.3.
+
+### Schema validation (Standard Schema v1)
+
+```typescript
+import { createNoydb, type StandardSchemaV1, SchemaValidationError } from '@noy-db/core'
+import { z } from 'zod'  // or valibot, arktype, effect/schema — anything with '~standard'
+
+const InvoiceSchema = z.object({
+  id: z.string(),
+  amount: z.number().positive(),
+  status: z.enum(['draft', 'open', 'paid']),
+})
+
+const invoices = company.collection('invoices', { schema: InvoiceSchema })
+
+// Runs the validator BEFORE encryption on every put()
+await invoices.put('inv-1', { id: 'inv-1', amount: 100, status: 'draft' })
+
+// Throws SchemaValidationError on bad input (with the full Standard Schema issue list)
+await invoices.put('inv-bad', { id: 'inv-bad', amount: -5, status: 'draft' })
+//   → SchemaValidationError { direction: 'input', issues: [...] }
+
+// Runs the validator AFTER decryption on every read — throws with direction: 'output' on stored-data drift
+const loaded = await invoices.get('inv-1')
+```
+
+With `defineNoydbStore`:
+
+```typescript
+export const useInvoices = defineNoydbStore<z.infer<typeof InvoiceSchema>>('invoices', {
+  compartment: 'demo-co',
+  schema: InvoiceSchema,
+})
+```
+
+History reads (`getVersion`, `history`) intentionally skip validation — historical records predate the current schema by definition.
+
+### Hash-chained audit log (the ledger)
+
+```typescript
+const ledger = company.ledger()
+
+// Every put/delete appended an encrypted entry automatically. Nothing to do on the write side.
+
+// Read the chain head (stable hash suitable for external anchoring)
+const head = await ledger.head()
+//   → { entry, hash, length }  or  null on empty compartment
+
+// Verify the chain — returns discriminated result
+const result = await ledger.verify()
+//   → { ok: true, head, length }
+//   → { ok: false, divergedAt, expected, actual }
+
+// Iterate entries in a range
+const recent = await ledger.entries({ from: 0, to: 100 })
+```
+
+Ledger entries are encrypted with a per-compartment ledger DEK. `payloadHash` is `sha256(envelope._data)` — the **ciphertext**, preserving zero-knowledge. All system-prefixed DEKs (`_ledger`, `_history`, `_sync`) are propagated to every keyring via `grant()`, so every user with compartment access can append to the shared ledger.
+
+### Delta history via RFC 6902 JSON Patch
+
+```typescript
+import { computePatch, applyPatch, type JsonPatch } from '@noy-db/core'
+
+// Collection.put automatically computes a reverse patch when there's a previous version
+// and stores it in _ledger_deltas/<paddedIndex>.
+
+// Reconstruct any historical version by walking the chain backward
+const current = await invoices.get('inv-1')
+const v1 = await company.ledger().reconstruct('invoices', 'inv-1', current, 1)
+//   → the record as it existed at version 1, or null if unreachable
+
+// The pure JSON Patch primitives are also exported for direct use
+const patch: JsonPatch = computePatch({ a: 1 }, { a: 2 })
+//   → [{ op: 'replace', path: '/a', value: 2 }]
+const restored = applyPatch({ a: 1 }, patch)
+//   → { a: 2 }
+```
+
+Patches are **reverse** (`new → previous`), so the walk starts from the current state and doesn't need a base snapshot. Known limitation: ambiguous across delete+recreate cycles because version numbers restart at 1 after a delete.
+
+### Foreign-key references via `ref()`
+
+```typescript
+import { ref, RefIntegrityError } from '@noy-db/core'
+
+const invoices = company.collection<Invoice>('invoices', {
+  refs: {
+    clientId: ref('clients'),                // strict (default)
+    categoryId: ref('categories', 'warn'),
+    parentId: ref('invoices', 'cascade'),    // self-reference OK
+  },
+})
+
+// strict:  put() rejects if the target id doesn't exist; delete() of target rejects if references exist
+// warn:    both succeed; checkIntegrity() surfaces orphans
+// cascade: delete() of target propagates to delete every referencing record (cycle-safe)
+
+await invoices.put('inv-1', { id: 'inv-1', clientId: 'missing', /* ... */ })
+//   → RefIntegrityError { collection, id, field, refTo, refId }
+
+// Compartment-level report of every broken reference, regardless of mode
+const { violations } = await company.checkIntegrity()
+```
+
+Cross-compartment refs are rejected at construction with `RefScopeError`. Dotted-path field names are out of scope for v0.4 — top-level fields only.
+
+### Verifiable backups
+
+```typescript
+import { BackupLedgerError, BackupCorruptedError } from '@noy-db/core'
+
+// dump() now embeds the chain head + the full _ledger / _ledger_deltas collections
+const backup = await company.dump()
+
+// load() re-runs verification after restoring
+await targetCompany.load(backup)
+//   → throws BackupLedgerError if the chain is broken or the head doesn't match
+//   → throws BackupCorruptedError if any data envelope's payloadHash diverged
+//   → silent success otherwise
+
+// Can also be called on a live compartment as a periodic audit
+const result = await company.verifyBackupIntegrity()
+//   → { ok: true, head, length }
+//   → { ok: false, kind: 'chain', divergedAt, message }
+//   → { ok: false, kind: 'data', collection, id, message }
+```
+
+Legacy (pre-v0.4) backups without `ledgerHead` load with a `console.warn` and skip the integrity check.
 
 ## Key Concepts
 
