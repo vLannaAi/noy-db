@@ -38,6 +38,7 @@ export default defineConfig({
     'picocolors',
     '@noy-db/core',
     '@noy-db/memory',
+    '@noy-db/file',
     'node:fs',
     'node:fs/promises',
     'node:path',

@@ -7,6 +7,7 @@ import {
   createOwnerKeyring,
   grant as keyringGrant,
   revoke as keyringRevoke,
+  rotateKeys as keyringRotate,
   changeSecret as keyringChangeSecret,
   listUsers as keyringListUsers,
 } from './keyring.js'
@@ -160,6 +161,33 @@ export class Noydb {
   async revoke(compartment: string, options: RevokeOptions): Promise<void> {
     const keyring = await this.getKeyring(compartment)
     await keyringRevoke(this.options.adapter, compartment, keyring, options)
+  }
+
+  /**
+   * Rotate the DEKs for the given collections in a compartment.
+   *
+   * Generates fresh DEKs, re-encrypts every record in each collection,
+   * and re-wraps the new DEKs into every remaining user's keyring. The
+   * old DEKs become unreachable — useful as a defense-in-depth measure
+   * after a suspected key leak, or as the scheduled half of a
+   * key-rotation policy.
+   *
+   * Unlike `revoke({ rotateKeys: true })`, this call does NOT remove
+   * any users — every current member keeps access, but with fresh
+   * keys. This is the "just rotate" path; the "revoke and rotate"
+   * path still lives in `revoke()`.
+   *
+   * Exposed on Noydb (rather than only on the lower-level keyring
+   * module) so CLI and admin tooling can trigger rotation without
+   * reaching into internals. See `noy-db rotate` for the CLI wrapper.
+   */
+  async rotate(compartment: string, collections: string[]): Promise<void> {
+    const keyring = await this.getKeyring(compartment)
+    await keyringRotate(this.options.adapter, compartment, keyring, collections)
+    // Refresh the cached keyring so subsequent operations see the
+    // freshly-rotated DEKs. Without this, `ensureCollectionDEK` on
+    // the next Collection access would still hold the old ones.
+    this.keyringCache.set(compartment, keyring)
   }
 
   /** List all users with access to a compartment. */

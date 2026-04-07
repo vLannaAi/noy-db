@@ -45,7 +45,8 @@
     "@clack/prompts": "^0.9.1",
     "picocolors": "^1.1.1",
     "@noy-db/core": "workspace:*",
-    "@noy-db/memory": "workspace:*"
+    "@noy-db/memory": "workspace:*",
+    "@noy-db/file": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0"

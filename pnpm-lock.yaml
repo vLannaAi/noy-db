@@ -65,6 +65,9 @@ importers:
       '@noy-db/core':
         specifier: workspace:*
         version: link:../core
+      '@noy-db/file':
+        specifier: workspace:*
+        version: link:../file
       '@noy-db/memory':
         specifier: workspace:*
         version: link:../memory

@@ -158,8 +158,14 @@ describe('verifiable backups — #46', () => {
 
     const backupJson = await company.dump()
     const backup = JSON.parse(backupJson)
-    // Tamper: change one hex char of the embedded head hash.
-    backup.ledgerHead.hash = backup.ledgerHead.hash.replace(/^./, '0')
+    // Tamper: reverse the hash string. Reversing a 64-char hex
+    // digest produces a deterministically-different value unless
+    // the digest happens to be a palindrome (probability ~16^-32,
+    // astronomically low). An earlier version of this test used
+    // `.replace(/^./, '0')`, which silently no-ops about 1/16 of
+    // the time when the first char is already '0' — that was the
+    // source of an intermittent CI flake until #61 fixed it.
+    backup.ledgerHead.hash = backup.ledgerHead.hash.split('').reverse().join('')
     const tamperedJson = JSON.stringify(backup)
 
     const adapter2 = memory()

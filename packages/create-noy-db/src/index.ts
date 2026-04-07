@@ -25,3 +25,16 @@ export type { AddCollectionOptions } from './commands/add.js'
 
 export { verifyIntegrity } from './commands/verify.js'
 export type { VerifyResult } from './commands/verify.js'
+
+// v0.5+ subcommands (closes #38)
+export { rotate } from './commands/rotate.js'
+export type { RotateOptions, RotateResult } from './commands/rotate.js'
+
+export { addUser } from './commands/add-user.js'
+export type { AddUserOptions, AddUserResult } from './commands/add-user.js'
+
+export { backup, resolveBackupTarget } from './commands/backup.js'
+export type { BackupOptions, BackupResult } from './commands/backup.js'
+
+export type { ReadPassphrase } from './commands/shared.js'
+export { assertRole, parseCollectionList } from './commands/shared.js'
