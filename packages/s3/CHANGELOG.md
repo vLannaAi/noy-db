@@ -1,5 +1,11 @@
 # @noy-db/s3
 
+## 0.3.0
+
+### Minor Changes
+
+- Implement the optional `listPage` adapter capability (closes #14). Cursor format: S3 `ContinuationToken`.
+
 ## 0.2.0
 
 ### Minor Changes

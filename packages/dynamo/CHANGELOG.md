@@ -1,5 +1,11 @@
 # @noy-db/dynamo
 
+## 0.3.0
+
+### Minor Changes
+
+- Implement the optional `listPage` adapter capability (closes #14). Cursor format: base64-encoded `LastEvaluatedKey` (Buffer-free for browser/edge runtimes).
+
 ## 0.2.0
 
 ### Minor Changes

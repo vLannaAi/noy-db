@@ -1,5 +1,19 @@
 # @noy-db/core
 
+## 0.3.0
+
+### Minor Changes
+
+- **Reactive query DSL** (closes #12). New `collection.query()` returns a chainable `Query<T>` builder with operators `==`, `!=`, `<`, `<=`, `>`, `>=`, `in`, `contains`, `startsWith`, `between`, plus a `.filter(fn)` escape hatch and `.and()`/`.or()` composition. Terminal methods: `.toArray()`, `.first()`, `.count()`, `.subscribe()`, `.toPlan()`. Plans are JSON-serializable for devtools and Web Worker offloading. All filtering runs client-side after decryption — preserves zero-knowledge. The legacy predicate form `collection.query(fn)` is still supported as an overload for backward compatibility.
+
+- **Secondary indexes** (closes #13). Declare indexes per-collection via `indexes: ['status', 'clientId']`. Built client-side from decrypted records, kept in memory only. The query planner uses them to turn equality and `in` clauses into O(1) hash lookups, then filters the candidate set for the remaining clauses. Benchmark: 4–6× speedup vs linear scan on a 10K-record collection. No plaintext indexes ever touch the adapter.
+
+- **Pagination via `listPage` + streaming `scan()`** (closes #14). New optional `listPage` adapter capability for cursor-based pagination. `Collection.scan()` returns an `AsyncIterableIterator<T>` for memory-bounded iteration over very large collections — bypasses the LRU entirely, peak memory under 200 MB on a 100K-record collection.
+
+- **Lazy hydration + LRU eviction** (closes #15). New `cache: { maxRecords, maxBytes }` collection option enables lazy mode: `get(id)` hits the adapter on miss and populates an LRU; `list()` and `query()` throw (use `scan()` or `loadMore()`); declaring `indexes` is rejected at construction. `prefetch: true` restores the v0.2 eager behavior. Eviction is O(1) via `Map` + delete/set promotion. Cache budgets accept `'50MB'`, `'2GB'`, or a number of bytes.
+
+- Docs sweep — getting-started, end-user-features, architecture, adapters, deployment-profiles, and the README all updated with v0.3 examples. Bug fix: 80+ stale `@noydb/*` references corrected to `@noy-db/*`.
+
 ## 0.2.0
 
 ### Minor Changes

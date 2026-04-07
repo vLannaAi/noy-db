@@ -1,6 +1,6 @@
 # Roadmap
 
-> **Current:** v0.2 shipped on npm. **Next:** v0.3 — Pinia-first DX + Query & Scale.
+> **Current:** v0.3 shipped on npm — Pinia-first DX + query & scale. **Next:** v0.4 — Integrity & trust.
 >
 > Related docs:
 > - [Architecture](./docs/architecture.md) — data flow, key hierarchy, threat model
@@ -14,7 +14,7 @@
 
 ## Status
 
-All five implementation phases from the original plan are complete. NOYDB is published on npm as `@noy-db/*` (core, memory, file, dynamo, s3, browser, vue) with 233 tests passing. The core APIs, crypto, multi-user keyrings, sync engine, and biometric auth are stable. v0.3 turns the focus to **adoption**: making the package trivial to drop into existing Vue/Pinia projects, then layering optional power features (query DSL, indexes, pagination) on top.
+v0.3 shipped on npm. Nine packages now published: `@noy-db/core`, `@noy-db/memory`, `@noy-db/file`, `@noy-db/dynamo`, `@noy-db/s3`, `@noy-db/browser`, `@noy-db/vue`, `@noy-db/pinia` (new), `@noy-db/nuxt` (new). 455 tests passing. The reference Nuxt 4 demo at `playground/nuxt/` is the integration test for the entire adoption story — one config block, two `defineNoydbStore` stores, three pages, no direct `Compartment`/`Collection` calls in any component. Power features (query DSL, secondary indexes, pagination + streaming `scan()`, lazy hydration + LRU) all surface through the Pinia store. v0.4 turns to **integrity & trust**: hash-chained audit log, schema validation, soft FKs.
 
 ---
 
@@ -24,8 +24,8 @@ All five implementation phases from the original plan are complete. NOYDB is pub
 |--------:|-------------|------------------------------------|---------------------------------------------------------------------------|
 | 0.1     | ✅ shipped  | Core MVP + multi-user              | crypto, keyring, file/memory adapters, 5-role ACL                         |
 | 0.2     | ✅ shipped  | Sync + browser + Vue               | DynamoDB/S3/browser adapters, sync engine, WebAuthn, Vue composables      |
-| **0.3** | 🚧 **next** | **Pinia-first DX + query & scale** | `create-noy-db` wizard, Nuxt 4 module, `defineNoydbStore`, query DSL, encrypted indexes, pagination |
-| 0.4     | 📋 planned  | Integrity & trust                  | Hash-chained audit log, schema validation, foreign-key refs               |
+| 0.3     | ✅ shipped  | Pinia-first DX + query & scale     | Nuxt 4 module, `@noy-db/pinia`, query DSL, secondary indexes, pagination, lazy LRU |
+| **0.4** | 🚧 **next** | **Integrity & trust**              | Hash-chained audit log, schema validation, foreign-key refs               |
 | 0.5     | 📋 planned  | Identity & sessions                | Session tokens, OIDC bridge, magic links, hardware-key keyrings           |
 | 0.6     | 📋 planned  | Sync v2                            | CRDT mode, pluggable conflict policies, presence, partial sync            |
 | 0.7     | 📋 planned  | Developer experience               | `noydb` CLI, devtools panel, schema codegen, importers                    |
@@ -43,10 +43,10 @@ gantt
     section Shipped
     v0.1 core + multi-user           :done,    v01, 2026-01, 30d
     v0.2 sync + browser + Vue        :done,    v02, 2026-02, 60d
+    v0.3 Nuxt 4 + Pinia + query/scale :done,   v03, 2026-04, 7d
     section Next
-    v0.3 wizard + Nuxt 4 + Pinia     :active,  v03, 2026-04, 60d
+    v0.4 integrity & trust           :active,  v04, after v03, 45d
     section Planned
-    v0.4 integrity & trust           :         v04, after v03, 45d
     v0.5 identity & sessions         :         v05, after v04, 45d
     v0.6 sync v2                     :         v06, after v05, 60d
     v0.7 developer experience        :         v07, after v06, 45d

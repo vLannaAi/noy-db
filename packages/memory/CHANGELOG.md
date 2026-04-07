@@ -1,5 +1,11 @@
 # @noy-db/memory
 
+## 0.3.0
+
+### Minor Changes
+
+- Implement the optional `listPage` adapter capability (closes #14). Cursor format: numeric offset.
+
 ## 0.2.0
 
 ### Minor Changes

@@ -1,5 +1,11 @@
 # @noy-db/browser
 
+## 0.3.0
+
+### Minor Changes
+
+- Implement the optional `listPage` adapter capability (closes #14). Cursor format: numeric offset. Powers `loadMore()` on the Pinia store for browser-resident data.
+
 ## 0.2.0
 
 ### Minor Changes
