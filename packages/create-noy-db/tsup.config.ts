@@ -4,8 +4,10 @@ export default defineConfig({
   // Three entry points:
   //   - `src/index.ts` → public API surface (exported wizard + commands so
   //     they can be re-used programmatically and tested cleanly)
-  //   - `src/bin/create-noy-db.ts` → the `create-noy-db` bin (wizard for
-  //     fresh projects, invoked by `npm create noy-db@latest`)
+  //   - `src/bin/create.ts` → the `create` bin — the wizard for fresh
+  //     projects, invoked by `npm create @noy-db`. Bin name matches npm's
+  //     scoped-initializer convention: `npm create @scope` resolves to
+  //     package `@scope/create` and looks for a bin named `create`.
   //   - `src/bin/noy-db.ts` → the `noy-db` bin (subcommand dispatcher for
   //     ongoing project commands like `add` and `verify`)
   //
@@ -14,7 +16,7 @@ export default defineConfig({
   // entry source file.
   entry: [
     'src/index.ts',
-    'src/bin/create-noy-db.ts',
+    'src/bin/create.ts',
     'src/bin/noy-db.ts',
   ],
   // ESM-only: every other @noy-db package is ESM and Node 20+ supports it

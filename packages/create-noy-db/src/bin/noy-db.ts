@@ -34,7 +34,7 @@ Examples:
   noy-db verify
 
 Run from the root of a Nuxt 4 project that already has @noy-db/nuxt installed.
-For new projects, use \`npm create noy-db@latest\` instead.
+For new projects, use \`npm create @noy-db\` instead.
 `
 
 async function main(): Promise<void> {
