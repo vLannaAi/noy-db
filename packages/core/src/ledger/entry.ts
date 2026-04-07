@@ -108,6 +108,30 @@ export interface LedgerEntry {
    * the file docstring.
    */
   readonly payloadHash: string
+
+  /**
+   * Optional hex-encoded sha256 of the encrypted JSON Patch delta
+   * blob stored alongside this entry in `_ledger_deltas/`. Present
+   * only for `put` operations that had a previous version — the
+   * genesis put of a new record, and every `delete`, leave this
+   * field undefined.
+   *
+   * The delta payload itself lives in a sibling internal collection
+   * (`_ledger_deltas/<paddedIndex>`) and is encrypted with the
+   * ledger DEK. Callers use `ledger.loadDelta(index)` to decrypt and
+   * deserialize it when reconstructing a historical version.
+   *
+   * Why optional instead of always-present: the first put of a
+   * record has no previous version to diff against, so storing an
+   * empty patch would be noise. For deletes there's no "next" state
+   * to describe with a delta. Both cases set this field to undefined.
+   *
+   * Note: the canonical-JSON hasher treats `undefined` as invalid
+   * (it's one of the guard rails), so on the wire this field is
+   * either `{ deltaHash: '<hex>' }` or absent from the JSON
+   * entirely — never `{ deltaHash: undefined }`.
+   */
+  readonly deltaHash?: string
 }
 
 /**

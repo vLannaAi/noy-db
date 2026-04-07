@@ -68,17 +68,22 @@ export { validateSchemaInput, validateSchemaOutput } from './schema.js'
 export {
   LedgerStore,
   LEDGER_COLLECTION,
+  LEDGER_DELTAS_COLLECTION,
   envelopePayloadHash,
   canonicalJson,
   sha256Hex,
   hashEntry,
   paddedIndex,
   parseIndex,
+  computePatch,
+  applyPatch,
 } from './ledger/index.js'
 export type {
   LedgerEntry,
   AppendInput,
   VerifyResult,
+  JsonPatch,
+  JsonPatchOp,
 } from './ledger/index.js'
 
 // Core classes

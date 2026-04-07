@@ -54,9 +54,34 @@ import {
   sha256Hex,
   type LedgerEntry,
 } from './entry.js'
+import type { JsonPatch } from './patch.js'
+import { applyPatch } from './patch.js'
 
-/** The internal collection name used for ledger storage. */
+/** The internal collection name used for ledger entry storage. */
 export const LEDGER_COLLECTION = '_ledger'
+
+/**
+ * The internal collection name used for delta payload storage.
+ *
+ * Deltas live in a sibling collection (not inside `_ledger`) for two
+ * reasons:
+ *
+ *   1. **Listing efficiency.** `ledger.loadAllEntries()` calls
+ *      `adapter.list(_ledger)` which would otherwise return every
+ *      delta key alongside every entry key. Splitting them keeps the
+ *      list small (one key per ledger entry) and the delta reads
+ *      keyed by the entry's index.
+ *
+ *   2. **Prune-friendliness.** A future `pruneHistory()` will delete
+ *      old deltas while keeping the ledger chain intact (folding old
+ *      deltas into a base snapshot). Separating the storage makes
+ *      that deletion a targeted operation on one collection instead
+ *      of a filter across a mixed list.
+ *
+ * Both collections share the same ledger DEK — one DEK, two
+ * internal collections, same zero-knowledge guarantees.
+ */
+export const LEDGER_DELTAS_COLLECTION = '_ledger_deltas'
 
 /**
  * Input shape for `LedgerStore.append()`. The caller supplies the
@@ -69,6 +94,15 @@ export interface AppendInput {
   version: number
   actor: string
   payloadHash: string
+  /**
+   * Optional JSON Patch representing the delta from the previous
+   * version to the new version. Present only for `put` operations
+   * that had a previous version; omitted for genesis puts and for
+   * deletes. When present, `LedgerStore.append` persists the patch
+   * in `_ledger_deltas/<paddedIndex>` and records its sha256 hash
+   * as the entry's `deltaHash` field.
+   */
+  delta?: JsonPatch
 }
 
 /**
@@ -177,7 +211,29 @@ export class LedgerStore {
     const prevHash = cached?.hash ?? ''
     const nextIndex = lastEntry ? lastEntry.index + 1 : 0
 
-    const entry: LedgerEntry = {
+    // If the caller supplied a delta, persist it in
+    // `_ledger_deltas/<paddedIndex>` and compute its hash for the
+    // entry's `deltaHash` field. The hash is of the CIPHERTEXT of the
+    // delta payload (same as `payloadHash` is of the record
+    // ciphertext), preserving zero-knowledge.
+    let deltaHash: string | undefined
+    if (input.delta !== undefined) {
+      const deltaEnvelope = await this.encryptDelta(input.delta)
+      await this.adapter.put(
+        this.compartment,
+        LEDGER_DELTAS_COLLECTION,
+        paddedIndex(nextIndex),
+        deltaEnvelope,
+      )
+      deltaHash = await sha256Hex(deltaEnvelope._data)
+    }
+
+    // Build the entry. Conditionally include `deltaHash` so
+    // canonicalJson (which rejects undefined) never sees it when
+    // there's no delta. The on-the-wire shape is either
+    // `{ ...fields, deltaHash: '...' }` or `{ ...fields }` — never
+    // `{ ..., deltaHash: undefined }`.
+    const entryBase = {
       index: nextIndex,
       prevHash,
       op: input.op,
@@ -187,7 +243,11 @@ export class LedgerStore {
       ts: new Date().toISOString(),
       actor: input.actor === '' ? this.actor : input.actor,
       payloadHash: input.payloadHash,
-    }
+    } as const
+    const entry: LedgerEntry =
+      deltaHash !== undefined
+        ? { ...entryBase, deltaHash }
+        : entryBase
 
     const envelope = await this.encryptEntry(entry)
     await this.adapter.put(
@@ -204,6 +264,56 @@ export class LedgerStore {
     // next append.
     this.headCache = { entry, hash: await hashEntry(entry) }
     return entry
+  }
+
+  /**
+   * Load a delta payload by its entry index. Returns `null` if the
+   * entry at that index doesn't reference a delta (genesis puts and
+   * deletes leave the slot empty) or if the delta row is missing
+   * (possible after a `pruneHistory` fold).
+   *
+   * The caller is responsible for deciding what to do with a missing
+   * delta — `ledger.reconstruct()` uses it as a "stop walking
+   * backward" signal and falls back to the on-disk current value.
+   */
+  async loadDelta(index: number): Promise<JsonPatch | null> {
+    const envelope = await this.adapter.get(
+      this.compartment,
+      LEDGER_DELTAS_COLLECTION,
+      paddedIndex(index),
+    )
+    if (!envelope) return null
+    if (!this.encrypted) {
+      return JSON.parse(envelope._data) as JsonPatch
+    }
+    const dek = await this.getDEK(LEDGER_COLLECTION)
+    const json = await decrypt(envelope._iv, envelope._data, dek)
+    return JSON.parse(json) as JsonPatch
+  }
+
+  /** Encrypt a JSON Patch into an envelope for storage. Mirrors encryptEntry. */
+  private async encryptDelta(patch: JsonPatch): Promise<EncryptedEnvelope> {
+    const json = JSON.stringify(patch)
+    if (!this.encrypted) {
+      return {
+        _noydb: NOYDB_FORMAT_VERSION,
+        _v: 1,
+        _ts: new Date().toISOString(),
+        _iv: '',
+        _data: json,
+        _by: this.actor,
+      }
+    }
+    const dek = await this.getDEK(LEDGER_COLLECTION)
+    const { iv, data } = await encrypt(json, dek)
+    return {
+      _noydb: NOYDB_FORMAT_VERSION,
+      _v: 1,
+      _ts: new Date().toISOString(),
+      _iv: iv,
+      _data: data,
+      _by: this.actor,
+    }
   }
 
   /**
@@ -260,6 +370,126 @@ export class LedgerStore {
     const from = Math.max(0, opts.from ?? 0)
     const to = Math.min(all.length, opts.to ?? all.length)
     return all.slice(from, to)
+  }
+
+  /**
+   * Reconstruct a record's state at a given historical version by
+   * walking the ledger's delta chain backward from the current state.
+   *
+   * ## Algorithm
+   *
+   * Ledger deltas are stored in **reverse** form — each entry's
+   * patch describes how to undo that put, transforming the new
+   * record back into the previous one. `reconstruct` exploits this
+   * by:
+   *
+   *   1. Finding every ledger entry for `(collection, id)` in the
+   *      chain, sorted by index ascending.
+   *   2. Starting from `current` (the present value of the record,
+   *      as held by the caller — typically fetched via
+   *      `Collection.get()`).
+   *   3. Walking entries in **descending** index order and applying
+   *      each entry's reverse patch, stopping when we reach the
+   *      entry whose version equals `atVersion`.
+   *
+   * The result is the record as it existed immediately AFTER the
+   * put at `atVersion`. To get the state at the genesis put
+   * (version 1), the walk runs all the way back through every put
+   * after the first.
+   *
+   * ## Caveats
+   *
+   * - **Delete entries** break the walk: once we see a delete, the
+   *   record didn't exist before that point, so there's nothing to
+   *   reconstruct. We return `null` in that case.
+   * - **Missing deltas** (e.g., after `pruneHistory` folds old
+   *   entries into a base snapshot) also stop the walk. v0.4 does
+   *   not ship pruneHistory, so today this only happens if an entry
+   *   was deleted out-of-band.
+   * - The caller MUST pass the correct current value. Passing a
+   *   mutated object would corrupt the reconstruction — the patch
+   *   chain is only valid against the exact state that was in
+   *   effect when the most recent put happened.
+   *
+   * For v0.4, `reconstruct` is the only way to read a historical
+   * version via deltas. The legacy `_history` collection still
+   * holds full snapshots and `Collection.getVersion()` still reads
+   * from there — the two paths coexist until pruneHistory lands in
+   * a follow-up and delta becomes the default.
+   */
+  async reconstruct<T>(
+    collection: string,
+    id: string,
+    current: T,
+    atVersion: number,
+  ): Promise<T | null> {
+    const all = await this.loadAllEntries()
+    // Filter to entries for this (collection, id), in ascending index.
+    const matching = all.filter(
+      (e) => e.collection === collection && e.id === id,
+    )
+    if (matching.length === 0) {
+      // No ledger history at all; the current state IS version 1
+      // (or there's nothing), so the only valid atVersion is the
+      // current record's version. We can't verify that here, so
+      // return current if atVersion is plausible, null otherwise.
+      return null
+    }
+
+    // Walk entries in descending index order, applying each reverse
+    // delta until we reach the target version.
+    let state: T | null = current
+    for (let i = matching.length - 1; i >= 0; i--) {
+      const entry = matching[i]
+      if (!entry) continue
+
+      // Match check FIRST — before applying this entry's reverse
+      // patch. `state` at this point is the record state immediately
+      // after this entry's put (or before this entry's delete), so
+      // if the caller asked for this exact version, we're done.
+      if (entry.version === atVersion && entry.op !== 'delete') {
+        return state
+      }
+
+      if (entry.op === 'delete') {
+        // A delete erases the live state. If the caller asks for a
+        // version older than the delete we should continue walking
+        // (state becomes null and the next put resets it). But we
+        // can't reconstruct that pre-delete state from the current
+        // in-memory `state` — the delete has no reverse patch. So
+        // anything past this point is unreachable; return null.
+        return null
+      }
+
+      if (entry.deltaHash === undefined) {
+        // Genesis put — the earliest state for this lifecycle. We
+        // can't walk further back. If the caller asked for exactly
+        // this version, return the current state (we already failed
+        // the match check above because a fresh genesis after a
+        // delete can have version === atVersion). Otherwise the
+        // target is unreachable from here.
+        if (entry.version === atVersion) return state
+        return null
+      }
+
+      const patch = await this.loadDelta(entry.index)
+      if (!patch) {
+        // Delta row is missing (probably pruned). Stop walking.
+        return null
+      }
+
+      if (state === null) {
+        // We're trying to walk back across a delete range and there's
+        // nothing to apply a reverse patch to. Bail.
+        return null
+      }
+
+      state = applyPatch(state, patch)
+    }
+
+    // Ran off the end of the walk without matching. The target
+    // version doesn't exist in this record's chain.
+    return null
   }
 
   /**

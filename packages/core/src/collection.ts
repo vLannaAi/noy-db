@@ -9,6 +9,7 @@ import type { StandardSchemaV1 } from './schema.js'
 import { validateSchemaInput, validateSchemaOutput } from './schema.js'
 import type { LedgerStore } from './ledger/index.js'
 import { envelopePayloadHash } from './ledger/index.js'
+import { computePatch } from './ledger/patch.js'
 import {
   saveHistory,
   getHistory as getHistoryEntries,
@@ -329,15 +330,34 @@ export class Collection<T> {
     // only metadata (collection, id, version, hash) — NOT the record
     // itself — and is then encrypted with the compartment's ledger
     // DEK, preserving zero-knowledge. See `LedgerStore.append`.
+    //
+    // **Delta history (#44)**: if there was a previous version, we
+    // compute a JSON Patch from it to the new record and pass it
+    // through `append.delta`. The LedgerStore stores the patch in
+    // the sibling `_ledger_deltas/` collection and records its hash
+    // in the entry's `deltaHash` field. Genesis puts (no existing
+    // record) leave `delta` undefined — there's nothing to diff
+    // against — and the ledger entry has no `deltaHash`.
     if (this.ledger) {
-      await this.ledger.append({
+      const appendInput: Parameters<typeof this.ledger.append>[0] = {
         op: 'put',
         collection: this.name,
         id,
         version,
         actor: this.keyring.userId,
         payloadHash: await envelopePayloadHash(envelope),
-      })
+      }
+      if (existing) {
+        // REVERSE patch: describes how to undo this put — i.e., how
+        // to transform the NEW record back into the PREVIOUS one.
+        // Storing reverse patches lets `ledger.reconstruct()` walk
+        // backward from the current state (readily available in the
+        // data collection) without needing a forward-walking base
+        // snapshot, which would double the storage cost of the
+        // delta scheme. See `LedgerStore.reconstruct` for the walk.
+        appendInput.delta = computePatch(record, existing.record)
+      }
+      await this.ledger.append(appendInput)
     }
 
     if (this.lazy && this.lru) {

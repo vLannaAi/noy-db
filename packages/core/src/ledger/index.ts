@@ -17,6 +17,7 @@
 export {
   LedgerStore,
   LEDGER_COLLECTION,
+  LEDGER_DELTAS_COLLECTION,
   envelopePayloadHash,
   type AppendInput,
   type VerifyResult,
@@ -30,3 +31,7 @@ export {
   parseIndex,
   type LedgerEntry,
 } from './entry.js'
+
+// JSON Patch compute + apply (#44 — v0.4 delta history)
+export { computePatch, applyPatch } from './patch.js'
+export type { JsonPatch, JsonPatchOp } from './patch.js'
