@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/pinia",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Pinia integration for noy-db — defineNoydbStore() and the augmentation plugin for existing stores",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
@@ -45,7 +45,7 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@noy-db/core": "workspace:*",
+    "@noy-db/core": "workspace:^",
     "pinia": "^2.1.0 || ^3.0.0",
     "vue": "^3.4.0"
   },

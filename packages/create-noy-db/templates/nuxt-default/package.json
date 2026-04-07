@@ -10,19 +10,19 @@
     "verify": "noy-db verify"
   },
   "dependencies": {
-    "@noy-db/browser": "^0.3.0",
-    "@noy-db/core": "^0.3.0",
-    "@noy-db/file": "^0.3.0",
-    "@noy-db/memory": "^0.3.0",
-    "@noy-db/nuxt": "^0.3.0",
-    "@noy-db/pinia": "^0.3.0",
-    "@noy-db/vue": "^0.2.0",
+    "@noy-db/browser": "^0.4.1",
+    "@noy-db/core": "^0.4.1",
+    "@noy-db/file": "^0.4.1",
+    "@noy-db/memory": "^0.4.1",
+    "@noy-db/nuxt": "^0.4.1",
+    "@noy-db/pinia": "^0.4.1",
+    "@noy-db/vue": "^0.4.1",
     "@pinia/nuxt": "^0.11.0",
     "nuxt": "^4.4.2",
     "pinia": "^3.0.1",
     "vue": "^3.5.32"
   },
   "devDependencies": {
-    "@noy-db/create": "^0.3.1"
+    "@noy-db/create": "^0.4.1"
   }
 }

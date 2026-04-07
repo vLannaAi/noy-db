@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/core",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Zero-knowledge, offline-first, encrypted document store — core library with AES-256-GCM, PBKDF2, multi-user keyring, and sync engine",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",

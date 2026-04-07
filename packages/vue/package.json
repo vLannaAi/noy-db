@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/vue",
-  "version": "0.2.0",
+  "version": "0.4.1",
   "description": "Vue 3 / Nuxt composables for noy-db — reactive useNoydb, useCollection, useSync, and biometric plugin",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
@@ -45,7 +45,7 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@noy-db/core": "workspace:*",
+    "@noy-db/core": "workspace:^",
     "vue": "^3.0.0"
   },
   "devDependencies": {

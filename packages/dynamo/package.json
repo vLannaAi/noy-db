@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/dynamo",
-  "version": "0.3.0",
+  "version": "0.4.1",
   "description": "AWS DynamoDB adapter for noy-db — single-table design, zero-knowledge cloud sync",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
@@ -45,7 +45,7 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@noy-db/core": "workspace:*",
+    "@noy-db/core": "workspace:^",
     "@aws-sdk/client-dynamodb": "^3.0.0",
     "@aws-sdk/lib-dynamodb": "^3.0.0"
   },

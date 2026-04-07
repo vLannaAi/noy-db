@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/nuxt",
-  "version": "0.3.0",
+  "version": "0.4.1",
   "description": "Nuxt 4 module for noy-db — auto-imports, SSR-safe runtime plugin, and the @noy-db/pinia bridge",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
@@ -39,9 +39,9 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@noy-db/core": "workspace:*",
-    "@noy-db/pinia": "workspace:*",
-    "@noy-db/vue": "workspace:*",
+    "@noy-db/core": "workspace:^",
+    "@noy-db/pinia": "workspace:^",
+    "@noy-db/vue": "workspace:^",
     "nuxt": "^4.0.0"
   },
   "devDependencies": {

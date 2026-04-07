@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/s3",
-  "version": "0.3.0",
+  "version": "0.4.1",
   "description": "AWS S3 adapter for noy-db — encrypted object storage with zero-knowledge cloud sync",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
@@ -45,7 +45,7 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@noy-db/core": "workspace:*",
+    "@noy-db/core": "workspace:^",
     "@aws-sdk/client-s3": "^3.0.0"
   },
   "devDependencies": {

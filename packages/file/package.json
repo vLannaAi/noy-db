@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/file",
-  "version": "0.3.0",
+  "version": "0.4.1",
   "description": "JSON file adapter for noy-db — encrypted document store on local disk, USB sticks, or network drives",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
@@ -45,7 +45,7 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@noy-db/core": "workspace:*"
+    "@noy-db/core": "workspace:^"
   },
   "devDependencies": {
     "@noy-db/core": "workspace:*",
