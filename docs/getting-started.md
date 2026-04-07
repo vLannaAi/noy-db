@@ -239,6 +239,63 @@ See [`end-user-features.md`](./end-user-features.md) for runnable examples of ev
 
 ---
 
+## v0.4 feature highlights
+
+The v0.4 release adds the **integrity** layer on top of v0.3's adoption surface:
+
+### Schema validation via Standard Schema v1
+
+Attach any [Standard Schema v1](https://standardschema.dev) validator (Zod, Valibot, ArkType, Effect Schema) to a store. Validation runs before encryption on `put()` and after decryption on reads.
+
+```ts
+import { z } from 'zod'
+
+const InvoiceSchema = z.object({
+  id: z.string(),
+  client: z.string(),
+  amount: z.number().positive(),
+  status: z.enum(['draft', 'open', 'paid', 'overdue']),
+})
+
+export const useInvoices = defineNoydbStore<z.infer<typeof InvoiceSchema>>('invoices', {
+  compartment: 'demo-co',
+  schema: InvoiceSchema,
+})
+```
+
+### Hash-chained ledger + verifiable backups
+
+Every put/delete appends an encrypted entry to the compartment's `_ledger/`. Tampering breaks the chain and is detected by `verify()`. Backups embed the chain head; load() rejects modified backups.
+
+```ts
+const ledger = company.ledger()
+const result = await ledger.verify()        // → { ok: true, head, length }
+
+const backup = await company.dump()          // embeds ledgerHead
+await company.load(backup)                   // throws if tampered
+```
+
+### Foreign-key references
+
+Soft FK enforcement at the collection level. Three modes: `strict`, `warn`, `cascade`.
+
+```ts
+import { ref } from '@noy-db/core'
+
+const invoices = company.collection<Invoice>('invoices', {
+  refs: {
+    clientId: ref('clients'),                 // strict (default)
+    parentId: ref('invoices', 'cascade'),
+  },
+})
+
+const { violations } = await company.checkIntegrity()
+```
+
+See [`end-user-features.md`](./end-user-features.md) for the complete v0.4 reference.
+
+---
+
 ## Cloud sync
 
 Wire a remote adapter as the `sync` target. The local adapter stays primary; the sync engine pushes/pulls encrypted envelopes when online:

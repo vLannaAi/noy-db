@@ -294,14 +294,16 @@ export const myAdapter = defineAdapter((options) => ({
 
 ## Status
 
-**v0.3 in development.** v0.1 and v0.2 are shipped on npm. See the [Roadmap](ROADMAP.md) for the full plan.
+**v0.4 shipped on npm.** All releases through 0.4 are published. See the [Roadmap](ROADMAP.md) for the full plan.
 
 | Version | Status   | Scope                                                              |
 |---------|----------|--------------------------------------------------------------------|
 | 0.1     | shipped  | Core MVP, multi-user, file + memory adapters, 5-role ACL           |
 | 0.2     | shipped  | Sync engine, DynamoDB/S3/browser adapters, WebAuthn, Vue composables |
-| 0.3     | in dev   | Nuxt 4 module, Pinia integration, query DSL, indexes, lazy hydration |
-| 0.4+    | planned  | Hash-chained ledger, schema validation, sessions, CRDT sync         |
+| 0.3     | shipped  | Nuxt 4 module, Pinia integration, query DSL, indexes, lazy hydration |
+| 0.3.1   | shipped  | `@noy-db/create` scaffolder + `noy-db` CLI                          |
+| 0.4     | shipped  | Schema validation, hash-chained ledger, delta history, FK refs, verifiable backups |
+| 0.5+    | planned  | Identity & sessions, CRDT sync, ledger devtools                     |
 
 ---
 
