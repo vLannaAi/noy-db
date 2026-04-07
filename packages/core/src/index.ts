@@ -86,6 +86,19 @@ export type {
   JsonPatchOp,
 } from './ledger/index.js'
 
+// Foreign-key references via ref() (v0.4 — #45)
+export {
+  ref,
+  RefRegistry,
+  RefIntegrityError,
+  RefScopeError,
+} from './refs.js'
+export type {
+  RefMode,
+  RefDescriptor,
+  RefViolation,
+} from './refs.js'
+
 // Core classes
 export { Noydb, createNoydb } from './noydb.js'
 export { Compartment } from './compartment.js'

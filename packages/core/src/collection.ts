@@ -61,7 +61,6 @@ function warnOnceFallback(adapterName: string): void {
   fallbackWarned.add(adapterName)
   // Only warn in non-test environments — vitest runs are noisy enough.
   if (typeof process !== 'undefined' && process.env['NODE_ENV'] === 'test') return
-  // eslint-disable-next-line no-console
   console.warn(
     `[noy-db] Adapter "${adapterName}" does not implement listPage(); ` +
     `Collection.scan()/listPage() are using a synthetic fallback (slower). ` +
@@ -156,6 +155,28 @@ export class Collection<T> {
    */
   private readonly ledger: LedgerStore | undefined
 
+  /**
+   * Optional back-reference to the owning compartment's ref
+   * enforcer. When present, `Collection.put` calls
+   * `refEnforcer.enforceRefsOnPut(name, record)` before the adapter
+   * write, and `Collection.delete` calls
+   * `refEnforcer.enforceRefsOnDelete(name, id)` before its own
+   * adapter delete. The Compartment handles the actual registry
+   * lookup and cross-collection enforcement — Collection just
+   * notifies it at the right points in the lifecycle.
+   *
+   * Typed as a structural interface rather than `Compartment`
+   * directly to avoid a circular import. Compartment implements
+   * these two methods; any other object with the same shape would
+   * work too (used only in unit tests).
+   */
+  private readonly refEnforcer:
+    | {
+        enforceRefsOnPut(collectionName: string, record: unknown): Promise<void>
+        enforceRefsOnDelete(collectionName: string, id: string): Promise<void>
+      }
+    | undefined
+
   constructor(opts: {
     adapter: NoydbAdapter
     compartment: string
@@ -194,6 +215,20 @@ export class Collection<T> {
      * the wiring.
      */
     ledger?: LedgerStore | undefined
+    /**
+     * Optional back-reference to the owning compartment's ref
+     * enforcer (v0.4 #45 — foreign-key references via `ref()`).
+     * Collection.put calls `enforceRefsOnPut` before the adapter
+     * write; Collection.delete calls `enforceRefsOnDelete` before
+     * its own adapter delete. See the `refEnforcer` field docstring
+     * for the full protocol.
+     */
+    refEnforcer?:
+      | {
+          enforceRefsOnPut(collectionName: string, record: unknown): Promise<void>
+          enforceRefsOnDelete(collectionName: string, id: string): Promise<void>
+        }
+      | undefined
   }) {
     this.adapter = opts.adapter
     this.compartment = opts.compartment
@@ -206,6 +241,7 @@ export class Collection<T> {
     this.historyConfig = opts.historyConfig ?? { enabled: true }
     this.schema = opts.schema
     this.ledger = opts.ledger
+    this.refEnforcer = opts.refEnforcer
 
     // Default `prefetch: true` keeps v0.2 semantics. Only opt-in to lazy
     // mode when the consumer explicitly sets `prefetch: false`.
@@ -278,6 +314,15 @@ export class Collection<T> {
     // encrypt path.
     if (this.schema !== undefined) {
       record = await validateSchemaInput(this.schema, record, `put(${id})`)
+    }
+
+    // Foreign-key ref enforcement (v0.4 #45). Runs AFTER schema
+    // validation (so the record shape is trustworthy) but BEFORE
+    // any write (so a failed strict ref leaves no trace on disk,
+    // in history, or in the ledger). The Compartment handles the
+    // actual target lookups — see `enforceRefsOnPut` over there.
+    if (this.refEnforcer !== undefined) {
+      await this.refEnforcer.enforceRefsOnPut(this.name, record)
     }
 
     // Resolve the previous record. In eager mode this comes from the
@@ -385,6 +430,17 @@ export class Collection<T> {
   async delete(id: string): Promise<void> {
     if (!hasWritePermission(this.keyring, this.name)) {
       throw new ReadOnlyError()
+    }
+
+    // Foreign-key ref enforcement on delete (v0.4 #45). Runs BEFORE
+    // the adapter delete so a `strict` inbound ref with existing
+    // references blocks the delete entirely (no partial state, no
+    // history churn, no ledger entry for a rejected op). `cascade`
+    // recursively deletes the referencing records first, then falls
+    // through to the normal delete path below. `warn` is a no-op
+    // here — violations surface through `checkIntegrity()`.
+    if (this.refEnforcer !== undefined) {
+      await this.refEnforcer.enforceRefsOnDelete(this.name, id)
     }
 
     // In lazy mode the record may not be cached; ask the adapter so we

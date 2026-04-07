@@ -10,6 +10,12 @@ import type { NoydbEventEmitter } from './events.js'
 import { PermissionDeniedError } from './errors.js'
 import type { StandardSchemaV1 } from './schema.js'
 import { LedgerStore } from './ledger/index.js'
+import {
+  RefRegistry,
+  RefIntegrityError,
+  type RefDescriptor,
+  type RefViolation,
+} from './refs.js'
 
 /** A compartment (tenant namespace) containing collections. */
 export class Compartment {
@@ -36,6 +42,24 @@ export class Compartment {
    * docstring.
    */
   private ledgerStore: LedgerStore | null = null
+
+  /**
+   * Per-compartment foreign-key reference registry. Collections
+   * register their `refs` option here on construction; the
+   * compartment uses the registry on every put/delete/checkIntegrity
+   * call. One instance lives for the compartment's lifetime.
+   */
+  private readonly refRegistry = new RefRegistry()
+
+  /**
+   * Set of collection record-ids currently being deleted as part of
+   * a cascade. Populated on entry to `enforceRefsOnDelete` and
+   * drained on exit. Used to break mutual-cascade cycles: deleting
+   * A → cascade to B → cascade back to A would otherwise recurse
+   * forever, so we short-circuit when we see an already-in-progress
+   * delete on the same (collection, id) pair.
+   */
+  private readonly cascadeInProgress = new Set<string>()
 
   constructor(opts: {
     adapter: NoydbAdapter
@@ -89,9 +113,17 @@ export class Compartment {
     prefetch?: boolean
     cache?: CacheOptions
     schema?: StandardSchemaV1<unknown, T>
+    refs?: Record<string, RefDescriptor>
   }): Collection<T> {
     let coll = this.collectionCache.get(collectionName)
     if (!coll) {
+      // Register ref declarations (if any) with the compartment-level
+      // registry BEFORE constructing the Collection. This way the
+      // first put() on the new collection already sees its refs via
+      // compartment.enforceRefsOnPut.
+      if (options?.refs) {
+        this.refRegistry.register(collectionName, options.refs)
+      }
       const collOpts: ConstructorParameters<typeof Collection<T>>[0] = {
         adapter: this.adapter,
         compartment: this.name,
@@ -103,6 +135,7 @@ export class Compartment {
         onDirty: this.onDirty,
         historyConfig: this.historyConfig,
         ledger: this.ledger(),
+        refEnforcer: this,
       }
       if (options?.indexes !== undefined) collOpts.indexes = options.indexes
       if (options?.prefetch !== undefined) collOpts.prefetch = options.prefetch
@@ -112,6 +145,181 @@ export class Compartment {
       this.collectionCache.set(collectionName, coll)
     }
     return coll as Collection<T>
+  }
+
+  /**
+   * Enforce strict outbound refs on a `put()`. Called by Collection
+   * just before it writes to the adapter. For every strict ref
+   * declared on the collection, check that the target id exists in
+   * the target collection; throw `RefIntegrityError` if not.
+   *
+   * `warn` and `cascade` modes don't affect put semantics — they're
+   * enforced at delete time or via `checkIntegrity()`.
+   */
+  async enforceRefsOnPut(collectionName: string, record: unknown): Promise<void> {
+    const outbound = this.refRegistry.getOutbound(collectionName)
+    if (Object.keys(outbound).length === 0) return
+    if (!record || typeof record !== 'object') return
+    const obj = record as Record<string, unknown>
+
+    for (const [field, descriptor] of Object.entries(outbound)) {
+      if (descriptor.mode !== 'strict') continue
+      const rawId = obj[field]
+      // Nullish ref values are allowed — treat them as "no reference".
+      // Users who want "always required" should express it in their
+      // Standard Schema validator via a non-optional field.
+      if (rawId === null || rawId === undefined) continue
+      // Refs must be strings or numbers — anything else (object,
+      // array, boolean) is a programming error and should fail
+      // loudly rather than serialize as "[object Object]".
+      if (typeof rawId !== 'string' && typeof rawId !== 'number') {
+        throw new RefIntegrityError({
+          collection: collectionName,
+          id: (obj['id'] as string | undefined) ?? '<unknown>',
+          field,
+          refTo: descriptor.target,
+          refId: null,
+          message:
+            `Ref field "${collectionName}.${field}" must be a string or number, got ${typeof rawId}.`,
+        })
+      }
+      const refId = String(rawId)
+      const target = this.collection<Record<string, unknown>>(descriptor.target)
+      const exists = await target.get(refId)
+      if (!exists) {
+        throw new RefIntegrityError({
+          collection: collectionName,
+          id: (obj['id'] as string | undefined) ?? '<unknown>',
+          field,
+          refTo: descriptor.target,
+          refId,
+          message:
+            `Strict ref "${collectionName}.${field}" → "${descriptor.target}" ` +
+            `cannot be satisfied: target id "${refId}" not found in "${descriptor.target}".`,
+        })
+      }
+    }
+  }
+
+  /**
+   * Enforce inbound ref modes on a `delete()`. Called by Collection
+   * just before it deletes from the adapter. Walks every inbound
+   * ref that targets this (collection, id) and:
+   *
+   *   - `strict`: throws if any referencing records exist
+   *   - `cascade`: deletes every referencing record
+   *   - `warn`:    no-op (checkIntegrity picks it up)
+   *
+   * Cascade cycles are broken via `cascadeInProgress` — re-entering
+   * for the same (collection, id) returns immediately so two
+   * mutually-cascading collections don't recurse forever.
+   */
+  async enforceRefsOnDelete(collectionName: string, id: string): Promise<void> {
+    const key = `${collectionName}/${id}`
+    if (this.cascadeInProgress.has(key)) return
+    this.cascadeInProgress.add(key)
+
+    try {
+      const inbound = this.refRegistry.getInbound(collectionName)
+      for (const rule of inbound) {
+        const fromCollection = this.collection<Record<string, unknown>>(rule.collection)
+        // Scan the referencing collection for records whose ref
+        // field matches this id. For eager-mode collections this
+        // is an in-memory filter; for lazy-mode it requires a scan.
+        const allRecords = await fromCollection.list()
+        const matches = allRecords.filter((rec) => {
+          const raw = rec[rule.field]
+          // Same string/number-only restriction as enforceRefsOnPut.
+          // Anything else can't have been a valid ref to begin with,
+          // so it can't match.
+          if (typeof raw !== 'string' && typeof raw !== 'number') return false
+          return String(raw) === id
+        })
+        if (matches.length === 0) continue
+
+        if (rule.mode === 'strict') {
+          const first = matches[0]
+          throw new RefIntegrityError({
+            collection: rule.collection,
+            id: (first?.['id'] as string | undefined) ?? '<unknown>',
+            field: rule.field,
+            refTo: collectionName,
+            refId: id,
+            message:
+              `Cannot delete "${collectionName}"/"${id}": ` +
+              `${matches.length} record(s) in "${rule.collection}" still reference it via strict ref "${rule.field}".`,
+          })
+        }
+        if (rule.mode === 'cascade') {
+          for (const match of matches) {
+            const matchId = (match['id'] as string | undefined) ?? null
+            if (matchId === null) continue
+            // Recursive delete — the cycle breaker above catches
+            // infinite loops.
+            await fromCollection.delete(matchId)
+          }
+        }
+        // warn: no-op
+      }
+    } finally {
+      this.cascadeInProgress.delete(key)
+    }
+  }
+
+  /**
+   * Walk every collection that has declared refs, load its records,
+   * and report any reference whose target id is missing. Modes are
+   * reported alongside each violation so the caller can distinguish
+   * "this is a warning the user asked for" from "this should never
+   * have happened" (strict violations produced by out-of-band
+   * writes).
+   *
+   * Returns `{ violations: [...] }` instead of throwing — the whole
+   * point of `checkIntegrity()` is to surface a list for display
+   * or repair, not to fail noisily.
+   */
+  async checkIntegrity(): Promise<{ violations: RefViolation[] }> {
+    const violations: RefViolation[] = []
+    for (const [collectionName, refs] of this.refRegistry.entries()) {
+      const coll = this.collection<Record<string, unknown>>(collectionName)
+      const records = await coll.list()
+      for (const record of records) {
+        const recId = (record['id'] as string | undefined) ?? '<unknown>'
+        for (const [field, descriptor] of Object.entries(refs)) {
+          const rawId = record[field]
+          if (rawId === null || rawId === undefined) continue
+          // Non-scalar ref values are flagged as a violation rather
+          // than thrown — `checkIntegrity` is a "report what's wrong"
+          // tool, not a "block on first failure" tool. The thrown
+          // version lives in `enforceRefsOnPut`.
+          if (typeof rawId !== 'string' && typeof rawId !== 'number') {
+            violations.push({
+              collection: collectionName,
+              id: recId,
+              field,
+              refTo: descriptor.target,
+              refId: rawId,
+              mode: descriptor.mode,
+            })
+            continue
+          }
+          const refId = String(rawId)
+          const target = this.collection<Record<string, unknown>>(descriptor.target)
+          const exists = await target.get(refId)
+          if (!exists) {
+            violations.push({
+              collection: collectionName,
+              id: recId,
+              field,
+              refTo: descriptor.target,
+              refId: rawId,
+              mode: descriptor.mode,
+            })
+          }
+        }
+      }
+    }
+    return { violations }
   }
 
   /**
