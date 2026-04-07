@@ -18,7 +18,7 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 const dist = path.resolve(here, '..', 'dist')
 
 const bins = [
-  'bin/create-noy-db.js',
+  'bin/create.js',
   'bin/noy-db.js',
 ]
 

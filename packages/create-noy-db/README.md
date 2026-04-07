@@ -1,4 +1,4 @@
-# create-noy-db
+# @noy-db/create
 
 Wizard + CLI tool for [noy-db](https://github.com/vLannaAi/noy-db) — scaffold a fresh Nuxt 4 + Pinia encrypted store in about 30 seconds, or add collections to an existing project.
 
@@ -7,19 +7,21 @@ Wizard + CLI tool for [noy-db](https://github.com/vLannaAi/noy-db) — scaffold 
 ### New project
 
 ```bash
-npm  create noy-db@latest my-app
-pnpm create noy-db        my-app
-yarn create noy-db        my-app
-bun  create noy-db        my-app
+npm  create @noy-db my-app
+pnpm create @noy-db my-app
+yarn create @noy-db my-app
+bun  create @noy-db my-app
 ```
+
+> **Why the scoped invocation?** npm's `npm init @scope` convention resolves to the `@scope/create` package and runs its `create` bin. Keeping the package inside the `@noy-db` scope keeps us publishing from the same CI token we use for every other `@noy-db/*` package — no token juggling, no surprise 403s.
 
 The wizard asks at most 3 questions (project name, adapter, sample data), generates a Nuxt 4 starter, and prints the next steps. Nothing is installed automatically — pick your package manager and run it yourself.
 
 **Skip the prompts** with `--yes` (everything defaults):
 
 ```bash
-npm create noy-db@latest my-app --yes
-npm create noy-db@latest my-app --yes --adapter file --no-sample-data
+npm create @noy-db my-app --yes
+npm create @noy-db my-app --yes --adapter file --no-sample-data
 ```
 
 ### Existing project
@@ -28,15 +30,25 @@ From the root of an existing Nuxt 4 project that has `@noy-db/nuxt` installed:
 
 ```bash
 # Add a new collection + Pinia store + page
-npx noy-db add clients
+pnpm exec noy-db add clients
+# or: npx noy-db add clients
 
 # End-to-end crypto integrity check (in-memory, no secrets prompted)
-npx noy-db verify
+pnpm exec noy-db verify
+```
+
+The `noy-db` bin ships inside the same `@noy-db/create` package — install it as a dev dependency and it's available via `pnpm exec` / `npx`:
+
+```bash
+pnpm add -D @noy-db/create
+pnpm exec noy-db add invoices
 ```
 
 ## Commands
 
-### `create-noy-db` bin (wizard)
+### `create` bin — the wizard
+
+Invoked via `npm create @noy-db` (not `create create` — npm resolves the scope to the package automatically).
 
 | Flag | Effect |
 |---|---|
@@ -46,7 +58,7 @@ npx noy-db verify
 | `--no-sample-data` | Don't include seed invoice records |
 | `--help` / `-h` | Show usage |
 
-### `noy-db` bin (tool)
+### `noy-db` bin — the tool
 
 | Command | Effect |
 |---|---|
@@ -76,7 +88,7 @@ Everything in the store is encrypted with AES-256-GCM before it touches the adap
 
 ## Deferred to a follow-up
 
-These are explicit non-goals for the v0.3.1 release of `create-noy-db`:
+These are explicit non-goals for the v0.3.1 release of `@noy-db/create`:
 
 - **Thai i18n** of prompts (add in v0.4+)
 - **Magicast AST patching** of existing `nuxt.config.ts` (add in v0.4+ — for now the wizard only generates fresh projects; use `noy-db add` to add collections to existing ones)

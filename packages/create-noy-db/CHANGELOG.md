@@ -1,20 +1,20 @@
-# create-noy-db
+# @noy-db/create
 
 ## 0.3.1
 
 ### Minor Changes
 
-- **Initial release of `create-noy-db`** — wizard + CLI tool for noy-db (closes #7, closes #9).
+- **Initial release of `@noy-db/create`** — wizard + CLI tool for noy-db (closes #7, closes #9).
 
   Ships **two bins** from a single package:
 
-  **`create-noy-db`** — wizard for new projects, invoked by `npm create noy-db@latest`:
+  **`create`** — wizard for new projects, invoked via npm's scoped-initializer idiom:
 
   ```bash
-  npm  create noy-db@latest my-app
-  pnpm create noy-db        my-app
-  yarn create noy-db        my-app
-  bun  create noy-db        my-app
+  npm  create @noy-db my-app
+  pnpm create @noy-db my-app
+  yarn create @noy-db my-app
+  bun  create @noy-db my-app
   ```
 
   Interactive mode asks 3 questions (project name, adapter, sample-data yes/no) and generates a fully wired Nuxt 4 + Pinia + encrypted-store starter. Non-interactive `--yes` mode skips every prompt and uses defaults.
@@ -25,6 +25,8 @@
   - `noy-db verify` — end-to-end crypto round-trip check against an in-memory adapter. Exits non-zero if any step diverges. Validates that `@noy-db/core`, `@noy-db/memory`, and the local Node version all agree on Web Crypto.
 
   **Nuxt 4 only.** The template generates a Nuxt 4 project using `@noy-db/nuxt@^0.3.0` and `@noy-db/pinia@^0.3.0`. No Vite, no vanilla Vue, no other frameworks.
+
+  **Why scoped?** Publishing inside the `@noy-db` scope lets us reuse the existing npm token (which has create-package rights inside the scope only). An unscoped `create-noy-db` package would have required a new wider-scoped token. See the PR discussion on #33 + the fix PR for details.
 
   **Scope deferred to a follow-up** (tracked in new issues):
   - Thai i18n of prompts

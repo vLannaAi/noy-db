@@ -12,23 +12,25 @@
 
 ---
 
-## Fastest path — `create-noy-db` wizard
+## Fastest path — `@noy-db/create` wizard
 
-The `create-noy-db` scaffolder (shipped in v0.3.1) is the fastest way to get a working Nuxt 4 + Pinia + encrypted-store starter. It asks at most 3 questions and generates a fully wired project.
+The `@noy-db/create` scaffolder (shipped in v0.3.1) is the fastest way to get a working Nuxt 4 + Pinia + encrypted-store starter. It asks at most 3 questions and generates a fully wired project.
 
 ```bash
-npm  create noy-db@latest my-app
-pnpm create noy-db        my-app
-yarn create noy-db        my-app
-bun  create noy-db        my-app
+npm  create @noy-db my-app
+pnpm create @noy-db my-app
+yarn create @noy-db my-app
+bun  create @noy-db my-app
 ```
+
+> The scoped `npm create @noy-db` idiom resolves to the `@noy-db/create` package (per npm's [`npm init @scope`](https://docs.npmjs.com/cli/v10/commands/npm-init#description) convention), runs its `create` bin, and generates the project.
 
 Skip every prompt with `--yes`:
 
 ```bash
-npm create noy-db@latest my-app --yes                     # all defaults
-npm create noy-db@latest my-app --yes --adapter file      # pick the file adapter
-npm create noy-db@latest my-app --yes --no-sample-data    # start empty
+npm create @noy-db my-app --yes                     # all defaults
+npm create @noy-db my-app --yes --adapter file      # pick the file adapter
+npm create @noy-db my-app --yes --no-sample-data    # start empty
 ```
 
 After the wizard finishes, install and run:
@@ -54,7 +56,7 @@ pnpm exec noy-db add clients     # scaffolds stores/clients.ts + pages/clients.v
 pnpm exec noy-db verify          # end-to-end crypto integrity check
 ```
 
-See [`packages/create-noy-db/README.md`](../packages/create-noy-db/README.md) for the full CLI reference.
+See [`packages/create-noy-db/README.md`](../packages/create-noy-db/README.md) for the full CLI reference. (The source directory is still `create-noy-db/` for historical reasons — the published package name is `@noy-db/create`.)
 
 ---
 

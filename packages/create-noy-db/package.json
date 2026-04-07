@@ -1,7 +1,7 @@
 {
-  "name": "create-noy-db",
+  "name": "@noy-db/create",
   "version": "0.3.1",
-  "description": "Wizard + CLI tool for noy-db: scaffold a fresh Nuxt 4 + Pinia encrypted store, or add collections to an existing project",
+  "description": "Wizard + CLI tool for noy-db: scaffold a fresh Nuxt 4 + Pinia encrypted store, or add collections to an existing project. Invoke via `npm create @noy-db`.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
   "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/create-noy-db#readme",
@@ -15,7 +15,7 @@
   },
   "type": "module",
   "bin": {
-    "create-noy-db": "./dist/bin/create-noy-db.js",
+    "create": "./dist/bin/create.js",
     "noy-db": "./dist/bin/noy-db.js"
   },
   "exports": {
