@@ -22,7 +22,15 @@ import path from 'node:path'
 import * as p from '@clack/prompts'
 import pc from 'picocolors'
 import { renderTemplate, templateDir, type RenderTokens } from './render.js'
-import type { WizardAdapter, WizardOptions, WizardResult } from './types.js'
+import type {
+  WizardAdapter,
+  WizardOptions,
+  WizardResult,
+  WizardFreshResult,
+  WizardAugmentResult,
+} from './types.js'
+import { detectNuxtProject } from './detect.js'
+import { augmentNuxtConfig, writeAugmentedConfig } from './augment.js'
 
 /**
  * Default invoice records the wizard injects when `sampleData: true`.
@@ -80,14 +88,62 @@ export function validateProjectName(name: string): string | null {
 }
 
 /**
- * Main entry point. Returns a `WizardResult` describing what was created.
- * Throws if the target directory already exists and is non-empty (refusing
- * to clobber existing work is a hard requirement — there's no `--force`).
+ * Main entry point. Detects whether `cwd` is an existing Nuxt 4
+ * project and routes to one of two modes:
+ *
+ *   - **Fresh mode** (the original v0.3.1 behavior): prompts for
+ *     project name, creates a new directory, renders the Nuxt 4
+ *     starter template. Returns a `WizardFreshResult`.
+ *
+ *   - **Augment mode** (new in v0.5, #37): patches the existing
+ *     `nuxt.config.ts` via magicast to add `@noy-db/nuxt` to the
+ *     modules array and a `noydb:` config key. Shows a unified
+ *     diff and asks for confirmation before writing. Supports
+ *     `--dry-run`. Returns a `WizardAugmentResult`.
+ *
+ * The auto-detection rule: if cwd has both a `nuxt.config.ts`
+ * (or `.js`/`.mjs`) AND a `package.json` that lists `nuxt` in any
+ * dependency section, augment mode fires. Otherwise fresh mode.
+ * Users can force fresh mode via `forceFresh: true` (CLI:
+ * `--force-fresh`) when they want to create a sub-project inside
+ * an existing Nuxt workspace.
+ *
+ * Both modes refuse to clobber existing work: fresh mode rejects
+ * non-empty target dirs; augment mode rejects unsupported config
+ * shapes (opaque exports, non-array modules, etc.).
  */
 export async function runWizard(options: WizardOptions = {}): Promise<WizardResult> {
   const cwd = options.cwd ?? process.cwd()
   const yes = options.yes ?? false
 
+  // ── Detect existing Nuxt project ───────────────────────────────────
+  // Runs BEFORE any prompts so the interactive flow branches cleanly
+  // into fresh vs augment without asking the user questions that
+  // don't apply to their mode. `forceFresh` short-circuits the
+  // detection — CI tests use this to scaffold into a temp dir that
+  // happens to sit under an existing Nuxt project.
+  const detection = options.forceFresh
+    ? null
+    : await detectNuxtProject(cwd)
+
+  if (detection?.existing && detection.configPath) {
+    return runAugmentMode(options, cwd, detection.configPath)
+  }
+
+  return runFreshMode(options, cwd, yes)
+}
+
+/**
+ * The original v0.3.1 fresh-project path, factored out of the
+ * main entry so the augment branch above can coexist. Behavior
+ * is unchanged from v0.3.1 except the return shape now includes
+ * the `kind: 'fresh'` discriminator.
+ */
+async function runFreshMode(
+  options: WizardOptions,
+  cwd: string,
+  yes: boolean,
+): Promise<WizardFreshResult> {
   // ── Resolve answers ────────────────────────────────────────────────
   // In non-interactive mode every prompt is short-circuited; in
   // interactive mode we only prompt for fields the caller didn't supply.
@@ -142,6 +198,7 @@ export async function runWizard(options: WizardOptions = {}): Promise<WizardResu
   }
 
   return {
+    kind: 'fresh',
     options: {
       projectName,
       adapter,
@@ -151,6 +208,173 @@ export async function runWizard(options: WizardOptions = {}): Promise<WizardResu
     projectPath,
     files,
   }
+}
+
+/**
+ * The new v0.5 augment-existing-project path (#37). Runs magicast
+ * on the detected nuxt.config, shows a unified diff, asks for
+ * confirmation, and writes. Supports `--dry-run` to see the diff
+ * without touching disk.
+ *
+ * Three outcomes:
+ *   - **written**: the file was patched successfully
+ *   - **already-configured**: both target mutations are already
+ *     present (idempotent no-op)
+ *   - **cancelled**: user said no at the confirmation prompt
+ *   - **dry-run**: `options.dryRun` was set, we showed the diff
+ *     and returned without writing
+ *   - **unsupported-shape**: the config file uses a shape we can't
+ *     safely mutate (opaque export, non-array modules, etc.)
+ */
+async function runAugmentMode(
+  options: WizardOptions,
+  cwd: string,
+  configPath: string,
+): Promise<WizardAugmentResult> {
+  const yes = options.yes ?? false
+  const dryRun = options.dryRun ?? false
+
+  if (!yes) {
+    p.note(
+      [
+        `${pc.dim('Detected existing Nuxt 4 project:')}`,
+        `  ${pc.cyan(configPath)}`,
+        '',
+        'The wizard will add @noy-db/nuxt to your modules array',
+        'and a noydb: config key. You can review the diff before',
+        'anything is written to disk.',
+      ].join('\n'),
+      'Augment mode',
+    )
+  }
+
+  // In augment mode we only need ONE prompt from the user: which
+  // adapter to wire into the `noydb: { adapter }` key. Everything
+  // else is decided by the config we're patching.
+  const adapter: WizardAdapter = yes
+    ? options.adapter ?? 'browser'
+    : await promptAdapter(options.adapter)
+
+  const result = await augmentNuxtConfig({
+    configPath,
+    adapter,
+    dryRun,
+  })
+
+  if (result.kind === 'already-configured') {
+    if (!yes) {
+      p.note(
+        `${pc.yellow('Nothing to do:')} ${result.reason}`,
+        'Already configured',
+      )
+      p.outro(pc.green('✔ Your Nuxt config is already wired up.'))
+    }
+    return {
+      kind: 'augment',
+      configPath,
+      adapter,
+      changed: false,
+      reason: 'already-configured',
+    }
+  }
+
+  if (result.kind === 'unsupported-shape') {
+    if (!yes) {
+      p.cancel(`${pc.red('Cannot safely patch this config:')} ${result.reason}`)
+    }
+    return {
+      kind: 'augment',
+      configPath,
+      adapter,
+      changed: false,
+      reason: 'unsupported-shape',
+    }
+  }
+
+  // result.kind === 'proposed-change' — print the diff and either
+  // write (after confirmation) or bail in dry-run mode.
+  if (!yes || dryRun) {
+    p.note(renderDiff(result.diff), 'Proposed changes')
+  }
+
+  if (dryRun) {
+    if (!yes) p.outro(pc.green('✔ Dry run — no files were modified.'))
+    return {
+      kind: 'augment',
+      configPath,
+      adapter,
+      changed: false,
+      reason: 'dry-run',
+      diff: result.diff,
+    }
+  }
+
+  let shouldWrite = yes
+  if (!yes) {
+    const confirmed = await p.confirm({
+      message: 'Apply these changes?',
+      initialValue: true,
+    })
+    if (p.isCancel(confirmed) || confirmed !== true) {
+      p.cancel('Aborted — your config is unchanged.')
+      return {
+        kind: 'augment',
+        configPath,
+        adapter,
+        changed: false,
+        reason: 'cancelled',
+        diff: result.diff,
+      }
+    }
+    shouldWrite = true
+  }
+
+  if (shouldWrite) {
+    await writeAugmentedConfig(configPath, result.newCode)
+    if (!yes) {
+      p.note(
+        [
+          pc.dim('Install the @noy-db packages your config now depends on:'),
+          '',
+          `${pc.bold('pnpm add')} @noy-db/nuxt @noy-db/pinia @noy-db/core @noy-db/browser @pinia/nuxt pinia`,
+          pc.dim('(or use npm/yarn/bun as appropriate)'),
+        ].join('\n'),
+        'Next step',
+      )
+      p.outro(pc.green('✔ Config updated — happy encrypting!'))
+    }
+  }
+
+  return {
+    kind: 'augment',
+    configPath,
+    adapter,
+    changed: true,
+    reason: 'written',
+    diff: result.diff,
+  }
+}
+
+/**
+ * Clean up a unified diff for terminal display. Strips the `===`
+ * separators the `diff` package emits, keeps a reasonable max
+ * width, and drops the Index/------ preamble that's only useful
+ * for `patch -p1`. The result is a short, colorized-ready string
+ * that fits inside a clack `note()` block.
+ */
+function renderDiff(diff: string): string {
+  const lines = diff.split('\n')
+  const keep: string[] = []
+  for (const line of lines) {
+    if (line.startsWith('Index:')) continue
+    if (line.startsWith('=')) continue
+    if (line.startsWith('---') || line.startsWith('+++')) continue
+    if (line.startsWith('+')) keep.push(pc.green(line))
+    else if (line.startsWith('-')) keep.push(pc.red(line))
+    else if (line.startsWith('@@')) keep.push(pc.dim(line))
+    else keep.push(line)
+  }
+  return keep.join('\n').trim()
 }
 
 // ─── Prompt helpers ──────────────────────────────────────────────────────

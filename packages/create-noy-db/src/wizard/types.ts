@@ -56,20 +56,60 @@ export interface WizardOptions {
    * a generated project name). This is the path tests take.
    */
   yes?: boolean
+
+  /**
+   * Augment mode: show the proposed diff against an existing
+   * `nuxt.config.ts` but do not write the file. Only meaningful
+   * when the wizard detects an existing Nuxt project in `cwd`. A
+   * no-op in fresh-project mode.
+   */
+  dryRun?: boolean
+
+  /**
+   * Force fresh-project mode even when cwd looks like an existing
+   * Nuxt project. Useful for CI tests that create a scratch
+   * directory inside a parent that happens to have a nuxt.config.
+   */
+  forceFresh?: boolean
 }
 
 /**
- * Output of `runWizard()`. Contains the resolved options after prompting
- * (or defaulting), the absolute path of the created project, and a list
- * of files that were written. Tests use this to assert on the file set.
+ * Output of `runWizard()` in fresh-project mode. The augment-mode
+ * path uses `WizardAugmentResult` instead; the caller narrows on
+ * the `kind` discriminator.
  */
-export interface WizardResult {
+export interface WizardFreshResult {
+  readonly kind: 'fresh'
   /** Resolved options after prompts/defaults. */
-  options: Required<Omit<WizardOptions, 'cwd' | 'yes'>> & {
-    cwd: string
+  readonly options: {
+    readonly projectName: string
+    readonly adapter: WizardAdapter
+    readonly sampleData: boolean
+    readonly cwd: string
   }
   /** Absolute path of the created project directory. */
-  projectPath: string
+  readonly projectPath: string
   /** Relative paths of every file the wizard wrote, sorted alphabetically. */
-  files: string[]
+  readonly files: string[]
 }
+
+/**
+ * Output of `runWizard()` in augment mode. Carries the outcome of
+ * the magicast-based config mutation — either the file was
+ * actually written (`changed: true`), the file was already
+ * configured (`changed: false, reason: 'already-configured'`),
+ * or the user cancelled at the confirmation prompt (`changed: false,
+ * reason: 'cancelled'`), or we were in dry-run (`changed: false,
+ * reason: 'dry-run'`).
+ */
+export interface WizardAugmentResult {
+  readonly kind: 'augment'
+  readonly configPath: string
+  readonly adapter: WizardAdapter
+  readonly changed: boolean
+  readonly reason: 'written' | 'already-configured' | 'cancelled' | 'dry-run' | 'unsupported-shape'
+  /** The unified diff that was shown to the user, if any. */
+  readonly diff?: string
+}
+
+export type WizardResult = WizardFreshResult | WizardAugmentResult

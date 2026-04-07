@@ -36,6 +36,8 @@ export default defineConfig({
   external: [
     '@clack/prompts',
     'picocolors',
+    'magicast',
+    'diff',
     '@noy-db/core',
     '@noy-db/memory',
     '@noy-db/file',

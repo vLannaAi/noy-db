@@ -33,6 +33,14 @@ export function parseArgs(argv: string[]): ParsedArgs {
       options.sampleData = false
       continue
     }
+    if (arg === '--dry-run') {
+      options.dryRun = true
+      continue
+    }
+    if (arg === '--force-fresh') {
+      options.forceFresh = true
+      continue
+    }
     if (arg === '--adapter') {
       const next = argv[++i]
       if (next !== 'browser' && next !== 'file' && next !== 'memory') {
