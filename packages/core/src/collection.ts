@@ -5,6 +5,11 @@ import { ReadOnlyError } from './errors.js'
 import type { UnlockedKeyring } from './keyring.js'
 import { hasWritePermission } from './keyring.js'
 import type { NoydbEventEmitter } from './events.js'
+import type { StandardSchemaV1 } from './schema.js'
+import { validateSchemaInput, validateSchemaOutput } from './schema.js'
+import type { LedgerStore } from './ledger/index.js'
+import { envelopePayloadHash } from './ledger/index.js'
+import { computePatch } from './ledger/patch.js'
 import {
   saveHistory,
   getHistory as getHistoryEntries,
@@ -56,7 +61,6 @@ function warnOnceFallback(adapterName: string): void {
   fallbackWarned.add(adapterName)
   // Only warn in non-test environments — vitest runs are noisy enough.
   if (typeof process !== 'undefined' && process.env['NODE_ENV'] === 'test') return
-  // eslint-disable-next-line no-console
   console.warn(
     `[noy-db] Adapter "${adapterName}" does not implement listPage(); ` +
     `Collection.scan()/listPage() are using a synthetic fallback (slower). ` +
@@ -115,6 +119,64 @@ export class Collection<T> {
    */
   private readonly indexes = new CollectionIndexes()
 
+  /**
+   * Optional Standard Schema v1 validator. When set, every `put()` runs
+   * the input through `validateSchemaInput` before encryption, and every
+   * record coming OUT of `decryptRecord` runs through
+   * `validateSchemaOutput`. A rejected input throws
+   * `SchemaValidationError` with `direction: 'input'`; drifted stored
+   * data throws with `direction: 'output'`. Both carry the rich issue
+   * list from the validator so UI code can render field-level messages.
+   *
+   * The schema is stored as `StandardSchemaV1<unknown, T>` because the
+   * collection type parameter `T` is the OUTPUT type — whatever the
+   * validator produces after transforms and coercion. Users who pass a
+   * schema to `defineNoydbStore` (or `Collection.constructor`) get their
+   * `T` inferred automatically via `InferOutput<Schema>`.
+   */
+  private readonly schema: StandardSchemaV1<unknown, T> | undefined
+
+  /**
+   * Optional reference to the compartment-level hash-chained audit
+   * log. When present, every successful `put()` and `delete()` appends
+   * an entry to the ledger AFTER the adapter write succeeds (so a
+   * failed adapter write never produces an orphan ledger entry).
+   *
+   * The ledger is always a compartment-wide singleton — all
+   * collections in the same compartment share the same LedgerStore.
+   * Compartment.ledger() does the lazy init; this field just holds
+   * the reference so Collection doesn't need to reach back up to the
+   * compartment on every mutation.
+   *
+   * `undefined` means "no ledger attached" — supported for tests that
+   * construct a Collection directly without a compartment, and for
+   * future backwards-compat scenarios. Production usage always has a
+   * ledger because Compartment.collection() passes one through.
+   */
+  private readonly ledger: LedgerStore | undefined
+
+  /**
+   * Optional back-reference to the owning compartment's ref
+   * enforcer. When present, `Collection.put` calls
+   * `refEnforcer.enforceRefsOnPut(name, record)` before the adapter
+   * write, and `Collection.delete` calls
+   * `refEnforcer.enforceRefsOnDelete(name, id)` before its own
+   * adapter delete. The Compartment handles the actual registry
+   * lookup and cross-collection enforcement — Collection just
+   * notifies it at the right points in the lifecycle.
+   *
+   * Typed as a structural interface rather than `Compartment`
+   * directly to avoid a circular import. Compartment implements
+   * these two methods; any other object with the same shape would
+   * work too (used only in unit tests).
+   */
+  private readonly refEnforcer:
+    | {
+        enforceRefsOnPut(collectionName: string, record: unknown): Promise<void>
+        enforceRefsOnDelete(collectionName: string, id: string): Promise<void>
+      }
+    | undefined
+
   constructor(opts: {
     adapter: NoydbAdapter
     compartment: string
@@ -138,6 +200,35 @@ export class Collection<T> {
      * unbounded lazy cache defeats the purpose.
      */
     cache?: CacheOptions | undefined
+    /**
+     * Optional Standard Schema v1 validator (Zod, Valibot, ArkType,
+     * Effect Schema, etc.). When set, every `put()` is validated before
+     * encryption and every read is validated after decryption. See the
+     * `schema` field docstring for the error semantics.
+     */
+    schema?: StandardSchemaV1<unknown, T> | undefined
+    /**
+     * Optional reference to the compartment's hash-chained ledger.
+     * When present, successful mutations append a ledger entry via
+     * `LedgerStore.append()`. Constructed at the Compartment level and
+     * threaded through — see the Compartment.collection() source for
+     * the wiring.
+     */
+    ledger?: LedgerStore | undefined
+    /**
+     * Optional back-reference to the owning compartment's ref
+     * enforcer (v0.4 #45 — foreign-key references via `ref()`).
+     * Collection.put calls `enforceRefsOnPut` before the adapter
+     * write; Collection.delete calls `enforceRefsOnDelete` before
+     * its own adapter delete. See the `refEnforcer` field docstring
+     * for the full protocol.
+     */
+    refEnforcer?:
+      | {
+          enforceRefsOnPut(collectionName: string, record: unknown): Promise<void>
+          enforceRefsOnDelete(collectionName: string, id: string): Promise<void>
+        }
+      | undefined
   }) {
     this.adapter = opts.adapter
     this.compartment = opts.compartment
@@ -148,6 +239,9 @@ export class Collection<T> {
     this.getDEK = opts.getDEK
     this.onDirty = opts.onDirty
     this.historyConfig = opts.historyConfig ?? { enabled: true }
+    this.schema = opts.schema
+    this.ledger = opts.ledger
+    this.refEnforcer = opts.refEnforcer
 
     // Default `prefetch: true` keeps v0.2 semantics. Only opt-in to lazy
     // mode when the consumer explicitly sets `prefetch: false`.
@@ -211,6 +305,26 @@ export class Collection<T> {
       throw new ReadOnlyError()
     }
 
+    // Schema validation — runs BEFORE encryption so invalid records are
+    // rejected at the store boundary. The validator may transform the
+    // input (e.g., coerce strings → numbers, strip unknown fields), in
+    // which case we persist the validated value rather than the raw one.
+    // Users who pass a bad shape get a SchemaValidationError with a
+    // structured issue list, not a stack trace from deep inside the
+    // encrypt path.
+    if (this.schema !== undefined) {
+      record = await validateSchemaInput(this.schema, record, `put(${id})`)
+    }
+
+    // Foreign-key ref enforcement (v0.4 #45). Runs AFTER schema
+    // validation (so the record shape is trustworthy) but BEFORE
+    // any write (so a failed strict ref leaves no trace on disk,
+    // in history, or in the ledger). The Compartment handles the
+    // actual target lookups — see `enforceRefsOnPut` over there.
+    if (this.refEnforcer !== undefined) {
+      await this.refEnforcer.enforceRefsOnPut(this.name, record)
+    }
+
     // Resolve the previous record. In eager mode this comes from the
     // in-memory map (no I/O); in lazy mode we have to ask the adapter
     // because the record may have been evicted (or never loaded).
@@ -254,6 +368,43 @@ export class Collection<T> {
     const envelope = await this.encryptRecord(record, version)
     await this.adapter.put(this.compartment, this.name, id, envelope)
 
+    // Ledger append — AFTER the adapter write succeeds so a failed
+    // write never produces an orphan ledger entry. Computing the
+    // payloadHash here uses the envelope we just wrote, which is the
+    // exact bytes the adapter now holds. The ledger entry records
+    // only metadata (collection, id, version, hash) — NOT the record
+    // itself — and is then encrypted with the compartment's ledger
+    // DEK, preserving zero-knowledge. See `LedgerStore.append`.
+    //
+    // **Delta history (#44)**: if there was a previous version, we
+    // compute a JSON Patch from it to the new record and pass it
+    // through `append.delta`. The LedgerStore stores the patch in
+    // the sibling `_ledger_deltas/` collection and records its hash
+    // in the entry's `deltaHash` field. Genesis puts (no existing
+    // record) leave `delta` undefined — there's nothing to diff
+    // against — and the ledger entry has no `deltaHash`.
+    if (this.ledger) {
+      const appendInput: Parameters<typeof this.ledger.append>[0] = {
+        op: 'put',
+        collection: this.name,
+        id,
+        version,
+        actor: this.keyring.userId,
+        payloadHash: await envelopePayloadHash(envelope),
+      }
+      if (existing) {
+        // REVERSE patch: describes how to undo this put — i.e., how
+        // to transform the NEW record back into the PREVIOUS one.
+        // Storing reverse patches lets `ledger.reconstruct()` walk
+        // backward from the current state (readily available in the
+        // data collection) without needing a forward-walking base
+        // snapshot, which would double the storage cost of the
+        // delta scheme. See `LedgerStore.reconstruct` for the walk.
+        appendInput.delta = computePatch(record, existing.record)
+      }
+      await this.ledger.append(appendInput)
+    }
+
     if (this.lazy && this.lru) {
       this.lru.set(id, { record, version }, estimateRecordBytes(record))
     } else {
@@ -281,6 +432,17 @@ export class Collection<T> {
       throw new ReadOnlyError()
     }
 
+    // Foreign-key ref enforcement on delete (v0.4 #45). Runs BEFORE
+    // the adapter delete so a `strict` inbound ref with existing
+    // references blocks the delete entirely (no partial state, no
+    // history churn, no ledger entry for a rejected op). `cascade`
+    // recursively deletes the referencing records first, then falls
+    // through to the normal delete path below. `warn` is a no-op
+    // here — violations surface through `checkIntegrity()`.
+    if (this.refEnforcer !== undefined) {
+      await this.refEnforcer.enforceRefsOnDelete(this.name, id)
+    }
+
     // In lazy mode the record may not be cached; ask the adapter so we
     // can still write a history snapshot if history is enabled.
     let existing: { record: T; version: number } | undefined
@@ -303,7 +465,30 @@ export class Collection<T> {
       await saveHistory(this.adapter, this.compartment, this.name, id, historyEnvelope)
     }
 
+    // Capture the previous envelope's payloadHash BEFORE delete so we
+    // have a stable reference for the ledger entry. The hash is of
+    // whatever was last visible to readers — for a `delete` of a
+    // never-existed record, we use the empty string (which the
+    // ledger entry's `payloadHash` field tolerates).
+    const previousEnvelope = await this.adapter.get(this.compartment, this.name, id)
+    const previousPayloadHash = await envelopePayloadHash(previousEnvelope)
+
     await this.adapter.delete(this.compartment, this.name, id)
+
+    // Ledger append — same after-write timing as put(). The recorded
+    // version is the version that WAS deleted (existing?.version), not
+    // a successor. A delete of a missing record still appends an
+    // entry with version 0 so the chain captures the intent.
+    if (this.ledger) {
+      await this.ledger.append({
+        op: 'delete',
+        collection: this.name,
+        id,
+        version: existing?.version ?? 0,
+        actor: this.keyring.userId,
+        payloadHash: previousPayloadHash,
+      })
+    }
 
     if (this.lazy && this.lru) {
       this.lru.remove(id)
@@ -433,7 +618,8 @@ export class Collection<T> {
 
     const entries: HistoryEntry<T>[] = []
     for (const env of envelopes) {
-      const record = await this.decryptRecord(env)
+      // History reads skip schema validation — see getVersion() docs.
+      const record = await this.decryptRecord(env, { skipValidation: true })
       entries.push({
         version: env._v,
         timestamp: env._ts,
@@ -444,13 +630,21 @@ export class Collection<T> {
     return entries
   }
 
-  /** Get a specific past version of a record. */
+  /**
+   * Get a specific past version of a record.
+   *
+   * History reads intentionally **skip schema validation** — historical
+   * records predate the current schema by definition, so validating them
+   * against today's shape would be a false positive on any schema
+   * evolution. If a caller needs validated history, they should filter
+   * and re-put the records through the normal `put()` path.
+   */
   async getVersion(id: string, version: number): Promise<T | null> {
     const envelope = await getVersionEnvelope(
       this.adapter, this.compartment, this.name, id, version,
     )
     if (!envelope) return null
-    return this.decryptRecord(envelope)
+    return this.decryptRecord(envelope, { skipValidation: true })
   }
 
   /** Revert a record to a past version. Creates a new version with the old content. */
@@ -734,13 +928,46 @@ export class Collection<T> {
     }
   }
 
-  private async decryptRecord(envelope: EncryptedEnvelope): Promise<T> {
+  /**
+   * Decrypt an envelope into a record of type `T`.
+   *
+   * When a schema is attached, the decrypted value is validated before
+   * being returned. A divergence between the stored bytes and the
+   * current schema throws `SchemaValidationError` with
+   * `direction: 'output'` — silently returning drifted data would
+   * propagate garbage into the UI and break the whole point of having
+   * a schema.
+   *
+   * `skipValidation` exists for history reads: when calling
+   * `getVersion()` the caller is explicitly asking for an old snapshot
+   * that may predate a schema change, so validating it would be a
+   * false positive. Every non-history read leaves this flag `false`.
+   */
+  private async decryptRecord(
+    envelope: EncryptedEnvelope,
+    opts: { skipValidation?: boolean } = {},
+  ): Promise<T> {
+    let record: T
     if (!this.encrypted) {
-      return JSON.parse(envelope._data) as T
+      record = JSON.parse(envelope._data) as T
+    } else {
+      const dek = await this.getDEK(this.name)
+      const json = await decrypt(envelope._iv, envelope._data, dek)
+      record = JSON.parse(json) as T
     }
 
-    const dek = await this.getDEK(this.name)
-    const json = await decrypt(envelope._iv, envelope._data, dek)
-    return JSON.parse(json) as T
+    if (this.schema !== undefined && !opts.skipValidation) {
+      // Context string deliberately avoids leaking the record id — the
+      // envelope only carries the version, not the id (the id lives in
+      // the adapter-side key). `<collection>@v<n>` is enough for the
+      // developer to find the offending record.
+      record = await validateSchemaOutput(
+        this.schema,
+        record,
+        `${this.name}@v${envelope._v}`,
+      )
+    }
+
+    return record
   }
 }

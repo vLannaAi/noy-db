@@ -154,6 +154,26 @@ export async function grant(
     }
   }
 
+  // For ALL roles, propagate system-prefixed collection DEKs
+  // (`_ledger`, `_history`, `_sync`, …). These are internal collections
+  // that any user with access to the compartment must be able to
+  // read and write — for example, the v0.4 hash-chained ledger writes
+  // an entry on every put/delete, so operators and clients with write
+  // access to a single data collection still need the `_ledger` DEK.
+  //
+  // Trade-off: a granted user can decrypt every system-collection
+  // entry, including ones they would not otherwise have access to
+  // (e.g., an operator on `invoices` can read ledger entries for
+  // mutations in `salaries`). This is a metadata leak, not a
+  // plaintext leak — the ledger entries record collection names,
+  // record ids, and ciphertext hashes, but never plaintext records.
+  // Per-collection ledger DEKs are tracked as a v0.5 follow-up.
+  for (const [collName, dek] of callerKeyring.deks) {
+    if (collName.startsWith('_') && !(collName in wrappedDeks)) {
+      wrappedDeks[collName] = await wrapKey(dek, newKek)
+    }
+  }
+
   const keyringFile: KeyringFile = {
     _noydb_keyring: NOYDB_KEYRING_VERSION,
     user_id: options.userId,

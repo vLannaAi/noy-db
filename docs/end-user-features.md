@@ -197,9 +197,147 @@ export const useInvoices = defineNoydbStore<Invoice>('invoices', {
 
 Eviction is O(1) via a `Map` + delete/set promotion. Cache stats are available as `invoices.$noydb.cacheStats()` → `{ hits, misses, evictions, bytes, records }`.
 
+---
+
+# v0.4 features — integrity & trust
+
+The v0.3 release nailed the **adoption** story (Nuxt module, Pinia integration, query DSL). v0.4 adds the **integrity** layer: every record can be schema-validated, every mutation is recorded in a tamper-evident ledger, and every backup is verifiable end-to-end.
+
+## Schema validation via Standard Schema v1
+
+Attach any [Standard Schema v1](https://standardschema.dev) validator (Zod, Valibot, ArkType, Effect Schema) to a collection. Validation runs **before encryption on `put()`** and **after decryption on reads** — bad input is rejected at the store boundary, and stored data that has drifted from the current schema throws loudly instead of silently propagating garbage.
+
+```ts
+import { z } from 'zod'
+
+const InvoiceSchema = z.object({
+  id: z.string(),
+  client: z.string(),
+  amount: z.number().positive(),
+  status: z.enum(['draft', 'open', 'paid', 'overdue']),
+})
+
+export const useInvoices = defineNoydbStore<z.infer<typeof InvoiceSchema>>('invoices', {
+  compartment: 'demo-co',
+  schema: InvoiceSchema,
+})
+```
+
+The thrown `SchemaValidationError` carries the full Standard Schema issue list so UI code can render field-level messages, and a `direction: 'input' | 'output'` discriminator so callers can distinguish "user sent bad data" from "stored data drifted from the schema".
+
+History reads (`getVersion`, `history`) intentionally skip validation — historical records predate the current schema by definition.
+
+## Hash-chained audit log (the ledger)
+
+Every `Collection.put` and `Collection.delete` appends an encrypted entry to the compartment's `_ledger/` internal collection. Entries are linked by `prevHash = sha256(canonicalJson(previousEntry))`, so any tampering breaks the chain at that point and is detected by `verify()`.
+
+```ts
+const company = await db.openCompartment('demo-co')
+const invoices = company.collection('invoices')
+
+await invoices.put('inv-1', { /* ... */ })
+await invoices.delete('inv-1')
+
+const ledger = company.ledger()
+const head = await ledger.head()
+//   → { entry: {...}, hash: 'a1b2c3...', length: 2 }
+
+const result = await ledger.verify()
+//   → { ok: true, head: 'a1b2c3...', length: 2 }
+//   → or { ok: false, divergedAt: 5, expected: '...', actual: '...' }
+```
+
+`payloadHash` is the sha256 of the **encrypted** envelope, not plaintext — preserving zero-knowledge. The full ledger entry is itself encrypted with the compartment's ledger DEK, so adapters never see plaintext metadata.
+
+The `head().hash` is the value users would publish to a third-party anchor (blockchain, OpenTimestamps, internal git repo) for external tamper detection.
+
+## Delta history via RFC 6902 JSON Patch
+
+Every put after the genesis computes a **reverse** JSON Patch from the new record to the previous version and stores it in `_ledger_deltas/`. Storage scales with **edit size**, not record size — a 1 KB record edited 100 times costs ~1 KB of deltas, not 100 KB of snapshots.
+
+```ts
+const ledger = company.ledger()
+const current = await invoices.get('inv-1')
+
+// Reconstruct any historical version
+const v2 = await ledger.reconstruct('invoices', 'inv-1', current, 2)
+const v1 = await ledger.reconstruct('invoices', 'inv-1', current, 1)
+```
+
+The reconstruction algorithm walks the chain backward from the current state, applying each entry's reverse patch. Reverse patches were chosen over forward patches because the current state is already live in the data collection — no base snapshot needed.
+
+Known limitation: reconstruct is ambiguous across delete+recreate cycles because the version counter resets. Ledger-index-based queries are tracked for v0.5.
+
+## Foreign-key references via `ref()`
+
+Soft FK enforcement at the collection level. Three modes:
+
+```ts
+import { ref } from '@noy-db/core'
+
+const invoices = company.collection<Invoice>('invoices', {
+  refs: {
+    clientId: ref('clients'),                // strict (default)
+    categoryId: ref('categories', 'warn'),
+    parentId: ref('invoices', 'cascade'),    // self-reference OK
+  },
+})
+
+// strict on put: rejects records whose target id doesn't exist
+await invoices.put('inv-1', { id: 'inv-1', clientId: 'nope', /* ... */ })
+//   → throws RefIntegrityError
+
+// strict on delete: rejects delete of target with referencing records
+await clients.delete('c-1')
+//   → throws RefIntegrityError if any invoices still reference it
+
+// cascade on delete: propagates the delete
+await clients.delete('c-2')
+//   → deletes every invoice with clientId === 'c-2'
+
+// warn mode: surfaces orphans through checkIntegrity()
+const { violations } = await company.checkIntegrity()
+//   → [{ collection, id, field, refTo, refId, mode }]
+```
+
+Cycle-safe cascade (mutually-cascading collections terminate). Cross-compartment refs are rejected with `RefScopeError` — they need an auth story tracked for v0.5.
+
+## Verifiable backups
+
+`dump()` embeds the current ledger head and the full `_ledger` + `_ledger_deltas` internal collections. `load()` re-runs `verifyBackupIntegrity()` after restoring and rejects any backup whose chain or data has been tampered with between dump and restore.
+
+```ts
+const backup = await company.dump()
+
+// Round-trip — fully verified end-to-end
+await targetCompany.load(backup)
+//   → throws BackupLedgerError if the chain is broken or head doesn't match
+//   → throws BackupCorruptedError if any data envelope's hash diverged
+
+// Or call any time on a live compartment for a periodic audit
+const result = await company.verifyBackupIntegrity()
+// → { ok: true, head, length }
+// → { ok: false, kind: 'chain', divergedAt, message }
+// → { ok: false, kind: 'data', collection, id, message }
+```
+
+Detection coverage:
+
+| Attack | Detection |
+|---|---|
+| Modify a ledger entry's encrypted bytes | AES-GCM auth tag fails on decrypt |
+| Reorder ledger entries | `prevHash` chain break → `BackupLedgerError` |
+| Modify a data envelope's encrypted bytes | sha256 mismatch with ledger payloadHash → `BackupCorruptedError` |
+| Modify the embedded `ledgerHead.hash` to match a tampered chain | Reconstructed head ≠ embedded → `BackupLedgerError` |
+| Out-of-band write to a data collection (bypassing `Collection.put`) | Same data envelope cross-check on the next `verifyBackupIntegrity()` |
+
+Backwards compat: pre-v0.4 backups (no `ledgerHead`) load with a console warning and skip the integrity check.
+
+---
+
 ## Putting it together — the Nuxt demo
 
-The [`playground/nuxt/`](../playground/nuxt/) directory is the integration test for everything above: one Nuxt 4 app, `@noy-db/nuxt` module, two `defineNoydbStore` stores (invoices + clients), three pages. No direct `Compartment` / `Collection` calls in any component — the Pinia API covers the full surface.
+The [`playground/nuxt/`](../playground/nuxt/) directory is the integration test for everything above: one Nuxt 4 app, `@noy-db/nuxt` module, two `defineNoydbStore` stores (invoices + clients), three pages. No direct `Compartment` / `Collection` calls in any component — the Pinia API covers the full surface. The invoices store is backed by a Zod schema (v0.4 #42), so the demo also exercises the validation path end-to-end.
 
-If that demo builds, every v0.3 feature composes correctly. That's the acceptance test.
+If that demo builds, every v0.3 + v0.4 feature composes correctly. That's the acceptance test.
 

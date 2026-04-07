@@ -1,6 +1,6 @@
 # Roadmap
 
-> **Current:** v0.3.1 shipped on npm — `@noy-db/create` wizard + `noy-db` CLI on top of v0.3's Pinia-first DX. **Next:** v0.4 — Integrity & trust.
+> **Current:** v0.4 shipped on npm — Integrity & trust: schema validation, hash-chained ledger, delta history, FK refs, verifiable backups. **Next:** v0.5 — Identity & sessions.
 >
 > Related docs:
 > - [Architecture](./docs/architecture.md) — data flow, key hierarchy, threat model
@@ -14,7 +14,7 @@
 
 ## Status
 
-v0.3 shipped on npm. Nine packages now published: `@noy-db/core`, `@noy-db/memory`, `@noy-db/file`, `@noy-db/dynamo`, `@noy-db/s3`, `@noy-db/browser`, `@noy-db/vue`, `@noy-db/pinia` (new), `@noy-db/nuxt` (new). 455 tests passing. The reference Nuxt 4 demo at `playground/nuxt/` is the integration test for the entire adoption story — one config block, two `defineNoydbStore` stores, three pages, no direct `Compartment`/`Collection` calls in any component. Power features (query DSL, secondary indexes, pagination + streaming `scan()`, lazy hydration + LRU) all surface through the Pinia store. v0.4 turns to **integrity & trust**: hash-chained audit log, schema validation, soft FKs.
+v0.4 shipped on npm. Ten packages published: `@noy-db/core` (now 0.4.0), `@noy-db/pinia` (now 0.4.0), `@noy-db/memory`, `@noy-db/file`, `@noy-db/dynamo`, `@noy-db/s3`, `@noy-db/browser`, `@noy-db/vue`, `@noy-db/nuxt`, `@noy-db/create`. **654 tests** passing across the monorepo (376 in `@noy-db/core` alone — up from 269 at v0.3 ship). The v0.4 epic added the integrity layer on top of v0.3's adoption surface: every record can be schema-validated, every mutation recorded in a tamper-evident hash chain, history delta-encoded for storage efficiency, soft FK references enforced per-collection, and backups verified end-to-end on load. The reference Nuxt 4 demo at `playground/nuxt/` is now the integration test for v0.3 AND v0.4 — its invoices store is backed by a Zod schema, exercising the validation path for free. v0.5 turns to **identity & sessions**: passphrase unlock UX, session tokens, OIDC bridge, hardware-key keyrings.
 
 ---
 
@@ -26,8 +26,8 @@ v0.3 shipped on npm. Nine packages now published: `@noy-db/core`, `@noy-db/memor
 | 0.2     | ✅ shipped  | Sync + browser + Vue               | DynamoDB/S3/browser adapters, sync engine, WebAuthn, Vue composables      |
 | 0.3     | ✅ shipped  | Pinia-first DX + query & scale     | Nuxt 4 module, `@noy-db/pinia`, query DSL, secondary indexes, pagination, lazy LRU |
 | 0.3.1   | ✅ shipped  | Scaffolder + CLI                   | `@noy-db/create` wizard, `noy-db add`/`verify`, Nuxt 4 starter template      |
-| **0.4** | 🚧 **next** | **Integrity & trust**              | Hash-chained audit log, schema validation, foreign-key refs               |
-| 0.5     | 📋 planned  | Identity & sessions                | Session tokens, OIDC bridge, magic links, hardware-key keyrings           |
+| 0.4     | ✅ shipped  | Integrity & trust                  | Schema validation, hash-chained ledger, delta history, FK refs, verifiable backups |
+| **0.5** | 🚧 **next** | **Identity & sessions**            | Session tokens, OIDC bridge, magic links, hardware-key keyrings           |
 | 0.6     | 📋 planned  | Sync v2                            | CRDT mode, pluggable conflict policies, presence, partial sync            |
 | 0.7     | 📋 planned  | Developer experience               | `noydb` CLI, devtools panel, schema codegen, importers                    |
 | 0.8     | 📋 planned  | Adapter expansion                  | R2, D1, Supabase, IPFS, Git, WebDAV, encrypted SQLite, Turso              |
@@ -45,10 +45,10 @@ gantt
     v0.1 core + multi-user           :done,    v01, 2026-01, 30d
     v0.2 sync + browser + Vue        :done,    v02, 2026-02, 60d
     v0.3 Nuxt 4 + Pinia + query/scale :done,   v03, 2026-04, 7d
+    v0.4 integrity & trust           :done,    v04, after v03, 7d
     section Next
-    v0.4 integrity & trust           :active,  v04, after v03, 45d
+    v0.5 identity & sessions         :active,  v05, after v04, 45d
     section Planned
-    v0.5 identity & sessions         :         v05, after v04, 45d
     v0.6 sync v2                     :         v06, after v05, 60d
     v0.7 developer experience        :         v07, after v06, 45d
     v0.8 adapter expansion           :         v08, after v07, 45d

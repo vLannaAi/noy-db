@@ -213,6 +213,93 @@ SSR safety: the `@noy-db/nuxt` runtime plugin is registered with `mode: 'client'
 
 ---
 
+## Hash-chained ledger (v0.4+)
+
+Every compartment owns an encrypted, append-only audit log stored in the internal `_ledger/` collection. Every `put` and `delete` appends one entry; entries are linked by `prevHash = sha256(canonicalJson(previousEntry))` so any modification breaks the chain at the modified position.
+
+```mermaid
+flowchart LR
+    P0["entry 0<br/>(genesis)<br/>prevHash=''"]
+    P1["entry 1<br/>prevHash=hash(0)"]
+    P2["entry 2<br/>prevHash=hash(1)"]
+    P3["entry 3<br/>prevHash=hash(2)"]
+    P0 --> P1 --> P2 --> P3
+    P3 --> Head["ledger.head().hash<br/>= hash(entry 3)"]
+
+    classDef ok fill:#dcfce7,stroke:#16a34a;
+    class P0,P1,P2,P3 ok
+```
+
+Each entry is stored as an encrypted envelope (same `EncryptedEnvelope` shape as data records, encrypted with a per-compartment ledger DEK). The plaintext payload is:
+
+```ts
+interface LedgerEntry {
+  index: number          // sequential, 0-based
+  prevHash: string       // hex sha256 of canonical JSON of previous entry
+  op: 'put' | 'delete'   // v0.4 scope
+  collection: string
+  id: string
+  version: number
+  ts: string             // ISO timestamp
+  actor: string          // user id
+  payloadHash: string    // hex sha256 of the encrypted envelope's _data field
+  deltaHash?: string     // optional — present for non-genesis puts (#44)
+}
+```
+
+**Why hash the ciphertext, not the plaintext?** `payloadHash` is over the encrypted bytes, not the decrypted record. This means:
+
+1. A user (or auditor) can verify the chain against the stored envelopes **without any decryption keys** — the adapter already holds only ciphertext, so hashing the ciphertext keeps the ledger at the same privacy level as the adapter.
+2. The hash is deterministic per write because we always use a fresh IV — different writes of the same record produce different ciphertexts and different hashes.
+3. Tamper detection works: if an attacker modifies a stored ciphertext to flip a record, the recomputed `payloadHash` no longer matches the ledger entry. The cross-check in `verifyBackupIntegrity()` catches it.
+
+### Verification
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Ledger as ledger.verify()
+    participant Adapter as Adapter (_ledger/)
+
+    User->>Ledger: verify()
+    Ledger->>Adapter: list + get all entries
+    Adapter-->>Ledger: encrypted envelopes
+    loop for each entry
+        Ledger->>Ledger: decrypt
+        Ledger->>Ledger: recompute hash(previous)
+        Ledger->>Ledger: compare to entry.prevHash
+        alt mismatch
+            Ledger-->>User: { ok: false, divergedAt }
+        end
+    end
+    Ledger-->>User: { ok: true, head, length }
+```
+
+`compartment.verifyBackupIntegrity()` runs both `ledger.verify()` AND a data envelope cross-check (recomputes `payloadHash` for every current record and compares to the latest matching ledger entry). This catches three independent attack surfaces: chain tampering, ciphertext substitution, and out-of-band writes that bypassed `Collection.put`.
+
+### Delta history
+
+Non-genesis puts also store a **reverse** JSON Patch in `_ledger_deltas/<paddedIndex>` that describes how to undo the put. Walking the chain backward applies these patches to reconstruct any historical version from the current state — storage scales with edit size, not record size.
+
+```mermaid
+flowchart LR
+    Now["current: v3"]
+    P3["delta entry 3<br/>(v2 ← v3)"]
+    P2["delta entry 2<br/>(v1 ← v2)"]
+    Now -->|applyPatch| P3
+    P3 --> S2["v2 reconstructed"]
+    S2 -->|applyPatch| P2
+    P2 --> S1["v1 reconstructed"]
+```
+
+Reverse patches were chosen over forward patches because the current state is already live in the data collection. Forward patches would need a base snapshot duplicating the data — reverse patches reuse what's already there.
+
+### Single-writer assumption
+
+The v0.4 ledger assumes a single writer per compartment. Two concurrent `append()` calls would race on the "read head, write head+1" cycle and could produce a broken chain. The single-writer model is fine for the current use cases (one Nuxt app per session, one CLI tool at a time) but multi-writer hardening is tracked for v0.5.
+
+---
+
 ## Adapter interface
 
 Every adapter implements exactly six async methods:
@@ -257,7 +344,10 @@ The contract is intentionally tiny. Building a custom adapter is `defineAdapter(
 | Disk/cloud breach               | Ciphertext only; no key material at rest                                      |
 | Stolen keyring file             | Useless without the user's passphrase (PBKDF2 at 600K iterations)             |
 | Tampering with stored records   | AES-GCM authentication tag fails on decrypt → throws                          |
-| Tampering with the audit log    | (v0.4) hash-chain breaks on any modification                                  |
+| Tampering with the audit log    | (v0.4) hash-chain breaks on any modification; `verifyBackupIntegrity()` catches data envelope swaps too |
+| Tampering with a backup file    | (v0.4) embedded `ledgerHead.hash` + post-load chain verification              |
+| Bad data persisted by mistake   | (v0.4) Standard Schema v1 validation runs before encryption on `put()`        |
+| Orphaned cross-collection refs  | (v0.4) `ref()` declarations enforce strict/warn/cascade per field             |
 | Revoked user retains old copies | Key rotation makes their old wrapped DEKs decrypt nothing                     |
 | IV reuse                        | Fresh 12-byte random IV per encrypt; never reused                             |
 | Quantum (Grover's)              | AES-256 → 128-bit effective security; safe for the foreseeable future         |
@@ -279,4 +369,10 @@ What NOYDB **doesn't** defend against:
 - **Phase 4** — browser adapter, WebAuthn, Vue composables, `withCache()` composition
 - **Phase 5** — S3 adapter, migration utility, session timeout, CLI scaffolding, npm publish
 
-All phases shipped as v0.1 → v0.2. The forward roadmap continues in [`ROADMAP.md`](../ROADMAP.md).
+Phases 0–5 shipped as v0.1 → v0.2.
+
+- **v0.3** — Pinia-first DX. `@noy-db/nuxt` Nuxt 4 module, `@noy-db/pinia` (`defineNoydbStore` + `createNoydbPiniaPlugin`), reactive query DSL, secondary indexes, pagination via `listPage`, streaming `scan()`, lazy hydration + LRU.
+- **v0.3.1** — `@noy-db/create` scaffolder + `noy-db` CLI.
+- **v0.4** — Integrity & trust. Schema validation via Standard Schema v1, hash-chained ledger, delta history (RFC 6902 JSON Patch), foreign-key references via `ref()`, verifiable backups.
+
+The forward roadmap continues in [`ROADMAP.md`](../ROADMAP.md).

@@ -83,6 +83,29 @@ export class Noydb {
         ? (coll, id, action, version) => syncEngine.trackChange(coll, id, action, version)
         : undefined,
       historyConfig: this.options.history,
+      // Refresh callback used by Compartment.load() to re-derive
+      // the in-memory keyring from a freshly-loaded keyring file.
+      // Encrypted compartments need this so post-load decrypts work
+      // against the loaded session's wrapped DEKs; plaintext
+      // compartments leave it null and load() skips the refresh.
+      reloadKeyring:
+        this.options.encrypt !== false && this.options.secret
+          ? async () => {
+              // Drop the cached keyring so the next loadKeyring
+              // call reads fresh from the adapter, then update the
+              // cache so subsequent openCompartment calls see the
+              // refreshed keyring too.
+              this.keyringCache.delete(name)
+              const refreshed = await loadKeyring(
+                this.options.adapter,
+                name,
+                this.options.user,
+                this.options.secret as string,
+              )
+              this.keyringCache.set(name, refreshed)
+              return refreshed
+            }
+          : undefined,
     })
     this.compartmentCache.set(name, comp)
     return comp

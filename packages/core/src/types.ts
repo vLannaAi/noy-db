@@ -147,6 +147,32 @@ export interface CompartmentBackup {
   readonly _exported_by: string
   readonly keyrings: Record<string, KeyringFile>
   readonly collections: CompartmentSnapshot
+  /**
+   * Internal collections (`_ledger`, `_ledger_deltas`, `_history`, `_sync`, …)
+   * captured alongside the data collections. Optional for backwards
+   * compat with v0.3 backups, which only stored data collections —
+   * loading a v0.3 backup leaves the ledger empty (and `verifyBackupIntegrity`
+   * skips the chain check, surfacing only a console warning).
+   */
+  readonly _internal?: CompartmentSnapshot
+  /**
+   * Verifiable-backup metadata (v0.4 #46). Embeds the ledger head at
+   * dump time so `load()` can cross-check that the loaded chain matches
+   * exactly what was exported. A backup whose chain has been tampered
+   * with — either by modifying ledger entries or by modifying data
+   * envelopes that the chain references — fails this check.
+   *
+   * Optional for backwards compat with v0.3 backups; missing means
+   * "legacy backup, load with a warning, no integrity check".
+   */
+  readonly ledgerHead?: {
+    /** Hex sha256 of the canonical JSON of the last ledger entry. */
+    readonly hash: string
+    /** Sequential index of the last ledger entry. */
+    readonly index: number
+    /** ISO timestamp captured at dump time. */
+    readonly ts: string
+  }
 }
 
 // ─── Sync ──────────────────────────────────────────────────────────────

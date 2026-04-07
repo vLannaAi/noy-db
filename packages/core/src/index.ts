@@ -52,7 +52,54 @@ export {
   NetworkError,
   NotFoundError,
   ValidationError,
+  SchemaValidationError,
+  BackupLedgerError,
+  BackupCorruptedError,
 } from './errors.js'
+
+// Schema validation — Standard Schema v1 integration (v0.4+)
+export type {
+  StandardSchemaV1,
+  StandardSchemaV1SyncResult,
+  StandardSchemaV1Issue,
+  InferOutput,
+} from './schema.js'
+export { validateSchemaInput, validateSchemaOutput } from './schema.js'
+
+// Hash-chained ledger (v0.4+)
+export {
+  LedgerStore,
+  LEDGER_COLLECTION,
+  LEDGER_DELTAS_COLLECTION,
+  envelopePayloadHash,
+  canonicalJson,
+  sha256Hex,
+  hashEntry,
+  paddedIndex,
+  parseIndex,
+  computePatch,
+  applyPatch,
+} from './ledger/index.js'
+export type {
+  LedgerEntry,
+  AppendInput,
+  VerifyResult,
+  JsonPatch,
+  JsonPatchOp,
+} from './ledger/index.js'
+
+// Foreign-key references via ref() (v0.4 — #45)
+export {
+  ref,
+  RefRegistry,
+  RefIntegrityError,
+  RefScopeError,
+} from './refs.js'
+export type {
+  RefMode,
+  RefDescriptor,
+  RefViolation,
+} from './refs.js'
 
 // Core classes
 export { Noydb, createNoydb } from './noydb.js'

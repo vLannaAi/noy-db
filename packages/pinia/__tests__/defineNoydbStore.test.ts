@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { setActivePinia, createPinia, storeToRefs } from 'pinia'
-import { createNoydb, type Noydb, type NoydbAdapter, type EncryptedEnvelope, type CompartmentSnapshot, ConflictError, Query } from '@noy-db/core'
+import { createNoydb, type Noydb, type NoydbAdapter, type EncryptedEnvelope, type CompartmentSnapshot, type StandardSchemaV1, ConflictError, Query } from '@noy-db/core'
 import { defineNoydbStore, setActiveNoydb } from '../src/index.js'
 
 /** Inline memory adapter — same pattern as @noy-db/core integration tests. */
@@ -148,11 +148,29 @@ describe('defineNoydbStore — greenfield path', () => {
   })
 
   it('8. schema validation throws on invalid input', async () => {
-    const schema = {
-      parse: (input: unknown) => {
-        const r = input as Invoice
-        if (typeof r.amount !== 'number') throw new Error('amount must be a number')
-        return r
+    // Minimal inline Standard Schema v1 validator. We don't pull in Zod
+    // as a dependency of the pinia package tests; a hand-rolled 10-line
+    // validator is enough to exercise the wiring end-to-end.
+    //
+    // The validator intentionally lives in the `~standard` property with
+    // a `version: 1` marker — any object shaped like this will be
+    // accepted by the schema integration regardless of which validator
+    // library it came from.
+    const schema: StandardSchemaV1<unknown, Invoice> = {
+      '~standard': {
+        version: 1,
+        vendor: 'inline-test',
+        validate: (value) => {
+          const r = value as Invoice
+          if (typeof r.amount !== 'number') {
+            return {
+              issues: [
+                { message: 'amount must be a number', path: ['amount'] },
+              ],
+            }
+          }
+          return { value: r }
+        },
       },
     }
     const useInvoices = defineNoydbStore<Invoice>('invoices', {
