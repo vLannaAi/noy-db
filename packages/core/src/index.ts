@@ -52,7 +52,17 @@ export {
   NetworkError,
   NotFoundError,
   ValidationError,
+  SchemaValidationError,
 } from './errors.js'
+
+// Schema validation — Standard Schema v1 integration (v0.4+)
+export type {
+  StandardSchemaV1,
+  StandardSchemaV1SyncResult,
+  StandardSchemaV1Issue,
+  InferOutput,
+} from './schema.js'
+export { validateSchemaInput, validateSchemaOutput } from './schema.js'
 
 // Core classes
 export { Noydb, createNoydb } from './noydb.js'

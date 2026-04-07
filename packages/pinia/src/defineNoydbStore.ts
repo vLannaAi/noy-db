@@ -18,7 +18,13 @@
 
 import { defineStore } from 'pinia'
 import { computed, shallowRef, type Ref, type ComputedRef } from 'vue'
-import type { Noydb, Compartment, Collection, Query } from '@noy-db/core'
+import type {
+  Noydb,
+  Compartment,
+  Collection,
+  Query,
+  StandardSchemaV1,
+} from '@noy-db/core'
 import { resolveNoydb } from './context.js'
 
 /**
@@ -45,10 +51,19 @@ export interface NoydbStoreOptions<T> {
    */
   prefetch?: boolean
   /**
-   * Optional schema validator. Any object exposing a `parse(input): T`
-   * method (Zod, Valibot, ArkType, etc.) is accepted.
+   * Optional schema validator.
+   *
+   * Accepts any [Standard Schema v1](https://standardschema.dev) validator
+   * — Zod, Valibot, ArkType, Effect Schema, etc. The same validator is
+   * installed on the underlying `Collection`, so every `put()` is
+   * validated **before encryption** and every read is validated **after
+   * decryption**. The store's `add`/`update` methods inherit this
+   * validation automatically; no duplicate `.parse()` call is needed.
+   *
+   * Schema-less stores behave exactly as before (no validation, no
+   * perf cost, backwards compatible with v0.3 usage).
    */
-  schema?: { parse: (input: unknown) => T }
+  schema?: StandardSchemaV1<unknown, T>
 }
 
 /**
@@ -103,7 +118,13 @@ export function defineNoydbStore<T>(
       if (cachedCollection) return cachedCollection
       const noydb = resolveNoydb(options.noydb ?? null)
       cachedCompartment = await noydb.openCompartment(options.compartment)
-      cachedCollection = cachedCompartment.collection<T>(collectionName)
+      // Pass the schema down to the Collection so validation runs at
+      // the encrypt/decrypt boundary instead of only at the store
+      // layer. This catches drifted stored data on read (which the
+      // old `options.schema.parse(record)` call in add() could not do).
+      const collOpts: Parameters<typeof cachedCompartment.collection<T>>[1] = {}
+      if (options.schema !== undefined) collOpts.schema = options.schema
+      cachedCollection = cachedCompartment.collection<T>(collectionName, collOpts)
       return cachedCollection
     }
 
@@ -123,9 +144,15 @@ export function defineNoydbStore<T>(
     }
 
     async function add(id: string, record: T): Promise<void> {
-      const validated = options.schema ? options.schema.parse(record) : record
+      // No explicit validation here — the Collection's own schema hook
+      // runs before encryption, which means we get validation AND
+      // transforms applied consistently across every code path that
+      // writes to the collection (add/update/remove, future batch
+      // operations, raw Collection.put calls). Users who want to
+      // pre-validate in the UI layer can still do so with their own
+      // schema handle.
       const c = await getCollection()
-      await c.put(id, validated)
+      await c.put(id, record)
       // Re-list to pick up the new record. Cheaper alternative would be to
       // splice into items.value directly, but list() ensures consistency
       // with the underlying cache.

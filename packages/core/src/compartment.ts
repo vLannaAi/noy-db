@@ -8,6 +8,7 @@ import type { UnlockedKeyring } from './keyring.js'
 import { ensureCollectionDEK } from './keyring.js'
 import type { NoydbEventEmitter } from './events.js'
 import { PermissionDeniedError } from './errors.js'
+import type { StandardSchemaV1 } from './schema.js'
 
 /** A compartment (tenant namespace) containing collections. */
 export class Compartment {
@@ -60,6 +61,10 @@ export class Compartment {
    *   loads records on demand and bounds memory via the LRU cache.
    * - `options.cache` configures the LRU bounds. Required in lazy mode.
    *   Accepts `{ maxRecords, maxBytes: '50MB' | 1024 }`.
+   * - `options.schema` attaches a Standard Schema v1 validator (Zod,
+   *   Valibot, ArkType, Effect Schema, etc.). Every `put()` is validated
+   *   before encryption; every read is validated after decryption.
+   *   Failing records throw `SchemaValidationError`.
    *
    * Lazy mode + indexes is rejected at construction time — see the
    * Collection constructor for the rationale.
@@ -68,10 +73,11 @@ export class Compartment {
     indexes?: IndexDef[]
     prefetch?: boolean
     cache?: CacheOptions
+    schema?: StandardSchemaV1<unknown, T>
   }): Collection<T> {
     let coll = this.collectionCache.get(collectionName)
     if (!coll) {
-      const collOpts: ConstructorParameters<typeof Collection>[0] = {
+      const collOpts: ConstructorParameters<typeof Collection<T>>[0] = {
         adapter: this.adapter,
         compartment: this.name,
         name: collectionName,
@@ -85,6 +91,7 @@ export class Compartment {
       if (options?.indexes !== undefined) collOpts.indexes = options.indexes
       if (options?.prefetch !== undefined) collOpts.prefetch = options.prefetch
       if (options?.cache !== undefined) collOpts.cache = options.cache
+      if (options?.schema !== undefined) collOpts.schema = options.schema
       coll = new Collection<T>(collOpts)
       this.collectionCache.set(collectionName, coll)
     }

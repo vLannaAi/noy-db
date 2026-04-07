@@ -88,3 +88,39 @@ export class ValidationError extends NoydbError {
     this.name = 'ValidationError'
   }
 }
+
+/**
+ * Thrown when a Standard Schema v1 validator rejects a record on
+ * `put()` (input validation) or on read (output validation). Carries
+ * the raw issue list so callers can render field-level errors.
+ *
+ * `direction` distinguishes the two cases:
+ *   - `'input'`: the user passed bad data into `put()`. This is a
+ *     normal error case that application code should handle — typically
+ *     by showing validation messages in the UI.
+ *   - `'output'`: stored data does not match the current schema. This
+ *     indicates a schema drift (the schema was changed without
+ *     migrating the existing records) and should be treated as a bug
+ *     — the application should not swallow it silently.
+ *
+ * The `issues` type is deliberately `readonly unknown[]` on this class
+ * so that `errors.ts` doesn't need to import from `schema.ts` (and
+ * create a dependency cycle). Callers who know they're holding a
+ * `SchemaValidationError` can cast to the more precise
+ * `readonly StandardSchemaV1Issue[]` from `schema.ts`.
+ */
+export class SchemaValidationError extends NoydbError {
+  readonly issues: readonly unknown[]
+  readonly direction: 'input' | 'output'
+
+  constructor(
+    message: string,
+    issues: readonly unknown[],
+    direction: 'input' | 'output',
+  ) {
+    super('SCHEMA_VALIDATION_FAILED', message)
+    this.name = 'SchemaValidationError'
+    this.issues = issues
+    this.direction = direction
+  }
+}

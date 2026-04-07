@@ -5,6 +5,8 @@ import { ReadOnlyError } from './errors.js'
 import type { UnlockedKeyring } from './keyring.js'
 import { hasWritePermission } from './keyring.js'
 import type { NoydbEventEmitter } from './events.js'
+import type { StandardSchemaV1 } from './schema.js'
+import { validateSchemaInput, validateSchemaOutput } from './schema.js'
 import {
   saveHistory,
   getHistory as getHistoryEntries,
@@ -115,6 +117,23 @@ export class Collection<T> {
    */
   private readonly indexes = new CollectionIndexes()
 
+  /**
+   * Optional Standard Schema v1 validator. When set, every `put()` runs
+   * the input through `validateSchemaInput` before encryption, and every
+   * record coming OUT of `decryptRecord` runs through
+   * `validateSchemaOutput`. A rejected input throws
+   * `SchemaValidationError` with `direction: 'input'`; drifted stored
+   * data throws with `direction: 'output'`. Both carry the rich issue
+   * list from the validator so UI code can render field-level messages.
+   *
+   * The schema is stored as `StandardSchemaV1<unknown, T>` because the
+   * collection type parameter `T` is the OUTPUT type — whatever the
+   * validator produces after transforms and coercion. Users who pass a
+   * schema to `defineNoydbStore` (or `Collection.constructor`) get their
+   * `T` inferred automatically via `InferOutput<Schema>`.
+   */
+  private readonly schema: StandardSchemaV1<unknown, T> | undefined
+
   constructor(opts: {
     adapter: NoydbAdapter
     compartment: string
@@ -138,6 +157,13 @@ export class Collection<T> {
      * unbounded lazy cache defeats the purpose.
      */
     cache?: CacheOptions | undefined
+    /**
+     * Optional Standard Schema v1 validator (Zod, Valibot, ArkType,
+     * Effect Schema, etc.). When set, every `put()` is validated before
+     * encryption and every read is validated after decryption. See the
+     * `schema` field docstring for the error semantics.
+     */
+    schema?: StandardSchemaV1<unknown, T> | undefined
   }) {
     this.adapter = opts.adapter
     this.compartment = opts.compartment
@@ -148,6 +174,7 @@ export class Collection<T> {
     this.getDEK = opts.getDEK
     this.onDirty = opts.onDirty
     this.historyConfig = opts.historyConfig ?? { enabled: true }
+    this.schema = opts.schema
 
     // Default `prefetch: true` keeps v0.2 semantics. Only opt-in to lazy
     // mode when the consumer explicitly sets `prefetch: false`.
@@ -209,6 +236,17 @@ export class Collection<T> {
   async put(id: string, record: T): Promise<void> {
     if (!hasWritePermission(this.keyring, this.name)) {
       throw new ReadOnlyError()
+    }
+
+    // Schema validation — runs BEFORE encryption so invalid records are
+    // rejected at the store boundary. The validator may transform the
+    // input (e.g., coerce strings → numbers, strip unknown fields), in
+    // which case we persist the validated value rather than the raw one.
+    // Users who pass a bad shape get a SchemaValidationError with a
+    // structured issue list, not a stack trace from deep inside the
+    // encrypt path.
+    if (this.schema !== undefined) {
+      record = await validateSchemaInput(this.schema, record, `put(${id})`)
     }
 
     // Resolve the previous record. In eager mode this comes from the
@@ -433,7 +471,8 @@ export class Collection<T> {
 
     const entries: HistoryEntry<T>[] = []
     for (const env of envelopes) {
-      const record = await this.decryptRecord(env)
+      // History reads skip schema validation — see getVersion() docs.
+      const record = await this.decryptRecord(env, { skipValidation: true })
       entries.push({
         version: env._v,
         timestamp: env._ts,
@@ -444,13 +483,21 @@ export class Collection<T> {
     return entries
   }
 
-  /** Get a specific past version of a record. */
+  /**
+   * Get a specific past version of a record.
+   *
+   * History reads intentionally **skip schema validation** — historical
+   * records predate the current schema by definition, so validating them
+   * against today's shape would be a false positive on any schema
+   * evolution. If a caller needs validated history, they should filter
+   * and re-put the records through the normal `put()` path.
+   */
   async getVersion(id: string, version: number): Promise<T | null> {
     const envelope = await getVersionEnvelope(
       this.adapter, this.compartment, this.name, id, version,
     )
     if (!envelope) return null
-    return this.decryptRecord(envelope)
+    return this.decryptRecord(envelope, { skipValidation: true })
   }
 
   /** Revert a record to a past version. Creates a new version with the old content. */
@@ -734,13 +781,46 @@ export class Collection<T> {
     }
   }
 
-  private async decryptRecord(envelope: EncryptedEnvelope): Promise<T> {
+  /**
+   * Decrypt an envelope into a record of type `T`.
+   *
+   * When a schema is attached, the decrypted value is validated before
+   * being returned. A divergence between the stored bytes and the
+   * current schema throws `SchemaValidationError` with
+   * `direction: 'output'` — silently returning drifted data would
+   * propagate garbage into the UI and break the whole point of having
+   * a schema.
+   *
+   * `skipValidation` exists for history reads: when calling
+   * `getVersion()` the caller is explicitly asking for an old snapshot
+   * that may predate a schema change, so validating it would be a
+   * false positive. Every non-history read leaves this flag `false`.
+   */
+  private async decryptRecord(
+    envelope: EncryptedEnvelope,
+    opts: { skipValidation?: boolean } = {},
+  ): Promise<T> {
+    let record: T
     if (!this.encrypted) {
-      return JSON.parse(envelope._data) as T
+      record = JSON.parse(envelope._data) as T
+    } else {
+      const dek = await this.getDEK(this.name)
+      const json = await decrypt(envelope._iv, envelope._data, dek)
+      record = JSON.parse(json) as T
     }
 
-    const dek = await this.getDEK(this.name)
-    const json = await decrypt(envelope._iv, envelope._data, dek)
-    return JSON.parse(json) as T
+    if (this.schema !== undefined && !opts.skipValidation) {
+      // Context string deliberately avoids leaking the record id — the
+      // envelope only carries the version, not the id (the id lives in
+      // the adapter-side key). `<collection>@v<n>` is enough for the
+      // developer to find the offending record.
+      record = await validateSchemaOutput(
+        this.schema,
+        record,
+        `${this.name}@v${envelope._v}`,
+      )
+    }
+
+    return record
   }
 }
