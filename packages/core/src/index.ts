@@ -165,6 +165,7 @@ export {
   groupAndReduce,
   GROUPBY_WARN_CARDINALITY,
   GROUPBY_MAX_CARDINALITY,
+  ScanBuilder,
 } from './query/index.js'
 export type {
   QueryPlan,
@@ -190,4 +191,5 @@ export type {
   AggregationUpstream,
   LiveAggregation,
   GroupedRow,
+  ScanPageProvider,
 } from './query/index.js'
