@@ -12,6 +12,8 @@ import type { JoinContext, JoinLeg, JoinStrategy } from './join.js'
 import { applyJoins } from './join.js'
 import type { LiveQuery, LiveUpstream } from './live.js'
 import { buildLiveQuery } from './live.js'
+import type { AggregateSpec, AggregateResult, AggregationUpstream } from './aggregate.js'
+import { Aggregation } from './aggregate.js'
 
 export interface OrderBy {
   readonly field: string
@@ -340,6 +342,79 @@ export class Query<T> {
     const { candidates, remainingClauses } = candidateRecords(this.source, this.plan.clauses)
     if (remainingClauses.length === 0) return candidates.length
     return filterRecords(candidates, remainingClauses).length
+  }
+
+  /**
+   * Reduce the matching records through a named set of reducers.
+   * v0.6 #97 — the aggregation terminal.
+   *
+   * ```ts
+   * const { total, n, avgAmount } = invoices.query()
+   *   .where('status', '==', 'open')
+   *   .aggregate({
+   *     total:     sum('amount'),
+   *     n:         count(),
+   *     avgAmount: avg('amount'),
+   *   })
+   *   .run()
+   * ```
+   *
+   * Returns an `Aggregation<R>` wrapper with two terminals:
+   *   - `.run(): R` — synchronous one-shot reduction
+   *   - `.live(): LiveAggregation<R>` — reactive primitive that
+   *     re-runs the reduction whenever the source notifies of a
+   *     change. Always call `live.stop()` when finished.
+   *
+   * The reducer spec is bound here once and reused by both
+   * terminals — this is why `.aggregate()` returns a wrapper instead
+   * of being a direct terminal. Consumers who only need the static
+   * value read `.run()`; consumers wiring a reactive UI read
+   * `.live()`.
+   *
+   * Joins are intentionally NOT applied to aggregations in v0.6 —
+   * the same logic as `.count()`. Joins in v0.6 are projection-only
+   * (they attach an aliased field and never filter), so running
+   * them just to throw the aliases away would be wasteful. If you
+   * need a reducer that reads a joined field, open an issue —
+   * aggregations-across-joins is explicitly out of scope for v1.
+   *
+   * Every reducer factory accepts an optional `{ seed }` parameter
+   * that is plumbed through the protocol but unused by the v0.6
+   * executor — that's #87 constraint #2. When v0.10 partition-aware
+   * aggregation lands, the seed will carry running state across
+   * partition boundaries without an API break.
+   */
+  aggregate<Spec extends AggregateSpec>(
+    spec: Spec,
+  ): Aggregation<AggregateResult<Spec>> {
+    // Closure over the current query. Produces the record set that
+    // the aggregation reduces — same pipeline as `count()`, skipping
+    // limit/offset because aggregation is over the full match set,
+    // not a paginated slice. (A paginated aggregation would be a
+    // different operation; see docs for rationale.)
+    const source = this.source
+    const clauses = this.plan.clauses
+    const executeRecords = (): readonly unknown[] => {
+      const { candidates, remainingClauses } = candidateRecords(source, clauses)
+      return remainingClauses.length === 0
+        ? candidates
+        : filterRecords(candidates, remainingClauses)
+    }
+
+    // Upstream for live mode — only the left source subscribes.
+    // Joined aggregations are out of scope for v0.6 (see above), so
+    // there are no right-side change streams to merge in.
+    const upstreams: AggregationUpstream[] = []
+    if (source.subscribe) {
+      const subscribe = source.subscribe.bind(source)
+      upstreams.push({ subscribe: (cb: () => void) => subscribe(cb) })
+    }
+
+    return new Aggregation<AggregateResult<Spec>>(
+      executeRecords,
+      spec as unknown as AggregateSpec,
+      upstreams,
+    )
   }
 
   /**

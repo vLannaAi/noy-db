@@ -152,6 +152,13 @@ export {
   DEFAULT_JOIN_MAX_ROWS,
   resetJoinWarnings,
   buildLiveQuery,
+  count,
+  sum,
+  avg,
+  min,
+  max,
+  Aggregation,
+  reduceRecords,
 } from './query/index.js'
 export type {
   QueryPlan,
@@ -170,4 +177,10 @@ export type {
   JoinStrategy,
   LiveQuery,
   LiveUpstream,
+  Reducer,
+  ReducerOptions,
+  AggregateSpec,
+  AggregateResult,
+  AggregationUpstream,
+  LiveAggregation,
 } from './query/index.js'

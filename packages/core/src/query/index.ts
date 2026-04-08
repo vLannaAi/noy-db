@@ -21,6 +21,15 @@ export { applyJoins, DEFAULT_JOIN_MAX_ROWS, resetJoinWarnings } from './join.js'
 export type { JoinLeg, JoinContext, JoinableSource, JoinStrategy } from './join.js'
 export { buildLiveQuery } from './live.js'
 export type { LiveQuery, LiveUpstream } from './live.js'
+export { count, sum, avg, min, max } from './reducers.js'
+export type { Reducer, ReducerOptions } from './reducers.js'
+export { Aggregation, reduceRecords } from './aggregate.js'
+export type {
+  AggregateSpec,
+  AggregateResult,
+  AggregationUpstream,
+  LiveAggregation,
+} from './aggregate.js'
 
 // Re-export note: QueryPlan, Clause, FilterClause, GroupClause are intentionally
 // non-parametric — their `T` was removed for variance reasons. The Query<T> type
