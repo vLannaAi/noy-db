@@ -11,6 +11,7 @@ import { NOYDB_BACKUP_VERSION } from './types.js'
 import { Collection } from './collection.js'
 import type { CacheOptions } from './collection.js'
 import type { IndexDef } from './query/indexes.js'
+import type { JoinableSource } from './query/index.js'
 import type { OnDirtyCallback } from './collection.js'
 import type { UnlockedKeyring } from './keyring.js'
 import { ensureCollectionDEK, hasAccess } from './keyring.js'
@@ -184,6 +185,7 @@ export class Compartment {
         historyConfig: this.historyConfig,
         ledger: this.ledger(),
         refEnforcer: this,
+        joinResolver: this,
       }
       if (options?.indexes !== undefined) collOpts.indexes = options.indexes
       if (options?.prefetch !== undefined) collOpts.prefetch = options.prefetch
@@ -312,6 +314,58 @@ export class Compartment {
     } finally {
       this.cascadeInProgress.delete(key)
     }
+  }
+
+  // ─── Join resolver (v0.6 #73 — eager .join()) ────────────────────
+
+  /**
+   * Look up the `RefDescriptor` the left collection declared for a
+   * given field name. Returns `null` when the field has no ref
+   * declaration — the Query builder turns that into an actionable
+   * error at plan time (before any records are touched).
+   *
+   * Implements the `joinResolver.resolveRef` half of the structural
+   * interface that `Collection.query()` consumes. See
+   * `query/join.ts` for the full design.
+   */
+  resolveRef(leftCollection: string, field: string): RefDescriptor | null {
+    const outbound = this.refRegistry.getOutbound(leftCollection)
+    return outbound[field] ?? null
+  }
+
+  /**
+   * Resolve a right-side join source by target collection name.
+   * Returns `null` for unknown collections so the Query executor can
+   * surface an actionable error naming the missing target.
+   *
+   * Implements the `joinResolver.resolveSource` half of the
+   * structural interface. The returned JoinableSource is a thin
+   * wrapper that reads the target collection's in-memory cache via
+   * `list()` / `get()` synchronously — the cache is populated by an
+   * earlier `ensureHydrated()` call through the target's query/list
+   * path. If the target has not been opened yet in this session the
+   * join will see an empty snapshot; consumers who hit this can
+   * open the target collection explicitly before running the query.
+   *
+   * Only same-compartment targets are resolvable — cross-compartment
+   * joins are explicitly forbidden by the architecture (v0.5 #63
+   * `queryAcross` is the sanctioned path for cross-compartment
+   * correlation, not `.join()`).
+   */
+  resolveSource(collectionName: string): JoinableSource | null {
+    // Reject internal / reserved collection names — joins against
+    // `_ledger/`, `_keyring/`, `_deltas/`, etc. are never legitimate.
+    if (collectionName.startsWith('_')) return null
+    const coll = this.collectionCache.get(collectionName)
+    if (!coll) return null
+    // Collection exposes a structural `querySourceForJoin()` method
+    // that returns a lightweight snapshot/lookupById view backed by
+    // its in-memory cache. Typed as unknown here because
+    // Collection<T> is covariant on T — the join executor only
+    // reads fields by name and doesn't care about the concrete type.
+    return (coll as unknown as {
+      querySourceForJoin(): JoinableSource
+    }).querySourceForJoin()
   }
 
   /**

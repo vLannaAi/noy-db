@@ -241,3 +241,77 @@ export class BackupCorruptedError extends NoydbError {
     this.id = id
   }
 }
+
+// ─── Query / Join Errors (v0.6 #73) ────────────────────────────────────
+
+/**
+ * Thrown when a `.join()` would exceed its configured row ceiling on
+ * either side. The ceiling defaults to 50,000 per side and can be
+ * overridden via the `{ maxRows }` option on `.join()`.
+ *
+ * Carries both row counts so the error message can show which side
+ * tripped the limit (e.g. "left had 60,000 rows, right had 1,200,
+ * max was 50,000"). The `side` field is machine-readable so test
+ * code and devtools can match on it without regex-parsing the
+ * message.
+ *
+ * The row ceiling exists because v0.6 joins are bounded in-memory
+ * operations over materialized record sets. Consumers whose
+ * collections genuinely exceed the ceiling should track #76
+ * (streaming joins over `scan()`) or filter the left side further
+ * with `where()` / `limit()` before joining.
+ */
+export class JoinTooLargeError extends NoydbError {
+  readonly leftRows: number
+  readonly rightRows: number
+  readonly maxRows: number
+  readonly side: 'left' | 'right'
+
+  constructor(opts: {
+    leftRows: number
+    rightRows: number
+    maxRows: number
+    side: 'left' | 'right'
+    message: string
+  }) {
+    super('JOIN_TOO_LARGE', opts.message)
+    this.name = 'JoinTooLargeError'
+    this.leftRows = opts.leftRows
+    this.rightRows = opts.rightRows
+    this.maxRows = opts.maxRows
+    this.side = opts.side
+  }
+}
+
+/**
+ * Thrown by `.join()` in strict `ref()` mode when a left-side record
+ * points at a right-side id that does not exist in the target
+ * collection.
+ *
+ * Distinct from `RefIntegrityError` so test code can pattern-match
+ * on the *read-time* dangling case without catching *write-time*
+ * integrity violations. Both indicate "ref points at nothing" but
+ * happen at different lifecycle phases and deserve different
+ * remediation in documentation: a RefIntegrityError on `put()`
+ * means the input is invalid; a DanglingReferenceError on `.join()`
+ * means stored data has drifted and `compartment.checkIntegrity()`
+ * is the right tool to find the full set of orphans.
+ */
+export class DanglingReferenceError extends NoydbError {
+  readonly field: string
+  readonly target: string
+  readonly refId: string
+
+  constructor(opts: {
+    field: string
+    target: string
+    refId: string
+    message: string
+  }) {
+    super('DANGLING_REFERENCE', opts.message)
+    this.name = 'DanglingReferenceError'
+    this.field = opts.field
+    this.target = opts.target
+    this.refId = opts.refId
+  }
+}

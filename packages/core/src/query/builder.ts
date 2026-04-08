@@ -8,6 +8,8 @@
 import type { Clause, FieldClause, FilterClause, GroupClause, Operator } from './predicate.js'
 import { evaluateClause } from './predicate.js'
 import type { CollectionIndexes } from './indexes.js'
+import type { JoinContext, JoinLeg, JoinStrategy } from './join.js'
+import { applyJoins } from './join.js'
 
 export interface OrderBy {
   readonly field: string
@@ -15,8 +17,12 @@ export interface OrderBy {
 }
 
 /**
- * A complete query plan: zero-or-more clauses, optional ordering, pagination.
- * Plans are JSON-serializable as long as no FilterClause is present.
+ * A complete query plan: zero-or-more clauses, optional ordering, pagination,
+ * and optional joins.
+ *
+ * Plans are JSON-serializable as long as no FilterClause is present and no
+ * join leg carries a manual `strategy` override (JoinLeg itself is plain
+ * data, so it serializes cleanly).
  *
  * Plans are intentionally NOT parametric on T — see `predicate.ts` FilterClause
  * for the variance reasoning. The public `Query<T>` API attaches the type tag.
@@ -26,6 +32,12 @@ export interface QueryPlan {
   readonly orderBy: readonly OrderBy[]
   readonly limit: number | undefined
   readonly offset: number
+  /**
+   * Zero-or-more join legs to apply after where/orderBy/limit/offset.
+   * Each leg attaches a resolved right-side record (or null) under its
+   * alias. See `query/join.ts` for the full semantics.
+   */
+  readonly joins: readonly JoinLeg[]
 }
 
 const EMPTY_PLAN: QueryPlan = {
@@ -33,6 +45,7 @@ const EMPTY_PLAN: QueryPlan = {
   orderBy: [],
   limit: undefined,
   offset: 0,
+  joins: [],
 }
 
 /**
@@ -71,23 +84,37 @@ interface InternalSource {
  *
  * Type parameter T flows through the public API for ergonomics, but the
  * internal storage uses `unknown` so Collection<T> stays covariant.
+ *
+ * The optional `joinContext` is attached when the Query is constructed
+ * via `Collection.query()` (Collection passes in a context built from
+ * the Compartment's join resolver). A Query constructed via `new Query`
+ * directly — e.g. from tests with a plain-object source — has no
+ * joinContext, and calling `.join()` on it throws with an actionable
+ * error. See `query/join.ts` for the full design.
  */
 export class Query<T> {
   private readonly source: InternalSource
   private readonly plan: QueryPlan
+  private readonly joinContext: JoinContext | undefined
 
-  constructor(source: QuerySource<T>, plan: QueryPlan = EMPTY_PLAN) {
+  constructor(
+    source: QuerySource<T>,
+    plan: QueryPlan = EMPTY_PLAN,
+    joinContext?: JoinContext,
+  ) {
     this.source = source as InternalSource
     this.plan = plan
+    this.joinContext = joinContext
   }
 
   /** Add a field comparison. Multiple where() calls are AND-combined. */
   where(field: string, op: Operator, value: unknown): Query<T> {
     const clause: FieldClause = { type: 'field', field, op, value }
-    return new Query<T>(this.source as QuerySource<T>, {
-      ...this.plan,
-      clauses: [...this.plan.clauses, clause],
-    })
+    return new Query<T>(
+      this.source as QuerySource<T>,
+      { ...this.plan, clauses: [...this.plan.clauses, clause] },
+      this.joinContext,
+    )
   }
 
   /**
@@ -96,16 +123,19 @@ export class Query<T> {
    * joins the parent plan with AND.
    */
   or(builder: (q: Query<T>) => Query<T>): Query<T> {
-    const sub = builder(new Query<T>(this.source as QuerySource<T>))
+    const sub = builder(
+      new Query<T>(this.source as QuerySource<T>, EMPTY_PLAN, this.joinContext),
+    )
     const group: GroupClause = {
       type: 'group',
       op: 'or',
       clauses: sub.plan.clauses,
     }
-    return new Query<T>(this.source as QuerySource<T>, {
-      ...this.plan,
-      clauses: [...this.plan.clauses, group],
-    })
+    return new Query<T>(
+      this.source as QuerySource<T>,
+      { ...this.plan, clauses: [...this.plan.clauses, group] },
+      this.joinContext,
+    )
   }
 
   /**
@@ -113,16 +143,19 @@ export class Query<T> {
    * must match. Useful for explicit grouping inside a larger OR.
    */
   and(builder: (q: Query<T>) => Query<T>): Query<T> {
-    const sub = builder(new Query<T>(this.source as QuerySource<T>))
+    const sub = builder(
+      new Query<T>(this.source as QuerySource<T>, EMPTY_PLAN, this.joinContext),
+    )
     const group: GroupClause = {
       type: 'group',
       op: 'and',
       clauses: sub.plan.clauses,
     }
-    return new Query<T>(this.source as QuerySource<T>, {
-      ...this.plan,
-      clauses: [...this.plan.clauses, group],
-    })
+    return new Query<T>(
+      this.source as QuerySource<T>,
+      { ...this.plan, clauses: [...this.plan.clauses, group] },
+      this.joinContext,
+    )
   }
 
   /** Escape hatch: add an arbitrary predicate function. Not serializable. */
@@ -131,42 +164,173 @@ export class Query<T> {
       type: 'filter',
       fn: fn as (record: unknown) => boolean,
     }
-    return new Query<T>(this.source as QuerySource<T>, {
-      ...this.plan,
-      clauses: [...this.plan.clauses, clause],
-    })
+    return new Query<T>(
+      this.source as QuerySource<T>,
+      { ...this.plan, clauses: [...this.plan.clauses, clause] },
+      this.joinContext,
+    )
   }
 
   /** Sort by a field. Subsequent calls are tie-breakers. */
   orderBy(field: string, direction: 'asc' | 'desc' = 'asc'): Query<T> {
-    return new Query<T>(this.source as QuerySource<T>, {
-      ...this.plan,
-      orderBy: [...this.plan.orderBy, { field, direction }],
-    })
+    return new Query<T>(
+      this.source as QuerySource<T>,
+      { ...this.plan, orderBy: [...this.plan.orderBy, { field, direction }] },
+      this.joinContext,
+    )
   }
 
   /** Cap the result size. */
   limit(n: number): Query<T> {
-    return new Query<T>(this.source as QuerySource<T>, { ...this.plan, limit: n })
+    return new Query<T>(
+      this.source as QuerySource<T>,
+      { ...this.plan, limit: n },
+      this.joinContext,
+    )
   }
 
   /** Skip the first N matching records (after ordering). */
   offset(n: number): Query<T> {
-    return new Query<T>(this.source as QuerySource<T>, { ...this.plan, offset: n })
+    return new Query<T>(
+      this.source as QuerySource<T>,
+      { ...this.plan, offset: n },
+      this.joinContext,
+    )
   }
 
-  /** Execute the plan and return the matching records. */
+  /**
+   * Resolve a `ref()`-declared foreign key and attach the right-side
+   * record under `opts.as`. v0.6 #73 — eager, single-FK, intra-
+   * compartment joins.
+   *
+   * ```ts
+   * const rows = invoices.query()
+   *   .where('status', '==', 'open')
+   *   .join('clientId', { as: 'client' })
+   *   .toArray()
+   * // → [{ id, amount, client: { id, name, ... } }, ...]
+   * ```
+   *
+   * Preconditions:
+   *   - The Query must have a `joinContext` (constructed via
+   *     `Collection.query()`, not `new Query`).
+   *   - `field` must have a matching `refs: { [field]: ref('<target>') }`
+   *     declaration on the left collection.
+   *   - The target collection must be reachable via the compartment
+   *     (either currently open or openable on demand).
+   *
+   * Strategy:
+   *   - Nested-loop against `lookupById` when the target source
+   *     provides it (the common path for Collection targets).
+   *   - Hash join otherwise, or when `{ strategy: 'hash' }` is
+   *     explicitly passed for test purposes.
+   *
+   * Ref-mode semantics on dangling refs (left record has a non-null
+   * FK value pointing at a right-side id that doesn't exist):
+   *   - `strict`  → throws `DanglingReferenceError` with the full
+   *     field / target / refId context.
+   *   - `warn`    → attaches `null` and emits a one-shot warning per
+   *     unique dangling pair.
+   *   - `cascade` → attaches `null` silently. Cascade is a
+   *     delete-time mode; dangling refs visible at read time are
+   *     either mid-flight cascades or pre-existing orphans, not a
+   *     DSL-level error.
+   *
+   * A left-side record whose FK field is `null` / `undefined` is NOT
+   * a dangling ref — it's "no reference at all", always allowed
+   * regardless of mode.
+   *
+   * The return type widens `T` with `Record<As, R | null>`. The `R`
+   * parameter is optional — supply it explicitly for type-checked
+   * access to the joined fields:
+   *
+   * ```ts
+   * invoices.query().join<'client', Client>('clientId', { as: 'client' })
+   * //                 ^^^^^^^^^^^^^^^^^^^ alias literal + right-side type
+   * ```
+   *
+   * Without the generic, the joined field is typed as `unknown`, which
+   * still works but requires a cast to access its properties.
+   *
+   * Joins stay intra-compartment by construction — cross-compartment
+   * correlation goes through `Noydb.queryAcross` (v0.5 #63), not
+   * `.join()`.
+   */
+  join<As extends string, R = unknown>(
+    field: string,
+    opts: { as: As; strategy?: JoinStrategy; maxRows?: number },
+  ): Query<T & Record<As, R | null>> {
+    if (!this.joinContext) {
+      throw new Error(
+        `Query.join() requires a join context. Use collection.query() ` +
+          `to construct a join-capable Query instead of the Query constructor ` +
+          `directly (the direct constructor is only used for tests with ` +
+          `plain-object sources).`,
+      )
+    }
+    const descriptor = this.joinContext.resolveRef(field)
+    if (!descriptor) {
+      throw new Error(
+        `Query.join(): no ref() declared for field "${field}" on collection ` +
+          `"${this.joinContext.leftCollection}". Add ` +
+          `refs: { ${field}: ref('<target-collection>') } to the collection ` +
+          `options, then retry. See the ref() docs for the full list of modes.`,
+      )
+    }
+    const leg: JoinLeg = {
+      field,
+      as: opts.as,
+      target: descriptor.target,
+      mode: descriptor.mode,
+      strategy: opts.strategy,
+      maxRows: opts.maxRows,
+      // #87 constraint #1 — always 'all' in v0.6. Do not remove.
+      partitionScope: 'all',
+    }
+    return new Query<T & Record<As, R | null>>(
+      this.source as unknown as QuerySource<T & Record<As, R | null>>,
+      { ...this.plan, joins: [...this.plan.joins, leg] },
+      this.joinContext,
+    )
+  }
+
+  /**
+   * Execute the plan and return the matching records. When the plan
+   * carries any join legs, they are applied after `where` / `orderBy`
+   * / `limit` / `offset` narrow the left set. See the `.join()` doc
+   * for the ordering rationale.
+   */
   toArray(): T[] {
-    return executePlanWithSource(this.source, this.plan) as T[]
+    const base = executePlanWithSource(this.source, this.plan)
+    if (this.plan.joins.length === 0) return base as T[]
+    if (!this.joinContext) {
+      // Unreachable in practice — .join() throws if joinContext is
+      // missing — but belt-and-braces for direct plan construction.
+      throw new Error(
+        `Query.toArray(): plan carries ${this.plan.joins.length} join leg(s) ` +
+          `but no JoinContext is attached. This usually means the Query was ` +
+          `constructed via the raw Query constructor with a plan that had joins ` +
+          `pre-populated. Use collection.query().join(...) instead.`,
+      )
+    }
+    return applyJoins(base, this.plan.joins, this.joinContext) as T[]
   }
 
-  /** Return the first matching record, or null. */
+  /** Return the first matching record, or null. Joins are applied. */
   first(): T | null {
-    const result = executePlanWithSource(this.source, { ...this.plan, limit: 1 })
-    return (result[0] as T | undefined) ?? null
+    const arr = this.limit(1).toArray()
+    return arr[0] ?? null
   }
 
-  /** Return the number of matching records (after where/filter, before limit). */
+  /**
+   * Return the number of matching records (after where/filter,
+   * before limit). **Joins are NOT applied** — count() reports the
+   * left-side cardinality, because joins in v0.6 are projection-only
+   * (they attach an aliased field; they never filter). Running joins
+   * here just to discard the aliases would be wasteful, and in strict
+   * mode it could throw `DanglingReferenceError` for a call whose
+   * intent is purely to count.
+   */
   count(): number {
     // Use the same index-aware candidate machinery as toArray(); skip the
     // index-driving clause from re-evaluation. The length BEFORE limit/offset
@@ -180,6 +344,12 @@ export class Query<T> {
    * Re-run the query whenever the source notifies of changes.
    * Returns an unsubscribe function. The callback receives the latest result.
    * Throws if the source does not support subscriptions.
+   *
+   * **v0.6 caveat:** when the plan has joins, subscribe() re-runs on
+   * LEFT-side changes only. Right-side mutations do not trigger a
+   * re-fire — that's #74 (`.join().live()` merged change stream).
+   * For now, joined data can be stale if the right side changes
+   * between emissions.
    */
   subscribe(cb: (result: T[]) => void): () => void {
     if (!this.source.subscribe) {
@@ -380,6 +550,7 @@ function serializePlan(plan: QueryPlan): unknown {
     orderBy: plan.orderBy,
     limit: plan.limit,
     offset: plan.offset,
+    joins: plan.joins,
   }
 }
 

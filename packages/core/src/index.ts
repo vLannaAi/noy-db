@@ -63,6 +63,8 @@ export {
   SchemaValidationError,
   BackupLedgerError,
   BackupCorruptedError,
+  JoinTooLargeError,
+  DanglingReferenceError,
 } from './errors.js'
 
 // Schema validation — Standard Schema v1 integration (v0.4+)
@@ -146,6 +148,9 @@ export {
   evaluateFieldClause,
   readPath,
   CollectionIndexes,
+  applyJoins,
+  DEFAULT_JOIN_MAX_ROWS,
+  resetJoinWarnings,
 } from './query/index.js'
 export type {
   QueryPlan,
@@ -158,4 +163,8 @@ export type {
   GroupClause,
   IndexDef,
   HashIndex,
+  JoinLeg,
+  JoinContext,
+  JoinableSource,
+  JoinStrategy,
 } from './query/index.js'

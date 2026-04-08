@@ -20,8 +20,9 @@ import {
 import { diff as computeDiff } from './diff.js'
 import type { DiffEntry } from './diff.js'
 import { Query } from './query/index.js'
-import type { QuerySource } from './query/index.js'
+import type { QuerySource, JoinContext, JoinableSource } from './query/index.js'
 import { CollectionIndexes, type IndexDef } from './query/indexes.js'
+import type { RefDescriptor } from './refs.js'
 import { Lru, parseBytes, estimateRecordBytes, type LruStats } from './cache/index.js'
 
 /** Callback for dirty tracking (sync engine integration). */
@@ -177,6 +178,35 @@ export class Collection<T> {
       }
     | undefined
 
+  /**
+   * Optional back-reference to the owning compartment's join resolver
+   * (v0.6 #73 — eager single-FK `.join()`). When present,
+   * `Collection.query()` builds a `JoinContext` that lets the Query
+   * resolve `.join(field)` calls into target collections via this
+   * resolver.
+   *
+   * Two methods:
+   *   - `resolveSource(name)` — fetch a `JoinableSource` for the
+   *     right-side collection by name. Returning `null` means "no
+   *     such collection in this compartment" — the executor then
+   *     throws an actionable error naming the missing target.
+   *   - `resolveRef(leftCollection, field)` — look up the ref
+   *     descriptor the left collection declared for this field.
+   *     `null` when the field has no ref, which makes `.join()`
+   *     throw at plan time before any records are touched.
+   *
+   * Typed structurally rather than as `Compartment` to avoid a
+   * circular import. Compartment implements these two methods; any
+   * other object with the same shape works too (used only in unit
+   * tests against a plain object).
+   */
+  private readonly joinResolver:
+    | {
+        resolveSource(collectionName: string): JoinableSource | null
+        resolveRef(leftCollection: string, field: string): RefDescriptor | null
+      }
+    | undefined
+
   constructor(opts: {
     adapter: NoydbAdapter
     compartment: string
@@ -229,6 +259,21 @@ export class Collection<T> {
           enforceRefsOnDelete(collectionName: string, id: string): Promise<void>
         }
       | undefined
+    /**
+     * Optional back-reference to the owning compartment's join
+     * resolver (v0.6 #73). When present, `query()` builds a
+     * `JoinContext` so `.join(field)` can resolve through the
+     * existing `ref()` declaration into the target collection.
+     * Absent in tests that construct a Collection directly without
+     * a compartment; production usage always has one because
+     * Compartment.collection() passes `this` through.
+     */
+    joinResolver?:
+      | {
+          resolveSource(collectionName: string): JoinableSource | null
+          resolveRef(leftCollection: string, field: string): RefDescriptor | null
+        }
+      | undefined
   }) {
     this.adapter = opts.adapter
     this.compartment = opts.compartment
@@ -242,6 +287,7 @@ export class Collection<T> {
     this.schema = opts.schema
     this.ledger = opts.ledger
     this.refEnforcer = opts.refEnforcer
+    this.joinResolver = opts.joinResolver
 
     // Default `prefetch: true` keeps v0.2 semantics. Only opt-in to lazy
     // mode when the consumer explicitly sets `prefetch: false`.
@@ -598,7 +644,57 @@ export class Collection<T> {
       getIndexes: () => this.getIndexes(),
       lookupById: (id: string) => this.cache.get(id)?.record,
     }
-    return new Query<T>(source)
+    // Build a JoinContext if the compartment passed a join resolver.
+    // Without one, .join() on the resulting Query will throw with an
+    // actionable error — the case is unreachable in production but
+    // matters for unit tests that construct Collection directly.
+    const resolver = this.joinResolver
+    const leftCollection = this.name
+    const joinContext: JoinContext | undefined = resolver
+      ? {
+          leftCollection,
+          resolveRef: (field: string) => resolver.resolveRef(leftCollection, field),
+          resolveSource: (collectionName: string) => resolver.resolveSource(collectionName),
+        }
+      : undefined
+    return new Query<T>(source, undefined, joinContext)
+  }
+
+  /**
+   * Return a minimal JoinableSource view of this collection's
+   * in-memory cache. Used by the Compartment's `resolveSource`
+   * method when another collection's `.join()` needs to probe this
+   * one as the right side.
+   *
+   * The returned object captures the cache reference through a
+   * closure, so subsequent mutations to the cache are visible to
+   * the joined query. That's intentional: a join that fires after
+   * the right-side collection has been updated should see the
+   * fresh data.
+   *
+   * Throws in lazy mode because the cache is bounded and could
+   * silently miss records — consistent with the `query()` /
+   * `list()` lazy-mode policy. If this becomes a blocker for a
+   * real consumer, the fix is to add an async `scan()`-backed
+   * variant of this method, which is exactly what #76 streaming
+   * joins will need anyway.
+   */
+  querySourceForJoin(): JoinableSource {
+    if (this.lazy) {
+      throw new Error(
+        `Collection "${this.name}": .join() cannot use a lazy-mode ` +
+          `collection as the right side. Opening it in eager mode ` +
+          `(prefetch: true, default) makes it joinable. Streaming joins ` +
+          `over lazy collections are tracked in #76.`,
+      )
+    }
+    // Structural source — the join executor only calls snapshot() and
+    // lookupById(). We capture `this.cache` by closure so later
+    // mutations are visible.
+    return {
+      snapshot: () => [...this.cache.values()].map(e => e.record),
+      lookupById: (id: string) => this.cache.get(id)?.record,
+    }
   }
 
   /**
