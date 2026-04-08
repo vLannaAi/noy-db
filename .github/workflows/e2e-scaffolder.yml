@@ -59,6 +59,7 @@ on:
       - 'packages/create-noy-db/**'
       - 'packages/core/**'
       - 'packages/memory/**'
+      - 'packages/file/**'
       - 'packages/pinia/**'
       - 'packages/browser/**'
       - '.github/workflows/e2e-scaffolder.yml'
@@ -99,12 +100,21 @@ jobs:
       # Filter the build so we only touch the packages that actually
       # ship to consumers via the scaffolder. Turbo's ^build pattern
       # pulls in the transitive dependencies automatically.
+      #
+      # `@noy-db/file` is included because `@noy-db/create` declares
+      # it in `dependencies` (not peer) and at pack time `workspace:*`
+      # expands to a PINNED version string. If the e2e doesn't provide
+      # the matching @noy-db/file tarball, the install step hits
+      # ERESOLVE / ETARGET whenever the workspace version is ahead of
+      # the version currently on the public npm registry — exactly
+      # what happens on a release PR before publish.
       - name: Build scaffolder + runtime deps
         run: |
           pnpm turbo build \
             --filter='@noy-db/create' \
             --filter='@noy-db/core' \
             --filter='@noy-db/memory' \
+            --filter='@noy-db/file' \
             --filter='@noy-db/browser' \
             --filter='@noy-db/pinia'
 
@@ -115,10 +125,11 @@ jobs:
         id: pack
         run: |
           set -eux
-          for pkg in core memory browser pinia create-noy-db; do
+          for pkg in core memory file browser pinia create-noy-db; do
             (cd "packages/$pkg" && pnpm pack)
           done
           ls -la packages/core/*.tgz packages/memory/*.tgz \
+                 packages/file/*.tgz \
                  packages/browser/*.tgz packages/pinia/*.tgz \
                  packages/create-noy-db/*.tgz
 
@@ -156,12 +167,14 @@ jobs:
           }
           CORE_TGZ=$(resolve "$GITHUB_WORKSPACE/packages/core/noy-db-core-*.tgz")
           MEMORY_TGZ=$(resolve "$GITHUB_WORKSPACE/packages/memory/noy-db-memory-*.tgz")
+          FILE_TGZ=$(resolve "$GITHUB_WORKSPACE/packages/file/noy-db-file-*.tgz")
           BROWSER_TGZ=$(resolve "$GITHUB_WORKSPACE/packages/browser/noy-db-browser-*.tgz")
           PINIA_TGZ=$(resolve "$GITHUB_WORKSPACE/packages/pinia/noy-db-pinia-*.tgz")
           CREATE_TGZ=$(resolve "$GITHUB_WORKSPACE/packages/create-noy-db/noy-db-create-*.tgz")
           {
             echo "core=$CORE_TGZ"
             echo "memory=$MEMORY_TGZ"
+            echo "file=$FILE_TGZ"
             echo "browser=$BROWSER_TGZ"
             echo "pinia=$PINIA_TGZ"
             echo "create=$CREATE_TGZ"
@@ -183,6 +196,7 @@ jobs:
           ${{ matrix.pm }} install \
             "${{ steps.tarballs.outputs.core }}" \
             "${{ steps.tarballs.outputs.memory }}" \
+            "${{ steps.tarballs.outputs.file }}" \
             "${{ steps.tarballs.outputs.browser }}" \
             "${{ steps.tarballs.outputs.pinia }}" \
             "${{ steps.tarballs.outputs.create }}" \
