@@ -284,3 +284,18 @@ export class Aggregation<R> {
     return new LiveAggregationImpl<R>(recompute, this.upstreams)
   }
 }
+
+/**
+ * Build a `LiveAggregation<V>` from a recompute closure and a list
+ * of upstreams. Exposed so sibling files in the query DSL
+ * (currently `groupby.ts`) can reuse the reactive primitive
+ * without reaching into `LiveAggregationImpl` directly. This keeps
+ * the implementation class private while still allowing planned
+ * composition with `.groupBy().aggregate().live()`.
+ */
+export function buildLiveAggregation<V>(
+  recompute: () => V,
+  upstreams: readonly AggregationUpstream[],
+): LiveAggregation<V> {
+  return new LiveAggregationImpl<V>(recompute, upstreams)
+}

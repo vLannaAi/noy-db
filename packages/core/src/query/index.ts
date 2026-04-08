@@ -23,13 +23,22 @@ export { buildLiveQuery } from './live.js'
 export type { LiveQuery, LiveUpstream } from './live.js'
 export { count, sum, avg, min, max } from './reducers.js'
 export type { Reducer, ReducerOptions } from './reducers.js'
-export { Aggregation, reduceRecords } from './aggregate.js'
+export { Aggregation, reduceRecords, buildLiveAggregation } from './aggregate.js'
 export type {
   AggregateSpec,
   AggregateResult,
   AggregationUpstream,
   LiveAggregation,
 } from './aggregate.js'
+export {
+  GroupedQuery,
+  GroupedAggregation,
+  groupAndReduce,
+  resetGroupByWarnings,
+  GROUPBY_WARN_CARDINALITY,
+  GROUPBY_MAX_CARDINALITY,
+} from './groupby.js'
+export type { GroupedRow } from './groupby.js'
 
 // Re-export note: QueryPlan, Clause, FilterClause, GroupClause are intentionally
 // non-parametric — their `T` was removed for variance reasons. The Query<T> type
