@@ -143,6 +143,14 @@ jobs:
           cd "$RUNNER_TEMP/consumer"
           echo '{"name":"e2e-consumer","version":"1.0.0","private":true,"type":"module"}' > package.json
 
+          # Disable pnpm workspace discovery in the consumer directory.
+          # Without this pnpm walks up the filesystem, finds the parent
+          # repo's pnpm-workspace.yaml via $GITHUB_WORKSPACE (depending
+          # on runner layout), and refuses to install because the
+          # consumer isn't part of the workspace. A local empty
+          # pnpm-workspace.yaml scopes pnpm to this directory only.
+          echo 'packages: []' > pnpm-workspace.yaml
+
       # Resolve the actual tarball paths once and export them as env
       # vars so both the install step and the smoke step can see the
       # same files. The paths contain the version string so we have
@@ -184,23 +192,57 @@ jobs:
       # is THE step that catches peer-dep pinning bugs, missing
       # runtime deps, and missing files in the published tarball.
       #
-      # pnpm needs `vue` + `pinia` as explicit installs because
+      # Why we write tarball paths into package.json instead of
+      # passing them on the command line: pnpm and npm disagree on
+      # how CLI tarball arguments interact with transitive dependency
+      # resolution.
+      #
+      #   - npm treats CLI tarballs as a dedup source: it reads each
+      #     tarball's package.json, notices the name+version, and
+      #     uses that to satisfy transitive deps between tarballs.
+      #     So `npm install a.tgz b.tgz` where a depends on b works.
+      #
+      #   - pnpm treats each CLI tarball as an independent install
+      #     and does NOT use them for transitive resolution. When
+      #     @noy-db/create depends on @noy-db/file, pnpm goes to the
+      #     registry to fetch @noy-db/file — which on a release PR
+      #     (workspace ahead of registry) ETARGETs because the new
+      #     version hasn't been published yet.
+      #
+      # The portable fix is the `file:` dependency protocol: writing
+      # the tarball paths into package.json as named deps makes the
+      # name→tarball mapping explicit, and both npm and pnpm resolve
+      # transitive deps against those declarations correctly. jq is
+      # already available on both Ubuntu and macOS runners.
+      #
+      # `vue` and `pinia` are added as registry installs because
       # @noy-db/pinia declares them as peer deps; npm would hoist
-      # them automatically but pnpm's isolation model requires they
-      # live in the consumer's top-level deps. We add them both for
-      # consistency across the matrix.
+      # them automatically but pnpm's isolation model requires them
+      # in the consumer's top-level deps. We add them both for
+      # consistency.
       - name: Install tarballs (${{ matrix.pm }})
         working-directory: ${{ runner.temp }}/consumer
         run: |
           set -eux
-          ${{ matrix.pm }} install \
-            "${{ steps.tarballs.outputs.core }}" \
-            "${{ steps.tarballs.outputs.memory }}" \
-            "${{ steps.tarballs.outputs.file }}" \
-            "${{ steps.tarballs.outputs.browser }}" \
-            "${{ steps.tarballs.outputs.pinia }}" \
-            "${{ steps.tarballs.outputs.create }}" \
-            pinia vue
+          jq --arg core    "file:${{ steps.tarballs.outputs.core }}" \
+             --arg memory  "file:${{ steps.tarballs.outputs.memory }}" \
+             --arg file    "file:${{ steps.tarballs.outputs.file }}" \
+             --arg browser "file:${{ steps.tarballs.outputs.browser }}" \
+             --arg pinia_tgz "file:${{ steps.tarballs.outputs.pinia }}" \
+             --arg create  "file:${{ steps.tarballs.outputs.create }}" \
+             '.dependencies = {
+                "@noy-db/core":    $core,
+                "@noy-db/memory":  $memory,
+                "@noy-db/file":    $file,
+                "@noy-db/browser": $browser,
+                "@noy-db/pinia":   $pinia_tgz,
+                "@noy-db/create":  $create,
+                "pinia": "^3.0.0",
+                "vue":   "^3.5.0"
+              }' package.json > package.json.new
+          mv package.json.new package.json
+          cat package.json
+          ${{ matrix.pm }} install
 
       # Invoke the `create` bin through its installed path. We run
       # it with --yes --adapter memory to skip all interactive
