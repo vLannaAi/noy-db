@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Turbo
+.turbo/
+
+# Coverage
+coverage/
+
+# Pack artifacts
+*.tgz
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# Playwright MCP snapshots
+.playwright-mcp/
+
+# Claude worktrees
+.claude/

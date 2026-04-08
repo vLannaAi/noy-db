@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security disclosure
+    url: https://github.com/vLannaAi/noy-db/security/advisories/new
+    about: Report a security vulnerability privately. Do NOT open a public issue for security bugs.
+  - name: Question / discussion
+    url: https://github.com/vLannaAi/noy-db/discussions
+    about: General questions, design discussions, "how do I" — please use Discussions, not Issues.
+  - name: Roadmap
+    url: https://github.com/vLannaAi/noy-db/blob/main/ROADMAP.md
+    about: See the release plan before opening a feature request.

@@ -1,0 +1,45 @@
+{
+  "name": "noy-db-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Zero-knowledge, offline-first, encrypted document store with pluggable backends and multi-user access control",
+  "license": "MIT",
+  "author": "vLannaAi <vicio@lanna.ai>",
+  "homepage": "https://github.com/vLannaAi/noy-db#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vLannaAi/noy-db.git"
+  },
+  "bugs": {
+    "url": "https://github.com/vLannaAi/noy-db/issues"
+  },
+  "packageManager": "pnpm@9.15.4",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "test:ci": "turbo run test -- --coverage",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "guard:privacy": "bash scripts/check-privacy.sh",
+    "release": "pnpm run guard:privacy && pnpm run build && changeset publish",
+    "changeset": "changeset"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.29.0",
+    "eslint": "^9.18.0",
+    "@eslint/js": "^9.18.0",
+    "typescript-eslint": "^8.21.0",
+    "tsup": "^8.4.0",
+    "turbo": "^2.4.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "rollup-plugin-visualizer": "^5.14.0"
+    }
+  }
+}

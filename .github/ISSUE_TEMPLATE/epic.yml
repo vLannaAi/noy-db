@@ -1,0 +1,48 @@
+name: Epic — release tracking
+description: Tracking issue for a release or large feature initiative (maintainers only)
+labels: ["epic", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **For maintainers.** Use this to plan a release or a multi-PR initiative.
+        Each row in the checklist below should map to a single sub-issue.
+
+  - type: input
+    id: release
+    attributes:
+      label: Release / milestone
+      placeholder: "v0.3.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: One sentence. What does "done" mean for this epic?
+    validations:
+      required: true
+
+  - type: textarea
+    id: deliverables
+    attributes:
+      label: Deliverables
+      description: One row per sub-issue. Include the issue numbers as they're created.
+      value: |
+        - [ ] #N — sub-issue title
+        - [ ] #N — sub-issue title
+    validations:
+      required: true
+
+  - type: textarea
+    id: dod
+    attributes:
+      label: Definition of done
+      description: Cross-cutting acceptance criteria for the release (CI gates, perf budgets, docs).
+
+  - type: input
+    id: target_date
+    attributes:
+      label: Target date
+      placeholder: "2026-06-01"

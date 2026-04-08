@@ -1,0 +1,55 @@
+name: Feature request
+description: Propose a new feature or enhancement
+labels: ["type: feature", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before opening: please check [ROADMAP.md](https://github.com/vLannaAi/noy-db/blob/main/ROADMAP.md). Many features are already planned.
+
+        For large designs (a new package, a new sync model, a new auth flow), open a [Discussion](https://github.com/vLannaAi/noy-db/discussions) first.
+
+  - type: input
+    id: target_package
+    attributes:
+      label: Target package
+      description: Which package should host this? Leave blank if you're proposing a new package.
+      placeholder: "@noy-db/core"
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What can't you do today? What's the workaround you're using? Be specific — "make NOYDB easier" is not actionable.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: API sketch, file paths, dependency choices. Code blocks welcome.
+      render: ts
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What else did you try or consider? Why did you reject it?
+
+  - type: checkboxes
+    id: invariants
+    attributes:
+      label: Invariant compliance
+      description: Confirm this proposal does not violate NOYDB's core invariants (see [NOYDB_SPEC.md](https://github.com/vLannaAi/noy-db/blob/main/NOYDB_SPEC.md)).
+      options:
+        - label: Adapters never see plaintext (zero-knowledge preserved)
+          required: true
+        - label: No new runtime crypto dependencies (Web Crypto API only)
+          required: true
+        - label: The 6-method adapter contract is unchanged (or this proposal documents a clean optional extension)
+          required: true
+        - label: KEK is never persisted; DEKs are never stored unwrapped
+          required: true

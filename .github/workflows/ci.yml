@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    # Run CI on main and on long-lived release branches (vX.Y-dev).
+    branches:
+      - main
+      - 'v[0-9]+.[0-9]+-dev'
+  pull_request:
+    # Run CI for PRs targeting main, any vX.Y-dev release branch,
+    # or any feat/* branch (so stacked PRs against feat/v0.3/* still get CI).
+    branches:
+      - main
+      - 'v[0-9]+.[0-9]+-dev'
+      - 'feat/**'
+
+jobs:
+  privacy-guard:
+    name: Privacy guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan for forbidden strings
+        run: bash scripts/check-privacy.sh
+
+  lint-and-typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm turbo lint
+
+      - name: Type Check
+        run: pnpm turbo typecheck
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # Node 18 is supported at runtime (no eslint in published output),
+        # but removed from CI because transitive dev deps (eslint-visitor-keys)
+        # now require Node >= 20.19.
+        node-version: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm turbo build
+      - run: pnpm turbo test
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build all packages
+        run: pnpm turbo build
+
+      - name: Verify no test files in packages
+        run: |
+          for pkg in packages/*/; do
+            if [ -f "$pkg/package.json" ]; then
+              pushd "$pkg" > /dev/null
+              output=$(npm pack --dry-run 2>&1)
+              if echo "$output" | grep -qE '\.(test|spec)\.(ts|js)'; then
+                echo "FAIL: test files found in $(basename "$pkg")"
+                echo "$output"
+                exit 1
+              fi
+              echo "OK: $(basename "$pkg") — no test files in pack"
+              popd > /dev/null
+            fi
+          done
