@@ -23,7 +23,7 @@ v0.5.0 is on npm. All 10 `@noy-db/*` packages are on the **0.5.0** version line 
 | Version | Status      | Theme                              | Highlights                                                                |
 |--------:|-------------|------------------------------------|---------------------------------------------------------------------------|
 | 0.5     | ✅ shipped  | Initial release                    | Zero-knowledge encryption, multi-user ACL, ledger, verifiable backups, query DSL, sync, Vue/Nuxt/Pinia, scaffolder + CLI |
-| **0.6** | 🚧 **next** | **Query DSL completion**           | Joins (eager + live + multi-FK chaining), aggregations v1 (built-in reducers + groupBy + scan)        |
+| **0.6** | 🚧 **next** | **Query DSL completion + `.noydb` container** | Joins (eager + live + multi-FK chaining + streaming), aggregations v1 (built-in reducers + groupBy + scan), `.noydb` container format |
 | 0.7     | 📋 planned  | Identity & sessions                | Session tokens, OIDC bridge, magic links, hardware-key keyrings           |
 | 0.8     | 📋 planned  | i18n & localization                | `dictKey` + `i18nText` schema primitives, `plaintextTranslator` hook, per-locale read resolution, dictionary admin operations, export integration |
 | 0.9     | 📋 planned  | Sync v2                            | CRDT mode, pluggable conflict policies, presence, partial sync            |
@@ -68,9 +68,9 @@ Every future release respects these:
 
 ---
 
-## v0.6 — Query DSL completion
+## v0.6 — Query DSL completion + `.noydb` container
 
-**Goal:** Finish the query DSL story so consumers can express joins and aggregations directly in `.query()` instead of folding in userland. Both features extend the same `.query()` builder; they should land in the same release so the docs cover them together.
+**Goal:** Finish the query DSL story so consumers can express joins and aggregations directly in `.query()` instead of folding in userland. Both features extend the same `.query()` builder; they should land in the same release so the docs cover them together. The release also picks up the `.noydb` container format (spawned from discussion #92) — it's standalone from the query work, small enough to fit the milestone, and it unblocks the v0.10 reader (#102) and the v0.11 bundle adapters (#103, #104).
 
 ### Joins (spawned from discussion #64)
 
@@ -80,15 +80,18 @@ Every future release respects these:
 
 ### Aggregations v1 (spawned from discussion #65)
 
-- **Built-in reducers** — `count()`, `sum(field)`, `avg(field)`, `min(field)`, `max(field)` reducer factories.
-- **`.aggregate({ ... })` terminal** with a `.live()` mode that incrementally maintains running totals for `sum`/`count`/`avg`. Documented O(N) worst case for `min`/`max` on the "current extremum was just deleted" edge case.
-- **`groupBy(field)`** with a documented cardinality warn at 10k groups.
-- **`scan().aggregate(...)`** for memory-bounded aggregation over collections beyond the in-memory ceiling.
-- **Out of scope for v1, tracked separately:** per-row callback reducers (`.reduce(fn, init)`), index-backed aggregation planner, multi-level groupBy, aggregations across joins. These wait for a real consumer ask before being scheduled.
+- **Built-in reducers (#97)** — `count()`, `sum(field)`, `avg(field)`, `min(field)`, `max(field)` reducer factories, a `.aggregate({ ... })` terminal, and a `.live()` mode that incrementally maintains running totals for `sum`/`count`/`avg`. Documented O(N) worst case for `min`/`max` on the "current extremum was just deleted" edge case. Every reducer accepts a `{ seed }` parameter (load-bearing for partition-aware aggregation in v0.10 — see #87).
+- **`groupBy(field)` (#98)** with a documented cardinality warn at 10k groups and a hard error at 100k. Type-level enforcement that `dictKey` fields group by stable key (prep for #85 in v0.8).
+- **`scan().aggregate(...)` (#99)** for memory-bounded aggregation over collections beyond the in-memory ceiling. Reuses the same reducer protocol — no duplicated API.
+- **Out of scope for v1, tracked separately:** per-row callback reducers (`.reduce(fn, init)`), index-backed aggregation planner, multi-level groupBy, aggregations across joins, `.scan().groupBy().aggregate()`. These wait for a real consumer ask before being scheduled.
 
-### Out of v0.6 (deferred)
+### Streaming joins (#76)
 
-- **Streaming joins over `scan()`** (#76) — different planner shape, lower priority. Graduates to a milestone when a consumer hits the v1 row ceiling and asks for it.
+- **Streaming join over `scan()`** — different planner shape from the bounded join in #73, bypasses the row ceiling for very large right sides. Originally deferred; pulled into v0.6 alongside `scan().aggregate()` because both features share the same streaming-scan iteration story and they should land together so the docs cover memory-bounded cross-collection work as a coherent story.
+
+### Container format (#100)
+
+- **`.noydb` container format (spawned from discussion #92)** — wraps `compartment.dump()` with a 4-byte `NDB1` magic header, an opaque-handle-only metadata header (ULID + format version + body size/sha256, no business metadata), and a brotli-compressed body (gzip fallback). Ships the `writeNoydbBundle` / `readNoydbBundle` / `readNoydbBundleHeader` primitives in core and `saveBundle` / `loadBundle` helpers in `@noy-db/file`. Foundation for the v0.10 reader (#102) and the v0.11 bundle adapters (#103, #104).
 
 ---
 
