@@ -1,7 +1,18 @@
 import { readFile, writeFile, mkdir, readdir, unlink, stat } from 'node:fs/promises'
-import { join } from 'node:path'
-import type { NoydbAdapter, EncryptedEnvelope, CompartmentSnapshot } from '@noy-db/core'
-import { ConflictError } from '@noy-db/core'
+import { dirname, join } from 'node:path'
+import type {
+  NoydbAdapter,
+  EncryptedEnvelope,
+  CompartmentSnapshot,
+  Compartment,
+  WriteNoydbBundleOptions,
+  NoydbBundleReadResult,
+} from '@noy-db/core'
+import {
+  ConflictError,
+  writeNoydbBundle,
+  readNoydbBundle,
+} from '@noy-db/core'
 
 export interface JsonFileOptions {
   /** Base directory for NOYDB data. */
@@ -217,4 +228,69 @@ export function jsonFile(options: JsonFileOptions): NoydbAdapter {
       }
     },
   }
+}
+
+// ─── .noydb bundle helpers (v0.6 #100) ─────────────────────────────────
+
+/**
+ * Write a `.noydb` container for a compartment to a local file.
+ *
+ * Thin wrapper around `writeNoydbBundle` from `@noy-db/core` —
+ * the core primitive returns a `Uint8Array`, this helper just
+ * pipes it to `node:fs.writeFile` after ensuring the parent
+ * directory exists. Use the same options as the core primitive.
+ *
+ * **Path convention** is up to the caller — `.noydb` is the
+ * recommended extension. Consumers using cloud-sync folders
+ * should name files by the bundle handle (available via
+ * `compartment.getBundleHandle()`) rather than the compartment
+ * name to avoid leaking metadata at the filesystem layer:
+ *
+ * ```ts
+ * const handle = await company.getBundleHandle()
+ * await saveBundle(`./bundles/${handle}.noydb`, company)
+ * ```
+ *
+ * The full container is written atomically by `node:fs.writeFile`
+ * (the platform's atomic-write semantics apply — POSIX `write()`
+ * is atomic up to PIPE_BUF, larger files race with concurrent
+ * readers; consumers writing into shared cloud folders should
+ * pair this with their cloud sync's conflict resolution).
+ */
+export async function saveBundle(
+  path: string,
+  compartment: Compartment,
+  opts: WriteNoydbBundleOptions = {},
+): Promise<void> {
+  const bytes = await writeNoydbBundle(compartment, opts)
+  // Ensure the parent directory exists — `writeFile` does NOT
+  // create intermediate directories on its own. Recursive mkdir
+  // is a no-op when the directory already exists.
+  await mkdir(dirname(path), { recursive: true })
+  await writeFile(path, bytes)
+}
+
+/**
+ * Read and verify a `.noydb` container from a local file.
+ *
+ * Returns the parsed header plus the unwrapped `dump()` JSON
+ * string ready to feed to `compartment.load(json, passphrase)`.
+ * Throws `BundleIntegrityError` from `@noy-db/core` if the body
+ * bytes don't match the integrity hash declared in the header
+ * (the bundle was modified between write and read), or any
+ * format error from the core reader if the bytes aren't a valid
+ * bundle at all.
+ *
+ * Does NOT take a passphrase — the bundle reader is purely a
+ * format layer. Restoring a compartment from the returned dump
+ * JSON requires a separate `compartment.load()` call with the
+ * passphrase, mirroring the split between
+ * `readNoydbBundle()` and `compartment.load()` in core.
+ */
+export async function loadBundle(path: string): Promise<NoydbBundleReadResult> {
+  const bytes = await readFile(path)
+  // node:fs.readFile returns a Buffer, which is a Uint8Array
+  // subclass — `readNoydbBundle` accepts Uint8Array directly,
+  // no copy needed.
+  return readNoydbBundle(bytes)
 }
