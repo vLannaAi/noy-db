@@ -107,7 +107,6 @@ function assertDevEnvironment(): void {
   // Vite / build tool convention
   if (
     typeof globalThis !== 'undefined' &&
-    // @ts-expect-error — import.meta.env is not in Node types
     (globalThis as Record<string, unknown>).__vite_is_production__ === true
   ) {
     throw new ValidationError('devUnlock is not available in production builds.')
