@@ -36,12 +36,6 @@ importers:
         specifier: ^3.0.0
         version: 3.2.4(@types/node@22.19.17)(happy-dom@18.0.1)(jiti@2.6.1)(terser@5.46.1)(yaml@2.8.3)
 
-  packages/auth-oidc:
-    devDependencies:
-      '@noy-db/core':
-        specifier: workspace:*
-        version: link:../core
-
   packages/auth-webauthn:
     devDependencies:
       '@noy-db/core':
