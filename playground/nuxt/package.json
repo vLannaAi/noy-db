@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/playground-nuxt",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": true,
   "description": "Reference Nuxt 4 + @noy-db/nuxt accounting demo — the v0.3 integration test against a real Vue/Pinia consumer",
   "type": "module",

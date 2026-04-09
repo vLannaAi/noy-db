@@ -1,5 +1,20 @@
 # @noy-db/playground-nuxt
 
+## 0.3.2
+
+### Patch Changes
+
+- Updated dependencies [2d38d62]
+- Updated dependencies [2d38d62]
+- Updated dependencies [2d38d62]
+- Updated dependencies [2d38d62]
+- Updated dependencies [2d38d62]
+  - @noy-db/core@0.7.0
+  - @noy-db/browser@1.0.0
+  - @noy-db/nuxt@1.0.0
+  - @noy-db/pinia@1.0.0
+  - @noy-db/vue@1.0.0
+
 ## 0.3.1
 
 ### Patch Changes

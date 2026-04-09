@@ -1,5 +1,18 @@
 # @noy-db/playground-browser
 
+## 1.0.3
+
+### Patch Changes
+
+- Updated dependencies [2d38d62]
+- Updated dependencies [2d38d62]
+- Updated dependencies [2d38d62]
+- Updated dependencies [2d38d62]
+- Updated dependencies [2d38d62]
+  - @noy-db/core@0.7.0
+  - @noy-db/browser@1.0.0
+  - @noy-db/memory@1.0.0
+
 ## 1.0.2
 
 ### Patch Changes

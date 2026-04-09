@@ -1,5 +1,82 @@
 # @noy-db/core
 
+## 0.7.0
+
+### Minor Changes
+
+- 2d38d62: **Session tokens (#109)** — unlock once with passphrase or biometric, get a
+  serialisable `SessionToken` valid for N minutes. The DEK map is encrypted with
+  a non-extractable, tab-scoped `AES-256-GCM` session key that lives only in the
+  JS module store. Closing the tab destroys the key, revoking the session.
+
+  New exports: `createSession`, `resolveSession`, `revokeSession`,
+  `revokeAllSessions`, `isSessionAlive`, `activeSessionCount` and types
+  `SessionToken`, `CreateSessionResult`, `CreateSessionOptions`.
+
+  New errors: `SessionExpiredError`, `SessionNotFoundError`.
+
+- 2d38d62: **`_sync_credentials` reserved collection (#110)** — encrypted per-adapter
+  OAuth/sync token store. Like `_keyring`, this collection is reserved and
+  ACL-gated: only `owner` and `admin` roles can read or write it. Adapters see
+  only ciphertext; plaintext tokens never leave core.
+
+  New exports: `putCredential`, `getCredential`, `deleteCredential`,
+  `listCredentials`, `credentialStatus`, `SYNC_CREDENTIALS_COLLECTION` and type
+  `SyncCredential`.
+
+- 2d38d62: **Magic-link unlock (#113)** — one-shot viewer sessions for client portals.
+  The server derives a viewer KEK via `HKDF-SHA256(serverSecret, SHA256(token),
+"noydb-magic-link-v1:" + compartment)` and grants it a read-only keyring. The
+  link holder calls `deriveMagicLinkKEK` with the same inputs to unlock the same
+  viewer session — no passphrase, no biometric.
+
+  Server-side: `createMagicLinkToken` + `deriveMagicLinkKEK` + `grant`.
+  Client-side: `deriveMagicLinkKEK` + `buildMagicLinkKeyring`.
+
+  New exports: `deriveMagicLinkKEK`, `createMagicLinkToken`, `isMagicLinkValid`,
+  `buildMagicLinkKeyring`, `MAGIC_LINK_DEFAULT_TTL_MS` and types `MagicLinkToken`,
+  `CreateMagicLinkOptions`.
+
+- 2d38d62: **Session policies (#114)** — idle/absolute timeouts, sensitive-operation
+  re-auth guards, and background-tab locking. Pass a `SessionPolicy` to
+  `createNoydb` options; the `PolicyEnforcer` manages timers and fires the
+  `onRevoke` callback automatically.
+
+  New `NoydbOptions` field: `sessionPolicy?: SessionPolicy`.
+
+  Policy features:
+
+  - `idleTimeoutMs` / `absoluteTimeoutMs` — two independent timer axes.
+  - `requireReAuthFor` — list of operations (`'export'`, `'grant'`, `'revoke'`,
+    `'rotate'`, `'changeSecret'`) that throw `SessionPolicyError` unless the
+    session was freshly unlocked.
+  - `lockOnBackground` — fires `onRevoke` when `document.visibilityState`
+    becomes `'hidden'`.
+
+  New exports: `PolicyEnforcer`, `createEnforcer`, `validateSessionPolicy`.
+  New types: `SessionPolicy`, `ReAuthOperation`.
+  New error: `SessionPolicyError`.
+
+- 2d38d62: **Dev-mode persistent unlock (#119)** — opt-in escape hatch for developer
+  inner-loop friction. Hot-reload destroys the session; this module lets
+  developers store the keyring payload in `sessionStorage` (default) or
+  `localStorage` (`persistAcrossTabs: true`) so the compartment auto-unlocks
+  on every page load during development.
+
+  Guardrails enforced unconditionally (cannot be bypassed by the caller):
+
+  1. Throws if `process.env.NODE_ENV === 'production'`.
+  2. Throws if `window.location.hostname` is not `localhost` / `127.0.0.1` /
+     `::1` / `*.local`.
+  3. Requires `acknowledge: 'I-UNDERSTAND-THIS-DISABLES-UNLOCK-SECURITY'`.
+  4. Emits an unsuppressable `console.warn` with red styling on first enable.
+
+  `loadDevUnlock`, `clearDevUnlock`, and `isDevUnlockActive` are safe to call
+  in production (they return `null`/`false`/no-op without throwing).
+
+  New exports: `enableDevUnlock`, `loadDevUnlock`, `clearDevUnlock`,
+  `isDevUnlockActive` and type `DevUnlockOptions`.
+
 ## 0.6.0
 
 ### Minor Changes
