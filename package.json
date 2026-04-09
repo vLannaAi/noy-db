@@ -25,6 +25,7 @@
     "typecheck": "turbo run typecheck",
     "guard:privacy": "bash scripts/check-privacy.sh",
     "release": "pnpm run guard:privacy && pnpm run build && changeset publish",
+    "release:version": "node scripts/release.mjs",
     "changeset": "changeset"
   },
   "devDependencies": {

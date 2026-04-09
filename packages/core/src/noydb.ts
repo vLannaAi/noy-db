@@ -12,6 +12,7 @@ import type {
   ListAccessibleCompartmentsOptions,
   QueryAcrossOptions,
   QueryAcrossResult,
+  ReAuthOperation,
 } from './types.js'
 import { ValidationError, NoAccessError, InvalidKeyError, AdapterCapabilityError } from './errors.js'
 import { Compartment } from './compartment.js'
@@ -27,6 +28,9 @@ import {
 } from './keyring.js'
 import type { UnlockedKeyring } from './keyring.js'
 import { SyncEngine } from './sync.js'
+import { revokeAllSessions } from './session.js'
+import { createEnforcer, validateSessionPolicy } from './session-policy.js'
+import type { PolicyEnforcer } from './session-policy.js'
 
 /**
  * Privilege rank used by `listAccessibleCompartments({ minRole })` to
@@ -66,25 +70,77 @@ export class Noydb {
   private readonly syncEngines = new Map<string, SyncEngine>()
   private closed = false
   private sessionTimer: ReturnType<typeof setTimeout> | null = null
+  /** Per-compartment policy enforcers (v0.7 #114). */
+  private readonly policyEnforcers = new Map<string, PolicyEnforcer>()
 
   constructor(options: NoydbOptions) {
     this.options = options
+    // Validate sessionPolicy at construction time (developer error if invalid)
+    if (options.sessionPolicy) {
+      validateSessionPolicy(options.sessionPolicy)
+    }
     this.resetSessionTimer()
   }
 
   private resetSessionTimer(): void {
     if (this.sessionTimer) clearTimeout(this.sessionTimer)
-    if (this.options.sessionTimeout && this.options.sessionTimeout > 0) {
+    // Honor the new sessionPolicy.idleTimeoutMs if present, fall back to
+    // the legacy sessionTimeout for backwards compatibility.
+    const idleMs = this.options.sessionPolicy?.idleTimeoutMs ?? this.options.sessionTimeout
+    if (idleMs && idleMs > 0) {
       this.sessionTimer = setTimeout(() => {
         this.close()
-      }, this.options.sessionTimeout)
+      }, idleMs)
     }
+  }
+
+  /**
+   * Attach a policy enforcer for a compartment (v0.7 #114).
+   * Called internally when a session is started for a compartment; the
+   * enforcer handles idle/absolute timeouts and background-lock behavior.
+   */
+  private attachPolicyEnforcer(compartment: string, sessionId: string): void {
+    const policy = this.options.sessionPolicy
+    if (!policy) return
+
+    // Tear down any previous enforcer for this compartment
+    this.policyEnforcers.get(compartment)?.destroy()
+
+    const enforcer = createEnforcer({
+      policy,
+      sessionId,
+      onRevoke: (_reason) => {
+        this.keyringCache.delete(compartment)
+        this.compartmentCache.delete(compartment)
+        this.policyEnforcers.delete(compartment)
+      },
+    })
+    this.policyEnforcers.set(compartment, enforcer)
+  }
+
+  /**
+   * Touch the policy enforcer for a compartment (records activity, resets
+   * idle timer). Also touches the legacy session timer. No-op if no enforcer.
+   */
+  private touchPolicy(compartment?: string): void {
+    this.resetSessionTimer()
+    if (compartment) {
+      this.policyEnforcers.get(compartment)?.touch()
+    }
+  }
+
+  /**
+   * Check that a policy-guarded operation is permitted.
+   * Throws `SessionPolicyError` if re-auth is required.
+   */
+  private checkPolicyOperation(compartment: string, op: ReAuthOperation): void {
+    this.policyEnforcers.get(compartment)?.checkOperation(op)
   }
 
   /** Open a compartment by name. */
   async openCompartment(name: string): Promise<Compartment> {
     if (this.closed) throw new ValidationError('Instance is closed')
-    this.resetSessionTimer()
+    this.touchPolicy(name)
 
     let comp = this.compartmentCache.get(name)
     if (comp) return comp
@@ -183,12 +239,14 @@ export class Noydb {
 
   /** Grant access to a user for a compartment. */
   async grant(compartment: string, options: GrantOptions): Promise<void> {
+    this.checkPolicyOperation(compartment, 'grant')
     const keyring = await this.getKeyring(compartment)
     await keyringGrant(this.options.adapter, compartment, keyring, options)
   }
 
   /** Revoke a user's access to a compartment. */
   async revoke(compartment: string, options: RevokeOptions): Promise<void> {
+    this.checkPolicyOperation(compartment, 'revoke')
     const keyring = await this.getKeyring(compartment)
     await keyringRevoke(this.options.adapter, compartment, keyring, options)
   }
@@ -212,6 +270,7 @@ export class Noydb {
    * reaching into internals. See `noy-db rotate` for the CLI wrapper.
    */
   async rotate(compartment: string, collections: string[]): Promise<void> {
+    this.checkPolicyOperation(compartment, 'rotate')
     const keyring = await this.getKeyring(compartment)
     await keyringRotate(this.options.adapter, compartment, keyring, collections)
     // Refresh the cached keyring so subsequent operations see the
@@ -469,6 +528,7 @@ export class Noydb {
 
   /** Change the current user's passphrase for a compartment. */
   async changeSecret(compartment: string, newPassphrase: string): Promise<void> {
+    this.checkPolicyOperation(compartment, 'changeSecret')
     const keyring = await this.getKeyring(compartment)
     const updated = await keyringChangeSecret(
       this.options.adapter,
@@ -532,6 +592,13 @@ export class Noydb {
       clearTimeout(this.sessionTimer)
       this.sessionTimer = null
     }
+    // Destroy all policy enforcers (cancels timers + visibility listeners)
+    for (const enforcer of this.policyEnforcers.values()) {
+      enforcer.destroy()
+    }
+    this.policyEnforcers.clear()
+    // Revoke all in-memory session keys (v0.7 #109)
+    revokeAllSessions()
     // Stop all sync engines
     for (const engine of this.syncEngines.values()) {
       engine.stopAutoSync()

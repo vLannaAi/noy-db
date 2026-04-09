@@ -35,6 +35,8 @@ export type {
   ListAccessibleCompartmentsOptions,
   QueryAcrossOptions,
   QueryAcrossResult,
+  SessionPolicy,
+  ReAuthOperation,
 } from './types.js'
 
 export {
@@ -67,6 +69,9 @@ export {
   JoinTooLargeError,
   DanglingReferenceError,
   BundleIntegrityError,
+  SessionExpiredError,
+  SessionNotFoundError,
+  SessionPolicyError,
 } from './errors.js'
 
 // Bundle format — `.noydb` container (v0.6 #100)
@@ -136,6 +141,9 @@ export type {
   RefViolation,
 } from './refs.js'
 
+// Keyring types
+export type { UnlockedKeyring } from './keyring.js'
+
 // Core classes
 export { Noydb, createNoydb } from './noydb.js'
 export { Compartment } from './compartment.js'
@@ -157,6 +165,60 @@ export {
   loadBiometric,
 } from './biometric.js'
 export type { BiometricCredential } from './biometric.js'
+
+// _sync_credentials reserved collection — v0.7 #110
+export {
+  putCredential,
+  getCredential,
+  deleteCredential,
+  listCredentials,
+  credentialStatus,
+  SYNC_CREDENTIALS_COLLECTION,
+} from './sync-credentials.js'
+export type { SyncCredential } from './sync-credentials.js'
+
+// Magic-link unlock — v0.7 #113
+export {
+  deriveMagicLinkKEK,
+  createMagicLinkToken,
+  isMagicLinkValid,
+  buildMagicLinkKeyring,
+  MAGIC_LINK_DEFAULT_TTL_MS,
+} from './magic-link.js'
+export type {
+  MagicLinkToken,
+  CreateMagicLinkOptions,
+} from './magic-link.js'
+
+// Session policies — v0.7 #114
+export { PolicyEnforcer, createEnforcer, validateSessionPolicy } from './session-policy.js'
+
+// Session tokens — v0.7 #109
+export {
+  createSession,
+  resolveSession,
+  revokeSession,
+  revokeAllSessions,
+  isSessionAlive,
+  activeSessionCount,
+} from './session.js'
+export type {
+  SessionToken,
+  CreateSessionResult,
+  CreateSessionOptions,
+} from './session.js'
+
+// Dev-mode persistent unlock — v0.7 #119
+export {
+  enableDevUnlock,
+  loadDevUnlock,
+  clearDevUnlock,
+  isDevUnlockActive,
+} from './dev-unlock.js'
+export type { DevUnlockOptions } from './dev-unlock.js'
+
+// Crypto utilities (buffer encoding helpers)
+export { bufferToBase64, base64ToBuffer } from './crypto.js'
 
 // Diff
 export { diff, formatDiff } from './diff.js'

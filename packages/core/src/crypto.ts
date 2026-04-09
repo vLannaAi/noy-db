@@ -151,7 +151,7 @@ export function bufferToBase64(buffer: ArrayBuffer | Uint8Array): string {
   return btoa(binary)
 }
 
-export function base64ToBuffer(base64: string): Uint8Array {
+export function base64ToBuffer(base64: string): Uint8Array<ArrayBuffer> {
   const binary = atob(base64)
   const bytes = new Uint8Array(binary.length)
   for (let i = 0; i < binary.length; i++) {

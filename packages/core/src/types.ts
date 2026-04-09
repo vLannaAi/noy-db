@@ -490,6 +490,66 @@ export interface UserInfo {
   readonly grantedBy: string
 }
 
+// ─── Session (v0.7 #109) ───────────────────────────────────────────────
+
+/**
+ * Operations that a session policy can require re-authentication for.
+ * Passed as the `requireReAuthFor` array in `SessionPolicy`.
+ */
+export type ReAuthOperation = 'export' | 'grant' | 'revoke' | 'rotate' | 'changeSecret'
+
+/**
+ * Session policy controlling lifetime, re-auth requirements, and
+ * background-lock behavior (v0.7 #114).
+ *
+ * All timeout values are in milliseconds. `undefined` means "no limit."
+ * The policy is evaluated lazily — it does not start timers itself;
+ * enforcement happens at the Noydb call site.
+ */
+export interface SessionPolicy {
+  /**
+   * Idle timeout in ms. If no NOYDB operation is performed for this
+   * duration, the session is revoked on the next operation attempt
+   * (which will throw `SessionExpiredError`). The idle clock resets
+   * on every successful operation.
+   *
+   * Default: `undefined` (no idle timeout).
+   */
+  readonly idleTimeoutMs?: number
+
+  /**
+   * Absolute timeout in ms from session creation. After this duration
+   * the session is unconditionally revoked regardless of activity.
+   *
+   * Default: `undefined` (no absolute timeout).
+   */
+  readonly absoluteTimeoutMs?: number
+
+  /**
+   * Operations that require the user to re-authenticate (re-enter their
+   * passphrase or perform a fresh WebAuthn assertion) before proceeding,
+   * even if the session is still alive.
+   *
+   * Common pattern: `requireReAuthFor: ['export', 'grant']` — allow
+   * read/write operations in the background but demand a fresh credential
+   * for high-risk mutations.
+   *
+   * Default: `[]` (no extra re-auth requirements).
+   */
+  readonly requireReAuthFor?: readonly ReAuthOperation[]
+
+  /**
+   * If `true`, the session is revoked when the page goes to the background
+   * (visibilitychange event, `document.hidden === true`). Useful for
+   * high-sensitivity deployments where leaving the tab is treated as
+   * a session boundary.
+   *
+   * No-op in non-browser environments (Node.js, workers without document).
+   * Default: `false`.
+   */
+  readonly lockOnBackground?: boolean
+}
+
 // ─── Factory Options ───────────────────────────────────────────────────
 
 export interface NoydbOptions {
@@ -511,8 +571,19 @@ export interface NoydbOptions {
   readonly autoSync?: boolean
   /** Periodic sync interval in ms. Default: 30000. */
   readonly syncInterval?: number
-  /** Session timeout in ms. Clears keys after inactivity. Default: none. */
+  /**
+   * Session timeout in ms. Clears keys after inactivity. Default: none.
+   * @deprecated Use `sessionPolicy.idleTimeoutMs` instead. This field is
+   * still honored for backwards compatibility but `sessionPolicy` takes
+   * precedence when both are supplied.
+   */
   readonly sessionTimeout?: number
+  /**
+   * Session policy controlling lifetime, re-auth requirements, and
+   * background-lock behavior (v0.7 #114). When supplied, replaces the
+   * legacy `sessionTimeout` field.
+   */
+  readonly sessionPolicy?: SessionPolicy
   /** Validate passphrase strength on creation. Default: true. */
   readonly validatePassphrase?: boolean
   /** Audit history configuration. */

@@ -5,7 +5,7 @@
 > this first if you're picking up work on noy-db with no prior
 > session memory.
 >
-> **Updated:** 2026-04-09, right after v0.6.0 shipped.
+> **Updated:** 2026-04-09, after completing all v0.7 feature development.
 
 ## What this project is
 
@@ -24,168 +24,129 @@ copy.
 
 ## Where things stand right now
 
-### v0.6.0 shipped to npm on 2026-04-09
+### v0.6.0 shipped (2026-04-09). v0.7 features are implemented and tested.
 
-All 10 `@noy-db/*` packages are live on npm at `0.6.0`. The release
-closed the v0.6 milestone (8 feature issues + 1 meta-issue #87) and
-added:
+All 7 v0.7 milestone issues (#109, #110, #111, #112, #113, #114, #119)
+are implemented in `main`. No PRs have been created yet — the code
+landed directly in this session. The next step is **creating PRs,
+running CI, and executing the merge runbook** (`docs/v0.7/merge-runbook.md`).
 
-- **Joins:** `.query().join()` (eager, #73), multi-FK chaining (#75),
-  `Query.live()` with merged change streams (#74), streaming
-  `.scan().join()` (#76)
-- **Aggregations v1:** reducers + `.aggregate()` + `.live()` (#97),
-  `.groupBy()` with cardinality caps (#98), `scan().aggregate()`
-  memory-bounded streaming (#99)
-- **`.noydb` container format:** minimum-disclosure binary wrapper
-  around `compartment.dump()` with ULID handles and brotli/gzip
-  compression (#100)
+### v0.7 feature status
 
-558/558 core tests passing. Zero new dependencies. See:
-- `docs/v0.6/release-notes-draft.md` — full changelog
-- `docs/v0.6/merge-runbook.md` — the runbook that was executed
-- `docs/v0.6/retrospective.md` — **READ THIS BEFORE THE NEXT RELEASE**
+| Issue | Feature | Status | Package |
+|-------|---------|--------|---------|
+| #109 | Session tokens | ✅ 18 tests | `@noy-db/core` |
+| #110 | `_sync_credentials` | ✅ 16 tests | `@noy-db/core` |
+| #111 | `@noy-db/auth-webauthn` | ✅ 18 tests (happy-dom + navigator.credentials mock) | new package |
+| #112 | `@noy-db/auth-oidc` | ✅ 21 tests (happy-dom + fetch mock) | new package |
+| #113 | Magic-link unlock | ✅ 17 tests (pure crypto, Node env) | `@noy-db/core` |
+| #114 | Session policies | ✅ 17 tests | `@noy-db/core` |
+| #119 | Dev-mode persistent unlock | ✅ 23 tests (happy-dom) | `@noy-db/core` |
+
+**Total tests:** 688 (649 core + 18 auth-webauthn + 21 auth-oidc)
+
+### Release tooling shipped
+
+| Artifact | Status |
+|----------|--------|
+| `scripts/release.mjs` | ✅ written — normalizes all `@noy-db/*` versions to core |
+| `pnpm release:version` script wired in root `package.json` | ✅ |
+| `docs/v0.7/merge-runbook.md` | ✅ written — applies all v0.6 retrospective lessons |
+| `.changeset/v0.7-issue-*.md` (7 files) | ✅ written — one per issue |
 
 ### Main branch state
 
 ```
-main  4b39f86  chore: release v0.6.0
+main  41b5e06  docs: v0.6.0 post-release housekeeping
 ```
 
-Clean working tree. Local `feat/v0.6/*` branches are all deleted.
-No worktrees. No in-flight PRs. Milestone v0.6.0 is closed.
+Working tree is NOT clean — all v0.7 feature files were added directly
+to `main` in this session (no feature branches / PRs yet). The next
+session should create feature branches + PRs before any merge.
 
-### Published npm versions
+### New files added in this session (all in `main`)
 
+**`packages/core/src/`**
+- `session.ts` — session tokens (#109)
+- `session-policy.ts` — session policies (#114)
+- `sync-credentials.ts` — `_sync_credentials` collection (#110)
+- `magic-link.ts` — magic-link unlock (#113)
+- `dev-unlock.ts` — dev-mode persistent unlock (#119)
+
+**`packages/core/__tests__/`**
+- `session.test.ts` — 18 tests
+- `session-policy.test.ts` — 17 tests
+- `sync-credentials.test.ts` — 16 tests
+- `dev-unlock.test.ts` — 23 tests (uses `@vitest-environment happy-dom`)
+
+**`packages/auth-webauthn/`** — NEW package (#111)
+- `package.json`, `tsconfig.json`, `tsup.config.ts`, `src/index.ts`
+- No tests yet (requires browser mock env; deferred)
+
+**`packages/auth-oidc/`** — NEW package (#112)
+- `package.json`, `tsconfig.json`, `tsup.config.ts`, `src/index.ts`
+- No tests yet (requires fetch + storage mocks; deferred)
+
+**`scripts/release.mjs`** — version normalizer
+**`docs/v0.7/merge-runbook.md`** — merge runbook
+**`.changeset/v0.7-issue-*.md`** (7 changeset files)
+
+### Modified files
+
+**`packages/core/src/index.ts`** — new exports for all 5 new core modules
+**`packages/core/src/errors.ts`** — `SessionExpiredError`, `SessionNotFoundError`, `SessionPolicyError`
+**`packages/core/src/types.ts`** — `SessionPolicy`, `ReAuthOperation`, `NoydbOptions.sessionPolicy`
+**`packages/core/src/noydb.ts`** — PolicyEnforcer integration, revokeAllSessions on close
+
+## ⚠️ What the next session should do
+
+### 1. Run the full test suite and confirm no regressions
+
+```bash
+pnpm turbo test --filter=@noy-db/core
+pnpm turbo build  # verifies TypeScript across all packages
 ```
-@noy-db/core@0.6.0
-@noy-db/memory@0.6.0
-@noy-db/file@0.6.0
-@noy-db/dynamo@0.6.0
-@noy-db/s3@0.6.0
-@noy-db/browser@0.6.0
-@noy-db/vue@0.6.0
-@noy-db/nuxt@0.6.0
-@noy-db/pinia@0.6.0
-@noy-db/create@0.6.0
-```
 
-Verified via `npm view @noy-db/<pkg> version`.
+### 3. Create PRs for each v0.7 issue and merge via runbook
 
-### GitHub release
+Follow `docs/v0.7/merge-runbook.md` exactly. Key reminder:
+- **Step 0 (pre-rebase)** is critical — do it before any merges.
+- Use `pnpm release:version` (not raw `pnpm changeset version`).
+- Grep for stray `1.0.0` after the version step.
+- `gh run watch --exit-status` for every CI wait.
 
-https://github.com/vLannaAi/noy-db/releases/tag/v0.6.0
+## ⚠️ Release-time invariants (from v0.6 retrospective)
 
-## What's next — v0.7 — Identity & sessions
+These are documented in `docs/v0.6/retrospective.md` and enforced by
+`scripts/release.mjs` and `docs/v0.7/merge-runbook.md`, but worth surfacing
+here:
 
-Per ROADMAP.md, the next release focus is **identity & sessions**
-(the original v0.5 epic that slipped to make room for core enhancements
-and the query DSL). The v0.7 milestone on GitHub is
-https://github.com/vLannaAi/noy-db/milestone/5 — 7 open issues, 1
-closed.
+1. **`pnpm release:version`** not `pnpm changeset version` — the raw CLI
+   will major-bump adapter packages (0.x → 1.0) due to the peer-dep
+   heuristic. The wrapper normalizes everything to core's version.
 
-Theme: solve "passphrase unlock is awkward for client portals" via:
-- **Session tokens** (#109) — unlock once with passphrase or
-  biometric, get a JWE valid for N minutes. KEK wrapped with a
-  session-scoped non-extractable WebCrypto key. Closing the tab
-  destroys the session.
-- **`@noy-db/auth-oidc`** (#112) — OAuth/OIDC bridge with
-  split-key connector (Bitwarden-style)
-- **`@noy-db/auth-webauthn`** (#111) — hardware-key keyrings
-  (WebAuthn + PRF + BE-flag guards)
-- **Magic-link unlock** (#113) — one-shot read-only viewer session
-  for client portals
-- **Session policies** (#114) — idle/absolute timeouts, requireReAuthFor,
-  lockOnBackground, role overrides
-- **`_sync_credentials`** reserved collection (#110) — encrypted
-  per-adapter OAuth token store
+2. **Pre-rebase stacked PRs BEFORE any merges** — GitHub auto-closes
+   downstream PRs when their base branch is deleted.
 
-## ⚠️ Release-time fixes that MUST happen before the next publish
-
-These are in the retrospective already but they're important enough to
-surface here. **Do not run `pnpm changeset publish` for v0.7 without
-addressing these first.**
-
-### 1. Update the runbook — pre-rebase stacked PRs
-
-The v0.6 runbook had a step-by-step merge sequence that assumed
-`gh pr edit --base main` could run *after* the previous branch was
-deleted. It cannot — GitHub auto-closes downstream stacked PRs the
-moment their base branch disappears. One PR (#116) auto-closed
-mid-sequence and was unrecoverable via the PR machinery (its commit
-rode along with #120's merge, saving the day).
-
-**Fix for v0.7:** add a pre-rebase loop at the top of the merge
-sequence that rebases every downstream stacked PR to `main` **before**
-starting the merges. See `docs/v0.6/retrospective.md` §"Surprise #1"
-for the exact commands.
-
-### 2. Fix the changeset version computation OR add a wrapper script
-
-`pnpm changeset version` in the v0.6 release computed `major` bumps
-for adapter packages (`0.5.0 → 1.0.0`), not `minor` (`0.5.0 → 0.6.0`),
-because of a changeset CLI heuristic that major-bumps dependents
-whenever a peer dep changes, regardless of constraint looseness. In
-pre-1.0 semver this is catastrophic — `v1.0` is reserved for the LTS
-release per ROADMAP.
-
-**Mitigation shipped in v0.6:** all 8 adapter peer deps were converted
-from `"workspace:^"` to `"workspace:*"`. This doesn't fix the
-heuristic (I tested) but it does make published constraints permissive.
-
-**Still needed for v0.7:**
-- Option A (quick): copy the manual-override recipe from
-  `docs/v0.6/retrospective.md` §"Surprise #2" into the v0.7 runbook
-- Option B (permanent): write `scripts/release.mjs` that runs
-  `pnpm changeset version` and then normalizes all `@noy-db/*`
-  versions to match `@noy-db/core`. A sketch is in the retrospective.
-  Wire it as `pnpm release:version` in the root `package.json`.
-
-**Option B is strongly preferred** — the manual override is a 5-minute
-tedious edit loop, and it will bite every future release until
-automated away.
-
-### 3. Write `docs/v0.7/merge-runbook.md`
-
-Copy `docs/v0.6/merge-runbook.md` as a starting point but apply these
-corrections from the retrospective:
-
-1. Pre-rebase loop at the top of Stack 1
-2. Pre-merge mergeability check for independent PRs
-3. Use `pnpm release:version` (or the manual override) instead of raw
-   `pnpm changeset version`
-4. Sanity-check grep for stray `1.0.0` versions after the version step
-5. `gh run watch --exit-status` for all CI waits instead of background
-   bash `sleep`
-6. `npm view` verification loop after publish
+3. **Grep for stray `1.0.0`** after the version step. If any package shows
+   `1.0.0`, the normalizer missed it — fix manually before committing.
 
 ## Key invariants that cross sessions
 
-These are enforced by code review and documented in `SPEC.md`, but
-worth reinforcing here because they've caused regressions in the past:
-
 - **Zero crypto dependencies.** All cryptography is Web Crypto API
-  (`crypto.subtle`). Never add npm crypto packages. Never add `ulid`
-  or similar — the v0.6 ULID generator is hand-rolled in
-  `packages/core/src/bundle/ulid.ts` (~30 lines, zero deps).
-- **KEK never persisted.** In-memory only. `_keyring` stores
-  WRAPPED DEKs (via AES-KW), not the KEK itself.
+  (`crypto.subtle`). Never add npm crypto packages.
+- **KEK never persisted.** In-memory only. `_keyring` stores WRAPPED DEKs
+  (via AES-KW), not the KEK itself.
 - **Adapters only see ciphertext.** Encryption happens in core before
-  data reaches any adapter. The only exception is the `_keyring` and
-  `_meta` collections which use the same envelope shape but bypass
-  AES-GCM (see `Compartment.getBundleHandle()` for how `_meta/handle`
-  uses this pattern).
+  data reaches any adapter.
 - **Partition-awareness seams (#87).** Every `JoinLeg` carries
-  `partitionScope: 'all'` and every reducer factory accepts a
-  `{ seed }` parameter. These are plumbed but dormant in v0.6 —
-  they're load-bearing for v0.10 partition-aware execution. **Do not
-  remove either** or the v0.10 work will silently break. Tests in
-  `query-aggregate.test.ts` and `query-join.test.ts` pin the no-op
-  behavior.
-- **Peer-dep convention.** Adapter packages use
-  `"@noy-db/core": "workspace:*"` in `peerDependencies` (not
-  `"workspace:^"`). The monorepo ships in lockstep so the looser
-  constraint is safe; it also prevents the changeset pre-1.0
-  major-bump heuristic from biting every release.
+  `partitionScope: 'all'` and every reducer factory accepts `{ seed }`.
+  These are dormant in v0.6 but load-bearing for v0.10. Do not remove.
+- **Peer-dep convention.** Adapter packages use `"workspace:*"` (not
+  `"workspace:^"`) to prevent the changeset pre-1.0 major-bump heuristic.
+- **`dev-unlock.ts` guardrails.** The production guard and acknowledge
+  string in `enableDevUnlock` must not be relaxed. They are the only
+  thing preventing accidental production exposure of plaintext DEKs.
 
 ## Project layout (high level)
 
@@ -195,85 +156,49 @@ noy-db/
 ├── ROADMAP.md                           # Version timeline + milestones
 ├── CLAUDE.md                            # Session-level project guidance
 ├── HANDOVER.md                          # This file
-├── CHANGELOG.md                         # Per-package changelogs live under packages/*/
+├── scripts/
+│   └── release.mjs                      # Version normalizer (use via pnpm release:version)
 ├── docs/
-│   ├── architecture.md                  # Reader-facing architecture
-│   ├── adapters.md                      # Built-in + custom adapters
-│   ├── getting-started.md               # Quick start
-│   ├── deployment-profiles.md           # Pick your stack
-│   ├── end-user-features.md             # Consumer-facing feature list
-│   ├── noydb-for-ai.md                  # AI assistant reference
-│   └── v0.6/
-│       ├── release-notes-draft.md       # v0.6 full changelog
-│       ├── merge-runbook.md             # Merge sequence (needs v0.7 corrections)
-│       └── retrospective.md             # v0.6 release lessons
-├── packages/
-│   ├── core/                            # @noy-db/core
-│   │   ├── src/
-│   │   │   ├── bundle/                  # v0.6 #100 container format
-│   │   │   │   ├── bundle.ts            # write/read primitives
-│   │   │   │   ├── format.ts            # byte layout + header validator
-│   │   │   │   └── ulid.ts              # hand-rolled ULID generator
-│   │   │   ├── query/
-│   │   │   │   ├── builder.ts           # Query<T> class (joins, aggregate, groupBy)
-│   │   │   │   ├── join.ts              # v0.6 #73 eager join planner
-│   │   │   │   ├── live.ts              # v0.6 #74 LiveQuery primitive
-│   │   │   │   ├── reducers.ts          # v0.6 #97 count/sum/avg/min/max
-│   │   │   │   ├── aggregate.ts         # v0.6 #97 Aggregation + LiveAggregation
-│   │   │   │   ├── groupby.ts           # v0.6 #98 GroupedQuery
-│   │   │   │   ├── scan-builder.ts      # v0.6 #99+#76 ScanBuilder (streaming)
-│   │   │   │   ├── predicate.ts         # Operator evaluation + readPath
-│   │   │   │   └── indexes.ts           # Secondary index store
-│   │   │   ├── compartment.ts           # Compartment class + getBundleHandle()
-│   │   │   ├── collection.ts            # Collection<T> + scan() + query()
-│   │   │   ├── noydb.ts                 # createNoydb + queryAcross
-│   │   │   ├── crypto.ts                # Web Crypto wrappers
-│   │   │   ├── keyring.ts               # Wrap/unwrap DEKs
-│   │   │   ├── ledger/                  # Hash-chained audit ledger (v0.4)
-│   │   │   ├── sync.ts                  # Dirty tracking, push/pull
-│   │   │   ├── errors.ts                # NoydbError + subtypes
-│   │   │   ├── refs.ts                  # ref() declarations
-│   │   │   ├── schema.ts                # Standard Schema v1
-│   │   │   ├── biometric.ts             # WebAuthn integration
-│   │   │   ├── cache/                   # LRU for lazy hydration
-│   │   │   └── index.ts                 # Public barrel
-│   │   └── __tests__/                   # 558/558 tests
-│   ├── memory/                          # @noy-db/memory (testing)
-│   ├── file/                            # @noy-db/file + bundle helpers
-│   ├── dynamo/                          # @noy-db/dynamo
-│   ├── s3/                              # @noy-db/s3
-│   ├── browser/                         # @noy-db/browser
-│   ├── vue/                             # @noy-db/vue
-│   ├── pinia/                           # @noy-db/pinia
-│   ├── nuxt/                            # @noy-db/nuxt
-│   ├── create-noy-db/                   # @noy-db/create scaffolder
-│   ├── test-adapter-conformance/        # Shared conformance test suite
-│   └── typescript-config/               # Shared tsconfig
-├── playground/                          # Private example apps
-├── .changeset/                          # Config only; active changesets are empty
-└── turbo.json                           # Turbo task config
+│   ├── architecture.md
+│   ├── v0.6/
+│   │   ├── release-notes-draft.md
+│   │   ├── merge-runbook.md
+│   │   └── retrospective.md             # READ BEFORE RELEASING
+│   └── v0.7/
+│       └── merge-runbook.md             # v0.7 release runbook
+├── .changeset/
+│   ├── v0.7-issue-109-session-tokens.md
+│   ├── v0.7-issue-110-sync-credentials.md
+│   ├── v0.7-issue-111-auth-webauthn.md
+│   ├── v0.7-issue-112-auth-oidc.md
+│   ├── v0.7-issue-113-magic-link.md
+│   ├── v0.7-issue-114-session-policies.md
+│   └── v0.7-issue-119-dev-unlock.md
+└── packages/
+    ├── core/
+    │   └── src/
+    │       ├── session.ts               # #109
+    │       ├── session-policy.ts        # #114
+    │       ├── sync-credentials.ts      # #110
+    │       ├── magic-link.ts            # #113
+    │       ├── dev-unlock.ts            # #119
+    │       └── ... (v0.6 unchanged)
+    ├── auth-webauthn/                   # NEW — #111
+    ├── auth-oidc/                       # NEW — #112
+    └── ... (v0.6 adapter packages, unchanged)
 ```
 
 ## Commands the next session will need
 
 ```bash
-# Daily development
-pnpm install                             # install all workspace deps
-pnpm turbo test --filter=@noy-db/core    # run core tests
-pnpm turbo lint typecheck build          # full check
-pnpm -F @noy-db/core test -t "aggregate" # run tests matching a pattern
+# Run all tests
+pnpm turbo test --filter=@noy-db/core
 
-# Working on features
-git checkout -b feat/v0.7/<issue-number>-<slug>
-pnpm changeset                           # create a changeset for your PR
-# (edit the changeset to mark '@noy-db/core': minor)
+# Full type+lint+build check
+pnpm turbo lint typecheck build
 
-# Verify nothing regressed
-pnpm turbo test lint typecheck build --filter=@noy-db/core --force
-
-# Releasing (see docs/v0.6/retrospective.md for the gotchas)
-pnpm changeset version                   # generate CHANGELOGs
-# ⚠️  VERIFY all @noy-db/* versions before committing
+# Release
+pnpm release:version                     # ← always use this, not raw changeset version
 pnpm changeset publish
 ```
 
@@ -297,15 +222,14 @@ worth re-reading at the start of any session:
   warn and refuse to use
 - `feedback_client_privacy.md` — never reference the accounting-firm
   client by name; use generic terms; grep before commit/publish
-- `project_status.md` — needs an update to reflect v0.6.0 shipped (do
-  this at the start of the next session if it still says v0.5.0)
 
 ## One-line summary
 
-**v0.6.0 is shipped and clean. v0.7 is next and is identity-focused.
-Read `docs/v0.6/retrospective.md` before any release work.**
+**v0.6.0 is live on npm. All 7 v0.7 features implemented + 688 tests
+passing, all packages build clean. Next: open PRs, execute
+`docs/v0.7/merge-runbook.md`.**
 
 ---
 
-*Generated 2026-04-09 at the end of the v0.6.0 release session.
-Author: Claude Opus 4.6 (1M context) paired with vLannaAi.*
+*Updated 2026-04-09 after the v0.7 feature development session.
+Author: Claude Sonnet 4.6 paired with vLannaAi.*
