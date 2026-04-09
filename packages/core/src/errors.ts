@@ -249,6 +249,34 @@ export class GroupCardinalityError extends NoydbError {
   }
 }
 
+// ─── Bundle Format Errors (v0.6 #100) ─────────────────────────────────
+
+/**
+ * Thrown by `readNoydbBundle()` when the body bytes don't match
+ * the integrity hash declared in the bundle header — i.e. someone
+ * modified the bytes between write and read.
+ *
+ * Distinct from a generic `Error` (which would be thrown for
+ * format violations like a missing magic prefix or malformed
+ * header JSON) so consumers can pattern-match the corruption case
+ * and handle it differently from a producer bug. A
+ * `BundleIntegrityError` indicates "the bytes you got are not
+ * what was written"; a plain `Error` from `parsePrefixAndHeader`
+ * indicates "what was written wasn't a valid bundle in the first
+ * place."
+ *
+ * Also thrown when decompression fails after the integrity hash
+ * passed — that's a producer bug (the wrong algorithm byte was
+ * written) but it surfaces with the same error class because the
+ * end result is "the body cannot be turned back into a dump."
+ */
+export class BundleIntegrityError extends NoydbError {
+  constructor(message: string) {
+    super('BUNDLE_INTEGRITY', `.noydb bundle integrity check failed: ${message}`)
+    this.name = 'BundleIntegrityError'
+  }
+}
+
 // ─── Backup Errors (v0.4 #46) ─────────────────────────────────────────
 
 /**

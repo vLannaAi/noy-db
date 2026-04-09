@@ -7,7 +7,7 @@ import type {
   ExportStreamOptions,
   ExportChunk,
 } from './types.js'
-import { NOYDB_BACKUP_VERSION } from './types.js'
+import { NOYDB_BACKUP_VERSION, NOYDB_FORMAT_VERSION } from './types.js'
 import { Collection } from './collection.js'
 import type { CacheOptions } from './collection.js'
 import type { IndexDef } from './query/indexes.js'
@@ -454,6 +454,77 @@ export class Compartment {
   async collections(): Promise<string[]> {
     const snapshot = await this.adapter.loadAll(this.name)
     return Object.keys(snapshot)
+  }
+
+  /**
+   * Return the stable opaque bundle handle for this compartment,
+   * generating and persisting a fresh ULID on first call.
+   *
+   * v0.6 #100 — used by `writeNoydbBundle()` to identify the
+   * compartment in the unencrypted bundle header without
+   * exposing the compartment name. The handle is persisted in
+   * the reserved `_meta` internal collection so subsequent
+   * exports of the same compartment produce the same handle —
+   * v0.11 bundle adapters (Drive, Dropbox, iCloud) will use it
+   * as their primary key.
+   *
+   * **Storage path:** the handle is written via the adapter
+   * directly with collection name `_meta` and id `handle`. The
+   * envelope's `_data` field contains a plain JSON
+   * `{ handle: '...' }` payload — the handle is opaque, doesn't
+   * need encryption, and the bundle header exposes the same
+   * value anyway. This mirrors the storage approach `_keyring`
+   * uses for its plain-JSON wrapped-DEK envelopes (also bypasses
+   * the AES-GCM layer; the `_iv` field is left empty).
+   *
+   * **Cross-process stability:** the handle survives process
+   * restarts because it's persisted on the adapter, not just
+   * cached in memory. A new Compartment instance opened on the
+   * same adapter sees the same `_meta/handle` envelope and
+   * returns the same ULID.
+   *
+   * **Round-trip after restore:** the receiving compartment of a
+   * `load()` call generates its OWN handle on first export. The
+   * dump body does not include `_meta`, because handle stability
+   * is per-compartment-instance, not per-compartment-content. Two
+   * separate restorations of the same backup produce two
+   * distinct handles, which is the right behavior — they're
+   * separate compartment instances now.
+   */
+  async getBundleHandle(): Promise<string> {
+    const existing = await this.adapter.get(this.name, '_meta', 'handle')
+    if (existing) {
+      try {
+        const parsed = JSON.parse(existing._data) as unknown
+        if (parsed !== null && typeof parsed === 'object' && 'handle' in parsed) {
+          const handle = (parsed as { handle: unknown }).handle
+          if (typeof handle === 'string' && /^[0-9A-HJKMNP-TV-Z]{26}$/.test(handle)) {
+            return handle
+          }
+        }
+      } catch {
+        // Fall through to regenerate — corrupted handle envelope
+        // is treated as missing, not as an error. The new handle
+        // overwrites the bad one.
+      }
+    }
+    // Lazy import to avoid a top-of-file circular dependency:
+    // bundle/bundle.ts imports from compartment.ts (the
+    // Compartment type), and compartment.ts can't statically
+    // import from bundle/* without forming a cycle. The dynamic
+    // import is invoked once per fresh handle generation, which
+    // is rare enough that the cost doesn't matter.
+    const { generateULID } = await import('./bundle/ulid.js')
+    const handle = generateULID()
+    const envelope: EncryptedEnvelope = {
+      _noydb: NOYDB_FORMAT_VERSION,
+      _v: 1,
+      _ts: new Date().toISOString(),
+      _iv: '',
+      _data: JSON.stringify({ handle }),
+    }
+    await this.adapter.put(this.name, '_meta', 'handle', envelope)
+    return handle
   }
 
   /**

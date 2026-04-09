@@ -66,7 +66,31 @@ export {
   BackupCorruptedError,
   JoinTooLargeError,
   DanglingReferenceError,
+  BundleIntegrityError,
 } from './errors.js'
+
+// Bundle format — `.noydb` container (v0.6 #100)
+export {
+  writeNoydbBundle,
+  readNoydbBundle,
+  readNoydbBundleHeader,
+  resetBrotliSupportCache,
+} from './bundle/bundle.js'
+export type {
+  NoydbBundleHeader,
+  CompressionAlgo,
+} from './bundle/format.js'
+export type {
+  WriteNoydbBundleOptions,
+  NoydbBundleReadResult,
+} from './bundle/bundle.js'
+export {
+  NOYDB_BUNDLE_MAGIC,
+  NOYDB_BUNDLE_PREFIX_BYTES,
+  NOYDB_BUNDLE_FORMAT_VERSION,
+  hasNoydbBundleMagic,
+} from './bundle/format.js'
+export { generateULID, isULID } from './bundle/ulid.js'
 
 // Schema validation — Standard Schema v1 integration (v0.4+)
 export type {
