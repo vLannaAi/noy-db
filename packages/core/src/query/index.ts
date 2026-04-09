@@ -39,6 +39,8 @@ export {
   GROUPBY_MAX_CARDINALITY,
 } from './groupby.js'
 export type { GroupedRow } from './groupby.js'
+export { ScanBuilder } from './scan-builder.js'
+export type { ScanPageProvider } from './scan-builder.js'
 
 // Re-export note: QueryPlan, Clause, FilterClause, GroupClause are intentionally
 // non-parametric — their `T` was removed for variance reasons. The Query<T> type

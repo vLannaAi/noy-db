@@ -19,7 +19,7 @@ import {
 } from './history.js'
 import { diff as computeDiff } from './diff.js'
 import type { DiffEntry } from './diff.js'
-import { Query } from './query/index.js'
+import { Query, ScanBuilder } from './query/index.js'
 import type { QuerySource, JoinContext, JoinableSource } from './query/index.js'
 import { CollectionIndexes, type IndexDef } from './query/indexes.js'
 import type { RefDescriptor } from './refs.js'
@@ -914,33 +914,52 @@ export class Collection<T> {
   }
 
   /**
-   * Stream every record in the collection page-by-page, yielding decrypted
-   * records as an `AsyncIterable<T>`. The whole point: process collections
-   * larger than RAM without ever holding more than `pageSize` records
-   * decrypted at once.
+   * Stream every record in the collection page-by-page as an async
+   * iterable, with chainable `.where()` / `.filter()` clauses and a
+   * memory-bounded `.aggregate(spec)` terminal.
+   *
+   * The whole point: process collections larger than RAM without
+   * ever holding more than `pageSize` records decrypted at once.
    *
    * @example
    * ```ts
+   * // Backward-compatible iteration — unchanged from the previous
+   * // async-generator shape. `ScanBuilder` implements AsyncIterable.
    * for await (const record of invoices.scan({ pageSize: 500 })) {
    *   await processOne(record)
    * }
+   *
+   * // v0.6 #99 — streaming aggregation with O(reducers) memory.
+   * const { total, n } = await invoices.scan()
+   *   .where('year', '==', 2025)
+   *   .aggregate({ total: sum('amount'), n: count() })
    * ```
    *
-   * Uses `adapter.listPage` when available; otherwise falls back to the
-   * synthetic pagination path with the same one-time warning.
+   * Returns a `ScanBuilder<T>` instead of the raw async iterator
+   * that previous versions used. The builder implements
+   * `AsyncIterable<T>`, so every existing `for await … of` call
+   * continues to work unchanged. Direct `.next()` calls on the
+   * iterator — not idiomatic, not used in the codebase — are no
+   * longer supported; upgrade to `for await` or call the new
+   * `.aggregate()` terminal.
+   *
+   * Uses `adapter.listPage` when available; otherwise falls back
+   * to the synthetic pagination path with the same one-time
+   * warning (`listPage()` routes through that fallback internally).
    */
-  async *scan(opts: { pageSize?: number } = {}): AsyncIterableIterator<T> {
+  scan(opts: { pageSize?: number } = {}): ScanBuilder<T> {
     const pageSize = opts.pageSize ?? 100
-    // Start with no cursor (first page) and walk forward until the
-    // adapter signals exhaustion via nextCursor === null.
-    let page: { items: T[]; nextCursor: string | null } = await this.listPage({ limit: pageSize })
-    while (true) {
-      for (const item of page.items) {
-        yield item
-      }
-      if (page.nextCursor === null) return
-      page = await this.listPage({ cursor: page.nextCursor, limit: pageSize })
-    }
+    // The page provider closure is bound to this collection's
+    // listPage method so the builder is free of any `this`
+    // coupling. Rebinding through the arrow keeps the unbound-
+    // method lint rule happy — matches the pattern used in
+    // builder.ts's candidateRecords helper.
+    return new ScanBuilder<T>(
+      {
+        listPage: (listOpts) => this.listPage(listOpts),
+      },
+      pageSize,
+    )
   }
 
   /** Decrypt a page of envelopes returned by `adapter.listPage`. */
