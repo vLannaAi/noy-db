@@ -64,7 +64,7 @@
 
 import { bufferToBase64, base64ToBuffer } from '@noy-db/core'
 import { ValidationError } from '@noy-db/core'
-import type { UnlockedKeyring } from '@noy-db/core'
+import type { UnlockedKeyring, Role } from '@noy-db/core'
 
 export { ValidationError } from '@noy-db/core'
 
@@ -405,7 +405,6 @@ export async function unlockOidc(
   idToken: string,
   options: UnlockOidcOptions = {},
 ): Promise<UnlockedKeyring> {
-  const claims = parseIdTokenClaims(idToken)
   if (isIdTokenExpired(idToken)) {
     throw new OidcTokenError('ID token is expired. Complete a fresh OIDC flow before unlocking.')
   }
@@ -443,7 +442,7 @@ export async function unlockOidc(
   const parsed = JSON.parse(payloadJson) as {
     userId: string
     displayName: string
-    role: import('@noy-db/core').Role
+    role: Role
     permissions: Record<string, 'rw' | 'ro'>
     deks: Record<string, string>
     salt: string
