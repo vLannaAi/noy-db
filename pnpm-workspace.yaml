@@ -1,0 +1,7 @@
+packages:
+  - "packages/*"
+  - "test-harnesses/*"
+  - "playground"
+  - "playground/browser"
+  - "playground/pinia"
+  - "playground/nuxt"

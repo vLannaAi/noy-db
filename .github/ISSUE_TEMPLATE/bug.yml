@@ -1,0 +1,73 @@
+name: Bug report
+description: Report a defect in NOYDB
+labels: ["type: bug", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please fill in every field — vague reports are hard to act on.
+
+        **Security bugs:** do NOT use this form. Report privately via [Security Advisories](https://github.com/vLannaAi/noy-db/security/advisories/new).
+
+  - type: input
+    id: package
+    attributes:
+      label: Affected package
+      description: e.g., `@noy-db/core`, `@noy-db/file`, `@noy-db/dynamo`
+      placeholder: "@noy-db/core"
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `npm ls @noy-db/core`
+      placeholder: "0.2.0"
+    validations:
+      required: true
+
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      description: Node version, OS, package manager
+      placeholder: "Node 20.11, macOS 14.4, pnpm 9.15"
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: A small, self-contained code sample that reproduces the bug. Inline code or a link to a repo / playground.
+      render: ts
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include error messages, stack traces, and any console output.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmations
+      options:
+        - label: I have searched existing issues and this bug has not been reported.
+          required: true
+        - label: I have read CONTRIBUTING.md and confirmed this is not user error.
+          required: true
+        - label: This bug does not involve a security vulnerability (security bugs go via Security Advisories).
+          required: true

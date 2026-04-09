@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NOYDB Playground</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #e6edf3;
+      --dim: #8b949e;
+      --accent: #58a6ff;
+      --green: #3fb950;
+      --yellow: #d29922;
+      --red: #f85149;
+      --purple: #bc8cff;
+      --font: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 0;
+    }
+
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    header h1 {
+      font-size: 20px;
+      font-weight: 600;
+    }
+
+    header h1 span { color: var(--accent); }
+
+    header .tagline {
+      color: var(--dim);
+      font-size: 13px;
+    }
+
+    .status-bar {
+      margin-left: auto;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      font-size: 12px;
+      font-family: var(--font);
+    }
+
+    .status-bar .badge {
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-weight: 600;
+    }
+
+    .badge-green { background: #238636; color: #fff; }
+    .badge-yellow { background: #9e6a03; color: #fff; }
+    .badge-red { background: #da3633; color: #fff; }
+    .badge-blue { background: #1f6feb; color: #fff; }
+
+    main {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    .steps {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+
+    .step-btn {
+      padding: 8px 16px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface);
+      color: var(--dim);
+      cursor: pointer;
+      font-size: 13px;
+      transition: all 0.2s;
+    }
+
+    .step-btn:hover { border-color: var(--accent); color: var(--text); }
+    .step-btn.active { border-color: var(--accent); color: var(--accent); background: #1f6feb22; }
+    .step-btn.done { border-color: var(--green); color: var(--green); }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+
+    .panel h2 {
+      font-size: 16px;
+      margin-bottom: 8px;
+      color: var(--accent);
+    }
+
+    .panel p {
+      color: var(--dim);
+      font-size: 14px;
+      margin-bottom: 16px;
+    }
+
+    .actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+
+    button {
+      padding: 8px 16px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 13px;
+      font-family: inherit;
+      transition: all 0.15s;
+    }
+
+    button:hover { border-color: var(--accent); background: #1f6feb22; }
+    button:active { transform: scale(0.98); }
+
+    button.primary {
+      background: #238636;
+      border-color: #2ea043;
+      color: #fff;
+      font-weight: 600;
+    }
+
+    button.primary:hover { background: #2ea043; }
+
+    button.danger {
+      border-color: var(--red);
+      color: var(--red);
+    }
+
+    button:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    #log {
+      font-family: var(--font);
+      font-size: 12px;
+      line-height: 1.8;
+      background: #010409;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 12px 16px;
+      max-height: 400px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .log-success { color: var(--green); }
+    .log-error { color: var(--red); }
+    .log-warn { color: var(--yellow); }
+    .log-info { color: var(--dim); }
+    .log-data { color: var(--purple); }
+    .log-step { color: var(--accent); font-weight: bold; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    @media (max-width: 768px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+
+    .storage-view {
+      font-family: var(--font);
+      font-size: 11px;
+      background: #010409;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 12px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .storage-view .key { color: var(--accent); }
+    .storage-view .cipher { color: var(--dim); }
+
+    .user-label {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      font-family: var(--font);
+    }
+
+    .user-owner { background: #da363333; color: var(--red); }
+    .user-operator { background: #23863633; color: var(--green); }
+    .user-viewer { background: #1f6feb33; color: var(--accent); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1><span>NOYDB</span> Playground</h1>
+    <span class="tagline">Zero-knowledge encrypted document store — live in your browser</span>
+    <div class="status-bar">
+      <span id="storage-badge" class="badge badge-blue">localStorage: 0 keys</span>
+      <span id="records-badge" class="badge badge-green">0 records</span>
+    </div>
+  </header>
+
+  <main>
+    <div class="steps" id="steps">
+      <button class="step-btn active" data-step="1">1. Encrypted CRUD</button>
+      <button class="step-btn" data-step="2">2. Multi-User</button>
+      <button class="step-btn" data-step="3">3. Offline → Sync</button>
+      <button class="step-btn" data-step="4">4. Persist & Reload</button>
+      <button class="step-btn" data-step="5">5. Backup & Restore</button>
+      <button class="step-btn" data-step="6">6. History & Diff</button>
+    </div>
+
+    <!-- Step 1 -->
+    <div class="panel" id="panel-1">
+      <h2>Step 1: Encrypted CRUD with Browser Storage</h2>
+      <p>Create invoices encrypted with AES-256-GCM. Data is stored in localStorage — but only as ciphertext. Open DevTools → Application → Local Storage to see the encrypted blobs.</p>
+      <div class="actions">
+        <button class="primary" onclick="step1_init()">Initialize Store</button>
+        <button onclick="step1_addInvoice()">Add Invoice</button>
+        <button onclick="step1_listAll()">List All</button>
+        <button onclick="step1_query()">Query Drafts</button>
+        <button onclick="step1_showStorage()">Show Raw Storage</button>
+      </div>
+    </div>
+
+    <!-- Step 2 -->
+    <div class="panel" id="panel-2" style="display:none">
+      <h2>Step 2: Multi-User Access Control</h2>
+      <p>Grant access to an operator (read-write on invoices) and a viewer (read-only). Watch the viewer get blocked from writing.</p>
+      <div class="actions">
+        <button class="primary" onclick="step2_grant()">Grant Users</button>
+        <button onclick="step2_operatorWrite()">Operator Writes</button>
+        <button onclick="step2_viewerRead()">Viewer Reads</button>
+        <button onclick="step2_viewerWrite()">Viewer Tries to Write</button>
+        <button onclick="step2_listUsers()">List Users</button>
+      </div>
+    </div>
+
+    <!-- Step 3 -->
+    <div class="panel" id="panel-3" style="display:none">
+      <h2>Step 3: Offline → Online Sync</h2>
+      <p>Two "devices" (Office & Home) each with their own local storage, sharing a simulated cloud. Work offline, then sync.</p>
+      <div class="actions">
+        <button class="primary" onclick="step3_setup()">Setup Office & Home</button>
+        <button onclick="step3_officeWrite()">Office: Write</button>
+        <button onclick="step3_officePush()">Office: Push to Cloud</button>
+        <button onclick="step3_homePull()">Home: Pull from Cloud</button>
+        <button onclick="step3_homeWrite()">Home: Write Offline</button>
+        <button onclick="step3_homePush()">Home: Push to Cloud</button>
+        <button onclick="step3_officePull()">Office: Pull</button>
+      </div>
+    </div>
+
+    <!-- Step 4 -->
+    <div class="panel" id="panel-4" style="display:none">
+      <h2>Step 4: Persist Across Reload</h2>
+      <p>The browser adapter persists to localStorage. Reload the page — your data survives. This proves offline-first persistence.</p>
+      <div class="actions">
+        <button class="primary" onclick="step4_check()">Check Persisted Data</button>
+        <button onclick="step4_add()">Add Record Before Reload</button>
+        <button class="danger" onclick="location.reload()">Reload Page</button>
+        <button onclick="step4_verify()">Verify After Reload</button>
+        <button class="danger" onclick="step4_clear()">Clear All Storage</button>
+      </div>
+    </div>
+
+    <!-- Step 5 -->
+    <div class="panel" id="panel-5" style="display:none">
+      <h2>Step 5: Backup & Restore</h2>
+      <p>Dump the compartment as JSON (all ciphertext), download it, clear storage, then restore from the backup file.</p>
+      <div class="actions">
+        <button class="primary" onclick="step5_dump()">Create Backup</button>
+        <button onclick="step5_download()">Download Backup</button>
+        <button class="danger" onclick="step5_clearAndRestore()">Clear & Restore</button>
+        <button onclick="step5_verify()">Verify Restored Data</button>
+      </div>
+    </div>
+
+    <!-- Step 6 -->
+    <div class="panel" id="panel-6" style="display:none">
+      <h2>Step 6: Audit History & Diff</h2>
+      <p>Every change is tracked automatically. Browse version history, see field-level diffs, and time-travel to any past version.</p>
+      <div class="actions">
+        <button class="primary" onclick="step6_makeChanges()">Make Changes</button>
+        <button onclick="step6_showHistory()">Show History</button>
+        <button onclick="step6_diff()">Diff Versions</button>
+        <button onclick="step6_timeTravel()">Time Travel (v1)</button>
+        <button onclick="step6_revert()">Revert to v1</button>
+        <button onclick="step6_prune()">Prune History</button>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div>
+        <h3 style="font-size:13px; color:var(--dim); margin-bottom:8px;">Activity Log</h3>
+        <div id="log"></div>
+      </div>
+      <div>
+        <h3 style="font-size:13px; color:var(--dim); margin-bottom:8px;">Raw localStorage (what the adapter sees)</h3>
+        <div id="storage-view" class="storage-view"></div>
+      </div>
+    </div>
+  </main>
+
+  <script type="module" src="./app.mjs"></script>
+</body>
+</html>

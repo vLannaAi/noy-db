@@ -1,0 +1,68 @@
+{
+  "name": "@noy-db/auth-webauthn",
+  "version": "0.9.0",
+  "description": "WebAuthn hardware-key keyrings for noy-db — Touch ID, Face ID, Windows Hello, YubiKey, FIDO2 passkeys",
+  "license": "MIT",
+  "author": "vLannaAi <vicio@lanna.ai>",
+  "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/auth-webauthn#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vLannaAi/noy-db.git",
+    "directory": "packages/auth-webauthn"
+  },
+  "bugs": {
+    "url": "https://github.com/vLannaAi/noy-db/issues"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@noy-db/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@noy-db/core": "workspace:*"
+  },
+  "keywords": [
+    "noy-db",
+    "auth",
+    "webauthn",
+    "passkey",
+    "biometric",
+    "fido2",
+    "yubikey",
+    "touch-id",
+    "face-id",
+    "windows-hello",
+    "hardware-key",
+    "zero-knowledge",
+    "encryption"
+  ]
+}

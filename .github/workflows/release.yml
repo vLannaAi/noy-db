@@ -1,0 +1,57 @@
+name: Release
+
+# Release-event driven: a maintainer creates a GitHub Release by hand (with
+# release notes), and this workflow publishes the currently checked-in package
+# versions to npm. Versions must be bumped, committed, and merged to main
+# BEFORE tagging — see CONTRIBUTING.md for the release procedure.
+#
+# History: an earlier version of this workflow had a second `changesets` job
+# triggered by `push: branches: [main]` that used `changesets/action@v1` to
+# automate version bumps + publish. It was removed after the v0.3.0 release
+# because (a) it raced against this job when a release-event push to main
+# happened simultaneously, and (b) the changesets `linked` config can be
+# brittle for monorepos with mismatched starting versions across packages.
+# Manual version bumps + GitHub Release event is simpler and deterministic.
+
+on:
+  release:
+    types: [published]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish-on-release:
+    name: Publish on GitHub Release
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Privacy guard
+        run: bash scripts/check-privacy.sh
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm turbo build
+      - run: pnpm turbo test
+
+      - name: Publish to npm
+        run: pnpm -r publish --access public --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"

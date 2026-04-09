@@ -1,0 +1,13 @@
+{
+  "name": "@noy-db/test-simulation-offline-online",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Network toggle and state transition tests",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run --passWithNoTests"
+  },
+  "devDependencies": {
+    "@noy-db/core": "workspace:*"
+  }
+}
