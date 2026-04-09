@@ -199,6 +199,56 @@ export class SchemaValidationError extends NoydbError {
   }
 }
 
+// ─── Query DSL Errors ─────────────────────────────────────────────────
+
+/**
+ * Thrown when `.groupBy().aggregate()` produces more than the hard
+ * cardinality cap (default 100_000 groups). v0.6 #98.
+ *
+ * The cap exists because `.groupBy()` materializes one bucket per
+ * distinct key value in memory, and runaway cardinality — a groupBy
+ * on a high-uniqueness field like `id` or `createdAt` — is almost
+ * always a query mistake rather than legitimate use. A hard error is
+ * better than silent OOM: the consumer sees an actionable message
+ * naming the field and the observed cardinality, with guidance to
+ * either narrow the query with `.where()` or accept the ceiling
+ * override.
+ *
+ * A separate one-shot warning fires at 10% of the cap (10_000
+ * groups) so consumers get a heads-up before the hard error — same
+ * pattern as `JoinTooLargeError` and the `.join()` row ceiling.
+ *
+ * **Not overridable in v0.6.** The 100k cap is a fixed constant so
+ * the failure mode is consistent across the codebase; a
+ * `{ maxGroups }` override can be added later without a break if a
+ * real consumer asks.
+ */
+export class GroupCardinalityError extends NoydbError {
+  /** The field being grouped on. */
+  readonly field: string
+  /** Observed number of distinct groups at the moment the cap tripped. */
+  readonly cardinality: number
+  /** The cap that was exceeded. */
+  readonly maxGroups: number
+
+  constructor(field: string, cardinality: number, maxGroups: number) {
+    super(
+      'GROUP_CARDINALITY',
+      `.groupBy("${field}") produced ${cardinality} distinct groups, ` +
+        `exceeding the ${maxGroups}-group ceiling. This is almost always a ` +
+        `query mistake — grouping on a high-uniqueness field like "id" or ` +
+        `"createdAt" produces one bucket per record. Narrow the query with ` +
+        `.where() before grouping, or group on a lower-cardinality field ` +
+        `(status, category, clientId). If you genuinely need high-cardinality ` +
+        `grouping, file an issue with your use case.`,
+    )
+    this.name = 'GroupCardinalityError'
+    this.field = field
+    this.cardinality = cardinality
+    this.maxGroups = maxGroups
+  }
+}
+
 // ─── Backup Errors (v0.4 #46) ─────────────────────────────────────────
 
 /**

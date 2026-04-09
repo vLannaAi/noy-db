@@ -14,6 +14,7 @@ import type { LiveQuery, LiveUpstream } from './live.js'
 import { buildLiveQuery } from './live.js'
 import type { AggregateSpec, AggregateResult, AggregationUpstream } from './aggregate.js'
 import { Aggregation } from './aggregate.js'
+import { GroupedQuery } from './groupby.js'
 
 export interface OrderBy {
   readonly field: string
@@ -415,6 +416,75 @@ export class Query<T> {
       spec as unknown as AggregateSpec,
       upstreams,
     )
+  }
+
+  /**
+   * Partition matching records into buckets keyed by a field, then
+   * terminate with `.aggregate(spec)` to compute per-bucket
+   * reducers. v0.6 #98.
+   *
+   * ```ts
+   * const byClient = invoices.query()
+   *   .where('status', '==', 'open')
+   *   .groupBy('clientId')
+   *   .aggregate({ total: sum('amount'), n: count() })
+   *   .run()
+   * // → [ { clientId: 'c1', total: 5250, n: 3 }, … ]
+   * ```
+   *
+   * Result rows carry the group key value under the grouping field
+   * name plus every reducer output from the spec. Buckets are
+   * emitted in first-seen order — consumers who want a specific
+   * ordering should `.sort()` downstream.
+   *
+   * **Cardinality caps:** a one-shot warning fires at 10_000
+   * distinct groups; `GroupCardinalityError` throws at 100_000.
+   * Grouping on a high-uniqueness field like `id` or `createdAt` is
+   * almost always a query mistake — the error message names the
+   * field and observed cardinality and suggests narrowing with
+   * `.where()` first.
+   *
+   * **Null / undefined keys:** records with a missing or explicitly
+   * `null` group field get their own buckets. `Map`-based
+   * partitioning distinguishes `undefined` from `null`, so the two
+   * cases do NOT merge. Consumers who want them merged should
+   * coalesce upstream with `.filter()`.
+   *
+   * **Joins are not applied** — same rationale as `.count()` and
+   * `.aggregate()`. Joined fields in v0.6 are projection-only, so
+   * running a join inside a grouping pipeline would be wasteful and
+   * could trigger `DanglingReferenceError` in strict mode for a
+   * call whose intent is purely to bucket-and-reduce. Grouping by
+   * a joined field is explicitly out of scope for v0.6 — file an
+   * issue if a real consumer needs it.
+   *
+   * **Filter clauses (`.filter(fn)`):** grouped queries still
+   * support filter clauses in the underlying plan — they run in
+   * the same candidate/filter pipeline that `.aggregate()` uses.
+   * The performance caveat is the same: filter clauses cost O(N)
+   * per record and can't be index-accelerated.
+   */
+  groupBy<F extends string>(field: F): GroupedQuery<T, F> {
+    // Same record-producing closure as .aggregate() — grouped and
+    // non-grouped aggregations execute over the same candidate set.
+    // We inline the closure here instead of sharing a helper so the
+    // builder stays allocation-friendly for the hot path.
+    const source = this.source
+    const clauses = this.plan.clauses
+    const executeRecords = (): readonly unknown[] => {
+      const { candidates, remainingClauses } = candidateRecords(source, clauses)
+      return remainingClauses.length === 0
+        ? candidates
+        : filterRecords(candidates, remainingClauses)
+    }
+
+    const upstreams: AggregationUpstream[] = []
+    if (source.subscribe) {
+      const subscribe = source.subscribe.bind(source)
+      upstreams.push({ subscribe: (cb: () => void) => subscribe(cb) })
+    }
+
+    return new GroupedQuery<T, F>(executeRecords, field, upstreams)
   }
 
   /**

@@ -61,6 +61,7 @@ export {
   NotFoundError,
   ValidationError,
   SchemaValidationError,
+  GroupCardinalityError,
   BackupLedgerError,
   BackupCorruptedError,
   JoinTooLargeError,
@@ -159,6 +160,11 @@ export {
   max,
   Aggregation,
   reduceRecords,
+  GroupedQuery,
+  GroupedAggregation,
+  groupAndReduce,
+  GROUPBY_WARN_CARDINALITY,
+  GROUPBY_MAX_CARDINALITY,
 } from './query/index.js'
 export type {
   QueryPlan,
@@ -183,4 +189,5 @@ export type {
   AggregateResult,
   AggregationUpstream,
   LiveAggregation,
+  GroupedRow,
 } from './query/index.js'
