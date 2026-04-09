@@ -550,6 +550,36 @@ export interface SessionPolicy {
   readonly lockOnBackground?: boolean
 }
 
+// ─── i18n / Locale (v0.8 #81 #82) ─────────────────────────────────────
+
+/**
+ * Locale-aware read options. Pass to `Collection.get()`, `list()`,
+ * `query()`, and `scan()` to trigger per-record locale resolution for
+ * `dictKey` and `i18nText` fields.
+ *
+ * - **`locale: 'raw'`** — skip resolution for `i18nText` fields and
+ *   return the full `{ [locale]: string }` map. Dict key fields still
+ *   return the stable key (no `<field>Label` added).
+ * - **`fallback`** — single locale code or ordered list. Use `'any'` as
+ *   the last element to fall back to any present translation.
+ *
+ * When neither the call-level locale nor the compartment's default locale
+ * is set, reading a record with `i18nText` fields throws
+ * `LocaleNotSpecifiedError`.
+ */
+export interface LocaleReadOptions {
+  /**
+   * The target locale code (e.g. `'th'`), or `'raw'` to return the full
+   * language map without resolution.
+   */
+  readonly locale?: string
+  /**
+   * Fallback locale or ordered fallback chain. Use `'any'` as the last
+   * element to fall back to any present translation.
+   */
+  readonly fallback?: string | readonly string[]
+}
+
 // ─── Factory Options ───────────────────────────────────────────────────
 
 export interface NoydbOptions {

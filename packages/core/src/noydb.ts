@@ -137,13 +137,30 @@ export class Noydb {
     this.policyEnforcers.get(compartment)?.checkOperation(op)
   }
 
-  /** Open a compartment by name. */
-  async openCompartment(name: string): Promise<Compartment> {
+  /**
+   * Open a compartment by name.
+   *
+   * @param name    Compartment identifier.
+   * @param opts    Optional settings for this session.
+   * @param opts.locale  Default locale for i18n/dictKey field resolution
+   *                     (v0.8 #81 #82). Set here to avoid passing `{ locale }`
+   *                     on every individual `get()`/`list()` call.
+   */
+  async openCompartment(
+    name: string,
+    opts?: { locale?: string },
+  ): Promise<Compartment> {
     if (this.closed) throw new ValidationError('Instance is closed')
     this.touchPolicy(name)
 
     let comp = this.compartmentCache.get(name)
-    if (comp) return comp
+    if (comp) {
+      // Update locale on existing cached compartment if specified
+      if (opts?.locale !== undefined) {
+        comp.setLocale(opts.locale)
+      }
+      return comp
+    }
 
     const keyring = await this.getKeyring(name)
 
@@ -170,6 +187,7 @@ export class Noydb {
         ? (coll, id, action, version) => syncEngine.trackChange(coll, id, action, version)
         : undefined,
       historyConfig: this.options.history,
+      locale: opts?.locale,
       // Refresh callback used by Compartment.load() to re-derive
       // the in-memory keyring from a freshly-loaded keyring file.
       // Encrypted compartments need this so post-load decrypts work

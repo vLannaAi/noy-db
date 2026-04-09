@@ -277,6 +277,150 @@ export class BundleIntegrityError extends NoydbError {
   }
 }
 
+// ─── i18n / Dictionary Errors (v0.8 #81 #82) ──────────────────────────
+
+/**
+ * Thrown when `compartment.collection()` is called with a name that is
+ * reserved for NOYDB internal use (any name starting with `_dict_`).
+ *
+ * Dictionary collections are accessed exclusively via
+ * `compartment.dictionary(name)` — attempting to open one as a regular
+ * collection would bypass the dictionary invariants (ACL, rename
+ * tracking, reserved-name policy).
+ */
+export class ReservedCollectionNameError extends NoydbError {
+  /** The rejected collection name. */
+  readonly collectionName: string
+
+  constructor(collectionName: string) {
+    super(
+      'RESERVED_COLLECTION_NAME',
+      `"${collectionName}" is a reserved collection name. ` +
+        `Use compartment.dictionary("${collectionName.replace(/^_dict_/, '')}") ` +
+        `to access dictionary collections.`,
+    )
+    this.name = 'ReservedCollectionNameError'
+    this.collectionName = collectionName
+  }
+}
+
+/**
+ * Thrown by `DictionaryHandle.get()` and `DictionaryHandle.delete()` when
+ * the requested key does not exist in the dictionary.
+ *
+ * Distinct from `NotFoundError` (which is for data records) so callers
+ * can distinguish "data record missing" from "dictionary key missing"
+ * without inspecting error messages.
+ */
+export class DictKeyMissingError extends NoydbError {
+  /** The dictionary name. */
+  readonly dictionaryName: string
+  /** The key that was not found. */
+  readonly key: string
+
+  constructor(dictionaryName: string, key: string) {
+    super(
+      'DICT_KEY_MISSING',
+      `Dictionary "${dictionaryName}" has no entry for key "${key}".`,
+    )
+    this.name = 'DictKeyMissingError'
+    this.dictionaryName = dictionaryName
+    this.key = key
+  }
+}
+
+/**
+ * Thrown by `DictionaryHandle.delete()` in strict mode when the key to
+ * be deleted is still referenced by one or more records.
+ *
+ * The caller must either rename the key first (the only sanctioned
+ * mass-mutation path) or pass `{ mode: 'warn' }` to skip the check
+ * (development only).
+ */
+export class DictKeyInUseError extends NoydbError {
+  /** The dictionary name. */
+  readonly dictionaryName: string
+  /** The key that is still referenced. */
+  readonly key: string
+  /** Name of the first collection found to reference this key. */
+  readonly usedBy: string
+  /** Number of records in `usedBy` that reference this key. */
+  readonly count: number
+
+  constructor(
+    dictionaryName: string,
+    key: string,
+    usedBy: string,
+    count: number,
+  ) {
+    super(
+      'DICT_KEY_IN_USE',
+      `Cannot delete key "${key}" from dictionary "${dictionaryName}": ` +
+        `${count} record(s) in "${usedBy}" still reference it. ` +
+        `Use dictionary.rename("${key}", newKey) to rewrite references first.`,
+    )
+    this.name = 'DictKeyInUseError'
+    this.dictionaryName = dictionaryName
+    this.key = key
+    this.usedBy = usedBy
+    this.count = count
+  }
+}
+
+/**
+ * Thrown by `Collection.put()` when an `i18nText` field is missing one
+ * or more required translations.
+ *
+ * The `missing` array names each locale code that was absent from the
+ * field value. The `field` property names the field so callers can
+ * render a field-level error message without parsing the string.
+ */
+export class MissingTranslationError extends NoydbError {
+  /** The field name whose translation(s) are missing. */
+  readonly field: string
+  /** Locale codes that were required but absent. */
+  readonly missing: readonly string[]
+
+  constructor(field: string, missing: readonly string[], message?: string) {
+    super(
+      'MISSING_TRANSLATION',
+      message ??
+        `Field "${field}": missing required translation(s): ${missing.join(', ')}.`,
+    )
+    this.name = 'MissingTranslationError'
+    this.field = field
+    this.missing = missing
+  }
+}
+
+/**
+ * Thrown when reading an `i18nText` field without specifying a locale —
+ * either at the call site (`get(id, { locale })`) or on the compartment
+ * (`openCompartment(name, { locale })`).
+ *
+ * Also thrown when `resolveI18nText()` exhausts the fallback chain and
+ * no translation is available for the requested locale.
+ *
+ * The `field` property names the field that triggered the error so the
+ * caller can surface it in the UI.
+ */
+export class LocaleNotSpecifiedError extends NoydbError {
+  /** The field name that required a locale. */
+  readonly field: string
+
+  constructor(field: string, message?: string) {
+    super(
+      'LOCALE_NOT_SPECIFIED',
+      message ??
+        `Cannot read i18nText field "${field}" without a locale. ` +
+        `Pass { locale } to get()/list()/query() or set a default via ` +
+        `openCompartment(name, { locale }).`,
+    )
+    this.name = 'LocaleNotSpecifiedError'
+    this.field = field
+  }
+}
+
 // ─── Backup Errors (v0.4 #46) ─────────────────────────────────────────
 
 /**

@@ -166,6 +166,43 @@ export {
 } from './biometric.js'
 export type { BiometricCredential } from './biometric.js'
 
+// i18n — dictKey + DictionaryHandle (v0.8 #81)
+export {
+  dictKey,
+  isDictKeyDescriptor,
+  isDictCollectionName,
+  dictCollectionName,
+  DictionaryHandle,
+  DICT_COLLECTION_PREFIX,
+} from './dictionary.js'
+export type {
+  DictKeyDescriptor,
+  DictEntry,
+  DictionaryOptions,
+} from './dictionary.js'
+
+// i18n — i18nText (v0.8 #82)
+export {
+  i18nText,
+  isI18nTextDescriptor,
+  validateI18nTextValue,
+  resolveI18nText,
+  applyI18nLocale,
+} from './i18n.js'
+export type { I18nTextOptions, I18nTextDescriptor } from './i18n.js'
+
+// i18n errors (v0.8 #81 #82)
+export {
+  ReservedCollectionNameError,
+  DictKeyMissingError,
+  DictKeyInUseError,
+  MissingTranslationError,
+  LocaleNotSpecifiedError,
+} from './errors.js'
+
+// Locale read options (v0.8)
+export type { LocaleReadOptions } from './types.js'
+
 // _sync_credentials reserved collection — v0.7 #110
 export {
   putCredential,

@@ -1,5 +1,8 @@
-import type { NoydbAdapter, EncryptedEnvelope, ChangeEvent, HistoryConfig, HistoryOptions, HistoryEntry, PruneOptions, ListPageResult } from './types.js'
+import type { NoydbAdapter, EncryptedEnvelope, ChangeEvent, HistoryConfig, HistoryOptions, HistoryEntry, PruneOptions, ListPageResult, LocaleReadOptions } from './types.js'
 import { NOYDB_FORMAT_VERSION } from './types.js'
+import type { I18nTextDescriptor } from './i18n.js'
+import { applyI18nLocale } from './i18n.js'
+import type { DictKeyDescriptor } from './dictionary.js'
 import { encrypt, decrypt } from './crypto.js'
 import { ReadOnlyError } from './errors.js'
 import type { UnlockedKeyring } from './keyring.js'
@@ -138,6 +141,58 @@ export class Collection<T> {
   private readonly schema: StandardSchemaV1<unknown, T> | undefined
 
   /**
+   * Compartment-default locale. Used as the fallback when no per-call
+   * locale option is passed to `get()`/`list()`. Provided by Compartment
+   * at collection construction time via the `collection({ locale })` or
+   * `openCompartment(name, { locale })` path.
+   *
+   * `undefined` means "no default locale set" — i18nText fields will
+   * throw `LocaleNotSpecifiedError` unless a per-call locale is passed.
+   */
+  private readonly defaultLocale: string | undefined
+
+  /**
+   * Map of field name → `I18nTextDescriptor` for fields declared with
+   * `i18nText()`. Used by:
+   *   - `put()` via `i18nPutValidator` to enforce required translations
+   *   - `get()`/`list()` to apply locale resolution after decryption
+   *
+   * Declared via the `i18nFields` collection option (v0.8 #82).
+   */
+  private readonly i18nFields: Record<string, I18nTextDescriptor> | undefined
+
+  /**
+   * Map of field name → `DictKeyDescriptor` for fields declared with
+   * `dictKey()`. Used by `get()`/`list()` to add `<field>Label` virtual
+   * fields when a locale is requested (v0.8 #81).
+   */
+  private readonly dictKeyFields: Record<string, DictKeyDescriptor> | undefined
+
+  /**
+   * Async callback provided by the Compartment that resolves a dict key
+   * to its label for a given locale. Used by the locale-read path for
+   * dictKey fields.
+   *
+   * Signature: `(dictName, key, locale, fallback?) => Promise<string | undefined>`
+   */
+  private readonly dictLabelResolver:
+    | ((
+        dictName: string,
+        key: string,
+        locale: string,
+        fallback?: string | readonly string[],
+      ) => Promise<string | undefined>)
+    | undefined
+
+  /**
+   * Synchronous callback provided by the Compartment that validates
+   * i18nText fields on `put()`. Throws `MissingTranslationError` when
+   * a required translation is absent. Called after schema validation,
+   * before encryption.
+   */
+  private readonly i18nPutValidator: ((record: unknown) => void) | undefined
+
+  /**
    * Optional reference to the compartment-level hash-chained audit
    * log. When present, every successful `put()` and `delete()` appends
    * an entry to the ledger AFTER the adapter write succeeds (so a
@@ -274,6 +329,32 @@ export class Collection<T> {
           resolveRef(leftCollection: string, field: string): RefDescriptor | null
         }
       | undefined
+    /** v0.8 #82 — i18nText field descriptors for locale-aware reads. */
+    i18nFields?: Record<string, I18nTextDescriptor> | undefined
+    /** v0.8 #81 — dictKey field descriptors for label resolution on reads. */
+    dictKeyFields?: Record<string, DictKeyDescriptor> | undefined
+    /**
+     * v0.8 #81 — async callback that resolves a dict key to its label
+     * for a given locale. Provided by the Compartment.
+     */
+    dictLabelResolver?:
+      | ((
+          dictName: string,
+          key: string,
+          locale: string,
+          fallback?: string | readonly string[],
+        ) => Promise<string | undefined>)
+      | undefined
+    /**
+     * v0.8 #82 — synchronous callback that validates i18nText fields
+     * on put. Provided by the Compartment. Throws MissingTranslationError.
+     */
+    i18nPutValidator?: ((record: unknown) => void) | undefined
+    /**
+     * v0.8 — compartment-default locale, inherited from
+     * `openCompartment(name, { locale })` or `compartment.setLocale()`.
+     */
+    defaultLocale?: string | undefined
   }) {
     this.adapter = opts.adapter
     this.compartment = opts.compartment
@@ -288,6 +369,11 @@ export class Collection<T> {
     this.ledger = opts.ledger
     this.refEnforcer = opts.refEnforcer
     this.joinResolver = opts.joinResolver
+    this.i18nFields = opts.i18nFields
+    this.dictKeyFields = opts.dictKeyFields
+    this.dictLabelResolver = opts.dictLabelResolver
+    this.i18nPutValidator = opts.i18nPutValidator
+    this.defaultLocale = opts.defaultLocale
 
     // Default `prefetch: true` keeps v0.2 semantics. Only opt-in to lazy
     // mode when the consumer explicitly sets `prefetch: false`.
@@ -340,24 +426,43 @@ export class Collection<T> {
     return this.schema
   }
 
-  /** Get a single record by ID. Returns null if not found. */
-  async get(id: string): Promise<T | null> {
+  /**
+   * Get a single record by ID.
+   *
+   * @param id      Record identifier.
+   * @param locale  Optional locale options (v0.8 #81 #82). When provided,
+   *                `i18nText` fields are resolved to the requested locale
+   *                string, and `dictKey` fields get a `<field>Label`
+   *                virtual field added. Pass `{ locale: 'raw' }` to
+   *                return the full `{ [locale]: string }` map instead.
+   *
+   * @returns The decrypted (and optionally locale-resolved) record, or
+   *          `null` if not found.
+   */
+  async get(id: string, locale?: LocaleReadOptions): Promise<T | null> {
+    let record: T | null
+
     if (this.lazy && this.lru) {
       // Cache hit: promote and return.
       const cached = this.lru.get(id)
-      if (cached) return cached.record
-      // Cache miss: hit the adapter, decrypt, populate the LRU.
-      const envelope = await this.adapter.get(this.compartment, this.name, id)
-      if (!envelope) return null
-      const record = await this.decryptRecord(envelope)
-      this.lru.set(id, { record, version: envelope._v }, estimateRecordBytes(record))
-      return record
+      if (cached) {
+        record = cached.record
+      } else {
+        // Cache miss: hit the adapter, decrypt, populate the LRU.
+        const envelope = await this.adapter.get(this.compartment, this.name, id)
+        if (!envelope) return null
+        record = await this.decryptRecord(envelope)
+        this.lru.set(id, { record, version: envelope._v }, estimateRecordBytes(record))
+      }
+    } else {
+      // Eager mode: load everything once, then serve from the in-memory map.
+      await this.ensureHydrated()
+      const entry = this.cache.get(id)
+      record = entry ? entry.record : null
     }
 
-    // Eager mode: load everything once, then serve from the in-memory map.
-    await this.ensureHydrated()
-    const entry = this.cache.get(id)
-    return entry ? entry.record : null
+    if (record === null) return null
+    return this.applyLocaleToRecord(record, locale)
   }
 
   /** Create or update a record. */
@@ -375,6 +480,13 @@ export class Collection<T> {
     // encrypt path.
     if (this.schema !== undefined) {
       record = await validateSchemaInput(this.schema, record, `put(${id})`)
+    }
+
+    // i18nText validation (v0.8 #82) — runs AFTER schema validation so
+    // the record shape is trustworthy. Throws MissingTranslationError
+    // when required translations are absent.
+    if (this.i18nPutValidator !== undefined) {
+      this.i18nPutValidator(record)
     }
 
     // Foreign-key ref enforcement (v0.4 #45). Runs AFTER schema
@@ -579,8 +691,11 @@ export class Collection<T> {
    * Throws in lazy mode — bulk listing defeats the purpose of lazy
    * hydration. Use `scan()` to iterate over the full collection
    * page-by-page without holding more than `pageSize` records in memory.
+   *
+   * @param locale  Optional locale options (v0.8 #81 #82). When provided,
+   *                each record is locale-resolved before being returned.
    */
-  async list(): Promise<T[]> {
+  async list(locale?: LocaleReadOptions): Promise<T[]> {
     if (this.lazy) {
       throw new Error(
         `Collection "${this.name}": list() is not available in lazy mode (prefetch: false). ` +
@@ -588,7 +703,9 @@ export class Collection<T> {
       )
     }
     await this.ensureHydrated()
-    return [...this.cache.values()].map(e => e.record)
+    const records = [...this.cache.values()].map(e => e.record)
+    if (!locale) return records
+    return Promise.all(records.map(r => this.applyLocaleToRecord(r, locale)))
   }
 
   /**
@@ -1056,6 +1173,60 @@ export class Collection<T> {
       result[id] = await this.encryptRecord(entry.record, entry.version)
     }
     return result
+  }
+
+  /**
+   * Apply locale resolution to a record (v0.8 #81 #82).
+   *
+   * Called from `get()` and `list()` when locale options are present.
+   * Uses the effective locale: per-call `locale` takes precedence over
+   * `this.defaultLocale`.
+   *
+   * - i18nText fields: replaced with the resolved string (or the full
+   *   map when `locale === 'raw'`).
+   * - dictKey fields: `<field>Label` virtual fields added.
+   *
+   * Returns the record unchanged when no locale is active and no i18n/dict
+   * fields are registered.
+   */
+  private async applyLocaleToRecord(
+    record: T,
+    localeOpts?: LocaleReadOptions,
+  ): Promise<T> {
+    const hasI18n = this.i18nFields && Object.keys(this.i18nFields).length > 0
+    const hasDict = this.dictKeyFields && Object.keys(this.dictKeyFields).length > 0
+    if (!hasI18n && !hasDict) return record
+
+    const locale = localeOpts?.locale ?? this.defaultLocale
+    if (!locale) return record
+
+    let result = record as unknown as Record<string, unknown>
+
+    // 1. i18nText resolution
+    if (hasI18n && this.i18nFields) {
+      result = applyI18nLocale(result, this.i18nFields, locale, localeOpts?.fallback)
+    }
+
+    // 2. dictKey label resolution
+    if (hasDict && this.dictKeyFields && this.dictLabelResolver && locale !== 'raw') {
+      const withLabels = { ...result }
+      for (const [field, desc] of Object.entries(this.dictKeyFields)) {
+        const key = result[field]
+        if (typeof key !== 'string') continue
+        const label = await this.dictLabelResolver(
+          desc.name,
+          key,
+          locale,
+          localeOpts?.fallback,
+        )
+        if (label !== undefined) {
+          withLabels[`${field}Label`] = label
+        }
+      }
+      result = withLabels
+    }
+
+    return result as T
   }
 
   private async encryptRecord(record: T, version: number): Promise<EncryptedEnvelope> {

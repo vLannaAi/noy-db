@@ -25,6 +25,19 @@ import {
   type RefDescriptor,
   type RefViolation,
 } from './refs.js'
+import {
+  DictionaryHandle,
+  isDictCollectionName,
+  type DictionaryOptions,
+} from './dictionary.js'
+import {
+  validateI18nTextValue,
+  applyI18nLocale,
+  type I18nTextDescriptor,
+} from './i18n.js'
+import type { DictKeyDescriptor } from './dictionary.js'
+import type { LocaleReadOptions } from './types.js'
+import { ReservedCollectionNameError } from './errors.js'
 
 /** A compartment (tenant namespace) containing collections. */
 export class Compartment {
@@ -91,6 +104,42 @@ export class Compartment {
    */
   private readonly cascadeInProgress = new Set<string>()
 
+  /**
+   * Compartment-default locale (v0.8 #81 #82). Set via
+   * `openCompartment(name, { locale })`. Used as the fallback locale
+   * when per-call `{ locale }` options are not specified on individual
+   * `get()`/`list()` calls.
+   */
+  private locale: string | undefined
+
+  /**
+   * Registry of dictKey fields declared across all collections in this
+   * compartment. Keyed by collection name → field name → dictionary name.
+   * Used by `DictionaryHandle.rename()` to find and update all records
+   * referencing a renamed key.
+   *
+   * Populated by `collection()` when the `dictKeyFields` option is passed.
+   */
+  private readonly dictKeyFieldRegistry = new Map<
+    string, // collection name
+    Record<string, string> // field name → dictionary name
+  >()
+
+  /**
+   * Registry of i18nText fields declared across all collections. Keyed
+   * by collection name → field name → I18nTextDescriptor. Used by
+   * `applyI18nLocale` on reads and by `validateI18nTextValue` on puts.
+   *
+   * Populated by `collection()` when the `i18nFields` option is passed.
+   */
+  private readonly i18nFieldRegistry = new Map<
+    string, // collection name
+    Record<string, I18nTextDescriptor>
+  >()
+
+  /** Cache of DictionaryHandle instances, one per dictionary name. */
+  private readonly dictionaryCache = new Map<string, DictionaryHandle>()
+
   constructor(opts: {
     adapter: NoydbAdapter
     name: string
@@ -100,6 +149,8 @@ export class Compartment {
     onDirty?: OnDirtyCallback | undefined
     historyConfig?: HistoryConfig | undefined
     reloadKeyring?: (() => Promise<UnlockedKeyring>) | undefined
+    /** Compartment-default locale (v0.8 #81 #82). */
+    locale?: string | undefined
   }) {
     this.adapter = opts.adapter
     this.name = opts.name
@@ -109,6 +160,7 @@ export class Compartment {
     this.onDirty = opts.onDirty
     this.historyConfig = opts.historyConfig ?? { enabled: true }
     this.reloadKeyring = opts.reloadKeyring
+    this.locale = opts.locale
 
     // Build the lazy DEK resolver. Pulled out into a private method
     // so `load()` can rebuild it after a keyring refresh — the
@@ -153,6 +205,14 @@ export class Compartment {
    *   Valibot, ArkType, Effect Schema, etc.). Every `put()` is validated
    *   before encryption; every read is validated after decryption.
    *   Failing records throw `SchemaValidationError`.
+   * - `options.i18nFields` declares per-field `i18nText()` descriptors
+   *   (v0.8 #82). Validated on `put()` and locale-resolved on reads.
+   * - `options.dictKeyFields` declares per-field `dictKey()` descriptors
+   *   (v0.8 #81). `put()` validates keys against the declared set; reads
+   *   with `{ locale }` add `<field>Label` virtual fields.
+   *
+   * Throws `ReservedCollectionNameError` for names starting with `_dict_`.
+   * Use `compartment.dictionary(name)` to access dictionary collections.
    *
    * Lazy mode + indexes is rejected at construction time — see the
    * Collection constructor for the rationale.
@@ -163,7 +223,16 @@ export class Compartment {
     cache?: CacheOptions
     schema?: StandardSchemaV1<unknown, T>
     refs?: Record<string, RefDescriptor>
+    /** v0.8 #82 — declare i18nText fields for locale-aware reads. */
+    i18nFields?: Record<string, I18nTextDescriptor>
+    /** v0.8 #81 — declare dictKey fields for label resolution on reads. */
+    dictKeyFields?: Record<string, DictKeyDescriptor>
   }): Collection<T> {
+    // Guard: reject reserved _dict_* names
+    if (isDictCollectionName(collectionName)) {
+      throw new ReservedCollectionNameError(collectionName)
+    }
+
     let coll = this.collectionCache.get(collectionName)
     if (!coll) {
       // Register ref declarations (if any) with the compartment-level
@@ -173,6 +242,21 @@ export class Compartment {
       if (options?.refs) {
         this.refRegistry.register(collectionName, options.refs)
       }
+
+      // Register i18nText fields
+      if (options?.i18nFields) {
+        this.i18nFieldRegistry.set(collectionName, options.i18nFields)
+      }
+
+      // Register dictKey fields: store field → dictionary name mapping
+      if (options?.dictKeyFields) {
+        const dictFieldMap: Record<string, string> = {}
+        for (const [field, desc] of Object.entries(options.dictKeyFields)) {
+          dictFieldMap[field] = desc.name
+        }
+        this.dictKeyFieldRegistry.set(collectionName, dictFieldMap)
+      }
+
       const collOpts: ConstructorParameters<typeof Collection<T>>[0] = {
         adapter: this.adapter,
         compartment: this.name,
@@ -186,15 +270,172 @@ export class Compartment {
         ledger: this.ledger(),
         refEnforcer: this,
         joinResolver: this,
+        defaultLocale: this.locale,
       }
       if (options?.indexes !== undefined) collOpts.indexes = options.indexes
       if (options?.prefetch !== undefined) collOpts.prefetch = options.prefetch
       if (options?.cache !== undefined) collOpts.cache = options.cache
       if (options?.schema !== undefined) collOpts.schema = options.schema
+      if (options?.i18nFields !== undefined) collOpts.i18nFields = options.i18nFields
+      if (options?.dictKeyFields !== undefined) {
+        // Build the label resolver callback for this collection
+        collOpts.dictLabelResolver = async (dictName, key, locale, fallback) => {
+          const handle = this.dictionary(dictName)
+          return handle.resolveLabel(key, locale, fallback)
+        }
+        collOpts.dictKeyFields = options.dictKeyFields
+      }
+      // i18n validation on put — enforced via the compartment's put hook
+      if (options?.i18nFields !== undefined || options?.dictKeyFields !== undefined) {
+        collOpts.i18nPutValidator = (record: unknown) => {
+          this.enforceI18nOnPut(collectionName, record)
+        }
+      }
       coll = new Collection<T>(collOpts)
       this.collectionCache.set(collectionName, coll)
     }
     return coll as Collection<T>
+  }
+
+  /**
+   * Validate i18nText fields on a `put()`. Called by Collection just
+   * before the adapter write, after schema validation. Throws
+   * `MissingTranslationError` when a required translation is absent.
+   */
+  enforceI18nOnPut(collectionName: string, record: unknown): void {
+    const i18nFields = this.i18nFieldRegistry.get(collectionName)
+    if (!i18nFields || Object.keys(i18nFields).length === 0) return
+    if (!record || typeof record !== 'object') return
+
+    const obj = record as Record<string, unknown>
+    for (const [field, descriptor] of Object.entries(i18nFields)) {
+      const value = obj[field]
+      if (value === undefined || value === null) continue
+      validateI18nTextValue(value, field, descriptor)
+    }
+  }
+
+  /**
+   * Apply locale resolution to a record for the given collection.
+   *
+   * Called by Collection after decryption when locale options are present.
+   * Returns a new object (never mutates the cached record).
+   */
+  async applyLocale(
+    collectionName: string,
+    record: Record<string, unknown>,
+    localeOpts: LocaleReadOptions,
+  ): Promise<Record<string, unknown>> {
+    const locale = localeOpts.locale ?? this.locale
+    if (!locale) return record
+
+    let result = record
+
+    // 1. i18nText resolution
+    const i18nFields = this.i18nFieldRegistry.get(collectionName)
+    if (i18nFields && Object.keys(i18nFields).length > 0) {
+      result = applyI18nLocale(result, i18nFields, locale, localeOpts.fallback)
+    }
+
+    // 2. dictKey label resolution — add <field>Label virtual fields
+    const dictFields = this.dictKeyFieldRegistry.get(collectionName)
+    if (dictFields && Object.keys(dictFields).length > 0 && locale !== 'raw') {
+      const withLabels = { ...result }
+      for (const [field, dictName] of Object.entries(dictFields)) {
+        const key = result[field]
+        if (typeof key !== 'string') continue
+        const handle = this.dictionary(dictName)
+        const label = await handle.resolveLabel(key, locale, localeOpts.fallback)
+        if (label !== undefined) {
+          withLabels[`${field}Label`] = label
+        }
+      }
+      result = withLabels
+    }
+
+    return result
+  }
+
+  /**
+   * Open a dictionary by name. Returns a `DictionaryHandle` for CRUD
+   * operations on the `_dict_<name>/` reserved collection.
+   *
+   * The handle is cached — multiple calls with the same name return the
+   * same instance.
+   *
+   * @param name     The dictionary name (e.g. `'status'` → `_dict_status/`).
+   * @param options  Optional ACL overrides (default `writableBy: 'admin'`).
+   *
+   * @example
+   * ```ts
+   * await company.dictionary('status').putAll({
+   *   draft: { en: 'Draft', th: 'ฉบับร่าง' },
+   *   paid:  { en: 'Paid',  th: 'ชำระแล้ว' },
+   * })
+   * ```
+   */
+  dictionary<Keys extends string = string>(
+    name: string,
+    options: DictionaryOptions = {},
+  ): DictionaryHandle<Keys> {
+    let handle = this.dictionaryCache.get(name)
+    if (!handle) {
+      handle = new DictionaryHandle<Keys>(
+        this.adapter,
+        this.name,
+        name,
+        this.keyring,
+        this.getDEK,
+        this.ledger(),
+        options,
+        // findAndUpdateReferences: rewrite dictKey fields in all
+        // registered collections when rename() is called
+        async (dictionaryName, oldKey, newKey) => {
+          for (const [collectionName, dictFields] of this.dictKeyFieldRegistry) {
+            // Find fields that point at this dictionary
+            const fields = Object.entries(dictFields)
+              .filter(([, dn]) => dn === dictionaryName)
+              .map(([field]) => field)
+            if (fields.length === 0) continue
+
+            const coll = this.collection<Record<string, unknown>>(collectionName)
+            const records = await coll.list()
+            for (const record of records) {
+              let changed = false
+              const updated = { ...record }
+              for (const field of fields) {
+                if (updated[field] === oldKey) {
+                  updated[field] = newKey
+                  changed = true
+                }
+              }
+              if (changed) {
+                const id = (record['id'] as string | undefined)
+                if (id !== undefined) {
+                  await coll.put(id, updated)
+                }
+              }
+            }
+          }
+        },
+      )
+      this.dictionaryCache.set(name, handle)
+    }
+    return handle as DictionaryHandle<Keys>
+  }
+
+  /**
+   * Set or update the compartment-default locale at runtime.
+   * Useful when the user switches their preferred language after opening
+   * the compartment.
+   */
+  setLocale(locale: string | undefined): void {
+    this.locale = locale
+  }
+
+  /** Return the current compartment-default locale. */
+  getLocale(): string | undefined {
+    return this.locale
   }
 
   /**
