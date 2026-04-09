@@ -93,6 +93,13 @@ export interface JoinLeg {
    * it looks unused today — that's the whole point of having it.
    */
   readonly partitionScope: 'all' | readonly string[]
+  /**
+   * When `true`, this is a dictionary join (v0.8 #85). The executor
+   * resolves the left-field value against the dict snapshot and
+   * attaches `{ ...labels, key }` rather than a right-side record.
+   * `target` holds the dictionary name (not a collection name).
+   */
+  readonly isDictJoin?: true
 }
 
 /**
@@ -140,6 +147,15 @@ export interface JoinContext {
   resolveRef(field: string): RefDescriptor | null
   /** Resolve a right-side source by target collection name. */
   resolveSource(collectionName: string): JoinableSource | null
+  /**
+   * Resolve a dictKey join source (v0.8 #85). Returns a `JoinableSource`
+   * whose snapshot exposes `{ key, ...labels }` records, keyed by the
+   * stable dictionary key. `null` when the field is not a dictKey.
+   *
+   * The source is built from the compartment's in-memory dictionary
+   * snapshot — same data as `DictionaryHandle.list()`, O(1) per lookup.
+   */
+  resolveDictSource?(field: string): JoinableSource | null
 }
 
 /**
@@ -245,6 +261,33 @@ function applyOneJoin(
   leg: JoinLeg,
   context: JoinContext,
 ): unknown[] {
+  // Dict join path (v0.8 #85) — resolve left-field value against the
+  // dictionary snapshot and attach { key, ...labels } under leg.as.
+  if (leg.isDictJoin) {
+    const dictSource = context.resolveDictSource?.(leg.field)
+    if (!dictSource) {
+      throw new Error(
+        `.join() field "${leg.field}" on "${context.leftCollection}" is declared as a ` +
+          `dictKey join but the dict source could not be resolved. ` +
+          `Ensure the dictionary has at least one entry.`,
+      )
+    }
+    const out: unknown[] = []
+    const snapshot = dictSource.snapshot()
+    const dictMap = new Map<string, unknown>()
+    for (const entry of snapshot) {
+      const k = readPath(entry, 'key')
+      if (typeof k === 'string') dictMap.set(k, entry)
+    }
+    for (const left of leftRows) {
+      const rawId = readPath(left, leg.field)
+      const key = coerceRefKey(rawId)
+      const dictEntry = key === null ? undefined : dictMap.get(key)
+      out.push({ ...(left as Record<string, unknown>), [leg.as]: dictEntry ?? null })
+    }
+    return out
+  }
+
   const source = context.resolveSource(leg.target)
   if (!source) {
     throw new Error(

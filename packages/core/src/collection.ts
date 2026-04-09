@@ -4,7 +4,7 @@ import type { I18nTextDescriptor } from './i18n.js'
 import { applyI18nLocale } from './i18n.js'
 import type { DictKeyDescriptor } from './dictionary.js'
 import { encrypt, decrypt } from './crypto.js'
-import { ReadOnlyError } from './errors.js'
+import { ReadOnlyError, TranslatorNotConfiguredError } from './errors.js'
 import type { UnlockedKeyring } from './keyring.js'
 import { hasWritePermission } from './keyring.js'
 import type { NoydbEventEmitter } from './events.js'
@@ -193,6 +193,17 @@ export class Collection<T> {
   private readonly i18nPutValidator: ((record: unknown) => void) | undefined
 
   /**
+   * Async translator callback provided by Noydb via Compartment for
+   * `i18nText` fields with `autoTranslate: true` (v0.8 #83). Called
+   * before i18n validation so translated values are present when the
+   * validator runs. `undefined` when no `plaintextTranslator` was
+   * configured on `createNoydb()`.
+   */
+  private readonly autoTranslateHook:
+    | ((text: string, from: string, to: string, field: string, collection: string) => Promise<string>)
+    | undefined
+
+  /**
    * Optional reference to the compartment-level hash-chained audit
    * log. When present, every successful `put()` and `delete()` appends
    * an entry to the ledger AFTER the adapter write succeeds (so a
@@ -259,6 +270,7 @@ export class Collection<T> {
     | {
         resolveSource(collectionName: string): JoinableSource | null
         resolveRef(leftCollection: string, field: string): RefDescriptor | null
+        resolveDictSource?: (leftCollection: string, field: string) => JoinableSource | null
       }
     | undefined
 
@@ -351,6 +363,14 @@ export class Collection<T> {
      */
     i18nPutValidator?: ((record: unknown) => void) | undefined
     /**
+     * v0.8 #83 — translator callback from Noydb. When present, missing
+     * translations for `autoTranslate: true` i18nText fields are generated
+     * before the i18n validator runs.
+     */
+    autoTranslateHook?:
+      | ((text: string, from: string, to: string, field: string, collection: string) => Promise<string>)
+      | undefined
+    /**
      * v0.8 — compartment-default locale, inherited from
      * `openCompartment(name, { locale })` or `compartment.setLocale()`.
      */
@@ -373,6 +393,7 @@ export class Collection<T> {
     this.dictKeyFields = opts.dictKeyFields
     this.dictLabelResolver = opts.dictLabelResolver
     this.i18nPutValidator = opts.i18nPutValidator
+    this.autoTranslateHook = opts.autoTranslateHook
     this.defaultLocale = opts.defaultLocale
 
     // Default `prefetch: true` keeps v0.2 semantics. Only opt-in to lazy
@@ -480,6 +501,52 @@ export class Collection<T> {
     // encrypt path.
     if (this.schema !== undefined) {
       record = await validateSchemaInput(this.schema, record, `put(${id})`)
+    }
+
+    // Auto-translate missing i18nText translations (v0.8 #83).
+    // Runs BEFORE i18n validation so translated values satisfy the
+    // required-locale constraint. Throws TranslatorNotConfiguredError
+    // when a field has autoTranslate: true but no hook was configured.
+    if (this.i18nFields) {
+      const obj = record as Record<string, unknown>
+      for (const [field, descriptor] of Object.entries(this.i18nFields)) {
+        if (!descriptor.options.autoTranslate) continue
+        const value = obj[field]
+        if (!value || typeof value !== 'object' || Array.isArray(value)) continue
+        const map = value as Record<string, string>
+        // Determine which locales need translation. For 'all', translate all
+        // declared languages that are missing. For 'any', only translate if
+        // none are present. For string[], translate the listed required ones.
+        const { languages, required } = descriptor.options
+        const missing: string[] = languages.filter(
+          (lang) => !(lang in map) || map[lang] === '',
+        )
+        if (missing.length === 0) continue
+        // Find a source locale (first present non-empty value)
+        const sourceLocale = languages.find((l) => l in map && map[l] !== '')
+        if (!sourceLocale) continue
+        if (!this.autoTranslateHook) {
+          throw new TranslatorNotConfiguredError(field, this.name)
+        }
+        // Only translate locales that are actually needed
+        const toTranslate =
+          required === 'any'
+            ? [] // 'any' is already satisfied since sourceLocale exists
+            : required === 'all'
+              ? missing
+              : missing.filter((l) => required.includes(l))
+        const translated = { ...map }
+        for (const targetLocale of toTranslate) {
+          translated[targetLocale] = await this.autoTranslateHook(
+            map[sourceLocale]!,
+            sourceLocale,
+            targetLocale,
+            field,
+            this.name,
+          )
+        }
+        ;(record as Record<string, unknown>)[field] = translated
+      }
     }
 
     // i18nText validation (v0.8 #82) — runs AFTER schema validation so
@@ -772,6 +839,9 @@ export class Collection<T> {
           leftCollection,
           resolveRef: (field: string) => resolver.resolveRef(leftCollection, field),
           resolveSource: (collectionName: string) => resolver.resolveSource(collectionName),
+          ...(resolver.resolveDictSource
+            ? { resolveDictSource: (field: string) => resolver.resolveDictSource!(leftCollection, field) }
+            : {}),
         }
       : undefined
     return new Query<T>(source, undefined, joinContext)
@@ -1078,6 +1148,9 @@ export class Collection<T> {
           leftCollection,
           resolveRef: (field: string) => resolver.resolveRef(leftCollection, field),
           resolveSource: (collectionName: string) => resolver.resolveSource(collectionName),
+          ...(resolver.resolveDictSource
+            ? { resolveDictSource: (field: string) => resolver.resolveDictSource!(leftCollection, field) }
+            : {}),
         }
       : undefined
     // The page provider closure is bound to this collection's

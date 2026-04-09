@@ -421,6 +421,36 @@ export class LocaleNotSpecifiedError extends NoydbError {
   }
 }
 
+// ─── Translator Errors (v0.8 #83) ─────────────────────────────────────
+
+/**
+ * Thrown when a collection has an `i18nText` field with
+ * `autoTranslate: true` but no `plaintextTranslator` was configured
+ * on `createNoydb()`.
+ *
+ * The error is raised at `put()` time (not at schema construction) so
+ * the mis-configuration is surfaced by the first write rather than
+ * silently at startup.
+ */
+export class TranslatorNotConfiguredError extends NoydbError {
+  /** The field that requested auto-translation. */
+  readonly field: string
+  /** The collection the put was targeting. */
+  readonly collection: string
+
+  constructor(field: string, collection: string) {
+    super(
+      'TRANSLATOR_NOT_CONFIGURED',
+      `Field "${field}" in collection "${collection}" has autoTranslate: true, ` +
+        `but no plaintextTranslator was configured on createNoydb(). ` +
+        `Either configure a plaintextTranslator or remove autoTranslate from the schema.`,
+    )
+    this.name = 'TranslatorNotConfiguredError'
+    this.field = field
+    this.collection = collection
+  }
+}
+
 // ─── Backup Errors (v0.4 #46) ─────────────────────────────────────────
 
 /**

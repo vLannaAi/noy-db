@@ -140,6 +140,14 @@ export class Compartment {
   /** Cache of DictionaryHandle instances, one per dictionary name. */
   private readonly dictionaryCache = new Map<string, DictionaryHandle>()
 
+  /**
+   * Optional translator callback threaded from `Noydb.invokeTranslator`.
+   * Present only when `plaintextTranslator` was configured on `createNoydb()`.
+   */
+  private readonly translateText:
+    | ((text: string, from: string, to: string, field: string, collection: string) => Promise<string>)
+    | undefined
+
   constructor(opts: {
     adapter: NoydbAdapter
     name: string
@@ -151,6 +159,10 @@ export class Compartment {
     reloadKeyring?: (() => Promise<UnlockedKeyring>) | undefined
     /** Compartment-default locale (v0.8 #81 #82). */
     locale?: string | undefined
+    /** Translator callback from Noydb (v0.8 #83). */
+    plaintextTranslator?:
+      | ((text: string, from: string, to: string, field: string, collection: string) => Promise<string>)
+      | undefined
   }) {
     this.adapter = opts.adapter
     this.name = opts.name
@@ -161,6 +173,7 @@ export class Compartment {
     this.historyConfig = opts.historyConfig ?? { enabled: true }
     this.reloadKeyring = opts.reloadKeyring
     this.locale = opts.locale
+    this.translateText = opts.plaintextTranslator
 
     // Build the lazy DEK resolver. Pulled out into a private method
     // so `load()` can rebuild it after a keyring refresh — the
@@ -291,6 +304,10 @@ export class Compartment {
           this.enforceI18nOnPut(collectionName, record)
         }
       }
+      // Wire the translator for autoTranslate: true fields (v0.8 #83)
+      if (options?.i18nFields !== undefined && this.translateText) {
+        collOpts.autoTranslateHook = this.translateText
+      }
       coll = new Collection<T>(collOpts)
       this.collectionCache.set(collectionName, coll)
     }
@@ -386,6 +403,7 @@ export class Compartment {
         name,
         this.keyring,
         this.getDEK,
+        this.encrypted,
         this.ledger(),
         options,
         // findAndUpdateReferences: rewrite dictKey fields in all
@@ -422,6 +440,48 @@ export class Compartment {
       this.dictionaryCache.set(name, handle)
     }
     return handle as DictionaryHandle<Keys>
+  }
+
+  /**
+   * Build a `JoinableSource` for a dictKey field, for use in dict joins
+   * (v0.8 #85). Returns a source whose snapshot contains `{ key, ...labels }`
+   * records — one per dictionary entry — keyed by the stable key.
+   *
+   * Returns `null` when `field` is not a dictKey in `leftCollection`.
+   *
+   * The snapshot is built synchronously from whatever the dictionary
+   * handle has in its cached state. For empty dictionaries this returns
+   * an empty snapshot rather than `null`.
+   */
+  /**
+   * Build a `JoinableSource` for a dictKey field, for use in dict joins
+   * (v0.8 #85). Returns a source whose snapshot contains
+   * `{ key, labels, ...labels }` records — one per dictionary entry —
+   * keyed by the stable key.
+   *
+   * The snapshot is built synchronously from the DictionaryHandle's
+   * write-through cache, which is populated on every `put()`, `rename()`,
+   * `delete()`, and `list()` call. For pre-existing data not yet touched
+   * this session, call `await compartment.dictionary(name).list()` first
+   * to warm the cache.
+   *
+   * Returns `null` when `field` is not a dictKey in `leftCollection`.
+   */
+  resolveDictSource(leftCollection: string, field: string): JoinableSource | null {
+    const dictFields = this.dictKeyFieldRegistry.get(leftCollection)
+    if (!dictFields || !(field in dictFields)) return null
+    const dictName = dictFields[field]
+    if (!dictName) return null
+    const handle = this.dictionary(dictName)
+    return {
+      snapshot(): readonly unknown[] {
+        return handle.snapshotEntries()
+      },
+      lookupById(id: string): unknown {
+        const entries = handle.snapshotEntries()
+        return entries.find((e) => e['key'] === id)
+      },
+    }
   }
 
   /**
@@ -1157,6 +1217,31 @@ export class Compartment {
         })()
       : undefined
 
+    // Capture ALL dictionary snapshots upfront before the first yield (v0.8 #84).
+    // Building all snapshots eagerly before yielding anything ensures that
+    // concurrent mutations during streaming do not affect the snapshot — any
+    // dictionary.put() that happens after the first yield sees the pre-yield
+    // state here. Keyed by collection name.
+    const dictSnapshotCache = new Map<
+      string, // collection name
+      Record<string, Record<string, Record<string, string>>> // field → key → locale → label
+    >()
+    for (const collectionName of collectionNames) {
+      const dictFields = this.dictKeyFieldRegistry.get(collectionName)
+      if (dictFields && Object.keys(dictFields).length > 0) {
+        const snap: Record<string, Record<string, Record<string, string>>> = {}
+        for (const [fieldName, dictName] of Object.entries(dictFields)) {
+          const entries = await this.dictionary(dictName).list()
+          const keyMap: Record<string, Record<string, string>> = {}
+          for (const entry of entries) {
+            keyMap[entry.key] = entry.labels
+          }
+          snap[fieldName] = keyMap
+        }
+        dictSnapshotCache.set(collectionName, snap)
+      }
+    }
+
     for (const collectionName of collectionNames) {
       // ACL gate. The same `hasAccess` check that `Collection.list()`
       // honors — silent skip, no error, matches the "operator can read
@@ -1167,6 +1252,8 @@ export class Compartment {
       const schema = coll.getSchema() ?? null
       const refs = this.refRegistry.getOutbound(collectionName)
       const ids = Object.keys(snapshot[collectionName] ?? {})
+
+      const dictionaries = dictSnapshotCache.get(collectionName)
 
       if (granularity === 'collection') {
         // Decrypt every record in the collection, then yield once.
@@ -1183,6 +1270,7 @@ export class Compartment {
           schema,
           refs,
           records,
+          ...(dictionaries !== undefined ? { dictionaries } : {}),
           ...(ledgerHead ? { ledgerHead } : {}),
         }
         yield chunk
@@ -1198,6 +1286,7 @@ export class Compartment {
             schema,
             refs,
             records: [record],
+            ...(dictionaries !== undefined ? { dictionaries } : {}),
             ...(ledgerHead ? { ledgerHead } : {}),
           }
           yield chunk
@@ -1301,6 +1390,12 @@ export class Compartment {
       }
     > = {}
     let ledgerHead: ExportChunk['ledgerHead'] | undefined
+    // Merged dictionary snapshot across all collections (v0.8 #84).
+    // Only populated when `resolveLabels` is not set.
+    const allDictionaries: Record<
+      string, // collection name
+      Record<string, Record<string, Record<string, string>>>
+    > = {}
 
     for await (const chunk of this.exportStream({
       granularity: 'collection',
@@ -1312,14 +1407,20 @@ export class Compartment {
         records: chunk.records,
       }
       if (chunk.ledgerHead) ledgerHead = chunk.ledgerHead
+      // Collect dictionary snapshots unless resolveLabels is set
+      if (!opts.resolveLabels && chunk.dictionaries) {
+        allDictionaries[chunk.collection] = chunk.dictionaries
+      }
     }
 
+    const hasDictionaries = Object.keys(allDictionaries).length > 0
     return JSON.stringify({
       _noydb_export: 1,
       _compartment: this.name,
       _exported_at: new Date().toISOString(),
       _exported_by: this.keyring.userId,
       collections,
+      ...(hasDictionaries ? { _dictionaries: allDictionaries } : {}),
       ...(ledgerHead ? { ledgerHead } : {}),
     })
   }

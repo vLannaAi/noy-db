@@ -37,6 +37,9 @@ export type {
   QueryAcrossResult,
   SessionPolicy,
   ReAuthOperation,
+  PlaintextTranslatorContext,
+  PlaintextTranslatorFn,
+  TranslatorAuditEntry,
 } from './types.js'
 
 export {
@@ -191,16 +194,17 @@ export {
 } from './i18n.js'
 export type { I18nTextOptions, I18nTextDescriptor } from './i18n.js'
 
-// i18n errors (v0.8 #81 #82)
+// i18n errors (v0.8 #81 #82 #83)
 export {
   ReservedCollectionNameError,
   DictKeyMissingError,
   DictKeyInUseError,
   MissingTranslationError,
   LocaleNotSpecifiedError,
+  TranslatorNotConfiguredError,
 } from './errors.js'
 
-// Locale read options (v0.8)
+// Locale read options + translator audit log (v0.8)
 export type { LocaleReadOptions } from './types.js'
 
 // _sync_credentials reserved collection — v0.7 #110

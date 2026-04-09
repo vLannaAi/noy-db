@@ -274,7 +274,9 @@ export class Query<T> {
       )
     }
     const descriptor = this.joinContext.resolveRef(field)
-    if (!descriptor) {
+    // Check for dictKey join (v0.8 #85) when no ref() is declared
+    const isDictJoinField = !descriptor && this.joinContext.resolveDictSource?.(field) != null
+    if (!descriptor && !isDictJoinField) {
       throw new Error(
         `Query.join(): no ref() declared for field "${field}" on collection ` +
           `"${this.joinContext.leftCollection}". Add ` +
@@ -282,16 +284,28 @@ export class Query<T> {
           `options, then retry. See the ref() docs for the full list of modes.`,
       )
     }
-    const leg: JoinLeg = {
-      field,
-      as: opts.as,
-      target: descriptor.target,
-      mode: descriptor.mode,
-      strategy: opts.strategy,
-      maxRows: opts.maxRows,
-      // #87 constraint #1 — always 'all' in v0.6. Do not remove.
-      partitionScope: 'all',
-    }
+    const leg: JoinLeg = descriptor
+      ? {
+          field,
+          as: opts.as,
+          target: descriptor.target,
+          mode: descriptor.mode,
+          strategy: opts.strategy,
+          maxRows: opts.maxRows,
+          // #87 constraint #1 — always 'all' in v0.6. Do not remove.
+          partitionScope: 'all',
+        }
+      : {
+          // Dict join leg (v0.8 #85)
+          field,
+          as: opts.as,
+          target: field, // dict name = field name for dictKey
+          mode: 'strict',
+          strategy: opts.strategy,
+          maxRows: opts.maxRows,
+          partitionScope: 'all',
+          isDictJoin: true,
+        }
     return new Query<T & Record<As, R | null>>(
       this.source as unknown as QuerySource<T & Record<As, R | null>>,
       { ...this.plan, joins: [...this.plan.joins, leg] },
@@ -484,7 +498,48 @@ export class Query<T> {
       upstreams.push({ subscribe: (cb: () => void) => subscribe(cb) })
     }
 
-    return new GroupedQuery<T, F>(executeRecords, field, upstreams)
+    // Wire dictKey label resolver for <field>Label projection (v0.8 #85)
+    const joinCtx = this.joinContext
+    const dictLabelResolver = joinCtx?.resolveDictSource
+      ? (() => {
+          const dictSource = joinCtx.resolveDictSource(field)
+          if (!dictSource) return undefined
+          const snapshot = dictSource.snapshot()
+          const dictMap = new Map<string, Record<string, string>>()
+          for (const entry of snapshot) {
+            const k = (entry as Record<string, unknown>)['key']
+            const labels = (entry as Record<string, unknown>)['labels']
+            if (typeof k === 'string' && labels && typeof labels === 'object') {
+              dictMap.set(k, labels as Record<string, string>)
+            }
+          }
+          return async (
+            key: string,
+            locale: string,
+            fallback?: string | readonly string[],
+          ): Promise<string | undefined> => {
+            const labels = dictMap.get(key)
+            if (!labels) return undefined
+            if (labels[locale] !== undefined) return labels[locale]
+            const chain = Array.isArray(fallback)
+              ? (fallback as readonly string[])
+              : fallback
+                ? [fallback as string]
+                : []
+            for (const fb of chain) {
+              if (fb === 'any') {
+                const any = Object.values(labels)[0]
+                if (any !== undefined) return any
+              } else if (labels[fb] !== undefined) {
+                return labels[fb]
+              }
+            }
+            return undefined
+          }
+        })()
+      : undefined
+
+    return new GroupedQuery<T, F>(executeRecords, field, upstreams, dictLabelResolver)
   }
 
   /**

@@ -13,6 +13,7 @@ import type {
   QueryAcrossOptions,
   QueryAcrossResult,
   ReAuthOperation,
+  TranslatorAuditEntry,
 } from './types.js'
 import { ValidationError, NoAccessError, InvalidKeyError, AdapterCapabilityError } from './errors.js'
 import { Compartment } from './compartment.js'
@@ -72,6 +73,15 @@ export class Noydb {
   private sessionTimer: ReturnType<typeof setTimeout> | null = null
   /** Per-compartment policy enforcers (v0.7 #114). */
   private readonly policyEnforcers = new Map<string, PolicyEnforcer>()
+
+  // ─── plaintextTranslator state (v0.8 #83) ─────────────────────────
+  /**
+   * In-process translation cache. Key is `"${field}\x00${collection}\x00${from}\x00${to}\x00${text}"`.
+   * Cleared on `close()` alongside the KEK and DEKs.
+   */
+  private readonly translatorCache = new Map<string, string>()
+  /** Audit log for all translator invocations in this session. Cleared on `close()`. */
+  private readonly _translatorAuditLog: TranslatorAuditEntry[] = []
 
   constructor(options: NoydbOptions) {
     this.options = options
@@ -188,6 +198,11 @@ export class Noydb {
         : undefined,
       historyConfig: this.options.history,
       locale: opts?.locale,
+      // Thread the translator hook so Collection.put() can invoke it (v0.8 #83)
+      plaintextTranslator: this.options.plaintextTranslator
+        ? (text, from, to, field, collection) =>
+            this.invokeTranslator(text, from, to, field, collection)
+        : undefined,
       // Refresh callback used by Compartment.load() to re-derive
       // the in-memory keyring from a freshly-loaded keyring file.
       // Encrypted compartments need this so post-load decrypts work
@@ -625,6 +640,67 @@ export class Noydb {
     this.keyringCache.clear()
     this.compartmentCache.clear()
     this.emitter.removeAllListeners()
+    // Clear translator state — same lifetime as KEK/DEKs (v0.8 #83)
+    this.translatorCache.clear()
+    this._translatorAuditLog.length = 0
+  }
+
+  /**
+   * Returns a snapshot of all translator invocations since the last
+   * `close()`. Useful for testing and compliance auditing. The log is
+   * in-memory only — it is cleared when `db.close()` is called.
+   *
+   * Entries deliberately omit content hashes. See `TranslatorAuditEntry`
+   * and issue #83 for the rationale.
+   */
+  translatorAuditLog(): readonly TranslatorAuditEntry[] {
+    return [...this._translatorAuditLog]
+  }
+
+  /**
+   * Invoke the configured `plaintextTranslator` (or serve from cache).
+   * Records one `TranslatorAuditEntry` per call regardless of cache hit.
+   * Called by `Compartment` during `put()` for `autoTranslate: true` fields.
+   *
+   * @internal — not part of the public API surface
+   */
+  async invokeTranslator(
+    text: string,
+    from: string,
+    to: string,
+    field: string,
+    collection: string,
+  ): Promise<string> {
+    const cacheKey = `${field}\x00${collection}\x00${from}\x00${to}\x00${text}`
+    const translatorName = this.options.plaintextTranslatorName ?? 'anonymous'
+
+    const cached = this.translatorCache.get(cacheKey)
+    if (cached !== undefined) {
+      this._translatorAuditLog.push({
+        type: 'translator-invocation',
+        field,
+        collection,
+        fromLocale: from,
+        toLocale: to,
+        translatorName,
+        timestamp: new Date().toISOString(),
+        cached: true,
+      })
+      return cached
+    }
+
+    const result = await this.options.plaintextTranslator!({ text, from, to, field, collection })
+    this.translatorCache.set(cacheKey, result)
+    this._translatorAuditLog.push({
+      type: 'translator-invocation',
+      field,
+      collection,
+      fromLocale: from,
+      toLocale: to,
+      translatorName,
+      timestamp: new Date().toISOString(),
+    })
+    return result
   }
 
   /** Get or load the keyring for a compartment. */

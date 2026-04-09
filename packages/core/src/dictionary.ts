@@ -158,12 +158,37 @@ export interface DictionaryOptions {
 export class DictionaryHandle<Keys extends string = string> {
   private readonly collName: string
 
+  /**
+   * Synchronous write-through cache for dict-join support (v0.8 #85).
+   * Populated on every `put()`, `delete()`, and `rename()`. The snapshot
+   * is built from this cache by `snapshotEntries()` — the query executor
+   * calls this synchronously inside `.toArray()`.
+   *
+   * `null` means "not yet initialized" — callers should use `list()`
+   * to warm the cache before using dict joins on pre-existing data.
+   */
+  private readonly _syncCache = new Map<string, DictEntry>()
+
+  /**
+   * Return all cached entries as `{ key, labels, ...labels }` records —
+   * usable synchronously by the join executor's `snapshot()` call.
+   * Returns an empty array when the cache has never been populated.
+   */
+  snapshotEntries(): readonly Record<string, unknown>[] {
+    return Array.from(this._syncCache.values()).map((e) => ({
+      key: e.key,
+      labels: e.labels,
+      ...e.labels,
+    }))
+  }
+
   constructor(
     private readonly adapter: NoydbAdapter,
     private readonly compartmentName: string,
     private readonly dictionaryName: string,
     private readonly keyring: UnlockedKeyring,
     private readonly getDEK: (collectionName: string) => Promise<CryptoKey>,
+    private readonly encrypted: boolean,
     private readonly ledger: LedgerStore | undefined,
     private readonly options: DictionaryOptions,
     /**
@@ -215,6 +240,16 @@ export class DictionaryHandle<Keys extends string = string> {
   }
 
   private async encryptEntry(entry: DictEntry, version: number): Promise<EncryptedEnvelope> {
+    if (!this.encrypted) {
+      return {
+        _noydb: NOYDB_FORMAT_VERSION,
+        _v: version,
+        _ts: new Date().toISOString(),
+        _iv: '',
+        _data: JSON.stringify(entry),
+        _by: this.keyring.userId,
+      }
+    }
     const dek = await this.getDekForDict()
     const { iv, data } = await encrypt(JSON.stringify(entry), dek)
     return {
@@ -228,6 +263,9 @@ export class DictionaryHandle<Keys extends string = string> {
   }
 
   private async decryptEntry(envelope: EncryptedEnvelope): Promise<DictEntry> {
+    if (!this.encrypted) {
+      return JSON.parse(envelope._data) as DictEntry
+    }
     const dek = await this.getDekForDict()
     const json = await decrypt(envelope._iv, envelope._data, dek)
     return JSON.parse(json) as DictEntry
@@ -260,6 +298,9 @@ export class DictionaryHandle<Keys extends string = string> {
       envelope,
       existing ? existing._v : undefined,
     )
+
+    // Maintain synchronous cache for dict-join snapshot (v0.8 #85)
+    this._syncCache.set(key, entry)
 
     if (this.ledger) {
       await this.ledger.append({
@@ -332,6 +373,9 @@ export class DictionaryHandle<Keys extends string = string> {
 
     await this.adapter.delete(this.compartmentName, this.collName, key)
 
+    // Maintain synchronous cache for dict-join snapshot (v0.8 #85)
+    this._syncCache.delete(key)
+
     if (this.ledger) {
       await this.ledger.append({
         op: 'delete',
@@ -393,6 +437,10 @@ export class DictionaryHandle<Keys extends string = string> {
     // 4. Delete old key
     await this.adapter.delete(this.compartmentName, this.collName, oldKey)
 
+    // Maintain synchronous cache for dict-join snapshot (v0.8 #85)
+    this._syncCache.delete(oldKey)
+    this._syncCache.set(newKey, newEntry)
+
     // 5. Ledger — one entry for the rename (not N record-level entries)
     if (this.ledger) {
       await this.ledger.append({
@@ -421,7 +469,10 @@ export class DictionaryHandle<Keys extends string = string> {
         key,
       )
       if (!envelope) continue
-      entries.push(await this.decryptEntry(envelope))
+      const entry = await this.decryptEntry(envelope)
+      entries.push(entry)
+      // Warm the synchronous cache (v0.8 #85)
+      this._syncCache.set(key, entry)
     }
     return entries
   }

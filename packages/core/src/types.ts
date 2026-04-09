@@ -245,6 +245,16 @@ export interface ExportStreamOptions {
    * per-partition. Default: `false`.
    */
   readonly withLedgerHead?: boolean
+  /**
+   * When set to a BCP 47 locale string (e.g. `'th'`), `exportJSON()`
+   * resolves all `dictKey` labels to that locale and omits the raw
+   * `dictionaries` snapshot from the output (v0.8 #84). Has no effect
+   * on `exportStream()` — format packages use the `chunk.dictionaries`
+   * snapshot directly and apply their own locale strategy.
+   *
+   * Default: `undefined` — embed the raw snapshot under `_dictionaries`.
+   */
+  readonly resolveLabels?: string
 }
 
 /**
@@ -283,6 +293,25 @@ export interface ExportChunk<T = unknown> {
    * cache where applicable — consumers must treat them as immutable.
    */
   readonly records: T[]
+
+  /**
+   * Dictionary snapshots for every `dictKey` field declared on this
+   * collection (v0.8 #84). Captured once at stream-start and held
+   * constant across all chunks within the same export — a rename
+   * mid-export does not change the snapshot. `undefined` when the
+   * collection has no `dictKeyFields`.
+   *
+   * Shape: `{ [fieldName]: { [stableKey]: { [locale]: label } } }`
+   *
+   * @example
+   * ```ts
+   * chunk.dictionaries?.status?.paid?.th  // → 'ชำระแล้ว'
+   * ```
+   */
+  readonly dictionaries?: Record<
+    string, // field name
+    Record<string, Record<string, string>> // stable key → locale → label
+  >
 
   /**
    * Compartment ledger head at export time. Present only when
@@ -580,6 +609,72 @@ export interface LocaleReadOptions {
   readonly fallback?: string | readonly string[]
 }
 
+// ─── plaintextTranslator hook (v0.8 #83) ──────────────────────────────
+
+/**
+ * Context passed to the consumer-supplied `plaintextTranslator` function.
+ * The hook receives the source text plus enough metadata to route it to the
+ * right translation service and record what it did.
+ */
+export interface PlaintextTranslatorContext {
+  /** The plaintext string to translate. */
+  readonly text: string
+  /** BCP 47 source locale (the locale the text is written in). */
+  readonly from: string
+  /** BCP 47 target locale to translate into. */
+  readonly to: string
+  /** The schema field name that triggered the translation. */
+  readonly field: string
+  /** The collection the record is being put into. */
+  readonly collection: string
+}
+
+/**
+ * A consumer-supplied async function that translates a single string
+ * from one locale to another. noy-db ships no built-in translator.
+ *
+ * **Security:** this function receives plaintext. The consumer is
+ * responsible for the data policy of whatever service it calls. See
+ * `NOYDB_SPEC.md § Zero-Knowledge Storage` and the `plaintextTranslator`
+ * JSDoc on `NoydbOptions` for the full invariant statement.
+ */
+export type PlaintextTranslatorFn = (
+  ctx: PlaintextTranslatorContext,
+) => Promise<string>
+
+/**
+ * One entry in the in-process translator audit log. Cleared when
+ * `db.close()` is called — same lifetime as the KEK and DEKs.
+ *
+ * Deliberately omits any content hash or translated-text fingerprint
+ * to prevent correlation attacks on the audit trail.
+ */
+export interface TranslatorAuditEntry {
+  readonly type: 'translator-invocation'
+  /** Schema field name that was translated. */
+  readonly field: string
+  /** Collection the record belongs to. */
+  readonly collection: string
+  /** Source locale. */
+  readonly fromLocale: string
+  /** Target locale. */
+  readonly toLocale: string
+  /**
+   * Consumer-provided translator name from
+   * `NoydbOptions.plaintextTranslatorName`. Defaults to `'anonymous'`
+   * when not supplied.
+   */
+  readonly translatorName: string
+  /** ISO 8601 timestamp of the invocation. */
+  readonly timestamp: string
+  /**
+   * `true` when the result was served from the in-process cache rather
+   * than by calling the translator function. Present only on cache hits
+   * so the absence of the field also communicates a cache miss.
+   */
+  readonly cached?: true
+}
+
 // ─── Factory Options ───────────────────────────────────────────────────
 
 export interface NoydbOptions {
@@ -618,6 +713,29 @@ export interface NoydbOptions {
   readonly validatePassphrase?: boolean
   /** Audit history configuration. */
   readonly history?: HistoryConfig
+  /**
+   * Consumer-supplied translation function for `i18nText` fields with
+   * `autoTranslate: true` (v0.8 #83).
+   *
+   * ⚠ **`plaintextTranslator` receives unencrypted text.** Configuring
+   * this hook causes plaintext to leave noy-db's zero-knowledge boundary
+   * over whatever channel the consumer's implementation uses. noy-db ships
+   * no built-in translator and adds no translator SDKs as dependencies.
+   * The consumer chooses and owns the data policy of the external service.
+   *
+   * Per-field opt-in via `autoTranslate: true` on `i18nText()`. Calling
+   * `put()` on a collection with `autoTranslate: true` fields while this
+   * option is absent throws `TranslatorNotConfiguredError`.
+   *
+   * See `NOYDB_SPEC.md § Zero-Knowledge Storage` for the invariant text.
+   */
+  readonly plaintextTranslator?: PlaintextTranslatorFn
+  /**
+   * Human-readable name for the translator, recorded in the in-process
+   * audit log (e.g. `'deepl-pro-with-dpa'`, `'self-hosted-llama-7b'`).
+   * Defaults to `'anonymous'` when not supplied.
+   */
+  readonly plaintextTranslatorName?: string
 }
 
 // ─── History / Audit Trail ─────────────────────────────────────────────

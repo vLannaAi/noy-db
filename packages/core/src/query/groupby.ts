@@ -136,6 +136,15 @@ export class GroupedQuery<T, F extends string> {
     private readonly executeRecords: () => readonly unknown[],
     private readonly field: F,
     private readonly upstreams: readonly AggregationUpstream[],
+    /**
+     * Optional dict label resolver attached by the query builder when
+     * the grouping field is a dictKey (v0.8 #85).
+     */
+    private readonly dictLabelResolver?: (
+      key: string,
+      locale: string,
+      fallback?: string | readonly string[],
+    ) => Promise<string | undefined>,
   ) {
     // T is phantom on the wrapper so consumers can still see the
     // source row type on hover. Reference it to keep lint quiet.
@@ -144,9 +153,9 @@ export class GroupedQuery<T, F extends string> {
 
   /**
    * Build a grouped aggregation. Returns a `GroupedAggregation`
-   * with `.run()` and `.live()` terminals — same shape as the
-   * non-grouped `.aggregate()` wrapper, just with an array result
-   * (one row per bucket) instead of a single reduced object.
+   * with `.run()`, `.runAsync()`, and `.live()` terminals — same shape
+   * as the non-grouped `.aggregate()` wrapper, just with an array
+   * result (one row per bucket) instead of a single reduced object.
    */
   aggregate<Spec extends AggregateSpec>(
     spec: Spec,
@@ -156,6 +165,7 @@ export class GroupedQuery<T, F extends string> {
       this.field,
       spec,
       this.upstreams,
+      this.dictLabelResolver,
     )
   }
 }
@@ -242,11 +252,51 @@ export class GroupedAggregation<R> {
     private readonly field: string,
     private readonly spec: AggregateSpec,
     private readonly upstreams: readonly AggregationUpstream[],
+    /**
+     * Optional dict label resolver for `<field>Label` projection
+     * (v0.8 #85). Present when the grouping field is a dictKey.
+     */
+    private readonly dictLabelResolver?: (
+      key: string,
+      locale: string,
+      fallback?: string | readonly string[],
+    ) => Promise<string | undefined>,
   ) {}
 
   /** Execute the query, group, reduce, and return an array of rows. */
   run(): R[] {
     return groupAndReduce<R>(this.executeRecords(), this.field, this.spec)
+  }
+
+  /**
+   * Execute the query, group, reduce, and resolve `<field>Label` for
+   * each result row when the grouping field is a `dictKey` and a
+   * `locale` is provided (v0.8 #85). Returns `R[]` synchronously when
+   * no locale is specified (identical to `.run()`).
+   *
+   * The `<field>Label` field is appended to each row. Rows whose group
+   * key has no dictionary entry get `<field>Label: undefined`.
+   */
+  async runAsync(opts?: {
+    locale?: string
+    fallback?: string | readonly string[]
+  }): Promise<R[]> {
+    const rows = groupAndReduce<R>(this.executeRecords(), this.field, this.spec)
+    if (!opts?.locale || !this.dictLabelResolver) return rows
+
+    const resolve = this.dictLabelResolver
+    const locale = opts.locale
+    const fallback = opts.fallback
+    const labelKey = `${this.field}Label`
+
+    return Promise.all(
+      rows.map(async (row) => {
+        const key = (row as Record<string, unknown>)[this.field]
+        if (typeof key !== 'string') return row
+        const label = await resolve(key, locale, fallback)
+        return { ...(row as Record<string, unknown>), [labelKey]: label } as unknown as R
+      }),
+    )
   }
 
   /**
