@@ -319,7 +319,7 @@ export class BlobSet {
     chunk: Uint8Array,
     dek: CryptoKey | null,
   ): Promise<void> {
-    const id = `${eTag}/${index}`
+    const id = `${eTag}_${index}`
     const now = new Date().toISOString()
     let envelope: EncryptedEnvelope
 
@@ -346,7 +346,7 @@ export class BlobSet {
     chunkCount: number,
     dek: CryptoKey | null,
   ): Promise<Uint8Array | null> {
-    const envelope = await this.store.get(this.vault, BLOB_CHUNKS_COLLECTION, `${eTag}/${index}`)
+    const envelope = await this.store.get(this.vault, BLOB_CHUNKS_COLLECTION, `${eTag}_${index}`)
     if (!envelope) return null
 
     if (dek) {
@@ -360,7 +360,7 @@ export class BlobSet {
   // ─── Version record I/O ───────────────────────────────────────────
 
   private versionKey(slotName: string, label: string): string {
-    return `${this.recordId}/${slotName}/${label}`
+    return `${this.recordId}::${slotName}::${label}`
   }
 
   private async loadVersionRecord(slotName: string, label: string): Promise<VersionRecord | null> {
@@ -658,7 +658,7 @@ export class BlobSet {
    * List all published versions for a slot.
    */
   async listVersions(slotName: string): Promise<VersionRecord[]> {
-    const prefix = `${this.recordId}/${slotName}/`
+    const prefix = `${this.recordId}::${slotName}::`
     const allKeys = await this.store.list(this.vault, this.versionsCollection)
     const matchingKeys = allKeys.filter((k) => k.startsWith(prefix))
 
@@ -710,9 +710,9 @@ export class BlobSet {
       eTag: record.eTag,
       filename: opts?.filename ?? `${slotName}-${label}`,
       size: result.blob.size,
-      mimeType: result.blob.mimeType,
+      ...(result.blob.mimeType !== undefined ? { mimeType: result.blob.mimeType } : {}),
       uploadedAt: record.publishedAt,
-      uploadedBy: record.publishedBy,
+      ...(record.publishedBy !== undefined ? { uploadedBy: record.publishedBy } : {}),
     }
 
     return this.buildResponse(slotLike, result.blob, opts)

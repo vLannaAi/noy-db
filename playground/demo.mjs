@@ -14,7 +14,7 @@
  *   or: node playground/demo.mjs (from repo root)
  */
 
-import { createNoydb, formatDiff } from '@noy-db/hub'
+import { createNoydb, formatDiff, detectMimeType } from '@noy-db/hub'
 import { memory } from '@noy-db/to-memory'
 import { jsonFile } from '@noy-db/to-file'
 import { createInterface } from 'node:readline'
@@ -90,7 +90,7 @@ async function main() {
   \x1b[2mAll data is created in a temp directory and cleaned up after.\x1b[0m
   `)
 
-  const TOTAL_STEPS = 6
+  const TOTAL_STEPS = 7
   const tempDir = await mkdtemp(join(tmpdir(), 'noydb-demo-'))
 
   try {
@@ -111,9 +111,9 @@ async function main() {
     })
     success('noy-db instance created (owner-firm, encrypted)')
 
-    info('Opening compartment "C101" (company: บริษัท ABC จำกัด)...')
-    const company = await ownerDb.openCompartment('C101')
-    success('Compartment C101 opened')
+    info('Opening vault "C101" (company: บริษัท ABC จำกัด)...')
+    const company = await ownerDb.openVault('C101')
+    success('Vault C101 opened')
 
     section('Writing invoices')
     const invoices = company.collection('invoices')
@@ -194,7 +194,7 @@ async function main() {
       user: 'op-somchai',
       secret: 'somchai-pass-2026',
     })
-    const opCompany = await opDb.openCompartment('C101')
+    const opCompany = await opDb.openVault('C101')
     const opInvoices = opCompany.collection('invoices')
 
     const opRead = await opInvoices.get('INV-001')
@@ -209,7 +209,7 @@ async function main() {
       user: 'viewer-audit',
       secret: 'audit-readonly-pass',
     })
-    const viewerCompany = await viewerDb.openCompartment('C101')
+    const viewerCompany = await viewerDb.openVault('C101')
     const viewerInvoices = viewerCompany.collection('invoices')
 
     const viewerRead = await viewerInvoices.list()
@@ -251,7 +251,7 @@ async function main() {
     })
 
     section('Office: create invoices while online')
-    const officeComp = await officeDb.openCompartment('C101')
+    const officeComp = await officeDb.openVault('C101')
     const officeInv = officeComp.collection('invoices')
     await officeInv.put('INV-A1', { amount: 10000, status: 'draft', from: 'office' })
     await officeInv.put('INV-A2', { amount: 20000, status: 'sent', from: 'office' })
@@ -262,12 +262,12 @@ async function main() {
     success(`Pushed ${pushResult.pushed} records to cloud`)
 
     section('Home: pull from cloud')
-    await homeDb.openCompartment('C101')
+    await homeDb.openVault('C101')
     const pullResult = await homeDb.pull('C101')
     success(`Home pulled ${pullResult.pulled} records from cloud`)
 
     section('Home: work offline (create new invoice)')
-    const homeComp = await homeDb.openCompartment('C101')
+    const homeComp = await homeDb.openVault('C101')
     const homeInv = homeComp.collection('invoices')
     await homeInv.put('INV-B1', { amount: 30000, status: 'draft', from: 'home' })
     success('Home created INV-B1 while offline')
@@ -355,7 +355,7 @@ async function main() {
 
     const parsed = JSON.parse(backup)
     info(`  Format: _noydb_backup v${parsed._noydb_backup}`)
-    info(`  Compartment: ${parsed._compartment}`)
+    info(`  Vault: ${parsed._vault}`)
     info(`  Collections: ${Object.keys(parsed.collections).join(', ')}`)
     info(`  Records: ${Object.values(parsed.collections).reduce((n, c) => n + Object.keys(c).length, 0)}`)
 
@@ -365,7 +365,7 @@ async function main() {
       user: 'owner',
       encrypt: false,
     })
-    const freshComp = await freshDb.openCompartment('C101')
+    const freshComp = await freshDb.openVault('C101')
 
     section('Restoring from backup')
     await freshComp.load(backup)
@@ -383,15 +383,134 @@ async function main() {
     await pause()
 
     // ═══════════════════════════════════════════════════════════════
-    // STEP 6: Audit History & Diff
+    // STEP 6: Binary Blob Store (v0.12)
     // ═══════════════════════════════════════════════════════════════
 
-    step(6, TOTAL_STEPS, 'Audit History & Diff')
+    step(6, TOTAL_STEPS, 'Binary Blob Store — Encrypted File Attachments')
+
+    info('NOYDB v0.12 adds encrypted binary blobs alongside records.')
+    info('Blobs are content-addressed, deduplicated, and versioned.')
+
+    section('Attaching a PDF to an invoice')
+    info('Generating a fake PDF (magic bytes + random payload)...')
+
+    // Build a fake PDF (starts with %PDF magic bytes)
+    const pdfMagic = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34]) // %PDF-1.4
+    const pdfPayload = new Uint8Array(2_000)
+    pdfPayload.set(pdfMagic)
+    for (let i = pdfMagic.length; i < pdfPayload.length; i++) {
+      pdfPayload[i] = Math.floor(Math.random() * 256)
+    }
+
+    const blobInvoices = company.collection('invoices')
+    const blobs = blobInvoices.blob('INV-001')
+
+    await blobs.put('invoice.pdf', pdfPayload)
+    success('Uploaded invoice.pdf (2 KB) — encrypted, chunked, content-addressed')
+
+    section('MIME auto-detection')
+    const detected = detectMimeType(pdfPayload.subarray(0, 16))
+    info(`  Magic bytes detected: ${detected}`)
+    success('MIME type auto-detected from %PDF header — no filename guessing needed')
+
+    section('Inspecting the blob metadata')
+    const blobInfo = await blobs.blobInfo('invoice.pdf')
+    info(`  eTag (HMAC-SHA-256): ${blobInfo.eTag.slice(0, 16)}...`)
+    info(`  Size: ${blobInfo.size.toLocaleString()} bytes`)
+    info(`  Compressed: ${blobInfo.compressedSize.toLocaleString()} bytes (${blobInfo.compression})`)
+    info(`  Chunks: ${blobInfo.chunkCount} (${blobInfo.chunkSize.toLocaleString()} bytes each)`)
+    info(`  Ref count: ${blobInfo.refCount}`)
+    success('eTag is HMAC-keyed — opaque to the store, prevents known-plaintext attacks')
+
+    section('Downloading and verifying round-trip')
+    const downloaded = await blobs.get('invoice.pdf')
+    const match = downloaded.byteLength === pdfPayload.byteLength
+      && downloaded.every((b, i) => b === pdfPayload[i])
+    if (match) {
+      success(`Round-trip verified: ${downloaded.byteLength.toLocaleString()} bytes match exactly`)
+    } else {
+      error('Round-trip FAILED — bytes do not match!')
+    }
+
+    section('Deduplication — same content, different record')
+    const blobs2 = blobInvoices.blob('INV-002')
+    await blobs2.put('same-template.pdf', pdfPayload)
+    const info2 = await blobs2.blobInfo('same-template.pdf')
+    info(`  INV-001 eTag: ${blobInfo.eTag.slice(0, 16)}...`)
+    info(`  INV-002 eTag: ${info2.eTag.slice(0, 16)}...`)
+    if (blobInfo.eTag === info2.eTag) {
+      success('Same eTag — chunks are shared, not duplicated!')
+      info(`  Ref count now: ${info2.refCount} (two slots reference one blob)`)
+    }
+
+    section('Amendment versioning — publish, overwrite, retrieve old')
+    await blobs.publish('invoice.pdf', 'issued-2026-01')
+    success('Published current PDF as "issued-2026-01"')
+
+    const amendedPayload = new Uint8Array(1_500)
+    amendedPayload.set(pdfMagic)
+    for (let i = pdfMagic.length; i < amendedPayload.length; i++) {
+      amendedPayload[i] = Math.floor(Math.random() * 256)
+    }
+    await blobs.put('invoice.pdf', amendedPayload)
+    success('Overwrote slot with amended PDF (1.5 KB)')
+
+    await blobs.publish('invoice.pdf', 'amendment-2026-02')
+    success('Published amended PDF as "amendment-2026-02"')
+
+    const versions = await blobs.listVersions('invoice.pdf')
+    info(`  Published versions: ${versions.map(v => v.label).join(', ')}`)
+
+    const original = await blobs.getVersion('invoice.pdf', 'issued-2026-01')
+    const amended = await blobs.getVersion('invoice.pdf', 'amendment-2026-02')
+    info(`  "issued-2026-01": ${original.byteLength.toLocaleString()} bytes`)
+    info(`  "amendment-2026-02": ${amended.byteLength.toLocaleString()} bytes`)
+    success('Both versions retrievable — amendment workflow works')
+
+    section('HTTP Response surface')
+    const res = await blobs.response('invoice.pdf', { inline: true })
+    info(`  Status: ${res.status}`)
+    info(`  Content-Type: ${res.headers.get('Content-Type')}`)
+    info(`  Content-Length: ${res.headers.get('Content-Length')}`)
+    info(`  ETag: ${res.headers.get('ETag').slice(0, 20)}...`)
+    info(`  Content-Disposition: ${res.headers.get('Content-Disposition')}`)
+    success('Native Response object — ready for service workers, Hono, Nitro, H3')
+
+    section('Listing all slots on a record')
+    const slots = await blobs.list()
+    for (const slot of slots) {
+      info(`  ${slot.name}: ${slot.size.toLocaleString()} bytes, ${slot.mimeType ?? 'unknown type'}`)
+    }
+    success(`${slots.length} slot(s) on INV-001`)
+
+    section('What the store sees (ciphertext)')
+    const blobFiles = await readdir(join(tempDir, 'C101', '_blob_chunks')).catch(() => [])
+    if (blobFiles.length > 0) {
+      info(`  ${blobFiles.length} encrypted chunk files in _blob_chunks/`)
+      info(`  First chunk: ${blobFiles[0]}`)
+      const chunkContent = await readFile(join(tempDir, 'C101', '_blob_chunks', blobFiles[0]), 'utf-8').catch(() => null)
+      if (chunkContent) {
+        const chunkEnv = JSON.parse(chunkContent)
+        info(`  IV: ${chunkEnv._iv.slice(0, 20)}...`)
+        info(`  Data: ${chunkEnv._data.slice(0, 40)}... (ciphertext!)`)
+      }
+      warn('Store sees ONLY ciphertext — zero knowledge preserved for blobs too')
+    } else {
+      warn('Blob data is AES-256-GCM encrypted with AAD binding per chunk')
+    }
+
+    await pause()
+
+    // ═══════════════════════════════════════════════════════════════
+    // STEP 7: Audit History & Diff
+    // ═══════════════════════════════════════════════════════════════
+
+    step(7, TOTAL_STEPS, 'Audit History & Diff')
 
     info('Every change is tracked automatically. Let\'s see it in action.')
 
     section('Making a series of changes to an invoice')
-    const histComp = await ownerDb.openCompartment('C101')
+    const histComp = await ownerDb.openVault('C101')
     const histInvoices = histComp.collection('invoices')
 
     await histInvoices.put('INV-HIST', { amount: 10000, status: 'draft', client: 'History Demo Co.' })
@@ -466,6 +585,9 @@ async function main() {
   \x1b[32m✓\x1b[0m Offline → sync — work offline, push/pull when online
   \x1b[32m✓\x1b[0m Conflict detection — same record edited by two users, resolved by strategy
   \x1b[32m✓\x1b[0m Backup & restore — encrypted JSON dump, portable, restorable
+  \x1b[32m✓\x1b[0m Blob store — encrypted binary attachments with dedup and versioning
+  \x1b[32m✓\x1b[0m MIME detection — auto-detects PDF, PNG, JPEG, ZIP, etc. from magic bytes
+  \x1b[32m✓\x1b[0m Amendment versioning — publish, overwrite, retrieve any labelled snapshot
   \x1b[32m✓\x1b[0m Audit history — full version tracking, per-user attribution
   \x1b[32m✓\x1b[0m Diff — field-level change comparison between any versions
   \x1b[32m✓\x1b[0m Time travel — revert to any past version
