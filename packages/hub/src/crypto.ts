@@ -128,6 +128,172 @@ export async function decrypt(
   }
 }
 
+// ─── Binary Encrypt / Decrypt (v0.12 #105 — attachment chunks) ────────
+
+/**
+ * Encrypt raw bytes with AES-256-GCM using a fresh random IV.
+ * Used by the attachment store so binary blobs avoid double base64 encoding
+ * (the existing `encrypt()` function calls `TextEncoder` on a string — here
+ * we pass the `Uint8Array` directly to `subtle.encrypt`).
+ */
+export async function encryptBytes(
+  data: Uint8Array,
+  dek: CryptoKey,
+): Promise<EncryptResult> {
+  const iv = generateIV()
+  const ciphertext = await subtle.encrypt(
+    { name: 'AES-GCM', iv: iv as BufferSource },
+    dek,
+    data as unknown as BufferSource,
+  )
+  return {
+    iv: bufferToBase64(iv),
+    data: bufferToBase64(ciphertext),
+  }
+}
+
+/**
+ * Decrypt AES-256-GCM ciphertext back to raw bytes.
+ * Counterpart to `encryptBytes`. Throws `TamperedError` on auth-tag failure.
+ */
+export async function decryptBytes(
+  ivBase64: string,
+  dataBase64: string,
+  dek: CryptoKey,
+): Promise<Uint8Array> {
+  const iv = base64ToBuffer(ivBase64)
+  const ciphertext = base64ToBuffer(dataBase64)
+  try {
+    const plaintext = await subtle.decrypt(
+      { name: 'AES-GCM', iv: iv as BufferSource },
+      dek,
+      ciphertext as BufferSource,
+    )
+    return new Uint8Array(plaintext)
+  } catch (err) {
+    if (err instanceof Error && err.name === 'OperationError') {
+      throw new TamperedError()
+    }
+    throw new DecryptionError(
+      err instanceof Error ? err.message : 'Decryption failed',
+    )
+  }
+}
+
+/**
+ * SHA-256 hex digest of raw bytes. Used to derive content-addressed
+ * eTags for blob deduplication (v0.12 #105). Computed on plaintext bytes
+ * before compression and encryption so the eTag identifies content, not
+ * ciphertext, and survives re-encryption (key rotation, re-upload).
+ */
+export async function sha256Hex(data: Uint8Array): Promise<string> {
+  const hash = await subtle.digest('SHA-256', data as unknown as BufferSource)
+  return Array.from(new Uint8Array(hash))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+}
+
+// ─── HMAC-SHA-256 (v0.12 #105 — keyed eTag) ─────────────────────────────
+
+/**
+ * Compute HMAC-SHA-256(key, data) and return hex string.
+ *
+ * Used to derive content-addressed eTags that are opaque to the store:
+ * ```
+ * eTag = hmacSha256Hex(blobDEK, plaintext)
+ * ```
+ *
+ * Unlike a plain SHA-256, the HMAC is keyed by the vault-shared `_blob` DEK,
+ * so an attacker with store access cannot pre-compute eTags for known files.
+ * Deduplication still works within a vault (same key + same content = same eTag).
+ */
+export async function hmacSha256Hex(key: CryptoKey, data: Uint8Array): Promise<string> {
+  // Export AES-GCM DEK raw bytes → import as HMAC key
+  const rawKey = await subtle.exportKey('raw', key)
+  const hmacKey = await subtle.importKey(
+    'raw',
+    rawKey,
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  )
+  const sig = await subtle.sign('HMAC', hmacKey, data as unknown as BufferSource)
+  return Array.from(new Uint8Array(sig))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+}
+
+// ─── AAD-aware Binary Encrypt / Decrypt (v0.12 #105 — chunk integrity) ──
+
+/**
+ * Encrypt raw bytes with AES-256-GCM using Additional Authenticated Data.
+ *
+ * The AAD binds each chunk to its parent blob and position, preventing
+ * chunk reorder, substitution, and truncation attacks:
+ * ```
+ * AAD = UTF-8("{eTag}:{chunkIndex}:{chunkCount}")
+ * ```
+ *
+ * The AAD is NOT stored — the reader reconstructs it from `BlobObject`
+ * metadata and passes it to `decryptBytesWithAAD`.
+ */
+export async function encryptBytesWithAAD(
+  data: Uint8Array,
+  dek: CryptoKey,
+  aad: Uint8Array,
+): Promise<EncryptResult> {
+  const iv = generateIV()
+  const ciphertext = await subtle.encrypt(
+    {
+      name: 'AES-GCM',
+      iv: iv as BufferSource,
+      additionalData: aad as BufferSource,
+    },
+    dek,
+    data as unknown as BufferSource,
+  )
+  return {
+    iv: bufferToBase64(iv),
+    data: bufferToBase64(ciphertext),
+  }
+}
+
+/**
+ * Decrypt AES-256-GCM ciphertext with AAD verification.
+ *
+ * If the AAD does not match the one used at encryption time (e.g. because
+ * a chunk was reordered or substituted from another blob), the GCM auth
+ * tag fails and this throws `TamperedError`.
+ */
+export async function decryptBytesWithAAD(
+  ivBase64: string,
+  dataBase64: string,
+  dek: CryptoKey,
+  aad: Uint8Array,
+): Promise<Uint8Array> {
+  const iv = base64ToBuffer(ivBase64)
+  const ciphertext = base64ToBuffer(dataBase64)
+  try {
+    const plaintext = await subtle.decrypt(
+      {
+        name: 'AES-GCM',
+        iv: iv as BufferSource,
+        additionalData: aad as BufferSource,
+      },
+      dek,
+      ciphertext as BufferSource,
+    )
+    return new Uint8Array(plaintext)
+  } catch (err) {
+    if (err instanceof Error && err.name === 'OperationError') {
+      throw new TamperedError()
+    }
+    throw new DecryptionError(
+      err instanceof Error ? err.message : 'Decryption failed',
+    )
+  }
+}
+
 // ─── Presence Key Derivation (v0.9 #134) ──────────────────────────────
 
 /**

@@ -140,6 +140,16 @@ export class ConflictError extends NoydbError {
   }
 }
 
+export class BundleVersionConflictError extends NoydbError {
+  readonly remoteVersion: string
+
+  constructor(remoteVersion: string, message = 'Bundle version conflict — remote has been updated') {
+    super('BUNDLE_VERSION_CONFLICT', message)
+    this.name = 'BundleVersionConflictError'
+    this.remoteVersion = remoteVersion
+  }
+}
+
 export class NetworkError extends NoydbError {
   constructor(message = 'Network error') {
     super('NETWORK_ERROR', message)

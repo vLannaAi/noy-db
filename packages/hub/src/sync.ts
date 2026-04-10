@@ -11,18 +11,23 @@ import type {
   SyncStatus,
   EncryptedEnvelope,
   SyncMetadata,
+  SyncTargetRole,
 } from './types.js'
 import { NOYDB_SYNC_VERSION } from './types.js'
 import { ConflictError } from './errors.js'
 import type { NoydbEventEmitter } from './events.js'
+import type { SyncPolicy } from './sync-policy.js'
+import { SyncScheduler, INDEXED_STORE_POLICY } from './sync-policy.js'
 
-/** Sync engine: dirty tracking, push, pull, conflict resolution. */
+/** Sync engine: dirty tracking, push, pull, conflict resolution, scheduling. */
 export class SyncEngine {
   private readonly local: NoydbStore
   private readonly remote: NoydbStore
   private readonly strategy: ConflictStrategy
   private readonly emitter: NoydbEventEmitter
   private readonly vault: string
+  readonly role: SyncTargetRole
+  readonly label: string | undefined
 
   private dirty: DirtyEntry[] = []
   private lastPush: string | null = null
@@ -30,6 +35,9 @@ export class SyncEngine {
   private loaded = false
   private autoSyncInterval: ReturnType<typeof setInterval> | null = null
   private isOnline = true
+
+  /** Sync scheduler (v0.12 #101). Manages push/pull timing. */
+  readonly scheduler: SyncScheduler | null
 
   /** Per-collection conflict resolvers registered by Collection instances (#131). */
   private readonly conflictResolvers = new Map<string, CollectionConflictResolver>()
@@ -40,12 +48,39 @@ export class SyncEngine {
     vault: string
     strategy: ConflictStrategy
     emitter: NoydbEventEmitter
+    syncPolicy?: SyncPolicy
+    role?: SyncTargetRole
+    label?: string
   }) {
     this.local = opts.local
     this.remote = opts.remote
     this.vault = opts.vault
     this.strategy = opts.strategy
     this.emitter = opts.emitter
+    this.role = opts.role ?? 'sync-peer'
+    this.label = opts.label
+
+    // Create scheduler if a policy is provided
+    const policy = opts.syncPolicy
+    if (policy && policy.push.mode !== 'manual') {
+      this.scheduler = new SyncScheduler(policy, {
+        push: () => this.push().then(() => {}),
+        pull: () => this.pull().then(() => {}),
+        getDirtyCount: () => this.dirty.length,
+      })
+    } else {
+      this.scheduler = null
+    }
+  }
+
+  /** Start the sync scheduler. Called after vault is fully opened. */
+  startScheduler(): void {
+    this.scheduler?.start()
+  }
+
+  /** Stop the sync scheduler. Called on close. */
+  stopScheduler(): void {
+    this.scheduler?.stop()
   }
 
   /**
@@ -78,6 +113,9 @@ export class SyncEngine {
     }
 
     await this.persistMeta()
+
+    // Notify scheduler of the write (triggers on-change or debounce)
+    this.scheduler?.notifyChange()
   }
 
   /** Push dirty records to remote adapter. Accepts optional `PushOptions` for partial sync (#133). */
@@ -375,8 +413,9 @@ export class SyncEngine {
     }
   }
 
-  /** Stop auto-sync. */
+  /** Stop auto-sync and scheduler. */
   stopAutoSync(): void {
+    this.stopScheduler()
     if (typeof globalThis.removeEventListener === 'function') {
       globalThis.removeEventListener('online', this.handleOnline)
       globalThis.removeEventListener('offline', this.handleOffline)

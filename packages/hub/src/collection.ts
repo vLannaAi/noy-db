@@ -32,6 +32,7 @@ import { Lru, parseBytes, estimateRecordBytes, type LruStats } from './cache/ind
 import { generateULID } from './bundle/ulid.js'
 import { PresenceHandle } from './presence.js'
 import type { PresenceHandleOpts } from './presence.js'
+import { BlobSet } from './blob-set.js'
 
 /** Callback for dirty tracking (sync engine integration). */
 export type OnDirtyCallback = (collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>
@@ -1467,6 +1468,47 @@ export class Collection<T> {
    */
   getIndexes(): CollectionIndexes | null {
     return this.indexes.fields().length > 0 ? this.indexes : null
+  }
+
+  /**
+   * Return a `BlobSet` for the given record id (v0.12 #105).
+   *
+   * No I/O is performed until you call a method on the handle.
+   *
+   * ```ts
+   * const blobs = invoices.blob('inv-001')
+   *
+   * // Upload a PDF (deduplicates automatically, MIME auto-detected)
+   * await blobs.put('receipt.pdf', pdfBytes)
+   *
+   * // List slots
+   * const files = await blobs.list()   // SlotInfo[]
+   *
+   * // Serve as HTTP response (Content-Type, ETag, streaming body)
+   * const res = await blobs.response('receipt.pdf', { inline: true })
+   *
+   * // Publish a named version (amendment versioning)
+   * await blobs.publish('receipt.pdf', 'issued-2025-01')
+   *
+   * // Raw bytes
+   * const bytes = await blobs.get('receipt.pdf')
+   * ```
+   *
+   * Blobs are stored in internal collections (`_blob_slots_*`, `_blob_index`,
+   * `_blob_chunks`, `_blob_versions_*`) that are excluded from queries and
+   * `list()`. Slot metadata uses this collection's DEK; chunk data uses a
+   * vault-shared `_blob` DEK (enabling cross-collection deduplication).
+   */
+  blob(id: string): BlobSet {
+    return new BlobSet({
+      store: this.adapter,
+      vault: this.vault,
+      collection: this.name,
+      recordId: id,
+      getDEK: this.getDEK,
+      encrypted: this.encrypted,
+      userId: this.keyring.userId,
+    })
   }
 
   /** Get all records as encrypted envelopes (for dump). */

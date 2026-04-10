@@ -9,6 +9,8 @@ import type {
   PushOptions,
   PullOptions,
   SyncStatus,
+  SyncTarget,
+  NoydbStore,
   Role,
   AccessibleVault,
   ListAccessibleVaultsOptions,
@@ -32,6 +34,7 @@ import {
 import type { UnlockedKeyring } from './keyring.js'
 import { SyncEngine } from './sync.js'
 import { SyncTransaction } from './sync-transaction.js'
+import { INDEXED_STORE_POLICY } from './sync-policy.js'
 import { revokeAllSessions } from './session.js'
 import { createEnforcer, validateSessionPolicy } from './session-policy.js'
 import type { PolicyEnforcer } from './session-policy.js'
@@ -177,17 +180,42 @@ export class Noydb {
 
     const keyring = await this.getKeyring(name)
 
-    // Set up sync engine if remote adapter is configured
+    // Set up sync engine(s) — handles bare NoydbStore, SyncTarget, or SyncTarget[]
     let syncEngine: SyncEngine | undefined
-    if (this.options.sync) {
+    const targets = normalizeSyncTargets(this.options.sync)
+    if (targets.length > 0) {
+      // Primary sync engine is the first sync-peer (or first target if none)
+      const primary = targets.find(t => t.role === 'sync-peer') ?? targets[0]!
+      const effectivePolicy = this.options.syncPolicy ?? primary.policy ?? INDEXED_STORE_POLICY
       syncEngine = new SyncEngine({
         local: this.options.store,
-        remote: this.options.sync,
+        remote: primary.store,
         vault: name,
         strategy: this.options.conflict ?? 'version',
         emitter: this.emitter,
+        syncPolicy: effectivePolicy,
+        role: primary.role,
+        label: primary.label,
       })
       this.syncEngines.set(name, syncEngine)
+
+      // Additional targets get their own engines (backup/archive are push-only)
+      for (const target of targets) {
+        if (target === primary) continue
+        const targetPolicy = target.policy ?? this.options.syncPolicy ?? INDEXED_STORE_POLICY
+        const engine = new SyncEngine({
+          local: this.options.store,
+          remote: target.store,
+          vault: name,
+          strategy: this.options.conflict ?? 'version',
+          emitter: this.emitter,
+          syncPolicy: targetPolicy,
+          role: target.role,
+          label: target.label,
+        })
+        const key = `${name}::${target.label ?? target.role}`
+        this.syncEngines.set(key, engine)
+      }
     }
 
     comp = new Vault({
@@ -196,13 +224,20 @@ export class Noydb {
       keyring,
       encrypted: this.options.encrypt !== false,
       emitter: this.emitter,
-      onDirty: syncEngine
-        ? (coll, id, action, version) => syncEngine.trackChange(coll, id, action, version)
+      onDirty: targets.length > 0
+        ? (coll, id, action, version) => {
+            // Fan out dirty tracking to all sync engines for this vault
+            for (const [key, engine] of this.syncEngines) {
+              if (key === name || key.startsWith(`${name}::`)) {
+                void engine.trackChange(coll, id, action, version)
+              }
+            }
+          }
         : undefined,
       onRegisterConflictResolver: syncEngine
-        ? (name, resolver) => syncEngine.registerConflictResolver(name, resolver)
+        ? (resolverName, resolver) => syncEngine.registerConflictResolver(resolverName, resolver)
         : undefined,
-      syncAdapter: this.options.sync,
+      syncAdapter: targets.length > 0 ? targets[0]!.store : undefined,
       historyConfig: this.options.history,
       locale: opts?.locale,
       // Thread the translator hook so Collection.put() can invoke it (v0.8 #83)
@@ -593,10 +628,39 @@ export class Noydb {
     return engine.pull(options)
   }
 
-  /** Bidirectional sync: pull then push. */
+  /**
+   * Bidirectional sync: pull then push for all targets.
+   * `sync-peer` targets do pull+push; `backup`/`archive` targets do push-only.
+   */
   async sync(vault: string, options?: { push?: PushOptions; pull?: PullOptions }): Promise<{ pull: PullResult; push: PushResult }> {
-    const engine = this.getSyncEngine(vault)
-    return engine.sync(options)
+    const primary = this.getSyncEngine(vault)
+    const result = await primary.sync(options)
+
+    // Fan out push to backup/archive targets (fire-and-mark-dirty)
+    for (const [key, engine] of this.syncEngines) {
+      if (key === vault) continue
+      if (!key.startsWith(`${vault}::`)) continue
+      if (engine.role === 'sync-peer') {
+        await engine.sync(options).catch((err: Error) => {
+          this.emitter.emit('sync:backup-error', {
+            vault,
+            target: engine.label ?? engine.role,
+            error: err,
+          })
+        })
+      } else {
+        // backup/archive: push-only
+        await engine.push(options?.push).catch((err: Error) => {
+          this.emitter.emit('sync:backup-error', {
+            vault,
+            target: engine.label ?? engine.role,
+            error: err,
+          })
+        })
+      }
+    }
+
+    return result
   }
 
   /**
@@ -767,4 +831,23 @@ export async function createNoydb(options: NoydbOptions): Promise<Noydb> {
   }
 
   return new Noydb(options)
+}
+
+// ─── Internal helpers ─────────────────────────────────────────────────
+
+/**
+ * Normalize `NoydbOptions.sync` to a `SyncTarget[]`.
+ * Accepts a bare NoydbStore, a SyncTarget, or an array.
+ */
+function normalizeSyncTargets(
+  sync: NoydbOptions['sync'],
+): SyncTarget[] {
+  if (!sync) return []
+  if (Array.isArray(sync)) return sync
+  // SyncTarget has a `role` property; bare NoydbStore does not
+  if ('role' in sync && typeof sync.role === 'string') {
+    return [sync as SyncTarget]
+  }
+  // Bare NoydbStore — wrap as sync-peer
+  return [{ store: sync as NoydbStore, role: 'sync-peer' }]
 }

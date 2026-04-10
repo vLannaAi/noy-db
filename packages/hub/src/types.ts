@@ -461,6 +461,30 @@ export interface SyncStatus {
   readonly online: boolean
 }
 
+// ─── Sync Target (v0.12 #158) ─────────────────────────────────────────
+
+export type SyncTargetRole = 'sync-peer' | 'backup' | 'archive'
+
+/**
+ * A sync target with role and optional per-target policy (v0.12 #158).
+ *
+ * | Role        | Direction     | Conflict resolution | Typical use              |
+ * |-------------|---------------|---------------------|--------------------------|
+ * | `sync-peer` | Bidirectional | ConflictStrategy    | DynamoDB live sync       |
+ * | `backup`    | Push-only     | N/A (receives merged)| S3 dump, Google Drive   |
+ * | `archive`   | Push-only     | N/A                 | IPFS, Git tags, S3 Lock  |
+ */
+export interface SyncTarget {
+  /** The store to sync with. */
+  readonly store: NoydbStore
+  /** Role determines sync direction and conflict handling. */
+  readonly role: SyncTargetRole
+  /** Per-target sync policy. Inherits store-category default when absent. */
+  readonly policy?: import('./sync-policy.js').SyncPolicy
+  /** Human-readable label for DevTools and audit logs. */
+  readonly label?: string
+}
+
 // ─── Events ────────────────────────────────────────────────────────────
 
 export interface ChangeEvent {
@@ -478,6 +502,7 @@ export interface NoydbEventMap {
   'sync:conflict': Conflict
   'sync:online': void
   'sync:offline': void
+  'sync:backup-error': { vault: string; target: string; error: Error }
   'history:save': { vault: string; collection: string; id: string; version: number }
   'history:prune': { vault: string; collection: string; id: string; pruned: number }
 }
@@ -774,6 +799,150 @@ export interface PresencePeer<P> {
 // Re-exported from crdt.ts so consumers only need one import path.
 export type { CrdtMode, CrdtState, LwwMapState, RgaState, YjsState } from './crdt.js'
 
+// ─── Blob / Attachment Store (v0.12 #103 #105) ────────────────────────
+
+/**
+ * Second store shape for blob-store backends (Drive, WebDAV, Git, iCloud)
+ * that operate on whole-vault bundles rather than per-record KV.
+ *
+ * Implement `readBundle` / `writeBundle` instead of the six-method KV
+ * contract. Use `wrapBundleStore()` from `@noy-db/hub` to convert to a
+ * `NoydbStore` that the rest of the API consumes transparently.
+ *
+ * Named `NoydbBundleStore` (not `NoydbBundleAdapter`) for consistency
+ * with the v0.11 hub / to-* / in-* rename. Concrete implementations ship
+ * in `@noy-db/to-*` packages starting in v0.13.
+ */
+export interface NoydbBundleStore {
+  /** Discriminant for engine auto-detection of store shape. */
+  readonly kind: 'bundle'
+  /** Human-readable name for diagnostics (e.g. `'drive'`, `'webdav'`). */
+  readonly name?: string
+  /**
+   * Read the entire vault as raw bytes. Returns `null` if no bundle exists
+   * yet (first open of a brand-new vault).
+   */
+  readBundle(vaultId: string): Promise<{ bytes: Uint8Array; version: string } | null>
+  /**
+   * Write the entire vault as raw bytes. `expectedVersion` is the version
+   * token from the last `readBundle` (or `null` for a first write).
+   * Implementations MUST reject the write if the stored version has advanced
+   * past `expectedVersion` — throw `BundleVersionConflictError`.
+   * Returns the new version token on success.
+   */
+  writeBundle(
+    vaultId: string,
+    bytes: Uint8Array,
+    expectedVersion: string | null,
+  ): Promise<{ version: string }>
+  /** Delete a vault bundle. Idempotent — no-op if the bundle does not exist. */
+  deleteBundle(vaultId: string): Promise<void>
+  /** List all vault bundles managed by this store. */
+  listBundles(): Promise<Array<{ vaultId: string; version: string; size: number }>>
+}
+
+/**
+ * Content-addressed blob object stored in the vault-level blob index.
+ * Identified by HMAC-SHA-256(blobDEK, plaintext) — opaque to the store.
+ *
+ * Shared across all collections within a vault for deduplication: two
+ * records that attach identical byte content reference the same `eTag`
+ * and share a single set of encrypted chunks in `_blob_chunks`.
+ */
+export interface BlobObject {
+  /** HMAC-SHA-256 hex of the original plaintext bytes, keyed by `_blob` DEK. */
+  readonly eTag: string
+  /** Original uncompressed size in bytes. */
+  readonly size: number
+  /** Compressed size in bytes (the payload that is actually encrypted and chunked). */
+  readonly compressedSize: number
+  /** Compression algorithm applied before encryption. */
+  readonly compression: 'gzip' | 'none'
+  /** Raw chunk size in bytes used at write time. Readers MUST use this value. */
+  readonly chunkSize: number
+  /** Total number of chunks written. Reader expects exactly this many. */
+  readonly chunkCount: number
+  /** MIME type if provided or auto-detected at upload time. */
+  readonly mimeType?: string
+  /** ISO timestamp of first upload. */
+  readonly createdAt: string
+  /** Live reference count — slots + published versions pointing to this blob. */
+  readonly refCount: number
+}
+
+/**
+ * Slot record — mutable metadata linking a named slot on a record
+ * to a `BlobObject` via its eTag.
+ *
+ * Multiple slots (even across different records) may reference the same
+ * `eTag` — the underlying chunks are shared. Updating metadata creates
+ * a new envelope version (`_v++`) while the blob data is unchanged.
+ */
+export interface SlotRecord {
+  /** Reference to the `BlobObject` in `_blob_index`. */
+  readonly eTag: string
+  /** User-visible filename for the slot. */
+  readonly filename: string
+  /** Original uncompressed size in bytes (denormalized from `BlobObject`). */
+  readonly size: number
+  /** MIME type. Takes precedence over the MIME type stored in `BlobObject`. */
+  readonly mimeType?: string
+  /** ISO timestamp of the upload that set this slot. */
+  readonly uploadedAt: string
+  /** User ID of the uploader, if available. */
+  readonly uploadedBy?: string
+}
+
+/** Result of `BlobSet.list()` — slot record plus its named slot key. */
+export interface SlotInfo extends SlotRecord {
+  /** The slot name (key in the record's slot map). */
+  readonly name: string
+}
+
+/**
+ * Explicitly published version snapshot — an independent reference to a
+ * blob at a specific point in time (v0.12 UC-3 amendment versioning).
+ */
+export interface VersionRecord {
+  /** User-defined label (e.g. `'issued-2025-01'`, `'amendment-2025-02'`). */
+  readonly label: string
+  /** eTag of the blob snapshot at publish time — independent of the current slot. */
+  readonly eTag: string
+  /** ISO timestamp when the version was published. */
+  readonly publishedAt: string
+  /** User ID of the publisher, if available. */
+  readonly publishedBy?: string
+}
+
+/** Options for `BlobSet.put()`. */
+export interface BlobPutOptions {
+  /** MIME type hint. If omitted, auto-detected from magic bytes. */
+  mimeType?: string
+  /**
+   * Raw chunk size in bytes. Priority: this value > store.maxBlobBytes > 256 KB.
+   */
+  chunkSize?: number
+  /**
+   * Whether to gzip-compress bytes before encrypting. Default: `true`.
+   * Auto-set to `false` for pre-compressed MIME types (JPEG, PNG, ZIP, etc.).
+   */
+  compress?: boolean
+  /** User ID to record as `uploadedBy`. Defaults to the Noydb session user. */
+  uploadedBy?: string
+}
+
+/** Options for `BlobSet.response()` and `BlobSet.responseVersion()`. */
+export interface BlobResponseOptions {
+  /**
+   * When `true`, sets `Content-Disposition: inline; filename="..."` so
+   * the browser renders the file in the tab. Default (`false`) sets
+   * `attachment; filename="..."` which triggers a download.
+   */
+  inline?: boolean
+  /** Override the filename in the Content-Disposition header. */
+  filename?: string
+}
+
 // ─── Store Capabilities (v0.10 #141 #143) ─────────────────────────────
 
 export type StoreAuthKind =
@@ -800,6 +969,13 @@ export interface StoreCapabilities {
    */
   casAtomic: boolean
   auth: StoreAuth
+  /**
+   * Maximum raw bytes per blob chunk record (v0.12 #105).
+   * `undefined` — no limit (S3, file, IDB); blob stored as single chunk.
+   * `256 * 1024` — DynamoDB (400 KB item limit minus envelope overhead).
+   * `5 * 1024 * 1024` — localStorage quota safety.
+   */
+  maxBlobBytes?: number
 }
 
 // ─── Factory Options ───────────────────────────────────────────────────
@@ -807,8 +983,8 @@ export interface StoreCapabilities {
 export interface NoydbOptions {
   /** Primary store (local storage). */
   readonly store: NoydbStore
-  /** Optional remote store for sync. */
-  readonly sync?: NoydbStore
+  /** Optional remote store(s) for sync. Accepts a single store, a SyncTarget, or an array. */
+  readonly sync?: NoydbStore | SyncTarget | SyncTarget[]
   /** User identifier. */
   readonly user: string
   /** Passphrase for key derivation. Required unless encrypt is false. */
@@ -819,9 +995,20 @@ export interface NoydbOptions {
   readonly encrypt?: boolean
   /** Conflict resolution strategy. Default: 'version'. */
   readonly conflict?: ConflictStrategy
-  /** Auto-sync on online/offline events. Default: false. */
+  /**
+   * Sync scheduling policy (v0.12 #101). Controls when push/pull fire.
+   * Default inferred from store category: per-record → `on-change`,
+   * bundle → `debounce 30s`.
+   */
+  readonly syncPolicy?: import('./sync-policy.js').SyncPolicy
+  /**
+   * @deprecated Use `syncPolicy` instead. Kept for backward compatibility.
+   * When both are supplied, `syncPolicy` takes precedence.
+   */
   readonly autoSync?: boolean
-  /** Periodic sync interval in ms. Default: 30000. */
+  /**
+   * @deprecated Use `syncPolicy` instead. Kept for backward compatibility.
+   */
   readonly syncInterval?: number
   /**
    * Session timeout in ms. Clears keys after inactivity. Default: none.
