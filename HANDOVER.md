@@ -3,7 +3,7 @@
 > **Purpose:** context for the next Claude Code session. Read this first —
 > it will save you 10 minutes of re-discovery.
 >
-> **Updated:** 2026-04-10 — v0.10.0 published; npm cleanup in progress; v0.11 package renaming planned.
+> **Updated:** 2026-04-10 — v0.11.0 code complete (hub/to-*/in-* rename shipped); npm cleanup in progress before publishing; v0.12 developer experience is next.
 
 ---
 
@@ -20,18 +20,20 @@ the actual name before any commit or publish that touches user-facing copy.
 
 ---
 
-## Current state: v0.10.0 on npm — npm cleanup in progress
+## Current state: v0.11.0 code complete — npm cleanup in progress
 
 ```
-main  21c4465  chore(ci): pause npm publishing — package rename in progress
+main  bb53cca  docs: update HANDOVER — npm cleanup status, v0.11 rename plan
 ```
 
 Working tree clean. **npm publishing is PAUSED** — the release workflow
-(`.github/workflows/release.yml`) now requires manual `workflow_dispatch`
-instead of triggering on GitHub Release. Do not re-enable until npm cleanup
-is complete and v0.11 renames are ready to ship.
+(`.github/workflows/release.yml`) requires manual `workflow_dispatch`.
+Do not re-enable until npm cleanup is complete (see below).
 
-**Open milestones:** v0.11.0 (package renaming), v0.12.0, v0.13.0.
+v0.11 code work is **done**: all 15 packages renamed to the hub/to-*/in-* taxonomy,
+all 1065 tests passing, issue #150 closed, milestones v0.10.0 + v0.11.0 closed.
+
+**Open milestones:** v0.12.0 (developer experience), v0.13.0 (store expansion).
 
 ---
 
@@ -50,27 +52,28 @@ Key points to include:
 - Pre-release cleanup before first public launch
 - Zero downloads across all affected versions
 - All versions already deprecated with migration messages
-- Packages to clean: `@noy-db/core`, `@noy-db/file`, `@noy-db/memory`,
+- Packages to clean: `@noy-db/hub`, `@noy-db/file`, `@noy-db/memory`,
   `@noy-db/vue`, `@noy-db/pinia`, `@noy-db/nuxt`, `@noy-db/s3`,
   `@noy-db/browser`, `@noy-db/dynamo`, `@noy-db/create`
 - Versions: everything `<0.10.0` plus the stuck last-versions
 
-**Step 3 — Once registry is clean, implement v0.11 renames (see below):**
-Then re-publish all packages under new names.
+**Step 3 — Once registry is clean, publish v0.11.0:**
+Re-enable the release workflow and publish all 15 packages under the new names.
+Version to publish: **0.11.0**. All code is ready on `main`.
 
 ### Current npm state (as of 2026-04-10)
 
 **New packages at 0.10.0 — FORCE-UNPUBLISHED (will need re-publishing):**
-- `@noy-db/store-file@0.10.0` — deleted
-- `@noy-db/store-memory@0.10.0` — deleted
-- `@noy-db/store-browser-local@0.10.0` — deleted
-- `@noy-db/store-browser-idb@0.10.0` — deleted
-- `@noy-db/store-aws-s3@0.10.0` — deleted
-- `@noy-db/store-aws-dynamo@0.10.0` — deleted
+- `@noy-db/to-file@0.10.0` — deleted
+- `@noy-db/to-memory@0.10.0` — deleted
+- `@noy-db/to-browser-local@0.10.0` — deleted
+- `@noy-db/to-browser-idb@0.10.0` — deleted
+- `@noy-db/to-aws-s3@0.10.0` — deleted
+- `@noy-db/to-aws-dynamo@0.10.0` — deleted
 - `create-noy-db@0.10.0` — deleted
 
 **Still live at 0.10.0 (good — keep these):**
-- `@noy-db/core@0.10.0` ✓
+- `@noy-db/hub@0.10.0` ✓
 - `@noy-db/vue@0.10.0` ✓
 - `@noy-db/pinia@0.10.0` ✓
 - `@noy-db/nuxt@0.10.0` ✓
@@ -79,7 +82,7 @@ Then re-publish all packages under new names.
 
 | Package | Remaining versions | Status |
 |---|---|---|
-| `@noy-db/core` | 0.1.0–0.9.0 | All deprecated ✓ |
+| `@noy-db/hub` | 0.1.0–0.9.0 | All deprecated ✓ |
 | `@noy-db/file` | 0.1.0–0.3.0 (>72h), 0.5.0–0.9.0 | All deprecated ✓; E405 on unpublish |
 | `@noy-db/memory` | 0.1.0 (>72h), 0.1.1–0.9.0 | All deprecated ✓ |
 | `@noy-db/vue` | 0.1.0 (>72h), 0.1.1–0.9.0 | All deprecated ✓ |
@@ -94,78 +97,21 @@ Then re-publish all packages under new names.
 - **E405** — "has dependent packages in the registry" — another package peer-deps on this one
 - **E422** — full package DELETE blocked (package first published >72h ago; npm policy)
 - **EUSAGE** — refusing to delete last version without `--force`
-- `@noy-db/nuxt@0.10.0` peer-deps on `@noy-db/vue`, `@noy-db/pinia`, `@noy-db/core` — this is why pinia/vue old versions get E405
+- `@noy-db/nuxt@0.10.0` peer-deps on `@noy-db/vue`, `@noy-db/pinia`, `@noy-db/hub` — this is why pinia/vue old versions get E405
 
 ---
 
-## v0.11.0 — Package renaming (issue #150)
+## v0.12.0 — Developer experience (next milestone)
 
-### New naming taxonomy
+GitHub milestone: https://github.com/vLannaAi/noy-db/milestone/9
 
-| Category | Prefix | Old name | New name |
-|---|---|---|---|
-| Core runtime | (none) | `@noy-db/core` | `@noy-db/hub` |
-| Framework integrations | `in-` | `@noy-db/vue` | `@noy-db/in-vue` |
-| | | `@noy-db/pinia` | `@noy-db/in-pinia` |
-| | | `@noy-db/nuxt` | `@noy-db/in-nuxt` |
-| | | `@noy-db/yjs` | `@noy-db/in-yjs` |
-| Storage backends | `to-` | `@noy-db/store-file` | `@noy-db/to-file` |
-| | | `@noy-db/store-memory` | `@noy-db/to-memory` |
-| | | `@noy-db/store-browser-local` | `@noy-db/to-browser-local` |
-| | | `@noy-db/store-browser-idb` | `@noy-db/to-browser-idb` |
-| | | `@noy-db/store-aws-s3` | `@noy-db/to-aws-s3` |
-| | | `@noy-db/store-aws-dynamo` | `@noy-db/to-aws-dynamo` |
-| Auth | `auth-` | `@noy-db/auth-webauthn` | unchanged |
-| | | `@noy-db/auth-oidc` | unchanged |
-| Scaffolder | (none) | `create-noy-db` | unchanged |
+Issues in scope:
+- **#146** `@noy-db/store-probe` — setup-time suitability test + runtime monitor
+- **#106** naked mode — dev-only plaintext storage with guardrails
+- **#102** `.noydb` reader — CLI commands + browser extension
+- **#39** scaffolder templates — Vite+Vue, Electron, vanilla
 
-**Rationale:** `in-` = "use noy-db in this framework"; `to-` = "persist noy-db to this backend";
-`hub` = the central encrypted runtime connecting all `in-*` and `to-*` packages.
-
-**Do NOT publish anything to npm until the registry is clean and v0.11 renames are implemented.**
-
-### Scope of v0.11 rename work
-- Rename all `packages/*` directories
-- Update all `package.json` names and cross-package peerDependencies
-- Update `CLAUDE.md`, `SPEC.md`, `ROADMAP.md`
-- Update CI workflows (package paths, names)
-- Update `scripts/release.mjs` exclusion list
-- Verify all 1065+ tests pass after rename
-
----
-
-## What v0.10 added (already shipped — do not re-implement)
-
-| # | What | Details |
-|---|------|---------|
-| — | API renames | `NoydbAdapter` → `NoydbStore`, `defineAdapter()` → `createStore()`, `NoydbOptions.adapter` → `.store`, `AdapterCapabilityError` → `StoreCapabilityError` (code `'STORE_CAPABILITY'`), `AdapterCapabilities` → `StoreCapabilities`, `runAdapterConformanceTests` → `runStoreConformanceTests` |
-| — | Vault rename | `class Compartment` → `class Vault`, `openCompartment()` → `openVault()`, `listCompartments()` → `listVaults()`, `CompartmentSnapshot` → `VaultSnapshot`, `CompartmentBackup` → `VaultBackup` |
-| — | Package renames | `@noy-db/file` → `@noy-db/store-file`, `@noy-db/memory` → `@noy-db/store-memory`, `@noy-db/browser` → split (`store-browser-local` + `store-browser-idb`), `@noy-db/dynamo` → `@noy-db/store-aws-dynamo`, `@noy-db/s3` → `@noy-db/store-aws-s3`, `@noy-db/create` → `create-noy-db` |
-| — | StoreCapabilities | Added `casAtomic: boolean` and `auth: StoreAuth` fields |
-| #139 | IDB CAS fix | `store-browser-idb` uses single `readwrite` IDB transaction for atomic check-and-set |
-| — | S3 SDK cleanup | `store-aws-s3` uses `@aws-sdk/client-s3` directly — dropped `MinimalS3Client` shim |
-
-**casAtomic per store:** store-memory true, store-file false (TOCTOU), store-browser-local true (sync), store-browser-idb true (single readwrite tx), store-aws-dynamo true (ConditionExpression), store-aws-s3 false (two HTTP calls).
-
----
-
-## What v0.9 added (already shipped — do not re-implement)
-
-| # | Module | What it does |
-|---|--------|--------------|
-| #131 | `core/collection.ts` | `conflictPolicy: 'last-writer-wins' \| 'first-writer-wins' \| 'manual' \| fn`. Manual mode emits `sync:conflict` with `resolve` callback. |
-| #132 | `core/crdt.ts` | `crdt: 'lww-map' \| 'rga' \| 'yjs'` per-collection. `collection.getRaw(id)` returns `CrdtState`. `mergeCrdtStates`, `resolveCrdtSnapshot`, `buildLwwMapState`, `buildRgaState`. |
-| #133 | `core/sync.ts` | `push(comp, { collections })`, `pull(comp, { collections, modifiedSince })`, `sync(comp, { push, pull })`. Adapter may add `listSince?()` for server-side filtering. |
-| #134 | `core/presence.ts` | `collection.presence<P>()` → `PresenceHandle<P>`. HKDF-derived presence key from DEK. Pub/sub + storage-poll fallback at `_presence_COLLECTION`. |
-| #135 | `core/sync.ts` | `db.transaction(comp).put(col, id, rec).delete(col, id).commit()`. Two-phase local write + filtered push. |
-| #136 | `packages/yjs/` | New `@noy-db/yjs` package. `yjsCollection(comp, name, { yFields })`, `getYDoc/putYDoc/applyUpdate`, `yText/yMap/yArray` descriptors. |
-
-**Key implementation notes:**
-- **CRDT state** stored encrypted in `_data`. `get()` auto-resolves via `decryptRecord`. `getRaw()` returns raw `CrdtState`.
-- **RGA tombstones**: stay in `items` array; `tombstones` is the NID filter list.
-- **Presence key** = `HKDF(DEK, salt='noydb-presence', info=collectionName)` — `crypto.ts:derivePresenceKey`.
-- **`@noy-db/yjs`** stores `base64(Y.encodeStateAsUpdate)` as `crdt: 'yjs'` payload.
-- **ESLint**: no inline `import()` type annotations; `as object` after `typeof x === 'object'` is flagged.
+See ROADMAP.md for full design notes on each item.
 
 ---
 
@@ -188,10 +134,10 @@ pnpm turbo build                  # build all packages
 pnpm turbo test                   # run all tests
 pnpm turbo lint                   # lint all packages
 pnpm turbo typecheck              # typecheck all packages
-pnpm vitest run packages/core     # run core tests only
+pnpm vitest run packages/hub      # run core tests only
 pnpm vitest run -t "session"      # run tests matching pattern
 
-# Release (PAUSED — do not run until npm cleanup + v0.11 rename complete)
+# Release (PAUSED — do not run until npm cleanup is complete and v0.11.0 is published)
 pnpm release:version              # bump all packages to core's version
 git add . && git commit -m "chore: release vX.Y.Z"
 git push origin main && git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z

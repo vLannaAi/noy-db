@@ -11,7 +11,7 @@
 
 An encrypted, offline-first, **serverless** document store. The library lives inside your app, stores in whatever backend you choose, and nobody in the middle ever sees plaintext — not the cloud provider, not the sysadmin, not the database vendor. Not noy-db either.
 
-[![npm](https://img.shields.io/npm/v/@noy-db/core.svg?label=%40noy-db%2Fcore)](https://www.npmjs.com/package/@noy-db/core)
+[![npm](https://img.shields.io/npm/v/@noy-db/hub.svg?label=%40noy-db%2Fhub)](https://www.npmjs.com/package/@noy-db/hub)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-green.svg)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Strict-blue.svg)](https://www.typescriptlang.org)
@@ -48,14 +48,14 @@ If a breach happens at your cloud provider, the attacker gets ciphertext. If a s
 
 | Platform | Runtime | Storage backend | Status |
 |---|---|---|---|
-| 🖥️ **Desktop** — macOS / Linux / Windows | Node 18+, Bun, Deno | `@noy-db/file` (JSON on disk) | ✅ |
-| 📱 **Mobile browser** — iOS Safari 14+, Android Chrome 90+ | Browser JS | `@noy-db/browser` (IndexedDB / localStorage) | ✅ |
-| 🌐 **Desktop browser** — Chrome, Firefox, Safari, Edge | Browser JS | `@noy-db/browser` | ✅ |
-| ⚡ **PWA / offline web app** | Service Worker + browser | `@noy-db/browser` | ✅ |
-| 🖧 **Server (headless)** | Node 18+ | `@noy-db/file`, `@noy-db/dynamo`, `@noy-db/s3` | ✅ |
-| 💾 **USB stick / removable disk** | Any OS + any runtime | `@noy-db/file` | ✅ |
-| 🔌 **Electron / Tauri desktop app** | Desktop shell | `@noy-db/file` or `@noy-db/browser` | ✅ |
-| 🧪 **Testing / CI** | Any JS runtime | `@noy-db/memory` (no persistence) | ✅ |
+| 🖥️ **Desktop** — macOS / Linux / Windows | Node 18+, Bun, Deno | `@noy-db/to-file` (JSON on disk) | ✅ |
+| 📱 **Mobile browser** — iOS Safari 14+, Android Chrome 90+ | Browser JS | `@noy-db/to-browser-idb` (IndexedDB / localStorage) | ✅ |
+| 🌐 **Desktop browser** — Chrome, Firefox, Safari, Edge | Browser JS | `@noy-db/to-browser-idb` | ✅ |
+| ⚡ **PWA / offline web app** | Service Worker + browser | `@noy-db/to-browser-idb` | ✅ |
+| 🖧 **Server (headless)** | Node 18+ | `@noy-db/to-file`, `@noy-db/to-aws-dynamo`, `@noy-db/to-aws-s3` | ✅ |
+| 💾 **USB stick / removable disk** | Any OS + any runtime | `@noy-db/to-file` | ✅ |
+| 🔌 **Electron / Tauri desktop app** | Desktop shell | `@noy-db/to-file` or `@noy-db/to-browser-idb` | ✅ |
+| 🧪 **Testing / CI** | Any JS runtime | `@noy-db/to-memory` (no persistence) | ✅ |
 
 **No database server to install. No Docker. No Docker Compose. No managed service bill.** The entire storage layer runs inside your app process. Hardware-wise, anything that can run a modern browser can run noy-db — including phones, tablets, Raspberry Pi, and low-end cloud VMs.
 
@@ -143,23 +143,31 @@ Every record on disk, DynamoDB, or S3 is an encrypted envelope. Metadata (`_v`, 
 
 ```bash
 # Nuxt 4 + Pinia (recommended — the happy path)
-pnpm add @noy-db/nuxt @noy-db/pinia @noy-db/core @noy-db/browser @pinia/nuxt pinia
+pnpm add @noy-db/in-nuxt @noy-db/in-pinia @noy-db/hub @noy-db/to-browser-idb @pinia/nuxt pinia
 
 # Plain Vue 3 + Pinia (no Nuxt)
-pnpm add @noy-db/pinia @noy-db/core @noy-db/browser pinia vue
+pnpm add @noy-db/in-pinia @noy-db/hub @noy-db/to-browser-idb pinia vue
 
 # USB / Local disk only
-pnpm add @noy-db/core @noy-db/file
+pnpm add @noy-db/hub @noy-db/to-file
 
 # Cloud only (DynamoDB)
-pnpm add @noy-db/core @noy-db/dynamo
+pnpm add @noy-db/hub @noy-db/to-aws-dynamo
 
 # Offline-first with cloud sync
-pnpm add @noy-db/core @noy-db/file @noy-db/dynamo
+pnpm add @noy-db/hub @noy-db/to-file @noy-db/to-aws-dynamo
 
 # Development / testing
-pnpm add @noy-db/core @noy-db/memory
+pnpm add @noy-db/hub @noy-db/to-memory
 ```
+
+---
+
+## Package Ecosystem
+
+<picture>
+  <img alt="@noy-db package ecosystem" src="docs/assets/package-ecosystem.svg" width="100%">
+</picture>
 
 ---
 
@@ -170,7 +178,7 @@ The happy path is one config block, one store file, one component. Everything be
 ```ts
 // nuxt.config.ts
 export default defineNuxtConfig({
-  modules: ['@pinia/nuxt', '@noy-db/nuxt'],
+  modules: ['@pinia/nuxt', '@noy-db/in-nuxt'],
   noydb: {
     adapter: 'browser',
     pinia: true,
@@ -217,11 +225,11 @@ That's the whole app. Reactive Pinia store, encrypted storage, SSR-safe. See [`d
 
 ### Lower-level API (no Vue/Pinia)
 
-For CLIs, tests, or backends, use `@noy-db/core` directly:
+For CLIs, tests, or backends, use `@noy-db/hub` directly:
 
 ```ts
-import { createNoydb } from '@noy-db/core'
-import { jsonFile } from '@noy-db/file'
+import { createNoydb } from '@noy-db/hub'
+import { jsonFile } from '@noy-db/to-file'
 
 const db = await createNoydb({
   adapter: jsonFile({ dir: './data' }),
@@ -243,7 +251,7 @@ db.close()                            // clears KEK/DEK from memory
 ### With Cloud Sync
 
 ```ts
-import { dynamo } from '@noy-db/dynamo'
+import { dynamo } from '@noy-db/to-aws-dynamo'
 
 const db = await createNoydb({
   adapter: jsonFile({ dir: './data' }),       // primary (local)
@@ -300,15 +308,15 @@ await db.revoke('C101', {
 ┌────────────────────┬──────────────┬───────────────────────────────────────┐
 │ Package            │ Runtime deps │ Peer deps                             │
 ├────────────────────┼──────────────┼───────────────────────────────────────┤
-│ @noy-db/core       │ 0            │ —                                     │
-│ @noy-db/file       │ 0            │ @noy-db/core                          │
-│ @noy-db/dynamo     │ 0            │ @noy-db/core, @aws-sdk/*              │
-│ @noy-db/s3         │ 0            │ @noy-db/core, @aws-sdk/*              │
-│ @noy-db/browser    │ 0            │ @noy-db/core                          │
-│ @noy-db/memory     │ 0            │ @noy-db/core                          │
-│ @noy-db/vue        │ 0            │ @noy-db/core, vue                     │
-│ @noy-db/pinia      │ 0            │ @noy-db/core, pinia, vue              │
-│ @noy-db/nuxt       │ 0            │ @noy-db/core, @noy-db/pinia, nuxt ^4  │
+│ @noy-db/hub       │ 0            │ —                                     │
+│ @noy-db/to-file       │ 0            │ @noy-db/hub                          │
+│ @noy-db/to-aws-dynamo     │ 0            │ @noy-db/hub, @aws-sdk/*              │
+│ @noy-db/to-aws-s3  │ 0            │ @noy-db/hub, @aws-sdk/*              │
+│ @noy-db/to-browser-idb    │ 0            │ @noy-db/hub                          │
+│ @noy-db/to-memory     │ 0            │ @noy-db/hub                          │
+│ @noy-db/in-vue        │ 0            │ @noy-db/hub, vue                     │
+│ @noy-db/in-pinia      │ 0            │ @noy-db/hub, pinia, vue              │
+│ @noy-db/in-nuxt       │ 0            │ @noy-db/hub, @noy-db/in-pinia, nuxt ^4  │
 └────────────────────┴──────────────┴───────────────────────────────────────┘
 ```
 
@@ -334,7 +342,7 @@ Every package has **zero runtime dependencies**. AWS SDKs and Vue are peer depen
 The adapter interface is 6 methods. Anything that can store a blob works with NOYDB:
 
 ```ts
-import { defineAdapter } from '@noy-db/core'
+import { defineAdapter } from '@noy-db/hub'
 
 export const myAdapter = defineAdapter((options) => ({
   name: 'my-backend',
@@ -349,17 +357,9 @@ export const myAdapter = defineAdapter((options) => ({
 
 ---
 
-## Status
+## Release notes &amp; roadmap
 
-**v0.8.0 on npm.** All 12 `@noy-db/*` packages are unified on the `0.8.0` line. 724 tests passing. See the [Roadmap](ROADMAP.md) for the full plan.
-
-| Version | Status   | Scope |
-|---------|----------|-------|
-| 0.5     | ✅ shipped | Initial release — encryption, multi-user ACL, ledger, verifiable backups, query DSL, sync, Vue/Nuxt/Pinia integration, scaffolder + CLI |
-| 0.6     | ✅ shipped | Query DSL completion — joins (eager + live + streaming), aggregations, `.noydb` container format |
-| 0.7     | ✅ shipped | Identity & sessions — session tokens, OIDC bridge, magic-link unlock, WebAuthn hardware-key keyrings, session policies, dev-mode unlock |
-| 0.8     | ✅ shipped | i18n & dictionaries — `dictKey` + `DictionaryHandle`, `i18nText` multi-language fields, `plaintextTranslator` hook, export snapshots, query DSL dictKey integration |
-| 0.9     | 🚧 next   | Sync v2 — pluggable conflict policies, CRDT mode, Yjs interop, presence, partial sync, sync transactions |
+See [ROADMAP.md](ROADMAP.md) for the version timeline and what's coming next.
 
 ---
 
