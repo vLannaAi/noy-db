@@ -868,6 +868,13 @@ export interface BlobObject {
   readonly createdAt: string
   /** Live reference count — slots + published versions pointing to this blob. */
   readonly refCount: number
+  /**
+   * Hint indicating which store holds the chunk data (v0.12 #162).
+   * Used by `routeStore` size-tiered routing: `'default'` for small blobs
+   * stored inline (e.g. DynamoDB), `'blobs'` for large blobs in the overflow
+   * store (e.g. S3). Absent when no routing is configured.
+   */
+  readonly storeHint?: 'default' | 'blobs'
 }
 
 /**

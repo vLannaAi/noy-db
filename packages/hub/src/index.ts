@@ -91,6 +91,10 @@ export { SyncScheduler, INDEXED_STORE_POLICY, BUNDLE_STORE_POLICY } from './sync
 // Sync target (v0.12 #158)
 export type { SyncTarget, SyncTargetRole } from './types.js'
 
+// Store routing (v0.12 #162)
+export { routeStore } from './route-store.js'
+export type { RouteStoreOptions, RoutedNoydbStore, BlobStoreRoute, AgeRoute } from './route-store.js'
+
 // Errors
 export {
   NoydbError,
