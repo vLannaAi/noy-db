@@ -1,0 +1,151 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 540" font-family="'SF Mono','Fira Code','Cascadia Code',monospace">
+  <defs>
+    <linearGradient id="bg3" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0d1117"/>
+      <stop offset="100%" stop-color="#161b22"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="880" height="540" rx="12" fill="url(#bg3)"/>
+  <rect x="1" y="1" width="878" height="538" rx="11" fill="none" stroke="#30363d" stroke-width="1"/>
+
+  <!-- Title -->
+  <text x="440" y="40" text-anchor="middle" fill="#f0f6fc" font-size="18" font-weight="700">Deployment Profiles</text>
+  <text x="440" y="58" text-anchor="middle" fill="#8b949e" font-size="11">Pick your stack. Same API everywhere.</text>
+
+  <!-- Profile cards - Row 1 -->
+
+  <!-- Card 1: USB -->
+  <rect x="40" y="82" width="190" height="130" rx="8" fill="#0d1117" stroke="#3fb950" stroke-width="1.5"/>
+  <circle cx="68" cy="105" r="12" fill="none" stroke="#3fb950" stroke-width="1.5"/>
+  <text x="68" y="110" text-anchor="middle" fill="#3fb950" font-size="12">1</text>
+  <text x="135" y="105" text-anchor="middle" fill="#f0f6fc" font-size="11" font-weight="600">USB / Local</text>
+  <line x1="52" y1="118" x2="218" y2="118" stroke="#21262d" stroke-width="1"/>
+  <text x="130" y="136" text-anchor="middle" fill="#8b949e" font-size="9">core + file</text>
+  <text x="130" y="154" text-anchor="middle" fill="#484f58" font-size="8">Accountant carries data</text>
+  <text x="130" y="166" text-anchor="middle" fill="#484f58" font-size="8">on USB between locations</text>
+  <rect x="54" y="180" width="150" height="18" rx="4" fill="#3fb95015"/>
+  <text x="129" y="193" text-anchor="middle" fill="#3fb950" font-size="8">Zero internet needed</text>
+
+  <!-- Card 2: Cloud -->
+  <rect x="250" y="82" width="190" height="130" rx="8" fill="#0d1117" stroke="#58a6ff" stroke-width="1.5"/>
+  <circle cx="278" cy="105" r="12" fill="none" stroke="#58a6ff" stroke-width="1.5"/>
+  <text x="278" y="110" text-anchor="middle" fill="#58a6ff" font-size="12">2</text>
+  <text x="345" y="105" text-anchor="middle" fill="#f0f6fc" font-size="11" font-weight="600">Cloud Only</text>
+  <line x1="262" y1="118" x2="428" y2="118" stroke="#21262d" stroke-width="1"/>
+  <text x="340" y="136" text-anchor="middle" fill="#8b949e" font-size="9">core + dynamo</text>
+  <text x="340" y="154" text-anchor="middle" fill="#484f58" font-size="8">Always-on connectivity</text>
+  <text x="340" y="166" text-anchor="middle" fill="#484f58" font-size="8">Multi-device access</text>
+  <rect x="264" y="180" width="150" height="18" rx="4" fill="#58a6ff15"/>
+  <text x="339" y="193" text-anchor="middle" fill="#58a6ff" font-size="8">Managed infrastructure</text>
+
+  <!-- Card 3: Offline + Sync -->
+  <rect x="460" y="82" width="190" height="130" rx="8" fill="#0d1117" stroke="#d29922" stroke-width="1.5"/>
+  <circle cx="488" cy="105" r="12" fill="none" stroke="#d29922" stroke-width="1.5"/>
+  <text x="488" y="110" text-anchor="middle" fill="#d29922" font-size="12">3</text>
+  <text x="555" y="105" text-anchor="middle" fill="#f0f6fc" font-size="11" font-weight="600">Offline + Sync</text>
+  <line x1="472" y1="118" x2="638" y2="118" stroke="#21262d" stroke-width="1"/>
+  <text x="550" y="136" text-anchor="middle" fill="#8b949e" font-size="9">core + file + dynamo</text>
+  <text x="550" y="154" text-anchor="middle" fill="#484f58" font-size="8">Works offline, syncs</text>
+  <text x="550" y="166" text-anchor="middle" fill="#484f58" font-size="8">when internet returns</text>
+  <rect x="474" y="180" width="150" height="18" rx="4" fill="#d2992215"/>
+  <text x="549" y="193" text-anchor="middle" fill="#d29922" font-size="8">Best of both worlds</text>
+
+  <!-- Card 4: Browser -->
+  <rect x="670" y="82" width="190" height="130" rx="8" fill="#0d1117" stroke="#bc8cff" stroke-width="1.5"/>
+  <circle cx="698" cy="105" r="12" fill="none" stroke="#bc8cff" stroke-width="1.5"/>
+  <text x="698" y="110" text-anchor="middle" fill="#bc8cff" font-size="12">4</text>
+  <text x="765" y="105" text-anchor="middle" fill="#f0f6fc" font-size="11" font-weight="600">Browser SPA</text>
+  <line x1="682" y1="118" x2="848" y2="118" stroke="#21262d" stroke-width="1"/>
+  <text x="760" y="136" text-anchor="middle" fill="#8b949e" font-size="9">core + browser</text>
+  <text x="760" y="154" text-anchor="middle" fill="#484f58" font-size="8">IndexedDB / localStorage</text>
+  <text x="760" y="166" text-anchor="middle" fill="#484f58" font-size="8">PWA / offline-capable</text>
+  <rect x="684" y="180" width="150" height="18" rx="4" fill="#bc8cff15"/>
+  <text x="759" y="193" text-anchor="middle" fill="#bc8cff" font-size="8">Zero server needed</text>
+
+  <!-- Profile cards - Row 2 -->
+
+  <!-- Card 5: Browser + Sync -->
+  <rect x="40" y="232" width="190" height="130" rx="8" fill="#0d1117" stroke="#bc8cff" stroke-width="1.5"/>
+  <circle cx="68" cy="255" r="12" fill="none" stroke="#bc8cff" stroke-width="1.5"/>
+  <text x="68" y="260" text-anchor="middle" fill="#bc8cff" font-size="12">5</text>
+  <text x="145" y="255" text-anchor="middle" fill="#f0f6fc" font-size="11" font-weight="600">Browser + Sync</text>
+  <line x1="52" y1="268" x2="218" y2="268" stroke="#21262d" stroke-width="1"/>
+  <text x="130" y="286" text-anchor="middle" fill="#8b949e" font-size="9">core + browser + dynamo</text>
+  <text x="130" y="304" text-anchor="middle" fill="#484f58" font-size="8">Instant hydration from</text>
+  <text x="130" y="316" text-anchor="middle" fill="#484f58" font-size="8">cache, multi-device sync</text>
+  <rect x="54" y="330" width="150" height="18" rx="4" fill="#bc8cff15"/>
+  <text x="129" y="343" text-anchor="middle" fill="#bc8cff" font-size="8">Multi-device web app</text>
+
+  <!-- Card 6: S3 -->
+  <rect x="250" y="232" width="190" height="130" rx="8" fill="#0d1117" stroke="#58a6ff" stroke-width="1.5"/>
+  <circle cx="278" cy="255" r="12" fill="none" stroke="#58a6ff" stroke-width="1.5"/>
+  <text x="278" y="260" text-anchor="middle" fill="#58a6ff" font-size="12">6</text>
+  <text x="345" y="255" text-anchor="middle" fill="#f0f6fc" font-size="11" font-weight="600">S3 Archive</text>
+  <line x1="262" y1="268" x2="428" y2="268" stroke="#21262d" stroke-width="1"/>
+  <text x="340" y="286" text-anchor="middle" fill="#8b949e" font-size="9">core + s3</text>
+  <text x="340" y="304" text-anchor="middle" fill="#484f58" font-size="8">Long-term encrypted</text>
+  <text x="340" y="316" text-anchor="middle" fill="#484f58" font-size="8">archival with lifecycle</text>
+  <rect x="264" y="330" width="150" height="18" rx="4" fill="#58a6ff15"/>
+  <text x="339" y="343" text-anchor="middle" fill="#58a6ff" font-size="8">Cheapest storage</text>
+
+  <!-- Card 7: Vue Full Stack -->
+  <rect x="460" y="232" width="190" height="130" rx="8" fill="#0d1117" stroke="#3fb950" stroke-width="1.5"/>
+  <circle cx="488" cy="255" r="12" fill="none" stroke="#3fb950" stroke-width="1.5"/>
+  <text x="488" y="260" text-anchor="middle" fill="#3fb950" font-size="12">7</text>
+  <text x="555" y="255" text-anchor="middle" fill="#f0f6fc" font-size="11" font-weight="600">Vue Full Stack</text>
+  <line x1="472" y1="268" x2="638" y2="268" stroke="#21262d" stroke-width="1"/>
+  <text x="550" y="286" text-anchor="middle" fill="#8b949e" font-size="9">core + file + dynamo + vue</text>
+  <text x="550" y="304" text-anchor="middle" fill="#484f58" font-size="8">Reactive composables</text>
+  <text x="550" y="316" text-anchor="middle" fill="#484f58" font-size="8">useCollection, useSync</text>
+  <rect x="474" y="330" width="150" height="18" rx="4" fill="#3fb95015"/>
+  <text x="549" y="343" text-anchor="middle" fill="#3fb950" font-size="8">Production target</text>
+
+  <!-- Card 8: Dev -->
+  <rect x="670" y="232" width="190" height="130" rx="8" fill="#0d1117" stroke="#484f58" stroke-width="1.5"/>
+  <circle cx="698" cy="255" r="12" fill="none" stroke="#484f58" stroke-width="1.5"/>
+  <text x="698" y="260" text-anchor="middle" fill="#484f58" font-size="12">8</text>
+  <text x="765" y="255" text-anchor="middle" fill="#f0f6fc" font-size="11" font-weight="600">Dev / Testing</text>
+  <line x1="682" y1="268" x2="848" y2="268" stroke="#21262d" stroke-width="1"/>
+  <text x="760" y="286" text-anchor="middle" fill="#8b949e" font-size="9">core + memory</text>
+  <text x="760" y="304" text-anchor="middle" fill="#484f58" font-size="8">In-memory, no I/O</text>
+  <text x="760" y="316" text-anchor="middle" fill="#484f58" font-size="8">encrypt: false option</text>
+  <rect x="684" y="330" width="150" height="18" rx="4" fill="#484f5815"/>
+  <text x="759" y="343" text-anchor="middle" fill="#484f58" font-size="8">Instant, deterministic</text>
+
+  <!-- Package Matrix -->
+  <rect x="40" y="386" width="800" height="128" rx="8" fill="#0d1117" stroke="#30363d" stroke-width="1"/>
+  <text x="440" y="410" text-anchor="middle" fill="#f0f6fc" font-size="12" font-weight="600">Package Selection Matrix</text>
+
+  <!-- Header row -->
+  <text x="160" y="434" text-anchor="middle" fill="#8b949e" font-size="9" font-weight="600">Profile</text>
+  <text x="310" y="434" text-anchor="middle" fill="#3fb950" font-size="9" font-weight="600">core</text>
+  <text x="380" y="434" text-anchor="middle" fill="#3fb950" font-size="9" font-weight="600">file</text>
+  <text x="450" y="434" text-anchor="middle" fill="#58a6ff" font-size="9" font-weight="600">dynamo</text>
+  <text x="520" y="434" text-anchor="middle" fill="#58a6ff" font-size="9" font-weight="600">s3</text>
+  <text x="590" y="434" text-anchor="middle" fill="#bc8cff" font-size="9" font-weight="600">browser</text>
+  <text x="660" y="434" text-anchor="middle" fill="#bc8cff" font-size="9" font-weight="600">vue</text>
+  <text x="740" y="434" text-anchor="middle" fill="#484f58" font-size="9" font-weight="600">memory</text>
+
+  <line x1="60" y1="440" x2="820" y2="440" stroke="#21262d" stroke-width="1"/>
+
+  <!-- Row 1 -->
+  <text x="160" y="456" text-anchor="middle" fill="#484f58" font-size="8">USB / Offline + Sync</text>
+  <circle cx="310" cy="453" r="4" fill="#3fb950"/><circle cx="380" cy="453" r="4" fill="#3fb950"/><circle cx="450" cy="453" r="4" fill="#58a6ff"/>
+
+  <!-- Row 2 -->
+  <text x="160" y="472" text-anchor="middle" fill="#484f58" font-size="8">Cloud Only / S3</text>
+  <circle cx="310" cy="469" r="4" fill="#3fb950"/><circle cx="450" cy="469" r="4" fill="#58a6ff"/><circle cx="520" cy="469" r="4" fill="#58a6ff"/>
+
+  <!-- Row 3 -->
+  <text x="160" y="488" text-anchor="middle" fill="#484f58" font-size="8">Browser + Sync</text>
+  <circle cx="310" cy="485" r="4" fill="#3fb950"/><circle cx="450" cy="485" r="4" fill="#58a6ff"/><circle cx="590" cy="485" r="4" fill="#bc8cff"/>
+
+  <!-- Row 4 -->
+  <text x="160" y="504" text-anchor="middle" fill="#484f58" font-size="8">Vue Full Stack / Dev</text>
+  <circle cx="310" cy="501" r="4" fill="#3fb950"/><circle cx="380" cy="501" r="4" fill="#3fb950"/><circle cx="450" cy="501" r="4" fill="#58a6ff"/><circle cx="660" cy="501" r="4" fill="#bc8cff"/><circle cx="740" cy="501" r="4" fill="#484f58"/>
+
+  <!-- Footer -->
+  <text x="440" y="530" text-anchor="middle" fill="#30363d" font-size="9">noydb — pick your backend, same API everywhere</text>
+</svg>

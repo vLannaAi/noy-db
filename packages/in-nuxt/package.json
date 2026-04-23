@@ -1,0 +1,66 @@
+{
+  "name": "@noy-db/in-nuxt",
+  "version": "0.11.0",
+  "description": "Nuxt 4 module for noy-db — auto-imports, SSR-safe runtime plugin, and the @noy-db/in-pinia bridge",
+  "license": "MIT",
+  "author": "vLannaAi <vicio@lanna.ai>",
+  "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/nuxt#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vLannaAi/noy-db.git",
+    "directory": "packages/in-nuxt"
+  },
+  "bugs": {
+    "url": "https://github.com/vLannaAi/noy-db/issues"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@noy-db/hub": "workspace:*",
+    "@noy-db/in-pinia": "workspace:*",
+    "@noy-db/in-vue": "workspace:*",
+    "nuxt": "^4.0.0"
+  },
+  "devDependencies": {
+    "@noy-db/hub": "workspace:*",
+    "@noy-db/in-pinia": "workspace:*",
+    "@noy-db/in-vue": "workspace:*",
+    "@nuxt/kit": "^4.4.2",
+    "@nuxt/schema": "^4.4.2",
+    "nuxt": "^4.4.2"
+  },
+  "keywords": [
+    "noy-db",
+    "nuxt",
+    "nuxt4",
+    "module",
+    "encryption",
+    "zero-knowledge",
+    "offline-first",
+    "pinia",
+    "vue"
+  ]
+}

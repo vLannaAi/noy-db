@@ -1,0 +1,7 @@
+{
+  "name": "@noy-db/playground",
+  "version": "0.12.0",
+  "private": true,
+  "type": "module",
+  "description": "NOYDB v0.12 playground — cli (Node.js demo) and nuxt (Vue/Pinia browser app)"
+}

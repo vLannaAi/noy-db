@@ -1,0 +1,27 @@
+{
+  "name": "@noy-db/on-totp",
+  "version": "0.1.0",
+  "description": "TOTP (RFC 6238) authenticator-app second factor for noy-db — generate secrets, otpauth:// provisioning URIs, and constant-time code verification. Zero dependencies (HMAC-SHA1 via Web Crypto). Part of the @noy-db/on-* authentication family.",
+  "license": "MIT",
+  "author": "vLannaAi <vicio@lanna.ai>",
+  "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/on-totp#readme",
+  "repository": { "type": "git", "url": "https://github.com/vLannaAi/noy-db.git", "directory": "packages/on-totp" },
+  "bugs": { "url": "https://github.com/vLannaAi/noy-db/issues" },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "import": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+      "require": { "types": "./dist/index.d.cts", "default": "./dist/index.cjs" }
+    }
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist", "README.md", "LICENSE"],
+  "engines": { "node": ">=18.0.0" },
+  "scripts": { "build": "tsup", "test": "vitest run", "lint": "eslint src/", "typecheck": "tsc --noEmit" },
+  "peerDependencies": { "@noy-db/hub": "workspace:*" },
+  "devDependencies": { "@noy-db/hub": "workspace:*", "@types/node": "^22.0.0" },
+  "keywords": ["noy-db", "on-totp", "totp", "rfc-6238", "2fa", "mfa", "authenticator"]
+}

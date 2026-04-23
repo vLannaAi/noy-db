@@ -1,0 +1,16 @@
+# Nuxt build artifacts
+.nuxt
+.output
+dist
+node_modules
+
+# Nuxt & Vite caches
+.cache
+.vite
+
+# IDE
+.vscode
+.idea
+
+# Logs
+*.log

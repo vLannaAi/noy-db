@@ -1,0 +1,27 @@
+{
+  "name": "@noy-db/as-xml",
+  "version": "0.1.0",
+  "description": "XML plaintext export for noy-db — decrypts records and formats as XML with RFC-compliant entity escaping. For legacy systems, banking batch imports, SOAP endpoints, and accounting software that requires XML. Gated by RFC #249 canExportPlaintext.",
+  "license": "MIT",
+  "author": "vLannaAi <vicio@lanna.ai>",
+  "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/as-xml#readme",
+  "repository": { "type": "git", "url": "https://github.com/vLannaAi/noy-db.git", "directory": "packages/as-xml" },
+  "bugs": { "url": "https://github.com/vLannaAi/noy-db/issues" },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "import": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+      "require": { "types": "./dist/index.d.cts", "default": "./dist/index.cjs" }
+    }
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist", "README.md", "LICENSE"],
+  "engines": { "node": ">=18.0.0" },
+  "scripts": { "build": "tsup", "test": "vitest run", "lint": "eslint src/", "typecheck": "tsc --noEmit" },
+  "peerDependencies": { "@noy-db/hub": "workspace:*" },
+  "devDependencies": { "@noy-db/hub": "workspace:*", "@types/node": "^22.0.0" },
+  "keywords": ["noy-db", "as-xml", "xml", "export", "legacy", "plaintext"]
+}

@@ -1,0 +1,44 @@
+{
+  "name": "@noy-db/in-nextjs",
+  "version": "0.1.0",
+  "description": "Next.js App Router helpers for noy-db — server components, route handlers, client hooks, and cookie-based session. Thin bridge that composes @noy-db/in-react with Next's cookies()/headers() APIs.",
+  "license": "MIT",
+  "author": "vLannaAi <vicio@lanna.ai>",
+  "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/in-nextjs#readme",
+  "repository": { "type": "git", "url": "https://github.com/vLannaAi/noy-db.git", "directory": "packages/in-nextjs" },
+  "bugs": { "url": "https://github.com/vLannaAi/noy-db/issues" },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "import": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+      "require": { "types": "./dist/index.d.cts", "default": "./dist/index.cjs" }
+    },
+    "./client": {
+      "import": { "types": "./dist/client.d.ts", "default": "./dist/client.js" },
+      "require": { "types": "./dist/client.d.cts", "default": "./dist/client.cjs" }
+    }
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist", "README.md", "LICENSE"],
+  "engines": { "node": ">=18.0.0" },
+  "scripts": { "build": "tsup", "test": "vitest run", "lint": "eslint src/", "typecheck": "tsc --noEmit" },
+  "peerDependencies": {
+    "@noy-db/hub": "workspace:*",
+    "@noy-db/in-react": "workspace:*",
+    "next": "^14.0.0 || ^15.0.0",
+    "react": "^18.0.0 || ^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "next": { "optional": true },
+    "@noy-db/in-react": { "optional": true },
+    "react": { "optional": true }
+  },
+  "devDependencies": {
+    "@noy-db/hub": "workspace:*",
+    "@noy-db/in-react": "workspace:*"
+  },
+  "keywords": ["noy-db", "in-nextjs", "nextjs", "app-router", "react-server-components", "rsc"]
+}

@@ -1,0 +1,128 @@
+{
+  "name": "@noy-db/hub",
+  "version": "0.11.0",
+  "description": "Zero-knowledge, offline-first, encrypted document store — core library with AES-256-GCM, PBKDF2, multi-user keyring, and sync engine",
+  "license": "MIT",
+  "author": "vLannaAi <vicio@lanna.ai>",
+  "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/core#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vLannaAi/noy-db.git",
+    "directory": "packages/hub"
+  },
+  "bugs": {
+    "url": "https://github.com/vLannaAi/noy-db/issues"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./i18n": {
+      "import": {
+        "types": "./dist/i18n/index.d.ts",
+        "default": "./dist/i18n/index.js"
+      },
+      "require": {
+        "types": "./dist/i18n/index.d.cts",
+        "default": "./dist/i18n/index.cjs"
+      }
+    },
+    "./store": {
+      "import": {
+        "types": "./dist/store/index.d.ts",
+        "default": "./dist/store/index.js"
+      },
+      "require": {
+        "types": "./dist/store/index.d.cts",
+        "default": "./dist/store/index.cjs"
+      }
+    },
+    "./team": {
+      "import": {
+        "types": "./dist/team/index.d.ts",
+        "default": "./dist/team/index.js"
+      },
+      "require": {
+        "types": "./dist/team/index.d.cts",
+        "default": "./dist/team/index.cjs"
+      }
+    },
+    "./session": {
+      "import": {
+        "types": "./dist/session/index.d.ts",
+        "default": "./dist/session/index.js"
+      },
+      "require": {
+        "types": "./dist/session/index.d.cts",
+        "default": "./dist/session/index.cjs"
+      }
+    },
+    "./history": {
+      "import": {
+        "types": "./dist/history/index.d.ts",
+        "default": "./dist/history/index.js"
+      },
+      "require": {
+        "types": "./dist/history/index.d.cts",
+        "default": "./dist/history/index.cjs"
+      }
+    },
+    "./query": {
+      "import": {
+        "types": "./dist/query/index.d.ts",
+        "default": "./dist/query/index.js"
+      },
+      "require": {
+        "types": "./dist/query/index.d.cts",
+        "default": "./dist/query/index.cjs"
+      }
+    }
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "zod": "^3.23.0"
+  },
+  "keywords": [
+    "noy-db",
+    "encryption",
+    "zero-knowledge",
+    "offline-first",
+    "document-store",
+    "database",
+    "aes-256-gcm",
+    "pbkdf2",
+    "web-crypto",
+    "crypto",
+    "e2ee",
+    "privacy",
+    "multi-user",
+    "sync",
+    "audit-log"
+  ]
+}

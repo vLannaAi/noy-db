@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1400" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+  <!--
+    noy-db — overview infographic (closes issue #228).
+    One-page visual summary. Top: tagline + principles. Middle:
+    architecture flow from app down to store. Bottom: key stats.
+    Designed for print + README embed. Edit SVG source directly;
+    no tooling dependency.
+  -->
+
+  <!-- ─── Background + header ─────────────────────────────────────── -->
+  <rect width="1200" height="1400" fill="#f9fafb"/>
+
+  <!-- Title bar -->
+  <rect x="0" y="0" width="1200" height="140" fill="#1f2937"/>
+  <text x="60" y="70" font-size="44" font-weight="700" fill="#ffffff">noy-db</text>
+  <text x="60" y="108" font-size="20" fill="#9ca3af">None Of Your DataBase — zero-knowledge, offline-first, encrypted document store</text>
+  <text x="1140" y="65" font-size="14" fill="#6b7280" text-anchor="end">v0.12 · 2026</text>
+  <text x="1140" y="105" font-size="14" fill="#6b7280" text-anchor="end">github.com/vLannaAi/noy-db</text>
+
+  <!-- ─── Three promises row ──────────────────────────────────────── -->
+  <g transform="translate(60, 170)">
+    <rect x="0" y="0" width="340" height="80" rx="8" fill="#ffffff" stroke="#e5e7eb"/>
+    <text x="20" y="32" font-size="14" font-weight="600" fill="#1f2937">🔒 Your data is yours</text>
+    <text x="20" y="54" font-size="12" fill="#6b7280">Library alone holds the key.</text>
+    <text x="20" y="70" font-size="12" fill="#6b7280">Backend cannot read it.</text>
+
+    <rect x="365" y="0" width="340" height="80" rx="8" fill="#ffffff" stroke="#e5e7eb"/>
+    <text x="385" y="32" font-size="14" font-weight="600" fill="#1f2937">📡 Works offline</text>
+    <text x="385" y="54" font-size="12" fill="#6b7280">Local store is authoritative.</text>
+    <text x="385" y="70" font-size="12" fill="#6b7280">Sync is an optional mirror.</text>
+
+    <rect x="730" y="0" width="340" height="80" rx="8" fill="#ffffff" stroke="#e5e7eb"/>
+    <text x="750" y="32" font-size="14" font-weight="600" fill="#1f2937">🔌 Any backend</text>
+    <text x="750" y="54" font-size="12" fill="#6b7280">File, DynamoDB, S3, IDB,</text>
+    <text x="750" y="70" font-size="12" fill="#6b7280">USB, WebDAV, Git, IPFS, …</text>
+  </g>
+
+  <!-- ─── Architecture flow (top → bottom) ─────────────────────────── -->
+  <g transform="translate(60, 290)">
+
+    <!-- Layer: Your app -->
+    <rect x="0" y="0" width="1080" height="70" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="2"/>
+    <text x="540" y="32" font-size="18" font-weight="600" fill="#1e40af" text-anchor="middle">Your app</text>
+    <text x="540" y="54" font-size="13" fill="#1e3a8a" text-anchor="middle">Nuxt 4 · Vue 3 · Pinia · React · Svelte · Solid · vanilla TypeScript · CLI · Electron · Tauri</text>
+
+    <!-- Arrow down -->
+    <path d="M 540 75 L 540 95" stroke="#6b7280" stroke-width="2" marker-end="url(#arrowhead)"/>
+
+    <!-- Layer: in-* integration -->
+    <rect x="0" y="100" width="1080" height="60" rx="8" fill="#ffffff" stroke="#6b7280" stroke-dasharray="4,3"/>
+    <text x="540" y="128" font-size="15" font-weight="600" fill="#4b5563" text-anchor="middle">@noy-db/in-* · framework integration (optional, ~200 LoC)</text>
+    <text x="540" y="148" font-size="12" fill="#6b7280" text-anchor="middle">in-vue · in-pinia · in-nuxt · in-yjs · in-react (planned) · in-svelte (planned) · …</text>
+
+    <path d="M 540 165 L 540 185" stroke="#6b7280" stroke-width="2" marker-end="url(#arrowhead)"/>
+
+    <!-- Layer: @noy-db/hub (tall internal box) -->
+    <rect x="0" y="190" width="1080" height="350" rx="8" fill="#ffffff" stroke="#059669" stroke-width="2"/>
+    <text x="540" y="220" font-size="20" font-weight="700" fill="#065f46" text-anchor="middle">@noy-db/hub</text>
+    <text x="540" y="240" font-size="12" fill="#047857" text-anchor="middle">Zero-knowledge core — nothing below this line ever sees plaintext without the passphrase</text>
+
+    <!-- Internal hub layers -->
+    <g transform="translate(40, 260)">
+      <!-- Key hierarchy -->
+      <rect x="0" y="0" width="470" height="220" rx="6" fill="#ecfdf5"/>
+      <text x="20" y="26" font-size="14" font-weight="600" fill="#065f46">Key hierarchy</text>
+      <text x="20" y="54" font-size="13" fill="#047857">Passphrase</text>
+      <text x="40" y="74" font-size="12" fill="#6b7280">└─ PBKDF2-SHA256 (600 000 iterations)</text>
+      <text x="20" y="100" font-size="13" font-weight="600" fill="#047857">   ↓ KEK  (memory only, never persisted)</text>
+      <text x="40" y="122" font-size="12" fill="#6b7280">└─ AES-KW unwrap</text>
+      <text x="20" y="148" font-size="13" font-weight="600" fill="#047857">   ↓ DEK per collection  (memory only)</text>
+      <text x="40" y="170" font-size="12" fill="#6b7280">└─ AES-256-GCM · fresh 12-byte IV per write</text>
+      <text x="20" y="196" font-size="13" font-weight="600" fill="#047857">   ↓ Encrypted envelope</text>
+    </g>
+
+    <g transform="translate(570, 260)">
+      <!-- Query / vault layer -->
+      <rect x="0" y="0" width="470" height="220" rx="6" fill="#f3f4f6"/>
+      <text x="20" y="26" font-size="14" font-weight="600" fill="#1f2937">In-memory working copy</text>
+      <text x="20" y="54" font-size="12" fill="#4b5563">Vault → Collection&lt;T&gt; → Record</text>
+      <text x="20" y="78" font-size="12" fill="#6b7280">Target 1K–50K records per vault</text>
+
+      <text x="20" y="110" font-size="13" font-weight="600" fill="#1f2937">Query DSL</text>
+      <text x="20" y="130" font-size="12" fill="#4b5563">.where / .orderBy / .limit</text>
+      <text x="20" y="148" font-size="12" fill="#4b5563">.join / .groupBy / .aggregate</text>
+      <text x="20" y="166" font-size="12" fill="#4b5563">.live / .subscribe / .scan</text>
+
+      <text x="20" y="196" font-size="12" fill="#6b7280">Runs against decrypted cache —</text>
+      <text x="20" y="210" font-size="12" fill="#6b7280">no re-decryption per query.</text>
+    </g>
+
+    <!-- Envelope example -->
+    <g transform="translate(0, 505)">
+      <rect x="40" y="0" width="1000" height="28" rx="6" fill="#1f2937"/>
+      <text x="60" y="19" font-size="12" font-family="monospace" fill="#34d399">{ "_noydb": 1, "_v": 3, "_ts": "2026-04-21T10:00Z", "_iv": "&lt;base64&gt;", "_data": "&lt;AES-GCM ciphertext, base64&gt;" }</text>
+    </g>
+
+    <path d="M 540 555 L 540 575" stroke="#6b7280" stroke-width="2" marker-end="url(#arrowhead)"/>
+
+    <!-- Layer: NoydbStore boundary -->
+    <rect x="0" y="580" width="1080" height="54" rx="8" fill="#fef3c7" stroke="#f59e0b" stroke-width="2"/>
+    <text x="540" y="605" font-size="16" font-weight="600" fill="#92400e" text-anchor="middle">NoydbStore — 6-method contract  ·  this is the only surface the backend sees</text>
+    <text x="540" y="623" font-size="12" fill="#b45309" text-anchor="middle">get · put · delete · list · loadAll · saveAll  (never see plaintext)</text>
+
+    <path d="M 540 639 L 540 659" stroke="#6b7280" stroke-width="2" marker-end="url(#arrowhead)"/>
+
+    <!-- Layer: to-* stores (row) -->
+    <g transform="translate(0, 664)">
+      <rect x="0" y="0" width="1080" height="120" rx="8" fill="#f3f4f6" stroke="#6b7280"/>
+      <text x="540" y="24" font-size="14" font-weight="600" fill="#1f2937" text-anchor="middle">@noy-db/to-* · pick any (shipped)</text>
+
+      <g font-size="12" fill="#1f2937">
+        <!-- Shipped stores — 6 -->
+        <rect x="20"  y="44" width="160" height="56" rx="6" fill="#ffffff" stroke="#9ca3af"/>
+        <text x="100" y="64" text-anchor="middle" font-weight="600">to-file</text>
+        <text x="100" y="82" text-anchor="middle" fill="#6b7280">USB / desktop</text>
+
+        <rect x="195" y="44" width="160" height="56" rx="6" fill="#ffffff" stroke="#9ca3af"/>
+        <text x="275" y="64" text-anchor="middle" font-weight="600">to-browser-idb</text>
+        <text x="275" y="82" text-anchor="middle" fill="#6b7280">browser (recommended)</text>
+
+        <rect x="370" y="44" width="160" height="56" rx="6" fill="#ffffff" stroke="#9ca3af"/>
+        <text x="450" y="64" text-anchor="middle" font-weight="600">to-aws-dynamo</text>
+        <text x="450" y="82" text-anchor="middle" fill="#6b7280">cloud · CAS-atomic</text>
+
+        <rect x="545" y="44" width="160" height="56" rx="6" fill="#ffffff" stroke="#9ca3af"/>
+        <text x="625" y="64" text-anchor="middle" font-weight="600">to-aws-s3</text>
+        <text x="625" y="82" text-anchor="middle" fill="#6b7280">cloud · blobs + cold</text>
+
+        <rect x="720" y="44" width="160" height="56" rx="6" fill="#ffffff" stroke="#9ca3af"/>
+        <text x="800" y="64" text-anchor="middle" font-weight="600">to-browser-local</text>
+        <text x="800" y="82" text-anchor="middle" fill="#6b7280">small vaults</text>
+
+        <rect x="895" y="44" width="160" height="56" rx="6" fill="#ffffff" stroke="#9ca3af"/>
+        <text x="975" y="64" text-anchor="middle" font-weight="600">to-memory</text>
+        <text x="975" y="82" text-anchor="middle" fill="#6b7280">testing</text>
+      </g>
+      <text x="1040" y="102" font-size="11" fill="#6b7280" text-anchor="end" font-style="italic">+10 planned: WebDAV · Drive · IPFS · Git · Postgres · R2 · Turso · …</text>
+    </g>
+
+  </g>
+
+  <!-- ─── Side panels: on-* (auth) and wrapStore (middleware) ─────── -->
+  <g transform="translate(60, 1100)">
+    <!-- on-* -->
+    <rect x="0" y="0" width="525" height="120" rx="8" fill="#ffffff" stroke="#7c3aed" stroke-width="2"/>
+    <text x="20" y="26" font-size="16" font-weight="600" fill="#5b21b6">@noy-db/on-*  ·  passphrase-less unlock</text>
+    <text x="20" y="50" font-size="12" fill="#4b5563">"on" as in "log-on".  Parallel to in-* and to-*.</text>
+    <g font-size="11" fill="#6b21a8">
+      <text x="20" y="72" font-weight="600">Shipped:</text>
+      <text x="78" y="72">on-webauthn (passkey + PRF) · on-oidc (split-key)</text>
+      <text x="20" y="92" font-weight="600">Planned:</text>
+      <text x="78" y="92">on-recovery · on-totp · on-email-otp · on-shamir ·</text>
+      <text x="78" y="106">on-threat-lockout / on-threat-duress-{destruct|honeypot}</text>
+    </g>
+
+    <!-- wrapStore / routeStore -->
+    <rect x="555" y="0" width="525" height="120" rx="8" fill="#ffffff" stroke="#dc2626" stroke-width="2"/>
+    <text x="575" y="26" font-size="16" font-weight="600" fill="#991b1b">routeStore + wrapStore  ·  composable store plumbing</text>
+    <g font-size="12" fill="#4b5563">
+      <text x="575" y="48">routeStore — records to A, blobs to B, cold to C</text>
+      <text x="575" y="64">      override · suspend · resume  ·  write-behind queue</text>
+      <text x="575" y="86">wrapStore — retry · circuit breaker · cache · health · metrics · logging</text>
+      <text x="575" y="102">Middleware composes left-to-right (outermost first).</text>
+    </g>
+  </g>
+
+  <!-- ─── Bottom stats strip ──────────────────────────────────────── -->
+  <g transform="translate(60, 1240)">
+    <rect x="0" y="0" width="1080" height="110" rx="8" fill="#1f2937"/>
+
+    <g fill="#f9fafb" text-anchor="middle">
+      <text x="90"  y="42" font-size="32" font-weight="700">15</text>
+      <text x="90"  y="65" font-size="11" fill="#9ca3af">packages</text>
+      <text x="90"  y="82" font-size="10" fill="#6b7280">(hub + 6 to-* + 4 in-* + 2 on-* + create + showcases)</text>
+
+      <text x="310" y="42" font-size="32" font-weight="700">853</text>
+      <text x="310" y="65" font-size="11" fill="#9ca3af">hub tests passing</text>
+      <text x="310" y="82" font-size="10" fill="#6b7280">+58 showcases (14 files)</text>
+
+      <text x="540" y="42" font-size="32" font-weight="700">0</text>
+      <text x="540" y="65" font-size="11" fill="#9ca3af">runtime dependencies</text>
+      <text x="540" y="82" font-size="10" fill="#6b7280">pure Web Crypto, no npm crypto libs</text>
+
+      <text x="770" y="42" font-size="32" font-weight="700">~30 KB</text>
+      <text x="770" y="65" font-size="11" fill="#9ca3af">hub gzipped</text>
+      <text x="770" y="82" font-size="10" fill="#6b7280">per-adapter under 10 KB</text>
+
+      <text x="1000" y="42" font-size="20" font-weight="700">AES-256-GCM</text>
+      <text x="1000" y="65" font-size="11" fill="#9ca3af">AES-KW · PBKDF2-SHA256</text>
+      <text x="1000" y="82" font-size="10" fill="#6b7280">600 000 iterations</text>
+    </g>
+  </g>
+
+  <!-- Arrowhead marker -->
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="auto">
+      <polygon points="0 0, 10 5, 0 10" fill="#6b7280"/>
+    </marker>
+  </defs>
+</svg>

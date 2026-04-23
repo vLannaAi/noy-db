@@ -1,0 +1,27 @@
+{
+  "name": "@noy-db/in-ai",
+  "version": "0.1.0",
+  "description": "LLM function-calling adapter for noy-db — expose ACL-scoped collections as tool definitions, then dispatch tool calls back to the vault. Format-agnostic (OpenAI, Anthropic, Vercel AI SDK).",
+  "license": "MIT",
+  "author": "vLannaAi <vicio@lanna.ai>",
+  "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/in-ai#readme",
+  "repository": { "type": "git", "url": "https://github.com/vLannaAi/noy-db.git", "directory": "packages/in-ai" },
+  "bugs": { "url": "https://github.com/vLannaAi/noy-db/issues" },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "import": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+      "require": { "types": "./dist/index.d.cts", "default": "./dist/index.cjs" }
+    }
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist", "README.md", "LICENSE"],
+  "engines": { "node": ">=18.0.0" },
+  "scripts": { "build": "tsup", "test": "vitest run", "lint": "eslint src/", "typecheck": "tsc --noEmit" },
+  "peerDependencies": { "@noy-db/hub": "workspace:*" },
+  "devDependencies": { "@noy-db/hub": "workspace:*" },
+  "keywords": ["noy-db", "in-ai", "llm", "function-calling", "tools", "openai", "anthropic", "ai-sdk"]
+}
