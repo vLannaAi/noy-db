@@ -69,6 +69,11 @@ import {
   type ExportBlobsAuditEntry,
 } from './store/export-blobs.js'
 import { runCompaction, type BlobFieldsConfig, type CompactRunOptions, type CompactionResult } from './store/blob-compaction.js'
+import {
+  writeMagicLinkGrant,
+  type IssueMagicLinkGrantOptions,
+  type MagicLinkGrantRecord,
+} from './team/magic-link-grant.js'
 
 /** A vault (tenant namespace) containing collections. */
 export class Vault {
@@ -1206,6 +1211,33 @@ export class Vault {
     await revokeDelegation(this.adapter, this.name, id)
     // Trigger store to note the delete.
     void DELEGATIONS_COLLECTION
+  }
+
+  /**
+   * v0.21 #257 — low-level escape hatch used by `@noy-db/on-magic-link`
+   * to persist a magic-link-bound grant after the auth package has
+   * derived the content key + KEK from `(serverSecret, token, vault)`.
+   *
+   * Callers outside of `@noy-db/on-magic-link` should use
+   * `issueMagicLinkDelegation()` from that package instead — it handles
+   * the HKDF derivation, record-id composition, and batch logic so the
+   * grantor doesn't touch this method directly.
+   */
+  async writeMagicLinkGrant(
+    contentKey: CryptoKey,
+    grantKek: CryptoKey,
+    recordId: string,
+    opts: IssueMagicLinkGrantOptions,
+  ): Promise<MagicLinkGrantRecord> {
+    return writeMagicLinkGrant(
+      this.adapter,
+      this.name,
+      this.keyring,
+      contentKey,
+      grantKek,
+      recordId,
+      opts,
+    )
   }
 
   // ─── Accounting periods (v0.17 #201 / #202) ────────────────────────

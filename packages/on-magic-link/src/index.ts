@@ -68,8 +68,25 @@
  * @packageDocumentation
  */
 
-import { generateULID } from '@noy-db/hub'
-import type { Role, UnlockedKeyring } from '@noy-db/hub'
+import {
+  generateULID,
+  deriveMagicLinkContentKey,
+  readMagicLinkGrantRecord,
+  listMagicLinkGrants,
+  unwrapMagicLinkGrant,
+  revokeMagicLinkGrant,
+  magicLinkGrantRecordId,
+  isMagicLinkGrantExpired,
+  MAGIC_LINK_GRANTS_COLLECTION,
+} from '@noy-db/hub'
+import type {
+  Role,
+  UnlockedKeyring,
+  Vault,
+  NoydbStore,
+  MagicLinkGrantPayload,
+  IssueMagicLinkGrantOptions,
+} from '@noy-db/hub'
 
 // HKDF info string — version-namespaced so future schemes are distinguishable.
 const MAGIC_LINK_INFO_PREFIX = 'noydb-magic-link-v1:'
@@ -223,3 +240,240 @@ export function buildMagicLinkKeyring(opts: {
     salt: opts.salt,
   }
 }
+
+// ─── Delegation bridge (v0.21 #257) ─────────────────────────────────────
+
+/**
+ * Single grant within a batch magic-link issue. The grantor specifies
+ * the tier + scope; the package handles the wrapping. `record` is
+ * optional and narrows the grant to a single record id in the
+ * collection (leave undefined for a whole-collection grant).
+ */
+export interface MagicLinkGrantSpec {
+  readonly toUser: string
+  readonly tier: number
+  readonly collection?: string
+  readonly record?: string
+  readonly until: Date | string
+  readonly note?: string
+}
+
+export interface IssueMagicLinkDelegationOptions {
+  /**
+   * Server-held secret that gates access to the grant. Same value must
+   * be supplied at claim time — the server is the only party that
+   * knows it, so a leaked URL alone cannot unlock anything.
+   */
+  readonly serverSecret: string | Uint8Array<ArrayBuffer>
+  /**
+   * One or more grants to persist under the same magic-link token.
+   * Single-element arrays cover the common "one collection to one
+   * user" case; multi-element arrays support scoped cross-collection
+   * delegations (e.g. client portal: invoices + payments + etax).
+   */
+  readonly grants: readonly MagicLinkGrantSpec[]
+  /**
+   * Magic-link TTL. Controls `link.expiresAt` (the URL freshness).
+   * Each grant's own `until` bounds the *delegation* lifetime — the
+   * claimant only receives DEKs for grants whose `until` is still
+   * future at claim time. Default 24 h.
+   */
+  readonly ttlMs?: number
+  /**
+   * Optional override for the ULID embedded in the URL. Rarely useful
+   * outside deterministic tests.
+   */
+  readonly token?: string
+}
+
+export interface IssueMagicLinkDelegationResult {
+  /** URL-embeddable token metadata. Serialize `link.token` into the link. */
+  readonly link: MagicLinkToken
+  /** One record per grant — mirrors the input array order. */
+  readonly grants: ReadonlyArray<{
+    readonly recordId: string
+    readonly payload: MagicLinkGrantPayload
+  }>
+}
+
+/**
+ * Issue a magic-link-bound delegation (v0.21 #257).
+ *
+ * Server-side workflow:
+ *
+ * ```ts
+ * import { issueMagicLinkDelegation } from '@noy-db/on-magic-link'
+ *
+ * const { link, grants } = await issueMagicLinkDelegation(vault, {
+ *   serverSecret: process.env.MAGIC_LINK_SECRET!,
+ *   grants: [
+ *     { toUser: 'auditor-bob', tier: 1, collection: 'invoices',
+ *       until: new Date(Date.now() + 48*3600e3) },
+ *   ],
+ *   ttlMs: 48 * 3600 * 1000,
+ * })
+ *
+ * // Embed link.token in an email URL. The grantee clicks → loads your
+ * // client → calls claimMagicLinkDelegation() with the same serverSecret.
+ * ```
+ */
+export async function issueMagicLinkDelegation(
+  vault: Vault,
+  options: IssueMagicLinkDelegationOptions,
+): Promise<IssueMagicLinkDelegationResult> {
+  if (options.grants.length === 0) {
+    throw new Error('@noy-db/on-magic-link: grants[] must be non-empty')
+  }
+  const token = options.token ?? generateULID()
+  const ttlMs = options.ttlMs ?? MAGIC_LINK_DEFAULT_TTL_MS
+  const link: MagicLinkToken = {
+    token,
+    vault: vault.name,
+    expiresAt: new Date(Date.now() + ttlMs).toISOString(),
+    role: 'viewer',
+  }
+  const contentKey = await deriveMagicLinkContentKey(options.serverSecret, token, vault.name)
+  const grantKek = await deriveMagicLinkKEK(options.serverSecret, token, vault.name)
+
+  const grants: Array<{ recordId: string; payload: MagicLinkGrantPayload }> = []
+  for (let i = 0; i < options.grants.length; i += 1) {
+    const spec = options.grants[i]!
+    const recordId = magicLinkGrantRecordId(token, i)
+    const issueOpts: IssueMagicLinkGrantOptions = {
+      toUser: spec.toUser,
+      tier: spec.tier,
+      ...(spec.collection !== undefined && { collection: spec.collection }),
+      ...(spec.record !== undefined && { record: spec.record }),
+      until: spec.until,
+      ...(spec.note !== undefined && { note: spec.note }),
+    }
+    const record = await vault.writeMagicLinkGrant(contentKey, grantKek, recordId, issueOpts)
+    grants.push({ recordId: record.recordId, payload: record.payload })
+  }
+  return { link, grants }
+}
+
+export interface ClaimMagicLinkDelegationOptions {
+  readonly store: NoydbStore
+  readonly vault: string
+  readonly serverSecret: string | Uint8Array<ArrayBuffer>
+  readonly token: string
+  /**
+   * Reference clock used to evaluate grant expiry. Production callers
+   * leave this `undefined`; tests pass a fixed date.
+   */
+  readonly now?: Date
+}
+
+export interface ClaimedMagicLinkGrant {
+  readonly payload: MagicLinkGrantPayload
+  /** Tier DEK, ready to insert into a keyring map. */
+  readonly dek: CryptoKey
+  /** True when the grant's `until` has already passed. */
+  readonly expired: boolean
+}
+
+export interface ClaimMagicLinkDelegationResult {
+  /**
+   * False when the server secret is wrong, the vault is wrong, or
+   * every grant is malformed. A `true` with an empty `grants` array
+   * means the record was deleted (revoked) between issue and claim.
+   */
+  readonly valid: boolean
+  readonly grants: readonly ClaimedMagicLinkGrant[]
+}
+
+/**
+ * Client-side flow. Derives the same content key + KEK as the grantor,
+ * loads every grant persisted under the token (primary + batch
+ * entries), and returns the unwrapped tier DEKs.
+ *
+ * The caller decides what to do with them — typically inserting them
+ * into a freshly-built `UnlockedKeyring` (see `buildMagicLinkKeyring`)
+ * and opening a viewer session.
+ */
+export async function claimMagicLinkDelegation(
+  options: ClaimMagicLinkDelegationOptions,
+): Promise<ClaimMagicLinkDelegationResult> {
+  const { store, vault, token, serverSecret } = options
+  const contentKey = await deriveMagicLinkContentKey(serverSecret, token, vault)
+  const grantKek = await deriveMagicLinkKEK(serverSecret, token, vault)
+
+  const payloads = await listMagicLinkGrants(store, vault, contentKey, token)
+  if (payloads.length === 0) {
+    // Could be wrong secret / wrong vault / revoked — all indistinguishable.
+    return { valid: false, grants: [] }
+  }
+  const now = options.now ?? new Date()
+  const claimed: ClaimedMagicLinkGrant[] = []
+  for (const payload of payloads) {
+    let dek: CryptoKey
+    try {
+      dek = await unwrapMagicLinkGrant(payload, grantKek)
+    } catch {
+      // Malformed wrappedDek — skip this record but keep the others.
+      continue
+    }
+    claimed.push({
+      payload,
+      dek,
+      expired: isMagicLinkGrantExpired(payload, now),
+    })
+  }
+  return { valid: true, grants: claimed }
+}
+
+/**
+ * Read (without unwrapping) the grants under a token — useful for an
+ * audit UI that shows the grantor what's still live on a link.
+ */
+export async function inspectMagicLinkDelegation(options: {
+  readonly store: NoydbStore
+  readonly vault: string
+  readonly serverSecret: string | Uint8Array<ArrayBuffer>
+  readonly token: string
+}): Promise<readonly MagicLinkGrantPayload[]> {
+  const contentKey = await deriveMagicLinkContentKey(
+    options.serverSecret,
+    options.token,
+    options.vault,
+  )
+  return listMagicLinkGrants(options.store, options.vault, contentKey, options.token)
+}
+
+/**
+ * Delete every grant under a token. Idempotent — safe to call on an
+ * already-revoked or never-existed token. Returns the number of
+ * records removed.
+ */
+export async function revokeMagicLinkDelegation(options: {
+  readonly store: NoydbStore
+  readonly vault: string
+  readonly token: string
+}): Promise<number> {
+  return revokeMagicLinkGrant(options.store, options.vault, options.token)
+}
+
+/**
+ * Read a single grant by its full record id. Convenience for callers
+ * that persisted `recordId` during issue and want to resolve just one.
+ */
+export async function readMagicLinkGrant(options: {
+  readonly store: NoydbStore
+  readonly vault: string
+  readonly serverSecret: string | Uint8Array<ArrayBuffer>
+  readonly token: string
+  readonly recordId: string
+}): Promise<MagicLinkGrantPayload | null> {
+  const contentKey = await deriveMagicLinkContentKey(
+    options.serverSecret,
+    options.token,
+    options.vault,
+  )
+  return readMagicLinkGrantRecord(options.store, options.vault, contentKey, options.recordId)
+}
+
+// Re-exports so callers don't need a separate @noy-db/hub import for
+// these helpers.
+export { MAGIC_LINK_GRANTS_COLLECTION, deriveMagicLinkContentKey }
+export type { MagicLinkGrantPayload }

@@ -435,6 +435,26 @@ export { dekKey, effectiveClearance, assertTierAccess } from './team/tiers.js'
 export type { DelegationToken, IssueDelegationOptions } from './team/delegation.js'
 export { DELEGATIONS_COLLECTION, issueDelegation, loadActiveDelegations, revokeDelegation } from './team/delegation.js'
 
+// v0.21 #257 — magic-link-bridged cross-user KEK delegation
+export type {
+  MagicLinkGrantPayload,
+  MagicLinkGrantRecord,
+  IssueMagicLinkGrantOptions,
+} from './team/magic-link-grant.js'
+export {
+  MAGIC_LINK_GRANTS_COLLECTION,
+  MAGIC_LINK_CONTENT_INFO_PREFIX,
+  MAGIC_LINK_KEK_INFO_PREFIX,
+  deriveMagicLinkContentKey,
+  writeMagicLinkGrant,
+  readMagicLinkGrantRecord,
+  listMagicLinkGrants,
+  unwrapMagicLinkGrant,
+  revokeMagicLinkGrant,
+  magicLinkGrantRecordId,
+  isMagicLinkGrantExpired,
+} from './team/magic-link-grant.js'
+
 // Diff
 export { diff, formatDiff } from './history/diff.js'
 export type { DiffEntry, ChangeType } from './history/diff.js'
