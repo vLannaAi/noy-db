@@ -66,6 +66,12 @@ export function isIdxId(id: string): boolean {
  * used by the write path — but `orderedBy` emits them already sorted by
  * `value` in the requested direction. Consumers (PR 4 / #268) treat the
  * array as immutable and paginate via a numeric offset.
+ *
+ * **Note on `value`:** this is the canonical bucket-key string
+ * (`stringifyKey(originalValue)`), not the original field value. Dates
+ * are rendered as ISO strings, numbers/booleans as `String(…)`. The
+ * original typed value is not losslessly recoverable here — if PR 4
+ * needs the original, it must re-read it from the main record.
  */
 export interface OrderedEntry {
   readonly recordId: string
@@ -102,19 +108,34 @@ export interface IngestRow {
 export class PersistedCollectionIndex {
   private readonly indexes = new Map<string, Map<string, Set<string>>>()
 
+  /**
+   * Declare a field as indexable. Subsequent `upsert` / `ingest` calls for
+   * this field populate the in-memory mirror; calls before `declare` are
+   * no-ops (tolerant bulk-load ordering). Idempotent — re-declaring an
+   * existing field does nothing.
+   */
   declare(field: string): void {
     if (this.indexes.has(field)) return
     this.indexes.set(field, new Map())
   }
 
+  /** True if `field` has been declared as indexable on this mirror. */
   has(field: string): boolean {
     return this.indexes.has(field)
   }
 
+  /** All declared field names, in declaration order. */
   fields(): string[] {
     return [...this.indexes.keys()]
   }
 
+  /**
+   * Bulk-load the mirror from decrypted index bodies. Intended to be
+   * called once per field after reading the collection's `_idx/<field>/*`
+   * side-cars. Safe to call twice with the same rows — bucket Sets
+   * deduplicate recordIds. If `field` is not declared, this is a no-op
+   * (tolerates the case where bulk-load runs before `declare()` lands).
+   */
   ingest(field: string, rows: readonly IngestRow[]): void {
     const buckets = this.indexes.get(field)
     if (!buckets) return
@@ -123,6 +144,13 @@ export class PersistedCollectionIndex {
     }
   }
 
+  /**
+   * Incrementally update a record's index entry for one field. Called by
+   * `Collection.put()` (PR 2) after the main write succeeds. If
+   * `previousValue` is non-null, the record is removed from the old
+   * bucket first — this is the update path. Pass `null` for fresh adds.
+   * No-op if the field is not declared.
+   */
   upsert(recordId: string, field: string, newValue: unknown, previousValue: unknown | null): void {
     const buckets = this.indexes.get(field)
     if (!buckets) return
@@ -132,18 +160,36 @@ export class PersistedCollectionIndex {
     addToBuckets(buckets, recordId, newValue)
   }
 
+  /**
+   * Remove a record from the index for one field. Called by
+   * `Collection.delete()` (PR 2). No-op if the field is not declared or
+   * the record isn't in the bucket. Empty buckets are dropped to keep
+   * the Map clean.
+   */
   remove(recordId: string, field: string, value: unknown): void {
     const buckets = this.indexes.get(field)
     if (!buckets) return
     removeFromBuckets(buckets, recordId, value)
   }
 
+  /**
+   * Drop all bucket data while preserving field declarations. Called on
+   * invalidation (incoming sync changes, keyring rotation) — the next
+   * query re-populates via `ingest`.
+   */
   clear(): void {
     for (const buckets of this.indexes.values()) {
       buckets.clear()
     }
   }
 
+  /**
+   * Equality lookup — return the set of record ids whose `field` matches
+   * `value`. Returns `null` if the field is not declared (caller falls
+   * back to scan or throws `IndexRequiredError`). Returns a shared empty
+   * set if the field is declared but no record matches — that set MUST
+   * NOT be mutated by the caller.
+   */
   lookupEqual(field: string, value: unknown): ReadonlySet<string> | null {
     const buckets = this.indexes.get(field)
     if (!buckets) return null
@@ -151,6 +197,11 @@ export class PersistedCollectionIndex {
     return buckets.get(key) ?? EMPTY_SET
   }
 
+  /**
+   * Set lookup — return the union of record ids whose `field` matches any
+   * of `values`. Returns `null` if the field is not declared. Returns a
+   * fresh (non-shared) Set — safe for the caller to mutate.
+   */
   lookupIn(field: string, values: readonly unknown[]): ReadonlySet<string> | null {
     const buckets = this.indexes.get(field)
     if (!buckets) return null
@@ -162,6 +213,13 @@ export class PersistedCollectionIndex {
     return out
   }
 
+  /**
+   * Sorted iteration — return every entry on `field` as an
+   * `OrderedEntry[]`, sorted by value (`asc` default, `desc` reverses).
+   * Returns `null` if the field is not declared. See `OrderedEntry` for
+   * the caveat on `value` being the canonical bucket-key form, not the
+   * original typed value. Consumers paginate with a numeric offset.
+   */
   orderedBy(field: string, dir: 'asc' | 'desc'): readonly OrderedEntry[] | null {
     const buckets = this.indexes.get(field)
     if (!buckets) return null
