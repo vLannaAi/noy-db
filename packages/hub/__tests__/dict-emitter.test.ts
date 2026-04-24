@@ -47,7 +47,7 @@ describe('DictionaryHandle — change event emission', () => {
     await vault.dictionary('status').put('paid', { en: 'Paid', th: 'ชำระแล้ว' })
 
     expect(events).toHaveLength(1)
-    expect(events[0]).toMatchObject({ collection: '_dict_status', id: 'paid', action: 'put' })
+    expect(events[0]).toMatchObject({ vault: 'acme', collection: '_dict_status', id: 'paid', action: 'put' })
   })
 
   it('delete() emits a change event with action:delete', async () => {
@@ -60,7 +60,7 @@ describe('DictionaryHandle — change event emission', () => {
     await vault.dictionary('status').delete('draft', { mode: 'warn' })
 
     expect(events).toHaveLength(1)
-    expect(events[0]).toMatchObject({ collection: '_dict_status', id: 'draft', action: 'delete' })
+    expect(events[0]).toMatchObject({ vault: 'acme', collection: '_dict_status', id: 'draft', action: 'delete' })
   })
 
   it('rename() emits delete for old key then put for new key', async () => {
@@ -73,8 +73,8 @@ describe('DictionaryHandle — change event emission', () => {
     await vault.dictionary('status').rename('open', 'active')
 
     expect(events).toHaveLength(2)
-    expect(events[0]).toMatchObject({ collection: '_dict_status', id: 'open', action: 'delete' })
-    expect(events[1]).toMatchObject({ collection: '_dict_status', id: 'active', action: 'put' })
+    expect(events[0]).toMatchObject({ vault: 'acme', collection: '_dict_status', id: 'open', action: 'delete' })
+    expect(events[1]).toMatchObject({ vault: 'acme', collection: '_dict_status', id: 'active', action: 'put' })
   })
 
   it('putAll() emits one change event per key', async () => {
