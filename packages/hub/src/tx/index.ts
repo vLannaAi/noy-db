@@ -5,4 +5,7 @@
  * so consumers can annotate transaction-body signatures in their own
  * code.
  */
+export { withTransactions } from './active.js'
+export type { TxStrategy } from './strategy.js'
+
 export { TxContext, TxVault, TxCollection, runTransaction } from './transaction.js'

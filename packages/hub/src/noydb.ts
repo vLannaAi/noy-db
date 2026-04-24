@@ -34,8 +34,8 @@ import {
 import type { UnlockedKeyring } from './team/keyring.js'
 import { SyncEngine } from './team/sync.js'
 import { SyncTransaction } from './team/sync-transaction.js'
-import { runTransaction } from './tx/transaction.js'
 import type { TxContext } from './tx/transaction.js'
+import { NO_TX, type TxStrategy } from './tx/strategy.js'
 import { INDEXED_STORE_POLICY } from './store/sync-policy.js'
 import { revokeAllSessions } from './session/session.js'
 import { createEnforcer, validateSessionPolicy } from './session/session-policy.js'
@@ -81,6 +81,7 @@ export class Noydb {
   private sessionTimer: ReturnType<typeof setTimeout> | null = null
   /** Per-vault policy enforcers (v0.7 #114). */
   private readonly policyEnforcers = new Map<string, PolicyEnforcer>()
+  private readonly txStrategy: TxStrategy
 
   // ─── plaintextTranslator state (v0.8 #83) ─────────────────────────
   /**
@@ -93,6 +94,7 @@ export class Noydb {
 
   constructor(options: NoydbOptions) {
     this.options = options
+    this.txStrategy = options.txStrategy ?? NO_TX
     // Validate sessionPolicy at construction time (developer error if invalid)
     if (options.sessionPolicy) {
       validateSessionPolicy(options.sessionPolicy)
@@ -247,6 +249,7 @@ export class Noydb {
       ...(this.options.crdtStrategy !== undefined ? { crdtStrategy: this.options.crdtStrategy } : {}),
       ...(this.options.consentStrategy !== undefined ? { consentStrategy: this.options.consentStrategy } : {}),
       ...(this.options.periodsStrategy !== undefined ? { periodsStrategy: this.options.periodsStrategy } : {}),
+      ...(this.options.shadowStrategy !== undefined ? { shadowStrategy: this.options.shadowStrategy } : {}),
       locale: opts?.locale,
       // Thread the translator hook so Collection.put() can invoke it (v0.8 #83)
       plaintextTranslator: this.options.plaintextTranslator
@@ -302,6 +305,7 @@ export class Noydb {
       ...(this.options.crdtStrategy !== undefined ? { crdtStrategy: this.options.crdtStrategy } : {}),
       ...(this.options.consentStrategy !== undefined ? { consentStrategy: this.options.consentStrategy } : {}),
       ...(this.options.periodsStrategy !== undefined ? { periodsStrategy: this.options.periodsStrategy } : {}),
+      ...(this.options.shadowStrategy !== undefined ? { shadowStrategy: this.options.shadowStrategy } : {}),
       })
       this.vaultCache.set(name, comp)
       return comp
@@ -326,6 +330,7 @@ export class Noydb {
       ...(this.options.crdtStrategy !== undefined ? { crdtStrategy: this.options.crdtStrategy } : {}),
       ...(this.options.consentStrategy !== undefined ? { consentStrategy: this.options.consentStrategy } : {}),
       ...(this.options.periodsStrategy !== undefined ? { periodsStrategy: this.options.periodsStrategy } : {}),
+      ...(this.options.shadowStrategy !== undefined ? { shadowStrategy: this.options.shadowStrategy } : {}),
       emitter: this.emitter,
     })
     this.vaultCache.set(name, comp)
@@ -710,7 +715,7 @@ export class Noydb {
     arg: string | ((tx: TxContext) => Promise<T> | T),
   ): SyncTransaction | Promise<T> {
     if (typeof arg === 'function') {
-      return runTransaction(this, arg)
+      return this.txStrategy.runTransaction(this, arg)
     }
     const vault = arg
     const comp = this.vaultCache.get(vault)

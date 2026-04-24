@@ -10,4 +10,7 @@
  * ~129 LOC never reaches the bundle.
  */
 
+export { withShadow } from './active.js'
+export type { ShadowStrategy } from './strategy.js'
+
 export { VaultFrame, CollectionFrame } from './vault-frame.js'

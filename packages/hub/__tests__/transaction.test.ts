@@ -15,6 +15,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { memory } from '../../to-memory/src/index.js'
 import type { ChangeEvent } from '../src/types.js'
 import { ConflictError, createNoydb, SyncTransaction } from '../src/index.js'
+import { withTransactions } from '../src/tx/index.js'
 import type { Noydb } from '../src/index.js'
 
 interface Invoice { amount: number; status: string }
@@ -28,6 +29,7 @@ describe('db.transaction(fn) — multi-record atomic writes', () => {
       store: memory(),
       user: 'owner',
       encrypt: false,
+      txStrategy: withTransactions(),
     })
     await db.openVault('acme')
   })
@@ -186,6 +188,7 @@ describe('db.transaction(fn) — multi-record atomic writes', () => {
       sync: memory(),
       user: 'owner',
       encrypt: false,
+      txStrategy: withTransactions(),
     })
     await db2.openVault('acme')
     const st = db2.transaction('acme')

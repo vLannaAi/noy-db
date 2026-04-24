@@ -30,7 +30,8 @@ import type { AggregateStrategy } from './aggregate/strategy.js'
 import type { CrdtStrategy } from './crdt/strategy.js'
 import { LedgerStore, sha256Hex, LEDGER_COLLECTION, LEDGER_DELTAS_COLLECTION } from './history/ledger/index.js'
 import { VaultInstant } from './history/time-machine.js'
-import { VaultFrame } from './shadow/vault-frame.js'
+import type { VaultFrame } from './shadow/vault-frame.js'
+import { NO_SHADOW, type ShadowStrategy } from './shadow/strategy.js'
 import type { ConsentContext, ConsentAuditEntry, ConsentAuditFilter, ConsentOp } from './consent/consent.js'
 import { NO_CONSENT, type ConsentStrategy } from './consent/strategy.js'
 import { NO_PERIODS, type PeriodsStrategy } from './periods/strategy.js'
@@ -105,6 +106,7 @@ export class Vault {
   private readonly crdtStrategy: CrdtStrategy | undefined
   private readonly consentStrategy: ConsentStrategy
   private readonly periodsStrategy: PeriodsStrategy
+  private readonly shadowStrategy: ShadowStrategy
   private getDEK: (collectionName: string) => Promise<CryptoKey>
 
   /**
@@ -267,6 +269,7 @@ export class Vault {
     crdtStrategy?: CrdtStrategy | undefined
     consentStrategy?: ConsentStrategy | undefined
     periodsStrategy?: PeriodsStrategy | undefined
+    shadowStrategy?: ShadowStrategy | undefined
   }) {
     this.adapter = opts.adapter
     this.name = opts.name
@@ -282,6 +285,7 @@ export class Vault {
     this.crdtStrategy = opts.crdtStrategy
     this.consentStrategy = opts.consentStrategy ?? NO_CONSENT
     this.periodsStrategy = opts.periodsStrategy ?? NO_PERIODS
+    this.shadowStrategy = opts.shadowStrategy ?? NO_SHADOW
     this.historyConfig = opts.historyConfig ?? { enabled: true }
     this.reloadKeyring = opts.reloadKeyring
     this.locale = opts.locale
@@ -1115,7 +1119,7 @@ export class Vault {
    * v0.16 #217.
    */
   frame(): VaultFrame {
-    return new VaultFrame(this)
+    return this.shadowStrategy.buildFrame(this)
   }
 
   /**

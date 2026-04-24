@@ -31,6 +31,8 @@ import type { AggregateStrategy } from './aggregate/strategy.js'
 import type { CrdtStrategy } from './crdt/strategy.js'
 import type { ConsentStrategy } from './consent/strategy.js'
 import type { PeriodsStrategy } from './periods/strategy.js'
+import type { ShadowStrategy } from './shadow/strategy.js'
+import type { TxStrategy } from './tx/strategy.js'
 
 /** Format version for encrypted record envelopes. */
 export const NOYDB_FORMAT_VERSION = 1 as const
@@ -1373,6 +1375,22 @@ export interface NoydbOptions {
    * @internal
    */
   readonly periodsStrategy?: PeriodsStrategy
+  /**
+   * v0.24 tree-shake seam — optional VaultFrame strategy. Pass
+   * `withShadow()` from `@noy-db/hub/shadow` to enable
+   * `vault.frame()`. Without it, calling `vault.frame()` throws.
+   *
+   * @internal
+   */
+  readonly shadowStrategy?: ShadowStrategy
+  /**
+   * v0.24 tree-shake seam — optional multi-record transactions. Pass
+   * `withTransactions()` from `@noy-db/hub/tx` to enable
+   * `db.transaction(fn)`. Without it, calling the method throws.
+   *
+   * @internal
+   */
+  readonly txStrategy?: TxStrategy
   /** Optional remote store(s) for sync. Accepts a single store, a SyncTarget, or an array. */
   readonly sync?: NoydbStore | SyncTarget | SyncTarget[]
   /** User identifier. */

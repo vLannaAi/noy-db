@@ -13,6 +13,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError, ReadOnlyFrameError, createNoydb } from '../src/index.js'
+import { withShadow } from '../src/shadow/index.js'
 import type { Noydb } from '../src/index.js'
 
 function memoryStore(): NoydbStore {
@@ -56,6 +57,7 @@ describe('vault.frame() — read-only shadow view', () => {
       store: memoryStore(),
       user: 'owner',
       encrypt: false,
+      shadowStrategy: withShadow(),
     })
   })
 
