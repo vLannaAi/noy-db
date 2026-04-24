@@ -60,3 +60,173 @@ export function decodeIdxId(id: string): { field: string; recordId: string } | n
 export function isIdxId(id: string): boolean {
   return decodeIdxId(id) !== null
 }
+
+/**
+ * Sorted-value entry returned by `orderedBy()`. Mirrors the body shape
+ * used by the write path — but `orderedBy` emits them already sorted by
+ * `value` in the requested direction. Consumers (PR 4 / #268) treat the
+ * array as immutable and paginate via a numeric offset.
+ */
+export interface OrderedEntry {
+  readonly recordId: string
+  readonly value: unknown
+}
+
+/**
+ * Bulk-load row shape accepted by `ingest()`. The `value` field is the
+ * decrypted index body's `value` field verbatim.
+ */
+export interface IngestRow {
+  readonly recordId: string
+  readonly value: unknown
+}
+
+/**
+ * In-memory mirror of the persisted index side-car records for a single
+ * collection. Populated by bulk-loading `_idx/<field>/*` ids on first
+ * query and maintained incrementally by `Collection.put()` / `.delete()`
+ * via `upsert()` / `remove()`.
+ *
+ * API surface is deliberately parallel to `CollectionIndexes` (eager mode)
+ * so the query planner in PR 3/4 can dispatch to either polymorphically.
+ *
+ * Lifecycle:
+ *  - `declare(field)` — accept the field as indexable (idempotent)
+ *  - `ingest(field, rows[])` — bulk-load from decrypted index bodies
+ *  - `upsert(recordId, field, newValue, previousValue)` — incremental update
+ *  - `remove(recordId, field, value)` — incremental remove
+ *  - `lookupEqual(field, value)` / `lookupIn(field, values)` — equality reads
+ *  - `orderedBy(field, dir)` — sorted iteration for orderBy
+ *  - `clear()` — drop all buckets (invalidation / rotation)
+ */
+export class PersistedCollectionIndex {
+  private readonly indexes = new Map<string, Map<string, Set<string>>>()
+
+  declare(field: string): void {
+    if (this.indexes.has(field)) return
+    this.indexes.set(field, new Map())
+  }
+
+  has(field: string): boolean {
+    return this.indexes.has(field)
+  }
+
+  fields(): string[] {
+    return [...this.indexes.keys()]
+  }
+
+  ingest(field: string, rows: readonly IngestRow[]): void {
+    const buckets = this.indexes.get(field)
+    if (!buckets) return
+    for (const row of rows) {
+      addToBuckets(buckets, row.recordId, row.value)
+    }
+  }
+
+  upsert(recordId: string, field: string, newValue: unknown, previousValue: unknown | null): void {
+    const buckets = this.indexes.get(field)
+    if (!buckets) return
+    if (previousValue !== null && previousValue !== undefined) {
+      removeFromBuckets(buckets, recordId, previousValue)
+    }
+    addToBuckets(buckets, recordId, newValue)
+  }
+
+  remove(recordId: string, field: string, value: unknown): void {
+    const buckets = this.indexes.get(field)
+    if (!buckets) return
+    removeFromBuckets(buckets, recordId, value)
+  }
+
+  clear(): void {
+    for (const buckets of this.indexes.values()) {
+      buckets.clear()
+    }
+  }
+
+  lookupEqual(field: string, value: unknown): ReadonlySet<string> | null {
+    const buckets = this.indexes.get(field)
+    if (!buckets) return null
+    const key = stringifyKey(value)
+    return buckets.get(key) ?? EMPTY_SET
+  }
+
+  lookupIn(field: string, values: readonly unknown[]): ReadonlySet<string> | null {
+    const buckets = this.indexes.get(field)
+    if (!buckets) return null
+    const out = new Set<string>()
+    for (const value of values) {
+      const bucket = buckets.get(stringifyKey(value))
+      if (bucket) for (const id of bucket) out.add(id)
+    }
+    return out
+  }
+
+  orderedBy(field: string, dir: 'asc' | 'desc'): readonly OrderedEntry[] | null {
+    const buckets = this.indexes.get(field)
+    if (!buckets) return null
+    const entries: OrderedEntry[] = []
+    for (const [key, bucket] of buckets) {
+      const value = key
+      for (const recordId of bucket) {
+        entries.push({ recordId, value })
+      }
+    }
+    entries.sort((a, b) => compareValues(a.value, b.value))
+    if (dir === 'desc') entries.reverse()
+    return entries
+  }
+}
+
+const EMPTY_SET: ReadonlySet<string> = new Set()
+
+/**
+ * Canonicalize a value into a bucket key. Deliberately identical to the
+ * eager-mode `stringifyKey` in `query/indexes.ts` so semantics match. When
+ * `query/indexes.ts` changes its coercion rules, update this in lockstep.
+ *
+ * null / undefined values are NOT indexed — callers who pass them to
+ * `upsert` / `remove` short-circuit before reaching this function; the
+ * sentinel here exists only to make `lookupEqual(field, null)` return
+ * an empty bucket (rather than matching some arbitrary record).
+ */
+function stringifyKey(value: unknown): string {
+  if (value === null || value === undefined) return '\0NULL\0'
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (value instanceof Date) return value.toISOString()
+  return '\0OBJECT\0'
+}
+
+function addToBuckets(buckets: Map<string, Set<string>>, recordId: string, value: unknown): void {
+  if (value === null || value === undefined) return
+  const key = stringifyKey(value)
+  let bucket = buckets.get(key)
+  if (!bucket) {
+    bucket = new Set()
+    buckets.set(key, bucket)
+  }
+  bucket.add(recordId)
+}
+
+function removeFromBuckets(buckets: Map<string, Set<string>>, recordId: string, value: unknown): void {
+  if (value === null || value === undefined) return
+  const key = stringifyKey(value)
+  const bucket = buckets.get(key)
+  if (!bucket) return
+  bucket.delete(recordId)
+  if (bucket.size === 0) buckets.delete(key)
+}
+
+function compareValues(a: unknown, b: unknown): number {
+  // `orderedBy` keys by bucket key (string), so this compares strings.
+  // That is intentional — bucket keys are the canonical representation and
+  // they already encode Date/number/bool in a byte-comparable-within-type way.
+  // Sorting across mixed types is undefined behavior (documented in spec §4.5).
+  if (typeof a === 'string' && typeof b === 'string') {
+    return a < b ? -1 : a > b ? 1 : 0
+  }
+  const sa = String(a)
+  const sb = String(b)
+  return sa < sb ? -1 : sa > sb ? 1 : 0
+}
