@@ -80,6 +80,35 @@ describe('createCollectionSignal', () => {
       dispose()
     })
   })
+
+  it('stops updating after dispose', async () => {
+    const { vault } = await setup()
+    const coll = vault.collection<Invoice>('invoices')
+    let disposeRoot!: () => void
+    let recordsAccessor!: () => Invoice[]
+
+    await createRoot(async (dispose) => {
+      disposeRoot = dispose
+      const [records] = createCollectionSignal<Invoice>(vault, 'invoices')
+      recordsAccessor = records
+      await drain()
+    })
+
+    // Before dispose: records are loaded
+    expect(recordsAccessor().map(r => r.id).sort()).toEqual(['i1', 'i2'])
+
+    disposeRoot()
+
+    // After dispose: the subscription is torn down, so new writes do NOT
+    // cause the signal to refresh. The accessor still returns the last
+    // value (signals don't "unmount"), but no new value arrives.
+    const snapshotBeforeWrite = recordsAccessor().map(r => r.id).sort()
+    await coll.put('i4', { id: 'i4', amt: 999 })
+    await drain()
+    const snapshotAfterWrite = recordsAccessor().map(r => r.id).sort()
+    expect(snapshotAfterWrite).toEqual(snapshotBeforeWrite)
+    expect(snapshotAfterWrite).not.toContain('i4')
+  })
 })
 
 describe('createQuerySignal', () => {

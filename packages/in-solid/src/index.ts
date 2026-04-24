@@ -23,6 +23,8 @@ export function createCollectionSignal<T>(
   const [loading, setLoading] = createSignal(true)
   const [error, setError] = createSignal<Error | null>(null)
 
+  // createRenderEffect runs synchronously (no scheduler deferral), ensuring
+  // the subscription is registered before the first async flush can fire events.
   createRenderEffect(() => {
     const coll = vault.collection<T>(collectionName)
 
@@ -55,6 +57,8 @@ export function createQuerySignal<T, R>(
   const [loading, setLoading] = createSignal(true)
   const [error, setError] = createSignal<Error | null>(null)
 
+  // createRenderEffect runs synchronously (no scheduler deferral), ensuring
+  // the subscription is registered before the first async flush can fire events.
   createRenderEffect(() => {
     const coll = vault.collection<T>(collectionName)
 
@@ -81,6 +85,8 @@ export function createQuerySignal<T, R>(
 export function createSyncSignal(db: Noydb): Accessor<ChangeEvent | null> {
   const [lastEvent, setLastEvent] = createSignal<ChangeEvent | null>(null)
 
+  // createRenderEffect runs synchronously (no scheduler deferral), ensuring
+  // the subscription is registered before the first async flush can fire events.
   createRenderEffect(() => {
     const handler = (event: ChangeEvent): void => { setLastEvent(() => event) }
     db.on('change', handler)
