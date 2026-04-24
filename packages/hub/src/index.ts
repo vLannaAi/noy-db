@@ -431,6 +431,9 @@ export { encryptDeterministic, decryptDeterministic } from './crypto.js'
 // v0.18 hierarchical access
 export type { GhostRecord, TierMode, CrossTierAccessEvent } from './types.js'
 export { TierNotGrantedError, TierDemoteDeniedError, DelegationTargetMissingError } from './errors.js'
+
+// v0.22 lazy-mode index errors (#265)
+export { IndexRequiredError, IndexWriteFailure } from './errors.js'
 export { dekKey, effectiveClearance, assertTierAccess } from './team/tiers.js'
 export type { DelegationToken, IssueDelegationOptions } from './team/delegation.js'
 export { DELEGATIONS_COLLECTION, issueDelegation, loadActiveDelegations, revokeDelegation } from './team/delegation.js'

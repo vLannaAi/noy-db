@@ -28,7 +28,9 @@
  *       ├─ Query errors
  *       │    ├─ JoinTooLargeError      — join row ceiling exceeded
  *       │    ├─ DanglingReferenceError — strict ref() points at nothing
- *       │    └─ GroupCardinalityError  — groupBy bucket cap exceeded
+ *       │    ├─ GroupCardinalityError  — groupBy bucket cap exceeded
+ *       │    ├─ IndexRequiredError      — lazy-mode query touches unindexed field
+ *       │    └─ IndexWriteFailure       — index side-car put/delete failed post-main
  *       ├─ i18n / Dictionary errors
  *       │    ├─ ReservedCollectionNameError
  *       │    ├─ DictKeyMissingError
@@ -604,6 +606,72 @@ export class GroupCardinalityError extends NoydbError {
     this.field = field
     this.cardinality = cardinality
     this.maxGroups = maxGroups
+  }
+}
+
+/**
+ * Thrown in lazy mode when a `.query()` / `.where()` / `.orderBy()` clause
+ * references a field that does not have a declared index.
+ *
+ * Lazy-mode queries only work when every touched field is indexed.
+ * This is deliberate — silent scan-fallback would hide the performance
+ * cliff that lazy-mode indexes exist to prevent.
+ *
+ * Payload:
+ * - `collection` — name of the collection queried
+ * - `touchedFields` — every field referenced by the query (filter + order)
+ * - `missingFields` — subset of `touchedFields` that have no declared index
+ */
+export class IndexRequiredError extends NoydbError {
+  readonly collection: string
+  readonly touchedFields: readonly string[]
+  readonly missingFields: readonly string[]
+
+  constructor(args: { collection: string; touchedFields: readonly string[]; missingFields: readonly string[] }) {
+    super(
+      'INDEX_REQUIRED',
+      `Collection "${args.collection}": query references unindexed fields in lazy mode ` +
+      `(missing: ${args.missingFields.join(', ')}). ` +
+      `Declare an index on each field, or use collection.scan() for non-indexed iteration.`,
+    )
+    this.name = 'IndexRequiredError'
+    this.collection = args.collection
+    this.touchedFields = [...args.touchedFields]
+    this.missingFields = [...args.missingFields]
+  }
+}
+
+/**
+ * Thrown (or surfaced via the `index:write-partial` event) when one or more
+ * per-indexed-field side-car writes fail after the main record write has
+ * already succeeded.
+ *
+ * Not thrown out of `.put()` / `.delete()` directly — those succeed when the
+ * main record succeeds. Instead, `IndexWriteFailure` instances are collected
+ * into the session-scoped reconcile queue and emitted on the Collection
+ * emitter as `index:write-partial`.
+ *
+ * Payload:
+ * - `recordId` — the id of the main record whose side-car writes failed
+ * - `field` — the indexed field whose side-car write failed
+ * - `op` — `'put'` or `'delete'`, indicating which mutation was in flight
+ * - `cause` — the underlying error from the store
+ */
+export class IndexWriteFailure extends NoydbError {
+  readonly recordId: string
+  readonly field: string
+  readonly op: 'put' | 'delete'
+
+  constructor(args: { recordId: string; field: string; op: 'put' | 'delete'; cause: unknown }) {
+    super(
+      'INDEX_WRITE_FAILURE',
+      `Index side-car ${args.op} failed for field "${args.field}" on record "${args.recordId}"`,
+    )
+    this.name = 'IndexWriteFailure'
+    this.recordId = args.recordId
+    this.field = args.field
+    this.op = args.op
+    this.cause = args.cause
   }
 }
 
