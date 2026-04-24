@@ -37,18 +37,25 @@ function getHandler(
 }
 
 export default defineEventHandler(async (event: H3Event) => {
-  // Read REST config from Nitro's public runtime config, injected by the
-  // module setup via nuxt.options.runtimeConfig.public.noydb.rest.
-  const ctx = event.context as Record<string, unknown>
-  const runtimeConfig = ctx['runtimeConfig'] as
-    | { public?: { noydb?: { rest?: Record<string, unknown> } } }
-    | undefined
-  const config = runtimeConfig?.public?.noydb?.rest ?? {}
+  // Read REST config from Nitro's public runtime config. Nitro stores it at
+  // `event.context.nitro.runtimeConfig` (the canonical location — confirmed
+  // by reading nitropack's config.mjs). The fallback on
+  // `event.context.runtimeConfig` covers bespoke setups that might inject
+  // config at that alternate key.
+  const ctx = event.context as {
+    nitro?: { runtimeConfig?: { public?: { noydb?: { rest?: Record<string, unknown> } } } }
+    runtimeConfig?: { public?: { noydb?: { rest?: Record<string, unknown> } } }
+    noydbStore?: NoydbStore
+  }
+  const config =
+    ctx.nitro?.runtimeConfig?.public?.noydb?.rest ??
+    ctx.runtimeConfig?.public?.noydb?.rest ??
+    {}
 
   // The store must be provided by a separate Nitro server plugin that
   // creates and populates `event.context.noydbStore` before this handler
   // runs. See module docstring above.
-  const store = ctx['noydbStore'] as NoydbStore | undefined
+  const store = ctx.noydbStore
 
   if (!store) {
     return new Response(

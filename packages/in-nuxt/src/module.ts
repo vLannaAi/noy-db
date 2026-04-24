@@ -198,14 +198,8 @@ export default defineNuxtModule<ModuleOptions>({
     // at `basePath/**`. The handler delegates to `@noy-db/in-rest` via
     // the nitroAdapter. Store wiring (populating event.context.noydbStore)
     // is a follow-up concern tracked in #273.
-    if (options.rest && (options.rest as { enabled?: boolean }).enabled) {
-      const restOpts = options.rest as {
-        enabled?: boolean
-        basePath?: string
-        user?: string
-        ttlSeconds?: number
-      }
-      const basePath = restOpts.basePath ?? '/api/noydb'
+    if (options.rest?.enabled) {
+      const basePath = options.rest.basePath ?? '/api/noydb'
       addServerHandler({
         route: `${basePath}/**`,
         handler: resolver.resolve('./runtime/rest'),
