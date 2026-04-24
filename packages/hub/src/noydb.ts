@@ -245,6 +245,7 @@ export class Noydb {
       ...(this.options.indexStrategy !== undefined ? { indexStrategy: this.options.indexStrategy } : {}),
       ...(this.options.aggregateStrategy !== undefined ? { aggregateStrategy: this.options.aggregateStrategy } : {}),
       ...(this.options.crdtStrategy !== undefined ? { crdtStrategy: this.options.crdtStrategy } : {}),
+      ...(this.options.consentStrategy !== undefined ? { consentStrategy: this.options.consentStrategy } : {}),
       locale: opts?.locale,
       // Thread the translator hook so Collection.put() can invoke it (v0.8 #83)
       plaintextTranslator: this.options.plaintextTranslator
@@ -298,6 +299,7 @@ export class Noydb {
       ...(this.options.indexStrategy !== undefined ? { indexStrategy: this.options.indexStrategy } : {}),
       ...(this.options.aggregateStrategy !== undefined ? { aggregateStrategy: this.options.aggregateStrategy } : {}),
       ...(this.options.crdtStrategy !== undefined ? { crdtStrategy: this.options.crdtStrategy } : {}),
+      ...(this.options.consentStrategy !== undefined ? { consentStrategy: this.options.consentStrategy } : {}),
       })
       this.vaultCache.set(name, comp)
       return comp
@@ -320,6 +322,7 @@ export class Noydb {
       ...(this.options.indexStrategy !== undefined ? { indexStrategy: this.options.indexStrategy } : {}),
       ...(this.options.aggregateStrategy !== undefined ? { aggregateStrategy: this.options.aggregateStrategy } : {}),
       ...(this.options.crdtStrategy !== undefined ? { crdtStrategy: this.options.crdtStrategy } : {}),
+      ...(this.options.consentStrategy !== undefined ? { consentStrategy: this.options.consentStrategy } : {}),
       emitter: this.emitter,
     })
     this.vaultCache.set(name, comp)

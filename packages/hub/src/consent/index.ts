@@ -9,6 +9,9 @@
  * subpath and skip the ~194 LOC.
  */
 
+export { withConsent } from './active.js'
+export type { ConsentStrategy } from './strategy.js'
+
 export {
   CONSENT_AUDIT_COLLECTION,
   writeConsentEntry,

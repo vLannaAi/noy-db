@@ -29,6 +29,7 @@ import type { BlobStrategy } from './blobs/strategy.js'
 import type { IndexStrategy } from './indexing/strategy.js'
 import type { AggregateStrategy } from './aggregate/strategy.js'
 import type { CrdtStrategy } from './crdt/strategy.js'
+import type { ConsentStrategy } from './consent/strategy.js'
 
 /** Format version for encrypted record envelopes. */
 export const NOYDB_FORMAT_VERSION = 1 as const
@@ -1350,6 +1351,16 @@ export interface NoydbOptions {
    * @internal
    */
   readonly crdtStrategy?: CrdtStrategy
+  /**
+   * v0.24 tree-shake seam — optional consent-audit strategy. Pass
+   * `withConsent()` from `@noy-db/hub/consent` to enable per-op audit
+   * writes into `_consent_audit` when a consent scope is active.
+   * When omitted, `vault.consentAudit()` returns `[]` and writes are
+   * no-ops; the consent module's ~194 LOC never reaches the bundle.
+   *
+   * @internal
+   */
+  readonly consentStrategy?: ConsentStrategy
   /** Optional remote store(s) for sync. Accepts a single store, a SyncTarget, or an array. */
   readonly sync?: NoydbStore | SyncTarget | SyncTarget[]
   /** User identifier. */

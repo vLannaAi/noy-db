@@ -32,7 +32,7 @@ import { LedgerStore, sha256Hex, LEDGER_COLLECTION, LEDGER_DELTAS_COLLECTION } f
 import { VaultInstant } from './history/time-machine.js'
 import { VaultFrame } from './shadow/vault-frame.js'
 import type { ConsentContext, ConsentAuditEntry, ConsentAuditFilter, ConsentOp } from './consent/consent.js'
-import { writeConsentEntry, loadConsentEntries } from './consent/consent.js'
+import { NO_CONSENT, type ConsentStrategy } from './consent/strategy.js'
 import {
   RefRegistry,
   RefIntegrityError,
@@ -107,6 +107,7 @@ export class Vault {
   private readonly indexStrategy: IndexStrategy | undefined
   private readonly aggregateStrategy: AggregateStrategy | undefined
   private readonly crdtStrategy: CrdtStrategy | undefined
+  private readonly consentStrategy: ConsentStrategy
   private getDEK: (collectionName: string) => Promise<CryptoKey>
 
   /**
@@ -267,6 +268,7 @@ export class Vault {
     indexStrategy?: IndexStrategy | undefined
     aggregateStrategy?: AggregateStrategy | undefined
     crdtStrategy?: CrdtStrategy | undefined
+    consentStrategy?: ConsentStrategy | undefined
   }) {
     this.adapter = opts.adapter
     this.name = opts.name
@@ -280,6 +282,7 @@ export class Vault {
     this.indexStrategy = opts.indexStrategy
     this.aggregateStrategy = opts.aggregateStrategy
     this.crdtStrategy = opts.crdtStrategy
+    this.consentStrategy = opts.consentStrategy ?? NO_CONSENT
     this.historyConfig = opts.historyConfig ?? { enabled: true }
     this.reloadKeyring = opts.reloadKeyring
     this.locale = opts.locale
@@ -1157,7 +1160,7 @@ export class Vault {
    * v0.16 #218.
    */
   async consentAudit(filter: ConsentAuditFilter = {}): Promise<ConsentAuditEntry[]> {
-    return loadConsentEntries(this.adapter, this.name, this.encrypted, this.getDEK, filter)
+    return this.consentStrategy.read(this.adapter, this.name, this.encrypted, this.getDEK, filter)
   }
 
   /**
@@ -1169,7 +1172,7 @@ export class Vault {
   async _logConsent(op: ConsentOp, collection: string, recordId: string): Promise<void> {
     const ctx = this.consentContext
     if (!ctx) return
-    await writeConsentEntry(
+    await this.consentStrategy.write(
       this.adapter,
       this.name,
       this.encrypted,
