@@ -161,12 +161,14 @@ describe('Collection — lazy mode construction', () => {
       .toThrow(/requires a cache option/)
   })
 
-  it('3. lazy mode with indexes throws', () => {
+  it('3. lazy mode with indexes does NOT throw (v0.22)', () => {
+    // Construction must succeed — PR 2 adds write-path maintenance,
+    // PR 3 adds query dispatch. No behavior assertions yet.
     expect(() => comp.collection<Invoice>('invoices', {
       prefetch: false,
       cache: { maxRecords: 100 },
       indexes: ['status'],
-    })).toThrow(/secondary indexes are not supported in lazy mode/)
+    })).not.toThrow()
   })
 
   it('4. lazy mode with byte budget string is parsed correctly', () => {
@@ -183,6 +185,27 @@ describe('Collection — lazy mode construction', () => {
       prefetch: false,
       cache: { maxBytes: 'not-a-size' },
     })).toThrow(/invalid byte budget/)
+  })
+})
+
+// ─── v0.22: lazy mode accepts indexes ──────────────────────────────
+
+describe('lazy mode with indexes declared (v0.22)', () => {
+  it('accepts prefetch: false + indexes without throwing', async () => {
+    const db = await createNoydb({
+      store: memory(),
+      user: 'owner',
+      secret: 'lazy-test-passphrase-2026',
+    })
+    const vault = await db.openVault('c')
+    vault.collection('disbursements', {
+      prefetch: false,
+      cache: { maxRecords: 100 },
+      indexes: ['clientId', 'period'],
+    })
+    // Construction must not throw. No behavior assertions yet — PR 2 adds writes,
+    // PR 3 adds queries.
+    expect(true).toBe(true)
   })
 })
 

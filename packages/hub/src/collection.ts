@@ -29,6 +29,7 @@ import type { DiffEntry } from './history/diff.js'
 import { Query, ScanBuilder } from './query/index.js'
 import type { QuerySource, JoinContext, JoinableSource } from './query/index.js'
 import { CollectionIndexes, type IndexDef } from './query/indexes.js'
+import { PersistedCollectionIndex } from './query/persisted-indexes.js'
 import type { RefDescriptor } from './refs.js'
 import { Lru, parseBytes, estimateRecordBytes, type LruStats } from './cache/index.js'
 import { generateULID } from './bundle/ulid.js'
@@ -147,6 +148,13 @@ export class Collection<T> {
    * disappear from the index without notification.
    */
   private readonly indexes = new CollectionIndexes()
+
+  /**
+   * In-memory mirror of the persisted `_idx/<field>/<recordId>` side-car
+   * records — populated via bulk-load on first lazy-mode query (PR 3).
+   * Constructed empty in v0.22 PR 1; only `declare()` is invoked here.
+   */
+  private readonly persistedIndexes = new PersistedCollectionIndex()
 
   /**
    * Optional Standard Schema v1 validator. When set, every `put()` runs
@@ -648,16 +656,10 @@ export class Collection<T> {
     this.lazy = opts.prefetch === false
 
     if (this.lazy) {
-      // Lazy mode is incompatible with eager-cache features. Reject the
-      // combinations early so users see the error at construction time
-      // rather than at first query.
-      if (opts.indexes && opts.indexes.length > 0) {
-        throw new Error(
-          `Collection "${this.name}": secondary indexes are not supported in lazy mode (prefetch: false). ` +
-          `Either remove the indexes option or use prefetch: true. ` +
-          `Index + lazy support is tracked as a v0.4 follow-up.`,
-        )
-      }
+      // Lazy mode accepts index declarations as of v0.22 (#260). Writes
+      // and queries wire up in PR 2 (#266) and PR 3 (#267) respectively;
+      // for now we only declare them in the in-memory mirror so later
+      // PRs don't need to retouch this constructor branch.
       if (!opts.cache || (opts.cache.maxRecords === undefined && opts.cache.maxBytes === undefined)) {
         throw new Error(
           `Collection "${this.name}": lazy mode (prefetch: false) requires a cache option ` +
@@ -669,6 +671,11 @@ export class Collection<T> {
       if (opts.cache.maxBytes !== undefined) lruOptions.maxBytes = parseBytes(opts.cache.maxBytes)
       this.lru = new Lru<string, { record: T; version: number }>(lruOptions)
       this.hydrated = true // lazy mode is always "hydrated" — no bulk load
+      if (opts.indexes) {
+        for (const def of opts.indexes) {
+          this.persistedIndexes.declare(def)
+        }
+      }
     } else {
       this.lru = null
       if (opts.indexes) {

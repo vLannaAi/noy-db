@@ -151,7 +151,7 @@ export class PersistedCollectionIndex {
    * bucket first — this is the update path. Pass `null` for fresh adds.
    * No-op if the field is not declared.
    */
-  upsert(recordId: string, field: string, newValue: unknown, previousValue: unknown | null): void {
+  upsert(recordId: string, field: string, newValue: unknown, previousValue: unknown): void {
     const buckets = this.indexes.get(field)
     if (!buckets) return
     if (previousValue !== null && previousValue !== undefined) {
