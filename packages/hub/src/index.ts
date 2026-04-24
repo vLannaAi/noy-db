@@ -150,7 +150,7 @@ export type {
   BlobPutOptions,
   BlobResponseOptions,
 } from './types.js'
-export { BlobSet } from './store/blob-set.js'
+export { BlobSet } from './blobs/blob-set.js'
 export {
   BLOB_COLLECTION,
   BLOB_INDEX_COLLECTION,
@@ -158,8 +158,8 @@ export {
   BLOB_SLOTS_PREFIX,
   BLOB_VERSIONS_PREFIX,
   DEFAULT_CHUNK_SIZE,
-} from './store/blob-set.js'
-export { detectMimeType, detectMagic, isPreCompressed } from './store/mime-magic.js'
+} from './blobs/blob-set.js'
+export { detectMimeType, detectMagic, isPreCompressed } from './blobs/mime-magic.js'
 export { wrapBundleStore, createBundleStore } from './store/bundle-store.js'
 export type { WrappedBundleNoydbStore, WrapBundleStoreOptions } from './store/bundle-store.js'
 

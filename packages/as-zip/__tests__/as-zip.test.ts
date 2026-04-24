@@ -12,6 +12,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { ExportCapabilityError, createNoydb } from '@noy-db/hub'
+import { withBlobs } from '@noy-db/hub/blobs'
 import { memory } from '@noy-db/to-memory'
 import { toBytes, write, type ArchiveManifest } from '../src/index.js'
 
@@ -22,7 +23,7 @@ const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 
 async function seedVault() {
   const adapter = memory()
-  const db = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+  const db = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass', blobStrategy: withBlobs() })
   const vault = await db.openVault('acme')
   const invoices = vault.collection<Invoice>('invoices')
   await invoices.put('inv-1', { id: 'inv-1', client: 'Globex', amount: 1500, status: 'paid' })
@@ -35,7 +36,7 @@ async function seedVault() {
 }
 
 async function grantExport(adapter: ReturnType<typeof memory>) {
-  const db = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+  const db = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass', blobStrategy: withBlobs() })
   await db.grant('acme', {
     userId: 'owner-01', displayName: 'Owner', role: 'owner',
     passphrase: 'owner-pass',
@@ -45,7 +46,7 @@ async function grantExport(adapter: ReturnType<typeof memory>) {
 }
 
 function openExporter(adapter: ReturnType<typeof memory>) {
-  return createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+  return createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass', blobStrategy: withBlobs() })
 }
 
 // Locate the central directory in an archive we just built and pull
@@ -217,7 +218,7 @@ describe('authorisation refusals', () => {
     })
     await db.close()
 
-    const opDb = await createNoydb({ store: adapter, user: 'op', secret: 'op-pass' })
+    const opDb = await createNoydb({ store: adapter, user: 'op', secret: 'op-pass', blobStrategy: withBlobs() })
     const vault = await opDb.openVault('acme')
     await expect(toBytes(vault, { records: { collection: 'invoices' } })).rejects.toThrow(
       ExportCapabilityError,

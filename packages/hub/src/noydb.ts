@@ -241,6 +241,7 @@ export class Noydb {
         : undefined,
       syncAdapter: targets.length > 0 ? targets[0]!.store : undefined,
       historyConfig: this.options.history,
+      ...(this.options.blobStrategy !== undefined ? { blobStrategy: this.options.blobStrategy } : {}),
       locale: opts?.locale,
       // Thread the translator hook so Collection.put() can invoke it (v0.8 #83)
       plaintextTranslator: this.options.plaintextTranslator
@@ -290,6 +291,7 @@ export class Noydb {
         encrypted: false,
         emitter: this.emitter,
         historyConfig: this.options.history,
+      ...(this.options.blobStrategy !== undefined ? { blobStrategy: this.options.blobStrategy } : {}),
       })
       this.vaultCache.set(name, comp)
       return comp
@@ -308,6 +310,7 @@ export class Noydb {
       keyring,
       encrypted: true,
       historyConfig: this.options.history,
+      ...(this.options.blobStrategy !== undefined ? { blobStrategy: this.options.blobStrategy } : {}),
       emitter: this.emitter,
     })
     this.vaultCache.set(name, comp)

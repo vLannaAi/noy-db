@@ -24,6 +24,7 @@ import { ExportCapabilityError, ValidationError } from './errors.js'
 import type { NoydbEventEmitter } from './events.js'
 import { BackupLedgerError, BackupCorruptedError } from './errors.js'
 import type { StandardSchemaV1 } from './schema.js'
+import type { BlobStrategy } from './blobs/strategy.js'
 import { LedgerStore, sha256Hex, LEDGER_COLLECTION, LEDGER_DELTAS_COLLECTION } from './history/ledger/index.js'
 import { VaultInstant } from './history/time-machine.js'
 import { VaultFrame } from './shadow/vault-frame.js'
@@ -67,8 +68,8 @@ import {
   type ExportBlobsOptions,
   type ExportBlobsHandle,
   type ExportBlobsAuditEntry,
-} from './store/export-blobs.js'
-import { runCompaction, type BlobFieldsConfig, type CompactRunOptions, type CompactionResult } from './store/blob-compaction.js'
+} from './blobs/export-blobs.js'
+import { runCompaction, type BlobFieldsConfig, type CompactRunOptions, type CompactionResult } from './blobs/blob-compaction.js'
 import {
   writeMagicLinkGrant,
   type IssueMagicLinkGrantOptions,
@@ -94,6 +95,12 @@ export class Vault {
   private readonly onRegisterConflictResolver: ((name: string, resolver: CollectionConflictResolver) => void) | undefined
   private readonly syncAdapter: NoydbStore | undefined
   private readonly historyConfig: HistoryConfig
+  /**
+   * v0.24 tree-shake seam for the optional blob subsystem. Undefined
+   * means "blobs are off for this vault"; every `collection.blob(id)`
+   * call throws with a pointer at `@noy-db/hub/blobs`.
+   */
+  private readonly blobStrategy: BlobStrategy | undefined
   private getDEK: (collectionName: string) => Promise<CryptoKey>
 
   /**
@@ -244,6 +251,13 @@ export class Vault {
     onRegisterConflictResolver?: ((name: string, resolver: CollectionConflictResolver) => void) | undefined
     /** v0.9 #134 — optional remote/sync adapter for presence broadcasting. */
     syncAdapter?: NoydbStore | undefined
+    /**
+     * v0.24 tree-shake seam — strategy for optional blob storage.
+     * Passed through to every `Collection` built by `vault.collection()`.
+     * `undefined` => every `collection.blob(id)` throws with a pointer
+     * at `@noy-db/hub/blobs`.
+     */
+    blobStrategy?: BlobStrategy | undefined
   }) {
     this.adapter = opts.adapter
     this.name = opts.name
@@ -253,6 +267,7 @@ export class Vault {
     this.onDirty = opts.onDirty
     this.onRegisterConflictResolver = opts.onRegisterConflictResolver
     this.syncAdapter = opts.syncAdapter
+    this.blobStrategy = opts.blobStrategy
     this.historyConfig = opts.historyConfig ?? { enabled: true }
     this.reloadKeyring = opts.reloadKeyring
     this.locale = opts.locale
@@ -392,6 +407,10 @@ export class Vault {
         getDEK: this.getDEK,
         onDirty: this.onDirty,
         historyConfig: this.historyConfig,
+        // v0.24 — thread the vault-wide blob strategy into every
+        // collection. `undefined` is intentionally preserved so the
+        // Collection constructor uses its NO_BLOBS default.
+        ...(this.blobStrategy !== undefined ? { blobStrategy: this.blobStrategy } : {}),
         ledger: this.ledger(),
         refEnforcer: this,
         joinResolver: this,

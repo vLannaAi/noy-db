@@ -31,6 +31,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { createNoydb, type Noydb, type NoydbStore } from '@noy-db/hub'
+import { withBlobs } from '@noy-db/hub/blobs'
 import { memory } from '@noy-db/to-memory'
 import { SHOWCASE_PASSPHRASE } from './_fixtures.js'
 
@@ -262,7 +263,7 @@ describe('Showcase 16 — Email archive (MIME .eml ingest + threading)', () => {
 
   beforeEach(async () => {
     rawStore = memory()
-    db = await createNoydb({ store: rawStore, user: 'archivist', secret: SHOWCASE_PASSPHRASE })
+    db = await createNoydb({ store: rawStore, user: 'archivist', secret: SHOWCASE_PASSPHRASE, blobStrategy: withBlobs() })
     await db.openVault('inbox')
   })
 

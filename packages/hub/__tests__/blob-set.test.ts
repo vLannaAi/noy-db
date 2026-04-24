@@ -2,13 +2,14 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, NoydbBundleStore } from '../src/types.js'
 import { ConflictError, BundleVersionConflictError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
+import { withBlobs } from '../src/blobs/index.js'
 import {
   BLOB_INDEX_COLLECTION,
   BLOB_CHUNKS_COLLECTION,
   BLOB_SLOTS_PREFIX,
   BLOB_VERSIONS_PREFIX,
   DEFAULT_CHUNK_SIZE,
-} from '../src/store/blob-set.js'
+} from '../src/blobs/blob-set.js'
 
 // ─── Minimal in-memory store (same shape used by other tests) ─────────
 
@@ -72,7 +73,7 @@ describe('BlobSet', () => {
   })
 
   it('put → list → get round-trip (encrypted)', async () => {
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET })
+    const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const invoices = vault.collection<{ ref: string }>('invoices')
 
@@ -98,7 +99,7 @@ describe('BlobSet', () => {
   })
 
   it('deduplication: identical content shares chunks and increments refCount', async () => {
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET })
+    const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const invoices = vault.collection<{ ref: string }>('invoices')
 
@@ -129,7 +130,7 @@ describe('BlobSet', () => {
   })
 
   it('delete decrements refCount', async () => {
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET })
+    const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const invoices = vault.collection<{ ref: string }>('invoices')
     await invoices.put('inv-001', { ref: 'A' })
@@ -153,7 +154,7 @@ describe('BlobSet', () => {
   })
 
   it('BlobObject stores chunkSize and chunkCount', async () => {
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET })
+    const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const files = vault.collection<{ name: string }>('files')
     await files.put('f-001', { name: 'test' })
@@ -178,7 +179,7 @@ describe('BlobSet', () => {
     // limit intermittently.
     { timeout: 30_000 },
     async () => {
-      const db = await createNoydb({ store, user: 'alice', secret: SECRET })
+      const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
       const vault = await db.openVault(VAULT)
       const files = vault.collection<{ name: string }>('files')
       await files.put('f-001', { name: 'big' })
@@ -203,7 +204,7 @@ describe('BlobSet', () => {
   )
 
   it('custom chunkSize is stored and used on read', async () => {
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET })
+    const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const files = vault.collection<{ name: string }>('files')
     await files.put('f-001', { name: 'custom-chunk' })
@@ -227,7 +228,7 @@ describe('BlobSet', () => {
   })
 
   it('overwrites an existing slot and adjusts refCounts', async () => {
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET })
+    const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const docs = vault.collection<{ id: string }>('docs')
     await docs.put('d-001', { id: 'D1' })
@@ -250,7 +251,7 @@ describe('BlobSet', () => {
   })
 
   it('blobInfo returns null for missing slot', async () => {
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET })
+    const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const col = vault.collection<{ x: number }>('things')
     await col.put('t-001', { x: 1 })
@@ -262,7 +263,7 @@ describe('BlobSet', () => {
   })
 
   it('metadata uses correct collection prefix', async () => {
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET })
+    const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const invoices = vault.collection<{ ref: string }>('invoices')
     await invoices.put('inv-001', { ref: 'X' })
@@ -281,7 +282,7 @@ describe('BlobSet', () => {
   })
 
   it('response() returns a Response with correct headers', async () => {
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET })
+    const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const col = vault.collection<{ x: number }>('things')
     await col.put('t-001', { x: 1 })
@@ -303,7 +304,7 @@ describe('BlobSet', () => {
   })
 
   it('works in unencrypted mode', async () => {
-    const db = await createNoydb({ store, user: 'alice', encrypt: false })
+    const db = await createNoydb({ store, user: 'alice', encrypt: false , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const col = vault.collection<{ n: number }>('items')
     await col.put('i-001', { n: 42 })
@@ -321,7 +322,7 @@ describe('BlobSet', () => {
   // ─── MIME auto-detection ──────────────────────────────────────────
 
   it('auto-detects PDF MIME type from magic bytes', async () => {
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET })
+    const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const col = vault.collection<{ x: number }>('docs')
     await col.put('d-001', { x: 1 })
@@ -342,7 +343,7 @@ describe('BlobSet', () => {
   // ─── Published versions (UC-3 amendment versioning) ───────────────
 
   it('publish → getVersion round-trip', async () => {
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET })
+    const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const invoices = vault.collection<{ ref: string }>('invoices')
     await invoices.put('inv-001', { ref: 'INV-001' })
@@ -380,7 +381,7 @@ describe('BlobSet', () => {
   })
 
   it('listVersions returns all published versions for a slot', async () => {
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET })
+    const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const col = vault.collection<{ x: number }>('docs')
     await col.put('d-001', { x: 1 })
@@ -400,7 +401,7 @@ describe('BlobSet', () => {
   })
 
   it('deleteVersion decrements refCount', async () => {
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET })
+    const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const col = vault.collection<{ x: number }>('docs')
     await col.put('d-001', { x: 1 })
@@ -424,7 +425,7 @@ describe('BlobSet', () => {
   })
 
   it('responseVersion returns correct headers and body', async () => {
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET })
+    const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const col = vault.collection<{ x: number }>('docs')
     await col.put('d-001', { x: 1 })
@@ -483,7 +484,7 @@ describe('wrapBundleStore', () => {
 
     const bundleStore = wrapBundleStore(bundleBackend)
 
-    const db = await createNoydb({ store: bundleStore, user: 'alice', secret: SECRET })
+    const db = await createNoydb({ store: bundleStore, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const invoices = vault.collection<{ amount: number }>('invoices')
 
@@ -498,7 +499,7 @@ describe('wrapBundleStore', () => {
     db.close()
 
     // Re-open from the same storage — data must survive
-    const db2 = await createNoydb({ store: bundleStore, user: 'alice', secret: SECRET })
+    const db2 = await createNoydb({ store: bundleStore, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault2 = await db2.openVault(VAULT)
     const invoices2 = vault2.collection<{ amount: number }>('invoices')
 
@@ -620,7 +621,7 @@ describe('wrapBundleStore', () => {
 
     const bundleStore = wrapBundleStore(bundleBackend)
 
-    const db = await createNoydb({ store: bundleStore, user: 'alice', secret: SECRET })
+    const db = await createNoydb({ store: bundleStore, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const col = vault.collection<{ x: number }>('things')
     await col.put('t-001', { x: 1 })
@@ -641,43 +642,43 @@ describe('wrapBundleStore', () => {
 
 describe('detectMimeType', () => {
   it('detects PDF from magic bytes', async () => {
-    const { detectMimeType } = await import('../src/store/mime-magic.js')
+    const { detectMimeType } = await import('../src/blobs/mime-magic.js')
     const header = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34, 0, 0, 0, 0, 0, 0, 0, 0])
     expect(detectMimeType(header)).toBe('application/pdf')
   })
 
   it('detects PNG from magic bytes', async () => {
-    const { detectMimeType } = await import('../src/store/mime-magic.js')
+    const { detectMimeType } = await import('../src/blobs/mime-magic.js')
     const header = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0, 0, 0, 0, 0])
     expect(detectMimeType(header)).toBe('image/png')
   })
 
   it('detects JPEG from magic bytes', async () => {
-    const { detectMimeType } = await import('../src/store/mime-magic.js')
+    const { detectMimeType } = await import('../src/blobs/mime-magic.js')
     const header = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
     expect(detectMimeType(header)).toBe('image/jpeg')
   })
 
   it('detects ZIP from magic bytes', async () => {
-    const { detectMimeType } = await import('../src/store/mime-magic.js')
+    const { detectMimeType } = await import('../src/blobs/mime-magic.js')
     const header = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
     expect(detectMimeType(header)).toBe('application/zip')
   })
 
   it('detects GZIP from magic bytes', async () => {
-    const { detectMimeType } = await import('../src/store/mime-magic.js')
+    const { detectMimeType } = await import('../src/blobs/mime-magic.js')
     const header = new Uint8Array([0x1f, 0x8b, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
     expect(detectMimeType(header)).toBe('application/gzip')
   })
 
   it('returns octet-stream for unknown', async () => {
-    const { detectMimeType } = await import('../src/store/mime-magic.js')
+    const { detectMimeType } = await import('../src/blobs/mime-magic.js')
     const header = new Uint8Array([0x00, 0x00, 0x00, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
     expect(detectMimeType(header)).toBe('application/octet-stream')
   })
 
   it('marks compressed formats as pre-compressed', async () => {
-    const { isPreCompressed } = await import('../src/store/mime-magic.js')
+    const { isPreCompressed } = await import('../src/blobs/mime-magic.js')
     expect(isPreCompressed('image/jpeg')).toBe(true)
     expect(isPreCompressed('image/png')).toBe(true)
     expect(isPreCompressed('application/zip')).toBe(true)

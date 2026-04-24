@@ -25,6 +25,7 @@
 
 import type { StandardSchemaV1 } from './schema.js'
 import type { SyncPolicy } from './store/sync-policy.js'
+import type { BlobStrategy } from './blobs/strategy.js'
 
 /** Format version for encrypted record envelopes. */
 export const NOYDB_FORMAT_VERSION = 1 as const
@@ -1300,6 +1301,17 @@ export interface StoreCapabilities {
 export interface NoydbOptions {
   /** Primary store (local storage). */
   readonly store: NoydbStore
+  /**
+   * v0.24 tree-shake seam — optional blob strategy. Pass `withBlobs()`
+   * from `@noy-db/hub/blobs` to enable `collection.blob(id)` storage.
+   * When omitted, hub's blob machinery stays out of the bundle (ESM
+   * tree-shaking) and `collection.blob(id)` throws with a pointer at
+   * the subpath. `BlobStrategy` is `@internal` — users only construct
+   * it via the subpath factory.
+   *
+   * @internal
+   */
+  readonly blobStrategy?: BlobStrategy
   /** Optional remote store(s) for sync. Accepts a single store, a SyncTarget, or an array. */
   readonly sync?: NoydbStore | SyncTarget | SyncTarget[]
   /** User identifier. */

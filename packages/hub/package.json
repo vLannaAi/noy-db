@@ -85,6 +85,16 @@
         "types": "./dist/query/index.d.cts",
         "default": "./dist/query/index.cjs"
       }
+    },
+    "./blobs": {
+      "import": {
+        "types": "./dist/blobs/index.d.ts",
+        "default": "./dist/blobs/index.js"
+      },
+      "require": {
+        "types": "./dist/blobs/index.d.cts",
+        "default": "./dist/blobs/index.cjs"
+      }
     }
   },
   "main": "./dist/index.cjs",

@@ -11,6 +11,7 @@ export default defineConfig({
     'session/index': 'src/session/index.ts',
     'history/index': 'src/history/index.ts',
     'query/index': 'src/query/index.ts',
+    'blobs/index': 'src/blobs/index.ts',
   },
   format: ['esm', 'cjs'],
   dts: true,

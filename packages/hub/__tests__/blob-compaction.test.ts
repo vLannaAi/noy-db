@@ -4,8 +4,9 @@
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/index.js'
 import { ConflictError, createNoydb } from '../src/index.js'
+import { withBlobs } from '../src/blobs/index.js'
 import type { Noydb, Vault } from '../src/index.js'
-import { BLOB_EVICTION_AUDIT_COLLECTION } from '../src/store/blob-compaction.js'
+import { BLOB_EVICTION_AUDIT_COLLECTION } from '../src/blobs/blob-compaction.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -45,7 +46,7 @@ function memory(): NoydbStore {
 interface InvoiceScan { id: string; status: string }
 
 async function setup(): Promise<{ db: Noydb; vault: Vault }> {
-  const db = await createNoydb({ store: memory(), user: 'owner', secret: 'pw' })
+  const db = await createNoydb({ store: memory(), user: 'owner', secret: 'pw' , blobStrategy: withBlobs() })
   const vault = await db.openVault('acme')
   return { db, vault }
 }

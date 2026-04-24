@@ -28,6 +28,7 @@ import {
   type Noydb,
   type NoydbStore,
 } from '@noy-db/hub'
+import { withBlobs } from '@noy-db/hub/blobs'
 import { memory } from '@noy-db/to-memory'
 
 import {
@@ -54,6 +55,7 @@ describe('Showcase 05 — Blob Lifecycle', () => {
       store: rawStore,
       user: 'owner',
       secret: SHOWCASE_PASSPHRASE,
+      blobStrategy: withBlobs(),
     })
     await db.openVault(VAULT)
 

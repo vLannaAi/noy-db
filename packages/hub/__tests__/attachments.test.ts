@@ -10,12 +10,13 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, NoydbBundleStore } from '../src/types.js'
 import { ConflictError, BundleVersionConflictError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
+import { withBlobs } from '../src/blobs/index.js'
 import {
   BLOB_INDEX_COLLECTION,
   BLOB_CHUNKS_COLLECTION,
   BLOB_SLOTS_PREFIX,
   DEFAULT_CHUNK_SIZE,
-} from '../src/store/blob-set.js'
+} from '../src/blobs/blob-set.js'
 
 // ─── Minimal in-memory store ─────────────────────────────────────────
 
@@ -77,7 +78,7 @@ describe('BlobSet (legacy attachment compat)', () => {
   })
 
   it('put → list → get round-trip (encrypted)', async () => {
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET })
+    const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const invoices = vault.collection<{ ref: string }>('invoices')
 
@@ -103,7 +104,7 @@ describe('BlobSet (legacy attachment compat)', () => {
   })
 
   it('deduplication: identical content shares chunks', async () => {
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET })
+    const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const invoices = vault.collection<{ ref: string }>('invoices')
 
@@ -130,7 +131,7 @@ describe('BlobSet (legacy attachment compat)', () => {
   })
 
   it('delete removes metadata', async () => {
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET })
+    const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const invoices = vault.collection<{ ref: string }>('invoices')
     await invoices.put('inv-001', { ref: 'A' })
@@ -161,7 +162,7 @@ describe('BlobSet (legacy attachment compat)', () => {
     // default. Targeted bump — see on-recovery for the PBKDF2 parallel.
     { timeout: 30_000 },
     async () => {
-      const db = await createNoydb({ store, user: 'alice', secret: SECRET })
+      const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
       const vault = await db.openVault(VAULT)
       const files = vault.collection<{ name: string }>('files')
       await files.put('f-001', { name: 'big' })
@@ -182,7 +183,7 @@ describe('BlobSet (legacy attachment compat)', () => {
   )
 
   it('overwrites an existing slot', async () => {
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET })
+    const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const docs = vault.collection<{ id: string }>('docs')
     await docs.put('d-001', { id: 'D1' })
@@ -201,7 +202,7 @@ describe('BlobSet (legacy attachment compat)', () => {
   })
 
   it('blobInfo returns null for missing slot', async () => {
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET })
+    const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const col = vault.collection<{ x: number }>('things')
     await col.put('t-001', { x: 1 })
@@ -213,7 +214,7 @@ describe('BlobSet (legacy attachment compat)', () => {
   })
 
   it('metadata uses parent collection name prefix', async () => {
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET })
+    const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const invoices = vault.collection<{ ref: string }>('invoices')
     await invoices.put('inv-001', { ref: 'X' })
@@ -230,7 +231,7 @@ describe('BlobSet (legacy attachment compat)', () => {
   })
 
   it('response() returns a Response with correct headers', async () => {
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET })
+    const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const col = vault.collection<{ x: number }>('things')
     await col.put('t-001', { x: 1 })
@@ -252,7 +253,7 @@ describe('BlobSet (legacy attachment compat)', () => {
   })
 
   it('works in unencrypted mode', async () => {
-    const db = await createNoydb({ store, user: 'alice', encrypt: false })
+    const db = await createNoydb({ store, user: 'alice', encrypt: false , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const col = vault.collection<{ n: number }>('items')
     await col.put('i-001', { n: 42 })
@@ -295,7 +296,7 @@ describe('wrapBundleStore', () => {
       async listBundles() { return [] },
     })
 
-    const db = await createNoydb({ store: bundleStore, user: 'alice', secret: SECRET })
+    const db = await createNoydb({ store: bundleStore, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const invoices = vault.collection<{ amount: number }>('invoices')
 
@@ -309,7 +310,7 @@ describe('wrapBundleStore', () => {
     db.close()
 
     // Re-open from the same storage — data must survive
-    const db2 = await createNoydb({ store: bundleStore, user: 'alice', secret: SECRET })
+    const db2 = await createNoydb({ store: bundleStore, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault2 = await db2.openVault(VAULT)
     const invoices2 = vault2.collection<{ amount: number }>('invoices')
 
@@ -345,7 +346,7 @@ describe('wrapBundleStore', () => {
       async listBundles() { return [] },
     })
 
-    const db = await createNoydb({ store: bundleStore, user: 'alice', secret: SECRET })
+    const db = await createNoydb({ store: bundleStore, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const col = vault.collection<{ x: number }>('things')
     await col.put('t-001', { x: 1 })

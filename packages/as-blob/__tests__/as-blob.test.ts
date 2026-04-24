@@ -14,6 +14,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { ExportCapabilityError, createNoydb } from '@noy-db/hub'
+import { withBlobs } from '@noy-db/hub/blobs'
 import { memory } from '@noy-db/to-memory'
 import { toBytes, download, write, AsBlobNotFoundError } from '../src/index.js'
 
@@ -24,7 +25,7 @@ const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a
 
 async function seedVault() {
   const adapter = memory()
-  const db = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+  const db = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass', blobStrategy: withBlobs() })
   const vault = await db.openVault('acme')
   const invoices = vault.collection<Invoice>('invoices')
   await invoices.put('inv-1', { client: 'Globex', amount: 1500 })
@@ -51,7 +52,7 @@ describe('happy path', () => {
     })
     await db.close()
 
-    const db2 = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const db2 = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass', blobStrategy: withBlobs() })
     const vault = await db2.openVault('acme')
     const result = await toBytes(vault, { collection: 'invoices', id: 'inv-1' })
     expect(result.mime).toBe('application/pdf')
@@ -71,7 +72,7 @@ describe('happy path', () => {
     })
     await db.close()
 
-    const db2 = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const db2 = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass', blobStrategy: withBlobs() })
     const vault = await db2.openVault('acme')
     const fromDefault = await toBytes(vault, { collection: 'invoices', id: 'inv-1' })
     const fromExplicit = await toBytes(vault, { collection: 'invoices', id: 'inv-1', slot: 'raw' })
@@ -88,7 +89,7 @@ describe('happy path', () => {
     })
     await db.close()
 
-    const db2 = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const db2 = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass', blobStrategy: withBlobs() })
     const vault = await db2.openVault('acme')
     const thumb = await toBytes(vault, { collection: 'invoices', id: 'inv-1', slot: 'thumb' })
     expect(thumb.mime).toBe('image/png')
@@ -118,7 +119,7 @@ describe('authorization refusals', () => {
     })
     await db.close()
 
-    const opDb = await createNoydb({ store: adapter, user: 'op', secret: 'op-pass' })
+    const opDb = await createNoydb({ store: adapter, user: 'op', secret: 'op-pass', blobStrategy: withBlobs() })
     const vault = await opDb.openVault('acme')
     await expect(toBytes(vault, { collection: 'invoices', id: 'inv-1' })).rejects.toThrow(
       ExportCapabilityError,
@@ -137,7 +138,7 @@ describe('not-found cases', () => {
     })
     await db.close()
 
-    const db2 = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const db2 = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass', blobStrategy: withBlobs() })
     const vault = await db2.openVault('acme')
     await expect(
       toBytes(vault, { collection: 'invoices', id: 'missing' }),
@@ -154,7 +155,7 @@ describe('not-found cases', () => {
     })
     await db.close()
 
-    const db2 = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const db2 = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass', blobStrategy: withBlobs() })
     const vault = await db2.openVault('acme')
     try {
       await toBytes(vault, { collection: 'invoices', id: 'inv-1', slot: 'not-a-slot' })
@@ -179,7 +180,7 @@ describe('write() — Node file output', () => {
     })
     await db.close()
 
-    const db2 = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const db2 = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass', blobStrategy: withBlobs() })
     const vault = await db2.openVault('acme')
     await expect(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -197,7 +198,7 @@ describe('write() — Node file output', () => {
     })
     await db.close()
 
-    const db2 = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const db2 = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass', blobStrategy: withBlobs() })
     const vault = await db2.openVault('acme')
 
     const { mkdtemp, readFile, rm } = await import('node:fs/promises')
@@ -230,7 +231,7 @@ describe('download() — browser happy path', () => {
     })
     await db.close()
 
-    const db2 = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const db2 = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass', blobStrategy: withBlobs() })
     const vault = await db2.openVault('acme')
 
     // Stub URL.createObjectURL / revokeObjectURL — happy-dom doesn't

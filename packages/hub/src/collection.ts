@@ -39,7 +39,8 @@ import { Lru, parseBytes, estimateRecordBytes, type LruStats } from './cache/ind
 import { generateULID } from './bundle/ulid.js'
 import { PresenceHandle } from './team/presence.js'
 import type { PresenceHandleOpts } from './team/presence.js'
-import { BlobSet } from './store/blob-set.js'
+import type { BlobSet } from './blobs/blob-set.js'
+import { NO_BLOBS, type BlobStrategy } from './blobs/strategy.js'
 
 /** Callback for dirty tracking (sync engine integration). */
 export type OnDirtyCallback = (collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>
@@ -113,6 +114,17 @@ export class Collection<T> {
   private readonly getDEK: (collectionName: string) => Promise<CryptoKey>
   private readonly onDirty: OnDirtyCallback | undefined
   private readonly historyConfig: HistoryConfig
+
+  /**
+   * v0.24 tree-shake seam — the strategy that backs `collection.blob(id)`.
+   * Defaults to `NO_BLOBS`, a ~10-line stub that throws with an actionable
+   * message. Consumers opt into real blob storage by importing
+   * `{ blobs }` from `@noy-db/hub/blobs` and passing the returned
+   * strategy to `createNoydb({ blobStrategy: blobs() })`. With the
+   * default stub, none of the BlobSet / chunk / MIME-magic machinery
+   * reaches the bundle.
+   */
+  private readonly blobStrategy: BlobStrategy
 
   // In-memory cache of decrypted records (eager mode only). Lazy mode
   // uses `lru` instead. Both fields exist so a single Collection instance
@@ -391,6 +403,13 @@ export class Collection<T> {
     getDEK: (collectionName: string) => Promise<CryptoKey>
     historyConfig?: HistoryConfig | undefined
     onDirty?: OnDirtyCallback | undefined
+    /**
+     * v0.24 tree-shake seam. When omitted, `collection.blob(id)` throws
+     * with a pointer at the `@noy-db/hub/blobs` subpath. When set (via
+     * `createNoydb({ blobStrategy: blobs() })`), blob storage is live.
+     * `@internal` by virtue of `BlobStrategy` being `@internal`.
+     */
+    blobStrategy?: BlobStrategy | undefined
     indexes?: IndexDef[] | undefined
     /**
      * Auto-reconcile behavior for persisted-index drift on lazy-mode
@@ -588,6 +607,7 @@ export class Collection<T> {
     this.keyring = opts.keyring
     this.encrypted = opts.encrypted
     this.emitter = opts.emitter
+    this.blobStrategy = opts.blobStrategy ?? NO_BLOBS
     this.reconcileOnOpen = opts.reconcileOnOpen ?? 'off'
     this.getDEK = opts.getDEK
     this.onDirty = opts.onDirty
@@ -2139,7 +2159,12 @@ export class Collection<T> {
    * vault-shared `_blob` DEK (enabling cross-collection deduplication).
    */
   blob(id: string): BlobSet {
-    return new BlobSet({
+    // v0.24 tree-shake refactor: delegate to `blobStrategy`. The default
+    // is `NO_BLOBS` (throws with a message pointing at the `@noy-db/hub/blobs`
+    // subpath). Users who want blob storage pass `blobs()` from that
+    // subpath into `createNoydb({ blobStrategy: blobs() })`, which
+    // threads the active strategy through Vault → Collection.
+    return this.blobStrategy.openSlot({
       store: this.adapter,
       vault: this.vault,
       collection: this.name,

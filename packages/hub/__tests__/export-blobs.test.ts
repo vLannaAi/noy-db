@@ -4,8 +4,9 @@
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/index.js'
 import { ConflictError, ExportCapabilityError, createNoydb } from '../src/index.js'
+import { withBlobs } from '../src/blobs/index.js'
 import type { Noydb, Vault } from '../src/index.js'
-import { ExportBlobsAbortedError, EXPORT_AUDIT_COLLECTION } from '../src/store/export-blobs.js'
+import { ExportBlobsAbortedError, EXPORT_AUDIT_COLLECTION } from '../src/blobs/export-blobs.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -46,7 +47,7 @@ interface InvoiceScan { id: string; clientId: string; status: string }
 
 async function setup(): Promise<{ db: Noydb; vault: Vault }> {
   const adapter = memory()
-  const db = await createNoydb({ store: adapter, user: 'owner-01', secret: 'pw' })
+  const db = await createNoydb({ store: adapter, user: 'owner-01', secret: 'pw' , blobStrategy: withBlobs() })
   const vault = await db.openVault('acme')
   await db.grant('acme', {
     userId: 'owner-01', displayName: 'Owner', role: 'owner',
@@ -54,7 +55,7 @@ async function setup(): Promise<{ db: Noydb; vault: Vault }> {
     exportCapability: { plaintext: ['blob'] },
   })
   await db.close()
-  const db2 = await createNoydb({ store: adapter, user: 'owner-01', secret: 'pw' })
+  const db2 = await createNoydb({ store: adapter, user: 'owner-01', secret: 'pw' , blobStrategy: withBlobs() })
   const reopened = await db2.openVault('acme')
   const scans = reopened.collection<InvoiceScan>('invoiceScans')
   await scans.put('s1', { id: 's1', clientId: 'c-123', status: 'confirmed' })
@@ -76,7 +77,7 @@ async function collect<T>(iter: AsyncIterable<T>): Promise<T[]> {
 
 describe('vault.exportBlobs — authorisation gate', () => {
   it('throws ExportCapabilityError when the caller lacks plaintext/blob', async () => {
-    const db = await createNoydb({ store: memory(), user: 'owner-01', secret: 'pw' })
+    const db = await createNoydb({ store: memory(), user: 'owner-01', secret: 'pw' , blobStrategy: withBlobs() })
     const vault = await db.openVault('acme')
     // No grant → default exportCapability is empty.
     expect(() => vault.exportBlobs()).toThrow(ExportCapabilityError)

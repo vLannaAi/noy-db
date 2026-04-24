@@ -32,6 +32,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { createNoydb, routeStore, type Noydb, type NoydbStore } from '@noy-db/hub'
+import { withBlobs } from '@noy-db/hub/blobs'
 import { dynamo } from '@noy-db/to-aws-dynamo'
 import { s3 } from '@noy-db/to-aws-s3'
 
@@ -90,6 +91,7 @@ describe.skipIf(!AWS_ENABLED)('Showcase 11 — AWS Split Store (records → Dyna
       store: routed,
       user: 'owner',
       secret: SHOWCASE_PASSPHRASE,
+      blobStrategy: withBlobs(),
     })
     await db.openVault(VAULT_NAME)
   }, 30_000)
