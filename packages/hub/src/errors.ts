@@ -30,7 +30,7 @@
  *       │    ├─ DanglingReferenceError — strict ref() points at nothing
  *       │    ├─ GroupCardinalityError  — groupBy bucket cap exceeded
  *       │    ├─ IndexRequiredError      — lazy-mode query touches unindexed field
- *       │    └─ IndexWriteFailure       — index side-car put/delete failed post-main
+ *       │    └─ IndexWriteFailureError       — index side-car put/delete failed post-main
  *       ├─ i18n / Dictionary errors
  *       │    ├─ ReservedCollectionNameError
  *       │    ├─ DictKeyMissingError
@@ -647,7 +647,7 @@ export class IndexRequiredError extends NoydbError {
  * already succeeded.
  *
  * Not thrown out of `.put()` / `.delete()` directly — those succeed when the
- * main record succeeds. Instead, `IndexWriteFailure` instances are collected
+ * main record succeeds. Instead, `IndexWriteFailureError` instances are collected
  * into the session-scoped reconcile queue and emitted on the Collection
  * emitter as `index:write-partial`.
  *
@@ -657,7 +657,7 @@ export class IndexRequiredError extends NoydbError {
  * - `op` — `'put'` or `'delete'`, indicating which mutation was in flight
  * - `cause` — the underlying error from the store
  */
-export class IndexWriteFailure extends NoydbError {
+export class IndexWriteFailureError extends NoydbError {
   readonly recordId: string
   readonly field: string
   readonly op: 'put' | 'delete'
@@ -668,7 +668,7 @@ export class IndexWriteFailure extends NoydbError {
       'INDEX_WRITE_FAILURE',
       `Index side-car ${args.op} failed for field "${args.field}" on record "${args.recordId}"`,
     )
-    this.name = 'IndexWriteFailure'
+    this.name = 'IndexWriteFailureError'
     this.recordId = args.recordId
     this.field = args.field
     this.op = args.op
