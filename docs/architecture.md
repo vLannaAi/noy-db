@@ -173,9 +173,41 @@ A `Collection` has two hydration modes:
 
 **Eager (default):** `openCompartment()` loads every record from the adapter, decrypts it, and keeps it in memory. `list()` and `query()` are `Array.filter` over the in-memory map. Indexes are allowed.
 
-**Lazy:** triggered by passing `cache: { maxRecords, maxBytes }` at collection construction. Records are fetched on demand and cached in an LRU keyed by `(compartment, collection, id)`. Eviction is O(1) via a `Map` + delete/set promotion. On cache miss, `get(id)` hits the adapter, decrypts, and populates the LRU. `list()` and `query()` throw — use `scan()` (async iterator, bypasses the LRU) or `loadMore()` (via `listPage`, populates the LRU) instead. Declaring `indexes` is rejected at construction because indexes require full hydration to be correct.
+**Lazy:** triggered by passing `cache: { maxRecords, maxBytes }` at collection construction. Records are fetched on demand and cached in an LRU keyed by `(compartment, collection, id)`. Eviction is O(1) via a `Map` + delete/set promotion. On cache miss, `get(id)` hits the adapter, decrypts, and populates the LRU. `list()` and `query()` throw — use `scan()` (async iterator, bypasses the LRU) or `loadMore()` (via `listPage`, populates the LRU) instead. Indexes in lazy mode are supported as of v0.22 — see [Indexes in lazy mode (v0.22)](#indexes-in-lazy-mode-v022) below.
 
 `prefetch: true` restores eager behavior even when `cache` is set, which is useful for small compartments inside a larger lazy database.
+
+### Indexes in lazy mode (v0.22)
+
+Lazy-mode collections accept the same `indexes: ['field', …]` declaration
+as eager collections. Each declared field materialises a side-car record
+per main record in the reserved id namespace `_idx/<field>/<recordId>`,
+encrypted with the collection DEK using the standard `{ _noydb, _v, _ts,
+_iv, _data }` envelope. The decrypted body is `{ value, writtenAt }` —
+`field` and `recordId` live in the record id, not the body.
+
+On first `.query()` / `.where()` / `.orderBy()` against an indexed field
+in a session, the hub lists every id in the collection, filters to ones
+starting with `_idx/<field>/`, decrypts those envelopes, and populates
+an in-memory `PersistedCollectionIndex`. Subsequent queries hit the
+mirror — equality lookup is O(matches) + `get()` per candidate, sort is
+a single JS `Array.sort` on the pre-decrypted values.
+
+Composite queries (`.where(f1, …).orderBy(f2, …)` with `f1 ≠ f2`)
+require both fields indexed; the query planner throws
+`IndexRequiredError` at build time otherwise. Silent fallback to
+`scan()` is rejected deliberately — hiding the performance cliff
+defeats the entire feature.
+
+Writes on an indexed lazy collection do the main `put` first, then
+sequentially put each index side-car (no CAS on the side-cars). Failures
+are surfaced via the `index:write-partial` event and recovered by
+`reconcileIndex(field)` — the read-time dangling-id filter makes
+false-positive side-cars invisible in the meantime.
+
+Storage footprint at Pilot-2 scale (50K records, 3 indexed fields) is
+~15 MB on disk + ~10 MB decrypted in RAM for the mirror. The mirror is
+NOT evicted by the lazy LRU — it has its own budget.
 
 ```mermaid
 flowchart LR
@@ -353,6 +385,7 @@ The contract is intentionally tiny. Building a custom adapter is `defineAdapter(
 | Revoked user retains old copies | Key rotation makes their old wrapped DEKs decrypt nothing                     |
 | IV reuse                        | Fresh 12-byte random IV per encrypt; never reused                             |
 | Quantum (Grover's)              | AES-256 → 128-bit effective security; safe for the foreseeable future         |
+| Leaked indexed field names      | Accepted — the only new adapter-observable metadata introduced by v0.22 lazy-mode indexes. Field names per collection are visible via side-car id prefixes; value distribution is NOT visible (side-car id contains `recordId`, not a value hash). |
 
 What NOYDB **doesn't** defend against:
 - Compromised client device with active session (KEK is in memory by definition)

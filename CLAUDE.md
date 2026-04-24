@@ -17,7 +17,7 @@ The primary spec is `SPEC.md` — read it before any non-trivial work. It is the
 
 ## Architecture
 
-**Memory-first design:** All data is loaded into memory on open. Queries use `Array.filter()`/`Array.find()`. Target scale: 1K-50K records per vault.
+**Memory-first design:** All data is loaded into memory on open. Queries use `Array.filter()`/`Array.find()`. Target scale: 1K-50K records per vault. Lazy mode (`cache: { maxRecords, maxBytes }`) fetches on demand via LRU; `list()`/`query()` throw in lazy mode — use `scan()`. Declaring `indexes` in lazy mode is **accepted as of v0.22** — side-car records in the `_idx/<field>/<recordId>` id namespace maintain the index. In v0.22 PR 1 (#265) this is scaffold only; PR 2 (#266) adds write-path maintenance, PR 3 (#267) + PR 4 (#268) wire up equality and orderBy dispatch.
 
 **Key hierarchy:** Passphrase → PBKDF2 (600K iterations) → KEK (in-memory only) → unwraps DEKs (one per collection) → AES-256-GCM encrypt/decrypt records.
 

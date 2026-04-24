@@ -1448,6 +1448,14 @@ Every record on disk/DynamoDB/S3 uses this format:
 
 Metadata (`_v`, `_ts`) is intentionally unencrypted — the sync engine needs it without the encryption key.
 
+> **v0.22 note.** Lazy-mode collections additionally persist secondary
+> index entries under the reserved id prefix `_idx/<field>/<recordId>`.
+> Each entry uses the same envelope shape; the encrypted body is
+> `{ "value": <indexed value>, "writtenAt": <iso> }`. This is not a
+> change to the envelope invariant — the envelope is identical; only a
+> reserved id namespace is added (joining `_keyring`, `_ledger_deltas/…`,
+> `_meta/handle`).
+
 ### Keyring File
 
 ```json
