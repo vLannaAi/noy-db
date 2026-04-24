@@ -1,8 +1,8 @@
 # เริ่มต้นที่นี่ · Start here (ไทย)
 
 > **เอกสารหน้าเดียว** สำหรับผู้เริ่มใช้งาน noy-db
-> หากจะอ่าน noy-db สามฉบับ ให้อ่าน: ฉบับนี้, [`docs/topology-matrix.md`](./topology-matrix.md),
-> แล้วตามด้วย [`SPEC.md`](../SPEC.md)
+> หากจะอ่าน noy-db สามฉบับ ให้อ่าน: ฉบับนี้, [`docs/guides/topology-matrix.md`](./topology-matrix.md),
+> แล้วตามด้วย [`SPEC.md`](../../SPEC.md)
 >
 > 🇬🇧 Canonical English version: [`START_HERE.md`](./START_HERE.md)
 
@@ -105,13 +105,13 @@ template ที่พร้อมใช้งาน (v0.13):
 
 | ต้องการ... | อ่าน |
 |-----------|------|
-| เลือก store / topology | [`docs/topology-matrix.md`](./topology-matrix.md) |
-| เข้าใจการตัดสินใจออกแบบทุกข้อ | [`SPEC.md`](../SPEC.md) |
-| เข้าใจ threat model | [`docs/architecture.md`](./architecture.md) |
-| คัดลอก minimal setup | [`docs/getting-started.md`](./getting-started.md) |
+| เลือก store / topology | [`docs/guides/topology-matrix.md`](./topology-matrix.md) |
+| เข้าใจการตัดสินใจออกแบบทุกข้อ | [`SPEC.md`](../../SPEC.md) |
+| เข้าใจ threat model | [`docs/reference/architecture.md`](../reference/architecture.md) |
+| คัดลอก minimal setup | [`docs/guides/getting-started.md`](./getting-started.md) |
 | ดู feature ทุกตัวทำงาน end-to-end | [`showcases/`](../showcases/) — 14 ไฟล์ vitest |
-| เชื่อมต่อ Google / Apple / LINE / Auth0 / Keycloak | [`docs/oidc-providers.md`](./oidc-providers.md) |
-| มีส่วนร่วม | [`CLAUDE.md`](../CLAUDE.md) · [`ROADMAP.md`](../ROADMAP.md) |
+| เชื่อมต่อ Google / Apple / LINE / Auth0 / Keycloak | [`docs/guides/oidc-providers.md`](./oidc-providers.md) |
+| มีส่วนร่วม | [`CLAUDE.md`](../../CLAUDE.md) · [`ROADMAP.md`](../../ROADMAP.md) |
 
 ---
 

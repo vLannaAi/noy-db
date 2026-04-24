@@ -80,6 +80,6 @@ directory with zero additional tooling.
 
 ## Documentation
 
-- [noy-db START_HERE](https://github.com/vLannaAi/noy-db/blob/main/docs/START_HERE.md)
-- [Topology matrix](https://github.com/vLannaAi/noy-db/blob/main/docs/topology-matrix.md)
-- [Architecture](https://github.com/vLannaAi/noy-db/blob/main/docs/architecture.md)
+- [noy-db START_HERE](https://github.com/vLannaAi/noy-db/blob/main/docs/guides/START_HERE.md)
+- [Topology matrix](https://github.com/vLannaAi/noy-db/blob/main/docs/guides/topology-matrix.md)
+- [Architecture](https://github.com/vLannaAi/noy-db/blob/main/docs/reference/architecture.md)

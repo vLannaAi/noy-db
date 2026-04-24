@@ -2,7 +2,7 @@
 
 How NOYDB stores, encrypts, and protects your data.
 
-> Related: [Roadmap](../ROADMAP.md) · [Deployment profiles](./deployment-profiles.md) · [Spec](../SPEC.md)
+> Related: [Roadmap](../../ROADMAP.md) · [Deployment profiles](./deployment-profiles.md) · [Spec](../../SPEC.md)
 
 ---
 
@@ -396,4 +396,4 @@ What NOYDB **doesn't** defend against:
 
 ## What's next
 
-The forward roadmap continues in [`ROADMAP.md`](../ROADMAP.md).
+The forward roadmap continues in [`ROADMAP.md`](../../ROADMAP.md).

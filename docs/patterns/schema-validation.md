@@ -265,7 +265,7 @@ consumer-chosen plaintext egress path. Audit it like you would an
 ## Cross-references
 
 - **[`SPEC.md`](../../SPEC.md)** §"What zero-knowledge does and does not promise" — the section that names consumer-supplied validators as a documented plaintext-exit path (along with `plaintextTranslator` and `@noy-db/as-*`).
-- **[`docs/end-user-features.md`](../end-user-features.md)** (v0.4 #42) — the canonical spec-level description of the feature.
+- **[`docs/guides/end-user-features.md`](../end-user-features.md)** (v0.4 #42) — the canonical spec-level description of the feature.
 - **[`packages/hub/__tests__/schema.test.ts`](../../packages/hub/__tests__/schema.test.ts)** — 424 lines of worked tests covering input/output validation, transforms, history skipping, async validators, issue preservation, Standard Schema compliance.
 - **[`playground/nuxt/app/stores/invoices.ts`](../../playground/nuxt/app/stores/invoices.ts)** — the canonical Zod + `defineNoydbStore` wiring.
 - **[`docs/patterns/as-exports.md`](./as-exports.md)** — where `collection.getSchema()` gets used downstream.

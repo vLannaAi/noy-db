@@ -11,7 +11,7 @@ Every showcase exercises a specific combination of:
 
 - **one or more stores** (`to-memory`, `to-file`, `to-aws-dynamo`, ...)
 - **one framework surface** (`hub` directly, `in-pinia`, `in-vue`, `in-nuxt`, `in-yjs`)
-- **one topology pattern** (see [`docs/topology-matrix.md`](../docs/topology-matrix.md))
+- **one topology pattern** (see [`docs/guides/topology-matrix.md`](../docs/guides/topology-matrix.md))
 
 The matrix document is the map; showcases are the proof a particular cell
 actually works.
@@ -62,7 +62,7 @@ live as pages in the Nuxt playground so they can drive real
   `@noy-db/on-webauthn`. Run with `pnpm --filter @noy-db/playground-nuxt dev`.
 - **`/oidc`** — configurable multi-provider login (Google, Apple, LINE,
   Meta, Auth0, Keycloak). Set client IDs in `playground/nuxt/.env`;
-  see [`docs/oidc-providers.md`](../docs/oidc-providers.md) for per-provider
+  see [`docs/guides/oidc-providers.md`](../docs/guides/oidc-providers.md) for per-provider
   setup walkthroughs.
 
 ## Cloud showcases — profile-based AWS auth

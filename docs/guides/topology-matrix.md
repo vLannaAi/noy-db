@@ -265,7 +265,7 @@ with passkey-first UX, shared-device workflows with a personal security
 key).
 **Showcase proof** — #12 OIDC bridge (automated), #13 WebAuthn
 (automated + real-biometric demo at `playground/nuxt/pages/webauthn.vue`).
-**Per-provider setup** — `docs/oidc-providers.md` walks through Google,
+**Per-provider setup** — `docs/guides/oidc-providers.md` walks through Google,
 Apple, LINE, Meta, Auth0, and Keycloak.
 
 ### Pattern I — Multi-tenant geographic sharding

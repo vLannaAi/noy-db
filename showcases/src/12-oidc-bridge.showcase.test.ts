@@ -35,7 +35,7 @@
  * already passed.
  *
  * For an interactive demo against a real OIDC provider (Auth0 / Keycloak),
- * see `playground/nuxt/app/pages/oidc.vue` and `docs/oidc-providers.md`.
+ * see `playground/nuxt/app/pages/oidc.vue` and `docs/guides/oidc-providers.md`.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'

@@ -63,7 +63,7 @@ Plus docs sweep + release PR at the end, matching the v0.3 rhythm.
 
 - [ ] All 5 deliverable sub-issues closed and merged into `v0.4-dev`
 - [ ] Reference accounting demo in `playground/nuxt/` uses schema validation + ledger verification + ref() — evidence of end-to-end composition
-- [ ] Docs sweep: `docs/architecture.md` documents the ledger, `docs/end-user-features.md` has a runnable snippet per feature
+- [ ] Docs sweep: `docs/reference/architecture.md` documents the ledger, `docs/guides/end-user-features.md` has a runnable snippet per feature
 - [ ] Release PR merges `v0.4-dev` → `main`
 - [ ] `@noy-db/core` bumped to `0.4.0` (other packages stay at `0.3.x` unless they actually change)
 - [ ] GitHub Release `v0.4.0` published; Flow B publishes to npm with provenance

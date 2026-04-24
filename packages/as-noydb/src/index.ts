@@ -19,7 +19,7 @@
  * package never reveals a single byte of plaintext to its caller or
  * any downstream handler. The vault's DEKs re-encrypt the body before
  * it leaves the gate; the bundle header is the minimal-disclosure
- * shape defined in `docs/architecture.md`.
+ * shape defined in `docs/reference/architecture.md`.
  *
  * **No `acknowledgeRisks: true` on `write()`.** Writing a `.noydb` to
  * disk is a legitimate encrypted-tier destination — the bytes are

@@ -270,7 +270,7 @@ implementation — worth preserving as the package grows.
 
 ## Cross-references
 
-- **[`docs/topology-matrix.md`](../topology-matrix.md)** — multi-locale showcase (#14) exercises the i18nText + dictionary primitives end-to-end.
+- **[`docs/guides/topology-matrix.md`](../topology-matrix.md)** — multi-locale showcase (#14) exercises the i18nText + dictionary primitives end-to-end.
 - **[`docs/patterns/email-archive.md`](./email-archive.md)** — composite entities; email bodies in multi-locale settings apply the same layer-1 / layer-2 split.
 - **[`SPEC.md`](../../SPEC.md) — "What zero-knowledge does and does not promise"** — the `plaintextTranslator` section is the authoritative definition of the boundary. This pattern doc is the practitioner companion.
 - **Issue #245** — `@noy-db/locale-th` proposal (withdrawn) — historical record of why market-specific packages live in userland, not under the `@noy-db/` scope.

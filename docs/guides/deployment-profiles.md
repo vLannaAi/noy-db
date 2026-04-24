@@ -2,7 +2,7 @@
 
 NOYDB supports many topologies. Pick the one that matches your stack.
 
-> Related: [Roadmap](../ROADMAP.md) · [Architecture](./architecture.md) · [Adapters](./adapters.md) · [Getting started](./getting-started.md)
+> Related: [Roadmap](../../ROADMAP.md) · [Architecture](../reference/architecture.md) · [Adapters](../packages/stores.md) · [Getting started](./getting-started.md)
 
 ---
 
@@ -232,7 +232,7 @@ flowchart LR
 
 **Use case:** Multi-device web app for the accounting firm — staff log in from any browser, pick up where they left off, work offline at client sites.
 **Pros:** Zero install on the client (PWA), instant cache hydration, multi-device via cloud, full reactivity through Pinia.
-**Cons:** Browser storage limits (use lazy hydration + LRU for >50K records — see [Caching and lazy hydration](./architecture.md#caching-and-lazy-hydration)).
+**Cons:** Browser storage limits (use lazy hydration + LRU for >50K records — see [Caching and lazy hydration](../reference/architecture.md#caching-and-lazy-hydration)).
 **SSR safety:** Module registers the runtime plugin with `mode: 'client'`. Server bundle has zero crypto symbols (CI-verified).
 
 ---

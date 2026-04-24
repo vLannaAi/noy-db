@@ -26,7 +26,7 @@ Today a bad record silently persists and explodes later at the UI layer. With sc
 - On \`get()\`/\`list()\`/\`query()\` results: same validation applied after decrypt. Misvalidation here is a **hard error** — it means stored data diverged from the current schema, which should be loud. (Future: a \`migrate\` hook that can upgrade legacy records.)
 - Type parameter \`T\` is inferred from \`StandardSchemaV1.InferOutput<Schema>\` when a schema is supplied.
 - Standard Schema is a TYPES-ONLY protocol. No runtime dep. Validators are peer-optional — users install their own.
-- Add examples to \`docs/end-user-features.md\` using Zod and Valibot side-by-side.
+- Add examples to \`docs/guides/end-user-features.md\` using Zod and Valibot side-by-side.
 
 ## Acceptance criteria
 

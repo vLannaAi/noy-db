@@ -5,7 +5,7 @@
  * Framework: Vue (`useCollection`, `useSync`)
  * Store:     `memory()` × 3 (office A local, office B local, shared cloud)
  * Pattern:   Offline-first multi-device sync via a shared sync target
- *            (see docs/topology-matrix.md, Pattern D — cloud peer).
+ *            (see docs/guides/topology-matrix.md, Pattern D — cloud peer).
  * Dimension: Offline-first + sync + conflict resolution with reactive Vue state.
  *
  * What this proves:

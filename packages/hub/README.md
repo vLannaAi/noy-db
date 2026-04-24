@@ -148,7 +148,7 @@ CSV, XML, xlsx, and the rest of the plaintext tier — plus encrypted `.noydb` b
 
 - Full docs: https://github.com/vLannaAi/noy-db#readme
 - Spec: https://github.com/vLannaAi/noy-db/blob/main/SPEC.md
-- AI reference: https://github.com/vLannaAi/noy-db/blob/main/docs/noydb-for-ai.md
+- AI reference: https://github.com/vLannaAi/noy-db/blob/main/docs/guides/noydb-for-ai.md
 
 ## License
 

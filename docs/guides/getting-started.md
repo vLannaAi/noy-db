@@ -397,7 +397,7 @@ await invoices.$noydb.revoke('demo-co', {
 | viewer   | all      | —        | —                      | yes    |
 | client   | granted  | —        | —                      | granted |
 
-See [`architecture.md`](./architecture.md) for the key hierarchy and rotation flow.
+See [`architecture.md`](../reference/architecture.md) for the key hierarchy and rotation flow.
 
 ---
 
@@ -459,7 +459,7 @@ const db = await createNoydb({
 ## Next steps
 
 - [End-user features](./end-user-features.md) — runnable examples of every feature
-- [Architecture](./architecture.md) — data flow, key hierarchy, threat model
-- [Adapters](./adapters.md) — built-in adapters and custom adapter development
+- [Architecture](../reference/architecture.md) — data flow, key hierarchy, threat model
+- [Adapters](../packages/stores.md) — built-in adapters and custom adapter development
 - [Deployment profiles](./deployment-profiles.md) — pick a topology for your stack
-- [Roadmap](../ROADMAP.md) — what's shipped and what's next
+- [Roadmap](../../ROADMAP.md) — what's shipped and what's next

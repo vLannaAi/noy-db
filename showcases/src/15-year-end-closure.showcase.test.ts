@@ -4,7 +4,7 @@
  *
  * Framework: pure hub
  * Store:     `memory()`
- * Pattern:   Local only (see docs/topology-matrix.md, Pattern A)
+ * Pattern:   Local only (see docs/guides/topology-matrix.md, Pattern A)
  * Dimension: accounting compliance — period closure + opening + audit
  *
  * What this proves:

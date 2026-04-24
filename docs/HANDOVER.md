@@ -2,7 +2,7 @@
 
 > **Purpose:** context for the next session. Start fresh — older session
 > notes have been retired. Historical ship decisions live in
-> [`docs/spec/`](./docs/spec/INDEX.md).
+> [`docs/spec/`](./spec/INDEX.md).
 
 **Current state:** v0.21 epoch opening. Foundation epoch closed with
 56 packages shipped, four prefix families populated
@@ -101,10 +101,10 @@ down too.
 
 | Prefix | Count | Where to look |
 |---|---:|---|
-| `@noy-db/to-*` | 20 | [`docs/packages/stores.md`](./docs/packages/stores.md) |
-| `@noy-db/in-*` | 10 | [`docs/packages/integrations.md`](./docs/packages/integrations.md) |
-| `@noy-db/on-*` | 9 | [`docs/packages/auth.md`](./docs/packages/auth.md) |
-| `@noy-db/as-*` | 9 | [`docs/packages/exports.md`](./docs/packages/exports.md) |
+| `@noy-db/to-*` | 20 | [`docs/packages/stores.md`](./packages/stores.md) |
+| `@noy-db/in-*` | 10 | [`docs/packages/integrations.md`](./packages/integrations.md) |
+| `@noy-db/on-*` | 9 | [`docs/packages/auth.md`](./packages/auth.md) |
+| `@noy-db/as-*` | 9 | [`docs/packages/exports.md`](./packages/exports.md) |
 | hub + tooling | 8 | `@noy-db/hub`, `@noy-db/p2p`, `@noy-db/cli`, `create-noy-db`, `@noy-db/to-meter`, `@noy-db/to-probe` |
 
 ---

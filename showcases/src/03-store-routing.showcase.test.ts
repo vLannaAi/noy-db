@@ -4,7 +4,7 @@
  *
  * Framework: Node.js (pure hub, no framework glue)
  * Store:     `routeStore({ default, routes: { audit } })`
- * Pattern:   Store multiplexing (see docs/topology-matrix.md, v0.12)
+ * Pattern:   Store multiplexing (see docs/guides/topology-matrix.md, v0.12)
  * Dimension: Extreme versatility — one logical Noydb fronting many backends
  *
  * What this proves:

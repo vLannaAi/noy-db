@@ -40,7 +40,7 @@ Existing Nuxt 4 projects must be able to adopt NOYDB with one line in `nuxt.conf
 - [ ] **Integration tests:** Nuxt fixture in `packages/nuxt/test/fixtures/basic/` built with `@nuxt/test-utils`; asserts pages render, `useCollection` hydrates client-side, SSR HTML contains skeleton not plaintext.
 - [ ] **Server-bundle assertion test:** parses the built Nitro output and fails if it contains the strings `crypto.subtle`, `decrypt`, `DEK`, `KEK`, or `unwrapKey`.
 - [ ] **Type tests:** `expect-type` checks on the `noydb` config key in `nuxt.config.ts`.
-- [ ] **Docs:** `packages/nuxt/README.md` with one-line install + every option; update `docs/getting-started.md`.
+- [ ] **Docs:** `packages/nuxt/README.md` with one-line install + every option; update `docs/guides/getting-started.md`.
 - [ ] **Changeset:** new package release at `0.3.0`.
 - [ ] **CI:** new job `nuxt-module-test` running the Nuxt fixture build on Node 20 + 22.
 - [ ] **Bundle:** module dist <15 KB gzipped (excluding peer-imported NOYDB packages).

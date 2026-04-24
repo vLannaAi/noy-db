@@ -12,7 +12,7 @@
  *   - `blob` routes (if present) sit on a bundle-capable store.
  *
  * **scaffold** — emit a working skeleton for one of the topology
- * profiles from `docs/topology-matrix.md`. Output goes to stdout
+ * profiles from `docs/guides/topology-matrix.md`. Output goes to stdout
  * (pipe to a file yourself) and is a ready-to-edit `.ts` + `.env`
  * pair, concatenated so the consumer can split them.
  *
@@ -144,7 +144,7 @@ export async function runConfigValidate(argv: readonly string[]): Promise<number
 
 // ── Scaffold ────────────────────────────────────────────────────────────
 
-/** Profiles match `docs/topology-matrix.md` § View 3. */
+/** Profiles match `docs/guides/topology-matrix.md` § View 3. */
 export type Profile = 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H' | 'I' | 'J'
 
 export interface ScaffoldResult {
@@ -355,7 +355,7 @@ export async function runConfigScaffold(argv: readonly string[]): Promise<number
   const profileArg = argv.find((a) => a.startsWith('--profile='))
   const profile = (profileArg?.split('=')[1] ?? 'A') as Profile
   if (!/^[A-J]$/.test(profile)) {
-    process.stderr.write(`unknown profile: ${profile}. Valid: A-J (see docs/topology-matrix.md)\n`)
+    process.stderr.write(`unknown profile: ${profile}. Valid: A-J (see docs/guides/topology-matrix.md)\n`)
     return 2
   }
   const out = scaffold(profile)

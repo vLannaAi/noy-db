@@ -21,7 +21,7 @@ Related docs:
 
 - [README](./README.md) — mental model in one page
 - [Package catalog](./docs/packages/stores.md) — `to-*` (stores), [`in-*` (integrations)](./docs/packages/integrations.md), [`on-*` (auth)](./docs/packages/auth.md), [`as-*` (exports)](./docs/packages/exports.md)
-- [Architecture](./docs/architecture.md) — data flow + threat model
+- [Architecture](./docs/reference/architecture.md) — data flow + threat model
 - [SPEC](./SPEC.md) — design invariants (do not violate)
 - [Spec archive](./docs/spec/INDEX.md) — the *why* behind every shipped feature
 

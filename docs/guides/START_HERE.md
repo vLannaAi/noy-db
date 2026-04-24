@@ -1,8 +1,8 @@
 # Start here
 
 > **One-page entry point** for adopters. If you read three noy-db docs,
-> read this one, [`docs/topology-matrix.md`](./topology-matrix.md), and
-> [`SPEC.md`](../SPEC.md) — in that order.
+> read this one, [`docs/guides/topology-matrix.md`](./topology-matrix.md), and
+> [`SPEC.md`](../../SPEC.md) — in that order.
 >
 > 🇹🇭 อ่านภาษาไทย: [`START_HERE.th.md`](./START_HERE.th.md)
 
@@ -168,7 +168,7 @@ Every subpath is additive — the main entry keeps working unchanged.
 | **Integrity** | Hash-chained ledger, `.noydb` encrypted bundle format, tamper detection |
 | **Testing** | 950+ hub tests + 14 end-to-end showcases, happy-dom for Vue/Pinia/WebAuthn tests |
 
-For what's next, see [`ROADMAP.md`](../ROADMAP.md). For the *why*
+For what's next, see [`ROADMAP.md`](../../ROADMAP.md). For the *why*
 behind every shipped feature, see [`docs/spec/INDEX.md`](./spec/INDEX.md).
 
 ---
@@ -177,19 +177,19 @@ behind every shipped feature, see [`docs/spec/INDEX.md`](./spec/INDEX.md).
 
 | You want to... | Read |
 |----------------|------|
-| Pick the right store / topology for your app | [`docs/topology-matrix.md`](./topology-matrix.md) |
-| Understand every design decision | [`SPEC.md`](../SPEC.md) |
-| Learn the threat model | [`docs/architecture.md`](./architecture.md) |
-| Copy-paste a minimal setup | [`docs/getting-started.md`](./getting-started.md) |
+| Pick the right store / topology for your app | [`docs/guides/topology-matrix.md`](./topology-matrix.md) |
+| Understand every design decision | [`SPEC.md`](../../SPEC.md) |
+| Learn the threat model | [`docs/reference/architecture.md`](../reference/architecture.md) |
+| Copy-paste a minimal setup | [`docs/guides/getting-started.md`](./getting-started.md) |
 | See every feature exercised end-to-end | [`showcases/`](../showcases/) — 14 vitest files, each a self-contained tutorial |
-| Plug into Google / Apple / LINE / Meta / Auth0 / Keycloak | [`docs/oidc-providers.md`](./oidc-providers.md) |
+| Plug into Google / Apple / LINE / Meta / Auth0 / Keycloak | [`docs/guides/oidc-providers.md`](./oidc-providers.md) |
 | Model a composite entity (invoice + its PDF, email + attachments) | [`docs/patterns/email-archive.md`](./patterns/email-archive.md) — decision matrix for "what's record vs what's blob" |
 | Understand what hub does (and doesn't) do with language content | [`docs/patterns/i18n-boundaries.md`](./patterns/i18n-boundaries.md) — content-agnostic design; where translation / collation / fiscal logic actually lives |
 | Export data — plaintext (`.xlsx`/`.csv`/`.pdf`) for end users or encrypted (`.noydb`) for backup — without breaking zero-knowledge | [`docs/patterns/as-exports.md`](./patterns/as-exports.md) — the `as-*` family (two tiers + authorization model), working pattern today with SheetJS |
 | Stop wrong-shape data at the door with Zod / Valibot / ArkType | [`docs/patterns/schema-validation.md`](./patterns/schema-validation.md) — Standard Schema v1 integration, input + output validation, schema evolution patterns |
 | Subscribe to every put/delete on a collection (audit-trail / inbox UI) | `collection.subscribe(event => …)` — fires `{ type: 'put' \| 'delete', id, record }` post-commit; returns an unsubscribe function. Event stream, not reactive value (for reactive state use `query().live()`). |
 | Resolve sync conflicts when two operators edit the same record offline | [`docs/patterns/conflict-resolution.md`](./patterns/conflict-resolution.md) — four built-in policies (LWW / FWW / manual / custom merge), multi-office worked example, pitfalls |
-| Contribute code | [`CLAUDE.md`](../CLAUDE.md) — coding conventions; [`ROADMAP.md`](../ROADMAP.md) — open milestones |
+| Contribute code | [`CLAUDE.md`](../../CLAUDE.md) — coding conventions; [`ROADMAP.md`](../../ROADMAP.md) — open milestones |
 
 ---
 

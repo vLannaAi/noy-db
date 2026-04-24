@@ -1,4 +1,4 @@
-# Issue #224 — docs(i18n): Thai translation of README + docs/START_HERE.md + architecture.md + topology-matrix.md
+# Issue #224 — docs(i18n): Thai translation of README + docs/guides/START_HERE.md + architecture.md + topology-matrix.md
 
 - **State:** closed
 - **Author:** @vLannaAi

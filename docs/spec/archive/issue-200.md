@@ -9,4 +9,4 @@
 
 ---
 
-CLI: `noydb config validate <file.ts>` checks that a NoydbOptions object is coherent (e.g. casAtomic consumers use a casAtomic adapter; sync targets pair with syncPolicy; blob adapters support chunking). Also `noydb config scaffold --profile=C` emits a working .env + config.ts for the topology pattern from docs/topology-matrix.md.
+CLI: `noydb config validate <file.ts>` checks that a NoydbOptions object is coherent (e.g. casAtomic consumers use a casAtomic adapter; sync targets pair with syncPolicy; blob adapters support chunking). Also `noydb config scaffold --profile=C` emits a working .env + config.ts for the topology pattern from docs/guides/topology-matrix.md.

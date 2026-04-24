@@ -21,8 +21,8 @@ The gap is not the feature — it is **discoverability**. Pilot hit call-site Zo
 
 1. **Docs**: surface the `schema:` option prominently in
    - `README.md` quick-start section (extend the `defineNoydbStore` example to pass `schema`)
-   - `docs/START_HERE.md` feature inventory (tier up from "Schema validation" one-liner to a proper example)
-   - `docs/getting-started.md` (main integration walkthrough — currently does not mention)
+   - `docs/guides/START_HERE.md` feature inventory (tier up from "Schema validation" one-liner to a proper example)
+   - `docs/guides/getting-started.md` (main integration walkthrough — currently does not mention)
    - A new `docs/patterns/schema-validation.md` sibling to the email-archive pattern doc
 
 2. **Audit**: confirm the schema hook fires at every entry point that accepts record data:

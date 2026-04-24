@@ -167,9 +167,9 @@ const drafts = invoices.query()
 
 ## Documentation
 
-- 🚀 [เริ่มต้นที่นี่ (ไทย)](./docs/START_HERE.th.md) — จุดเข้าหลัก
-- 🧭 [Topology matrix](./docs/topology-matrix.md) — เลือก store / pattern
-- 📐 [Architecture](./docs/architecture.md) — data flow + threat model
+- 🚀 [เริ่มต้นที่นี่ (ไทย)](./docs/guides/START_HERE.th.md) — จุดเข้าหลัก
+- 🧭 [Topology matrix](./docs/guides/topology-matrix.md) — เลือก store / pattern
+- 📐 [Architecture](./docs/reference/architecture.md) — data flow + threat model
 - 📋 [SPEC](./SPEC.md) — design invariants
 - 🗺️ [ROADMAP](./ROADMAP.md) — trunk + forks + timeline
 

@@ -3,7 +3,7 @@
  *
  * Framework: Pure hub (Node.js, no framework glue)
  * Store:     `routeStore({ default: dynamo(...), blobs: s3(...) })`
- * Pattern:   Pattern C from docs/topology-matrix.md — canonical split-store
+ * Pattern:   Pattern C from docs/guides/topology-matrix.md — canonical split-store
  *            topology: structured records to DynamoDB (CAS-atomic, cheap
  *            per-item), encrypted binary chunks to S3 (unlimited size,
  *            lifecycle-tierable). One `createNoydb()` call, transparent

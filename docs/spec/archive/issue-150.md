@@ -58,7 +58,7 @@ Rename all packages to a consistent taxonomy before the first stable public rele
 - [ ] Rename all `packages/*` directories
 - [ ] Update all `package.json` names
 - [ ] Update all internal cross-package imports and peerDependencies
-- [ ] Update `CLAUDE.md`, `SPEC.md`, `ROADMAP.md`, `HANDOVER.md`
+- [ ] Update `CLAUDE.md`, `SPEC.md`, `ROADMAP.md`, `docs/HANDOVER.md`
 - [ ] Update CI workflows (package paths, names)
 - [ ] Update `scripts/release.mjs` exclusion list
 - [ ] Verify all 1065+ tests pass after rename

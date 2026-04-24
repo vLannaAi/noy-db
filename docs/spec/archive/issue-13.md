@@ -43,7 +43,7 @@ Indexes are required to hit the v0.3 acceptance criterion "indexed queries are m
 - [ ] **Integration tests:** seed 10K records, build a `status` index, run an indexed query, assert it returns identical results to a non-indexed run.
 - [ ] **Benchmark test:** `bench/indexed-vs-linear.bench.ts` using vitest's `bench` API; CI gate ensures indexed query is at least 5× faster than linear scan on 10K records.
 - [ ] **Type tests:** `IndexDef` types check; field names constrained to schema keys when a schema is provided.
-- [ ] **Docs:** add an "Indexes" section in `docs/end-user-features.md` and the core README.
+- [ ] **Docs:** add an "Indexes" section in `docs/guides/end-user-features.md` and the core README.
 - [ ] **Changeset:** included in core `0.3.0`.
 - [ ] **CI:** existing core test job runs the bench in a guarded mode.
 - [ ] **Bundle:** index module <4 KB gzipped; core total stays under 30 KB.

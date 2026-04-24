@@ -290,7 +290,7 @@ authoritative.
 ### v0.15.0 — Pre-distribution & documentation (P3)
 
 - [#223 — Issue #223 — docs(entry-point): consolidate SPEC.md + architecture.md + topology-matrix.md into a single reader-facing entry doc](./archive/issue-223.md) · 2026-04-21
-- [#224 — Issue #224 — docs(i18n): Thai translation of README + docs/START_HERE.md + architecture.md + topology-matrix.md](./archive/issue-224.md) · 2026-04-21
+- [#224 — Issue #224 — docs(i18n): Thai translation of README + docs/guides/START_HERE.md + architecture.md + topology-matrix.md](./archive/issue-224.md) · 2026-04-21
 - [#225 — Issue #225 — docs(presentation): slide deck explaining noy-db in 20 slides (problem → architecture → showcases → adoption)](./archive/issue-225.md) · 2026-04-21
 - [#226 — Issue #226 — docs(roadmap): rewrite ROADMAP.md for trunk + forks structure](./archive/issue-226.md) · 2026-04-21
 - [#227 — Issue #227 — docs(api-audit): decide auth- vs on- prefix for authentication packages — consistency audit + migration plan](./archive/issue-227.md) · 2026-04-21

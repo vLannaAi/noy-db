@@ -39,7 +39,7 @@ This is the front door of the v0.3 adoption story. A greenfield Vue/Nuxt develop
 - [ ] **Integration tests:** at least one test that runs the compiled CLI in a temp dir against `@noy-db/memory` and verifies the integrity check passes.
 - [ ] **E2E tests:** dedicated CI job that runs `npm create noy-db@latest` end-to-end in a clean temp dir for each (framework × adapter × pm) combination from the matrix, then runs `pnpm typecheck` and `pnpm build` on the generated project. Matrix runs on macOS, Linux, Windows, Node 20 + 22.
 - [ ] **Type tests:** prompt option types exported and asserted with `vitest expect-type`.
-- [ ] **Docs:** `packages/create-noy-db/README.md` with the four package-manager invocations and the question list. Update `docs/getting-started.md` to lead with the wizard.
+- [ ] **Docs:** `packages/create-noy-db/README.md` with the four package-manager invocations and the question list. Update `docs/guides/getting-started.md` to lead with the wizard.
 - [ ] **Changeset:** new package release at `0.3.0`.
 - [ ] **CI:** new workflow job `e2e-scaffolder` with the matrix above; runs only on PRs touching `packages/create-noy-db/**` and on the release branch.
 - [ ] **Bundle:** CLI bundle <100 KB gzipped (templates excluded).

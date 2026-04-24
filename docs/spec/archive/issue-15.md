@@ -40,7 +40,7 @@ The current memory-first model caps NOYDB at 1K–50K records per compartment. v
 - [ ] **Unit tests:** at least 16 `it()` blocks across `lru.test.ts`, `hydration.test.ts`, `policy.test.ts`. Cover: byte-budget eviction, record-count eviction, dirty record pinned across eviction, `prefetch: true` matches v0.2 behavior, `prefetch: false` empty initial state, on-demand `get(id)` populates the cache, cache stats accuracy, `'50MB'` and `'1GB'` parsing, invalid byte string rejected, query result re-hydrates evicted records, default options preserve v0.2 semantics, eviction never drops a record currently held by an active `live()` subscription from #6.
 - [ ] **Integration tests:** open a collection of 50K records with `{ cache: { maxRecords: 1000 } }` and `prefetch: false`; iterate them randomly; assert peak loaded records stays at 1000.
 - [ ] **Type tests:** `expect-type` for the cache options shape.
-- [ ] **Docs:** new "Caching and lazy hydration" section in `docs/end-user-features.md`; update `docs/architecture.md` to note that the memory-first invariant is now opt-in via `prefetch: true`.
+- [ ] **Docs:** new "Caching and lazy hydration" section in `docs/guides/end-user-features.md`; update `docs/reference/architecture.md` to note that the memory-first invariant is now opt-in via `prefetch: true`.
 - [ ] **Changeset:** included in core `0.3.0`.
 - [ ] **CI:** existing core test job.
 - [ ] **Bundle:** cache module <3 KB gzipped; core stays under 30 KB.

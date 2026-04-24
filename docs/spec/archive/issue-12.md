@@ -48,7 +48,7 @@ Without a query layer, every consumer rewrites `Array.filter` and `Array.find`. 
 - [ ] **Parity test:** at least one `it()` block that generates 50 random predicates and asserts the query result equals `Array.filter` with the equivalent function. (DoD criterion.)
 - [ ] **Integration tests:** end-to-end test against `@noy-db/memory` with 1K records exercising every operator.
 - [ ] **Type tests:** `expect-type` ensures `where('status', '==', value)` constrains `value` to the schema field type when a schema is provided.
-- [ ] **Docs:** new section in `docs/end-user-features.md`; query DSL reference in core README.
+- [ ] **Docs:** new section in `docs/guides/end-user-features.md`; query DSL reference in core README.
 - [ ] **Changeset:** minor bump on `@noy-db/core` to `0.3.0`.
 - [ ] **CI:** existing core test job; add the parity test as a guarded fast suite.
 - [ ] **Bundle:** total core stays under 30 KB gzipped (the DSL adds <5 KB).

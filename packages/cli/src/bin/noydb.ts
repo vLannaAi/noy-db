@@ -38,7 +38,7 @@ function usage(): string {
     '  noydb --version                            Print CLI version',
     '  noydb --help                               Show this message',
     '',
-    'Profiles for `config scaffold` map to docs/topology-matrix.md § View 3.',
+    'Profiles for `config scaffold` map to docs/guides/topology-matrix.md § View 3.',
   ].join('\n')
 }
 

@@ -50,7 +50,7 @@ New doc `docs/patterns/conflict-resolution.md` covering:
 
 6. **Multi-operator scenario (pilots driver)**: owner and staff-operator both edit the same client record. Concrete walkthrough: conflict is detected, staff-operators write rolls back with `ConflictError`, UI shows a merge dialog, resolver chosen, write retries with new `expectedVersion`.
 
-7. **Sync and conflict** — how the sync engine uses the policy (push-time and pull-time). Cross-ref to `docs/topology-matrix.md` Pattern E Team-sync peers.
+7. **Sync and conflict** — how the sync engine uses the policy (push-time and pull-time). Cross-ref to `docs/guides/topology-matrix.md` Pattern E Team-sync peers.
 
 8. **Cross-refs**:
    - Topology matrix Pattern E (team sync)

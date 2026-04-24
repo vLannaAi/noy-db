@@ -18,11 +18,11 @@ Restructures the documentation around three concerns and plans v0.3 in detail:
 1. **Roadmap moved to repo root** (`docs/ROADMAP.md` → `ROADMAP.md`) following GitHub community-health convention. Slimmed from 1521 → 383 lines: release table, Mermaid Gantt, per-version sections, 22 testable acceptance criteria for v0.3.
 
 2. **Two new docs split out** with Mermaid diagrams (no ASCII art):
-   - `docs/architecture.md` — data flow, key hierarchy, multi-user model, key rotation, envelope format, adapter interface, threat model
-   - `docs/deployment-profiles.md` — 8 deployment topologies with install commands
+   - `docs/reference/architecture.md` — data flow, key hierarchy, multi-user model, key rotation, envelope format, adapter interface, threat model
+   - `docs/guides/deployment-profiles.md` — 8 deployment topologies with install commands
 
 3. **Filename casing normalized** under `docs/`:
-   - `docs/NOYDB_FOR_AI.md` → `docs/noydb-for-ai.md` (kebab-case convention)
+   - `docs/NOYDB_FOR_AI.md` → `docs/guides/noydb-for-ai.md` (kebab-case convention)
    - Internal links updated across `README.md`, `packages/core/README.md`, both new docs
 
 ## v0.3 plan (Pinia-first DX + query & scale)
@@ -54,6 +54,6 @@ A separate PR (`chore/v0.3-workflow`) will add the governance files (PR template
 ## Notes for reviewers
 
 - No code changes — docs only.
-- The detailed phase walkthrough that used to live in `ROADMAP.md` (Phase 0 scaffolding, Phase 1 source files, etc.) has been removed; that content is now historical and lives in `git log`. A 7-bullet "Implementation history" summary is preserved at the bottom of `docs/architecture.md`.
+- The detailed phase walkthrough that used to live in `ROADMAP.md` (Phase 0 scaffolding, Phase 1 source files, etc.) has been removed; that content is now historical and lives in `git log`. A 7-bullet "Implementation history" summary is preserved at the bottom of `docs/reference/architecture.md`.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)

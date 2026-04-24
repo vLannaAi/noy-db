@@ -15,7 +15,7 @@ Part of #6 (v0.3 release).
 
 ## Scope
 
-Update the existing documentation set to reflect every v0.3 feature. Touches `docs/architecture.md`, `docs/getting-started.md`, `docs/end-user-features.md`, `docs/adapters.md`, `docs/deployment-profiles.md`, plus the root `README.md` and `ROADMAP.md`. No new doc site infrastructure — that's v1.0. Each doc must show the v0.3 idiomatic example (Pinia store), with the low-level `Compartment`/`Collection` API kept as a "Going lower" appendix.
+Update the existing documentation set to reflect every v0.3 feature. Touches `docs/reference/architecture.md`, `docs/guides/getting-started.md`, `docs/guides/end-user-features.md`, `docs/packages/stores.md`, `docs/guides/deployment-profiles.md`, plus the root `README.md` and `ROADMAP.md`. No new doc site infrastructure — that's v1.0. Each doc must show the v0.3 idiomatic example (Pinia store), with the low-level `Compartment`/`Collection` API kept as a "Going lower" appendix.
 
 ## Why
 
@@ -23,11 +23,11 @@ The v0.3 adoption story collapses if the docs still lead with `createNoydb()` bo
 
 ## Technical design
 
-- `docs/getting-started.md`: rewrite the intro to lead with `npm create noy-db@latest`. Add a second section "Existing Nuxt 4 project" using `@noy-db/nuxt`. Move the manual `createNoydb()` walkthrough to an appendix.
-- `docs/architecture.md`: note that the memory-first invariant is now opt-in via `prefetch: true`. Add a "Caching and lazy hydration" subsection cross-linking to #9. Document how the Pinia store sits on top of `Collection` without weakening the encryption boundary.
-- `docs/end-user-features.md`: add sections for query DSL (#6), encrypted indexes (#7), pagination + scan (#8), lazy hydration (#9), Pinia integration (#4/#5), Nuxt module (#2). Each section gets a runnable code snippet.
-- `docs/adapters.md`: document the optional `listPage` capability and the capability flag pattern.
-- `docs/deployment-profiles.md`: add a "Nuxt 4 + browser adapter + Dynamo sync" profile and a "Nuxt 4 + file adapter (USB workflow)" profile.
+- `docs/guides/getting-started.md`: rewrite the intro to lead with `npm create noy-db@latest`. Add a second section "Existing Nuxt 4 project" using `@noy-db/nuxt`. Move the manual `createNoydb()` walkthrough to an appendix.
+- `docs/reference/architecture.md`: note that the memory-first invariant is now opt-in via `prefetch: true`. Add a "Caching and lazy hydration" subsection cross-linking to #9. Document how the Pinia store sits on top of `Collection` without weakening the encryption boundary.
+- `docs/guides/end-user-features.md`: add sections for query DSL (#6), encrypted indexes (#7), pagination + scan (#8), lazy hydration (#9), Pinia integration (#4/#5), Nuxt module (#2). Each section gets a runnable code snippet.
+- `docs/packages/stores.md`: document the optional `listPage` capability and the capability flag pattern.
+- `docs/guides/deployment-profiles.md`: add a "Nuxt 4 + browser adapter + Dynamo sync" profile and a "Nuxt 4 + file adapter (USB workflow)" profile.
 - Root `README.md`: replace the "Quick start" with the two-minute Pinia story.
 - `ROADMAP.md`: mark v0.3 as shipped (in the release PR — #12).
 
@@ -35,7 +35,7 @@ The v0.3 adoption story collapses if the docs still lead with `createNoydb()` bo
 
 - [ ] **Content:** every file above updated with the v0.3 examples.
 - [ ] **Link check:** all internal links resolve (CI markdown link check).
-- [ ] **Code-snippet check:** every code block in `docs/getting-started.md` and `docs/end-user-features.md` is extracted and type-checked in CI (extend the existing snippet test or add one if missing).
+- [ ] **Code-snippet check:** every code block in `docs/guides/getting-started.md` and `docs/guides/end-user-features.md` is extracted and type-checked in CI (extend the existing snippet test or add one if missing).
 - [ ] **Privacy guard:** all examples use generic names; privacy guard CI passes.
 - [ ] **Cross-links:** every new feature section links to the issue number that introduced it (or the PR).
 - [ ] **No new files:** unless absolutely required — prefer editing existing docs (per CLAUDE.md).

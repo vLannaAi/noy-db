@@ -175,7 +175,7 @@ pnpm add @noy-db/in-nextjs @noy-db/in-react @noy-db/hub @noy-db/to-browser-idb
 pnpm add @noy-db/hub @noy-db/to-file @noy-db/to-aws-dynamo
 ```
 
-For the full Nuxt walkthrough see [`docs/getting-started.md`](docs/getting-started.md). For the multi-backend topology story see [`docs/topology-matrix.md`](docs/topology-matrix.md).
+For the full Nuxt walkthrough see [`docs/guides/getting-started.md`](docs/guides/getting-started.md). For the multi-backend topology story see [`docs/guides/topology-matrix.md`](docs/guides/topology-matrix.md).
 
 ---
 
@@ -298,7 +298,7 @@ The hub package itself uses only `crypto.subtle`, which is built into every targ
 ## Roadmap + spec archive
 
 - [`ROADMAP.md`](ROADMAP.md) — version timeline and what's next.
-- [`HANDOVER.md`](HANDOVER.md) — session-to-session notes for contributors.
+- [`docs/HANDOVER.md`](docs/HANDOVER.md) — session-to-session notes for contributors.
 - [`docs/spec/INDEX.md`](docs/spec/INDEX.md) — **the why behind every feature.** Every issue, milestone, discussion, and PR preserved in-repo as markdown. `grep docs/spec/archive` is the canonical way to find design rationale and rejected alternatives.
 
 ---
@@ -307,12 +307,12 @@ The hub package itself uses only `crypto.subtle`, which is built into every targ
 
 | If you want to… | Read |
 |---|---|
-| try noy-db in 5 minutes | [`docs/getting-started.md`](docs/getting-started.md) |
-| choose a path for your app | [`docs/START_HERE.md`](docs/START_HERE.md) |
+| try noy-db in 5 minutes | [`docs/guides/getting-started.md`](docs/guides/getting-started.md) |
+| choose a path for your app | [`docs/guides/START_HERE.md`](docs/guides/START_HERE.md) |
 | pick a storage backend | [`docs/packages/stores.md`](docs/packages/stores.md) |
 | pick a framework integration | [`docs/packages/integrations.md`](docs/packages/integrations.md) |
-| understand the security model | [`docs/architecture.md`](docs/architecture.md) |
-| map a deployment topology | [`docs/topology-matrix.md`](docs/topology-matrix.md) |
+| understand the security model | [`docs/reference/architecture.md`](docs/reference/architecture.md) |
+| map a deployment topology | [`docs/guides/topology-matrix.md`](docs/guides/topology-matrix.md) |
 | see real workflows | [`showcases/`](showcases/) |
 | check what is stable or next | [`ROADMAP.md`](ROADMAP.md) |
 | audit design decisions | [`SPEC.md`](SPEC.md) + [`docs/spec/INDEX.md`](docs/spec/INDEX.md) |

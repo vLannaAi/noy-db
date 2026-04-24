@@ -37,7 +37,7 @@ The v0.2 model loads everything into memory. The v0.3 acceptance criterion says 
 - [ ] **Integration tests:** seed 10K records via `@noy-db/memory`, scan with `pageSize: 500`, assert all records returned exactly once.
 - [ ] **Memory benchmark:** end-to-end test that seeds 100K records to `@noy-db/file` and scans them; asserts peak heap stays under 200MB (using `process.memoryUsage().heapUsed` deltas).
 - [ ] **Type tests:** `expect-type` confirms `scan()` returns `AsyncIterable<T>` and `listPage` types narrow correctly.
-- [ ] **Docs:** new section in `docs/adapters.md` describing the optional capability; update `docs/end-user-features.md`.
+- [ ] **Docs:** new section in `docs/packages/stores.md` describing the optional capability; update `docs/guides/end-user-features.md`.
 - [ ] **Changeset:** minor bumps on core + all five adapter packages.
 - [ ] **CI:** existing test matrix; add the 100K-record memory benchmark behind a `BENCH=1` env flag so it runs only on the release branch.
 - [ ] **Bundle:** core stays under 30 KB; each touched adapter stays under 10 KB.
