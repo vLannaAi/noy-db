@@ -661,6 +661,7 @@ export class IndexWriteFailure extends NoydbError {
   readonly recordId: string
   readonly field: string
   readonly op: 'put' | 'delete'
+  override readonly cause: unknown
 
   constructor(args: { recordId: string; field: string; op: 'put' | 'delete'; cause: unknown }) {
     super(
