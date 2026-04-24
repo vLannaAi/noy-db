@@ -32,7 +32,7 @@ This scaffolds `app/stores/clients.ts` and `app/pages/clients.vue`. Edit the gen
 
 ## Documentation
 
-- [noy-db getting started](https://github.com/vLannaAi/noy-db/blob/main/docs/guides/getting-started.md)
-- [End-user features](https://github.com/vLannaAi/noy-db/blob/main/docs/guides/end-user-features.md)
-- [Architecture](https://github.com/vLannaAi/noy-db/blob/main/docs/reference/architecture.md)
+- [noy-db getting started](https://github.com/vLannaAi/noy-db/blob/main/docs/quickstart.md)
+- [End-user features](https://github.com/vLannaAi/noy-db/blob/main/docs/features.md)
+- [Architecture](https://github.com/vLannaAi/noy-db/blob/main/docs/architecture.md)
 - [Roadmap](https://github.com/vLannaAi/noy-db/blob/main/ROADMAP.md)

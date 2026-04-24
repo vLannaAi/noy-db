@@ -29,11 +29,11 @@ A zero-knowledge, offline-first, encrypted document store with pluggable backend
 
 ## Origin Story
 
-noy-db was born from a real-world problem at an **established regional accounting firm** managing ~30 SME clients. The firm needed a storage layer for their web-based financial management platform that could:
+noy-db was born from a real-world problem at an **established enterprise pilot** managing ~30 SME clients. The firm needed a storage layer for their web-based financial management platform that could:
 
 1. **Work on a USB stick** — accountants carry client data between office and home on removable media
 2. **Sync to AWS DynamoDB** — for cloud access when online
-3. **Encrypt everything** — accounting data for 30 companies must be unreadable by anyone without authorization, whether on the USB stick, in DynamoDB, or intercepted in transit
+3. **Encrypt everything** — domain data for 30 companies must be unreadable by anyone without authorization, whether on the USB stick, in DynamoDB, or intercepted in transit
 4. **Support multiple users** — an owner, operators, and auditors each with their own credentials and different access levels
 5. **Handle rare conflicts** — two users occasionally editing the same company's data
 
@@ -61,7 +61,7 @@ The name "None Of Your Damn Business" captures the philosophy: backends store da
 Many applications deal with small, sensitive datasets that need to work across multiple storage environments:
 
 - **Small clinics** — patient records on a local machine, synced to cloud
-- **Accounting firms** — client financial data carried on USB, accessed from office and home
+- **enterprise organisations** — client financial data carried on USB, accessed from office and home
 - **Field surveys** — data collected offline, synced when connectivity returns
 - **Personal finance** — private data that should never be readable by the storage provider
 - **Any app** where data fits in memory (~1K-50K records) and privacy is non-negotiable
@@ -98,8 +98,8 @@ The zero-knowledge guarantee is **not** a guarantee that plaintext never leaves 
   - **Plaintext tier** — covers both structured record formatters (`as-csv`, `as-xml`, `as-xlsx`, `as-json`, `as-ndjson`, `as-sql`, `as-pdf`) and document/blob extractors (`as-blob` for single-attachment native-MIME export, `as-zip` for composite record-plus-attachments archives). Crosses the plaintext boundary regardless of whether the bytes are a spreadsheet or a PDF. Gated by `canExportPlaintext` on the keyring, **off by default for every role**; only `owner` or `admin` can grant it. One gate covers both sub-families because the plaintext boundary is the same boundary either way. The core `exportJSON()` / `exportStream()` helpers and any future `vault.exportBlobs()` primitive on `Vault` honour the same capability check.
   - **Encrypted tier** — `as-noydb` (wrapping the `.noydb` container format). Zero-knowledge preserved — bytes out are ciphertext. Gated by `canExportBundle`, **on by default for `owner` and `admin`**, off for `operator` / `viewer` / `client`. The asymmetric default reflects the asymmetric risk: a bundle is inert without the KEK, so the owner backing up their own vault does not need the friction of an explicit grant; a non-admin role producing a bundle to hand to an external party does, because that artefact outlives keyring revocation.
 
-  Safety is provided by **enforcement**, not by naming convention: installing an `as-*` package into `package.json` does not unlock anything; the owner's grant of the relevant capability bit does. Each package carries a tier-appropriate warning in its README, JSDoc, and npm description. See `docs/patterns/as-exports.md` for the full policy, decision tree, and audit-ledger schema.
-- **The `plaintextTranslator` hook (v0.8+).** Consumers can opt individual schema fields into auto-translation by configuring a `plaintextTranslator` function on the `Noydb` instance. The library calls that function with the field's plaintext, sends it wherever the consumer's implementation sends it (DeepL, Argos, a self-hosted LLM, a human review queue), and writes the returned translation back. NOYDB ships **no built-in translator**, ships **no translator SDKs as dependencies**, and will reject any PR that adds either. Opt-in is per-field at schema-construction time and visible in the schema source — there is no runtime path that can opt a field in without an explicit schema declaration.
+  Safety is provided by **enforcement**, not by naming convention: installing an `as-*` package into `package.json` does not unlock anything; the owner's grant of the relevant capability bit does. Each package carries a tier-appropriate warning in its README, JSDoc, and npm description. See `docs/packages-exports.md#authorization-model` for the full policy, decision tree, and audit-ledger schema.
+- **The `plaintextTranslator` hook.** Consumers can opt individual schema fields into auto-translation by configuring a `plaintextTranslator` function on the `Noydb` instance. The library calls that function with the field's plaintext, sends it wherever the consumer's implementation sends it (DeepL, Argos, a self-hosted LLM, a human review queue), and writes the returned translation back. NOYDB ships **no built-in translator**, ships **no translator SDKs as dependencies**, and will reject any PR that adds either. Opt-in is per-field at schema-construction time and visible in the schema source — there is no runtime path that can opt a field in without an explicit schema declaration.
 - **Schema validators that call out.** Consumer-supplied Standard Schema validators receive plaintext during the validate step. A validator that calls a remote service (uncommon but possible) sends plaintext over the wire on the consumer's behalf. Same opt-in principle: the validator is consumer-written code, and noy-db does not police what it does.
 
 Every plaintext-exit mechanism shares three properties: **(1) it requires explicit action** — consumer action for `plaintextTranslator` and schema validators; owner-granted capability plus consumer invocation for `as-*` exports — **(2) it never lives inside a default code path** — opting in (or being opted in by the owner) is always a positive choice, and **(3) it is reflected in the audit ledger** by metadata only — never by content.
@@ -448,9 +448,9 @@ The sync engine is **optional** (opt-in). When configured, it provides:
 - **Pull** — fetch latest from the remote adapter
 - **Conflict detection** — version mismatch triggers a callback or policy handler
 - **Auto-sync** — push/pull when online status changes
-- **Partial sync (v0.9)** — filter push/pull by collection name or `modifiedSince` timestamp
-- **CRDT conflict resolution (v0.9)** — per-collection `crdt` or `conflictPolicy` option for automatic, deterministic merges
-- **Sync transactions (v0.9)** — `db.transaction(comp)` for atomic multi-record local write + filtered push
+- **Partial sync** — filter push/pull by collection name or `modifiedSince` timestamp
+- **CRDT conflict resolution** — per-collection `crdt` or `conflictPolicy` option for automatic, deterministic merges
+- **Sync transactions** — `db.transaction(comp)` for atomic multi-record local write + filtered push
 
 The sync engine operates on **encrypted blobs**. It does not need the encryption key. Metadata (`_v`, `_ts`, compartment, collection, id) is unencrypted and sufficient for sync operations.
 
@@ -673,25 +673,25 @@ Stores everything in a `Map`. No persistence. Used for unit tests. `casAtomic: t
 
 IndexedDB-backed store. `casAtomic: true` — CAS atomicity implemented via a single `readwrite` IDB transaction (fix #139). Used as a cache layer in browser-based apps for instant hydration on page load.
 
-### Optional store extensions (v0.9)
+### Optional store extensions
 
 ```ts
 interface NoydbStore {
   // ... 6 core methods above ...
 
-  // v0.9 #133 — partial sync: server-side timestamp filter (optional)
+  // — partial sync: server-side timestamp filter (optional)
   listSince?(vault: string, collection: string, since: Date): Promise<string[]>
 
-  // v0.9 #134 — presence pub/sub transport (optional; storage-poll fallback used if absent)
+  // — presence pub/sub transport (optional; storage-poll fallback used if absent)
   presencePublish?(channel: string, payload: string): Promise<void>
   presenceSubscribe?(channel: string, callback: (payload: string) => void): () => void
 
-  // v0.5 #63 — vault enumeration (optional; used by listVaults / listAccessibleVaults)
+  // — vault enumeration (optional; used by listVaults / listAccessibleVaults)
   listVaults?(): Promise<string[]>
 }
 ```
 
-### Store Routing (v0.12)
+### Store Routing
 
 `routeStore()` multiplexes operations across multiple backends based on collection type, record size, record age, collection name, or vault name. Returns a standard `NoydbStore` — transparent to the rest of the API.
 
@@ -720,11 +720,11 @@ const db = await createNoydb({
 
 **Runtime ephemeral routing:** `store.override('default', memory())` switches to in-memory for shared devices. `store.suspend('blobs')` pauses I/O to unreachable stores with optional write-behind queue (`{ queue: true }`).
 
-### NoydbBundleStore (v0.12)
+### NoydbBundleStore
 
 Second store shape for backends that operate on whole-vault bundles (Drive, WebDAV, iCloud). Implements `readBundle` / `writeBundle` with optimistic concurrency via version tokens instead of the 6-method KV contract. `wrapBundleStore()` converts to a standard `NoydbStore`.
 
-### Encrypted Binary Blob Store (v0.12)
+### Encrypted Binary Blob Store
 
 `collection.blob(id)` returns a `BlobSet` for binary attachments:
 
@@ -735,7 +735,7 @@ Second store shape for backends that operate on whole-vault bundles (Drive, WebD
 - **MIME-detected** — 55 magic-byte rules, auto-skips gzip for pre-compressed formats
 - **HTTP-ready** — `response(slot)` returns a native `Response` with full headers
 
-### Store Middleware (v0.12)
+### Store Middleware
 
 `wrapStore(store, ...middlewares)` composes interceptors around any store:
 
@@ -858,7 +858,7 @@ const large = invoices.query(i => i.amount > 10000)
 const count: number = await invoices.count()
 ```
 
-### Query DSL — builder chain (v0.3+)
+### Query DSL — builder chain
 
 The reactive, chainable builder is the preferred surface for anything
 beyond a trivial `query(fn)`. Terminal methods are `.toArray()`,
@@ -873,7 +873,7 @@ const opens = invoices.query()
   .limit(10)
   .toArray()
 
-// v0.6 #73 — eager single-FK join via ref() declaration
+// — eager single-FK join via ref() declaration
 const withClients = invoices.query()
   .join<'client', Client>('clientId', { as: 'client' })
   .toArray()
@@ -883,13 +883,13 @@ const withClients = invoices.query()
 // Hard row ceiling 50,000 per side (JoinTooLargeError), override
 // via { maxRows }. Warn at 80% on the existing warn channel.
 
-// v0.6 #75 — multi-FK chaining; each leg picks its own strategy + ref mode
+// — multi-FK chaining; each leg picks its own strategy + ref mode
 invoices.query()
   .join<'client', Client>('clientId', { as: 'client' })
   .join<'category', Category>('categoryId', { as: 'category' })
   .toArray()
 
-// v0.6 #74 — reactive primitive with merged change streams
+// — reactive primitive with merged change streams
 const live = invoices.query()
   .where('status', '==', 'open')
   .join<'client', Client>('clientId', { as: 'client' })
@@ -900,7 +900,7 @@ live.stop()
 // LiveQuery<T>: { value, error, subscribe(cb), stop() }
 // Re-run errors stored in live.error (previous value preserved).
 
-// v0.6 #97 — aggregation reducers
+// — aggregation reducers
 import { count, sum, avg, min, max } from '@noy-db/hub'
 const { total, n, mean } = invoices.query()
   .where('status', '==', 'open')
@@ -908,7 +908,7 @@ const { total, n, mean } = invoices.query()
   .run()
 // .aggregate() returns an Aggregation<R> wrapper with .run() / .live()
 
-// v0.6 #98 — groupBy with cardinality caps
+// — groupBy with cardinality caps
 const byClient = invoices.query()
   .groupBy('clientId')
   .aggregate({ total: sum('amount'), n: count() })
@@ -916,13 +916,13 @@ const byClient = invoices.query()
 // → [{ clientId: 'c1', total: 5250, n: 3 }, ...]
 // Warns at 10,000 groups; throws GroupCardinalityError at 100,000.
 
-// v0.6 #99 — streaming aggregation over scan()
+// — streaming aggregation over scan()
 // Memory: O(reducers), not O(records)
 const { total } = await invoices.scan({ pageSize: 1000 })
   .where('year', '==', 2025)
   .aggregate({ total: sum('amount'), n: count() })
 
-// v0.6 #76 — streaming joins over scan()
+// — streaming joins over scan()
 for await (const inv of invoices.scan()
   .join<'client', Client>('clientId', { as: 'client' })
 ) {
@@ -940,11 +940,11 @@ for await (const inv of invoices.scan()
 
 Left records with `null`/`undefined` FK values always attach `null` regardless of mode — matches the write-time `enforceRefsOnPut` policy.
 
-**Reducer protocol:** `{ init(seed?), step(state, record), remove?(state, record), finalize(state) }` with separate internal state `S` and result type `R`. The `seed` parameter is plumbed through every factory (load-bearing for #87 partition-awareness seam, unused by the v0.6 executor). The optional `remove()` hook is the seam for future O(1) incremental live-aggregation maintenance.
+**Reducer protocol:** `{ init(seed?), step(state, record), remove?(state, record), finalize(state) }` with separate internal state `S` and result type `R`. The `seed` parameter is plumbed through every factory (load-bearing for #87 partition-awareness seam, unused by the executor). The optional `remove()` hook is the seam for future O(1) incremental live-aggregation maintenance.
 
-**`Collection.scan()` return type** narrowed from `AsyncIterableIterator<T>` to `ScanBuilder<T>` in v0.6. Backward-compatible for every `for await (const rec of collection.scan())` call because `ScanBuilder` implements `[Symbol.asyncIterator]`. Direct `.next()` / `.return()` / `.throw()` calls on the iterator are no longer supported — not idiomatic, zero call sites in the repo or any first-party consumer.
+**`Collection.scan()` return type** narrowed from `AsyncIterableIterator<T>` to `ScanBuilder<T>`. Backward-compatible for every `for await (const rec of collection.scan())` call because `ScanBuilder` implements `[Symbol.asyncIterator]`. Direct `.next()` / `.return()` / `.throw()` calls on the iterator are no longer supported — not idiomatic, zero call sites in the repo or any first-party consumer.
 
-### i18n & Dictionaries (v0.8+)
+### i18n & Dictionaries
 
 #### dictKey — normalized dictionary keys
 
@@ -1064,7 +1064,7 @@ db.close()  // clears translator cache and audit log alongside KEK/DEKs
 - Audit entries **never** include `contentHash` — a hash would fingerprint identical phrases across records.
 - `TranslatorNotConfiguredError` when `autoTranslate: true` but no translator is supplied.
 
-#### exportStream with dictionary snapshot (v0.8 #84)
+#### exportStream with dictionary snapshot
 
 ```ts
 for await (const chunk of company.exportStream()) {
@@ -1084,7 +1084,7 @@ const resolved = JSON.parse(await company.exportJSON({ resolveLabels: 'th' }))
 
 **Dictionary snapshot captured atomically before first yield** — concurrent mutations during streaming do not affect the snapshot.
 
-### CRDT mode (v0.9 #132)
+### CRDT mode
 
 Per-collection option for deterministic, commutative conflict resolution without manual intervention.
 
@@ -1110,7 +1110,7 @@ const docs = company.collection<string>('documents', { crdt: 'yjs' })
 
 **Conflict resolution:** When the sync engine detects a conflict on a CRDT collection, it automatically calls `mergeCrdtStates(local, remote)` from `crdt.ts`, re-encrypts the merged state, and resolves without surfacing to the caller. `conflictPolicy` and `crdt` are mutually exclusive per collection.
 
-### Presence and live cursors (v0.9 #134)
+### Presence and live cursors
 
 ```ts
 // Get a presence handle for a collection
@@ -1140,7 +1140,7 @@ const presence = invoices.presence<P>({
 
 **Transport:** Pub/sub path preferred (when the sync adapter implements `presencePublish`/`presenceSubscribe`). Storage-poll fallback writes to `_presence_<collection>` reserved collection on the sync adapter, polled at `pollIntervalMs`.
 
-### Pluggable conflict policies (v0.9 #131)
+### Pluggable conflict policies
 
 ```ts
 // Built-in strategies
@@ -1169,7 +1169,7 @@ const invoices = company.collection<Invoice>('invoices', {
 })
 ```
 
-### Partial sync (v0.9 #133)
+### Partial sync
 
 ```ts
 // Push only specific collections
@@ -1193,7 +1193,7 @@ await db.sync(comp, {
 
 Adapters may implement `listSince?(compartment, collection, since): Promise<string[]>` for server-side timestamp filtering (optional — core falls back to full-list filtering if absent).
 
-### Sync transactions (v0.9 #135)
+### Sync transactions
 
 ```ts
 // Atomic multi-record write + sync
@@ -1208,7 +1208,7 @@ await db.transaction(company)
 // 2. Filtered push: sync only the transacted records to the remote adapter
 ```
 
-### `@noy-db/in-yjs` — Yjs interop (v0.9 #136)
+### `@noy-db/in-yjs` — Yjs interop
 
 ```ts
 import { yjsCollection, yText, yMap, yArray } from '@noy-db/in-yjs'
@@ -1322,7 +1322,7 @@ await db.enrollBiometric()
 await db.removeBiometric()
 ```
 
-### Session tokens (v0.7 #109)
+### Session tokens
 
 ```ts
 import { createSession, resolveSession, revokeSession } from '@noy-db/hub'
@@ -1338,7 +1338,7 @@ revokeSession(token)
 revokeAllSessions()   // log out everywhere in the tab
 ```
 
-### Magic-link unlock (v0.7 #113)
+### Magic-link unlock
 
 ```ts
 import { createMagicLinkToken, deriveMagicLinkKEK, isMagicLinkValid } from '@noy-db/hub'
@@ -1353,7 +1353,7 @@ const viewerKEK = await deriveMagicLinkKEK(serverSecret, linkToken.token, compar
 if (!isMagicLinkValid(linkToken)) throw new Error('Link expired')
 ```
 
-### Sync credentials (v0.7 #110)
+### Sync credentials
 
 ```ts
 import { putCredential, getCredential, deleteCredential, listCredentials } from '@noy-db/hub'
@@ -1374,7 +1374,7 @@ const cred = await getCredential(adapter, compartment, keyring, 'google-drive')
 const { exists, expired } = await credentialStatus(adapter, compartment, keyring, 'google-drive')
 ```
 
-### Session policies (v0.7 #114)
+### Session policies
 
 ```ts
 const db = await createNoydb({
@@ -1391,7 +1391,7 @@ const db = await createNoydb({
 })
 ```
 
-### Dev-mode persistent unlock (v0.7 #119)
+### Dev-mode persistent unlock
 
 ```ts
 import { enableDevUnlock, loadDevUnlock, clearDevUnlock } from '@noy-db/hub'
@@ -1448,7 +1448,7 @@ Every record on disk/DynamoDB/S3 uses this format:
 
 Metadata (`_v`, `_ts`) is intentionally unencrypted — the sync engine needs it without the encryption key.
 
-> **v0.22 note.** Lazy-mode collections additionally persist secondary
+> **note.** Lazy-mode collections additionally persist secondary
 > index entries under the reserved id prefix `_idx/<field>/<recordId>`.
 > Each entry uses the same envelope shape; the encrypted body is
 > `{ "value": <indexed value>, "writtenAt": <iso> }`. This is not a
@@ -1530,7 +1530,7 @@ The backup is encrypted — each record's `_data` is ciphertext. Only users whos
 }
 ```
 
-### `.noydb` Container Format (v0.6 #100)
+### `.noydb` Container Format
 
 Binary container wrapping `vault.dump()` with a minimum-disclosure
 header for safe drops into cloud storage (Drive, Dropbox, iCloud). The
@@ -1553,7 +1553,7 @@ downloaded the bytes.
 ```
 
 - **Magic bytes (offset 0-3):** ASCII `NDB1` — `0x4e 0x44 0x42 0x31`. File-type check.
-- **Flags (offset 4):** bit 0 = body is compressed, bit 1 = header carries integrity hash, bits 2-7 reserved (must be 0 in v0.6)
+- **Flags (offset 4):** bit 0 = body is compressed, bit 1 = header carries integrity hash, bits 2-7 reserved (must be 0)
 - **Compression algorithm (offset 5):** `0` none, `1` gzip, `2` brotli
 - **Header length (offset 6-9):** uint32 big-endian length of the JSON header that follows
 - **Header (offset 10 to 10+headerLength):** UTF-8 encoded JSON, validated against a closed allowlist
@@ -1574,7 +1574,7 @@ downloaded the bytes.
 
 | Field | Type | Description |
 |---|---|---|
-| `formatVersion` | number | Bundle format version; must be `1` in v0.6 |
+| `formatVersion` | number | Bundle format version; must be `1` in |
 | `handle` | string | 26-character Crockford base32 ULID, stable across re-exports of the same compartment |
 | `bodyBytes` | number | Compressed body length. Lets readers verify completeness without decompressing |
 | `bodySha256` | string | Lowercase 64-char hex SHA-256 of the **compressed** body bytes |
@@ -1629,13 +1629,13 @@ noydb/
 │   │   │   ├── collection.ts          # Collection<T> class
 │   │   │   ├── crypto.ts              # encrypt, decrypt, deriveKey, bufferToBase64, base64ToBuffer
 │   │   │   ├── keyring.ts             # Keyring management (load, grant, revoke, rotate)
-│   │   │   ├── session.ts             # Session tokens — createSession, resolveSession (v0.7 #109)
-│   │   │   ├── session-policy.ts      # PolicyEnforcer — idle/abs timeouts, reauth, lockOnBg (v0.7 #114)
-│   │   │   ├── sync-credentials.ts    # _sync_credentials reserved collection (v0.7 #110)
-│   │   │   ├── magic-link.ts          # Magic-link viewer unlock via HKDF (v0.7 #113)
-│   │   │   ├── dev-unlock.ts          # Dev-mode sessionStorage/localStorage unlock (v0.7 #119)
-│   │   │   ├── crdt.ts                # CRDT types + merge helpers (v0.9 #132)
-│   │   │   ├── presence.ts            # PresenceHandle — encrypted ephemeral channel (v0.9 #134)
+│   │   │   ├── session.ts             # Session tokens — createSession, resolveSession
+│   │   │   ├── session-policy.ts      # PolicyEnforcer — idle/abs timeouts, reauth, lockOnBg
+│   │   │   ├── sync-credentials.ts    # _sync_credentials reserved collection
+│   │   │   ├── magic-link.ts          # Magic-link viewer unlock via HKDF
+│   │   │   ├── dev-unlock.ts          # Dev-mode sessionStorage/localStorage unlock
+│   │   │   ├── crdt.ts                # CRDT types + merge helpers
+│   │   │   ├── presence.ts            # PresenceHandle — encrypted ephemeral channel
 │   │   │   ├── sync.ts                # SyncEngine (dirty tracking, push, pull, partial sync, transactions)
 │   │   │   ├── events.ts              # Event emitter
 │   │   │   ├── biometric.ts           # Platform biometric enrollment/unlock
@@ -1681,7 +1681,7 @@ noydb/
 │   │   ├── tests/
 │   │   └── package.json
 │   │
-│   ├── in-yjs/                        # @noy-db/in-yjs (v0.9 #136)
+│   ├── in-yjs/                        # @noy-db/in-yjs
 │   │   ├── src/
 │   │   │   ├── index.ts              # yjsCollection, yText, yMap, yArray
 │   │   │   ├── yjs-collection.ts     # YjsCollection<YF> — getYDoc, putYDoc, applyUpdate
@@ -1689,13 +1689,13 @@ noydb/
 │   │   ├── __tests__/                # 11 tests
 │   │   └── package.json              # peerDeps: @noy-db/hub workspace:*, yjs >=13
 │   │
-│   ├── on-webauthn/                 # @noy-db/on-webauthn (v0.7 #111)
+│   ├── on-webauthn/                 # @noy-db/on-webauthn
 │   │   ├── src/
 │   │   │   └── index.ts              # enrollWebAuthn, unlockWebAuthn (PRF + rawId-HKDF)
 │   │   ├── __tests__/                # 18 tests (happy-dom + navigator.credentials stub)
 │   │   └── package.json              # peerDep: @noy-db/hub workspace:*
 │   │
-│   ├── on-oidc/                     # @noy-db/on-oidc (v0.7 #112)
+│   ├── on-oidc/                     # @noy-db/on-oidc
 │   │   ├── src/
 │   │   │   └── index.ts              # enrollOidc, unlockOidc, knownProviders
 │   │   ├── __tests__/                # 21 tests (happy-dom + fetch mock)
@@ -1819,7 +1819,7 @@ npm create noy-db
 - **Integration tests:** full lifecycle with `@noydb/file` on a temp directory
 - **DynamoDB tests:** use DynamoDB Local (Docker) for CI
 - **Security tests:** verify that encrypted data cannot be decrypted with wrong key, that tampered data is rejected, that revoked users lose access after key rotation
-- **Edge cases:** empty compartments, empty collections, concurrent writes (simulate with delays), large records (1 MB+), Unicode content (Thai text), corrupt files
+- **Edge cases:** empty compartments, empty collections, concurrent writes (simulate with delays), large records (1 MB+), Unicode content, corrupt files
 
 ### Error Types
 
@@ -1847,11 +1847,11 @@ class NotFoundError extends NoydbError { code = 'NOT_FOUND' }
 class ValidationError extends NoydbError { code = 'VALIDATION_ERROR' }
 class SchemaValidationError extends NoydbError { code = 'SCHEMA_VALIDATION_FAILED'; issues: readonly unknown[]; direction: 'input' | 'output' }
 
-// Backup errors (v0.4)
+// Backup errors
 class BackupLedgerError extends NoydbError { code = 'BACKUP_LEDGER'; divergedAt?: number }
 class BackupCorruptedError extends NoydbError { code = 'BACKUP_CORRUPTED'; collection: string; id: string }
 
-// Query DSL errors (v0.6 #73, #76)
+// Query DSL errors (#73, #76)
 class JoinTooLargeError extends NoydbError {
   code = 'JOIN_TOO_LARGE'
   leftRows: number
@@ -1866,7 +1866,7 @@ class DanglingReferenceError extends NoydbError {
   refId: string
 }
 
-// Aggregation errors (v0.6 #98)
+// Aggregation errors
 class GroupCardinalityError extends NoydbError {
   code = 'GROUP_CARDINALITY'
   field: string
@@ -1874,45 +1874,45 @@ class GroupCardinalityError extends NoydbError {
   maxGroups: number
 }
 
-// Bundle format errors (v0.6 #100)
+// Bundle format errors
 class BundleIntegrityError extends NoydbError {
   code = 'BUNDLE_INTEGRITY'
 }
 
-// Store capability errors (v0.5 #63; renamed in v0.10)
+// Store capability errors (#63; renamed)
 class StoreCapabilityError extends NoydbError {
   code = 'STORE_CAPABILITY'
   capability: string
 }
 
-// Access-control escalation guard (v0.5 #62)
+// Access-control escalation guard
 class PrivilegeEscalationError extends NoydbError {
   code = 'PRIVILEGE_ESCALATION'
   offendingCollection: string
 }
 
-// Session errors (v0.7 #109)
+// Session errors
 class SessionExpiredError extends NoydbError { code = 'SESSION_EXPIRED' }
 class SessionNotFoundError extends NoydbError { code = 'SESSION_NOT_FOUND' }
 
-// Session policy errors (v0.7 #114)
+// Session policy errors
 class SessionPolicyError extends NoydbError {
   code = 'SESSION_POLICY'
   operation: string
 }
 
-// CRDT errors (v0.9 #132)
+// CRDT errors
 class NonCrdtCollectionError extends NoydbError {
   code = 'NOT_CRDT_COLLECTION'
   // Thrown by collection.getRaw() when crdt option was not set
 }
 
-// i18n errors (v0.8 #82)
+// i18n errors
 class MissingTranslationError extends NoydbError { code = 'MISSING_TRANSLATION' }
 class LocaleNotSpecifiedError extends NoydbError { code = 'LOCALE_NOT_SPECIFIED' }
 class TranslatorNotConfiguredError extends NoydbError { code = 'TRANSLATOR_NOT_CONFIGURED' }
 
-// Dictionary errors (v0.8 #81)
+// Dictionary errors
 class DictKeyMissingError extends NoydbError { code = 'DICT_KEY_MISSING'; key: string }
 class DictKeyInUseError extends NoydbError { code = 'DICT_KEY_IN_USE'; key: string; count: number }
 class ReservedCollectionNameError extends NoydbError { code = 'RESERVED_COLLECTION_NAME'; name: string }
@@ -1922,7 +1922,7 @@ class ReservedCollectionNameError extends NoydbError { code = 'RESERVED_COLLECTI
 
 ## First Consumer
 
-noy-db was designed for an established accounting firm's platform but is generic by construction. Here's how an accounting-firm domain maps to noy-db concepts:
+noy-db is generic by construction. Here is one example of how a domain model maps to noy-db concepts:
 
 | Domain Concept | noy-db Concept |
 |---------------|---------------|

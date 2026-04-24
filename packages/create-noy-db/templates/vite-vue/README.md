@@ -89,7 +89,7 @@ your domain.
 
 ## Documentation
 
-- [noy-db getting started](https://github.com/vLannaAi/noy-db/blob/main/docs/guides/START_HERE.md)
-- [Topology matrix](https://github.com/vLannaAi/noy-db/blob/main/docs/guides/topology-matrix.md)
-- [Architecture](https://github.com/vLannaAi/noy-db/blob/main/docs/reference/architecture.md)
+- [noy-db getting started](https://github.com/vLannaAi/noy-db/blob/main/docs/choose-your-path.md)
+- [Topology matrix](https://github.com/vLannaAi/noy-db/blob/main/docs/topologies.md)
+- [Architecture](https://github.com/vLannaAi/noy-db/blob/main/docs/architecture.md)
 - [Roadmap](https://github.com/vLannaAi/noy-db/blob/main/ROADMAP.md)

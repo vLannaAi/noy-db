@@ -172,7 +172,7 @@ Use this for:
 
 - README first-sight overview
 - npm package README links
-- `docs/guides/START_HERE.md`
+- `docs/choose-your-path.md`
 - social preview / launch post screenshots
 
 Keep the diagram high-level:
@@ -203,7 +203,7 @@ flowchart LR
 ```
 
 This smaller version is better for the first README screen. The larger diagram
-is better for `docs/guides/START_HERE.md` or `docs/packages/*`.
+is better for `docs/choose-your-path.md` or `docs/packages-*.md`.
 
 ## Suggested Caption
 

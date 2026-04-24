@@ -103,6 +103,6 @@ The stores 80% of apps start with.
 
 Don't pick one forever — a vault can sync to multiple `SyncTarget`s with
 different stores, roles, and policies. See
-[`docs/guides/topology-matrix.md`](../topology-matrix.md).
+[`docs/topologies.md`](../topology-matrix.md).
 
 [← Back to README](../../README.md)

@@ -11,7 +11,7 @@ deflating would cost CPU without saving bytes.
 
 Part of the `@noy-db/as-*` portable-artefact family, plaintext
 tier, document sub-family. See
-[`docs/patterns/as-exports.md`](https://github.com/vLannaAi/noy-db/blob/main/docs/patterns/as-exports.md).
+[`docs/packages-exports.md#authorization-model`](https://github.com/vLannaAi/noy-db/blob/main/docs/packages-exports.md#authorization-model).
 
 ## Install
 

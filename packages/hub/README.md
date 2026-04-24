@@ -142,13 +142,13 @@ Core has zero `node:` imports — it runs unchanged in browsers, Node, Bun, Deno
 
 #### Other plaintext formats
 
-CSV, XML, xlsx, and the rest of the plaintext tier — plus encrypted `.noydb` bundles under the `as-noydb` encrypted tier — all live in the `@noy-db/as-*` family. Every invocation is gated by the two-tier authorization model (`canExportPlaintext` default off, `canExportBundle` default on for owner/admin) and lands in the audit ledger. See [`docs/patterns/as-exports.md`](../../docs/patterns/as-exports.md) for the full policy.
+CSV, XML, xlsx, and the rest of the plaintext tier — plus encrypted `.noydb` bundles under the `as-noydb` encrypted tier — all live in the `@noy-db/as-*` family. Every invocation is gated by the two-tier authorization model (`canExportPlaintext` default off, `canExportBundle` default on for owner/admin) and lands in the audit ledger. See [`docs/packages-exports.md#authorization-model`](../../docs/packages-exports.md#authorization-model) for the full policy.
 
 ## Documentation
 
 - Full docs: https://github.com/vLannaAi/noy-db#readme
 - Spec: https://github.com/vLannaAi/noy-db/blob/main/SPEC.md
-- AI reference: https://github.com/vLannaAi/noy-db/blob/main/docs/guides/noydb-for-ai.md
+- AI reference: https://github.com/vLannaAi/noy-db/blob/main/docs/integrations-ai.md
 
 ## License
 

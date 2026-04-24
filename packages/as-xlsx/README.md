@@ -9,7 +9,7 @@ parts and reuses `@noy-db/as-zip`'s zip writer. No SheetJS, no
 ExcelJS, no xlsx-populate — ~230 LOC across the two-file encoder.
 
 Part of the `@noy-db/as-*` portable-artefact family, plaintext
-tier. See [`docs/patterns/as-exports.md`](https://github.com/vLannaAi/noy-db/blob/main/docs/patterns/as-exports.md).
+tier. See [`docs/packages-exports.md#authorization-model`](https://github.com/vLannaAi/noy-db/blob/main/docs/packages-exports.md#authorization-model).
 
 ## Install
 

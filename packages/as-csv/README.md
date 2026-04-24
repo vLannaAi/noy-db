@@ -14,7 +14,7 @@ pnpm add @noy-db/as-csv
 
 Every call checks `vault.assertCanExport('plaintext', 'csv')` **before decrypting anything**. The caller's keyring must have been granted the `'csv'` format (or `'*'` wildcard) via `vault.grant({ exportCapability: { plaintext: ['csv'] } })`. Otherwise → `ExportCapabilityError`.
 
-**Default policy:** every role (including `owner`) requires explicit plaintext grant. Installing this package does not unlock anything; the owner's grant does. See [`docs/patterns/as-exports.md`](../../docs/patterns/as-exports.md) for the full policy.
+**Default policy:** every role (including `owner`) requires explicit plaintext grant. Installing this package does not unlock anything; the owner's grant does. See [`docs/packages-exports.md#authorization-model`](../../docs/packages-exports.md#authorization-model) for the full policy.
 
 ## Usage
 
@@ -104,7 +104,7 @@ await vault.collection<AsExportEntry>('_ledger_custom').put(ulid(), {
 - `@noy-db/as-zip` — composite records + attached blobs
 - `@noy-db/as-noydb` — encrypted-tier whole-vault bundle
 
-All share the same authorization model; see [`docs/patterns/as-exports.md`](../../docs/patterns/as-exports.md).
+All share the same authorization model; see [`docs/packages-exports.md#authorization-model`](../../docs/packages-exports.md#authorization-model).
 
 ## License
 

@@ -1,7 +1,7 @@
 # Start here
 
 > **One-page entry point** for adopters. If you read three noy-db docs,
-> read this one, [`docs/guides/topology-matrix.md`](./topology-matrix.md), and
+> read this one, [`docs/topologies.md`](./topology-matrix.md), and
 > [`SPEC.md`](../../SPEC.md) — in that order.
 >
 
@@ -110,9 +110,9 @@ The four package prefixes — each reads as a preposition:
 - **`to-`** — *data goes to* a storage backend (file, DynamoDB, S3, IndexedDB, ...)
 - **`in-`** — *runs in* a framework runtime (Vue, Pinia, Nuxt, Yjs, ...)
 - **`on-`** — *you get on* via an authentication method (WebAuthn, OIDC, magic-link, PIN, ...)
-- **`as-`** — *export as* a portable artefact. Plaintext tier (record formatters + document/blob extractors) under `canExportPlaintext` (default off); encrypted tier (`as-noydb`) under `canExportBundle` (default on for owner/admin). See [`docs/patterns/as-exports.md`](./patterns/as-exports.md).
+- **`as-`** — *export as* a portable artefact. Plaintext tier (record formatters + document/blob extractors) under `canExportPlaintext` (default off); encrypted tier (`as-noydb`) under `canExportBundle` (default on for owner/admin). See [`docs/packages-exports.md#authorization-model`](./patterns/as-exports.md).
 
-Locale-specific logic (Thai BE years, Japanese fiscal calendars, GDPR retention rules, …) deliberately lives **in userland**, not in noy-db. Hub is content-agnostic. See [`docs/patterns/i18n-boundaries.md`](./patterns/i18n-boundaries.md) for the three-layer model and how to wire your own Layer-3 helpers.
+Locale-specific logic (fiscal calendars, retention rules, plural rules, script-aware collation, …) deliberately lives **in userland**, not in noy-db. Hub is content-agnostic. See [`docs/architecture.md#i18n-boundaries-what-hub-knows-vs-what-you-own`](./architecture.md#i18n-boundaries-what-hub-knows-vs-what-you-own) for the three-layer model and how to wire your own Layer-3 helpers.
 
 ---
 
@@ -163,7 +163,7 @@ Every subpath is additive — the main entry keeps working unchanged.
 | **Sessions** | Session tokens, idle/absolute timeouts, re-auth policies, magic-link unlock, dev-mode unlock |
 | **Access control** | 5 roles (owner / admin / operator / viewer / client), per-collection permissions, key rotation on revoke |
 | **Auth (on-*)** | `@noy-db/on-webauthn` (passkey + PRF), `@noy-db/on-oidc` (split-key key-connector) |
-| **i18n** | `dictKey()` for stable-key labels + `i18nText()` for per-record multi-locale content, Thai Unicode first-class |
+| **i18n** | `dictKey()` for stable-key labels + `i18nText()` for per-record multi-locale content, full Unicode support (including RTL scripts) |
 | **Integrity** | Hash-chained ledger, `.noydb` encrypted bundle format, tamper detection |
 | **Testing** | 950+ hub tests + 14 end-to-end showcases, happy-dom for Vue/Pinia/WebAuthn tests |
 
@@ -175,18 +175,18 @@ For what's next, see [`ROADMAP.md`](../../ROADMAP.md).
 
 | You want to... | Read |
 |----------------|------|
-| Pick the right store / topology for your app | [`docs/guides/topology-matrix.md`](./topology-matrix.md) |
+| Pick the right store / topology for your app | [`docs/topologies.md`](./topology-matrix.md) |
 | Understand every design decision | [`SPEC.md`](../../SPEC.md) |
-| Learn the threat model | [`docs/reference/architecture.md`](../reference/architecture.md) |
-| Copy-paste a minimal setup | [`docs/guides/getting-started.md`](./getting-started.md) |
+| Learn the threat model | [`docs/architecture.md`](../reference/architecture.md) |
+| Copy-paste a minimal setup | [`docs/quickstart.md`](./getting-started.md) |
 | See every feature exercised end-to-end | [`showcases/`](../showcases/) — 14 vitest files, each a self-contained tutorial |
-| Plug into Google / Apple / LINE / Meta / Auth0 / Keycloak | [`docs/guides/oidc-providers.md`](./oidc-providers.md) |
-| Model a composite entity (invoice + its PDF, email + attachments) | [`docs/patterns/email-archive.md`](./patterns/email-archive.md) — decision matrix for "what's record vs what's blob" |
-| Understand what hub does (and doesn't) do with language content | [`docs/patterns/i18n-boundaries.md`](./patterns/i18n-boundaries.md) — content-agnostic design; where translation / collation / fiscal logic actually lives |
-| Export data — plaintext (`.xlsx`/`.csv`/`.pdf`) for end users or encrypted (`.noydb`) for backup — without breaking zero-knowledge | [`docs/patterns/as-exports.md`](./patterns/as-exports.md) — the `as-*` family (two tiers + authorization model), working pattern today with SheetJS |
-| Stop wrong-shape data at the door with Zod / Valibot / ArkType | [`docs/patterns/schema-validation.md`](./patterns/schema-validation.md) — Standard Schema v1 integration, input + output validation, schema evolution patterns |
+| Plug into Google / Apple / LINE / Meta / Auth0 / Keycloak | [`docs/integrations-oidc.md`](./oidc-providers.md) |
+| Model a composite entity (invoice + its PDF, email + attachments) | [`docs/recipes.md`](./patterns/email-archive.md) — decision matrix for "what's record vs what's blob" |
+| Understand what hub does (and doesn't) do with language content | [`docs/architecture.md#i18n-boundaries-what-hub-knows-vs-what-you-own`](./architecture.md#i18n-boundaries-what-hub-knows-vs-what-you-own) — content-agnostic design; where translation / collation / fiscal logic actually lives |
+| Export data — plaintext (`.xlsx`/`.csv`/`.pdf`) for end users or encrypted (`.noydb`) for backup — without breaking zero-knowledge | [`docs/packages-exports.md#authorization-model`](./patterns/as-exports.md) — the `as-*` family (two tiers + authorization model), working pattern today with SheetJS |
+| Stop wrong-shape data at the door with Zod / Valibot / ArkType | [`docs/architecture.md#schema-validation`](./patterns/schema-validation.md) — Standard Schema v1 integration, input + output validation, schema evolution patterns |
 | Subscribe to every put/delete on a collection (audit-trail / inbox UI) | `collection.subscribe(event => …)` — fires `{ type: 'put' \| 'delete', id, record }` post-commit; returns an unsubscribe function. Event stream, not reactive value (for reactive state use `query().live()`). |
-| Resolve sync conflicts when two operators edit the same record offline | [`docs/patterns/conflict-resolution.md`](./patterns/conflict-resolution.md) — four built-in policies (LWW / FWW / manual / custom merge), multi-office worked example, pitfalls |
+| Resolve sync conflicts when two operators edit the same record offline | [`docs/architecture.md#sync-conflict-resolution`](./patterns/conflict-resolution.md) — four built-in policies (LWW / FWW / manual / custom merge), multi-office worked example, pitfalls |
 | Contribute code | [`CLAUDE.md`](../../CLAUDE.md) — coding conventions; [`ROADMAP.md`](../../ROADMAP.md) — open milestones |
 
 ---
@@ -195,7 +195,7 @@ For what's next, see [`ROADMAP.md`](../../ROADMAP.md).
 
 | # | File | What it proves |
 |---|------|----------------|
-| 01 | `01-accounting-day.showcase.test.ts` | Pinia + reactive CRUD + aggregates |
+| 01 | `01-single-device.showcase.test.ts` | Pinia + reactive CRUD + aggregates |
 | 02 | `02-multi-user-access.showcase.test.ts` | Keyring rotation, revoked-user lockout |
 | 03 | `03-store-routing.showcase.test.ts` | `routeStore` + runtime override / suspend / resume |
 | 04 | `04-sync-two-offices.showcase.test.ts` | Offline-first + multi-peer sync + conflict strategies |

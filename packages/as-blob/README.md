@@ -5,7 +5,7 @@ a record's `BlobSet` as its native MIME bytes — PDF, JPEG, `.eml`,
 anything you stored via `collection.blob(id).put(slot, bytes, …)`.
 
 Part of the `@noy-db/as-*` portable-artefact family, plaintext tier,
-document sub-family. See [`docs/patterns/as-exports.md`](https://github.com/vLannaAi/noy-db/blob/main/docs/patterns/as-exports.md)
+document sub-family. See [`docs/packages-exports.md#authorization-model`](https://github.com/vLannaAi/noy-db/blob/main/docs/packages-exports.md#authorization-model)
 for the four-tier model and authorisation matrix.
 
 ## Install

@@ -80,7 +80,7 @@ package exposes over the hub API.
 
 ### Additional framework bindings
 
-See [`docs/packages/integrations.md`](./packages/integrations.md) for the
+See [`docs/packages-integrations.md`](./packages/integrations.md) for the
 full catalog (React + Next.js + Zustand + TanStack Query/Table, Svelte,
 Solid, Qwik, AI tool-calling, Yjs). The table below highlights a few:
 
@@ -114,7 +114,7 @@ const db = await createNoydb({
 ```
 
 **When** — single-user desktop apps, USB-stick workflows, CLIs, prototypes.
-**Showcase proof** — #01 Accounting Day, #02 Multi-user Access, #05 Blob Lifecycle.
+**Showcase proof** — #01 Single-device workflow, #02 Multi-user Access, #05 Blob Lifecycle.
 
 ### Pattern B — Offline-first + cloud mirror
 
@@ -240,7 +240,7 @@ const db = await createNoydb({
 
 **When** — field workers, pre-connectivity environments, regulated workflows
 that explicitly avoid cloud storage.
-**Showcase proof** — #01 Accounting Day (uses `memory()` but pattern is
+**Showcase proof** — #01 Single-device workflow (uses `memory()` but pattern is
 identical).
 
 ### Pattern J — Authentication bridges (passphrase-less unlock)
@@ -265,7 +265,7 @@ with passkey-first UX, shared-device workflows with a personal security
 key).
 **Showcase proof** — #12 OIDC bridge (automated), #13 WebAuthn
 (automated + real-biometric demo at `playground/nuxt/pages/webauthn.vue`).
-**Per-provider setup** — `docs/guides/oidc-providers.md` walks through Google,
+**Per-provider setup** — `docs/integrations-oidc.md` walks through Google,
 Apple, LINE, Meta, Auth0, and Keycloak.
 
 ### Pattern I — Multi-tenant geographic sharding
@@ -297,7 +297,7 @@ unverified.
 
 | Showcase | Stores | Framework | Topology roles demonstrated | Pattern |
 |----------|--------|-----------|-----------------------------|---------|
-| **#01 Accounting Day**        | `memory`               | Pinia      | Working records, Memory-edit                         | A |
+| **#01 Single-device workflow**        | `memory`               | Pinia      | Working records, Memory-edit                         | A |
 | **#02 Multi-user Access**     | `memory`               | Node       | Working records, History (keyring rotation)          | A |
 | **#03 Store Routing**         | `memory` × 2           | Node       | Working records + Cold archive + override/suspend    | C, D, I |
 | **#04 Sync Two Offices**      | `memory` × 3           | Vue        | Team-sync peer (×2) + shared cloud                   | B, E |

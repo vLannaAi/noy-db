@@ -18,8 +18,8 @@ block the trunk.
 Related docs:
 
 - [README](./README.md) — mental model in one page
-- [Package catalog](./docs/packages/stores.md) — `to-*` (stores), [`in-*` (integrations)](./docs/packages/integrations.md), [`on-*` (auth)](./docs/packages/auth.md), [`as-*` (exports)](./docs/packages/exports.md)
-- [Architecture](./docs/reference/architecture.md) — data flow + threat model
+- [Package catalog](./docs/packages-stores.md) — `to-*` (stores), [`in-*` (integrations)](./docs/packages-integrations.md), [`on-*` (auth)](./docs/packages-auth.md), [`as-*` (exports)](./docs/packages-exports.md)
+- [Architecture](./docs/architecture.md) — data flow + threat model
 - [SPEC](./SPEC.md) — design invariants (do not violate)
 
 ---
@@ -43,7 +43,7 @@ lands what real production workloads actually need.
 - **Domain schemas** — noy-db is schema-agnostic. Standard Schema v1 is
   the extension point, community publishes formats (ETDA CII, Peppol
   UBL, HL7 FHIR, …) under their own npm scopes. See
-  [`docs/patterns/schemas.md`](./docs/patterns/schemas.md).
+  [`docs/architecture.md#schema-agnostic-design`](./docs/architecture.md#schema-agnostic-design).
 
 ---
 
@@ -61,7 +61,7 @@ Where ciphertext goes. 20 packages shipped; remaining open:
 - `to-qr` — scannable QR sequence for air-gap transfer
 - `to-stego` — steganographic hiding in JPEG/PNG/PDF
 
-See [stores.md](./docs/packages/stores.md) for the full catalog.
+See [stores.md](./docs/packages-stores.md) for the full catalog.
 
 ### Fork · Integrations (`@noy-db/in-*`)
 
@@ -70,7 +70,7 @@ Framework bindings. 10 shipped; remaining open:
 - `in-solid` — SolidJS signals
 - `in-qwik` — resumable queries
 
-See [integrations.md](./docs/packages/integrations.md).
+See [integrations.md](./docs/packages-integrations.md).
 
 ### Fork · On (`@noy-db/on-*`)
 
@@ -78,7 +78,7 @@ Unlock / auth primitives. 9 shipped; remaining open:
 
 - Cross-user KEK delegation (follow-up to v0.18 delegation tokens)
 
-See [auth.md](./docs/packages/auth.md).
+See [auth.md](./docs/packages-auth.md).
 
 ### Fork · As (`@noy-db/as-*`)
 
@@ -86,7 +86,7 @@ Portable-artefact exports. 9 shipped (CSV / XLSX / JSON / NDJSON /
 XML / SQL / blob / ZIP + encrypted `.noydb` bundle). Always-open
 lane for additional format requests.
 
-See [exports.md](./docs/packages/exports.md).
+See [exports.md](./docs/packages-exports.md).
 
 ---
 

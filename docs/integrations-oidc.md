@@ -11,7 +11,7 @@
 > change it per-provider or PKCE state handoff breaks.
 >
 > Every provider in this document has been validated against the
-> playground's PKCE flow at v0.12. If a dashboard moves a button, the
+> playground's PKCE flow at. If a dashboard moves a button, the
 > URL pattern and field names still apply — prefer those over the exact
 > click path.
 
@@ -196,7 +196,7 @@ test users — every identity is a real Apple ID.
 
 ## LINE
 
-Very popular in Thailand, Japan, and Taiwan. Free developer account,
+Popular across Asia-Pacific. Free developer account,
 setup faster than Google (no consent-screen wizard).
 
 ### Prerequisites
@@ -563,4 +563,4 @@ behaviour when the device secret is cleared.
 
 ---
 
-*Provider setup guide last updated: v0.12.0 — 2026-04-20.*
+*Provider setup guide last updated: — 2026-04-20.*

@@ -8,8 +8,8 @@ NOYDB ("None Of Your Damn Business") is a zero-knowledge, offline-first, encrypt
 
 The primary spec is `SPEC.md` — read it before any non-trivial work. It is the source of truth for all design decisions. Complementary docs:
 - `ROADMAP.md` — version timeline and open work
-- `docs/reference/architecture.md` — reader-facing data flow and threat model
-- `docs/packages/{stores,integrations,auth,exports}.md` — catalog pages for the four prefix families
+- `docs/architecture.md` — reader-facing data flow and threat model
+- `docs/packages-{stores,integrations,auth,exports}.md` — catalog pages for the four prefix families
 
 **Status:** foundation epoch complete. 56 packages shipped across 4 prefixed families (`hub`, `to-*`, `in-*`, `on-*`, `as-*`). npm paused — publishing will be coordinated. Fork milestones remain open for ongoing satellite work.
 
@@ -96,7 +96,7 @@ packages/
   as-xlsx/               # Excel with dict-label expansion
   as-json/               # structured JSON grouped by collection
   as-ndjson/             # newline-delimited streaming JSON
-  as-xml/                # legacy / accounting software
+  as-xml/                # legacy / enterprise software
   as-sql/                # postgres / mysql / sqlite dumps
   as-blob/               # single-attachment plaintext
   as-zip/                # composite record+blob archive
@@ -220,8 +220,8 @@ All store and auth packages (every `@noy-db/to-*`, `@noy-db/on-*`, `@noy-db/in-*
 - Integration tests with `@noy-db/to-file` on temp directories
 - DynamoDB tests with DynamoDB Local (Docker) in CI
 - Security tests: wrong key rejection, tamper detection, revoked user lockout after rotation
-- Edge cases: empty vaults, concurrent writes, 1MB+ records, Unicode/Thai text, corrupt files
+- Edge cases: empty vaults, concurrent writes, 1MB+ records, Unicode text, corrupt files
 
 ## First Consumer
 
-An established regional accounting firm platform. Vaults = companies, collections = invoices/payments/disbursements/clients. USB stick workflow via `to-file`, cloud via `to-aws-dynamo`. Vue/Nuxt frontend with Pinia stores.
+An established enterprise pilot platform. Vaults = companies, collections = invoices/payments/disbursements/clients. USB stick workflow via `to-file`, cloud via `to-aws-dynamo`. Vue/Nuxt frontend with Pinia stores.

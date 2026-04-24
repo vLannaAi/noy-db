@@ -4,7 +4,7 @@
 
 ### Minor Changes
 
-- v0.11 package taxonomy rename — hub / to-_ / in-_ (#150)
+- package taxonomy rename — hub / to-_ / in-_ (#150)
 
   Establishes the final naming taxonomy across all 15 packages.
   `@noy-db/hub` (was `@noy-db/core`), `@noy-db/to-*` storage backends,
@@ -14,7 +14,7 @@
 
 ### Minor Changes
 
-- feat(v0.9): sync v2 — conflict policies, partial sync, transactions, CRDT, presence, @noy-db/yjs
+- feat: sync v2 — conflict policies, partial sync, transactions, CRDT, presence, @noy-db/yjs
 
   ### @noy-db/core
 
@@ -36,7 +36,7 @@
 
 ### Minor Changes
 
-- 29c54c4: Add `dictKey` schema descriptor, `DictionaryHandle`, and `i18nText` schema type (v0.8 #81 #82)
+- 29c54c4: Add `dictKey` schema descriptor, `DictionaryHandle`, and `i18nText` schema type (#82)
 
   - `dictKey(name, keys?)` — descriptor for dictionary-backed enum fields, validated on `put()`
   - `DictionaryHandle` — CRUD + `rename()` with cascade-rewrite for `_dict_*` reserved collections
@@ -46,7 +46,7 @@
   - `LocaleReadOptions` interface for `get(id, { locale, fallback? })` and `list({ locale, fallback? })`
   - Compartment gains `dictionary(name, opts?)`, `setLocale()`, `getLocale()`; collection options gain `i18nFields` and `dictKeyFields`
 
-- 29c54c4: v0.8 i18n completion: plaintextTranslator hook (#83), exportStream dictionary snapshot (#84), query DSL dictKey integration (#85).
+- 29c54c4: i18n completion: plaintextTranslator hook (#83), exportStream dictionary snapshot (#84), query DSL dictKey integration (#85).
 
   - **plaintextTranslator (#83)**: Consumer-supplied async translation function for `i18nText` fields with `autoTranslate: true`. Runs before i18n validation in `put()`. In-process content-hash cache cleared on `close()`. Audit log via `db.translatorAuditLog()` with cache-hit flag. `TranslatorNotConfiguredError` when translator missing.
   - **exportStream dictionary snapshot (#84)**: `exportStream()` attaches a `dictionaries` field to chunks from collections with dictKey fields. Snapshot is captured atomically before the first yield — concurrent mutations do not affect it. `exportJSON()` embeds `_dictionaries` at top level; omits it when `resolveLabels` is set.
@@ -175,7 +175,7 @@
   state (`S`) and user-visible result (`R`) type parameters. This
   is the shape that admits O(1) incremental maintenance for
   sum/count/avg in a future optimization without breaking the
-  public API. v0.6 ships naive full re-run on source change;
+  public API. ships naive full re-run on source change;
   incremental delta maintenance is a planned follow-up.
 
   **`.live()` reactive primitive** — `LiveAggregation<R>`: plain
@@ -189,8 +189,7 @@
 
   **#87 constraint #2 (load-bearing seam):** every reducer factory
   accepts an optional `{ seed }` parameter that is plumbed through
-  the protocol but unused by the v0.6 executor. When v0.10
-  partition-aware aggregation lands, the seed will carry running
+  the protocol but unused by the executor. When   partition-aware aggregation lands, the seed will carry running
   state across partition boundaries without requiring an API break.
   Do not remove — that's the whole point of having it now.
 
@@ -255,7 +254,7 @@
   `enforceRefsOnPut` policy.
 
   Same-compartment only — cross-compartment correlation goes through
-  `Noydb.queryAcross` (v0.5 #63), not `.join()`. This is an architectural
+  `Noydb.queryAcross`, not `.join()`. This is an architectural
   invariant, not a limitation we plan to lift.
 
   **New public API:**
@@ -267,14 +266,14 @@
   - `DEFAULT_JOIN_MAX_ROWS`, `applyJoins`, `resetJoinWarnings` — internals
     exported for custom planners and tests
 
-  **v0.6 design-forward partition seams (#87 constraint #1):** every
+  **design-forward partition seams (#87 constraint #1):** every
   `JoinLeg` carries a `partitionScope` field that is always `'all'` in
-  v0.6 and never read by the executor. v0.10 partition-aware joins will
+  and never read by the executor. partition-aware joins will
   start populating it from `where()` predicates on the partition key
   without changing the planner's external shape — shipping the seam now
   means no API break later.
 
-  **Known v0.6 limitations** (tracked separately):
+  **Known limitations** (tracked separately):
 
   - `.join().live()` merged change-stream reactivity — #74
   - `.join().join()` multi-FK chaining — #75
@@ -307,7 +306,7 @@
   - One-shot warning at **10_000 distinct groups** (`GROUPBY_WARN_CARDINALITY`)
   - Hard `GroupCardinalityError` at **100_000 distinct groups** (`GROUPBY_MAX_CARDINALITY`)
 
-  The hard cap is fixed in v0.6 — grouping on a high-uniqueness field
+  The hard cap is fixed in — grouping on a high-uniqueness field
   like `id` or `createdAt` is almost always a query mistake rather
   than legitimate use, and a hard error is better than silent OOM.
   Consumers hitting the cap see an actionable message naming the
@@ -327,10 +326,10 @@
   helper exported from `aggregate.ts`. Same error-isolation and
   idempotent-stop contract. Per-bucket incremental maintenance is a
   future optimization — the reducer protocol's `remove()` hook
-  admits it but v0.6 ships naive re-grouping for simplicity.
+  admits it but ships naive re-grouping for simplicity.
 
   **Joins skipped** in grouped pipelines — same rationale as
-  `.count()` and `.aggregate()`. Joined fields in v0.6 are
+  `.count()` and `.aggregate()`. Joined fields in are
   projection-only, so running a join inside a grouping pipeline would
   be wasteful and could trigger `DanglingReferenceError` in strict
   mode. Grouping by a joined field is explicitly out of scope.
@@ -347,9 +346,9 @@
   - `GroupedRow<F, R>` — result row type
   - `resetGroupByWarnings` — test-only warning dedup reset
 
-  **Type-level stable-key narrowing (v0.8 #85 prep):** v0.6 types
+  **Type-level stable-key narrowing (prep):** types
   the group key as `unknown` at the result shape. When `dictKey`
-  lands in v0.8, a `groupBy<DictField>()` overload will narrow the
+  lands, a `groupBy<DictField>()` overload will narrow the
   group key type to the stable dictionary key rather than the
   resolved locale label — preventing the silent bug where grouping
   by a localized label produces different buckets per reader. The
@@ -418,7 +417,7 @@
     `live.error` after each notification and render an error state.
   - `warn` → joined value flips to `null`; the existing one-shot
     warn dedup keeps repeated re-runs from spamming the console.
-  - `cascade` → no special handling; the v0.4 cascade-delete
+  - `cascade` → no special handling; the cascade-delete
     mechanism propagates the right-side delete into the left
     collection on the next tick, and the live query naturally
     re-fires with the orphaned left rows gone.
@@ -439,7 +438,7 @@
   - `JoinableSource.subscribe?` — optional method on the join-source
     interface, populated by `Collection.querySourceForJoin()`
 
-  **v0.6 limitations** (tracked separately):
+  **limitations** (tracked separately):
 
   - No granular delta updates — the whole query re-runs on every
     upstream change. v2 optimization once the API is stable.
@@ -486,7 +485,7 @@
   on every leg (not just the first), so
   `.join('a', { maxRows: 100_000 }).join('b', { maxRows: 50 })`
   correctly throws on the second leg if the left set exceeds 50. Because
-  v0.6 joins are equi-joins on the target's primary key (one-to-one or
+  joins are equi-joins on the target's primary key (one-to-one or
   one-to-null), the left row count stays constant across legs — there's
   no cartesian blowup.
 
@@ -600,7 +599,7 @@
 
   The handle is the only identifier in the bundle header — it's
   opaque, doesn't leak compartment names, and is the planned
-  primary key for the v0.11 cloud bundle adapters (Drive, Dropbox,
+  primary key for the cloud bundle adapters (Drive, Dropbox,
   iCloud).
 
   The ULID timestamp prefix is observable, but it leaks no more
@@ -670,16 +669,13 @@
 
   ## Out of scope (tracked separately)
 
-  - **Bundle adapter shape** (Drive, Dropbox, iCloud) — v0.11 #93
-  - **CLI commands** `noydb inspect/open` — v0.10 #96
-  - **Browser extension reader** — v0.10
-  - **Multi-compartment bundles** — v2
+  - **Bundle adapter shape** (Drive, Dropbox, iCloud) —   - **CLI commands** `noydb inspect/open` —   - **Browser extension reader** —   - **Multi-compartment bundles** — v2
   - **Streaming decompression** for mobile — v2
   - **ZIP-like selective extraction** — v2
   - **Encrypting the dump body itself** — the body is plaintext
     JSON containing encrypted records; encrypting the JSON wrapper
     would require a second key derivation and is a bigger design
-    conversation than v0.6 can host
+    conversation than can host
 
   ## Tests
 
@@ -740,7 +736,7 @@
     await processOne(record);
   }
 
-  // v0.6 #99 — streaming aggregation with filter
+  // — streaming aggregation with filter
   const { total, n } = await invoices
     .scan({ pageSize: 1000 })
     .where("year", "==", 2025)
@@ -766,7 +762,7 @@
   a fresh `ScanBuilder` sharing the same page provider and page
   size. Base scans can be safely reused across multiple parallel
   aggregations, though each still pays a full scan — multi-way
-  single-pass aggregation is out of scope for v0.6.
+  single-pass aggregation is out of scope for.
 
   **Backward compatibility.** The return type of
   `Collection.scan()` changed from `AsyncIterableIterator<T>` to
@@ -817,7 +813,7 @@ collection.scan()) { … }` call continues to work because
   `ScanBuilder` now has a chainable `.join(field, { as })` method that
   resolves a `ref()`-declared foreign key per record as the scan
   stream flows, attaching the right-side record (or null) under the
-  alias. v0.6 #76 — streaming joins.
+  alias. — streaming joins.
 
   ```ts
   // Streaming joined iteration
@@ -851,7 +847,7 @@ collection.scan()) { … }` call continues to work because
   the iteration. The "streaming" property applies to the **left**
   side only — true left-and-right streaming joins (where neither
   side fits in memory) require a sort-merge join planner that's out
-  of scope for v0.6.
+  of scope for.
 
   **Ref-mode semantics match eager `.join()` exactly:**
 
@@ -875,11 +871,11 @@ collection.scan()) { … }` call continues to work because
   the eager `Query.toArray()` ordering. This means `.where()` /
   `.filter()` can only see un-joined fields. Filtering on joined
   fields requires a follow-up post-aggregate filter in userland —
-  out of scope for v0.6.
+  out of scope for.
 
   **#87 constraint #1** — every JoinLeg from a streaming join
   carries `partitionScope: 'all'` plumbed through but never read
-  by v0.6. v0.10 partition-aware streaming joins will populate it
+  by. partition-aware streaming joins will populate it
   from `where()` predicates without changing the planner shape.
   Same seam as eager join.
 

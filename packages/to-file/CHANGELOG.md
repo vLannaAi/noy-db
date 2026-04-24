@@ -11,7 +11,7 @@
 
 ### Patch Changes
 
-- feat(v0.9): sync v2 — conflict policies, partial sync, transactions, CRDT, presence, @noy-db/yjs
+- feat: sync v2 — conflict policies, partial sync, transactions, CRDT, presence, @noy-db/yjs
 
   ### @noy-db/core
 
@@ -148,7 +148,7 @@
 
   The handle is the only identifier in the bundle header — it's
   opaque, doesn't leak compartment names, and is the planned
-  primary key for the v0.11 cloud bundle adapters (Drive, Dropbox,
+  primary key for the cloud bundle adapters (Drive, Dropbox,
   iCloud).
 
   The ULID timestamp prefix is observable, but it leaks no more
@@ -218,16 +218,13 @@
 
   ## Out of scope (tracked separately)
 
-  - **Bundle adapter shape** (Drive, Dropbox, iCloud) — v0.11 #93
-  - **CLI commands** `noydb inspect/open` — v0.10 #96
-  - **Browser extension reader** — v0.10
-  - **Multi-compartment bundles** — v2
+  - **Bundle adapter shape** (Drive, Dropbox, iCloud) —   - **CLI commands** `noydb inspect/open` —   - **Browser extension reader** —   - **Multi-compartment bundles** — v2
   - **Streaming decompression** for mobile — v2
   - **ZIP-like selective extraction** — v2
   - **Encrypting the dump body itself** — the body is plaintext
     JSON containing encrypted records; encrypting the JSON wrapper
     would require a second key derivation and is a bigger design
-    conversation than v0.6 can host
+    conversation than can host
 
   ## Tests
 

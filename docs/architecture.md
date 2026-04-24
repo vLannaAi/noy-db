@@ -2,7 +2,7 @@
 
 How NOYDB stores, encrypts, and protects your data.
 
-> Related: [Roadmap](../../ROADMAP.md) · [Deployment profiles](./deployment-profiles.md) · [Spec](../../SPEC.md)
+> Related: [Roadmap](../ROADMAP.md) · [Deployment topologies](./topologies.md) · [Spec](../SPEC.md)
 
 ---
 
@@ -173,11 +173,11 @@ A `Collection` has two hydration modes:
 
 **Eager (default):** `openVault()` loads every record from the store, decrypts it, and keeps it in memory. `list()` and `query()` are `Array.filter` over the in-memory map. Indexes are allowed.
 
-**Lazy:** triggered by passing `cache: { maxRecords, maxBytes }` at collection construction. Records are fetched on demand and cached in an LRU keyed by `(vault, collection, id)`. Eviction is O(1) via a `Map` + delete/set promotion. On cache miss, `get(id)` hits the store, decrypts, and populates the LRU. `list()` and `query()` throw — use `scan()` (async iterator, bypasses the LRU) or `loadMore()` (via `listPage`, populates the LRU) instead. Indexes in lazy mode are supported as of v0.22 — see [Indexes in lazy mode (v0.22)](#indexes-in-lazy-mode-v022) below.
+**Lazy:** triggered by passing `cache: { maxRecords, maxBytes }` at collection construction. Records are fetched on demand and cached in an LRU keyed by `(vault, collection, id)`. Eviction is O(1) via a `Map` + delete/set promotion. On cache miss, `get(id)` hits the store, decrypts, and populates the LRU. `list()` and `query()` throw — use `scan()` (async iterator, bypasses the LRU) or `loadMore()` (via `listPage`, populates the LRU) instead. Indexes in lazy mode are supported as of — see [Indexes in lazy mode](#indexes-in-lazy-mode-v022) below.
 
 `prefetch: true` restores eager behavior even when `cache` is set, which is useful for small compartments inside a larger lazy database.
 
-### Indexes in lazy mode (v0.22)
+### Indexes in lazy mode
 
 Lazy-mode collections accept the same `indexes: ['field', …]` declaration
 as eager collections. Each declared field materialises a side-car record
@@ -385,7 +385,7 @@ The contract is intentionally tiny. Building a custom store is `createStore(opts
 | Revoked user retains old copies | Key rotation makes their old wrapped DEKs decrypt nothing                     |
 | IV reuse                        | Fresh 12-byte random IV per encrypt; never reused                             |
 | Quantum (Grover's)              | AES-256 → 128-bit effective security; safe for the foreseeable future         |
-| Leaked indexed field names      | Accepted — the only new store-observable metadata introduced by v0.22 lazy-mode indexes. Field names per collection are visible via side-car id prefixes; value distribution is NOT visible (side-car id contains `recordId`, not a value hash). |
+| Leaked indexed field names      | Accepted — the only new store-observable metadata introduced by lazy-mode indexes. Field names per collection are visible via side-car id prefixes; value distribution is NOT visible (side-car id contains `recordId`, not a value hash). |
 
 What NOYDB **doesn't** defend against:
 - Compromised client device with active session (KEK is in memory by definition)
@@ -394,6 +394,227 @@ What NOYDB **doesn't** defend against:
 
 ---
 
+---
+
+## Schema validation
+
+`@noy-db/hub` accepts any [Standard Schema v1](https://standardschema.dev) validator (Zod, Valibot, ArkType, Effect Schema, or a hand-rolled `{ '~standard': { validate: … } }` object) as the `schema` option on `vault.collection()`. The validator fires **on every `put`** (rejects wrong-shape writes) AND **on every decrypted read** (catches silent drift from older records). Wrong-shape data never gets persisted or returned.
+
+```ts
+import { z } from 'zod'
+
+const Invoice = z.object({
+  id: z.string().min(1),
+  clientId: z.string(),
+  amount: z.number().positive(),
+  status: z.enum(['draft', 'open', 'paid', 'overdue']),
+  issueDate: z.string(),
+})
+
+const invoices = vault.collection<z.infer<typeof Invoice>>('invoices', { schema: Invoice })
+```
+
+### What it validates, and when
+
+| Call site | Direction | What it catches |
+|-----------|-----------|-----------------|
+| `put(id, record)` | **Input** — before encrypt | Caller passed wrong-shape data |
+| `get(id)` / `list()` / `query().*` / `scan()` / `listPage()` | **Output** — after decrypt | Historical record doesn't match *current* schema (drift during schema evolution) |
+| `getVersion()` / `history()` | *(skipped)* | History reads are expected to predate the current schema |
+
+Input validation is the obvious case. Output validation matters when you evolve the schema — records written under v1 of the shape might be missing a field v2 requires. Returning them silently would let the consumer render a broken UI for a stale record.
+
+### `SchemaValidationError`
+
+```ts
+class SchemaValidationError extends NoydbError {
+  code: 'SCHEMA_VALIDATION_FAILED'
+  direction: 'input' | 'output'
+  issues: readonly StandardSchemaV1Issue[]
+}
+```
+
+Consumer-side error renderers (Zod → `fieldErrors`, Valibot → `flatten()`, etc.) all work on `err.issues` — the library passes the raw issue list through untouched.
+
+### Schema evolution — handling the output case
+
+1. **Additive-only changes** — adding an *optional* field never breaks older records. Adding a *required* field with a default likewise.
+2. **Transform-with-default** via `z.coerce` / `default()` — older records without the field get a sensible value when decoded.
+3. **Dual-shape union** — when the new shape is incompatible with the old, use a discriminated union keyed on a `schemaVersion` field.
+4. **Migration script** — a one-shot that reads every record with `{ skipValidation: true }`, transforms, writes back under the new shape.
+
+### Runtime cost
+
+Measured overhead on a representative Zod schema of 12 fields, 1,000 records: **~1.2%** of total `put` time. Reads are similar. Validation is dominated by crypto, not schema checks. Use `{ skipValidation: true }` on specific reads where you've already validated the data is shape-correct.
+
+---
+
+## Schema-agnostic design
+
+noy-db is **schema-agnostic by policy**. The hub enforces an encryption invariant (ciphertext at rest, per-user keyring) and a query contract (`Collection<T>` with `put` / `get` / `list` / `query`), but it has no opinion on what `T` *means* — EU Peppol UBL, US IRS 1099, HL7 FHIR, any of it. That's deliberate.
+
+### Why we don't ship domain schemas under `@noy-db/`
+
+Every market has a regulated invoice format, a jurisdiction-specific identifier layout, a domain-specific cadence. Publishing even one under the `@noy-db/` scope would commit the core to:
+
+- Tracking that standard's revisions (typically every 24–36 months).
+- Handling regulator interpretation changes.
+- Fielding bug reports that are really domain questions, not crypto or store questions.
+- A growing tail of *every other* standard anyone asks for next.
+
+Schema-agnostic is the only policy that scales. Domain libraries belong to domain communities.
+
+### Recommended naming convention for community schema packages
+
+If you ship a schema preset and want discoverable naming that telegraphs compatibility:
+
+```
+@<your-scope>/noy-db-schema-<format-slug>
+```
+
+Examples: `@eu-b2b/noy-db-schema-peppol-ubl`, `@clinics-uk/noy-db-schema-hl7-fhir`. The convention is a suggestion, not a requirement. noy-db does not own the name, register the npm prefix, or audit the publish.
+
+---
+
+## i18n boundaries — what hub knows vs what you own
+
+`@noy-db/hub` is **content-agnostic**. It knows the **shape** of multi-locale data (`i18nText` fields, dictionaries, `dictKey` descriptors) and it knows how to **store** and **resolve** it, but it never inspects *what* the content says. Translation, full-text search, locale-aware sorting, alternate calendars — all userland.
+
+### Three layers
+
+| Layer | What it knows | Where it lives |
+|-------|---------------|----------------|
+| **1. Shape** | Multi-locale data has N slots; which locales are required; how to resolve a locale map to a single value; stable identity vs render-time label | `@noy-db/hub/i18n` subpath |
+| **2. Content** | The actual translated strings. Whether a character sequence is a valid translation. What language a string is in. | **Userland** — bridged into hub via the `plaintextTranslator` hook |
+| **3. Locale-specific logic** | Alternate-era date conversion · fiscal calendars · RTL handling · plural rules · locale-aware collation · stemming · currency glyphs · stop words · phonetic matching | **Userland** — adopters build their own helpers or use general-purpose libraries (`date-fns`, `dayjs`, `Intl.*`). noy-db deliberately does not ship market-specific `locale-*` packages. |
+
+Hub touches layer 1 only. Every language-specific function adopters might reach for is layer 2 or 3.
+
+### The stable-key invariant
+
+The content-agnostic guarantee rests on one design rule:
+
+> **Identity is stable across locales. Labels are render-time.**
+
+Concretely:
+- `Collection` record ids are opaque strings — never localised.
+- `dictKey` fields store the stable key (`'paid'`) — never the label (`'Paid'` / localised variant).
+- Query operators compare stable keys, not labels.
+- FK refs (`ref()`) target record ids, not display names.
+- `groupBy` buckets by stable keys — bucket counts are identical whether you render in one locale or another.
+
+A consumer who follows this rule gets a deployment that runs the same way in every locale. A consumer who puts localised strings into identity fields is opting out of this guarantee (queries break when the label changes, FKs dangle when a translator revises the string).
+
+**The one documented exception.** Plaintext exports (`@noy-db/as-xlsx` and the wider `as-*` family) deliberately resolve `dictKey` values to locale labels on the way out. This is a render-time transform at the egress boundary, not a breach of the invariant.
+
+### `plaintextTranslator` hook — the boundary
+
+This is the one line in hub where userland-supplied logic runs over plaintext content. Consumer provides a function; hub invokes it, caches the result, writes an audit entry:
+
+```ts
+createNoydb({
+  store: ...,
+  plaintextTranslator: async ({ text, from, to, field, collection }) => {
+    const translated = await myLLM.translate(text, { from, to })
+    return translated
+  },
+})
+```
+
+Hub's responsibilities: invoke the hook when an `i18nText` field has `autoTranslate: true` and a required locale is missing; cache results; write an audit entry to the ledger (field + collection + mechanism + timestamp — **never content hashes**); clear the cache on `db.close()`.
+
+Hub's *non*-responsibilities: ship any default translator (no SDK dependencies), retry on translator failure, validate output language, detect input language.
+
+### Query ordering is byte-comparison, not locale-aware
+
+`.orderBy(field, direction)` uses native JS comparators on the canonical bucket-key representation: numbers numeric, dates chronological, **strings byte-compared (code-point order, not locale-aware)**. If you need culturally-correct sort order for a specific script, wrap `orderBy` output with `Intl.Collator(locale).compare` in post-processing. Hub doesn't help — the in-memory cache is the index.
+
+---
+
+## Sync conflict resolution
+
+`@noy-db/hub` has pluggable sync-conflict resolution. Pass `conflictPolicy` when declaring a collection.
+
+### The 60-second pattern
+
+```ts
+// Option 1 — built-in string strategy
+const invoices = vault.collection<Invoice>('invoices', {
+  conflictPolicy: 'last-writer-wins',   // envelope with newer _ts wins
+})
+
+// Option 2 — custom merge function (decrypted T in, merged T out)
+const notes = vault.collection<Note>('notes', {
+  conflictPolicy: (local, remote) => ({
+    ...local,
+    text: `${local.text}\n\n---\n\n${remote.text}`,
+    version: Math.max(local.version, remote.version) + 1,
+  }),
+})
+
+// Option 3 — surface to UI, human picks
+const urgent = vault.collection<Ticket>('urgent', { conflictPolicy: 'manual' })
+db.on('sync:conflict', ({ id, local, remote, resolve }) => {
+  const winner = await askUser(id, local, remote)
+  resolve?.(winner === 'local' ? local : remote)
+})
+```
+
+### When does a conflict fire?
+
+| Event | Resolver invoked? |
+|-------|-------------------|
+| Local two-writer race on the same device | ❌ throws `ConflictError` at the `put` call (optimistic-lock mismatch) |
+| `push` — local `_v` older than remote | ✅ |
+| `pull` — remote `_v` newer than a locally-dirty record | ✅ |
+| `pull` — remote newer than local, local NOT dirty | ❌ remote just wins cleanly |
+| `pushFiltered` (partial sync) | ✅ same rules as `push` |
+
+The resolver is a **merge point for parallel histories**, not a generic write-collision handler. Local races are the caller's job — catch `ConflictError`, re-read, reconcile, retry.
+
+### The four built-in strategies
+
+- **`'last-writer-wins'`** (timestamp-based) — the envelope with the larger `_ts` wins. Assumes reasonably-synced clocks.
+- **`'first-writer-wins'`** (version-based, monotonic) — the envelope with the *lower* `_v` wins. Useful for append-only logs, immutable-after-submission records.
+- **`'manual'`** (emit event, you resolve) — the sync engine emits `'sync:conflict'` with a `resolve(winner)` callback.
+- **Custom merge function** `(local: T, remote: T) => T` — sees decrypted records. Return value is re-encrypted and assigned `_v = max(local._v, remote._v) + 1`.
+
+### Multi-operator example
+
+Two operators in different locations both edit the same record while offline. On reconnect, both sync. With LWW the later-timestamp write wins wholesale, losing the other operator's field-level edits. With a custom merge function field-level merges preserve both operators' changes:
+
+```ts
+conflictPolicy: (local, remote) => ({
+  ...local, ...remote,
+  amount: local.amount !== remote.amount ? Math.max(local.amount, remote.amount) : local.amount,
+  status: local.status !== 'draft' ? local.status : remote.status,
+  tags: [...new Set([...(local.tags ?? []), ...(remote.tags ?? [])])],
+  notes: [local.notes, remote.notes].filter(Boolean).join('\n---\n'),
+})
+```
+
+For any multi-operator deployment: **either pick `'manual'` and build a UI, or write a domain-aware merge function**. Don't ship LWW to production unless you accept that concurrent edits lose data.
+
+### Events emitted by the sync engine
+
+| Event | When | Payload |
+|-------|------|---------|
+| `'sync:push'` | After every `push()` | `PushResult { pushed, conflicts: Conflict[], status }` |
+| `'sync:pull'` | After every `pull()` | `PullResult { pulled, conflicts, status }` |
+| `'sync:conflict'` | `conflictPolicy: 'manual'` OR a custom resolver returns `null` | `Conflict { vault, collection, id, local, remote, localVersion, remoteVersion, resolve? }` |
+| `'change'` | After every local put/delete | `ChangeEvent` |
+
+The `PushResult.conflicts` / `PullResult.conflicts` arrays let you audit every conflict regardless of policy. `'sync:conflict'` is for interactive resolution only.
+
+### Pitfalls
+
+- **Don't expect the resolver on local races** — `ConflictError` on `put` is a CAS violation, not a sync conflict.
+- **Don't forget `resolve?.()` in the `'manual'` handler** — without it, the conflict stays queued and the record stays stale.
+- **Merge functions must be pure.** Two devices running the same merge on the same inputs must produce the same output, or the conflict keeps re-emerging.
+- **The policy is set at `vault.collection()` declaration time** — changing it at runtime for a collection isn't supported; re-declare the collection reference.
+
+---
+
 ## What's next
 
-The forward roadmap continues in [`ROADMAP.md`](../../ROADMAP.md).
+The forward roadmap continues in [`ROADMAP.md`](../ROADMAP.md).
