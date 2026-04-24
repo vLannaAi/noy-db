@@ -13,6 +13,7 @@ export default defineConfig({
     'query/index': 'src/query/index.ts',
     'blobs/index': 'src/blobs/index.ts',
     'indexing/index': 'src/indexing/index.ts',
+    'aggregate/index': 'src/aggregate/index.ts',
   },
   format: ['esm', 'cjs'],
   dts: true,

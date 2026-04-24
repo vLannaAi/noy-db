@@ -60,14 +60,14 @@
  * delegates to the reducer protocol for all per-bucket state.
  */
 
-import { readPath } from './predicate.js'
+import { readPath } from '../query/predicate.js'
 import type {
   AggregateSpec,
   AggregateResult,
   AggregationUpstream,
   LiveAggregation,
-} from './aggregate.js'
-import { buildLiveAggregation } from './aggregate.js'
+} from './aggregation.js'
+import { buildLiveAggregation } from './aggregation.js'
 import { GroupCardinalityError } from '../errors.js'
 
 /**

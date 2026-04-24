@@ -105,6 +105,16 @@
         "types": "./dist/indexing/index.d.cts",
         "default": "./dist/indexing/index.cjs"
       }
+    },
+    "./aggregate": {
+      "import": {
+        "types": "./dist/aggregate/index.d.ts",
+        "default": "./dist/aggregate/index.js"
+      },
+      "require": {
+        "types": "./dist/aggregate/index.d.cts",
+        "default": "./dist/aggregate/index.cjs"
+      }
     }
   },
   "main": "./dist/index.cjs",

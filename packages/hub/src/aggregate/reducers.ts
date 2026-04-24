@@ -24,7 +24,7 @@
  * source change" that v0.6 ships.
  */
 
-import { readPath } from './predicate.js'
+import { readPath } from '../query/predicate.js'
 
 /**
  * A single reducer: factory-produced, ready to plug into an

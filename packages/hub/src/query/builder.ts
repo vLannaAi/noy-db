@@ -12,9 +12,9 @@ import type { JoinContext, JoinLeg, JoinStrategy } from './join.js'
 import { applyJoins } from './join.js'
 import type { LiveQuery, LiveUpstream } from './live.js'
 import { buildLiveQuery } from './live.js'
-import type { AggregateSpec, AggregateResult, AggregationUpstream } from './aggregate.js'
-import { Aggregation } from './aggregate.js'
-import { GroupedQuery } from './groupby.js'
+import type { AggregateSpec, AggregateResult, AggregationUpstream } from '../aggregate/aggregation.js'
+import { Aggregation } from '../aggregate/aggregation.js'
+import { GroupedQuery } from '../aggregate/groupby.js'
 
 export interface OrderBy {
   readonly field: string

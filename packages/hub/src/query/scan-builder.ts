@@ -64,7 +64,7 @@ import { evaluateClause, readPath } from './predicate.js'
 import type {
   AggregateSpec,
   AggregateResult,
-} from './aggregate.js'
+} from '../aggregate/aggregation.js'
 import type { JoinContext, JoinLeg, JoinableSource } from './join.js'
 import { DanglingReferenceError } from '../errors.js'
 
