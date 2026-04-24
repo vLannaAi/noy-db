@@ -41,15 +41,21 @@
   "peerDependencies": {
     "@noy-db/hub": "workspace:*",
     "@noy-db/in-pinia": "workspace:*",
+    "@noy-db/in-rest": "workspace:*",
     "@noy-db/in-vue": "workspace:*",
     "nuxt": "^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@noy-db/in-rest": { "optional": true }
   },
   "devDependencies": {
     "@noy-db/hub": "workspace:*",
     "@noy-db/in-pinia": "workspace:*",
+    "@noy-db/in-rest": "workspace:*",
     "@noy-db/in-vue": "workspace:*",
     "@nuxt/kit": "^4.4.2",
     "@nuxt/schema": "^4.4.2",
+    "h3": "^1.13.0",
     "nuxt": "^4.4.2"
   },
   "keywords": [

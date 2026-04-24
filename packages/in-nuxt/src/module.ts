@@ -29,7 +29,7 @@
  *     users call setActiveNoydb from their own setup file)
  */
 
-import { defineNuxtModule, addImports, addPlugin, createResolver } from '@nuxt/kit'
+import { defineNuxtModule, addImports, addPlugin, addServerHandler, createResolver } from '@nuxt/kit'
 
 /**
  * Configuration shape for the `noydb:` key in `nuxt.config.ts`.
@@ -88,6 +88,25 @@ export interface ModuleOptions {
    * a passthrough — the devtools tab itself ships in a v0.4 follow-up.
    */
   devtools?: boolean
+
+  /**
+   * Optional REST API integration. When `enabled: true`, mounts a catch-all
+   * Nitro server handler at `basePath/**` using `@noy-db/in-rest`.
+   *
+   * The handler is scaffold-level: it reads `event.context.noydbStore` which
+   * a separate Nitro plugin must populate. See #273 follow-up for the store
+   * wiring. The module simply registers the route here.
+   */
+  rest?: {
+    /** Enable the REST API server handler. Default: false. */
+    enabled?: boolean
+    /** Base path for all REST routes. Default: '/api/noydb'. */
+    basePath?: string
+    /** User ID forwarded to createRestHandler. */
+    user?: string
+    /** Session TTL in seconds. Default: 900. */
+    ttlSeconds?: number
+  }
 }
 
 /**
@@ -172,6 +191,26 @@ export default defineNuxtModule<ModuleOptions>({
       src: resolver.resolve('./runtime/plugin.client.js'),
       mode: 'client',
     })
+
+    // ─── 5. REST API server handler (opt-in) ────────────────────────
+    //
+    // When `rest.enabled: true`, mount a catch-all Nitro server handler
+    // at `basePath/**`. The handler delegates to `@noy-db/in-rest` via
+    // the nitroAdapter. Store wiring (populating event.context.noydbStore)
+    // is a follow-up concern tracked in #273.
+    if (options.rest && (options.rest as { enabled?: boolean }).enabled) {
+      const restOpts = options.rest as {
+        enabled?: boolean
+        basePath?: string
+        user?: string
+        ttlSeconds?: number
+      }
+      const basePath = restOpts.basePath ?? '/api/noydb'
+      addServerHandler({
+        route: `${basePath}/**`,
+        handler: resolver.resolve('./runtime/rest'),
+      })
+    }
   },
 })
 
