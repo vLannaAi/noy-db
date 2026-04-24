@@ -198,14 +198,12 @@ describe('lazy mode with indexes declared (v0.22)', () => {
       secret: 'lazy-test-passphrase-2026',
     })
     const vault = await db.openVault('c')
-    vault.collection('disbursements', {
+    expect(() => vault.collection('disbursements', {
       prefetch: false,
       cache: { maxRecords: 100 },
       indexes: ['clientId', 'period'],
-    })
-    // Construction must not throw. No behavior assertions yet — PR 2 adds writes,
-    // PR 3 adds queries.
-    expect(true).toBe(true)
+    })).not.toThrow()
+    // No behavior assertions yet — PR 2 (#266) adds writes, PR 3 (#267) adds queries.
   })
 })
 

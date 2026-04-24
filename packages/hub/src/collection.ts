@@ -143,9 +143,9 @@ export class Collection<T> {
    * v0.3 ships in-memory only — persistence as encrypted blobs is a
    * follow-up. See `query/indexes.ts` for the design rationale.
    *
-   * Indexes are INCOMPATIBLE with lazy mode in v0.3 — the constructor
-   * rejects the combination because evicted records would silently
-   * disappear from the index without notification.
+   * As of v0.22, lazy-mode collections declare their index fields into
+   * `persistedIndexes` (below) instead; write-path and query-planner
+   * wiring follow in PR 2 (#266) and PR 3 (#267).
    */
   private readonly indexes = new CollectionIndexes()
 
