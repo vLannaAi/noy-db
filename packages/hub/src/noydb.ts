@@ -242,6 +242,7 @@ export class Noydb {
       syncAdapter: targets.length > 0 ? targets[0]!.store : undefined,
       historyConfig: this.options.history,
       ...(this.options.blobStrategy !== undefined ? { blobStrategy: this.options.blobStrategy } : {}),
+      ...(this.options.indexStrategy !== undefined ? { indexStrategy: this.options.indexStrategy } : {}),
       locale: opts?.locale,
       // Thread the translator hook so Collection.put() can invoke it (v0.8 #83)
       plaintextTranslator: this.options.plaintextTranslator
@@ -292,6 +293,7 @@ export class Noydb {
         emitter: this.emitter,
         historyConfig: this.options.history,
       ...(this.options.blobStrategy !== undefined ? { blobStrategy: this.options.blobStrategy } : {}),
+      ...(this.options.indexStrategy !== undefined ? { indexStrategy: this.options.indexStrategy } : {}),
       })
       this.vaultCache.set(name, comp)
       return comp
@@ -311,6 +313,7 @@ export class Noydb {
       encrypted: true,
       historyConfig: this.options.history,
       ...(this.options.blobStrategy !== undefined ? { blobStrategy: this.options.blobStrategy } : {}),
+      ...(this.options.indexStrategy !== undefined ? { indexStrategy: this.options.indexStrategy } : {}),
       emitter: this.emitter,
     })
     this.vaultCache.set(name, comp)

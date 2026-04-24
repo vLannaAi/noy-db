@@ -26,6 +26,7 @@
 import type { StandardSchemaV1 } from './schema.js'
 import type { SyncPolicy } from './store/sync-policy.js'
 import type { BlobStrategy } from './blobs/strategy.js'
+import type { IndexStrategy } from './indexing/strategy.js'
 
 /** Format version for encrypted record envelopes. */
 export const NOYDB_FORMAT_VERSION = 1 as const
@@ -1312,6 +1313,19 @@ export interface NoydbOptions {
    * @internal
    */
   readonly blobStrategy?: BlobStrategy
+  /**
+   * v0.24 tree-shake seam — optional indexing strategy. Pass
+   * `withIndexing()` from `@noy-db/hub/indexing` to enable eager-mode
+   * `==/in` fast-paths, lazy-mode `.lazyQuery()`, rebuild/reconcile,
+   * and auto-reconcile. When omitted, indexing code never reaches the
+   * bundle; `.lazyQuery()` throws with a pointer at the subpath, and
+   * eager-mode collections fall back to linear scans regardless of
+   * `indexes: [...]` declarations. `IndexStrategy` is `@internal` —
+   * users only construct it via the subpath factory.
+   *
+   * @internal
+   */
+  readonly indexStrategy?: IndexStrategy
   /** Optional remote store(s) for sync. Accepts a single store, a SyncTarget, or an array. */
   readonly sync?: NoydbStore | SyncTarget | SyncTarget[]
   /** User identifier. */

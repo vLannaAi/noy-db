@@ -25,6 +25,7 @@ import type { NoydbEventEmitter } from './events.js'
 import { BackupLedgerError, BackupCorruptedError } from './errors.js'
 import type { StandardSchemaV1 } from './schema.js'
 import type { BlobStrategy } from './blobs/strategy.js'
+import type { IndexStrategy } from './indexing/strategy.js'
 import { LedgerStore, sha256Hex, LEDGER_COLLECTION, LEDGER_DELTAS_COLLECTION } from './history/ledger/index.js'
 import { VaultInstant } from './history/time-machine.js'
 import { VaultFrame } from './shadow/vault-frame.js'
@@ -101,6 +102,7 @@ export class Vault {
    * call throws with a pointer at `@noy-db/hub/blobs`.
    */
   private readonly blobStrategy: BlobStrategy | undefined
+  private readonly indexStrategy: IndexStrategy | undefined
   private getDEK: (collectionName: string) => Promise<CryptoKey>
 
   /**
@@ -258,6 +260,7 @@ export class Vault {
      * at `@noy-db/hub/blobs`.
      */
     blobStrategy?: BlobStrategy | undefined
+    indexStrategy?: IndexStrategy | undefined
   }) {
     this.adapter = opts.adapter
     this.name = opts.name
@@ -268,6 +271,7 @@ export class Vault {
     this.onRegisterConflictResolver = opts.onRegisterConflictResolver
     this.syncAdapter = opts.syncAdapter
     this.blobStrategy = opts.blobStrategy
+    this.indexStrategy = opts.indexStrategy
     this.historyConfig = opts.historyConfig ?? { enabled: true }
     this.reloadKeyring = opts.reloadKeyring
     this.locale = opts.locale
@@ -411,6 +415,7 @@ export class Vault {
         // collection. `undefined` is intentionally preserved so the
         // Collection constructor uses its NO_BLOBS default.
         ...(this.blobStrategy !== undefined ? { blobStrategy: this.blobStrategy } : {}),
+        ...(this.indexStrategy !== undefined ? { indexStrategy: this.indexStrategy } : {}),
         ledger: this.ledger(),
         refEnforcer: this,
         joinResolver: this,

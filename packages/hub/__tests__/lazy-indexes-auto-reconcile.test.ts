@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
+import { withIndexing } from '../src/indexing/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 
 function memory(): NoydbStore {
@@ -49,7 +50,7 @@ describe('reconcileOnOpen: auto (#278)', () => {
     const adapter = memory()
 
     // Phase 1: seed via a first Noydb with no auto-reconcile.
-    const db1 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET })
+    const db1 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET, indexStrategy: withIndexing() })
     const v1 = await db1.openVault('ACME')
     const c1 = v1.collection<Row>('rows', {
       prefetch: false,
@@ -63,7 +64,7 @@ describe('reconcileOnOpen: auto (#278)', () => {
     await adapter.delete('ACME', 'rows', '_idx/clientId/r-2')
 
     // Phase 2: reopen with reconcileOnOpen: 'auto'.
-    const db2 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET })
+    const db2 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET, indexStrategy: withIndexing() })
     const v2 = await db2.openVault('ACME')
     const c2 = v2.collection<Row>('rows', {
       prefetch: false,
@@ -95,7 +96,7 @@ describe('reconcileOnOpen: auto (#278)', () => {
   it('dry-run reports drift without writing anything', async () => {
     const adapter = memory()
 
-    const db1 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET })
+    const db1 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET, indexStrategy: withIndexing() })
     const v1 = await db1.openVault('ACME')
     const c1 = v1.collection<Row>('rows', {
       prefetch: false,
@@ -105,7 +106,7 @@ describe('reconcileOnOpen: auto (#278)', () => {
     await c1.put('r-1', { id: 'r-1', clientId: 'c-A', amount: 10 })
     await adapter.delete('ACME', 'rows', '_idx/clientId/r-1')
 
-    const db2 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET })
+    const db2 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET, indexStrategy: withIndexing() })
     const v2 = await db2.openVault('ACME')
     const c2 = v2.collection<Row>('rows', {
       prefetch: false,
@@ -134,7 +135,7 @@ describe('reconcileOnOpen: auto (#278)', () => {
 
   it('off (default) does nothing on open', async () => {
     const adapter = memory()
-    const db1 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET })
+    const db1 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET, indexStrategy: withIndexing() })
     const v1 = await db1.openVault('ACME')
     const c1 = v1.collection<Row>('rows', {
       prefetch: false,
@@ -143,7 +144,7 @@ describe('reconcileOnOpen: auto (#278)', () => {
     })
     await c1.put('r-1', { id: 'r-1', clientId: 'c-A', amount: 10 })
 
-    const db2 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET })
+    const db2 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET, indexStrategy: withIndexing() })
     const v2 = await db2.openVault('ACME')
     const c2 = v2.collection<Row>('rows', {
       prefetch: false,
@@ -160,7 +161,7 @@ describe('reconcileOnOpen: auto (#278)', () => {
 
   it('runs once per session, not on every subsequent query', async () => {
     const adapter = memory()
-    const db1 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET })
+    const db1 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET, indexStrategy: withIndexing() })
     const v1 = await db1.openVault('ACME')
     const c1 = v1.collection<Row>('rows', {
       prefetch: false,
@@ -169,7 +170,7 @@ describe('reconcileOnOpen: auto (#278)', () => {
     })
     await c1.put('r-1', { id: 'r-1', clientId: 'c-A', amount: 10 })
 
-    const db2 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET })
+    const db2 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET, indexStrategy: withIndexing() })
     const v2 = await db2.openVault('ACME')
     const c2 = v2.collection<Row>('rows', {
       prefetch: false,

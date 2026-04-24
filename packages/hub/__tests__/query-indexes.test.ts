@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { CollectionIndexes } from '../src/indexing/eager-indexes.js'
 import { createNoydb } from '../src/noydb.js'
+import { withIndexing } from '../src/indexing/index.js'
 import type { Noydb } from '../src/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError } from '../src/errors.js'
@@ -204,6 +205,7 @@ describe('Collection.query() — index-aware execution', () => {
       store: memory(),
       user: 'owner',
       secret: 'index-test-passphrase-2026',
+      indexStrategy: withIndexing(),
     })
   })
 
@@ -312,6 +314,7 @@ describe('Collection.query() — index-aware execution', () => {
       store: localAdapter,
       user: 'owner',
       secret: 'index-spy-passphrase-2026',
+      indexStrategy: withIndexing(),
     })
     const c = await localDb.openVault('TEST')
     const invoices = c.collection<Invoice>('invoices', { indexes: ['status'] })
@@ -352,6 +355,7 @@ describe('Collection.query() — index-aware execution', () => {
       user: 'owner',
       secret: 'bench-passphrase-2026',
       history: { enabled: false }, // skip history snapshots for the bench
+      indexStrategy: withIndexing(),
     })
     const c = await localDb.openVault('BENCH')
     const indexed = c.collection<Invoice>('indexed', { indexes: ['status'] })

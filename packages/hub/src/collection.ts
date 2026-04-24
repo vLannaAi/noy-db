@@ -28,11 +28,12 @@ import { diff as computeDiff } from './history/diff.js'
 import type { DiffEntry } from './history/diff.js'
 import { Query, ScanBuilder } from './query/index.js'
 import type { QuerySource, JoinContext, JoinableSource } from './query/index.js'
-import { CollectionIndexes, type IndexDef } from './indexing/eager-indexes.js'
-import { PersistedCollectionIndex, encodeIdxId, decodeIdxId } from './indexing/persisted-indexes.js'
-import type { PersistedIndexDef } from './indexing/persisted-indexes.js'
+import type { CollectionIndexes, IndexDef } from './indexing/eager-indexes.js'
+import { encodeIdxId, decodeIdxId } from './indexing/persisted-indexes.js'
+import type { PersistedCollectionIndex, PersistedIndexDef } from './indexing/persisted-indexes.js'
 import { LazyQuery } from './indexing/lazy-builder.js'
 import type { LazyQuerySource } from './indexing/lazy-builder.js'
+import { NO_INDEXING, type IndexStrategy, type IndexState } from './indexing/strategy.js'
 import { IndexWriteFailureError } from './errors.js'
 import type { RefDescriptor } from './refs.js'
 import { Lru, parseBytes, estimateRecordBytes, type LruStats } from './cache/index.js'
@@ -149,29 +150,17 @@ export class Collection<T> {
   private readonly lru: Lru<string, { record: T; version: number }> | null
 
   /**
-   * In-memory secondary indexes for the query DSL.
+   * v0.24 tree-shake seam — per-Collection indexing state. Owned by the
+   * `IndexStrategy` passed through from `createNoydb({ indexStrategy })`.
+   * Defaults to a disabled state (both accessors return null) so the
+   * `CollectionIndexes` / `PersistedCollectionIndex` / `LazyQuery`
+   * classes never reach the bundle when indexing is unused.
    *
-   * Built during `ensureHydrated()` and maintained on every put/delete.
-   * The query executor consults these for `==` and `in` operators on
-   * indexed fields, falling back to a linear scan for unindexed fields
-   * or unsupported operators.
-   *
-   * v0.3 ships in-memory only — persistence as encrypted blobs is a
-   * follow-up. See `query/indexes.ts` for the design rationale.
-   *
-   * As of v0.22, lazy-mode collections declare their index fields into
-   * `persistedIndexes` (below) instead; write-path and query-planner
-   * wiring follow in PR 2 (#266) and PR 3 (#267).
+   * Accessor helpers below (`get indexes()`, `get persistedIndexes()`)
+   * preserve the v0.23 field-access ergonomics without changing every
+   * caller site.
    */
-  private readonly indexes = new CollectionIndexes()
-
-  /**
-   * In-memory mirror of the persisted `_idx/<field>/<recordId>` side-car
-   * records — populated via bulk-load on first lazy-mode query.
-   * `declare()` runs in the constructor for each declared field; bulk
-   * ingest happens lazily via `ensurePersistedIndexesLoaded()`.
-   */
-  private readonly persistedIndexes = new PersistedCollectionIndex()
+  private readonly indexState: IndexState
 
   /**
    * True once `_idx/*` side-cars have been bulk-loaded into
@@ -181,6 +170,24 @@ export class Collection<T> {
    * `persistedIndexes.clear()`.
    */
   private persistedIndexesLoaded = false
+
+  /**
+   * Accessor for the in-memory eager-mode index mirror. Returns `null`
+   * when indexing is disabled on this Noydb instance (the
+   * `NO_INDEXING` default) or when the collection is in lazy mode
+   * (which uses the persisted mirror instead).
+   */
+  private get indexes(): CollectionIndexes | null {
+    return this.indexState.getEagerIndexes()
+  }
+
+  /**
+   * Accessor for the persisted-mirror (lazy-mode) index. Returns `null`
+   * when indexing is disabled or the collection is in eager mode.
+   */
+  private get persistedIndexes(): PersistedCollectionIndex | null {
+    return this.indexState.getPersistedIndexes()
+  }
 
   /**
    * v0.23 #278 — per-collection reconcile-on-open policy. Read once
@@ -410,6 +417,14 @@ export class Collection<T> {
      * `@internal` by virtue of `BlobStrategy` being `@internal`.
      */
     blobStrategy?: BlobStrategy | undefined
+    /**
+     * v0.24 tree-shake seam. When omitted, indexing is off for this
+     * collection — every `.lazyQuery()` call throws, `.rebuildIndexes()`
+     * is a no-op, and `indexes: [...]` declarations are ignored. Enable
+     * by passing `withIndexing()` from `@noy-db/hub/indexing` at
+     * `createNoydb` time.
+     */
+    indexStrategy?: IndexStrategy | undefined
     indexes?: IndexDef[] | undefined
     /**
      * Auto-reconcile behavior for persisted-index drift on lazy-mode
@@ -724,10 +739,6 @@ export class Collection<T> {
     this.lazy = opts.prefetch === false
 
     if (this.lazy) {
-      // Lazy mode accepts index declarations as of v0.22 (#260). Writes
-      // and queries wire up in PR 2 (#266) and PR 3 (#267) respectively;
-      // for now we only declare them in the in-memory mirror so later
-      // PRs don't need to retouch this constructor branch.
       if (!opts.cache || (opts.cache.maxRecords === undefined && opts.cache.maxBytes === undefined)) {
         throw new Error(
           `Collection "${this.name}": lazy mode (prefetch: false) requires a cache option ` +
@@ -739,37 +750,21 @@ export class Collection<T> {
       if (opts.cache.maxBytes !== undefined) lruOptions.maxBytes = parseBytes(opts.cache.maxBytes)
       this.lru = new Lru<string, { record: T; version: number }>(lruOptions)
       this.hydrated = true // lazy mode is always "hydrated" — no bulk load
-      if (opts.indexes) {
-        for (const def of opts.indexes) {
-          if (typeof def === 'string') {
-            this.persistedIndexes.declare(def)
-          } else if (Array.isArray(def)) {
-            // Shorthand tuple form: `indexes: [['clientId','period']]`
-            this.persistedIndexes.declareComposite(def as readonly string[])
-          } else {
-            // Object form: `{ fields: [...] }`
-            this.persistedIndexes.declareComposite((def as { fields: readonly string[] }).fields)
-          }
-        }
-      }
     } else {
       this.lru = null
-      if (opts.indexes) {
-        for (const def of opts.indexes) {
-          // Eager mode accepts single-field declarations; composite
-          // declarations degrade to N single-field indexes since the
-          // in-memory `CollectionIndexes` doesn't carry composite
-          // machinery (lazy-mode only — v0.23 #276).
-          if (typeof def === 'string') {
-            this.indexes.declare(def)
-          } else if (Array.isArray(def)) {
-            for (const f of def as readonly string[]) this.indexes.declare(f)
-          } else {
-            for (const f of (def as { fields: readonly string[] }).fields) this.indexes.declare(f)
-          }
-        }
-      }
     }
+
+    // v0.24 — delegate mirror construction + declaration to the active
+    // indexing strategy. `NO_INDEXING` returns a state whose accessors
+    // both return null; the active strategy (from `@noy-db/hub/indexing`)
+    // constructs the appropriate mirror based on lazy vs eager mode and
+    // declares every IndexDef. With NO_INDEXING the heavy index classes
+    // never reach the bundle.
+    const strategy = opts.indexStrategy ?? NO_INDEXING
+    this.indexState = strategy.createState({
+      defs: opts.indexes ?? [],
+      lazy: this.lazy,
+    })
   }
 
   /**
@@ -1051,7 +1046,7 @@ export class Collection<T> {
         )
       } else {
         this.cache.set(id, { record: resolvedRecord, version })
-        this.indexes.upsert(id, resolvedRecord, existingResolved ? existingResolved.record : null)
+        this.indexes?.upsert(id, resolvedRecord, existingResolved ? existingResolved.record : null)
       }
 
       await this.onDirty?.(this.name, id, 'put', version)
@@ -1152,7 +1147,7 @@ export class Collection<T> {
       // Update secondary indexes incrementally — no-op if no indexes are
       // declared. Pass the previous record (if any) so old buckets are
       // cleaned up before the new value is added.
-      this.indexes.upsert(id, record, existing ? existing.record : null)
+      this.indexes?.upsert(id, record, existing ? existing.record : null)
     }
 
     await this.onDirty?.(this.name, id, 'put', version)
@@ -1262,7 +1257,7 @@ export class Collection<T> {
       // Remove from secondary indexes — no-op if no indexes are declared
       // or the record wasn't previously indexed.
       if (existing) {
-        this.indexes.remove(id, existing.record)
+        this.indexes?.remove(id, existing.record)
       }
     }
 
@@ -1935,12 +1930,13 @@ export class Collection<T> {
    * 1K–50K records this completes in single-digit milliseconds.
    */
   private rebuildEagerIndexesFromCache(): void {
-    if (this.indexes.fields().length === 0) return
+    const eager = this.indexes
+    if (!eager || eager.fields().length === 0) return
     const snapshot: Array<{ id: string; record: T }> = []
     for (const [id, entry] of this.cache) {
       snapshot.push({ id, record: entry.record })
     }
-    this.indexes.build(snapshot)
+    eager.build(snapshot)
   }
 
   /**
@@ -1969,7 +1965,9 @@ export class Collection<T> {
       return
     }
 
-    const fields = this.persistedIndexes.fields()
+    const persisted = this.persistedIndexes
+    if (!persisted) return
+    const fields = persisted.fields()
     if (fields.length === 0) return
 
     // 1. Collect canonical ids (skip every reserved-namespace id —
@@ -1994,7 +1992,7 @@ export class Collection<T> {
     for (const id of staleIdxIds) {
       try { await this.adapter.delete(this.vault, this.name, id) } catch { /* ignore */ }
     }
-    this.persistedIndexes.clear()
+    persisted.clear()
 
     // 3. Walk records and write fresh side-cars for every declared field.
     for (const recordId of canonicalIds) {
@@ -2035,7 +2033,14 @@ export class Collection<T> {
         `(prefetch: false). Eager mode maintains indexes in memory with no drift.`,
       )
     }
-    if (!this.persistedIndexes.has(field)) {
+    const persisted = this.persistedIndexes
+    if (!persisted) {
+      throw new Error(
+        `Collection "${this.name}": indexing is disabled on this Noydb instance. ` +
+        `Pass \`withIndexing()\` from "@noy-db/hub/indexing" to \`createNoydb({ indexStrategy })\`.`,
+      )
+    }
+    if (!persisted.has(field)) {
       throw new Error(
         `Collection "${this.name}": field "${field}" is not declared in indexes. ` +
         `Declare it in the collection options before reconciling.`,
@@ -2111,7 +2116,7 @@ export class Collection<T> {
       }
       // In-memory mirror is authoritative for query dispatch — make
       // sure it matches what's on disk now.
-      this.persistedIndexes.clear()
+      persisted.clear()
       this.persistedIndexesLoaded = false
       await this.ensurePersistedIndexesLoaded()
     }
@@ -2126,7 +2131,8 @@ export class Collection<T> {
    * Returns `null` if no indexes are declared on this collection.
    */
   getIndexes(): CollectionIndexes | null {
-    return this.indexes.fields().length > 0 ? this.indexes : null
+    const eager = this.indexes
+    return eager && eager.fields().length > 0 ? eager : null
   }
 
   /**
@@ -2266,7 +2272,9 @@ export class Collection<T> {
     previousRecord: T | null,
     version: number,
   ): Promise<void> {
-    const defs = this.persistedIndexes.definitions()
+    const persisted = this.persistedIndexes
+    if (!persisted) return
+    const defs = persisted.definitions()
     if (defs.length === 0) return
 
     const newRec = newRecord as unknown as Record<string, unknown>
@@ -2280,7 +2288,7 @@ export class Collection<T> {
       // for query dispatch. If the adapter write below fails, the mirror
       // still reflects intended state; the reconciler compares mirror
       // against side-cars on next run.
-      this.persistedIndexes.upsert(id, def.key, newValue, previousValue)
+      persisted.upsert(id, def.key, newValue, previousValue)
 
       const idxId = encodeIdxId(def.key, id)
       try {
@@ -2317,14 +2325,16 @@ export class Collection<T> {
    * surface on `index:write-partial` the same way put does.
    */
   private async maintainPersistedIndexesOnDelete(id: string, previousRecord: T): Promise<void> {
-    const defs = this.persistedIndexes.definitions()
+    const persisted = this.persistedIndexes
+    if (!persisted) return
+    const defs = persisted.definitions()
     if (defs.length === 0) return
 
     const prevRec = previousRecord as unknown as Record<string, unknown>
     for (const def of defs) {
       const previousValue = extractIndexValue(prevRec, def)
       if (previousValue !== null && previousValue !== undefined) {
-        this.persistedIndexes.remove(id, def.key, previousValue)
+        persisted.remove(id, def.key, previousValue)
       }
 
       const idxId = encodeIdxId(def.key, id)
@@ -2353,7 +2363,8 @@ export class Collection<T> {
    */
   private async ensurePersistedIndexesLoaded(): Promise<void> {
     if (this.persistedIndexesLoaded) return
-    if (this.persistedIndexes.fields().length === 0) {
+    const persisted = this.persistedIndexes
+    if (!persisted || persisted.fields().length === 0) {
       this.persistedIndexesLoaded = true
       return
     }
@@ -2363,7 +2374,7 @@ export class Collection<T> {
     for (const id of ids) {
       const decoded = decodeIdxId(id)
       if (!decoded) continue
-      if (!this.persistedIndexes.has(decoded.field)) continue
+      if (!persisted.has(decoded.field)) continue
       const envelope = await this.adapter.get(this.vault, this.name, id)
       if (!envelope) continue
       try {
@@ -2378,7 +2389,7 @@ export class Collection<T> {
       }
     }
     for (const [field, rows] of byField) {
-      this.persistedIndexes.ingest(field, rows)
+      persisted.ingest(field, rows)
     }
     this.persistedIndexesLoaded = true
 
@@ -2400,10 +2411,12 @@ export class Collection<T> {
    * entry points are `reconcileIndex` and `rebuildIndexes`).
    */
   private async autoReconcile(): Promise<void> {
+    const persisted = this.persistedIndexes
+    if (!persisted) return
     this.autoReconciling = true
     try {
       const dryRun = this.reconcileOnOpen === 'dry-run'
-      for (const def of this.persistedIndexes.definitions()) {
+      for (const def of persisted.definitions()) {
         try {
           const report = await this.reconcileIndex(def.key, { dryRun })
           this.emitter.emit('index:reconciled', {
@@ -2471,7 +2484,15 @@ export class Collection<T> {
         `(prefetch: false). Use collection.query() for eager-mode chainable reads.`,
       )
     }
-    if (this.persistedIndexes.fields().length === 0) {
+    const persisted = this.persistedIndexes
+    if (!persisted) {
+      throw new Error(
+        `Collection "${this.name}": lazyQuery() requires indexing to be enabled. ` +
+        `Pass \`withIndexing()\` from "@noy-db/hub/indexing" to ` +
+        `\`createNoydb({ indexStrategy: withIndexing() })\`.`,
+      )
+    }
+    if (persisted.fields().length === 0) {
       throw new Error(
         `Collection "${this.name}": lazyQuery() requires at least one field declared ` +
         `in \`indexes\`. Declare the fields you'll filter or sort by, or use ` +
@@ -2480,7 +2501,7 @@ export class Collection<T> {
     }
     const source: LazyQuerySource<T> = {
       collectionName: this.name,
-      persistedIndexes: this.persistedIndexes,
+      persistedIndexes: persisted,
       ensurePersistedIndexesLoaded: () => this.ensurePersistedIndexesLoaded(),
       getRecord: (id: string) => this.get(id),
     }

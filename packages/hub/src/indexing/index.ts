@@ -18,6 +18,10 @@
  * capability boundary is explicit in import statements.
  */
 
+// Strategy factory — pass the result into createNoydb({ indexStrategy }).
+export { withIndexing } from './active.js'
+export type { IndexStrategy, IndexState } from './strategy.js'
+
 // Eager-mode mirror — used by the Query builder's candidateRecords
 // fast-path for `==` and `in` lookups on in-memory collections.
 export { CollectionIndexes } from './eager-indexes.js'
