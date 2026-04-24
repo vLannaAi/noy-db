@@ -314,8 +314,8 @@ export { Collection } from './collection.js'
 export type { CacheOptions, CacheStats, CollectionChangeEvent } from './collection.js'
 
 // CRDT mode (v0.9 #132)
-export type { CrdtMode, CrdtState, LwwMapState, RgaState, YjsState } from './crdt.js'
-export { resolveCrdtSnapshot, mergeCrdtStates } from './crdt.js'
+export type { CrdtMode, CrdtState, LwwMapState, RgaState, YjsState } from './crdt/crdt.js'
+export { resolveCrdtSnapshot, mergeCrdtStates } from './crdt/crdt.js'
 
 // Presence (v0.9 #134)
 export { PresenceHandle } from './team/presence.js'

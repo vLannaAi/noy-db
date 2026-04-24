@@ -49,7 +49,7 @@ import {
 } from './i18n/core.js'
 import type { DictKeyDescriptor } from './i18n/dictionary.js'
 import type { LocaleReadOptions, ConflictPolicy } from './types.js'
-import type { CrdtMode } from './crdt.js'
+import type { CrdtMode } from './crdt/crdt.js'
 import { ReservedCollectionNameError } from './errors.js'
 import {
   PERIODS_COLLECTION,

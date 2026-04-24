@@ -115,6 +115,66 @@
         "types": "./dist/aggregate/index.d.cts",
         "default": "./dist/aggregate/index.cjs"
       }
+    },
+    "./crdt": {
+      "import": {
+        "types": "./dist/crdt/index.d.ts",
+        "default": "./dist/crdt/index.js"
+      },
+      "require": {
+        "types": "./dist/crdt/index.d.cts",
+        "default": "./dist/crdt/index.cjs"
+      }
+    },
+    "./bundle": {
+      "import": {
+        "types": "./dist/bundle/index.d.ts",
+        "default": "./dist/bundle/index.js"
+      },
+      "require": {
+        "types": "./dist/bundle/index.d.cts",
+        "default": "./dist/bundle/index.cjs"
+      }
+    },
+    "./consent": {
+      "import": {
+        "types": "./dist/consent/index.d.ts",
+        "default": "./dist/consent/index.js"
+      },
+      "require": {
+        "types": "./dist/consent/index.d.cts",
+        "default": "./dist/consent/index.cjs"
+      }
+    },
+    "./periods": {
+      "import": {
+        "types": "./dist/periods/index.d.ts",
+        "default": "./dist/periods/index.js"
+      },
+      "require": {
+        "types": "./dist/periods/index.d.cts",
+        "default": "./dist/periods/index.cjs"
+      }
+    },
+    "./shadow": {
+      "import": {
+        "types": "./dist/shadow/index.d.ts",
+        "default": "./dist/shadow/index.js"
+      },
+      "require": {
+        "types": "./dist/shadow/index.d.cts",
+        "default": "./dist/shadow/index.cjs"
+      }
+    },
+    "./tx": {
+      "import": {
+        "types": "./dist/tx/index.d.ts",
+        "default": "./dist/tx/index.js"
+      },
+      "require": {
+        "types": "./dist/tx/index.d.cts",
+        "default": "./dist/tx/index.cjs"
+      }
     }
   },
   "main": "./dist/index.cjs",

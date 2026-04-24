@@ -1058,7 +1058,7 @@ export interface PresencePeer<P> {
 // ─── CRDT (v0.9 #132) ─────────────────────────────────────────────────
 
 // Re-exported from crdt.ts so consumers only need one import path.
-export type { CrdtMode, CrdtState, LwwMapState, RgaState, YjsState } from './crdt.js'
+export type { CrdtMode, CrdtState, LwwMapState, RgaState, YjsState } from './crdt/crdt.js'
 
 // ─── Blob / Attachment Store (v0.12 #103 #105) ────────────────────────
 
