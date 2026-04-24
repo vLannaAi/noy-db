@@ -18,7 +18,7 @@ const okResponse: RestResponse = {
 // ── Nitro / H3 ────────────────────────────────────────────────────────
 
 describe('nitroAdapter', () => {
-  it('normalises an H3 event into a RestRequest and returns the RestResponse', async () => {
+  it('normalises an H3 event into a RestRequest and returns a Response', async () => {
     const { nitroAdapter } = await import('../src/adapters/nitro.js')
     let capturedReq: RestRequest | null = null
     const handler: NoydbRestHandler = {
@@ -29,15 +29,45 @@ describe('nitroAdapter', () => {
     const mockEvent = {
       method: 'GET',
       path: '/sessions/current',
-      headers: new Headers({ 'x-test': '1' }),
+      headers: new Headers({ 'X-Test': '1' }),
       _body: null as unknown,
     }
 
-    const res = await (eventHandler as (event: typeof mockEvent) => Promise<RestResponse>)(mockEvent)
+    const res = await eventHandler(mockEvent)
+    // Returns a Fetch Response — status and headers relayed by H3 to the HTTP layer.
+    expect(res).toBeInstanceOf(Response)
     expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toBe('application/json')
+    const body = await res.json() as { ok: boolean }
+    expect(body.ok).toBe(true)
+
+    // Header case-normalization: RestRequest should see 'x-test' lowercase.
     expect(capturedReq).not.toBeNull()
     expect(capturedReq!.method).toBe('GET')
     expect(capturedReq!.pathname).toBe('/sessions/current')
+    expect(capturedReq!.headers['x-test']).toBe('1')
+  })
+
+  it('normalizes lowercase header keys from plain-record event.headers', async () => {
+    const { nitroAdapter } = await import('../src/adapters/nitro.js')
+    let capturedReq: RestRequest | null = null
+    const handler: NoydbRestHandler = {
+      async handle(r) { capturedReq = r; return okResponse }
+    }
+    const eventHandler = nitroAdapter(handler)
+
+    // Plain record with mixed-case keys — simulates a caller that passes
+    // headers as an object rather than a Headers instance.
+    const mockEvent = {
+      method: 'GET',
+      path: '/sessions/current',
+      headers: { 'X-Test': '1', 'Authorization': 'Bearer abc' } as Record<string, string>,
+      _body: null as unknown,
+    }
+
+    await eventHandler(mockEvent)
+    expect(capturedReq!.headers['x-test']).toBe('1')
+    expect(capturedReq!.headers['authorization']).toBe('Bearer abc')
   })
 })
 

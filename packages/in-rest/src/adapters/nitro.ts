@@ -7,13 +7,24 @@ interface H3Event {
   _body?: unknown
 }
 
+/**
+ * Nitro / H3 adapter. Returns a Fetch-spec `Response` — both h3 v1 and v2
+ * relay a returned `Response` to the underlying HTTP layer, preserving
+ * status, headers, and body (including `Uint8Array`). Returning the raw
+ * `RestResponse` shape would be JSON-stringified by h3 and the status
+ * would default to 200, which is wrong.
+ */
 export function nitroAdapter(handler: NoydbRestHandler) {
-  return async function eventHandler(event: H3Event) {
+  return async function eventHandler(event: H3Event): Promise<Response> {
+    // Normalize headers to lowercase — consistent with Hono / Express /
+    // Fastify and with Node's IncomingMessage.headers convention.
     const headers: Record<string, string> = {}
     if (event.headers instanceof Headers) {
-      event.headers.forEach((v, k) => { headers[k] = v })
+      event.headers.forEach((v, k) => { headers[k.toLowerCase()] = v })
     } else {
-      Object.assign(headers, event.headers)
+      for (const [k, v] of Object.entries(event.headers)) {
+        headers[k.toLowerCase()] = v
+      }
     }
 
     const url = new URL(event.path, 'http://localhost')
@@ -31,6 +42,13 @@ export function nitroAdapter(handler: NoydbRestHandler) {
       },
     }
 
-    return handler.handle(restReq)
+    const res = await handler.handle(restReq)
+    // `RestResponse.body` is `string | Uint8Array | null`, all of which are
+    // valid `BodyInit`. TS's generic-parameter drift on Uint8Array under
+    // lib.es5 requires the cast; the runtime assignment is safe.
+    return new Response(res.body as BodyInit | null, {
+      status: res.status,
+      headers: res.headers,
+    })
   }
 }

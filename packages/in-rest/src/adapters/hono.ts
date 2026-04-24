@@ -18,7 +18,8 @@ export function honoAdapter(handler: NoydbRestHandler): Hono {
     }
 
     const res = await handler.handle(restReq)
-    return new Response(res.body as string | null, {
+    // `RestResponse.body` is `string | Uint8Array | null`, all valid BodyInit.
+    return new Response(res.body as BodyInit | null, {
       status: res.status,
       headers: res.headers,
     })
