@@ -4,6 +4,13 @@
 > original milestone planning are archived in full under
 > [`docs/spec/`](./docs/spec/INDEX.md). This document looks forward
 > only.
+>
+> **Pre-1.0 stance.** The core privacy model, envelope format,
+> keyrings, permissions, and query DSL are implemented and tested in
+> production pilot deployments. Public APIs may still change based on
+> adopter feedback before 1.0. Data-format migrations and
+> security-critical changes will be documented explicitly at release.
+> No third-party cryptographic audit yet — that is a v1.0 target.
 
 The roadmap has a **trunk** — sequential, numbered releases — and
 three **parallel forks** — always-open families (`@noy-db/to-*` /
@@ -25,7 +32,7 @@ Related docs:
 | Release | Status | Theme |
 |---|---|---|
 | **v0.21.0** | 🎯 in progress | **Pilot-2 feedback batch.** Cross-user KEK delegation ([#257](https://github.com/vLannaAi/noy-db/issues/257)), `vault.exportBlobs()` bulk primitive ([#262](https://github.com/vLannaAi/noy-db/issues/262)), per-collection blob TTL ([#263](https://github.com/vLannaAi/noy-db/issues/263)), `useDictLabel` Pinia composable ([#264](https://github.com/vLannaAi/noy-db/issues/264)). |
-| **v0.22.0** | 🎯 planned | **Scale beyond eager-mode ceiling.** Lazy-mode query indexes for 50K+ record deployments ([#260](https://github.com/vLannaAi/noy-db/issues/260)) — own release because the addition touches query DSL, storage envelope shape, and threat model. |
+| **v0.22.0** | 🟡 foundation only | **Lazy-mode index foundation shipped.** Typed errors, `_idx/<field>/<recordId>` id helpers, `PersistedCollectionIndex` mirror class, constructor support for `prefetch:false + indexes`. Write-path maintenance, query dispatch, reconcile/rebuild, and benchmark harness are **deferred** — milestone closed. Design preserved at [`docs/superpowers/specs/2026-04-24-v0.22-lazy-mode-indexes-design.md`](./docs/superpowers/specs/2026-04-24-v0.22-lazy-mode-indexes-design.md). |
 | **v1.0.0** | 🔭 target | Stability + LTS — API freeze, third-party audit, perf benchmarks, migration tooling |
 | v1.x | 🔭 vision | Federation, multi-instance bridging |
 | v2.0+ | 🔭 vision | Verifiable credentials, advanced ZK applications |

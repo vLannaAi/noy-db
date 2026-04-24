@@ -30,9 +30,13 @@ An encrypted, offline-first, **serverless** document store. The library lives in
 - **☁️ Serverless, runs anywhere.** No noy-db server. No Docker. No managed service. The library embeds in your app — ~30 KB, 0 runtime deps. Works in Node 18+, Bun, Deno, every modern browser, Cloudflare Workers, Electron, mobile PWAs.
 - **📴 Offline-first.** Every operation works without network. Sync when you want to, to whatever you want to. Single code path for online and offline — no "online mode" to toggle.
 - **👥 Multi-user, no auth server.** 5 roles (owner / admin / operator / viewer / client), per-collection permissions, key rotation on revoke. The keyring travels with the data.
-- **🧩 Pluggable everything.** 56 packages across four families — pick the storage backend, the framework binding, the unlock method, the export format. Swap any piece without changing the rest.
+- **🧩 One core, many bridges.** `@noy-db/hub` is the encrypted document-store core. 55 optional `to-*` / `in-*` / `on-*` / `as-*` packages let existing apps keep their preferred storage, framework, unlock method, and export format — without changing anything else.
 - **🔐 Advanced crypto features.** Hierarchical per-record tiers (v0.18), deterministic encryption for searchable indexes (v0.19), WebRTC peer-to-peer sync (v0.20), AES-256-GCM blob store with deduplication, HKDF-keyed ETags, hash-chained audit ledger.
 - **🧪 Thousand-plus tests, CI in under a minute.** Every store / integration / auth / export package is mock-tested — CI runs without AWS, Google Drive, SFTP servers, or any real service.
+
+> **`@noy-db/hub` is the trust boundary.** Encryption happens in the core before data reaches any store. Every other package — `to-*`, `in-*`, `on-*`, `as-*` — is an optional adoption bridge that never sees plaintext.
+>
+> **Pre-1.0 stance.** The core privacy model, envelope format, keyrings, permissions, and query DSL are implemented and tested. Public APIs may still change based on adopter feedback before 1.0; data migrations and security-critical changes will be documented. No third-party cryptographic audit yet — that is a v1.0 target.
 
 ---
 
@@ -107,6 +111,45 @@ Each prefix reads as a preposition — the mental model stays the same as you sc
 | **`as-`** | *"export **as** XLSX / JSON / …"* | **Portable artefacts** — two-tier authorisation with audit ledger. CSV, Excel, XML, JSON, NDJSON, SQL dump, PDF blobs, ZIP, and the encrypted `.noydb` bundle. | [→ exports.md](docs/packages/exports.md) |
 
 Plus the hub (`@noy-db/hub`) and specialised packages: `@noy-db/p2p` (WebRTC), `@noy-db/cli`, `create-noy-db` (scaffolder).
+
+> **Maturity at a glance.** `@noy-db/hub` is **Core** — security-critical, highest test bar. `to-memory`, `to-file`, `to-browser-idb`, `to-aws-dynamo`, `to-aws-s3` are **Recommended** — first-class production paths. Most other satellites are **Bridges** — thin adapters proven in tests but less production-battled. P2P, niche stores, and unusual auth modes are **Experimental** — useful, validate before depending on them.
+
+---
+
+## Querying without SQL
+
+The store never sees plaintext, so it never runs your query. The query DSL lives inside `@noy-db/hub` and runs **after decryption** — the storage backend stays a dumb, untrusted ciphertext store.
+
+```ts
+await invoices.query()
+  .where('status', '==', 'issued')
+  .where('clientId', '==', 'c-42')
+  .orderBy('issuedAt', 'desc')
+  .toArray()
+
+// Intra-vault joins, live queries, aggregations, streaming
+invoices.query().join<'client', Client>('clientId', { as: 'client' }).toArray()
+invoices.query().where(...).live().subscribe(() => render())
+invoices.query().groupBy('clientId').aggregate({ total: sum('amount') }).run()
+for await (const r of invoices.scan()) { /* backpressure-friendly */ }
+```
+
+Joins are **intra-vault and core-side** — no backend ever inspects plaintext fields. Cross-vault correlation is explicit via `queryAcross`. Huge relational workloads are still better served by a real database; noy-db is for sensitive, small-to-mid datasets where the trust boundary matters more than query throughput.
+
+---
+
+## The 6-method store contract
+
+```ts
+get(vault, collection, id)
+put(vault, collection, id, envelope, expectedVersion?)
+delete(vault, collection, id)
+list(vault, collection)
+loadAll(vault)
+saveAll(vault, data)
+```
+
+> If your existing storage can implement these six methods, it can store noy-db ciphertext. That is the full contract — 20+ shipped `to-*` stores (browser, file, SQL, object, remote-FS) are all built against it, and a custom one is `createStore(opts => ({ name, ...methods }))`.
 
 ---
 
@@ -209,6 +252,18 @@ Every mutation (grant, revoke, rotate, elevate) writes a hash-chained audit ledg
 
 ---
 
+## Not for
+
+- Million-row analytics workloads.
+- Server-side SQL over plaintext — the store is deliberately blind.
+- Workloads that need the storage backend itself to run joins, filters, or aggregations over plaintext.
+- Search-heavy workloads unless the searchable-index privacy tradeoff (opt-in deterministic encryption from v0.19) is acceptable for your threat model.
+- Teams that need **audited** cryptography today — noy-db has not yet had a third-party cryptographic audit. That is a v1.0 target.
+
+Serious use of noy-db is for sensitive, small-to-mid datasets where the privacy boundary matters more than query throughput.
+
+---
+
 ## Architecture
 
 <picture>
@@ -245,6 +300,22 @@ The hub package itself uses only `crypto.subtle`, which is built into every targ
 - [`ROADMAP.md`](ROADMAP.md) — version timeline and what's next.
 - [`HANDOVER.md`](HANDOVER.md) — session-to-session notes for contributors.
 - [`docs/spec/INDEX.md`](docs/spec/INDEX.md) — **the why behind every feature.** Every issue, milestone, discussion, and PR preserved in-repo as markdown. `grep docs/spec/archive` is the canonical way to find design rationale and rejected alternatives.
+
+---
+
+## Where to go next
+
+| If you want to… | Read |
+|---|---|
+| try noy-db in 5 minutes | [`docs/getting-started.md`](docs/getting-started.md) |
+| choose a path for your app | [`docs/START_HERE.md`](docs/START_HERE.md) |
+| pick a storage backend | [`docs/packages/stores.md`](docs/packages/stores.md) |
+| pick a framework integration | [`docs/packages/integrations.md`](docs/packages/integrations.md) |
+| understand the security model | [`docs/architecture.md`](docs/architecture.md) |
+| map a deployment topology | [`docs/topology-matrix.md`](docs/topology-matrix.md) |
+| see real workflows | [`showcases/`](showcases/) |
+| check what is stable or next | [`ROADMAP.md`](ROADMAP.md) |
+| audit design decisions | [`SPEC.md`](SPEC.md) + [`docs/spec/INDEX.md`](docs/spec/INDEX.md) |
 
 ---
 

@@ -12,7 +12,7 @@ How NOYDB stores, encrypts, and protects your data.
 |-----------------------|--------------------------------------------------------------------------------------------------------|
 | Zero-knowledge        | Backends store ciphertext only. The server, the disk, the cloud — none of them ever see plaintext.   |
 | Memory-first          | Eager hydration is the default. Opt into lazy mode via `cache: {...}` for larger collections — see [Caching and lazy hydration](#caching-and-lazy-hydration). Target scale for eager mode: 1K–50K records. |
-| Pluggable backends    | One 6-method adapter contract. Same API for USB, DynamoDB, S3, browser storage, or your own.          |
+| Pluggable backends    | One 6-method store contract. Same API for USB, DynamoDB, S3, browser storage, or your own.            |
 | Multi-user ACL        | 5 roles, per-collection permissions, portable keyrings. Revocation rotates keys.                       |
 | Zero runtime crypto deps | Web Crypto API only. Never an npm crypto package.                                                   |
 
@@ -143,7 +143,7 @@ flowchart TD
 
 ## Encrypted record envelope
 
-What every adapter actually stores:
+What every store actually holds:
 
 ```json
 {
@@ -171,9 +171,9 @@ What every adapter actually stores:
 
 A `Collection` has two hydration modes:
 
-**Eager (default):** `openCompartment()` loads every record from the adapter, decrypts it, and keeps it in memory. `list()` and `query()` are `Array.filter` over the in-memory map. Indexes are allowed.
+**Eager (default):** `openVault()` loads every record from the store, decrypts it, and keeps it in memory. `list()` and `query()` are `Array.filter` over the in-memory map. Indexes are allowed.
 
-**Lazy:** triggered by passing `cache: { maxRecords, maxBytes }` at collection construction. Records are fetched on demand and cached in an LRU keyed by `(compartment, collection, id)`. Eviction is O(1) via a `Map` + delete/set promotion. On cache miss, `get(id)` hits the adapter, decrypts, and populates the LRU. `list()` and `query()` throw — use `scan()` (async iterator, bypasses the LRU) or `loadMore()` (via `listPage`, populates the LRU) instead. Indexes in lazy mode are supported as of v0.22 — see [Indexes in lazy mode (v0.22)](#indexes-in-lazy-mode-v022) below.
+**Lazy:** triggered by passing `cache: { maxRecords, maxBytes }` at collection construction. Records are fetched on demand and cached in an LRU keyed by `(vault, collection, id)`. Eviction is O(1) via a `Map` + delete/set promotion. On cache miss, `get(id)` hits the store, decrypts, and populates the LRU. `list()` and `query()` throw — use `scan()` (async iterator, bypasses the LRU) or `loadMore()` (via `listPage`, populates the LRU) instead. Indexes in lazy mode are supported as of v0.22 — see [Indexes in lazy mode (v0.22)](#indexes-in-lazy-mode-v022) below.
 
 `prefetch: true` restores eager behavior even when `cache` is set, which is useful for small compartments inside a larger lazy database.
 
@@ -213,7 +213,7 @@ NOT evicted by the lazy LRU — it has its own budget.
 flowchart LR
     Get["get(id)"] --> Hit{LRU hit?}
     Hit -->|yes| Promote["promote to MRU<br/>return cached"]
-    Hit -->|no| Fetch["adapter.get()"]
+    Hit -->|no| Fetch["store.get()"]
     Fetch --> Decrypt["decrypt with DEK"]
     Decrypt --> Insert["insert into LRU<br/>(evict if over budget)"]
     Insert --> Return["return"]
@@ -241,7 +241,7 @@ flowchart TB
     Crypto -->|ciphertext only| Adapter
 ```
 
-The Pinia store never touches crypto directly — every operation goes through `Collection`, which means every invariant documented above (DEK per collection, fresh IV per encrypt, adapter sees only ciphertext) still holds. The only thing the store adds is Vue reactivity: mutations push into `items`, and live queries recompute via `ref`/`computed`.
+The Pinia store never touches crypto directly — every operation goes through `Collection`, which means every invariant documented above (DEK per collection, fresh IV per encrypt, backing store sees only ciphertext) still holds. The only thing the Pinia layer adds is Vue reactivity: mutations push into `items`, and live queries recompute via `ref`/`computed`.
 
 SSR safety: the `@noy-db/nuxt` runtime plugin is registered with `mode: 'client'`, so the server bundle contains zero crypto symbols. During SSR, stores return empty reactive refs; the client hydrates after decrypt.
 
@@ -283,7 +283,7 @@ interface LedgerEntry {
 
 **Why hash the ciphertext, not the plaintext?** `payloadHash` is over the encrypted bytes, not the decrypted record. This means:
 
-1. A user (or auditor) can verify the chain against the stored envelopes **without any decryption keys** — the adapter already holds only ciphertext, so hashing the ciphertext keeps the ledger at the same privacy level as the adapter.
+1. A user (or auditor) can verify the chain against the stored envelopes **without any decryption keys** — the store already holds only ciphertext, so hashing the ciphertext keeps the ledger at the same privacy level as the store.
 2. The hash is deterministic per write because we always use a fresh IV — different writes of the same record produce different ciphertexts and different hashes.
 3. Tamper detection works: if an attacker modifies a stored ciphertext to flip a record, the recomputed `payloadHash` no longer matches the ledger entry. The cross-check in `verifyBackupIntegrity()` catches it.
 
@@ -336,7 +336,7 @@ The ledger assumes a single writer per compartment. Two concurrent `append()` ca
 
 ## Adapter interface
 
-Every adapter implements exactly six async methods:
+Every store implements exactly six async methods:
 
 ```ts
 interface NoydbAdapter {
@@ -367,7 +367,7 @@ interface NoydbAdapter {
 }
 ```
 
-The contract is intentionally tiny. Building a custom adapter is `defineAdapter(opts => ({ name, get, put, delete, list, loadAll, saveAll }))` and you're done.
+The contract is intentionally tiny. Building a custom store is `createStore(opts => ({ name, get, put, delete, list, loadAll, saveAll }))` and you're done.
 
 ---
 
@@ -385,7 +385,7 @@ The contract is intentionally tiny. Building a custom adapter is `defineAdapter(
 | Revoked user retains old copies | Key rotation makes their old wrapped DEKs decrypt nothing                     |
 | IV reuse                        | Fresh 12-byte random IV per encrypt; never reused                             |
 | Quantum (Grover's)              | AES-256 → 128-bit effective security; safe for the foreseeable future         |
-| Leaked indexed field names      | Accepted — the only new adapter-observable metadata introduced by v0.22 lazy-mode indexes. Field names per collection are visible via side-car id prefixes; value distribution is NOT visible (side-car id contains `recordId`, not a value hash). |
+| Leaked indexed field names      | Accepted — the only new store-observable metadata introduced by v0.22 lazy-mode indexes. Field names per collection are visible via side-car id prefixes; value distribution is NOT visible (side-car id contains `recordId`, not a value hash). |
 
 What NOYDB **doesn't** defend against:
 - Compromised client device with active session (KEK is in memory by definition)
