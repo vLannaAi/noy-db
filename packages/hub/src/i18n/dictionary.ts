@@ -32,6 +32,7 @@
  */
 
 import type { NoydbStore, EncryptedEnvelope } from '../types.js'
+import type { NoydbEventEmitter } from '../events.js'
 import { NOYDB_FORMAT_VERSION } from '../types.js'
 import type { UnlockedKeyring } from '../team/keyring.js'
 import { encrypt, decrypt } from '../crypto.js'
@@ -203,6 +204,7 @@ export class DictionaryHandle<Keys extends string = string> {
           newKey: string,
         ) => Promise<void>)
       | undefined,
+    private readonly emitter: NoydbEventEmitter,
   ) {
     this.collName = dictCollectionName(dictionaryName)
   }
@@ -302,6 +304,13 @@ export class DictionaryHandle<Keys extends string = string> {
     // Maintain synchronous cache for dict-join snapshot (v0.8 #85)
     this._syncCache.set(key, entry)
 
+    this.emitter.emit('change', {
+      vault: this.compartmentName,
+      collection: this.collName,
+      id: key,
+      action: 'put',
+    })
+
     if (this.ledger) {
       await this.ledger.append({
         op: 'put',
@@ -376,6 +385,13 @@ export class DictionaryHandle<Keys extends string = string> {
     // Maintain synchronous cache for dict-join snapshot (v0.8 #85)
     this._syncCache.delete(key)
 
+    this.emitter.emit('change', {
+      vault: this.compartmentName,
+      collection: this.collName,
+      id: key,
+      action: 'delete',
+    })
+
     if (this.ledger) {
       await this.ledger.append({
         op: 'delete',
@@ -440,6 +456,19 @@ export class DictionaryHandle<Keys extends string = string> {
     // Maintain synchronous cache for dict-join snapshot (v0.8 #85)
     this._syncCache.delete(oldKey)
     this._syncCache.set(newKey, newEntry)
+
+    this.emitter.emit('change', {
+      vault: this.compartmentName,
+      collection: this.collName,
+      id: oldKey,
+      action: 'delete',
+    })
+    this.emitter.emit('change', {
+      vault: this.compartmentName,
+      collection: this.collName,
+      id: newKey,
+      action: 'put',
+    })
 
     // 5. Ledger — one entry for the rename (not N record-level entries)
     if (this.ledger) {

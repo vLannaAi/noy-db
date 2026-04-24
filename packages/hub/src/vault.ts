@@ -561,6 +561,7 @@ export class Vault {
             }
           }
         },
+        this.emitter,
       )
       this.dictionaryCache.set(name, handle)
     }
