@@ -1,7 +1,7 @@
 import type { NoydbStore, EncryptedEnvelope, ChangeEvent, HistoryConfig, HistoryOptions, HistoryEntry, PruneOptions, ListPageResult, LocaleReadOptions, ConflictPolicy, CollectionConflictResolver, PutManyItemOptions, PutManyOptions, PutManyResult, DeleteManyResult } from './types.js'
 import { NOYDB_FORMAT_VERSION } from './types.js'
 import type { CrdtMode, CrdtState, LwwMapState, RgaState } from './crdt/crdt.js'
-import { resolveCrdtSnapshot, mergeCrdtStates, buildLwwMapState, buildRgaState } from './crdt/crdt.js'
+import { NO_CRDT, type CrdtStrategy } from './crdt/strategy.js'
 import type { I18nTextDescriptor } from './i18n/core.js'
 import { applyI18nLocale } from './i18n/core.js'
 import type { DictKeyDescriptor } from './i18n/dictionary.js'
@@ -128,6 +128,7 @@ export class Collection<T> {
    */
   private readonly blobStrategy: BlobStrategy
   private readonly aggregateStrategy: AggregateStrategy
+  private readonly crdtStrategy: CrdtStrategy
 
   // In-memory cache of decrypted records (eager mode only). Lazy mode
   // uses `lru` instead. Both fields exist so a single Collection instance
@@ -420,6 +421,7 @@ export class Collection<T> {
      */
     blobStrategy?: BlobStrategy | undefined
     aggregateStrategy?: AggregateStrategy | undefined
+    crdtStrategy?: CrdtStrategy | undefined
     /**
      * v0.24 tree-shake seam. When omitted, indexing is off for this
      * collection — every `.lazyQuery()` call throws, `.rebuildIndexes()`
@@ -627,6 +629,7 @@ export class Collection<T> {
     this.emitter = opts.emitter
     this.blobStrategy = opts.blobStrategy ?? NO_BLOBS
     this.aggregateStrategy = opts.aggregateStrategy ?? NO_AGGREGATE
+    this.crdtStrategy = opts.crdtStrategy ?? NO_CRDT
     this.reconcileOnOpen = opts.reconcileOnOpen ?? 'off'
     this.getDEK = opts.getDEK
     this.onDirty = opts.onDirty
@@ -678,7 +681,7 @@ export class Collection<T> {
         const remoteJson = await this.decryptJsonString(remote)
         const localState = JSON.parse(localJson) as CrdtState
         const remoteState = JSON.parse(remoteJson) as CrdtState
-        const merged = mergeCrdtStates(localState, remoteState)
+        const merged = this.crdtStrategy.mergeCrdtStates(localState, remoteState)
         const mergedVersion = Math.max(local._v, remote._v) + 1
         return this.encryptJsonString(JSON.stringify(merged), mergedVersion)
       }
@@ -995,7 +998,7 @@ export class Collection<T> {
             existingState = prevParsed as LwwMapState
           }
         }
-        crdtState = buildLwwMapState(record as Record<string, unknown>, existingState, now)
+        crdtState = this.crdtStrategy.buildLwwMapState(record as Record<string, unknown>, existingState, now)
       } else if (this.crdtMode === 'rga') {
         let existingState: RgaState | undefined
         if (existingEnvelope) {
@@ -1006,7 +1009,7 @@ export class Collection<T> {
           }
         }
         const arr = Array.isArray(record) ? record : [record]
-        crdtState = buildRgaState(arr, existingState, generateULID)
+        crdtState = this.crdtStrategy.buildRgaState(arr, existingState, generateULID)
       } else {
         // yjs: record is the base64 update string (produced by @noy-db/yjs)
         crdtState = { _crdt: 'yjs', update: record as unknown as string }
@@ -1017,7 +1020,7 @@ export class Collection<T> {
       await this.adapter.put(this.vault, this.name, id, envelope)
 
       // Resolve snapshot for cache and history
-      const resolvedRecord = resolveCrdtSnapshot(crdtState) as T
+      const resolvedRecord = this.crdtStrategy.resolveCrdtSnapshot(crdtState) as T
       const existingResolved = existingEnvelope
         ? { record: await this.decryptRecord(existingEnvelope, { skipValidation: true }), version: existingVersion }
         : undefined
@@ -2914,7 +2917,7 @@ export class Collection<T> {
     // CRDT resolution (v0.9 #132): if this collection is in CRDT mode, the
     // stored JSON is a CrdtState, not T directly. Resolve to the snapshot.
     if (this.crdtMode && parsed !== null && typeof parsed === 'object' && '_crdt' in parsed) {
-      parsed = resolveCrdtSnapshot(parsed as CrdtState)
+      parsed = this.crdtStrategy.resolveCrdtSnapshot(parsed as CrdtState)
     }
 
     let record = parsed as T

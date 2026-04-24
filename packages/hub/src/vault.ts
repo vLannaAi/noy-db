@@ -27,6 +27,7 @@ import type { StandardSchemaV1 } from './schema.js'
 import type { BlobStrategy } from './blobs/strategy.js'
 import type { IndexStrategy } from './indexing/strategy.js'
 import type { AggregateStrategy } from './aggregate/strategy.js'
+import type { CrdtStrategy } from './crdt/strategy.js'
 import { LedgerStore, sha256Hex, LEDGER_COLLECTION, LEDGER_DELTAS_COLLECTION } from './history/ledger/index.js'
 import { VaultInstant } from './history/time-machine.js'
 import { VaultFrame } from './shadow/vault-frame.js'
@@ -105,6 +106,7 @@ export class Vault {
   private readonly blobStrategy: BlobStrategy | undefined
   private readonly indexStrategy: IndexStrategy | undefined
   private readonly aggregateStrategy: AggregateStrategy | undefined
+  private readonly crdtStrategy: CrdtStrategy | undefined
   private getDEK: (collectionName: string) => Promise<CryptoKey>
 
   /**
@@ -264,6 +266,7 @@ export class Vault {
     blobStrategy?: BlobStrategy | undefined
     indexStrategy?: IndexStrategy | undefined
     aggregateStrategy?: AggregateStrategy | undefined
+    crdtStrategy?: CrdtStrategy | undefined
   }) {
     this.adapter = opts.adapter
     this.name = opts.name
@@ -276,6 +279,7 @@ export class Vault {
     this.blobStrategy = opts.blobStrategy
     this.indexStrategy = opts.indexStrategy
     this.aggregateStrategy = opts.aggregateStrategy
+    this.crdtStrategy = opts.crdtStrategy
     this.historyConfig = opts.historyConfig ?? { enabled: true }
     this.reloadKeyring = opts.reloadKeyring
     this.locale = opts.locale
@@ -421,6 +425,7 @@ export class Vault {
         ...(this.blobStrategy !== undefined ? { blobStrategy: this.blobStrategy } : {}),
         ...(this.indexStrategy !== undefined ? { indexStrategy: this.indexStrategy } : {}),
         ...(this.aggregateStrategy !== undefined ? { aggregateStrategy: this.aggregateStrategy } : {}),
+        ...(this.crdtStrategy !== undefined ? { crdtStrategy: this.crdtStrategy } : {}),
         ledger: this.ledger(),
         refEnforcer: this,
         joinResolver: this,

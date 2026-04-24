@@ -28,6 +28,7 @@ import type { SyncPolicy } from './store/sync-policy.js'
 import type { BlobStrategy } from './blobs/strategy.js'
 import type { IndexStrategy } from './indexing/strategy.js'
 import type { AggregateStrategy } from './aggregate/strategy.js'
+import type { CrdtStrategy } from './crdt/strategy.js'
 
 /** Format version for encrypted record envelopes. */
 export const NOYDB_FORMAT_VERSION = 1 as const
@@ -1339,6 +1340,16 @@ export interface NoydbOptions {
    * @internal
    */
   readonly aggregateStrategy?: AggregateStrategy
+  /**
+   * v0.24 tree-shake seam — optional CRDT strategy. Required when
+   * any collection is declared with `crdt: 'lww-map' | 'rga' | 'yjs'`;
+   * otherwise the first put/sync-merge hitting the CRDT path throws.
+   * When omitted, ~221 LOC of LWW-Map / RGA / merge helpers never
+   * reach the bundle.
+   *
+   * @internal
+   */
+  readonly crdtStrategy?: CrdtStrategy
   /** Optional remote store(s) for sync. Accepts a single store, a SyncTarget, or an array. */
   readonly sync?: NoydbStore | SyncTarget | SyncTarget[]
   /** User identifier. */

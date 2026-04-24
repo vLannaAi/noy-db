@@ -11,6 +11,9 @@
  * and save ~221 LOC of state / merge / snapshot helpers.
  */
 
+export { withCrdt } from './active.js'
+export type { CrdtStrategy } from './strategy.js'
+
 export {
   resolveCrdtSnapshot,
   mergeCrdtStates,
