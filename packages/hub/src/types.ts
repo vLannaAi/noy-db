@@ -727,6 +727,19 @@ export interface NoydbEventMap {
   'sync:backup-error': { vault: string; target: string; error: Error }
   'history:save': { vault: string; collection: string; id: string; version: number }
   'history:prune': { vault: string; collection: string; id: string; pruned: number }
+  /**
+   * Emitted when a persisted-index side-car put/delete fails after the
+   * main record write already succeeded. The main record is durable; the
+   * index mirror may have drifted. Operators reconcile via
+   * `collection.reconcileIndex(field)` (v0.23 #269).
+   */
+  'index:write-partial': {
+    vault: string
+    collection: string
+    id: string
+    action: 'put' | 'delete'
+    error: Error
+  }
 }
 
 // ─── Grant / Revoke ────────────────────────────────────────────────────

@@ -29,7 +29,10 @@ import type { DiffEntry } from './history/diff.js'
 import { Query, ScanBuilder } from './query/index.js'
 import type { QuerySource, JoinContext, JoinableSource } from './query/index.js'
 import { CollectionIndexes, type IndexDef } from './query/indexes.js'
-import { PersistedCollectionIndex } from './query/persisted-indexes.js'
+import { PersistedCollectionIndex, encodeIdxId, decodeIdxId } from './query/persisted-indexes.js'
+import { LazyQuery } from './query/lazy-builder.js'
+import type { LazyQuerySource } from './query/lazy-builder.js'
+import { IndexWriteFailureError } from './errors.js'
 import type { RefDescriptor } from './refs.js'
 import { Lru, parseBytes, estimateRecordBytes, type LruStats } from './cache/index.js'
 import { generateULID } from './bundle/ulid.js'
@@ -151,10 +154,20 @@ export class Collection<T> {
 
   /**
    * In-memory mirror of the persisted `_idx/<field>/<recordId>` side-car
-   * records — populated via bulk-load on first lazy-mode query (PR 3).
-   * Constructed empty in v0.22 PR 1; only `declare()` is invoked here.
+   * records — populated via bulk-load on first lazy-mode query.
+   * `declare()` runs in the constructor for each declared field; bulk
+   * ingest happens lazily via `ensurePersistedIndexesLoaded()`.
    */
   private readonly persistedIndexes = new PersistedCollectionIndex()
+
+  /**
+   * True once `_idx/*` side-cars have been bulk-loaded into
+   * `persistedIndexes`. Flipped by `ensurePersistedIndexesLoaded()` on
+   * first lazy-mode query so subsequent queries skip the adapter round
+   * trip. Invalidation (remote sync, rotation) resets it alongside
+   * `persistedIndexes.clear()`.
+   */
+  private persistedIndexesLoaded = false
 
   /**
    * Optional Standard Schema v1 validator. When set, every `put()` runs
@@ -957,6 +970,12 @@ export class Collection<T> {
 
       if (this.lazy && this.lru) {
         this.lru.set(id, { record: resolvedRecord, version }, estimateRecordBytes(resolvedRecord))
+        await this.maintainPersistedIndexesOnPut(
+          id,
+          resolvedRecord,
+          existingResolved ? existingResolved.record : null,
+          version,
+        )
       } else {
         this.cache.set(id, { record: resolvedRecord, version })
         this.indexes.upsert(id, resolvedRecord, existingResolved ? existingResolved.record : null)
@@ -1051,12 +1070,15 @@ export class Collection<T> {
 
     if (this.lazy && this.lru) {
       this.lru.set(id, { record, version }, estimateRecordBytes(record))
+      // Maintain persisted-index side-cars (v0.22 #266). Lazy mode is the
+      // only place `persistedIndexes` is populated; eager mode uses the
+      // in-memory `CollectionIndexes` above.
+      await this.maintainPersistedIndexesOnPut(id, record, existing ? existing.record : null, version)
     } else {
       this.cache.set(id, { record, version })
       // Update secondary indexes incrementally — no-op if no indexes are
       // declared. Pass the previous record (if any) so old buckets are
-      // cleaned up before the new value is added. Indexes are NEVER
-      // touched in lazy mode (rejected at construction).
+      // cleaned up before the new value is added.
       this.indexes.upsert(id, record, existing ? existing.record : null)
     }
 
@@ -1156,11 +1178,16 @@ export class Collection<T> {
 
     if (this.lazy && this.lru) {
       this.lru.remove(id)
+      // Tear down persisted-index side-cars for any declared fields on
+      // this record. No-op when no fields are declared or the record
+      // had never been indexed (e.g. a delete of a missing id).
+      if (existing) {
+        await this.maintainPersistedIndexesOnDelete(id, existing.record)
+      }
     } else {
       this.cache.delete(id)
       // Remove from secondary indexes — no-op if no indexes are declared
-      // or the record wasn't previously indexed. Indexes are never
-      // declared in lazy mode (rejected at construction).
+      // or the record wasn't previously indexed.
       if (existing) {
         this.indexes.remove(id, existing.record)
       }
@@ -1364,8 +1391,8 @@ export class Collection<T> {
     if (this.lazy) {
       throw new Error(
         `Collection "${this.name}": query() is not available in lazy mode (prefetch: false). ` +
-        `Use collection.scan({ pageSize }) and filter the streamed records with a regular ` +
-        `for-await loop. Streaming queries land in v0.4.`,
+        `Use collection.lazyQuery() for indexed reads, or collection.scan({ pageSize }) ` +
+        `and filter the streamed records with a regular for-await loop.`,
       )
     }
     if (predicate !== undefined) {
@@ -1963,6 +1990,204 @@ export class Collection<T> {
    * Used by both the normal record path and the CRDT path (which serialises
    * a CrdtState rather than a T).
    */
+  /**
+   * Write / update / delete the `_idx/<field>/<recordId>` side-cars for
+   * every declared persistence-index field on this collection after a
+   * successful main-record `put()`.
+   *
+   * Timing: called AFTER `adapter.put()` of the main record succeeds, so
+   * a failed main write never leaves a stale index entry. Side-car write
+   * failures do NOT fail the overall `put()` — the main record is already
+   * durably committed. Per-field failures surface as
+   * `IndexWriteFailureError` on the emitter's `index:write-partial`
+   * channel and the operator runs a reconcile pass later.
+   *
+   * Null/undefined field values are not indexed — matches the
+   * `PersistedCollectionIndex.stringifyKey` contract. If the prior value
+   * was non-null and the new value is null, the side-car is deleted.
+   */
+  private async maintainPersistedIndexesOnPut(
+    id: string,
+    newRecord: T,
+    previousRecord: T | null,
+    version: number,
+  ): Promise<void> {
+    const fields = this.persistedIndexes.fields()
+    if (fields.length === 0) return
+
+    const newRec = newRecord as unknown as Record<string, unknown>
+    const prevRec = previousRecord as unknown as Record<string, unknown> | null
+
+    for (const field of fields) {
+      const newValue = readPersistedValue(newRec, field)
+      const previousValue = prevRec ? readPersistedValue(prevRec, field) : null
+
+      // Update the in-memory mirror first — it's the authoritative source
+      // for query dispatch. If the adapter write below fails, the mirror
+      // still reflects intended state; the reconciler compares mirror
+      // against side-cars on next run.
+      this.persistedIndexes.upsert(id, field, newValue, previousValue)
+
+      const idxId = encodeIdxId(field, id)
+      try {
+        if (newValue === null || newValue === undefined) {
+          // Clear any pre-existing side-car for this (field, record).
+          if (previousValue !== null && previousValue !== undefined) {
+            await this.adapter.delete(this.vault, this.name, idxId)
+          }
+        } else {
+          const body = JSON.stringify({
+            field,
+            value: serializeIndexValue(newValue),
+            recordId: id,
+            writtenAt: new Date().toISOString(),
+          })
+          const envelope = await this.encryptJsonString(body, version)
+          await this.adapter.put(this.vault, this.name, idxId, envelope)
+        }
+      } catch (cause) {
+        this.emitter.emit('index:write-partial', {
+          vault: this.vault,
+          collection: this.name,
+          id,
+          action: 'put',
+          error: new IndexWriteFailureError({ recordId: id, field, op: 'put', cause }),
+        })
+      }
+    }
+  }
+
+  /**
+   * Tear down `_idx/<field>/<recordId>` side-cars for a deleted record.
+   * Mirror state updates regardless of adapter outcome; adapter failures
+   * surface on `index:write-partial` the same way put does.
+   */
+  private async maintainPersistedIndexesOnDelete(id: string, previousRecord: T): Promise<void> {
+    const fields = this.persistedIndexes.fields()
+    if (fields.length === 0) return
+
+    const prevRec = previousRecord as unknown as Record<string, unknown>
+    for (const field of fields) {
+      const previousValue = readPersistedValue(prevRec, field)
+      if (previousValue !== null && previousValue !== undefined) {
+        this.persistedIndexes.remove(id, field, previousValue)
+      }
+
+      const idxId = encodeIdxId(field, id)
+      try {
+        await this.adapter.delete(this.vault, this.name, idxId)
+      } catch (cause) {
+        this.emitter.emit('index:write-partial', {
+          vault: this.vault,
+          collection: this.name,
+          id,
+          action: 'delete',
+          error: new IndexWriteFailureError({ recordId: id, field, op: 'delete', cause }),
+        })
+      }
+    }
+  }
+
+  /**
+   * Bulk-load the persisted-index mirror from `_idx/<field>/*` side-cars
+   * on first lazy-mode query. Idempotent — subsequent calls short-circuit
+   * on the `persistedIndexesLoaded` flag.
+   *
+   * Listing the whole id namespace is acceptable here because the caller
+   * has already decided to pay a first-query cost (this is the indexed
+   * equivalent of lazy-mode hydration, not a per-query scan).
+   */
+  private async ensurePersistedIndexesLoaded(): Promise<void> {
+    if (this.persistedIndexesLoaded) return
+    if (this.persistedIndexes.fields().length === 0) {
+      this.persistedIndexesLoaded = true
+      return
+    }
+
+    const ids = await this.adapter.list(this.vault, this.name)
+    const byField = new Map<string, Array<{ recordId: string; value: unknown }>>()
+    for (const id of ids) {
+      const decoded = decodeIdxId(id)
+      if (!decoded) continue
+      if (!this.persistedIndexes.has(decoded.field)) continue
+      const envelope = await this.adapter.get(this.vault, this.name, id)
+      if (!envelope) continue
+      try {
+        const json = await this.decryptJsonString(envelope)
+        const body = JSON.parse(json) as { value: unknown; recordId: string }
+        if (typeof body.recordId !== 'string') continue
+        const rows = byField.get(decoded.field) ?? []
+        rows.push({ recordId: body.recordId, value: body.value })
+        byField.set(decoded.field, rows)
+      } catch {
+        // Skip unreadable side-cars — the reconciler picks them up later.
+      }
+    }
+    for (const [field, rows] of byField) {
+      this.persistedIndexes.ingest(field, rows)
+    }
+    this.persistedIndexesLoaded = true
+  }
+
+  /**
+   * Construct a `LazyQuery<T>` bound to this collection. Used by the
+   * lazy-mode branch of `query()` and kept private because callers should
+   * always go through `query()` to pick up the eager/lazy dispatch.
+   */
+  /**
+   * Build a chainable indexed-read query against a lazy-mode collection.
+   *
+   * Companion to `query()`, which is eager-mode only and materialises a
+   * snapshot. `lazyQuery()` dispatches every read through the persisted
+   * index side-cars — no bulk decrypt, no snapshot. Every field touched by
+   * `.where(...)` or `.orderBy(...)` MUST be declared in `indexes`;
+   * otherwise `.toArray()` throws `IndexRequiredError`.
+   *
+   * The returned builder is always Promise-returning on its terminals
+   * (`toArray`, `first`, `count`) because candidate records are decrypted
+   * from the adapter on demand.
+   *
+   * @example
+   * ```ts
+   * const disbursements = vault.collection<Disbursement>('disbursements', {
+   *   prefetch: false,
+   *   cache: { maxRecords: 1000 },
+   *   indexes: ['clientId', 'period'],
+   * })
+   * const rows = await disbursements.lazyQuery()
+   *   .where('clientId', '==', 'c-42')
+   *   .orderBy('period', 'desc')
+   *   .limit(50)
+   *   .toArray()
+   * ```
+   *
+   * Throws at call time when the collection is in eager mode — use
+   * `query()` there. Throws if no index is declared, because a lazy
+   * query with no index would need to enumerate the whole collection.
+   */
+  lazyQuery(): LazyQuery<T> {
+    if (!this.lazy) {
+      throw new Error(
+        `Collection "${this.name}": lazyQuery() is only available in lazy mode ` +
+        `(prefetch: false). Use collection.query() for eager-mode chainable reads.`,
+      )
+    }
+    if (this.persistedIndexes.fields().length === 0) {
+      throw new Error(
+        `Collection "${this.name}": lazyQuery() requires at least one field declared ` +
+        `in \`indexes\`. Declare the fields you'll filter or sort by, or use ` +
+        `collection.scan({ pageSize }) for non-indexed iteration.`,
+      )
+    }
+    const source: LazyQuerySource<T> = {
+      collectionName: this.name,
+      persistedIndexes: this.persistedIndexes,
+      ensurePersistedIndexesLoaded: () => this.ensurePersistedIndexesLoaded(),
+      getRecord: (id: string) => this.get(id),
+    }
+    return new LazyQuery<T>(source)
+  }
+
   private async encryptJsonString(json: string, version: number): Promise<EncryptedEnvelope> {
     const by = this.keyring.userId
 
@@ -2384,4 +2609,35 @@ export class Collection<T> {
 
     return record
   }
+}
+
+/**
+ * Read a field value from a plain record for persisted-index maintenance.
+ * Supports dotted paths so declarations like `indexes: ['billing.clientId']`
+ * work the same way `readPath` handles them for the eager-mode builder.
+ */
+function readPersistedValue(record: Record<string, unknown>, field: string): unknown {
+  if (!field.includes('.')) return record[field]
+  const segments = field.split('.')
+  let cursor: unknown = record
+  for (const segment of segments) {
+    if (cursor === null || cursor === undefined) return undefined
+    cursor = (cursor as Record<string, unknown>)[segment]
+  }
+  return cursor
+}
+
+/**
+ * Canonicalize a typed value for storage inside the side-car body so it
+ * round-trips through `JSON.parse` without losing fidelity. Dates are
+ * serialised as ISO strings; everything else passes through.
+ *
+ * The in-memory mirror compares on the stringified bucket key, so the
+ * exact storage form is not query-critical — this just protects the
+ * reconciler (v0.23 #269), which compares the stored body against the
+ * live record value and would otherwise mismatch on Date objects.
+ */
+function serializeIndexValue(value: unknown): unknown {
+  if (value instanceof Date) return value.toISOString()
+  return value
 }
