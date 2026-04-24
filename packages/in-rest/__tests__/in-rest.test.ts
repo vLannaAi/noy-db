@@ -68,7 +68,7 @@ describe('in-rest base handler', () => {
 
   it('POST /sessions/unlock/passphrase → 200 with token', async () => {
     const handler = createRestHandler({ store, user: 'owner' })
-    const res = await handler.handle(req('POST', '/sessions/unlock/passphrase', { passphrase: 'secret' }))
+    const res = await handler.handle(req('POST', '/sessions/unlock/passphrase', { passphrase: 'correct-horse-battery-staple' }))
     expect(res.status).toBe(200)
     const body = JSON.parse(res.body as string) as { token: string }
     expect(typeof body.token).toBe('string')
@@ -85,7 +85,7 @@ describe('in-rest base handler', () => {
 
   it('GET /sessions/current with valid token → active: true', async () => {
     const handler = createRestHandler({ store, user: 'owner' })
-    const unlockRes = await handler.handle(req('POST', '/sessions/unlock/passphrase', { passphrase: 'secret' }))
+    const unlockRes = await handler.handle(req('POST', '/sessions/unlock/passphrase', { passphrase: 'correct-horse-battery-staple' }))
     const { token } = JSON.parse(unlockRes.body as string) as { token: string }
 
     const res = await handler.handle(req('GET', '/sessions/current', undefined, token))
@@ -102,7 +102,7 @@ describe('in-rest base handler', () => {
   it('full CRUD flow: list → put → get → delete', async () => {
     const handler = createRestHandler({ store, user: 'owner' })
     const { token } = JSON.parse(
-      (await handler.handle(req('POST', '/sessions/unlock/passphrase', { passphrase: 'secret' }))).body as string
+      (await handler.handle(req('POST', '/sessions/unlock/passphrase', { passphrase: 'correct-horse-battery-staple' }))).body as string
     ) as { token: string }
 
     const listVaultsRes = await handler.handle(req('GET', '/vaults', undefined, token))
@@ -134,7 +134,7 @@ describe('in-rest base handler', () => {
   it('DELETE /sessions/current invalidates the token', async () => {
     const handler = createRestHandler({ store, user: 'owner' })
     const { token } = JSON.parse(
-      (await handler.handle(req('POST', '/sessions/unlock/passphrase', { passphrase: 'secret' }))).body as string
+      (await handler.handle(req('POST', '/sessions/unlock/passphrase', { passphrase: 'correct-horse-battery-staple' }))).body as string
     ) as { token: string }
 
     const delRes = await handler.handle(req('DELETE', '/sessions/current', undefined, token))
@@ -147,7 +147,7 @@ describe('in-rest base handler', () => {
   it('?where=status:eq:paid filters results', async () => {
     const handler = createRestHandler({ store, user: 'owner' })
     const { token } = JSON.parse(
-      (await handler.handle(req('POST', '/sessions/unlock/passphrase', { passphrase: 'secret' }))).body as string
+      (await handler.handle(req('POST', '/sessions/unlock/passphrase', { passphrase: 'correct-horse-battery-staple' }))).body as string
     ) as { token: string }
     await handler.handle(req('POST', '/vaults/acme/collections/invoices/i1', { id: 'i1', status: 'paid', amt: 100 }, token))
     await handler.handle(req('POST', '/vaults/acme/collections/invoices/i2', { id: 'i2', status: 'draft', amt: 50 }, token))
@@ -164,7 +164,7 @@ describe('in-rest base handler', () => {
   it('?where=amt:pow:2 → 400 invalid op', async () => {
     const handler = createRestHandler({ store, user: 'owner' })
     const { token } = JSON.parse(
-      (await handler.handle(req('POST', '/sessions/unlock/passphrase', { passphrase: 'secret' }))).body as string
+      (await handler.handle(req('POST', '/sessions/unlock/passphrase', { passphrase: 'correct-horse-battery-staple' }))).body as string
     ) as { token: string }
 
     const res = await handler.handle(
@@ -177,7 +177,7 @@ describe('in-rest base handler', () => {
 
   it('basePath option strips the prefix before routing', async () => {
     const handler = createRestHandler({ store, user: 'owner', basePath: '/api/noydb' })
-    const res = await handler.handle(req('POST', '/api/noydb/sessions/unlock/passphrase', { passphrase: 'secret' }))
+    const res = await handler.handle(req('POST', '/api/noydb/sessions/unlock/passphrase', { passphrase: 'correct-horse-battery-staple' }))
     expect(res.status).toBe(200)
   })
 })

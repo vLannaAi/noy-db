@@ -1,7 +1,7 @@
-import { createNoydb, PermissionDeniedError, NotFoundError } from '@noy-db/hub'
+import { createNoydb, PermissionDeniedError, NotFoundError, ConflictError, ValidationError } from '@noy-db/hub'
 import type { NoydbStore } from '@noy-db/hub'
 import type { RestRequest, RestResponse } from './index.js'
-import { SessionStore } from './sessions.js'
+import type { SessionStore } from './sessions.js'
 import { parseQueryParams } from './query-params.js'
 
 function json(status: number, body: unknown): RestResponse {
@@ -13,6 +13,7 @@ function json(status: number, body: unknown): RestResponse {
 }
 
 function extractToken(req: RestRequest): string | null {
+  // HTTP headers are case-insensitive; check both common casings.
   const auth = req.headers['authorization'] ?? req.headers['Authorization']
   if (!auth?.startsWith('Bearer ')) return null
   return auth.slice(7)
@@ -20,7 +21,11 @@ function extractToken(req: RestRequest): string | null {
 
 export function buildRouter(store: NoydbStore, user: string, sessions: SessionStore, basePath: string) {
   function stripBase(pathname: string): string {
-    if (basePath && pathname.startsWith(basePath)) return pathname.slice(basePath.length) || '/'
+    // Segment-aware prefix match: basePath '/api' matches '/api' or '/api/...'
+    // but NOT '/apifoo' or '/api-other/...'.
+    if (!basePath) return pathname
+    if (pathname === basePath) return '/'
+    if (pathname.startsWith(basePath + '/')) return pathname.slice(basePath.length)
     return pathname
   }
 
@@ -38,23 +43,26 @@ export function buildRouter(store: NoydbStore, user: string, sessions: SessionSt
         return json(400, { error: 'passphrase_required' })
       }
       try {
-        const db = await createNoydb({ store, user, secret: passphrase, validatePassphrase: false })
+        const db = await createNoydb({ store, user, secret: passphrase })
         const token = sessions.create(db)
         return json(200, { token })
-      } catch {
+      } catch (err) {
+        if (err instanceof ValidationError) {
+          return json(400, { error: 'weak_passphrase', message: err.message })
+        }
         return json(401, { error: 'invalid_passphrase' })
       }
     }
 
     if (method === 'GET' && path === '/sessions/current') {
       const token = extractToken(req)
-      const active = token !== null && sessions.has(token)
+      const active = token !== null && sessions.peek(token)
       return json(200, { active })
     }
 
     if (method === 'DELETE' && path === '/sessions/current') {
       const token = extractToken(req)
-      if (!token || !sessions.has(token)) return json(401, { error: 'unauthorized' })
+      if (!token || !sessions.peek(token)) return json(401, { error: 'unauthorized' })
       sessions.delete(token)
       return { status: 204, headers: {}, body: null }
     }
@@ -68,7 +76,15 @@ export function buildRouter(store: NoydbStore, user: string, sessions: SessionSt
     // ── Vault routes ──────────────────────────────────────────────
 
     if (method === 'GET' && path === '/vaults') {
-      return json(200, [])
+      try {
+        if (typeof store.listVaults === 'function') {
+          const vaults = await db.listAccessibleVaults()
+          return json(200, vaults.map(v => v.id))
+        }
+        return json(200, [])
+      } catch {
+        return json(200, [])
+      }
     }
 
     // Match /vaults/:vault/collections/:collection/:id
@@ -101,16 +117,30 @@ export function buildRouter(store: NoydbStore, user: string, sessions: SessionSt
           await coll.delete(id)
           return json(200, { ok: true })
         }
+
+        return {
+          status: 405,
+          headers: { 'content-type': 'application/json', allow: 'GET, POST, DELETE' },
+          body: JSON.stringify({ error: 'method_not_allowed' }),
+        }
       } catch (err) {
         if (err instanceof PermissionDeniedError) return json(403, { error: 'forbidden' })
         if (err instanceof NotFoundError) return json(404, { error: 'not_found' })
+        if (err instanceof ConflictError) return json(409, { error: 'conflict' })
         return json(500, { error: 'internal_error' })
       }
     }
 
     // Match /vaults/:vault/collections/:collection (list)
     const collMatch = path.match(/^\/vaults\/([^/]+)\/collections\/([^/]+)$/)
-    if (collMatch && method === 'GET') {
+    if (collMatch) {
+      if (method !== 'GET') {
+        return {
+          status: 405,
+          headers: { 'content-type': 'application/json', allow: 'GET' },
+          body: JSON.stringify({ error: 'method_not_allowed' }),
+        }
+      }
       const vaultName = collMatch[1]
       const collName = collMatch[2]
       if (vaultName === undefined || collName === undefined) {

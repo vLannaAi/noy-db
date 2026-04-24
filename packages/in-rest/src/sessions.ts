@@ -19,6 +19,10 @@ export class SessionStore {
     return token
   }
 
+  /**
+   * Look up a session and refresh its sliding-window TTL. Call from
+   * auth-guarded routes that are treated as "activity".
+   */
   get(token: string): Noydb | null {
     const session = this.sessions.get(token)
     if (!session) return null
@@ -34,7 +38,18 @@ export class SessionStore {
     this.sessions.delete(token)
   }
 
-  has(token: string): boolean {
-    return this.get(token) !== null
+  /**
+   * Non-refreshing existence check. Used by polling endpoints like
+   * `GET /sessions/current` that should not extend the session merely
+   * by being queried.
+   */
+  peek(token: string): boolean {
+    const session = this.sessions.get(token)
+    if (!session) return false
+    if (Date.now() > session.expiresAt) {
+      this.sessions.delete(token)
+      return false
+    }
+    return true
   }
 }
