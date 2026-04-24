@@ -12,12 +12,10 @@
  * continue to re-export the same symbols for backward compatibility
  * with consumers written before the v0.24 relocation. New code should
  * prefer this subpath.
- *
- * **Status (v0.24):** phase 1 — folder + subpath only. The strategy
- * seam that makes `.aggregate()` / `.groupBy()` tree-shakeable when
- * unused is a follow-up; today `Query.aggregate` and
- * `ScanBuilder.aggregate` still import the machinery statically.
  */
+
+export { withAggregate } from './active.js'
+export type { AggregateStrategy } from './strategy.js'
 
 export { Aggregation, reduceRecords, buildLiveAggregation } from './aggregation.js'
 export type {

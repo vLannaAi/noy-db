@@ -23,6 +23,8 @@ import {
   reduceRecords,
   type QuerySource,
 } from '../src/query/index.js'
+import { withAggregate } from '../src/aggregate/index.js'
+const AGG = withAggregate()
 
 interface Invoice {
   id: string
@@ -92,14 +94,14 @@ function mutableSource<T>(initial: T[]): {
 
 describe('aggregate > count()', () => {
   it('counts the number of matching records', () => {
-    const result = new Query<Invoice>(staticSource(SAMPLE))
+    const result = new Query<Invoice>(staticSource(SAMPLE), undefined, undefined, AGG)
       .aggregate({ n: count() })
       .run()
     expect(result.n).toBe(5)
   })
 
   it('counts zero for an empty result set', () => {
-    const result = new Query<Invoice>(staticSource(SAMPLE))
+    const result = new Query<Invoice>(staticSource(SAMPLE), undefined, undefined, AGG)
       .where('status', '==', 'nonexistent')
       .aggregate({ n: count() })
       .run()
@@ -107,7 +109,7 @@ describe('aggregate > count()', () => {
   })
 
   it('counts filtered matches only', () => {
-    const result = new Query<Invoice>(staticSource(SAMPLE))
+    const result = new Query<Invoice>(staticSource(SAMPLE), undefined, undefined, AGG)
       .where('status', '==', 'open')
       .aggregate({ n: count() })
       .run()
@@ -117,14 +119,14 @@ describe('aggregate > count()', () => {
 
 describe('aggregate > sum()', () => {
   it('sums a numeric field across all records', () => {
-    const result = new Query<Invoice>(staticSource(SAMPLE))
+    const result = new Query<Invoice>(staticSource(SAMPLE), undefined, undefined, AGG)
       .aggregate({ total: sum('amount') })
       .run()
     expect(result.total).toBe(100 + 250 + 5000 + 800 + 1500)
   })
 
   it('returns 0 for an empty result set', () => {
-    const result = new Query<Invoice>(staticSource(SAMPLE))
+    const result = new Query<Invoice>(staticSource(SAMPLE), undefined, undefined, AGG)
       .where('status', '==', 'nonexistent')
       .aggregate({ total: sum('amount') })
       .run()
@@ -132,7 +134,7 @@ describe('aggregate > sum()', () => {
   })
 
   it('sums a filtered slice only', () => {
-    const result = new Query<Invoice>(staticSource(SAMPLE))
+    const result = new Query<Invoice>(staticSource(SAMPLE), undefined, undefined, AGG)
       .where('status', '==', 'open')
       .aggregate({ total: sum('amount') })
       .run()
@@ -144,7 +146,7 @@ describe('aggregate > sum()', () => {
       { id: '1', amount: 100 },
       { id: '2', amount: 'oops' as unknown as number },
       { id: '3', amount: 200 },
-    ]))
+    ]), undefined, undefined, AGG)
       .aggregate({ total: sum('amount') })
       .run()
     expect(result.total).toBe(300)
@@ -153,7 +155,7 @@ describe('aggregate > sum()', () => {
 
 describe('aggregate > avg()', () => {
   it('computes the arithmetic mean of a numeric field', () => {
-    const result = new Query<Invoice>(staticSource(SAMPLE))
+    const result = new Query<Invoice>(staticSource(SAMPLE), undefined, undefined, AGG)
       .aggregate({ meanAmount: avg('amount') })
       .run()
     const expected = (100 + 250 + 5000 + 800 + 1500) / 5
@@ -161,7 +163,7 @@ describe('aggregate > avg()', () => {
   })
 
   it('returns null for an empty result set (not NaN)', () => {
-    const result = new Query<Invoice>(staticSource(SAMPLE))
+    const result = new Query<Invoice>(staticSource(SAMPLE), undefined, undefined, AGG)
       .where('status', '==', 'nonexistent')
       .aggregate({ meanAmount: avg('amount') })
       .run()
@@ -171,21 +173,21 @@ describe('aggregate > avg()', () => {
 
 describe('aggregate > min() / max()', () => {
   it('finds the minimum of a numeric field', () => {
-    const result = new Query<Invoice>(staticSource(SAMPLE))
+    const result = new Query<Invoice>(staticSource(SAMPLE), undefined, undefined, AGG)
       .aggregate({ smallest: min('amount') })
       .run()
     expect(result.smallest).toBe(100)
   })
 
   it('finds the maximum of a numeric field', () => {
-    const result = new Query<Invoice>(staticSource(SAMPLE))
+    const result = new Query<Invoice>(staticSource(SAMPLE), undefined, undefined, AGG)
       .aggregate({ largest: max('amount') })
       .run()
     expect(result.largest).toBe(5000)
   })
 
   it('returns null for an empty result set (not -Infinity / Infinity)', () => {
-    const empty = new Query<Invoice>(staticSource(SAMPLE))
+    const empty = new Query<Invoice>(staticSource(SAMPLE), undefined, undefined, AGG)
       .where('status', '==', 'nonexistent')
       .aggregate({ lo: min('amount'), hi: max('amount') })
       .run()
@@ -196,7 +198,7 @@ describe('aggregate > min() / max()', () => {
 
 describe('aggregate > combined spec', () => {
   it('runs multiple reducers in a single pass and returns a named object', () => {
-    const result = new Query<Invoice>(staticSource(SAMPLE))
+    const result = new Query<Invoice>(staticSource(SAMPLE), undefined, undefined, AGG)
       .where('status', '==', 'open')
       .aggregate({
         total:     sum('amount'),
@@ -219,7 +221,7 @@ describe('aggregate > combined spec', () => {
     // Compile-time check — if this assigns, the mapped type
     // AggregateResult<Spec> is extracting R correctly from each
     // Reducer<R, _> in the spec.
-    const result = new Query<Invoice>(staticSource(SAMPLE))
+    const result = new Query<Invoice>(staticSource(SAMPLE), undefined, undefined, AGG)
       .aggregate({
         total: sum('amount'),
         n: count(),
@@ -243,7 +245,7 @@ describe('aggregate > #87 seed parameter seam', () => {
     // behavior. When v0.10 partition-aware aggregation lands, the
     // expectation here changes and the test moves to a partition-
     // awareness suite. For now: passing a seed must be a no-op.
-    const withoutSeed = new Query<Invoice>(staticSource(SAMPLE))
+    const withoutSeed = new Query<Invoice>(staticSource(SAMPLE), undefined, undefined, AGG)
       .aggregate({
         total:     sum('amount'),
         n:         count(),
@@ -252,7 +254,7 @@ describe('aggregate > #87 seed parameter seam', () => {
         hi:        max('amount'),
       })
       .run()
-    const withSeed = new Query<Invoice>(staticSource(SAMPLE))
+    const withSeed = new Query<Invoice>(staticSource(SAMPLE), undefined, undefined, AGG)
       .aggregate({
         total:     sum('amount', { seed: 999_999 }),
         n:         count({ seed: 42 }),
@@ -287,7 +289,7 @@ describe('aggregate > reduceRecords pure helper', () => {
 describe('aggregate > .live() initial state', () => {
   it('computes the initial value eagerly in the constructor', () => {
     const { source } = mutableSource<Invoice>(SAMPLE)
-    const live = new Query<Invoice>(source)
+    const live = new Query<Invoice>(source, undefined, undefined, AGG)
       .aggregate({ total: sum('amount'), n: count() })
       .live()
     expect(live.value).toEqual({ total: 7650, n: 5 })
@@ -297,7 +299,7 @@ describe('aggregate > .live() initial state', () => {
 
   it('initial value is computed for an empty source', () => {
     const { source } = mutableSource<Invoice>([])
-    const live = new Query<Invoice>(source)
+    const live = new Query<Invoice>(source, undefined, undefined, AGG)
       .aggregate({ total: sum('amount'), n: count() })
       .live()
     expect(live.value).toEqual({ total: 0, n: 0 })
@@ -310,7 +312,7 @@ describe('aggregate > .live() re-fires on source changes', () => {
     const src = mutableSource<Invoice>([
       { id: 'a', status: 'open', amount: 100, client: 'A' },
     ])
-    const live = new Query<Invoice>(src.source)
+    const live = new Query<Invoice>(src.source, undefined, undefined, AGG)
       .aggregate({ total: sum('amount'), n: count() })
       .live()
     expect(live.value).toEqual({ total: 100, n: 1 })
@@ -334,7 +336,7 @@ describe('aggregate > .live() re-fires on source changes', () => {
 
   it('re-fires when a record is removed', () => {
     const src = mutableSource<Invoice>(SAMPLE)
-    const live = new Query<Invoice>(src.source)
+    const live = new Query<Invoice>(src.source, undefined, undefined, AGG)
       .aggregate({ total: sum('amount') })
       .live()
     expect(live.value?.total).toBe(7650)
@@ -347,7 +349,7 @@ describe('aggregate > .live() re-fires on source changes', () => {
 
   it('re-fires when a record is updated', () => {
     const src = mutableSource<Invoice>(SAMPLE)
-    const live = new Query<Invoice>(src.source)
+    const live = new Query<Invoice>(src.source, undefined, undefined, AGG)
       .aggregate({ total: sum('amount') })
       .live()
     expect(live.value?.total).toBe(7650)
@@ -360,7 +362,7 @@ describe('aggregate > .live() re-fires on source changes', () => {
 
   it('tracks min/max across the current extremum being removed (O(N) edge case)', () => {
     const src = mutableSource<Invoice>(SAMPLE)
-    const live = new Query<Invoice>(src.source)
+    const live = new Query<Invoice>(src.source, undefined, undefined, AGG)
       .aggregate({ lo: min('amount'), hi: max('amount') })
       .live()
     expect(live.value).toEqual({ lo: 100, hi: 5000 })
@@ -380,7 +382,7 @@ describe('aggregate > .live() re-fires on source changes', () => {
 describe('aggregate > .live() subscribe / stop semantics', () => {
   it('supports multiple subscribers and notifies each on change', () => {
     const src = mutableSource<Invoice>(SAMPLE)
-    const live = new Query<Invoice>(src.source)
+    const live = new Query<Invoice>(src.source, undefined, undefined, AGG)
       .aggregate({ n: count() })
       .live()
 
@@ -402,7 +404,7 @@ describe('aggregate > .live() subscribe / stop semantics', () => {
 
   it('individual subscribers can unsubscribe without affecting the others', () => {
     const src = mutableSource<Invoice>(SAMPLE)
-    const live = new Query<Invoice>(src.source)
+    const live = new Query<Invoice>(src.source, undefined, undefined, AGG)
       .aggregate({ n: count() })
       .live()
 
@@ -425,7 +427,7 @@ describe('aggregate > .live() subscribe / stop semantics', () => {
 
   it('stop() is idempotent and tears down upstream subscriptions', () => {
     const src = mutableSource<Invoice>(SAMPLE)
-    const live = new Query<Invoice>(src.source)
+    const live = new Query<Invoice>(src.source, undefined, undefined, AGG)
       .aggregate({ n: count() })
       .live()
     const snapshot = live.value
@@ -442,7 +444,7 @@ describe('aggregate > .live() subscribe / stop semantics', () => {
 
   it('subscribe() after stop() is a no-op and returns a safe unsubscribe', () => {
     const src = mutableSource<Invoice>(SAMPLE)
-    const live = new Query<Invoice>(src.source)
+    const live = new Query<Invoice>(src.source, undefined, undefined, AGG)
       .aggregate({ n: count() })
       .live()
     live.stop()
@@ -462,7 +464,7 @@ describe('aggregate > .live() without subscribe support', () => {
     // equivalent to .run() — no re-fires, but the reactive shape is
     // still returned so consumers don't have to branch on source
     // capabilities.
-    const live = new Query<Invoice>(staticSource(SAMPLE))
+    const live = new Query<Invoice>(staticSource(SAMPLE), undefined, undefined, AGG)
       .aggregate({ total: sum('amount'), n: count() })
       .live()
     expect(live.value).toEqual({ total: 7650, n: 5 })

@@ -20,6 +20,8 @@ import {
   GROUPBY_MAX_CARDINALITY,
   type QuerySource,
 } from '../src/query/index.js'
+import { withAggregate } from '../src/aggregate/index.js'
+const AGG = withAggregate()
 import { GroupCardinalityError } from '../src/errors.js'
 
 interface Invoice {
@@ -85,7 +87,7 @@ beforeEach(() => {
 
 describe('groupBy > basic bucketing', () => {
   it('groups by a single field and runs reducers per bucket', () => {
-    const result = new Query<Invoice>(staticSource(SAMPLE))
+    const result = new Query<Invoice>(staticSource(SAMPLE), undefined, undefined, AGG)
       .groupBy('clientId')
       .aggregate({ total: sum('amount'), n: count() })
       .run()
@@ -97,7 +99,7 @@ describe('groupBy > basic bucketing', () => {
   })
 
   it('supports multiple reducers per bucket', () => {
-    const result = new Query<Invoice>(staticSource(SAMPLE))
+    const result = new Query<Invoice>(staticSource(SAMPLE), undefined, undefined, AGG)
       .groupBy('status')
       .aggregate({
         n:       count(),
@@ -119,7 +121,7 @@ describe('groupBy > basic bucketing', () => {
   })
 
   it('composes with where() — grouping happens after filtering', () => {
-    const result = new Query<Invoice>(staticSource(SAMPLE))
+    const result = new Query<Invoice>(staticSource(SAMPLE), undefined, undefined, AGG)
       .where('status', '==', 'open')
       .groupBy('clientId')
       .aggregate({ total: sum('amount'), n: count() })
@@ -139,7 +141,7 @@ describe('groupBy > basic bucketing', () => {
       { id: 'c', status: 'open', clientId: 'c2', amount: 5000 },
       { id: 'b', status: 'open', clientId: 'c1', amount: 250  },
     ]
-    const result = new Query<Invoice>(staticSource(reordered))
+    const result = new Query<Invoice>(staticSource(reordered), undefined, undefined, AGG)
       .groupBy('clientId')
       .aggregate({ n: count() })
       .run()
@@ -147,7 +149,7 @@ describe('groupBy > basic bucketing', () => {
   })
 
   it('returns an empty array for an empty result set', () => {
-    const result = new Query<Invoice>(staticSource(SAMPLE))
+    const result = new Query<Invoice>(staticSource(SAMPLE), undefined, undefined, AGG)
       .where('status', '==', 'nonexistent')
       .groupBy('clientId')
       .aggregate({ n: count() })
@@ -167,7 +169,7 @@ describe('groupBy > null / undefined key distinction', () => {
       { id: 'f', status: 'draft', clientId: null, amount: 99 },
       { id: 'g', status: 'draft', clientId: null, amount: 1  },
     ]
-    const result = new Query<Invoice>(staticSource(withNulls))
+    const result = new Query<Invoice>(staticSource(withNulls), undefined, undefined, AGG)
       .groupBy('clientId')
       .aggregate({ total: sum('amount'), n: count() })
       .run()
@@ -182,7 +184,7 @@ describe('groupBy > null / undefined key distinction', () => {
       { id: '3', clientId: null, amount: 30 },
       { id: '4',                 amount: 40 },
     ] as Invoice[]
-    const result = new Query<Invoice>(staticSource(mixed))
+    const result = new Query<Invoice>(staticSource(mixed), undefined, undefined, AGG)
       .groupBy('clientId')
       .aggregate({ total: sum('amount'), n: count() })
       .run()
@@ -206,7 +208,7 @@ describe('groupBy > cardinality warn at 10k', () => {
       bucket: `b${i}`,
       amount: 1,
     }))
-    new Query(staticSource(records))
+    new Query(staticSource(records), undefined, undefined, AGG)
       .groupBy('bucket')
       .aggregate({ n: count() })
       .run()
@@ -224,7 +226,7 @@ describe('groupBy > cardinality warn at 10k', () => {
       bucket: `b${i}`,
       amount: 1,
     }))
-    new Query(staticSource(records))
+    new Query(staticSource(records), undefined, undefined, AGG)
       .groupBy('bucket')
       .aggregate({ n: count() })
       .run()
@@ -239,7 +241,7 @@ describe('groupBy > cardinality warn at 10k', () => {
       bucket: `b${i}`,
       amount: 1,
     }))
-    const q = new Query(staticSource(records))
+    const q = new Query(staticSource(records), undefined, undefined, AGG)
       .groupBy('bucket')
       .aggregate({ n: count() })
     q.run()
@@ -302,7 +304,7 @@ describe('groupBy > cardinality hard cap at 100k', () => {
 
 describe('groupBy > groupAndReduce pure helper', () => {
   it('runs the same pipeline as .groupBy().aggregate().run()', () => {
-    const via = new Query<Invoice>(staticSource(SAMPLE))
+    const via = new Query<Invoice>(staticSource(SAMPLE), undefined, undefined, AGG)
       .groupBy('clientId')
       .aggregate({ total: sum('amount'), n: count() })
       .run()
@@ -321,7 +323,7 @@ describe('groupBy > groupAndReduce pure helper', () => {
 describe('groupBy > .live() re-fires on source changes', () => {
   it('computes the initial grouping eagerly', () => {
     const { source } = mutableSource<Invoice>(SAMPLE)
-    const live = new Query<Invoice>(source)
+    const live = new Query<Invoice>(source, undefined, undefined, AGG)
       .groupBy('clientId')
       .aggregate({ total: sum('amount'), n: count() })
       .live()
@@ -336,7 +338,7 @@ describe('groupBy > .live() re-fires on source changes', () => {
 
   it('re-fires when a record is inserted into an existing bucket', () => {
     const src = mutableSource<Invoice>(SAMPLE)
-    const live = new Query<Invoice>(src.source)
+    const live = new Query<Invoice>(src.source, undefined, undefined, AGG)
       .groupBy('clientId')
       .aggregate({ total: sum('amount'), n: count() })
       .live()
@@ -348,7 +350,7 @@ describe('groupBy > .live() re-fires on source changes', () => {
 
   it('re-fires and creates a new bucket when the inserted record has a new key', () => {
     const src = mutableSource<Invoice>(SAMPLE)
-    const live = new Query<Invoice>(src.source)
+    const live = new Query<Invoice>(src.source, undefined, undefined, AGG)
       .groupBy('clientId')
       .aggregate({ total: sum('amount'), n: count() })
       .live()
@@ -362,7 +364,7 @@ describe('groupBy > .live() re-fires on source changes', () => {
 
   it('re-fires and removes a bucket when its last record is deleted', () => {
     const src = mutableSource<Invoice>(SAMPLE)
-    const live = new Query<Invoice>(src.source)
+    const live = new Query<Invoice>(src.source, undefined, undefined, AGG)
       .groupBy('clientId')
       .aggregate({ total: sum('amount'), n: count() })
       .live()
@@ -374,7 +376,7 @@ describe('groupBy > .live() re-fires on source changes', () => {
 
   it('re-fires and moves a record between buckets on update', () => {
     const src = mutableSource<Invoice>(SAMPLE)
-    const live = new Query<Invoice>(src.source)
+    const live = new Query<Invoice>(src.source, undefined, undefined, AGG)
       .groupBy('clientId')
       .aggregate({ n: count() })
       .live()
@@ -388,7 +390,7 @@ describe('groupBy > .live() re-fires on source changes', () => {
 
   it('subscribe() notifies listeners on each re-fire, stop() tears down upstreams', () => {
     const src = mutableSource<Invoice>(SAMPLE)
-    const live = new Query<Invoice>(src.source)
+    const live = new Query<Invoice>(src.source, undefined, undefined, AGG)
       .groupBy('clientId')
       .aggregate({ n: count() })
       .live()

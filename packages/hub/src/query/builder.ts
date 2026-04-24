@@ -12,9 +12,9 @@ import type { JoinContext, JoinLeg, JoinStrategy } from './join.js'
 import { applyJoins } from './join.js'
 import type { LiveQuery, LiveUpstream } from './live.js'
 import { buildLiveQuery } from './live.js'
-import type { AggregateSpec, AggregateResult, AggregationUpstream } from '../aggregate/aggregation.js'
-import { Aggregation } from '../aggregate/aggregation.js'
-import { GroupedQuery } from '../aggregate/groupby.js'
+import type { AggregateSpec, AggregateResult, AggregationUpstream, Aggregation } from '../aggregate/aggregation.js'
+import type { GroupedQuery } from '../aggregate/groupby.js'
+import { NO_AGGREGATE, type AggregateStrategy } from '../aggregate/strategy.js'
 
 export interface OrderBy {
   readonly field: string
@@ -101,15 +101,18 @@ export class Query<T> {
   private readonly source: InternalSource
   private readonly plan: QueryPlan
   private readonly joinContext: JoinContext | undefined
+  private readonly aggregateStrategy: AggregateStrategy
 
   constructor(
     source: QuerySource<T>,
     plan: QueryPlan = EMPTY_PLAN,
     joinContext?: JoinContext,
+    aggregateStrategy: AggregateStrategy = NO_AGGREGATE,
   ) {
     this.source = source as InternalSource
     this.plan = plan
     this.joinContext = joinContext
+    this.aggregateStrategy = aggregateStrategy
   }
 
   /** Add a field comparison. Multiple where() calls are AND-combined. */
@@ -119,6 +122,7 @@ export class Query<T> {
       this.source as QuerySource<T>,
       { ...this.plan, clauses: [...this.plan.clauses, clause] },
       this.joinContext,
+      this.aggregateStrategy,
     )
   }
 
@@ -129,7 +133,7 @@ export class Query<T> {
    */
   or(builder: (q: Query<T>) => Query<T>): Query<T> {
     const sub = builder(
-      new Query<T>(this.source as QuerySource<T>, EMPTY_PLAN, this.joinContext),
+      new Query<T>(this.source as QuerySource<T>, EMPTY_PLAN, this.joinContext, this.aggregateStrategy),
     )
     const group: GroupClause = {
       type: 'group',
@@ -140,6 +144,7 @@ export class Query<T> {
       this.source as QuerySource<T>,
       { ...this.plan, clauses: [...this.plan.clauses, group] },
       this.joinContext,
+      this.aggregateStrategy,
     )
   }
 
@@ -149,7 +154,7 @@ export class Query<T> {
    */
   and(builder: (q: Query<T>) => Query<T>): Query<T> {
     const sub = builder(
-      new Query<T>(this.source as QuerySource<T>, EMPTY_PLAN, this.joinContext),
+      new Query<T>(this.source as QuerySource<T>, EMPTY_PLAN, this.joinContext, this.aggregateStrategy),
     )
     const group: GroupClause = {
       type: 'group',
@@ -160,6 +165,7 @@ export class Query<T> {
       this.source as QuerySource<T>,
       { ...this.plan, clauses: [...this.plan.clauses, group] },
       this.joinContext,
+      this.aggregateStrategy,
     )
   }
 
@@ -173,6 +179,7 @@ export class Query<T> {
       this.source as QuerySource<T>,
       { ...this.plan, clauses: [...this.plan.clauses, clause] },
       this.joinContext,
+      this.aggregateStrategy,
     )
   }
 
@@ -182,6 +189,7 @@ export class Query<T> {
       this.source as QuerySource<T>,
       { ...this.plan, orderBy: [...this.plan.orderBy, { field, direction }] },
       this.joinContext,
+      this.aggregateStrategy,
     )
   }
 
@@ -191,6 +199,7 @@ export class Query<T> {
       this.source as QuerySource<T>,
       { ...this.plan, limit: n },
       this.joinContext,
+      this.aggregateStrategy,
     )
   }
 
@@ -200,6 +209,7 @@ export class Query<T> {
       this.source as QuerySource<T>,
       { ...this.plan, offset: n },
       this.joinContext,
+      this.aggregateStrategy,
     )
   }
 
@@ -310,6 +320,7 @@ export class Query<T> {
       this.source as unknown as QuerySource<T & Record<As, R | null>>,
       { ...this.plan, joins: [...this.plan.joins, leg] },
       this.joinContext,
+      this.aggregateStrategy,
     )
   }
 
@@ -425,11 +436,7 @@ export class Query<T> {
       upstreams.push({ subscribe: (cb: () => void) => subscribe(cb) })
     }
 
-    return new Aggregation<AggregateResult<Spec>>(
-      executeRecords,
-      spec as unknown as AggregateSpec,
-      upstreams,
-    )
+    return this.aggregateStrategy.aggregate<Spec>(executeRecords, spec, upstreams)
   }
 
   /**
@@ -539,7 +546,7 @@ export class Query<T> {
         })()
       : undefined
 
-    return new GroupedQuery<T, F>(executeRecords, field, upstreams, dictLabelResolver)
+    return this.aggregateStrategy.groupBy<T, F>(executeRecords, field, upstreams, dictLabelResolver)
   }
 
   /**

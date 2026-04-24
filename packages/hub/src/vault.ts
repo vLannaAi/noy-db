@@ -26,6 +26,7 @@ import { BackupLedgerError, BackupCorruptedError } from './errors.js'
 import type { StandardSchemaV1 } from './schema.js'
 import type { BlobStrategy } from './blobs/strategy.js'
 import type { IndexStrategy } from './indexing/strategy.js'
+import type { AggregateStrategy } from './aggregate/strategy.js'
 import { LedgerStore, sha256Hex, LEDGER_COLLECTION, LEDGER_DELTAS_COLLECTION } from './history/ledger/index.js'
 import { VaultInstant } from './history/time-machine.js'
 import { VaultFrame } from './shadow/vault-frame.js'
@@ -103,6 +104,7 @@ export class Vault {
    */
   private readonly blobStrategy: BlobStrategy | undefined
   private readonly indexStrategy: IndexStrategy | undefined
+  private readonly aggregateStrategy: AggregateStrategy | undefined
   private getDEK: (collectionName: string) => Promise<CryptoKey>
 
   /**
@@ -261,6 +263,7 @@ export class Vault {
      */
     blobStrategy?: BlobStrategy | undefined
     indexStrategy?: IndexStrategy | undefined
+    aggregateStrategy?: AggregateStrategy | undefined
   }) {
     this.adapter = opts.adapter
     this.name = opts.name
@@ -272,6 +275,7 @@ export class Vault {
     this.syncAdapter = opts.syncAdapter
     this.blobStrategy = opts.blobStrategy
     this.indexStrategy = opts.indexStrategy
+    this.aggregateStrategy = opts.aggregateStrategy
     this.historyConfig = opts.historyConfig ?? { enabled: true }
     this.reloadKeyring = opts.reloadKeyring
     this.locale = opts.locale
@@ -416,6 +420,7 @@ export class Vault {
         // Collection constructor uses its NO_BLOBS default.
         ...(this.blobStrategy !== undefined ? { blobStrategy: this.blobStrategy } : {}),
         ...(this.indexStrategy !== undefined ? { indexStrategy: this.indexStrategy } : {}),
+        ...(this.aggregateStrategy !== undefined ? { aggregateStrategy: this.aggregateStrategy } : {}),
         ledger: this.ledger(),
         refEnforcer: this,
         joinResolver: this,

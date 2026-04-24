@@ -42,6 +42,7 @@ import { PresenceHandle } from './team/presence.js'
 import type { PresenceHandleOpts } from './team/presence.js'
 import type { BlobSet } from './blobs/blob-set.js'
 import { NO_BLOBS, type BlobStrategy } from './blobs/strategy.js'
+import { NO_AGGREGATE, type AggregateStrategy } from './aggregate/strategy.js'
 
 /** Callback for dirty tracking (sync engine integration). */
 export type OnDirtyCallback = (collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>
@@ -126,6 +127,7 @@ export class Collection<T> {
    * reaches the bundle.
    */
   private readonly blobStrategy: BlobStrategy
+  private readonly aggregateStrategy: AggregateStrategy
 
   // In-memory cache of decrypted records (eager mode only). Lazy mode
   // uses `lru` instead. Both fields exist so a single Collection instance
@@ -417,6 +419,7 @@ export class Collection<T> {
      * `@internal` by virtue of `BlobStrategy` being `@internal`.
      */
     blobStrategy?: BlobStrategy | undefined
+    aggregateStrategy?: AggregateStrategy | undefined
     /**
      * v0.24 tree-shake seam. When omitted, indexing is off for this
      * collection — every `.lazyQuery()` call throws, `.rebuildIndexes()`
@@ -623,6 +626,7 @@ export class Collection<T> {
     this.encrypted = opts.encrypted
     this.emitter = opts.emitter
     this.blobStrategy = opts.blobStrategy ?? NO_BLOBS
+    this.aggregateStrategy = opts.aggregateStrategy ?? NO_AGGREGATE
     this.reconcileOnOpen = opts.reconcileOnOpen ?? 'off'
     this.getDEK = opts.getDEK
     this.onDirty = opts.onDirty
@@ -1501,7 +1505,7 @@ export class Collection<T> {
             : {}),
         }
       : undefined
-    return new Query<T>(source, undefined, joinContext)
+    return new Query<T>(source, undefined, joinContext, this.aggregateStrategy)
   }
 
   /**

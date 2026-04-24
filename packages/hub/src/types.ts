@@ -27,6 +27,7 @@ import type { StandardSchemaV1 } from './schema.js'
 import type { SyncPolicy } from './store/sync-policy.js'
 import type { BlobStrategy } from './blobs/strategy.js'
 import type { IndexStrategy } from './indexing/strategy.js'
+import type { AggregateStrategy } from './aggregate/strategy.js'
 
 /** Format version for encrypted record envelopes. */
 export const NOYDB_FORMAT_VERSION = 1 as const
@@ -1326,6 +1327,18 @@ export interface NoydbOptions {
    * @internal
    */
   readonly indexStrategy?: IndexStrategy
+  /**
+   * v0.24 tree-shake seam — optional aggregate strategy. Pass
+   * `withAggregate()` from `@noy-db/hub/aggregate` to enable
+   * `.aggregate()` and `.groupBy()` on Query. When omitted, those
+   * methods throw with a pointer at the subpath; the ~886 LOC of
+   * Aggregation + GroupedQuery machinery never reaches the bundle.
+   * Streaming `scan().aggregate()` works independently of this
+   * strategy — it doesn't use the `Aggregation` class.
+   *
+   * @internal
+   */
+  readonly aggregateStrategy?: AggregateStrategy
   /** Optional remote store(s) for sync. Accepts a single store, a SyncTarget, or an array. */
   readonly sync?: NoydbStore | SyncTarget | SyncTarget[]
   /** User identifier. */
