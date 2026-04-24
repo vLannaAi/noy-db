@@ -12,7 +12,6 @@ Onboarding, tutorials, and decision guides.
 | Doc | What it's for |
 |---|---|
 | [`guides/START_HERE.md`](./guides/START_HERE.md) | First orientation — choose a path based on your app |
-| [`guides/START_HERE.th.md`](./guides/START_HERE.th.md) | Thai version of the above |
 | [`guides/getting-started.md`](./guides/getting-started.md) | Copy-paste Nuxt 4 + Pinia walkthrough |
 | [`guides/topology-matrix.md`](./guides/topology-matrix.md) | Pick a deployment topology |
 | [`guides/deployment-profiles.md`](./guides/deployment-profiles.md) | Profiles for common deploy targets |

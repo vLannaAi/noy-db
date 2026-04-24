@@ -4,7 +4,6 @@
 > read this one, [`docs/guides/topology-matrix.md`](./topology-matrix.md), and
 > [`SPEC.md`](../../SPEC.md) — in that order.
 >
-> 🇹🇭 อ่านภาษาไทย: [`START_HERE.th.md`](./START_HERE.th.md)
 
 ---
 
