@@ -32,6 +32,12 @@ export function expressAdapter(handler: NoydbRestHandler): ExpressRouter {
       },
     }
 
+    // Express 5 awaits returned promises from middleware, BUT throwing
+    // inside `async` middleware only reaches the default error handler
+    // when the adapter forwards the rejection via `next(err)`. Unlike
+    // the fastify / hono / nitro adapters (whose frameworks hoist any
+    // thrown error to their own 500 path automatically), Express needs
+    // the explicit try/catch.
     try {
       const restRes = await handler.handle(restReq)
       res.status(restRes.status)

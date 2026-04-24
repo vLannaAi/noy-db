@@ -4,6 +4,9 @@ import type { NoydbRestHandler, RestRequest } from '../index.js'
 export function honoAdapter(handler: NoydbRestHandler): Hono {
   const app = new Hono()
 
+  // No explicit try/catch — Hono's router surfaces any thrown error to
+  // its `onError` handler (or the default 500 response) automatically.
+  // Contrast with the Express adapter, which needs `next(err)`.
   app.all('*', async (c) => {
     const headers: Record<string, string> = {}
     c.req.raw.headers.forEach((v, k) => { headers[k] = v })

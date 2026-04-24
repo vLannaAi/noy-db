@@ -4,6 +4,9 @@ import type { NoydbRestHandler, RestRequest } from '../index.js'
 export function fastifyPlugin(handler: NoydbRestHandler): FastifyPluginAsync {
   return async function plugin(fastify) {
     // Use '/*' — Fastify v5 / find-my-way requires the leading slash on wildcards
+    // No explicit try/catch — Fastify v5 awaits the handler and routes
+    // any rejection to its default error handler (which sends a 500).
+    // Contrast with the Express adapter, which needs `next(err)`.
     fastify.all('/*', async (request, reply) => {
       const headers: Record<string, string> = {}
       for (const [k, v] of Object.entries(request.headers)) {

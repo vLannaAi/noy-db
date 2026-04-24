@@ -132,6 +132,59 @@ describe('createQuerySignal', () => {
   })
 })
 
+describe('createQuerySignal — error accessor', () => {
+  it('populates the error signal when the builder throws', async () => {
+    // #279 item #9 — the third accessor returned from createQuerySignal
+    // was unexercised. A builder that throws surfaces as a non-null
+    // error signal, with loading flipped back to false.
+    const { vault } = await setup()
+    await createRoot(async (dispose) => {
+      const failure = new Error('builder blew up')
+      const [data, loading, error] = createQuerySignal<Invoice, Invoice[]>(
+        vault,
+        'invoices',
+        () => { throw failure },
+      )
+      await drain()
+      expect(loading()).toBe(false)
+      expect(data()).toBeNull()
+      expect(error()).toBe(failure)
+      dispose()
+    })
+  })
+
+  it('clears the error signal on a successful subsequent refresh', async () => {
+    // Once the underlying condition resolves (subscribe-triggered
+    // refresh), error() should flip back to null. Uses a stateful
+    // counter the builder consults so first invocation throws,
+    // subsequent ones succeed.
+    const { vault } = await setup()
+    await createRoot(async (dispose) => {
+      let calls = 0
+      const [data, , error] = createQuerySignal<Invoice, Invoice[]>(
+        vault,
+        'invoices',
+        (q) => {
+          calls++
+          if (calls === 1) throw new Error('first call fails')
+          return q.toArray()
+        },
+      )
+      await drain()
+      expect(error()).not.toBeNull()
+
+      // Trigger a re-subscribe: any collection mutation fires the
+      // listener, which re-runs the builder.
+      const coll = vault.collection<Invoice>('invoices')
+      await coll.put('i3', { id: 'i3', amt: 1 })
+      await drain()
+      expect(error()).toBeNull()
+      expect(data()?.length).toBeGreaterThan(0)
+      dispose()
+    })
+  })
+})
+
 describe('createSyncSignal', () => {
   it('updates when any collection write fires', async () => {
     const { db, vault } = await setup()

@@ -15,6 +15,10 @@ interface H3Event {
  * would default to 200, which is wrong.
  */
 export function nitroAdapter(handler: NoydbRestHandler) {
+  // No explicit try/catch — Nitro's `defineEventHandler` wraps the
+  // returned function and converts any thrown error into a 500 via
+  // h3's `createError` path. Contrast with the Express adapter, which
+  // needs `next(err)`.
   return async function eventHandler(event: H3Event): Promise<Response> {
     // Normalize headers to lowercase — consistent with Hono / Express /
     // Fastify and with Node's IncomingMessage.headers convention.
