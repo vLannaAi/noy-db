@@ -52,8 +52,7 @@ Short design-pattern notes for recurring topics.
 
 ## Project artifacts
 
-- [`HANDOVER.md`](./HANDOVER.md) — session-to-session notes for contributors
-- [`AGENTS.md`](./AGENTS.md) — AI agent configuration
+- [`AGENTS.md`](./AGENTS.md) — AI agent configuration for Codex
 
 ## Assets
 

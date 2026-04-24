@@ -298,7 +298,6 @@ The hub package itself uses only `crypto.subtle`, which is built into every targ
 ## Roadmap
 
 - [`ROADMAP.md`](ROADMAP.md) — version timeline and what's next.
-- [`docs/HANDOVER.md`](docs/HANDOVER.md) — session-to-session notes for contributors.
 
 ---
 

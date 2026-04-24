@@ -1722,9 +1722,8 @@ noydb/
 ├── README.md
 ├── SPEC.md                            # This file — source of truth
 ├── ROADMAP.md                         # Version timeline
-├── HANDOVER.md                        # Session-to-session state (read first)
 ├── SECURITY.md                        # Security model documentation
-└── CLAUDE.md                          # Claude Code instructions
+└── docs/                              # Guides, reference, packages, patterns
 ```
 
 ### Install Profiles

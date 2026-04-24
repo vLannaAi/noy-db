@@ -172,3 +172,6 @@ backup/
 .github/*
 !.github/workflows/
 !.github/workflows/**
+
+# ─── Local-only AI configs (not published) ─────────────────────────
+CLAUDE.md
