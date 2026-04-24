@@ -740,6 +740,24 @@ export interface NoydbEventMap {
     action: 'put' | 'delete'
     error: Error
   }
+  /**
+   * v0.23 #278 — emitted by `Collection.ensurePersistedIndexesLoaded()`
+   * once per field on first lazy-mode query when
+   * `reconcileOnOpen: 'auto' | 'dry-run'` is configured. `applied` is
+   * `0` in `'dry-run'` mode. `skipped` is reserved for a future
+   * drift-stamp optimization that short-circuits the reconcile when
+   * the mirror version matches what's on disk — currently always
+   * `false` (the full reconcile runs every session).
+   */
+  'index:reconciled': {
+    vault: string
+    collection: string
+    field: string
+    missing: readonly string[]
+    stale: readonly string[]
+    applied: number
+    skipped: boolean
+  }
 }
 
 // ─── Grant / Revoke ────────────────────────────────────────────────────

@@ -315,6 +315,8 @@ export class Vault {
    */
   collection<T>(collectionName: string, options?: {
     indexes?: IndexDef[]
+    /** v0.23 #278 — auto-reconcile policy for persisted-index drift. */
+    reconcileOnOpen?: 'off' | 'dry-run' | 'auto'
     prefetch?: boolean
     cache?: CacheOptions
     schema?: StandardSchemaV1<unknown, T>
@@ -399,6 +401,7 @@ export class Vault {
         periodGuard: (existing, incoming) => this._assertTsWritable(existing, incoming),
       }
       if (options?.indexes !== undefined) collOpts.indexes = options.indexes
+      if (options?.reconcileOnOpen !== undefined) collOpts.reconcileOnOpen = options.reconcileOnOpen
       if (options?.prefetch !== undefined) collOpts.prefetch = options.prefetch
       if (options?.cache !== undefined) collOpts.cache = options.cache
       if (options?.schema !== undefined) collOpts.schema = options.schema

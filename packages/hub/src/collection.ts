@@ -171,6 +171,21 @@ export class Collection<T> {
   private persistedIndexesLoaded = false
 
   /**
+   * v0.23 #278 — per-collection reconcile-on-open policy. Read once
+   * from `CollectionOptions.reconcileOnOpen` and applied by
+   * `ensurePersistedIndexesLoaded()` on the first lazy-mode query.
+   */
+  private readonly reconcileOnOpen: 'off' | 'dry-run' | 'auto'
+
+  /**
+   * Re-entrancy guard for the auto-reconcile path. `reconcileIndex`
+   * reloads the mirror after applying fixes, which re-enters
+   * `ensurePersistedIndexesLoaded`; without this flag we'd trigger a
+   * second auto-reconcile pass and potentially infinite recursion.
+   */
+  private autoReconciling = false
+
+  /**
    * Optional Standard Schema v1 validator. When set, every `put()` runs
    * the input through `validateSchemaInput` before encryption, and every
    * record coming OUT of `decryptRecord` runs through
@@ -378,6 +393,24 @@ export class Collection<T> {
     onDirty?: OnDirtyCallback | undefined
     indexes?: IndexDef[] | undefined
     /**
+     * Auto-reconcile behavior for persisted-index drift on lazy-mode
+     * collections (v0.23 #278). Defaults to `'off'` — operators call
+     * `collection.reconcileIndex(field)` explicitly.
+     *
+     *   - `'off'` (default): no implicit work. Same semantics as v0.22.
+     *   - `'dry-run'`: on first lazy-mode query, run
+     *     `reconcileIndex(field, { dryRun: true })` per declared field
+     *     and emit `index:reconciled` with the diff. Nothing is written.
+     *   - `'auto'`: same walk as `'dry-run'` but with `dryRun: false`.
+     *     Drift is repaired in-place and the fix count surfaces on the
+     *     event.
+     *
+     * Unattended long-lived processes (Workers, Node services with no
+     * human operator) should set `'auto'`. Attended desktop apps should
+     * leave it `'off'` and surface a manual "rebuild indexes" button.
+     */
+    reconcileOnOpen?: 'off' | 'dry-run' | 'auto'
+    /**
      * Hydration mode. `'eager'` (default) loads everything into memory on
      * first access — matches v0.2 behavior exactly. `'lazy'` defers loads
      * to per-id `get()` calls and bounds memory via the `cache` option.
@@ -555,6 +588,7 @@ export class Collection<T> {
     this.keyring = opts.keyring
     this.encrypted = opts.encrypted
     this.emitter = opts.emitter
+    this.reconcileOnOpen = opts.reconcileOnOpen ?? 'off'
     this.getDEK = opts.getDEK
     this.onDirty = opts.onDirty
     this.historyConfig = opts.historyConfig ?? { enabled: true }
@@ -2322,6 +2356,51 @@ export class Collection<T> {
       this.persistedIndexes.ingest(field, rows)
     }
     this.persistedIndexesLoaded = true
+
+    // v0.23 #278 — auto-reconcile on first query. The mirror is now
+    // populated from whatever side-cars existed; reconcileIndex will
+    // diff that against the canonical records and repair (or just
+    // report) drift per-field. Skip on the inner reload triggered by
+    // reconcileIndex itself — see `autoReconciling` guard.
+    if (this.reconcileOnOpen !== 'off' && !this.autoReconciling) {
+      await this.autoReconcile()
+    }
+  }
+
+  /**
+   * Walk every declared persisted-index field, run `reconcileIndex`
+   * per the configured policy, and emit `index:reconciled` for each.
+   * Called internally by `ensurePersistedIndexesLoaded()` — exposed as
+   * a private helper for readability, not as a public API (the public
+   * entry points are `reconcileIndex` and `rebuildIndexes`).
+   */
+  private async autoReconcile(): Promise<void> {
+    this.autoReconciling = true
+    try {
+      const dryRun = this.reconcileOnOpen === 'dry-run'
+      for (const def of this.persistedIndexes.definitions()) {
+        try {
+          const report = await this.reconcileIndex(def.key, { dryRun })
+          this.emitter.emit('index:reconciled', {
+            vault: this.vault,
+            collection: this.name,
+            field: def.key,
+            missing: report.missing,
+            stale: report.stale,
+            applied: report.applied,
+            skipped: false,
+          })
+        } catch {
+          // Tolerate a single field's failure — a broken reconcile
+          // shouldn't prevent the rest of the collection from
+          // working. The `index:write-partial` channel captures
+          // per-field failures during put/delete; this is its
+          // sibling for the reconcile path.
+        }
+      }
+    } finally {
+      this.autoReconciling = false
+    }
   }
 
   /**
