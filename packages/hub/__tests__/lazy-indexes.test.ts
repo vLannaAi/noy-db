@@ -226,6 +226,86 @@ describe('lazy-mode indexes — bulk-load from pre-existing side-cars', () => {
   })
 })
 
+describe('lazy-mode indexes — rebuildIndexes + reconcileIndex (#269)', () => {
+  it('rebuildIndexes() backfills side-cars when a new field is added after records exist', async () => {
+    const adapter = memory()
+
+    // Phase 1: write records with only clientId declared.
+    const db1 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET })
+    const v1 = await db1.openVault('ACME')
+    const c1 = v1.collection<Disbursement>('disbursements', { ...LAZY, indexes: ['clientId'] })
+    await c1.put('d-1', { id: 'd-1', clientId: 'c-A', period: '2026-Q1', amount: 100 })
+    await c1.put('d-2', { id: 'd-2', clientId: 'c-B', period: '2026-Q2', amount: 200 })
+
+    // Phase 2: reopen with a NEW indexed field `period`. No side-cars
+    // exist for it yet — a query on `period` would fail until rebuild.
+    const db2 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET })
+    const v2 = await db2.openVault('ACME')
+    const c2 = v2.collection<Disbursement>('disbursements', {
+      ...LAZY,
+      indexes: ['clientId', 'period'],
+    })
+
+    await c2.rebuildIndexes()
+
+    const rows = await c2.lazyQuery().where('period', '==', '2026-Q1').toArray()
+    expect(rows.map(r => r.id)).toEqual(['d-1'])
+
+    // Both fields still resolve — rebuild didn't drop anything.
+    const aRows = await c2.lazyQuery().where('clientId', '==', 'c-B').toArray()
+    expect(aRows.map(r => r.id)).toEqual(['d-2'])
+  })
+
+  it('reconcileIndex() detects missing side-cars and repairs them when dryRun is false', async () => {
+    const { adapter, coll } = await openLazy(['clientId'])
+    await coll.put('d-1', { id: 'd-1', clientId: 'c-A', period: '2026-Q1', amount: 100 })
+    await coll.put('d-2', { id: 'd-2', clientId: 'c-B', period: '2026-Q1', amount: 200 })
+
+    // Simulate a missed side-car by deleting one manually.
+    await adapter.delete('ACME', 'disbursements', '_idx/clientId/d-2')
+
+    const report = await coll.reconcileIndex('clientId', { dryRun: true })
+    expect(report.field).toBe('clientId')
+    expect(report.missing).toEqual(['d-2'])
+    expect(report.applied).toBe(0)
+
+    const applied = await coll.reconcileIndex('clientId')
+    expect(applied.missing).toEqual(['d-2'])
+    expect(applied.applied).toBe(1)
+
+    // After repair, the side-car is back and queries find it.
+    const rows = await coll.lazyQuery().where('clientId', '==', 'c-B').toArray()
+    expect(rows.map(r => r.id)).toEqual(['d-2'])
+  })
+
+  it('reconcileIndex() detects stale side-cars pointing at deleted records', async () => {
+    const { adapter, coll } = await openLazy(['clientId'])
+    await coll.put('d-1', { id: 'd-1', clientId: 'c-A', period: '2026-Q1', amount: 100 })
+
+    // Delete the canonical record directly so the side-car is now orphaned.
+    await adapter.delete('ACME', 'disbursements', 'd-1')
+
+    const report = await coll.reconcileIndex('clientId')
+    expect(report.stale).toEqual(['_idx/clientId/d-1'])
+    expect(report.applied).toBe(1)
+
+    const remaining = await adapter.list('ACME', 'disbursements')
+    expect(remaining).not.toContain('_idx/clientId/d-1')
+  })
+
+  it('reconcileIndex() rejects eager-mode collections with a helpful error', async () => {
+    const db = await createNoydb({ store: memory(), user: 'owner', secret: SECRET })
+    const vault = await db.openVault('ACME')
+    const eager = vault.collection<Disbursement>('disbursements', { indexes: ['clientId'] })
+    await expect(eager.reconcileIndex('clientId')).rejects.toThrow(/only meaningful in lazy mode/)
+  })
+
+  it('reconcileIndex() rejects fields that are not declared', async () => {
+    const { coll } = await openLazy(['clientId'])
+    await expect(coll.reconcileIndex('amount')).rejects.toThrow(/not declared in indexes/)
+  })
+})
+
 describe('lazy-mode indexes — query() preconditions', () => {
   it('throws a helpful error when lazyQuery() is called with no indexes declared', async () => {
     const { coll } = await openLazy([])

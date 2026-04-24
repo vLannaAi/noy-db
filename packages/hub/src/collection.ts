@@ -1838,7 +1838,7 @@ export class Collection<T> {
       }
     }
     this.hydrated = true
-    this.rebuildIndexes()
+    this.rebuildEagerIndexesFromCache()
   }
 
   /** Hydrate from a pre-loaded snapshot (used by Vault). */
@@ -1848,7 +1848,7 @@ export class Collection<T> {
       this.cache.set(id, { record, version: envelope._v })
     }
     this.hydrated = true
-    this.rebuildIndexes()
+    this.rebuildEagerIndexesFromCache()
   }
 
   /**
@@ -1861,13 +1861,189 @@ export class Collection<T> {
    * Synchronous and O(N × indexes.size); for the v0.3 target scale of
    * 1K–50K records this completes in single-digit milliseconds.
    */
-  private rebuildIndexes(): void {
+  private rebuildEagerIndexesFromCache(): void {
     if (this.indexes.fields().length === 0) return
     const snapshot: Array<{ id: string; record: T }> = []
     for (const [id, entry] of this.cache) {
       snapshot.push({ id, record: entry.record })
     }
     this.indexes.build(snapshot)
+  }
+
+  /**
+   * Rebuild every declared index from scratch.
+   *
+   * Eager mode: refreshes the in-memory `CollectionIndexes` from the
+   * current cache — O(records × declaredFields).
+   *
+   * Lazy mode (#269): tears down every `_idx/<field>/<recordId>`
+   * side-car, walks the canonical record namespace, and materialises
+   * fresh side-cars for every declared field. The in-memory mirror is
+   * cleared and re-ingested. Intended for two scenarios:
+   *   1. Adding a new indexed field to a collection that already holds
+   *      records — after the schema change, call `rebuildIndexes()` to
+   *      backfill the side-cars.
+   *   2. Recovery from a catastrophic drift (audit noticed many
+   *      `index:write-partial` events, operator wants a clean slate).
+   *
+   * The rebuild is NOT incremental — it's a full bulk-replace. For
+   * per-field drift repair, use `reconcileIndex(field)` instead.
+   */
+  async rebuildIndexes(): Promise<void> {
+    if (!this.lazy) {
+      await this.ensureHydrated()
+      this.rebuildEagerIndexesFromCache()
+      return
+    }
+
+    const fields = this.persistedIndexes.fields()
+    if (fields.length === 0) return
+
+    // 1. Collect canonical ids (skip every reserved-namespace id —
+    //    `_idx/`, `_keyring`, `_history/`, `_ledger_deltas/`, `_meta/`,
+    //    `_ledger`, `_blob_`, etc. User records may not start with `_`
+    //    per the monorepo convention used across the hub).
+    const allIds = await this.adapter.list(this.vault, this.name)
+    const canonicalIds: string[] = []
+    const staleIdxIds: string[] = []
+    for (const id of allIds) {
+      if (decodeIdxId(id)) {
+        staleIdxIds.push(id)
+      } else if (!id.startsWith('_')) {
+        canonicalIds.push(id)
+      }
+    }
+
+    // 2. Drop every existing side-car. Errors here are tolerated — the
+    //    next step overwrites any remnants. If a side-car is for a
+    //    field that is no longer declared, the delete still removes
+    //    the stale row from storage.
+    for (const id of staleIdxIds) {
+      try { await this.adapter.delete(this.vault, this.name, id) } catch { /* ignore */ }
+    }
+    this.persistedIndexes.clear()
+
+    // 3. Walk records and write fresh side-cars for every declared field.
+    for (const recordId of canonicalIds) {
+      const envelope = await this.adapter.get(this.vault, this.name, recordId)
+      if (!envelope) continue
+      const record = await this.decryptRecord(envelope, { skipValidation: true })
+      await this.maintainPersistedIndexesOnPut(recordId, record, null, envelope._v)
+    }
+
+    this.persistedIndexesLoaded = true
+  }
+
+  /**
+   * Compare the persisted `_idx/<field>/*` side-cars against the
+   * canonical records for a single field, reporting the drift (and
+   * optionally repairing it).
+   *
+   * Lazy mode only. Eager mode throws — the in-memory index cannot
+   * drift.
+   *
+   * `missing` — record ids whose value is indexable but no side-car
+   *   exists. Happens when a `put()` succeeded but the side-car put
+   *   failed (surfaced as `index:write-partial`).
+   * `stale` — side-car ids pointing to a record that no longer exists
+   *   or whose current value no longer matches the side-car body.
+   * `applied` — number of writes that were actually applied (always 0
+   *   when `dryRun: true`).
+   *
+   * Design reference: v0.23 #269 acceptance criteria.
+   */
+  async reconcileIndex(
+    field: string,
+    opts: { dryRun?: boolean } = {},
+  ): Promise<{ field: string; missing: string[]; stale: string[]; applied: number }> {
+    if (!this.lazy) {
+      throw new Error(
+        `Collection "${this.name}": reconcileIndex is only meaningful in lazy mode ` +
+        `(prefetch: false). Eager mode maintains indexes in memory with no drift.`,
+      )
+    }
+    if (!this.persistedIndexes.has(field)) {
+      throw new Error(
+        `Collection "${this.name}": field "${field}" is not declared in indexes. ` +
+        `Declare it in the collection options before reconciling.`,
+      )
+    }
+
+    const dryRun = opts.dryRun === true
+    const allIds = await this.adapter.list(this.vault, this.name)
+
+    // Map side-car recordId → stored value (if readable). Also capture
+    // "stale" side-cars whose field matches but whose record is gone.
+    const sidecar = new Map<string, unknown>()
+    const sidecarIds = new Map<string, string>() // recordId -> sidecar id
+    for (const id of allIds) {
+      const decoded = decodeIdxId(id)
+      if (!decoded || decoded.field !== field) continue
+      sidecarIds.set(decoded.recordId, id)
+      const env = await this.adapter.get(this.vault, this.name, id)
+      if (!env) continue
+      try {
+        const body = JSON.parse(await this.decryptJsonString(env)) as { value: unknown }
+        sidecar.set(decoded.recordId, body.value)
+      } catch {
+        // Unreadable — treat as stale so it gets rewritten.
+        sidecar.set(decoded.recordId, undefined)
+      }
+    }
+
+    // Walk canonical records and compare against side-car state.
+    const missing: string[] = []
+    const stale: string[] = []
+    const fixesPut: Array<{ recordId: string; record: T; version: number }> = []
+    for (const id of allIds) {
+      if (decodeIdxId(id)) continue
+      if (id.startsWith('_')) continue
+      const env = await this.adapter.get(this.vault, this.name, id)
+      if (!env) continue
+      const record = await this.decryptRecord(env, { skipValidation: true })
+      const live = readPersistedValue(record as unknown as Record<string, unknown>, field)
+      const stored = sidecar.get(id)
+      const hasSidecar = sidecarIds.has(id)
+      const indexable = live !== null && live !== undefined
+
+      if (indexable && !hasSidecar) {
+        missing.push(id)
+        fixesPut.push({ recordId: id, record, version: env._v })
+      } else if (indexable && hasSidecar && !valuesMatch(stored, live)) {
+        // Side-car body drifted from live value (e.g. partial write
+        // after an update). Rewrite so lookups agree with reality.
+        missing.push(id)
+        fixesPut.push({ recordId: id, record, version: env._v })
+      } else if (!indexable && hasSidecar) {
+        // Record exists but its value is no longer indexable (null/
+        // undefined). The side-car is stale.
+        stale.push(sidecarIds.get(id)!)
+      }
+      sidecarIds.delete(id)
+    }
+    // Any side-car whose canonical record vanished is stale.
+    for (const [, idxId] of sidecarIds) stale.push(idxId)
+
+    let applied = 0
+    if (!dryRun) {
+      for (const idxId of stale) {
+        try {
+          await this.adapter.delete(this.vault, this.name, idxId)
+          applied++
+        } catch { /* ignore — next reconcile picks it up */ }
+      }
+      for (const fix of fixesPut) {
+        await this.maintainPersistedIndexesOnPut(fix.recordId, fix.record, null, fix.version)
+        applied++
+      }
+      // In-memory mirror is authoritative for query dispatch — make
+      // sure it matches what's on disk now.
+      this.persistedIndexes.clear()
+      this.persistedIndexesLoaded = false
+      await this.ensurePersistedIndexesLoaded()
+    }
+
+    return { field, missing, stale, applied }
   }
 
   /**
@@ -2640,4 +2816,21 @@ function readPersistedValue(record: Record<string, unknown>, field: string): unk
 function serializeIndexValue(value: unknown): unknown {
   if (value instanceof Date) return value.toISOString()
   return value
+}
+
+/**
+ * Compare the decrypted side-car body's `value` against the live record
+ * field value, in the same canonical form used for storage. Handles the
+ * Date-is-ISO-string round trip so reconcile doesn't flag a false drift.
+ */
+function valuesMatch(stored: unknown, live: unknown): boolean {
+  const serialized = serializeIndexValue(live)
+  if (stored === serialized) return true
+  if (stored === undefined || serialized === undefined) return stored === serialized
+  // JSON-stringify both sides for structural equality on arrays/objects.
+  try {
+    return JSON.stringify(stored) === JSON.stringify(serialized)
+  } catch {
+    return false
+  }
 }
