@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import * as Y from 'yjs'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub'
 import { ConflictError, createNoydb } from '@noy-db/hub'
+import { withCrdt } from '@noy-db/hub/crdt'
 import { yjsCollection, yText, yMap, yArray } from '../src/index.js'
 
 // ─── Inline memory adapter ─────────────────────────────────────────────────
@@ -38,7 +39,7 @@ const COMP = 'COMP-YJS'
 describe('@noy-db/yjs (v0.9 #136)', () => {
   describe('yjsCollection factory', () => {
     it('returns a YjsCollection instance', async () => {
-      const db = await createNoydb({ store: inlineMemory(), user: 'u', encrypt: false })
+      const db = await createNoydb({ store: inlineMemory(), user: 'u', encrypt: false, crdtStrategy: withCrdt() })
       const comp = await db.openVault(COMP)
       const notes = yjsCollection(comp, 'notes', { yFields: { body: yText() } })
       expect(notes).toBeDefined()
@@ -49,7 +50,7 @@ describe('@noy-db/yjs (v0.9 #136)', () => {
 
   describe('getYDoc', () => {
     it('returns an empty Y.Doc for a non-existent record', async () => {
-      const db = await createNoydb({ store: inlineMemory(), user: 'u', encrypt: false })
+      const db = await createNoydb({ store: inlineMemory(), user: 'u', encrypt: false, crdtStrategy: withCrdt() })
       const comp = await db.openVault(COMP)
       const notes = yjsCollection(comp, 'notes', { yFields: { body: yText() } })
 
@@ -59,7 +60,7 @@ describe('@noy-db/yjs (v0.9 #136)', () => {
     })
 
     it('initialises declared yFields on the returned doc', async () => {
-      const db = await createNoydb({ store: inlineMemory(), user: 'u', encrypt: false })
+      const db = await createNoydb({ store: inlineMemory(), user: 'u', encrypt: false, crdtStrategy: withCrdt() })
       const comp = await db.openVault(COMP)
       const notes = yjsCollection(comp, 'notes', {
         yFields: {
@@ -76,7 +77,7 @@ describe('@noy-db/yjs (v0.9 #136)', () => {
     })
 
     it('applies stored update when record exists', async () => {
-      const db = await createNoydb({ store: inlineMemory(), user: 'u', encrypt: false })
+      const db = await createNoydb({ store: inlineMemory(), user: 'u', encrypt: false, crdtStrategy: withCrdt() })
       const comp = await db.openVault(COMP)
       const notes = yjsCollection(comp, 'notes', { yFields: { body: yText() } })
 
@@ -93,7 +94,7 @@ describe('@noy-db/yjs (v0.9 #136)', () => {
 
   describe('putYDoc', () => {
     it('round-trips Y.Text content through put/get', async () => {
-      const db = await createNoydb({ store: inlineMemory(), user: 'u', encrypt: false })
+      const db = await createNoydb({ store: inlineMemory(), user: 'u', encrypt: false, crdtStrategy: withCrdt() })
       const comp = await db.openVault(COMP)
       const notes = yjsCollection(comp, 'notes', { yFields: { body: yText() } })
 
@@ -106,7 +107,7 @@ describe('@noy-db/yjs (v0.9 #136)', () => {
     })
 
     it('round-trips Y.Map content', async () => {
-      const db = await createNoydb({ store: inlineMemory(), user: 'u', encrypt: false })
+      const db = await createNoydb({ store: inlineMemory(), user: 'u', encrypt: false, crdtStrategy: withCrdt() })
       const comp = await db.openVault(COMP)
       const notes = yjsCollection(comp, 'notes', { yFields: { meta: yMap() } })
 
@@ -121,7 +122,7 @@ describe('@noy-db/yjs (v0.9 #136)', () => {
     })
 
     it('round-trips Y.Array content', async () => {
-      const db = await createNoydb({ store: inlineMemory(), user: 'u', encrypt: false })
+      const db = await createNoydb({ store: inlineMemory(), user: 'u', encrypt: false, crdtStrategy: withCrdt() })
       const comp = await db.openVault(COMP)
       const notes = yjsCollection(comp, 'notes', { yFields: { tags: yArray() } })
 
@@ -136,7 +137,7 @@ describe('@noy-db/yjs (v0.9 #136)', () => {
 
   describe('applyUpdate', () => {
     it('merges a Yjs update into an existing record', async () => {
-      const db = await createNoydb({ store: inlineMemory(), user: 'u', encrypt: false })
+      const db = await createNoydb({ store: inlineMemory(), user: 'u', encrypt: false, crdtStrategy: withCrdt() })
       const comp = await db.openVault(COMP)
       const notes = yjsCollection(comp, 'notes', { yFields: { body: yText() } })
 
@@ -160,7 +161,7 @@ describe('@noy-db/yjs (v0.9 #136)', () => {
 
   describe('delete / has', () => {
     it('delete() removes the record', async () => {
-      const db = await createNoydb({ store: inlineMemory(), user: 'u', encrypt: false })
+      const db = await createNoydb({ store: inlineMemory(), user: 'u', encrypt: false, crdtStrategy: withCrdt() })
       const comp = await db.openVault(COMP)
       const notes = yjsCollection(comp, 'notes', { yFields: { body: yText() } })
 
@@ -174,7 +175,7 @@ describe('@noy-db/yjs (v0.9 #136)', () => {
     })
 
     it('has() returns false for non-existent record', async () => {
-      const db = await createNoydb({ store: inlineMemory(), user: 'u', encrypt: false })
+      const db = await createNoydb({ store: inlineMemory(), user: 'u', encrypt: false, crdtStrategy: withCrdt() })
       const comp = await db.openVault(COMP)
       const notes = yjsCollection(comp, 'notes', { yFields: { body: yText() } })
       expect(await notes.has('missing')).toBe(false)
