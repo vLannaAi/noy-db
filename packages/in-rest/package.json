@@ -1,0 +1,63 @@
+{
+  "name": "@noy-db/in-rest",
+  "version": "0.1.0",
+  "description": "Framework-neutral REST API integration for noy-db — createRestHandler with Hono, Express, Fastify, and Nitro subpath adapters.",
+  "license": "MIT",
+  "author": "vLannaAi <vicio@lanna.ai>",
+  "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/in-rest#readme",
+  "repository": { "type": "git", "url": "https://github.com/vLannaAi/noy-db.git", "directory": "packages/in-rest" },
+  "bugs": { "url": "https://github.com/vLannaAi/noy-db/issues" },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "import": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+      "require": { "types": "./dist/index.d.cts", "default": "./dist/index.cjs" }
+    },
+    "./hono": {
+      "import": { "types": "./dist/adapters/hono.d.ts", "default": "./dist/adapters/hono.js" },
+      "require": { "types": "./dist/adapters/hono.d.cts", "default": "./dist/adapters/hono.cjs" }
+    },
+    "./express": {
+      "import": { "types": "./dist/adapters/express.d.ts", "default": "./dist/adapters/express.js" },
+      "require": { "types": "./dist/adapters/express.d.cts", "default": "./dist/adapters/express.cjs" }
+    },
+    "./fastify": {
+      "import": { "types": "./dist/adapters/fastify.d.ts", "default": "./dist/adapters/fastify.js" },
+      "require": { "types": "./dist/adapters/fastify.d.cts", "default": "./dist/adapters/fastify.cjs" }
+    },
+    "./nitro": {
+      "import": { "types": "./dist/adapters/nitro.d.ts", "default": "./dist/adapters/nitro.js" },
+      "require": { "types": "./dist/adapters/nitro.d.cts", "default": "./dist/adapters/nitro.cjs" }
+    }
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist", "README.md", "LICENSE"],
+  "engines": { "node": ">=18.0.0" },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@noy-db/hub": "workspace:*"
+  },
+  "peerDependenciesMeta": {
+    "hono": { "optional": true },
+    "express": { "optional": true },
+    "fastify": { "optional": true },
+    "h3": { "optional": true }
+  },
+  "devDependencies": {
+    "@noy-db/hub": "workspace:*",
+    "@types/express": "^5.0.0",
+    "express": "^5.0.0",
+    "fastify": "^5.0.0",
+    "h3": "^1.13.0",
+    "hono": "^4.0.0"
+  },
+  "keywords": ["noy-db", "in-rest", "rest", "http", "api"]
+}
