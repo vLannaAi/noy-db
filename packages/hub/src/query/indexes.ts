@@ -20,11 +20,18 @@ import { readPath } from './predicate.js'
 /**
  * Index declaration accepted by `Collection`'s constructor.
  *
- * Today only single-field hash indexes are supported. Future shapes
- * (composite, sorted, unique constraints) will land as additive variants
- * of this discriminated union without breaking existing declarations.
+ * Accepts:
+ *   - `string` — a single-field hash index (`'clientId'`)
+ *   - `{ fields: [...] }` or `readonly string[]` — a composite index
+ *     over an ordered field tuple (v0.23 #276). Only lazy-mode
+ *     collections consume composite declarations today; eager mode
+ *     silently treats a composite as equivalent to declaring each
+ *     component field as its own single-field index.
+ *
+ * Additive variants (unique constraints, partial indexes) will land as
+ * further union members without breaking existing declarations.
  */
-export type IndexDef = string
+export type IndexDef = string | { readonly fields: readonly string[] } | readonly string[]
 
 /**
  * Internal representation of a built hash index.

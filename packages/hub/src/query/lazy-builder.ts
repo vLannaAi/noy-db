@@ -96,7 +96,7 @@ export class LazyQuery<T> {
     await this.source.ensurePersistedIndexesLoaded()
 
     const touchedFields = collectTouchedFields(this.plan)
-    const missingFields = touchedFields.filter(f => !this.source.persistedIndexes.has(f))
+    const missingFields = touchedFields.filter(f => !isFieldIndexed(f, this.source.persistedIndexes))
     if (missingFields.length > 0) {
       throw new IndexRequiredError({
         collection: this.source.collectionName,
@@ -158,6 +158,25 @@ export class LazyQuery<T> {
   private resolveCandidateIds(): readonly string[] | null {
     const idx = this.source.persistedIndexes
 
+    // v0.23 #276 — prefer a composite index when the query's `==`
+    // clauses cover every field of one declared composite. The
+    // composite mirror lookup is O(matches) vs single-field +
+    // post-filter on the decrypted candidate set.
+    const eqMap = new Map<string, unknown>()
+    for (const clause of this.plan.clauses) {
+      if (clause.op === '==') eqMap.set(clause.field, clause.value)
+    }
+    if (eqMap.size >= 2) {
+      for (const def of idx.definitions()) {
+        if (def.kind !== 'composite') continue
+        if (def.fields.every(f => eqMap.has(f))) {
+          const tuple = def.fields.map(f => eqMap.get(f))
+          const ids = idx.lookupEqual(def.key, tuple)
+          if (ids) return [...ids]
+        }
+      }
+    }
+
     for (const clause of this.plan.clauses) {
       if (clause.op === '==') {
         const ids = idx.lookupEqual(clause.field, clause.value)
@@ -165,10 +184,16 @@ export class LazyQuery<T> {
       } else if (clause.op === 'in' && Array.isArray(clause.value)) {
         const ids = idx.lookupIn(clause.field, clause.value as readonly unknown[])
         if (ids) return [...ids]
+      } else if (isRangeOp(clause.op)) {
+        // v0.23 #275 — range predicates on an indexed field dispatch
+        // through `lookupRange`, which compares on the original typed
+        // value (no numeric-lexicographic landmines).
+        const ids = idx.lookupRange(clause.field, clause.op, clause.value)
+        if (ids) return [...ids]
       }
     }
 
-    // No equality driver — try to scope via orderBy.
+    // No equality/range driver — try to scope via orderBy.
     if (this.plan.orderBy.length > 0) {
       const primary = this.plan.orderBy[0]!
       const entries = idx.orderedBy(primary.field, primary.direction)
@@ -177,6 +202,26 @@ export class LazyQuery<T> {
 
     return null
   }
+}
+
+/**
+ * True if the given field name is covered by either a single-field
+ * index or appears as a component of a declared composite index.
+ * Composite coverage is sufficient for the missing-field check because
+ * composite writes also maintain the in-memory mirror — the range /
+ * orderBy / single-equality lookup paths fall through to decrypted
+ * candidates that still get post-filtered by the composite clause.
+ */
+function isFieldIndexed(field: string, idx: PersistedCollectionIndex): boolean {
+  if (idx.has(field)) return true
+  for (const def of idx.definitions()) {
+    if (def.kind === 'composite' && def.fields.includes(field)) return true
+  }
+  return false
+}
+
+function isRangeOp(op: Operator): op is '<' | '<=' | '>' | '>=' | 'between' {
+  return op === '<' || op === '<=' || op === '>' || op === '>=' || op === 'between'
 }
 
 function collectTouchedFields(plan: LazyPlan): string[] {

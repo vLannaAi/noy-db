@@ -67,11 +67,10 @@ export function isIdxId(id: string): boolean {
  * `value` in the requested direction. Consumers (PR 4 / #268) treat the
  * array as immutable and paginate via a numeric offset.
  *
- * **Note on `value`:** this is the canonical bucket-key string
- * (`stringifyKey(originalValue)`), not the original field value. Dates
- * are rendered as ISO strings, numbers/booleans as `String(…)`. The
- * original typed value is not losslessly recoverable here — if PR 4
- * needs the original, it must re-read it from the main record.
+ * **Note on `value`:** as of v0.23 (#275), this is the ORIGINAL TYPED
+ * value (number, Date, boolean, etc.), not the stringified bucket key.
+ * That's what lets range predicates and `orderedBy` compare numerically
+ * instead of stumbling into `'10' < '2'` on `String(n)`.
  */
 export interface OrderedEntry {
   readonly recordId: string
@@ -105,18 +104,90 @@ export interface IngestRow {
  *  - `orderedBy(field, dir)` — sorted iteration for orderBy
  *  - `clear()` — drop all buckets (invalidation / rotation)
  */
+/**
+ * Per-field storage: the equality bucket map AND a parallel table of typed
+ * values keyed by recordId. The typed table exists so range predicates
+ * (#275) and `orderedBy` can compare on the original typed value rather
+ * than the stringified bucket key — String(10) < String(2) is the classic
+ * landmine `stringifyKey` introduces for numeric fields.
+ */
+interface PersistedFieldState {
+  readonly buckets: Map<string, Set<string>>
+  readonly values: Map<string, unknown>
+}
+
+/**
+ * Structured index definition. Single-field indexes carry just a field
+ * name; composite (#276) indexes carry the ordered list of fields and
+ * the synthetic `key` (= fields joined by `COMPOSITE_DELIMITER`) used
+ * as the bucket-map key and side-car envelope id segment.
+ */
+export type PersistedIndexDef =
+  | { readonly kind: 'single'; readonly field: string; readonly key: string }
+  | { readonly kind: 'composite'; readonly fields: readonly string[]; readonly key: string }
+
+/**
+ * Delimiter used to synthesize a composite-index key from an ordered
+ * field list. Intentionally a character that is extremely unusual in
+ * JavaScript object keys (`|`) so collision with a literal field name
+ * is vanishingly rare in practice. Composite declarations whose field
+ * names contain `|` are rejected at declare-time with an explicit
+ * error.
+ */
+export const COMPOSITE_DELIMITER = '|'
+
+export function compositeKey(fields: readonly string[]): string {
+  return fields.join(COMPOSITE_DELIMITER)
+}
+
 export class PersistedCollectionIndex {
-  private readonly indexes = new Map<string, Map<string, Set<string>>>()
+  private readonly indexes = new Map<string, PersistedFieldState>()
+  private readonly defs = new Map<string, PersistedIndexDef>()
 
   /**
-   * Declare a field as indexable. Subsequent `upsert` / `ingest` calls for
-   * this field populate the in-memory mirror; calls before `declare` are
-   * no-ops (tolerant bulk-load ordering). Idempotent — re-declaring an
-   * existing field does nothing.
+   * Declare a single-field index. Subsequent `upsert` / `ingest` calls
+   * populate the in-memory mirror; calls before `declare` are no-ops
+   * (tolerant bulk-load ordering). Idempotent.
    */
   declare(field: string): void {
     if (this.indexes.has(field)) return
-    this.indexes.set(field, new Map())
+    this.indexes.set(field, { buckets: new Map(), values: new Map() })
+    this.defs.set(field, { kind: 'single', field, key: field })
+  }
+
+  /**
+   * Declare a composite (multi-field) index (v0.23 #276). The synthetic
+   * key is `fields.join('|')`; it doubles as the in-memory map key and
+   * the `_idx/<key>/<recordId>` side-car field segment. Callers upsert
+   * and lookup via the same `key` as single-field indexes, just with a
+   * tuple value (JSON-stringified for bucketing).
+   */
+  declareComposite(fields: readonly string[]): void {
+    if (fields.length === 0) {
+      throw new Error('declareComposite: fields array must be non-empty')
+    }
+    for (const f of fields) {
+      if (f.includes(COMPOSITE_DELIMITER)) {
+        throw new Error(
+          `declareComposite: field "${f}" contains the composite delimiter ` +
+          `"${COMPOSITE_DELIMITER}" — pick a different field name or open an ` +
+          `issue to add hash-based composite keys.`,
+        )
+      }
+    }
+    const key = compositeKey(fields)
+    if (this.indexes.has(key)) return
+    this.indexes.set(key, { buckets: new Map(), values: new Map() })
+    this.defs.set(key, { kind: 'composite', fields: [...fields], key })
+  }
+
+  /**
+   * Every declared index's structured definition. Collection walks this
+   * when materialising side-cars on put/delete so it can extract a
+   * single-field value or a composite tuple appropriately.
+   */
+  definitions(): PersistedIndexDef[] {
+    return [...this.defs.values()]
   }
 
   /** True if `field` has been declared as indexable on this mirror. */
@@ -137,39 +208,39 @@ export class PersistedCollectionIndex {
    * (tolerates the case where bulk-load runs before `declare()` lands).
    */
   ingest(field: string, rows: readonly IngestRow[]): void {
-    const buckets = this.indexes.get(field)
-    if (!buckets) return
+    const state = this.indexes.get(field)
+    if (!state) return
     for (const row of rows) {
-      addToBuckets(buckets, row.recordId, row.value)
+      addToState(state, row.recordId, row.value)
     }
   }
 
   /**
    * Incrementally update a record's index entry for one field. Called by
-   * `Collection.put()` (PR 2) after the main write succeeds. If
+   * `Collection.put()` after the main write succeeds. If
    * `previousValue` is non-null, the record is removed from the old
    * bucket first — this is the update path. Pass `null` for fresh adds.
    * No-op if the field is not declared.
    */
   upsert(recordId: string, field: string, newValue: unknown, previousValue: unknown): void {
-    const buckets = this.indexes.get(field)
-    if (!buckets) return
+    const state = this.indexes.get(field)
+    if (!state) return
     if (previousValue !== null && previousValue !== undefined) {
-      removeFromBuckets(buckets, recordId, previousValue)
+      removeFromState(state, recordId, previousValue)
     }
-    addToBuckets(buckets, recordId, newValue)
+    addToState(state, recordId, newValue)
   }
 
   /**
    * Remove a record from the index for one field. Called by
-   * `Collection.delete()` (PR 2). No-op if the field is not declared or
+   * `Collection.delete()`. No-op if the field is not declared or
    * the record isn't in the bucket. Empty buckets are dropped to keep
    * the Map clean.
    */
   remove(recordId: string, field: string, value: unknown): void {
-    const buckets = this.indexes.get(field)
-    if (!buckets) return
-    removeFromBuckets(buckets, recordId, value)
+    const state = this.indexes.get(field)
+    if (!state) return
+    removeFromState(state, recordId, value)
   }
 
   /**
@@ -178,8 +249,9 @@ export class PersistedCollectionIndex {
    * query re-populates via `ingest`.
    */
   clear(): void {
-    for (const buckets of this.indexes.values()) {
-      buckets.clear()
+    for (const state of this.indexes.values()) {
+      state.buckets.clear()
+      state.values.clear()
     }
   }
 
@@ -191,10 +263,10 @@ export class PersistedCollectionIndex {
    * NOT be mutated by the caller.
    */
   lookupEqual(field: string, value: unknown): ReadonlySet<string> | null {
-    const buckets = this.indexes.get(field)
-    if (!buckets) return null
+    const state = this.indexes.get(field)
+    if (!state) return null
     const key = stringifyKey(value)
-    return buckets.get(key) ?? EMPTY_SET
+    return state.buckets.get(key) ?? EMPTY_SET
   }
 
   /**
@@ -203,34 +275,56 @@ export class PersistedCollectionIndex {
    * fresh (non-shared) Set — safe for the caller to mutate.
    */
   lookupIn(field: string, values: readonly unknown[]): ReadonlySet<string> | null {
-    const buckets = this.indexes.get(field)
-    if (!buckets) return null
+    const state = this.indexes.get(field)
+    if (!state) return null
     const out = new Set<string>()
     for (const value of values) {
-      const bucket = buckets.get(stringifyKey(value))
+      const bucket = state.buckets.get(stringifyKey(value))
       if (bucket) for (const id of bucket) out.add(id)
     }
     return out
   }
 
   /**
+   * Range lookup (v0.23 #275). Return record ids whose indexed value
+   * satisfies the predicate. Comparison happens on the ORIGINAL TYPED
+   * value carried in `state.values` — so numeric `<` sorts numerically,
+   * not lexicographically on `String(n)`. Returns `null` if the field
+   * is not declared.
+   *
+   * Supported ops: `'<'`, `'<='`, `'>'`, `'>='`, `'between'`. For
+   * `'between'`, `value` is `[lo, hi]` and both bounds are inclusive
+   * (matches the eager-mode operator contract in `predicate.ts`).
+   */
+  lookupRange(
+    field: string,
+    op: '<' | '<=' | '>' | '>=' | 'between',
+    value: unknown,
+  ): ReadonlySet<string> | null {
+    const state = this.indexes.get(field)
+    if (!state) return null
+    const out = new Set<string>()
+    for (const [recordId, live] of state.values) {
+      if (live === undefined || live === null) continue
+      if (matchesRange(live, op, value)) out.add(recordId)
+    }
+    return out
+  }
+
+  /**
    * Sorted iteration — return every entry on `field` as an
-   * `OrderedEntry[]`, sorted by value (`asc` default, `desc` reverses).
-   * Returns `null` if the field is not declared. See `OrderedEntry` for
-   * the caveat on `value` being the canonical bucket-key form, not the
-   * original typed value. Consumers paginate with a numeric offset.
+   * `OrderedEntry[]`, sorted by the ORIGINAL TYPED value (#275: no more
+   * `'10' < '2'` surprises on numeric fields). Consumers paginate with
+   * a numeric offset. `OrderedEntry.value` is the typed value.
    */
   orderedBy(field: string, dir: 'asc' | 'desc'): readonly OrderedEntry[] | null {
-    const buckets = this.indexes.get(field)
-    if (!buckets) return null
+    const state = this.indexes.get(field)
+    if (!state) return null
     const entries: OrderedEntry[] = []
-    for (const [key, bucket] of buckets) {
-      const value = key
-      for (const recordId of bucket) {
-        entries.push({ recordId, value })
-      }
+    for (const [recordId, value] of state.values) {
+      entries.push({ recordId, value })
     }
-    entries.sort((a, b) => compareValues(a.value, b.value))
+    entries.sort((a, b) => compareTyped(a.value, b.value))
     if (dir === 'desc') entries.reverse()
     return entries
   }
@@ -253,38 +347,77 @@ function stringifyKey(value: unknown): string {
   if (typeof value === 'string') return value
   if (typeof value === 'number' || typeof value === 'boolean') return String(value)
   if (value instanceof Date) return value.toISOString()
+  // v0.23 #276 — composite index values are tuple arrays. JSON.stringify
+  // gives a delimiter-safe, order-preserving canonical form so buckets
+  // for `['c-A', '2026-Q1']` and `['c-A', '2026-Q2']` never collide.
+  if (Array.isArray(value)) {
+    const parts: string[] = []
+    for (const el of value) parts.push(stringifyKey(el))
+    return JSON.stringify(parts)
+  }
   return '\0OBJECT\0'
 }
 
-function addToBuckets(buckets: Map<string, Set<string>>, recordId: string, value: unknown): void {
+function addToState(state: PersistedFieldState, recordId: string, value: unknown): void {
   if (value === null || value === undefined) return
   const key = stringifyKey(value)
-  let bucket = buckets.get(key)
+  let bucket = state.buckets.get(key)
   if (!bucket) {
     bucket = new Set()
-    buckets.set(key, bucket)
+    state.buckets.set(key, bucket)
   }
   bucket.add(recordId)
+  state.values.set(recordId, value)
 }
 
-function removeFromBuckets(buckets: Map<string, Set<string>>, recordId: string, value: unknown): void {
+function removeFromState(state: PersistedFieldState, recordId: string, value: unknown): void {
   if (value === null || value === undefined) return
   const key = stringifyKey(value)
-  const bucket = buckets.get(key)
-  if (!bucket) return
-  bucket.delete(recordId)
-  if (bucket.size === 0) buckets.delete(key)
+  const bucket = state.buckets.get(key)
+  if (bucket) {
+    bucket.delete(recordId)
+    if (bucket.size === 0) state.buckets.delete(key)
+  }
+  state.values.delete(recordId)
 }
 
-function compareValues(a: unknown, b: unknown): number {
-  // `orderedBy` keys by bucket key (string), so this compares strings.
-  // That is intentional — bucket keys are the canonical representation and
-  // they already encode Date/number/bool in a byte-comparable-within-type way.
-  // Sorting across mixed types is undefined behavior (documented in spec §4.5).
-  if (typeof a === 'string' && typeof b === 'string') {
-    return a < b ? -1 : a > b ? 1 : 0
+/**
+ * Range-predicate comparator. Runs on the ORIGINAL TYPED value so numeric
+ * fields sort numerically (not lexicographically on `String(n)`). ISO-8601
+ * date strings already sort correctly lexicographically; Date instances
+ * compare via `getTime()` before the string branch to keep the contract
+ * honest regardless of which form survived serialization.
+ */
+function matchesRange(
+  live: unknown,
+  op: '<' | '<=' | '>' | '>=' | 'between',
+  bound: unknown,
+): boolean {
+  if (op === 'between') {
+    if (!Array.isArray(bound) || bound.length !== 2) return false
+    return compareTyped(live, bound[0]) >= 0 && compareTyped(live, bound[1]) <= 0
   }
-  const sa = String(a)
-  const sb = String(b)
-  return sa < sb ? -1 : sa > sb ? 1 : 0
+  const cmp = compareTyped(live, bound)
+  switch (op) {
+    case '<':  return cmp < 0
+    case '<=': return cmp <= 0
+    case '>':  return cmp > 0
+    case '>=': return cmp >= 0
+  }
+}
+
+function compareTyped(a: unknown, b: unknown): number {
+  if (a === undefined || a === null) return b === undefined || b === null ? 0 : 1
+  if (b === undefined || b === null) return -1
+  if (typeof a === 'number' && typeof b === 'number') return a - b
+  if (a instanceof Date && b instanceof Date) return a.getTime() - b.getTime()
+  if (typeof a === 'string' && typeof b === 'string') return a < b ? -1 : a > b ? 1 : 0
+  if (typeof a === 'boolean' && typeof b === 'boolean') {
+    return a === b ? 0 : a ? 1 : -1
+  }
+  // Mixed/unsupported types: deliberately treat as equal so sort stays
+  // stable. Matches the eager-mode `compareValues` contract in
+  // builder.ts — we don't silently coerce arbitrary objects to strings
+  // (which would be meaningless) nor throw (which would be hostile).
+  return 0
 }

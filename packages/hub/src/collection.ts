@@ -30,6 +30,7 @@ import { Query, ScanBuilder } from './query/index.js'
 import type { QuerySource, JoinContext, JoinableSource } from './query/index.js'
 import { CollectionIndexes, type IndexDef } from './query/indexes.js'
 import { PersistedCollectionIndex, encodeIdxId, decodeIdxId } from './query/persisted-indexes.js'
+import type { PersistedIndexDef } from './query/persisted-indexes.js'
 import { LazyQuery } from './query/lazy-builder.js'
 import type { LazyQuerySource } from './query/lazy-builder.js'
 import { IndexWriteFailureError } from './errors.js'
@@ -686,14 +687,32 @@ export class Collection<T> {
       this.hydrated = true // lazy mode is always "hydrated" — no bulk load
       if (opts.indexes) {
         for (const def of opts.indexes) {
-          this.persistedIndexes.declare(def)
+          if (typeof def === 'string') {
+            this.persistedIndexes.declare(def)
+          } else if (Array.isArray(def)) {
+            // Shorthand tuple form: `indexes: [['clientId','period']]`
+            this.persistedIndexes.declareComposite(def as readonly string[])
+          } else {
+            // Object form: `{ fields: [...] }`
+            this.persistedIndexes.declareComposite((def as { fields: readonly string[] }).fields)
+          }
         }
       }
     } else {
       this.lru = null
       if (opts.indexes) {
         for (const def of opts.indexes) {
-          this.indexes.declare(def)
+          // Eager mode accepts single-field declarations; composite
+          // declarations degrade to N single-field indexes since the
+          // in-memory `CollectionIndexes` doesn't carry composite
+          // machinery (lazy-mode only — v0.23 #276).
+          if (typeof def === 'string') {
+            this.indexes.declare(def)
+          } else if (Array.isArray(def)) {
+            for (const f of def as readonly string[]) this.indexes.declare(f)
+          } else {
+            for (const f of (def as { fields: readonly string[] }).fields) this.indexes.declare(f)
+          }
         }
       }
     }
@@ -2188,23 +2207,23 @@ export class Collection<T> {
     previousRecord: T | null,
     version: number,
   ): Promise<void> {
-    const fields = this.persistedIndexes.fields()
-    if (fields.length === 0) return
+    const defs = this.persistedIndexes.definitions()
+    if (defs.length === 0) return
 
     const newRec = newRecord as unknown as Record<string, unknown>
     const prevRec = previousRecord as unknown as Record<string, unknown> | null
 
-    for (const field of fields) {
-      const newValue = readPersistedValue(newRec, field)
-      const previousValue = prevRec ? readPersistedValue(prevRec, field) : null
+    for (const def of defs) {
+      const newValue = extractIndexValue(newRec, def)
+      const previousValue = prevRec ? extractIndexValue(prevRec, def) : null
 
       // Update the in-memory mirror first — it's the authoritative source
       // for query dispatch. If the adapter write below fails, the mirror
       // still reflects intended state; the reconciler compares mirror
       // against side-cars on next run.
-      this.persistedIndexes.upsert(id, field, newValue, previousValue)
+      this.persistedIndexes.upsert(id, def.key, newValue, previousValue)
 
-      const idxId = encodeIdxId(field, id)
+      const idxId = encodeIdxId(def.key, id)
       try {
         if (newValue === null || newValue === undefined) {
           // Clear any pre-existing side-car for this (field, record).
@@ -2213,7 +2232,7 @@ export class Collection<T> {
           }
         } else {
           const body = JSON.stringify({
-            field,
+            field: def.key,
             value: serializeIndexValue(newValue),
             recordId: id,
             writtenAt: new Date().toISOString(),
@@ -2227,7 +2246,7 @@ export class Collection<T> {
           collection: this.name,
           id,
           action: 'put',
-          error: new IndexWriteFailureError({ recordId: id, field, op: 'put', cause }),
+          error: new IndexWriteFailureError({ recordId: id, field: def.key, op: 'put', cause }),
         })
       }
     }
@@ -2239,17 +2258,17 @@ export class Collection<T> {
    * surface on `index:write-partial` the same way put does.
    */
   private async maintainPersistedIndexesOnDelete(id: string, previousRecord: T): Promise<void> {
-    const fields = this.persistedIndexes.fields()
-    if (fields.length === 0) return
+    const defs = this.persistedIndexes.definitions()
+    if (defs.length === 0) return
 
     const prevRec = previousRecord as unknown as Record<string, unknown>
-    for (const field of fields) {
-      const previousValue = readPersistedValue(prevRec, field)
+    for (const def of defs) {
+      const previousValue = extractIndexValue(prevRec, def)
       if (previousValue !== null && previousValue !== undefined) {
-        this.persistedIndexes.remove(id, field, previousValue)
+        this.persistedIndexes.remove(id, def.key, previousValue)
       }
 
-      const idxId = encodeIdxId(field, id)
+      const idxId = encodeIdxId(def.key, id)
       try {
         await this.adapter.delete(this.vault, this.name, idxId)
       } catch (cause) {
@@ -2258,7 +2277,7 @@ export class Collection<T> {
           collection: this.name,
           id,
           action: 'delete',
-          error: new IndexWriteFailureError({ recordId: id, field, op: 'delete', cause }),
+          error: new IndexWriteFailureError({ recordId: id, field: def.key, op: 'delete', cause }),
         })
       }
     }
@@ -2816,6 +2835,30 @@ function readPersistedValue(record: Record<string, unknown>, field: string): unk
 function serializeIndexValue(value: unknown): unknown {
   if (value instanceof Date) return value.toISOString()
   return value
+}
+
+/**
+ * Extract the indexable value for a declaration — a scalar for
+ * single-field, or a tuple array for composite. Returns `null` when
+ * the value is not indexable (single-field null/undefined, composite
+ * with any null/undefined component — the whole composite is skipped
+ * if any part is missing).
+ */
+function extractIndexValue(
+  record: Record<string, unknown>,
+  def: PersistedIndexDef,
+): unknown {
+  if (def.kind === 'single') {
+    const v = readPersistedValue(record, def.field)
+    return v === undefined || v === null ? null : v
+  }
+  const tuple: unknown[] = []
+  for (const f of def.fields) {
+    const v = readPersistedValue(record, f)
+    if (v === undefined || v === null) return null
+    tuple.push(v)
+  }
+  return tuple
 }
 
 /**
