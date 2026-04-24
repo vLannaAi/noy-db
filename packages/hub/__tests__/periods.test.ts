@@ -17,6 +17,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { memory } from '../../to-memory/src/index.js'
 import { ValidationError, PeriodClosedError, createNoydb } from '../src/index.js'
+import { withPeriods } from '../src/periods/index.js'
 import type { Noydb } from '../src/index.js'
 
 interface Invoice { amount: number; status: string; date: string }
@@ -29,6 +30,7 @@ describe('vault.closePeriod() + openPeriod() — v0.17 #201 / #202', () => {
       store: memory(),
       user: 'owner',
       encrypt: false,
+      periodsStrategy: withPeriods(),
     })
   })
 
@@ -185,13 +187,13 @@ describe('vault.closePeriod() + openPeriod() — v0.17 #201 / #202', () => {
 
     it('period cache reloads from adapter in a fresh Vault instance', async () => {
       const store = memory()
-      const db1 = await createNoydb({ store, user: 'owner', encrypt: false })
+      const db1 = await createNoydb({ store, user: 'owner', encrypt: false, periodsStrategy: withPeriods() })
       const v1 = await db1.openVault('acme')
       await v1.collection<Invoice>('invoices').put('inv-1', { amount: 100, status: 'draft', date: '2026-01-15' })
       await v1.closePeriod({ name: 'Q1', endDate: '2026-03-31', dateField: 'date' })
       db1.close()
 
-      const db2 = await createNoydb({ store, user: 'owner', encrypt: false })
+      const db2 = await createNoydb({ store, user: 'owner', encrypt: false, periodsStrategy: withPeriods() })
       const v2 = await db2.openVault('acme')
       await expect(
         v2.collection<Invoice>('invoices').put('inv-1', { amount: 999, status: 'paid', date: '2026-01-15' }),

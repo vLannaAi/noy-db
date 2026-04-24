@@ -30,6 +30,7 @@ import type { IndexStrategy } from './indexing/strategy.js'
 import type { AggregateStrategy } from './aggregate/strategy.js'
 import type { CrdtStrategy } from './crdt/strategy.js'
 import type { ConsentStrategy } from './consent/strategy.js'
+import type { PeriodsStrategy } from './periods/strategy.js'
 
 /** Format version for encrypted record envelopes. */
 export const NOYDB_FORMAT_VERSION = 1 as const
@@ -1361,6 +1362,17 @@ export interface NoydbOptions {
    * @internal
    */
   readonly consentStrategy?: ConsentStrategy
+  /**
+   * v0.24 tree-shake seam — optional periods strategy. Pass
+   * `withPeriods()` from `@noy-db/hub/periods` to enable
+   * `vault.closePeriod()` / `.openPeriod()` / write-guard on closed
+   * periods. When omitted, `vault.listPeriods()` returns `[]` and
+   * the write-guard is a no-op; the ~363 LOC of period validation +
+   * ledger appending stay out of the bundle.
+   *
+   * @internal
+   */
+  readonly periodsStrategy?: PeriodsStrategy
   /** Optional remote store(s) for sync. Accepts a single store, a SyncTarget, or an array. */
   readonly sync?: NoydbStore | SyncTarget | SyncTarget[]
   /** User identifier. */

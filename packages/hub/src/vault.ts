@@ -33,6 +33,7 @@ import { VaultInstant } from './history/time-machine.js'
 import { VaultFrame } from './shadow/vault-frame.js'
 import type { ConsentContext, ConsentAuditEntry, ConsentAuditFilter, ConsentOp } from './consent/consent.js'
 import { NO_CONSENT, type ConsentStrategy } from './consent/strategy.js'
+import { NO_PERIODS, type PeriodsStrategy } from './periods/strategy.js'
 import {
   RefRegistry,
   RefIntegrityError,
@@ -55,11 +56,6 @@ import type { CrdtMode } from './crdt/crdt.js'
 import { ReservedCollectionNameError } from './errors.js'
 import {
   PERIODS_COLLECTION,
-  loadPeriods,
-  chainAnchor,
-  assertTsWritable,
-  validatePeriodName,
-  appendPeriodLedgerEntry,
   type PeriodRecord,
   type ClosePeriodOptions,
   type OpenPeriodOptions,
@@ -108,6 +104,7 @@ export class Vault {
   private readonly aggregateStrategy: AggregateStrategy | undefined
   private readonly crdtStrategy: CrdtStrategy | undefined
   private readonly consentStrategy: ConsentStrategy
+  private readonly periodsStrategy: PeriodsStrategy
   private getDEK: (collectionName: string) => Promise<CryptoKey>
 
   /**
@@ -269,6 +266,7 @@ export class Vault {
     aggregateStrategy?: AggregateStrategy | undefined
     crdtStrategy?: CrdtStrategy | undefined
     consentStrategy?: ConsentStrategy | undefined
+    periodsStrategy?: PeriodsStrategy | undefined
   }) {
     this.adapter = opts.adapter
     this.name = opts.name
@@ -283,6 +281,7 @@ export class Vault {
     this.aggregateStrategy = opts.aggregateStrategy
     this.crdtStrategy = opts.crdtStrategy
     this.consentStrategy = opts.consentStrategy ?? NO_CONSENT
+    this.periodsStrategy = opts.periodsStrategy ?? NO_PERIODS
     this.historyConfig = opts.historyConfig ?? { enabled: true }
     this.reloadKeyring = opts.reloadKeyring
     this.locale = opts.locale
@@ -1304,11 +1303,11 @@ export class Vault {
    */
   async closePeriod(options: ClosePeriodOptions): Promise<PeriodRecord> {
     const existing = await this._loadPeriodsCache()
-    validatePeriodName(options.name, existing)
+    this.periodsStrategy.validatePeriodName(options.name, existing)
     if (typeof options.endDate !== 'string' || options.endDate.length === 0) {
       throw new ValidationError('closePeriod: endDate must be a non-empty ISO string.')
     }
-    const anchor = await chainAnchor(existing)
+    const anchor = await this.periodsStrategy.chainAnchor(existing)
     const record: PeriodRecord = {
       name: options.name,
       kind: 'closed',
@@ -1320,7 +1319,7 @@ export class Vault {
       ...(options.dateField !== undefined && { dateField: options.dateField }),
     }
     const envelope = await this._writePeriodRecord(record)
-    await appendPeriodLedgerEntry(this.ledger(), this.keyring.userId, envelope, record.name)
+    await this.periodsStrategy.appendPeriodLedgerEntry(this.ledger(), this.keyring.userId, envelope, record.name)
     existing.push(record)
     this.periodCache = existing
     return record
@@ -1345,7 +1344,7 @@ export class Vault {
     options: OpenPeriodOptions<TCollections>,
   ): Promise<PeriodRecord> {
     const existing = await this._loadPeriodsCache()
-    validatePeriodName(options.name, existing)
+    this.periodsStrategy.validatePeriodName(options.name, existing)
     const prior = existing.find((p) => p.name === options.fromPeriod)
     if (!prior) {
       throw new ValidationError(
@@ -1392,7 +1391,7 @@ export class Vault {
       openingCollections.push(collName)
     }
 
-    const anchor = await chainAnchor(existing)
+    const anchor = await this.periodsStrategy.chainAnchor(existing)
     const record: PeriodRecord = {
       name: options.name,
       kind: 'opened',
@@ -1405,7 +1404,7 @@ export class Vault {
       ...(openingCollections.length > 0 && { openingCollections }),
     }
     const envelope = await this._writePeriodRecord(record)
-    await appendPeriodLedgerEntry(this.ledger(), this.keyring.userId, envelope, record.name)
+    await this.periodsStrategy.appendPeriodLedgerEntry(this.ledger(), this.keyring.userId, envelope, record.name)
     existing.push(record)
     this.periodCache = existing
     return record
@@ -1431,24 +1430,25 @@ export class Vault {
     // vault — avoid a full adapter scan for every put.
     if (existing === null && incoming === null) return
     if (this.periodCache === null) {
-      this.periodCache = await loadPeriods(
+      this.periodCache = await this.periodsStrategy.loadPeriods(
         this.adapter,
         this.name,
         (env) => this._decryptPeriodRecord(env),
       )
     }
     if (this.periodCache.length === 0) return
-    assertTsWritable(existing, incoming, this.periodCache)
+    this.periodsStrategy.assertTsWritable(existing, incoming, this.periodCache)
   }
 
   private async _loadPeriodsCache(): Promise<PeriodRecord[]> {
     if (this.periodCache !== null) return this.periodCache
-    this.periodCache = await loadPeriods(
+    const loaded = await this.periodsStrategy.loadPeriods(
       this.adapter,
       this.name,
-      (env) => this._decryptPeriodRecord(env),
+      (env: EncryptedEnvelope) => this._decryptPeriodRecord(env),
     )
-    return this.periodCache
+    this.periodCache = loaded
+    return loaded
   }
 
   private async _writePeriodRecord(record: PeriodRecord): Promise<EncryptedEnvelope> {

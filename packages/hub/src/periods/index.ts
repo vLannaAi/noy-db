@@ -12,6 +12,9 @@
  * helpers (`loadPeriods`, `assertTsWritable`, …) are exported so the
  * Vault can call them without TypeScript barrel gymnastics.
  */
+export { withPeriods } from './active.js'
+export type { PeriodsStrategy } from './strategy.js'
+
 export {
   PERIODS_COLLECTION,
   loadPeriods,
