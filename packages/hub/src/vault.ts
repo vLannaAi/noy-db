@@ -14,7 +14,7 @@ import type { IssueDelegationOptions, DelegationToken } from './team/delegation.
 import { NOYDB_BACKUP_VERSION, NOYDB_FORMAT_VERSION } from './types.js'
 import { Collection } from './collection.js'
 import type { CacheOptions } from './collection.js'
-import type { IndexDef } from './query/indexes.js'
+import type { IndexDef } from './indexing/eager-indexes.js'
 import type { JoinableSource } from './query/index.js'
 import type { OnDirtyCallback } from './collection.js'
 import type { UnlockedKeyring } from './team/keyring.js'

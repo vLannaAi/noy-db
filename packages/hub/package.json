@@ -95,6 +95,16 @@
         "types": "./dist/blobs/index.d.cts",
         "default": "./dist/blobs/index.cjs"
       }
+    },
+    "./indexing": {
+      "import": {
+        "types": "./dist/indexing/index.d.ts",
+        "default": "./dist/indexing/index.js"
+      },
+      "require": {
+        "types": "./dist/indexing/index.d.cts",
+        "default": "./dist/indexing/index.cjs"
+      }
     }
   },
   "main": "./dist/index.cjs",

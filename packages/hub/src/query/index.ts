@@ -15,8 +15,12 @@ export { Query, executePlan } from './builder.js'
 export type { QueryPlan, QuerySource, OrderBy } from './builder.js'
 export type { Operator, Clause, FieldClause, FilterClause, GroupClause } from './predicate.js'
 export { evaluateClause, evaluateFieldClause, readPath } from './predicate.js'
-export { CollectionIndexes } from './indexes.js'
-export type { IndexDef, HashIndex } from './indexes.js'
+// Indexing relocated to `../indexing/` as part of the v0.24 capability-
+// subpath refactor. Re-export from the new home for backward compat
+// with consumers reaching into `@noy-db/hub/query`; `@noy-db/hub/indexing`
+// is now the preferred import path.
+export { CollectionIndexes } from '../indexing/eager-indexes.js'
+export type { IndexDef, HashIndex } from '../indexing/eager-indexes.js'
 export { applyJoins, DEFAULT_JOIN_MAX_ROWS, resetJoinWarnings } from './join.js'
 export type { JoinLeg, JoinContext, JoinableSource, JoinStrategy } from './join.js'
 export { buildLiveQuery } from './live.js'

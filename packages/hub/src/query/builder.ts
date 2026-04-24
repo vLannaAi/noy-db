@@ -7,7 +7,7 @@
 
 import type { Clause, FieldClause, FilterClause, GroupClause, Operator } from './predicate.js'
 import { evaluateClause } from './predicate.js'
-import type { CollectionIndexes } from './indexes.js'
+import type { CollectionIndexes } from '../indexing/eager-indexes.js'
 import type { JoinContext, JoinLeg, JoinStrategy } from './join.js'
 import { applyJoins } from './join.js'
 import type { LiveQuery, LiveUpstream } from './live.js'

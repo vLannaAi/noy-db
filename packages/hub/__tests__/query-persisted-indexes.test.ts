@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { IndexRequiredError, IndexWriteFailureError, NoydbError } from '../src/errors.js'
-import { encodeIdxId, decodeIdxId, isIdxId } from '../src/query/persisted-indexes.js'
+import { encodeIdxId, decodeIdxId, isIdxId } from '../src/indexing/persisted-indexes.js'
 
 describe('IndexRequiredError', () => {
   it('extends NoydbError with code INDEX_REQUIRED', () => {
@@ -96,7 +96,7 @@ describe('isIdxId', () => {
   })
 })
 
-import { PersistedCollectionIndex } from '../src/query/persisted-indexes.js'
+import { PersistedCollectionIndex } from '../src/indexing/persisted-indexes.js'
 
 describe('PersistedCollectionIndex — declare / has / fields', () => {
   it('declare is idempotent', () => {
