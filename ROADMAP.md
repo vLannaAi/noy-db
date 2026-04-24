@@ -1,9 +1,7 @@
 # Roadmap
 
-> **Starting point:** v0.21. The prior trunk (v0.3 → v0.20) and the
-> original milestone planning are archived in full under
-> [`docs/spec/`](./docs/spec/INDEX.md). This document looks forward
-> only.
+> **Starting point:** v0.21. This document looks forward only — prior
+> trunk history (v0.3 → v0.20) is in `git log` if you need it.
 >
 > **Pre-1.0 stance.** The core privacy model, envelope format,
 > keyrings, permissions, and query DSL are implemented and tested in
@@ -23,7 +21,6 @@ Related docs:
 - [Package catalog](./docs/packages/stores.md) — `to-*` (stores), [`in-*` (integrations)](./docs/packages/integrations.md), [`on-*` (auth)](./docs/packages/auth.md), [`as-*` (exports)](./docs/packages/exports.md)
 - [Architecture](./docs/reference/architecture.md) — data flow + threat model
 - [SPEC](./SPEC.md) — design invariants (do not violate)
-- [Spec archive](./docs/spec/INDEX.md) — the *why* behind every shipped feature
 
 ---
 
@@ -32,7 +29,7 @@ Related docs:
 | Release | Status | Theme |
 |---|---|---|
 | **v0.21.0** | 🎯 in progress | **Pilot-2 feedback batch.** Cross-user KEK delegation ([#257](https://github.com/vLannaAi/noy-db/issues/257)), `vault.exportBlobs()` bulk primitive ([#262](https://github.com/vLannaAi/noy-db/issues/262)), per-collection blob TTL ([#263](https://github.com/vLannaAi/noy-db/issues/263)), `useDictLabel` Pinia composable ([#264](https://github.com/vLannaAi/noy-db/issues/264)). |
-| **v0.22.0** | 🟡 foundation only | **Lazy-mode index foundation shipped.** Typed errors, `_idx/<field>/<recordId>` id helpers, `PersistedCollectionIndex` mirror class, constructor support for `prefetch:false + indexes`. Write-path maintenance, query dispatch, reconcile/rebuild, and benchmark harness are **deferred** — milestone closed. Design preserved at [`docs/superpowers/specs/2026-04-24-v0.22-lazy-mode-indexes-design.md`](./docs/superpowers/specs/2026-04-24-v0.22-lazy-mode-indexes-design.md). |
+| **v0.22.0** | 🟡 foundation only | **Lazy-mode index foundation shipped.** Typed errors, `_idx/<field>/<recordId>` id helpers, `PersistedCollectionIndex` mirror class, constructor support for `prefetch:false + indexes`. Write-path maintenance, query dispatch, reconcile/rebuild, and benchmark harness are **deferred** — milestone closed; see follow-up issues under milestone [v0.23.0](https://github.com/vLannaAi/noy-db/milestone/30) (#275–#278). |
 | **v1.0.0** | 🔭 target | Stability + LTS — API freeze, third-party audit, perf benchmarks, migration tooling |
 | v1.x | 🔭 vision | Federation, multi-instance bridging |
 | v2.0+ | 🔭 vision | Verifiable credentials, advanced ZK applications |
@@ -98,8 +95,6 @@ See [exports.md](./docs/packages/exports.md).
 1. File a GitHub issue against the relevant Fork milestone.
 2. For trunk work, open a discussion first to confirm the scope fits
    the current release's theme.
-3. Every spec decision is preserved in `docs/spec/archive/issue-N.md`
-   when the issue closes, so rationale survives GitHub pruning.
 
 No versioned release notes in this repo — changesets drive that at
 publish time via `pnpm changeset version`.

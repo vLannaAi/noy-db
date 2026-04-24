@@ -61,8 +61,7 @@ needs — typical stacks:
 - **High-risk.** `on-shamir` k-of-n + `on-threat` duress + `on-webauthn` primary.
 
 Each package is stateless primitives — the caller decides persistence,
-audit logging, and rate-limiting. That's why every `on-*` ships with its
-own `docs/spec/archive/` entry explaining the threat model rather than
-imposing one.
+audit logging, and rate-limiting. That's why every `on-*` ships with a
+threat-model note in its README rather than imposing one on callers.
 
 [← Back to README](../../README.md)

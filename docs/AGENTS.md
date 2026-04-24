@@ -10,10 +10,9 @@ The primary spec is `SPEC.md` — read it before any non-trivial work. It is the
 - `ROADMAP.md` — version timeline, current milestone, deferred work
 - `docs/HANDOVER.md` — session-to-session handover notes (recent state, what's in flight)
 - `docs/reference/architecture.md` — reader-facing data flow and threat model
-- `docs/spec/INDEX.md` — **in-repo archive of every GitHub issue, milestone, discussion, and PR body.** The *why* behind each feature (spec rationale, trade-offs, rejected alternatives, merge history) is preserved here as markdown so GitHub can be pruned without losing institutional knowledge. For any package or feature, `grep -l "<package-name>" docs/spec/archive` finds the original issue(s) and `grep -l "<package-name>" docs/spec/prs` finds the merge PRs.
 - `docs/packages/{stores,integrations,auth,exports}.md` — catalog pages for the four prefix families.
 
-**Status:** foundation epoch complete (2026-04-23). 56 packages across 4 prefixed families (`hub`, `to-*`, `in-*`, `on-*`, `as-*`). npm paused — publishing will be coordinated. Trunk releases v0.3–v0.20 all shipped; advanced core includes hierarchical tiers (v0.18), deterministic encryption (v0.19), p2p sync (v0.20). Fork milestones remain open for ongoing satellite work: 7 issues open across Stores (4 niche), Integrations (2 priority: low), On (1 architectural follow-up). All previously closed issues pruned from GitHub but fully archived in `docs/spec/archive/` — grep it for rationale, acceptance criteria, and rejected alternatives.
+**Status:** foundation epoch complete (2026-04-23). 56 packages across 4 prefixed families (`hub`, `to-*`, `in-*`, `on-*`, `as-*`). npm paused — publishing will be coordinated. Trunk releases v0.3–v0.20 all shipped; advanced core includes hierarchical tiers (v0.18), deterministic encryption (v0.19), p2p sync (v0.20). Fork milestones remain open for ongoing satellite work: 7 issues open across Stores (4 niche), Integrations (2 priority: low), On (1 architectural follow-up).
 
 ## Architecture
 

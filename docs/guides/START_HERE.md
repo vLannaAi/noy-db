@@ -168,8 +168,7 @@ Every subpath is additive — the main entry keeps working unchanged.
 | **Integrity** | Hash-chained ledger, `.noydb` encrypted bundle format, tamper detection |
 | **Testing** | 950+ hub tests + 14 end-to-end showcases, happy-dom for Vue/Pinia/WebAuthn tests |
 
-For what's next, see [`ROADMAP.md`](../../ROADMAP.md). For the *why*
-behind every shipped feature, see [`docs/spec/INDEX.md`](./spec/INDEX.md).
+For what's next, see [`ROADMAP.md`](../../ROADMAP.md).
 
 ---
 

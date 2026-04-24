@@ -1,8 +1,7 @@
 # Session handover
 
 > **Purpose:** context for the next session. Start fresh — older session
-> notes have been retired. Historical ship decisions live in
-> [`docs/spec/`](./spec/INDEX.md).
+> notes have been retired. Historical ship decisions live in `git log`.
 
 **Current state:** v0.21 epoch opening. Foundation epoch closed with
 56 packages shipped, four prefix families populated
@@ -16,9 +15,6 @@ lanes only.
 - **README.md** — why noy-db + 30-second vanilla example + family catalog.
 - **docs/packages/{stores,integrations,auth,exports}.md** — per-family
   catalogs. Lead with distinctive packages, then essentials.
-- **docs/spec/INDEX.md** — the *why* behind every shipped feature.
-  `grep docs/spec/archive/` for issue bodies, `grep docs/spec/prs/`
-  for merge rationale.
 - **ROADMAP.md** — v0.21 forward + the four Fork lanes.
 - **SPEC.md** — design invariants. Do not violate without discussion.
 - **CLAUDE.md** — coding conventions + architecture summary for AI

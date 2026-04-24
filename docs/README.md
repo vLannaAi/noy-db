@@ -50,28 +50,10 @@ Short design-pattern notes for recurring topics.
 - [`patterns/schemas.md`](./patterns/schemas.md) — schema-agnostic design with Standard Schema v1
 - [`patterns/schema-validation.md`](./patterns/schema-validation.md) — pre-encrypt validation
 
-## Specification archive
-
-Institutional memory — every shipped feature's rationale preserved as
-markdown so GitHub can be pruned without losing the *why*.
-
-- [`spec/INDEX.md`](./spec/INDEX.md) — entry point
-- `spec/archive/` — issue bodies
-- `spec/prs/` — merge-rationale PR bodies
-- `spec/discussions/` — discussion threads
-- `spec/milestones/` — milestone-level writeups
-
-## Generated API reference
-
-[`api/`](./api/) — full typedoc output (types, classes, interfaces,
-functions, modules). Regenerated from source.
-
 ## Project artifacts
 
 - [`HANDOVER.md`](./HANDOVER.md) — session-to-session notes for contributors
 - [`AGENTS.md`](./AGENTS.md) — AI agent configuration
-- [`superpowers/specs/`](./superpowers/specs/) — brainstormed design specs
-- [`superpowers/plans/`](./superpowers/plans/) — implementation plans (TDD-ready)
 
 ## Assets
 

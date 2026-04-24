@@ -248,7 +248,7 @@ noy-db does not inspect your data. It cannot — that is the architectural point
 | **viewer** | all | — | — | — | yes |
 | **client** | granted collections | — | — | — | ACL-scoped |
 
-Every mutation (grant, revoke, rotate, elevate) writes a hash-chained audit ledger entry. Hierarchical per-record classification tiers (`collection.elevate()` / `demote()` / `delegate()` / invisibility / ghost modes) are covered in `docs/spec/archive/issue-205.md` and the follow-ups under `docs/spec/archive/issue-2{06..10}.md`.
+Every mutation (grant, revoke, rotate, elevate) writes a hash-chained audit ledger entry. Hierarchical per-record classification tiers (`collection.elevate()` / `demote()` / `delegate()` / invisibility / ghost modes) are covered in [`docs/reference/architecture.md`](docs/reference/architecture.md).
 
 ---
 
@@ -295,11 +295,10 @@ The hub package itself uses only `crypto.subtle`, which is built into every targ
 
 ---
 
-## Roadmap + spec archive
+## Roadmap
 
 - [`ROADMAP.md`](ROADMAP.md) — version timeline and what's next.
 - [`docs/HANDOVER.md`](docs/HANDOVER.md) — session-to-session notes for contributors.
-- [`docs/spec/INDEX.md`](docs/spec/INDEX.md) — **the why behind every feature.** Every issue, milestone, discussion, and PR preserved in-repo as markdown. `grep docs/spec/archive` is the canonical way to find design rationale and rejected alternatives.
 
 ---
 
@@ -315,7 +314,7 @@ The hub package itself uses only `crypto.subtle`, which is built into every targ
 | map a deployment topology | [`docs/guides/topology-matrix.md`](docs/guides/topology-matrix.md) |
 | see real workflows | [`showcases/`](showcases/) |
 | check what is stable or next | [`ROADMAP.md`](ROADMAP.md) |
-| audit design decisions | [`SPEC.md`](SPEC.md) + [`docs/spec/INDEX.md`](docs/spec/INDEX.md) |
+| audit design decisions | [`SPEC.md`](SPEC.md) |
 
 ---
 
