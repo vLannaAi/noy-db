@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, ChangeEvent } from '@noy-db/hub'
 import { ConflictError, createNoydb } from '@noy-db/hub'
+import { withI18n } from '@noy-db/hub/i18n'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -39,7 +40,7 @@ function memory(): NoydbStore {
 
 describe('DictionaryHandle — change event emission', () => {
   it('put() emits a change event with action:put', async () => {
-    const db = await createNoydb({ store: memory(), user: 'owner', secret: 'pw' })
+    const db = await createNoydb({ store: memory(), user: 'owner', i18nStrategy: withI18n(), secret: 'pw' })
     const vault = await db.openVault('acme')
     const events: ChangeEvent[] = []
     db.on('change', (e) => events.push(e))
@@ -51,7 +52,7 @@ describe('DictionaryHandle — change event emission', () => {
   })
 
   it('delete() emits a change event with action:delete', async () => {
-    const db = await createNoydb({ store: memory(), user: 'owner', secret: 'pw' })
+    const db = await createNoydb({ store: memory(), user: 'owner', i18nStrategy: withI18n(), secret: 'pw' })
     const vault = await db.openVault('acme')
     await vault.dictionary('status').put('draft', { en: 'Draft' })
     const events: ChangeEvent[] = []
@@ -64,7 +65,7 @@ describe('DictionaryHandle — change event emission', () => {
   })
 
   it('rename() emits delete for old key then put for new key', async () => {
-    const db = await createNoydb({ store: memory(), user: 'owner', secret: 'pw' })
+    const db = await createNoydb({ store: memory(), user: 'owner', i18nStrategy: withI18n(), secret: 'pw' })
     const vault = await db.openVault('acme')
     await vault.dictionary('status').put('open', { en: 'Open' })
     const events: ChangeEvent[] = []
@@ -78,7 +79,7 @@ describe('DictionaryHandle — change event emission', () => {
   })
 
   it('putAll() emits one change event per key', async () => {
-    const db = await createNoydb({ store: memory(), user: 'owner', secret: 'pw' })
+    const db = await createNoydb({ store: memory(), user: 'owner', i18nStrategy: withI18n(), secret: 'pw' })
     const vault = await db.openVault('acme')
     const events: ChangeEvent[] = []
     db.on('change', (e) => events.push(e))
