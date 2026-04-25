@@ -1,6 +1,6 @@
 # NOYDB Subsystems
 
-> **Status:** v0.25 catalog (2026-04-25). Authoritative list of subsystems and the always-on core. The subsystem catalog **is** the product surface — every entry below is both a developer-facing feature and a tree-shake-able code module behind a `with*()` strategy seam.
+> **Status:** v0.25 catalog (2026-04-25). All 17 subsystems shipped behind `with*()` strategy seams as of commit `20b319f`. Authoritative list of subsystems and the always-on core. The subsystem catalog **is** the product surface — every entry below is both a developer-facing feature and a tree-shake-able code module behind a `with*()` strategy seam.
 
 ## Why subsystems
 
