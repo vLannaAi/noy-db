@@ -86,7 +86,7 @@ export const myStore = createStore((opts: MyStoreOptions): NoydbStore => ({
 | `to-cloudflare-r2` | ✗ | S3-compatible; no CAS |
 | `to-cloudflare-d1` | ✓ | SQLite transactions |
 
-Full list: [docs/packages-stores.md](../packages-stores.md).
+Full list: [docs/packages/to-stores.md](../packages/to-stores.md).
 
 ## Store routing & middleware
 

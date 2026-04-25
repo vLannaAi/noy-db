@@ -37,13 +37,13 @@ The always-on minimum (~6,500 LOC). Six areas every consumer pays for. See [docs
 - *Page:* [docs/core/03-stores.md](./docs/core/03-stores.md)
 - *Spec text:* *[TODO: port from spec-legacy § Stores]* (note: routing/middleware portion moves to Cluster G — Operations)
 - *Conformance:* see [docs/reference/store-conformance.md](./docs/reference/store-conformance.md)
-- *Catalog:* [docs/packages-stores.md](./docs/packages-stores.md) (20 built-in stores)
+- *Catalog:* [docs/packages/to-stores.md](./docs/packages/to-stores.md) (20 built-in stores)
 
 ### 4. Permissions & Keyring
 
 - *Page:* [docs/core/04-permissions-and-keyring.md](./docs/core/04-permissions-and-keyring.md)
 - *Spec text:* *[TODO: port from spec-legacy § Multi-User Access Control]* (note: grant/revoke/rotate/magic-link/delegation/tiers move to Cluster F — `team` subsystem)
-- *Catalog:* [docs/packages-auth.md](./docs/packages-auth.md) (`on-*` unlock methods)
+- *Catalog:* [docs/packages/on-auth.md](./docs/packages/on-auth.md) (`on-*` unlock methods)
 
 ### 5. Schema & Refs
 

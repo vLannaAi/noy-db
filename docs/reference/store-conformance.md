@@ -67,4 +67,4 @@ A subset (full list in `__tests__/store-conformance.test.ts`):
 
 - [docs/core/03-stores.md](../core/03-stores.md) — the contract from the consumer side
 - `packages/hub/src/__tests__/store-conformance.test.ts` — the executable spec
-- [docs/packages-stores.md](../packages-stores.md) — catalog of 20 built-in stores
+- [docs/packages/to-stores.md](../packages/to-stores.md) — catalog of 20 built-in stores

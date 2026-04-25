@@ -77,7 +77,7 @@ import { s3 } from '@noy-db/to-aws-s3'
 store: s3({ bucket: 'my-vaults', client: myS3Client })
 ```
 
-→ See 20+ backends in **[Storage stores (`to-*`)](docs/packages-stores.md)**.
+→ See 20+ backends in **[Storage stores (`to-*`)](docs/packages/to-stores.md)**.
 
 ---
 
@@ -138,10 +138,10 @@ Each prefix reads as a preposition — the mental model stays the same as you sc
 
 | Prefix | Reads as | What it is | Catalog |
 |---|---|---|---|
-| **`to-`** | *"data goes **to** a backend"* | **Storage destinations** — the only piece that touches ciphertext on the wire. 20 packages: file, browser, SQL, cloud, remote FS, iCloud, Drive, metrics, diagnostics. | [→ stores.md](docs/packages-stores.md) |
-| **`in-`** | *"runs **in** a framework"* | **Framework integrations** — thin reactive bindings. React, Next.js, Vue, Nuxt, Pinia, Svelte, Zustand, TanStack Query/Table, Yjs CRDT, LLM tool-calling. | [→ integrations.md](docs/packages-integrations.md) |
-| **`on-`** | *"you get **on** via this method"* | **Unlock / auth** — composable primitives. Passkeys (WebAuthn), OIDC split-key, magic links, TOTP, email OTP, recovery codes, Shamir k-of-n, duress + honeypot. | [→ auth.md](docs/packages-auth.md) |
-| **`as-`** | *"export **as** XLSX / JSON / …"* | **Portable artefacts** — two-tier authorisation with audit ledger. CSV, Excel, XML, JSON, NDJSON, SQL dump, PDF blobs, ZIP, and the encrypted `.noydb` bundle. | [→ exports.md](docs/packages-exports.md) |
+| **`to-`** | *"data goes **to** a backend"* | **Storage destinations** — the only piece that touches ciphertext on the wire. 20 packages: file, browser, SQL, cloud, remote FS, iCloud, Drive, metrics, diagnostics. | [→ stores.md](docs/packages/to-stores.md) |
+| **`in-`** | *"runs **in** a framework"* | **Framework integrations** — thin reactive bindings. React, Next.js, Vue, Nuxt, Pinia, Svelte, Zustand, TanStack Query/Table, Yjs CRDT, LLM tool-calling. | [→ integrations.md](docs/packages/in-integrations.md) |
+| **`on-`** | *"you get **on** via this method"* | **Unlock / auth** — composable primitives. Passkeys (WebAuthn), OIDC split-key, magic links, TOTP, email OTP, recovery codes, Shamir k-of-n, duress + honeypot. | [→ auth.md](docs/packages/on-auth.md) |
+| **`as-`** | *"export **as** XLSX / JSON / …"* | **Portable artefacts** — two-tier authorisation with audit ledger. CSV, Excel, XML, JSON, NDJSON, SQL dump, PDF blobs, ZIP, and the encrypted `.noydb` bundle. | [→ exports.md](docs/packages/as-exports.md) |
 
 Plus the hub (`@noy-db/hub`) and specialised packages: `@noy-db/p2p` (WebRTC), `@noy-db/cli`, `create-noy-db` (scaffolder).
 
@@ -216,15 +216,15 @@ For the full Nuxt walkthrough see [`docs/quickstart.md`](docs/quickstart.md). Fo
 
 | Platform | Runtime | Default backend |
 |---|---|---|
-| 🖥️ Desktop (macOS / Linux / Windows) | Node 18+, Bun, Deno | [`to-file`](docs/packages-stores.md) |
-| 📱 Mobile browser | Safari 14+, Chrome 90+ | [`to-browser-idb`](docs/packages-stores.md) |
-| 🌐 Desktop browser | Chrome, Firefox, Safari, Edge | [`to-browser-idb`](docs/packages-stores.md) |
-| ⚡ PWA / offline web app | Service Worker + browser | [`to-browser-idb`](docs/packages-stores.md) |
-| 🖧 Server (headless) | Node 18+ | [`to-file`](docs/packages-stores.md) / [`to-aws-dynamo`](docs/packages-stores.md) / [`to-postgres`](docs/packages-stores.md) |
-| 💾 USB stick / removable disk | Any OS + any runtime | [`to-file`](docs/packages-stores.md) |
-| 🔌 Electron / Tauri | Desktop shell | [`to-file`](docs/packages-stores.md) |
-| ☁️ Cloudflare Workers | Edge JS | [`to-cloudflare-d1`](docs/packages-stores.md) + [`to-cloudflare-r2`](docs/packages-stores.md) |
-| 🧪 Tests / CI | Any JS runtime | [`to-memory`](docs/packages-stores.md) |
+| 🖥️ Desktop (macOS / Linux / Windows) | Node 18+, Bun, Deno | [`to-file`](docs/packages/to-stores.md) |
+| 📱 Mobile browser | Safari 14+, Chrome 90+ | [`to-browser-idb`](docs/packages/to-stores.md) |
+| 🌐 Desktop browser | Chrome, Firefox, Safari, Edge | [`to-browser-idb`](docs/packages/to-stores.md) |
+| ⚡ PWA / offline web app | Service Worker + browser | [`to-browser-idb`](docs/packages/to-stores.md) |
+| 🖧 Server (headless) | Node 18+ | [`to-file`](docs/packages/to-stores.md) / [`to-aws-dynamo`](docs/packages/to-stores.md) / [`to-postgres`](docs/packages/to-stores.md) |
+| 💾 USB stick / removable disk | Any OS + any runtime | [`to-file`](docs/packages/to-stores.md) |
+| 🔌 Electron / Tauri | Desktop shell | [`to-file`](docs/packages/to-stores.md) |
+| ☁️ Cloudflare Workers | Edge JS | [`to-cloudflare-d1`](docs/packages/to-stores.md) + [`to-cloudflare-r2`](docs/packages/to-stores.md) |
+| 🧪 Tests / CI | Any JS runtime | [`to-memory`](docs/packages/to-stores.md) |
 
 Minimum requirements: a JavaScript engine and the Web Crypto API. That's it.
 
@@ -340,8 +340,8 @@ The hub package itself uses only `crypto.subtle`, which is built into every targ
 |---|---|
 | try noy-db in 5 minutes | [`docs/quickstart.md`](docs/quickstart.md) |
 | choose a path for your app | [`docs/choose-your-path.md`](docs/choose-your-path.md) |
-| pick a storage backend | [`docs/packages-stores.md`](docs/packages-stores.md) |
-| pick a framework integration | [`docs/packages-integrations.md`](docs/packages-integrations.md) |
+| pick a storage backend | [`docs/packages/to-stores.md`](docs/packages/to-stores.md) |
+| pick a framework integration | [`docs/packages/in-integrations.md`](docs/packages/in-integrations.md) |
 | understand the security model | [`docs/reference/architecture.md`](docs/reference/architecture.md) |
 | map a deployment topology | [`docs/topologies.md`](docs/topologies.md) |
 | see real workflows | [`showcases/`](showcases/) |

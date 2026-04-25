@@ -44,10 +44,10 @@ The hub plus four prefixed package families:
 
 | Catalog | What's in it |
 |---|---|
-| [packages-stores.md](./packages-stores.md) | 20 `to-*` stores |
-| [packages-integrations.md](./packages-integrations.md) | 10 `in-*` framework integrations |
-| [packages-auth.md](./packages-auth.md) | 9 `on-*` auth/unlock methods |
-| [packages-exports.md](./packages-exports.md) | 9 `as-*` export formats |
+| [to-stores.md](./packages/to-stores.md) | 20 `to-*` stores |
+| [in-integrations.md](./packages/in-integrations.md) | 10 `in-*` framework integrations |
+| [on-auth.md](./packages/on-auth.md) | 9 `on-*` auth/unlock methods |
+| [as-exports.md](./packages/as-exports.md) | 9 `as-*` export formats |
 
 ## Source-of-truth links
 

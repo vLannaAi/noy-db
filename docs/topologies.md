@@ -80,7 +80,7 @@ package exposes over the hub API.
 
 ### Additional framework bindings
 
-See [`docs/packages-integrations.md`](./packages/integrations.md) for the
+See [`docs/packages/in-integrations.md`](./packages/in-integrations.md) for the
 full catalog (React + Next.js + Zustand + TanStack Query/Table, Svelte,
 Solid, Qwik, AI tool-calling, Yjs). The table below highlights a few:
 

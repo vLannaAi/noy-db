@@ -8,8 +8,8 @@ NOYDB ("None Of Your Damn Business") is a zero-knowledge, offline-first, encrypt
 
 The primary spec is `SPEC.md` — read it before any non-trivial work. It is the source of truth for all design decisions. Complementary docs:
 - `ROADMAP.md` — version timeline and open work
-- `docs/architecture.md` — reader-facing data flow and threat model
-- `docs/packages-{stores,integrations,auth,exports}.md` — catalog pages for the four prefix families
+- `docs/reference/architecture.md` — reader-facing data flow and threat model
+- `docs/packages/{to-stores,in-integrations,on-auth,as-exports}.md` — catalog pages for the four prefix families
 
 **Status:** foundation epoch complete. 56 packages shipped across 4 prefixed families (`hub`, `to-*`, `in-*`, `on-*`, `as-*`). npm paused — publishing will be coordinated. Fork milestones remain open for ongoing satellite work.
 

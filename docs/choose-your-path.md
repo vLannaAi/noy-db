@@ -110,7 +110,7 @@ The four package prefixes — each reads as a preposition:
 - **`to-`** — *data goes to* a storage backend (file, DynamoDB, S3, IndexedDB, ...)
 - **`in-`** — *runs in* a framework runtime (Vue, Pinia, Nuxt, Yjs, ...)
 - **`on-`** — *you get on* via an authentication method (WebAuthn, OIDC, magic-link, PIN, ...)
-- **`as-`** — *export as* a portable artefact. Plaintext tier (record formatters + document/blob extractors) under `canExportPlaintext` (default off); encrypted tier (`as-noydb`) under `canExportBundle` (default on for owner/admin). See [`docs/packages-exports.md#authorization-model`](./patterns/as-exports.md).
+- **`as-`** — *export as* a portable artefact. Plaintext tier (record formatters + document/blob extractors) under `canExportPlaintext` (default off); encrypted tier (`as-noydb`) under `canExportBundle` (default on for owner/admin). See [`docs/packages/as-exports.md#authorization-model`](./packages/as-exports.md).
 
 Locale-specific logic (fiscal calendars, retention rules, plural rules, script-aware collation, …) deliberately lives **in userland**, not in noy-db. Hub is content-agnostic. See [`docs/architecture.md#i18n-boundaries-what-hub-knows-vs-what-you-own`](./architecture.md#i18n-boundaries-what-hub-knows-vs-what-you-own) for the three-layer model and how to wire your own Layer-3 helpers.
 
@@ -183,7 +183,7 @@ For what's next, see [`ROADMAP.md`](../../ROADMAP.md).
 | Plug into Google / Apple / LINE / Meta / Auth0 / Keycloak | [`docs/integrations-oidc.md`](./oidc-providers.md) |
 | Model a composite entity (invoice + its PDF, email + attachments) | [`docs/recipes.md`](./patterns/email-archive.md) — decision matrix for "what's record vs what's blob" |
 | Understand what hub does (and doesn't) do with language content | [`docs/architecture.md#i18n-boundaries-what-hub-knows-vs-what-you-own`](./architecture.md#i18n-boundaries-what-hub-knows-vs-what-you-own) — content-agnostic design; where translation / collation / fiscal logic actually lives |
-| Export data — plaintext (`.xlsx`/`.csv`/`.pdf`) for end users or encrypted (`.noydb`) for backup — without breaking zero-knowledge | [`docs/packages-exports.md#authorization-model`](./patterns/as-exports.md) — the `as-*` family (two tiers + authorization model), working pattern today with SheetJS |
+| Export data — plaintext (`.xlsx`/`.csv`/`.pdf`) for end users or encrypted (`.noydb`) for backup — without breaking zero-knowledge | [`docs/packages/as-exports.md#authorization-model`](./packages/as-exports.md) — the `as-*` family (two tiers + authorization model), working pattern today with SheetJS |
 | Stop wrong-shape data at the door with Zod / Valibot / ArkType | [`docs/architecture.md#schema-validation`](./patterns/schema-validation.md) — Standard Schema v1 integration, input + output validation, schema evolution patterns |
 | Subscribe to every put/delete on a collection (audit-trail / inbox UI) | `collection.subscribe(event => …)` — fires `{ type: 'put' \| 'delete', id, record }` post-commit; returns an unsubscribe function. Event stream, not reactive value (for reactive state use `query().live()`). |
 | Resolve sync conflicts when two operators edit the same record offline | [`docs/architecture.md#sync-conflict-resolution`](./patterns/conflict-resolution.md) — four built-in policies (LWW / FWW / manual / custom merge), multi-office worked example, pitfalls |
