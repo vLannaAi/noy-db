@@ -19,7 +19,7 @@ Related docs:
 
 - [README](./README.md) — mental model in one page
 - [Package catalog](./docs/packages-stores.md) — `to-*` (stores), [`in-*` (integrations)](./docs/packages-integrations.md), [`on-*` (auth)](./docs/packages-auth.md), [`as-*` (exports)](./docs/packages-exports.md)
-- [Architecture](./docs/architecture.md) — data flow + threat model
+- [Architecture](./docs/reference/architecture.md) — data flow + threat model
 - [SPEC](./SPEC.md) — design invariants (do not violate)
 
 ---
@@ -44,7 +44,7 @@ lands what real production workloads actually need.
 - **Domain schemas** — noy-db is schema-agnostic. Standard Schema v1 is
   the extension point, community publishes formats (ETDA CII, Peppol
   UBL, HL7 FHIR, …) under their own npm scopes. See
-  [`docs/architecture.md#schema-agnostic-design`](./docs/architecture.md#schema-agnostic-design).
+  [`docs/reference/architecture.md#schema-agnostic-design`](./docs/reference/architecture.md#schema-agnostic-design).
 
 ---
 

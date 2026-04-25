@@ -281,7 +281,7 @@ noy-db does not inspect your data. It cannot — that is the architectural point
 | **viewer** | all | — | — | — | yes |
 | **client** | granted collections | — | — | — | ACL-scoped |
 
-Every mutation (grant, revoke, rotate, elevate) writes a hash-chained audit ledger entry. Hierarchical per-record classification tiers (`collection.elevate()` / `demote()` / `delegate()` / invisibility / ghost modes) are covered in [`docs/architecture.md`](docs/architecture.md).
+Every mutation (grant, revoke, rotate, elevate) writes a hash-chained audit ledger entry. Hierarchical per-record classification tiers (`collection.elevate()` / `demote()` / `delegate()` / invisibility / ghost modes) are covered in [`docs/reference/architecture.md`](docs/reference/architecture.md).
 
 ---
 
@@ -342,7 +342,7 @@ The hub package itself uses only `crypto.subtle`, which is built into every targ
 | choose a path for your app | [`docs/choose-your-path.md`](docs/choose-your-path.md) |
 | pick a storage backend | [`docs/packages-stores.md`](docs/packages-stores.md) |
 | pick a framework integration | [`docs/packages-integrations.md`](docs/packages-integrations.md) |
-| understand the security model | [`docs/architecture.md`](docs/architecture.md) |
+| understand the security model | [`docs/reference/architecture.md`](docs/reference/architecture.md) |
 | map a deployment topology | [`docs/topologies.md`](docs/topologies.md) |
 | see real workflows | [`showcases/`](showcases/) |
 | check what is stable or next | [`ROADMAP.md`](ROADMAP.md) |
