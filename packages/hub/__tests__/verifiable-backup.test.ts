@@ -19,7 +19,9 @@
 
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
+import { withHistory } from '../src/history/index.js'
 import type { Noydb } from '../src/noydb.js'
+import { withHistory } from '../src/history/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError, BackupLedgerError, BackupCorruptedError } from '../src/errors.js'
 
@@ -84,7 +86,7 @@ describe('verifiable backups — #46', () => {
   beforeEach(async () => {
     db = await createNoydb({
       store: memory(),
-      user: 'alice',
+      user: 'alice', historyStrategy: withHistory(),
       secret: 'test-passphrase-1234',
     })
   })
@@ -113,7 +115,7 @@ describe('verifiable backups — #46', () => {
     const adapter1 = memory()
     const sourceDb = await createNoydb({
       store: adapter1,
-      user: 'alice',
+      user: 'alice', historyStrategy: withHistory(),
       secret: 'test-passphrase-1234',
     })
     const sourceCompany = await sourceDb.openVault('demo-co')
@@ -131,7 +133,7 @@ describe('verifiable backups — #46', () => {
     const adapter2 = memory()
     const targetDb = await createNoydb({
       store: adapter2,
-      user: 'alice',
+      user: 'alice', historyStrategy: withHistory(),
       secret: 'test-passphrase-1234',
     })
     const targetCompany = await targetDb.openVault('demo-co')
@@ -171,7 +173,7 @@ describe('verifiable backups — #46', () => {
     const adapter2 = memory()
     const targetDb = await createNoydb({
       store: adapter2,
-      user: 'alice',
+      user: 'alice', historyStrategy: withHistory(),
       secret: 'test-passphrase-1234',
     })
     const targetCompany = await targetDb.openVault('demo-co')
@@ -194,7 +196,7 @@ describe('verifiable backups — #46', () => {
     const adapter2 = memory()
     const targetDb = await createNoydb({
       store: adapter2,
-      user: 'alice',
+      user: 'alice', historyStrategy: withHistory(),
       secret: 'test-passphrase-1234',
     })
     const targetCompany = await targetDb.openVault('demo-co')
@@ -221,7 +223,7 @@ describe('verifiable backups — #46', () => {
     const adapter2 = memory()
     const targetDb = await createNoydb({
       store: adapter2,
-      user: 'alice',
+      user: 'alice', historyStrategy: withHistory(),
       secret: 'test-passphrase-1234',
     })
     const targetCompany = await targetDb.openVault('demo-co')
@@ -248,7 +250,7 @@ describe('verifiable backups — #46', () => {
     const adapter2 = memory()
     const targetDb = await createNoydb({
       store: adapter2,
-      user: 'alice',
+      user: 'alice', historyStrategy: withHistory(),
       secret: 'test-passphrase-1234',
     })
     const targetCompany = await targetDb.openVault('demo-co')
@@ -304,7 +306,7 @@ describe('verifiable backups — #46', () => {
     const adapter = memory()
     const localDb = await createNoydb({
       store: adapter,
-      user: 'alice',
+      user: 'alice', historyStrategy: withHistory(),
       secret: 'test-passphrase-1234',
     })
     const company = await localDb.openVault('demo-co')

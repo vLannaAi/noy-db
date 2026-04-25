@@ -12,7 +12,9 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, ChangeEvent } from '../src/types.js'
 import { ConflictError, createNoydb } from '../src/index.js'
+import { withHistory } from '../src/history/index.js'
 import type { Noydb } from '../src/index.js'
+import { withHistory } from '../src/history/index.js'
 
 function memoryStore(): NoydbStore {
   const data = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -53,7 +55,7 @@ describe('Collection.putMany / getMany / deleteMany', () => {
   beforeEach(async () => {
     db = await createNoydb({
       store: memoryStore(),
-      user: 'owner',
+      user: 'owner', historyStrategy: withHistory(),
       encrypt: false,
     })
   })

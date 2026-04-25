@@ -26,7 +26,9 @@
 
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
+import { withHistory } from '../src/history/index.js'
 import type { Noydb } from '../src/noydb.js'
+import { withHistory } from '../src/history/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError } from '../src/errors.js'
 import {
@@ -179,7 +181,7 @@ describe('LedgerStore via Vault.ledger() — #43', () => {
   beforeEach(async () => {
     db = await createNoydb({
       store: memory(),
-      user: 'alice',
+      user: 'alice', historyStrategy: withHistory(),
       secret: 'test-passphrase-1234',
     })
   })
@@ -295,7 +297,7 @@ describe('LedgerStore via Vault.ledger() — #43', () => {
     const adapter = memory()
     const tamperDb = await createNoydb({
       store: adapter,
-      user: 'alice',
+      user: 'alice', historyStrategy: withHistory(),
       secret: 'test-passphrase-1234',
     })
     const company = await tamperDb.openVault('demo-co')
@@ -357,7 +359,7 @@ describe('LedgerStore via Vault.ledger() — #43', () => {
     const adapter = memory()
     const tamperDb = await createNoydb({
       store: adapter,
-      user: 'alice',
+      user: 'alice', historyStrategy: withHistory(),
       secret: 'test-passphrase-1234',
     })
     const company = await tamperDb.openVault('demo-co')
@@ -417,7 +419,7 @@ describe('LedgerStore via Vault.ledger() — #43', () => {
     const adapter = memory()
     const db1 = await createNoydb({
       store: adapter,
-      user: 'alice',
+      user: 'alice', historyStrategy: withHistory(),
       secret: 'test-passphrase-1234',
     })
     const c1 = await db1.openVault('demo-co')
@@ -427,7 +429,7 @@ describe('LedgerStore via Vault.ledger() — #43', () => {
     // "Restart" — open a fresh Noydb against the same adapter.
     const db2 = await createNoydb({
       store: adapter,
-      user: 'alice',
+      user: 'alice', historyStrategy: withHistory(),
       secret: 'test-passphrase-1234',
     })
     const c2 = await db2.openVault('demo-co')

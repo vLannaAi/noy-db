@@ -19,7 +19,9 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError, ReadOnlyAtInstantError, createNoydb } from '../src/index.js'
+import { withHistory } from '../src/history/index.js'
 import type { Noydb } from '../src/index.js'
+import { withHistory } from '../src/history/index.js'
 
 function memoryStore(): NoydbStore {
   const data = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -69,7 +71,7 @@ describe('vault.at(ts) — time-machine queries', () => {
   beforeEach(async () => {
     db = await createNoydb({
       store: memoryStore(),
-      user: 'owner',
+      user: 'owner', historyStrategy: withHistory(),
       encrypt: false,
       history: { enabled: true },
     })
@@ -219,7 +221,7 @@ describe('vault.at(ts) — encrypted mode round-trip', () => {
   it('decrypts historical snapshots with the collection DEK', async () => {
     const db = await createNoydb({
       store: memoryStore(),
-      user: 'owner',
+      user: 'owner', historyStrategy: withHistory(),
       secret: 'test-passphrase-12345678',
       history: { enabled: true },
     })

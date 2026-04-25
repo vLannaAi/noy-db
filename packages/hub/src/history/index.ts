@@ -4,15 +4,21 @@
  *
  * Solo apps that don't track versioning, don't need a hash-chained
  * audit log, and don't restore to earlier points in time can exclude
- * this entire surface. Bundle savings estimated at ~30 KB (history
- * ~5 KB + diff ~3 KB + ledger ~24 KB).
+ * this entire surface. Bundle savings ~1,880 LOC.
  *
- * The main `@noy-db/hub` entry still re-exports every symbol for
- * backward compatibility through v0.15.x.
+ * The strategy seam (v0.25) is `withHistory()` — pass the returned
+ * strategy to `createNoydb({ historyStrategy: ... })`. Without it,
+ * the core `NO_HISTORY` stub no-ops snapshots/prune/clear and throws
+ * on read APIs (`history`, `getVersion`, `diff`, `vault.at`,
+ * `vault.ledger`).
  *
  * Named re-exports (not `export *`) so tsup keeps the barrel
  * populated even with `sideEffects: false`.
  */
+
+// ─── Strategy seam (v0.25 #285) ─────────────────────────────────────
+export { withHistory } from './active.js'
+export type { HistoryStrategy } from './strategy.js'
 
 // ─── Per-record history (v0.4 #42) ──────────────────────────────────
 export {

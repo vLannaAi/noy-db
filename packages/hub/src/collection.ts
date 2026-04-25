@@ -15,17 +15,8 @@ import type { NoydbEventEmitter } from './events.js'
 import type { StandardSchemaV1 } from './schema.js'
 import { validateSchemaInput, validateSchemaOutput } from './schema.js'
 import type { LedgerStore } from './history/ledger/index.js'
-import { envelopePayloadHash } from './history/ledger/index.js'
-import { computePatch } from './history/ledger/patch.js'
-import {
-  saveHistory,
-  getHistory as getHistoryEntries,
-  getVersionEnvelope,
-  pruneHistory as pruneHistoryEntries,
-  clearHistory,
-} from './history/history.js'
-import { diff as computeDiff } from './history/diff.js'
 import type { DiffEntry } from './history/diff.js'
+import { NO_HISTORY, type HistoryStrategy } from './history/strategy.js'
 import { Query, ScanBuilder } from './query/index.js'
 import type { QuerySource, JoinContext, JoinableSource } from './query/index.js'
 import type { CollectionIndexes, IndexDef } from './indexing/eager-indexes.js'
@@ -129,6 +120,7 @@ export class Collection<T> {
   private readonly blobStrategy: BlobStrategy
   private readonly aggregateStrategy: AggregateStrategy
   private readonly crdtStrategy: CrdtStrategy
+  private readonly historyStrategy: HistoryStrategy
 
   // In-memory cache of decrypted records (eager mode only). Lazy mode
   // uses `lru` instead. Both fields exist so a single Collection instance
@@ -423,6 +415,14 @@ export class Collection<T> {
     aggregateStrategy?: AggregateStrategy | undefined
     crdtStrategy?: CrdtStrategy | undefined
     /**
+     * v0.25 tree-shake seam — strategy for optional history/ledger/
+     * time-machine. When omitted, history snapshots and ledger appends
+     * become silent no-ops (data still writes); the read APIs
+     * (`history`, `getVersion`, `revert`, `diff`, `clearHistory`,
+     * `pruneRecordHistory`) throw with a pointer at `@noy-db/hub/history`.
+     */
+    historyStrategy?: HistoryStrategy | undefined
+    /**
      * v0.24 tree-shake seam. When omitted, indexing is off for this
      * collection — every `.lazyQuery()` call throws, `.rebuildIndexes()`
      * is a no-op, and `indexes: [...]` declarations are ignored. Enable
@@ -630,6 +630,7 @@ export class Collection<T> {
     this.blobStrategy = opts.blobStrategy ?? NO_BLOBS
     this.aggregateStrategy = opts.aggregateStrategy ?? NO_AGGREGATE
     this.crdtStrategy = opts.crdtStrategy ?? NO_CRDT
+    this.historyStrategy = opts.historyStrategy ?? NO_HISTORY
     this.reconcileOnOpen = opts.reconcileOnOpen ?? 'off'
     this.getDEK = opts.getDEK
     this.onDirty = opts.onDirty
@@ -1027,19 +1028,19 @@ export class Collection<T> {
 
       if (existingResolved && this.historyConfig.enabled !== false) {
         const histEnvelope = await this.encryptRecord(existingResolved.record, existingResolved.version)
-        await saveHistory(this.adapter, this.vault, this.name, id, histEnvelope)
+        await this.historyStrategy.saveHistory(this.adapter, this.vault, this.name, id, histEnvelope)
         this.emitter.emit('history:save', { vault: this.vault, collection: this.name, id, version: existingResolved.version })
         if (this.historyConfig.maxVersions) {
-          await pruneHistoryEntries(this.adapter, this.vault, this.name, id, { keepVersions: this.historyConfig.maxVersions })
+          await this.historyStrategy.pruneHistory(this.adapter, this.vault, this.name, id, { keepVersions: this.historyConfig.maxVersions })
         }
       }
 
       if (this.ledger) {
         const appendInput: Parameters<typeof this.ledger.append>[0] = {
           op: 'put', collection: this.name, id, version, actor: this.keyring.userId,
-          payloadHash: await envelopePayloadHash(envelope),
+          payloadHash: await this.historyStrategy.envelopePayloadHash(envelope),
         }
-        if (existingResolved) appendInput.delta = computePatch(resolvedRecord, existingResolved.record)
+        if (existingResolved) appendInput.delta = this.historyStrategy.computePatch(resolvedRecord, existingResolved.record)
         await this.ledger.append(appendInput)
       }
 
@@ -1086,7 +1087,7 @@ export class Collection<T> {
     // Save history snapshot of the PREVIOUS version before overwriting
     if (existing && this.historyConfig.enabled !== false) {
       const historyEnvelope = await this.encryptRecord(existing.record, existing.version)
-      await saveHistory(this.adapter, this.vault, this.name, id, historyEnvelope)
+      await this.historyStrategy.saveHistory(this.adapter, this.vault, this.name, id, historyEnvelope)
 
       this.emitter.emit('history:save', {
         vault: this.vault,
@@ -1097,7 +1098,7 @@ export class Collection<T> {
 
       // Auto-prune if maxVersions configured
       if (this.historyConfig.maxVersions) {
-        await pruneHistoryEntries(this.adapter, this.vault, this.name, id, {
+        await this.historyStrategy.pruneHistory(this.adapter, this.vault, this.name, id, {
           keepVersions: this.historyConfig.maxVersions,
         })
       }
@@ -1128,7 +1129,7 @@ export class Collection<T> {
         id,
         version,
         actor: this.keyring.userId,
-        payloadHash: await envelopePayloadHash(envelope),
+        payloadHash: await this.historyStrategy.envelopePayloadHash(envelope),
       }
       if (existing) {
         // REVERSE patch: describes how to undo this put — i.e., how
@@ -1138,7 +1139,7 @@ export class Collection<T> {
         // data collection) without needing a forward-walking base
         // snapshot, which would double the storage cost of the
         // delta scheme. See `LedgerStore.reconstruct` for the walk.
-        appendInput.delta = computePatch(record, existing.record)
+        appendInput.delta = this.historyStrategy.computePatch(record, existing.record)
       }
       await this.ledger.append(appendInput)
     }
@@ -1223,7 +1224,7 @@ export class Collection<T> {
     // Save history snapshot before deleting
     if (existing && this.historyConfig.enabled !== false) {
       const historyEnvelope = await this.encryptRecord(existing.record, existing.version)
-      await saveHistory(this.adapter, this.vault, this.name, id, historyEnvelope)
+      await this.historyStrategy.saveHistory(this.adapter, this.vault, this.name, id, historyEnvelope)
     }
 
     // Capture the previous envelope's payloadHash BEFORE delete so we
@@ -1232,7 +1233,7 @@ export class Collection<T> {
     // never-existed record, we use the empty string (which the
     // ledger entry's `payloadHash` field tolerates).
     const previousEnvelope = await this.adapter.get(this.vault, this.name, id)
-    const previousPayloadHash = await envelopePayloadHash(previousEnvelope)
+    const previousPayloadHash = await this.historyStrategy.envelopePayloadHash(previousEnvelope)
 
     await this.adapter.delete(this.vault, this.name, id)
 
@@ -1638,7 +1639,7 @@ export class Collection<T> {
 
   /** Get version history for a record, newest first. */
   async history(id: string, options?: HistoryOptions): Promise<HistoryEntry<T>[]> {
-    const envelopes = await getHistoryEntries(
+    const envelopes = await this.historyStrategy.getHistoryEntries(
       this.adapter, this.vault, this.name, id, options,
     )
 
@@ -1666,7 +1667,7 @@ export class Collection<T> {
    * and re-put the records through the normal `put()` path.
    */
   async getVersion(id: string, version: number): Promise<T | null> {
-    const envelope = await getVersionEnvelope(
+    const envelope = await this.historyStrategy.getVersionEnvelope(
       this.adapter, this.vault, this.name, id, version,
     )
     if (!envelope) return null
@@ -1692,7 +1693,7 @@ export class Collection<T> {
     const recordB = versionB === undefined || versionB === 0
       ? (versionB === 0 ? null : await this.resolveCurrentOrVersion(id))
       : await this.resolveVersion(id, versionB)
-    return computeDiff(recordA, recordB)
+    return this.historyStrategy.diff(recordA, recordB)
   }
 
   /** Resolve a version: try history first, then check if it's the current version. */
@@ -1714,7 +1715,7 @@ export class Collection<T> {
 
   /** Prune history entries for a record (or all records if id is undefined). */
   async pruneRecordHistory(id: string | undefined, options: PruneOptions): Promise<number> {
-    const pruned = await pruneHistoryEntries(
+    const pruned = await this.historyStrategy.pruneHistory(
       this.adapter, this.vault, this.name, id, options,
     )
     if (pruned > 0) {
@@ -1730,7 +1731,7 @@ export class Collection<T> {
 
   /** Clear all history for this collection (or a specific record). */
   async clearHistory(id?: string): Promise<number> {
-    return clearHistory(this.adapter, this.vault, this.name, id)
+    return this.historyStrategy.clearHistory(this.adapter, this.vault, this.name, id)
   }
 
   // ─── Core Methods ─────────────────────────────────────────────

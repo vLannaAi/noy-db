@@ -33,6 +33,7 @@ import type { ConsentStrategy } from './consent/strategy.js'
 import type { PeriodsStrategy } from './periods/strategy.js'
 import type { ShadowStrategy } from './shadow/strategy.js'
 import type { TxStrategy } from './tx/strategy.js'
+import type { HistoryStrategy } from './history/strategy.js'
 
 /** Format version for encrypted record envelopes. */
 export const NOYDB_FORMAT_VERSION = 1 as const
@@ -1391,6 +1392,19 @@ export interface NoydbOptions {
    * @internal
    */
   readonly txStrategy?: TxStrategy
+  /**
+   * v0.25 tree-shake seam — optional history + ledger + time-machine.
+   * Pass `withHistory()` from `@noy-db/hub/history` to enable
+   * per-record version snapshots, the hash-chained audit ledger, JSON
+   * Patch deltas, `vault.ledger()`, `vault.at()`, and the
+   * `collection.history()` / `getVersion()` / `revert()` / `diff()` /
+   * `clearHistory()` / `pruneRecordHistory()` read APIs. When omitted,
+   * snapshots/prune/clear are silent no-ops, the read APIs throw with
+   * a pointer at the subpath, and ~1,880 LOC stay out of the bundle.
+   *
+   * @internal
+   */
+  readonly historyStrategy?: HistoryStrategy
   /** Optional remote store(s) for sync. Accepts a single store, a SyncTarget, or an array. */
   readonly sync?: NoydbStore | SyncTarget | SyncTarget[]
   /** User identifier. */

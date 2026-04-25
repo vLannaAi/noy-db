@@ -26,7 +26,9 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { z } from 'zod'
 import { createNoydb } from '../src/noydb.js'
+import { withHistory } from '../src/history/index.js'
 import type { Noydb } from '../src/noydb.js'
+import { withHistory } from '../src/history/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError, SchemaValidationError } from '../src/errors.js'
 import type { StandardSchemaV1, InferOutput } from '../src/schema.js'
@@ -109,7 +111,7 @@ describe('schema validation — #42', () => {
   beforeEach(async () => {
     db = await createNoydb({
       store: memory(),
-      user: 'alice',
+      user: 'alice', historyStrategy: withHistory(),
       secret: 'test-passphrase-1234',
     })
   })
@@ -283,7 +285,7 @@ describe('schema validation — #42', () => {
     const sharedAdapter = memory()
     const looseDb = await createNoydb({
       store: sharedAdapter,
-      user: 'alice',
+      user: 'alice', historyStrategy: withHistory(),
       secret: 'test-passphrase-1234',
     })
     const looseCompany = await looseDb.openVault('demo-co')
@@ -292,7 +294,7 @@ describe('schema validation — #42', () => {
 
     const strictDb = await createNoydb({
       store: sharedAdapter,
-      user: 'alice',
+      user: 'alice', historyStrategy: withHistory(),
       secret: 'test-passphrase-1234',
     })
     const strictCompany = await strictDb.openVault('demo-co')

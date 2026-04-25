@@ -19,7 +19,9 @@
 
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
+import { withHistory } from '../src/history/index.js'
 import type { Noydb } from '../src/noydb.js'
+import { withHistory } from '../src/history/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError } from '../src/errors.js'
 import {
@@ -163,7 +165,7 @@ describe('strict mode on put — #45', () => {
   beforeEach(async () => {
     db = await createNoydb({
       store: memory(),
-      user: 'alice',
+      user: 'alice', historyStrategy: withHistory(),
       secret: 'test-passphrase-1234',
     })
   })
@@ -258,7 +260,7 @@ describe('strict mode on delete — #45', () => {
   beforeEach(async () => {
     db = await createNoydb({
       store: memory(),
-      user: 'alice',
+      user: 'alice', historyStrategy: withHistory(),
       secret: 'test-passphrase-1234',
     })
   })
@@ -304,7 +306,7 @@ describe('warn mode — #45', () => {
   beforeEach(async () => {
     db = await createNoydb({
       store: memory(),
-      user: 'alice',
+      user: 'alice', historyStrategy: withHistory(),
       secret: 'test-passphrase-1234',
     })
   })
@@ -351,7 +353,7 @@ describe('cascade mode — #45', () => {
   beforeEach(async () => {
     db = await createNoydb({
       store: memory(),
-      user: 'alice',
+      user: 'alice', historyStrategy: withHistory(),
       secret: 'test-passphrase-1234',
     })
   })
@@ -414,7 +416,7 @@ describe('checkIntegrity — #45', () => {
   beforeEach(async () => {
     db = await createNoydb({
       store: memory(),
-      user: 'alice',
+      user: 'alice', historyStrategy: withHistory(),
       secret: 'test-passphrase-1234',
     })
   })

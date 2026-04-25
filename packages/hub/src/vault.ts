@@ -28,8 +28,10 @@ import type { BlobStrategy } from './blobs/strategy.js'
 import type { IndexStrategy } from './indexing/strategy.js'
 import type { AggregateStrategy } from './aggregate/strategy.js'
 import type { CrdtStrategy } from './crdt/strategy.js'
-import { LedgerStore, sha256Hex, LEDGER_COLLECTION, LEDGER_DELTAS_COLLECTION } from './history/ledger/index.js'
-import { VaultInstant } from './history/time-machine.js'
+import type { LedgerStore } from './history/ledger/index.js'
+import { sha256Hex, LEDGER_COLLECTION, LEDGER_DELTAS_COLLECTION } from './history/ledger/index.js'
+import type { VaultInstant } from './history/time-machine.js'
+import { NO_HISTORY, type HistoryStrategy } from './history/strategy.js'
 import type { VaultFrame } from './shadow/vault-frame.js'
 import { NO_SHADOW, type ShadowStrategy } from './shadow/strategy.js'
 import type { ConsentContext, ConsentAuditEntry, ConsentAuditFilter, ConsentOp } from './consent/consent.js'
@@ -107,6 +109,7 @@ export class Vault {
   private readonly consentStrategy: ConsentStrategy
   private readonly periodsStrategy: PeriodsStrategy
   private readonly shadowStrategy: ShadowStrategy
+  private readonly historyStrategy: HistoryStrategy
   private getDEK: (collectionName: string) => Promise<CryptoKey>
 
   /**
@@ -270,6 +273,7 @@ export class Vault {
     consentStrategy?: ConsentStrategy | undefined
     periodsStrategy?: PeriodsStrategy | undefined
     shadowStrategy?: ShadowStrategy | undefined
+    historyStrategy?: HistoryStrategy | undefined
   }) {
     this.adapter = opts.adapter
     this.name = opts.name
@@ -286,6 +290,7 @@ export class Vault {
     this.consentStrategy = opts.consentStrategy ?? NO_CONSENT
     this.periodsStrategy = opts.periodsStrategy ?? NO_PERIODS
     this.shadowStrategy = opts.shadowStrategy ?? NO_SHADOW
+    this.historyStrategy = opts.historyStrategy ?? NO_HISTORY
     this.historyConfig = opts.historyConfig ?? { enabled: true }
     this.reloadKeyring = opts.reloadKeyring
     this.locale = opts.locale
@@ -432,7 +437,8 @@ export class Vault {
         ...(this.indexStrategy !== undefined ? { indexStrategy: this.indexStrategy } : {}),
         ...(this.aggregateStrategy !== undefined ? { aggregateStrategy: this.aggregateStrategy } : {}),
         ...(this.crdtStrategy !== undefined ? { crdtStrategy: this.crdtStrategy } : {}),
-        ledger: this.ledger(),
+        historyStrategy: this.historyStrategy,
+        ledger: this.getLedgerOrNull() ?? undefined,
         refEnforcer: this,
         joinResolver: this,
         defaultLocale: this.locale,
@@ -572,7 +578,7 @@ export class Vault {
         this.keyring,
         this.getDEK,
         this.encrypted,
-        this.ledger(),
+        this.getLedgerOrNull() ?? undefined,
         options,
         // findAndUpdateReferences: rewrite dictKey fields in all
         // registered collections when rename() is called
@@ -1051,8 +1057,27 @@ export class Vault {
    * the full surface and the concurrency caveats.
    */
   ledger(): LedgerStore {
+    const store = this.getLedgerOrNull()
+    if (!store) {
+      throw new Error(
+        'vault.ledger() requires the history strategy. Import ' +
+        '`{ withHistory }` from "@noy-db/hub/history" and pass it to ' +
+        '`createNoydb({ historyStrategy: withHistory() })`.',
+      )
+    }
+    return store
+  }
+
+  /**
+   * Internal accessor — returns the LedgerStore if the history
+   * strategy is opted in, or `null` otherwise. Used by dump/restore/
+   * verifyBackupIntegrity and by Collection write paths that already
+   * gate on `if (this.ledger)`. The public `ledger()` accessor above
+   * throws on null; this one stays silent so the off-path no-ops.
+   */
+  private getLedgerOrNull(): LedgerStore | null {
     if (!this.ledgerStore) {
-      this.ledgerStore = new LedgerStore({
+      this.ledgerStore = this.historyStrategy.buildLedger({
         adapter: this.adapter,
         vault: this.name,
         encrypted: this.encrypted,
@@ -1086,13 +1111,13 @@ export class Vault {
    */
   at(timestamp: string | Date): VaultInstant {
     const iso = timestamp instanceof Date ? timestamp.toISOString() : timestamp
-    return new VaultInstant(
+    return this.historyStrategy.buildVaultInstant(
       {
         adapter: this.adapter,
         name: this.name,
         encrypted: this.encrypted,
         getDEK: this.getDEK,
-        getLedger: () => (this.historyConfig.enabled === false ? null : this.ledger()),
+        getLedger: () => (this.historyConfig.enabled === false ? null : this.getLedgerOrNull()),
       },
       iso,
     )
@@ -1323,7 +1348,7 @@ export class Vault {
       ...(options.dateField !== undefined && { dateField: options.dateField }),
     }
     const envelope = await this._writePeriodRecord(record)
-    await this.periodsStrategy.appendPeriodLedgerEntry(this.ledger(), this.keyring.userId, envelope, record.name)
+    await this.periodsStrategy.appendPeriodLedgerEntry(this.getLedgerOrNull(), this.keyring.userId, envelope, record.name)
     existing.push(record)
     this.periodCache = existing
     return record
@@ -1408,7 +1433,7 @@ export class Vault {
       ...(openingCollections.length > 0 && { openingCollections }),
     }
     const envelope = await this._writePeriodRecord(record)
-    await this.periodsStrategy.appendPeriodLedgerEntry(this.ledger(), this.keyring.userId, envelope, record.name)
+    await this.periodsStrategy.appendPeriodLedgerEntry(this.getLedgerOrNull(), this.keyring.userId, envelope, record.name)
     existing.push(record)
     this.periodCache = existing
     return record
@@ -1615,8 +1640,11 @@ export class Vault {
     // Embed the ledger head if there's a chain. An empty ledger
     // (fresh vault) leaves `ledgerHead` undefined, which
     // load() treats the same as a legacy backup (no integrity
-    // check, console warning).
-    const head = await this.ledger().head()
+    // check, console warning). If history is not opted in,
+    // `getLedgerOrNull` returns null and we skip embedding entirely
+    // — the backup is still valid, just without the integrity head.
+    const ledgerForHead = this.getLedgerOrNull()
+    const head = ledgerForHead ? await ledgerForHead.head() : null
     const backup: VaultBackup = {
       _noydb_backup: NOYDB_BACKUP_VERSION,
       _compartment: this.name,
@@ -1794,8 +1822,14 @@ export class Vault {
         readonly message: string
       }
   > {
-    // Step 1: chain verification.
-    const chainResult = await this.ledger().verify()
+    // Step 1: chain verification. Without the history strategy there
+    // is no ledger; an unaudited backup verifies trivially as `ok`
+    // because there's nothing to diverge from.
+    const ledgerForVerify = this.getLedgerOrNull()
+    if (!ledgerForVerify) {
+      return { ok: true, head: '', length: 0 }
+    }
+    const chainResult = await ledgerForVerify.verify()
     if (!chainResult.ok) {
       return {
         ok: false,
@@ -1813,8 +1847,8 @@ export class Vault {
     // same id are skipped because the data collection only holds the
     // current version — historical envelopes live in the deltas
     // collection (which is itself protected by the chain).
-    const ledger = this.ledger()
-    const allEntries = await ledger.loadAllEntries()
+    // Reuse the ledger we already resolved in step 1.
+    const allEntries = await ledgerForVerify.loadAllEntries()
 
     // Find the latest non-delete entry per (collection, id). Walk
     // the entries in reverse so we hit the latest first; mark each
@@ -1953,7 +1987,9 @@ export class Vault {
     // head genuinely will differ per chunk.
     const ledgerHead = opts.withLedgerHead
       ? await (async () => {
-          const head = await this.ledger().head()
+          const ledger = this.getLedgerOrNull()
+          if (!ledger) return undefined
+          const head = await ledger.head()
           return head
             ? { hash: head.hash, index: head.entry.index, ts: head.entry.ts }
             : undefined

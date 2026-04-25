@@ -2,7 +2,9 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
+import { withHistory } from '../src/history/index.js'
 import type { Noydb } from '../src/noydb.js'
+import { withHistory } from '../src/history/index.js'
 
 function persistentMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -42,7 +44,7 @@ describe('audit history', () => {
     adapter = persistentMemory()
     db = await createNoydb({
       store: adapter,
-      user: 'owner-01',
+      user: 'owner-01', historyStrategy: withHistory(),
       encrypt: false,
       history: { enabled: true },
     })
@@ -257,7 +259,7 @@ describe('audit history', () => {
     it('auto-prune when maxVersions is configured', async () => {
       const dbCapped = await createNoydb({
         store: persistentMemory(),
-        user: 'owner',
+        user: 'owner', historyStrategy: withHistory(),
         encrypt: false,
         history: { enabled: true, maxVersions: 3 },
       })
@@ -278,7 +280,7 @@ describe('audit history', () => {
     it('no history is saved when disabled', async () => {
       const dbNoHistory = await createNoydb({
         store: persistentMemory(),
-        user: 'owner',
+        user: 'owner', historyStrategy: withHistory(),
         encrypt: false,
         history: { enabled: false },
       })
@@ -298,7 +300,7 @@ describe('audit history', () => {
     it('history works with encrypted records', async () => {
       const encDb = await createNoydb({
         store: persistentMemory(),
-        user: 'owner-enc',
+        user: 'owner-enc', historyStrategy: withHistory(),
         secret: 'test-passphrase',
         history: { enabled: true },
       })

@@ -250,6 +250,7 @@ export class Noydb {
       ...(this.options.consentStrategy !== undefined ? { consentStrategy: this.options.consentStrategy } : {}),
       ...(this.options.periodsStrategy !== undefined ? { periodsStrategy: this.options.periodsStrategy } : {}),
       ...(this.options.shadowStrategy !== undefined ? { shadowStrategy: this.options.shadowStrategy } : {}),
+      ...(this.options.historyStrategy !== undefined ? { historyStrategy: this.options.historyStrategy } : {}),
       locale: opts?.locale,
       // Thread the translator hook so Collection.put() can invoke it (v0.8 #83)
       plaintextTranslator: this.options.plaintextTranslator
@@ -306,6 +307,7 @@ export class Noydb {
       ...(this.options.consentStrategy !== undefined ? { consentStrategy: this.options.consentStrategy } : {}),
       ...(this.options.periodsStrategy !== undefined ? { periodsStrategy: this.options.periodsStrategy } : {}),
       ...(this.options.shadowStrategy !== undefined ? { shadowStrategy: this.options.shadowStrategy } : {}),
+      ...(this.options.historyStrategy !== undefined ? { historyStrategy: this.options.historyStrategy } : {}),
       })
       this.vaultCache.set(name, comp)
       return comp
@@ -331,6 +333,7 @@ export class Noydb {
       ...(this.options.consentStrategy !== undefined ? { consentStrategy: this.options.consentStrategy } : {}),
       ...(this.options.periodsStrategy !== undefined ? { periodsStrategy: this.options.periodsStrategy } : {}),
       ...(this.options.shadowStrategy !== undefined ? { shadowStrategy: this.options.shadowStrategy } : {}),
+      ...(this.options.historyStrategy !== undefined ? { historyStrategy: this.options.historyStrategy } : {}),
       emitter: this.emitter,
     })
     this.vaultCache.set(name, comp)

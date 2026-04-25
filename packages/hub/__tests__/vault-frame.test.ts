@@ -13,8 +13,10 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError, ReadOnlyFrameError, createNoydb } from '../src/index.js'
+import { withHistory } from '../src/history/index.js'
 import { withShadow } from '../src/shadow/index.js'
 import type { Noydb } from '../src/index.js'
+import { withHistory } from '../src/history/index.js'
 
 function memoryStore(): NoydbStore {
   const data = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -55,7 +57,7 @@ describe('vault.frame() — read-only shadow view', () => {
   beforeEach(async () => {
     db = await createNoydb({
       store: memoryStore(),
-      user: 'owner',
+      user: 'owner', historyStrategy: withHistory(),
       encrypt: false,
       shadowStrategy: withShadow(),
     })
