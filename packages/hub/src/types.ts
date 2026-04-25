@@ -35,6 +35,7 @@ import type { ShadowStrategy } from './shadow/strategy.js'
 import type { TxStrategy } from './tx/strategy.js'
 import type { HistoryStrategy } from './history/strategy.js'
 import type { I18nStrategy } from './i18n/strategy.js'
+import type { SessionStrategy } from './session/strategy.js'
 
 /** Format version for encrypted record envelopes. */
 export const NOYDB_FORMAT_VERSION = 1 as const
@@ -1418,6 +1419,18 @@ export interface NoydbOptions {
    * @internal
    */
   readonly i18nStrategy?: I18nStrategy
+  /**
+   * v0.25 tree-shake seam — optional session-policy strategy. Pass
+   * `withSession()` from `@noy-db/hub/session` to enable
+   * `sessionPolicy` validation, `PolicyEnforcer` lifecycle (idle /
+   * absolute timeouts, lockOnBackground), and global session-token
+   * revocation. When omitted, setting `sessionPolicy` throws at
+   * `createNoydb()` time, and ~495 LOC of policy + token machinery
+   * stay out of the bundle.
+   *
+   * @internal
+   */
+  readonly sessionStrategy?: SessionStrategy
   /** Optional remote store(s) for sync. Accepts a single store, a SyncTarget, or an array. */
   readonly sync?: NoydbStore | SyncTarget | SyncTarget[]
   /** User identifier. */

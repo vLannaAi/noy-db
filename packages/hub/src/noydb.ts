@@ -37,9 +37,8 @@ import { SyncTransaction } from './team/sync-transaction.js'
 import type { TxContext } from './tx/transaction.js'
 import { NO_TX, type TxStrategy } from './tx/strategy.js'
 import { INDEXED_STORE_POLICY } from './store/sync-policy.js'
-import { revokeAllSessions } from './session/session.js'
-import { createEnforcer, validateSessionPolicy } from './session/session-policy.js'
 import type { PolicyEnforcer } from './session/session-policy.js'
+import { NO_SESSION, type SessionStrategy } from './session/strategy.js'
 
 /**
  * Privilege rank used by `listAccessibleVaults({ minRole })` to
@@ -82,6 +81,7 @@ export class Noydb {
   /** Per-vault policy enforcers (v0.7 #114). */
   private readonly policyEnforcers = new Map<string, PolicyEnforcer>()
   private readonly txStrategy: TxStrategy
+  private readonly sessionStrategy: SessionStrategy
 
   // ─── plaintextTranslator state (v0.8 #83) ─────────────────────────
   /**
@@ -95,9 +95,12 @@ export class Noydb {
   constructor(options: NoydbOptions) {
     this.options = options
     this.txStrategy = options.txStrategy ?? NO_TX
-    // Validate sessionPolicy at construction time (developer error if invalid)
+    this.sessionStrategy = options.sessionStrategy ?? NO_SESSION
+    // Validate sessionPolicy at construction time (developer error if invalid).
+    // The strategy's stub throws with a pointer at the subpath if the
+    // consumer set a policy without opting in.
     if (options.sessionPolicy) {
-      validateSessionPolicy(options.sessionPolicy)
+      this.sessionStrategy.validateSessionPolicy(options.sessionPolicy)
     }
     this.resetSessionTimer()
   }
@@ -126,7 +129,7 @@ export class Noydb {
     // Tear down any previous enforcer for this vault
     this.policyEnforcers.get(vault)?.destroy()
 
-    const enforcer = createEnforcer({
+    const enforcer = this.sessionStrategy.createEnforcer({
       policy,
       sessionId,
       onRevoke: (_reason) => {
@@ -784,7 +787,7 @@ export class Noydb {
     }
     this.policyEnforcers.clear()
     // Revoke all in-memory session keys (v0.7 #109)
-    revokeAllSessions()
+    this.sessionStrategy.revokeAllSessions()
     // Stop all sync engines
     for (const engine of this.syncEngines.values()) {
       engine.stopAutoSync()

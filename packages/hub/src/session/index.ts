@@ -43,3 +43,7 @@ export type { DevUnlockOptions } from './dev-unlock.js'
 
 // Magic-link extracted to @noy-db/on-magic-link in v0.15.1.
 // `import { ... } from '@noy-db/on-magic-link'`
+
+// ─── Strategy seam (v0.25 #285) ─────────────────────────────────────
+export { withSession } from './active.js'
+export type { SessionStrategy } from './strategy.js'
