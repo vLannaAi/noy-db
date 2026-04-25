@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
+import { withSync } from '../src/sync/index.js'
 import { SyncTransaction } from '../src/team/sync-transaction.js'
 
 // ─── Inline memory adapter ─────────────────────────────────────────────────
@@ -42,7 +43,7 @@ describe('SyncTransaction (v0.9 #135)', () => {
   it('db.transaction() returns a SyncTransaction instance', async () => {
     const local = inlineMemory()
     const remote = inlineMemory()
-    const db = await createNoydb({ store: local, sync: remote, user: 'u', encrypt: false })
+    const db = await createNoydb({ store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false })
     await db.openVault(COMP)
 
     const tx = db.transaction(COMP)
@@ -52,14 +53,14 @@ describe('SyncTransaction (v0.9 #135)', () => {
   it('throws if vault is not open', async () => {
     const local = inlineMemory()
     const remote = inlineMemory()
-    const db = await createNoydb({ store: local, sync: remote, user: 'u', encrypt: false })
+    const db = await createNoydb({ store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false })
 
     expect(() => db.transaction(COMP)).toThrow(/not open/)
   })
 
   it('throws if no sync adapter is configured', async () => {
     const local = inlineMemory()
-    const db = await createNoydb({ store: local, user: 'u', encrypt: false })
+    const db = await createNoydb({ store: local, user: 'u', syncStrategy: withSync(), encrypt: false })
     await db.openVault(COMP)
 
     expect(() => db.transaction(COMP)).toThrow(/No sync adapter/)
@@ -68,7 +69,7 @@ describe('SyncTransaction (v0.9 #135)', () => {
   it('stages puts and commits them atomically', async () => {
     const local = inlineMemory()
     const remote = inlineMemory()
-    const db = await createNoydb({ store: local, sync: remote, user: 'u', encrypt: false })
+    const db = await createNoydb({ store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false })
     await db.openVault(COMP)
 
     const tx = db.transaction(COMP)
@@ -89,7 +90,7 @@ describe('SyncTransaction (v0.9 #135)', () => {
   it('stages deletes and commits them', async () => {
     const local = inlineMemory()
     const remote = inlineMemory()
-    const db = await createNoydb({ store: local, sync: remote, user: 'u', encrypt: false })
+    const db = await createNoydb({ store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false })
     const comp = await db.openVault(COMP)
 
     // Seed a record
@@ -107,7 +108,7 @@ describe('SyncTransaction (v0.9 #135)', () => {
   it('is chainable: put().put().delete()', async () => {
     const local = inlineMemory()
     const remote = inlineMemory()
-    const db = await createNoydb({ store: local, sync: remote, user: 'u', encrypt: false })
+    const db = await createNoydb({ store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false })
     await db.openVault(COMP)
 
     const result = await db.transaction(COMP)
@@ -121,7 +122,7 @@ describe('SyncTransaction (v0.9 #135)', () => {
   it('reports conflict status when push conflicts', async () => {
     const local = inlineMemory()
     const remote = inlineMemory()
-    const db = await createNoydb({ store: local, sync: remote, user: 'u', encrypt: false })
+    const db = await createNoydb({ store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false })
     await db.openVault(COMP)
 
     // Pre-seed remote with a higher version to cause a conflict
@@ -140,7 +141,7 @@ describe('SyncTransaction (v0.9 #135)', () => {
   it('does not push records outside the transaction', async () => {
     const local = inlineMemory()
     const remote = inlineMemory()
-    const db = await createNoydb({ store: local, sync: remote, user: 'u', encrypt: false })
+    const db = await createNoydb({ store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false })
     const comp = await db.openVault(COMP)
 
     // Dirty record outside the transaction

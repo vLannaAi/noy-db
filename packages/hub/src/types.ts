@@ -36,6 +36,7 @@ import type { TxStrategy } from './tx/strategy.js'
 import type { HistoryStrategy } from './history/strategy.js'
 import type { I18nStrategy } from './i18n/strategy.js'
 import type { SessionStrategy } from './session/strategy.js'
+import type { SyncStrategy } from './team/sync-strategy.js'
 
 /** Format version for encrypted record envelopes. */
 export const NOYDB_FORMAT_VERSION = 1 as const
@@ -1431,6 +1432,19 @@ export interface NoydbOptions {
    * @internal
    */
   readonly sessionStrategy?: SessionStrategy
+  /**
+   * v0.25 tree-shake seam — optional sync engine + presence strategy.
+   * Pass `withSync()` from `@noy-db/hub/sync` to enable
+   * `db.push()` / `pull()` / replication, `db.transaction(vault)`
+   * for sync-aware transactions, and `collection.presence()`. When
+   * omitted, configuring `sync` / calling these surfaces throws with
+   * a pointer at the subpath, and ~856 LOC of replication + presence
+   * machinery stay out of the bundle. Keyring stays core; grant/
+   * revoke/magic-link/delegation tree-shake via direct imports.
+   *
+   * @internal
+   */
+  readonly syncStrategy?: SyncStrategy
   /** Optional remote store(s) for sync. Accepts a single store, a SyncTarget, or an array. */
   readonly sync?: NoydbStore | SyncTarget | SyncTarget[]
   /** User identifier. */

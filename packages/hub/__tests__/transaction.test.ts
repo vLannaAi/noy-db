@@ -15,8 +15,10 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { memory } from '../../to-memory/src/index.js'
 import type { ChangeEvent } from '../src/types.js'
 import { ConflictError, createNoydb, SyncTransaction } from '../src/index.js'
+import { withSync } from '../src/sync/index.js'
 import { withTransactions } from '../src/tx/index.js'
 import type { Noydb } from '../src/index.js'
+import { withSync } from '../src/sync/index.js'
 
 interface Invoice { amount: number; status: string }
 interface Payment { invoiceId: string; amount: number; paidAt: string }
@@ -27,7 +29,7 @@ describe('db.transaction(fn) — multi-record atomic writes', () => {
   beforeEach(async () => {
     db = await createNoydb({
       store: memory(),
-      user: 'owner',
+      user: 'owner', syncStrategy: withSync(),
       encrypt: false,
       txStrategy: withTransactions(),
     })
@@ -186,7 +188,7 @@ describe('db.transaction(fn) — multi-record atomic writes', () => {
     const db2 = await createNoydb({
       store: memory(),
       sync: memory(),
-      user: 'owner',
+      user: 'owner', syncStrategy: withSync(),
       encrypt: false,
       txStrategy: withTransactions(),
     })

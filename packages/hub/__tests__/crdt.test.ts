@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
+import { withSync } from '../src/sync/index.js'
 import type { LwwMapState, RgaState } from '../src/crdt/crdt.js'
 import { withCrdt } from '../src/crdt/index.js'
 
@@ -43,7 +44,7 @@ interface Note { title: string; body: string; priority: number }
 describe('CRDT mode (v0.9 #132)', () => {
   describe('lww-map', () => {
     it('get() returns the resolved snapshot, not the CRDT state', async () => {
-      const db = await createNoydb({ store: inlineMemory(), user: 'u', encrypt: false, crdtStrategy: withCrdt() })
+      const db = await createNoydb({ store: inlineMemory(), user: 'u', syncStrategy: withSync(), encrypt: false, crdtStrategy: withCrdt() })
       const comp = await db.openVault(COMP)
       const notes = comp.collection<Note>('notes', { crdt: 'lww-map' })
 
@@ -54,7 +55,7 @@ describe('CRDT mode (v0.9 #132)', () => {
     })
 
     it('getRaw() returns the LwwMapState', async () => {
-      const db = await createNoydb({ store: inlineMemory(), user: 'u', encrypt: false, crdtStrategy: withCrdt() })
+      const db = await createNoydb({ store: inlineMemory(), user: 'u', syncStrategy: withSync(), encrypt: false, crdtStrategy: withCrdt() })
       const comp = await db.openVault(COMP)
       const notes = comp.collection<Note>('notes', { crdt: 'lww-map' })
 
@@ -69,7 +70,7 @@ describe('CRDT mode (v0.9 #132)', () => {
     })
 
     it('getRaw() returns null for non-existent record', async () => {
-      const db = await createNoydb({ store: inlineMemory(), user: 'u', encrypt: false, crdtStrategy: withCrdt() })
+      const db = await createNoydb({ store: inlineMemory(), user: 'u', syncStrategy: withSync(), encrypt: false, crdtStrategy: withCrdt() })
       const comp = await db.openVault(COMP)
       const notes = comp.collection<Note>('notes', { crdt: 'lww-map' })
 
@@ -77,7 +78,7 @@ describe('CRDT mode (v0.9 #132)', () => {
     })
 
     it('getRaw() throws on non-CRDT collection', async () => {
-      const db = await createNoydb({ store: inlineMemory(), user: 'u', encrypt: false, crdtStrategy: withCrdt() })
+      const db = await createNoydb({ store: inlineMemory(), user: 'u', syncStrategy: withSync(), encrypt: false, crdtStrategy: withCrdt() })
       const comp = await db.openVault(COMP)
       const plain = comp.collection<Note>('plain')
 
@@ -85,7 +86,7 @@ describe('CRDT mode (v0.9 #132)', () => {
     })
 
     it('preserves fields from existing state that are absent from new record', async () => {
-      const db = await createNoydb({ store: inlineMemory(), user: 'u', encrypt: false, crdtStrategy: withCrdt() })
+      const db = await createNoydb({ store: inlineMemory(), user: 'u', syncStrategy: withSync(), encrypt: false, crdtStrategy: withCrdt() })
       const comp = await db.openVault(COMP)
       const notes = comp.collection<Note>('notes', { crdt: 'lww-map' })
 
@@ -103,8 +104,8 @@ describe('CRDT mode (v0.9 #132)', () => {
       const local = inlineMemory()
       const remote = inlineMemory()
 
-      const dbA = await createNoydb({ store: local, sync: remote, user: 'a', encrypt: false, crdtStrategy: withCrdt() })
-      const dbB = await createNoydb({ store: remote, user: 'b', encrypt: false, crdtStrategy: withCrdt() })
+      const dbA = await createNoydb({ store: local, sync: remote, user: 'a', syncStrategy: withSync(), encrypt: false, crdtStrategy: withCrdt() })
+      const dbB = await createNoydb({ store: remote, user: 'b', syncStrategy: withSync(), encrypt: false, crdtStrategy: withCrdt() })
 
       const compA = await dbA.openVault(COMP)
       const notesA = compA.collection<Note>('notes', { crdt: 'lww-map' })
@@ -132,7 +133,7 @@ describe('CRDT mode (v0.9 #132)', () => {
     })
 
     it('list() returns resolved snapshots', async () => {
-      const db = await createNoydb({ store: inlineMemory(), user: 'u', encrypt: false, crdtStrategy: withCrdt() })
+      const db = await createNoydb({ store: inlineMemory(), user: 'u', syncStrategy: withSync(), encrypt: false, crdtStrategy: withCrdt() })
       const comp = await db.openVault(COMP)
       const notes = comp.collection<Note>('notes', { crdt: 'lww-map' })
 
@@ -149,7 +150,7 @@ describe('CRDT mode (v0.9 #132)', () => {
 
   describe('rga', () => {
     it('get() returns the resolved array snapshot', async () => {
-      const db = await createNoydb({ store: inlineMemory(), user: 'u', encrypt: false, crdtStrategy: withCrdt() })
+      const db = await createNoydb({ store: inlineMemory(), user: 'u', syncStrategy: withSync(), encrypt: false, crdtStrategy: withCrdt() })
       const comp = await db.openVault(COMP)
       const tags = comp.collection<string[]>('tags', { crdt: 'rga' })
 
@@ -159,7 +160,7 @@ describe('CRDT mode (v0.9 #132)', () => {
     })
 
     it('getRaw() returns the RgaState with nids', async () => {
-      const db = await createNoydb({ store: inlineMemory(), user: 'u', encrypt: false, crdtStrategy: withCrdt() })
+      const db = await createNoydb({ store: inlineMemory(), user: 'u', syncStrategy: withSync(), encrypt: false, crdtStrategy: withCrdt() })
       const comp = await db.openVault(COMP)
       const tags = comp.collection<string[]>('tags', { crdt: 'rga' })
 
@@ -174,7 +175,7 @@ describe('CRDT mode (v0.9 #132)', () => {
     })
 
     it('removing an element tombstones it', async () => {
-      const db = await createNoydb({ store: inlineMemory(), user: 'u', encrypt: false, crdtStrategy: withCrdt() })
+      const db = await createNoydb({ store: inlineMemory(), user: 'u', syncStrategy: withSync(), encrypt: false, crdtStrategy: withCrdt() })
       const comp = await db.openVault(COMP)
       const tags = comp.collection<string[]>('tags', { crdt: 'rga' })
 
@@ -191,7 +192,7 @@ describe('CRDT mode (v0.9 #132)', () => {
     })
 
     it('stable NID reuse: re-inserting same element reuses existing NID', async () => {
-      const db = await createNoydb({ store: inlineMemory(), user: 'u', encrypt: false, crdtStrategy: withCrdt() })
+      const db = await createNoydb({ store: inlineMemory(), user: 'u', syncStrategy: withSync(), encrypt: false, crdtStrategy: withCrdt() })
       const comp = await db.openVault(COMP)
       const tags = comp.collection<string[]>('tags', { crdt: 'rga' })
 
@@ -209,8 +210,8 @@ describe('CRDT mode (v0.9 #132)', () => {
       const local = inlineMemory()
       const remote = inlineMemory()
 
-      const dbA = await createNoydb({ store: local, sync: remote, user: 'a', encrypt: false, crdtStrategy: withCrdt() })
-      const dbB = await createNoydb({ store: remote, user: 'b', encrypt: false, crdtStrategy: withCrdt() })
+      const dbA = await createNoydb({ store: local, sync: remote, user: 'a', syncStrategy: withSync(), encrypt: false, crdtStrategy: withCrdt() })
+      const dbB = await createNoydb({ store: remote, user: 'b', syncStrategy: withSync(), encrypt: false, crdtStrategy: withCrdt() })
 
       const compA = await dbA.openVault(COMP)
       const tagsA = compA.collection<string[]>('tags', { crdt: 'rga' })
@@ -236,7 +237,7 @@ describe('CRDT mode (v0.9 #132)', () => {
 
   describe('yjs', () => {
     it('stores and retrieves a base64 update blob', async () => {
-      const db = await createNoydb({ store: inlineMemory(), user: 'u', encrypt: false, crdtStrategy: withCrdt() })
+      const db = await createNoydb({ store: inlineMemory(), user: 'u', syncStrategy: withSync(), encrypt: false, crdtStrategy: withCrdt() })
       const comp = await db.openVault(COMP)
       // T is treated as string (base64 blob) for yjs collections
       const docs = comp.collection<string>('docs', { crdt: 'yjs' })
@@ -250,7 +251,7 @@ describe('CRDT mode (v0.9 #132)', () => {
     })
 
     it('getRaw() returns the YjsState with the update blob', async () => {
-      const db = await createNoydb({ store: inlineMemory(), user: 'u', encrypt: false, crdtStrategy: withCrdt() })
+      const db = await createNoydb({ store: inlineMemory(), user: 'u', syncStrategy: withSync(), encrypt: false, crdtStrategy: withCrdt() })
       const comp = await db.openVault(COMP)
       const docs = comp.collection<string>('docs', { crdt: 'yjs' })
 

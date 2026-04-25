@@ -175,6 +175,16 @@
         "types": "./dist/tx/index.d.cts",
         "default": "./dist/tx/index.cjs"
       }
+    },
+    "./sync": {
+      "import": {
+        "types": "./dist/sync/index.d.ts",
+        "default": "./dist/sync/index.js"
+      },
+      "require": {
+        "types": "./dist/sync/index.d.cts",
+        "default": "./dist/sync/index.cjs"
+      }
     }
   },
   "main": "./dist/index.cjs",

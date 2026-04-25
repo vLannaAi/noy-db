@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, Conflict } from '../src/types.js'
 import { ConflictError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
+import { withSync } from '../src/sync/index.js'
 
 // ─── Inline memory adapter (same as sync.test.ts) ─────────────────────────
 
@@ -63,7 +64,7 @@ describe('conflictPolicy (v0.9 #131)', () => {
       const local = inlineMemory()
       const remote = inlineMemory()
 
-      const db = await createNoydb({ store: local, sync: remote, user: 'u', encrypt: false })
+      const db = await createNoydb({ store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false })
       const comp = await db.openVault(COMP)
 
       // Local write (lower _ts will win if we control it)
@@ -91,7 +92,7 @@ describe('conflictPolicy (v0.9 #131)', () => {
       const local = inlineMemory()
       const remote = inlineMemory()
 
-      const db = await createNoydb({ store: local, sync: remote, user: 'u', encrypt: false })
+      const db = await createNoydb({ store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false })
       const comp = await db.openVault(COMP)
       await comp.collection<Note>('notes', { conflictPolicy: 'last-writer-wins' })
         .put('note-1', { title: 'local', body: '' })
@@ -114,7 +115,7 @@ describe('conflictPolicy (v0.9 #131)', () => {
       const local = inlineMemory()
       const remote = inlineMemory()
 
-      const db = await createNoydb({ store: local, sync: remote, user: 'u', encrypt: false })
+      const db = await createNoydb({ store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false })
       const comp = await db.openVault(COMP)
 
       // Local write → _v = 1
@@ -138,7 +139,7 @@ describe('conflictPolicy (v0.9 #131)', () => {
       const local = inlineMemory()
       const remote = inlineMemory()
 
-      const db = await createNoydb({ store: local, sync: remote, user: 'u', encrypt: false })
+      const db = await createNoydb({ store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false })
       const comp = await db.openVault(COMP)
       await comp.collection<Note>('notes', { conflictPolicy: 'manual' })
         .put('note-1', { title: 'local', body: '' })
@@ -159,7 +160,7 @@ describe('conflictPolicy (v0.9 #131)', () => {
       const local = inlineMemory()
       const remote = inlineMemory()
 
-      const db = await createNoydb({ store: local, sync: remote, user: 'u', encrypt: false })
+      const db = await createNoydb({ store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false })
       const comp = await db.openVault(COMP)
       await comp.collection<Note>('notes', { conflictPolicy: 'manual' })
         .put('note-1', { title: 'local', body: '' })
@@ -184,7 +185,7 @@ describe('conflictPolicy (v0.9 #131)', () => {
       const local = inlineMemory()
       const remote = inlineMemory()
 
-      const db = await createNoydb({ store: local, sync: remote, user: 'u', encrypt: false })
+      const db = await createNoydb({ store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false })
       const comp = await db.openVault(COMP)
       await comp.collection<Note>('notes', { conflictPolicy: 'manual' })
         .put('note-1', { title: 'original', body: '' })
@@ -208,7 +209,7 @@ describe('conflictPolicy (v0.9 #131)', () => {
       const local = inlineMemory()
       const remote = inlineMemory()
 
-      const db = await createNoydb({ store: local, sync: remote, user: 'u', encrypt: false })
+      const db = await createNoydb({ store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false })
       const comp = await db.openVault(COMP)
       await comp.collection<Note>('notes', { conflictPolicy: 'manual' })
         .put('note-1', { title: 'local', body: '' })
@@ -231,7 +232,7 @@ describe('conflictPolicy (v0.9 #131)', () => {
       const local = inlineMemory()
       const remote = inlineMemory()
 
-      const db = await createNoydb({ store: local, sync: remote, user: 'u', encrypt: false })
+      const db = await createNoydb({ store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false })
       const comp = await db.openVault(COMP)
 
       // Merge fn: combine both bodies
@@ -258,7 +259,7 @@ describe('conflictPolicy (v0.9 #131)', () => {
       const local = inlineMemory()
       const remote = inlineMemory()
 
-      const db = await createNoydb({ store: local, sync: remote, user: 'u', encrypt: false })
+      const db = await createNoydb({ store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false })
       const comp = await db.openVault(COMP)
       await comp.collection<Note>('notes', {
         conflictPolicy: (l, r) => ({ title: l.title + '+' + r.title, body: '' }),
@@ -280,7 +281,7 @@ describe('conflictPolicy (v0.9 #131)', () => {
       const remote = inlineMemory()
 
       // db-level strategy is 'remote-wins'
-      const db = await createNoydb({ store: local, sync: remote, user: 'u', encrypt: false, conflict: 'remote-wins' })
+      const db = await createNoydb({ store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false, conflict: 'remote-wins' })
       const comp = await db.openVault(COMP)
 
       // Collection WITHOUT conflictPolicy — uses db-level strategy

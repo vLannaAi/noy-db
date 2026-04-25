@@ -2,7 +2,9 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, PushResult, PullResult, Conflict } from '../src/types.js'
 import { ConflictError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
+import { withSync } from '../src/sync/index.js'
 import type { Noydb } from '../src/noydb.js'
+import { withSync } from '../src/sync/index.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -48,8 +50,8 @@ describe('sync engine', () => {
       localB = inlineMemory()
       remote = inlineMemory()
 
-      dbA = await createNoydb({ store: localA, sync: remote, user: 'user-a', encrypt: false })
-      dbB = await createNoydb({ store: localB, sync: remote, user: 'user-b', encrypt: false })
+      dbA = await createNoydb({ store: localA, sync: remote, user: 'user-a', syncStrategy: withSync(), encrypt: false })
+      dbB = await createNoydb({ store: localB, sync: remote, user: 'user-b', syncStrategy: withSync(), encrypt: false })
     })
 
     it('A writes, pushes; B pulls, sees the record', async () => {
@@ -157,14 +159,14 @@ describe('sync engine', () => {
     })
 
     it('syncStatus returns correct state when no sync configured', async () => {
-      const noSyncDb = await createNoydb({ store: inlineMemory(), user: 'u', encrypt: false })
+      const noSyncDb = await createNoydb({ store: inlineMemory(), user: 'u', syncStrategy: withSync(), encrypt: false })
       const status = noSyncDb.syncStatus('any')
       expect(status.dirty).toBe(0)
       expect(status.online).toBe(true)
     })
 
     it('push without sync adapter throws', async () => {
-      const noSyncDb = await createNoydb({ store: inlineMemory(), user: 'u', encrypt: false })
+      const noSyncDb = await createNoydb({ store: inlineMemory(), user: 'u', syncStrategy: withSync(), encrypt: false })
       await expect(noSyncDb.push('any')).rejects.toThrow('No sync adapter')
     })
   })
@@ -182,7 +184,7 @@ describe('sync engine', () => {
       await localAdapter.put(COMP, 'invoices', 'inv-1', localEnv)
 
       const db = await createNoydb({
-        store: localAdapter, sync: remoteAdapter, user: 'u', encrypt: false,
+        store: localAdapter, sync: remoteAdapter, user: 'u', syncStrategy: withSync(), encrypt: false,
         conflict: 'version',
       })
       await db.openVault(COMP)
@@ -201,7 +203,7 @@ describe('sync engine', () => {
       const remote = inlineMemory()
 
       const db = await createNoydb({
-        store: local, sync: remote, user: 'u', encrypt: false,
+        store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false,
         conflict: 'local-wins',
       })
 
@@ -228,7 +230,7 @@ describe('sync engine', () => {
       const remote = inlineMemory()
 
       const db = await createNoydb({
-        store: local, sync: remote, user: 'u', encrypt: false,
+        store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false,
         conflict: 'remote-wins',
       })
 
@@ -252,7 +254,7 @@ describe('sync engine', () => {
       const conflictsSeen: Conflict[] = []
 
       const db = await createNoydb({
-        store: local, sync: remote, user: 'u', encrypt: false,
+        store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false,
         conflict: (conflict) => {
           conflictsSeen.push(conflict)
           return 'remote'
@@ -275,7 +277,7 @@ describe('sync engine', () => {
     it('push preserves _iv and _data byte-for-byte — sync does not re-serialise ciphertext', async () => {
       const local = inlineMemory()
       const remote = inlineMemory()
-      const db = await createNoydb({ store: local, sync: remote, user: 'alice', secret: 'hunter2' })
+      const db = await createNoydb({ store: local, sync: remote, user: 'alice', syncStrategy: withSync(), secret: 'hunter2' })
       const vault = await db.openVault(COMP)
 
       await vault.collection<Invoice>('invoices').put('inv-001', { amount: 5000, status: 'paid' })

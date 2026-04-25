@@ -32,8 +32,9 @@ import {
   listUsers as keyringListUsers,
 } from './team/keyring.js'
 import type { UnlockedKeyring } from './team/keyring.js'
-import { SyncEngine } from './team/sync.js'
-import { SyncTransaction } from './team/sync-transaction.js'
+import type { SyncEngine } from './team/sync.js'
+import type { SyncTransaction } from './team/sync-transaction.js'
+import { NO_SYNC, type SyncStrategy } from './team/sync-strategy.js'
 import type { TxContext } from './tx/transaction.js'
 import { NO_TX, type TxStrategy } from './tx/strategy.js'
 import { INDEXED_STORE_POLICY } from './store/sync-policy.js'
@@ -82,6 +83,7 @@ export class Noydb {
   private readonly policyEnforcers = new Map<string, PolicyEnforcer>()
   private readonly txStrategy: TxStrategy
   private readonly sessionStrategy: SessionStrategy
+  private readonly syncStrategy: SyncStrategy
 
   // ─── plaintextTranslator state (v0.8 #83) ─────────────────────────
   /**
@@ -96,6 +98,7 @@ export class Noydb {
     this.options = options
     this.txStrategy = options.txStrategy ?? NO_TX
     this.sessionStrategy = options.sessionStrategy ?? NO_SESSION
+    this.syncStrategy = options.syncStrategy ?? NO_SYNC
     // Validate sessionPolicy at construction time (developer error if invalid).
     // The strategy's stub throws with a pointer at the subpath if the
     // consumer set a policy without opting in.
@@ -194,7 +197,7 @@ export class Noydb {
       // Primary sync engine is the first sync-peer (or first target if none)
       const primary = targets.find(t => t.role === 'sync-peer') ?? targets[0]!
       const effectivePolicy = this.options.syncPolicy ?? primary.policy ?? INDEXED_STORE_POLICY
-      syncEngine = new SyncEngine({
+      syncEngine = this.syncStrategy.buildSyncEngine({
         local: this.options.store,
         remote: primary.store,
         vault: name,
@@ -210,7 +213,7 @@ export class Noydb {
       for (const target of targets) {
         if (target === primary) continue
         const targetPolicy = target.policy ?? this.options.syncPolicy ?? INDEXED_STORE_POLICY
-        const engine = new SyncEngine({
+        const engine = this.syncStrategy.buildSyncEngine({
           local: this.options.store,
           remote: target.store,
           vault: name,
@@ -255,6 +258,7 @@ export class Noydb {
       ...(this.options.shadowStrategy !== undefined ? { shadowStrategy: this.options.shadowStrategy } : {}),
       ...(this.options.historyStrategy !== undefined ? { historyStrategy: this.options.historyStrategy } : {}),
       ...(this.options.i18nStrategy !== undefined ? { i18nStrategy: this.options.i18nStrategy } : {}),
+      ...(this.options.syncStrategy !== undefined ? { syncStrategy: this.options.syncStrategy } : {}),
       locale: opts?.locale,
       // Thread the translator hook so Collection.put() can invoke it (v0.8 #83)
       plaintextTranslator: this.options.plaintextTranslator
@@ -313,6 +317,7 @@ export class Noydb {
       ...(this.options.shadowStrategy !== undefined ? { shadowStrategy: this.options.shadowStrategy } : {}),
       ...(this.options.historyStrategy !== undefined ? { historyStrategy: this.options.historyStrategy } : {}),
       ...(this.options.i18nStrategy !== undefined ? { i18nStrategy: this.options.i18nStrategy } : {}),
+      ...(this.options.syncStrategy !== undefined ? { syncStrategy: this.options.syncStrategy } : {}),
       })
       this.vaultCache.set(name, comp)
       return comp
@@ -340,6 +345,7 @@ export class Noydb {
       ...(this.options.shadowStrategy !== undefined ? { shadowStrategy: this.options.shadowStrategy } : {}),
       ...(this.options.historyStrategy !== undefined ? { historyStrategy: this.options.historyStrategy } : {}),
       ...(this.options.i18nStrategy !== undefined ? { i18nStrategy: this.options.i18nStrategy } : {}),
+      ...(this.options.syncStrategy !== undefined ? { syncStrategy: this.options.syncStrategy } : {}),
       emitter: this.emitter,
     })
     this.vaultCache.set(name, comp)
@@ -734,7 +740,7 @@ export class Noydb {
       )
     }
     const engine = this.getSyncEngine(vault)
-    return new SyncTransaction(comp, engine)
+    return this.syncStrategy.buildSyncTransaction(comp, engine)
   }
 
   /**

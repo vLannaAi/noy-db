@@ -47,6 +47,7 @@ import type { DictionaryHandle, DictionaryOptions, DictKeyDescriptor } from './i
 import { isDictCollectionName } from './i18n/dictionary.js'
 import type { I18nTextDescriptor } from './i18n/core.js'
 import { NO_I18N, type I18nStrategy } from './i18n/strategy.js'
+import { NO_SYNC, type SyncStrategy } from './team/sync-strategy.js'
 import type { LocaleReadOptions, ConflictPolicy } from './types.js'
 import type { CrdtMode } from './crdt/crdt.js'
 import { ReservedCollectionNameError } from './errors.js'
@@ -104,6 +105,7 @@ export class Vault {
   private readonly shadowStrategy: ShadowStrategy
   private readonly historyStrategy: HistoryStrategy
   private readonly i18nStrategy: I18nStrategy
+  private readonly syncStrategy: SyncStrategy
   private getDEK: (collectionName: string) => Promise<CryptoKey>
 
   /**
@@ -269,6 +271,7 @@ export class Vault {
     shadowStrategy?: ShadowStrategy | undefined
     historyStrategy?: HistoryStrategy | undefined
     i18nStrategy?: I18nStrategy | undefined
+    syncStrategy?: SyncStrategy | undefined
   }) {
     this.adapter = opts.adapter
     this.name = opts.name
@@ -287,6 +290,7 @@ export class Vault {
     this.shadowStrategy = opts.shadowStrategy ?? NO_SHADOW
     this.historyStrategy = opts.historyStrategy ?? NO_HISTORY
     this.i18nStrategy = opts.i18nStrategy ?? NO_I18N
+    this.syncStrategy = opts.syncStrategy ?? NO_SYNC
     this.historyConfig = opts.historyConfig ?? { enabled: true }
     this.reloadKeyring = opts.reloadKeyring
     this.locale = opts.locale
@@ -435,6 +439,7 @@ export class Vault {
         ...(this.crdtStrategy !== undefined ? { crdtStrategy: this.crdtStrategy } : {}),
         historyStrategy: this.historyStrategy,
         i18nStrategy: this.i18nStrategy,
+        syncStrategy: this.syncStrategy,
         ledger: this.getLedgerOrNull() ?? undefined,
         refEnforcer: this,
         joinResolver: this,

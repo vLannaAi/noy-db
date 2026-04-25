@@ -20,6 +20,7 @@ export default defineConfig({
     'periods/index': 'src/periods/index.ts',
     'shadow/index': 'src/shadow/index.ts',
     'tx/index': 'src/tx/index.ts',
+    'sync/index': 'src/sync/index.ts',
   },
   format: ['esm', 'cjs'],
   dts: true,

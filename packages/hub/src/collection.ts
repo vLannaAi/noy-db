@@ -29,8 +29,8 @@ import { IndexWriteFailureError } from './errors.js'
 import type { RefDescriptor } from './refs.js'
 import { Lru, parseBytes, estimateRecordBytes, type LruStats } from './cache/index.js'
 import { generateULID } from './bundle/ulid.js'
-import { PresenceHandle } from './team/presence.js'
-import type { PresenceHandleOpts } from './team/presence.js'
+import type { PresenceHandle, PresenceHandleOpts } from './team/presence.js'
+import { NO_SYNC, type SyncStrategy } from './team/sync-strategy.js'
 import type { BlobSet } from './blobs/blob-set.js'
 import { NO_BLOBS, type BlobStrategy } from './blobs/strategy.js'
 import { NO_AGGREGATE, type AggregateStrategy } from './aggregate/strategy.js'
@@ -122,6 +122,7 @@ export class Collection<T> {
   private readonly crdtStrategy: CrdtStrategy
   private readonly historyStrategy: HistoryStrategy
   private readonly i18nStrategy: I18nStrategy
+  private readonly syncStrategy: SyncStrategy
 
   // In-memory cache of decrypted records (eager mode only). Lazy mode
   // uses `lru` instead. Both fields exist so a single Collection instance
@@ -424,6 +425,7 @@ export class Collection<T> {
      */
     historyStrategy?: HistoryStrategy | undefined
     i18nStrategy?: I18nStrategy | undefined
+    syncStrategy?: SyncStrategy | undefined
     /**
      * v0.24 tree-shake seam. When omitted, indexing is off for this
      * collection — every `.lazyQuery()` call throws, `.rebuildIndexes()`
@@ -634,6 +636,7 @@ export class Collection<T> {
     this.crdtStrategy = opts.crdtStrategy ?? NO_CRDT
     this.historyStrategy = opts.historyStrategy ?? NO_HISTORY
     this.i18nStrategy = opts.i18nStrategy ?? NO_I18N
+    this.syncStrategy = opts.syncStrategy ?? NO_SYNC
     this.reconcileOnOpen = opts.reconcileOnOpen ?? 'off'
     this.getDEK = opts.getDEK
     this.onDirty = opts.onDirty
@@ -876,7 +879,7 @@ export class Collection<T> {
     if (this.syncAdapter !== undefined) presenceOpts.syncAdapter = this.syncAdapter
     if (opts?.staleMs !== undefined) presenceOpts.staleMs = opts.staleMs
     if (opts?.pollIntervalMs !== undefined) presenceOpts.pollIntervalMs = opts.pollIntervalMs
-    return new PresenceHandle<P>(presenceOpts)
+    return this.syncStrategy.buildPresence<P>(presenceOpts)
   }
 
   /** Create or update a record. */
