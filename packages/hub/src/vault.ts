@@ -28,8 +28,13 @@ import type { BlobStrategy } from './blobs/strategy.js'
 import type { IndexStrategy } from './indexing/strategy.js'
 import type { AggregateStrategy } from './aggregate/strategy.js'
 import type { CrdtStrategy } from './crdt/strategy.js'
-import type { LedgerStore } from './history/ledger/index.js'
-import { sha256Hex, LEDGER_COLLECTION, LEDGER_DELTAS_COLLECTION } from './history/ledger/index.js'
+// #291 — import from leaf modules (NOT from ./history/ledger/index.js
+// or store.js) so the LedgerStore class never reaches the floor
+// bundle. The leaf files hold pure constants + a tiny hash helper;
+// the class lives behind the history strategy seam.
+import type { LedgerStore } from './history/ledger/store.js'
+import { LEDGER_COLLECTION, LEDGER_DELTAS_COLLECTION } from './history/ledger/constants.js'
+import { sha256Hex } from './history/ledger/entry.js'
 import type { VaultInstant } from './history/time-machine.js'
 import { NO_HISTORY, type HistoryStrategy } from './history/strategy.js'
 import type { VaultFrame } from './shadow/vault-frame.js'

@@ -60,11 +60,7 @@ const SCENARIOS = [
     leakCanaries: [
       // Each canary names a class whose presence in the floor bundle
       // would mean its subsystem leaked through a runtime import.
-      // KNOWN LEAKS (#291) — `LedgerStore` is currently reachable from
-      // the floor because `LEDGER_COLLECTION` / `LEDGER_DELTAS_COLLECTION`
-      // const exports live in the same file as the class. Vault.ts
-      // imports the consts; the bundler keeps the class. Tracked for
-      // a v0.25.x cleanup. Other canaries are real gates.
+      'class LedgerStore',     // history (re-added post-#291)
       'class Aggregation',     // aggregate
       'class GroupedQuery',    // aggregate
       'class BlobSet',         // blobs

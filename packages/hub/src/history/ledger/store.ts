@@ -56,32 +56,15 @@ import {
 } from './entry.js'
 import type { JsonPatch } from './patch.js'
 import { applyPatch } from './patch.js'
+import { LEDGER_COLLECTION, LEDGER_DELTAS_COLLECTION } from './constants.js'
+import { envelopePayloadHash } from './hash.js'
 
-/** The internal collection name used for ledger entry storage. */
-export const LEDGER_COLLECTION = '_ledger'
-
-/**
- * The internal collection name used for delta payload storage.
- *
- * Deltas live in a sibling collection (not inside `_ledger`) for two
- * reasons:
- *
- *   1. **Listing efficiency.** `ledger.loadAllEntries()` calls
- *      `adapter.list(_ledger)` which would otherwise return every
- *      delta key alongside every entry key. Splitting them keeps the
- *      list small (one key per ledger entry) and the delta reads
- *      keyed by the entry's index.
- *
- *   2. **Prune-friendliness.** A future `pruneHistory()` will delete
- *      old deltas while keeping the ledger chain intact (folding old
- *      deltas into a base snapshot). Separating the storage makes
- *      that deletion a targeted operation on one collection instead
- *      of a filter across a mixed list.
- *
- * Both collections share the same ledger DEK — one DEK, two
- * internal collections, same zero-knowledge guarantees.
- */
-export const LEDGER_DELTAS_COLLECTION = '_ledger_deltas'
+// #291 — re-export the constants + helper so any existing
+// `import { LEDGER_COLLECTION } from '...store.js'` paths keep
+// working. Internal core paths (vault.ts) import from the leaf
+// modules directly to avoid pulling this file's class into the
+// floor bundle.
+export { LEDGER_COLLECTION, LEDGER_DELTAS_COLLECTION, envelopePayloadHash }
 
 /**
  * Input shape for `LedgerStore.append()`. The caller supplies the
@@ -601,21 +584,8 @@ export class LedgerStore {
   }
 }
 
-/**
- * Compute the `payloadHash` value for an encrypted envelope. Pulled
- * out as a standalone helper because both `put` (hash the new
- * envelope's `_data`) and `delete` (hash the previous envelope's
- * `_data`) need the same calculation, and the logic is small enough
- * that duplicating it would be noise.
- */
-export async function envelopePayloadHash(
-  envelope: EncryptedEnvelope | null,
-): Promise<string> {
-  if (!envelope) return ''
-  // `_data` is a base64 string for encrypted envelopes and the raw
-  // JSON for plaintext ones. Both are strings, so a single sha256Hex
-  // call works for both modes — the hash value is different between
-  // encrypted/plaintext compartments, but that's correct: they're
-  // different bytes on disk.
-  return sha256Hex(envelope._data)
-}
+// `envelopePayloadHash` was moved to `./hash.ts` (#291) so it can be
+// imported by core code without dragging this file's `LedgerStore`
+// class into the floor bundle. The re-export at the top of this
+// file keeps the original `import { envelopePayloadHash } from '.../store.js'`
+// path working.
