@@ -20,8 +20,8 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
 import { withHistory } from '../src/history/index.js'
+import { withI18n } from '../src/i18n/index.js'
 import type { Noydb } from '../src/noydb.js'
-import { withHistory } from '../src/history/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError, BackupLedgerError, BackupCorruptedError } from '../src/errors.js'
 
@@ -339,5 +339,50 @@ describe('verifiable backups — #46', () => {
     // No collections opened yet — empty ledger, empty data.
     const result = await company.verifyBackupIntegrity()
     expect(result.ok).toBe(true)
+  })
+
+  // #290 — DictionaryHandle ledger entries used to write
+  // payloadHash:'' which broke verifyBackupIntegrity for any vault
+  // mixing history + i18n. The fix routes the dictionary's payload
+  // hash through envelopePayloadHash() like Collection.put does.
+  describe('dictionary path (#290 regression cover)', () => {
+    it('vault.dictionary().putAll() entries pass verifyBackupIntegrity', async () => {
+      const dictDb = await createNoydb({
+        store: memory(),
+        user: 'alice',
+        secret: 'pass',
+        historyStrategy: withHistory(),
+        i18nStrategy: withI18n(),
+      })
+      const vault = await dictDb.openVault('firm')
+      await vault.dictionary('status').putAll({
+        draft: { en: 'Draft', th: 'ฉบับร่าง' },
+        paid:  { en: 'Paid',  th: 'ชำระแล้ว' },
+      })
+
+      const result = await vault.verifyBackupIntegrity()
+      expect(result.ok).toBe(true)
+
+      dictDb.close()
+    })
+
+    it('rename() preserves verifyBackupIntegrity', async () => {
+      const dictDb = await createNoydb({
+        store: memory(),
+        user: 'alice',
+        secret: 'pass',
+        historyStrategy: withHistory(),
+        i18nStrategy: withI18n(),
+      })
+      const vault = await dictDb.openVault('firm')
+      const dict = vault.dictionary('status')
+      await dict.put('open', { en: 'Open', th: 'เปิด' })
+      await dict.rename('open', 'active')
+
+      const result = await vault.verifyBackupIntegrity()
+      expect(result.ok).toBe(true)
+
+      dictDb.close()
+    })
   })
 })

@@ -37,7 +37,8 @@ import { NOYDB_FORMAT_VERSION } from '../types.js'
 import type { UnlockedKeyring } from '../team/keyring.js'
 import { encrypt, decrypt } from '../crypto.js'
 import { ensureCollectionDEK } from '../team/keyring.js'
-import type { LedgerStore } from '../history/ledger/index.js'
+import type { LedgerStore } from '../history/ledger/store.js'
+import { envelopePayloadHash } from '../history/ledger/hash.js'
 import {
   PermissionDeniedError,
   DictKeyMissingError,
@@ -318,7 +319,9 @@ export class DictionaryHandle<Keys extends string = string> {
         id: key,
         version,
         actor: this.keyring.userId,
-        payloadHash: '',
+        // #290 — must be the real envelope hash so
+        // vault.verifyBackupIntegrity()'s data-cross-check matches.
+        payloadHash: await envelopePayloadHash(envelope),
       })
     }
   }
@@ -399,7 +402,12 @@ export class DictionaryHandle<Keys extends string = string> {
         id: key,
         version: existing._v,
         actor: this.keyring.userId,
-        payloadHash: '',
+        // #290 — for delete the prior envelope is what was just
+        // removed; we hash it so the chain captures intent. The
+        // verifyBackupIntegrity data-cross-check skips delete
+        // entries entirely (the live record is gone), but the
+        // chain still benefits from a stable non-empty hash.
+        payloadHash: await envelopePayloadHash(existing),
       })
     }
   }
@@ -470,15 +478,27 @@ export class DictionaryHandle<Keys extends string = string> {
       action: 'put',
     })
 
-    // 5. Ledger — one entry for the rename (not N record-level entries)
+    // 5. Ledger — record the rename as delete(oldKey) + put(newKey)
+    // so verifyBackupIntegrity()'s data-cross-check matches reality
+    // (the oldKey envelope is gone; the newKey envelope is what was
+    // just written). Two entries instead of one — the chain still
+    // captures the rename intent via the matching ts + actor.
     if (this.ledger) {
+      await this.ledger.append({
+        op: 'delete',
+        collection: this.collName,
+        id: oldKey,
+        version: existing._v,
+        actor: this.keyring.userId,
+        payloadHash: await envelopePayloadHash(existing),
+      })
       await this.ledger.append({
         op: 'put',
         collection: this.collName,
         id: newKey,
         version: 1,
         actor: this.keyring.userId,
-        payloadHash: `rename:${oldKey}→${newKey}`,
+        payloadHash: await envelopePayloadHash(newEnvelope),
       })
     }
   }

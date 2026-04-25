@@ -204,11 +204,15 @@ describe('Recipe 2 — Accounting application', () => {
     expect(byClient.get('c2')!.n).toBe(1)
   })
 
-  // verifyBackupIntegrity() is documented in the recipe but not asserted
-  // here because the DictionaryHandle path writes ledger entries with
-  // an empty payloadHash (pre-existing v0.4 limitation, tracked
-  // separately). The integrity check will fail until that is repaired.
-  // For pure-Collection workloads (no `vault.dictionary()` calls), the
-  // verify path returns ok. Pilot-facing docs cover the tooling; the
-  // unit test for it lives in __tests__/verifiable-backup.test.ts.
+  it('verifyBackupIntegrity returns ok on a fresh chain — even with dict + history opted in (#290)', async () => {
+    const invoices = db.vault('firm-2026').collection<Invoice>('invoices')
+    await invoices.put('inv-v', {
+      id: 'inv-v', clientId: 'c1', status: 'paid',
+      description: { en: 'V', th: 'V', ar: 'V' },
+      amount: 42, date: '2026-04-15',
+    })
+
+    const result = await db.vault('firm-2026').verifyBackupIntegrity()
+    expect(result.ok).toBe(true)
+  })
 })
