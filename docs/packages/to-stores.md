@@ -102,7 +102,8 @@ The stores 80% of apps start with.
 - **"I'm just testing."** → `to-memory`.
 
 Don't pick one forever — a vault can sync to multiple `SyncTarget`s with
-different stores, roles, and policies. See
-[`docs/topologies.md`](../topology-matrix.md).
+different stores, roles, and policies. See the
+[`sync` subsystem](../subsystems/sync.md) and the
+[realtime-crdt-app recipe](../recipes/realtime-crdt-app.md).
 
 [← Back to README](../../README.md)

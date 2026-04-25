@@ -96,4 +96,4 @@ Multi-backend routing, retry / circuit-breaker / metrics middleware, lazy-mode c
 
 - [SUBSYSTEMS.md](../../SUBSYSTEMS.md)
 - [docs/subsystems/routing.md](../subsystems/routing.md)
-- [docs/reference/store-conformance.md](../reference/store-conformance.md) (TODO)
+- `runStoreConformanceTests()` in `packages/hub/src/__tests__/` — the executable contract

@@ -67,6 +67,5 @@ These are the bright lines. Any change to one of them is a security review.
 ## See also
 
 - [Core 03 — Stores](./03-stores.md) — the contract that holds these invariants in place
-- [docs/reference/threat-model.md](../reference/threat-model.md) (TODO)
 - `SECURITY.md` — disclosure policy
-- [SPEC.md § Encryption](../../SPEC.md) — formal spec
+- [SPEC.md](../../SPEC.md) — placeholder skeleton; full spec deferred per #289

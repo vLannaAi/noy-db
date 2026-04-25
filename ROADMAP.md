@@ -18,9 +18,12 @@ block the trunk.
 Related docs:
 
 - [README](./README.md) — mental model in one page
+- [SUBSYSTEMS.md](./SUBSYSTEMS.md) — the 17-subsystem catalog (canonical surface index)
+- [Core](./docs/core/) — 6 always-on areas
+- [Subsystems](./docs/subsystems/) — 17 opt-in capabilities
+- [Recipes](./docs/recipes/) — 4 starter applications
 - [Package catalog](./docs/packages/to-stores.md) — `to-*` (stores), [`in-*` (integrations)](./docs/packages/in-integrations.md), [`on-*` (auth)](./docs/packages/on-auth.md), [`as-*` (exports)](./docs/packages/as-exports.md)
-- [Architecture](./docs/reference/architecture.md) — data flow + threat model
-- [SPEC](./SPEC.md) — design invariants (do not violate)
+- [SPEC](./SPEC.md) — placeholder skeleton; full spec rewrite deferred to post-pre-release per #289
 
 ---
 
@@ -44,7 +47,7 @@ lands what real production workloads actually need.
 - **Domain schemas** — noy-db is schema-agnostic. Standard Schema v1 is
   the extension point, community publishes formats (ETDA CII, Peppol
   UBL, HL7 FHIR, …) under their own npm scopes. See
-  [`docs/reference/architecture.md#schema-agnostic-design`](./docs/reference/architecture.md#schema-agnostic-design).
+  [`docs/core/05-schema-and-refs.md`](./docs/core/05-schema-and-refs.md).
 
 ---
 

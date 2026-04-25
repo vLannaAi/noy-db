@@ -208,7 +208,7 @@ pnpm add @noy-db/in-nextjs @noy-db/in-react @noy-db/hub @noy-db/to-browser-idb
 pnpm add @noy-db/hub @noy-db/to-file @noy-db/to-aws-dynamo
 ```
 
-For the full Nuxt walkthrough see [`docs/quickstart.md`](docs/quickstart.md). For the multi-backend topology story see [`docs/topologies.md`](docs/topologies.md).
+For starter applications see [`docs/recipes/`](docs/recipes/) — four runnable recipes covering personal, accounting, real-time, and analytics shapes.
 
 ---
 
@@ -281,7 +281,7 @@ noy-db does not inspect your data. It cannot — that is the architectural point
 | **viewer** | all | — | — | — | yes |
 | **client** | granted collections | — | — | — | ACL-scoped |
 
-Every mutation (grant, revoke, rotate, elevate) writes a hash-chained audit ledger entry. Hierarchical per-record classification tiers (`collection.elevate()` / `demote()` / `delegate()` / invisibility / ghost modes) are covered in [`docs/reference/architecture.md`](docs/reference/architecture.md).
+Every mutation (grant, revoke, rotate, elevate) writes a hash-chained audit ledger entry. Hierarchical per-record classification tiers (`collection.elevate()` / `demote()` / `delegate()` / invisibility / ghost modes) are covered in the [`history`](docs/subsystems/history.md) and [`team`](docs/subsystems/team.md) subsystems.
 
 ---
 
@@ -338,12 +338,13 @@ The hub package itself uses only `crypto.subtle`, which is built into every targ
 
 | If you want to… | Read |
 |---|---|
-| try noy-db in 5 minutes | [`docs/quickstart.md`](docs/quickstart.md) |
-| choose a path for your app | [`docs/choose-your-path.md`](docs/choose-your-path.md) |
+| see what's always-on (the floor) | [`docs/core/`](docs/core/) |
+| browse the 17 opt-in subsystems | [`docs/subsystems/`](docs/subsystems/) — index + the [SUBSYSTEMS.md](SUBSYSTEMS.md) catalog |
+| copy a starter recipe | [`docs/recipes/`](docs/recipes/) — personal-notebook · accounting-app · realtime-crdt-app · analytics-app |
 | pick a storage backend | [`docs/packages/to-stores.md`](docs/packages/to-stores.md) |
 | pick a framework integration | [`docs/packages/in-integrations.md`](docs/packages/in-integrations.md) |
-| understand the security model | [`docs/reference/architecture.md`](docs/reference/architecture.md) |
-| map a deployment topology | [`docs/topologies.md`](docs/topologies.md) |
+| pick an unlock method | [`docs/packages/on-auth.md`](docs/packages/on-auth.md) |
+| pick an export format | [`docs/packages/as-exports.md`](docs/packages/as-exports.md) |
 | see real workflows | [`showcases/`](showcases/) |
 | check what is stable or next | [`ROADMAP.md`](ROADMAP.md) |
 | audit design decisions | [`SPEC.md`](SPEC.md) |
