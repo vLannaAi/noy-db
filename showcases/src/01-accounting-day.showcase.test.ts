@@ -22,6 +22,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { createNoydb, sum, type Noydb, type NoydbStore } from '@noy-db/hub'
+import { withAggregate } from '@noy-db/hub/aggregate'
 import { memory } from '@noy-db/to-memory'
 import { defineNoydbStore, setActiveNoydb } from '@noy-db/in-pinia'
 
@@ -45,7 +46,7 @@ describe('Showcase 01 — A Day at the Office (Pinia)', () => {
 
     db = await createNoydb({
       store: rawStore,
-      user: 'owner',
+      user: 'owner', aggregateStrategy: withAggregate(),
       secret: SHOWCASE_PASSPHRASE,
     })
     await db.openVault('firm-demo')

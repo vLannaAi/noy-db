@@ -45,6 +45,7 @@ import {
   type Noydb,
   type NoydbStore,
 } from '@noy-db/hub'
+import { withI18n } from '@noy-db/hub/i18n'
 import { memory } from '@noy-db/to-memory'
 
 import { SHOWCASE_PASSPHRASE, THAI_SAMPLE } from './_fixtures.js'
@@ -74,7 +75,7 @@ describe('Showcase 14 — Dictionary + i18n translation (pure hub)', () => {
     rawStore = memory()
     db = await createNoydb({
       store: rawStore,
-      user: 'owner',
+      user: 'owner', i18nStrategy: withI18n(),
       secret: SHOWCASE_PASSPHRASE,
     })
     const vault = await db.openVault(VAULT)

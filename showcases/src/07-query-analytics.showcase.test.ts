@@ -37,6 +37,7 @@ import {
   count,
   type Noydb,
 } from '@noy-db/hub'
+import { withAggregate } from '@noy-db/hub/aggregate'
 import { memory } from '@noy-db/to-memory'
 import { defineNoydbStore, setActiveNoydb } from '@noy-db/in-pinia'
 
@@ -58,7 +59,7 @@ describe('Showcase 07 — Query engine analytics (Pinia)', () => {
 
     db = await createNoydb({
       store: memory(),
-      user: 'owner',
+      user: 'owner', aggregateStrategy: withAggregate(),
       secret: SHOWCASE_PASSPHRASE,
     })
     await db.openVault('firm-demo')

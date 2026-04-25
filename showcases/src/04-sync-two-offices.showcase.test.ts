@@ -33,6 +33,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { effectScope, nextTick, type EffectScope } from 'vue'
 import { createNoydb, type Noydb, type NoydbStore } from '@noy-db/hub'
+import { withSync } from '@noy-db/hub/sync'
 import { memory } from '@noy-db/to-memory'
 import {
   useCollection,
@@ -112,13 +113,13 @@ describe('Showcase 04 — Sync Two Offices (Vue)', () => {
     dbA = await createNoydb({
       store: storeA,
       sync: cloudStore,
-      user: 'alice',
+      user: 'alice', syncStrategy: withSync(),
       encrypt: false,
     })
     dbB = await createNoydb({
       store: storeB,
       sync: cloudStore,
-      user: 'bob',
+      user: 'bob', syncStrategy: withSync(),
       encrypt: false,
     })
 
@@ -285,11 +286,11 @@ describe('Showcase 04 — Sync Two Offices (Vue)', () => {
     cloudStore = memory()
 
     dbA = await createNoydb({
-      store: storeA, sync: cloudStore, user: 'alice', encrypt: false,
+      store: storeA, sync: cloudStore, user: 'alice', syncStrategy: withSync(), encrypt: false,
       conflict: 'local-wins',
     })
     dbB = await createNoydb({
-      store: storeB, sync: cloudStore, user: 'bob', encrypt: false,
+      store: storeB, sync: cloudStore, user: 'bob', syncStrategy: withSync(), encrypt: false,
       conflict: 'local-wins',
     })
     const vaultA = await dbA.openVault(VAULT)

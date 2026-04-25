@@ -24,6 +24,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import * as Y from 'yjs'
 import { createNoydb, type Noydb, type NoydbStore } from '@noy-db/hub'
+import { withCrdt } from '@noy-db/hub/crdt'
 import { memory } from '@noy-db/to-memory'
 import { yjsCollection, yText, yMap, type YjsCollection } from '@noy-db/in-yjs'
 
@@ -46,7 +47,7 @@ describe('Showcase 09 — Encrypted CRDT (Yjs)', () => {
 
     db = await createNoydb({
       store: rawStore,
-      user: 'owner',
+      user: 'owner', crdtStrategy: withCrdt(),
       secret: SHOWCASE_PASSPHRASE,
     })
     const vault = await db.openVault(VAULT)

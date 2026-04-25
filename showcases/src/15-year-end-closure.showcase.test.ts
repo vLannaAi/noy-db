@@ -27,6 +27,9 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { createNoydb, PeriodClosedError, sum, type Noydb } from '@noy-db/hub'
+import { withPeriods } from '@noy-db/hub/periods'
+import { withHistory } from '@noy-db/hub/history'
+import { withAggregate } from '@noy-db/hub/aggregate'
 import { memory } from '@noy-db/to-memory'
 import { SHOWCASE_PASSPHRASE } from './_fixtures.js'
 
@@ -45,7 +48,7 @@ describe('Showcase 15 — Financial year-end closure workflow', () => {
   beforeEach(async () => {
     db = await createNoydb({
       store: memory(),
-      user: 'cfo',
+      user: 'cfo', periodsStrategy: withPeriods(), historyStrategy: withHistory(), aggregateStrategy: withAggregate(),
       secret: SHOWCASE_PASSPHRASE,
     })
     await db.openVault('firm')
