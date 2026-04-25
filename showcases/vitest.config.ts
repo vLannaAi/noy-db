@@ -4,7 +4,7 @@ export default defineConfig({
   test: {
     // happy-dom so Vue/Pinia reactivity works for #01, #04, #06, #07, #09
     environment: 'happy-dom',
-    include: ['src/**/*.showcase.test.ts'],
+    include: ['src/**/*.showcase.test.ts', 'src/**/*.recipe.test.ts'],
     testTimeout: 30_000,
     // happy-dom's WebCrypto implementation is occasionally flaky on
     // the on-oidc split-key path (showcase #12) — documented in
