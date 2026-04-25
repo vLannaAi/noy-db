@@ -10,6 +10,7 @@ import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
+import { withI18n } from '../src/i18n/index.js'
 import { withAggregate } from '../src/aggregate/index.js'
 import { dictKey } from '../src/i18n/dictionary.js'
 import { sum, count } from '../src/query/index.js'
@@ -53,7 +54,7 @@ interface Invoice {
 
 async function setup() {
   const adapter = memory()
-  const db = await createNoydb({ store: adapter, user: 'alice', encrypt: false, aggregateStrategy: withAggregate() })
+  const db = await createNoydb({ store: adapter, user: 'alice', i18nStrategy: withI18n(), encrypt: false, aggregateStrategy: withAggregate() })
   const company = await db.openVault('company')
 
   const statusDict = company.dictionary('status')

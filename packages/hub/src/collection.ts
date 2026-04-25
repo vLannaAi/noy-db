@@ -3,8 +3,8 @@ import { NOYDB_FORMAT_VERSION } from './types.js'
 import type { CrdtMode, CrdtState, LwwMapState, RgaState } from './crdt/crdt.js'
 import { NO_CRDT, type CrdtStrategy } from './crdt/strategy.js'
 import type { I18nTextDescriptor } from './i18n/core.js'
-import { applyI18nLocale } from './i18n/core.js'
 import type { DictKeyDescriptor } from './i18n/dictionary.js'
+import { NO_I18N, type I18nStrategy } from './i18n/strategy.js'
 import { encrypt, decrypt, encryptDeterministic } from './crypto.js'
 import { ConflictError, ReadOnlyError, TranslatorNotConfiguredError, TierDemoteDeniedError } from './errors.js'
 import { dekKey, assertTierAccess } from './team/tiers.js'
@@ -121,6 +121,7 @@ export class Collection<T> {
   private readonly aggregateStrategy: AggregateStrategy
   private readonly crdtStrategy: CrdtStrategy
   private readonly historyStrategy: HistoryStrategy
+  private readonly i18nStrategy: I18nStrategy
 
   // In-memory cache of decrypted records (eager mode only). Lazy mode
   // uses `lru` instead. Both fields exist so a single Collection instance
@@ -422,6 +423,7 @@ export class Collection<T> {
      * `pruneRecordHistory`) throw with a pointer at `@noy-db/hub/history`.
      */
     historyStrategy?: HistoryStrategy | undefined
+    i18nStrategy?: I18nStrategy | undefined
     /**
      * v0.24 tree-shake seam. When omitted, indexing is off for this
      * collection — every `.lazyQuery()` call throws, `.rebuildIndexes()`
@@ -631,6 +633,7 @@ export class Collection<T> {
     this.aggregateStrategy = opts.aggregateStrategy ?? NO_AGGREGATE
     this.crdtStrategy = opts.crdtStrategy ?? NO_CRDT
     this.historyStrategy = opts.historyStrategy ?? NO_HISTORY
+    this.i18nStrategy = opts.i18nStrategy ?? NO_I18N
     this.reconcileOnOpen = opts.reconcileOnOpen ?? 'off'
     this.getDEK = opts.getDEK
     this.onDirty = opts.onDirty
@@ -2228,7 +2231,7 @@ export class Collection<T> {
 
     // 1. i18nText resolution
     if (hasI18n && this.i18nFields) {
-      result = applyI18nLocale(result, this.i18nFields, locale, localeOpts?.fallback)
+      result = this.i18nStrategy.applyI18nLocale(result, this.i18nFields, locale, localeOpts?.fallback)
     }
 
     // 2. dictKey label resolution

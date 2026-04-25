@@ -14,7 +14,9 @@
 
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
+import { withI18n } from '../src/i18n/index.js'
 import type { Noydb } from '../src/noydb.js'
+import { withI18n } from '../src/i18n/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError } from '../src/errors.js'
 import {
@@ -83,7 +85,7 @@ describe('DictionaryHandle — CRUD (#81)', () => {
   beforeEach(async () => {
     db = await createNoydb({
       store: memory(),
-      user: 'alice',
+      user: 'alice', i18nStrategy: withI18n(),
       secret: 'test-passphrase-dict-1234',
     })
   })
@@ -200,7 +202,7 @@ describe('DictionaryHandle.rename() (#81)', () => {
   beforeEach(async () => {
     db = await createNoydb({
       store: memory(),
-      user: 'alice',
+      user: 'alice', i18nStrategy: withI18n(),
       secret: 'test-passphrase-dict-1234',
     })
   })
@@ -252,7 +254,7 @@ describe('Reserved _dict_* name policy (#81)', () => {
   beforeEach(async () => {
     db = await createNoydb({
       store: memory(),
-      user: 'alice',
+      user: 'alice', i18nStrategy: withI18n(),
       secret: 'test-passphrase-dict-1234',
     })
   })
@@ -280,7 +282,7 @@ describe('dictKey — per-call locale reads (#81)', () => {
   beforeEach(async () => {
     db = await createNoydb({
       store: memory(),
-      user: 'alice',
+      user: 'alice', i18nStrategy: withI18n(),
       secret: 'test-passphrase-dict-1234',
     })
   })
@@ -409,7 +411,7 @@ describe('dictKey ACL — write permissions (#81)', () => {
     const adp = memory()
     const ownerDb = await createNoydb({
       store: adp,
-      user: 'owner',
+      user: 'owner', i18nStrategy: withI18n(),
       secret: 'test-passphrase-dict-1234',
     })
 
@@ -428,7 +430,7 @@ describe('dictKey ACL — write permissions (#81)', () => {
     // Client opens the same vault
     const clientDb = await createNoydb({
       store: adp,
-      user: 'client',
+      user: 'client', i18nStrategy: withI18n(),
       secret: 'client-passphrase-dict-1234',
     })
     const clientCo = await clientDb.openVault('company')
@@ -443,7 +445,7 @@ describe('dictKey ACL — write permissions (#81)', () => {
     const adp = memory()
     const ownerDb = await createNoydb({
       store: adp,
-      user: 'owner',
+      user: 'owner', i18nStrategy: withI18n(),
       secret: 'test-passphrase-dict-1234',
     })
 
@@ -460,7 +462,7 @@ describe('dictKey ACL — write permissions (#81)', () => {
 
     const opDb = await createNoydb({
       store: adp,
-      user: 'op',
+      user: 'op', i18nStrategy: withI18n(),
       secret: 'op-passphrase-dict-1234',
     })
     const opCo = await opDb.openVault('company')

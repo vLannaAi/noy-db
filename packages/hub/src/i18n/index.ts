@@ -13,3 +13,7 @@
 
 export * from './core.js'
 export * from './dictionary.js'
+
+// ─── Strategy seam (v0.25 #285) ─────────────────────────────────────
+export { withI18n } from './active.js'
+export type { I18nStrategy } from './strategy.js'

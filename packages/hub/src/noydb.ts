@@ -251,6 +251,7 @@ export class Noydb {
       ...(this.options.periodsStrategy !== undefined ? { periodsStrategy: this.options.periodsStrategy } : {}),
       ...(this.options.shadowStrategy !== undefined ? { shadowStrategy: this.options.shadowStrategy } : {}),
       ...(this.options.historyStrategy !== undefined ? { historyStrategy: this.options.historyStrategy } : {}),
+      ...(this.options.i18nStrategy !== undefined ? { i18nStrategy: this.options.i18nStrategy } : {}),
       locale: opts?.locale,
       // Thread the translator hook so Collection.put() can invoke it (v0.8 #83)
       plaintextTranslator: this.options.plaintextTranslator
@@ -308,6 +309,7 @@ export class Noydb {
       ...(this.options.periodsStrategy !== undefined ? { periodsStrategy: this.options.periodsStrategy } : {}),
       ...(this.options.shadowStrategy !== undefined ? { shadowStrategy: this.options.shadowStrategy } : {}),
       ...(this.options.historyStrategy !== undefined ? { historyStrategy: this.options.historyStrategy } : {}),
+      ...(this.options.i18nStrategy !== undefined ? { i18nStrategy: this.options.i18nStrategy } : {}),
       })
       this.vaultCache.set(name, comp)
       return comp
@@ -334,6 +336,7 @@ export class Noydb {
       ...(this.options.periodsStrategy !== undefined ? { periodsStrategy: this.options.periodsStrategy } : {}),
       ...(this.options.shadowStrategy !== undefined ? { shadowStrategy: this.options.shadowStrategy } : {}),
       ...(this.options.historyStrategy !== undefined ? { historyStrategy: this.options.historyStrategy } : {}),
+      ...(this.options.i18nStrategy !== undefined ? { i18nStrategy: this.options.i18nStrategy } : {}),
       emitter: this.emitter,
     })
     this.vaultCache.set(name, comp)

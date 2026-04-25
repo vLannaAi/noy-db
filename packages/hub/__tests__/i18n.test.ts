@@ -15,7 +15,9 @@
 
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
+import { withI18n } from '../src/i18n/index.js'
 import type { Noydb } from '../src/noydb.js'
+import { withI18n } from '../src/i18n/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError } from '../src/errors.js'
 import {
@@ -184,7 +186,7 @@ describe('i18nText — Collection integration (#82)', () => {
   beforeEach(async () => {
     db = await createNoydb({
       store: memory(),
-      user: 'alice',
+      user: 'alice', i18nStrategy: withI18n(),
       secret: 'test-passphrase-i18n-1234',
     })
   })

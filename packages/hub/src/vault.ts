@@ -43,17 +43,10 @@ import {
   type RefDescriptor,
   type RefViolation,
 } from './refs.js'
-import {
-  DictionaryHandle,
-  isDictCollectionName,
-  type DictionaryOptions,
-} from './i18n/dictionary.js'
-import {
-  validateI18nTextValue,
-  applyI18nLocale,
-  type I18nTextDescriptor,
-} from './i18n/core.js'
-import type { DictKeyDescriptor } from './i18n/dictionary.js'
+import type { DictionaryHandle, DictionaryOptions, DictKeyDescriptor } from './i18n/dictionary.js'
+import { isDictCollectionName } from './i18n/dictionary.js'
+import type { I18nTextDescriptor } from './i18n/core.js'
+import { NO_I18N, type I18nStrategy } from './i18n/strategy.js'
 import type { LocaleReadOptions, ConflictPolicy } from './types.js'
 import type { CrdtMode } from './crdt/crdt.js'
 import { ReservedCollectionNameError } from './errors.js'
@@ -110,6 +103,7 @@ export class Vault {
   private readonly periodsStrategy: PeriodsStrategy
   private readonly shadowStrategy: ShadowStrategy
   private readonly historyStrategy: HistoryStrategy
+  private readonly i18nStrategy: I18nStrategy
   private getDEK: (collectionName: string) => Promise<CryptoKey>
 
   /**
@@ -274,6 +268,7 @@ export class Vault {
     periodsStrategy?: PeriodsStrategy | undefined
     shadowStrategy?: ShadowStrategy | undefined
     historyStrategy?: HistoryStrategy | undefined
+    i18nStrategy?: I18nStrategy | undefined
   }) {
     this.adapter = opts.adapter
     this.name = opts.name
@@ -291,6 +286,7 @@ export class Vault {
     this.periodsStrategy = opts.periodsStrategy ?? NO_PERIODS
     this.shadowStrategy = opts.shadowStrategy ?? NO_SHADOW
     this.historyStrategy = opts.historyStrategy ?? NO_HISTORY
+    this.i18nStrategy = opts.i18nStrategy ?? NO_I18N
     this.historyConfig = opts.historyConfig ?? { enabled: true }
     this.reloadKeyring = opts.reloadKeyring
     this.locale = opts.locale
@@ -438,6 +434,7 @@ export class Vault {
         ...(this.aggregateStrategy !== undefined ? { aggregateStrategy: this.aggregateStrategy } : {}),
         ...(this.crdtStrategy !== undefined ? { crdtStrategy: this.crdtStrategy } : {}),
         historyStrategy: this.historyStrategy,
+        i18nStrategy: this.i18nStrategy,
         ledger: this.getLedgerOrNull() ?? undefined,
         refEnforcer: this,
         joinResolver: this,
@@ -502,7 +499,7 @@ export class Vault {
     for (const [field, descriptor] of Object.entries(i18nFields)) {
       const value = obj[field]
       if (value === undefined || value === null) continue
-      validateI18nTextValue(value, field, descriptor)
+      this.i18nStrategy.validateI18nTextValue(value, field, descriptor)
     }
   }
 
@@ -525,7 +522,7 @@ export class Vault {
     // 1. i18nText resolution
     const i18nFields = this.i18nFieldRegistry.get(collectionName)
     if (i18nFields && Object.keys(i18nFields).length > 0) {
-      result = applyI18nLocale(result, i18nFields, locale, localeOpts.fallback)
+      result = this.i18nStrategy.applyI18nLocale(result, i18nFields, locale, localeOpts.fallback)
     }
 
     // 2. dictKey label resolution — add <field>Label virtual fields
@@ -571,18 +568,18 @@ export class Vault {
   ): DictionaryHandle<Keys> {
     let handle = this.dictionaryCache.get(name)
     if (!handle) {
-      handle = new DictionaryHandle<Keys>(
-        this.adapter,
-        this.name,
-        name,
-        this.keyring,
-        this.getDEK,
-        this.encrypted,
-        this.getLedgerOrNull() ?? undefined,
+      handle = this.i18nStrategy.buildDictionaryHandle<Keys>({
+        adapter: this.adapter,
+        compartmentName: this.name,
+        dictionaryName: name,
+        keyring: this.keyring,
+        getDEK: this.getDEK,
+        encrypted: this.encrypted,
+        ledger: this.getLedgerOrNull() ?? undefined,
         options,
         // findAndUpdateReferences: rewrite dictKey fields in all
         // registered collections when rename() is called
-        async (dictionaryName, oldKey, newKey) => {
+        findAndUpdateReferences: async (dictionaryName, oldKey, newKey) => {
           for (const [collectionName, dictFields] of this.dictKeyFieldRegistry) {
             // Find fields that point at this dictionary
             const fields = Object.entries(dictFields)
@@ -610,8 +607,8 @@ export class Vault {
             }
           }
         },
-        this.emitter,
-      )
+        emitter: this.emitter,
+      })
       this.dictionaryCache.set(name, handle)
     }
     return handle as DictionaryHandle<Keys>

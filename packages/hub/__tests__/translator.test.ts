@@ -10,6 +10,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
+import { withI18n } from '../src/i18n/index.js'
 import { i18nText } from '../src/i18n/core.js'
 import { TranslatorNotConfiguredError } from '../src/errors.js'
 
@@ -54,7 +55,7 @@ async function makeDb(translator?: (ctx: { text: string; from: string; to: strin
   const adapter = memory()
   return createNoydb({
     store: adapter,
-    user: 'alice',
+    user: 'alice', i18nStrategy: withI18n(),
     encrypt: false,
     plaintextTranslator: translator,
     plaintextTranslatorName: translatorName,

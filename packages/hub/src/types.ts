@@ -34,6 +34,7 @@ import type { PeriodsStrategy } from './periods/strategy.js'
 import type { ShadowStrategy } from './shadow/strategy.js'
 import type { TxStrategy } from './tx/strategy.js'
 import type { HistoryStrategy } from './history/strategy.js'
+import type { I18nStrategy } from './i18n/strategy.js'
 
 /** Format version for encrypted record envelopes. */
 export const NOYDB_FORMAT_VERSION = 1 as const
@@ -1405,6 +1406,18 @@ export interface NoydbOptions {
    * @internal
    */
   readonly historyStrategy?: HistoryStrategy
+  /**
+   * v0.25 tree-shake seam — optional i18n strategy. Pass `withI18n()`
+   * from `@noy-db/hub/i18n` to enable `i18nText`/`dictKey` field
+   * resolution on reads, `i18nText` validation on writes, and
+   * `vault.dictionary(name)`. When omitted, locale resolution is the
+   * identity (raw values returned), the validators throw with a
+   * pointer to the subpath, and ~854 LOC of dictionary + locale
+   * machinery stay out of the bundle.
+   *
+   * @internal
+   */
+  readonly i18nStrategy?: I18nStrategy
   /** Optional remote store(s) for sync. Accepts a single store, a SyncTarget, or an array. */
   readonly sync?: NoydbStore | SyncTarget | SyncTarget[]
   /** User identifier. */
