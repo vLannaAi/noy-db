@@ -17,6 +17,17 @@
     "typecheck": {
       "dependsOn": ["^build"],
       "cache": true
+    },
+    "bundle-check": {
+      "dependsOn": ["build"],
+      "cache": true,
+      "inputs": [
+        "scripts/check-bundle.mjs",
+        "bundle-manifest.json",
+        "src/**",
+        "package.json",
+        "tsup.config.ts"
+      ]
     }
   }
 }
