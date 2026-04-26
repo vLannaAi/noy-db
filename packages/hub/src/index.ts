@@ -209,6 +209,7 @@ export {
   PathEscapeError,
   ElevationExpiredError,
   AlreadyElevatedError,
+  LedgerContentionError,
   BundleIntegrityError,
   BundleVersionConflictError,
   SessionExpiredError,

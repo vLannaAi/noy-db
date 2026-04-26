@@ -47,6 +47,7 @@
 import type { NoydbStore, EncryptedEnvelope } from '../../types.js'
 import { NOYDB_FORMAT_VERSION } from '../../types.js'
 import { encrypt, decrypt } from '../../crypto.js'
+import { ConflictError, LedgerContentionError } from '../../errors.js'
 import {
   canonicalJson,
   hashEntry,
@@ -58,6 +59,15 @@ import type { JsonPatch } from './patch.js'
 import { applyPatch } from './patch.js'
 import { LEDGER_COLLECTION, LEDGER_DELTAS_COLLECTION } from './constants.js'
 import { envelopePayloadHash } from './hash.js'
+
+/**
+ * Maximum optimistic-CAS retries on the ledger head. Each failed
+ * attempt invalidates the head cache, re-reads, and retries with a
+ * fresh next-index. After N failures we surface
+ * `LedgerContentionError` so the caller can decide whether to retry,
+ * queue, or alert.
+ */
+const MAX_APPEND_ATTEMPTS = 8
 
 // #291 — re-export the constants + helper so any existing
 // `import { LEDGER_COLLECTION } from '...store.js'` paths keep
@@ -187,35 +197,88 @@ export class LedgerStore {
    * This is the **only** way to add entries. Direct adapter writes to
    * `_ledger/` would bypass the chain math and would be caught by the
    * next `verify()` call as a divergence.
+   *
+   * ## Multi-writer correctness (#296)
+   *
+   * Append is implemented as an optimistic-CAS retry loop. On every
+   * attempt:
+   *
+   *   1. Read fresh head (cache invalidated on retry).
+   *   2. Compute `nextIndex = head.index + 1`, `prevHash = hash(head)`.
+   *   3. Encrypt delta payload IN MEMORY (no adapter write yet) so we
+   *      can compute `deltaHash` before claiming the chain slot.
+   *   4. Build + encrypt the entry envelope.
+   *   5. `adapter.put(_ledger, paddedIndex, envelope, expectedVersion: 0)`
+   *      — the `expectedVersion: 0` asserts "this slot must not exist."
+   *      Stores with `casAtomic: true` honor the CAS check; under
+   *      contention the second writer's put throws `ConflictError`.
+   *   6. On `ConflictError`: invalidate the head cache, sleep with
+   *      bounded backoff + jitter, retry. After `MAX_APPEND_ATTEMPTS`
+   *      retries throw {@link LedgerContentionError}.
+   *   7. On success: write the delta envelope (if any) at the same
+   *      index. Update the head cache.
+   *
+   * Entry-first ordering matters: writing the delta first under
+   * contention would orphan delta records at indices the writer never
+   * actually claimed. The deltaHash is computed off the encrypted
+   * envelope's `_data` field, which doesn't require the envelope to
+   * be persisted.
+   *
+   * Stores with `casAtomic: false` (file, s3, r2 by default) silently
+   * accept the `expectedVersion: 0` argument and proceed without a
+   * CAS check. Concurrent appends against those stores remain
+   * best-effort — pair them with an advisory lock or with sync
+   * single-writer discipline.
    */
   async append(input: AppendInput): Promise<LedgerEntry> {
+    let lastConflict: ConflictError | undefined
+    for (let attempt = 0; attempt < MAX_APPEND_ATTEMPTS; attempt++) {
+      // Force a fresh head read on every retry. The first attempt may
+      // hit the cache; subsequent attempts must re-scan the adapter
+      // because the prior conflict means our cached state is stale.
+      if (attempt > 0) {
+        this.headCache = undefined
+      }
+      try {
+        return await this.appendOnce(input)
+      } catch (err) {
+        if (err instanceof ConflictError) {
+          lastConflict = err
+          if (attempt < MAX_APPEND_ATTEMPTS - 1) {
+            await sleepBackoff(attempt)
+          }
+          continue
+        }
+        throw err
+      }
+    }
+    void lastConflict
+    throw new LedgerContentionError(MAX_APPEND_ATTEMPTS)
+  }
+
+  /**
+   * One attempt at the append cycle. Throws `ConflictError` when the
+   * CAS check on the entry put fails — `append()` catches that and
+   * retries. Any other error propagates to the caller.
+   */
+  private async appendOnce(input: AppendInput): Promise<LedgerEntry> {
     const cached = await this.getCachedHead()
     const lastEntry = cached?.entry
     const prevHash = cached?.hash ?? ''
     const nextIndex = lastEntry ? lastEntry.index + 1 : 0
 
-    // If the caller supplied a delta, persist it in
-    // `_ledger_deltas/<paddedIndex>` and compute its hash for the
-    // entry's `deltaHash` field. The hash is of the CIPHERTEXT of the
-    // delta payload (same as `payloadHash` is of the record
-    // ciphertext), preserving zero-knowledge.
+    // Encrypt the delta in memory so we can compute deltaHash WITHOUT
+    // claiming the deltas slot yet — entry-put is the chain claim.
+    let deltaEnvelope: EncryptedEnvelope | undefined
     let deltaHash: string | undefined
     if (input.delta !== undefined) {
-      const deltaEnvelope = await this.encryptDelta(input.delta)
-      await this.adapter.put(
-        this.vault,
-        LEDGER_DELTAS_COLLECTION,
-        paddedIndex(nextIndex),
-        deltaEnvelope,
-      )
+      deltaEnvelope = await this.encryptDelta(input.delta)
       deltaHash = await sha256Hex(deltaEnvelope._data)
     }
 
     // Build the entry. Conditionally include `deltaHash` so
     // canonicalJson (which rejects undefined) never sees it when
-    // there's no delta. The on-the-wire shape is either
-    // `{ ...fields, deltaHash: '...' }` or `{ ...fields }` — never
-    // `{ ..., deltaHash: undefined }`.
+    // there's no delta.
     const entryBase = {
       index: nextIndex,
       prevHash,
@@ -233,18 +296,29 @@ export class LedgerStore {
         : entryBase
 
     const envelope = await this.encryptEntry(entry)
+    // expectedVersion: 0 ≡ "the slot must not yet exist." Honored by
+    // casAtomic stores; silently passed through by non-CAS stores.
     await this.adapter.put(
       this.vault,
       LEDGER_COLLECTION,
       paddedIndex(entry.index),
       envelope,
+      0,
     )
 
+    // Chain slot claimed. Now write the delta record (if any).
+    if (deltaEnvelope) {
+      await this.adapter.put(
+        this.vault,
+        LEDGER_DELTAS_COLLECTION,
+        paddedIndex(entry.index),
+        deltaEnvelope,
+        0,
+      )
+    }
+
     // Update the head cache so the next append() doesn't re-scan the
-    // adapter. Computing the hash here is cheap (sha256 over a small
-    // canonical JSON string) and avoids any possibility of cache drift
-    // — the value we store is exactly what `prevHash` will be on the
-    // next append.
+    // adapter.
     this.headCache = { entry, hash: await hashEntry(entry) }
     return entry
   }
@@ -589,3 +663,14 @@ export class LedgerStore {
 // class into the floor bundle. The re-export at the top of this
 // file keeps the original `import { envelopePayloadHash } from '.../store.js'`
 // path working.
+
+/**
+ * Exponential backoff with jitter for the append CAS retry loop.
+ * Attempt 0 → ~5–10 ms, attempt 7 → ~640–1280 ms. Jitter avoids the
+ * thundering-herd problem when multiple writers collide repeatedly.
+ */
+function sleepBackoff(attempt: number): Promise<void> {
+  const base = 5 * Math.pow(2, attempt)
+  const jitter = Math.random() * base
+  return new Promise((resolve) => setTimeout(resolve, base + jitter))
+}

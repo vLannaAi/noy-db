@@ -4,7 +4,21 @@ Workspace-level summary. Per-package CHANGELOGs in `packages/<name>/CHANGELOG.md
 
 ## Unreleased — Pilot-3 fast-lane batch (2026-04-26)
 
-Four issues landed pre-v0.26 to unblock pilot-3 adoption. All shipped to `main`; no version bump yet.
+Five issues landed pre-v0.26 to unblock pilot-3 adoption and harden the ledger under multi-writer contention. All shipped to `main`; no version bump yet.
+
+### `@noy-db/hub` — multi-writer ledger hardening (#296)
+
+`LedgerStore.append()` now uses an optimistic-CAS retry loop on the chain head. Each attempt reads fresh head, claims the next index by writing the entry envelope with `expectedVersion: 0` ("slot must not exist"), and on `ConflictError` invalidates the cache and retries with bounded exponential backoff + jitter. Up to 8 retries; throws `LedgerContentionError` on exhaustion.
+
+Two browser tabs, a web app + offline mobile peer, or a server worker pool all producing ledger entries against the same vault now produce a contiguous, well-ordered chain on `casAtomic: true` stores (memory, idb, dynamo, postgres, d1). Stores with `casAtomic: false` (file, s3, r2 by default) silently accept the CAS argument and remain best-effort under contention — pair them with an advisory lock or single-writer discipline.
+
+Subtle ordering fix: delta envelopes are now persisted **after** the entry-put succeeds. Previously they were written first, which under retry would orphan delta records at indices the writer never claimed. The `deltaHash` is computed off the encrypted envelope's `_data` field in memory — no adapter round-trip needed for the hash.
+
+Pre-existing concurrency hazard fixed alongside: `ensureCollectionDEK` now dedupes in-flight DEK creates per collection. Without that, two concurrent first-time writes to a fresh collection both generated separate DEKs, the second `set` overwrote the first, and any envelope encrypted with the discarded DEK then failed to decrypt (`TamperedError` on read). Exposed by the multi-writer ledger work but applied across all DEK paths.
+
+New error: `LedgerContentionError` (code `LEDGER_CONTENTION`).
+
+### `@noy-db/in-pinia` — auto-updating reactive queries (#281)
 
 ### `@noy-db/in-pinia` — auto-updating reactive queries (#281)
 

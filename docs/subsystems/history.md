@@ -62,7 +62,7 @@ vault.openVault('firm', { historyConfig: { maxVersions: 50 } })
 
 ## Edge cases & limits
 
-- Ledger is single-writer. Concurrent appends from two workers can race the head. Multi-writer hardening tracked for v0.6 follow-up
+- Ledger is multi-writer safe on `casAtomic: true` stores (memory, idb, dynamo, postgres, d1) via an optimistic-CAS retry loop on the chain head (#296). Up to 8 retries with exponential backoff + jitter; throws `LedgerContentionError` on exhaustion. `casAtomic: false` stores (file, s3, r2) remain best-effort under contention — pair with an advisory lock or single-writer discipline
 - Time-machine accuracy is bounded by retention: pruned versions are unrecoverable
 - Known issue: dictionary writes append empty `payloadHash` (#290) — verifyBackupIntegrity false-negatives until fixed
 

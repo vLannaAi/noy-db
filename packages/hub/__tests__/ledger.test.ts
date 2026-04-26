@@ -26,7 +26,6 @@
 
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
-import { withHistory } from '../src/history/index.js'
 import type { Noydb } from '../src/noydb.js'
 import { withHistory } from '../src/history/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
@@ -461,5 +460,90 @@ describe('LedgerStore via Vault.ledger() — #43', () => {
     const head2 = await ledger.head()
     expect(head1?.hash).toBe(head2?.hash)
     expect(head1?.hash).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  // ─── Multi-writer hardening (#296) ───────────────────────────────────
+
+  it('two concurrent appends both succeed and the chain stays valid', async () => {
+    // The race today: both writers' getCachedHead() returns null,
+    // both compute nextIndex=0, both put at the same key. Without
+    // the CAS retry loop, the second write silently overwrites the
+    // first and the chain is corrupt (one entry, two operations
+    // happened). With the CAS retry loop, the second writer hits
+    // ConflictError, invalidates head, retries with nextIndex=1.
+    const company = await db.openVault('demo-co')
+    const ledger = company.ledger()
+
+    // Prime the ledger so subsequent concurrent appends share the
+    // already-cached LEDGER DEK. Without this, the very first call
+    // is the DEK-creation race (a separate concurrency hazard that
+    // ensureCollectionDEK now dedupes, but pre-warming keeps this
+    // test focused on the head-CAS race specifically).
+    await ledger.append({
+      op: 'put', collection: 'a', id: '0', version: 1,
+      actor: 'u', payloadHash: 'h0',
+    })
+
+    await Promise.all([
+      ledger.append({
+        op: 'put', collection: 'a', id: '1', version: 1,
+        actor: 'u', payloadHash: 'h1',
+      }),
+      ledger.append({
+        op: 'put', collection: 'a', id: '2', version: 1,
+        actor: 'u', payloadHash: 'h2',
+      }),
+    ])
+
+    const all = await ledger.entries()
+    expect(all).toHaveLength(3)
+    const ids = all.map(e => e.id).sort()
+    expect(ids).toEqual(['0', '1', '2'])
+    const indexes = all.map(e => e.index)
+    expect(indexes).toEqual([0, 1, 2])
+    const result = await ledger.verify()
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.length).toBe(3)
+  })
+
+  it('5 concurrent appends produce a contiguous, well-ordered chain', async () => {
+    const company = await db.openVault('demo-co')
+    const ledger = company.ledger()
+    // Pre-warm the LEDGER DEK; see preceding test's comment.
+    await ledger.append({
+      op: 'put', collection: 'a', id: 'init', version: 1,
+      actor: 'u', payloadHash: 'h-init',
+    })
+
+    await Promise.all(
+      Array.from({ length: 5 }, (_, i) =>
+        ledger.append({
+          op: 'put', collection: 'a', id: `r${i}`, version: 1,
+          actor: 'u', payloadHash: `h${i}`,
+        }),
+      ),
+    )
+
+    const all = await ledger.entries()
+    expect(all).toHaveLength(6)
+    expect(all.map(e => e.index)).toEqual([0, 1, 2, 3, 4, 5])
+    expect((await ledger.verify()).ok).toBe(true)
+  })
+
+  it('survives concurrent Collection.put across two collections without chain divergence', async () => {
+    const company = await db.openVault('demo-co')
+    const invoices = company.collection<Invoice>('invoices')
+    const clients = company.collection<{ id: string; name: string }>('clients')
+    const ledger = company.ledger()
+
+    await Promise.all([
+      invoices.put('inv-1', { id: 'inv-1', amount: 100 }),
+      clients.put('cli-1', { id: 'cli-1', name: 'Acme' }),
+      invoices.put('inv-2', { id: 'inv-2', amount: 200 }),
+      clients.put('cli-2', { id: 'cli-2', name: 'Bravo' }),
+    ])
+
+    expect((await ledger.entries()).length).toBe(4)
+    expect((await ledger.verify()).ok).toBe(true)
   })
 })

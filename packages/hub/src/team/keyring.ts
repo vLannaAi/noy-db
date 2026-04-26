@@ -580,14 +580,31 @@ export async function ensureCollectionDEK(
   vault: string,
   keyring: UnlockedKeyring,
 ): Promise<(collectionName: string) => Promise<CryptoKey>> {
+  // Dedupe concurrent first-time DEK creates per collection. Without
+  // this, two concurrent `getDEK('foo')` calls both pass the `existing`
+  // check (the Map is empty), both generate fresh DEKs, and the second
+  // `set` overwrites the first — making any envelope encrypted with
+  // the discarded DEK fail to decrypt later (TamperedError on read).
+  // Pre-existing race exposed by the multi-writer ledger work in #296.
+  const inFlight = new Map<string, Promise<CryptoKey>>()
   return async (collectionName: string): Promise<CryptoKey> => {
     const existing = keyring.deks.get(collectionName)
     if (existing) return existing
+    const pending = inFlight.get(collectionName)
+    if (pending) return pending
 
-    const dek = await generateDEK()
-    keyring.deks.set(collectionName, dek)
-    await persistKeyring(adapter, vault, keyring)
-    return dek
+    const promise = (async () => {
+      const dek = await generateDEK()
+      keyring.deks.set(collectionName, dek)
+      await persistKeyring(adapter, vault, keyring)
+      return dek
+    })()
+    inFlight.set(collectionName, promise)
+    try {
+      return await promise
+    } finally {
+      inFlight.delete(collectionName)
+    }
   }
 }
 

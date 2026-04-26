@@ -497,6 +497,31 @@ export class ConflictError extends NoydbError {
 }
 
 /**
+ * Thrown by `LedgerStore.append()` after exhausting its CAS retry
+ * budget under multi-writer contention (#296). Two browser tabs, a
+ * web app + an offline mobile peer, or a server worker pool all
+ * producing ledger entries against the same vault can race on the
+ * "read head, write head+1" cycle; the optimistic-CAS retry loop
+ * resolves the race for `casAtomic: true` stores, but pathological
+ * contention (or a buggy peer) can still exhaust the budget. When
+ * that happens, the chain is intact — the failed writer simply
+ * couldn't claim a slot. Caller's choice whether to retry, queue,
+ * or surface the failure to the user.
+ */
+export class LedgerContentionError extends NoydbError {
+  readonly attempts: number
+
+  constructor(attempts: number) {
+    super(
+      'LEDGER_CONTENTION',
+      `LedgerStore.append: failed to claim a chain slot after ${attempts} optimistic-CAS retries`,
+    )
+    this.name = 'LedgerContentionError'
+    this.attempts = attempts
+  }
+}
+
+/**
  * Thrown when a bundle push is rejected because the remote has been updated
  * since the local bundle was last pulled.
  *
