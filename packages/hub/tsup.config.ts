@@ -40,6 +40,7 @@ const ENTRIES = {
   'shadow/index': 'src/shadow/index.ts',
   'tx/index': 'src/tx/index.ts',
   'sync/index': 'src/sync/index.ts',
+  'util/index': 'src/util/index.ts',
 }
 
 export default defineConfig([

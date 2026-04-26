@@ -344,3 +344,16 @@ export async function loadBundle(path: string): Promise<NoydbBundleReadResult> {
   // no copy needed.
   return readNoydbBundle(bytes)
 }
+
+// Export-blobs FS materializer (#292) — wraps `vault.exportBlobs()` with
+// target-profile filename sanitization, Zip-Slip path containment, and
+// collision policy. Lives in `to-file` (not core) because hub stays
+// portable across browser/Node and shouldn't import `node:fs`.
+export {
+  exportBlobsToDirectory,
+} from './export-blobs-to-directory.js'
+export type {
+  ExportBlobsToDirectoryOptions,
+  ExportBlobsToDirectoryResult,
+  CollisionStrategy,
+} from './export-blobs-to-directory.js'

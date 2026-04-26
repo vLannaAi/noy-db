@@ -1062,3 +1062,37 @@ export class DanglingReferenceError extends NoydbError {
     this.refId = opts.refId
   }
 }
+
+/**
+ * Thrown by {@link sanitizeFilename} when an input filename cannot be
+ * made safe — NUL byte, empty after normalization, missing
+ * `opaqueId` for the opaque profile, `..` segment, or a `maxBytes`
+ * cap too small to hold a single code point.
+ */
+export class FilenameSanitizationError extends NoydbError {
+  constructor(message: string) {
+    super('FILENAME_SANITIZATION', message)
+    this.name = 'FilenameSanitizationError'
+  }
+}
+
+/**
+ * Thrown when a write target resolves OUTSIDE the requested
+ * directory after sanitization — the canonical Zip-Slip class. The
+ * sanitizer's job is to strip path-traversal segments; this error
+ * is the defense-in-depth fallback at the FS write site.
+ */
+export class PathEscapeError extends NoydbError {
+  readonly attempted: string
+  readonly targetDir: string
+
+  constructor(opts: { attempted: string; targetDir: string }) {
+    super(
+      'PATH_ESCAPE',
+      `Sanitized filename "${opts.attempted}" resolves outside target dir "${opts.targetDir}"`,
+    )
+    this.name = 'PathEscapeError'
+    this.attempted = opts.attempted
+    this.targetDir = opts.targetDir
+  }
+}

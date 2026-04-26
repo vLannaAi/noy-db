@@ -76,6 +76,12 @@ export interface ExportedBlob {
   /** Best-effort metadata (from the blob slot record). */
   readonly meta: {
     readonly size: number
+    /**
+     * User-visible filename stored on the slot. Often equal to the
+     * slot name; differs when the caller supplied an explicit
+     * `filename` to `BlobSet.put()`.
+     */
+    readonly filename: string
     readonly mimeType?: string
     readonly createdAt?: string
   }
@@ -207,6 +213,7 @@ export function createExportBlobsHandle(
             bytes,
             meta: {
               size: slot.size,
+              filename: slot.filename,
               ...(slot.mimeType !== undefined && { mimeType: slot.mimeType }),
               ...(slot.uploadedAt !== undefined && { createdAt: slot.uploadedAt }),
             },

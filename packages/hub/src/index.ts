@@ -205,6 +205,8 @@ export {
   BackupCorruptedError,
   JoinTooLargeError,
   DanglingReferenceError,
+  FilenameSanitizationError,
+  PathEscapeError,
   BundleIntegrityError,
   BundleVersionConflictError,
   SessionExpiredError,
