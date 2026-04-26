@@ -303,6 +303,70 @@ describe('BlobSet', () => {
     db.close()
   })
 
+  it('objectURL() returns a revocable ObjectURL with the slot mimeType', async () => {
+    const created: string[] = []
+    const revoked: string[] = []
+    const originalCreate = URL.createObjectURL
+    const originalRevoke = URL.revokeObjectURL
+    URL.createObjectURL = ((blob: Blob) => {
+      const u = `blob:test/${created.length}-${blob.size}`
+      created.push(u)
+      return u
+    }) as typeof URL.createObjectURL
+    URL.revokeObjectURL = ((u: string) => { revoked.push(u) }) as typeof URL.revokeObjectURL
+    try {
+      const db = await createNoydb({ store, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+      const vault = await db.openVault(VAULT)
+      const col = vault.collection<{ x: number }>('things')
+      await col.put('t-001', { x: 1 })
+
+      const content = textBytes('object url payload')
+      await col.blob('t-001').put('data.txt', content, { mimeType: 'text/plain' })
+
+      const out = await col.blob('t-001').objectURL('data.txt')
+      expect(out).not.toBeNull()
+      expect(out!.url).toBe(created[0])
+      expect(created).toHaveLength(1)
+
+      out!.revoke()
+      expect(revoked).toEqual([created[0]])
+      // revoke is idempotent
+      out!.revoke()
+      expect(revoked).toHaveLength(1)
+
+      // Missing slot returns null without creating a URL.
+      const missing = await col.blob('t-001').objectURL('does-not-exist')
+      expect(missing).toBeNull()
+      expect(created).toHaveLength(1)
+
+      db.close()
+    } finally {
+      URL.createObjectURL = originalCreate
+      URL.revokeObjectURL = originalRevoke
+    }
+  })
+
+  it('objectURL() respects an explicit mimeType override', async () => {
+    let capturedType = ''
+    const originalCreate = URL.createObjectURL
+    URL.createObjectURL = ((blob: Blob) => { capturedType = blob.type; return 'blob:test/x' }) as typeof URL.createObjectURL
+    try {
+      const db = await createNoydb({ store, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+      const vault = await db.openVault(VAULT)
+      const col = vault.collection<{ x: number }>('things')
+      await col.put('t-001', { x: 1 })
+      await col.blob('t-001').put('data.bin', textBytes('bytes'))
+
+      const out = await col.blob('t-001').objectURL('data.bin', { mimeType: 'image/png' })
+      expect(out).not.toBeNull()
+      expect(capturedType).toBe('image/png')
+      out!.revoke()
+      db.close()
+    } finally {
+      URL.createObjectURL = originalCreate
+    }
+  })
+
   it('works in unencrypted mode', async () => {
     const db = await createNoydb({ store, user: 'alice', encrypt: false , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)

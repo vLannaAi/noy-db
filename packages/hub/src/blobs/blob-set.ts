@@ -601,6 +601,55 @@ export class BlobSet {
     return this.buildResponse(slot, result.blob, opts)
   }
 
+  /**
+   * Decrypt the slot and wrap the bytes in a browser ObjectURL ready
+   * to feed into `<img src>`, `<a href>`, etc. The caller MUST call
+   * `revoke()` when the URL is no longer needed — otherwise the URL
+   * (and the underlying decrypted Blob) are pinned for the lifetime
+   * of the document, which leaks memory in long-lived pages.
+   *
+   * Returns `null` when the slot does not exist.
+   *
+   * Throws when `URL.createObjectURL` is unavailable in the host
+   * environment (Node without DOM, restricted workers). Framework
+   * adapters — `useBlobURL` in `@noy-db/in-vue`, etc. — guard against
+   * this for SSR contexts and stay at `null` instead of propagating.
+   */
+  async objectURL(
+    slotName: string,
+    opts?: { mimeType?: string },
+  ): Promise<{ url: string; revoke: () => void } | null> {
+    if (typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') {
+      throw new Error(
+        'BlobSet.objectURL: URL.createObjectURL is unavailable in this environment. ' +
+        'Call this from the browser, or use BlobSet.get() and create the URL yourself.',
+      )
+    }
+    const bytes = await this.get(slotName)
+    if (!bytes) return null
+
+    const { slots } = await this.loadSlots()
+    const slot = slots[slotName]
+    const type = opts?.mimeType ?? slot?.mimeType ?? 'application/octet-stream'
+
+    // Pinning the underlying ArrayBuffer in a Blob is what backs the
+    // ObjectURL — once we createObjectURL the URL holds a strong ref
+    // to the Blob, so the local `blob` variable can fall out of scope.
+    // Copy through a fresh ArrayBuffer so TS narrows away the
+    // SharedArrayBuffer branch of `ArrayBufferLike` (Uint8Array is
+    // generic over the backing buffer type since TS 5.7).
+    const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+    const blob = new Blob([buffer], { type })
+    const url = URL.createObjectURL(blob)
+    let revoked = false
+    const revoke = (): void => {
+      if (revoked) return
+      revoked = true
+      URL.revokeObjectURL(url)
+    }
+    return { url, revoke }
+  }
+
   // ─── Public API: Published versions (UC-3 amendment versioning) ───
 
   /**
