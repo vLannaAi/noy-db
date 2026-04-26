@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { setActivePinia, createPinia, storeToRefs } from 'pinia'
+import { effectScope } from 'vue'
 import { createNoydb, type Noydb, type NoydbStore, type EncryptedEnvelope, type VaultSnapshot, type StandardSchemaV1, ConflictError, Query } from '@noy-db/hub'
 import { defineNoydbStore, setActiveNoydb } from '../src/index.js'
 
@@ -301,6 +302,89 @@ describe('defineNoydbStore — greenfield path', () => {
     expect(store.items).toHaveLength(0) // stale until refresh
     await store.refresh()
     expect(store.items).toHaveLength(1)
+  })
+
+  it('19. liveQuery() reflects writes to the bound collection without manual refresh', async () => {
+    const useInvoices = defineNoydbStore<Invoice>('invoices', { vault: 'C1' })
+    const store = useInvoices()
+    await store.$ready
+
+    const live = store.liveQuery(q =>
+      q.where('status', '==', 'open').orderBy('amount', 'desc'),
+    )
+    expect(live.items.value).toEqual([])
+    expect(live.error.value).toBeNull()
+
+    await store.add('a', { id: 'a', amount: 100, status: 'draft', client: 'A' })
+    await store.add('b', { id: 'b', amount: 5000, status: 'open', client: 'B' })
+    await store.add('c', { id: 'c', amount: 250, status: 'open', client: 'C' })
+
+    expect(live.items.value.map(r => r.id)).toEqual(['b', 'c'])
+
+    // External-handle write through the same Noydb instance must also propagate,
+    // because LiveQuery subscribes to the underlying Collection emitter — not the
+    // Pinia store's reactive cache.
+    const c = await db.openVault('C1')
+    await c.collection<Invoice>('invoices').put('d', { id: 'd', amount: 999, status: 'open', client: 'D' })
+    expect(live.items.value.map(r => r.id)).toEqual(['b', 'd', 'c'])
+
+    live.stop()
+  })
+
+  it('20. liveQuery() throws before $ready when prefetch is false', async () => {
+    const useInvoices = defineNoydbStore<Invoice>('invoices', {
+      vault: 'C1',
+      prefetch: false,
+    })
+    const store = useInvoices()
+    expect(() => store.liveQuery(q => q)).toThrow(/before the store was ready/)
+  })
+
+  it('21. stop() releases subscriptions; later writes do not update items', async () => {
+    const useInvoices = defineNoydbStore<Invoice>('invoices', { vault: 'C1' })
+    const store = useInvoices()
+    await store.$ready
+
+    const live = store.liveQuery(q => q)
+    await store.add('a', { id: 'a', amount: 1, status: 'draft', client: 'A' })
+    expect(live.items.value).toHaveLength(1)
+
+    live.stop()
+    await store.add('b', { id: 'b', amount: 2, status: 'draft', client: 'B' })
+    expect(live.items.value).toHaveLength(1) // frozen at last pre-stop snapshot
+
+    // stop() is idempotent.
+    expect(() => live.stop()).not.toThrow()
+  })
+
+  it('22. effectScope dispose auto-stops the live query', async () => {
+    const useInvoices = defineNoydbStore<Invoice>('invoices', { vault: 'C1' })
+    const store = useInvoices()
+    await store.$ready
+
+    const scope = effectScope()
+    const live = scope.run(() => store.liveQuery(q => q))!
+    await store.add('a', { id: 'a', amount: 1, status: 'draft', client: 'A' })
+    expect(live.items.value).toHaveLength(1)
+
+    scope.stop()
+    await store.add('b', { id: 'b', amount: 2, status: 'draft', client: 'B' })
+    expect(live.items.value).toHaveLength(1) // auto-stopped on scope dispose
+  })
+
+  it('23. liveQuery() and query() are independent — query() still scans the reactive cache', async () => {
+    const useInvoices = defineNoydbStore<Invoice>('invoices', { vault: 'C1' })
+    const store = useInvoices()
+    await store.$ready
+    await store.add('a', { id: 'a', amount: 1, status: 'open', client: 'A' })
+
+    const live = store.liveQuery(q => q.where('status', '==', 'open'))
+    const eager = store.query().where('status', '==', 'open').toArray()
+
+    expect(eager.map(r => r.id)).toEqual(['a'])
+    expect(live.items.value.map(r => r.id)).toEqual(['a'])
+
+    live.stop()
   })
 
   it('18. supports `collection` option distinct from store id', async () => {

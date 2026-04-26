@@ -15,7 +15,11 @@
  */
 
 export { defineNoydbStore } from './defineNoydbStore.js'
-export type { NoydbStoreOptions, NoydbStore } from './defineNoydbStore.js'
+export type {
+  NoydbStoreOptions,
+  NoydbStore,
+  NoydbLiveQuery,
+} from './defineNoydbStore.js'
 export { setActiveNoydb, getActiveNoydb, resolveNoydb } from './context.js'
 export { createNoydbPiniaPlugin } from './plugin.js'
 export type { StoreNoydbOptions, NoydbPiniaPluginOptions } from './plugin.js'

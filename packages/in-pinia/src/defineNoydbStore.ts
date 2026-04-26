@@ -17,7 +17,16 @@
  */
 
 import { defineStore } from 'pinia'
-import { computed, shallowRef, type Ref, type ComputedRef } from 'vue'
+import {
+  computed,
+  getCurrentScope,
+  onScopeDispose,
+  ref,
+  shallowRef,
+  type Ref,
+  type ShallowRef,
+  type ComputedRef,
+} from 'vue'
 import type {
   Noydb,
   Vault,
@@ -26,6 +35,20 @@ import type {
   StandardSchemaV1,
 } from '@noy-db/hub'
 import { resolveNoydb } from './context.js'
+
+/**
+ * Reactive handle returned by `store.liveQuery(fn)`. Mirrors a hub
+ * `LiveQuery<R>` into Vue refs; `items` updates on every left- or
+ * joined-right-side mutation, `error` carries re-run errors as state
+ * (a `DanglingReferenceError` in strict join mode is the common case),
+ * `stop()` tears down upstream subscriptions. Auto-disposed on scope
+ * teardown when called inside a Vue setup / Pinia store body.
+ */
+export interface NoydbLiveQuery<R> {
+  items: ShallowRef<readonly R[]>
+  error: Ref<Error | null>
+  stop(): void
+}
 
 /**
  * Options accepted by `defineNoydbStore`.
@@ -80,6 +103,7 @@ export interface NoydbStore<T> {
   remove(id: string): Promise<void>
   refresh(): Promise<void>
   query(): Query<T>
+  liveQuery<R = T>(build: (q: Query<T>) => Query<R>): NoydbLiveQuery<R>
 }
 
 /**
@@ -185,6 +209,43 @@ export function defineNoydbStore<T>(
       return cachedCollection.query()
     }
 
+    function liveQuery<R = T>(
+      build: (q: Query<T>) => Query<R>,
+    ): NoydbLiveQuery<R> {
+      if (!cachedCollection) {
+        throw new Error(
+          '@noy-db/pinia: liveQuery() called before the store was ready. ' +
+          'Await store.$ready first, or set prefetch: true (default).',
+        )
+      }
+      const built = build(cachedCollection.query())
+      const live = built.live()
+
+      const items = shallowRef<readonly R[]>(live.value)
+      const error = ref<Error | null>(live.error)
+
+      const unsubscribe = live.subscribe(() => {
+        items.value = live.value
+        error.value = live.error
+      })
+
+      let stopped = false
+      const stop = (): void => {
+        if (stopped) return
+        stopped = true
+        unsubscribe()
+        live.stop()
+      }
+
+      // Auto-teardown when the calling scope (a Vue component's setup,
+      // a Pinia store body, or any user-created effectScope) disposes.
+      // Outside an active scope (raw test harness, SSR top-level), skip
+      // registration silently — caller is responsible for stop().
+      if (getCurrentScope()) onScopeDispose(stop)
+
+      return { items, error, stop }
+    }
+
     // Kick off hydration. The promise is exposed as $ready so components
     // can `await store.$ready` before rendering data-dependent UI.
     const $ready: Promise<void> = prefetch
@@ -201,6 +262,7 @@ export function defineNoydbStore<T>(
       remove,
       refresh,
       query,
+      liveQuery,
     }
   })
 }
