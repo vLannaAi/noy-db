@@ -20,6 +20,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
+import { withHistory } from '../src/history/index.js'
 import type { Noydb } from '../src/noydb.js'
 import type {
   NoydbStore,
@@ -258,6 +259,9 @@ describe('bundle > round-trip with real compartment', () => {
       store: memory(),
       user: 'owner',
       secret: 'bundle-test-passphrase-2026',
+      // Bundle round-trip exercises vault.dump(); the history strategy
+      // is what populates `ledgerHead` for tamper detection.
+      historyStrategy: withHistory(),
     })
   })
 

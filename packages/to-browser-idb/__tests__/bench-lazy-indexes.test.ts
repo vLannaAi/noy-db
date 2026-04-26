@@ -22,6 +22,7 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import { IDBFactory } from 'fake-indexeddb'
 import { createNoydb } from '@noy-db/hub'
+import { withIndexing } from '@noy-db/hub/indexing'
 import { browserIdbStore } from '../src/index.js'
 
 /**
@@ -82,7 +83,14 @@ describeBench('acceptance bench — 50K lazy indexes on to-browser-idb (#270)', 
     ;(globalThis as unknown as Record<string, unknown>).indexedDB = new IDBFactory()
 
     const store = browserIdbStore({ prefix: 'bench' })
-    const db = await createNoydb({ store, user: 'owner', secret: SECRET })
+    const db = await createNoydb({
+      store,
+      user: 'owner',
+      secret: SECRET,
+      // The bench exercises lazyQuery() on indexed fields, which
+      // requires the indexing strategy to be opted in.
+      indexStrategy: withIndexing(),
+    })
     const vault = await db.openVault('BENCH')
     const coll = vault.collection<Disbursement>('disbursements', {
       prefetch: false,

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
+import { withHistory } from '../src/history/index.js'
 import type { Noydb } from '../src/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError } from '../src/errors.js'
@@ -50,6 +51,10 @@ describe('integration: full lifecycle', () => {
         store: memory(),
         user: 'owner-01',
         secret: 'test-passphrase-12345',
+        // Tests in this block exercise vault.dump() / load() round-trips;
+        // the history strategy populates the ledger that vault.dump()
+        // embeds for tamper detection.
+        historyStrategy: withHistory(),
       })
     })
 
@@ -160,7 +165,7 @@ describe('integration: full lifecycle', () => {
     })
 
     it('dump and load round-trips in unencrypted mode', async () => {
-      const plainDb = await createNoydb({ store: memory(), user: 'dev', encrypt: false })
+      const plainDb = await createNoydb({ store: memory(), user: 'dev', encrypt: false, historyStrategy: withHistory() })
       const comp = await plainDb.openVault('TEST')
       const invoices = comp.collection<Invoice>('invoices')
 
@@ -170,7 +175,7 @@ describe('integration: full lifecycle', () => {
       const backup = await comp.dump()
 
       // Restore into a new vault on a fresh instance
-      const plainDb2 = await createNoydb({ store: memory(), user: 'dev', encrypt: false })
+      const plainDb2 = await createNoydb({ store: memory(), user: 'dev', encrypt: false, historyStrategy: withHistory() })
       const comp2 = await plainDb2.openVault('TEST')
       await comp2.load(backup)
 
@@ -192,6 +197,7 @@ describe('integration: full lifecycle', () => {
         store: memory(),
         user: 'dev',
         encrypt: false,
+        historyStrategy: withHistory(),
       })
     })
 

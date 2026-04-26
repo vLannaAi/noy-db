@@ -25,6 +25,16 @@
  *                       crypto primitive from `@noy-db/hub`. Stores
  *                       only ever see encrypted envelopes.
  *
+ *   5. strategy-opt-in
+ *                     — every file that constructs its own Noydb
+ *                       (calls `createNoydb({...})`) AND uses a
+ *                       strategy-gated API on the resulting vault
+ *                       (e.g. `vault.dump()`, `vault.ledger()`,
+ *                       `vault.dictionary()`) must also reference
+ *                       the corresponding `with*()` factory.
+ *                       Closes #299 (vault.dump() needs withHistory)
+ *                       and #300 (test-fixture strategy audit).
+ *
  * Each check has its own per-package or per-file allow-list when a
  * legitimate exception exists.
  */
@@ -82,6 +92,28 @@ function stripComments(content) {
   return content
     .replace(/\/\*[\s\S]*?\*\//g, '')   // /* ... */ and /** ... */
     .replace(/^\s*\/\/.*$/gm, '')       // // line comments
+}
+
+/**
+ * Stronger strip used by checks that scan for method-call shapes —
+ * also removes string-literal contents so a substring like
+ * `"vault.dictionary(...)"` inside an error message doesn't read as
+ * an actual call. Replaces the body of strings with spaces (preserves
+ * line numbers + structure for any later reporting).
+ */
+function stripCommentsAndStrings(content) {
+  let s = stripComments(content)
+  // Template literals (backticks) — handle ${...} interpolations by
+  // keeping their interiors (they ARE code) and only blanking the
+  // surrounding text. Cheaper proxy: blank everything inside backticks
+  // including `${...}`. False negative on calls that ONLY appear
+  // inside template-interpolated code is acceptable — template-literal
+  // call sites are a rare path.
+  s = s.replace(/`(?:\\.|[^`\\])*`/g, '``')
+  // Single + double quoted strings.
+  s = s.replace(/'(?:\\.|[^'\\])*'/g, "''")
+  s = s.replace(/"(?:\\.|[^"\\])*"/g, '""')
+  return s
 }
 
 // ─── Check 1: peer-dep convention ──────────────────────────────────────
@@ -285,6 +317,58 @@ function checkStoresCiphertextOnly() {
   }
 }
 
+// ─── Check 5: strategy-opt-in (closes #299, #300) ──────────────────────
+
+/**
+ * APIs that throw without their backing strategy. Each tuple is
+ * [API call pattern, strategy option key, factory name]. A file that
+ * matches the pattern AND calls `createNoydb(...)` AND references
+ * neither the option key nor the factory name fails the check.
+ *
+ * Patterns are deliberately distinctive — generic names (`.at`,
+ * `.aggregate`, `.frame`) are excluded because they collide with
+ * unrelated code (Date.at, Array.aggregate, animation frames).
+ * Coverage today: 5 of the 12 strategy seams. The five chosen are
+ * the ones with unique-enough method names AND realistic
+ * production / test footprint.
+ */
+const STRATEGY_GATED_APIS = [
+  { api: /\.dump\s*\(/,        option: 'historyStrategy', factory: 'withHistory' },
+  { api: /\.ledger\s*\(\s*\)/, option: 'historyStrategy', factory: 'withHistory' },
+  { api: /\.dictionary\s*\(/,  option: 'i18nStrategy',    factory: 'withI18n' },
+  { api: /\.lazyQuery\s*\(/,   option: 'indexStrategy',   factory: 'withIndexing' },
+  { api: /\.exportBlobs\s*\(/, option: 'blobStrategy',    factory: 'withBlobs' },
+]
+
+function checkStrategyOptIns() {
+  for (const pkgDir of listPackageDirs()) {
+    walkTsFiles(join(pkgDir, 'src'), scanFileForStrategyOptIn)
+    walkTsFiles(join(pkgDir, '__tests__'), scanFileForStrategyOptIn)
+  }
+}
+
+function scanFileForStrategyOptIn(file, content) {
+  // Use the stronger strip — error-message strings legitimately mention
+  // method names like ".dictionary()" inside hint text, which the
+  // comment-only strip would leave intact and trip false positives.
+  const code = stripCommentsAndStrings(content)
+  // The check fires only on files that both construct a Noydb in-line
+  // AND call a gated API. Files that only consume an injected Vault
+  // are out of scope — the opt-in lives at the construction site.
+  if (!/\bcreateNoydb\s*\(/.test(code)) return
+
+  for (const { api, option, factory } of STRATEGY_GATED_APIS) {
+    if (!api.test(code)) continue
+    if (code.includes(option)) continue
+    if (code.includes(factory)) continue
+    fail(
+      'strategy-opt-in',
+      `${relative(ROOT, file)} calls createNoydb(...) and uses a ${option}-gated API (matched ${api}), but never references ${option} or ${factory}. Pass \`${option}: ${factory}()\` to createNoydb, otherwise the API will throw at runtime.`,
+      file,
+    )
+  }
+}
+
 // ─── Run ───────────────────────────────────────────────────────────────
 
 const startTime = Date.now()
@@ -293,6 +377,7 @@ checkPeerDeps()
 checkNoCryptoDeps()
 checkHubPortable()
 checkStoresCiphertextOnly()
+checkStrategyOptIns()
 
 const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
 
