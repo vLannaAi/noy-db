@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { ref } from 'vue'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub'
 import { ConflictError, createNoydb } from '@noy-db/hub'
+import { withI18n } from '@noy-db/hub/i18n'
 import type { Noydb, Vault } from '@noy-db/hub'
 import { setActiveNoydb } from '../src/context.js'
 import { useDictLabel } from '../src/useDictLabel.js'
@@ -42,7 +43,12 @@ function memory(): NoydbStore {
 }
 
 async function setup(): Promise<{ db: Noydb; vault: Vault }> {
-  const db = await createNoydb({ store: memory(), user: 'owner', secret: 'pw' })
+  const db = await createNoydb({
+    store: memory(),
+    user: 'owner',
+    secret: 'pw',
+    i18nStrategy: withI18n(),
+  })
   const vault = await db.openVault('acme')
   const dict = vault.dictionary('invoiceStatus')
   await dict.put('draft', { en: 'Draft', th: 'ฉบับร่าง' })
@@ -79,11 +85,13 @@ describe('useDictLabel', () => {
     const locale = ref('en')
     const label = useDictLabel('invoiceStatus', { vault, locale, fallback: ['any'] })
     const paid = label('paid')
-    await tick()
+    // The first resolve is async (decrypts the dict envelope) — poll
+    // until it settles instead of awaiting a fixed number of ticks.
+    for (let i = 0; i < 50 && paid.value !== 'Paid'; i++) await tick(10)
     expect(paid.value).toBe('Paid')
 
     locale.value = 'th'
-    await tick()
+    for (let i = 0; i < 50 && paid.value !== 'ชำระแล้ว'; i++) await tick(10)
     expect(paid.value).toBe('ชำระแล้ว')
   })
 
