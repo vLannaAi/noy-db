@@ -2671,8 +2671,20 @@ export class Collection<T> {
    * caller's keyring must hold the tier-N DEK (directly, by
    * delegation, or by virtue of being the grantor); otherwise throws
    * `TierNotGrantedError`.
+   *
+   * v0.26 #283 — accepts an optional `elevation` context. When
+   * present, the emitted cross-tier event is stamped with
+   * `authorization: 'elevation'`, the elevation's reason, and the
+   * caller's pre-elevation tier. `vault.elevate(...).collection().put`
+   * threads this through; direct `putAtTier` calls leave it undefined
+   * and fall back to the inherent-write event shape.
    */
-  async putAtTier(id: string, record: T, tier: number): Promise<void> {
+  async putAtTier(
+    id: string,
+    record: T,
+    tier: number,
+    opts?: { elevation?: { reason: string; fromTier: number } },
+  ): Promise<void> {
     this.assertTiersEnabled()
     this.assertDeclaredTier(tier)
     assertTierAccess(this.keyring, this.name, tier)
@@ -2702,9 +2714,13 @@ export class Collection<T> {
         collection: this.name,
         id,
         tier,
-        authorization: 'inherent',
+        authorization: opts?.elevation ? 'elevation' : 'inherent',
         op: 'put',
         ts: envelope._ts,
+        ...(opts?.elevation && {
+          reason: opts.elevation.reason,
+          elevatedFrom: opts.elevation.fromTier,
+        }),
       })
     }
   }

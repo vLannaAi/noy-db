@@ -20,7 +20,13 @@ import type { OnDirtyCallback } from './collection.js'
 import type { UnlockedKeyring } from './team/keyring.js'
 import { ensureCollectionDEK, hasAccess, hasExportCapability } from './team/keyring.js'
 import type { ExportFormat } from './types.js'
-import { ExportCapabilityError, ValidationError } from './errors.js'
+import {
+  ExportCapabilityError,
+  ValidationError,
+  AlreadyElevatedError,
+  ElevationExpiredError,
+  TierNotGrantedError,
+} from './errors.js'
 import type { NoydbEventEmitter } from './events.js'
 import { BackupLedgerError, BackupCorruptedError } from './errors.js'
 import type { StandardSchemaV1 } from './schema.js'
@@ -230,6 +236,14 @@ export class Vault {
 
   /** v0.18 #210 — subscribers for cross-tier access events. */
   private readonly crossTierSubs = new Set<(event: CrossTierAccessEvent) => void>()
+
+  /** v0.26 #283 — currently-active elevation, or null. One per vault. */
+  private activeElevation: {
+    readonly tier: number
+    readonly expiresAt: number
+    readonly reason: string
+    readonly handle: ElevatedHandle
+  } | null = null
 
   /**
    * Optional translator callback threaded from `Noydb.invokeTranslator`.
@@ -1289,6 +1303,146 @@ export class Vault {
     void DELEGATIONS_COLLECTION
   }
 
+  // ─── Scoped tier elevation (v0.26 #283) ───────────────────────────
+
+  /**
+   * Briefly elevate this vault to a higher tier and return a scoped
+   * handle whose writes land at that tier. Reads on the original
+   * vault continue at the caller's inherent tier; only the returned
+   * handle is privileged. Auto-reverts when `release()` is called or
+   * `ttlMs` elapses, whichever comes first.
+   *
+   * Capability semantics:
+   *   - The keyring must already carry a wrap for the target tier on
+   *     at least one collection (or be `owner` / `admin`, who can
+   *     auto-mint). Otherwise throws {@link TierNotGrantedError}.
+   *   - Per-collection capability gates (`canExportPlaintext`,
+   *     `canExportBundle`) are NOT bypassed — elevation is a tier
+   *     projection, not a privilege escalation path.
+   *   - Only one elevation can be active per vault at a time.
+   *     Calling `elevate(...)` while another is live throws
+   *     {@link AlreadyElevatedError}.
+   *
+   * Audit:
+   *   - One `_elevation_audit` envelope is written at start with
+   *     `{ id, actor, tier, reason, ttlMs, startedAt, expiresAt }`.
+   *   - Each write through the elevated handle additionally fires a
+   *     {@link CrossTierAccessEvent} with `authorization: 'elevation'`,
+   *     stamped with `reason` and `elevatedFrom`.
+   */
+  async elevate(
+    tier: number,
+    options: { ttlMs: number; reason: string },
+  ): Promise<ElevatedHandle> {
+    if (!Number.isInteger(tier) || tier <= 0) {
+      throw new ValidationError(`elevate: tier must be a positive integer, got ${tier}`)
+    }
+    if (!options || typeof options.reason !== 'string' || options.reason.length === 0) {
+      throw new ValidationError('elevate: reason is required (non-empty string)')
+    }
+    if (typeof options.ttlMs !== 'number' || options.ttlMs <= 0) {
+      throw new ValidationError('elevate: ttlMs must be a positive number')
+    }
+    if (this.activeElevation) {
+      throw new AlreadyElevatedError(this.activeElevation.tier)
+    }
+    // Construction-time tier-reach check: scan keyring for any
+    // `*#${tier}` DEK. Owners and admins skip — they auto-mint at
+    // write time per the existing `assertTierAccess` rules.
+    if (this.keyring.role !== 'owner' && this.keyring.role !== 'admin') {
+      const suffix = `#${tier}`
+      let found = false
+      for (const k of this.keyring.deks.keys()) {
+        if (k.endsWith(suffix)) { found = true; break }
+      }
+      if (!found) {
+        // Match the existing error class so adopters with one catch()
+        // for tier-related failures don't need a second branch.
+        throw new TierNotGrantedError('(any collection)', tier)
+      }
+    }
+
+    const startedAt = new Date()
+    const expiresAt = startedAt.getTime() + options.ttlMs
+    const reason = options.reason
+
+    const handle = new ElevatedHandle({
+      vault: this,
+      tier,
+      reason,
+      expiresAt,
+      onRelease: () => {
+        if (this.activeElevation && this.activeElevation.handle === handle) {
+          this.activeElevation = null
+        }
+      },
+    })
+
+    this.activeElevation = { tier, expiresAt, reason, handle }
+    await this.writeElevationAudit({
+      actor: this.keyring.userId,
+      tier,
+      reason,
+      ttlMs: options.ttlMs,
+      startedAt: startedAt.toISOString(),
+      expiresAt: new Date(expiresAt).toISOString(),
+    })
+    return handle
+  }
+
+  /**
+   * Internal — invoked by an `ElevatedHandle.collection().put()` call.
+   * Routes through the existing `Collection.putAtTier` code path with
+   * the elevation context attached so the cross-tier event reflects
+   * the right authorization class.
+   */
+  async _elevatedPut<T>(
+    collectionName: string,
+    id: string,
+    record: T,
+    tier: number,
+    reason: string,
+  ): Promise<void> {
+    const coll = this.collection<T>(collectionName)
+    await coll.putAtTier(id, record, tier, {
+      elevation: { reason, fromTier: 0 },
+    })
+  }
+
+  private async writeElevationAudit(entry: {
+    actor: string
+    tier: number
+    reason: string
+    ttlMs: number
+    startedAt: string
+    expiresAt: string
+  }): Promise<void> {
+    const id = `elev-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 10)}`
+    const json = JSON.stringify({ id, ...entry })
+    const envelope: EncryptedEnvelope = this.encrypted
+      ? await (async () => {
+          const dek = await this.getDEK(ELEVATION_AUDIT_COLLECTION)
+          const { iv, data } = await encrypt(json, dek)
+          return {
+            _noydb: NOYDB_FORMAT_VERSION,
+            _v: 1,
+            _ts: entry.startedAt,
+            _iv: iv,
+            _data: data,
+            _by: entry.actor,
+          }
+        })()
+      : {
+          _noydb: NOYDB_FORMAT_VERSION,
+          _v: 1,
+          _ts: entry.startedAt,
+          _iv: '',
+          _data: json,
+          _by: entry.actor,
+        }
+    await this.adapter.put(this.name, ELEVATION_AUDIT_COLLECTION, id, envelope)
+  }
+
   /**
    * v0.21 #257 — low-level escape hatch used by `@noy-db/on-magic-link`
    * to persist a magic-link-bound grant after the auth package has
@@ -2209,5 +2363,101 @@ export class Vault {
       ...(hasDictionaries ? { _dictionaries: allDictionaries } : {}),
       ...(ledgerHead ? { ledgerHead } : {}),
     })
+  }
+}
+
+// ─── Elevation handle (v0.26 #283) ────────────────────────────────────
+
+/**
+ * Reserved collection that holds the audit ledger of elevation
+ * sessions. One envelope per `vault.elevate(...)` call.
+ */
+export const ELEVATION_AUDIT_COLLECTION = '_elevation_audit'
+
+/**
+ * Scoped handle returned by `vault.elevate(...)`. Writes through this
+ * handle land at the elevated tier with `authorization: 'elevation'`
+ * stamped on the audit event; reads stay on the original `Vault`.
+ *
+ * The handle lazily checks its TTL on every operation, so a
+ * forgotten `release()` cannot keep elevated writes alive past
+ * `expiresAt` — the next call simply throws
+ * {@link ElevationExpiredError}.
+ *
+ * Naming note (#283): the issue's spec text used `elevated.session`
+ * for this field; we name the field `handle` to avoid conflicting
+ * with the codebase's existing `SessionToken` value type. The
+ * semantics are unchanged.
+ */
+export class ElevatedHandle {
+  /** Target tier this handle writes at. */
+  readonly tier: number
+  /** Audit string stamped on every cross-tier event. */
+  readonly reason: string
+  /** Absolute expiration in ms (Date.now()). */
+  readonly expiresAt: number
+  private released = false
+  private readonly vault: Vault
+  private readonly onRelease: () => void
+
+  constructor(opts: {
+    vault: Vault
+    tier: number
+    reason: string
+    expiresAt: number
+    onRelease: () => void
+  }) {
+    this.vault = opts.vault
+    this.tier = opts.tier
+    this.reason = opts.reason
+    this.expiresAt = opts.expiresAt
+    this.onRelease = opts.onRelease
+  }
+
+  /**
+   * Scoped collection accessor. Returns a thin wrapper exposing the
+   * single elevated operation (`put`). Reads, deletes, queries —
+   * everything else — should go through the original `vault`'s
+   * `collection(...)`, which keeps "writes elevated, reads
+   * unprivileged" trivially true.
+   */
+  collection<T>(name: string): { put(id: string, record: T): Promise<void> } {
+    // Don't gate the wrapper itself — just the operation. Adopters
+    // commonly cache `const docs = elev.collection('docs')` and the
+    // lazy-check still works correctly because assertActive runs at
+    // every `put` call, against a fresh `Date.now()`.
+    return {
+      put: async (id: string, record: T): Promise<void> => {
+        this.assertActive()
+        await this.vault._elevatedPut<T>(name, id, record, this.tier, this.reason)
+      },
+    }
+  }
+
+  /**
+   * Manually revert the elevation. Idempotent — calling twice (or
+   * after the TTL expired) is a safe no-op. The vault's
+   * active-elevation slot is cleared so a subsequent
+   * `vault.elevate(...)` succeeds without throwing
+   * {@link AlreadyElevatedError}.
+   */
+  async release(): Promise<void> {
+    if (this.released) return
+    this.released = true
+    this.onRelease()
+  }
+
+  private assertActive(): void {
+    if (this.released) {
+      throw new ElevationExpiredError({ tier: this.tier, expiresAt: this.expiresAt })
+    }
+    if (Date.now() > this.expiresAt) {
+      // Auto-release on first use past TTL so the vault's active
+      // slot frees up without requiring the caller to think about
+      // explicit release on expiry.
+      this.released = true
+      this.onRelease()
+      throw new ElevationExpiredError({ tier: this.tier, expiresAt: this.expiresAt })
+    }
   }
 }

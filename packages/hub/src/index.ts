@@ -207,6 +207,8 @@ export {
   DanglingReferenceError,
   FilenameSanitizationError,
   PathEscapeError,
+  ElevationExpiredError,
+  AlreadyElevatedError,
   BundleIntegrityError,
   BundleVersionConflictError,
   SessionExpiredError,
@@ -311,7 +313,7 @@ export { hasExportCapability, evaluateExportCapability } from './team/keyring.js
 
 // Core classes
 export { Noydb, createNoydb } from './noydb.js'
-export { Vault } from './vault.js'
+export { Vault, ElevatedHandle, ELEVATION_AUDIT_COLLECTION } from './vault.js'
 export { Collection } from './collection.js'
 export type { CacheOptions, CacheStats, CollectionChangeEvent } from './collection.js'
 

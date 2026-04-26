@@ -405,6 +405,44 @@ export class TierNotGrantedError extends NoydbError {
 }
 
 /**
+ * Thrown when an elevated-handle operation runs after the elevation's
+ * TTL expired. Reads continue at the original tier; only writes
+ * through the scoped handle flip to throwing once expired (#283).
+ */
+export class ElevationExpiredError extends NoydbError {
+  readonly tier: number
+  readonly expiresAt: number
+
+  constructor(opts: { tier: number; expiresAt: number }) {
+    super(
+      'ELEVATION_EXPIRED',
+      `Elevation to tier ${opts.tier} expired at ${new Date(opts.expiresAt).toISOString()}`,
+    )
+    this.name = 'ElevationExpiredError'
+    this.tier = opts.tier
+    this.expiresAt = opts.expiresAt
+  }
+}
+
+/**
+ * Thrown by `vault.elevate(...)` when an elevation is already active
+ * on the vault. Adopters must `release()` the existing handle before
+ * starting a new elevation (#283).
+ */
+export class AlreadyElevatedError extends NoydbError {
+  readonly activeTier: number
+
+  constructor(activeTier: number) {
+    super(
+      'ALREADY_ELEVATED',
+      `Vault is already elevated to tier ${activeTier}; release the existing handle first`,
+    )
+    this.name = 'AlreadyElevatedError'
+    this.activeTier = activeTier
+  }
+}
+
+/**
  * Thrown when `demote()` is called by someone who is not the original
  * elevator and not an owner.
  */

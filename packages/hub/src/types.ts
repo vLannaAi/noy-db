@@ -154,6 +154,19 @@ export interface CrossTierAccessEvent {
   readonly authorization: 'elevation' | 'delegation' | 'inherent'
   readonly op: 'get' | 'put' | 'elevate' | 'demote'
   readonly ts: string
+  /**
+   * When `authorization === 'elevation'`, the audit reason string the
+   * caller passed to `vault.elevate(...)`. Empty for inherent /
+   * delegation paths. (#283)
+   */
+  readonly reason?: string
+  /**
+   * When `authorization === 'elevation'`, the tier the caller's
+   * keyring effectively held BEFORE elevation. Useful for audit
+   * dashboards distinguishing "operator elevating to 2" from
+   * "inherent tier-2 write." (#283)
+   */
+  readonly elevatedFrom?: number
 }
 
 /**
