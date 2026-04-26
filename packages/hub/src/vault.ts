@@ -695,6 +695,25 @@ export class Vault {
   }
 
   /**
+   * The user id of the keyring backing this vault session. Useful for
+   * UI affordances ("you are alice"), audit trails, and orchestration
+   * composables that need to stamp records with the current actor.
+   */
+  get userId(): string {
+    return this.keyring.userId
+  }
+
+  /**
+   * The role of the keyring backing this vault session — one of
+   * `owner | admin | operator | viewer | client`. Useful for UI
+   * affordance gates and approval workflows that need to confirm
+   * the caller can perform a given action before attempting it.
+   */
+  get role(): import('./types.js').Role {
+    return this.keyring.role
+  }
+
+  /**
    * Authorize an `@noy-db/as-*` export against the current keyring's
    * `exportCapability` (RFC #249). Throws `ExportCapabilityError` if
    * the invoking keyring is not authorised.

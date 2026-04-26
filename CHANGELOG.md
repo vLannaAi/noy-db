@@ -4,7 +4,36 @@ Workspace-level summary. Per-package CHANGELOGs in `packages/<name>/CHANGELOG.md
 
 ## Unreleased — Pilot-3 fast-lane batch (2026-04-26)
 
-Five issues landed pre-v0.26 to unblock pilot-3 adoption and harden the ledger under multi-writer contention. All shipped to `main`; no version bump yet.
+Six issues landed pre-v0.26 to unblock pilot-3 adoption and harden the ledger under multi-writer contention. All shipped to `main`; no version bump yet.
+
+### `@noy-db/in-pinia` — capability-grant orchestration composable (#282)
+
+`useCapabilityGrant(capability, opts)` manages the request → approve → grant → expire UI lifecycle for time-boxed capability flows (bulk plaintext export, masked-PII reveal, scheduled report generation). Reactive state machine (`idle | requested | granted | expired`), persistent request records in the reserved `_capability_requests` collection, `timeRemaining: ComputedRef<number>`, scope-dispose teardown, SSR no-op.
+
+Composable is orchestration-pure — it does NOT itself flip capability bits. Adopters wire `onGrant` and `onRelease` callbacks to whichever capability mechanism their codebase uses (commonly `vault.elevate(tier, opts)` from #283; alternatively `db.grant`/`db.revoke` for keyring-based, or anything custom). This avoids introducing a parallel "capability elevation" primitive in hub when the existing `vault.elevate()` already covers the time-boxed-grant pattern.
+
+Audit invariant: persisted records carry metadata only — `capability`, `requestedBy`, `approvedBy`, `ttlMs`, `reason`. No plaintext payload.
+
+```ts
+const grant = useCapabilityGrant('canExportPlaintext', {
+  vault: 'V1',
+  ttlMs: 15 * 60_000,
+  approver: 'admin',
+  reason: 'bulk export',
+  onGrant: async ({ vault, record }) => {
+    await vault.elevate(2, { ttlMs: record.ttlMs, reason: record.reason })
+  },
+})
+
+await grant.request()
+await grant.approve()                 // approver-tier session
+// grant.timeRemaining ticks down…
+await grant.release()                 // or wait for TTL auto-revert
+```
+
+Hub-side: `Vault.userId` and `Vault.role` are now public read-only getters (additive — no breaking change). Required for the composable to stamp request records and check the approver-tier match without rummaging through internals.
+
+### `@noy-db/hub` — multi-writer ledger hardening (#296)
 
 ### `@noy-db/hub` — multi-writer ledger hardening (#296)
 

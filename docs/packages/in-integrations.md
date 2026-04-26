@@ -29,7 +29,7 @@ The `in-` prefix reads as *"runs **in** a framework runtime."* Unlike the
 | Package | When to use |
 |---|---|
 | [`@noy-db/in-vue`](../../packages/in-vue) | Vue 3 composables — `useNoydb`, `useCollection`, `useSync`, `useBlobURL` (auto-revoking ObjectURL for encrypted blobs, #284). Works outside Nuxt too. |
-| [`@noy-db/in-pinia`](../../packages/in-pinia) | Pinia store factory — `defineNoydbStore<T>()` with `store.liveQuery(fn)` for auto-updating reactive queries (#281). Typed, reactive, SSR-safe. |
+| [`@noy-db/in-pinia`](../../packages/in-pinia) | Pinia store factory — `defineNoydbStore<T>()` with `store.liveQuery(fn)` for auto-updating reactive queries (#281), plus `useCapabilityGrant` for time-boxed approval flows (#282). Typed, reactive, SSR-safe. |
 | [`@noy-db/in-nuxt`](../../packages/in-nuxt) | Nuxt 4 module — one config block, auto-import, devtools tab. |
 | [`@noy-db/in-react`](../../packages/in-react) | React hooks — `useNoydb`, `useVault`, `useCollection`, `useQuery`, `useSync`. |
 

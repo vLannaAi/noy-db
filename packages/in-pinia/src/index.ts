@@ -23,3 +23,13 @@ export type {
 export { setActiveNoydb, getActiveNoydb, resolveNoydb } from './context.js'
 export { createNoydbPiniaPlugin } from './plugin.js'
 export type { StoreNoydbOptions, NoydbPiniaPluginOptions } from './plugin.js'
+export {
+  useCapabilityGrant,
+  CAPABILITY_REQUESTS_COLLECTION,
+} from './useCapabilityGrant.js'
+export type {
+  UseCapabilityGrantOptions,
+  UseCapabilityGrantReturn,
+  CapabilityGrantState,
+  CapabilityGrantRecord,
+} from './useCapabilityGrant.js'
