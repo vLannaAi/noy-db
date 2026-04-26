@@ -26,6 +26,7 @@
     "docs": "typedoc",
     "docs:watch": "typedoc --watch",
     "guard:privacy": "bash scripts/check-privacy.sh",
+    "check:architecture": "node scripts/check-architecture.mjs",
     "release": "pnpm run guard:privacy && pnpm run build && changeset publish",
     "release:version": "node scripts/release.mjs",
     "changeset": "changeset"

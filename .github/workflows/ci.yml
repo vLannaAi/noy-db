@@ -28,10 +28,25 @@ jobs:
       - name: Scan
         run: bash scripts/check-privacy.sh
 
+  # ── Architecture invariants ──────────────────────────────────────────
+  # Enforces the design contract: peer-dep convention, zero crypto deps,
+  # hub stays portable (no Node-only imports), and stores never see
+  # plaintext. Cheap (~40ms) — runs on every PR before the heavier jobs.
+  architecture:
+    name: Architecture invariants
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check
+        run: node scripts/check-architecture.mjs
+
   # ── Lint + typecheck ─────────────────────────────────────────────────
   quality:
     name: Lint + typecheck
-    needs: privacy
+    needs: [privacy, architecture]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -50,7 +65,7 @@ jobs:
   # ── Build (once — caches for test matrix) ────────────────────────────
   build:
     name: Build
-    needs: privacy
+    needs: [privacy, architecture]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
