@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/showcases",
-  "version": "0.12.0",
+  "version": "0.1.0-pre.1",
   "private": true,
   "description": "Automated end-to-end showcases for noy-db — each showcase doubles as a test, demo, and tutorial covering a specific topology pattern.",
   "type": "module",
@@ -31,6 +31,7 @@
     "@aws-sdk/lib-dynamodb": "^3.600.0",
     "@vitest/coverage-v8": "^2.1.0",
     "dotenv": "^16.4.0",
+    "fake-indexeddb": "^6.2.5",
     "happy-dom": "^16.0.0",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"

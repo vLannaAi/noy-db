@@ -128,9 +128,98 @@ features:
       - 'Index-aware execution: indexed fast-path then fallback scan'
     related: [vault-and-collections]
 
-# ─── Forward-compatible empty sections (phases 2-8) ──────────────────
+# ─── Storage adapters (phase 2) ──────────────────────────────────────
 
-adapters: []
+adapters:
+  - id: to-memory
+    name: In-memory store
+    package: '@noy-db/to-memory'
+    cas_atomic: true
+    use_case: testing
+    status: stable
+    showcases:
+      - id: 01-storage-memory
+        path: showcases/src/01-storage-memory.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'casAtomic: true (atomic CAS via JS Map mutations)'
+      - 'No persistence — process lifetime only'
+    related: [stores-contract]
+
+  - id: to-file
+    name: JSON file store
+    package: '@noy-db/to-file'
+    cas_atomic: false
+    use_case: usb-or-local-disk
+    status: stable
+    showcases:
+      - id: 02-storage-file
+        path: showcases/src/02-storage-file.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'casAtomic: false (no atomic compare-and-swap at the FS layer)'
+      - 'File layout: {dir}/{vault}/{collection}/{id}.json'
+      - 'Each file is one EncryptedEnvelope, optionally pretty-printed'
+    related: [stores-contract]
+
+  - id: to-browser-idb
+    name: IndexedDB store (browser)
+    package: '@noy-db/to-browser-idb'
+    cas_atomic: true
+    use_case: pwa-offline-first
+    status: stable
+    showcases:
+      - id: 03-storage-browser-idb
+        path: showcases/src/03-storage-browser-idb.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'casAtomic: true (single readwrite IDB transaction)'
+      - 'Records hosted as IDB objects keyed by {vault}/{collection}/{id}'
+      - 'Available in every modern browser; polyfilled by fake-indexeddb in tests'
+    related: [stores-contract]
+
+  - id: to-aws-dynamo
+    name: DynamoDB single-table store
+    package: '@noy-db/to-aws-dynamo'
+    cas_atomic: true
+    use_case: cloud-serverless
+    status: stable
+    showcases:
+      - id: 04-storage-cloud
+        path: showcases/src/04-storage-cloud.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'casAtomic: true (DynamoDB ConditionExpression on attribute_not_exists / _v match)'
+      - 'Schema: pk = vaultName, sk = "{collection}#{id}"'
+      - 'Pairs naturally with @noy-db/to-aws-s3 via routeStore for blob offload'
+    related: [stores-contract, to-aws-s3]
+
+  - id: to-aws-s3
+    name: S3 object store
+    package: '@noy-db/to-aws-s3'
+    cas_atomic: false
+    use_case: cloud-blob-storage
+    status: stable
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'casAtomic: false (no native CAS; advisory locks via If-Match)'
+      - 'Each envelope stored as one object keyed by full path'
+      - 'Best paired with a casAtomic primary (Dynamo) via routeStore for record metadata'
+    related: [stores-contract, to-aws-dynamo]
+
+# ─── Forward-compatible empty sections (phases 3-8) ──────────────────
+
 frameworks: []
 auths: []
 exports: []

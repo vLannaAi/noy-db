@@ -766,6 +766,9 @@ importers:
       dotenv:
         specifier: ^16.4.0
         version: 16.6.1
+      fake-indexeddb:
+        specifier: ^6.2.5
+        version: 6.2.5
       happy-dom:
         specifier: ^16.0.0
         version: 16.8.1
