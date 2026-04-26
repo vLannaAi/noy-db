@@ -76,7 +76,7 @@
             "showcases": true, "recipes": true, "playground_pages": true,
             "diagrams": true, "invariants": true, "related": true,
             "cluster":       { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
-            "spec":          { "type": "string", "pattern": "^[A-Z][A-Z0-9_.-]*\\.md(#.+)?$" },
+            "spec":          { "type": "string", "pattern": "^([A-Z][A-Z0-9_.-]*|docs/.+)\\.md(#.+)?$" },
             "subsystem_doc": { "type": "string", "pattern": "^docs/.+\\.md$" },
             "factory":       { "oneOf": [{ "type": "string", "pattern": "^with[A-Z][A-Za-z0-9]*$" }, { "type": "null" }] }
           }

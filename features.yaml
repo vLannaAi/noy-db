@@ -128,6 +128,338 @@ features:
       - 'Index-aware execution: indexed fast-path then fallback scan'
     related: [vault-and-collections]
 
+  # ─── Subsystems behind with*() factories ───────────────────────────
+
+  - id: team
+    name: Multi-user grant / revoke / rotate
+    cluster: collaboration-and-auth
+    spec: docs/subsystems/team.md#team
+    subsystem_doc: docs/subsystems/team.md
+    package: '@noy-db/hub'
+    factory: null
+    status: stable
+    showcases:
+      - id: 06-multi-user
+        path: showcases/src/06-multi-user.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Owner / admin can grant + revoke; viewer / client are read-only'
+      - 'Revoke removes the user keyring and rotates DEKs so cached copies stale'
+      - 'Always-core today; planned withTeam() extraction tracked separately'
+    related: [permissions, vault-and-collections]
+
+  - id: history
+    name: Versioned ledger + time-machine
+    cluster: write-and-mutate
+    spec: docs/subsystems/history.md#history
+    subsystem_doc: docs/subsystems/history.md
+    package: '@noy-db/hub/history'
+    factory: withHistory
+    status: stable
+    showcases:
+      - id: 07-with-history
+        path: showcases/src/07-with-history.showcase.test.ts
+      - id: 17-with-history-time-machine
+        path: showcases/src/17-with-history-time-machine.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Hash-chained ledger; every entry prevHash = sha256 of predecessor'
+      - 'Multi-writer safe on casAtomic stores via optimistic-CAS retry'
+      - 'vault.at(timestamp) returns a VaultInstant for past-state reads'
+    related: [vault-and-collections, periods, bundle]
+
+  - id: blobs
+    name: Binary attachments
+    cluster: data-shape
+    spec: docs/subsystems/blobs.md#blobs
+    subsystem_doc: docs/subsystems/blobs.md
+    package: '@noy-db/hub/blobs'
+    factory: withBlobs
+    status: stable
+    showcases:
+      - id: 08-with-blobs
+        path: showcases/src/08-with-blobs.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'AES-256-GCM chunks (256 KB default) with AAD-bound metadata'
+      - 'HMAC-keyed eTag for content-addressed dedup'
+      - 'collection.blob(id) returns a BlobSet handle; opt-in via withBlobs()'
+    related: [vault-and-collections]
+
+  - id: i18n
+    name: Multi-locale dictionaries
+    cluster: data-shape
+    spec: docs/subsystems/i18n.md#i18n
+    subsystem_doc: docs/subsystems/i18n.md
+    package: '@noy-db/hub/i18n'
+    factory: withI18n
+    status: stable
+    showcases:
+      - id: 09-with-i18n
+        path: showcases/src/09-with-i18n.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Records store stable keys; dictionary stores per-locale labels'
+      - 'resolveLabel(key, locale, fallback) walks the fallback chain'
+      - 'No transliteration (locale-specific lossy mappings stay in userland)'
+    related: [vault-and-collections]
+
+  - id: aggregate
+    name: Aggregate query terminals (sum/count/avg/groupBy)
+    cluster: read-and-query
+    spec: docs/subsystems/aggregate.md#aggregate
+    subsystem_doc: docs/subsystems/aggregate.md
+    package: '@noy-db/hub/aggregate'
+    factory: withAggregate
+    status: stable
+    showcases:
+      - id: 10-with-aggregate
+        path: showcases/src/10-with-aggregate.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'sum, count, avg, min, max, groupBy compose with where + join'
+      - 'Live aggregations re-reduce on every upstream change (no incremental in v1)'
+    related: [query-basics, indexing]
+
+  - id: indexing
+    name: Hash indexes for fast `==` and `in` queries
+    cluster: read-and-query
+    spec: docs/subsystems/indexing.md#indexing
+    subsystem_doc: docs/subsystems/indexing.md
+    package: '@noy-db/hub/indexing'
+    factory: withIndexing
+    status: stable
+    showcases:
+      - id: 11-with-indexing
+        path: showcases/src/11-with-indexing.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Eager mode: side-cars at `_idx/<field>/<id>` maintained on put/delete'
+      - 'Lazy mode: cache: { maxRecords } + scan() iterator; query() throws'
+      - 'Indexed `==` / `in` clauses dispatch to index, never full scan'
+    related: [query-basics, aggregate]
+
+  - id: joins
+    name: Intra-vault joins on declared `ref()` fields
+    cluster: read-and-query
+    spec: docs/subsystems/joins.md#joins
+    subsystem_doc: docs/subsystems/joins.md
+    package: '@noy-db/hub'
+    factory: null
+    status: stable
+    showcases:
+      - id: 12-with-joins
+        path: showcases/src/12-with-joins.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Same-vault only; cross-vault correlation goes through queryAcross'
+      - 'Joins run after decryption; backend never sees plaintext'
+      - 'Always-core today; planned withJoins() extraction tracked separately'
+    related: [query-basics, schema-and-refs]
+
+  - id: live
+    name: Reactive query primitive
+    cluster: read-and-query
+    spec: docs/subsystems/live.md#live
+    subsystem_doc: docs/subsystems/live.md
+    package: '@noy-db/hub'
+    factory: null
+    status: stable
+    showcases:
+      - id: 13-with-live
+        path: showcases/src/13-with-live.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'query.live() returns LiveQuery<T>; subscribers see latest snapshot in .value'
+      - 'Errors land in .error (state) instead of throwing out of the source emitter'
+      - 'Always-core today; planned withLive() extraction tracked separately'
+    related: [query-basics, joins, sync]
+
+  - id: crdt
+    name: CRDT collections (Yjs interop)
+    cluster: write-and-mutate
+    spec: docs/subsystems/crdt.md#crdt
+    subsystem_doc: docs/subsystems/crdt.md
+    package: '@noy-db/hub/crdt'
+    factory: withCrdt
+    status: stable
+    showcases:
+      - id: 14-with-crdt
+        path: showcases/src/14-with-crdt.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Yjs Y.Doc round-trips through encrypted envelopes'
+      - 'Concurrent edits merge deterministically via Yjs CRDT semantics'
+    related: [sync, vault-and-collections]
+
+  - id: sync
+    name: Push / pull / conflict resolution
+    cluster: collaboration-and-auth
+    spec: docs/subsystems/sync.md#sync
+    subsystem_doc: docs/subsystems/sync.md
+    package: '@noy-db/hub/sync'
+    factory: withSync
+    status: stable
+    showcases:
+      - id: 15-with-sync
+        path: showcases/src/15-with-sync.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'noydb.push(vault) / noydb.pull(vault) reconcile a local store with a remote'
+      - 'Conflict policy at the strategy level: version | local-wins | remote-wins | custom'
+      - 'Transport-agnostic: cloud, USB, BroadcastChannel (planned), WebRTC'
+    related: [crdt, vault-and-collections]
+
+  - id: shadow
+    name: Read-only frames (vault.frame)
+    cluster: snapshot-and-portability
+    spec: docs/subsystems/shadow.md#shadow
+    subsystem_doc: docs/subsystems/shadow.md
+    package: '@noy-db/hub/shadow'
+    factory: withShadow
+    status: stable
+    showcases:
+      - id: 16-with-shadow
+        path: showcases/src/16-with-shadow.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'vault.frame() returns a VaultFrame whose collections are read-only'
+      - 'Writes through the frame throw ReadOnlyFrameError'
+    related: [vault-and-collections, history]
+
+  - id: periods
+    name: Accounting periods (close + reopen)
+    cluster: time-and-audit
+    spec: docs/subsystems/periods.md#periods
+    subsystem_doc: docs/subsystems/periods.md
+    package: '@noy-db/hub/periods'
+    factory: withPeriods
+    status: stable
+    showcases:
+      - id: 18-with-periods
+        path: showcases/src/18-with-periods.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'closePeriod chains to the ledger; reopenPeriod requires explicit step'
+      - 'Late-booked records sealed by dateField, not envelope _ts'
+    related: [history]
+
+  - id: consent
+    name: Consent-scoped audit
+    cluster: time-and-audit
+    spec: docs/subsystems/consent.md#consent
+    subsystem_doc: docs/subsystems/consent.md
+    package: '@noy-db/hub/consent'
+    factory: withConsent
+    status: stable
+    showcases:
+      - id: 19-with-consent
+        path: showcases/src/19-with-consent.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'vault.withConsent({ purpose, consentHash }, fn) writes _consent_audit on every access'
+      - 'Outside a scope, no audit entries land — opt-in by design'
+    related: [history, permissions]
+
+  - id: transactions
+    name: Atomic multi-record operations
+    cluster: write-and-mutate
+    spec: docs/subsystems/transactions.md#transactions
+    subsystem_doc: docs/subsystems/transactions.md
+    package: '@noy-db/hub/tx'
+    factory: withTransactions
+    status: stable
+    showcases:
+      - id: 20-with-transactions
+        path: showcases/src/20-with-transactions.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'runTransaction(db, fn) buffers writes; rollback on throw'
+      - 'casAtomic stores: genuine atomicity. casAtomic:false: ordered-with-rollback'
+    related: [vault-and-collections]
+
+  - id: bundle
+    name: '.noydb container format'
+    cluster: snapshot-and-portability
+    spec: docs/subsystems/bundle.md#bundle
+    subsystem_doc: docs/subsystems/bundle.md
+    package: '@noy-db/hub/bundle'
+    factory: null
+    status: stable
+    showcases:
+      - id: 21-with-bundle
+        path: showcases/src/21-with-bundle.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - '10-byte magic prefix (NDB1) + JSON header + compressed body'
+      - 'Body integrity hash — readNoydbBundle rejects tampered files'
+      - 'ULID handle in header for safe cloud-storage drops'
+    related: [history, vault-and-collections]
+
+  - id: session
+    name: Session tokens + dev unlock
+    cluster: collaboration-and-auth
+    spec: docs/subsystems/session.md#session
+    subsystem_doc: docs/subsystems/session.md
+    package: '@noy-db/hub/session'
+    factory: withSession
+    status: stable
+    showcases: []        # covered in phase 4 (auth showcases 22-30)
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Tab-scoped non-extractable session keys; tab close = secure logout'
+      - 'TTL-bound session tokens; resolveSession throws SessionExpiredError past expiry'
+    related: [permissions, team]
+
+  - id: routing
+    name: Per-collection storage routing
+    cluster: operations
+    spec: docs/subsystems/routing.md#routing
+    subsystem_doc: docs/subsystems/routing.md
+    package: '@noy-db/hub'
+    factory: null
+    status: stable
+    showcases: []        # covered by showcase 05 (storage-routing) — registered under to-* family
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'routeStore composes multiple NoydbStores; per-collection / per-vault / age-tier'
+      - 'Always-core today; planned withRouting() extraction tracked separately'
+    related: [stores-contract]
+
 # ─── Storage adapters (phase 2) ──────────────────────────────────────
 
 adapters:
