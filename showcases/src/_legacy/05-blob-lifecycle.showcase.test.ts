@@ -36,7 +36,7 @@ import {
   sampleClients,
   fakePdfBytes,
   SHOWCASE_PASSPHRASE,
-} from './_fixtures.js'
+} from '../_fixtures.js'
 
 const VAULT = 'firm-demo'
 const INVOICE_ID = 'inv-001'

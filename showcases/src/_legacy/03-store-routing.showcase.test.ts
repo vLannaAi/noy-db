@@ -36,7 +36,7 @@ import {
   type Invoice,
   sampleClients,
   SHOWCASE_PASSPHRASE,
-} from './_fixtures.js'
+} from '../_fixtures.js'
 
 /**
  * Minimal audit record — the "other" collection that gets routed to a

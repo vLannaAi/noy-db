@@ -41,7 +41,7 @@ import {
   fakePdfBytes,
   sampleClients,
   SHOWCASE_PASSPHRASE,
-} from './_fixtures.js'
+} from '../_fixtures.js'
 import {
   AWS_ENABLED,
   DYNAMO_TABLE,
@@ -49,7 +49,7 @@ import {
   RUN_ID,
   cleanupVault,
   logSkipHint,
-} from './_aws.js'
+} from '../_aws.js'
 
 logSkipHint('showcase-11')
 

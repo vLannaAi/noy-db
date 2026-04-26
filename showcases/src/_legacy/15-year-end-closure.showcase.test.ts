@@ -31,7 +31,7 @@ import { withPeriods } from '@noy-db/hub/periods'
 import { withHistory } from '@noy-db/hub/history'
 import { withAggregate } from '@noy-db/hub/aggregate'
 import { memory } from '@noy-db/to-memory'
-import { SHOWCASE_PASSPHRASE } from './_fixtures.js'
+import { SHOWCASE_PASSPHRASE } from '../_fixtures.js'
 
 interface LedgerEntry {
   id: string

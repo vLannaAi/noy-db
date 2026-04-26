@@ -1,0 +1,138 @@
+# noy-db feature registry — single source of truth for the spec ↔ artefact graph.
+#
+# Validated by `scripts/validate-features.mjs` (CI's "Spec coverage" job).
+# Schema in `scripts/feature-schema.json`.
+#
+# This file is the keystone of the post-reset showcases + playground plan
+# (see /Users/vicio/Desktop/deep-research-report.md). Every feature change
+# must touch this file; CI fails on dangling references.
+#
+# Structure: { schemaVersion, features, adapters, frameworks, auths,
+#              exports, topologies, recipes }
+#
+# Phase 1 ships only the 6 always-on core features. Subsystems, adapters,
+# framework integrations, auth methods, export formats, topologies, and
+# recipes populate in phases 2-8.
+
+schemaVersion: 1
+
+# ─── Always-on core (phase 1) ─────────────────────────────────────────
+
+features:
+  - id: vault-and-collections
+    name: Vault & collection model
+    cluster: core
+    spec: SUBSYSTEMS.md#the-minimalist-core
+    subsystem_doc: docs/core/01-vault-and-collections.md
+    package: '@noy-db/hub'
+    factory: null
+    status: stable
+    showcases:
+      - id: 00-hello-vault
+        path: showcases/src/00-hello-vault.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'every record envelope has _noydb, _v, _ts, _iv, _data'
+      - 'stores see only ciphertext (architecture invariant: stores-ciphertext-only)'
+    related: [encryption, permissions, stores-contract]
+
+  - id: encryption
+    name: Encryption layer
+    cluster: core
+    spec: SUBSYSTEMS.md#the-minimalist-core
+    subsystem_doc: docs/core/02-encryption.md
+    package: '@noy-db/hub'
+    factory: null
+    status: stable
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'AES-256-GCM with fresh random 12-byte IV per encrypt operation'
+      - 'PBKDF2-SHA256 with 600,000 iterations for key derivation'
+      - 'AES-KW (RFC 3394) for wrapping DEKs with KEK'
+      - 'KEK never persisted (in-memory only during session)'
+      - 'Zero crypto dependencies — only Web Crypto API (architecture invariant: no-crypto-deps)'
+    related: [vault-and-collections, permissions]
+
+  - id: stores-contract
+    name: 6-method NoydbStore contract
+    cluster: core
+    spec: SUBSYSTEMS.md#the-minimalist-core
+    subsystem_doc: docs/core/03-stores.md
+    package: '@noy-db/hub'
+    factory: null
+    status: stable
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - '6 async methods: get, put, delete, list, loadAll, saveAll'
+      - 'casAtomic capability flag distinguishes atomic-CAS stores from best-effort'
+    related: [vault-and-collections]
+
+  - id: permissions
+    name: Roles, keyrings, capabilities
+    cluster: core
+    spec: SUBSYSTEMS.md#the-minimalist-core
+    subsystem_doc: docs/core/04-permissions-and-keyring.md
+    package: '@noy-db/hub'
+    factory: null
+    status: stable
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - '5 roles: owner, admin, operator, viewer, client'
+      - 'Per-collection rw/ro permissions stamped in the keyring file'
+      - 'Export capability bits gated separately (canExportPlaintext, canExportBundle)'
+    related: [encryption, vault-and-collections]
+
+  - id: schema-and-refs
+    name: Schema validation + ref integrity
+    cluster: core
+    spec: SUBSYSTEMS.md#the-minimalist-core
+    subsystem_doc: docs/core/05-schema-and-refs.md
+    package: '@noy-db/hub'
+    factory: null
+    status: stable
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Standard Schema v1 — Zod, Valibot, ArkType, Effect Schema compatible'
+      - 'Validation runs before encryption (write) and after decryption (read)'
+    related: [vault-and-collections]
+
+  - id: query-basics
+    name: Always-on query DSL
+    cluster: core
+    spec: SUBSYSTEMS.md#the-minimalist-core
+    subsystem_doc: docs/core/06-query-basics.md
+    package: '@noy-db/hub'
+    factory: null
+    status: stable
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Chainable: where, orderBy, limit, offset'
+      - 'Terminals: toArray, first, count, subscribe, live, aggregate, groupBy'
+      - 'Index-aware execution: indexed fast-path then fallback scan'
+    related: [vault-and-collections]
+
+# ─── Forward-compatible empty sections (phases 2-8) ──────────────────
+
+adapters: []
+frameworks: []
+auths: []
+exports: []
+topologies: []
+recipes: []

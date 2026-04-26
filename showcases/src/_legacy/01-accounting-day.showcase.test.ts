@@ -30,7 +30,7 @@ import {
   type Invoice,
   sampleClients,
   SHOWCASE_PASSPHRASE,
-} from './_fixtures.js'
+} from '../_fixtures.js'
 
 describe('Showcase 01 — A Day at the Office (Pinia)', () => {
   let db: Noydb

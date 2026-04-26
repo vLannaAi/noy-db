@@ -28,7 +28,7 @@ import { withCrdt } from '@noy-db/hub/crdt'
 import { memory } from '@noy-db/to-memory'
 import { yjsCollection, yText, yMap, type YjsCollection } from '@noy-db/in-yjs'
 
-import { SHOWCASE_PASSPHRASE, THAI_SAMPLE } from './_fixtures.js'
+import { SHOWCASE_PASSPHRASE, THAI_SAMPLE } from '../_fixtures.js'
 
 type NoteFields = { body: Y.Text; meta: Y.Map<unknown> }
 

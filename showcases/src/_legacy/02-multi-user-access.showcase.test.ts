@@ -44,7 +44,7 @@ import {
   type Payment,
   sampleClients,
   SHOWCASE_PASSPHRASE,
-} from './_fixtures.js'
+} from '../_fixtures.js'
 
 const OWNER_ID = 'owner-01'
 const OWNER_PASS = SHOWCASE_PASSPHRASE

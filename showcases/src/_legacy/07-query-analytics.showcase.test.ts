@@ -45,7 +45,7 @@ import {
   type Invoice,
   generateInvoices,
   SHOWCASE_PASSPHRASE,
-} from './_fixtures.js'
+} from '../_fixtures.js'
 
 describe('Showcase 07 — Query engine analytics (Pinia)', () => {
   const INVOICE_COUNT = 200

@@ -60,7 +60,7 @@ import {
 } from '@noy-db/on-webauthn'
 import type { UnlockedKeyring } from '@noy-db/hub'
 
-import { SHOWCASE_PASSPHRASE } from './_fixtures.js'
+import { SHOWCASE_PASSPHRASE } from '../_fixtures.js'
 
 // ─── Test helpers (mirror packages/on-webauthn/__tests__/ conventions) ─
 

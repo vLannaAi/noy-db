@@ -48,7 +48,7 @@ import {
 import { withI18n } from '@noy-db/hub/i18n'
 import { memory } from '@noy-db/to-memory'
 
-import { SHOWCASE_PASSPHRASE, THAI_SAMPLE } from './_fixtures.js'
+import { SHOWCASE_PASSPHRASE, THAI_SAMPLE } from '../_fixtures.js'
 
 const VAULT = 'firm-demo'
 

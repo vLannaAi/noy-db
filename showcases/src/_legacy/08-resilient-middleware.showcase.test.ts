@@ -49,7 +49,7 @@ import {
   sampleClients,
   SHOWCASE_PASSPHRASE,
   sleep,
-} from './_fixtures.js'
+} from '../_fixtures.js'
 
 const VAULT = 'firm-demo'
 

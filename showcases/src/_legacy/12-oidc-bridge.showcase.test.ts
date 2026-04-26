@@ -48,7 +48,7 @@ import {
 } from '@noy-db/on-oidc'
 import type { UnlockedKeyring } from '@noy-db/hub'
 
-import { SHOWCASE_PASSPHRASE } from './_fixtures.js'
+import { SHOWCASE_PASSPHRASE } from '../_fixtures.js'
 
 // ─── Test helpers (mirror packages/on-oidc/__tests__/ conventions) ─────
 

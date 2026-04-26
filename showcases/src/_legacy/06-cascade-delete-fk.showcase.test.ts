@@ -46,7 +46,7 @@ import {
   type Client,
   sampleClients,
   SHOWCASE_PASSPHRASE,
-} from './_fixtures.js'
+} from '../_fixtures.js'
 
 describe('Showcase 06 — Cascade-delete / FK integrity (Pinia)', () => {
   let db: Noydb

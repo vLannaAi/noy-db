@@ -27,14 +27,18 @@
     "docs:watch": "typedoc --watch",
     "guard:privacy": "bash scripts/check-privacy.sh",
     "check:architecture": "node scripts/check-architecture.mjs",
+    "validate:features": "node scripts/validate-features.mjs",
+    "render:diagrams": "node scripts/render-diagrams.mjs",
     "release": "pnpm run guard:privacy && pnpm run build && changeset publish",
     "release:version": "node scripts/release.mjs",
     "changeset": "changeset"
   },
   "devDependencies": {
     "@changesets/cli": "^2.29.0",
+    "ajv": "^8.17.0",
     "eslint": "^9.18.0",
     "@eslint/js": "^9.18.0",
+    "js-yaml": "^4.1.0",
     "typescript-eslint": "^8.21.0",
     "tsup": "^8.4.0",
     "turbo": "^2.4.0",

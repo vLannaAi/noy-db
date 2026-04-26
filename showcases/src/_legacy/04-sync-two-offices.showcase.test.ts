@@ -42,7 +42,7 @@ import {
   type UseSyncReturn,
 } from '@noy-db/in-vue'
 
-import { type Invoice, sampleClients, sleep } from './_fixtures.js'
+import { type Invoice, sampleClients, sleep } from '../_fixtures.js'
 
 const VAULT = 'firm-demo'
 

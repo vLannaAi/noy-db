@@ -33,7 +33,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { createNoydb, type Noydb, type NoydbStore } from '@noy-db/hub'
 import { withBlobs } from '@noy-db/hub/blobs'
 import { memory } from '@noy-db/to-memory'
-import { SHOWCASE_PASSPHRASE } from './_fixtures.js'
+import { SHOWCASE_PASSPHRASE } from '../_fixtures.js'
 
 interface Email {
   id: string            // stable id (usually Message-Id)

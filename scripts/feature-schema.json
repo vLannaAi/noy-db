@@ -1,0 +1,198 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/vLannaAi/noy-db/blob/main/scripts/feature-schema.json",
+  "title": "noy-db feature registry",
+  "description": "Schema for features.yaml — the single source of truth that maps every feature to its spec doc, package, factory, showcases, recipes, playground pages, and diagrams. Phase 1 of the showcases+playground reset plan.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "features"],
+  "properties": {
+    "schemaVersion": {
+      "const": 1,
+      "description": "Bumped only when fields are added or renamed."
+    },
+    "features":   { "type": "array", "items": { "$ref": "#/$defs/feature" } },
+    "adapters":   { "type": "array", "items": { "$ref": "#/$defs/adapter" } },
+    "frameworks": { "type": "array", "items": { "$ref": "#/$defs/framework" } },
+    "auths":      { "type": "array", "items": { "$ref": "#/$defs/auth" } },
+    "exports":    { "type": "array", "items": { "$ref": "#/$defs/export" } },
+    "topologies": { "type": "array", "items": { "$ref": "#/$defs/topology" } },
+    "recipes":    { "type": "array", "items": { "$ref": "#/$defs/recipe" } }
+  },
+  "$defs": {
+    "id":          { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+    "status":      { "enum": ["stable", "preview", "planned"] },
+    "showcase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "path"],
+      "properties": {
+        "id":   { "type": "string", "pattern": "^([0-9]{2}-[a-z0-9-]+|recipe-[a-z0-9-]+)$" },
+        "path": { "type": "string", "pattern": "^showcases/src/.+\\.test\\.ts$" }
+      }
+    },
+    "playgroundPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": {
+        "path":  { "type": "string", "pattern": "^playground/.+\\.vue$" },
+        "route": { "type": "string", "pattern": "^/.*$" }
+      }
+    },
+    "diagram": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "source"],
+      "properties": {
+        "path":   { "type": "string", "pattern": "^docs/assets/diagrams/.+\\.svg$" },
+        "source": { "type": "string", "pattern": "^docs/assets/diagrams/.+\\.mmd$" }
+      }
+    },
+    "baseEntry": {
+      "type": "object",
+      "required": ["id", "name", "package", "status"],
+      "properties": {
+        "id":      { "$ref": "#/$defs/id" },
+        "name":    { "type": "string", "minLength": 1 },
+        "package": { "type": "string", "pattern": "^(@noy-db/[a-z][a-z0-9-]*(/[a-z][a-z0-9-]*)?|create-noy-db)$" },
+        "status":  { "$ref": "#/$defs/status" },
+        "showcases":        { "type": "array", "items": { "$ref": "#/$defs/showcase" }, "default": [] },
+        "recipes":          { "type": "array", "items": { "$ref": "#/$defs/id" }, "default": [] },
+        "playground_pages": { "type": "array", "items": { "$ref": "#/$defs/playgroundPage" }, "default": [] },
+        "diagrams":         { "type": "array", "items": { "$ref": "#/$defs/diagram" }, "default": [] },
+        "invariants":       { "type": "array", "items": { "type": "string", "minLength": 1 }, "default": [] },
+        "related":          { "type": "array", "items": { "$ref": "#/$defs/id" }, "default": [] }
+      }
+    },
+    "feature": {
+      "allOf": [
+        { "$ref": "#/$defs/baseEntry" },
+        {
+          "additionalProperties": false,
+          "required": ["cluster", "spec", "subsystem_doc", "factory"],
+          "properties": {
+            "id": true, "name": true, "package": true, "status": true,
+            "showcases": true, "recipes": true, "playground_pages": true,
+            "diagrams": true, "invariants": true, "related": true,
+            "cluster":       { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+            "spec":          { "type": "string", "pattern": "^[A-Z][A-Z0-9_.-]*\\.md(#.+)?$" },
+            "subsystem_doc": { "type": "string", "pattern": "^docs/.+\\.md$" },
+            "factory":       { "oneOf": [{ "type": "string", "pattern": "^with[A-Z][A-Za-z0-9]*$" }, { "type": "null" }] }
+          }
+        }
+      ]
+    },
+    "adapter": {
+      "allOf": [
+        { "$ref": "#/$defs/baseEntry" },
+        {
+          "additionalProperties": false,
+          "required": ["cas_atomic", "use_case"],
+          "properties": {
+            "id": true, "name": true, "package": true, "status": true,
+            "showcases": true, "recipes": true, "playground_pages": true,
+            "diagrams": true, "invariants": true, "related": true,
+            "cas_atomic": { "type": "boolean" },
+            "use_case":   { "type": "string", "minLength": 1 },
+            "subsystem_doc": { "type": "string", "pattern": "^docs/.+\\.md$" }
+          }
+        }
+      ]
+    },
+    "framework": {
+      "allOf": [
+        { "$ref": "#/$defs/baseEntry" },
+        {
+          "additionalProperties": false,
+          "required": ["framework"],
+          "properties": {
+            "id": true, "name": true, "package": true, "status": true,
+            "showcases": true, "recipes": true, "playground_pages": true,
+            "diagrams": true, "invariants": true, "related": true,
+            "framework":     { "type": "string", "minLength": 1 },
+            "subsystem_doc": { "type": "string", "pattern": "^docs/.+\\.md$" }
+          }
+        }
+      ]
+    },
+    "auth": {
+      "allOf": [
+        { "$ref": "#/$defs/baseEntry" },
+        {
+          "additionalProperties": false,
+          "required": ["factor"],
+          "properties": {
+            "id": true, "name": true, "package": true, "status": true,
+            "showcases": true, "recipes": true, "playground_pages": true,
+            "diagrams": true, "invariants": true, "related": true,
+            "factor":        { "enum": ["knowledge", "device", "possession", "inherence", "social"] },
+            "subsystem_doc": { "type": "string", "pattern": "^docs/.+\\.md$" }
+          }
+        }
+      ]
+    },
+    "export": {
+      "allOf": [
+        { "$ref": "#/$defs/baseEntry" },
+        {
+          "additionalProperties": false,
+          "required": ["capability"],
+          "properties": {
+            "id": true, "name": true, "package": true, "status": true,
+            "showcases": true, "recipes": true, "playground_pages": true,
+            "diagrams": true, "invariants": true, "related": true,
+            "capability":    { "enum": ["canExportPlaintext", "canExportBundle"] },
+            "subsystem_doc": { "type": "string", "pattern": "^docs/.+\\.md$" }
+          }
+        }
+      ]
+    },
+    "topology": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "status", "composes"],
+      "properties": {
+        "id":     { "$ref": "#/$defs/id" },
+        "name":   { "type": "string", "minLength": 1 },
+        "status": { "$ref": "#/$defs/status" },
+        "composes": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "adapters":   { "type": "array", "items": { "$ref": "#/$defs/id" } },
+            "frameworks": { "type": "array", "items": { "$ref": "#/$defs/id" } },
+            "auths":      { "type": "array", "items": { "$ref": "#/$defs/id" } },
+            "exports":    { "type": "array", "items": { "$ref": "#/$defs/id" } },
+            "features":   { "type": "array", "items": { "$ref": "#/$defs/id" } }
+          }
+        },
+        "showcases":        { "type": "array", "items": { "$ref": "#/$defs/showcase" }, "default": [] },
+        "recipes":          { "type": "array", "items": { "$ref": "#/$defs/id" }, "default": [] },
+        "playground_pages": { "type": "array", "items": { "$ref": "#/$defs/playgroundPage" }, "default": [] },
+        "diagrams":         { "type": "array", "items": { "$ref": "#/$defs/diagram" }, "default": [] }
+      }
+    },
+    "recipe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "doc", "showcase_path", "status"],
+      "properties": {
+        "id":            { "$ref": "#/$defs/id" },
+        "name":          { "type": "string", "minLength": 1 },
+        "doc":           { "type": "string", "pattern": "^docs/recipes/.+\\.md$" },
+        "showcase_path": { "type": "string", "pattern": "^showcases/src/recipe-.+\\.recipe\\.test\\.ts$" },
+        "status":        { "$ref": "#/$defs/status" },
+        "exercises": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "features":   { "type": "array", "items": { "$ref": "#/$defs/id" } },
+            "adapters":   { "type": "array", "items": { "$ref": "#/$defs/id" } },
+            "frameworks": { "type": "array", "items": { "$ref": "#/$defs/id" } }
+          }
+        }
+      }
+    }
+  }
+}
