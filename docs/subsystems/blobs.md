@@ -42,9 +42,44 @@ await slot.delete('receipt')
 
 // Streaming download (Response-shaped)
 const response = await slot.response('receipt', { inline: true })
+
+// Browser ObjectURL (#284) — decrypts and wraps in a revocable URL
+const built = await slot.objectURL('receipt')          // { url, revoke } | null
+img.src = built!.url
+// caller owns revoke(); the in-vue useBlobURL composable handles
+// auto-revoke on reactive id change + scope dispose.
 ```
 
 Compaction: `vault.compact()` enforces per-collection `blobFields` retention/TTL.
+
+## Bulk export
+
+`vault.exportBlobs(opts?)` (always-on) is a framework-agnostic async iterable yielding `{ blobId, recordRef, bytes, meta }` — pipe it into a zip stream, S3 multipart, or whatever sink you need. `meta.filename` carries the user-visible slot filename.
+
+For real-FS materialization, `@noy-db/to-file` ships `exportBlobsToDirectory(vault, targetDir, opts)` (#292) that wraps the iterable with target-profile filename sanitization, Zip-Slip path containment, and collision policy:
+
+```ts
+import { exportBlobsToDirectory } from '@noy-db/to-file'
+
+await exportBlobsToDirectory(vault, './out', {
+  filenameProfile: 'macos-smb',     // most restrictive default
+  onCollision: 'suffix',            // 'overwrite' | 'fail' | callback
+})
+
+// Opaque profile renames to ${blobId}.${ext} and writes manifest.json
+// mapping opaque names → originals (for handoff to untrusted recipients)
+await exportBlobsToDirectory(vault, './out', { filenameProfile: 'opaque' })
+```
+
+The standalone sanitizer is exported from `@noy-db/hub/util` for adopters who write their own sinks:
+
+```ts
+import { sanitizeFilename } from '@noy-db/hub/util'
+
+const safe = sanitizeFilename(originalName, { profile: 'windows', maxBytes: 240 })
+```
+
+Profiles: `posix` · `windows` · `macos-smb` · `zip` · `url-path` · `s3-key` · `opaque`. Always-on transforms apply across all profiles: NFC normalize, bidi-override strip (defeats `‮.exe.txt` spoofing), NUL reject (hard fail — silent strip enables truncation bypass), trim leading/trailing whitespace + control chars.
 
 ## Behavior when NOT opted in
 

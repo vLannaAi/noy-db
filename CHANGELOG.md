@@ -2,6 +2,50 @@
 
 Workspace-level summary. Per-package CHANGELOGs in `packages/<name>/CHANGELOG.md` are the source of truth for release notes.
 
+## Unreleased — Pilot-3 fast-lane batch (2026-04-26)
+
+Four issues landed pre-v0.26 to unblock pilot-3 adoption. All shipped to `main`; no version bump yet.
+
+### `@noy-db/in-pinia` — auto-updating reactive queries (#281)
+
+`store.liveQuery(fn)` on `defineNoydbStore`. Wraps hub's `Query.live()` into a `ShallowRef<readonly T[]>` + `Ref<Error|null>` pair with `onScopeDispose` auto-teardown. Removes the manual `refresh()` boilerplate adopters were hitting on every cross-collection write — joined-right-side mutations propagate without wiring listeners by hand.
+
+```ts
+const outstanding = invoices.liveQuery(q =>
+  q.where('status', '==', 'sent').join('clientId').orderBy('dueDate'),
+)
+// outstanding.items.value re-runs on left OR right-side writes
+```
+
+### `@noy-db/hub` + `@noy-db/in-vue` — encrypted-blob ObjectURLs (#284)
+
+- Hub: `BlobSet.objectURL(slot, { mimeType? })` decrypts a slot, builds a `Blob` with the slot's stored `mimeType` (overridable), returns `{ url, revoke }`. Caller owns `revoke()`.
+- in-vue: `useBlobURL(collection, idGetter, opts?)` mirrors that into a `Ref<string | null>`. Revokes the prior URL **before** building the next on reactive id change, auto-revokes on scope dispose, stays `null` when `URL.createObjectURL` is unavailable (SSR-safe). Token-guarded against stale resolutions on rapid id changes.
+
+### `@noy-db/hub/util` + `@noy-db/to-file` — filename sanitizer + FS materializer (#292)
+
+- New subpath: `@noy-db/hub/util` exporting `sanitizeFilename(name, opts)` covering 7 target profiles (`posix`, `windows`, `macos-smb`, `zip`, `url-path`, `s3-key`, `opaque`). Always-on transforms: NFC normalize, bidi-override strip, NUL reject (no silent strip — that enables truncation bypass), trim leading/trailing whitespace + control chars. Per-profile reserved-char + reserved-name + length-cap rules with UTF-8-boundary-safe truncation.
+- New errors: `FilenameSanitizationError`, `PathEscapeError`.
+- `@noy-db/to-file`: `exportBlobsToDirectory(vault, targetDir, opts)` materializes `vault.exportBlobs()` into a real FS directory with profile-aware sanitization, Zip-Slip path containment, and collision policy (`'suffix' | 'overwrite' | 'fail' | callback`). The `'opaque'` profile renames to `${blobId}.${ext}` and writes a sidecar `manifest.json` mapping opaque names back to originals.
+- `ExportedBlob.meta.filename` now carries `slot.filename` so the sanitizer has the user-visible name to operate on.
+
+### `@noy-db/hub` — scoped tier elevation (#283)
+
+`vault.elevate(tier, { ttlMs, reason })` returns an `ElevatedHandle` whose `collection(name).put` lands at the elevated tier. Reads on the original vault stay at the inherent tier; only the returned handle is privileged.
+
+```ts
+const elevated = await vault.elevate(2, { ttlMs: 15 * 60_000, reason: 'plaintext export' })
+await elevated.collection<Doc>('docs').put('d1', record)
+await elevated.release()       // or auto-revert on TTL expiry
+```
+
+- One `_elevation_audit` envelope per elevation. Each write fires a `CrossTierAccessEvent` stamped with `authorization: 'elevation'`, `reason`, and `elevatedFrom`.
+- Per-collection capability gates (`canExportPlaintext`, etc.) are NOT bypassed.
+- TTL is checked lazily — no setTimeout to leak. Lazy expiry auto-frees the active-elevation slot so a forgotten `release()` can't deadlock subsequent calls.
+- New errors: `ElevationExpiredError`, `AlreadyElevatedError`. `NoKeyForTierError` from the spec is covered by the existing `TierNotGrantedError` (`code: TIER_NOT_GRANTED`).
+
+`CrossTierAccessEvent` gained two optional fields (`reason`, `elevatedFrom`) — additive, existing call sites unchanged.
+
 ## Unreleased — v0.25.0-rc.1 (target)
 
 ### `@noy-db/hub` — the 17-subsystem catalog

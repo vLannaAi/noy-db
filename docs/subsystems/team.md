@@ -42,6 +42,30 @@ The `withTeam()` strategy will gate this surface starting v0.26; today setting u
 - `db.changeSecret(vault, oldSecret, newSecret)` — passphrase change
 - `issueDelegation(...)` / `revokeDelegation(...)` — sub-permissions
 - Magic-link grant helpers — one-shot read-only viewer sessions
+- `vault.elevate(tier, { ttlMs, reason })` — scoped tier elevation (#283)
+
+### Scoped tier elevation (`vault.elevate`)
+
+When a workflow needs a lower-tier session to briefly act at a higher tier — approving a serialized record write, running a gated plaintext export — `vault.elevate(tier, { ttlMs, reason })` returns an `ElevatedHandle` whose writes land at the elevated tier and auto-revert on TTL expiry or `release()`:
+
+```ts
+const elevated = await vault.elevate(2, {
+  ttlMs: 15 * 60_000,
+  reason: 'plaintext export',
+})
+await elevated.collection<Doc>('docs').put('d1', record)  // _tier: 2 on envelope
+await elevated.release()                                  // or wait for TTL
+```
+
+Semantics:
+
+- Reads on the original `vault` continue at the inherent tier — only the handle is privileged.
+- Each write fires a `CrossTierAccessEvent` with `authorization: 'elevation'`, `reason`, and `elevatedFrom`.
+- One `_elevation_audit` envelope is written per elevation start.
+- Per-collection capability gates (`canExportPlaintext`, `canExportBundle`) are NOT bypassed — elevation is a tier projection, not a privilege escalation path.
+- Only one elevation can be active per vault. Nested calls throw `AlreadyElevatedError`.
+- Owners and admins can elevate to any tier (auto-mint at write); other roles must already carry a `*#${tier}` DEK on the keyring, otherwise `TierNotGrantedError`.
+- TTL is checked lazily on every `put` — no timer leaks. Lazy expiry also auto-frees the vault's active-elevation slot.
 
 ## Behavior when NOT opted in (post-v0.26)
 

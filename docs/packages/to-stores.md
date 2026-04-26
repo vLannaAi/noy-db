@@ -35,7 +35,7 @@ The stores 80% of apps start with.
 | Package | When to use |
 |---|---|
 | [`@noy-db/to-memory`](../../packages/to-memory) | Tests, REPL, ephemeral caches. `casAtomic: true`, `txAtomic: true` — a great sanity backstop. |
-| [`@noy-db/to-file`](../../packages/to-file) | Local disk / USB stick. JSON file per record. The simplest persistent backend. |
+| [`@noy-db/to-file`](../../packages/to-file) | Local disk / USB stick. JSON file per record. Also ships `saveBundle` / `loadBundle` and `exportBlobsToDirectory` (target-profile filename sanitization + Zip-Slip path containment, #292). |
 | [`@noy-db/to-browser-idb`](../../packages/to-browser-idb) | IndexedDB in browsers / PWAs. Atomic CAS via single `readwrite` transaction. |
 | [`@noy-db/to-browser-local`](../../packages/to-browser-local) | `localStorage` — small vaults, synchronous read path. |
 | [`@noy-db/to-aws-dynamo`](../../packages/to-aws-dynamo) | DynamoDB single-table. Atomic CAS via `ConditionExpression`. |

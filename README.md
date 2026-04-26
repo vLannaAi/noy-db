@@ -281,7 +281,7 @@ noy-db does not inspect your data. It cannot — that is the architectural point
 | **viewer** | all | — | — | — | yes |
 | **client** | granted collections | — | — | — | ACL-scoped |
 
-Every mutation (grant, revoke, rotate, elevate) writes a hash-chained audit ledger entry. Hierarchical per-record classification tiers (`collection.elevate()` / `demote()` / `delegate()` / invisibility / ghost modes) are covered in the [`history`](docs/subsystems/history.md) and [`team`](docs/subsystems/team.md) subsystems.
+Every mutation (grant, revoke, rotate, elevate) writes a hash-chained audit ledger entry. Hierarchical per-record classification tiers (`collection.elevate()` / `demote()` / `delegate()` / invisibility / ghost modes) plus scoped tier-elevated handles (`vault.elevate(tier, { ttlMs, reason })` for time-boxed privileged writes) are covered in the [`history`](docs/subsystems/history.md) and [`team`](docs/subsystems/team.md) subsystems.
 
 ---
 
