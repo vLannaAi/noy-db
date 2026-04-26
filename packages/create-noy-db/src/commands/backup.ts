@@ -39,6 +39,7 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { createNoydb, type Noydb, type NoydbStore } from '@noy-db/hub'
+import { withHistory } from '@noy-db/hub/history'
 import { jsonFile } from '@noy-db/to-file'
 import type { ReadPassphrase } from './shared.js'
 import { defaultReadPassphrase } from './shared.js'
@@ -113,6 +114,12 @@ export async function backup(options: BackupOptions): Promise<BackupResult> {
       store: buildAdapter(options.dir),
       user: options.user,
       secret,
+      // Opt into the history strategy so `vault.dump()` embeds
+      // `ledgerHead` for tamper-evident verification at restore.
+      // Source vaults that were never written with history simply
+      // have an empty ledger; the embedded head is omitted in that
+      // case and the backup is treated as legacy on load.
+      historyStrategy: withHistory(),
     })
     const vault = await db.openVault(options.vault)
     const serialized = await vault.dump()

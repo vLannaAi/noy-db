@@ -99,5 +99,9 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Build
         run: pnpm turbo build
+      # Concurrency=1 avoids cross-package temp-dir / port collisions
+      # that surfaced with the default parallel runner. Each package's
+      # test suite is fast on its own; serializing them adds < 1 minute
+      # to the matrix wall time.
       - name: Test
-        run: pnpm turbo test
+        run: pnpm turbo test --concurrency=1

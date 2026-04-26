@@ -31,6 +31,7 @@ import {
   ConflictError,
   InvalidKeyError,
 } from '@noy-db/hub'
+import { withHistory } from '@noy-db/hub/history'
 import { rotate } from '../src/commands/rotate.js'
 import { addUser } from '../src/commands/add-user.js'
 import { backup, resolveBackupTarget } from '../src/commands/backup.js'
@@ -138,6 +139,10 @@ async function makeFixture(): Promise<Fixture> {
     store: adapter,
     user: 'owner-alice',
     secret: 'alice-pass-1234',
+    // History strategy populates the ledger; the verifiable-backup
+    // test asserts `parsed.ledgerHead` is present, which only happens
+    // when the strategy is opted in.
+    historyStrategy: withHistory(),
   })
   const co = await db.openVault('demo-co')
   const invoices = co.collection<{ id: string; amount: number }>('invoices')
