@@ -1,0 +1,33 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"],
+      "cache": true
+    },
+    "test": {
+      "dependsOn": ["build"],
+      "cache": false
+    },
+    "lint": {
+      "dependsOn": ["^build"],
+      "cache": true
+    },
+    "typecheck": {
+      "dependsOn": ["^build"],
+      "cache": true
+    },
+    "bundle-check": {
+      "dependsOn": ["build"],
+      "cache": true,
+      "inputs": [
+        "scripts/check-bundle.mjs",
+        "bundle-manifest.json",
+        "src/**",
+        "package.json",
+        "tsup.config.ts"
+      ]
+    }
+  }
+}

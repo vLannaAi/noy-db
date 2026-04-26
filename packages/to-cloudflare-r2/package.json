@@ -1,0 +1,66 @@
+{
+  "name": "@noy-db/to-cloudflare-r2",
+  "version": "0.1.0-pre.1",
+  "description": "Cloudflare R2 adapter for noy-db — S3-compatible object storage with zero egress fees. Thin wrapper around @noy-db/to-aws-s3 configured for the R2 endpoint. casAtomic: false (same caveat as S3).",
+  "license": "MIT",
+  "author": "vLannaAi <vicio@lanna.ai>",
+  "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/to-cloudflare-r2#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vLannaAi/noy-db.git",
+    "directory": "packages/to-cloudflare-r2"
+  },
+  "bugs": {
+    "url": "https://github.com/vLannaAi/noy-db/issues"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@noy-db/hub": "workspace:*",
+    "@noy-db/to-aws-s3": "workspace:*",
+    "@aws-sdk/client-s3": "^3.0.0"
+  },
+  "devDependencies": {
+    "@noy-db/hub": "workspace:*",
+    "@noy-db/to-aws-s3": "workspace:*",
+    "@aws-sdk/client-s3": "^3.0.0",
+    "@types/node": "^22.0.0"
+  },
+  "keywords": [
+    "noy-db",
+    "to-cloudflare-r2",
+    "cloudflare",
+    "r2",
+    "s3",
+    "storage"
+  ]
+}

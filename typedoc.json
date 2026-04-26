@@ -1,0 +1,57 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+
+  "name": "NOYDB",
+  "entryPointStrategy": "resolve",
+  "entryPoints": [
+    "packages/hub/src/index.ts",
+    "packages/to-file/src/index.ts",
+    "packages/to-memory/src/index.ts",
+    "packages/to-browser-local/src/index.ts",
+    "packages/to-browser-idb/src/index.ts",
+    "packages/to-aws-dynamo/src/index.ts",
+    "packages/to-aws-s3/src/index.ts",
+    "packages/in-vue/src/index.ts",
+    "packages/in-pinia/src/index.ts",
+    "packages/in-nuxt/src/index.ts",
+    "packages/in-yjs/src/index.ts",
+    "packages/on-webauthn/src/index.ts",
+    "packages/on-oidc/src/index.ts"
+  ],
+  "tsconfig": "tsconfig.typedoc.json",
+  "skipErrorChecking": true,
+
+  "out": "docs/api",
+  "readme": "README.md",
+
+  "includeVersion": true,
+  "navigationLinks": {
+    "GitHub": "https://github.com/vLannaAi/noy-db",
+    "SPEC": "https://github.com/vLannaAi/noy-db/blob/main/SPEC.md"
+  },
+
+  "highlightLanguages": [
+    "typescript", "javascript", "json", "bash", "vue"
+  ],
+
+  "categorizeByGroup": true,
+  "defaultCategory": "Other",
+  "categoryOrder": [
+    "Core",
+    "Crypto",
+    "Query",
+    "Sync",
+    "Session",
+    "i18n",
+    "Errors",
+    "Other"
+  ],
+
+  "excludePrivate": true,
+  "excludeProtected": false,
+  "excludeExternals": true,
+  "excludeInternal": true,
+
+  "treatWarningsAsErrors": false,
+  "logLevel": "Warn"
+}

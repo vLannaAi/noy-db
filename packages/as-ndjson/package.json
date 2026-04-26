@@ -1,0 +1,63 @@
+{
+  "name": "@noy-db/as-ndjson",
+  "version": "0.1.0-pre.1",
+  "description": "Newline-delimited JSON export for noy-db — streaming plaintext export suitable for data pipelines, warehouse ingestion, and jq pipelines. Gated by RFC #249 canExportPlaintext. Part of the @noy-db/as-* portable-artefact family (plaintext tier).",
+  "license": "MIT",
+  "author": "vLannaAi <vicio@lanna.ai>",
+  "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/as-ndjson#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vLannaAi/noy-db.git",
+    "directory": "packages/as-ndjson"
+  },
+  "bugs": {
+    "url": "https://github.com/vLannaAi/noy-db/issues"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@noy-db/hub": "workspace:*"
+  },
+  "devDependencies": {
+    "@noy-db/hub": "workspace:*",
+    "@types/node": "^22.0.0"
+  },
+  "keywords": [
+    "noy-db",
+    "as-ndjson",
+    "ndjson",
+    "streaming",
+    "export",
+    "plaintext",
+    "zero-knowledge"
+  ]
+}

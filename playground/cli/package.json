@@ -1,0 +1,15 @@
+{
+  "name": "@noy-db/playground-cli",
+  "version": "0.12.0",
+  "private": true,
+  "type": "module",
+  "description": "Interactive guided CLI demo of NOYDB v0.12 features",
+  "scripts": {
+    "demo": "node --experimental-vm-modules demo.mjs"
+  },
+  "dependencies": {
+    "@noy-db/hub": "workspace:*",
+    "@noy-db/to-memory": "workspace:*",
+    "@noy-db/to-file": "workspace:*"
+  }
+}

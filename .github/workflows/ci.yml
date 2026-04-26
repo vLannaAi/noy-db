@@ -1,0 +1,88 @@
+name: CI
+
+# Standard CI — runs on every PR and push to main.
+# Four jobs: privacy guard → lint/typecheck → build → test (matrix).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ── Privacy guard ────────────────────────────────────────────────────
+  # Blocks any commit that contains forbidden strings (client names,
+  # internal identifiers). Must pass before anything else runs.
+  privacy:
+    name: Privacy guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan
+        run: bash scripts/check-privacy.sh
+
+  # ── Lint + typecheck ─────────────────────────────────────────────────
+  quality:
+    name: Lint + typecheck
+    needs: privacy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Lint
+        run: pnpm turbo lint
+      - name: Typecheck
+        run: pnpm turbo typecheck
+
+  # ── Build (once — caches for test matrix) ────────────────────────────
+  build:
+    name: Build
+    needs: privacy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Build
+        run: pnpm turbo build
+
+  # ── Test matrix (runtime-supported Node versions) ────────────────────
+  test:
+    name: Test (node ${{ matrix.node }})
+    needs: [quality, build]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20', '22']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Build
+        run: pnpm turbo build
+      - name: Test
+        run: pnpm turbo test

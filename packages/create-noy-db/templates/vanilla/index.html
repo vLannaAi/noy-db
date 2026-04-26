@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{PROJECT_NAME}} — noy-db vanilla</title>
+  </head>
+  <body>
+    <div id="app">
+      <header>
+        <h1>{{PROJECT_NAME}}</h1>
+        <p class="subtitle">
+          A zero-knowledge encrypted invoice store. Open DevTools &rarr;
+          Application &rarr; IndexedDB to see the ciphertext.
+        </p>
+      </header>
+
+      <section id="status" class="status">
+        <p class="status-text">Loading…</p>
+      </section>
+
+      <section id="controls" class="controls" hidden>
+        <button id="add-invoice">Add invoice</button>
+        <button id="refresh">Refresh</button>
+        <button id="close-vault" class="danger">Close vault</button>
+      </section>
+
+      <section id="invoices" class="invoices" hidden>
+        <h2>Invoices</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Client</th>
+              <th>Amount</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="invoices-body"></tbody>
+        </table>
+      </section>
+
+      <footer>
+        <p>
+          Encrypted with AES-256-GCM. Key derived from your passphrase via
+          PBKDF2-SHA256 (600 000 iterations). The only people who can read
+          your data are those who hold the passphrase.
+        </p>
+      </footer>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,212 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 1060" font-family="-apple-system,'Segoe UI',Helvetica,Arial,sans-serif">
+  <defs>
+    <linearGradient id="bgeu" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0d1117"/>
+      <stop offset="100%" stop-color="#161b22"/>
+    </linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1c2129"/>
+      <stop offset="100%" stop-color="#161b22"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="880" height="1060" rx="12" fill="url(#bgeu)"/>
+  <rect x="1" y="1" width="878" height="1058" rx="11" fill="none" stroke="#30363d" stroke-width="1"/>
+
+  <!-- Header -->
+  <text x="440" y="48" text-anchor="middle" fill="#f0f6fc" font-size="24" font-weight="700">What NOYDB Means For You</text>
+  <text x="440" y="74" text-anchor="middle" fill="#8b949e" font-size="13">You won't see it. But your app is built on it — and here's why that matters.</text>
+
+  <!-- ════════════════════════════════════════════ -->
+  <!-- ROW 1 -->
+  <!-- ════════════════════════════════════════════ -->
+
+  <!-- Card 1: Encrypted -->
+  <rect x="40" y="105" width="385" height="145" rx="10" fill="url(#card)" stroke="#30363d" stroke-width="1"/>
+  <!-- Shield icon -->
+  <circle cx="82" cy="152" r="26" fill="#58a6ff15" stroke="#58a6ff" stroke-width="1.5"/>
+  <path d="M82 136 L96 142 L96 155 C96 164 89 172 82 175 C75 172 68 164 68 155 L68 142 Z" fill="none" stroke="#58a6ff" stroke-width="1.8" stroke-linejoin="round"/>
+  <polyline points="75,153 80,158 89,148" fill="none" stroke="#58a6ff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Text -->
+  <text x="122" y="137" fill="#f0f6fc" font-size="14" font-weight="600">Unreadable To Everyone Else</text>
+  <text x="122" y="157" fill="#8b949e" font-size="11">Your records are encrypted before they</text>
+  <text x="122" y="173" fill="#8b949e" font-size="11">leave your device. The cloud sees gibberish.</text>
+  <text x="122" y="189" fill="#8b949e" font-size="11">Only your passphrase unlocks it.</text>
+  <!-- Tag -->
+  <rect x="122" y="202" width="114" height="20" rx="10" fill="#58a6ff18"/>
+  <text x="179" y="216" text-anchor="middle" fill="#58a6ff" font-size="9" font-weight="600">AES-256 Encryption</text>
+
+  <!-- Card 2: Offline -->
+  <rect x="455" y="105" width="385" height="145" rx="10" fill="url(#card)" stroke="#30363d" stroke-width="1"/>
+  <!-- WiFi-off icon -->
+  <circle cx="497" cy="152" r="26" fill="#3fb95015" stroke="#3fb950" stroke-width="1.5"/>
+  <!-- Simplified wifi arcs -->
+  <path d="M485 148 C489 142 505 142 509 148" fill="none" stroke="#3fb950" stroke-width="1.8" stroke-linecap="round"/>
+  <path d="M489 153 C491 149 503 149 505 153" fill="none" stroke="#3fb950" stroke-width="1.8" stroke-linecap="round"/>
+  <circle cx="497" cy="158" r="2" fill="#3fb950"/>
+  <!-- Slash -->
+  <line x1="484" y1="164" x2="510" y2="140" stroke="#f85149" stroke-width="2" stroke-linecap="round"/>
+  <!-- Text -->
+  <text x="537" y="137" fill="#f0f6fc" font-size="14" font-weight="600">Works Without Internet</text>
+  <text x="537" y="157" fill="#8b949e" font-size="11">Read, write, edit — everything works</text>
+  <text x="537" y="173" fill="#8b949e" font-size="11">offline. When you're back online,</text>
+  <text x="537" y="189" fill="#8b949e" font-size="11">changes sync automatically.</text>
+  <!-- Tag -->
+  <rect x="537" y="202" width="82" height="20" rx="10" fill="#3fb95018"/>
+  <text x="578" y="216" text-anchor="middle" fill="#3fb950" font-size="9" font-weight="600">Offline-First</text>
+
+  <!-- ════════════════════════════════════════════ -->
+  <!-- ROW 2 -->
+  <!-- ════════════════════════════════════════════ -->
+
+  <!-- Card 3: USB -->
+  <rect x="40" y="270" width="385" height="145" rx="10" fill="url(#card)" stroke="#30363d" stroke-width="1"/>
+  <!-- USB icon -->
+  <circle cx="82" cy="317" r="26" fill="#d2992215" stroke="#d29922" stroke-width="1.5"/>
+  <rect x="74" y="304" width="16" height="24" rx="3" fill="none" stroke="#d29922" stroke-width="1.8"/>
+  <line x1="79" y1="309" x2="79" y2="314" stroke="#d29922" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="85" y1="309" x2="85" y2="314" stroke="#d29922" stroke-width="1.5" stroke-linecap="round"/>
+  <rect x="76" y="328" width="12" height="4" rx="1" fill="#d29922"/>
+  <!-- Text -->
+  <text x="122" y="302" fill="#f0f6fc" font-size="14" font-weight="600">Carry Your Work On A USB</text>
+  <text x="122" y="322" fill="#8b949e" font-size="11">Copy your data to a USB stick. Use it at</text>
+  <text x="122" y="338" fill="#8b949e" font-size="11">home, office, or client site. If you lose</text>
+  <text x="122" y="354" fill="#8b949e" font-size="11">the stick — nobody can read it.</text>
+  <!-- Tag -->
+  <rect x="122" y="367" width="68" height="20" rx="10" fill="#d2992218"/>
+  <text x="156" y="381" text-anchor="middle" fill="#d29922" font-size="9" font-weight="600">Portable</text>
+
+  <!-- Card 4: Multi-user -->
+  <rect x="455" y="270" width="385" height="145" rx="10" fill="url(#card)" stroke="#30363d" stroke-width="1"/>
+  <!-- People icon -->
+  <circle cx="497" cy="317" r="26" fill="#bc8cff15" stroke="#bc8cff" stroke-width="1.5"/>
+  <circle cx="492" cy="308" r="5" fill="none" stroke="#bc8cff" stroke-width="1.6"/>
+  <path d="M481 326 C481 319 487 315 492 315 C497 315 503 319 503 326" fill="none" stroke="#bc8cff" stroke-width="1.6" stroke-linecap="round"/>
+  <circle cx="505" cy="310" r="4" fill="none" stroke="#bc8cff" stroke-width="1.3" opacity="0.6"/>
+  <path d="M500 324 C500 319 504 316 508 316 C512 316 515 319 515 324" fill="none" stroke="#bc8cff" stroke-width="1.3" stroke-linecap="round" opacity="0.6"/>
+  <!-- Text -->
+  <text x="537" y="302" fill="#f0f6fc" font-size="14" font-weight="600">Multiple People, Different Access</text>
+  <text x="537" y="322" fill="#8b949e" font-size="11">Owner sees everything. Staff see only</text>
+  <text x="537" y="338" fill="#8b949e" font-size="11">their assigned work. Auditors can view</text>
+  <text x="537" y="354" fill="#8b949e" font-size="11">but not edit. Own passphrase each.</text>
+  <!-- Tag -->
+  <rect x="537" y="367" width="62" height="20" rx="10" fill="#bc8cff18"/>
+  <text x="568" y="381" text-anchor="middle" fill="#bc8cff" font-size="9" font-weight="600">5 Roles</text>
+
+  <!-- ════════════════════════════════════════════ -->
+  <!-- ROW 3 -->
+  <!-- ════════════════════════════════════════════ -->
+
+  <!-- Card 5: Biometric -->
+  <rect x="40" y="435" width="385" height="145" rx="10" fill="url(#card)" stroke="#30363d" stroke-width="1"/>
+  <!-- Fingerprint icon -->
+  <circle cx="82" cy="482" r="26" fill="#f778ba15" stroke="#f778ba" stroke-width="1.5"/>
+  <path d="M72 488 C72 478 78 472 82 472 C86 472 92 478 92 488" fill="none" stroke="#f778ba" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M76 486 C76 480 79 476 82 476 C85 476 88 480 88 486" fill="none" stroke="#f778ba" stroke-width="1.6" stroke-linecap="round"/>
+  <line x1="82" y1="480" x2="82" y2="492" stroke="#f778ba" stroke-width="1.6" stroke-linecap="round"/>
+  <!-- Text -->
+  <text x="122" y="467" fill="#f0f6fc" font-size="14" font-weight="600">Unlock With Fingerprint Or Face</text>
+  <text x="122" y="487" fill="#8b949e" font-size="11">After first login, enroll Touch ID,</text>
+  <text x="122" y="503" fill="#8b949e" font-size="11">Face ID, or Windows Hello. One touch</text>
+  <text x="122" y="519" fill="#8b949e" font-size="11">to unlock. Passphrase stays as backup.</text>
+  <!-- Tag -->
+  <rect x="122" y="532" width="72" height="20" rx="10" fill="#f778ba18"/>
+  <text x="158" y="546" text-anchor="middle" fill="#f778ba" font-size="9" font-weight="600">Biometric</text>
+
+  <!-- Card 6: Backup -->
+  <rect x="455" y="435" width="385" height="145" rx="10" fill="url(#card)" stroke="#30363d" stroke-width="1"/>
+  <!-- Download/backup icon -->
+  <circle cx="497" cy="482" r="26" fill="#3fb95015" stroke="#3fb950" stroke-width="1.5"/>
+  <rect x="487" y="476" width="20" height="16" rx="2" fill="none" stroke="#3fb950" stroke-width="1.6"/>
+  <line x1="497" y1="472" x2="497" y2="484" stroke="#3fb950" stroke-width="1.6" stroke-linecap="round"/>
+  <polyline points="492,480 497,486 502,480" fill="none" stroke="#3fb950" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Text -->
+  <text x="537" y="467" fill="#f0f6fc" font-size="14" font-weight="600">Instant Backup And Restore</text>
+  <text x="537" y="487" fill="#8b949e" font-size="11">One click to export. The backup is</text>
+  <text x="537" y="503" fill="#8b949e" font-size="11">encrypted — safe to email or store</text>
+  <text x="537" y="519" fill="#8b949e" font-size="11">anywhere. Restore just as easily.</text>
+  <!-- Tag -->
+  <rect x="537" y="532" width="72" height="20" rx="10" fill="#3fb95018"/>
+  <text x="573" y="546" text-anchor="middle" fill="#3fb950" font-size="9" font-weight="600">One Click</text>
+
+  <!-- ════════════════════════════════════════════ -->
+  <!-- ROW 4 -->
+  <!-- ════════════════════════════════════════════ -->
+
+  <!-- Card 7: Revoke -->
+  <rect x="40" y="600" width="385" height="145" rx="10" fill="url(#card)" stroke="#30363d" stroke-width="1"/>
+  <!-- Lock/ban icon -->
+  <circle cx="82" cy="647" r="26" fill="#f8514915" stroke="#f85149" stroke-width="1.5"/>
+  <rect x="73" y="645" width="18" height="14" rx="2" fill="none" stroke="#f85149" stroke-width="1.8"/>
+  <path d="M77 645 L77 640 C77 635 87 635 87 640 L87 645" fill="none" stroke="#f85149" stroke-width="1.8"/>
+  <circle cx="82" cy="652" r="1.5" fill="#f85149"/>
+  <!-- Text -->
+  <text x="122" y="632" fill="#f0f6fc" font-size="14" font-weight="600">Revoke Access Immediately</text>
+  <text x="122" y="652" fill="#8b949e" font-size="11">Staff member leaves? Revoke their access.</text>
+  <text x="122" y="668" fill="#8b949e" font-size="11">System re-encrypts everything with new</text>
+  <text x="122" y="684" fill="#8b949e" font-size="11">keys. Old credentials become useless.</text>
+  <!-- Tag -->
+  <rect x="122" y="697" width="86" height="20" rx="10" fill="#f8514918"/>
+  <text x="165" y="711" text-anchor="middle" fill="#f85149" font-size="9" font-weight="600">Key Rotation</text>
+
+  <!-- Card 8: No Lock-in -->
+  <rect x="455" y="600" width="385" height="145" rx="10" fill="url(#card)" stroke="#30363d" stroke-width="1"/>
+  <!-- Unlock/freedom icon -->
+  <circle cx="497" cy="647" r="26" fill="#d2992215" stroke="#d29922" stroke-width="1.5"/>
+  <polyline points="486,643 490,648 497,638 504,652 510,645" fill="none" stroke="#d29922" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Text -->
+  <text x="537" y="632" fill="#f0f6fc" font-size="14" font-weight="600">No Vendor Lock-In</text>
+  <text x="537" y="652" fill="#8b949e" font-size="11">Your data is not trapped. Switch from</text>
+  <text x="537" y="668" fill="#8b949e" font-size="11">USB to cloud, or between providers,</text>
+  <text x="537" y="684" fill="#8b949e" font-size="11">without losing a single record.</text>
+  <!-- Tag -->
+  <rect x="537" y="697" width="86" height="20" rx="10" fill="#d2992218"/>
+  <text x="580" y="711" text-anchor="middle" fill="#d29922" font-size="9" font-weight="600">Open Format</text>
+
+  <!-- ════════════════════════════════════════════ -->
+  <!-- ROW 5 -->
+  <!-- ════════════════════════════════════════════ -->
+
+  <!-- Card 9: Sync -->
+  <rect x="40" y="765" width="385" height="145" rx="10" fill="url(#card)" stroke="#30363d" stroke-width="1"/>
+  <!-- Sync arrows icon -->
+  <circle cx="82" cy="812" r="26" fill="#58a6ff15" stroke="#58a6ff" stroke-width="1.5"/>
+  <path d="M74 808 L90 808" stroke="#58a6ff" stroke-width="1.8" stroke-linecap="round"/>
+  <polyline points="86,804 90,808 86,812" fill="none" stroke="#58a6ff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M90 818 L74 818" stroke="#58a6ff" stroke-width="1.8" stroke-linecap="round"/>
+  <polyline points="78,822 74,818 78,814" fill="none" stroke="#58a6ff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Text -->
+  <text x="122" y="797" fill="#f0f6fc" font-size="14" font-weight="600">Sync Without Conflicts</text>
+  <text x="122" y="817" fill="#8b949e" font-size="11">Edit on your laptop at home. Colleague</text>
+  <text x="122" y="833" fill="#8b949e" font-size="11">edits at office. Both changes merge.</text>
+  <text x="122" y="849" fill="#8b949e" font-size="11">Rare conflicts? You choose the winner.</text>
+  <!-- Tag -->
+  <rect x="122" y="862" width="80" height="20" rx="10" fill="#58a6ff18"/>
+  <text x="162" y="876" text-anchor="middle" fill="#58a6ff" font-size="9" font-weight="600">Auto-Merge</text>
+
+  <!-- Card 10: Fast -->
+  <rect x="455" y="765" width="385" height="145" rx="10" fill="url(#card)" stroke="#30363d" stroke-width="1"/>
+  <!-- Lightning icon -->
+  <circle cx="497" cy="812" r="26" fill="#d2992215" stroke="#d29922" stroke-width="1.5"/>
+  <path d="M500 798 L492 814 L500 814 L494 828" fill="none" stroke="#d29922" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Text -->
+  <text x="537" y="797" fill="#f0f6fc" font-size="14" font-weight="600">Tiny, Fast, No Bloat</text>
+  <text x="537" y="817" fill="#8b949e" font-size="11">1,000 records open in under 0.5 seconds.</text>
+  <text x="537" y="833" fill="#8b949e" font-size="11">Save in 5ms. Search is instant.</text>
+  <text x="537" y="849" fill="#8b949e" font-size="11">No spinners. No waiting.</text>
+  <!-- Tag -->
+  <rect x="537" y="862" width="74" height="20" rx="10" fill="#d2992218"/>
+  <text x="574" y="876" text-anchor="middle" fill="#d29922" font-size="9" font-weight="600">Sub-second</text>
+
+  <!-- ════════════════════════════════════════════ -->
+  <!-- FOOTER -->
+  <!-- ════════════════════════════════════════════ -->
+
+  <rect x="40" y="940" width="800" height="72" rx="10" fill="#21262d" stroke="#30363d" stroke-width="1"/>
+  <text x="440" y="968" text-anchor="middle" fill="#f0f6fc" font-size="13" font-weight="600">These aren't aspirational features.</text>
+  <text x="440" y="990" text-anchor="middle" fill="#8b949e" font-size="12">They're the design requirements NOYDB was built to deliver.</text>
+
+  <!-- Bottom -->
+  <text x="440" y="1040" text-anchor="middle" fill="#30363d" font-size="11">noydb — none of your damn business</text>
+</svg>

@@ -1,0 +1,38 @@
+{
+  "name": "@noy-db/showcases",
+  "version": "0.12.0",
+  "private": true,
+  "description": "Automated end-to-end showcases for noy-db — each showcase doubles as a test, demo, and tutorial covering a specific topology pattern.",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@noy-db/on-oidc": "workspace:*",
+    "@noy-db/on-webauthn": "workspace:*",
+    "@noy-db/hub": "workspace:*",
+    "@noy-db/to-memory": "workspace:*",
+    "@noy-db/to-file": "workspace:*",
+    "@noy-db/to-browser-idb": "workspace:*",
+    "@noy-db/to-aws-dynamo": "workspace:*",
+    "@noy-db/to-aws-s3": "workspace:*",
+    "@noy-db/in-vue": "workspace:*",
+    "@noy-db/in-pinia": "workspace:*",
+    "@noy-db/in-yjs": "workspace:*",
+    "pinia": "^3.0.1",
+    "vue": "^3.5.0",
+    "yjs": "^13.6.0"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-dynamodb": "^3.600.0",
+    "@aws-sdk/client-s3": "^3.600.0",
+    "@aws-sdk/lib-dynamodb": "^3.600.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "dotenv": "^16.4.0",
+    "happy-dom": "^16.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
