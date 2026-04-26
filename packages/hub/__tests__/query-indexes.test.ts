@@ -308,7 +308,12 @@ describe('Collection.query() — index-aware execution', () => {
 
   it('20. adapter only sees encrypted envelopes for records — no plaintext index data', async () => {
     // The crucial security claim: even though we declared an index on `status`,
-    // the adapter must not see plaintext field values like 'paid' anywhere.
+    // the adapter must not see plaintext field values anywhere. Use long,
+    // distinctive plaintext markers so the substring search isn't fooled
+    // by random base64 collisions (4-char substrings like "paid" can appear
+    // in random base64 by chance ~1 in 16M; long markers cannot).
+    const STATUS_MARKER = 'unique_status_marker_xyz9876_no_collision'
+    const CLIENT_MARKER = 'unique_client_marker_abc1234_no_collision'
     const localAdapter = memory()
     const localDb = await createNoydb({
       store: localAdapter,
@@ -318,7 +323,7 @@ describe('Collection.query() — index-aware execution', () => {
     })
     const c = await localDb.openVault('TEST')
     const invoices = c.collection<Invoice>('invoices', { indexes: ['status'] })
-    await invoices.put('a', { id: 'a', status: 'paid', amount: 999, client: 'SecretClient', dueDate: '2026-04-01' })
+    await invoices.put('a', { id: 'a', status: STATUS_MARKER as Invoice['status'], amount: 999, client: CLIENT_MARKER, dueDate: '2026-04-01' })
 
     // Filter out keyring writes — the keyring file is its OWN format
     // (a JSON document containing AES-KW-wrapped DEKs), not a NOYDB record
@@ -334,8 +339,8 @@ describe('Collection.query() — index-aware execution', () => {
       expect(call.envelope._iv).toBeTruthy()
       expect(call.envelope._data).toBeTruthy()
       const wholeEnvelope = JSON.stringify(call.envelope)
-      expect(wholeEnvelope).not.toContain('paid')
-      expect(wholeEnvelope).not.toContain('SecretClient')
+      expect(wholeEnvelope).not.toContain(STATUS_MARKER)
+      expect(wholeEnvelope).not.toContain(CLIENT_MARKER)
     }
   })
 
