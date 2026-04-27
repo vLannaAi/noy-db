@@ -550,6 +550,246 @@ adapters:
       - 'Best paired with a casAtomic primary (Dynamo) via routeStore for record metadata'
     related: [stores-contract, to-aws-dynamo]
 
+  - id: to-browser-local
+    name: localStorage store (browser)
+    package: '@noy-db/to-browser-local'
+    cas_atomic: true
+    use_case: simple-pwa-cache
+    status: stable
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'casAtomic: true (synchronous localStorage transactions)'
+      - 'Capacity-limited (5-10 MB); use to-browser-idb for larger vaults'
+    related: [stores-contract, to-browser-idb]
+
+  - id: to-cloudflare-r2
+    name: Cloudflare R2 object store
+    package: '@noy-db/to-cloudflare-r2'
+    cas_atomic: false
+    use_case: edge-blob-storage
+    status: stable
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'S3-compatible API; zero egress fees'
+      - 'casAtomic: false (no native CAS; advisory locks via If-Match)'
+    related: [stores-contract, to-cloudflare-d1, to-aws-s3]
+
+  - id: to-cloudflare-d1
+    name: Cloudflare D1 (edge SQLite)
+    package: '@noy-db/to-cloudflare-d1'
+    cas_atomic: true
+    use_case: edge-serverless
+    status: stable
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'casAtomic: true (SQLite transactions inside Cloudflare Workers)'
+      - 'Replicated across edge locations; reads stay near the user'
+    related: [stores-contract, to-cloudflare-r2, to-sqlite]
+
+  - id: to-supabase
+    name: Supabase Postgres store
+    package: '@noy-db/to-supabase'
+    cas_atomic: true
+    use_case: hosted-postgres
+    status: stable
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'casAtomic: true (UPDATE … WHERE _v = $expectedVersion)'
+      - 'Uses the supabase-js client; row-level security is the consumer''s responsibility'
+    related: [stores-contract, to-postgres]
+
+  - id: to-postgres
+    name: PostgreSQL store
+    package: '@noy-db/to-postgres'
+    cas_atomic: true
+    use_case: self-hosted-sql
+    status: stable
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'casAtomic: true (UPDATE … WHERE _v = $expectedVersion)'
+      - 'Stores envelope JSON in a jsonb column for native indexing'
+    related: [stores-contract, to-supabase, to-mysql]
+
+  - id: to-mysql
+    name: MySQL store
+    package: '@noy-db/to-mysql'
+    cas_atomic: true
+    use_case: self-hosted-sql
+    status: stable
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'casAtomic: true (UPDATE … WHERE _v = $expectedVersion)'
+      - 'Uses the JSON column type — MySQL 5.7.8+'
+    related: [stores-contract, to-postgres]
+
+  - id: to-sqlite
+    name: SQLite store (native / embedded)
+    package: '@noy-db/to-sqlite'
+    cas_atomic: true
+    use_case: embedded-sql
+    status: stable
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'casAtomic: true (SQLite transactions)'
+      - 'Driver-agnostic: better-sqlite3 / node:sqlite / bun:sqlite'
+    related: [stores-contract, to-cloudflare-d1, to-turso]
+
+  - id: to-turso
+    name: Turso (hosted libSQL)
+    package: '@noy-db/to-turso'
+    cas_atomic: true
+    use_case: hosted-edge-sqlite
+    status: stable
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'casAtomic: true (libSQL transactions)'
+      - 'Replicated SQLite across regions; ideal for edge runtimes'
+    related: [stores-contract, to-sqlite, to-cloudflare-d1]
+
+  - id: to-webdav
+    name: WebDAV store (Nextcloud / ownCloud)
+    package: '@noy-db/to-webdav'
+    cas_atomic: false
+    use_case: byo-cloud
+    status: stable
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Pure fetch() — works in browser, Node, Workers'
+      - 'casAtomic: false (no atomic CAS in WebDAV — last-writer-wins)'
+    related: [stores-contract, to-icloud, to-drive]
+
+  - id: to-ssh
+    name: SFTP / SSH store
+    package: '@noy-db/to-ssh'
+    cas_atomic: false
+    use_case: remote-disk
+    status: stable
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Public-key auth only (passwords explicitly rejected)'
+      - 'casAtomic: false (no atomic CAS over SFTP)'
+    related: [stores-contract, to-file, to-smb, to-nfs]
+
+  - id: to-smb
+    name: SMB / CIFS store
+    package: '@noy-db/to-smb'
+    cas_atomic: false
+    use_case: enterprise-fileshare
+    status: stable
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'NTLM or Kerberos auth'
+      - 'casAtomic: false (best-effort lockfile only)'
+    related: [stores-contract, to-ssh, to-nfs]
+
+  - id: to-nfs
+    name: NFS mount store
+    package: '@noy-db/to-nfs'
+    cas_atomic: false
+    use_case: enterprise-fileshare
+    status: stable
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Operates on a pre-mounted NFS path; diagnostic pre-flight checks the mount'
+      - 'casAtomic: false (NFS rename/atomic-write semantics are kernel-dependent)'
+    related: [stores-contract, to-smb, to-file]
+
+  - id: to-icloud
+    name: iCloud Drive store
+    package: '@noy-db/to-icloud'
+    cas_atomic: false
+    use_case: apple-ecosystem-sync
+    status: stable
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Handles .icloud stub files (download-on-demand)'
+      - 'casAtomic: false; relies on iCloud''s eventual-consistency sync'
+    related: [stores-contract, to-drive, to-webdav]
+
+  - id: to-drive
+    name: Google Drive store
+    package: '@noy-db/to-drive'
+    cas_atomic: false
+    use_case: cloud-bundle-storage
+    status: stable
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Uses the appDataFolder for hidden, app-scoped storage'
+      - 'casAtomic: false (no native CAS in Drive API)'
+    related: [stores-contract, to-icloud, to-webdav]
+
+  - id: to-probe
+    name: Diagnostic probe (companion, not a backend)
+    package: '@noy-db/to-probe'
+    cas_atomic: false
+    use_case: diagnostics
+    status: stable
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Never persists data — emits structured diagnostic events for the wrapped store'
+      - 'Pair via routeStore middleware'
+    related: [stores-contract, to-meter]
+
+  - id: to-meter
+    name: Pass-through metrics wrapper
+    package: '@noy-db/to-meter'
+    cas_atomic: false
+    use_case: observability
+    status: stable
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Wraps any NoydbStore; emits per-method timing + count metrics'
+      - 'casAtomic capability is inherited from the wrapped store at runtime'
+    related: [stores-contract, to-probe]
+
 # ─── Forward-compatible empty sections (phases 3-8) ──────────────────
 
 # ─── Framework integrations (phase 5) ────────────────────────────────
@@ -1120,5 +1360,147 @@ transports:
       - 'Falls back to a no-op channel when BroadcastChannel is undefined (Node, older browsers)'
     related: [by-peer, sync]
 
-topologies: []
-recipes: []
+# ─── Topologies (phase 8) — named compositions ───────────────────────
+#
+# A topology bundles together features + adapters + frameworks + auths +
+# exports + transports under a single name. Useful for marketing-side
+# stack pages, the playground "preset" picker, and recipe doc cross-refs.
+
+topologies:
+  - id: personal-notebook-stack
+    name: Personal encrypted notebook
+    status: stable
+    composes:
+      features:
+        - vault-and-collections
+        - encryption
+        - permissions
+        - schema-and-refs
+        - query-basics
+      adapters: [to-browser-idb, to-file]
+      auths: [on-passphrase]
+    showcases: []
+    recipes: [personal-notebook]
+    playground_pages: []
+    diagrams: []
+
+  - id: accounting-stack
+    name: Accounting application stack
+    status: stable
+    composes:
+      features:
+        - vault-and-collections
+        - encryption
+        - permissions
+        - schema-and-refs
+        - query-basics
+        - history
+        - periods
+        - blobs
+        - i18n
+        - consent
+        - aggregate
+        - team
+      adapters: [to-postgres, to-aws-dynamo, to-aws-s3]
+      auths: [on-passphrase, on-webauthn, on-recovery]
+      exports: [as-csv, as-xlsx, as-noydb]
+    showcases: []
+    recipes: [accounting-app]
+    playground_pages: []
+    diagrams: []
+
+  - id: realtime-crdt-stack
+    name: Real-time collaborative app stack
+    status: stable
+    composes:
+      features:
+        - vault-and-collections
+        - encryption
+        - permissions
+        - query-basics
+        - crdt
+        - sync
+        - live
+        - team
+        - session
+      adapters: [to-browser-idb, to-cloudflare-r2]
+      frameworks: [in-yjs, in-react, in-vue]
+      auths: [on-passphrase, on-webauthn, on-magic-link]
+    showcases: []
+    recipes: [realtime-crdt-app]
+    playground_pages: []
+    diagrams: []
+
+  - id: analytics-stack
+    name: Analytics-heavy querying stack
+    status: stable
+    composes:
+      features:
+        - vault-and-collections
+        - encryption
+        - permissions
+        - schema-and-refs
+        - query-basics
+        - indexing
+        - aggregate
+        - joins
+        - routing
+        - session
+      adapters: [to-postgres, to-aws-dynamo]
+      frameworks: [in-tanstack-query, in-tanstack-table]
+      auths: [on-passphrase]
+      exports: [as-csv, as-xlsx, as-json]
+    showcases: []
+    recipes: [analytics-app]
+    playground_pages: []
+    diagrams: []
+
+# ─── Recipes (phase 8) — runnable starter applications ───────────────
+#
+# Each recipe is a doc page in docs/recipes/ + (usually) a runnable test
+# under showcases/src/recipe-*.recipe.test.ts. The doc explains the
+# pattern; the test verifies it stays green as the codebase evolves.
+
+recipes:
+  - id: personal-notebook
+    name: Personal encrypted notebook
+    doc: docs/recipes/personal-notebook.md
+    showcase_path: showcases/src/recipe-personal-notebook.recipe.test.ts
+    status: stable
+    exercises:
+      features: [vault-and-collections, encryption, query-basics]
+      adapters: [to-memory, to-browser-idb, to-file]
+
+  - id: accounting-app
+    name: Accounting application
+    doc: docs/recipes/accounting-app.md
+    showcase_path: showcases/src/recipe-accounting-app.recipe.test.ts
+    status: stable
+    exercises:
+      features: [history, periods, blobs, i18n, consent, aggregate, team]
+      adapters: [to-postgres, to-aws-dynamo]
+
+  - id: realtime-crdt-app
+    name: Real-time collaborative app
+    doc: docs/recipes/realtime-crdt-app.md
+    showcase_path: showcases/src/recipe-realtime-crdt.recipe.test.ts
+    status: stable
+    exercises:
+      features: [crdt, sync, live, team, session]
+      frameworks: [in-yjs]
+
+  - id: analytics-app
+    name: Analytics-heavy querying
+    doc: docs/recipes/analytics-app.md
+    showcase_path: showcases/src/recipe-analytics.recipe.test.ts
+    status: stable
+    exercises:
+      features: [indexing, aggregate, joins, routing, session]
+      frameworks: [in-tanstack-query, in-tanstack-table]
+
+  - id: email-archive
+    name: Email archive (one entity, many facets)
+    doc: docs/recipes/email-archive.md
+    status: preview
+    exercises:
+      features: [blobs, schema-and-refs, query-basics]

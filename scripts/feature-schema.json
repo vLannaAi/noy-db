@@ -193,7 +193,7 @@
     "recipe": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "name", "doc", "showcase_path", "status"],
+      "required": ["id", "name", "doc", "status"],
       "properties": {
         "id":            { "$ref": "#/$defs/id" },
         "name":          { "type": "string", "minLength": 1 },
