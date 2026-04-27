@@ -143,7 +143,7 @@ export async function diffVault<T = unknown>(
     if (filter && !filter.has(chunk.collection)) continue
     const collection = live.get(chunk.collection) ?? new Map<string, T>()
     for (const record of chunk.records) {
-      const id = String((record as Record<string, unknown>)[idKey] ?? '')
+      const id = readIdField(record, idKey)
       if (!id) continue
       collection.set(id, record as T)
     }
@@ -233,7 +233,7 @@ async function normaliseCandidate<T>(
       if (filter && !filter.has(chunk.collection)) continue
       const collection = out.get(chunk.collection) ?? new Map<string, T>()
       for (const record of chunk.records) {
-        const id = String((record as Record<string, unknown>)[idKey] ?? '')
+        const id = readIdField(record, idKey)
         if (!id) continue
         collection.set(id, record as T)
       }
@@ -277,7 +277,7 @@ function collectionsFromObject<T>(
     const collection = new Map<string, T>()
     for (const record of value as readonly T[]) {
       if (record === null || typeof record !== 'object') continue
-      const id = String((record as Record<string, unknown>)[idKey] ?? '')
+      const id = readIdField(record, idKey)
       if (!id) continue
       collection.set(id, record)
     }
@@ -291,10 +291,25 @@ function uniqueTopLevelKeys(diffs: readonly FieldDiffEntry[]): readonly string[]
   for (const d of diffs) {
     // path is dot-separated; the top-level key is everything before the
     // first `.` or `[`. (`a.b.c` → `a`, `tags[0]` → `tags`, `(root)` → `(root)`).
-    const m = /^[^.\[]+/.exec(d.path)
+    const m = /^[^.[]+/.exec(d.path)
     if (m) keys.add(m[0])
   }
   return [...keys]
+}
+
+/**
+ * Pull the id field off a record without going through `String(obj)`,
+ * which would emit `[object Object]` for nested objects and silently
+ * collapse rows that share the same parent. Only string and number ids
+ * are accepted; anything else returns the empty string and the record
+ * is skipped at the call site.
+ */
+function readIdField(record: unknown, idKey: string): string {
+  if (record === null || typeof record !== 'object') return ''
+  const v = (record as Record<string, unknown>)[idKey]
+  if (typeof v === 'string') return v
+  if (typeof v === 'number' && Number.isFinite(v)) return String(v)
+  return ''
 }
 
 interface FormatBuckets<T> {
@@ -328,6 +343,10 @@ function formatDiff<T>(
 function shortJSON(value: unknown): string {
   if (value === undefined) return 'undefined'
   const s = JSON.stringify(value)
-  if (typeof s !== 'string') return String(value)
+  // JSON.stringify returns string for any JSON value except `undefined`
+  // (handled above), `function`, and `symbol`. Fall back to a static
+  // tag for those — never let an arbitrary object hit the default
+  // stringifier (which the lint rule explicitly bans).
+  if (typeof s !== 'string') return '<unrepresentable>'
   return s.length > 60 ? s.slice(0, 57) + '...' : s
 }
