@@ -60,9 +60,29 @@ import type { Vault } from '../vault.js'
  * - `compression: 'brotli'` — force brotli, throw if unsupported
  * - `compression: 'gzip'` — force gzip
  * - `compression: 'none'` — no compression (round-trip testing only)
+ *
+ * **Slice filtering** (added in #301):
+ * - `collections` — allowlist of collection names to include. Internal
+ *   collections (keyrings, ledger) and excluded user collections are
+ *   dropped from the bundle. Records inside included collections are
+ *   carried through verbatim.
+ * - `since` — only records whose envelope `_ts` is on/after the given
+ *   instant survive. Operates on the unencrypted envelope timestamp,
+ *   so plaintext access to records is not required.
+ *
+ * Both filters intersect (AND). When neither is provided the bundle is
+ * a whole-vault snapshot, identical to today's behaviour.
  */
 export interface WriteNoydbBundleOptions {
   readonly compression?: 'auto' | 'brotli' | 'gzip' | 'none'
+  /** Allowlist of user-collection names to include. */
+  readonly collections?: readonly string[]
+  /**
+   * Drop records whose envelope `_ts` is strictly older than this
+   * instant. Accepts a `Date` or any ISO-8601 string parseable by
+   * `new Date()`.
+   */
+  readonly since?: Date | string
 }
 
 /**
@@ -218,6 +238,65 @@ function concatBytes(parts: readonly Uint8Array[]): Uint8Array {
 }
 
 /**
+ * Apply opt-in slice filters to a vault dump JSON string. Filters that
+ * narrow the bundle without crossing the encryption boundary — both
+ * operate on metadata (collection name, envelope `_ts`) and never need
+ * to decrypt records. When neither filter is set, the dump is returned
+ * unchanged so the no-arg path stays a pure passthrough.
+ *
+ * Internal-collection filtering: when a `collections` allowlist is
+ * provided, the bundle still carries `_internal` (ledger entries) and
+ * the keyrings — they're necessary for the receiver to verify and
+ * unlock the bundle. The allowlist applies to the user-collection
+ * map only.
+ *
+ * @internal
+ */
+function applySliceFilters(
+  dumpJson: string,
+  opts: WriteNoydbBundleOptions,
+): string {
+  const collectionsFilter = opts.collections
+    ? new Set(opts.collections)
+    : null
+  const sinceMs =
+    opts.since !== undefined ? new Date(opts.since).getTime() : null
+  if (collectionsFilter === null && sinceMs === null) return dumpJson
+
+  // Parse, prune, re-serialize. The dump shape is stable
+  // (VaultBackup) so this is a one-off allocation; for vaults beyond
+  // the documented 1K–50K target a streaming variant would be a
+  // follow-up, but the simple parse path keeps the slice path
+  // type-safe and trivially auditable.
+  const backup = JSON.parse(dumpJson) as {
+    collections?: Record<string, Record<string, { _ts?: string }>>
+    [k: string]: unknown
+  }
+
+  if (backup.collections && typeof backup.collections === 'object') {
+    const next: Record<string, Record<string, unknown>> = {}
+    for (const [name, records] of Object.entries(backup.collections)) {
+      if (collectionsFilter && !collectionsFilter.has(name)) continue
+      if (sinceMs === null) {
+        next[name] = records
+        continue
+      }
+      const kept: Record<string, unknown> = {}
+      for (const [id, env] of Object.entries(records)) {
+        const envTs = env._ts ? new Date(env._ts).getTime() : NaN
+        if (Number.isFinite(envTs) && envTs >= sinceMs) {
+          kept[id] = env
+        }
+      }
+      next[name] = kept
+    }
+    backup.collections = next as typeof backup.collections
+  }
+
+  return JSON.stringify(backup)
+}
+
+/**
  * Write a `.noydb` bundle for the given vault.
  *
  * Pipeline:
@@ -246,7 +325,8 @@ export async function writeNoydbBundle(
 ): Promise<Uint8Array> {
   const handle = await vault.getBundleHandle()
   const dumpJson = await vault.dump()
-  const dumpBytes = new TextEncoder().encode(dumpJson)
+  const filtered = applySliceFilters(dumpJson, opts)
+  const dumpBytes = new TextEncoder().encode(filtered)
 
   const { format, streamFormat } = selectCompression(opts.compression)
   const body = streamFormat === null
