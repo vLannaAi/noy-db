@@ -552,7 +552,213 @@ adapters:
 
 # ─── Forward-compatible empty sections (phases 3-8) ──────────────────
 
-frameworks: []
+# ─── Framework integrations (phase 5) ────────────────────────────────
+
+frameworks:
+  - id: in-vue
+    name: Vue 3 composables
+    package: '@noy-db/in-vue'
+    framework: Vue 3
+    status: stable
+    subsystem_doc: docs/packages/in-integrations.md
+    showcases:
+      - id: 37-in-vue
+        path: showcases/src/37-in-vue.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'useCollection returns reactive Refs (data, loading, error)'
+      - 'effectScope cleanup tears down subscribe handlers automatically'
+    related: [in-pinia]
+
+  - id: in-pinia
+    name: Pinia store factory
+    package: '@noy-db/in-pinia'
+    framework: Pinia
+    status: stable
+    subsystem_doc: docs/packages/in-integrations.md
+    showcases:
+      - id: 38-in-pinia
+        path: showcases/src/38-in-pinia.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'defineNoydbStore exposes items, count, add, update, remove'
+      - 'Standard Schema v1 validator installed on the underlying collection'
+    related: [in-vue]
+
+  - id: in-yjs
+    name: Yjs Y.Doc interop
+    package: '@noy-db/in-yjs'
+    framework: Yjs
+    status: stable
+    subsystem_doc: docs/packages/in-integrations.md
+    showcases:
+      - id: 39-in-yjs
+        path: showcases/src/39-in-yjs.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Typed yField descriptors (yText / yMap / yArray)'
+      - 'getYDoc / putYDoc round-trip Y.Doc through encrypted boundary'
+    related: [crdt]
+
+  - id: in-svelte
+    name: Svelte stores (zero-dep)
+    package: '@noy-db/in-svelte'
+    framework: Svelte
+    status: stable
+    subsystem_doc: docs/packages/in-integrations.md
+    showcases:
+      - id: 40-in-svelte
+        path: showcases/src/40-in-svelte.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Implements Svelte store contract — subscribe(fn) ⇒ unsub'
+      - 'Zero runtime dependency on Svelte itself'
+    related: [in-solid]
+
+  - id: in-react
+    name: React hooks
+    package: '@noy-db/in-react'
+    framework: React 18+
+    status: stable
+    subsystem_doc: docs/packages/in-integrations.md
+    showcases:
+      - id: 41-in-react
+        path: showcases/src/41-in-react.showcase.test.tsx
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'NoydbProvider injects the instance via React context'
+      - 'useCollection exposes data, loading, error and re-renders on subscribe'
+    related: [in-nextjs, in-zustand]
+
+  - id: in-solid
+    name: Solid signals
+    package: '@noy-db/in-solid'
+    framework: SolidJS
+    status: stable
+    subsystem_doc: docs/packages/in-integrations.md
+    showcases:
+      - id: 42-in-solid
+        path: showcases/src/42-in-solid.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'createCollectionSignal returns [records, loading] accessor tuple'
+      - 'Fine-grained reactivity — only readers re-render on change'
+    related: [in-svelte]
+
+  - id: in-zustand
+    name: Zustand StateCreator factory
+    package: '@noy-db/in-zustand'
+    framework: Zustand
+    status: stable
+    subsystem_doc: docs/packages/in-integrations.md
+    showcases:
+      - id: 43-in-zustand
+        path: showcases/src/43-in-zustand.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'createNoydbStore returns a StateCreator — works with vanilla and React variants'
+      - 'Slice carries records, loading, error, plus put/delete action thunks'
+    related: [in-react]
+
+  - id: in-tanstack-query
+    name: TanStack Query options factories
+    package: '@noy-db/in-tanstack-query'
+    framework: TanStack Query
+    status: stable
+    subsystem_doc: docs/packages/in-integrations.md
+    showcases:
+      - id: 44-in-tanstack-query
+        path: showcases/src/44-in-tanstack-query.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Canonical 4-tuple queryKey: [noy-db, vault, collection, op?, ...extra]'
+      - 'bindInvalidation auto-invalidates on collection writes'
+    related: [in-tanstack-table]
+
+  - id: in-tanstack-table
+    name: TanStack Table ↔ Query DSL bridge
+    package: '@noy-db/in-tanstack-table'
+    framework: TanStack Table
+    status: stable
+    subsystem_doc: docs/packages/in-integrations.md
+    showcases:
+      - id: 45-in-tanstack-table
+        path: showcases/src/45-in-tanstack-table.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'columnFilters ⇒ where, sorting ⇒ orderBy, pagination ⇒ offset+limit'
+      - 'No table runtime dependency — pure state-shape translator'
+    related: [in-tanstack-query, query-basics]
+
+  - id: in-ai
+    name: LLM tool-calling adapter
+    package: '@noy-db/in-ai'
+    framework: OpenAI / Anthropic / Vercel AI SDK
+    status: stable
+    subsystem_doc: docs/packages/in-integrations.md
+    showcases:
+      - id: 46-in-ai
+        path: showcases/src/46-in-ai.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'buildToolset emits one tool per (collection × operation)'
+      - 'Tool name format: <collection>_<op> — round-trips via parseToolName'
+      - 'LLM never sees DEKs — only the records the host explicitly exposes'
+    related: [permissions]
+
+  - id: in-rest
+    name: HTTP handler (framework-free)
+    package: '@noy-db/in-rest'
+    framework: Hono / Express / Fastify / Workers
+    status: stable
+    subsystem_doc: docs/packages/in-integrations.md
+    showcases:
+      - id: 47-in-rest
+        path: showcases/src/47-in-rest.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Handler is framework-free — drop into any HTTP server'
+      - 'Bearer-token sessions; passphrase unlock returns the token'
+    related: [permissions, in-nextjs]
+
+  - id: in-nextjs
+    name: Next.js App Router helpers
+    package: '@noy-db/in-nextjs'
+    framework: Next.js 14+
+    status: stable
+    subsystem_doc: docs/packages/in-integrations.md
+    showcases:
+      - id: 48-in-nextjs
+        path: showcases/src/48-in-nextjs.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'cookieSession adapts Next cookies() jar to noy-db session contract'
+      - 'configureNoydb registers a per-request factory; getNoydb resolves it'
+    related: [in-react, in-rest]
 
 # ─── Auth / unlock methods (phase 4) ──────────────────────────────────
 

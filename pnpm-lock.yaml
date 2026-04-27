@@ -726,15 +726,42 @@ importers:
       '@noy-db/hub':
         specifier: workspace:*
         version: link:../packages/hub
+      '@noy-db/in-ai':
+        specifier: workspace:*
+        version: link:../packages/in-ai
+      '@noy-db/in-nextjs':
+        specifier: workspace:*
+        version: link:../packages/in-nextjs
       '@noy-db/in-pinia':
         specifier: workspace:*
         version: link:../packages/in-pinia
+      '@noy-db/in-react':
+        specifier: workspace:*
+        version: link:../packages/in-react
+      '@noy-db/in-rest':
+        specifier: workspace:*
+        version: link:../packages/in-rest
+      '@noy-db/in-solid':
+        specifier: workspace:*
+        version: link:../packages/in-solid
+      '@noy-db/in-svelte':
+        specifier: workspace:*
+        version: link:../packages/in-svelte
+      '@noy-db/in-tanstack-query':
+        specifier: workspace:*
+        version: link:../packages/in-tanstack-query
+      '@noy-db/in-tanstack-table':
+        specifier: workspace:*
+        version: link:../packages/in-tanstack-table
       '@noy-db/in-vue':
         specifier: workspace:*
         version: link:../packages/in-vue
       '@noy-db/in-yjs':
         specifier: workspace:*
         version: link:../packages/in-yjs
+      '@noy-db/in-zustand':
+        specifier: workspace:*
+        version: link:../packages/in-zustand
       '@noy-db/on-email-otp':
         specifier: workspace:*
         version: link:../packages/on-email-otp
@@ -796,6 +823,18 @@ importers:
       '@aws-sdk/lib-dynamodb':
         specifier: ^3.600.0
         version: 3.1024.0(@aws-sdk/client-dynamodb@3.1024.0)
+      '@tanstack/query-core':
+        specifier: ^5.59.0
+        version: 5.99.2
+      '@tanstack/table-core':
+        specifier: ^8.20.0
+        version: 8.21.3
+      '@testing-library/react':
+        specifier: ^16.0.0
+        version: 16.3.2(@testing-library/dom@10.4.1)(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@types/react':
+        specifier: ^18.0.0
+        version: 18.3.28
       '@vitest/coverage-v8':
         specifier: ^2.1.0
         version: 2.1.9(vitest@2.1.9(@types/node@22.19.17)(happy-dom@16.8.1)(terser@5.46.1))
@@ -808,12 +847,24 @@ importers:
       happy-dom:
         specifier: ^16.0.0
         version: 16.8.1
+      react:
+        specifier: ^18.3.0
+        version: 18.3.1
+      react-dom:
+        specifier: ^18.3.0
+        version: 18.3.1(react@18.3.1)
+      solid-js:
+        specifier: ^1.9.0
+        version: 1.9.12
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
       vitest:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@22.19.17)(happy-dom@16.8.1)(terser@5.46.1)
+      zustand:
+        specifier: ^5.0.0
+        version: 5.0.12(@types/react@18.3.28)(react@18.3.1)
 
   test-harnesses/adapter-conformance:
     devDependencies:

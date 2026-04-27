@@ -114,13 +114,14 @@ for (const { section, entry } of allEntries()) {
 for (const { section, entry } of allEntries()) {
   for (const sc of entry.showcases ?? []) {
     if (!sc.path || !sc.id) continue
-    const expected = sc.id.startsWith('recipe-')
+    const tsExpected = sc.id.startsWith('recipe-')
       ? `showcases/src/${sc.id}.recipe.test.ts`
       : `showcases/src/${sc.id}.showcase.test.ts`
-    if (sc.path !== expected) {
+    const tsxExpected = tsExpected.replace(/\.ts$/, '.tsx')
+    if (sc.path !== tsExpected && sc.path !== tsxExpected) {
       fail(
         'id-path-mismatch',
-        `path "${sc.path}" does not match expected "${expected}" derived from id "${sc.id}"`,
+        `path "${sc.path}" does not match expected "${tsExpected}" or "${tsxExpected}" derived from id "${sc.id}"`,
         `${section}/${entry.id}`,
       )
     }
