@@ -1,6 +1,6 @@
 # Package catalogs
 
-> NOYDB ships as one core (`@noy-db/hub`) plus four prefixed package families. Each prefix reads as a preposition — the mental model stays the same as you scale from one-file vaults to multi-tenant cloud deployments.
+> NOYDB ships as one core (`@noy-db/hub`) plus five prefixed package families. Each prefix reads as a preposition — the mental model stays the same as you scale from one-file vaults to multi-tenant cloud deployments.
 
 | Prefix | Reads as | Catalog | Count |
 |---|---|---|---:|
@@ -8,6 +8,7 @@
 | `in-` | *"runs **in** a framework"* | [in-integrations.md](./in-integrations.md) | 10 |
 | `on-` | *"you get **on** via this method"* | [on-auth.md](./on-auth.md) | 9 |
 | `as-` | *"export **as** XLSX / JSON / …"* | [as-exports.md](./as-exports.md) | 9 |
+| `by-` | *"sync **by** way of …"* | [by-transports.md](./by-transports.md) | 1 today, 4 planned |
 
 ## Quick reference
 
@@ -35,9 +36,15 @@ Two-tier authorisation with audit ledger. CSV, Excel, XML, JSON, NDJSON, SQL dum
 
 → **[as-exports.md](./as-exports.md)**
 
+### `by-*` — Session-share transports
+
+Live-state bridges between realms (peers, tabs, rooms, relay servers). Today `@noy-db/p2p` (WebRTC peer-to-peer; will rename to `@noy-db/by-peer`); planned `@noy-db/by-tabs` (BroadcastChannel multi-tab sync), `by-server`, `by-room`.
+
+→ **[by-transports.md](./by-transports.md)**
+
 ## Vs. subsystems
 
-The four families above are **separate npm packages** — `npm install` what you want, omit what you don't. They keep your *dependency graph* small.
+The five families above are **separate npm packages** — `npm install` what you want, omit what you don't. They keep your *dependency graph* small.
 
 The 17 [subsystems](../subsystems/) are **internal opt-ins** within `@noy-db/hub` — gated by `with*()` strategy seams. They keep the *core package's bundle* small.
 
@@ -50,6 +57,7 @@ import { postgres } from '@noy-db/to-postgres'    // separate package
 import { useCollection } from '@noy-db/in-vue'    // separate package
 import { withWebAuthn } from '@noy-db/on-webauthn'// separate package
 import { csv } from '@noy-db/as-csv'              // separate package
+import { peer } from '@noy-db/p2p'                // by-* family (renames to @noy-db/by-peer)
 ```
 
 ## Related

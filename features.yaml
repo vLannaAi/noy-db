@@ -1083,5 +1083,15 @@ exports:
       - 'canExportBundle defaults true for owner / admin only'
     related: [bundle, permissions]
 
+# ─── Session-share transports (phase 7) — by-* family ────────────────
+#
+# Live-state bridges between realms. Today: @noy-db/p2p (WebRTC; will
+# rename to @noy-db/by-peer). Planned: by-tabs (BroadcastChannel),
+# by-server (relay), by-room (Liveblocks/Yjs y-websocket). The first
+# entry registers when @noy-db/by-tabs lands and the @noy-db/p2p →
+# @noy-db/by-peer rename ships in the same commit.
+
+transports: []
+
 topologies: []
 recipes: []

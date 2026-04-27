@@ -20,5 +20,5 @@ The core is what NOYDB **is**, not what it **does**. A consumer using only the c
 - [SUBSYSTEMS.md](../../SUBSYSTEMS.md) — the 17-entry catalog of opt-in capabilities
 - [docs/subsystems/](../subsystems/) — one page per opt-in capability
 - [docs/recipes/](../recipes/) — 4 starter recipes that compose core + subsystems
-- [docs/packages/](../packages/) — the four prefix-family catalogs (`to-*`, `in-*`, `on-*`, `as-*`)
+- [docs/packages/](../packages/) — the five prefix-family catalogs (`to-*`, `in-*`, `on-*`, `as-*`, `by-*`)
 - [SPEC.md](../../SPEC.md) — placeholder skeleton; full spec rewrite deferred per #289

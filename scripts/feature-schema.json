@@ -16,6 +16,7 @@
     "frameworks": { "type": "array", "items": { "$ref": "#/$defs/framework" } },
     "auths":      { "type": "array", "items": { "$ref": "#/$defs/auth" } },
     "exports":    { "type": "array", "items": { "$ref": "#/$defs/export" } },
+    "transports": { "type": "array", "items": { "$ref": "#/$defs/transport" } },
     "topologies": { "type": "array", "items": { "$ref": "#/$defs/topology" } },
     "recipes":    { "type": "array", "items": { "$ref": "#/$defs/recipe" } }
   },
@@ -143,6 +144,22 @@
             "showcases": true, "recipes": true, "playground_pages": true,
             "diagrams": true, "invariants": true, "related": true,
             "capability":    { "enum": ["canExportPlaintext", "canExportBundle"] },
+            "subsystem_doc": { "type": "string", "pattern": "^docs/.+\\.md$" }
+          }
+        }
+      ]
+    },
+    "transport": {
+      "allOf": [
+        { "$ref": "#/$defs/baseEntry" },
+        {
+          "additionalProperties": false,
+          "required": ["channel"],
+          "properties": {
+            "id": true, "name": true, "package": true, "status": true,
+            "showcases": true, "recipes": true, "playground_pages": true,
+            "diagrams": true, "invariants": true, "related": true,
+            "channel":       { "enum": ["webrtc", "broadcast-channel", "websocket", "sse", "room", "custom"] },
             "subsystem_doc": { "type": "string", "pattern": "^docs/.+\\.md$" }
           }
         }

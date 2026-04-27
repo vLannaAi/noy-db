@@ -73,7 +73,7 @@ if (!validate(registry)) {
 
 // Sections that hold registry entries. `recipes` has its own shape; the
 // other six all derive from `baseEntry`.
-const ENTRY_SECTIONS = ['features', 'adapters', 'frameworks', 'auths', 'exports']
+const ENTRY_SECTIONS = ['features', 'adapters', 'frameworks', 'auths', 'exports', 'transports']
 const ALL_SECTIONS = [...ENTRY_SECTIONS, 'topologies', 'recipes']
 
 function* allEntries() {

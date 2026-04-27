@@ -9,6 +9,7 @@ First public pre-release of `noy-db`. Encrypted, offline-first document store wi
 - **Framework integrations** — `@noy-db/in-*` packages: Vue, Pinia, Nuxt, React, Next.js, Svelte, Zustand, TanStack Query/Table, Yjs, AI tool-calling.
 - **Unlock paths** — `@noy-db/on-*` packages: WebAuthn / passkeys, OIDC, magic-link, recovery codes, Shamir k-of-n, TOTP, email OTP, PIN, threat (lockout/duress/honeypot).
 - **Portable artefacts** — `@noy-db/as-*` packages: CSV, XLSX, JSON, NDJSON, XML, SQL dumps, blob, ZIP, encrypted `.noydb` bundle.
+- **Session-share transports** — `@noy-db/by-*` family reserved for live-state bridges between realms. `@noy-db/p2p` (WebRTC) ships now and will rename to `@noy-db/by-peer`; `@noy-db/by-tabs` (BroadcastChannel multi-tab sync) lands in a follow-up release.
 
 **Pre-1.0.** Public APIs may evolve based on adopter feedback. No third-party cryptographic audit yet — that is a 1.0 target.
 
