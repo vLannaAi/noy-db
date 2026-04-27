@@ -681,6 +681,9 @@ importers:
 
   playground/nuxt:
     dependencies:
+      '@noy-db/as-json':
+        specifier: workspace:*
+        version: link:../../packages/as-json
       '@noy-db/by-peer':
         specifier: workspace:*
         version: link:../../packages/by-peer

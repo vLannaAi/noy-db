@@ -17,6 +17,7 @@
         <NuxtLink to="/oidc">OIDC login</NuxtLink>
         <NuxtLink to="/webauthn">WebAuthn</NuxtLink>
         <NuxtLink to="/tabs">Multi-tab sync</NuxtLink>
+        <NuxtLink to="/import-preview">Import preview</NuxtLink>
       </nav>
     </header>
 

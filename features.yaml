@@ -1220,12 +1220,15 @@ exports:
     showcases:
       - id: 34-as-json
         path: showcases/src/34-as-json.showcase.test.ts
+      - id: 50-as-json-import
+        path: showcases/src/50-as-json-import.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
     invariants:
       - 'One top-level key per collection; pretty-print or compact'
       - 'collections allowlist intersected with caller ACL'
+      - 'fromString / fromObject return ImportPlan with merge|replace|insert-only policies (#302)'
     related: [permissions]
 
   - id: as-ndjson
@@ -1293,6 +1296,7 @@ exports:
     package: '@noy-db/as-zip'
     capability: canExportPlaintext
     status: stable
+    experimental: 'WinZip-AES-256 password path — interop validation against 7-Zip / Archive Utility / WinRAR pending (#312)'
     subsystem_doc: docs/packages/as-exports.md
     showcases:
       - id: 35-as-zip
@@ -1303,6 +1307,7 @@ exports:
     invariants:
       - 'Pure-JS zip encoder (STORE method) — zero deps'
       - 'Composes records JSON + attachment binaries in one archive'
+      - 'Optional WinZip-AES-256 password (#304); refuses ZipCrypto + AES-128/192'
     related: [as-blob, as-json]
 
   - id: as-noydb

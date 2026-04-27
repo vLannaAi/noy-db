@@ -88,6 +88,47 @@ formatters because the bytes outlive the process. The encrypted tier
 
 ---
 
+## Import side — phase 1 (#302)
+
+Four `as-*` packages now ship symmetric **readers** that parse a file
+back into records, build a preview diff via `diffVault()` (#303), and
+expose an `apply()` method that writes the changes through the normal
+collection API:
+
+| Package | Reader | Returns |
+|---|---|---|
+| `@noy-db/as-csv` | `fromString(vault, csv, { collection, idKey?, columnTypes?, policy? })` | `AsCSVImportPlan` |
+| `@noy-db/as-json` | `fromString(vault, json, { collections?, idKey?, policy? })` and `fromObject(vault, doc, ...)` | `AsJSONImportPlan` |
+| `@noy-db/as-ndjson` | `fromString(vault, ndjson, { collection, idKey?, policy? })` | `AsNDJSONImportPlan` |
+| `@noy-db/as-zip` | `fromBytes(vault, bytes, { collection, password?, idKey?, policy? })` | `AsZipImportPlan` |
+
+Every plan carries:
+
+```ts
+interface ImportPlan {
+  plan: VaultDiff       // from diffVault — preview is free
+  policy: ImportPolicy  // 'merge' | 'replace' | 'insert-only'
+  apply(): Promise<void>
+}
+```
+
+Reconciliation policies:
+
+- **`'merge'`** (default) — insert + update, never delete.
+- **`'replace'`** — full mirror; absent records get deleted.
+- **`'insert-only'`** — only insert new records; modifications and deletes are skipped.
+
+Two-step shape — preview is buffered up-front so consumers render review-and-confirm UI before mutating. The plan's `format({ detail: 'full' })` produces a git-style human-readable diff (count line + per-record `path: from → to` rows) for terminal or chat surfacing.
+
+**Phase 2 (deferred):**
+
+- `ImportCapability` keyring extension + `vault.assertCanImport(tier, format?)` (#308) — explicit per-format import grant defaulting closed.
+- `apply()` inside a `runTransaction` boundary (#309) — atomic apply with full rollback on partial failure.
+- Per-import ledger tagging (`reason: 'import:<format>'`) (#310) — audit consumers can distinguish manual edits from imports.
+- Readers for `as-xlsx` / `as-xml` / `as-blob` (#311). `as-sql` is explicitly out of scope (dialect-specific parsing is a tar pit).
+
+---
+
 ## Authorization model
 
 noy-db's zero-knowledge guarantee applies to **stores and sync**, not to

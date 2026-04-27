@@ -241,7 +241,18 @@ for (const { section, entry } of allEntries()) {
 
 if (failures.length === 0) {
   const counts = ALL_SECTIONS.map((s) => `${s}=${registry[s]?.length ?? 0}`).join(', ')
+  let experimentalCount = 0
+  const experimentalEntries = []
+  for (const { section, entry } of allEntries()) {
+    if (entry.experimental) {
+      experimentalCount++
+      experimentalEntries.push(`${section}/${entry.id}`)
+    }
+  }
   console.log(`✓ features.yaml OK (${counts})`)
+  if (experimentalCount > 0) {
+    console.log(`  experimental=${experimentalCount} (${experimentalEntries.join(', ')})`)
+  }
   process.exit(0)
 }
 

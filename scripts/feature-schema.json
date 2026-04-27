@@ -58,6 +58,13 @@
         "name":    { "type": "string", "minLength": 1 },
         "package": { "type": "string", "pattern": "^(@noy-db/[a-z][a-z0-9-]*(/[a-z][a-z0-9-]*)?|create-noy-db)$" },
         "status":  { "$ref": "#/$defs/status" },
+        "experimental": {
+          "oneOf": [
+            { "type": "boolean" },
+            { "type": "string", "minLength": 1 }
+          ],
+          "description": "Marks an entry whose implementation has shipped but whose validation against an external requirement is pending. A string carries the reason inline (e.g. 'interop validation pending against 7-Zip / Archive Utility / WinRAR — see #312'); boolean true is shorthand for 'experimental, see linked issue'."
+        },
         "showcases":        { "type": "array", "items": { "$ref": "#/$defs/showcase" }, "default": [] },
         "recipes":          { "type": "array", "items": { "$ref": "#/$defs/id" }, "default": [] },
         "playground_pages": { "type": "array", "items": { "$ref": "#/$defs/playgroundPage" }, "default": [] },
@@ -73,7 +80,7 @@
           "additionalProperties": false,
           "required": ["cluster", "spec", "subsystem_doc", "factory"],
           "properties": {
-            "id": true, "name": true, "package": true, "status": true,
+            "id": true, "name": true, "package": true, "status": true, "experimental": true,
             "showcases": true, "recipes": true, "playground_pages": true,
             "diagrams": true, "invariants": true, "related": true,
             "cluster":       { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
@@ -91,7 +98,7 @@
           "additionalProperties": false,
           "required": ["cas_atomic", "use_case"],
           "properties": {
-            "id": true, "name": true, "package": true, "status": true,
+            "id": true, "name": true, "package": true, "status": true, "experimental": true,
             "showcases": true, "recipes": true, "playground_pages": true,
             "diagrams": true, "invariants": true, "related": true,
             "cas_atomic": { "type": "boolean" },
@@ -108,7 +115,7 @@
           "additionalProperties": false,
           "required": ["framework"],
           "properties": {
-            "id": true, "name": true, "package": true, "status": true,
+            "id": true, "name": true, "package": true, "status": true, "experimental": true,
             "showcases": true, "recipes": true, "playground_pages": true,
             "diagrams": true, "invariants": true, "related": true,
             "framework":     { "type": "string", "minLength": 1 },
@@ -124,7 +131,7 @@
           "additionalProperties": false,
           "required": ["factor"],
           "properties": {
-            "id": true, "name": true, "package": true, "status": true,
+            "id": true, "name": true, "package": true, "status": true, "experimental": true,
             "showcases": true, "recipes": true, "playground_pages": true,
             "diagrams": true, "invariants": true, "related": true,
             "factor":        { "enum": ["knowledge", "device", "possession", "inherence", "social"] },
@@ -140,7 +147,7 @@
           "additionalProperties": false,
           "required": ["capability"],
           "properties": {
-            "id": true, "name": true, "package": true, "status": true,
+            "id": true, "name": true, "package": true, "status": true, "experimental": true,
             "showcases": true, "recipes": true, "playground_pages": true,
             "diagrams": true, "invariants": true, "related": true,
             "capability":    { "enum": ["canExportPlaintext", "canExportBundle"] },
@@ -156,7 +163,7 @@
           "additionalProperties": false,
           "required": ["channel"],
           "properties": {
-            "id": true, "name": true, "package": true, "status": true,
+            "id": true, "name": true, "package": true, "status": true, "experimental": true,
             "showcases": true, "recipes": true, "playground_pages": true,
             "diagrams": true, "invariants": true, "related": true,
             "channel":       { "enum": ["webrtc", "broadcast-channel", "websocket", "sse", "room", "custom"] },
