@@ -553,7 +553,329 @@ adapters:
 # ─── Forward-compatible empty sections (phases 3-8) ──────────────────
 
 frameworks: []
-auths: []
-exports: []
+
+# ─── Auth / unlock methods (phase 4) ──────────────────────────────────
+
+auths:
+  - id: on-passphrase
+    name: Passphrase unlock (always-on)
+    package: '@noy-db/hub'
+    factor: knowledge
+    status: stable
+    subsystem_doc: docs/packages/on-auth.md
+    showcases:
+      - id: 22-on-passphrase
+        path: showcases/src/22-on-passphrase.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'PBKDF2-SHA256 with 600,000 iterations'
+      - 'Default unlock — ships with @noy-db/hub, no opt-in needed'
+    related: [encryption, permissions]
+
+  - id: on-webauthn
+    name: WebAuthn passkey unlock
+    package: '@noy-db/on-webauthn'
+    factor: device
+    status: stable
+    subsystem_doc: docs/packages/on-auth.md
+    showcases:
+      - id: 23-on-webauthn
+        path: showcases/src/23-on-webauthn.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'PRF extension preferred; rawId-HKDF fallback for older authenticators'
+      - 'requireSingleDevice rejects backup-eligible (syncable) credentials'
+    related: [on-passphrase]
+
+  - id: on-oidc
+    name: OIDC split-key unlock
+    package: '@noy-db/on-oidc'
+    factor: possession
+    status: stable
+    subsystem_doc: docs/packages/on-auth.md
+    showcases:
+      - id: 24-on-oidc
+        path: showcases/src/24-on-oidc.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'KEK XOR-split into deviceHalf (local-only) + serverHalf (key-connector)'
+      - 'Compromise of one half does not compromise the vault'
+    related: [on-passphrase]
+
+  - id: on-magic-link
+    name: Magic-link delegated access
+    package: '@noy-db/on-magic-link'
+    factor: possession
+    status: stable
+    subsystem_doc: docs/packages/on-auth.md
+    showcases:
+      - id: 25-on-magic-link
+        path: showcases/src/25-on-magic-link.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Always viewer-scoped role'
+      - 'Server-secret + token + vault → HKDF-derived AES-KW key'
+      - 'Token bound to a single vault; cannot unlock another'
+    related: [on-passphrase, permissions]
+
+  - id: on-recovery
+    name: Printable recovery codes
+    package: '@noy-db/on-recovery'
+    factor: knowledge
+    status: stable
+    subsystem_doc: docs/packages/on-auth.md
+    showcases:
+      - id: 26-on-recovery
+        path: showcases/src/26-on-recovery.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'PBKDF2-SHA256 (600K iterations) over the typed code'
+      - 'Each entry has its own salt; codes are independent (no shared secret)'
+    related: [on-passphrase, on-shamir]
+
+  - id: on-shamir
+    name: Shamir secret sharing for KEK recovery
+    package: '@noy-db/on-shamir'
+    factor: social
+    status: stable
+    subsystem_doc: docs/packages/on-auth.md
+    showcases:
+      - id: 27-on-shamir
+        path: showcases/src/27-on-shamir.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Shamir over GF(2^8); fewer than k shares yield no information'
+      - 'k-of-n threshold scheme; choose k ≥ 2 for fault tolerance'
+    related: [on-recovery]
+
+  - id: on-totp
+    name: TOTP (RFC 6238) second factor
+    package: '@noy-db/on-totp'
+    factor: possession
+    status: stable
+    subsystem_doc: docs/packages/on-auth.md
+    showcases:
+      - id: 28-on-totp
+        path: showcases/src/28-on-totp.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'RFC 6238 TOTP; default 6 digits, 30 s period, SHA-1 (Google Authenticator-compatible)'
+      - 'verify() accepts ±1 step skew window by default'
+    related: [on-passphrase]
+
+  - id: on-email-otp
+    name: Email OTP (transport-pluggable)
+    package: '@noy-db/on-email-otp'
+    factor: possession
+    status: stable
+    subsystem_doc: docs/packages/on-auth.md
+    showcases:
+      - id: 29-on-email-otp
+        path: showcases/src/29-on-email-otp.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Transport injected by caller; package never sends mail itself'
+      - 'Constant-time digest compare; TTL + max-attempts enforced'
+    related: [on-passphrase, on-totp]
+
+  - id: on-pin
+    name: Session-resume PIN
+    package: '@noy-db/on-pin'
+    factor: knowledge
+    status: stable
+    subsystem_doc: docs/packages/on-auth.md
+    showcases:
+      - id: 30-on-pin
+        path: showcases/src/30-on-pin.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'PBKDF2 (100K iterations) — short-window resume, not primary unlock'
+      - 'TTL-bound state; max-attempts kills the wrapped keyring'
+    related: [on-passphrase]
+
+  - id: on-threat
+    name: Lockout, duress, honeypot
+    package: '@noy-db/on-threat'
+    factor: knowledge
+    status: stable
+    subsystem_doc: docs/packages/on-auth.md
+    showcases:
+      - id: 31-on-threat
+        path: showcases/src/31-on-threat.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Lockout: threshold + window + cooldown; strikes escalate to wipe'
+      - 'Duress / honeypot: secondary passphrase signals coercion to caller'
+    related: [on-passphrase]
+
+# ─── Export formats (phase 4) ─────────────────────────────────────────
+
+exports:
+  - id: as-csv
+    name: CSV plaintext export
+    package: '@noy-db/as-csv'
+    capability: canExportPlaintext
+    status: stable
+    subsystem_doc: docs/packages/as-exports.md
+    showcases:
+      - id: 32-as-csv
+        path: showcases/src/32-as-csv.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'RFC 4180 escaping (commas, quotes, newlines)'
+      - 'Single-collection per call; gated by exportCapability.plaintext'
+    related: [permissions]
+
+  - id: as-xlsx
+    name: Excel multi-sheet export
+    package: '@noy-db/as-xlsx'
+    capability: canExportPlaintext
+    status: stable
+    subsystem_doc: docs/packages/as-exports.md
+    showcases:
+      - id: 33-as-xlsx
+        path: showcases/src/33-as-xlsx.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Real .xlsx (Office Open XML); zero runtime deps'
+      - 'Multi-sheet — preserves relational shape across collections'
+    related: [permissions, as-zip]
+
+  - id: as-json
+    name: Structured multi-collection JSON
+    package: '@noy-db/as-json'
+    capability: canExportPlaintext
+    status: stable
+    subsystem_doc: docs/packages/as-exports.md
+    showcases:
+      - id: 34-as-json
+        path: showcases/src/34-as-json.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'One top-level key per collection; pretty-print or compact'
+      - 'collections allowlist intersected with caller ACL'
+    related: [permissions]
+
+  - id: as-ndjson
+    name: Newline-delimited streaming JSON
+    package: '@noy-db/as-ndjson'
+    capability: canExportPlaintext
+    status: stable
+    subsystem_doc: docs/packages/as-exports.md
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'One JSON object per line — composable with stream tooling'
+      - 'Single-pass scan; suitable for very large collections'
+    related: [as-json]
+
+  - id: as-xml
+    name: XML export (legacy / accounting interop)
+    package: '@noy-db/as-xml'
+    capability: canExportPlaintext
+    status: stable
+    subsystem_doc: docs/packages/as-exports.md
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'XML 1.0 with proper character escaping'
+      - 'Schema-less by default; caller may supply element-name overrides'
+    related: [permissions]
+
+  - id: as-sql
+    name: SQL dump (postgres / mysql / sqlite)
+    package: '@noy-db/as-sql'
+    capability: canExportPlaintext
+    status: stable
+    subsystem_doc: docs/packages/as-exports.md
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Dialect-aware quoting; INSERT statements grouped per collection'
+      - 'Schema inference from observed records (first-record-wins)'
+    related: [permissions]
+
+  - id: as-blob
+    name: Single-attachment plaintext export
+    package: '@noy-db/as-blob'
+    capability: canExportPlaintext
+    status: stable
+    subsystem_doc: docs/packages/as-exports.md
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'One attachment per call; emits the raw blob bytes'
+      - 'Requires withBlobs() and exportCapability.plaintext.blob grant'
+    related: [blobs]
+
+  - id: as-zip
+    name: Composite records + attachments archive
+    package: '@noy-db/as-zip'
+    capability: canExportPlaintext
+    status: stable
+    subsystem_doc: docs/packages/as-exports.md
+    showcases:
+      - id: 35-as-zip
+        path: showcases/src/35-as-zip.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Pure-JS zip encoder (STORE method) — zero deps'
+      - 'Composes records JSON + attachment binaries in one archive'
+    related: [as-blob, as-json]
+
+  - id: as-noydb
+    name: Encrypted .noydb bundle export
+    package: '@noy-db/as-noydb'
+    capability: canExportBundle
+    status: stable
+    subsystem_doc: docs/packages/as-exports.md
+    showcases:
+      - id: 36-as-noydb
+        path: showcases/src/36-as-noydb.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Container format: NDB1 magic + JSON header + compressed body'
+      - 'Bytes inert without the original KEK — safe-cloud-drop format'
+      - 'canExportBundle defaults true for owner / admin only'
+    related: [bundle, permissions]
+
 topologies: []
 recipes: []

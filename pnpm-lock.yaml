@@ -708,6 +708,21 @@ importers:
 
   showcases:
     dependencies:
+      '@noy-db/as-csv':
+        specifier: workspace:*
+        version: link:../packages/as-csv
+      '@noy-db/as-json':
+        specifier: workspace:*
+        version: link:../packages/as-json
+      '@noy-db/as-noydb':
+        specifier: workspace:*
+        version: link:../packages/as-noydb
+      '@noy-db/as-xlsx':
+        specifier: workspace:*
+        version: link:../packages/as-xlsx
+      '@noy-db/as-zip':
+        specifier: workspace:*
+        version: link:../packages/as-zip
       '@noy-db/hub':
         specifier: workspace:*
         version: link:../packages/hub
@@ -720,9 +735,30 @@ importers:
       '@noy-db/in-yjs':
         specifier: workspace:*
         version: link:../packages/in-yjs
+      '@noy-db/on-email-otp':
+        specifier: workspace:*
+        version: link:../packages/on-email-otp
+      '@noy-db/on-magic-link':
+        specifier: workspace:*
+        version: link:../packages/on-magic-link
       '@noy-db/on-oidc':
         specifier: workspace:*
         version: link:../packages/on-oidc
+      '@noy-db/on-pin':
+        specifier: workspace:*
+        version: link:../packages/on-pin
+      '@noy-db/on-recovery':
+        specifier: workspace:*
+        version: link:../packages/on-recovery
+      '@noy-db/on-shamir':
+        specifier: workspace:*
+        version: link:../packages/on-shamir
+      '@noy-db/on-threat':
+        specifier: workspace:*
+        version: link:../packages/on-threat
+      '@noy-db/on-totp':
+        specifier: workspace:*
+        version: link:../packages/on-totp
       '@noy-db/on-webauthn':
         specifier: workspace:*
         version: link:../packages/on-webauthn
