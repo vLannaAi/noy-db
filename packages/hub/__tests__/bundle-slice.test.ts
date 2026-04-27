@@ -14,6 +14,7 @@
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/index.js'
 import { ConflictError, createNoydb, writeNoydbBundle, readNoydbBundle } from '../src/index.js'
+import { withHistory } from '../src/history/index.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -55,7 +56,13 @@ interface Invoice { id: string; amount: number }
 interface Payment { id: string; amount: number }
 
 async function setup() {
-  const db = await createNoydb({ store: memory(), user: 'alice', secret: 'pw-2026' })
+  // historyStrategy enabled — bundle round-trip uses vault.dump(), and
+  // the architecture-invariants checker requires the strategy be
+  // present in any test file that exercises the bundle path.
+  const db = await createNoydb({
+    store: memory(), user: 'alice', secret: 'pw-2026',
+    historyStrategy: withHistory(),
+  })
   const vault = await db.openVault('demo')
   await vault.collection<Invoice>('invoices').put('a', { id: 'a', amount: 100 })
   await vault.collection<Invoice>('invoices').put('b', { id: 'b', amount: 200 })
@@ -108,7 +115,10 @@ describe('writeNoydbBundle — collections filter (#301)', () => {
 
 describe('writeNoydbBundle — since filter (#301)', () => {
   it('drops records older than the cutoff', async () => {
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'pw-2026' })
+    const db = await createNoydb({
+      store: memory(), user: 'alice', secret: 'pw-2026',
+      historyStrategy: withHistory(),
+    })
     const vault = await db.openVault('demo')
     const inv = vault.collection<Invoice>('invoices')
 
