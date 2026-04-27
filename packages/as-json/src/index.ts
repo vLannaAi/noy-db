@@ -139,3 +139,111 @@ function stripMeta(record: Record<string, unknown>): Record<string, unknown> {
   }
   return out
 }
+
+// ─── Reader (#302 Phase 1) ─────────────────────────────────────────────
+
+import { diffVault, type VaultDiff } from '@noy-db/hub'
+
+/**
+ * Reconciliation policy for `apply()`.
+ *
+ *   - `'merge'` (default) — insert + update, never delete. Records
+ *     present in the live vault but absent from the file are left
+ *     intact.
+ *   - `'replace'` — full mirror. Records present in the live vault but
+ *     absent from the file are deleted.
+ *   - `'insert-only'` — only insert new records; skip both updates and
+ *     deletes. Useful for append-only ledgers.
+ */
+export type ImportPolicy = 'merge' | 'replace' | 'insert-only'
+
+export interface AsJSONImportOptions {
+  /** Restrict the diff + apply to a subset of collections. */
+  readonly collections?: readonly string[]
+  /** Field on each record that carries its id. Default `'id'`. */
+  readonly idKey?: string
+  /** Reconciliation policy. Default `'merge'`. */
+  readonly policy?: ImportPolicy
+}
+
+/**
+ * Output of `fromString` / `fromObject` — preview the changes a JSON
+ * import would apply, then commit them with `apply()`. Two-step shape
+ * keeps the diff cheap and lets consumers render review-and-confirm
+ * UIs without a separate dry-run mode.
+ */
+export interface AsJSONImportPlan {
+  readonly plan: VaultDiff
+  readonly policy: ImportPolicy
+  /** Apply every change in `plan` (filtered by `policy`) to the vault. */
+  apply(): Promise<void>
+}
+
+/**
+ * Build an import plan from a parsed JSON document. Same shape
+ * `as-json.toObject()` produces — `Record<collection, records[]>`.
+ */
+export async function fromObject(
+  vault: Vault,
+  doc: AsJSONDocument,
+  options: AsJSONImportOptions = {},
+): Promise<AsJSONImportPlan> {
+  const policy: ImportPolicy = options.policy ?? 'merge'
+  const idKey = options.idKey ?? 'id'
+
+  // Cast through unknown — diffVault is type-erased at the boundary
+  // and AsJSONDocument's per-record type is `Record<string, unknown>`.
+  const plan = await diffVault(vault, doc as unknown as Record<string, readonly Record<string, unknown>[]>, {
+    ...(options.collections ? { collections: options.collections } : {}),
+    idKey,
+  })
+
+  return {
+    plan,
+    policy,
+    async apply(): Promise<void> {
+      // Add and modify go through collection.put which runs the normal
+      // permissions check + envelope encryption + ledger write.
+      // Delete only runs under the 'replace' policy.
+      for (const entry of plan.added) {
+        await vault.collection(entry.collection).put(entry.id, entry.record)
+      }
+      if (policy !== 'insert-only') {
+        for (const entry of plan.modified) {
+          await vault.collection(entry.collection).put(entry.id, entry.record)
+        }
+      }
+      if (policy === 'replace') {
+        for (const entry of plan.deleted) {
+          await vault.collection(entry.collection).delete(entry.id)
+        }
+      }
+    },
+  }
+}
+
+/**
+ * Build an import plan from a JSON string — parse, then dispatch to
+ * `fromObject`. Convenience for the canonical "load my exported file"
+ * workflow.
+ */
+export async function fromString(
+  vault: Vault,
+  json: string,
+  options: AsJSONImportOptions = {},
+): Promise<AsJSONImportPlan> {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(json)
+  } catch (err) {
+    throw new Error(`as-json.fromString: input is not valid JSON (${(err as Error).message})`)
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(
+      `as-json.fromString: top-level value must be an object mapping collections → records[], got ${
+        Array.isArray(parsed) ? 'array' : typeof parsed
+      }`,
+    )
+  }
+  return fromObject(vault, parsed as AsJSONDocument, options)
+}

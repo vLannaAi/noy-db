@@ -177,3 +177,190 @@ function inferColumns(records: readonly unknown[]): string[] {
   }
   return columns
 }
+
+// ─── Reader (#302 Phase 1) ─────────────────────────────────────────────
+
+import { diffVault, type VaultDiff } from '@noy-db/hub'
+
+export type ImportPolicy = 'merge' | 'replace' | 'insert-only'
+
+export interface AsCSVImportOptions {
+  /** Target collection. CSV has no native collection grouping. Required. */
+  readonly collection: string
+  /**
+   * Optional column type hints. When omitted, every cell is parsed as
+   * a string. Number / boolean cells are auto-detected when the hint
+   * matches: `'1'` → `1`, `'true'` → `true`, etc.
+   */
+  readonly columnTypes?: Record<string, 'string' | 'number' | 'boolean'>
+  /** Field on each record that carries its id. Default `'id'`. */
+  readonly idKey?: string
+  /** Reconciliation policy. Default `'merge'`. */
+  readonly policy?: ImportPolicy
+}
+
+export interface AsCSVImportPlan {
+  readonly plan: VaultDiff
+  readonly policy: ImportPolicy
+  apply(): Promise<void>
+}
+
+/**
+ * Parse RFC-4180 CSV into records and build an import plan for one
+ * collection. The first row is the header; subsequent rows are
+ * records. Quoted fields, embedded commas, embedded `""`, and
+ * CRLF line endings all round-trip with `as-csv.toString()`.
+ *
+ * Cells are returned as strings unless overridden via `columnTypes`.
+ * For the common case of numeric ids ("1001" → 1001), pass
+ * `columnTypes: { id: 'number' }`.
+ */
+export async function fromString(
+  vault: Vault,
+  csv: string,
+  options: AsCSVImportOptions,
+): Promise<AsCSVImportPlan> {
+  const policy: ImportPolicy = options.policy ?? 'merge'
+  const idKey = options.idKey ?? 'id'
+  const types = options.columnTypes ?? {}
+
+  const rows = parseCSV(csv)
+  if (rows.length === 0) {
+    return emptyPlan(vault, options.collection, policy, idKey)
+  }
+  const header = rows[0] ?? []
+  const records: Record<string, unknown>[] = []
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r]!
+    if (row.length === 1 && row[0] === '') continue   // ignore blank lines
+    const record: Record<string, unknown> = {}
+    for (let c = 0; c < header.length; c++) {
+      const col = header[c] ?? ''
+      const cell = row[c] ?? ''
+      record[col] = coerceCell(cell, types[col])
+    }
+    records.push(record)
+  }
+
+  const plan = await diffVault(vault, { [options.collection]: records }, {
+    collections: [options.collection],
+    idKey,
+  })
+
+  return {
+    plan,
+    policy,
+    async apply(): Promise<void> {
+      for (const entry of plan.added) {
+        await vault.collection(entry.collection).put(entry.id, entry.record)
+      }
+      if (policy !== 'insert-only') {
+        for (const entry of plan.modified) {
+          await vault.collection(entry.collection).put(entry.id, entry.record)
+        }
+      }
+      if (policy === 'replace') {
+        for (const entry of plan.deleted) {
+          await vault.collection(entry.collection).delete(entry.id)
+        }
+      }
+    },
+  }
+}
+
+async function emptyPlan(
+  vault: Vault,
+  collection: string,
+  policy: ImportPolicy,
+  idKey: string,
+): Promise<AsCSVImportPlan> {
+  const plan = await diffVault(vault, { [collection]: [] }, { collections: [collection], idKey })
+  return { plan, policy, async apply() { /* nothing to do */ } }
+}
+
+function coerceCell(cell: string, type?: 'string' | 'number' | 'boolean'): unknown {
+  if (type === 'number') {
+    if (cell === '') return undefined
+    const n = Number(cell)
+    return Number.isFinite(n) ? n : cell
+  }
+  if (type === 'boolean') {
+    if (cell === 'true') return true
+    if (cell === 'false') return false
+    return cell
+  }
+  return cell
+}
+
+/**
+ * Minimal RFC-4180 CSV parser. Recognises:
+ *   - Comma-separated fields
+ *   - Quoted fields with embedded commas, newlines, and `""` escapes
+ *   - Both CRLF and LF row endings
+ *
+ * Returns a 2D string array. The caller maps the first row to a
+ * header and the rest to records.
+ */
+function parseCSV(input: string): string[][] {
+  const rows: string[][] = []
+  let row: string[] = []
+  let field = ''
+  let inQuotes = false
+  let i = 0
+
+  while (i < input.length) {
+    const ch = input[i]!
+    if (inQuotes) {
+      if (ch === '"') {
+        if (input[i + 1] === '"') {
+          field += '"'
+          i += 2
+          continue
+        }
+        inQuotes = false
+        i++
+        continue
+      }
+      field += ch
+      i++
+      continue
+    }
+    if (ch === '"') {
+      inQuotes = true
+      i++
+      continue
+    }
+    if (ch === ',') {
+      row.push(field)
+      field = ''
+      i++
+      continue
+    }
+    if (ch === '\r' && input[i + 1] === '\n') {
+      row.push(field)
+      rows.push(row)
+      row = []
+      field = ''
+      i += 2
+      continue
+    }
+    if (ch === '\n' || ch === '\r') {
+      row.push(field)
+      rows.push(row)
+      row = []
+      field = ''
+      i++
+      continue
+    }
+    field += ch
+    i++
+  }
+
+  // Final field / row.
+  if (field !== '' || row.length > 0) {
+    row.push(field)
+    rows.push(row)
+  }
+
+  return rows
+}

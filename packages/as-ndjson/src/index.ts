@@ -113,3 +113,85 @@ function stripMeta(record: Record<string, unknown>): Record<string, unknown> {
   }
   return out
 }
+
+// ─── Reader (#302 Phase 1) ─────────────────────────────────────────────
+
+import { diffVault, type VaultDiff } from '@noy-db/hub'
+
+export type ImportPolicy = 'merge' | 'replace' | 'insert-only'
+
+export interface AsNDJSONImportOptions {
+  /**
+   * Target collection. NDJSON is one record per line — every record
+   * lands in the same collection. Required.
+   */
+  readonly collection: string
+  /** Field on each record that carries its id. Default `'id'`. */
+  readonly idKey?: string
+  /** Reconciliation policy. Default `'merge'`. */
+  readonly policy?: ImportPolicy
+}
+
+export interface AsNDJSONImportPlan {
+  readonly plan: VaultDiff
+  readonly policy: ImportPolicy
+  apply(): Promise<void>
+}
+
+/**
+ * Parse newline-delimited JSON into records and build an import plan
+ * for one collection. Empty lines and lines with leading whitespace
+ * are ignored. A single malformed line throws — callers that want
+ * lenient parsing can pre-filter their input.
+ */
+export async function fromString(
+  vault: Vault,
+  ndjson: string,
+  options: AsNDJSONImportOptions,
+): Promise<AsNDJSONImportPlan> {
+  const policy: ImportPolicy = options.policy ?? 'merge'
+  const idKey = options.idKey ?? 'id'
+
+  const records: Record<string, unknown>[] = []
+  let lineNo = 0
+  for (const raw of ndjson.split('\n')) {
+    lineNo++
+    const line = raw.trim()
+    if (!line) continue
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(line)
+    } catch (err) {
+      throw new Error(`as-ndjson.fromString: malformed JSON on line ${lineNo}: ${(err as Error).message}`)
+    }
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error(`as-ndjson.fromString: line ${lineNo} is not a JSON object`)
+    }
+    records.push(parsed as Record<string, unknown>)
+  }
+
+  const plan = await diffVault(vault, { [options.collection]: records }, {
+    collections: [options.collection],
+    idKey,
+  })
+
+  return {
+    plan,
+    policy,
+    async apply(): Promise<void> {
+      for (const entry of plan.added) {
+        await vault.collection(entry.collection).put(entry.id, entry.record)
+      }
+      if (policy !== 'insert-only') {
+        for (const entry of plan.modified) {
+          await vault.collection(entry.collection).put(entry.id, entry.record)
+        }
+      }
+      if (policy === 'replace') {
+        for (const entry of plan.deleted) {
+          await vault.collection(entry.collection).delete(entry.id)
+        }
+      }
+    },
+  }
+}
