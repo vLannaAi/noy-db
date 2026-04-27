@@ -52,6 +52,7 @@ import {
 } from './format.js'
 import { BundleIntegrityError } from '../errors.js'
 import type { Vault } from '../vault.js'
+import type { BundleRecipient } from '../team/keyring.js'
 
 /**
  * Options accepted by `writeNoydbBundle`.
@@ -83,6 +84,24 @@ export interface WriteNoydbBundleOptions {
    * `new Date()`.
    */
   readonly since?: Date | string
+  /**
+   * Single-recipient re-keying shorthand (#301). When set, the
+   * bundle's keyring is replaced with one freshly-derived entry sealed
+   * with this passphrase. The recipient inherits the source keyring's
+   * userId, role, and permissions. Mutually exclusive with `recipients`.
+   */
+  readonly exportPassphrase?: string
+  /**
+   * Multi-recipient re-keying (#301). Replaces the bundle's keyring
+   * map with one slot per recipient, each sealed with its own
+   * passphrase. DEKs are unwrapped from the source keyring once and
+   * re-wrapped per recipient — record ciphertext is unchanged.
+   *
+   * Mutually exclusive with `exportPassphrase`. When neither is set,
+   * the bundle inherits the source keyring as-is (today's behaviour,
+   * suited to personal backup-and-restore).
+   */
+  readonly recipients?: readonly BundleRecipient[]
 }
 
 /**
@@ -238,6 +257,44 @@ function concatBytes(parts: readonly Uint8Array[]): Uint8Array {
 }
 
 /**
+ * Replace the bundle's keyrings with freshly built recipient slots,
+ * one per supplied recipient. No-op when neither `exportPassphrase`
+ * nor `recipients` is set — the source keyring is inherited as-is.
+ *
+ * The single-passphrase shorthand creates a one-recipient list whose
+ * id, role, and permissions inherit from the source vault — useful
+ * for "back up to a different passphrase" without changing role
+ * semantics. The multi-recipient form wraps each slot independently
+ * with its declared role + permissions.
+ *
+ * @internal
+ */
+async function applyRecipientRewrap(
+  vault: Vault,
+  dumpJson: string,
+  opts: WriteNoydbBundleOptions,
+): Promise<string> {
+  if (opts.exportPassphrase === undefined && opts.recipients === undefined) {
+    return dumpJson
+  }
+
+  const recipients: readonly BundleRecipient[] =
+    opts.recipients ?? [
+      {
+        id: vault.userId,
+        passphrase: opts.exportPassphrase as string,
+        role: vault.role,
+      },
+    ]
+
+  const recipientKeyrings = await vault.buildBundleRecipientKeyrings(recipients)
+
+  const backup = JSON.parse(dumpJson) as { keyrings: unknown; [k: string]: unknown }
+  backup.keyrings = recipientKeyrings
+  return JSON.stringify(backup)
+}
+
+/**
  * Apply opt-in slice filters to a vault dump JSON string. Filters that
  * narrow the bundle without crossing the encryption boundary — both
  * operate on metadata (collection name, envelope `_ts`) and never need
@@ -323,9 +380,20 @@ export async function writeNoydbBundle(
   vault: Vault,
   opts: WriteNoydbBundleOptions = {},
 ): Promise<Uint8Array> {
+  if (opts.exportPassphrase !== undefined && opts.recipients !== undefined) {
+    throw new Error(
+      'writeNoydbBundle: pass either exportPassphrase or recipients, not both',
+    )
+  }
+
   const handle = await vault.getBundleHandle()
   const dumpJson = await vault.dump()
-  const filtered = applySliceFilters(dumpJson, opts)
+
+  // Re-keying: when caller supplied recipients (or the single-recipient
+  // shorthand), substitute the bundle's `keyrings` map with freshly
+  // built recipient slots before slice filters run.
+  const rekeyed = await applyRecipientRewrap(vault, dumpJson, opts)
+  const filtered = applySliceFilters(rekeyed, opts)
   const dumpBytes = new TextEncoder().encode(filtered)
 
   const { format, streamFormat } = selectCompression(opts.compression)

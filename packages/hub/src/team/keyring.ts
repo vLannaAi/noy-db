@@ -545,6 +545,111 @@ export async function changeSecret(
   }
 }
 
+// ─── Bundle recipients (#301) ──────────────────────────────────────────
+
+/**
+ * Recipient slot in a re-keyed `.noydb` bundle. Each slot becomes its
+ * own keyring file inside the bundle, sealed with its own passphrase.
+ * Same role/permission semantics as `db.grant()` but no adapter side
+ * effect — the slot only exists inside the bundle bytes.
+ *
+ * @public
+ */
+export interface BundleRecipient {
+  /** User id stamped onto the keyring file in the bundle. */
+  readonly id: string
+  /** Optional display name. Defaults to `id`. */
+  readonly displayName?: string
+  /** Passphrase the recipient will type to unlock. */
+  readonly passphrase: string
+  /** Role on the destination vault. Defaults to `'viewer'`. */
+  readonly role?: Role
+  /**
+   * Per-collection permissions. When omitted, role defaults apply.
+   * Restricting permissions here ALSO restricts which DEKs are wrapped
+   * into the slot — a slot with `{ invoices: 'ro' }` cannot decrypt
+   * other collections even though their ciphertext sits in the bundle.
+   */
+  readonly permissions?: Permissions
+  /**
+   * Optional `as-*` export grants on the destination vault.
+   * Mirrors the `exportCapability` field on a live keyring.
+   */
+  readonly exportCapability?: ExportCapability
+}
+
+/**
+ * Build a `KeyringFile` for one bundle recipient, given the source
+ * vault's unwrapped DEKs. Mirrors `grant()` minus the adapter write —
+ * the produced file is meant to be embedded in the bundle's
+ * `keyrings` map, never persisted to the source vault.
+ *
+ * Privilege-escalation check still runs: every DEK wrapped into the
+ * recipient's keyring must come from the source's own DEK set.
+ *
+ * @internal
+ */
+export async function buildRecipientKeyringFile(
+  callerKeyring: UnlockedKeyring,
+  recipient: BundleRecipient,
+): Promise<KeyringFile> {
+  const role: Role = recipient.role ?? 'viewer'
+  const permissions = resolvePermissions(role, recipient.permissions)
+
+  const newSalt = generateSalt()
+  const newKek = await deriveKey(recipient.passphrase, newSalt)
+
+  const wrappedDeks: Record<string, string> = {}
+
+  // Collections the recipient was explicitly granted permission to.
+  for (const collName of Object.keys(permissions)) {
+    const dek = callerKeyring.deks.get(collName)
+    if (dek) {
+      wrappedDeks[collName] = await wrapKey(dek, newKek)
+    }
+  }
+
+  // owner / admin / viewer: wrap every known DEK (matches grant).
+  if (role === 'owner' || role === 'admin' || role === 'viewer') {
+    for (const [collName, dek] of callerKeyring.deks) {
+      if (!(collName in wrappedDeks)) {
+        wrappedDeks[collName] = await wrapKey(dek, newKek)
+      }
+    }
+  }
+
+  // Always propagate system-prefixed collection DEKs (`_ledger`, etc.) —
+  // the recipient needs them to verify the bundle on import.
+  for (const [collName, dek] of callerKeyring.deks) {
+    if (collName.startsWith('_') && !(collName in wrappedDeks)) {
+      wrappedDeks[collName] = await wrapKey(dek, newKek)
+    }
+  }
+
+  // Anti-privilege-escalation: every wrapped DEK must come from the
+  // caller's own DEK set. Belt-and-braces with the lookups above.
+  for (const collName of Object.keys(wrappedDeks)) {
+    if (!callerKeyring.deks.has(collName)) {
+      throw new PrivilegeEscalationError(collName)
+    }
+  }
+
+  return {
+    _noydb_keyring: NOYDB_KEYRING_VERSION,
+    user_id: recipient.id,
+    display_name: recipient.displayName ?? recipient.id,
+    role,
+    permissions,
+    deks: wrappedDeks,
+    salt: bufferToBase64(newSalt),
+    created_at: new Date().toISOString(),
+    granted_by: callerKeyring.userId,
+    ...(recipient.exportCapability !== undefined
+      ? { export_capability: recipient.exportCapability }
+      : {}),
+  }
+}
+
 // ─── List Users ────────────────────────────────────────────────────────
 
 /** List all users with access to a vault. */

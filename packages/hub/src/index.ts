@@ -312,6 +312,10 @@ export type { UnlockedKeyring } from './team/keyring.js'
 // Export-capability helpers (RFC #249)
 export { hasExportCapability, evaluateExportCapability } from './team/keyring.js'
 
+// Bundle recipients (#301 — multi-recipient re-keyed .noydb export)
+export type { BundleRecipient } from './team/keyring.js'
+export { buildRecipientKeyringFile } from './team/keyring.js'
+
 // Core classes
 export { Noydb, createNoydb } from './noydb.js'
 export { Vault, ElevatedHandle, ELEVATION_AUDIT_COLLECTION } from './vault.js'

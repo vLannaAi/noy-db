@@ -18,9 +18,10 @@ import type { CacheOptions } from './collection.js'
 import type { IndexDef } from './indexing/eager-indexes.js'
 import type { JoinableSource } from './query/index.js'
 import type { OnDirtyCallback } from './collection.js'
-import type { UnlockedKeyring } from './team/keyring.js'
+import type { UnlockedKeyring, BundleRecipient } from './team/keyring.js'
+import { buildRecipientKeyringFile } from './team/keyring.js'
 import { ensureCollectionDEK, hasAccess, hasExportCapability } from './team/keyring.js'
-import type { ExportFormat } from './types.js'
+import type { ExportFormat, KeyringFile } from './types.js'
 import {
   ExportCapabilityError,
   ValidationError,
@@ -712,6 +713,36 @@ export class Vault {
    */
   get role(): Role {
     return this.keyring.role
+  }
+
+  /**
+   * Build keyring files for bundle recipients without persisting them
+   * to the source vault. Used by `writeNoydbBundle()` when the bundle
+   * is re-keyed for distinct recipients (#301).
+   *
+   * Each recipient becomes its own `KeyringFile` sealed with that
+   * recipient's passphrase. The DEKs wrapped into each slot are
+   * exactly those the recipient's role + permissions justify, and
+   * never wider than the source keyring's own DEK set
+   * (privilege-escalation check).
+   *
+   * Returns a `Record<userId, KeyringFile>` ready to substitute for
+   * the `keyrings` field of a `vault.dump()` JSON. Adapter is never
+   * touched; the produced files exist only in the bundle bytes.
+   *
+   * @public
+   */
+  async buildBundleRecipientKeyrings(
+    recipients: readonly BundleRecipient[],
+  ): Promise<Record<string, KeyringFile>> {
+    const result: Record<string, KeyringFile> = {}
+    for (const recipient of recipients) {
+      if (recipient.id in result) {
+        throw new Error(`buildBundleRecipientKeyrings: duplicate recipient id "${recipient.id}"`)
+      }
+      result[recipient.id] = await buildRecipientKeyringFile(this.keyring, recipient)
+    }
+    return result
   }
 
   /**
