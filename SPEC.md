@@ -9,7 +9,7 @@
 - **Frameworks** (`@noy-db/in-*`) — bindings for Vue / Pinia / Nuxt / React / Next.js / Svelte / Zustand / TanStack / Yjs / AI tool-calling.
 - **Unlock** (`@noy-db/on-*`) — passkeys, OIDC, magic-links, recovery codes, Shamir, TOTP, email-OTP, PIN, threat (lockout / duress / honeypot).
 - **Export** (`@noy-db/as-*`) — CSV, XLSX, JSON, NDJSON, XML, SQL, blob, ZIP, encrypted `.noydb` bundle.
-- **Session-share transports** (`@noy-db/by-*`) — live-state bridges between realms. Today: `@noy-db/p2p` (WebRTC peers; will rename to `@noy-db/by-peer`). Planned: `@noy-db/by-tabs` (BroadcastChannel multi-tab sync), future `by-room` / `by-server` for relayed presence.
+- **Session-share transports** (`@noy-db/by-*`) — live-state bridges between realms. `@noy-db/by-peer` (WebRTC peers) and `@noy-db/by-tabs` (BroadcastChannel multi-tab) ship today; `by-server` (WebSocket / SSE relay) and `by-room` (Liveblocks / Yjs y-websocket) are reserved.
 
 ## Crypto invariants (frozen)
 

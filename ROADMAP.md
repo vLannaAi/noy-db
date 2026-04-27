@@ -7,7 +7,7 @@
 - **Third-party cryptographic audit.** External review of the key hierarchy, envelope format, AES-KW wrapping, and PBKDF2 parameters. Required before a 1.0 stamp.
 - **Bundle-size CI gate.** Pin the floor + per-subsystem allowances in `bundle-manifest.json`; CI fails on any unexplained regression.
 - **Showcase + recipe coverage.** A runnable end-to-end test for every `with*()` strategy and every storage destination so adopters pick a backend by reading working code.
-- **`by-*` session-share family.** Land `@noy-db/by-tabs` (BroadcastChannel multi-tab sync) and rename `@noy-db/p2p` → `@noy-db/by-peer` so the WebRTC transport joins the same family. The naming pattern (`to-` / `in-` / `on-` / `as-` / `by-`) becomes the full mental model.
+- **`by-*` session-share family.** `@noy-db/by-peer` (WebRTC, renamed from `@noy-db/p2p`) and `@noy-db/by-tabs` (BroadcastChannel multi-tab sync) shipped together with the family debut. Next: `@noy-db/by-server` (WebSocket / SSE relay) and `@noy-db/by-room` (Liveblocks / Yjs y-websocket).
 
 No version-numbered milestones until `0.1.0` — the pre-release is intentionally a single rolling target.
 

@@ -1,14 +1,14 @@
 {
-  "name": "@noy-db/p2p",
+  "name": "@noy-db/by-peer",
   "version": "0.1.0-pre.1",
-  "description": "WebRTC peer-to-peer sync for noy-db — direct browser-to-browser transport with signaling-agnostic handshake",
+  "description": "WebRTC peer-to-peer transport for noy-db — direct browser-to-browser channel with signaling-agnostic handshake",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
-  "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/p2p#readme",
+  "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/by-peer#readme",
   "repository": {
     "type": "git",
     "url": "https://github.com/vLannaAi/noy-db.git",
-    "directory": "packages/p2p"
+    "directory": "packages/by-peer"
   },
   "bugs": {
     "url": "https://github.com/vLannaAi/noy-db/issues"
@@ -53,6 +53,7 @@
   },
   "keywords": [
     "noy-db",
+    "by-peer",
     "p2p",
     "webrtc",
     "realtime",

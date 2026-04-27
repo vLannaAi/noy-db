@@ -14,7 +14,7 @@
  * "Offline-first" is a promise; sync is the mechanic that makes
  * that promise survive when more than one device exists. The hub's
  * sync engine is independent of transport — pair it with cloud,
- * USB, BroadcastChannel (planned), or WebRTC (`@noy-db/p2p`).
+ * USB, BroadcastChannel (`@noy-db/by-tabs`), or WebRTC (`@noy-db/by-peer`).
  *
  * Prerequisites
  * ─────────────

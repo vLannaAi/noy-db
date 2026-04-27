@@ -142,7 +142,7 @@ Each prefix reads as a preposition — the mental model stays the same as you sc
 | **`in-`** | *"runs **in** a framework"* | **Framework integrations** — thin reactive bindings. React, Next.js, Vue, Nuxt, Pinia, Svelte, Zustand, TanStack Query/Table, Yjs CRDT, LLM tool-calling. | [→ integrations.md](docs/packages/in-integrations.md) |
 | **`on-`** | *"you get **on** via this method"* | **Unlock / auth** — composable primitives. Passkeys (WebAuthn), OIDC split-key, magic links, TOTP, email OTP, recovery codes, Shamir k-of-n, duress + honeypot. | [→ auth.md](docs/packages/on-auth.md) |
 | **`as-`** | *"export **as** XLSX / JSON / …"* | **Portable artefacts** — two-tier authorisation with audit ledger. CSV, Excel, XML, JSON, NDJSON, SQL dump, PDF blobs, ZIP, and the encrypted `.noydb` bundle. | [→ exports.md](docs/packages/as-exports.md) |
-| **`by-`** | *"sync **by** way of …"* | **Session-share transports** — live-state bridges between realms. Today `@noy-db/p2p` (WebRTC peers; renames to `@noy-db/by-peer`). Planned `@noy-db/by-tabs` (BroadcastChannel multi-tab), `by-server`, `by-room`. | [→ transports.md](docs/packages/by-transports.md) |
+| **`by-`** | *"sync **by** way of …"* | **Session-share transports** — live-state bridges between realms. `@noy-db/by-peer` (WebRTC peers, renamed from `@noy-db/p2p`) and `@noy-db/by-tabs` (BroadcastChannel multi-tab) ship today; `by-server`, `by-room` reserved. | [→ transports.md](docs/packages/by-transports.md) |
 
 Plus the hub (`@noy-db/hub`) and the standalone tools: `@noy-db/cli`, `create-noy-db` (scaffolder).
 

@@ -28,6 +28,8 @@
     "@noy-db/in-ai": "workspace:*",
     "@noy-db/in-rest": "workspace:*",
     "@noy-db/in-nextjs": "workspace:*",
+    "@noy-db/by-peer": "workspace:*",
+    "@noy-db/by-tabs": "workspace:*",
     "@noy-db/on-webauthn": "workspace:*",
     "@noy-db/on-oidc": "workspace:*",
     "@noy-db/on-magic-link": "workspace:*",

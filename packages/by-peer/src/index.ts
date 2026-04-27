@@ -1,5 +1,8 @@
 /**
- * **@noy-db/p2p** — WebRTC peer-to-peer transport for noy-db.
+ * **@noy-db/by-peer** — WebRTC peer-to-peer transport for noy-db.
+ *
+ * First member of the `by-*` family of session-share transports.
+ * Previously published as `@noy-db/p2p`.
  *
  * Ships three pieces:
  *

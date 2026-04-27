@@ -1084,14 +1084,41 @@ exports:
     related: [bundle, permissions]
 
 # ─── Session-share transports (phase 7) — by-* family ────────────────
-#
-# Live-state bridges between realms. Today: @noy-db/p2p (WebRTC; will
-# rename to @noy-db/by-peer). Planned: by-tabs (BroadcastChannel),
-# by-server (relay), by-room (Liveblocks/Yjs y-websocket). The first
-# entry registers when @noy-db/by-tabs lands and the @noy-db/p2p →
-# @noy-db/by-peer rename ships in the same commit.
 
-transports: []
+transports:
+  - id: by-peer
+    name: WebRTC peer-to-peer transport
+    package: '@noy-db/by-peer'
+    channel: webrtc
+    status: stable
+    subsystem_doc: docs/packages/by-transports.md
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'PeerChannel contract — reliable, in-order, string delivery'
+      - 'Carries AES-256-GCM ciphertext envelopes; transport never sees DEKs'
+      - 'Pairs with peerStore() / servePeerStore() for symmetric or asymmetric topologies'
+    related: [sync, crdt, by-tabs]
+
+  - id: by-tabs
+    name: BroadcastChannel multi-tab transport
+    package: '@noy-db/by-tabs'
+    channel: broadcast-channel
+    status: stable
+    subsystem_doc: docs/packages/by-transports.md
+    showcases:
+      - id: 49-by-tabs
+        path: showcases/src/49-by-tabs.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Wraps the browser BroadcastChannel API as a PeerChannel'
+      - 'Same-origin only — sub-millisecond fan-out across tabs of the same site'
+      - 'Falls back to a no-op channel when BroadcastChannel is undefined (Node, older browsers)'
+    related: [by-peer, sync]
 
 topologies: []
 recipes: []

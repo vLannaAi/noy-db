@@ -8,7 +8,7 @@
 | `in-` | *"runs **in** a framework"* | [in-integrations.md](./in-integrations.md) | 10 |
 | `on-` | *"you get **on** via this method"* | [on-auth.md](./on-auth.md) | 9 |
 | `as-` | *"export **as** XLSX / JSON / …"* | [as-exports.md](./as-exports.md) | 9 |
-| `by-` | *"sync **by** way of …"* | [by-transports.md](./by-transports.md) | 1 today, 4 planned |
+| `by-` | *"sync **by** way of …"* | [by-transports.md](./by-transports.md) | 2 today, 4 planned |
 
 ## Quick reference
 
@@ -38,7 +38,7 @@ Two-tier authorisation with audit ledger. CSV, Excel, XML, JSON, NDJSON, SQL dum
 
 ### `by-*` — Session-share transports
 
-Live-state bridges between realms (peers, tabs, rooms, relay servers). Today `@noy-db/p2p` (WebRTC peer-to-peer; will rename to `@noy-db/by-peer`); planned `@noy-db/by-tabs` (BroadcastChannel multi-tab sync), `by-server`, `by-room`.
+Live-state bridges between realms (peers, tabs, rooms, relay servers). Today `@noy-db/by-peer` (WebRTC peer-to-peer, renamed from `@noy-db/p2p`) and `@noy-db/by-tabs` (BroadcastChannel multi-tab sync); reserved `by-server`, `by-room`.
 
 → **[by-transports.md](./by-transports.md)**
 
@@ -57,7 +57,8 @@ import { postgres } from '@noy-db/to-postgres'    // separate package
 import { useCollection } from '@noy-db/in-vue'    // separate package
 import { withWebAuthn } from '@noy-db/on-webauthn'// separate package
 import { csv } from '@noy-db/as-csv'              // separate package
-import { peer } from '@noy-db/p2p'                // by-* family (renames to @noy-db/by-peer)
+import { peerStore } from '@noy-db/by-peer'       // by-* family (WebRTC)
+import { tabsChannel } from '@noy-db/by-tabs'     // by-* family (BroadcastChannel)
 ```
 
 ## Related

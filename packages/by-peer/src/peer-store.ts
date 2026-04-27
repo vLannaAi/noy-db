@@ -24,7 +24,7 @@ export interface PeerStoreOptions {
   readonly channel: PeerChannel
   /** Max ms to wait for any single RPC response. Default 30s. */
   readonly timeoutMs?: number
-  /** Optional display name used in diagnostics. Default `'p2p'`. */
+  /** Optional display name used in diagnostics. Default `'by-peer'`. */
   readonly name?: string
 }
 
@@ -50,7 +50,7 @@ export function peerStore(opts: PeerStoreOptions): NoydbStore & { dispose: () =>
   }
 
   return {
-    name: opts.name ?? 'p2p',
+    name: opts.name ?? 'by-peer',
 
     async get(vault, collection, id) {
       return call<EncryptedEnvelope | null>('get', [vault, collection, id])

@@ -138,6 +138,27 @@ importers:
         specifier: ^22.0.0
         version: 22.19.17
 
+  packages/by-peer:
+    devDependencies:
+      '@noy-db/hub':
+        specifier: workspace:*
+        version: link:../hub
+      '@noy-db/to-memory':
+        specifier: workspace:*
+        version: link:../to-memory
+
+  packages/by-tabs:
+    devDependencies:
+      '@noy-db/by-peer':
+        specifier: workspace:*
+        version: link:../by-peer
+      '@noy-db/hub':
+        specifier: workspace:*
+        version: link:../hub
+      '@noy-db/to-memory':
+        specifier: workspace:*
+        version: link:../to-memory
+
   packages/cli:
     devDependencies:
       '@noy-db/hub':
@@ -428,15 +449,6 @@ importers:
         specifier: workspace:*
         version: link:../hub
 
-  packages/p2p:
-    devDependencies:
-      '@noy-db/hub':
-        specifier: workspace:*
-        version: link:../hub
-      '@noy-db/to-memory':
-        specifier: workspace:*
-        version: link:../to-memory
-
   packages/to-aws-dynamo:
     devDependencies:
       '@aws-sdk/client-dynamodb':
@@ -723,6 +735,12 @@ importers:
       '@noy-db/as-zip':
         specifier: workspace:*
         version: link:../packages/as-zip
+      '@noy-db/by-peer':
+        specifier: workspace:*
+        version: link:../packages/by-peer
+      '@noy-db/by-tabs':
+        specifier: workspace:*
+        version: link:../packages/by-tabs
       '@noy-db/hub':
         specifier: workspace:*
         version: link:../packages/hub

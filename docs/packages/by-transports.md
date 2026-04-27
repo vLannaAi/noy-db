@@ -21,13 +21,13 @@ change stream out to other realms holding their own keys.
 
 | Package | Transport | What it does |
 |---|---|---|
-| [`@noy-db/p2p`](../../packages/p2p) | WebRTC | Peer-to-peer connection between two browsers / Node processes; carries encrypted envelopes through a data channel. Pairs with `withSync()` and `withCrdt()` for collaborative editing without a relay server. **Rename pending:** this package will publish as `@noy-db/by-peer` once the `by-*` family debuts; the old name will alias for one release. |
+| [`@noy-db/by-peer`](../../packages/by-peer) | WebRTC | Peer-to-peer connection between two browsers / Node processes; carries encrypted envelopes through a data channel. Pairs with `withSync()` and `withCrdt()` for collaborative editing without a relay server. Previously published as `@noy-db/p2p`. |
+| [`@noy-db/by-tabs`](../../packages/by-tabs) | `BroadcastChannel` | Multi-tab sync inside one browser. When a user has the same vault open in three tabs, every put in tab A surfaces in tabs B and C without round-tripping the storage backend. Reuses the `PeerChannel` contract so it composes with `peerStore()` from `@noy-db/by-peer`. |
 
-## Planned
+## Reserved
 
 | Package | Transport | Use case |
 |---|---|---|
-| `@noy-db/by-tabs` | `BroadcastChannel` | Multi-tab sync inside one browser. When a user has the same vault open in three tabs, every put in tab A surfaces in tabs B and C without round-tripping the storage backend. |
 | `@noy-db/by-server` | WebSocket / SSE relay | Single-server fan-out for teams that don't want every client to know every other client's IP — a thin relay that never decrypts. |
 | `@noy-db/by-room` | Liveblocks / Yjs y-websocket / similar | Drop into an existing presence/room provider. The provider sees ciphertext only. |
 
@@ -39,8 +39,8 @@ Pick a `by-*` package when you need **live propagation** without **durable stora
 
 - Two laptops on the same Wi-Fi editing a shared note → `by-peer`
 - Same user with three browser tabs of the same dashboard → `by-tabs`
-- A small team behind a single relay server → `by-server`
-- An app already wired to Liveblocks/Yjs for cursors → `by-room`
+- A small team behind a single relay server → `by-server` *(reserved)*
+- An app already wired to Liveblocks/Yjs for cursors → `by-room` *(reserved)*
 
 If you want **durable** state at the destination, you want a `to-*` store. The two compose: a `to-aws-dynamo` store for the source of truth, plus `by-peer` between active editors for sub-second update propagation while the durable write is still in flight.
 
@@ -48,28 +48,34 @@ If you want **durable** state at the destination, you want a `to-*` store. The t
 
 ## Contract
 
-Every `by-*` package implements a small `SessionShareTransport`-style
-contract (the formal interface lands when the family debuts):
+Every `by-*` package implements the small `PeerChannel` interface defined in
+`@noy-db/by-peer`. Any reliable, in-order, string-delivering channel qualifies:
 
 ```ts
-interface SessionShareTransport {
-  readonly name: string
-
-  /** Open the transport. Resolves once the channel is live. */
-  open(): Promise<void>
-
-  /** Send a serialized change record (already encrypted) to the channel. */
-  publish(envelope: ChangeEnvelope): Promise<void>
-
-  /** Subscribe to remote changes. Cleanup via the returned function. */
-  subscribe(handler: (envelope: ChangeEnvelope) => void): () => void
-
-  /** Close the transport, drop all subscribers. */
-  close(): Promise<void>
+interface PeerChannel {
+  readonly isOpen: boolean
+  send(payload: string): void
+  on(event: 'message', listener: (payload: string) => void): () => void
+  on(event: 'close', listener: () => void): () => void
+  close(): void
 }
 ```
 
-`ChangeEnvelope` is the same encrypted shape `withSync()` already produces; transports never see DEKs and never need to decrypt to fan out.
+This is the same primitive `peerStore()` and `servePeerStore()` use. Composing
+the two families is one line:
+
+```ts
+import { peerStore, servePeerStore } from '@noy-db/by-peer'
+import { tabsChannel } from '@noy-db/by-tabs'
+
+// Tab A — proxy operations to Tab B's store
+const remote = peerStore({ channel: tabsChannel('vault-acme') })
+
+// Tab B — answer the RPC calls against its local store
+servePeerStore({ channel: tabsChannel('vault-acme'), store: localStore })
+```
+
+Channels carry encrypted envelopes only — no plaintext, no DEKs.
 
 ---
 
@@ -88,6 +94,6 @@ Session-sharing didn't fit any of those. It isn't storage (no `loadAll` / `saveA
 
 ## Related
 
-- [`SUBSYSTEMS.md`](../../SUBSYSTEMS.md) — the `sync` and `crdt` subsystems are the hub-side strategies that produce the `ChangeEnvelope` stream a `by-*` transport carries.
-- [`docs/recipes/realtime-crdt-app.md`](../recipes/realtime-crdt-app.md) — the canonical real-time recipe; once `by-tabs` ships, it becomes the second example in that recipe.
+- [`SUBSYSTEMS.md`](../../SUBSYSTEMS.md) — the `sync` and `crdt` subsystems are the hub-side strategies that produce the change stream a `by-*` transport carries.
+- [`docs/recipes/realtime-crdt-app.md`](../recipes/realtime-crdt-app.md) — the canonical real-time recipe; pairs naturally with `by-peer` and `by-tabs`.
 - [`docs/packages/README.md`](./README.md) — overview of all five package families.

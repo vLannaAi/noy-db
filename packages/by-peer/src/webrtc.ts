@@ -63,7 +63,7 @@ function requireRTC(): typeof RTCPeerConnection {
   const g = globalThis as { RTCPeerConnection?: typeof RTCPeerConnection }
   if (!g.RTCPeerConnection) {
     throw new Error(
-      '[@noy-db/p2p] globalThis.RTCPeerConnection is undefined — use this module in a browser, or polyfill with @roamhq/wrtc in Node',
+      '[@noy-db/by-peer] globalThis.RTCPeerConnection is undefined — use this module in a browser, or polyfill with @roamhq/wrtc in Node',
     )
   }
   return g.RTCPeerConnection
