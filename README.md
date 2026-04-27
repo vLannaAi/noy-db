@@ -256,10 +256,6 @@ noy-db does not inspect your data. It cannot — that is the architectural point
 
 ## Encryption
 
-<picture>
-  <img alt="Key Hierarchy" src="docs/assets/key-hierarchy.svg" width="100%">
-</picture>
-
 | Layer | Algorithm | Purpose |
 |---|---|---|
 | Key derivation | PBKDF2-SHA256 (600K iterations) | Passphrase → KEK |
@@ -301,7 +297,7 @@ Serious use of noy-db is for sensitive, small-to-mid datasets where the privacy 
 ## Architecture
 
 <picture>
-  <img alt="noy-db Architecture" src="docs/assets/architecture.svg" width="100%">
+  <img alt="noy-db architecture overview — hub at the center, five satellite package families around it" src="docs/assets/overview.svg" width="100%">
 </picture>
 
 Stores **only see ciphertext**. Encryption happens in core before data reaches any backend — a DynamoDB admin, an S3 bucket owner, or whoever finds the USB stick all see encrypted blobs.
