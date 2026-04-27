@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1000"
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 1080"
      role="img" aria-labelledby="title desc"
      font-family="-apple-system, 'Segoe UI', Roboto, sans-serif">
   <title id="title">noy-db architecture overview</title>
@@ -7,7 +7,8 @@
     The hub package sits at the center holding the always-on core and
     the seventeen opt-in subsystems. The app talks to the hub through
     the framework integrations layer (in-*); the four other prefix
-    families (to-*, on-*, as-*, by-*) plug in around the hub.
+    families (to-*, on-*, as-*, by-*) plug in around the hub, each
+    listing every package it ships.
   </desc>
 
   <defs>
@@ -17,7 +18,7 @@
       .t-app      { fill: #FFFFFF; font-size: 18px; font-weight: 700; letter-spacing: 0.3px; }
       .t-app-sub  { fill: #FFCC00; font-size: 11.5px; letter-spacing: 0.3px; }
       .t-in       { fill: #1A1A1A; font-size: 16px; font-weight: 700; }
-      .t-in-sub   { fill: #4B5563; font-size: 11px; }
+      .t-in-sub   { fill: #4B5563; font-size: 10.5px; }
       .t-hub      { fill: #1A1A1A; font-size: 28px; font-weight: 800; letter-spacing: 0.5px; }
       .t-hub-sub  { fill: #6B7280; font-size: 11.5px; font-style: italic; }
       .t-section  { fill: #1A1A1A; font-size: 13px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; }
@@ -27,6 +28,9 @@
       .t-sub      { fill: #1A1A1A; font-size: 12px; }
       .t-family   { fill: #1A1A1A; font-size: 15px; font-weight: 700; letter-spacing: 0.2px; }
       .t-family-d { fill: #4B5563; font-size: 10.5px; }
+      .t-pkg      { fill: #1A1A1A; font-size: 11px; }
+      .t-pkg-cat  { fill: #6B7280; font-size: 9.5px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; }
+      .t-pkg-meta { fill: #9CA3AF; font-size: 10px; font-style: italic; }
       .t-foot     { fill: #6B7280; font-size: 11.5px; }
       .t-foot-em  { fill: #1A1A1A; font-size: 11.5px; font-weight: 700; }
 
@@ -48,6 +52,11 @@
       .accent-as  { fill: #10B981; }
       .accent-by  { fill: #A855F7; }
       .accent-to  { fill: #EF4444; }
+
+      .divider-on { stroke: #C7D2FE; stroke-width: 1; }
+      .divider-as { stroke: #A7F3D0; stroke-width: 1; }
+      .divider-by { stroke: #F0ABFC; stroke-width: 1; }
+      .divider-to { stroke: #FECACA; stroke-width: 1; }
     </style>
 
     <!-- Soft drop-shadow used on the hub + app -->
@@ -63,134 +72,206 @@
   </defs>
 
   <!-- ─── Title ──────────────────────────────────────────────────── -->
-  <text x="600" y="40" text-anchor="middle" class="t-title">noy-db — package architecture</text>
-  <text x="600" y="62" text-anchor="middle" class="t-caption">
+  <text x="640" y="40" text-anchor="middle" class="t-title">noy-db — package architecture</text>
+  <text x="640" y="62" text-anchor="middle" class="t-caption">
     one core · five satellite families · the hub is the trust boundary
   </text>
 
   <!-- ─── Stack edges first (so boxes overlay) ───────────────────── -->
 
   <!-- Vertical: app → in-* → hub -->
-  <line class="edge-stack" x1="600" y1="148" x2="600" y2="178"/>
-  <line class="edge-stack" x1="600" y1="222" x2="600" y2="252"/>
+  <line class="edge-stack" x1="640" y1="148" x2="640" y2="178"/>
+  <line class="edge-stack" x1="640" y1="222" x2="640" y2="252"/>
 
   <!-- Horizontal: satellites ↔ hub -->
   <!-- on-* (left, upper) -->
-  <line class="edge" x1="220" y1="380" x2="290" y2="380"/>
+  <line class="edge" x1="290" y1="380" x2="330" y2="380"/>
   <!-- as-* (right, upper) -->
-  <line class="edge" x1="910" y1="380" x2="980" y2="380"/>
+  <line class="edge" x1="950" y1="380" x2="990" y2="380"/>
   <!-- by-* (left, lower) -->
-  <line class="edge" x1="220" y1="640" x2="290" y2="640"/>
+  <line class="edge" x1="290" y1="640" x2="330" y2="640"/>
   <!-- to-* (right, lower) -->
-  <line class="edge" x1="910" y1="640" x2="980" y2="640"/>
+  <line class="edge" x1="950" y1="640" x2="990" y2="640"/>
 
   <!-- ─── App (top) ──────────────────────────────────────────────── -->
 
-  <rect x="460" y="86" width="280" height="62" rx="10" class="box-app" filter="url(#lift)"/>
-  <text x="600" y="115" text-anchor="middle" class="t-app">your app</text>
-  <text x="600" y="135" text-anchor="middle" class="t-app-sub">USERLAND · KEEPS THE KEYS</text>
+  <rect x="500" y="86" width="280" height="62" rx="10" class="box-app" filter="url(#lift)"/>
+  <text x="640" y="115" text-anchor="middle" class="t-app">your app</text>
+  <text x="640" y="135" text-anchor="middle" class="t-app-sub">USERLAND · KEEPS THE KEYS</text>
 
   <!-- ─── in-* layer (between app and hub) ───────────────────────── -->
 
-  <rect x="380" y="178" width="440" height="44" rx="22" class="box-in"/>
-  <text x="600" y="200" text-anchor="middle" class="t-in">@noy-db/in-*</text>
-  <text x="600" y="216" text-anchor="middle" class="t-in-sub">framework integrations · Vue · React · Pinia · Svelte · Solid · Zustand · TanStack · Yjs · AI</text>
+  <rect x="370" y="178" width="540" height="44" rx="22" class="box-in"/>
+  <text x="640" y="200" text-anchor="middle" class="t-in">@noy-db/in-*</text>
+  <text x="640" y="216" text-anchor="middle" class="t-in-sub">framework integrations · vue · react · solid · svelte · pinia · zustand · nuxt · nextjs · tanstack-query · tanstack-table · yjs · rest · ai</text>
 
   <!-- ─── Hub (center) ──────────────────────────────────────────── -->
 
-  <rect x="290" y="252" width="620" height="540" rx="22" class="hub-shell" filter="url(#lift)"/>
+  <rect x="330" y="252" width="620" height="540" rx="22" class="hub-shell" filter="url(#lift)"/>
 
   <!-- Hub label -->
-  <text x="600" y="300" text-anchor="middle" class="t-hub">@noy-db/hub</text>
-  <text x="600" y="320" text-anchor="middle" class="t-hub-sub">encryption boundary · stores see only ciphertext</text>
+  <text x="640" y="300" text-anchor="middle" class="t-hub">@noy-db/hub</text>
+  <text x="640" y="320" text-anchor="middle" class="t-hub-sub">encryption boundary · stores see only ciphertext</text>
 
   <!-- ── Core pill ── -->
-  <rect x="320" y="346" width="560" height="120" rx="16" class="hub-core"/>
-  <text x="340" y="370" class="t-section">always-on core</text>
-  <text x="880" y="370" text-anchor="end" class="t-section-meta">~6,500 LOC</text>
+  <rect x="360" y="346" width="560" height="120" rx="16" class="hub-core"/>
+  <text x="380" y="370" class="t-section">always-on core</text>
+  <text x="920" y="370" text-anchor="end" class="t-section-meta">~6,500 LOC</text>
 
   <!-- 6 core features in 3-col, 2-row grid -->
   <g class="t-core">
-    <text x="340" y="402">vault &amp; collections</text>
-    <text x="540" y="402">encryption</text>
-    <text x="740" y="402">store contract</text>
-    <text x="340" y="442">keyring &amp; permissions</text>
-    <text x="540" y="442">schema &amp; refs</text>
-    <text x="740" y="442">query basics</text>
+    <text x="380" y="402">vault &amp; collections</text>
+    <text x="580" y="402">encryption</text>
+    <text x="780" y="402">store contract</text>
+    <text x="380" y="442">keyring &amp; permissions</text>
+    <text x="580" y="442">schema &amp; refs</text>
+    <text x="780" y="442">query basics</text>
   </g>
 
   <!-- ── Subsystems pill ── -->
-  <rect x="320" y="486" width="560" height="282" rx="16" class="hub-sub"/>
-  <text x="340" y="510" class="t-section">17 opt-in subsystems</text>
-  <text x="880" y="510" text-anchor="end" class="t-section-meta">tree-shaken when not imported</text>
+  <rect x="360" y="486" width="560" height="282" rx="16" class="hub-sub"/>
+  <text x="380" y="510" class="t-section">17 opt-in subsystems</text>
+  <text x="920" y="510" text-anchor="end" class="t-section-meta">tree-shaken when not imported</text>
 
   <!-- 7 cluster rows -->
   <g>
-    <text x="340" y="538" class="t-cluster">read &amp; query</text>
-    <text x="495" y="538" class="t-sub">indexing · joins · aggregate · live</text>
+    <text x="380" y="538" class="t-cluster">read &amp; query</text>
+    <text x="535" y="538" class="t-sub">indexing · joins · aggregate · live</text>
 
-    <text x="340" y="566" class="t-cluster">write &amp; mutate</text>
-    <text x="495" y="566" class="t-sub">history · transactions · crdt</text>
+    <text x="380" y="566" class="t-cluster">write &amp; mutate</text>
+    <text x="535" y="566" class="t-sub">history · transactions · crdt</text>
 
-    <text x="340" y="594" class="t-cluster">data shape</text>
-    <text x="495" y="594" class="t-sub">blobs · i18n</text>
+    <text x="380" y="594" class="t-cluster">data shape</text>
+    <text x="535" y="594" class="t-sub">blobs · i18n</text>
 
-    <text x="340" y="622" class="t-cluster">time &amp; audit</text>
-    <text x="495" y="622" class="t-sub">periods · consent</text>
+    <text x="380" y="622" class="t-cluster">time &amp; audit</text>
+    <text x="535" y="622" class="t-sub">periods · consent</text>
 
-    <text x="340" y="650" class="t-cluster">snapshot &amp; portability</text>
-    <text x="495" y="650" class="t-sub">shadow · bundle</text>
+    <text x="380" y="650" class="t-cluster">snapshot &amp; portability</text>
+    <text x="535" y="650" class="t-sub">shadow · bundle</text>
 
-    <text x="340" y="678" class="t-cluster">collaboration &amp; auth</text>
-    <text x="495" y="678" class="t-sub">sync · team · session</text>
+    <text x="380" y="678" class="t-cluster">collaboration &amp; auth</text>
+    <text x="535" y="678" class="t-sub">sync · team · session</text>
 
-    <text x="340" y="706" class="t-cluster">operations</text>
-    <text x="495" y="706" class="t-sub">routing</text>
+    <text x="380" y="706" class="t-cluster">operations</text>
+    <text x="535" y="706" class="t-sub">routing</text>
   </g>
 
   <!-- Hub footer note -->
-  <text x="600" y="755" text-anchor="middle" class="t-hub-sub">
+  <text x="640" y="755" text-anchor="middle" class="t-hub-sub">
     AES-256-GCM · PBKDF2 (600K) · AES-KW · zero crypto deps
   </text>
 
   <!-- ─── Satellites (4 around hub) ──────────────────────────────── -->
 
-  <!-- on-* (left, upper) -->
-  <rect x="40" y="350" width="180" height="60" rx="10" class="fam-on"/>
-  <circle cx="58" cy="380" r="3.5" class="accent-on"/>
-  <text x="72" y="378" class="t-family">@noy-db/on-*</text>
-  <text x="72" y="395" class="t-family-d">unlock · auth methods</text>
+  <!-- on-* (left, upper) — 9 packages, grouped -->
+  <rect x="40" y="320" width="250" height="160" rx="10" class="fam-on"/>
+  <circle cx="58" cy="345" r="3.5" class="accent-on"/>
+  <text x="72" y="350" class="t-family">@noy-db/on-*</text>
+  <text x="72" y="367" class="t-family-d">unlock · auth methods (9)</text>
+  <line class="divider-on" x1="55" y1="378" x2="275" y2="378"/>
+  <g>
+    <text x="58" y="398" class="t-pkg-cat">device</text>
+    <text x="120" y="398" class="t-pkg">webauthn · oidc</text>
 
-  <!-- as-* (right, upper) -->
-  <rect x="980" y="350" width="180" height="60" rx="10" class="fam-as"/>
-  <circle cx="998" cy="380" r="3.5" class="accent-as"/>
-  <text x="1012" y="378" class="t-family">@noy-db/as-*</text>
-  <text x="1012" y="395" class="t-family-d">portable export formats</text>
+    <text x="58" y="418" class="t-pkg-cat">delegation</text>
+    <text x="135" y="418" class="t-pkg">magic-link</text>
 
-  <!-- by-* (left, lower) -->
-  <rect x="40" y="610" width="180" height="60" rx="10" class="fam-by"/>
-  <circle cx="58" cy="640" r="3.5" class="accent-by"/>
-  <text x="72" y="638" class="t-family">@noy-db/by-*</text>
-  <text x="72" y="655" class="t-family-d">session-share transports</text>
+    <text x="58" y="438" class="t-pkg-cat">recovery</text>
+    <text x="120" y="438" class="t-pkg">recovery · shamir</text>
 
-  <!-- to-* (right, lower) -->
-  <rect x="980" y="610" width="180" height="60" rx="10" class="fam-to"/>
-  <circle cx="998" cy="640" r="3.5" class="accent-to"/>
-  <text x="1012" y="638" class="t-family">@noy-db/to-*</text>
-  <text x="1012" y="655" class="t-family-d">storage destinations</text>
+    <text x="58" y="458" class="t-pkg-cat">2nd-factor</text>
+    <text x="130" y="458" class="t-pkg">totp · email-otp · pin</text>
+
+    <text x="58" y="476" class="t-pkg-cat">defence</text>
+    <text x="120" y="476" class="t-pkg">threat</text>
+  </g>
+
+  <!-- as-* (right, upper) — 9 packages, grouped -->
+  <rect x="990" y="320" width="250" height="160" rx="10" class="fam-as"/>
+  <circle cx="1008" cy="345" r="3.5" class="accent-as"/>
+  <text x="1022" y="350" class="t-family">@noy-db/as-*</text>
+  <text x="1022" y="367" class="t-family-d">portable export formats (9)</text>
+  <line class="divider-as" x1="1005" y1="378" x2="1225" y2="378"/>
+  <g>
+    <text x="1008" y="398" class="t-pkg-cat">spreadsheet</text>
+    <text x="1090" y="398" class="t-pkg">csv · xlsx</text>
+
+    <text x="1008" y="418" class="t-pkg-cat">structured</text>
+    <text x="1085" y="418" class="t-pkg">json · ndjson · xml</text>
+
+    <text x="1008" y="438" class="t-pkg-cat">database</text>
+    <text x="1075" y="438" class="t-pkg">sql</text>
+
+    <text x="1008" y="458" class="t-pkg-cat">composite</text>
+    <text x="1078" y="458" class="t-pkg">blob · zip</text>
+
+    <text x="1008" y="476" class="t-pkg-cat">encrypted</text>
+    <text x="1078" y="476" class="t-pkg">noydb (.noydb bundle)</text>
+  </g>
+
+  <!-- by-* (left, lower) — 2 today + 2 reserved -->
+  <rect x="40" y="560" width="250" height="160" rx="10" class="fam-by"/>
+  <circle cx="58" cy="585" r="3.5" class="accent-by"/>
+  <text x="72" y="590" class="t-family">@noy-db/by-*</text>
+  <text x="72" y="607" class="t-family-d">session-share transports (2 + 2)</text>
+  <line class="divider-by" x1="55" y1="618" x2="275" y2="618"/>
+  <g>
+    <text x="58" y="640" class="t-pkg-cat">today</text>
+    <text x="115" y="640" class="t-pkg">peer · tabs</text>
+
+    <text x="58" y="660" class="t-pkg-meta">webrtc · broadcastchannel</text>
+
+    <text x="58" y="685" class="t-pkg-cat">reserved</text>
+    <text x="125" y="685" class="t-pkg">server · room</text>
+
+    <text x="58" y="705" class="t-pkg-meta">websocket / sse · y-websocket</text>
+  </g>
+
+  <!-- to-* (right, lower) — 21 packages, grouped -->
+  <rect x="990" y="540" width="250" height="200" rx="10" class="fam-to"/>
+  <circle cx="1008" cy="565" r="3.5" class="accent-to"/>
+  <text x="1022" y="570" class="t-family">@noy-db/to-*</text>
+  <text x="1022" y="587" class="t-family-d">storage destinations (21)</text>
+  <line class="divider-to" x1="1005" y1="598" x2="1225" y2="598"/>
+  <g>
+    <text x="1008" y="618" class="t-pkg-cat">local</text>
+    <text x="1055" y="618" class="t-pkg">memory · file · browser-idb · browser-local</text>
+
+    <text x="1008" y="638" class="t-pkg-cat">cloud</text>
+    <text x="1055" y="638" class="t-pkg">aws-dynamo · aws-s3</text>
+
+    <text x="1008" y="654" class="t-pkg" dx="47">cloudflare-r2 · cloudflare-d1</text>
+
+    <text x="1008" y="676" class="t-pkg-cat">sql</text>
+    <text x="1045" y="676" class="t-pkg">postgres · mysql · sqlite</text>
+
+    <text x="1008" y="692" class="t-pkg" dx="37">turso · supabase</text>
+
+    <text x="1008" y="714" class="t-pkg-cat">remote-fs</text>
+    <text x="1085" y="714" class="t-pkg">webdav · ssh · smb · nfs</text>
+
+    <text x="1008" y="734" class="t-pkg-cat">cloud-sync</text>
+    <text x="1095" y="734" class="t-pkg">icloud · drive</text>
+  </g>
 
   <!-- ─── Footer legend ──────────────────────────────────────────── -->
 
-  <text x="600" y="870" text-anchor="middle" class="t-foot">each prefix reads as a preposition</text>
-  <text x="600" y="895" text-anchor="middle" class="t-foot">
+  <text x="640" y="855" text-anchor="middle" class="t-foot">each prefix reads as a preposition</text>
+  <text x="640" y="880" text-anchor="middle" class="t-foot">
     runs <tspan class="t-foot-em">in</tspan> a framework  ·
     you log <tspan class="t-foot-em">on</tspan> a method  ·
     export <tspan class="t-foot-em">as</tspan> a format  ·
     sync <tspan class="t-foot-em">by</tspan> a transport  ·
     data goes <tspan class="t-foot-em">to</tspan> a backend
   </text>
-  <text x="600" y="935" text-anchor="middle" class="t-caption">
+  <text x="640" y="918" text-anchor="middle" class="t-caption">
     plaintext only ever lives in <tspan font-style="normal" font-weight="700">your app</tspan> ·
     everything past <tspan font-style="normal" font-weight="700">@noy-db/hub</tspan> is ciphertext
+  </text>
+
+  <!-- Companion to-meter / to-probe note (wrapper packages, not destinations) -->
+  <text x="640" y="965" text-anchor="middle" class="t-pkg-meta">
+    plus the diagnostic companions @noy-db/to-probe and @noy-db/to-meter — wrappers, not standalone backends
   </text>
 </svg>
