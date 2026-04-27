@@ -467,6 +467,16 @@ export {
 export { diff, formatDiff } from './history/diff.js'
 export type { DiffEntry, ChangeType } from './history/diff.js'
 
+// Vault-level diff
+export { diffVault } from './vault-diff.js'
+export type {
+  VaultDiff,
+  VaultDiffEntry,
+  VaultDiffModifiedEntry,
+  DiffOptions,
+  DiffCandidate,
+} from './vault-diff.js'
+
 // Validation
 export { validatePassphrase, estimateEntropy } from './validation.js'
 
