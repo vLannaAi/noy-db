@@ -15,7 +15,7 @@ import { describe, expect, it } from 'vitest'
 import { writeZip, crc32, type ZipEntry } from '../src/zip.js'
 
 describe('crc32', () => {
-  it('matches published reference values', () => {
+  it('matches published reference values', async () => {
     // Standard test vectors.
     expect(crc32(new Uint8Array([]))).toBe(0x00000000)
     expect(crc32(new TextEncoder().encode('a'))).toBe(0xe8b7be43)
@@ -25,11 +25,11 @@ describe('crc32', () => {
 })
 
 describe('writeZip', () => {
-  it('produces a valid single-file archive', () => {
+  it('produces a valid single-file archive', async () => {
     const entries: ZipEntry[] = [
       { path: 'hello.txt', bytes: new TextEncoder().encode('Hello, world!') },
     ]
-    const bytes = writeZip(entries)
+    const bytes = await writeZip(entries)
 
     // PK signature at offset 0.
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
@@ -44,10 +44,10 @@ describe('writeZip', () => {
     expect(view.getUint16(eocdOffset + 10, true)).toBe(1)
   })
 
-  it('round-trips content — reads back LFH, filename, data', () => {
+  it('round-trips content — reads back LFH, filename, data', async () => {
     const payload = new TextEncoder().encode('hello,\n"world"')
     const entries: ZipEntry[] = [{ path: 'hello.csv', bytes: payload }]
-    const bytes = writeZip(entries)
+    const bytes = await writeZip(entries)
 
     // Parse the local file header at offset 0.
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
@@ -64,13 +64,13 @@ describe('writeZip', () => {
     expect(bytes.subarray(dataStart, dataEnd)).toEqual(payload)
   })
 
-  it('encodes multiple files with correct CD offsets', () => {
+  it('encodes multiple files with correct CD offsets', async () => {
     const entries: ZipEntry[] = [
       { path: 'a.txt', bytes: new Uint8Array([65]) },
       { path: 'b.txt', bytes: new Uint8Array([66]) },
       { path: 'c.txt', bytes: new Uint8Array([67]) },
     ]
-    const bytes = writeZip(entries)
+    const bytes = await writeZip(entries)
 
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
     const eocdOffset = bytes.length - 22
@@ -87,30 +87,30 @@ describe('writeZip', () => {
     expect(firstName).toBe('a.txt')
   })
 
-  it('uses UTF-8 filename flag (bit 11)', () => {
+  it('uses UTF-8 filename flag (bit 11)', async () => {
     const entries: ZipEntry[] = [
       { path: 'ทเรศ.txt', bytes: new TextEncoder().encode('x') }, // Thai filename
     ]
-    const bytes = writeZip(entries)
+    const bytes = await writeZip(entries)
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
     const flags = view.getUint16(6, true)
     // Bit 11 (0x0800) must be set.
     expect(flags & 0x0800).toBe(0x0800)
   })
 
-  it('empty archive is just an EOCD', () => {
-    const bytes = writeZip([])
+  it('empty archive is just an EOCD', async () => {
+    const bytes = await writeZip([])
     expect(bytes.length).toBe(22)
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
     expect(view.getUint32(0, true)).toBe(0x06054b50)
     expect(view.getUint16(8, true)).toBe(0)
   })
 
-  it('stored size + CRC match the input bytes', () => {
+  it('stored size + CRC match the input bytes', async () => {
     const payload = new Uint8Array(2048)
     for (let i = 0; i < payload.length; i++) payload[i] = i & 0xff
     const entries: ZipEntry[] = [{ path: 'big.bin', bytes: payload }]
-    const bytes = writeZip(entries)
+    const bytes = await writeZip(entries)
 
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
     const storedCrc = view.getUint32(14, true)

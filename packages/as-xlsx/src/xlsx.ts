@@ -60,7 +60,7 @@ export interface XlsxSheet {
  * Build a complete `.xlsx` byte stream from the supplied sheet data.
  * Pure — no I/O beyond the internal zip concatenation.
  */
-export function writeXlsx(sheets: readonly XlsxSheet[]): Uint8Array {
+export async function writeXlsx(sheets: readonly XlsxSheet[]): Promise<Uint8Array> {
   if (sheets.length === 0) {
     throw new Error('writeXlsx: at least one sheet is required')
   }
@@ -186,7 +186,7 @@ export function writeXlsx(sheets: readonly XlsxSheet[]): Uint8Array {
     ...sheetEntries.map((s, i) => ({ path: s.path, bytes: ENCODER.encode(sheetXmls[i] ?? '') })),
   ]
 
-  return writeZip(entries)
+  return await writeZip(entries)
 }
 
 // ── Cell emission ─────────────────────────────────────────────────

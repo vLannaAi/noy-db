@@ -44,6 +44,12 @@
  * @module
  */
 
+import {
+  encryptEntryWzAes,
+  WZAES_METHOD_MARKER,
+  WZAES_REAL_METHOD,
+} from './aes.js'
+
 const TEXT_ENCODER = new TextEncoder()
 
 /** Input entry to `writeZip`. */
@@ -56,12 +62,35 @@ export interface ZipEntry {
   readonly mtime?: Date
 }
 
+/** Optional archive-wide settings for `writeZip`. */
+export interface WriteZipOptions {
+  /**
+   * When set, every entry is encrypted with WinZip-AES-256 sealed
+   * under this passphrase. Recipients open with stock archive
+   * tooling (7-Zip, Archive Utility, WinRAR, modern unzip builds)
+   * by typing the same passphrase.
+   *
+   * Single passphrase across all entries by design — per-entry
+   * passwords don't fit a noy-db export workflow and would muddy
+   * the API.
+   */
+  readonly password?: string
+}
+
 /**
  * Build a complete ZIP archive byte stream from `entries`. The result
  * is the full archive including central directory and EOCD — ready
  * to `fs.writeFile` or hand to `new Blob([bytes])`.
+ *
+ * When `options.password` is set, every entry is encrypted with
+ * WinZip-AES-256 (vendor version AE-2). Output remains a valid
+ * single-disk ZIP that archive tools recognising WinZip-AES prompt
+ * for the password on extract.
  */
-export function writeZip(entries: readonly ZipEntry[]): Uint8Array {
+export async function writeZip(
+  entries: readonly ZipEntry[],
+  options: WriteZipOptions = {},
+): Promise<Uint8Array> {
   // Pre-compute per-entry binary so we know total size + central
   // directory offsets before we build the wrapper header.
   const localParts: Uint8Array[] = []
@@ -71,51 +100,79 @@ export function writeZip(entries: readonly ZipEntry[]): Uint8Array {
   for (const entry of entries) {
     const nameBytes = TEXT_ENCODER.encode(entry.path)
     const dosTime = toDosTime(entry.mtime ?? new Date())
-    const crc = crc32(entry.bytes)
-    const size = entry.bytes.length
 
-    // Local file header: 30 bytes fixed + filename + data.
-    const lfh = new Uint8Array(30 + nameBytes.length)
+    let dataBytes: Uint8Array
+    let extraField: Uint8Array
+    let methodField: number
+    let crcField: number
+    let flagsField = 0x0800   // UTF-8 names (bit 11)
+
+    if (options.password !== undefined) {
+      const enc = await encryptEntryWzAes(entry.bytes, options.password)
+      dataBytes = enc.dataRegion
+      extraField = enc.extraField
+      methodField = WZAES_METHOD_MARKER         // 99 — AES marker
+      // AE-2 zeroes the CRC (auth code already covers integrity).
+      crcField = 0
+      // Bit 0 set to indicate encryption.
+      flagsField |= 0x0001
+      void WZAES_REAL_METHOD                    // imported for parity
+    } else {
+      dataBytes = entry.bytes
+      extraField = new Uint8Array(0)
+      methodField = 0                            // STORE
+      crcField = crc32(entry.bytes)
+    }
+
+    const size = dataBytes.length
+    const uncompressedSize = options.password !== undefined
+      ? entry.bytes.length
+      : size
+
+    // Local file header: 30 bytes fixed + filename + extra + data.
+    const lfh = new Uint8Array(30 + nameBytes.length + extraField.length)
     const lfhView = new DataView(lfh.buffer)
     lfhView.setUint32(0, 0x04034b50, true)       // Signature PK\3\4
     lfhView.setUint16(4, 20, true)               // Version needed: 2.0
-    lfhView.setUint16(6, 0x0800, true)           // Flags: UTF-8 names (bit 11)
-    lfhView.setUint16(8, 0, true)                // Method: 0 (STORE)
+    lfhView.setUint16(6, flagsField, true)       // Flags
+    lfhView.setUint16(8, methodField, true)      // Method
     lfhView.setUint16(10, dosTime.time, true)    // Mod time
     lfhView.setUint16(12, dosTime.date, true)    // Mod date
-    lfhView.setUint32(14, crc, true)             // CRC-32
-    lfhView.setUint32(18, size, true)            // Compressed size
-    lfhView.setUint32(22, size, true)            // Uncompressed size
+    lfhView.setUint32(14, crcField, true)        // CRC-32 (0 for AE-2)
+    lfhView.setUint32(18, size, true)            // Compressed size (encrypted region for AES)
+    lfhView.setUint32(22, uncompressedSize, true)// Uncompressed size (plaintext length)
     lfhView.setUint16(26, nameBytes.length, true)
-    lfhView.setUint16(28, 0, true)               // Extra length
+    lfhView.setUint16(28, extraField.length, true)
     lfh.set(nameBytes, 30)
+    if (extraField.length > 0) lfh.set(extraField, 30 + nameBytes.length)
 
-    localParts.push(lfh, entry.bytes)
+    localParts.push(lfh, dataBytes)
 
-    // Central directory header: 46 bytes fixed + filename.
-    const cdh = new Uint8Array(46 + nameBytes.length)
+    // Central directory header: 46 bytes fixed + filename + extra.
+    const cdh = new Uint8Array(46 + nameBytes.length + extraField.length)
     const cdhView = new DataView(cdh.buffer)
     cdhView.setUint32(0, 0x02014b50, true)       // Signature
     cdhView.setUint16(4, 20, true)               // Version made by
     cdhView.setUint16(6, 20, true)               // Version needed
-    cdhView.setUint16(8, 0x0800, true)           // Flags
-    cdhView.setUint16(10, 0, true)               // Method
+    cdhView.setUint16(8, flagsField, true)       // Flags
+    cdhView.setUint16(10, methodField, true)     // Method
     cdhView.setUint16(12, dosTime.time, true)
     cdhView.setUint16(14, dosTime.date, true)
-    cdhView.setUint32(16, crc, true)
+    cdhView.setUint32(16, crcField, true)
     cdhView.setUint32(20, size, true)
-    cdhView.setUint32(24, size, true)
+    cdhView.setUint32(24, uncompressedSize, true)
     cdhView.setUint16(28, nameBytes.length, true)
-    cdhView.setUint16(30, 0, true)               // Extra length
+    cdhView.setUint16(30, extraField.length, true)
     cdhView.setUint16(32, 0, true)               // Comment length
     cdhView.setUint16(34, 0, true)               // Disk number
     cdhView.setUint16(36, 0, true)               // Internal attrs
     cdhView.setUint32(38, 0, true)               // External attrs
     cdhView.setUint32(42, offset, true)          // Local header offset
     cdh.set(nameBytes, 46)
+    if (extraField.length > 0) cdh.set(extraField, 46 + nameBytes.length)
     cdParts.push(cdh)
 
-    offset += lfh.length + entry.bytes.length
+    offset += lfh.length + dataBytes.length
   }
 
   const localTotal = offset

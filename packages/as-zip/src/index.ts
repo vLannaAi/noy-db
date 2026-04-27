@@ -51,7 +51,14 @@ import { writeZip, type ZipEntry } from './zip.js'
 
 // Re-export the low-level encoder so consumers who want to build
 // custom archives (non-noy-db payloads) can reuse it directly.
-export { writeZip, crc32, type ZipEntry } from './zip.js'
+export { writeZip, crc32, type ZipEntry, type WriteZipOptions } from './zip.js'
+
+// Re-export the reader + cipher errors. ZipReadError is thrown on
+// format violations; ZipCipherError on wrong-password or tampered
+// ciphertext (the two are surfaced as the same class so callers can
+// catch one and not the other).
+export { readZip, type ReadZipEntry, type ReadZipOptions, ZipReadError } from './read.js'
+export { ZipCipherError } from './aes.js'
 
 /** Record-selection options. */
 export interface AsZipRecordsOptions {
@@ -79,6 +86,24 @@ export interface AsZipAttachmentsOptions {
 export interface AsZipOptions {
   readonly records: AsZipRecordsOptions
   readonly attachments?: AsZipAttachmentsOptions
+  /**
+   * Optional WinZip-AES-256 passphrase (#304). When set, every entry
+   * inside the archive (records + attachments + manifest) is
+   * encrypted with WinZip-AES-256 and the recipient must supply the
+   * passphrase to extract.
+   *
+   * **Interop note:** the implementation is strictly to spec but has
+   * not been validated against 7-Zip / Archive Utility / WinRAR in
+   * this checkout. Round-trips against the package's own reader pass.
+   * See https://github.com/vLannaAi/noy-db/issues/304 for the
+   * cross-tool validation matrix.
+   *
+   * **Security framing:** this is the *interop* layer for
+   * cross-platform handoff to archive tools, not the *encryption*
+   * layer for sharing noy-db state. Use `as-noydb` for multi-recipient
+   * + revocable + audited egress.
+   */
+  readonly password?: string
 }
 
 /** Options for `download()` — adds an optional filename. */
@@ -214,7 +239,7 @@ export async function toBytes(vault: Vault, options: AsZipOptions): Promise<Uint
     entries.push({ path: a.path, bytes: a.bytes })
   }
 
-  return writeZip(entries)
+  return writeZip(entries, options.password !== undefined ? { password: options.password } : {})
 }
 
 /**
@@ -255,6 +280,88 @@ export async function write(
   const bytes = await toBytes(vault, options)
   const { writeFile } = await import('node:fs/promises')
   await writeFile(path, bytes)
+}
+
+// ── Import (#302 phase 1 + #304 password) ─────────────────────────
+
+import { diffVault, type VaultDiff } from '@noy-db/hub'
+import { readZip } from './read.js'
+
+export type ImportPolicy = 'merge' | 'replace' | 'insert-only'
+
+export interface AsZipImportOptions {
+  /** Target collection for the records. */
+  readonly collection: string
+  /** Field on each record that carries its id. Default `'id'`. */
+  readonly idKey?: string
+  /** Reconciliation policy. Default `'merge'`. */
+  readonly policy?: ImportPolicy
+  /** WinZip-AES-256 passphrase if the archive is encrypted (#304). */
+  readonly password?: string
+}
+
+export interface AsZipImportPlan {
+  readonly plan: VaultDiff
+  readonly policy: ImportPolicy
+  apply(): Promise<void>
+}
+
+/**
+ * Read a `.zip` archive (optionally WinZip-AES-256 encrypted), parse
+ * `records.json` from it, and return an `ImportPlan` whose `apply()`
+ * writes the changes through the normal collection API.
+ *
+ * Pairs with `toBytes` for round-trip workflows. The records JSON
+ * format matches what `toBytes` writes — array of records under
+ * the configured collection's id key.
+ */
+export async function fromBytes(
+  vault: Vault,
+  bytes: Uint8Array,
+  options: AsZipImportOptions,
+): Promise<AsZipImportPlan> {
+  const policy: ImportPolicy = options.policy ?? 'merge'
+  const idKey = options.idKey ?? 'id'
+
+  const entries = await readZip(bytes, options.password !== undefined ? { password: options.password } : {})
+  const recordsEntry = entries.find((e) => e.path === 'records.json')
+  if (!recordsEntry) {
+    throw new Error('as-zip.fromBytes: archive is missing records.json')
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(new TextDecoder().decode(recordsEntry.bytes))
+  } catch (err) {
+    throw new Error(`as-zip.fromBytes: records.json is not valid JSON (${(err as Error).message})`)
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error('as-zip.fromBytes: records.json must be a JSON array of records')
+  }
+
+  const plan = await diffVault(vault, { [options.collection]: parsed as Record<string, unknown>[] }, {
+    collections: [options.collection],
+    idKey,
+  })
+
+  return {
+    plan,
+    policy,
+    async apply(): Promise<void> {
+      for (const entry of plan.added) {
+        await vault.collection(entry.collection).put(entry.id, entry.record)
+      }
+      if (policy !== 'insert-only') {
+        for (const entry of plan.modified) {
+          await vault.collection(entry.collection).put(entry.id, entry.record)
+        }
+      }
+      if (policy === 'replace') {
+        for (const entry of plan.deleted) {
+          await vault.collection(entry.collection).delete(entry.id)
+        }
+      }
+    },
+  }
 }
 
 // ── internals ─────────────────────────────────────────────────────

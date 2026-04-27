@@ -84,7 +84,7 @@ function readZipFile(bytes: Uint8Array, path: string): string | null {
 }
 
 describe('colLetter', () => {
-  it('maps 1-based indices to A1 letters', () => {
+  it('maps 1-based indices to A1 letters', async () => {
     expect(colLetter(1)).toBe('A')
     expect(colLetter(2)).toBe('B')
     expect(colLetter(26)).toBe('Z')
@@ -96,8 +96,8 @@ describe('colLetter', () => {
 })
 
 describe('writeXlsx — low-level', () => {
-  it('produces a valid zip with the expected OOXML parts', () => {
-    const bytes = writeXlsx([
+  it('produces a valid zip with the expected OOXML parts', async () => {
+    const bytes = await writeXlsx([
       {
         name: 'Test',
         header: ['col1', 'col2'],
@@ -116,8 +116,8 @@ describe('writeXlsx — low-level', () => {
     expect(paths).toContain('xl/worksheets/sheet1.xml')
   })
 
-  it('emits numeric, boolean, and string cells with correct type attrs', () => {
-    const bytes = writeXlsx([
+  it('emits numeric, boolean, and string cells with correct type attrs', async () => {
+    const bytes = await writeXlsx([
       {
         name: 'Typed',
         rows: [[42, true, 'hello']],
@@ -134,8 +134,8 @@ describe('writeXlsx — low-level', () => {
     expect(shared).toContain('>hello<')
   })
 
-  it('preserves Unicode (Thai) in shared strings with XML escaping', () => {
-    const bytes = writeXlsx([
+  it('preserves Unicode (Thai) in shared strings with XML escaping', async () => {
+    const bytes = await writeXlsx([
       {
         name: 'Unicode',
         rows: [['สตาร์ค & Sons'], ['<escape>']],
@@ -146,8 +146,8 @@ describe('writeXlsx — low-level', () => {
     expect(shared).toContain('&lt;escape&gt;')
   })
 
-  it('builds multi-sheet workbooks', () => {
-    const bytes = writeXlsx([
+  it('builds multi-sheet workbooks', async () => {
+    const bytes = await writeXlsx([
       { name: 'First', rows: [[1]] },
       { name: 'Second', rows: [[2]] },
     ])
@@ -159,8 +159,8 @@ describe('writeXlsx — low-level', () => {
     expect(workbook).toContain('name="Second"')
   })
 
-  it('truncates sheet names > 31 chars and dedupes duplicates', () => {
-    const bytes = writeXlsx([
+  it('truncates sheet names > 31 chars and dedupes duplicates', async () => {
+    const bytes = await writeXlsx([
       { name: 'A very long sheet name that exceeds the Excel limit', rows: [[1]] },
       { name: 'A very long sheet name that exceeds the Excel limit', rows: [[2]] },
     ])
@@ -170,8 +170,8 @@ describe('writeXlsx — low-level', () => {
     expect(workbook).toMatch(/\(1\)/)
   })
 
-  it('throws on empty sheet list', () => {
-    expect(() => writeXlsx([])).toThrow(/at least one sheet/)
+  it('throws on empty sheet list', async () => {
+    await expect(writeXlsx([])).rejects.toThrow(/at least one sheet/)
   })
 })
 
