@@ -1,8 +1,8 @@
 {
   "name": "@noy-db/playground-nuxt",
-  "version": "0.12.0",
+  "version": "0.1.0-pre.1",
   "private": true,
-  "description": "Reference Nuxt 4 + @noy-db/in-nuxt accounting demo — v0.12 integration against a real Vue/Pinia consumer",
+  "description": "Reference Nuxt 4 + @noy-db/in-nuxt accounting demo — integration against a real Vue/Pinia consumer",
   "type": "module",
   "scripts": {
     "dev": "nuxt dev",
@@ -10,6 +10,8 @@
     "preview": "nuxt preview"
   },
   "dependencies": {
+    "@noy-db/by-tabs": "workspace:*",
+    "@noy-db/by-peer": "workspace:*",
     "@noy-db/on-oidc": "workspace:*",
     "@noy-db/on-webauthn": "workspace:*",
     "@noy-db/to-browser-idb": "workspace:*",

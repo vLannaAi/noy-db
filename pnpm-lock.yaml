@@ -681,6 +681,12 @@ importers:
 
   playground/nuxt:
     dependencies:
+      '@noy-db/by-peer':
+        specifier: workspace:*
+        version: link:../../packages/by-peer
+      '@noy-db/by-tabs':
+        specifier: workspace:*
+        version: link:../../packages/by-tabs
       '@noy-db/hub':
         specifier: workspace:*
         version: link:../../packages/hub

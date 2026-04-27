@@ -1,21 +1,22 @@
 <!--
   Root app shell for the Nuxt 4 reference demo.
 
-  Every page sits inside this layout. The nav bar is minimal — just
-  four links — because the point of the demo is showing the Pinia/NOYDB
-  integration, not the UI framework.
+  Every page sits inside this layout. The nav bar is minimal because
+  the point of the demo is showing the Pinia/noy-db integration, not
+  the UI framework.
 -->
 
 <template>
   <div class="app">
     <header>
-      <h1>NOYDB × Nuxt 4 demo</h1>
+      <h1>noy-db × Nuxt 4 demo</h1>
       <nav>
         <NuxtLink to="/">Dashboard</NuxtLink>
         <NuxtLink to="/invoices">Invoices</NuxtLink>
         <NuxtLink to="/clients">Clients</NuxtLink>
         <NuxtLink to="/oidc">OIDC login</NuxtLink>
         <NuxtLink to="/webauthn">WebAuthn</NuxtLink>
+        <NuxtLink to="/tabs">Multi-tab sync</NuxtLink>
       </nav>
     </header>
 

@@ -1,9 +1,9 @@
 {
   "name": "@noy-db/playground-cli",
-  "version": "0.12.0",
+  "version": "0.1.0-pre.1",
   "private": true,
   "type": "module",
-  "description": "Interactive guided CLI demo of NOYDB v0.12 features",
+  "description": "Interactive guided CLI demo of noy-db's hub + storage backends",
   "scripts": {
     "demo": "node --experimental-vm-modules demo.mjs"
   },

@@ -1,15 +1,15 @@
 /**
- * Reference Nuxt 4 demo for noy-db v0.12.
+ * Reference Nuxt 4 demo for noy-db.
  *
  * This config is the integration test for the entire adoption story:
  * if this file type-checks and the demo builds successfully, then
- * everything we shipped in v0.12 (@noy-db/in-nuxt, @noy-db/in-pinia,
- * @noy-db/in-vue, @noy-db/hub) composes correctly against a real
- * Nuxt 4 application.
+ * `@noy-db/in-nuxt`, `@noy-db/in-pinia`, `@noy-db/in-vue`, `@noy-db/hub`
+ * (and the by-* transports it composes with) all wire up correctly
+ * against a real Nuxt 4 application.
  *
- * Scope intentionally small: one module, one store, two collections,
- * three pages. The goal is to exercise the integration contract, not
- * to be a full accounting platform.
+ * Scope intentionally small: one module, two stores, two collections,
+ * five pages including a multi-tab sync demo. The goal is to exercise
+ * the integration contract, not to be a full accounting platform.
  */
 
 export default defineNuxtConfig({
