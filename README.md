@@ -120,14 +120,14 @@ const db = await createNoydb({
 
 - **[`playground/cli/`](playground/cli/)** — guided 5-minute CLI walkthrough. `pnpm -C playground/cli demo`. Shows CRUD, multi-user, sync, backup.
 - **[`playground/nuxt/`](playground/nuxt/)** — runnable Nuxt 4 reference app (invoices, multi-tenant, biometric unlock, magic-link client portal).
-- **[`showcases/`](showcases/)** — 15 end-to-end tests that double as tutorials. Each file covers one topology: split-store routing, two-office sync, encrypted CRDT, year-end period closure, and more. Every test passes against real code — not pseudocode.
+- **[`showcases/`](showcases/)** — 50 progressive end-to-end tests that double as tutorials. Numbered 00-49 across storage, multi-user, subsystems, auth, exports, frameworks, and session-share transports — pick a feature and read the runnable code. Plus 4 recipe tests verifying the starter applications.
 
 ```bash
 # Clone, install, run
 git clone https://github.com/vLannaAi/noy-db.git
 cd noy-db && pnpm install
 pnpm demo                                      # interactive CLI tour
-pnpm --filter @noy-db/showcases test           # run 14 showcase tests
+pnpm --filter @noy-db/showcases test           # run all showcase tests
 ```
 
 ---

@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
 /**
- * NOYDB Interactive Playground
+ * noy-db Interactive Playground
  *
- * A guided demo that walks you through NOYDB's key features:
+ * A guided demo that walks you through noy-db's key features:
  *   1. Encrypted CRUD with file adapter
  *   2. Multi-user access control (owner, operator, viewer)
  *   3. Offline work → online sync
@@ -80,11 +80,11 @@ function step(n, total, desc) {
 
 async function main() {
   console.clear()
-  banner('NOYDB — Interactive Playground')
+  banner('noy-db — Interactive Playground')
   console.log(`
-  Welcome to the NOYDB guided demo!
+  Welcome to the noy-db guided demo!
 
-  NOYDB is a zero-knowledge, offline-first, encrypted document store.
+  noy-db is a zero-knowledge, offline-first, encrypted document store.
   This demo walks you through the key features using real code.
 
   \x1b[2mAll data is created in a temp directory and cleaned up after.\x1b[0m
@@ -383,12 +383,12 @@ async function main() {
     await pause()
 
     // ═══════════════════════════════════════════════════════════════
-    // STEP 6: Binary Blob Store (v0.12)
+    // STEP 6: Binary Blob Store
     // ═══════════════════════════════════════════════════════════════
 
     step(6, TOTAL_STEPS, 'Binary Blob Store — Encrypted File Attachments')
 
-    info('NOYDB v0.12 adds encrypted binary blobs alongside records.')
+    info('noy-db ships encrypted binary blobs alongside records.')
     info('Blobs are content-addressed, deduplicated, and versioned.')
 
     section('Attaching a PDF to an invoice')
@@ -576,7 +576,7 @@ async function main() {
 
     banner('Demo Complete!')
     console.log(`
-  You've just seen NOYDB's core features in action:
+  You've just seen noy-db's core features in action:
 
   \x1b[32m✓\x1b[0m Encrypted CRUD — data is AES-256-GCM encrypted, adapters see only ciphertext
   \x1b[32m✓\x1b[0m File adapter — records stored as JSON files (USB-portable)
