@@ -47,6 +47,9 @@
   "peerDependencies": {
     "@noy-db/hub": "workspace:*"
   },
+  "dependencies": {
+    "fast-xml-parser": "^5.0.0"
+  },
   "devDependencies": {
     "@noy-db/hub": "workspace:*",
     "@types/node": "^22.0.0"
