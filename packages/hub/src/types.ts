@@ -462,6 +462,18 @@ export interface KeyringFile {
    */
   readonly export_capability?: ExportCapability
   /**
+   * Optional bundle-slot expiry (#306). ISO-8601 timestamp; past
+   * the cutoff `loadKeyring` throws `KeyringExpiredError` before any
+   * DEK unwrap is attempted. Useful for time-boxed audit access:
+   * "this slot works for 30 days then becomes opaque to its holder."
+   *
+   * Absent on live keyrings written via `db.grant()` — the field is
+   * meaningful for `BundleRecipient` slots produced by
+   * `writeNoydbBundle({ recipients: [...] })`. Setting it on a live
+   * keyring is allowed but unusual.
+   */
+  readonly expires_at?: string
+  /**
    * Optional — issue #308 import-capability bits. Absent on keyrings
    * written before #308 landed. Loading falls back to default-closed
    * for every role and every format.

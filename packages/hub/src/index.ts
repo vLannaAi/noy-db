@@ -218,6 +218,7 @@ export {
   SessionPolicyError,
   ExportCapabilityError,
   ImportCapabilityError,
+  KeyringExpiredError,
   ReadOnlyAtInstantError,
   ReadOnlyFrameError,
 } from './errors.js'

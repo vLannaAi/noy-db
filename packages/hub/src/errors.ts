@@ -268,6 +268,32 @@ export class ExportCapabilityError extends NoydbError {
 }
 
 /**
+ * Thrown when a keyring file's `expires_at` cutoff has passed (#306).
+ * Surfaced by `loadKeyring` before any DEK unwrap is attempted —
+ * past the cutoff the slot refuses to open even with the right
+ * passphrase. Distinct from PBKDF2 / unwrap errors so consumer code
+ * can show a precise "this bundle slot has expired" message instead
+ * of the generic decryption-failure UX.
+ *
+ * Used predominantly on `BundleRecipient` slots produced by
+ * `writeNoydbBundle({ recipients: [...] })` to time-box audit access.
+ */
+export class KeyringExpiredError extends NoydbError {
+  readonly userId: string
+  readonly expiresAt: string
+  constructor(opts: { userId: string; expiresAt: string }) {
+    super(
+      'KEYRING_EXPIRED',
+      `Keyring "${opts.userId}" expired at ${opts.expiresAt}. ` +
+        'The slot refuses to unlock past its expiry timestamp.',
+    )
+    this.name = 'KeyringExpiredError'
+    this.userId = opts.userId
+    this.expiresAt = opts.expiresAt
+  }
+}
+
+/**
  * Thrown when an `@noy-db/as-*` import is attempted but the invoking
  * keyring lacks the required import-capability bit (issue #308).
  *

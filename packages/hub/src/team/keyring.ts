@@ -11,7 +11,7 @@ import {
   bufferToBase64,
   base64ToBuffer,
 } from '../crypto.js'
-import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError } from '../errors.js'
+import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, KeyringExpiredError } from '../errors.js'
 
 // ─── Roles that can grant/revoke ───────────────────────────────────────
 
@@ -94,6 +94,19 @@ export async function loadKeyring(
   }
 
   const keyringFile = JSON.parse(envelope._data) as KeyringFile
+
+  // #306 — refuse to unwrap an expired slot. Check happens before any
+  // KEK derivation so an expired slot doesn't leak timing on the
+  // passphrase. Comparison uses Date.parse → ms-since-epoch; an
+  // unparseable expires_at is treated as "no expiry" so a malformed
+  // value can't silently lock users out (it'll surface in tests).
+  if (keyringFile.expires_at !== undefined) {
+    const cutoff = Date.parse(keyringFile.expires_at)
+    if (Number.isFinite(cutoff) && Date.now() >= cutoff) {
+      throw new KeyringExpiredError({ userId: keyringFile.user_id, expiresAt: keyringFile.expires_at })
+    }
+  }
+
   const salt = base64ToBuffer(keyringFile.salt)
   const kek = await deriveKey(passphrase, salt)
 
@@ -591,6 +604,13 @@ export interface BundleRecipient {
    * Default-closed: no plaintext format granted, no bundle import.
    */
   readonly importCapability?: ImportCapability
+  /**
+   * Optional bundle-slot expiry (#306). ISO-8601 timestamp; past the
+   * cutoff this slot's keyring refuses to load with
+   * `KeyringExpiredError`. Time-boxed audit access pattern: "this
+   * slot works for 30 days then becomes opaque to its holder."
+   */
+  readonly expiresAt?: string
 }
 
 /**
@@ -664,6 +684,9 @@ export async function buildRecipientKeyringFile(
       : {}),
     ...(recipient.importCapability !== undefined
       ? { import_capability: recipient.importCapability }
+      : {}),
+    ...(recipient.expiresAt !== undefined
+      ? { expires_at: recipient.expiresAt }
       : {}),
   }
 }
