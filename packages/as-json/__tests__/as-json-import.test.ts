@@ -9,6 +9,7 @@
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub'
 import { ConflictError, createNoydb } from '@noy-db/hub'
+import { withTransactions } from '@noy-db/hub/tx'
 import { fromString, fromObject } from '../src/index.js'
 
 function memory(): NoydbStore {
@@ -59,7 +60,10 @@ async function setup() {
     importCapability: { plaintext: ['json'] },
   })
   init.close()
-  const db = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-2026' })
+  const db = await createNoydb({
+    store: adapter, user: 'alice', secret: 'pw-2026',
+    txStrategy: withTransactions(),
+  })
   const vault = await db.openVault('demo')
   const inv = vault.collection<Invoice>('invoices')
   await inv.put('a', { id: 'a', amount: 100, status: 'draft' })

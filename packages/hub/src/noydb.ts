@@ -231,6 +231,7 @@ export class Noydb {
     comp = new Vault({
       adapter: this.options.store,
       name,
+      noydb: this,
       keyring,
       encrypted: this.options.encrypt !== false,
       emitter: this.emitter,
@@ -304,6 +305,7 @@ export class Noydb {
       const comp = new Vault({
         adapter: this.options.store,
         name,
+        noydb: this,
         keyring,
         encrypted: false,
         emitter: this.emitter,
@@ -333,6 +335,7 @@ export class Noydb {
     const comp = new Vault({
       adapter: this.options.store,
       name,
+      noydb: this,
       keyring,
       encrypted: true,
       historyConfig: this.options.history,

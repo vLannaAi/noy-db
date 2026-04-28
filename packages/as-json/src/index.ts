@@ -206,19 +206,26 @@ export async function fromObject(
       // Add and modify go through collection.put which runs the normal
       // permissions check + envelope encryption + ledger write.
       // Delete only runs under the 'replace' policy.
-      for (const entry of plan.added) {
-        await vault.collection(entry.collection).put(entry.id, entry.record)
-      }
-      if (policy !== 'insert-only') {
-        for (const entry of plan.modified) {
-          await vault.collection(entry.collection).put(entry.id, entry.record)
+      // Wrapped via vault.noydb.transaction so a partial failure rolls
+      // back every executed put. Routes through the txStrategy seam —
+      // throws a clear error pointing at withTransactions() when the
+      // strategy is not opted in.
+      await vault.noydb.transaction((tx) => {
+        const txVault = tx.vault(vault.name)
+        for (const entry of plan.added) {
+          txVault.collection(entry.collection).put(entry.id, entry.record)
         }
-      }
-      if (policy === 'replace') {
-        for (const entry of plan.deleted) {
-          await vault.collection(entry.collection).delete(entry.id)
+        if (policy !== 'insert-only') {
+          for (const entry of plan.modified) {
+            txVault.collection(entry.collection).put(entry.id, entry.record)
+          }
         }
-      }
+        if (policy === 'replace') {
+          for (const entry of plan.deleted) {
+            txVault.collection(entry.collection).delete(entry.id)
+          }
+        }
+      })
     },
   }
 }

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub'
 import { ConflictError, createNoydb } from '@noy-db/hub'
+import { withTransactions } from '@noy-db/hub/tx'
 import { fromString } from '../src/index.js'
 
 function memory(): NoydbStore {
@@ -51,7 +52,10 @@ async function setup() {
     importCapability: { plaintext: ['csv'] },
   })
   init.close()
-  const db = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-2026' })
+  const db = await createNoydb({
+    store: adapter, user: 'alice', secret: 'pw-2026',
+    txStrategy: withTransactions(),
+  })
   const vault = await db.openVault('demo')
   await vault.collection<Invoice>('invoices').put('a', { id: 'a', client: 'X', amount: 100 })
   return { db, vault }
@@ -128,7 +132,10 @@ describe('as-csv fromString', () => {
       importCapability: { plaintext: ['csv'] },
     })
     dstInit.close()
-    const dst = await createNoydb({ store: dstAdapter, user: 'alice', secret: 'pw-2026' })
+    const dst = await createNoydb({
+      store: dstAdapter, user: 'alice', secret: 'pw-2026',
+      txStrategy: withTransactions(),
+    })
     const dstVault = await dst.openVault('demo')
     const importer = await fromString(dstVault, csv, {
       collection: 'invoices',
@@ -140,5 +147,39 @@ describe('as-csv fromString', () => {
 
     re.close()
     dst.close()
+  })
+})
+
+describe('as-csv fromString — apply() requires withTransactions() (#309)', () => {
+  it('throws a clear error when the tx strategy is missing', async () => {
+    // setup() above grants importCapability; here we recreate the vault
+    // explicitly WITHOUT withTransactions() so apply() hits the strategy
+    // gate before any record write reaches the store.
+    const adapter = memory()
+    const init = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-2026' })
+    await init.openVault('demo')
+    await init.grant('demo', {
+      userId: 'alice', displayName: 'Alice', role: 'owner',
+      passphrase: 'pw-2026',
+      importCapability: { plaintext: ['csv'] },
+    })
+    init.close()
+
+    const db = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-2026' })
+    const vault = await db.openVault('demo')
+
+    const importer = await fromString(vault, 'id,client,amount\na,X,100', {
+      collection: 'invoices',
+      columnTypes: { amount: 'number' },
+    })
+    // The plan builds fine — diffVault doesn't need transactions. Only
+    // apply() crosses the gate.
+    expect(importer.plan.summary.total).toBe(1)
+    await expect(importer.apply()).rejects.toThrow(/withTransactions/)
+
+    // Vault state untouched — no record persisted because the gate
+    // throws before the runTransaction body executes.
+    expect(await vault.collection<Invoice>('invoices').get('a')).toBeNull()
+    db.close()
   })
 })

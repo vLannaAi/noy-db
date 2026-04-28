@@ -348,19 +348,25 @@ export async function fromBytes(
     plan,
     policy,
     async apply(): Promise<void> {
-      for (const entry of plan.added) {
-        await vault.collection(entry.collection).put(entry.id, entry.record)
-      }
-      if (policy !== 'insert-only') {
-        for (const entry of plan.modified) {
-          await vault.collection(entry.collection).put(entry.id, entry.record)
+      // Routes through the txStrategy seam — throws clearly when
+      // withTransactions() isn't opted in. Atomicity rolls back any
+      // partial writes if a put fails mid-batch.
+      await vault.noydb.transaction((tx) => {
+        const txVault = tx.vault(vault.name)
+        for (const entry of plan.added) {
+          txVault.collection(entry.collection).put(entry.id, entry.record)
         }
-      }
-      if (policy === 'replace') {
-        for (const entry of plan.deleted) {
-          await vault.collection(entry.collection).delete(entry.id)
+        if (policy !== 'insert-only') {
+          for (const entry of plan.modified) {
+            txVault.collection(entry.collection).put(entry.id, entry.record)
+          }
         }
-      }
+        if (policy === 'replace') {
+          for (const entry of plan.deleted) {
+            txVault.collection(entry.collection).delete(entry.id)
+          }
+        }
+      })
     },
   }
 }

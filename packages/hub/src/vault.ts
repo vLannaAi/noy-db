@@ -11,6 +11,7 @@ import type {
   TierMode,
   Role,
 } from './types.js'
+import type { Noydb } from './noydb.js'
 import type { IssueDelegationOptions, DelegationToken } from './team/delegation.js'
 import { NOYDB_BACKUP_VERSION, NOYDB_FORMAT_VERSION } from './types.js'
 import { Collection } from './collection.js'
@@ -91,6 +92,14 @@ export class Vault {
   private readonly adapter: NoydbStore
   /** The vault's name as passed to `openVault()`. Stable for the instance lifetime. */
   public readonly name: string
+  /**
+   * Backreference to the parent `Noydb`. Lets vault-scoped subsystems
+   * (e.g. `as-*` reader `apply()` paths gating on `withTransactions()`)
+   * reach the strategy seam without threading `db` through every API.
+   *
+   * Type-only Noydb import keeps the module graph acyclic at runtime.
+   */
+  public readonly noydb: Noydb
   /**
    * The active in-memory keyring. NOT readonly because `load()`
    * needs to refresh it after restoring a different keyring file —
@@ -259,6 +268,7 @@ export class Vault {
   constructor(opts: {
     adapter: NoydbStore
     name: string
+    noydb: Noydb
     keyring: UnlockedKeyring
     encrypted: boolean
     emitter: NoydbEventEmitter
@@ -297,6 +307,7 @@ export class Vault {
   }) {
     this.adapter = opts.adapter
     this.name = opts.name
+    this.noydb = opts.noydb
     this.keyring = opts.keyring
     this.encrypted = opts.encrypted
     this.emitter = opts.emitter

@@ -252,19 +252,26 @@ export async function fromString(
     plan,
     policy,
     async apply(): Promise<void> {
-      for (const entry of plan.added) {
-        await vault.collection(entry.collection).put(entry.id, entry.record)
-      }
-      if (policy !== 'insert-only') {
-        for (const entry of plan.modified) {
-          await vault.collection(entry.collection).put(entry.id, entry.record)
+      // Routes through the txStrategy seam — vault.noydb.transaction()
+      // throws a clear error pointing at withTransactions() when the
+      // strategy is not opted in. Atomicity ensures a partial failure
+      // rolls back every executed put.
+      await vault.noydb.transaction((tx) => {
+        const txVault = tx.vault(vault.name)
+        for (const entry of plan.added) {
+          txVault.collection(entry.collection).put(entry.id, entry.record)
         }
-      }
-      if (policy === 'replace') {
-        for (const entry of plan.deleted) {
-          await vault.collection(entry.collection).delete(entry.id)
+        if (policy !== 'insert-only') {
+          for (const entry of plan.modified) {
+            txVault.collection(entry.collection).put(entry.id, entry.record)
+          }
         }
-      }
+        if (policy === 'replace') {
+          for (const entry of plan.deleted) {
+            txVault.collection(entry.collection).delete(entry.id)
+          }
+        }
+      })
     },
   }
 }
