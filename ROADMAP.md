@@ -29,7 +29,6 @@ Deferred sub-issues open at `priority: low` for the next cycle:
 - per-import ledger-entry tagging (`reason: 'import:<format>'`) (#310) — scope larger than initial estimate; needs `LedgerEntry` shape change + `Collection.put` option threading + canonical-JSON hash chain test pin
 - WinZip-AES interop validation matrix against 7-Zip / Archive Utility / WinRAR (#312) — manual cross-tool testing, not a code task
 - as-xlsx **dict-label inversion** — round-trip through the reader keeps human labels as-is; inversion needs vault i18n config at read time
-- experimental store family (`@noy-db/to-ipfs` #182, `@noy-db/to-git` #183, `@noy-db/to-qr` #213, `@noy-db/to-stego` #221) — milestone `experimental-stores`
 
 No version-numbered milestones until `0.1.0` — the pre-release is intentionally a single rolling target.
 
