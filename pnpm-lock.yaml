@@ -103,6 +103,10 @@ importers:
         version: 22.19.17
 
   packages/as-xlsx:
+    dependencies:
+      fast-xml-parser:
+        specifier: ^5.0.0
+        version: 5.5.8
     devDependencies:
       '@noy-db/as-zip':
         specifier: workspace:*

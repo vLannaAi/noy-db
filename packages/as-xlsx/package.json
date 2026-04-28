@@ -48,6 +48,9 @@
     "@noy-db/as-zip": "workspace:*",
     "@noy-db/hub": "workspace:*"
   },
+  "dependencies": {
+    "fast-xml-parser": "^5.0.0"
+  },
   "devDependencies": {
     "@noy-db/as-zip": "workspace:*",
     "@noy-db/hub": "workspace:*",
