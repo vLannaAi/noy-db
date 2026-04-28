@@ -1178,7 +1178,7 @@ auths:
 
 exports:
   - id: as-csv
-    name: CSV plaintext export
+    name: CSV plaintext export + import
     package: '@noy-db/as-csv'
     capability: canExportPlaintext
     status: stable
@@ -1192,10 +1192,12 @@ exports:
     invariants:
       - 'RFC 4180 escaping (commas, quotes, newlines)'
       - 'Single-collection per call; gated by exportCapability.plaintext'
+      - 'fromString returns ImportPlan with merge|replace|insert-only policies (#302)'
+      - 'Import gated by importCapability.plaintext.csv (#308); apply() inside vault.transaction (#309)'
     related: [permissions]
 
   - id: as-xlsx
-    name: Excel multi-sheet export
+    name: Excel multi-sheet export + OOXML import
     package: '@noy-db/as-xlsx'
     capability: canExportPlaintext
     status: stable
@@ -1203,12 +1205,17 @@ exports:
     showcases:
       - id: 33-as-xlsx
         path: showcases/src/33-as-xlsx.showcase.test.ts
+      - id: 51-as-readers-import
+        path: showcases/src/51-as-readers-import.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
     invariants:
-      - 'Real .xlsx (Office Open XML); zero runtime deps'
+      - 'Real .xlsx (Office Open XML); writer emits 6 parts incl. sharedStrings'
       - 'Multi-sheet — preserves relational shape across collections'
+      - 'fromBytes reads sharedStrings + workbook + sheet<N>.xml; opt-in date coercion via fieldTypes (#319)'
+      - 'fast-xml-parser dep (^5.0.0); strict mode via XMLValidator pre-pass'
+      - 'Import gated by importCapability.plaintext.xlsx (#308); apply() inside vault.transaction (#309)'
     related: [permissions, as-zip]
 
   - id: as-json
@@ -1232,7 +1239,7 @@ exports:
     related: [permissions]
 
   - id: as-ndjson
-    name: Newline-delimited streaming JSON
+    name: Newline-delimited streaming JSON + import
     package: '@noy-db/as-ndjson'
     capability: canExportPlaintext
     status: stable
@@ -1244,21 +1251,28 @@ exports:
     invariants:
       - 'One JSON object per line — composable with stream tooling'
       - 'Single-pass scan; suitable for very large collections'
+      - 'fromString returns ImportPlan with merge|replace|insert-only policies (#302)'
+      - 'Import gated by importCapability.plaintext.ndjson (#308); apply() inside vault.transaction (#309)'
     related: [as-json]
 
   - id: as-xml
-    name: XML export (legacy / accounting interop)
+    name: XML export + import (legacy / accounting interop)
     package: '@noy-db/as-xml'
     capability: canExportPlaintext
     status: stable
     subsystem_doc: docs/packages/as-exports.md
-    showcases: []
+    showcases:
+      - id: 51-as-readers-import
+        path: showcases/src/51-as-readers-import.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
     invariants:
       - 'XML 1.0 with proper character escaping'
       - 'Schema-less by default; caller may supply element-name overrides'
+      - 'fromString inverts element-name → field; namespace prefixes stripped on root + record + field (#318)'
+      - 'fast-xml-parser dep (^5.0.0); strict mode via XMLValidator pre-pass'
+      - 'Import gated by importCapability.plaintext.xml (#308); apply() inside vault.transaction (#309)'
     related: [permissions]
 
   - id: as-sql
@@ -1277,18 +1291,23 @@ exports:
     related: [permissions]
 
   - id: as-blob
-    name: Single-attachment plaintext export
+    name: Single-attachment plaintext export + import
     package: '@noy-db/as-blob'
     capability: canExportPlaintext
     status: stable
     subsystem_doc: docs/packages/as-exports.md
-    showcases: []
+    showcases:
+      - id: 51-as-readers-import
+        path: showcases/src/51-as-readers-import.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
     invariants:
       - 'One attachment per call; emits the raw blob bytes'
       - 'Requires withBlobs() and exportCapability.plaintext.blob grant'
+      - 'fromBytes status: "added" (empty slot) | "modified" (slot populated, priorETag included) (#317)'
+      - "policy 'replace' overwrites; 'insert-only' refuses; 'merge' has no meaning for single-slot writes"
+      - 'Import gated by importCapability.plaintext.blob (#308); refuses on non-existent target record'
     related: [blobs]
 
   - id: as-zip
@@ -1308,6 +1327,8 @@ exports:
       - 'Pure-JS zip encoder (STORE method) — zero deps'
       - 'Composes records JSON + attachment binaries in one archive'
       - 'Optional WinZip-AES-256 password (#304); refuses ZipCrypto + AES-128/192'
+      - 'fromBytes returns ImportPlan with merge|replace|insert-only policies (#302)'
+      - 'Import gated by importCapability.plaintext.zip (#308); apply() inside vault.transaction (#309)'
     related: [as-blob, as-json]
 
   - id: as-noydb
@@ -1319,6 +1340,8 @@ exports:
     showcases:
       - id: 36-as-noydb
         path: showcases/src/36-as-noydb.showcase.test.ts
+      - id: 52-as-noydb-bundle-extras
+        path: showcases/src/52-as-noydb-bundle-extras.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
@@ -1326,6 +1349,9 @@ exports:
       - 'Container format: NDB1 magic + JSON header + compressed body'
       - 'Bytes inert without the original KEK — safe-cloud-drop format'
       - 'canExportBundle defaults true for owner / admin only'
+      - 'Per-recipient expiresAt (#306) — past-cutoff slot throws KeyringExpiredError before DEK unwrap'
+      - 'where predicate (#320) — plaintext pre-pass; survivors keep original ciphertext (no re-encrypt)'
+      - 'tierAtMost (#321) — envelope-tier ceiling; vaults without tiers see this as a no-op'
     related: [bundle, permissions]
 
 # ─── Session-share transports (phase 7) — by-* family ────────────────

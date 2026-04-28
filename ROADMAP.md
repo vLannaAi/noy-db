@@ -18,16 +18,18 @@ The following capabilities are now in main:
 - **Multi-recipient re-keyed `.noydb` bundles** — `exportPassphrase` shorthand and `recipients[]` with per-slot ACL (#301).
 - **Import family phase 1** — `fromString` / `fromBytes` for `as-csv` / `as-json` / `as-ndjson` / `as-zip`, returning an `ImportPlan` with `merge | replace | insert-only` policies (#302 phase 1).
 - **WinZip-AES-256 password on `as-zip`** — implementation strictly to spec; cross-tool interop validation pending (#304, #312).
+- **Import family phase 2** — `as-blob` `fromBytes` (#317), `as-xml` `fromString` (#318), `as-xlsx` `fromBytes` (#319) reader; symmetric with phase 1 ImportPlan shape.
+- **Import capability gate** — `ImportCapability` keyring extension + `vault.assertCanImport(tier, format?)` (#308). Default-closed for every role on every dimension; owners must positively grant.
+- **Atomic apply** — `ImportPlan.apply()` inside `vault.noydb.transaction(...)` (#309). Partial failure rolls back via `runTransaction`'s revert pass; opt-in via `withTransactions()` strategy.
+- **Per-recipient bundle expiry** — `recipients[].expiresAt` (#306). Past-cutoff slot throws `KeyringExpiredError` before DEK unwrap (no passphrase-timing leak).
+- **Bundle record-level filters** — `where` predicate (#320) and `tierAtMost` ceiling (#321) on `writeNoydbBundle`. Plaintext pre-pass; survivors carry their original ciphertext (no re-encrypt, zero-knowledge clean).
 
 Deferred sub-issues open at `priority: low` for the next cycle:
-- `where` / `tierAtMost` plaintext-access bundle filters (#305)
-- per-recipient `expiresAt` keyring extension (#306)
-- ledger-aware slice (drops collection cleanly when history is on) (#307)
-- `ImportCapability` + `vault.assertCanImport` (#308)
-- `ImportPlan.apply()` inside `runTransaction` boundary (#309)
-- per-import ledger-entry tagging (`reason: 'import:<format>'`) (#310)
-- `as-xlsx` / `as-xml` / `as-blob` readers (#311)
-- WinZip-AES interop validation matrix against 7-Zip / Archive Utility / WinRAR (#312)
+- ledger-aware slice (drops collection cleanly when history is on) (#307) — **blocked on design RFC**: refuse-when-history-present vs allow-divergent-head with `slicedFrom` metadata
+- per-import ledger-entry tagging (`reason: 'import:<format>'`) (#310) — scope larger than initial estimate; needs `LedgerEntry` shape change + `Collection.put` option threading + canonical-JSON hash chain test pin
+- WinZip-AES interop validation matrix against 7-Zip / Archive Utility / WinRAR (#312) — manual cross-tool testing, not a code task
+- as-xlsx **dict-label inversion** — round-trip through the reader keeps human labels as-is; inversion needs vault i18n config at read time
+- experimental store family (`@noy-db/to-ipfs` #182, `@noy-db/to-git` #183, `@noy-db/to-qr` #213, `@noy-db/to-stego` #221) — milestone `experimental-stores`
 
 No version-numbered milestones until `0.1.0` — the pre-release is intentionally a single rolling target.
 

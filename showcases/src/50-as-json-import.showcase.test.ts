@@ -40,6 +40,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '@noy-db/hub'
+import { withTransactions } from '@noy-db/hub/tx'
 import { fromString, toString } from '@noy-db/as-json'
 import { memory } from '@noy-db/to-memory'
 
@@ -47,7 +48,23 @@ interface Invoice { id: string; client: string; amount: number; status: 'draft' 
 
 async function setup() {
   const store = memory()
-  const db = await createNoydb({ store, user: 'alice', secret: 'as-json-import-pw-2026' })
+  // First boot — grant the owner keyring import + export capabilities
+  // (#249 / #308) so the readers and writer below can both run.
+  const init = await createNoydb({ store, user: 'alice', secret: 'as-json-import-pw-2026' })
+  await init.openVault('demo')
+  await init.grant('demo', {
+    userId: 'alice', displayName: 'Alice', role: 'owner',
+    passphrase: 'as-json-import-pw-2026',
+    importCapability: { plaintext: ['json'] },
+    exportCapability: { plaintext: ['json'] },
+  })
+  init.close()
+
+  // withTransactions opted in (#309) so apply() can land atomically.
+  const db = await createNoydb({
+    store, user: 'alice', secret: 'as-json-import-pw-2026',
+    txStrategy: withTransactions(),
+  })
   const vault = await db.openVault('demo')
 
   const inv = vault.collection<Invoice>('invoices')
@@ -135,24 +152,26 @@ describe('Showcase 50 — as-json import', () => {
   })
 
   it('round-trip: toString → fromString reconstructs an empty target vault', async () => {
-    const { db: src, vault: srcVault, store: srcStore } = await setup()
-    // Grant + close + re-open so toString sees the updated capability.
-    await src.grant('demo', {
-      userId: 'alice', displayName: 'Alice', role: 'owner',
-      passphrase: 'as-json-import-pw-2026',
-      exportCapability: { plaintext: ['json'] },
-    })
+    const { db: src, vault: srcVault } = await setup()
+    void srcVault
+    const json = await toString(src.vault('demo')!, { pretty: 2 })
     src.close()
 
-    const exporterDb = await createNoydb({ store: srcStore, user: 'alice', secret: 'as-json-import-pw-2026' })
-    const exporterVault = await exporterDb.openVault('demo')
-    const json = await toString(exporterVault, { pretty: 2 })
-    exporterDb.close()
-    void srcVault
-
-    // Fresh vault on a new adapter — every record arrives as 'added'.
+    // Fresh vault on a new adapter — bootstrap with the same grant so
+    // both apply() (#308 + #309) and the diff (no gate) can run.
     const dstStore = memory()
-    const dstDb = await createNoydb({ store: dstStore, user: 'alice', secret: 'as-json-import-pw-2026' })
+    const dstInit = await createNoydb({ store: dstStore, user: 'alice', secret: 'as-json-import-pw-2026' })
+    await dstInit.openVault('demo')
+    await dstInit.grant('demo', {
+      userId: 'alice', displayName: 'Alice', role: 'owner',
+      passphrase: 'as-json-import-pw-2026',
+      importCapability: { plaintext: ['json'] },
+    })
+    dstInit.close()
+    const dstDb = await createNoydb({
+      store: dstStore, user: 'alice', secret: 'as-json-import-pw-2026',
+      txStrategy: withTransactions(),
+    })
     const dstVault = await dstDb.openVault('demo')
 
     const importer = await fromString(dstVault, json)

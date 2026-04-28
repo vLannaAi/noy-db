@@ -88,9 +88,9 @@ formatters because the bytes outlive the process. The encrypted tier
 
 ---
 
-## Import side — phase 1 (#302)
+## Import side
 
-Four `as-*` packages now ship symmetric **readers** that parse a file
+Seven of the nine `as-*` packages ship symmetric **readers** that parse a file
 back into records, build a preview diff via `diffVault()` (#303), and
 expose an `apply()` method that writes the changes through the normal
 collection API:
@@ -101,6 +101,11 @@ collection API:
 | `@noy-db/as-json` | `fromString(vault, json, { collections?, idKey?, policy? })` and `fromObject(vault, doc, ...)` | `AsJSONImportPlan` |
 | `@noy-db/as-ndjson` | `fromString(vault, ndjson, { collection, idKey?, policy? })` | `AsNDJSONImportPlan` |
 | `@noy-db/as-zip` | `fromBytes(vault, bytes, { collection, password?, idKey?, policy? })` | `AsZipImportPlan` |
+| `@noy-db/as-blob` | `fromBytes(vault, bytes, { collection, id, slot?, policy?, mimeType?, filename? })` (#317) | `AsBlobImportPlan` |
+| `@noy-db/as-xml` | `fromString(vault, xml, { collection, recordElement?, fieldTypes?, policy? })` (#318) | `AsXMLImportPlan` |
+| `@noy-db/as-xlsx` | `fromBytes(vault, bytes, { collection, sheet?, headerRow?, fieldTypes?, policy? })` (#319) | `AsXlsxImportPlan` |
+
+`as-sql` is intentionally export-only — SQL-dialect parsing is a tar pit (postgres / mysql / sqlite serialize types differently with no canonical AST).
 
 Every plan carries:
 
@@ -118,14 +123,47 @@ Reconciliation policies:
 - **`'replace'`** — full mirror; absent records get deleted.
 - **`'insert-only'`** — only insert new records; modifications and deletes are skipped.
 
+`as-blob` is the exception — single-slot writes have no meaningful "merge", so its policy alphabet is `'replace' | 'insert-only'` only and the plan reports `status: 'added' | 'modified'` on whether the target slot was empty.
+
 Two-step shape — preview is buffered up-front so consumers render review-and-confirm UI before mutating. The plan's `format({ detail: 'full' })` produces a git-style human-readable diff (count line + per-record `path: from → to` rows) for terminal or chat surfacing.
 
-**Phase 2 (deferred):**
+### Capability gates (#308)
 
-- `ImportCapability` keyring extension + `vault.assertCanImport(tier, format?)` (#308) — explicit per-format import grant defaulting closed.
-- `apply()` inside a `runTransaction` boundary (#309) — atomic apply with full rollback on partial failure.
-- Per-import ledger tagging (`reason: 'import:<format>'`) (#310) — audit consumers can distinguish manual edits from imports.
-- Readers for `as-xlsx` / `as-xml` / `as-blob` (#311). `as-sql` is explicitly out of scope (dialect-specific parsing is a tar pit).
+Every reader entry-point calls `vault.assertCanImport('plaintext', <format>)` before parsing. `ImportCapability` mirrors `ExportCapability`:
+
+```ts
+interface ImportCapability {
+  readonly plaintext?: readonly ExportFormat[]   // formats this keyring may import
+  readonly bundle?: boolean                       // whether .noydb bundles may be imported
+}
+```
+
+**Default-closed for every role on every dimension** — including owner. Import is more dangerous than export (corrupts vs leaks), so the policy refuses to assume intent. Owners must positively grant via:
+
+```ts
+await db.grant('demo', {
+  userId, displayName, role: 'owner', passphrase,
+  importCapability: { plaintext: ['csv', 'json'] },
+})
+```
+
+Throws `ImportCapabilityError` with a typed message pointing at the grant shape.
+
+### Atomic apply (#309)
+
+`apply()` runs the puts inside `vault.noydb.transaction(...)` so a partial failure rolls back every executed write. The transaction routes through the `txStrategy` seam — opting in is required:
+
+```ts
+import { withTransactions } from '@noy-db/hub/tx'
+const db = await createNoydb({ store, user, secret, txStrategy: withTransactions() })
+```
+
+Without the strategy, `apply()` throws a clear error pointing at `withTransactions()`. The strategy is gated behind a subpath import to keep bundles small for consumers who never call `apply()`.
+
+### Deferred follow-ups
+
+- Per-import ledger tagging (`reason: 'import:<format>'`) (#310) — audit consumers can distinguish manual edits from imports. Scope larger than initial estimate; see issue thread.
+- as-xlsx **dict-label inversion** — the writer expands enum dict keys via i18nText to human labels; round-trip through the reader currently keeps the human label as-is.
 
 ---
 

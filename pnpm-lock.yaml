@@ -737,18 +737,27 @@ importers:
 
   showcases:
     dependencies:
+      '@noy-db/as-blob':
+        specifier: workspace:*
+        version: link:../packages/as-blob
       '@noy-db/as-csv':
         specifier: workspace:*
         version: link:../packages/as-csv
       '@noy-db/as-json':
         specifier: workspace:*
         version: link:../packages/as-json
+      '@noy-db/as-ndjson':
+        specifier: workspace:*
+        version: link:../packages/as-ndjson
       '@noy-db/as-noydb':
         specifier: workspace:*
         version: link:../packages/as-noydb
       '@noy-db/as-xlsx':
         specifier: workspace:*
         version: link:../packages/as-xlsx
+      '@noy-db/as-xml':
+        specifier: workspace:*
+        version: link:../packages/as-xml
       '@noy-db/as-zip':
         specifier: workspace:*
         version: link:../packages/as-zip
