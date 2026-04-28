@@ -268,6 +268,46 @@ export class ExportCapabilityError extends NoydbError {
 }
 
 /**
+ * Thrown when an `@noy-db/as-*` import is attempted but the invoking
+ * keyring lacks the required import-capability bit (issue #308).
+ *
+ * - `tier: 'plaintext'` — a plaintext-tier import (`as-csv`, `as-json`,
+ *   `as-ndjson`, `as-zip`, …) was attempted but the keyring's
+ *   `importCapability.plaintext` does not include the requested
+ *   `format` (nor the `'*'` wildcard).
+ * - `tier: 'bundle'` — a `.noydb` bundle import was attempted but the
+ *   keyring's `importCapability.bundle` is not `true`.
+ *
+ * Default for every role on every dimension is closed — owners and
+ * admins must positively grant the capability. Distinct from
+ * `PermissionDeniedError` and `NoAccessError` so UI layers can show a
+ * specific "request the import capability" flow.
+ */
+export class ImportCapabilityError extends NoydbError {
+  readonly tier: 'plaintext' | 'bundle'
+  readonly format?: string
+  readonly userId: string
+
+  constructor(opts: {
+    tier: 'plaintext' | 'bundle'
+    userId: string
+    format?: string
+    message?: string
+  }) {
+    const msg =
+      opts.message ??
+      (opts.tier === 'plaintext'
+        ? `Import capability denied — keyring "${opts.userId}" is not granted plaintext-import capability for format "${opts.format ?? '<unknown>'}". Ask a vault owner or admin to grant it via vault.grant({ importCapability: { plaintext: ['${opts.format ?? '<format>'}'] } }).`
+        : `Import capability denied — keyring "${opts.userId}" is not granted encrypted-bundle import capability. Ask a vault owner or admin to grant it via vault.grant({ importCapability: { bundle: true } }).`)
+    super('IMPORT_CAPABILITY', msg)
+    this.name = 'ImportCapabilityError'
+    this.tier = opts.tier
+    this.userId = opts.userId
+    if (opts.format !== undefined) this.format = opts.format
+  }
+}
+
+/**
  * Thrown when a grant would give the grantee a permission the grantor
  * does not themselves hold — the "admin cannot grant what admin cannot
  * do" rule from the admin-delegation work.

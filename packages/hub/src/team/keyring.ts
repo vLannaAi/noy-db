@@ -1,4 +1,4 @@
-import type { NoydbStore, KeyringFile, Role, Permissions, GrantOptions, RevokeOptions, UserInfo, EncryptedEnvelope, ExportCapability, ExportFormat } from '../types.js'
+import type { NoydbStore, KeyringFile, Role, Permissions, GrantOptions, RevokeOptions, UserInfo, EncryptedEnvelope, ExportCapability, ExportFormat, ImportCapability } from '../types.js'
 import { NOYDB_KEYRING_VERSION, NOYDB_FORMAT_VERSION } from '../types.js'
 import {
   deriveKey,
@@ -69,6 +69,13 @@ export interface UnlockedKeyring {
    * apply via `hasExportCapability`.
    */
   readonly exportCapability?: ExportCapability
+  /**
+   * `@noy-db/as-*` import capability (issue #308). Absent when the
+   * keyring was written before #308 landed — default-closed semantics
+   * apply via `hasImportCapability` (no plaintext format granted, no
+   * bundle import granted, regardless of role).
+   */
+  readonly importCapability?: ImportCapability
 }
 
 // ─── Load / Create ─────────────────────────────────────────────────────
@@ -105,6 +112,7 @@ export async function loadKeyring(
     kek,
     salt,
     ...(keyringFile.export_capability !== undefined && { exportCapability: keyringFile.export_capability }),
+    ...(keyringFile.import_capability !== undefined && { importCapability: keyringFile.import_capability }),
   }
 }
 
@@ -229,6 +237,7 @@ export async function grant(
     created_at: new Date().toISOString(),
     granted_by: callerKeyring.userId,
     ...(options.exportCapability !== undefined && { export_capability: options.exportCapability }),
+    ...(options.importCapability !== undefined && { import_capability: options.importCapability }),
   }
 
   await writeKeyringFile(adapter, vault, options.userId, keyringFile)
@@ -576,6 +585,12 @@ export interface BundleRecipient {
    * Mirrors the `exportCapability` field on a live keyring.
    */
   readonly exportCapability?: ExportCapability
+  /**
+   * Optional `as-*` import grants on the destination vault.
+   * Mirrors the `importCapability` field on a live keyring (#308).
+   * Default-closed: no plaintext format granted, no bundle import.
+   */
+  readonly importCapability?: ImportCapability
 }
 
 /**
@@ -646,6 +661,9 @@ export async function buildRecipientKeyringFile(
     granted_by: callerKeyring.userId,
     ...(recipient.exportCapability !== undefined
       ? { export_capability: recipient.exportCapability }
+      : {}),
+    ...(recipient.importCapability !== undefined
+      ? { import_capability: recipient.importCapability }
       : {}),
   }
 }
@@ -752,6 +770,7 @@ export async function persistKeyring(
     created_at: new Date().toISOString(),
     granted_by: keyring.userId,
     ...(keyring.exportCapability !== undefined && { export_capability: keyring.exportCapability }),
+    ...(keyring.importCapability !== undefined && { import_capability: keyring.importCapability }),
   }
 
   await writeKeyringFile(adapter, vault, keyring.userId, keyringFile)
@@ -844,6 +863,75 @@ export function evaluateExportCapability(
     return allowed.includes('*') || (format !== undefined && allowed.includes(format))
   }
   return capability?.bundle ?? defaultBundleCapability(role)
+}
+
+// ─── Import capability (issue #308) ────────────────────────────────────
+
+/**
+ * Check whether a keyring is authorised for a given `@noy-db/as-*`
+ * import tier (issue #308).
+ *
+ * - `tier: 'plaintext'` — true iff `importCapability.plaintext`
+ *   contains the requested `format` or the `'*'` wildcard.
+ * - `tier: 'bundle'` — true iff `importCapability.bundle === true`.
+ *
+ * **Default-closed for every role on every dimension** — including
+ * owner. Import is more dangerous than export (corrupts vs leaks), so
+ * the policy refuses to assume intent. Owners must positively grant
+ * the capability via `vault.grant({ importCapability: ... })`.
+ */
+export function hasImportCapability(
+  keyring: UnlockedKeyring,
+  tier: 'plaintext',
+  format: ExportFormat,
+): boolean
+export function hasImportCapability(
+  keyring: UnlockedKeyring,
+  tier: 'bundle',
+): boolean
+export function hasImportCapability(
+  keyring: UnlockedKeyring,
+  tier: 'plaintext' | 'bundle',
+  format?: ExportFormat,
+): boolean {
+  const cap = keyring.importCapability
+  if (tier === 'plaintext') {
+    const allowed = cap?.plaintext ?? []
+    return allowed.includes('*') || (format !== undefined && allowed.includes(format))
+  }
+  // tier === 'bundle' — closed default for every role
+  return cap?.bundle === true
+}
+
+/**
+ * Same-shape inspector for an `ImportCapability` value that isn't yet
+ * attached to a keyring (e.g. previewing a grant before applying).
+ * `role` is accepted for symmetry with `evaluateExportCapability` even
+ * though the import policy ignores it — bundle defaults are
+ * role-agnostic and closed.
+ */
+export function evaluateImportCapability(
+  capability: ImportCapability | undefined,
+  role: Role,
+  tier: 'plaintext',
+  format: ExportFormat,
+): boolean
+export function evaluateImportCapability(
+  capability: ImportCapability | undefined,
+  role: Role,
+  tier: 'bundle',
+): boolean
+export function evaluateImportCapability(
+  capability: ImportCapability | undefined,
+  _role: Role,
+  tier: 'plaintext' | 'bundle',
+  format?: ExportFormat,
+): boolean {
+  if (tier === 'plaintext') {
+    const allowed = capability?.plaintext ?? []
+    return allowed.includes('*') || (format !== undefined && allowed.includes(format))
+  }
+  return capability?.bundle === true
 }
 
 function resolvePermissions(role: Role, explicit?: Permissions): Permissions {

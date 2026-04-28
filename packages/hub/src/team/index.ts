@@ -21,6 +21,12 @@ export {
   evaluateExportCapability,
 } from './keyring.js'
 
+// ─── Import-capability helpers (issue #308) ─────────────────────────
+export {
+  hasImportCapability,
+  evaluateImportCapability,
+} from './keyring.js'
+
 // ─── Sync engine ────────────────────────────────────────────
 export { SyncEngine } from './sync.js'
 

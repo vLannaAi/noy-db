@@ -320,6 +320,7 @@ export async function fromBytes(
   bytes: Uint8Array,
   options: AsZipImportOptions,
 ): Promise<AsZipImportPlan> {
+  vault.assertCanImport('plaintext', 'zip')
   const policy: ImportPolicy = options.policy ?? 'merge'
   const idKey = options.idKey ?? 'id'
 

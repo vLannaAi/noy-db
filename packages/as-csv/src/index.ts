@@ -220,6 +220,7 @@ export async function fromString(
   csv: string,
   options: AsCSVImportOptions,
 ): Promise<AsCSVImportPlan> {
+  vault.assertCanImport('plaintext', 'csv')
   const policy: ImportPolicy = options.policy ?? 'merge'
   const idKey = options.idKey ?? 'id'
   const types = options.columnTypes ?? {}

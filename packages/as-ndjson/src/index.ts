@@ -149,6 +149,7 @@ export async function fromString(
   ndjson: string,
   options: AsNDJSONImportOptions,
 ): Promise<AsNDJSONImportPlan> {
+  vault.assertCanImport('plaintext', 'ndjson')
   const policy: ImportPolicy = options.policy ?? 'merge'
   const idKey = options.idKey ?? 'id'
 

@@ -424,6 +424,27 @@ export interface ExportCapability {
   readonly bundle?: boolean
 }
 
+/**
+ * Owner-granted import capability on a keyring (sibling of
+ * `ExportCapability`, issue #308).
+ *
+ * Two independent dimensions:
+ *
+ * - `plaintext` — per-format allowlist for `as-*` readers that ingest
+ *   plaintext bytes (`as-csv`, `as-json`, `as-ndjson`, `as-zip`, …).
+ *   Defaults to empty for every role; the owner/admin must positively
+ *   grant per-format (or `'*'`).
+ * - `bundle` — boolean gate for `.noydb` bundle import. **Defaults to
+ *   `false` for every role**, including owner/admin. Import is more
+ *   dangerous than export (corrupts vs leaks), so the policy is
+ *   default-closed across the board — the owner explicitly opts a
+ *   keyring in via `db.grant({ importCapability: { bundle: true } })`.
+ */
+export interface ImportCapability {
+  readonly plaintext?: readonly ExportFormat[]
+  readonly bundle?: boolean
+}
+
 export interface KeyringFile {
   readonly _noydb_keyring: typeof NOYDB_KEYRING_VERSION
   readonly user_id: string
@@ -440,6 +461,12 @@ export interface KeyringFile {
    * defaults (owner/admin get bundle-on, everyone else off).
    */
   readonly export_capability?: ExportCapability
+  /**
+   * Optional — issue #308 import-capability bits. Absent on keyrings
+   * written before #308 landed. Loading falls back to default-closed
+   * for every role and every format.
+   */
+  readonly import_capability?: ImportCapability
   /**
    * hierarchical access clearance. Absent → 0 (advisory;
    * the real check is whether the DEK map carries a `collection#tier`
@@ -799,6 +826,12 @@ export interface GrantOptions {
    * `hasExportCapability` and `ExportCapability`).
    */
   readonly exportCapability?: ExportCapability
+  /**
+   * Optional `@noy-db/as-*` import capability (issue #308). Omit or
+   * leave undefined for default-closed semantics — no plaintext format
+   * is grantable until positively listed; bundle import is denied.
+   */
+  readonly importCapability?: ImportCapability
 }
 
 export interface RevokeOptions {

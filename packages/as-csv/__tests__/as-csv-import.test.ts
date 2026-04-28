@@ -42,7 +42,16 @@ function memory(): NoydbStore {
 interface Invoice { id: string; client: string; amount: number }
 
 async function setup() {
-  const db = await createNoydb({ store: memory(), user: 'alice', secret: 'pw-2026' })
+  const adapter = memory()
+  const init = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-2026' })
+  await init.openVault('demo')
+  await init.grant('demo', {
+    userId: 'alice', displayName: 'Alice', role: 'owner',
+    passphrase: 'pw-2026',
+    importCapability: { plaintext: ['csv'] },
+  })
+  init.close()
+  const db = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-2026' })
   const vault = await db.openVault('demo')
   await vault.collection<Invoice>('invoices').put('a', { id: 'a', client: 'X', amount: 100 })
   return { db, vault }
@@ -110,7 +119,16 @@ describe('as-csv fromString', () => {
     const csv = await toString(reVault, { collection: 'invoices' })
 
     // Empty fresh vault — every CSV row is "added".
-    const dst = await createNoydb({ store: memory(), user: 'alice', secret: 'pw-2026' })
+    const dstAdapter = memory()
+    const dstInit = await createNoydb({ store: dstAdapter, user: 'alice', secret: 'pw-2026' })
+    await dstInit.openVault('demo')
+    await dstInit.grant('demo', {
+      userId: 'alice', displayName: 'Alice', role: 'owner',
+      passphrase: 'pw-2026',
+      importCapability: { plaintext: ['csv'] },
+    })
+    dstInit.close()
+    const dst = await createNoydb({ store: dstAdapter, user: 'alice', secret: 'pw-2026' })
     const dstVault = await dst.openVault('demo')
     const importer = await fromString(dstVault, csv, {
       collection: 'invoices',

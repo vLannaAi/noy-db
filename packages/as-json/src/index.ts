@@ -188,6 +188,7 @@ export async function fromObject(
   doc: AsJSONDocument,
   options: AsJSONImportOptions = {},
 ): Promise<AsJSONImportPlan> {
+  vault.assertCanImport('plaintext', 'json')
   const policy: ImportPolicy = options.policy ?? 'merge'
   const idKey = options.idKey ?? 'id'
 

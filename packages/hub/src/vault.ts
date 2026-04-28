@@ -20,10 +20,11 @@ import type { JoinableSource } from './query/index.js'
 import type { OnDirtyCallback } from './collection.js'
 import type { UnlockedKeyring, BundleRecipient } from './team/keyring.js'
 import { buildRecipientKeyringFile } from './team/keyring.js'
-import { ensureCollectionDEK, hasAccess, hasExportCapability } from './team/keyring.js'
+import { ensureCollectionDEK, hasAccess, hasExportCapability, hasImportCapability } from './team/keyring.js'
 import type { ExportFormat, KeyringFile } from './types.js'
 import {
   ExportCapabilityError,
+  ImportCapabilityError,
   ValidationError,
   AlreadyElevatedError,
   ElevationExpiredError,
@@ -786,6 +787,47 @@ export class Vault {
   }
 
   /**
+   * Authorize an `@noy-db/as-*` import against the current keyring's
+   * `importCapability` (issue #308). Throws `ImportCapabilityError` if
+   * the invoking keyring is not authorised.
+   *
+   * `as-*` reader entry-points (`fromString` / `fromBytes`) MUST call
+   * this before parsing or building an `ImportPlan`.
+   *
+   * - `assertCanImport('plaintext', 'csv')` — check plaintext-tier
+   *   import for a specific format. Default-closed for every role.
+   * - `assertCanImport('bundle')` — check `.noydb` bundle-import gate.
+   *   Default-closed for every role, including owner — import is more
+   *   dangerous than export (corrupts vs leaks).
+   *
+   * Owner who wants to import re-grants own keyring with
+   * `importCapability` set explicitly.
+   */
+  assertCanImport(tier: 'plaintext', format: ExportFormat): void
+  assertCanImport(tier: 'bundle'): void
+  assertCanImport(tier: 'plaintext' | 'bundle', format?: ExportFormat): void {
+    if (tier === 'plaintext') {
+      if (format === undefined) {
+        throw new Error('vault.assertCanImport: plaintext tier requires a format')
+      }
+      if (!hasImportCapability(this.keyring, 'plaintext', format)) {
+        throw new ImportCapabilityError({
+          tier: 'plaintext',
+          userId: this.keyring.userId,
+          format,
+        })
+      }
+      return
+    }
+    if (!hasImportCapability(this.keyring, 'bundle')) {
+      throw new ImportCapabilityError({
+        tier: 'bundle',
+        userId: this.keyring.userId,
+      })
+    }
+  }
+
+  /**
    * Bulk blob extraction primitive.
    *
    * Returns an async-iterable handle over every blob attached to
@@ -886,6 +928,21 @@ export class Vault {
       return hasExportCapability(this.keyring, 'plaintext', format)
     }
     return hasExportCapability(this.keyring, 'bundle')
+  }
+
+  /**
+   * Read-only accessor for the invoking keyring's import capability
+   * (issue #308). UI affordance — returns false in every default-closed
+   * case (every role with no explicit `importCapability` grant).
+   */
+  canImport(tier: 'plaintext', format: ExportFormat): boolean
+  canImport(tier: 'bundle'): boolean
+  canImport(tier: 'plaintext' | 'bundle', format?: ExportFormat): boolean {
+    if (tier === 'plaintext') {
+      if (format === undefined) return false
+      return hasImportCapability(this.keyring, 'plaintext', format)
+    }
+    return hasImportCapability(this.keyring, 'bundle')
   }
 
   /**

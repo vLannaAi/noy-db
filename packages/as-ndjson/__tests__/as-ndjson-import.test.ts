@@ -42,7 +42,16 @@ function memory(): NoydbStore {
 interface Note { id: string; text: string }
 
 async function setup() {
-  const db = await createNoydb({ store: memory(), user: 'alice', secret: 'pw-2026' })
+  const adapter = memory()
+  const init = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-2026' })
+  await init.openVault('demo')
+  await init.grant('demo', {
+    userId: 'alice', displayName: 'Alice', role: 'owner',
+    passphrase: 'pw-2026',
+    importCapability: { plaintext: ['ndjson'] },
+  })
+  init.close()
+  const db = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-2026' })
   const vault = await db.openVault('demo')
   const notes = vault.collection<Note>('notes')
   await notes.put('a', { id: 'a', text: 'hello' })
