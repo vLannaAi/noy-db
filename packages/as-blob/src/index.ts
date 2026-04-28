@@ -179,3 +179,112 @@ export async function write(
   const { writeFile } = await import('node:fs/promises')
   await writeFile(path, bytes)
 }
+
+// ─── Reader (#317 / #302 phase 2) ──────────────────────────────────
+
+/**
+ * `merge` has no meaning for a single-slot write — only `replace`
+ * (overwrite if present) and `insert-only` (refuse if present) make
+ * sense. Default is `replace`.
+ */
+export type AsBlobImportPolicy = 'replace' | 'insert-only'
+
+export interface AsBlobImportOptions {
+  /** Collection the target record lives in. */
+  readonly collection: string
+  /** Record id. The record must already exist. */
+  readonly id: string
+  /** Slot name. Defaults to `'raw'` (matches `toBytes`). */
+  readonly slot?: string
+  /** Default `'replace'`. */
+  readonly policy?: AsBlobImportPolicy
+  /**
+   * Optional MIME hint stored on the slot. When omitted the blob layer
+   * sniffs the magic bytes — same fallback as a direct `blob.put()`.
+   */
+  readonly mimeType?: string
+  /** Optional filename stored on the slot. */
+  readonly filename?: string
+}
+
+export interface AsBlobImportPlan {
+  /** Whether the slot was empty (`'added'`) or already populated (`'modified'`). */
+  readonly status: 'added' | 'modified'
+  /** Pre-existing eTag when `status === 'modified'`, otherwise undefined. */
+  readonly priorETag?: string
+  readonly collection: string
+  readonly id: string
+  readonly slot: string
+  /** Plaintext byte count of the incoming blob. */
+  readonly bytes: number
+  readonly policy: AsBlobImportPolicy
+  apply(): Promise<void>
+}
+
+/**
+ * Build an import plan for a single attachment. Returns a plan that
+ * surfaces whether the target slot exists today (`status: 'added' |
+ * 'modified'`); calling `apply()` performs the write.
+ *
+ * Authorization: gated by `assertCanImport('plaintext', 'blob')`.
+ *
+ * Errors:
+ * - `ImportCapabilityError` — keyring lacks the import capability.
+ * - `Error('as-blob.fromBytes: record ... not found')` — the target
+ *   record id does not exist in the collection. We refuse to attach
+ *   to a phantom record because the slot index would orphan.
+ * - `Error('as-blob.fromBytes: insert-only ...')` — `policy:
+ *   'insert-only'` and the slot is already populated.
+ */
+export async function fromBytes(
+  vault: Vault,
+  bytes: Uint8Array,
+  options: AsBlobImportOptions,
+): Promise<AsBlobImportPlan> {
+  vault.assertCanImport('plaintext', 'blob')
+
+  const slotName = options.slot ?? DEFAULT_SLOT
+  const policy: AsBlobImportPolicy = options.policy ?? 'replace'
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const collection = vault.collection<any>(options.collection)
+
+  // Refuse to attach to a non-existent record — would leave an orphan
+  // slot entry pointing at no record.
+  const record = await collection.get(options.id)
+  if (record === null) {
+    throw new Error(
+      `as-blob.fromBytes: record ${options.collection}/${options.id} not found. ` +
+        'The target record must exist before attaching a blob.',
+    )
+  }
+
+  const blobSet = collection.blob(options.id)
+  const slots = await blobSet.list()
+  const existing = slots.find((s) => s.name === slotName)
+  const status: 'added' | 'modified' = existing ? 'modified' : 'added'
+
+  if (policy === 'insert-only' && existing) {
+    throw new Error(
+      `as-blob.fromBytes: insert-only refused — slot ${slotName} on ` +
+        `${options.collection}/${options.id} is already populated. ` +
+        "Pass `policy: 'replace'` to overwrite.",
+    )
+  }
+
+  return {
+    status,
+    ...(existing?.eTag !== undefined ? { priorETag: existing.eTag } : {}),
+    collection: options.collection,
+    id: options.id,
+    slot: slotName,
+    bytes: bytes.byteLength,
+    policy,
+    async apply(): Promise<void> {
+      const writeOpts: { mimeType?: string; filename?: string } = {}
+      if (options.mimeType !== undefined) writeOpts.mimeType = options.mimeType
+      if (options.filename !== undefined) writeOpts.filename = options.filename
+      await blobSet.put(slotName, bytes, writeOpts)
+    },
+  }
+}
