@@ -1,0 +1,37 @@
+{
+  // wrangler config for vitest-pool-workers — used only by
+  // `pnpm test:workers` (separate from the main vitest config). This
+  // is NOT a deployable Worker; it exists so the workerd runtime that
+  // hosts the showcase 63 test has bindings to a D1 database and an
+  // R2 bucket.
+  //
+  // The bindings here are LOCAL miniflare emulations (D1 = local
+  // SQLite, R2 = local filesystem) because vitest-pool-workers 0.6.x
+  // (the latest line that supports vitest 2.1.x, which the rest of
+  // this showcase suite uses) predates the `experimental_remote` flag.
+  // Latency numbers in showcase 63 are therefore local-emulator
+  // artifacts, not real-Cloudflare numbers.
+  //
+  // To get real bindings → real D1/R2: deploy this Worker (or a
+  // similar one) and run the workflow inside it via fetch(). That's
+  // a separate showcase (a "63b") and a separate concern.
+
+  "name": "noy-db-showcase-bindings",
+  "compatibility_date": "2026-01-01",
+  "main": "src/_worker-entry.ts",
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "noydb-showcase-d1",
+      "database_id": "27a3eca1-98b1-4f18-b4a6-8ca1b0d4e312"
+    }
+  ],
+
+  "r2_buckets": [
+    {
+      "binding": "BUCKET",
+      "bucket_name": "noydb-showcase-r2"
+    }
+  ]
+}

@@ -540,7 +540,9 @@ adapters:
     cas_atomic: false
     use_case: cloud-blob-storage
     status: stable
-    showcases: []
+    showcases:
+      - id: 57-storage-aws-s3
+        path: showcases/src/57-storage-aws-s3.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
@@ -548,6 +550,7 @@ adapters:
       - 'casAtomic: false (no native CAS; advisory locks via If-Match)'
       - 'Each envelope stored as one object keyed by full path'
       - 'Best paired with a casAtomic primary (Dynamo) via routeStore for record metadata'
+      - 'Bodies are AES-GCM ciphertext — bucket reads do NOT leak plaintext (keyspace structure is visible by design)'
     related: [stores-contract, to-aws-dynamo]
 
   - id: to-browser-local
@@ -556,13 +559,16 @@ adapters:
     cas_atomic: true
     use_case: simple-pwa-cache
     status: stable
-    showcases: []
+    showcases:
+      - id: 53-storage-browser-local
+        path: showcases/src/53-storage-browser-local.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
     invariants:
       - 'casAtomic: true (synchronous localStorage transactions)'
       - 'Capacity-limited (5-10 MB); use to-browser-idb for larger vaults'
+      - 'obfuscate mode hides vault / collection / id from the keyspace (not encryption — _data stays AES-GCM)'
     related: [stores-contract, to-browser-idb]
 
   - id: to-cloudflare-r2
@@ -571,13 +577,17 @@ adapters:
     cas_atomic: false
     use_case: edge-blob-storage
     status: stable
-    showcases: []
+    showcases:
+      - id: 60-storage-cloudflare-r2
+        path: showcases/src/60-storage-cloudflare-r2.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
     invariants:
       - 'S3-compatible API; zero egress fees'
       - 'casAtomic: false (no native CAS; advisory locks via If-Match)'
+      - 'Delegates to to-aws-s3 internally — endpoint = https://<accountId>.r2.cloudflarestorage.com, region = "auto"'
+      - 'Bodies are AES-GCM ciphertext — Cloudflare staff with full bucket access cannot read plaintext'
     related: [stores-contract, to-cloudflare-d1, to-aws-s3]
 
   - id: to-cloudflare-d1
@@ -586,13 +596,16 @@ adapters:
     cas_atomic: true
     use_case: edge-serverless
     status: stable
-    showcases: []
+    showcases:
+      - id: 61-storage-cloudflare-d1
+        path: showcases/src/61-storage-cloudflare-d1.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
     invariants:
       - 'casAtomic: true (SQLite transactions inside Cloudflare Workers)'
       - 'Replicated across edge locations; reads stay near the user'
+      - 'Duck-typed against env.DB binding (Worker) or a small REST shim (Node) — same surface either way'
     related: [stores-contract, to-cloudflare-r2, to-sqlite]
 
   - id: to-supabase
@@ -601,13 +614,17 @@ adapters:
     cas_atomic: true
     use_case: hosted-postgres
     status: stable
-    showcases: []
+    showcases:
+      - id: 64-storage-supabase
+        path: showcases/src/64-storage-supabase.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
     invariants:
       - 'casAtomic: true (UPDATE … WHERE _v = $expectedVersion)'
-      - 'Uses the supabase-js client; row-level security is the consumer''s responsibility'
+      - 'Thin factory over @noy-db/to-postgres; package does NOT embed @supabase/supabase-js — bring your own pg client'
+      - 'Service-role key required for write paths; row-level security is the consumer''s responsibility'
+      - 'Inherits the entire to-postgres feature set (txAtomic, listPage, ping)'
     related: [stores-contract, to-postgres]
 
   - id: to-postgres
@@ -616,13 +633,17 @@ adapters:
     cas_atomic: true
     use_case: self-hosted-sql
     status: stable
-    showcases: []
+    showcases:
+      - id: 58-storage-postgres
+        path: showcases/src/58-storage-postgres.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
     invariants:
       - 'casAtomic: true (UPDATE … WHERE _v = $expectedVersion)'
       - 'Stores envelope JSON in a jsonb column for native indexing'
+      - 'Driver-agnostic — any client with `query(sql, params?) → { rows }` works (pg, postgres.js, drizzle, neon, vercel)'
+      - 'Even a Postgres superuser sees only AES-GCM ciphertext in the envelope column'
     related: [stores-contract, to-supabase, to-mysql]
 
   - id: to-mysql
@@ -646,13 +667,16 @@ adapters:
     cas_atomic: true
     use_case: embedded-sql
     status: stable
-    showcases: []
+    showcases:
+      - id: 54-storage-sqlite
+        path: showcases/src/54-storage-sqlite.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
     invariants:
       - 'casAtomic: true (SQLite transactions)'
       - 'Driver-agnostic: better-sqlite3 / node:sqlite / bun:sqlite'
+      - 'Persistence across handle close+reopen — same passphrase recovers the keyring'
     related: [stores-contract, to-cloudflare-d1, to-turso]
 
   - id: to-turso
@@ -661,28 +685,36 @@ adapters:
     cas_atomic: true
     use_case: hosted-edge-sqlite
     status: stable
-    showcases: []
+    showcases:
+      - id: 67-storage-turso
+        path: showcases/src/67-storage-turso.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
     invariants:
       - 'casAtomic: true (libSQL transactions)'
       - 'Replicated SQLite across regions; ideal for edge runtimes'
+      - 'Duck-typed against @libsql/client — same client surface works in Workers, Node, and Bun'
+      - 'Even a Turso DB administrator sees only AES-GCM ciphertext in the envelope column'
     related: [stores-contract, to-sqlite, to-cloudflare-d1]
 
   - id: to-webdav
-    name: WebDAV store (Nextcloud / ownCloud)
+    name: WebDAV store (Nextcloud / ownCloud / DriveHQ / NAS)
     package: '@noy-db/to-webdav'
     cas_atomic: false
     use_case: byo-cloud
     status: stable
-    showcases: []
+    showcases:
+      - id: 68-storage-webdav
+        path: showcases/src/68-storage-webdav.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
     invariants:
       - 'Pure fetch() — works in browser, Node, Workers'
       - 'casAtomic: false (no atomic CAS in WebDAV — last-writer-wins)'
+      - 'Server-side path semantics vary — DriveHQ flattens deep paths to root; Nextcloud preserves them. Round-trip works on both because put/get use the same URL'
+      - 'Best paired as `routeStore({ blobs: webdav })` — blob chunks tolerate the slower HTTP-per-op profile, hot records do not'
     related: [stores-contract, to-icloud, to-drive]
 
   - id: to-ssh
@@ -766,13 +798,17 @@ adapters:
     cas_atomic: false
     use_case: diagnostics
     status: stable
-    showcases: []
+    showcases:
+      - id: 56-storage-probe
+        path: showcases/src/56-storage-probe.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
     invariants:
       - 'Never persists data — emits structured diagnostic events for the wrapped store'
       - 'Pair via routeStore middleware'
+      - '5-axis report: write / cas / hydration / sync / network with SuitabilityScore per role'
+      - 'Risk codes are closed set (cas-mismatch, slow-write-p99, …); pass to acknowledgeRisks to silence'
     related: [stores-contract, to-meter]
 
   - id: to-meter
@@ -781,13 +817,17 @@ adapters:
     cas_atomic: false
     use_case: observability
     status: stable
-    showcases: []
+    showcases:
+      - id: 55-storage-meter
+        path: showcases/src/55-storage-meter.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
     invariants:
       - 'Wraps any NoydbStore; emits per-method timing + count metrics'
       - 'casAtomic capability is inherited from the wrapped store at runtime'
+      - 'snapshot() exposes per-method p50 / p90 / p99 / max / avg + counts + errors'
+      - 'reset() clears counters without touching the wrapped store'
     related: [stores-contract, to-probe]
 
 # ─── Forward-compatible empty sections (phases 3-8) ──────────────────
@@ -1483,6 +1523,106 @@ topologies:
       exports: [as-csv, as-xlsx, as-json]
     showcases: []
     recipes: [analytics-app]
+    playground_pages: []
+    diagrams: []
+
+  - id: aws-offline-tablet
+    name: AWS cloud team with offline-edit tablets
+    status: stable
+    composes:
+      features:
+        - vault-and-collections
+        - encryption
+        - permissions
+        - query-basics
+        - blobs
+        - sync
+      adapters: [to-aws-dynamo, to-aws-s3, to-memory, to-meter]
+      auths: [on-passphrase]
+    showcases:
+      - id: 59-topology-aws-offline-online
+        path: showcases/src/59-topology-aws-offline-online.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+
+  - id: byo-blob-webdav
+    name: Hot records + WebDAV blobs (BYO-cloud / NAS / managed-storage)
+    status: stable
+    composes:
+      features:
+        - vault-and-collections
+        - encryption
+        - permissions
+        - query-basics
+        - blobs
+      adapters: [to-memory, to-webdav, to-meter]
+      auths: [on-passphrase]
+    showcases:
+      - id: 69-topology-webdav-blobs
+        path: showcases/src/69-topology-webdav-blobs.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+
+  - id: cloudflare-edge-team
+    name: Cloudflare edge team with offline-edit tablets
+    status: stable
+    composes:
+      features:
+        - vault-and-collections
+        - encryption
+        - permissions
+        - query-basics
+        - blobs
+        - sync
+      adapters: [to-cloudflare-d1, to-cloudflare-r2, to-memory, to-meter]
+      auths: [on-passphrase]
+    showcases:
+      - id: 62-topology-cloudflare-offline-online
+        path: showcases/src/62-topology-cloudflare-offline-online.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+
+  - id: supabase-team
+    name: Supabase Postgres + Storage (records + blobs, single-vendor)
+    status: stable
+    composes:
+      features:
+        - vault-and-collections
+        - encryption
+        - permissions
+        - query-basics
+        - blobs
+        - sync
+      adapters: [to-supabase, to-memory, to-meter]
+      auths: [on-passphrase]
+    showcases:
+      - id: 65-topology-supabase-records-blobs
+        path: showcases/src/65-topology-supabase-records-blobs.showcase.test.ts
+      - id: 66-topology-supabase-offline-online
+        path: showcases/src/66-topology-supabase-offline-online.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+
+  - id: cloudflare-worker-bindings
+    name: Cloudflare Worker with native D1 + R2 bindings (in-process, sub-ms)
+    status: preview
+    composes:
+      features:
+        - vault-and-collections
+        - encryption
+        - permissions
+        - query-basics
+        - blobs
+      adapters: [to-cloudflare-d1, to-meter]
+      auths: [on-passphrase]
+    showcases:
+      - id: 63-topology-cloudflare-bindings
+        path: showcases/src/63-topology-cloudflare-bindings.workers.test.ts
+    recipes: []
     playground_pages: []
     diagrams: []
 

@@ -46,6 +46,21 @@ export interface WebDAVStoreOptions {
    * `false` if the server already has the tree provisioned.
    */
   readonly autoMkcol?: boolean
+  /**
+   * When `true`, MKCOL the full path tree before EVERY put — not just
+   * as a 404/409 fallback. Default `false`.
+   *
+   * Required for non-RFC-compliant servers (notably DriveHQ free tier
+   * and some embedded NAS firmwares) that return `204 No Content` on a
+   * PUT to a non-existent path AND silently flatten the file to the
+   * server root instead of preserving the requested path. Without
+   * eager MKCOL, the package's lazy fallback never fires (no 4xx to
+   * trigger it) and writes silently land at the wrong location.
+   *
+   * Adds one extra round-trip per put; only enable when you've
+   * confirmed your server has this quirk.
+   */
+  readonly eagerMkcol?: boolean
 }
 
 export function webdav(options: WebDAVStoreOptions): NoydbStore {
@@ -55,6 +70,7 @@ export function webdav(options: WebDAVStoreOptions): NoydbStore {
     headers: baseHeaders = {},
     fetch: fetchImpl = globalThis.fetch.bind(globalThis),
     autoMkcol = true,
+    eagerMkcol = false,
   } = options
 
   const baseUrl = rawBase.endsWith('/') ? rawBase.slice(0, -1) : rawBase
@@ -150,6 +166,11 @@ export function webdav(options: WebDAVStoreOptions): NoydbStore {
       // Note: casAtomic:false — expectedVersion is IGNORED. WebDAV
       // lacks server-side conditional metadata writes.
       const body = JSON.stringify(envelope)
+      // Eager MKCOL: required for non-RFC servers (DriveHQ etc.) that
+      // accept PUT-to-nonexistent with 204 and silently flatten.
+      if (eagerMkcol) {
+        await mkcolRecursive(vault, collection)
+      }
       let res = await putOnce(vault, collection, id, body)
       if ((res.status === 404 || res.status === 409) && autoMkcol) {
         await mkcolRecursive(vault, collection)

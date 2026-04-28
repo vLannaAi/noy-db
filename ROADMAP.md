@@ -28,7 +28,7 @@ Deferred sub-issues open at `priority: low` for the next cycle:
 - ledger-aware slice (drops collection cleanly when history is on) (#307) — **blocked on design RFC**: refuse-when-history-present vs allow-divergent-head with `slicedFrom` metadata
 - per-import ledger-entry tagging (`reason: 'import:<format>'`) (#310) — scope larger than initial estimate; needs `LedgerEntry` shape change + `Collection.put` option threading + canonical-JSON hash chain test pin
 - WinZip-AES interop validation matrix against 7-Zip / Archive Utility / WinRAR (#312) — manual cross-tool testing, not a code task
-- as-xlsx **dict-label inversion** — round-trip through the reader keeps human labels as-is; inversion needs vault i18n config at read time
+- as-xlsx **dict-label inversion** (#322) — round-trip through the reader keeps human labels as-is; inversion needs vault i18n config at read time
 
 No version-numbered milestones until `0.1.0` — the pre-release is intentionally a single rolling target.
 

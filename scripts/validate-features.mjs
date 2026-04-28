@@ -114,14 +114,23 @@ for (const { section, entry } of allEntries()) {
 for (const { section, entry } of allEntries()) {
   for (const sc of entry.showcases ?? []) {
     if (!sc.path || !sc.id) continue
-    const tsExpected = sc.id.startsWith('recipe-')
-      ? `showcases/src/${sc.id}.recipe.test.ts`
-      : `showcases/src/${sc.id}.showcase.test.ts`
-    const tsxExpected = tsExpected.replace(/\.ts$/, '.tsx')
-    if (sc.path !== tsExpected && sc.path !== tsxExpected) {
+    // Recipes use `.recipe.test.ts`. Showcases default to `.showcase.test.ts`
+    // (or `.tsx`); showcases that must execute inside the Cloudflare Workers
+    // runtime via vitest-pool-workers are named `.workers.test.ts` so the
+    // main vitest config (happy-dom) skips them and the workers config picks
+    // them up. All variants resolve to the same id-derived stem.
+    const stem = `showcases/src/${sc.id}`
+    const accepted = sc.id.startsWith('recipe-')
+      ? [`${stem}.recipe.test.ts`]
+      : [
+          `${stem}.showcase.test.ts`,
+          `${stem}.showcase.test.tsx`,
+          `${stem}.workers.test.ts`,
+        ]
+    if (!accepted.includes(sc.path)) {
       fail(
         'id-path-mismatch',
-        `path "${sc.path}" does not match expected "${tsExpected}" or "${tsxExpected}" derived from id "${sc.id}"`,
+        `path "${sc.path}" does not match any of: ${accepted.map((p) => `"${p}"`).join(', ')} (derived from id "${sc.id}")`,
         `${section}/${entry.id}`,
       )
     }
