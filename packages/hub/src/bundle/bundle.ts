@@ -85,6 +85,28 @@ export interface WriteNoydbBundleOptions {
    */
   readonly since?: Date | string
   /**
+   * Plaintext-pipeline record predicate (#320). Decrypts each record
+   * with the vault's per-collection DEK, runs the predicate, and
+   * keeps the original ciphertext for survivors (no re-encrypt —
+   * preserves zero-knowledge cleanly). Records the predicate returns
+   * `false` for are dropped from the bundle.
+   *
+   * Async predicates are supported. Mutating the record from inside
+   * the predicate is undefined behaviour.
+   */
+  readonly where?: (
+    record: unknown,
+    ctx: { collection: string; id: string },
+  ) => boolean | Promise<boolean>
+  /**
+   * Hierarchical-tier ceiling (#321). Records whose envelope `_tier`
+   * is strictly greater than this number are dropped. Operates on the
+   * envelope `_tier` (no decryption needed) — vault.exportStream is
+   * referenced in the issue body for symmetry, but the tier value
+   * lives on the unencrypted envelope. Vault without tiers is a no-op.
+   */
+  readonly tierAtMost?: number
+  /**
    * Single-recipient re-keying shorthand (#301). When set, the
    * bundle's keyring is replaced with one freshly-derived entry sealed
    * with this passphrase. The recipient inherits the source keyring's
@@ -354,6 +376,69 @@ function applySliceFilters(
 }
 
 /**
+ * Apply opt-in plaintext-tier filters (#320 `where`, #321 `tierAtMost`)
+ * to a vault dump. Operates BEFORE `applySliceFilters` so the metadata
+ * pass sees the trimmed record set.
+ *
+ * The filter never re-encrypts: surviving records carry their original
+ * envelope unchanged. Failing records are dropped from the
+ * `collections` map. Internal collections (ledger, deltas) and the
+ * keyrings map are untouched.
+ *
+ * @internal
+ */
+async function applyPlaintextFilters(
+  vault: Vault,
+  dumpJson: string,
+  opts: WriteNoydbBundleOptions,
+): Promise<string> {
+  if (opts.where === undefined && opts.tierAtMost === undefined) {
+    return dumpJson
+  }
+
+  type Env = { _ts?: string; _tier?: number; _iv: string; _data: string }
+  const backup = JSON.parse(dumpJson) as {
+    collections?: Record<string, Record<string, Env>>
+    [k: string]: unknown
+  }
+  if (!backup.collections || typeof backup.collections !== 'object') {
+    return dumpJson
+  }
+
+  const tierCeiling = opts.tierAtMost
+  const where = opts.where
+
+  const next: Record<string, Record<string, Env>> = {}
+  for (const [collName, records] of Object.entries(backup.collections)) {
+    const kept: Record<string, Env> = {}
+    for (const [id, env] of Object.entries(records)) {
+      // Tier ceiling — runs FIRST so we don't waste a decrypt on
+      // records about to be dropped anyway. Envelope tier defaults to
+      // 0 when absent (matches Vault's tier-0 conventions).
+      if (tierCeiling !== undefined) {
+        const tier = env._tier ?? 0
+        if (tier > tierCeiling) continue
+      }
+      // Plaintext predicate — decrypt, run, keep on truthy. Errors
+      // from inside the predicate propagate (callers want to see why
+      // their filter blew up rather than getting a silent passthrough).
+      if (where !== undefined) {
+        const record = await vault._decryptEnvelopeForBundleFilter(
+          env as never,
+          collName,
+        )
+        const ok = await where(record, { collection: collName, id })
+        if (!ok) continue
+      }
+      kept[id] = env
+    }
+    next[collName] = kept
+  }
+  backup.collections = next
+  return JSON.stringify(backup)
+}
+
+/**
  * Write a `.noydb` bundle for the given vault.
  *
  * Pipeline:
@@ -393,7 +478,12 @@ export async function writeNoydbBundle(
   // shorthand), substitute the bundle's `keyrings` map with freshly
   // built recipient slots before slice filters run.
   const rekeyed = await applyRecipientRewrap(vault, dumpJson, opts)
-  const filtered = applySliceFilters(rekeyed, opts)
+  // Plaintext-tier filters (#320 where, #321 tierAtMost) run BEFORE
+  // the metadata-only slice — that way the metadata pass sees the
+  // already-trimmed record set and the two filter chains compose
+  // cleanly.
+  const plainFiltered = await applyPlaintextFilters(vault, rekeyed, opts)
+  const filtered = applySliceFilters(plainFiltered, opts)
   const dumpBytes = new TextEncoder().encode(filtered)
 
   const { format, streamFormat } = selectCompression(opts.compression)

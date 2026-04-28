@@ -942,6 +942,26 @@ export class Vault {
   }
 
   /**
+   * Decrypt a single envelope using the per-collection DEK, returning
+   * the parsed plaintext record. Internal helper for bundle-pipeline
+   * plaintext filters (#320 `where`) — keeps DEK access encapsulated
+   * inside Vault so callers don't reach into private state.
+   *
+   * @internal
+   */
+  async _decryptEnvelopeForBundleFilter(
+    env: EncryptedEnvelope,
+    collectionName: string,
+  ): Promise<unknown> {
+    if (!this.encrypted) {
+      return JSON.parse(env._data)
+    }
+    const dek = await this.getDEK(collectionName)
+    const json = await decrypt(env._iv, env._data, dek)
+    return JSON.parse(json)
+  }
+
+  /**
    * Read-only accessor for the invoking keyring's import capability
    * (issue #308). UI affordance — returns false in every default-closed
    * case (every role with no explicit `importCapability` grant).
