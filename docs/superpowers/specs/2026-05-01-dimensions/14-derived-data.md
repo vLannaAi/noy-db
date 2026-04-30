@@ -68,6 +68,12 @@ withMaterializedView({
 })
 ```
 
+**Streaming materialized views (Materialize-inspired):** when the source is a stream collection (Dim 12), the materialized view updates **incrementally** as events arrive rather than recomputing from scratch. Combiner is declared (`fold: (acc, event) => acc'`); pairs with Dim 12 projections.
+
+**MapReduce views (CouchDB / PouchDB lineage):** for derivations that fan out (one source → many index entries), declare a `map: (record) => Entry[]` + optional `reduce: (entries) => Aggregate`; the materialized output is the reduced index. Useful for analytics-style aggregations the chainable builder can't express compactly.
+
+**"Rendered views" (Zero / Replicache-inspired):** server-authoritative pre-rendered query results — the server materializes the view, clients consume it via `by-server` (Dim 5) without re-running the query locally. Pairs with optimistic mutations on the client.
+
 **Built-in deriver helpers (`@noy-db/derivers-*`):**
 - `@noy-db/derivers-pdf` — `pdf.preview(n)`, `pdf.text()`, `pdf.metadata()`, `pdf.pageCount()`
 - `@noy-db/derivers-image` — `image.thumbnail(size)`, `image.resize(w, h)`, `image.exif()`, `image.perceptualHash()`

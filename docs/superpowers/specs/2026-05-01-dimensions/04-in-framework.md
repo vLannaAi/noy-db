@@ -30,6 +30,13 @@ The wire format (envelope spec, keyring spec, bundle spec) is documented as lang
 - `in-remix` — loader/action bridge
 - `in-qwik` — resumability-aware bindings
 - `in-livewire` — Laravel Livewire components (server-rendered reactive); pairs with `in-php`
+- `in-react-native` — RN-native bindings; pairs with `to-mmap-native` (WatermelonDB / Realm lineage)
+- `in-capacitor` / `in-tauri` / `in-electron` — host-bridge bindings exposing native unlock paths (`on-biometric`) and native KV stores
+- `in-replicache-mutators` — server-authoritative mutator pattern (Replicache / Zero) for apps that want optimistic UI with central conflict resolution
+- `in-mcp-server` — exposes a noy-db vault as an MCP (Model Context Protocol) server so Claude / OpenAI / other LLMs can read+write through tool calls
+
+**Auto-generated UI:**
+- `in-admin-ui` — Pocketbase / Hasura / Appwrite-style auto-generated CRUD admin panel from collection schemas. Drop-in admin without hand-wired wiring. Composes with Dim 02 for auth gating, Dim 09 (read-only viewer) for the read-only variant.
 
 **UX-component sub-family (proposed naming: `in-ux-*` or new `ui-*` prefix):**
 - `in-ux-forms-vue` / `in-ux-forms-react` — auto-derived forms from collection schemas, with validation wired to the same Zod/Valibot/etc. validators used by the collection

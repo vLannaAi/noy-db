@@ -30,6 +30,14 @@ The hub at v0.1.0-pre.2 exposes subpath modules: `i18n`, `store`, `team`, `sessi
 
 **Migrations primitives.** Schema evolution across versions (rename field, add field with default, change validator) — partially achievable today via `vault.diff` + manual scripts, but no formal `withMigration({ from, to, transform })` primitive. Open: what's the migration DSL, how it composes with `withHistory` (do migrations get logged?).
 
+**Hooks / triggers / scheduled actions.** Pocketbase / Hasura / Convex / Firebase converge on a primitive: declarative event reactions (on-write, on-delete, on-schedule). Sub-primitives: `vault.on('write:invoices', handler)`, `vault.schedule('0 0 * * *', handler)`, `vault.cron({ name, schedule, action })`. Composes with Dim 14 (scheduled refresh of materialized views). Promotion criteria: graduates to its own dimension when 3+ requesters surface concrete needs.
+
+**Branching data / time-travel as a unified concept.** Datomic's `as-of`, Dolt's git-like branches, LanceDB's data-versioning all converge on the same primitive: collections are immutable streams of versions, and `Collection.asOf(timestamp | branch)` returns a snapshot view. Currently three sources implementing differently; promotion criteria when the implementation pattern unifies.
+
+**Capability-based plugin sandbox.** Sandstorm-style — plugins declare their capabilities, the runtime grants exactly that scope. Pairs with WASM-isolated plugin execution (Logseq lineage). Stages here until 3+ ideas accrete.
+
+**Pluggable crypto algorithms / post-quantum.** AES-GCM only today. Tink-shaped algorithm registry would allow future migration to PQC primitives (Kyber, Dilithium) without breaking the envelope format. Stages until PQC becomes urgent.
+
 **Cross-vault joins.** Explicit, permission-checked queries that span two vaults. Today the keyring layer prevents implicit cross-vault data flow; cross-vault join would require explicit grant. Use case: a dashboard querying multiple SME vaults with explicit consent.
 
 ### Ecosystem

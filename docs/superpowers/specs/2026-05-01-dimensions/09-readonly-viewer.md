@@ -35,6 +35,12 @@ A new core flag `readOnly: true` in `createNoydb()` enforces read-only at the ty
 - Recipient-slot capability (Dimension 02 — bundle's per-recipient slot with own passphrase)
 - Magic-link unlock (existing `on-magic-link`)
 - One-shot envelope (Dimension 08 — `withOneShotEnvelope`, server-issued cap)
+- UCAN / pre-signed token (Dimension 02 — `on-ucan` / `on-presigned`)
+- DID-bound signature verification (Dimension 15 — viewer can verify the source vault was signed by a claimed DID)
+
+**Published-share variant ("monographs" — Notesnook-inspired):**
+- `vault.publish({ collection, slice?, public: true | { passphrase } })` — produce a public read-only URL backed by a static-hosted bundle; viewer-pwa serves it. Inspired by Notesnook monographs and the "send a link to a snapshot" pattern.
+- Diff renderer in the viewer — show what changed between two snapshots (Datomic / Dolt-inspired).
 
 ## Non-goals & tradeoffs
 

@@ -18,7 +18,7 @@ A **workload profile** is captured at runtime: read/write counts, size histogram
 ## Concrete additions
 
 **Enhanced existing:**
-- `to-meter` v2 — captures size histograms (request and response), latency percentiles, CAS retry counts, error categories, time-of-day buckets. Output to local file, in-memory ring buffer, or callback. Zero cost when disabled.
+- `to-meter` v2 — captures size histograms (request and response), latency percentiles, CAS retry counts, error categories, time-of-day buckets. Output to local file, in-memory ring buffer, or callback. Zero cost when disabled. Extended with: **sync-lag per replica** (ElectricSQL / PowerSync style), **CRDT conflict-rate** (Replicache / Yjs style), **LLM-specific signals** when paired with `in-ai` (token cost, model-route latency, retrieval recall — LangSmith / Helicone shape), **vector-recall-at-K** when paired with Dim 13.
 
 **New packages:**
 - `to-shadow` — wraps two `to-*` backends; writes to both, reads from primary. Surfaces divergence as events. Used for migration validation and live A/B.

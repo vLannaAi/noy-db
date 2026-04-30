@@ -34,6 +34,8 @@ A complete transport matrix that handles every common live-state share scenario 
 - `by-sse` — one-way Server-Sent-Events push; lighter than `by-server` for read-only consumers
 - `by-webpush` — browser Web Push API; for offline notification arrival
 - `by-lan` — UDP multicast where available (Electron/Tauri/Node.js host envs only)
+- `by-awareness` — Yjs awareness-protocol-style ephemeral state (cursors, selections, presence pings) separate from durable data sync. Live-collab metadata transport.
+- `by-nostr-relay` — Nostr-relay-shaped event distribution (signed events on relays). Doubles as a federation-adjacent transport; coordinates with Dim 15.
 
 ## Non-goals & tradeoffs
 

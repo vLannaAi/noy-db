@@ -38,6 +38,8 @@ A `StreamCollection<T>` type alongside `Collection<T>`, with stream-native API (
 - `withIdempotenceKey(extractor)` — dedupe on append (Dimension 07 invariant integration)
 - `StreamCollection<T>.tail({ from })` returns an `AsyncIterable<Event<T>>` for live consumption
 - `StreamCollection<T>.replay({ from, to })` returns deterministic past slice
+- `StreamCollection<T>.project({ name, on, into })` — EventStoreDB / KurrentDB-style projections: declare a derived view computed from the stream (`$by_category`, `$by_event_type`); composes with Dim 14 (projections are materialized views over streams)
+- Op-log-shaped CRDT mode (Automerge lineage): `StreamCollection<Op>` where each event is an op rather than a state — pairs natively with `withCRDT`
 
 **Stream-shaped storage backends (free-tier-aligned where possible):**
 - `to-stream-file` — append-optimized local file with rotating segments (USB / disk; no service dependency)

@@ -43,6 +43,8 @@ A composable layer of declarative invariants the application opts into via `with
 
 **`withPositiveAmount`, `withCurrencyConsistent`, `withNoFutureDates`** — opinionated shorthands wrapping `withInvariant` for the most common cases.
 
+**`withDoubleEntry({ debit, credit, balance })`** — TigerBeetle-shaped double-entry accounting primitive. Every transaction must split into matching debit/credit pairs against named accounts; account balances maintained as derived state; the invariant *sum(debits) == sum(credits)* is enforced atomically per transaction. Composes with `withCoupledTransactions` (the general case) and with Dim 12 (event-sourced ledger). Specifically targets accounting / finance / regulated-domain apps that are the largest single SME segment in the mission.
+
 ## Non-goals & tradeoffs
 
 - **Full ORM relations.** This is not a relational layer; collections remain independent. Cross-collection invariants are expressed as predicates, not foreign keys.

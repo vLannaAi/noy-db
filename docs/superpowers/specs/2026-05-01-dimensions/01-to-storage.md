@@ -41,6 +41,9 @@ A free-tier coverage matrix that answers "**which backend should I use if I have
 **Generic-protocol stores (already partially covered, expand):**
 - `to-https` — generic HTTP PUT/GET endpoint (covers DIY backends)
 - `to-pubsub-store` — store via pub/sub topic + cache (NATS/MQTT)
+- `to-mmap-native` — mmap-backed KV (MMKV / ObjectBox / LMDB lineage); for native hosts via Capacitor/Tauri/Electron bridges
+- `to-pocketbase` — PocketBase as a backing store (already-deployed BaaS instances)
+- `redundancy: 'erasure-coded'` — capability flag for Storj / Sia-class backends
 
 **Capability-metadata expansion (no new package, all existing):**
 - `region: 'us-east' | 'eu-west' | ...` — for compliance routing
@@ -51,6 +54,9 @@ A free-tier coverage matrix that answers "**which backend should I use if I have
 - `tier: 'primary' | 'derived' | 'cache'` — declares the lifecycle role of the backend (Dimension 14): primaries store source data; derived backends store regeneratable derivations; cache backends are expungable
 - `expungable: boolean` — backend supports cheap delete-and-regenerate semantics (CDN caches, ephemeral blob)
 - `transformations?: string[]` — for CDN-class backends, declares supported on-the-fly transforms (resize, format-convert)
+- `nameEncrypted: boolean` — backend stores object names as opaque ciphertext (Cryptomator-style; prevents filename-leak via key listing)
+- `dedup: 'block' | 'file' | 'none'` — backend supports content-addressed deduplication (restic / Borg-style block-level; useful for blobs and bundles)
+- `identityAware: boolean` — backend can index records by issuer DID for federated repos (relevant for Dimension 15)
 
 ## Non-goals & tradeoffs
 

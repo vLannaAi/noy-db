@@ -45,6 +45,16 @@ These dimensions are *axes that any data shape can carry*, not shapes themselves
 |---|---|---|---|
 | 14 | Derived data + materialized views | [14-derived-data.md](./14-derived-data.md) | `withDerivation` + `withMaterializedView` + `to-cache-*` backends |
 
+### Identity and federation (cross-cutting)
+
+| # | Dimension | File | Shape |
+|---|---|---|---|
+| 15 | Portable identity + federation | [15-portable-identity.md](./15-portable-identity.md) | `withIdentity` + `withSignedRecords` + `fed-*` federation transports |
+
+### Survey artefact
+
+[`competitors-feature-mining.md`](./competitors-feature-mining.md) — exhaustive survey of the offline-first / encrypted / sync / serverless / vector / decentralised landscape, with every notable feature mined and assigned to a dimension. Source artefact for new dimension 15 and several retrofits to dimensions 01–14.
+
 ### Catch-all
 
 | # | Dimension | File |

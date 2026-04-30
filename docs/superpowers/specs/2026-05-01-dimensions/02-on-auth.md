@@ -27,6 +27,10 @@ A complete tradeoff curve: every reasonable point between "highest security, hig
 - `on-biometric` — Touch ID / Face ID / Android keystore via Capacitor / Tauri / Electron native bridges. Distinct from WebAuthn (works without browser).
 - `on-qr-handoff` — visual handoff between two devices for first-time pairing.
 - `on-paired-device` — pairing-based unlock where one already-authenticated device approves another via a side channel (`by-peer`).
+- `on-ucan` — UCAN capability-token unlock (Fission / IPFS UCAN spec). Verifies a presented UCAN proof and derives session capability from it. Composes with Dimension 15 portable identity.
+- `on-presigned` — pre-signed-URL-style unlock (AWS / Cloudflare presigned-URL semantics). Stateless capability with embedded scope + expiry. Useful for one-shot read links.
+- `on-vault-lease` — HashiCorp-Vault-style lease-based credential rotation; the unlock material itself is leased and renewable, not static.
+- `on-social-recovery` — extension of `on-shamir` where the k-of-n shares are held by *attested DIDs* (web-of-trust style); recovery requires k attestations from trusted peers.
 
 **Threat-model and ergonomics:**
 - `on-duress-distinct` — extension of `on-threat` where a duress passphrase unlocks a *different vault* (decoy mode), not just throws.

@@ -39,6 +39,13 @@ A SQL string (or tagged template) compiles to a `QueryPlan` identical to one the
 **Tooling:**
 - Companion CLI command (`@noy-db/cli`): `noydb sql --vault ./vault --sql "SELECT ..."` for ad-hoc queries
 - IDE support hint: SQL templates with vault schema as context (deferred to ecosystem)
+- `EXPLAIN <query>` — query-plan introspection (Datomic / FaunaDB lineage); names the join strategy, estimated row counts per leg, ref-mode dispatch decisions
+
+**Sibling query surfaces (same `QueryPlan` target, different syntax):**
+- `@noy-db/in-datalog` — Datomic-style Datalog query surface; particularly natural for cross-collection queries with shared variables
+- `@noy-db/in-graphql` — GraphQL Surface (Hasura / EdgeDB / Weaviate lineage); natural for client consumers expecting a GraphQL gateway
+- `@noy-db/in-cypher` — Cypher-like graph traversal (only when graph-shape collections land; Dim 11 catch-all)
+- All siblings share the type-inference layer and ref-mode dispatch with `in-sql`
 
 ## Non-goals & tradeoffs
 

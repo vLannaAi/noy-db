@@ -35,8 +35,12 @@ Records can declare an *embedding companion* — a derived vector that's automat
 **Hub primitives:**
 - `withEmbeddings({ source: fields, encode, dim, indexShape, k })` — strategy declaring an embedding companion to a collection
 - `Collection<T>.query().similarTo(vector, { k, minScore? })` — kNN query terminator
+- `Collection<T>.query().similarTo(vector, { k }).where(predicate)` — Qdrant-style **payload filtering during kNN** (predicate evaluated against the source record without leaving the index)
 - `vault.embeddings.encode(text): Promise<Vector>` — encoding hook (host-process or remote callback)
 - `vault.embeddings.reindex({ collection, since? })` — bulk re-derivation primitive
+- `withHybridSearch({ sparse: 'bm25', dense: 'embedding', combiner: 'rrf' | 'weighted' })` — Pinecone / Weaviate / Vespa-style **hybrid sparse+dense search** combining lexical (BM25) + semantic (vector) signals
+- `withVectorVersioning()` — LanceDB-style data-versioning on vectors (track index versions, branch indexes, roll back)
+- `withMemoryTiers({ short, working, long })` — mem0 / Letta / Zep-shaped **hierarchical agent memory**: short-term buffer, working-set retrieval, long-term consolidated. Pairs with Dim 14 (summarisation as a derivation that promotes records between tiers).
 
 **Vector-shaped storage backends (free-tier-aligned where possible):**
 - `to-vector-hnsw-memory` — in-memory HNSW; zero cost, default for vaults <100K vectors
