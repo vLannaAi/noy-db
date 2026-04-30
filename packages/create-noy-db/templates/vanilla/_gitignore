@@ -1,0 +1,29 @@
+# Vite / build output
+dist
+.vite
+
+# Node
+node_modules
+*.log
+.npm
+
+# Env files
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# Test coverage
+coverage

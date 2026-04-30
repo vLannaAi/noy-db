@@ -1,0 +1,197 @@
+# @noy-db/hub
+
+> Zero-knowledge, offline-first, encrypted document store — core library.
+
+[![npm](https://img.shields.io/npm/v/@noy-db/hub.svg)](https://www.npmjs.com/package/@noy-db/hub)
+[![license](https://img.shields.io/npm/l/@noy-db/hub.svg)](https://github.com/vLannaAi/noy-db/blob/main/LICENSE)
+
+Part of [**noy-db**](https://github.com/vLannaAi/noy-db) — *"None Of Your Damn Business"*. This is the **core library** — install this first, then pair it with a storage backend.
+
+## Install
+
+Every noy-db app needs `@noy-db/hub` plus at least one storage backend (`to-*`). Everything else is optional.
+
+```bash
+pnpm add @noy-db/hub @noy-db/to-memory
+```
+
+### Pick a storage backend — [`@noy-db/to-*`](https://www.npmjs.com/search?q=%40noy-db%2Fto-)
+
+| Package | Use for |
+|---------|---------|
+| [`to-memory`](https://www.npmjs.com/package/@noy-db/to-memory) | Tests, prototypes, ephemeral data |
+| [`to-file`](https://www.npmjs.com/package/@noy-db/to-file) | Local disk, USB stick |
+| [`to-browser-idb`](https://www.npmjs.com/package/@noy-db/to-browser-idb) | Browser IndexedDB (atomic CAS) |
+| [`to-browser-local`](https://www.npmjs.com/package/@noy-db/to-browser-local) | Browser localStorage |
+| [`to-aws-dynamo`](https://www.npmjs.com/package/@noy-db/to-aws-dynamo) | DynamoDB single-table |
+| [`to-aws-s3`](https://www.npmjs.com/package/@noy-db/to-aws-s3) | S3 object store |
+| [`to-cloudflare-d1`](https://www.npmjs.com/package/@noy-db/to-cloudflare-d1) | Edge SQLite via Workers |
+| [`to-cloudflare-r2`](https://www.npmjs.com/package/@noy-db/to-cloudflare-r2) | Zero-egress object storage |
+| [`to-postgres`](https://www.npmjs.com/package/@noy-db/to-postgres) | PostgreSQL `jsonb` |
+| [`to-mysql`](https://www.npmjs.com/package/@noy-db/to-mysql) | MySQL / MariaDB `JSON` |
+| [`to-sqlite`](https://www.npmjs.com/package/@noy-db/to-sqlite) | better-sqlite3 / node:sqlite / bun:sqlite |
+| [`to-supabase`](https://www.npmjs.com/package/@noy-db/to-supabase) | Supabase Postgres + Storage |
+| [`to-turso`](https://www.npmjs.com/package/@noy-db/to-turso) | Hosted libSQL (replicated SQLite) |
+| [`to-webdav`](https://www.npmjs.com/package/@noy-db/to-webdav) | Nextcloud / ownCloud |
+| [`to-ssh`](https://www.npmjs.com/package/@noy-db/to-ssh) | Remote SFTP backend |
+| [`to-smb`](https://www.npmjs.com/package/@noy-db/to-smb) | Windows shares / NAS |
+| [`to-nfs`](https://www.npmjs.com/package/@noy-db/to-nfs) | NFS mounts |
+| [`to-icloud`](https://www.npmjs.com/package/@noy-db/to-icloud) | iCloud Drive (.icloud-aware) |
+| [`to-drive`](https://www.npmjs.com/package/@noy-db/to-drive) | Google Drive bundle |
+| [`to-meter`](https://www.npmjs.com/package/@noy-db/to-meter) | Wrap any store with metrics |
+| [`to-probe`](https://www.npmjs.com/package/@noy-db/to-probe) | Diagnostic suitability test |
+
+### Optional ecosystem
+
+- **Framework integrations** — [`@noy-db/in-*`](https://www.npmjs.com/search?q=%40noy-db%2Fin-): vue, pinia, nuxt, react, nextjs, svelte, solid, zustand, tanstack-query, tanstack-table, yjs, ai, rest.
+- **Authentication paths** — [`@noy-db/on-*`](https://www.npmjs.com/search?q=%40noy-db%2Fon-): webauthn, oidc, totp, email-otp, magic-link, recovery, shamir, pin, threat.
+- **Export formats** — [`@noy-db/as-*`](https://www.npmjs.com/search?q=%40noy-db%2Fas-): csv, json, ndjson, xml, sql, xlsx, blob, zip, noydb (encrypted bundle).
+- **Session-share transports** — [`@noy-db/by-*`](https://www.npmjs.com/search?q=%40noy-db%2Fby-): tabs (BroadcastChannel multi-tab), peer (WebRTC).
+- **CLI tooling** — [`@noy-db/cli`](https://www.npmjs.com/package/@noy-db/cli) (`noydb` binary; inspect/verify `.noydb` files), [`create-noy-db`](https://www.npmjs.com/package/create-noy-db) (`npm create noy-db` scaffolder).
+
+## Quick start
+
+```ts
+import { createNoydb } from '@noy-db/hub'
+import { memory } from '@noy-db/to-memory'
+
+type Invoice = { id: string; amount: number; customer: string }
+
+const db = await createNoydb({
+  store: memory(),
+  userId: 'alice',
+  passphrase: 'correct horse battery staple',
+})
+
+const acme = await db.openVault('acme')
+const invoices = acme.collection<Invoice>('invoices')
+
+await invoices.put('INV-001', { id: 'INV-001', amount: 8500, customer: 'ABC Trading' })
+const all = await invoices.list()
+```
+
+## What it does
+
+- **Zero-knowledge encryption** — AES-256-GCM + PBKDF2 (600K iterations) + AES-KW, all via Web Crypto API
+- **Per-collection keys** — one DEK per collection, wrapped with a per-user KEK
+- **Multi-user access control** — owner, admin, operator, viewer, client roles
+- **Offline-first sync** — push/pull with optimistic concurrency on encrypted envelopes
+- **Audit history** — full-copy snapshots with `history()`, `diff()`, `revert()`, `pruneHistory()`
+- **Zero runtime dependencies**
+
+## Cross-vault queries
+
+When a single principal holds grants across many vaults — multi-tenant apps, multi-project setups, multi-workspace tools — there are two APIs for enumerating and fanning out across them:
+
+### `db.listAccessibleVaults(options?)` — enumerate
+
+Returns every vault the calling principal can unwrap, optionally filtered by minimum role. The walk is bounded by the local keyring index — vaults where the user has no keyring file or where the passphrase doesn't unwrap are silently dropped from the result.
+
+```ts
+// All vaults I can unlock
+const all = await db.listAccessibleVaults()
+// → [{ id: 'T1', role: 'owner' }, { id: 'T7', role: 'admin' }, ...]
+
+// Only vaults where I'm at least admin
+const admin = await db.listAccessibleVaults({ minRole: 'admin' })
+```
+
+**Existence-leak guarantee.** The return value never reveals the existence of a vault the caller cannot unwrap. The store sees the enumeration call (it owns the storage), but downstream consumers of `listAccessibleVaults()` only see the filtered list.
+
+**Store capability.** Requires the optional `NoydbStore.listVaults()` method. The `@noy-db/to-memory` and `@noy-db/to-file` stores implement it; cloud stores (`@noy-db/to-aws-dynamo`, `@noy-db/to-aws-s3`) and `@noy-db/to-browser-idb` do not (cloud enumeration needs a GSI or list-bucket permission that has to be configured by the consumer). Calling `listAccessibleVaults()` against a store that doesn't implement `listVaults` throws `StoreCapabilityError`. Workaround: maintain the candidate list out of band and pass it directly to `queryAcross()`.
+
+### `db.queryAcross(ids, fn, options?)` — fan out
+
+Runs a per-vault callback against a list of vault ids and collects the results, tagged by vault. Per-vault errors do not abort the others — each result slot carries either `result` or `error`.
+
+```ts
+const accessible = await db.listAccessibleVaults({ minRole: 'admin' })
+
+const results = await db.queryAcross(
+  accessible.map((v) => v.id),
+  async (vault) => {
+    return vault.collection<Invoice>('invoices').query()
+      .where('month', '==', '2026-03')
+      .toArray()
+  },
+  { concurrency: 4 }, // default 1 — bump for cloud stores
+)
+// results: Array<{ vault, result?: Invoice[], error?: Error }>
+```
+
+**Composes with `exportStream()` for cross-vault plaintext export:**
+
+```ts
+await db.queryAcross(accessible.map((v) => v.id), async (vault) => {
+  const out: unknown[] = []
+  for await (const chunk of vault.exportStream()) out.push(chunk)
+  return out
+})
+```
+
+## Backup and export
+
+noy-db ships two distinct paths for getting data out of a vault. They are not interchangeable — use the one that matches your goal.
+
+### `vault.dump()` — encrypted backup (the default)
+
+Produces a tamper-evident encrypted JSON envelope. Records stay encrypted, the hash-chained ledger is included so the receiver can verify integrity end-to-end after `load()`, and the recipient must hold a valid keyring to read anything. **Use this for backup, transport between machines, or any scenario where the data must remain protected on disk.**
+
+```ts
+const backup = await acme.dump()                // string of encrypted JSON
+await fs.writeFile('./acme-backup.json', backup) // safe to store anywhere
+// later, on another machine:
+await otherAcme.load(backup)                    // verifies + restores
+```
+
+### `vault.exportStream()` and `vault.exportJSON()` — plaintext export
+
+⚠ **These methods decrypt your records and produce plaintext.**
+
+`exportStream()` is an authorization-aware async generator that yields per-collection chunks of decrypted records, with schema and ref metadata attached. `exportJSON()` is a five-line wrapper that serializes the stream to a single JSON string.
+
+Both methods are **ACL-scoped**: collections the calling principal cannot read are silently skipped. An operator with `{ invoices: 'rw' }` permissions on a five-collection vault exports only `invoices`, with no error on the others.
+
+```ts
+// Stream every collection the caller can read
+for await (const chunk of acme.exportStream()) {
+  console.log(chunk.collection, chunk.records.length)
+}
+
+// Or get a single JSON string
+const json = await acme.exportJSON()
+await fs.writeFile('./backup.json', json)
+```
+
+**Use only when:**
+- You are the authorized owner of the data, **and**
+- You have a legitimate downstream tool that requires plaintext, **and**
+- You have a documented plan for how the resulting plaintext will be protected and eventually destroyed.
+
+If your goal is encrypted backup or transport between noy-db instances, use **`vault.dump()`** instead.
+
+#### Why no built-in file path support
+
+Core has zero `node:` imports — it runs unchanged in browsers, Node, Bun, Deno, and edge runtimes. `exportJSON()` returns a `Promise<string>` so the consumer chooses any sink (`fs.writeFile`, `Blob` download, `fetch` upload, IndexedDB) and the destination decision stays explicit at the call site. This is also better for the security warning: there's no library function quietly writing plaintext somewhere.
+
+#### Other plaintext formats
+
+CSV, XML, xlsx, and the rest of the plaintext tier — plus encrypted `.noydb` bundles under the `as-noydb` encrypted tier — all live in the [`@noy-db/as-*`](https://www.npmjs.com/search?q=%40noy-db%2Fas-) family. Every invocation is gated by the two-tier authorization model (`canExportPlaintext` default off, `canExportBundle` default on for owner/admin) and lands in the audit ledger.
+
+## Status
+
+**Pre-release** (`0.1.0-pre.1`). API may change before `1.0`. Install from the `next` dist-tag:
+
+```bash
+pnpm add @noy-db/hub@next @noy-db/to-memory@next
+```
+
+## Documentation
+
+- Full docs: <https://github.com/vLannaAi/noy-db#readme>
+- Spec: <https://github.com/vLannaAi/noy-db/blob/main/SPEC.md>
+- Roadmap: <https://github.com/vLannaAi/noy-db/blob/main/ROADMAP.md>
+
+## License
+
+[MIT](./LICENSE) © vLannaAi

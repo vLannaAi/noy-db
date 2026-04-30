@@ -1,0 +1,160 @@
+name: Release to npm
+
+# Strict release pipeline — for @noy-db/* package publishes.
+#
+# Triggered on GitHub Release `published`. Runs the full verification
+# gate (install + build + lint + typecheck + test) on a clean checkout
+# at the release tag, and only publishes if every gate passes.
+#
+# Publishes with `--provenance` so the npm registry attests a
+# verifiable cryptographic link between the tarball and this workflow
+# run (supply-chain integrity). Requires `id-token: write` permission
+# on the job.
+#
+# Setup required (one-time, in repo Settings → Secrets and variables):
+#   - NPM_TOKEN (npm automation token, scope "Publish packages")
+#   - GitHub Actions must have "Read and write permissions" under
+#     Settings → Actions → General → Workflow permissions
+#
+# Release procedure:
+#   1. Bump versions in every package.json (e.g. `0.1.0-pre.3`).
+#   2. Commit + push to main — PR goes through standard CI.
+#   3. Tag the release commit: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+#   4. Create a GitHub Release against the tag.
+#   5. This workflow fires automatically on the Release event.
+#
+# Manual dispatch is available for first-publish or re-publish debugging;
+# it requires typing PUBLISH into the confirm field so accidental triggers
+# can't publish by mistake.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type PUBLISH to confirm manual trigger'
+        required: true
+        default: ''
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # ── Gate 1: strict verification ──────────────────────────────────────
+  verify:
+    name: Verify (strict)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release' || github.event.inputs.confirm == 'PUBLISH'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.release.tag_name || github.ref }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          package-manager-cache: false
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Enable corepack (pnpm)
+        run: corepack enable
+
+      - name: Get pnpm store path
+        id: pnpm-store
+        shell: bash
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v5
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-
+
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build all packages
+        run: pnpm turbo build
+
+      - name: Lint
+        run: pnpm turbo lint
+
+      - name: Typecheck
+        run: pnpm turbo typecheck
+
+      # @noy-db/showcases topology tests need real-cloud credentials
+      # (private workspace; runnable locally with .env populated).
+      - name: Test
+        run: pnpm turbo test --filter '!@noy-db/showcases'
+
+      - name: Verify package.json versions match release tag
+        if: github.event_name == 'release'
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          VERSION="${TAG#v}"
+          HUB_VERSION=$(node -p "require('./packages/hub/package.json').version")
+          if [ "$HUB_VERSION" != "$VERSION" ]; then
+            echo "❌ @noy-db/hub version ($HUB_VERSION) does not match release tag ($VERSION)"
+            exit 1
+          fi
+          echo "✅ @noy-db/hub@$HUB_VERSION matches release tag v$VERSION"
+
+  # ── Gate 2: publish with provenance ──────────────────────────────────
+  publish:
+    name: Publish to npm
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # required for npm --provenance
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.release.tag_name || github.ref }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          package-manager-cache: false
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Enable corepack (pnpm)
+        run: corepack enable
+
+      - name: Get pnpm store path
+        id: pnpm-store
+        shell: bash
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v5
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-
+
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build all packages
+        run: pnpm turbo build
+
+      # `create-noy-db` is excluded from this run because npm holds a 24h
+      # cooldown on unscoped names after unpublish. It will ship in a
+      # follow-up release once the cooldown lifts.
+      - name: Publish scoped @noy-db/* packages with provenance
+        run: pnpm -r --filter '!create-noy-db' publish --access public --provenance --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Summarise
+        run: |
+          echo "### Published" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Release: \`${{ github.event.release.tag_name || github.ref_name }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Provenance: enabled (look for the ✓ on https://www.npmjs.com/package/@noy-db/hub)" >> "$GITHUB_STEP_SUMMARY"

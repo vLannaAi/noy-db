@@ -1,0 +1,21 @@
+{
+  "scenarios": {
+    "floor": {
+      "minifiedBytes": 109451,
+      "gzippedBytes": 30546
+    },
+    "history": {
+      "minifiedBytes": 120890,
+      "gzippedBytes": 33987
+    },
+    "analytics": {
+      "minifiedBytes": 117648,
+      "gzippedBytes": 32860
+    },
+    "all-on": {
+      "minifiedBytes": 172865,
+      "gzippedBytes": 47949
+    }
+  },
+  "updatedAt": "2026-04-25T10:15:41.107Z"
+}

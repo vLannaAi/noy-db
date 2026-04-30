@@ -1,0 +1,110 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Ephemeral AWS resources for the noy-db showcases #10 and #11.
+  Provisions a DynamoDB table (records) and an S3 bucket (blobs) — the
+  canonical split-store topology. Deploy before running the cloud
+  showcases; tear the whole stack down when done.
+
+  Deploy:
+    aws cloudformation deploy \
+      --template-file showcases/cfn-showcase-table.yaml \
+      --stack-name noydb-showcase \
+      --profile <your-profile>
+
+  Run showcases (with NOYDB_SHOWCASE_AWS_PROFILE set in showcases/.env):
+    pnpm --filter @noy-db/showcases test
+
+  Teardown (removes table + bucket + all data):
+    aws cloudformation delete-stack \
+      --stack-name noydb-showcase \
+      --profile <your-profile>
+
+Parameters:
+  TableName:
+    Type: String
+    Default: noydb-showcase
+    Description: DynamoDB table name used by showcase #10 and #11.
+  BucketName:
+    Type: String
+    Default: noydb-showcase-blobs
+    Description: >
+      S3 bucket name used by showcase #11 for encrypted blob chunks.
+      Must be globally unique if the default collides with another
+      account — override here or via NOYDB_SHOWCASE_S3_BUCKET in .env.
+
+Resources:
+  ShowcaseTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      TableName: !Ref TableName
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: false
+      Tags:
+        - Key: project
+          Value: noy-db
+        - Key: purpose
+          Value: showcase-ephemeral
+        - Key: expected-lifetime
+          Value: short
+
+  ShowcaseBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      BucketName: !Ref BucketName
+      # 1-day auto-expiry as a safety net: if an afterAll cleanup ever
+      # fails, S3 automatically purges test blobs within 24 hours so
+      # forgotten objects never accrue cost.
+      LifecycleConfiguration:
+        Rules:
+          - Id: auto-cleanup-test-data
+            Status: Enabled
+            ExpirationInDays: 1
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      Tags:
+        - Key: project
+          Value: noy-db
+        - Key: purpose
+          Value: showcase-ephemeral
+        - Key: expected-lifetime
+          Value: short
+
+Outputs:
+  TableName:
+    Description: Name of the showcase DynamoDB table.
+    Value: !Ref ShowcaseTable
+    Export:
+      Name: NoydbShowcaseTable
+  TableArn:
+    Description: ARN of the showcase DynamoDB table.
+    Value: !GetAtt ShowcaseTable.Arn
+  BucketName:
+    Description: Name of the showcase S3 bucket.
+    Value: !Ref ShowcaseBucket
+    Export:
+      Name: NoydbShowcaseBucket
+  BucketArn:
+    Description: ARN of the showcase S3 bucket.
+    Value: !GetAtt ShowcaseBucket.Arn

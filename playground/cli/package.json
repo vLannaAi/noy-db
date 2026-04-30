@@ -1,0 +1,15 @@
+{
+  "name": "@noy-db/playground-cli",
+  "version": "0.1.0-pre.1",
+  "private": true,
+  "type": "module",
+  "description": "Interactive guided CLI demo of noy-db's hub + storage backends",
+  "scripts": {
+    "demo": "node --experimental-vm-modules demo.mjs"
+  },
+  "dependencies": {
+    "@noy-db/hub": "workspace:*",
+    "@noy-db/to-memory": "workspace:*",
+    "@noy-db/to-file": "workspace:*"
+  }
+}
