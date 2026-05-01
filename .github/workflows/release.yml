@@ -150,7 +150,7 @@ jobs:
       # cooldown on unscoped names after unpublish. It will ship in a
       # follow-up release once the cooldown lifts.
       - name: Publish scoped @noy-db/* packages with provenance
-        run: pnpm -r --filter 'create-noy-db' publish --access public --provenance --no-git-checks
+        run: pnpm -r --filter 'create-noy-db' publish --access public --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
