@@ -147,11 +147,35 @@ jobs:
       - name: Build all packages
         run: pnpm turbo build
 
-      # `create-noy-db` is excluded from this run because npm holds a 24h
-      # cooldown on unscoped names after unpublish. It will ship in a
-      # follow-up release once the cooldown lifts.
-      - name: Publish scoped @noy-db/* packages with provenance
-        run: pnpm -r --filter 'create-noy-db' publish --access public --no-git-checks
+      # Verify the npm token is valid before attempting publish
+      - name: Check npm auth (whoami)
+        run: npm whoami
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        continue-on-error: true
+
+      # pnpm pack resolves workspace:* to real versions; npm publish sends
+      # the resulting tarball directly — bypassing pnpm's own publish path.
+      - name: Pack create-noy-db tarball
+        id: pack
+        working-directory: packages/create-noy-db
+        run: |
+          pnpm pack --pack-destination /tmp/
+          echo "tarball=$(ls /tmp/create-noy-db-*.tgz | tail -1)" >> "$GITHUB_OUTPUT"
+
+      - name: Publish create-noy-db
+        run: |
+          set -o pipefail
+          npm publish "${{ steps.pack.outputs.tarball }}" --access public 2>&1 | tee /tmp/npm-publish.log
+          EXIT=${PIPESTATUS[0]}
+          if [ "$EXIT" -ne 0 ]; then
+            echo "### Publish failed" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            cat /tmp/npm-publish.log >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$EXIT"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
