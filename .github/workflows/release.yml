@@ -93,7 +93,7 @@ jobs:
       # @noy-db/showcases topology tests need real-cloud credentials
       # (private workspace; runnable locally with .env populated).
       - name: Test
-        run: pnpm turbo test --filter '!@noy-db/showcases'
+        run: pnpm turbo test --concurrency=1 --filter '!@noy-db/showcases'
 
       - name: Verify package.json versions match release tag
         if: github.event_name == 'release'
