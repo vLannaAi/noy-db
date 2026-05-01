@@ -6,12 +6,36 @@
  * The 6 core methods plus the optional `ping` / `listSince` / `listPage`
  * extensions are exposed. Unknown methods surface as a remote Error.
  *
+ * **Leader-election (issue #3).** When a `BroadcastChannel`-backed
+ * `PeerChannel` is shared by 3+ tabs each running `servePeerStore`,
+ * every non-sending tab responds to every RPC — producing duplicate
+ * responses for the same request id and O(N²) channel traffic at scale.
+ * Pass `leaderElection: { lockName, locks? }` to gate serving on the
+ * Web Locks API: only the lock-holding tab registers an RPC handler;
+ * others queue and take over when the holder's tab closes (lock auto-
+ * releases). Default behaviour (no `leaderElection`) is unchanged for
+ * the 2-tab case.
+ *
  * @module
  */
 
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub'
 import type { PeerChannel } from './channel.js'
 import { serveRpc } from './rpc.js'
+
+/**
+ * Minimal subset of the Web Locks API used by leader-election. The
+ * browser's `navigator.locks` satisfies this; tests inject a stub.
+ *
+ * @public
+ */
+export interface MinimalLockManager {
+  request<T>(
+    name: string,
+    options: { mode?: 'exclusive' | 'shared'; signal?: AbortSignal },
+    callback: (lock: unknown) => Promise<T>,
+  ): Promise<T>
+}
 
 export interface ServePeerStoreOptions {
   /** The duplex channel from the remote peer. */
@@ -23,6 +47,30 @@ export interface ServePeerStoreOptions {
    * is rejected with "method not allowed". Useful for read-only peers.
    */
   readonly allow?: ReadonlySet<string>
+  /**
+   * Opt in to leader-election semantics for cross-tab coordination via
+   * the Web Locks API. Required when 3+ tabs share a `BroadcastChannel`-
+   * backed `PeerChannel` — without leader election, every non-sending tab
+   * responds to every RPC, producing duplicate responses (issue #3).
+   *
+   * Browser support: Chrome 69+, Firefox 96+, Safari 15.4+.
+   *
+   * - `lockName` — globally unique lock name. Convention:
+   *   `noy-db:peer-server:<channel-name>`. The same `lockName` MUST be
+   *   used by every tab that wants to share the leader role.
+   * - `locks` — defaults to `navigator.locks` in browsers. Pass a stub
+   *   for tests or for non-browser hosts that polyfill the Web Locks API.
+   *
+   * Behaviour: at most one tab holds the lock at a time. Only that tab
+   * registers an RPC handler on the channel; other tabs queue (their
+   * `servePeerStore` call returns a working dispose function but does
+   * not respond to incoming RPCs). When the holder's tab closes (or its
+   * `servePeerStore` is disposed), the next queued tab takes over.
+   */
+  readonly leaderElection?: {
+    readonly lockName: string
+    readonly locks?: MinimalLockManager
+  }
 }
 
 const CORE_METHODS = new Set<string>([
@@ -42,8 +90,25 @@ const CORE_METHODS = new Set<string>([
  * Start serving the local store on the channel. Returns a dispose
  * function that stops the RPC listener. The underlying channel is NOT
  * closed by dispose — ownership stays with the caller.
+ *
+ * When `leaderElection` is set, the RPC handler is only registered while
+ * this tab holds the named Web Lock. The returned dispose function
+ * always works: if called before the lock is acquired, it cancels the
+ * wait; if called while holding the lock, it releases the lock and
+ * stops serving.
  */
 export function servePeerStore(opts: ServePeerStoreOptions): () => void {
+  if (!opts.leaderElection) {
+    return startServing(opts)
+  }
+  return startServingWithLeaderElection(opts)
+}
+
+/**
+ * Register the RPC handler immediately. Used when leader-election is off,
+ * and inside the lock callback when on.
+ */
+function startServing(opts: ServePeerStoreOptions): () => void {
   const { store, channel, allow } = opts
 
   return serveRpc(channel, async (method, args) => {
@@ -115,4 +180,65 @@ export function servePeerStore(opts: ServePeerStoreOptions): () => void {
     /* istanbul ignore next — CORE_METHODS gate makes this unreachable */
     throw new Error(`Unhandled method: ${method}`)
   })
+}
+
+/**
+ * Acquire a Web Lock first; only register the RPC listener while
+ * holding it. Returns a dispose that cancels the wait (if not yet
+ * acquired) or releases the lock (if held).
+ */
+function startServingWithLeaderElection(opts: ServePeerStoreOptions): () => void {
+  // Asserted by the caller branch in `servePeerStore`.
+  const leader = opts.leaderElection as { lockName: string; locks?: MinimalLockManager }
+  const locks = leader.locks ?? getDefaultLocks()
+  const ac = new AbortController()
+  let stopServing: (() => void) | null = null
+  let releaseLock: (() => void) | null = null
+  let disposed = false
+
+  void locks
+    .request(leader.lockName, { mode: 'exclusive', signal: ac.signal }, () => {
+      if (disposed) return Promise.resolve()
+      stopServing = startServing(opts)
+      // Hold the lock for the lifetime of this tab's leadership. The
+      // returned promise stays pending until `releaseLock` is called by
+      // the dispose function.
+      return new Promise<void>((resolve) => {
+        releaseLock = resolve
+      })
+    })
+    .catch((err: unknown) => {
+      // AbortError is the expected cancellation when dispose runs before
+      // the lock was acquired. Anything else is unexpected — surface it
+      // at the next tick so the host can observe it.
+      if ((err as { name?: string } | null)?.name === 'AbortError') return
+      queueMicrotask(() => {
+        throw err
+      })
+    })
+
+  return () => {
+    if (disposed) return
+    disposed = true
+    if (stopServing) {
+      stopServing()
+      stopServing = null
+    }
+    if (releaseLock) {
+      releaseLock()
+      releaseLock = null
+    } else {
+      ac.abort()
+    }
+  }
+}
+
+function getDefaultLocks(): MinimalLockManager {
+  const nav = (globalThis as { navigator?: { locks?: MinimalLockManager } }).navigator
+  if (nav && nav.locks) return nav.locks
+  throw new Error(
+    'leaderElection requires the Web Locks API (navigator.locks). ' +
+    'Use Chrome 69+, Firefox 96+, Safari 15.4+, or pass `leaderElection.locks: <stub>` ' +
+    'for tests / non-browser hosts.',
+  )
 }

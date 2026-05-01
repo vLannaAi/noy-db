@@ -39,7 +39,7 @@ export type { RpcMessage, RpcRequest, RpcResponse, RpcHandler, RpcClientOptions 
 export { createRpcClient, serveRpc } from './rpc.js'
 export type { PeerStoreOptions } from './peer-store.js'
 export { peerStore } from './peer-store.js'
-export type { ServePeerStoreOptions } from './serve.js'
+export type { ServePeerStoreOptions, MinimalLockManager } from './serve.js'
 export { servePeerStore } from './serve.js'
 export type { WebRTCOptions, Initiator, Responder } from './webrtc.js'
 export { createOffer, acceptOffer } from './webrtc.js'

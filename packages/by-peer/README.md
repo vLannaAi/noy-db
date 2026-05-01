@@ -49,6 +49,29 @@ servePeerStore({
 
 Denied methods surface as a remote `Error` at the client.
 
+## Leader election (cross-tab coordination)
+
+When 3+ tabs share a `BroadcastChannel`-backed `PeerChannel` (typically via `@noy-db/by-tabs`) and each runs `servePeerStore`, every non-sending tab responds to every RPC — producing duplicate responses for the same request id and `O(N²)` channel traffic at scale (issue [#3](https://github.com/vLannaAi/noy-db/issues/3)).
+
+Opt in to leader-election semantics via the Web Locks API. Only the lock-holding tab registers an RPC handler; others queue silently and take over when the holder's tab closes (the lock auto-releases).
+
+```ts
+import { tabsChannel } from '@noy-db/by-tabs'
+import { servePeerStore } from '@noy-db/by-peer'
+
+const channel = tabsChannel({ name: 'my-app:vault' })
+
+servePeerStore({
+  channel,
+  store: localStore,
+  leaderElection: { lockName: 'noy-db:peer-server:my-app:vault' },
+})
+```
+
+The same `lockName` MUST be used by every tab participating in the role. Browser support: Chrome 69+, Firefox 96+, Safari 15.4+. For tests or non-browser hosts, pass a stub `MinimalLockManager` via `leaderElection.locks`.
+
+The 2-tab case works correctly without `leaderElection` (BroadcastChannel doesn't echo to sender). Enable for any consumer expecting 3+ tabs.
+
 ## Transport abstraction
 
 `PeerChannel` is the only primitive — any reliable in-order string channel works. The same wrapper is reused by every other `by-*` package:
