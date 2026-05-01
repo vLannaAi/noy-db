@@ -116,6 +116,7 @@ jobs:
     permissions:
       contents: read
       id-token: write   # required for npm --provenance
+      issues: write     # to post diagnostic issue on failure
     steps:
       - uses: actions/checkout@v5
         with:
@@ -164,6 +165,7 @@ jobs:
           echo "tarball=$(ls /tmp/create-noy-db-*.tgz | tail -1)" >> "$GITHUB_OUTPUT"
 
       - name: Publish create-noy-db
+        id: publish_step
         run: |
           set -o pipefail
           npm publish "${{ steps.pack.outputs.tarball }}" --access public 2>&1 | tee /tmp/npm-publish.log
@@ -178,6 +180,44 @@ jobs:
           exit "$EXIT"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # On failure: post full npm error as a GitHub issue so it can be read
+      # without authenticated Actions log access.
+      - name: Report publish failure as GitHub issue
+        if: failure()
+        run: |
+          python3 - <<'PYEOF'
+          import json, os, urllib.request
+
+          log_path = '/tmp/npm-publish.log'
+          log = open(log_path).read() if os.path.exists(log_path) else 'no log captured'
+          server  = os.environ.get('GITHUB_SERVER_URL', 'https://github.com')
+          repo    = os.environ.get('GITHUB_REPOSITORY', '')
+          run_id  = os.environ.get('GITHUB_RUN_ID', '')
+          token   = os.environ.get('GITHUB_TOKEN', '')
+
+          body = (
+              f'## create-noy-db publish diagnostic\n\n'
+              f'**Run:** {server}/{repo}/actions/runs/{run_id}\n\n'
+              f'**npm publish log:**\n```\n{log[:8000]}\n```'
+          )
+          payload = json.dumps({'title': 'create-noy-db publish failure diagnostic', 'body': body}).encode()
+
+          req = urllib.request.Request(
+              f'https://api.github.com/repos/{repo}/issues',
+              data=payload,
+              headers={
+                  'Authorization': f'Bearer {token}',
+                  'Content-Type': 'application/json',
+                  'Accept': 'application/vnd.github+json',
+              }
+          )
+          with urllib.request.urlopen(req) as r:
+              resp = json.loads(r.read())
+              print(f"Created issue #{resp['number']}: {resp['html_url']}")
+          PYEOF
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Summarise
         run: |
