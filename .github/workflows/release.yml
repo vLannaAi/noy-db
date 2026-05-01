@@ -36,6 +36,9 @@ on:
         description: 'Type PUBLISH to confirm manual trigger'
         required: true
         default: ''
+  push:
+    branches: [main]
+    paths: ['.github/workflows/release.yml']
 
 concurrency:
   group: release-${{ github.ref }}
@@ -49,7 +52,7 @@ jobs:
   verify:
     name: Verify (strict)
     runs-on: ubuntu-latest
-    if: github.event_name == 'release' || github.event.inputs.confirm == 'PUBLISH'
+    if: github.event_name == 'release' || github.event.inputs.confirm == 'PUBLISH' || github.event_name == 'push'
     steps:
       - uses: actions/checkout@v5
         with:
@@ -147,7 +150,7 @@ jobs:
       # cooldown on unscoped names after unpublish. It will ship in a
       # follow-up release once the cooldown lifts.
       - name: Publish scoped @noy-db/* packages with provenance
-        run: pnpm -r --filter '!create-noy-db' publish --access public --provenance --no-git-checks
+        run: pnpm -r --filter 'create-noy-db' publish --access public --provenance --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
