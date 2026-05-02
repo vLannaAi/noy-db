@@ -37,6 +37,7 @@ import type { HistoryStrategy } from './history/strategy.js'
 import type { I18nStrategy } from './i18n/strategy.js'
 import type { SessionStrategy } from './session/strategy.js'
 import type { SyncStrategy } from './team/sync-strategy.js'
+import type { UnlockedKeyring } from './team/keyring.js'
 
 /** Format version for encrypted record envelopes. */
 export const NOYDB_FORMAT_VERSION = 1 as const
@@ -1507,8 +1508,47 @@ export interface NoydbOptions {
   readonly sync?: NoydbStore | SyncTarget | SyncTarget[]
   /** User identifier. */
   readonly user: string
-  /** Passphrase for key derivation. Required unless encrypt is false. */
+  /** Passphrase for key derivation. Required unless encrypt is false or `getKeyring` is provided. */
   readonly secret?: string
+  /**
+   * Optional callback that returns an unlocked keyring for a given vault.
+   * Use this to plug in WebAuthn / OIDC / Shamir / any unlock path that
+   * produces an `UnlockedKeyring` outside the passphrase model.
+   *
+   * When set, `secret` MUST NOT also be set — `createNoydb` throws if both
+   * are supplied. When neither is set (and `encrypt !== false`), `createNoydb`
+   * also throws.
+   *
+   * The callback is called lazily, on the first operation that needs the
+   * keyring for a given vault. Noydb caches the returned keyring per-vault
+   * for the lifetime of the instance, so the callback is invoked at most
+   * once per `(instance, vault)` pair (assuming the callback resolves
+   * successfully). If the callback rejects, the rejection surfaces from the
+   * first vault operation that triggered the unlock; subsequent operations
+   * will retry the callback.
+   *
+   * @example
+   * ```ts
+   * import { createNoydb } from '@noy-db/hub'
+   * import { unlockWebAuthn } from '@noy-db/on-webauthn'
+   *
+   * const enrollment = await loadEnrollment()
+   * const db = await createNoydb({
+   *   store,
+   *   user: 'alice',
+   *   getKeyring: (vault) => unlockWebAuthn(enrollment),
+   * })
+   * ```
+   *
+   * Note: this callback is responsible for both the "open existing vault"
+   * and the "create new vault" cases. Unlike the passphrase path, there is
+   * no automatic `NoAccessError` → `createOwnerKeyring` fallback, because
+   * the callback owner has the UI context to decide which path to run.
+   * For first-time bootstrap, use a passphrase or recovery code, enroll
+   * WebAuthn from the unlocked keyring, then swap to `getKeyring` on
+   * subsequent sessions.
+   */
+  readonly getKeyring?: (vault: string) => Promise<UnlockedKeyring>
   /** Auth method. Default: 'passphrase'. */
   readonly auth?: 'passphrase' | 'biometric'
   /** Enable encryption. Default: true. */

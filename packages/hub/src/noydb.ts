@@ -877,8 +877,17 @@ export class Noydb {
     const cached = this.keyringCache.get(vault)
     if (cached) return cached
 
+    // Custom unlock path (e.g. WebAuthn / OIDC / Shamir): caller-supplied
+    // callback owns "open existing vs create new" — no automatic NoAccessError
+    // fallback because the callback owner has the UI context for that choice.
+    if (this.options.getKeyring) {
+      const keyring = await this.options.getKeyring(vault)
+      this.keyringCache.set(vault, keyring)
+      return keyring
+    }
+
     if (!this.options.secret) {
-      throw new ValidationError('A secret (passphrase) is required when encryption is enabled')
+      throw new ValidationError('A secret (passphrase) or getKeyring callback is required when encryption is enabled')
     }
 
     let keyring: UnlockedKeyring
@@ -903,8 +912,12 @@ export class Noydb {
 export async function createNoydb(options: NoydbOptions): Promise<Noydb> {
   const encrypted = options.encrypt !== false
 
-  if (encrypted && !options.secret) {
-    throw new ValidationError('A secret (passphrase) is required when encryption is enabled')
+  if (options.secret && options.getKeyring) {
+    throw new ValidationError('Provide either `secret` or `getKeyring`, not both')
+  }
+
+  if (encrypted && !options.secret && !options.getKeyring) {
+    throw new ValidationError('A secret (passphrase) or getKeyring callback is required when encryption is enabled')
   }
 
   return new Noydb(options)
