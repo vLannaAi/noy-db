@@ -161,6 +161,35 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         continue-on-error: true
 
+      # Publish the scoped @noy-db/* packages first. pnpm's recursive publish
+      # resolves workspace:* peer-deps to real versions at publish time, walks
+      # the dependency graph in topological order (hub first, dependents next),
+      # and skips any version already on the registry — so re-runs are safe.
+      #
+      # `--no-git-checks` because the publish job checks out a tag, not a
+      # branch — pnpm's default branch-clean check would fail otherwise.
+      # `--provenance` mirrors what the create-noy-db step does (id-token
+      # write permission is already granted on the job above).
+      - name: Publish @noy-db/* scoped packages
+        run: |
+          set -o pipefail
+          pnpm publish -r --filter '@noy-db/*' \
+            --access public \
+            --tag latest \
+            --no-git-checks \
+            --provenance 2>&1 | tee /tmp/scoped-publish.log
+          EXIT=${PIPESTATUS[0]}
+          if [ "$EXIT" -ne 0 ]; then
+            echo "### Scoped publish failed" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            cat /tmp/scoped-publish.log >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$EXIT"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
       # pnpm pack resolves workspace:* to real versions; npm publish sends
       # the resulting tarball directly — bypassing pnpm's own publish path.
       - name: Pack create-noy-db tarball
