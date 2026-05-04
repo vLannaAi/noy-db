@@ -150,6 +150,27 @@ features:
       - 'Always-core today; planned withTeam() extraction tracked separately'
     related: [permissions, vault-and-collections]
 
+  - id: session-tiers
+    name: Three-tier authentication / multi-slot keyring / policy gates
+    cluster: collaboration-and-auth
+    spec: docs/subsystems/session-tiers.md#session-tiers
+    subsystem_doc: docs/subsystems/session-tiers.md
+    package: '@noy-db/hub'
+    factory: null
+    status: planned
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Tier 1 (passphrase) factory-fixed in hub core; no on-passphrase package'
+      - 'Tier 2 (authenticate) is multi-slot — any enrolled slot unlocks the same KEK (LUKS pattern)'
+      - 'Tier 3 (unlock) never replaces tier 1; quick-resume only with idle timeout'
+      - 'Phrase format: lowercase letters + single spaces, ≥6 words default (≥8 strict), ≥3 chars/word, no repeated adjacent'
+      - 'Policy gates store one VaultPolicy per vault at _meta/policy (Option A); keyring policy field reserved for future strengthening-only override (Option C)'
+      - 'Managed-passphrase mode mandates at least one strong recovery profile and disables rotate-passphrase gate'
+    related: [team, permissions, on-passphrase, on-webauthn, on-oidc, on-pin, on-totp, on-email-otp, on-recovery, on-shamir, on-magic-link, on-threat]
+
   - id: history
     name: Versioned ledger + time-machine
     cluster: write-and-mutate
@@ -1438,6 +1459,30 @@ transports:
 # stack pages, the playground "preset" picker, and recipe doc cross-refs.
 
 topologies:
+  - id: three-tier-session
+    name: Three-tier session (passphrase + multi-slot authenticate + quick-resume unlock)
+    status: planned
+    composes:
+      features:
+        - session-tiers
+        - team
+        - permissions
+      auths:
+        - on-passphrase
+        - on-webauthn
+        - on-oidc
+        - on-pin
+        - on-totp
+        - on-email-otp
+        - on-recovery
+        - on-shamir
+        - on-magic-link
+        - on-threat
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+
   - id: personal-notebook-stack
     name: Personal encrypted notebook
     status: stable
