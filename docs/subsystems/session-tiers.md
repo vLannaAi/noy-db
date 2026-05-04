@@ -433,19 +433,22 @@ Neither is coercive. The trade-off is a hard dependency on the sealing-key store
 
 ## Implementation status
 
-| Capability | Status |
-|---|---|
-| Tier-1 passphrase + KEK derivation | ✅ in `@noy-db/hub/src/crypto.ts` |
-| `team/magic-link-grant.ts` (passphrase-less first-contact + recovery profile D) | ✅ shipped in `0.1.0-pre.4` |
-| Tier-2 single-slot via `getKeyring` callback (issue #5) | ✅ shipped in `0.1.0-pre.4` |
-| Multi-slot `authenticators[]` keyring extension | ❌ design only |
-| `packages/hub/src/policy/` module + gate engine + `checkGate()` | ❌ design only |
-| `rotatePassphrase` / `recoverPassphrase` APIs | ❌ design only |
-| `enrollAuthenticator` / `removeAuthenticator` / `enrollUnlock` APIs | ❌ design only |
-| Phrase strength validator (default-on with override) | 🟡 [issue #7](https://github.com/vLannaAi/noy-db/issues/7) |
-| Managed-passphrase mode + `SealingKeyProvider` | ❌ design only — post-1.0 candidate |
-| `@noy-db/on-password` package (tier-2 daily password) | ❌ design only |
-| Per-keyring policy override merge engine (Option C) | ❌ deferred — on-disk format ready, runtime not |
+Tracked under milestone [`v0.1.0-pre.5`](https://github.com/vLannaAi/noy-db/milestone/1).
+
+| Capability | Status | Tracking |
+|---|---|---|
+| Tier-1 passphrase + KEK derivation | ✅ shipped | `@noy-db/hub/src/crypto.ts` |
+| `team/magic-link-grant.ts` (passphrase-less first-contact + recovery profile D) | ✅ shipped | `0.1.0-pre.4` |
+| Tier-2 single-slot via `getKeyring` callback | ✅ shipped | `0.1.0-pre.4` (#5) |
+| Phrase strength validator (default-on with override) | 🟡 planned | [#7](https://github.com/vLannaAi/noy-db/issues/7) |
+| Multi-slot `authenticators[]` keyring extension | 🟡 planned | [#8](https://github.com/vLannaAi/noy-db/issues/8) |
+| `packages/hub/src/policy/` module + gate engine + `checkGate()` | 🟡 planned | [#9](https://github.com/vLannaAi/noy-db/issues/9) |
+| `rotatePassphrase` / `recoverPassphrase` APIs (4 recovery profiles) | 🟡 planned | [#10](https://github.com/vLannaAi/noy-db/issues/10) |
+| `enrollAuthenticator` / `removeAuthenticator` / `enrollUnlock` APIs | 🟡 planned | [#11](https://github.com/vLannaAi/noy-db/issues/11) |
+| `@noy-db/on-password` package (tier-2 daily password) | 🟡 planned | [#12](https://github.com/vLannaAi/noy-db/issues/12) |
+| `describeAuthConfig` / `diagramAuthConfig` + per-user views | 🟡 planned | [#13](https://github.com/vLannaAi/noy-db/issues/13) |
+| Managed-passphrase mode + `SealingKeyProvider` | ⏸ backlog (post-1.0) | [#14](https://github.com/vLannaAi/noy-db/issues/14) |
+| Per-keyring policy override merge engine (Option C runtime) | ⏸ backlog (deferred) | [#15](https://github.com/vLannaAi/noy-db/issues/15) |
 
 ## Forward compatibility
 
