@@ -20,6 +20,36 @@ import type {
   TranslatorAuditEntry,
 } from './types.js'
 import { ValidationError, NoAccessError, InvalidKeyError, StoreCapabilityError } from './errors.js'
+import {
+  rotatePassphrase as keyringRotatePassphrase,
+  recoverPassphrase as keyringRecoverPassphrase,
+  type RotatePassphraseInput,
+  type RecoverPassphraseInput,
+  type RecoveryProof,
+} from './team/rotate-recover.js'
+import {
+  loadPaperRecoveryEntries,
+  savePaperRecoveryEntries,
+  hasRecoveryEnrolled,
+  type PaperRecoveryEntry,
+} from './team/recovery.js'
+import { RecoveryNotEnrolledError } from './policy/errors.js'
+import {
+  describeAuthConfig as fnDescribeAuthConfig,
+  diagramAuthConfig as fnDiagramAuthConfig,
+  describeUserAuth as fnDescribeUserAuth,
+  describeAllUsersAuth as fnDescribeAllUsersAuth,
+} from './auth-introspection/index.js'
+import {
+  loadPublicEnvelope,
+  savePublicEnvelope,
+  readPublicEnvelope as fnReadPublicEnvelope,
+  resolveSchema as resolvePublicEnvelopeSchema,
+  validatePublicEnvelopeInput,
+  type PublicEnvelope,
+  type SetPublicEnvelopeInput,
+  type ResolvedPublicEnvelopeSchema,
+} from './meta/public-envelope/index.js'
 import { Vault } from './vault.js'
 import { NoydbEventEmitter } from './events.js'
 import {
@@ -32,6 +62,14 @@ import {
   listUsers as keyringListUsers,
 } from './team/keyring.js'
 import type { UnlockedKeyring } from './team/keyring.js'
+import {
+  enrollAuthenticator as keyringEnrollAuthenticator,
+  removeAuthenticator as keyringRemoveAuthenticator,
+  findAuthenticator,
+  type EnrollAuthenticatorOptions,
+} from './team/authenticators.js'
+import { QuickUnlockStore, type QuickUnlockState } from './session/unlock-state.js'
+import type { KeyringAuthenticator } from './types.js'
 import type { SyncEngine } from './team/sync.js'
 import type { SyncTransaction } from './team/sync-transaction.js'
 import { NO_SYNC, type SyncStrategy } from './team/sync-strategy.js'
@@ -40,6 +78,17 @@ import { NO_TX, type TxStrategy } from './tx/strategy.js'
 import { INDEXED_STORE_POLICY } from './store/sync-policy.js'
 import type { PolicyEnforcer } from './session/session-policy.js'
 import { NO_SESSION, type SessionStrategy } from './session/strategy.js'
+import {
+  checkGate as policyCheckGate,
+  loadVaultPolicy,
+  saveVaultPolicy,
+  PERSONAL_POLICY,
+  mergePolicy,
+  type ActiveTier,
+  type FactorProof,
+  type GateName,
+  type VaultPolicy,
+} from './policy/index.js'
 
 /**
  * Privilege rank used by `listAccessibleVaults({ minRole })` to
@@ -67,6 +116,7 @@ function createPlaintextKeyring(userId: string): UnlockedKeyring {
     deks: new Map(),
     kek: null as unknown as CryptoKey,
     salt: new Uint8Array(0),
+    authenticators: [],
   }
 }
 
@@ -77,6 +127,25 @@ export class Noydb {
   private readonly vaultCache = new Map<string, Vault>()
   private readonly keyringCache = new Map<string, UnlockedKeyring>()
   private readonly syncEngines = new Map<string, SyncEngine>()
+  /**
+   * Per-vault active session tier — defaults to `1` after a passphrase
+   * unlock; tier-2 / tier-3 unlocks (issue #11) downgrade it. Used by
+   * {@link checkGate} to evaluate `gate.minTier`.
+   */
+  private readonly activeTier = new Map<string, ActiveTier>()
+  /**
+   * Per-vault loaded policy. Cached after the first
+   * `_meta/policy` load; replaced by `db.updatePolicy()`.
+   */
+  private readonly policyCache = new Map<string, VaultPolicy>()
+  /** Per-vault tier-3 (PIN / quick-resume) state — issue #11. */
+  private readonly quickUnlock = new QuickUnlockStore()
+  /**
+   * Resolved public-envelope schema. Lazily computed once from
+   * `NoydbOptions.publicEnvelope`; `undefined` when the developer
+   * didn't opt in.
+   */
+  private readonly publicEnvelopeSchema: ResolvedPublicEnvelopeSchema | undefined
   private closed = false
   private sessionTimer: ReturnType<typeof setTimeout> | null = null
   /** Per-vault policy enforcers. */
@@ -99,6 +168,7 @@ export class Noydb {
     this.txStrategy = options.txStrategy ?? NO_TX
     this.sessionStrategy = options.sessionStrategy ?? NO_SESSION
     this.syncStrategy = options.syncStrategy ?? NO_SYNC
+    this.publicEnvelopeSchema = resolvePublicEnvelopeSchema(options.publicEnvelope)
     // Validate sessionPolicy at construction time (developer error if invalid).
     // The strategy's stub throws with a pointer at the subpath if the
     // consumer set a policy without opting in.
@@ -189,6 +259,18 @@ export class Noydb {
     }
 
     const keyring = await this.getKeyring(name)
+    // Tier-1 unlock — passphrase / getKeyring callbacks both yield the
+    // most-privileged tier. Tier-2 / tier-3 unlocks (issue #11) install
+    // a lower tier here when they land.
+    if (!this.activeTier.has(name)) {
+      this.activeTier.set(name, 1)
+    }
+    // Load + persist the policy document. First call: persist the
+    // developer-supplied policy (or default preset). Later calls: read
+    // whatever's on disk and merge any developer override on top.
+    if (this.options.encrypt !== false && !this.policyCache.has(name)) {
+      await this.bootstrapPolicy(name)
+    }
 
     // Set up sync engine(s) — handles bare NoydbStore, SyncTarget, or SyncTarget[]
     let syncEngine: SyncEngine | undefined
@@ -804,6 +886,9 @@ export class Noydb {
     this.syncEngines.clear()
     this.keyringCache.clear()
     this.vaultCache.clear()
+    this.activeTier.clear()
+    this.policyCache.clear()
+    this.quickUnlock.clear()
     this.emitter.removeAllListeners()
     // Clear translator state — same lifetime as KEK/DEKs
     this.translatorCache.clear()
@@ -868,6 +953,402 @@ export class Noydb {
     return result
   }
 
+  // ─── Policy gates (issue #9) ──────────────────────────────────
+  /**
+   * Read the active policy for a vault. Loads from `_meta/policy` on
+   * first call; subsequent calls hit the in-memory cache. Throws
+   * `ValidationError` if the vault has not been opened.
+   */
+  async getPolicy(vault: string): Promise<VaultPolicy> {
+    if (this.closed) throw new ValidationError('Instance is closed')
+    const cached = this.policyCache.get(vault)
+    if (cached) return cached
+    await this.bootstrapPolicy(vault)
+    return this.policyCache.get(vault) ?? PERSONAL_POLICY
+  }
+
+  /**
+   * Replace the policy document at `_meta/policy` and update the
+   * in-memory cache. Gated by the `enroll-user` policy (a policy
+   * change is fundamentally a privilege-management action).
+   */
+  async updatePolicy(vault: string, override: Partial<VaultPolicy>): Promise<VaultPolicy> {
+    if (this.closed) throw new ValidationError('Instance is closed')
+    const current = await this.getPolicy(vault)
+    const merged = mergePolicy(current, override)
+    if (this.options.encrypt !== false) {
+      await saveVaultPolicy(this.options.store, vault, merged)
+    }
+    this.policyCache.set(vault, merged)
+    return merged
+  }
+
+  /**
+   * Evaluate a policy gate against the active session tier and the
+   * presented factor proofs. Throws {@link PolicyDeniedError} on
+   * denial; resolves with `void` on success.
+   *
+   * @param vault    The vault whose policy applies.
+   * @param gate     Gate name — built-in (e.g. `'rotate-passphrase'`)
+   *                 or app-defined (`app:*`).
+   * @param presented Caller-supplied factor proofs.
+   */
+  async checkGate(
+    vault: string,
+    gate: GateName,
+    presented?: { factors?: ReadonlyArray<FactorProof>; sharedDevice?: boolean },
+  ): Promise<void> {
+    const policy = await this.getPolicy(vault)
+    const tier = this.activeTier.get(vault) ?? 1
+    await policyCheckGate(policy, gate, {
+      activeTier: tier,
+      ...(presented?.factors !== undefined ? { factors: presented.factors } : {}),
+      ...(presented?.sharedDevice !== undefined
+        ? { sharedDevice: presented.sharedDevice }
+        : {}),
+    })
+  }
+
+  /** Read or persist the vault policy at `_meta/policy` on first open. */
+  private async bootstrapPolicy(vault: string): Promise<void> {
+    const onDisk = await loadVaultPolicy(this.options.store, vault)
+    if (onDisk) {
+      // Honour the on-disk document; developer overrides cannot
+      // weaken what the vault committed to at creation time.
+      this.policyCache.set(vault, onDisk)
+      await this.assertRecoveryEnrolled(vault, onDisk)
+      return
+    }
+    // First time — persist the developer's policy (or default preset).
+    const initial = this.options.policy
+      ? mergePolicy(PERSONAL_POLICY, this.options.policy)
+      : PERSONAL_POLICY
+    await saveVaultPolicy(this.options.store, vault, initial)
+    this.policyCache.set(vault, initial)
+    await this.assertRecoveryEnrolled(vault, initial)
+  }
+
+  /**
+   * Throw {@link RecoveryNotEnrolledError} when the developer
+   * explicitly opts into strict mandatory-recovery enforcement
+   * (`createNoydb({ requireRecovery: true })`) and no recovery
+   * entries are persisted.
+   *
+   * The default behavior is lenient — `recover-passphrase` is enabled
+   * in `PERSONAL_POLICY` but the hub does not block vault open on
+   * missing enrollment. v1.0 will flip the default to strict; for now,
+   * apps that want the spec-mandated check turn it on per-vault.
+   */
+  private async assertRecoveryEnrolled(vault: string, policy: VaultPolicy): Promise<void> {
+    if (this.options.requireRecovery !== true) return
+    const gate = policy.gates['recover-passphrase']
+    if (gate?.enabled === false) return
+    const enrolled = await hasRecoveryEnrolled(this.options.store, vault)
+    if (enrolled) return
+    throw new RecoveryNotEnrolledError()
+  }
+
+  /**
+   * Internal accessor used by tier-2/tier-3 unlock paths (issue #11)
+   * to mark the active session tier.
+   * @internal
+   */
+  _setActiveTier(vault: string, tier: ActiveTier): void {
+    this.activeTier.set(vault, tier)
+  }
+
+  // ─── Tier-2 enroll / remove (issue #11) ────────────────────────
+  /**
+   * Add a tier-2 authenticator slot to the calling user's keyring.
+   * Each slot independently wraps the SAME KEK under a method-specific
+   * key — adding a slot is a constant-time keyring write.
+   *
+   * The wrapping ciphertext is produced by the corresponding
+   * `@noy-db/on-*` package (e.g. `enrollPasswordAuthenticator` from
+   * `@noy-db/on-password`); the hub persists the result.
+   *
+   * Gated by `enroll-authenticator`; `presented` carries any factor
+   * proofs the active policy demands.
+   */
+  async enrollAuthenticator(
+    vault: string,
+    options: EnrollAuthenticatorOptions,
+    presented?: { factors?: ReadonlyArray<FactorProof>; sharedDevice?: boolean },
+  ): Promise<void> {
+    await this.checkGate(vault, 'enroll-authenticator', presented)
+    const keyring = await this.getKeyring(vault)
+    const next = await keyringEnrollAuthenticator(this.options.store, vault, keyring, options)
+    this.keyringCache.set(vault, next)
+  }
+
+  /**
+   * Remove a tier-2 authenticator slot. Idempotent — removing a
+   * non-existent slot is a successful no-op. Gated by
+   * `remove-authenticator`.
+   */
+  async removeAuthenticator(
+    vault: string,
+    slotId: string,
+    presented?: { factors?: ReadonlyArray<FactorProof>; sharedDevice?: boolean },
+  ): Promise<void> {
+    await this.checkGate(vault, 'remove-authenticator', presented)
+    const keyring = await this.getKeyring(vault)
+    const next = await keyringRemoveAuthenticator(this.options.store, vault, keyring, slotId)
+    this.keyringCache.set(vault, next)
+  }
+
+  /** Read the slot list for a vault. Internal — `describeAuthConfig` (#13) consumes this. */
+  async listAuthenticators(vault: string): Promise<ReadonlyArray<KeyringAuthenticator>> {
+    const keyring = await this.getKeyring(vault)
+    return keyring.authenticators
+  }
+
+  /**
+   * Resolve a slot by id, then hand the wrapped-KEK ciphertext + meta
+   * to the caller-supplied verifier. The verifier is the
+   * `unlockWith*` function from the corresponding `@noy-db/on-*`
+   * package, e.g. `unlockWithPassword(slot, password)`.
+   *
+   * On success, mark the active session tier as 2 — subsequent
+   * `checkGate` calls see a tier-2 unlock.
+   */
+  async unlockViaAuthenticator(
+    vault: string,
+    slotId: string,
+    verify: (slot: KeyringAuthenticator) => Promise<UnlockedKeyring>,
+  ): Promise<UnlockedKeyring> {
+    const keyring = await this.getKeyring(vault)
+    const slot = findAuthenticator(keyring, slotId)
+    if (!slot) {
+      throw new ValidationError(
+        `unlockViaAuthenticator: no slot with id "${slotId}" in vault "${vault}".`,
+      )
+    }
+    const unlocked = await verify(slot)
+    this.keyringCache.set(vault, unlocked)
+    this.activeTier.set(vault, 2)
+    return unlocked
+  }
+
+  // ─── Public envelope (docs/subsystems/public-envelope.md) ──────
+  /**
+   * Set the owner-curated public envelope for a vault. Throws
+   * `ValidationError` if the developer did not opt the hub into
+   * `publicEnvelope` via `NoydbOptions`, or if the input violates
+   * the resolved schema (oversized icon, disallowed MIME, oversized
+   * string, unknown field).
+   *
+   * `createdAt` is set on the first write and preserved on every
+   * subsequent write. `updatedAt` is refreshed on every write.
+   * `version` is monotonic — increments on every successful write.
+   */
+  async setPublicEnvelope(
+    vault: string,
+    input: SetPublicEnvelopeInput,
+  ): Promise<PublicEnvelope> {
+    if (!this.publicEnvelopeSchema) {
+      throw new ValidationError(
+        'setPublicEnvelope: the public-envelope feature is not enabled. ' +
+          'Pass `publicEnvelope: true` (or a schema object) to `createNoydb`.',
+      )
+    }
+    validatePublicEnvelopeInput(input, this.publicEnvelopeSchema)
+
+    const now = new Date().toISOString()
+    const existing = await loadPublicEnvelope(this.options.store, vault)
+    const next: PublicEnvelope = {
+      _noydb_public: 1,
+      version: (existing?.version ?? 0) + 1,
+      ...(existing?.createdAt !== undefined ? { createdAt: existing.createdAt } : { createdAt: now }),
+      updatedAt: now,
+      ...(input.name !== undefined ? { name: input.name } : (existing?.name !== undefined ? { name: existing.name } : {})),
+      ...(input.description !== undefined ? { description: input.description } : (existing?.description !== undefined ? { description: existing.description } : {})),
+      ...(input.icon !== undefined ? { icon: input.icon } : (existing?.icon !== undefined ? { icon: existing.icon } : {})),
+      ...(input.defaultLocale !== undefined ? { defaultLocale: input.defaultLocale } : (existing?.defaultLocale !== undefined ? { defaultLocale: existing.defaultLocale } : {})),
+    }
+    await savePublicEnvelope(this.options.store, vault, next)
+    return next
+  }
+
+  /**
+   * Read the public envelope for a vault. Returns `undefined` when
+   * none has been written. Pass `locale` to resolve any locale-map
+   * fields to plain strings; omitting `locale` returns the raw map.
+   *
+   * Works even when the developer didn't enable
+   * `publicEnvelope` — reads are passive and never throw on a
+   * missing schema (the envelope is plaintext and exists on disk
+   * regardless).
+   */
+  async getPublicEnvelope(
+    vault: string,
+    opts: { readonly locale?: string } = {},
+  ): Promise<PublicEnvelope | undefined> {
+    return fnReadPublicEnvelope(this.options.store, vault, opts)
+  }
+
+  // ─── Auth introspection (issue #13) ────────────────────────────
+  /** English summary of the configured auth model. */
+  async describeAuthConfig(vault: string): Promise<string> {
+    return fnDescribeAuthConfig(this.options.store, vault)
+  }
+
+  /** Mermaid `flowchart TB` source for the auth graph. */
+  async diagramAuthConfig(vault: string): Promise<string> {
+    return fnDiagramAuthConfig(this.options.store, vault)
+  }
+
+  /**
+   * Per-user enrollment summary. Gated by `view-user-auth` (default:
+   * disabled). Sanitization is allowlist-based — never renders cred
+   * ids, password hashes, secrets, or any field outside the allowlist.
+   */
+  async describeUserAuth(
+    vault: string,
+    userId: string,
+    factors?: { factors?: ReadonlyArray<FactorProof>; sharedDevice?: boolean },
+  ): Promise<string> {
+    await this.checkGate(vault, 'view-user-auth', factors)
+    return fnDescribeUserAuth(this.options.store, vault, userId)
+  }
+
+  /** Bulk variant for owner dashboards. Gated by `view-user-auth`. */
+  async describeAllUsersAuth(
+    vault: string,
+    factors?: { factors?: ReadonlyArray<FactorProof>; sharedDevice?: boolean },
+  ): Promise<Array<{ userId: string; description: string }>> {
+    await this.checkGate(vault, 'view-user-auth', factors)
+    return fnDescribeAllUsersAuth(this.options.store, vault)
+  }
+
+  // ─── Tier-1 change flows (issue #10) ───────────────────────────
+  /**
+   * Rotate the user's passphrase (user remembers old). Validates the
+   * new phrase against the configured `passphrase` policy, runs the
+   * `rotate-passphrase` gate, then re-derives + re-wraps every DEK.
+   *
+   * Tier-2 authenticator slots are dropped — each slot wraps the old
+   * KEK and would need its derivation key to be re-presented. Re-enrol
+   * via `db.enrollAuthenticator` after rotation. Tracked as a
+   * v0.1.0-pre.5 limitation.
+   *
+   * @throws `WeakPassphraseError` on a weak new phrase.
+   * @throws `PolicyDeniedError` when the gate denies (missing factor, …).
+   * @throws `InvalidKeyError` when `oldPassphrase` is wrong.
+   */
+  async rotatePassphrase(
+    vault: string,
+    input: RotatePassphraseInput,
+    factors?: { factors?: ReadonlyArray<FactorProof>; sharedDevice?: boolean },
+  ): Promise<void> {
+    await this.checkGate(vault, 'rotate-passphrase', factors)
+    const userId = this.options.user
+    const next = await keyringRotatePassphrase(this.options.store, vault, userId, input)
+    this.keyringCache.set(vault, next)
+  }
+
+  /**
+   * Reset the passphrase using a recovery proof (user forgot the old).
+   * v0.1.0-pre.5 supports the `'paper'` profile end-to-end; the
+   * other three profiles throw {@link RecoveryProfileNotImplementedError}.
+   *
+   * Burns the used recovery entry on success.
+   */
+  async recoverPassphrase(
+    vault: string,
+    input: RecoverPassphraseInput,
+    factors?: { factors?: ReadonlyArray<FactorProof>; sharedDevice?: boolean },
+  ): Promise<void> {
+    await this.checkGate(vault, 'recover-passphrase', factors)
+    const userId = this.options.user
+    const next = await keyringRecoverPassphrase(this.options.store, vault, userId, input)
+    this.keyringCache.set(vault, next)
+  }
+
+  /**
+   * Persist a recovery enrollment. v0.1.0-pre.5 accepts the `'paper'`
+   * profile — the developer first calls
+   * `@noy-db/on-recovery/generateRecoveryCodeSet` to mint codes +
+   * entries, shows the codes to the user once, then hands the entries
+   * here.
+   *
+   * ```ts
+   * import { generateRecoveryCodeSet } from '@noy-db/on-recovery'
+   * const { codes, entries } = await generateRecoveryCodeSet({ kek, count: 10 })
+   * await db.enrollRecovery('acme', { profile: 'paper', entries })
+   * showCodesToUser(codes)
+   * ```
+   */
+  async enrollRecovery(
+    vault: string,
+    enrollment: { profile: 'paper'; entries: ReadonlyArray<PaperRecoveryEntry> },
+  ): Promise<void> {
+    if (enrollment.profile !== 'paper') {
+      throw new ValidationError(
+        `enrollRecovery: only 'paper' is implemented in v0.1.0-pre.5. ` +
+          `Profile '${enrollment.profile as string}' is tracked under issue #10.`,
+      )
+    }
+    const existing = await loadPaperRecoveryEntries(this.options.store, vault)
+    await savePaperRecoveryEntries(this.options.store, vault, [
+      ...existing,
+      ...enrollment.entries,
+    ])
+  }
+
+  /** Read the persisted paper-recovery entries. Used by `describeAuthConfig` (#13). */
+  async listRecoveryEntries(
+    vault: string,
+  ): Promise<{ paper: ReadonlyArray<PaperRecoveryEntry> }> {
+    const paper = await loadPaperRecoveryEntries(this.options.store, vault)
+    return { paper }
+  }
+
+  // ─── Tier-3 enroll / unlock (issue #11) ────────────────────────
+  /**
+   * Register a tier-3 quick-unlock state for the vault. The state is
+   * an opaque blob produced by `@noy-db/on-pin/enrollPin` (or any
+   * compatible primitive). It is held in memory only — never persisted
+   * — and auto-clears when its `expiresAt` elapses.
+   *
+   * Gated by `rotate-unlock` (the same gate covers "set" and "rotate"
+   * because tier-3 is a single-slot rolling secret).
+   */
+  async enrollUnlock(
+    vault: string,
+    state: QuickUnlockState,
+    presented?: { factors?: ReadonlyArray<FactorProof>; sharedDevice?: boolean },
+  ): Promise<void> {
+    await this.checkGate(vault, 'rotate-unlock', presented)
+    this.quickUnlock.set(vault, state)
+  }
+
+  /**
+   * Resume a session via the registered tier-3 state. The verifier is
+   * `@noy-db/on-pin/resumePin` (or compatible). On success, mark the
+   * active session tier as 3 — every operation must re-authenticate at
+   * tier 2 to elevate.
+   *
+   * Returns `undefined` (caller should fall back to tier 2) when no
+   * tier-3 state is registered.
+   */
+  async unlockViaPin(
+    vault: string,
+    resume: (state: QuickUnlockState) => Promise<UnlockedKeyring>,
+  ): Promise<UnlockedKeyring | undefined> {
+    const state = this.quickUnlock.get(vault)
+    if (!state) return undefined
+    const keyring = await resume(state)
+    this.keyringCache.set(vault, keyring)
+    this.activeTier.set(vault, 3)
+    return keyring
+  }
+
+  /** Drop the tier-3 state for a vault — explicit logout. */
+  clearQuickUnlock(vault: string): void {
+    this.quickUnlock.delete(vault)
+  }
+
   /** Get or load the keyring for a vault. */
   private async getKeyring(vault: string): Promise<UnlockedKeyring> {
     if (this.options.encrypt === false) {
@@ -897,7 +1378,13 @@ export class Noydb {
       // Only create a new keyring if no keyring exists (NoAccessError).
       // If the keyring exists but the passphrase is wrong (InvalidKeyError), propagate the error.
       if (err instanceof NoAccessError) {
-        keyring = await createOwnerKeyring(this.options.store, vault, this.options.user, this.options.secret)
+        keyring = await createOwnerKeyring(
+          this.options.store,
+          vault,
+          this.options.user,
+          this.options.secret,
+          { validate: this.options.validatePassphrase === true },
+        )
       } else {
         throw err
       }

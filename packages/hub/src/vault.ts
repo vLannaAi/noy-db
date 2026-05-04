@@ -1895,6 +1895,26 @@ export class Vault {
   }
 
   /**
+   * Read the owner-curated public envelope for this vault (or
+   * `undefined` if none is persisted). The envelope lives in
+   * `_meta/public-envelope` as plaintext — readable without any KEK
+   * — so `getBundleHandle`-style callers can label a vault before
+   * unlock.
+   *
+   * Mirrors `Noydb.getPublicEnvelope(vault, opts)` but scoped to a
+   * single, already-opened `Vault` instance so the
+   * bundle writer can snapshot it without holding a `Noydb` reference.
+   *
+   * @see docs/subsystems/public-envelope.md
+   */
+  async getPublicEnvelope(
+    opts: { readonly locale?: string } = {},
+  ): Promise<import('./meta/public-envelope/types.js').PublicEnvelope | undefined> {
+    const { readPublicEnvelope } = await import('./meta/public-envelope/index.js')
+    return readPublicEnvelope(this.adapter, this.name, opts)
+  }
+
+  /**
    * Dump vault as a verifiable encrypted JSON backup string.
    *
    * backups embed the current ledger head and the full

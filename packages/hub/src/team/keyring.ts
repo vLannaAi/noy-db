@@ -1,4 +1,4 @@
-import type { NoydbStore, KeyringFile, Role, Permissions, GrantOptions, RevokeOptions, UserInfo, EncryptedEnvelope, ExportCapability, ExportFormat, ImportCapability } from '../types.js'
+import type { NoydbStore, KeyringFile, KeyringAuthenticator, Role, Permissions, GrantOptions, RevokeOptions, UserInfo, EncryptedEnvelope, ExportCapability, ExportFormat, ImportCapability, VaultPolicyOnDisk } from '../types.js'
 import { NOYDB_KEYRING_VERSION, NOYDB_FORMAT_VERSION } from '../types.js'
 import {
   deriveKey,
@@ -12,6 +12,7 @@ import {
   base64ToBuffer,
 } from '../crypto.js'
 import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, KeyringExpiredError } from '../errors.js'
+import { assertStrongPassphrase, type PassphrasePolicy } from '../validation.js'
 
 // ─── Roles that can grant/revoke ───────────────────────────────────────
 
@@ -76,6 +77,20 @@ export interface UnlockedKeyring {
    * bundle import granted, regardless of role).
    */
   readonly importCapability?: ImportCapability
+  /**
+   * Tier-2 authenticator slots — readonly snapshot loaded from the
+   * keyring file. Mutations go through `enrollAuthenticator` /
+   * `removeAuthenticator` (issue #11), which write back via
+   * `persistKeyring`. Always defined; loads with an empty array for
+   * keyrings written before the multi-slot extension landed.
+   */
+  readonly authenticators: readonly KeyringAuthenticator[]
+  /**
+   * Reserved per-keyring policy override (forward-compat for Option C
+   * — see {@link VaultPolicyOnDisk}). v1.0 round-trips this field but
+   * never enforces it; the gate engine uses `_meta/policy` only.
+   */
+  readonly policy?: VaultPolicyOnDisk
 }
 
 // ─── Load / Create ─────────────────────────────────────────────────────
@@ -124,18 +139,31 @@ export async function loadKeyring(
     deks,
     kek,
     salt,
+    authenticators: keyringFile.authenticators ?? [],
     ...(keyringFile.export_capability !== undefined && { exportCapability: keyringFile.export_capability }),
     ...(keyringFile.import_capability !== undefined && { importCapability: keyringFile.import_capability }),
+    ...(keyringFile.policy !== undefined && { policy: keyringFile.policy }),
   }
 }
 
-/** Create the initial owner keyring for a new vault. */
+/**
+ * Create the initial owner keyring for a new vault.
+ *
+ * Pass `{ validate: true }` (or a `PassphrasePolicy`) to gate creation
+ * on the phrase-format strength rules — `Noydb` threads this from
+ * `NoydbOptions.validatePassphrase`. Direct callers (CLI, scripts,
+ * test fixtures) opt in explicitly.
+ */
 export async function createOwnerKeyring(
   adapter: NoydbStore,
   vault: string,
   userId: string,
   passphrase: string,
+  passphraseOpts?: PassphrasePolicy & { validate?: boolean; allowWeakPassphrase?: boolean },
 ): Promise<UnlockedKeyring> {
+  if (passphraseOpts?.validate && !passphraseOpts.allowWeakPassphrase) {
+    assertStrongPassphrase(passphrase, passphraseOpts)
+  }
   const salt = generateSalt()
   const kek = await deriveKey(passphrase, salt)
 
@@ -161,6 +189,7 @@ export async function createOwnerKeyring(
     deks: new Map(),
     kek,
     salt,
+    authenticators: [],
   }
 }
 
@@ -177,6 +206,16 @@ export async function grant(
     throw new PermissionDeniedError(
       `Role "${callerKeyring.role}" cannot grant role "${options.role}"`,
     )
+  }
+
+  // Optional strength validation — opt-in via grant({ validatePassphrase: true })
+  // or via the calling Noydb's NoydbOptions.validatePassphrase flag.
+  // The override `allowWeakPassphrase: true` skips even when validate is on.
+  if (
+    (options as { validatePassphrase?: boolean }).validatePassphrase &&
+    !options.allowWeakPassphrase
+  ) {
+    assertStrongPassphrase(options.passphrase)
   }
 
   // Determine which collections the new user gets access to
@@ -526,13 +565,24 @@ export async function rotateKeys(
 
 // ─── Change Secret ─────────────────────────────────────────────────────
 
-/** Change the user's passphrase. Re-wraps all DEKs with the new KEK. */
+/**
+ * Change the user's passphrase. Re-wraps every DEK under the new KEK.
+ *
+ * Pass `{ validate: true }` (or a `PassphrasePolicy`) to gate the new
+ * phrase on the strength rules. `db.rotatePassphrase()` adds a
+ * `checkGate('rotate-passphrase')` step on top of this primitive and
+ * always validates.
+ */
 export async function changeSecret(
   adapter: NoydbStore,
   vault: string,
   keyring: UnlockedKeyring,
   newPassphrase: string,
+  passphraseOpts?: PassphrasePolicy & { validate?: boolean; allowWeakPassphrase?: boolean },
 ): Promise<UnlockedKeyring> {
+  if (passphraseOpts?.validate && !passphraseOpts.allowWeakPassphrase) {
+    assertStrongPassphrase(newPassphrase, passphraseOpts)
+  }
   const newSalt = generateSalt()
   const newKek = await deriveKey(newPassphrase, newSalt)
 
@@ -564,6 +614,13 @@ export async function changeSecret(
     deks: keyring.deks, // Same DEKs, different wrapping
     kek: newKek,
     salt: newSalt,
+    // Tier-2 slots are NOT preserved through `changeSecret` —
+    // each slot wraps the OLD KEK, so the new keyring has no
+    // authenticator slots until the user re-enrolls. The higher-level
+    // `db.rotatePassphrase()` (#10) preserves slots by rewrapping the
+    // KEK reference, not the KEK itself.
+    authenticators: [],
+    ...(keyring.policy !== undefined && { policy: keyring.policy }),
   }
 }
 
@@ -794,6 +851,8 @@ export async function persistKeyring(
     granted_by: keyring.userId,
     ...(keyring.exportCapability !== undefined && { export_capability: keyring.exportCapability }),
     ...(keyring.importCapability !== undefined && { import_capability: keyring.importCapability }),
+    ...(keyring.authenticators.length > 0 && { authenticators: keyring.authenticators }),
+    ...(keyring.policy !== undefined && { policy: keyring.policy }),
   }
 
   await writeKeyringFile(adapter, vault, keyring.userId, keyringFile)

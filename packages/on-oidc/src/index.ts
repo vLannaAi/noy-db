@@ -497,6 +497,7 @@ export async function unlockOidc(
     deks,
     kek: null as unknown as CryptoKey,
     salt: base64ToBuffer(parsed.salt),
+    authenticators: [],
   }
 }
 

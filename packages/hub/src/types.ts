@@ -446,6 +446,78 @@ export interface ImportCapability {
   readonly bundle?: boolean
 }
 
+/**
+ * Forward-declared on-disk shape for `VaultPolicy` — the actual policy
+ * model lives in `policy/types.ts` (#9). Declared here as `unknown`-typed
+ * map so types.ts has no dependency on the policy module while the
+ * `KeyringFile.policy` field can still round-trip foreign documents.
+ *
+ * @internal
+ */
+export type VaultPolicyOnDisk = Record<string, unknown>
+
+/**
+ * Recovery profile enrolled at vault creation (issue #10).
+ *
+ * - `paper` — `on-recovery` codes (the only end-to-end profile in v0.1.0-pre.5).
+ * - `shamir` / `multi-channel` / `admin-mediated` — API surface ships;
+ *   per-profile dispatch lands in follow-up issues. Calling
+ *   `db.recoverPassphrase` against these throws
+ *   {@link RecoveryProfileNotImplementedError}.
+ */
+export type RecoveryEnrollment =
+  | {
+      readonly profile: 'paper'
+      /** Number of single-use codes to print at enrollment. */
+      readonly codes: number
+    }
+  | {
+      readonly profile: 'shamir'
+      readonly k: number
+      readonly n: number
+      readonly trustees: ReadonlyArray<string>
+    }
+  | {
+      readonly profile: 'multi-channel'
+      readonly email?: string
+      readonly pin?: boolean
+      readonly paperCodes?: number
+    }
+  | {
+      readonly profile: 'admin-mediated'
+      readonly grantorUserId: string
+    }
+
+/**
+ * One tier-2 authenticator slot inside a keyring file. Each slot
+ * independently wraps the SAME KEK under a method-specific derived key
+ * (LUKS pattern). Adding or removing a slot is a constant-time keyring
+ * write — no DEK re-keying required.
+ *
+ * @see docs/subsystems/session-tiers.md → Tier 2 — Authenticate (multi-slot)
+ */
+export interface KeyringAuthenticator {
+  /** Caller-chosen identifier — e.g. `'webauthn-yubikey-blue'`, `'oidc-google'`, `'password-daily'`. */
+  readonly id: string
+  /** Method family — selects which `@noy-db/on-*` package handles unlock. */
+  readonly method: 'webauthn' | 'oidc' | 'password'
+  /** ISO-8601 timestamp at which the slot was added. */
+  readonly enrolled_at: string
+  /**
+   * Which session tier ENROLLED this slot. Tier 1 enrolls a fresh slot;
+   * tier 2 may add a sibling slot when the active policy permits.
+   */
+  readonly enrolled_via_tier: 1 | 2
+  /** Base64 wrapped-KEK ciphertext under the method-derived key. */
+  readonly wrapped_kek: string
+  /**
+   * Method-specific metadata: WebAuthn cred id, OIDC issuer/sub, PBKDF2
+   * salt for `on-password`, etc. The schema is open by design — the
+   * `@noy-db/on-*` package owns the contents.
+   */
+  readonly meta: Record<string, unknown>
+}
+
 export interface KeyringFile {
   readonly _noydb_keyring: typeof NOYDB_KEYRING_VERSION
   readonly user_id: string
@@ -456,6 +528,23 @@ export interface KeyringFile {
   readonly salt: string
   readonly created_at: string
   readonly granted_by: string
+  /**
+   * Tier-2 authenticator slots (multi-slot keyring extension).
+   * Optional / append-only: keyring files written before the
+   * extension load with an empty list. Each slot independently wraps
+   * the same KEK; any one of them unlocks.
+   *
+   * @see KeyringAuthenticator
+   */
+  readonly authenticators?: readonly KeyringAuthenticator[]
+  /**
+   * Per-keyring policy override (reserved). The on-disk format
+   * accepts the field for forward compatibility with the Option C
+   * merge engine deferred to a later release; v1.0 reads only the
+   * vault-level `_meta/policy` document, so this field is parsed and
+   * round-tripped but never enforced.
+   */
+  readonly policy?: VaultPolicyOnDisk
   /**
    * Optional — authorization spec capability bits. Absent on keyrings written
    * before the RFC implementation. Loading falls back to role-based
@@ -845,6 +934,12 @@ export interface GrantOptions {
    * is grantable until positively listed; bundle import is denied.
    */
   readonly importCapability?: ImportCapability
+  /**
+   * Skip phrase-format strength validation (issue #7). Defaults to
+   * false — `grant()` rejects phrases that don't meet the configured
+   * `PassphrasePolicy`. Test fixtures and CLI scripts pass `true`.
+   */
+  readonly allowWeakPassphrase?: boolean
 }
 
 export interface RevokeOptions {
@@ -1583,8 +1678,59 @@ export interface NoydbOptions {
    * legacy `sessionTimeout` field.
    */
   readonly sessionPolicy?: SessionPolicy
-  /** Validate passphrase strength on creation. Default: true. */
+  /**
+   * Validate passphrase strength against the phrase format
+   * (`@noy-db/hub` issue #7) on first-time keyring creation. When
+   * `true`, weak phrases throw {@link WeakPassphraseError} from
+   * `createNoydb()` / `db.rotatePassphrase()`. Default: `false` for
+   * back-compat in v0.1.x; planned to flip to `true` at v1.0.
+   */
   readonly validatePassphrase?: boolean
+  /**
+   * Vault-level policy gate document (issue #9). When present, the hub
+   * persists the merged policy at `_meta/policy` on first-time vault
+   * creation and gates sensitive operations (`db.rotatePassphrase`,
+   * `db.export*`, …) against it. Omitted ⇒ the engine uses
+   * {@link PERSONAL_POLICY}. Use {@link STRICT_POLICY} for regulated
+   * deployments.
+   *
+   * The on-disk document is the source of truth — the policy field
+   * is only honored at vault creation; subsequent runs read from
+   * `_meta/policy`. Use `db.updatePolicy()` to change it deliberately.
+   *
+   * Imported from `@noy-db/hub` as a type-only reference; the runtime
+   * import lives in `policy/index.ts`.
+   */
+  readonly policy?: import('./policy/types.js').VaultPolicy
+  /**
+   * Mandatory recovery profile enrollment (issue #10). Vaults with
+   * `recover-passphrase` enabled MUST register at least one profile
+   * before being production-ready, otherwise `createNoydb()` throws
+   * {@link RecoveryNotEnrolledError}. Set
+   * `policy.gates['recover-passphrase'].enabled = false` to
+   * deliberately opt out of recovery (passphrase loss = data loss).
+   *
+   * v0.1.0-pre.5 supports the `'paper'` profile end-to-end. Other
+   * profiles ship the API shape and throw
+   * {@link RecoveryProfileNotImplementedError} during use.
+   */
+  readonly recovery?: ReadonlyArray<RecoveryEnrollment>
+  /**
+   * When `true`, `createNoydb` rejects vaults with no recovery
+   * entries persisted (per the spec's mandatory-enrollment
+   * requirement). Default `false` for v0.1.x back-compat; planned to
+   * flip to `true` at v1.0. Apps in regulated environments should
+   * turn this on now.
+   */
+  readonly requireRecovery?: boolean
+  /**
+   * Enable the public envelope subsystem (`docs/subsystems/public-envelope.md`).
+   * Pass `true` for the default schema (every standard field, 256 KB
+   * icon cap, 200-char text cap), or a `PublicEnvelopeSchema` to
+   * narrow what the owner can set. Off by default — vaults written
+   * by hubs without this option carry no envelope, full stop.
+   */
+  readonly publicEnvelope?: true | import('./meta/public-envelope/types.js').PublicEnvelopeSchema
   /** Audit history configuration. */
   readonly history?: HistoryConfig
   /**

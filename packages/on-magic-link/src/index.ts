@@ -238,6 +238,7 @@ export function buildMagicLinkKeyring(opts: {
     deks: opts.deks,
     kek: opts.kek,
     salt: opts.salt,
+    authenticators: [],
   }
 }
 

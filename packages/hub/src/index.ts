@@ -80,6 +80,8 @@ export type {
   Permission,
   Permissions,
   EncryptedEnvelope,
+  KeyringAuthenticator,
+  VaultPolicyOnDisk,
   VaultSnapshot,
   NoydbStore,
   ListPageResult,
@@ -312,6 +314,68 @@ export type {
 // Keyring types
 export type { UnlockedKeyring } from './team/keyring.js'
 
+// Tier-2 authenticator slots — issue #11
+export {
+  enrollAuthenticator,
+  removeAuthenticator,
+  findAuthenticator,
+} from './team/authenticators.js'
+export type { EnrollAuthenticatorOptions } from './team/authenticators.js'
+
+// Tier-3 quick-unlock state — issue #11
+export { QuickUnlockStore } from './session/unlock-state.js'
+export type { QuickUnlockState } from './session/unlock-state.js'
+
+// Tier-1 change flows — issue #10
+export {
+  rotatePassphrase as keyringRotatePassphrase,
+  recoverPassphrase as keyringRecoverPassphrase,
+} from './team/rotate-recover.js'
+export type {
+  RotatePassphraseInput,
+  RecoverPassphraseInput,
+  RecoveryProof,
+} from './team/rotate-recover.js'
+
+// Public envelope (docs/subsystems/public-envelope.md)
+export {
+  loadPublicEnvelope,
+  savePublicEnvelope,
+  readPublicEnvelope,
+  resolveSchema as resolvePublicEnvelopeSchema,
+  validatePublicEnvelopeInput,
+  isPublicEnvelope,
+  PUBLIC_ENVELOPE_FIELDS,
+  DEFAULT_PUBLIC_ENVELOPE_SCHEMA,
+  PUBLIC_ENVELOPE_RECORD_ID,
+} from './meta/public-envelope/index.js'
+export type {
+  PublicEnvelope,
+  PublicEnvelopeText,
+  PublicEnvelopeSchema,
+  PublicEnvelopeField,
+  ResolvedPublicEnvelopeSchema,
+  SetPublicEnvelopeInput,
+} from './meta/public-envelope/index.js'
+export { readNoydbBundlePublicEnvelope } from './bundle/bundle.js'
+
+// Auth introspection — issue #13
+export {
+  describeAuthConfig,
+  diagramAuthConfig,
+  describeUserAuth,
+  describeAllUsersAuth,
+} from './auth-introspection/index.js'
+
+// Recovery storage — issue #10
+export {
+  loadPaperRecoveryEntries,
+  savePaperRecoveryEntries,
+  burnPaperRecoveryEntry,
+  hasRecoveryEnrolled,
+} from './team/recovery.js'
+export type { PaperRecoveryEntry, PaperRecoveryDoc } from './team/recovery.js'
+
 // Export-capability helpers
 export { hasExportCapability, evaluateExportCapability } from './team/keyring.js'
 export { hasImportCapability, evaluateImportCapability } from './team/keyring.js'
@@ -485,8 +549,48 @@ export type {
   DiffCandidate,
 } from './vault-diff.js'
 
-// Validation
-export { validatePassphrase, estimateEntropy } from './validation.js'
+// Policy gates DSL — issue #9
+export {
+  PERSONAL_POLICY,
+  STRICT_POLICY,
+  mergePolicy,
+  checkGate,
+  describeGate,
+  DEFAULT_FRESHNESS_MS,
+  PolicyDeniedError,
+  RecoveryNotEnrolledError,
+  RecoveryProfileNotImplementedError,
+  loadVaultPolicy,
+  saveVaultPolicy,
+  META_COLLECTION,
+  POLICY_RECORD_ID,
+} from './policy/index.js'
+export type {
+  VaultPolicy,
+  GatePolicy,
+  GateName,
+  BuiltInGateName,
+  FactorKind,
+  FactorRequirement,
+  FactorProof,
+  WarningRules,
+  ActiveTier,
+  PolicyDenyReason,
+  CheckGateContext,
+} from './policy/index.js'
+
+// Validation — phrase format (#7)
+export {
+  validatePassphrase,
+  assertStrongPassphrase,
+  estimateEntropy,
+  WeakPassphraseError,
+} from './validation.js'
+export type {
+  PassphrasePolicy,
+  PassphraseValidationResult,
+  WeakPassphraseReason,
+} from './validation.js'
 
 // Query DSL
 export {

@@ -171,6 +171,27 @@ features:
       - 'Managed-passphrase mode mandates at least one strong recovery profile and disables rotate-passphrase gate'
     related: [team, permissions, on-passphrase, on-webauthn, on-oidc, on-pin, on-totp, on-email-otp, on-recovery, on-shamir, on-magic-link, on-threat]
 
+  - id: public-envelope
+    name: Public envelope (owner-curated plaintext metadata)
+    cluster: meta
+    spec: docs/subsystems/public-envelope.md#public-envelope
+    subsystem_doc: docs/subsystems/public-envelope.md
+    package: '@noy-db/hub'
+    factory: null
+    status: preview
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Off by default — developer opts in via NoydbOptions.publicEnvelope'
+      - 'Plaintext untrusted hint — store can modify; v1 ships no signature'
+      - 'Schema-bounded — only fields the developer allowed are settable by the owner'
+      - 'Icon surface capped at 256 KB of data-URL string; PNG and SVG only'
+      - 'Bundle header widening is the single positively-listed exception to the minimum-disclosure rule'
+      - 'Locale resolution: name/description accept either a string or { [locale]: string } map; resolved via defaultLocale fallback chain'
+    related: [bundle, i18n, vault-and-collections]
+
   - id: history
     name: Versioned ledger + time-machine
     cluster: write-and-mutate
@@ -1234,6 +1255,22 @@ auths:
       - 'Lockout: threshold + window + cooldown; strikes escalate to wipe'
       - 'Duress / honeypot: secondary passphrase signals coercion to caller'
     related: [on-passphrase]
+
+  - id: on-password
+    name: Tier-2 daily password (separate from tier-1 phrase)
+    package: '@noy-db/on-password'
+    factor: knowledge
+    status: preview
+    subsystem_doc: docs/subsystems/session-tiers.md
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'PBKDF2-SHA256 (600,000 iterations) — matches tier-1 phrase derivation'
+      - 'Per-slot salt; wraps the SAME KEK in its own keyring slot (LUKS pattern)'
+      - 'Distinct from tier-1 phrase — different lifecycle, different strength rules'
+    related: [on-passphrase, on-totp, on-email-otp]
 
 # ─── Export formats (phase 4) ─────────────────────────────────────────
 

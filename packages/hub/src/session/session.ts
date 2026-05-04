@@ -250,6 +250,7 @@ export async function resolveSession(token: SessionToken): Promise<UnlockedKeyri
     deks,
     kek: null as unknown as CryptoKey, // KEK not available in session context
     salt: base64ToBuffer(payload.salt),
+    authenticators: [],
   }
 }
 

@@ -115,6 +115,18 @@ export interface NoydbBundleHeader {
   readonly bodyBytes: number
   /** SHA-256 of the compressed body bytes (lowercase hex). Lets readers verify integrity without decompressing. */
   readonly bodySha256: string
+  /**
+   * Owner-curated public envelope (`docs/subsystems/public-envelope.md`).
+   * Optional — present only when the source vault has a
+   * `_meta/public-envelope` document AND the writer's hub is opted
+   * into the feature. Treat as **untrusted hint**; the body's
+   * encrypted contents remain the source of truth.
+   *
+   * The envelope deliberately widens the minimum-disclosure rule
+   * for explicit, owner-curated label fields (name, icon, …). Every
+   * other unknown header key still rejects at parse time.
+   */
+  readonly publicEnvelope?: import('../meta/public-envelope/types.js').PublicEnvelope
 }
 
 /**
@@ -128,6 +140,7 @@ const ALLOWED_HEADER_KEYS: ReadonlySet<string> = new Set([
   'handle',
   'bodyBytes',
   'bodySha256',
+  'publicEnvelope',
 ])
 
 /**
@@ -191,6 +204,25 @@ export function validateBundleHeader(
         `got ${typeof h['bodySha256'] === 'string' ? `"${h['bodySha256']}"` : String(h['bodySha256'])}.`,
     )
   }
+  if (h['publicEnvelope'] !== undefined) {
+    const env = h['publicEnvelope']
+    if (env === null || typeof env !== 'object' || Array.isArray(env)) {
+      throw new Error(
+        `.noydb bundle header.publicEnvelope must be a JSON object when present, got ${typeof env}.`,
+      )
+    }
+    const e = env as Record<string, unknown>
+    if (e['_noydb_public'] !== 1) {
+      throw new Error(
+        `.noydb bundle header.publicEnvelope._noydb_public must be 1, got ${String(e['_noydb_public'])}.`,
+      )
+    }
+    if (typeof e['version'] !== 'number' || !Number.isInteger(e['version']) || e['version'] < 1) {
+      throw new Error(
+        `.noydb bundle header.publicEnvelope.version must be a positive integer, got ${String(e['version'])}.`,
+      )
+    }
+  }
 }
 
 /**
@@ -209,6 +241,7 @@ export function encodeBundleHeader(header: NoydbBundleHeader): Uint8Array {
     handle: header.handle,
     bodyBytes: header.bodyBytes,
     bodySha256: header.bodySha256,
+    ...(header.publicEnvelope !== undefined ? { publicEnvelope: header.publicEnvelope } : {}),
   })
   return new TextEncoder().encode(json)
 }

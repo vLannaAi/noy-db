@@ -53,6 +53,7 @@ import {
 import { BundleIntegrityError } from '../errors.js'
 import type { Vault } from '../vault.js'
 import type { BundleRecipient } from '../team/keyring.js'
+import { pickLocale } from '../meta/public-envelope/storage.js'
 
 /**
  * Options accepted by `writeNoydbBundle`.
@@ -492,11 +493,21 @@ export async function writeNoydbBundle(
     : await pumpThroughStream(dumpBytes, new CompressionStream(streamFormat))
 
   const bodySha256 = await sha256Hex(body)
+
+  // Snapshot the source vault's public envelope into the header
+  // when one is persisted. `Vault.getPublicEnvelope` tolerates a
+  // missing document and returns undefined, which we propagate as
+  // "no envelope in the header." Vaults without a
+  // `_meta/public-envelope` document produce minimum-disclosure
+  // headers exactly like before, preserving back-compat.
+  const publicEnvelope = await vault.getPublicEnvelope()
+
   const header: NoydbBundleHeader = {
     formatVersion: NOYDB_BUNDLE_FORMAT_VERSION,
     handle,
     bodyBytes: body.length,
     bodySha256,
+    ...(publicEnvelope !== undefined ? { publicEnvelope } : {}),
   }
   const headerBytes = encodeBundleHeader(header)
 
@@ -562,15 +573,48 @@ function parsePrefixAndHeader(bytes: Uint8Array): {
 
 /**
  * Read just the bundle header — no body decompression, no
- * integrity verification. Fast (O(prefix + header bytes)) and
- * intended for cloud-listing UIs that want to show the handle and
- * size before downloading the full body.
+ * integrity verification. Intended for cloud-listing UIs that want
+ * to show the handle and size before downloading the full body.
  *
  * Returns the same `NoydbBundleHeader` shape as the writer, with
  * minimum-disclosure validation already applied.
+ *
+ * **Cost** — O(prefix + header bytes). The header is normally well
+ * under 1 KB, but may grow to roughly 256 KB when a `publicEnvelope`
+ * with an inline icon is present. Cloud-listing UIs that previously
+ * assumed sub-KB header reads should account for this when sizing
+ * range requests against bundles that may carry icons.
  */
 export function readNoydbBundleHeader(bytes: Uint8Array): NoydbBundleHeader {
   return parsePrefixAndHeader(bytes).header
+}
+
+/**
+ * Read just the bundle's public envelope (`docs/subsystems/public-envelope.md`)
+ * — without verifying the body or even parsing the dump JSON. Pass
+ * the raw bundle bytes; receive the owner-curated metadata or
+ * `undefined` if the bundle was written without one.
+ *
+ * Locale-resolves any `name` / `description` map fields when `locale`
+ * is supplied. Omitting `locale` returns the raw envelope.
+ *
+ * Same security caveat as the on-vault read path — the public
+ * envelope is **untrusted hint** in v1; the encrypted body remains
+ * the source of truth for vault contents.
+ */
+export function readNoydbBundlePublicEnvelope(
+  bytes: Uint8Array,
+  opts: { readonly locale?: string } = {},
+): import('../meta/public-envelope/types.js').PublicEnvelope | undefined {
+  const header = parsePrefixAndHeader(bytes).header
+  const env = header.publicEnvelope
+  if (!env) return undefined
+  if (opts.locale === undefined) return env
+  return {
+    ...env,
+    ...(env.name !== undefined ? { name: pickLocale(env.name, opts.locale, env.defaultLocale) } : {}),
+    ...(env.description !== undefined ? { description: pickLocale(env.description, opts.locale, env.defaultLocale) } : {}),
+  }
 }
 
 /**

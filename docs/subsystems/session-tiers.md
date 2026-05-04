@@ -440,15 +440,25 @@ Tracked under milestone [`v0.1.0-pre.5`](https://github.com/vLannaAi/noy-db/mile
 | Tier-1 passphrase + KEK derivation | ✅ shipped | `@noy-db/hub/src/crypto.ts` |
 | `team/magic-link-grant.ts` (passphrase-less first-contact + recovery profile D) | ✅ shipped | `0.1.0-pre.4` |
 | Tier-2 single-slot via `getKeyring` callback | ✅ shipped | `0.1.0-pre.4` (#5) |
-| Phrase strength validator (default-on with override) | 🟡 planned | [#7](https://github.com/vLannaAi/noy-db/issues/7) |
-| Multi-slot `authenticators[]` keyring extension | 🟡 planned | [#8](https://github.com/vLannaAi/noy-db/issues/8) |
-| `packages/hub/src/policy/` module + gate engine + `checkGate()` | 🟡 planned | [#9](https://github.com/vLannaAi/noy-db/issues/9) |
-| `rotatePassphrase` / `recoverPassphrase` APIs (4 recovery profiles) | 🟡 planned | [#10](https://github.com/vLannaAi/noy-db/issues/10) |
-| `enrollAuthenticator` / `removeAuthenticator` / `enrollUnlock` APIs | 🟡 planned | [#11](https://github.com/vLannaAi/noy-db/issues/11) |
-| `@noy-db/on-password` package (tier-2 daily password) | 🟡 planned | [#12](https://github.com/vLannaAi/noy-db/issues/12) |
-| `describeAuthConfig` / `diagramAuthConfig` + per-user views | 🟡 planned | [#13](https://github.com/vLannaAi/noy-db/issues/13) |
+| Phrase strength validator (default-on with override) | ✅ shipped | `0.1.0-pre.5` ([#7](https://github.com/vLannaAi/noy-db/issues/7)) |
+| Multi-slot `authenticators[]` keyring extension | ✅ shipped | `0.1.0-pre.5` ([#8](https://github.com/vLannaAi/noy-db/issues/8)) |
+| `packages/hub/src/policy/` module + gate engine + `checkGate()` | ✅ shipped | `0.1.0-pre.5` ([#9](https://github.com/vLannaAi/noy-db/issues/9)) |
+| `rotatePassphrase` / `recoverPassphrase` APIs (paper profile end-to-end; other 3 throw `RecoveryProfileNotImplementedError`) | ✅ shipped (paper) / 🟡 partial | `0.1.0-pre.5` ([#10](https://github.com/vLannaAi/noy-db/issues/10)) |
+| `enrollAuthenticator` / `removeAuthenticator` / `unlockViaAuthenticator` / `enrollUnlock` / `unlockViaPin` APIs | ✅ shipped | `0.1.0-pre.5` ([#11](https://github.com/vLannaAi/noy-db/issues/11)) |
+| `@noy-db/on-password` package (tier-2 daily password) | ✅ shipped | `0.1.0-pre.5` ([#12](https://github.com/vLannaAi/noy-db/issues/12)) |
+| `describeAuthConfig` / `diagramAuthConfig` + per-user views (gated by `view-user-auth`) | ✅ shipped | `0.1.0-pre.5` ([#13](https://github.com/vLannaAi/noy-db/issues/13)) |
 | Managed-passphrase mode + `SealingKeyProvider` | ⏸ backlog (post-1.0) | [#14](https://github.com/vLannaAi/noy-db/issues/14) |
 | Per-keyring policy override merge engine (Option C runtime) | ⏸ backlog (deferred) | [#15](https://github.com/vLannaAi/noy-db/issues/15) |
+
+> **v0.1.0-pre.5 limitations**
+>
+> - **Tier-2 slots are dropped on tier-1 rotation.** Each authenticator slot wraps the
+>   *old* KEK; rewrapping requires the per-slot derivation key, which the hub does not
+>   hold at rotation time. Re-enrol slots via `db.enrollAuthenticator` after `db.rotatePassphrase`.
+> - **Recovery: paper profile only.** Shamir, multi-channel, and admin-mediated profiles ship
+>   the API surface and throw `RecoveryProfileNotImplementedError`. Tracking under [#10](https://github.com/vLannaAi/noy-db/issues/10).
+> - **Per-keyring policy override (Option C)** is parsed and round-tripped on disk but ignored
+>   by the gate engine. Activated in a later release as a strengthening-only override.
 
 ## Forward compatibility
 

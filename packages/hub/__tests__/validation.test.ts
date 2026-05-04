@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { validatePassphrase, estimateEntropy } from '../src/validation.js'
-import { ValidationError } from '../src/errors.js'
+import {
+  validatePassphrase,
+  assertStrongPassphrase,
+  estimateEntropy,
+  WeakPassphraseError,
+} from '../src/validation.js'
 import {
   NoydbError,
   DecryptionError,
@@ -12,42 +16,147 @@ import {
   ConflictError,
   NetworkError,
   NotFoundError,
+  ValidationError,
 } from '../src/errors.js'
 
-describe('validatePassphrase', () => {
-  it('accepts strong passphrases', () => {
-    expect(() => validatePassphrase('correct-horse-battery-staple')).not.toThrow()
-    expect(() => validatePassphrase('MyP@ssw0rd!2026')).not.toThrow()
-    expect(() => validatePassphrase('สวัสดีครับทดสอบรหัสผ่าน')).not.toThrow()
+describe('validatePassphrase (phrase format)', () => {
+  it('accepts well-formed 6-word phrases', () => {
+    expect(validatePassphrase('correct horse battery staple printer toaster')).toEqual({
+      ok: true,
+      words: 6,
+    })
+    expect(
+      validatePassphrase('glasses cabinet bicycle umbrella thunder velvet'),
+    ).toEqual({ ok: true, words: 6 })
   })
 
-  it('rejects short passphrases', () => {
-    expect(() => validatePassphrase('short')).toThrow(ValidationError)
-    expect(() => validatePassphrase('1234567')).toThrow(ValidationError)
+  it('rejects too-few-words', () => {
+    const r = validatePassphrase('correct horse battery staple printer')
+    expect(r.ok).toBe(false)
+    if (!r.ok) {
+      expect(r.reason).toBe('too-few-words')
+      expect(r.minimum).toBe(6)
+      expect(r.got).toBe(5)
+    }
   })
 
-  it('rejects very short passphrases below minimum', () => {
-    expect(() => validatePassphrase('Ab1!')).toThrow(ValidationError) // 4 chars, too short
-    expect(() => validatePassphrase('abcdefg')).toThrow(ValidationError) // 7 chars
-    expect(() => validatePassphrase('abcdefgh')).not.toThrow() // 8 chars, passes
+  it('rejects empty', () => {
+    const r = validatePassphrase('')
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.reason).toBe('empty')
+  })
+
+  it('rejects uppercase', () => {
+    const r = validatePassphrase('Correct horse battery staple printer toaster')
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.reason).toBe('invalid-chars')
+  })
+
+  it('rejects punctuation / digits / symbols', () => {
+    expect((validatePassphrase('correct horse battery staple printer toaster!') as { reason: string }).reason).toBe(
+      'invalid-chars',
+    )
+    expect((validatePassphrase('correct horse battery staple printer toaster1') as { reason: string }).reason).toBe(
+      'invalid-chars',
+    )
+    expect((validatePassphrase('correct-horse-battery-staple-printer-toaster') as { reason: string }).reason).toBe(
+      'invalid-chars',
+    )
+  })
+
+  it('rejects double space', () => {
+    const r = validatePassphrase('correct  horse battery staple printer toaster')
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.reason).toBe('double-space')
+  })
+
+  it('rejects leading and trailing space', () => {
+    expect((validatePassphrase(' correct horse battery staple printer toaster') as { reason: string }).reason).toBe(
+      'leading-or-trailing-space',
+    )
+    expect((validatePassphrase('correct horse battery staple printer toaster ') as { reason: string }).reason).toBe(
+      'leading-or-trailing-space',
+    )
+  })
+
+  it('rejects words shorter than minimum', () => {
+    const r = validatePassphrase('correct horse battery staple printer is')
+    expect(r.ok).toBe(false)
+    if (!r.ok) {
+      expect(r.reason).toBe('word-too-short')
+      expect(r.minimum).toBe(3)
+    }
+  })
+
+  it('rejects repeated adjacent words', () => {
+    const r = validatePassphrase('correct horse battery staple printer the the')
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.reason).toBe('repeated-adjacent')
+  })
+
+  it('honours strict policy (minWords: 8)', () => {
+    const r = validatePassphrase('correct horse battery staple printer toaster', { minWords: 8 })
+    expect(r.ok).toBe(false)
+    if (!r.ok) {
+      expect(r.reason).toBe('too-few-words')
+      expect(r.minimum).toBe(8)
+    }
+
+    expect(
+      validatePassphrase('correct horse battery staple printer toaster glasses cabinet', {
+        minWords: 8,
+      }),
+    ).toEqual({ ok: true, words: 8 })
+  })
+
+  it('rejectRepeatedAdjacent=false allows "the the"', () => {
+    expect(
+      validatePassphrase('correct horse battery staple printer the the', {
+        rejectRepeatedAdjacent: false,
+      }),
+    ).toEqual({ ok: true, words: 7 })
+  })
+})
+
+describe('assertStrongPassphrase', () => {
+  it('throws WeakPassphraseError on weak input', () => {
+    expect(() => assertStrongPassphrase('abc')).toThrow(WeakPassphraseError)
+  })
+
+  it('passes on strong phrase', () => {
+    expect(() =>
+      assertStrongPassphrase('correct horse battery staple printer toaster'),
+    ).not.toThrow()
+  })
+
+  it('allowWeakPassphrase: true bypasses (test fixtures)', () => {
+    expect(() => assertStrongPassphrase('abc', { allowWeakPassphrase: true })).not.toThrow()
+  })
+
+  it('exposes machine-readable reason', () => {
+    try {
+      assertStrongPassphrase('abc')
+      throw new Error('should have thrown')
+    } catch (err) {
+      expect(err).toBeInstanceOf(WeakPassphraseError)
+      if (err instanceof WeakPassphraseError) {
+        expect(err.reason).toBe('too-few-words')
+        expect(err.code).toBe('WEAK_PASSPHRASE')
+      }
+    }
   })
 })
 
 describe('estimateEntropy', () => {
-  it('increases with password length', () => {
-    const short = estimateEntropy('abc')
-    const long = estimateEntropy('abcdefghijkl')
-    expect(long).toBeGreaterThan(short)
+  it('returns ~77 bits for a 6-word phrase', () => {
+    const e = estimateEntropy('correct horse battery staple printer toaster')
+    expect(e).toBeGreaterThanOrEqual(76)
+    expect(e).toBeLessThanOrEqual(78)
   })
 
-  it('increases with character class diversity', () => {
-    const lower = estimateEntropy('abcdefgh')
-    const mixed = estimateEntropy('aBcDeFgH')
-    const withNum = estimateEntropy('aBcD1234')
-    const withSym = estimateEntropy('aB1!cD2@')
-    expect(mixed).toBeGreaterThan(lower)
-    expect(withNum).toBeGreaterThan(mixed)
-    expect(withSym).toBeGreaterThan(withNum)
+  it('returns 0 for ill-formed phrases', () => {
+    expect(estimateEntropy('Ab1!')).toBe(0)
+    expect(estimateEntropy('correct  horse battery staple printer toaster')).toBe(0)
   })
 })
 
