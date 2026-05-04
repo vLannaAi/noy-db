@@ -124,11 +124,36 @@ Releases are **manual and event-driven**. There is no automated "merge to main �
 5. Open a PR against `main`, get CI green, and merge.
 6. **Create a GitHub Release** targeting `main` with tag `v0.X.0` and release notes:
    ```bash
+   # Stable release → publishes to npm `@latest`
    gh release create v0.X.0 --target main --title "..." --notes "..."
+
+   # Early-adopter release → publishes to npm `@next`
+   gh release create v0.X.0 --target main --prerelease --title "..." --notes "..."
    ```
-7. Creating the release fires `.github/workflows/release.yml`, which checks out the tag, runs build + test + privacy guard, and publishes every package whose local version is ahead of npm — with provenance attestations via `NPM_CONFIG_PROVENANCE=true`.
-8. Verify all packages are live: `for pkg in core memory file browser dynamo s3 nuxt pinia vue create; do npm view @noy-db/$pkg version; done`. Note that `registry.npmjs.org` may serve a stale CDN cache for first-time package publishes — use `https://registry.npmjs.com/@noy-db/<pkg>` (note `.com`, not `.org`) for the canonical response if you see lingering 404s.
-9. **Post-publish dogfood test** — install the public packages into a fresh temp dir and run an end-to-end smoke. Catches CDN issues, metadata bugs, and the rare "published but actually broken" scenario.
+   The **`--prerelease` flag is what flips the dist-tag**: the workflow reads `github.event.release.prerelease` and routes the publish to `@next` when the box is checked, `@latest` when it is not. The chosen tag is echoed in the run summary before any `npm publish` runs, so an unintended target shows up immediately and can be cancelled.
+7. Creating the release fires `.github/workflows/release.yml`, which checks out the tag, runs build + test + privacy guard, and publishes every package whose local version is ahead of npm — with provenance attestations via `NPM_CONFIG_PROVENANCE=true`. The workflow's "Resolve npm dist-tag" step is the source of truth — read its summary line in the GitHub Actions UI before authorising any retry.
+8. Verify all packages are live: `for pkg in hub to-memory to-file to-browser-idb to-aws-dynamo to-aws-s3 in-nuxt in-pinia in-vue on-password create-noy-db; do npm view @noy-db/$pkg dist-tags; done`. The output should list both `latest` and (if applicable) `next` with the version you just shipped. Note that `registry.npmjs.org` may serve a stale CDN cache for first-time package publishes — use `https://registry.npmjs.com/@noy-db/<pkg>` (note `.com`, not `.org`) for the canonical response if you see lingering 404s.
+9. **Post-publish dogfood test** — install the public packages into a fresh temp dir and run an end-to-end smoke. Catches CDN issues, metadata bugs, and the rare "published but actually broken" scenario. For an `@next` publish, install with the explicit tag (`pnpm add @noy-db/hub@next`) — the default install path stays on `@latest` and would test the wrong version.
+
+#### When to publish `@latest` vs `@next`
+
+The two dist-tags exist to separate the curated, themed release line from the in-flight line that early-adopter consumers can opt into:
+
+| Channel | When to use | Consumer install command |
+|---|---|---|
+| **`@latest`** | Themed pre-releases bundling a coherent story (e.g. `0.1.0-pre.5` — three-tier auth). The default install. | `pnpm add @noy-db/hub` |
+| **`@next`** | In-flight features published on a tighter cadence so a pilot consumer can pull them ahead of the next themed release. Expect breakage between `@next` versions. | `pnpm add @noy-db/hub@next` |
+
+The version-number sequence is **shared across both channels** — there is no separate "next-only" version line. A `@next` publish at `0.1.0-pre.6-feat.public-envelope.0` is followed by a `@latest` publish at `0.1.0-pre.6` once the work consolidates. Consumers who want the latest stable always type `pnpm add @noy-db/hub` and never have to think about the channel; consumers who want the in-flight code opt in once with `@next` and stay there until they're ready to switch back.
+
+#### Manual workflow_dispatch
+
+The `Release to npm` workflow also exposes a manual dispatch with two inputs:
+
+- `confirm` — must be the literal string `PUBLISH` (typo guard).
+- `tag` — npm dist-tag, default `latest`. Allowlist: `latest | next | canary | rc | beta | alpha`. Anything else aborts the publish.
+
+Useful for first-publish, re-publish debugging, or when you want to ship a `canary`/`rc` version without making a full GitHub Release. Same provenance + verification gates as the release-event path.
 
 The release workflow used to also have a changesets-action-driven path (push to main → auto version PR → publish on merge). It was removed after because it raced against the release-event flow and the changesets `linked` config was brittle. **Don't add it back without consensus.**
 

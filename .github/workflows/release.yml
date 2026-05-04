@@ -11,6 +11,26 @@ name: Release to npm
 # run (supply-chain integrity). Requires `id-token: write` permission
 # on the job.
 #
+# ── npm dist-tag routing ─────────────────────────────────────────────
+#
+# The pipeline routes a publish to one of two npm dist-tags:
+#
+#   • `latest` — the default install (`pnpm add @noy-db/hub`). Used
+#     for stable themed releases (e.g. v0.1.0-pre.5 = three-tier auth).
+#   • `next`   — opt-in early-adopter channel (`pnpm add @noy-db/hub@next`).
+#     Used for in-flight features the pilot consumer can pull from
+#     while a stable release is still cooking.
+#
+# Routing rules:
+#   - `release` event with `prerelease: true` (the "Set as a pre-release"
+#     checkbox on the GitHub Release form) → publishes with `--tag next`.
+#   - `release` event with `prerelease: false` → publishes with `--tag latest`.
+#   - Manual `workflow_dispatch` → uses the `tag` input (default `latest`).
+#
+# Both paths preserve `--provenance` and the strict verification gate.
+# The chosen tag is echoed to the workflow log + the run summary before
+# any publish runs, so an unintended target shows up immediately.
+#
 # Setup required (one-time, in repo Settings → Secrets and variables):
 #   - NPM_TOKEN (npm automation token, scope "Publish packages")
 #     IMPORTANT: must have publish access to the unscoped `create-noy-db`
@@ -20,15 +40,18 @@ name: Release to npm
 #     Settings → Actions → General → Workflow permissions
 #
 # Release procedure:
-#   1. Bump versions in every package.json (e.g. `0.1.0-pre.3`).
+#   1. Bump versions in every package.json (e.g. `0.1.0-pre.6`).
 #   2. Commit + push to main — PR goes through standard CI.
 #   3. Tag the release commit: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 #   4. Create a GitHub Release against the tag.
+#      - For a stable release, leave "Set as a pre-release" UNCHECKED.
+#      - For an `@next` early-adopter publish, CHECK "Set as a pre-release".
 #   5. This workflow fires automatically on the Release event.
 #
 # Manual dispatch is available for first-publish or re-publish debugging;
 # it requires typing PUBLISH into the confirm field so accidental triggers
-# can't publish by mistake.
+# can't publish by mistake. The `tag` input lets a maintainer override
+# the dist-tag (e.g. `next`, `canary`, `rc`) without touching this file.
 
 on:
   release:
@@ -39,6 +62,10 @@ on:
         description: 'Type PUBLISH to confirm manual trigger'
         required: true
         default: ''
+      tag:
+        description: 'npm dist-tag (latest | next | canary | rc | beta | alpha)'
+        required: false
+        default: 'latest'
   push:
     branches: [main]
     paths: ['.github/workflows/release.yml']
@@ -150,6 +177,49 @@ jobs:
       - name: Build all packages
         run: pnpm turbo build
 
+      # Resolve the npm dist-tag for this run. Computed once + echoed
+      # to the run summary so an unintended target shows up before any
+      # publish runs. Allowlist guards against typos in workflow_dispatch
+      # input — the publish step refuses to run with an unknown tag.
+      - name: Resolve npm dist-tag
+        id: dist_tag
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            if [ "${{ github.event.release.prerelease }}" = "true" ]; then
+              TAG="next"
+              REASON="release event, prerelease=true"
+            else
+              TAG="latest"
+              REASON="release event, prerelease=false"
+            fi
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+            REASON="workflow_dispatch tag input"
+          else
+            TAG="latest"
+            REASON="default"
+          fi
+
+          case "$TAG" in
+            latest|next|canary|rc|beta|alpha) ;;
+            *)
+              echo "❌ Refusing to publish: tag '$TAG' is not in the allowlist (latest|next|canary|rc|beta|alpha)."
+              exit 1
+              ;;
+          esac
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "### npm dist-tag" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Tag:** \`$TAG\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Reason:** $REASON" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$TAG" = "latest" ]; then
+            echo "Consumers run \`pnpm add @noy-db/hub\` (default install)." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Consumers run \`pnpm add @noy-db/hub@$TAG\` (opt-in channel)." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       # Check which npm account the token belongs to. If this step fails,
       # the token is invalid; if it shows the wrong user, the user's account
       # doesn't own create-noy-db.
@@ -173,9 +243,10 @@ jobs:
       - name: Publish @noy-db/* scoped packages
         run: |
           set -o pipefail
+          echo "Publishing @noy-db/* with --tag ${{ steps.dist_tag.outputs.tag }}"
           pnpm publish -r --filter '@noy-db/*' \
             --access public \
-            --tag latest \
+            --tag '${{ steps.dist_tag.outputs.tag }}' \
             --no-git-checks \
             --provenance 2>&1 | tee /tmp/scoped-publish.log
           EXIT=${PIPESTATUS[0]}
@@ -202,7 +273,10 @@ jobs:
       - name: Publish create-noy-db
         run: |
           set -o pipefail
-          npm publish "${{ steps.pack.outputs.tarball }}" --access public 2>&1 | tee /tmp/npm-publish.log
+          echo "Publishing create-noy-db with --tag ${{ steps.dist_tag.outputs.tag }}"
+          npm publish "${{ steps.pack.outputs.tarball }}" \
+            --access public \
+            --tag '${{ steps.dist_tag.outputs.tag }}' 2>&1 | tee /tmp/npm-publish.log
           EXIT=${PIPESTATUS[0]}
           if [ "$EXIT" -ne 0 ]; then
             echo "### Publish failed" >> "$GITHUB_STEP_SUMMARY"
@@ -220,5 +294,6 @@ jobs:
           echo "### Published" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "- Release: \`${{ github.event.release.tag_name || github.ref_name }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- npm dist-tag: \`${{ steps.dist_tag.outputs.tag }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Provenance: enabled (look for the ✓ on https://www.npmjs.com/package/@noy-db/hub)" >> "$GITHUB_STEP_SUMMARY"

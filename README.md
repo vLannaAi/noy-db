@@ -213,6 +213,20 @@ pnpm add @noy-db/hub @noy-db/to-file @noy-db/to-aws-dynamo
 
 For starter applications see [`docs/recipes/`](docs/recipes/) — four runnable recipes covering personal, accounting, real-time, and analytics shapes.
 
+### Release channels
+
+noy-db ships through two npm dist-tags. The default install pulls the curated, themed releases; an opt-in `@next` channel carries in-flight features for early-adopter consumers.
+
+```bash
+# Stable — themed releases (default)
+pnpm add @noy-db/hub
+
+# Early-adopter — in-flight features, expect breakage between versions
+pnpm add @noy-db/hub@next
+```
+
+Pre-1.0 (today): both channels can be ahead of where you'd expect a `0.x` library to be — anything in `@next` is "actively maturing"; anything in `@latest` has at least passed a themed release gate. Post-1.0: `@latest` becomes a strict-SemVer contract, `@next` keeps its experimental nature.
+
 ---
 
 ## Runs on whatever you've got
