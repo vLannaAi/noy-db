@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/as-ndjson",
-  "version": "0.1.0-pre.4",
+  "version": "0.1.0-pre.5",
   "description": "Newline-delimited JSON export for noy-db — streaming plaintext export suitable for data pipelines, warehouse ingestion, and jq pipelines. Gated by RFC #249 canExportPlaintext. Part of the @noy-db/as-* portable-artefact family (plaintext tier).",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
