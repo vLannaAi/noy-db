@@ -15,8 +15,10 @@ import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, Keyring
 import { assertStrongPassphrase, type PassphrasePolicy } from '../validation.js'
 import {
   saveUserEnvelope,
+  loadUserEnvelope as loadUserEnvelopeFn,
   deleteUserEnvelope,
   USER_ENVELOPE_COLLECTION,
+  type UserEnvelope as UserEnvelopeReader,
 } from '../meta/user-envelope/index.js'
 
 // ─── Roles that can grant/revoke ───────────────────────────────────────
@@ -815,6 +817,43 @@ export async function listUsers(
 
   return users
 }
+
+/**
+ * Joined enumeration: every keyring + its `_users/<keyringId>`
+ * envelope side by side. Convenience for admin UIs that want to
+ * render team-member lists with profile data ("Bob — operator —
+ * 'Bob the Auditor' avatar X locale fr-FR") in a single pass.
+ *
+ * `userEnvelopeDek` is the vault's `_users` collection DEK
+ * (`vault.getDEK('_users')`); used to decrypt every envelope.
+ *
+ * Principals without a persisted envelope (legacy keyrings predating
+ * the user-envelope feature) come back with `envelope: null`. The
+ * caller chooses how to render — usually "fall back to keyring's
+ * `displayName`".
+ *
+ * Order matches `listUsers()` (store-defined; sort if you need a
+ * stable display order).
+ */
+export async function listUsersWithEnvelopes<T = unknown>(
+  adapter: NoydbStore,
+  vault: string,
+  userEnvelopeDek: CryptoKey,
+): Promise<Array<{ user: UserInfo; envelope: UserEnvelopeReader<T> | null }>> {
+  const users = await listUsers(adapter, vault)
+  const out: Array<{ user: UserInfo; envelope: UserEnvelopeReader<T> | null }> = []
+  for (const user of users) {
+    const envelope = await loadUserEnvelopeFn<T>(
+      adapter,
+      vault,
+      user.userId,
+      userEnvelopeDek,
+    )
+    out.push({ user, envelope })
+  }
+  return out
+}
+
 
 // ─── DEK Management ────────────────────────────────────────────────────
 

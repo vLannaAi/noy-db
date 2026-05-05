@@ -404,6 +404,11 @@ export { hasImportCapability, evaluateImportCapability } from './team/keyring.js
 export type { BundleRecipient } from './team/keyring.js'
 export { buildRecipientKeyringFile } from './team/keyring.js'
 
+// Team enumeration — joined view of keyrings and their user envelopes
+// (#23). Useful for admin UIs that want to render team-member lists
+// with profile data in a single pass.
+export { listUsers, listUsersWithEnvelopes } from './team/keyring.js'
+
 // Core classes
 export { Noydb, createNoydb } from './noydb.js'
 export { Vault, ElevatedHandle, ELEVATION_AUDIT_COLLECTION } from './vault.js'
