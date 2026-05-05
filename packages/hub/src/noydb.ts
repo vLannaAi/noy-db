@@ -1103,6 +1103,106 @@ export class Noydb {
   }
 
   /**
+   * Native WebAuthn enrollment using the **real** internal keyring (#16).
+   *
+   * Why this exists: when a consumer is using `createNoydb({ secret })`,
+   * they cannot reach the live `UnlockedKeyring` to feed it to
+   * `enrollWebAuthn(keyring, vault, opts)` from `@noy-db/on-webauthn`.
+   * Constructing a synthetic keyring (the previous workaround) produces
+   * a slot whose `wrapped_kek` references the synthetic payload, not
+   * the live session — so `unlockViaAuthenticator()` later replaces the
+   * live DEK map with stale wrapped DEKs and every decrypt fails.
+   *
+   * This method runs `ceremony` with the REAL keyring (still in
+   * `keyringCache`). The ceremony performs the WebAuthn enrollment and
+   * returns the slot options that hub then persists via the standard
+   * tier-2 enrollAuthenticator path.
+   *
+   * Layering note: hub does not import `@noy-db/on-webauthn` (that
+   * would invert the dep graph). The consumer wires it in:
+   *
+   * ```ts
+   * import { enrollWebAuthn } from '@noy-db/on-webauthn'
+   *
+   * await db.enrollWebAuthn('demo', async (keyring) => {
+   *   const e = await enrollWebAuthn(keyring, 'demo', { rp: {...} })
+   *   return {
+   *     id: `webauthn-${e.credentialId.slice(0, 8)}`,
+   *     method: 'webauthn',
+   *     wrapped_kek: e.wrappedPayload,
+   *     meta: {
+   *       credentialId: e.credentialId,
+   *       wrapIv: e.wrapIv,
+   *       prfUsed: e.prfUsed,
+   *       beFlag: e.beFlag,
+   *       requireSingleDevice: e.requireSingleDevice,
+   *     },
+   *   }
+   * })
+   * ```
+   *
+   * Returns the WebAuthn `credentialId` (extracted from `meta.credentialId`)
+   * for the caller's lookup index (a bootstrap vault, a PublicEnvelope,
+   * a server-side allowlist).
+   *
+   * Gated by `enroll-authenticator` like `enrollAuthenticator()` itself.
+   *
+   * @see #16
+   */
+  async enrollWebAuthn(
+    vault: string,
+    ceremony: (keyring: UnlockedKeyring) => Promise<EnrollAuthenticatorOptions>,
+    presented?: { factors?: ReadonlyArray<FactorProof>; sharedDevice?: boolean },
+  ): Promise<{ credentialId: string }> {
+    await this.checkGate(vault, 'enroll-authenticator', presented)
+    const keyring = await this.getKeyring(vault)
+    const slotOptions = await ceremony(keyring)
+    if (slotOptions.method !== 'webauthn') {
+      throw new ValidationError(
+        `enrollWebAuthn: ceremony returned method "${slotOptions.method}"; expected "webauthn". ` +
+          'Use db.enrollAuthenticator() for non-webauthn methods.',
+      )
+    }
+    const credentialId = (slotOptions.meta as { credentialId?: unknown }).credentialId
+    if (typeof credentialId !== 'string' || credentialId.length === 0) {
+      throw new ValidationError(
+        'enrollWebAuthn: ceremony result must include `meta.credentialId` (base64 string). ' +
+          'See @noy-db/on-webauthn enrollWebAuthn() return shape.',
+      )
+    }
+    const next = await keyringEnrollAuthenticator(this.options.store, vault, keyring, slotOptions)
+    this.keyringCache.set(vault, next)
+    return { credentialId }
+  }
+
+  /**
+   * Filter the slot list to webauthn-method slots only. Useful for
+   * "you have N WebAuthn credentials enrolled" UI surfaces and for
+   * deciding when a new device prompt should appear. Identity is
+   * `id` + `enrolled_at`; the `meta.credentialId` (base64) is used by
+   * `allowCredentials` at unlock time.
+   *
+   * @see #16
+   */
+  async listWebAuthnSlots(vault: string): Promise<ReadonlyArray<{
+    id: string
+    enrolledAt: string
+    credentialId: string
+  }>> {
+    const keyring = await this.getKeyring(vault)
+    return keyring.authenticators
+      .filter((a) => a.method === 'webauthn')
+      .map((a) => {
+        const credentialId = (a.meta as { credentialId?: unknown }).credentialId
+        return {
+          id: a.id,
+          enrolledAt: a.enrolled_at,
+          credentialId: typeof credentialId === 'string' ? credentialId : '',
+        }
+      })
+  }
+
+  /**
    * Resolve a slot by id, then hand the wrapped-KEK ciphertext + meta
    * to the caller-supplied verifier. The verifier is the
    * `unlockWith*` function from the corresponding `@noy-db/on-*`
