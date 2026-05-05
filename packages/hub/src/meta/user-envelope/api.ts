@@ -16,6 +16,8 @@
  * @module
  */
 import type { NoydbStore } from '../../types.js'
+import { PolicyDeniedError } from '../../policy/errors.js'
+import type { FactorProof } from '../../policy/types.js'
 import {
   loadUserEnvelope,
   saveUserEnvelope,
@@ -34,6 +36,28 @@ export type DeepPartial<T> = T extends object
 
 /** Cancel a previously-registered subscription. */
 export type Unsubscribe = () => void
+
+/**
+ * Optional factor-proof bundle threaded into gated user-envelope
+ * operations. Same shape as `Noydb.checkGate(vault, gate, presented)`
+ * accepts elsewhere — apps that have already presented a TOTP/email-OTP
+ * for this session pass it here to satisfy tightened policies.
+ */
+export interface UserEnvelopePresented {
+  readonly factors?: readonly FactorProof[]
+  readonly sharedDevice?: boolean
+}
+
+/**
+ * Callback used by `UserApi` to validate the active session against a
+ * policy gate. Provided by the `Vault` constructor; in production this
+ * delegates to `Noydb.checkGate(vault, gate, presented)`. In tests, a
+ * no-op stub is fine.
+ */
+export type UserEnvelopeCheckGate = (
+  gate: 'edit-own-profile' | 'view-team-profiles',
+  presented?: UserEnvelopePresented,
+) => Promise<void>
 
 /**
  * Reactive handle returned by `live()`. `current` is the most recently
@@ -67,6 +91,12 @@ export class UserApi {
     /** The writer's own keyringId. Frozen at construction time. */
     private readonly writerKeyringId: string,
     private readonly getDek: () => Promise<CryptoKey>,
+    /**
+     * Policy-gate validator. When omitted, gates are skipped — useful
+     * for low-level tests that exercise the storage layer directly.
+     * Production paths always wire the Noydb-backed implementation.
+     */
+    private readonly checkGate?: UserEnvelopeCheckGate,
   ) {}
 
   // ─── Write-self ──────────────────────────────────────────────────────
@@ -81,10 +111,16 @@ export class UserApi {
    * Deep-merge a partial patch into the writer's own envelope. Creates
    * the envelope on first call. Optimistic-concurrency safe — a stale
    * `_v` (parallel writer on another device) throws `ConflictError`.
+   *
+   * Gated by the `edit-own-profile` policy gate (default `minTier: 3`).
+   * Pass `presented` to satisfy tightened policies that require a
+   * factor proof (e.g. STRICT_POLICY's TOTP requirement).
    */
   async updateMe<T extends object = Record<string, unknown>>(
     patch: DeepPartial<T>,
+    presented?: UserEnvelopePresented,
   ): Promise<UserEnvelope<T>> {
+    if (this.checkGate) await this.checkGate('edit-own-profile', presented)
     const dek = await this.getDek()
     const current = await loadUserEnvelope<T>(
       this.adapter,
@@ -109,8 +145,14 @@ export class UserApi {
    * Replace the writer's own envelope with `payload`. Use sparingly —
    * `updateMe` is the canonical mutation. No `expectedVersion` check;
    * callers explicitly take last-write-wins semantics.
+   *
+   * Gated by `edit-own-profile`. See `updateMe` for `presented` usage.
    */
-  async setMe<T = unknown>(payload: T): Promise<UserEnvelope<T>> {
+  async setMe<T = unknown>(
+    payload: T,
+    presented?: UserEnvelopePresented,
+  ): Promise<UserEnvelope<T>> {
+    if (this.checkGate) await this.checkGate('edit-own-profile', presented)
     const dek = await this.getDek()
     const written = await saveUserEnvelope<T>(
       this.adapter,
@@ -129,22 +171,53 @@ export class UserApi {
    * Read another principal's envelope by their keyringId. Returns null
    * if the principal exists but has no envelope yet, or if the
    * keyringId does not exist at all.
+   *
+   * Gated by `view-team-profiles` (default `minTier: 2`) — but ONLY for
+   * cross-principal reads. Reading your own envelope (`keyringId ===
+   * self`) is never gated; that's just `me()` written long-form.
    */
-  async get<T = unknown>(keyringId: string): Promise<UserEnvelope<T> | null> {
+  async get<T = unknown>(
+    keyringId: string,
+    presented?: UserEnvelopePresented,
+  ): Promise<UserEnvelope<T> | null> {
+    if (this.checkGate && keyringId !== this.writerKeyringId) {
+      await this.checkGate('view-team-profiles', presented)
+    }
     const dek = await this.getDek()
     return loadUserEnvelope<T>(this.adapter, this.vaultName, keyringId, dek)
   }
 
   /**
    * Read every persisted envelope in the vault. Order is store-defined.
-   * Empty when no principal has called `updateMe` yet.
    *
-   * In v1 this returns all envelopes the caller can decrypt — i.e. all
-   * principals in the vault. The `view-team-profiles` policy gate (#22)
-   * will gate this call; setting `view-team-profiles.enabled: false` is
-   * the privacy-strict opt-out that makes this return only `[me]`.
+   * Gated by `view-team-profiles`. Default policy (`minTier: 2`) lets
+   * any authenticated session read all envelopes. Two privacy-strict
+   * opt-outs:
+   *
+   *  - `view-team-profiles.enabled: false` → list() returns only the
+   *    caller's own envelope (silent self-fallback, no thrown error).
+   *  - `view-team-profiles.minTier: 1` + insufficient tier → throws
+   *    `PolicyDeniedError` with `reason: 'insufficient-tier'`. The
+   *    caller is expected to elevate, not silently degrade.
+   *
+   * The asymmetry is deliberate: `enabled: false` is a deliberate
+   * design choice ("nobody sees teammate profiles in this app");
+   * `insufficient-tier` is "you need to authenticate further". Different
+   * UX prompts for different intents.
    */
-  async list<T = unknown>(): Promise<UserEnvelope<T>[]> {
+  async list<T = unknown>(presented?: UserEnvelopePresented): Promise<UserEnvelope<T>[]> {
+    if (this.checkGate) {
+      try {
+        await this.checkGate('view-team-profiles', presented)
+      } catch (err) {
+        if (err instanceof PolicyDeniedError && err.reason === 'disabled') {
+          // Privacy-strict opt-out: quietly return only self.
+          const me = await this.me<T>()
+          return me ? [me] : []
+        }
+        throw err
+      }
+    }
     const dek = await this.getDek()
     const ids = await listUserEnvelopeIds(this.adapter, this.vaultName)
     const envelopes = await Promise.all(

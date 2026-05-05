@@ -374,6 +374,8 @@ export type {
   DeepPartial,
   Unsubscribe,
   LiveUserEnvelope,
+  UserEnvelopePresented,
+  UserEnvelopeCheckGate,
 } from './meta/user-envelope/api.js'
 export { UserApi } from './meta/user-envelope/api.js'
 

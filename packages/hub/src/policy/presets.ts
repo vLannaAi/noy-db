@@ -41,6 +41,16 @@ export const PERSONAL_POLICY: VaultPolicy = Object.freeze({
       minTier: 1,
       enabled: false,
     },
+    // ─── User envelope gates (#22) ────────────────────────────────────
+    // edit-own-profile: tier 3 floor — any active session can edit their
+    //   own profile/preferences. Tightening to require a TOTP for
+    //   profile changes is a one-line override.
+    // view-team-profiles: tier 2 floor — an authenticated session can
+    //   read teammates' profiles (display names, avatars, locales).
+    //   Setting `enabled: false` makes vault.user.list() return only
+    //   self (privacy-strict opt-out).
+    'edit-own-profile': { minTier: 3 },
+    'view-team-profiles': { minTier: 2 },
   },
 }) as VaultPolicy
 
@@ -97,6 +107,15 @@ export const STRICT_POLICY: VaultPolicy = Object.freeze({
       minTier: 1,
       enabled: false,
     },
+    // ─── User envelope gates (#22) ────────────────────────────────────
+    // STRICT: profile edits require a TOTP/email-OTP factor (typical
+    // shared-workstation hardening — your name/avatar shouldn't change
+    // without a fresh second-factor proof).
+    'edit-own-profile': {
+      minTier: 2,
+      factors: [{ anyOf: ['totp', 'email-otp'] }],
+    },
+    'view-team-profiles': { minTier: 2 },
   },
 }) as VaultPolicy
 

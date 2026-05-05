@@ -73,6 +73,10 @@ export type BuiltInGateName =
   | 'export-bundle'
   | 'export-plaintext'
   | 'view-user-auth'
+  /** Authorize a write to one's own user envelope (#22). */
+  | 'edit-own-profile'
+  /** Authorize reading other principals' user envelopes (#22). */
+  | 'view-team-profiles'
 
 /** Either a built-in gate name or an `app:*` custom gate. */
 export type GateName = BuiltInGateName | `app:${string}`

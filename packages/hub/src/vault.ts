@@ -356,12 +356,15 @@ export class Vault {
 
     // User envelope API — frozen writerKeyringId, dynamic DEK resolver
     // (so a post-load() keyring refresh transparently rotates the DEK
-    // through the rebuilt this.getDEK).
+    // through the rebuilt this.getDEK), and a checkGate callback that
+    // delegates to Noydb's policy engine (#22 wires edit-own-profile +
+    // view-team-profiles).
     this.user = new UserApi(
       this.adapter,
       this.name,
       this.keyring.userId,
       () => this.getDEK(USER_ENVELOPE_COLLECTION),
+      (gate, presented) => this.noydb.checkGate(this.name, gate, presented),
     )
   }
 
