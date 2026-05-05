@@ -13,6 +13,8 @@
 
 The following capabilities are now in main:
 
+- **Per-principal user envelope (`vault.user.*`, v0.1.0-pre.6).** Every keyring gets a `_users/<keyringId>` envelope encrypted under a shared `_users` DEK; hub owns plumbing (storage, sync, history, lifecycle, encryption), apps own schema. Three method families: write-self (`me/updateMe/setMe` — own-only write rule, structural), read-anyone (`get/list` gated by `view-team-profiles`), reactive (`subscribe/live`). New built-in policy gates `edit-own-profile` (default `minTier: 3`) and `view-team-profiles` (default `minTier: 2`). `db.grant({ initialProfile: T })` admin pre-fill at invite time; cascade-revoke deletes envelopes alongside keyrings. Joined enumeration via `listUsersWithEnvelopes()` for admin UIs. See `docs/subsystems/user-envelope.md`.
+- **`db.enrollWebAuthn()` and `db.lockVault()` (v0.1.0-pre.6).** Two infrastructure unblockers for the niwat consumer: native WebAuthn enrollment with the real internal keyring (no synthetic-keyring workaround), and a soft-lock that preserves QuickUnlock state (PIN resume after lock-screen UX).
 - **Vault diff utility** (`diffVault`) — primitive  used by every `as-*` reader and any consumer-side preview UI.
 - **Slice export of `.noydb` bundles** — `collections` allowlist + `since` envelope cutoff.
 - **Multi-recipient re-keyed `.noydb` bundles** — `exportPassphrase` shorthand and `recipients[]` with per-slot ACL.

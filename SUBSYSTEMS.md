@@ -92,6 +92,9 @@ Each subsystem has its own subpath export under `@noy-db/hub/<name>`, a `with<Na
 | 14 | `@noy-db/hub/sync` | P2P replication engine + presence | ~856 | `crdt`, `live`, `team` |
 | 15 | `@noy-db/hub/team` | Multi-user grant/revoke/rotate + magic-link + delegation + tiers | ~1,000 | `sync`, `session` |
 | 16 | `@noy-db/hub/session` | Token sessions + dev-unlock + policy enforcement | 839 | `team` |
+| 16a | `vault.user.*` (always-on) — see `user-envelope` | Per-principal profile + preferences envelope (`_users/<keyringId>`) with own-only write rule | ~600 always-on | `team`, `session-tiers`, `sync` |
+
+<a id="user-envelope"></a>**`user-envelope`** is included in the always-on core because it has zero peer-dep cost and the policy gates (`edit-own-profile`, `view-team-profiles`) are valuable even for single-user vaults. See `docs/subsystems/user-envelope.md`.
 
 ### Cluster G — Operations
 
