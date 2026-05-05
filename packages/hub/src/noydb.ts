@@ -865,6 +865,45 @@ export class Noydb {
     this.emitter.off(event, handler)
   }
 
+  /**
+   * Soft-lock a single vault: clear its in-memory keyring, DEKs, vault
+   * instance, sync engine, policy enforcer, and active-tier entry —
+   * WITHOUT destroying the `Noydb` instance.
+   *
+   * Designed for "lock screen" UX: the user taps **Lock** and DEKs are
+   * scrubbed from memory immediately, but the same `Noydb` instance can
+   * be re-unlocked via {@link unlockViaAuthenticator} (tier 2) or
+   * {@link unlockViaPin} (tier 3) without re-running `createNoydb`.
+   *
+   * **QuickUnlock state is preserved.** That's the whole point — the
+   * user can still resume via PIN without a full credential re-prompt.
+   * The on-disk `_meta/policy` document is also kept in cache (it
+   * survives lock; nothing about it changes when DEKs are scrubbed).
+   *
+   * No-op when `vault` is not currently in cache (idempotent).
+   *
+   * Unblocks vLannaAi/niwat#33.
+   *
+   * @see #17
+   */
+  lockVault(vault: string): void {
+    // Sync engine: stop autosync + drop the engine so the next openVault
+    // builds a fresh one against the freshly-loaded keyring.
+    this.syncEngines.get(vault)?.stopAutoSync()
+    this.syncEngines.delete(vault)
+    // Policy enforcer: cancels its idle timer and any visibility listener.
+    this.policyEnforcers.get(vault)?.destroy()
+    this.policyEnforcers.delete(vault)
+    // Live caches: scrub DEKs, vault instance, active tier.
+    this.keyringCache.delete(vault)
+    this.vaultCache.delete(vault)
+    this.activeTier.delete(vault)
+    // Intentionally NOT cleared:
+    //   - this.quickUnlock — preserves PIN resume (#17 contract).
+    //   - this.policyCache — vault policy is on-disk data, survives lock.
+    //   - this.sessionStrategy — no per-vault revoke; close() handles bulk.
+  }
+
   close(): void {
     this.closed = true
     if (this.sessionTimer) {
