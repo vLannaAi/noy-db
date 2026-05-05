@@ -359,6 +359,24 @@ export type {
 } from './meta/public-envelope/index.js'
 export { readNoydbBundlePublicEnvelope } from './bundle/bundle.js'
 
+// User envelope (docs/superpowers/specs/2026-05-05-user-envelope-design.md)
+export {
+  USER_ENVELOPE_COLLECTION,
+  USER_ENVELOPE_MAX_BYTES,
+  UserEnvelopeOversizedError,
+  loadUserEnvelope,
+  saveUserEnvelope,
+  deleteUserEnvelope,
+  listUserEnvelopeIds,
+} from './meta/user-envelope/index.js'
+export type { UserEnvelope } from './meta/user-envelope/index.js'
+export type {
+  DeepPartial,
+  Unsubscribe,
+  LiveUserEnvelope,
+} from './meta/user-envelope/api.js'
+export { UserApi } from './meta/user-envelope/api.js'
+
 // Auth introspection — issue #13
 export {
   describeAuthConfig,

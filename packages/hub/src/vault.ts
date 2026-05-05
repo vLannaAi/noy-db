@@ -87,6 +87,8 @@ import {
   type IssueMagicLinkGrantOptions,
   type MagicLinkGrantRecord,
 } from './team/magic-link-grant.js'
+import { UserApi } from './meta/user-envelope/api.js'
+import { USER_ENVELOPE_COLLECTION } from './meta/user-envelope/types.js'
 
 /** A vault (tenant namespace) containing collections. */
 export class Vault {
@@ -131,6 +133,20 @@ export class Vault {
   private readonly i18nStrategy: I18nStrategy
   private readonly syncStrategy: SyncStrategy
   private getDEK: (collectionName: string) => Promise<CryptoKey>
+
+  /**
+   * Per-principal user envelope API.
+   *
+   * - Write-self: `me()`, `updateMe(patch)`, `setMe(payload)` — always
+   *   target this vault session's keyringId. There is no method to write
+   *   another principal's envelope (own-only write rule, structural).
+   * - Read-anyone: `get(keyringId)`, `list()` — read other principals'
+   *   envelopes, subject to the `view-team-profiles` policy gate (#22).
+   * - Reactive: `subscribe(id, cb)`, `live(id)` — fire on local writes.
+   *
+   * @see docs/superpowers/specs/2026-05-05-user-envelope-design.md
+   */
+  public readonly user: UserApi
 
   /**
    * Optional callback that re-derives an UnlockedKeyring from the
@@ -337,6 +353,16 @@ export class Vault {
     // ensureCollectionDEK runs again against the freshly-loaded
     // wrapped DEKs.
     this.getDEK = this.makeGetDEK()
+
+    // User envelope API — frozen writerKeyringId, dynamic DEK resolver
+    // (so a post-load() keyring refresh transparently rotates the DEK
+    // through the rebuilt this.getDEK).
+    this.user = new UserApi(
+      this.adapter,
+      this.name,
+      this.keyring.userId,
+      () => this.getDEK(USER_ENVELOPE_COLLECTION),
+    )
   }
 
   /**
