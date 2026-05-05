@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/to-cloudflare-d1",
-  "version": "0.1.0-pre.5",
+  "version": "0.1.0-pre.6",
   "description": "Cloudflare D1 adapter for noy-db — SQLite at the edge, running inside Cloudflare Workers. Accepts a D1Database binding and speaks the noy-db store contract via D1's prepare/bind API.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",

@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/in-solid",
-  "version": "0.1.0-pre.5",
+  "version": "0.1.0-pre.6",
   "description": "SolidJS signal primitives for noy-db — createCollectionSignal, createQuerySignal, createSyncSignal backed by noy-db change events.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
