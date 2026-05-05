@@ -20,6 +20,7 @@ import type { IndexDef } from './indexing/eager-indexes.js'
 import type { JoinableSource } from './query/index.js'
 import type { OnDirtyCallback } from './collection.js'
 import type { UnlockedKeyring, BundleRecipient } from './team/keyring.js'
+import type { PublicEnvelope } from './meta/public-envelope/types.js'
 import { buildRecipientKeyringFile } from './team/keyring.js'
 import { ensureCollectionDEK, hasAccess, hasExportCapability, hasImportCapability } from './team/keyring.js'
 import type { ExportFormat, KeyringFile } from './types.js'
@@ -1909,7 +1910,7 @@ export class Vault {
    */
   async getPublicEnvelope(
     opts: { readonly locale?: string } = {},
-  ): Promise<import('./meta/public-envelope/types.js').PublicEnvelope | undefined> {
+  ): Promise<PublicEnvelope | undefined> {
     const { readPublicEnvelope } = await import('./meta/public-envelope/index.js')
     return readPublicEnvelope(this.adapter, this.name, opts)
   }

@@ -46,6 +46,8 @@
  * bundle and verify its integrity — nothing about the contents.
  */
 
+import type { PublicEnvelope } from '../meta/public-envelope/types.js'
+
 /** Magic bytes 'NDB1' (ASCII), identifying a NOYDB bundle. */
 export const NOYDB_BUNDLE_MAGIC = new Uint8Array([0x4e, 0x44, 0x42, 0x31])
 
@@ -126,7 +128,7 @@ export interface NoydbBundleHeader {
    * for explicit, owner-curated label fields (name, icon, …). Every
    * other unknown header key still rejects at parse time.
    */
-  readonly publicEnvelope?: import('../meta/public-envelope/types.js').PublicEnvelope
+  readonly publicEnvelope?: PublicEnvelope
 }
 
 /**

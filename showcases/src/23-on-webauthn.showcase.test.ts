@@ -105,6 +105,7 @@ async function makeKeyring(userId: string): Promise<UnlockedKeyring> {
     deks: new Map([['invoices', dek]]),
     kek: null as unknown as CryptoKey,
     salt: new Uint8Array(32).fill(7),
+    authenticators: [],
   }
 }
 

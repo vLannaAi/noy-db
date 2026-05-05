@@ -38,6 +38,8 @@ import type { I18nStrategy } from './i18n/strategy.js'
 import type { SessionStrategy } from './session/strategy.js'
 import type { SyncStrategy } from './team/sync-strategy.js'
 import type { UnlockedKeyring } from './team/keyring.js'
+import type { VaultPolicy } from './policy/types.js'
+import type { PublicEnvelopeSchema } from './meta/public-envelope/types.js'
 
 /** Format version for encrypted record envelopes. */
 export const NOYDB_FORMAT_VERSION = 1 as const
@@ -1701,7 +1703,7 @@ export interface NoydbOptions {
    * Imported from `@noy-db/hub` as a type-only reference; the runtime
    * import lives in `policy/index.ts`.
    */
-  readonly policy?: import('./policy/types.js').VaultPolicy
+  readonly policy?: VaultPolicy
   /**
    * Mandatory recovery profile enrollment (issue #10). Vaults with
    * `recover-passphrase` enabled MUST register at least one profile
@@ -1730,7 +1732,7 @@ export interface NoydbOptions {
    * narrow what the owner can set. Off by default — vaults written
    * by hubs without this option carry no envelope, full stop.
    */
-  readonly publicEnvelope?: true | import('./meta/public-envelope/types.js').PublicEnvelopeSchema
+  readonly publicEnvelope?: true | PublicEnvelopeSchema
   /** Audit history configuration. */
   readonly history?: HistoryConfig
   /**

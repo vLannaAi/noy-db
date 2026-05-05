@@ -54,6 +54,7 @@ import { BundleIntegrityError } from '../errors.js'
 import type { Vault } from '../vault.js'
 import type { BundleRecipient } from '../team/keyring.js'
 import { pickLocale } from '../meta/public-envelope/storage.js'
+import type { PublicEnvelope } from '../meta/public-envelope/types.js'
 
 /**
  * Options accepted by `writeNoydbBundle`.
@@ -605,7 +606,7 @@ export function readNoydbBundleHeader(bytes: Uint8Array): NoydbBundleHeader {
 export function readNoydbBundlePublicEnvelope(
   bytes: Uint8Array,
   opts: { readonly locale?: string } = {},
-): import('../meta/public-envelope/types.js').PublicEnvelope | undefined {
+): PublicEnvelope | undefined {
   const header = parsePrefixAndHeader(bytes).header
   const env = header.publicEnvelope
   if (!env) return undefined

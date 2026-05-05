@@ -25,7 +25,6 @@ import {
   recoverPassphrase as keyringRecoverPassphrase,
   type RotatePassphraseInput,
   type RecoverPassphraseInput,
-  type RecoveryProof,
 } from './team/rotate-recover.js'
 import {
   loadPaperRecoveryEntries,
