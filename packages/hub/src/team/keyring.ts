@@ -13,6 +13,11 @@ import {
 } from '../crypto.js'
 import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, KeyringExpiredError } from '../errors.js'
 import { assertStrongPassphrase, type PassphrasePolicy } from '../validation.js'
+import {
+  saveUserEnvelope,
+  deleteUserEnvelope,
+  USER_ENVELOPE_COLLECTION,
+} from '../meta/user-envelope/index.js'
 
 // ─── Roles that can grant/revoke ───────────────────────────────────────
 
@@ -167,13 +172,25 @@ export async function createOwnerKeyring(
   const salt = generateSalt()
   const kek = await deriveKey(passphrase, salt)
 
+  // Eager-provision the _users DEK at owner creation. This guarantees
+  // every subsequent grant inherits it via the existing
+  // collName.startsWith('_') propagation in grant() — so multi-principal
+  // user-envelope reads (alice reading bob's profile) work for new
+  // vaults without any per-keyring DEK rotation. Pre-existing vaults
+  // get the DEK lazily on first vault.user.* access (which only
+  // materializes a single-principal DEK that won't propagate
+  // retroactively — that's the documented "lazy creation for
+  // pre-existing keyrings" rollout note in the spec).
+  const userEnvelopeDek = await generateDEK()
+  const wrappedUserEnvelopeDek = await wrapKey(userEnvelopeDek, kek)
+
   const keyringFile: KeyringFile = {
     _noydb_keyring: NOYDB_KEYRING_VERSION,
     user_id: userId,
     display_name: userId,
     role: 'owner',
     permissions: {},
-    deks: {},
+    deks: { [USER_ENVELOPE_COLLECTION]: wrappedUserEnvelopeDek },
     salt: bufferToBase64(salt),
     created_at: new Date().toISOString(),
     granted_by: userId,
@@ -186,7 +203,7 @@ export async function createOwnerKeyring(
     displayName: userId,
     role: 'owner',
     permissions: {},
-    deks: new Map(),
+    deks: new Map([[USER_ENVELOPE_COLLECTION, userEnvelopeDek]]),
     kek,
     salt,
     authenticators: [],
@@ -293,6 +310,26 @@ export async function grant(
   }
 
   await writeKeyringFile(adapter, vault, options.userId, keyringFile)
+
+  // User envelope bootstrap. Seeded with `options.initialProfile` if
+  // provided, otherwise an empty `{}`. Encrypted with the caller's
+  // _users DEK — which is the same DEK that was wrapped into the new
+  // keyring's `wrappedDeks[USER_ENVELOPE_COLLECTION]` above (system-
+  // collection propagation), so the new user can decrypt it on first
+  // open. Skipped silently if the caller has no _users DEK (pre-feature
+  // vault upgrade path — documented "lazy creation for pre-existing
+  // keyrings" in the spec).
+  const userEnvelopeDek = callerKeyring.deks.get(USER_ENVELOPE_COLLECTION)
+  if (userEnvelopeDek) {
+    const initialPayload = options.initialProfile ?? {}
+    await saveUserEnvelope(
+      adapter,
+      vault,
+      options.userId,
+      initialPayload,
+      userEnvelopeDek,
+    )
+  }
 }
 
 // ─── Revoke ────────────────────────────────────────────────────────────
@@ -413,6 +450,10 @@ export async function revoke(
   // referential integrity to maintain across deletes.
   for (const userId of usersToRevoke) {
     await adapter.delete(vault, '_keyring', userId)
+    // Cascade-delete the principal's user envelope. Idempotent — no
+    // error when the envelope was never written (e.g. the user was
+    // granted but never authenticated to write their own profile).
+    await deleteUserEnvelope(adapter, vault, userId)
   }
 
   // Single rotation pass at the end. The cost is O(records in

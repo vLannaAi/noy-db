@@ -942,6 +942,23 @@ export interface GrantOptions {
    * `PassphrasePolicy`. Test fixtures and CLI scripts pass `true`.
    */
   readonly allowWeakPassphrase?: boolean
+  /**
+   * Initial user-envelope payload for the new principal. Sealed under
+   * the same vault DEK (the reserved `_users` collection's DEK) and
+   * persisted alongside the keyring during grant.
+   *
+   * **Bootstrap-only.** Once the new user activates and writes their
+   * own envelope, the own-only write rule kicks in — admins cannot
+   * edit a teammate's envelope after activation. Use this field for
+   * pre-fill at invite time (e.g. "displayName: Bob, locale: en-US")
+   * and let the user take over from there.
+   *
+   * Hub does not introspect the payload; it is JSON-serialized and
+   * encrypted opaquely. Apps own the schema.
+   *
+   * @see docs/superpowers/specs/2026-05-05-user-envelope-design.md → Lifecycle
+   */
+  readonly initialProfile?: unknown
 }
 
 export interface RevokeOptions {

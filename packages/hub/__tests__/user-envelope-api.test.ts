@@ -162,10 +162,20 @@ describe('vault.user.* — read-anyone (multi-principal)', () => {
     expect(aliceProfile!.data.profile.displayName).toBe('Alice')
   })
 
-  it('get returns null for a principal who has never written', async () => {
+  it('get returns the empty seed envelope for a principal granted with no initialProfile', async () => {
+    // Per spec: "envelope is created at grant time. Default content is
+    // the empty object {} if no initialProfile was supplied." So a
+    // freshly-granted principal who has never called updateMe still has
+    // an envelope with empty data. The "never written" case dissolves.
     const aliceVault = await aliceDb.openVault('demo')
     const bobProfile = await aliceVault.user.get<TestProfile>('bob')
-    expect(bobProfile).toBeNull()
+    expect(bobProfile).not.toBeNull()
+    expect(bobProfile!.data).toEqual({})
+  })
+
+  it('get returns null for a keyringId that does not exist in the vault', async () => {
+    const aliceVault = await aliceDb.openVault('demo')
+    expect(await aliceVault.user.get<TestProfile>('nobody')).toBeNull()
   })
 
   it('list() returns all persisted envelopes', async () => {
