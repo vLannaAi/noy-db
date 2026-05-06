@@ -1743,6 +1743,22 @@ export interface NoydbOptions {
    */
   readonly requireRecovery?: boolean
   /**
+   * What to do when `openVault` finds an existing keyring in the store that
+   * cannot be decrypted with the supplied credentials (`InvalidKeyError`).
+   *
+   * - `'error'` (default) — propagate the error. The app must prompt the user
+   *   to supply the correct credentials or clear both the data and auth stores.
+   * - `'reset'` — delete the stale keyring and re-initialise the vault from
+   *   scratch using the current credentials. Use this when the data store can
+   *   become detached from the auth store (e.g. the user cleared the IndexedDB
+   *   data records but not the keyring row, or a WebAuthn credential was rotated).
+   *   **All previously encrypted data is unrecoverable after a reset.**
+   *
+   * Only applies to the passphrase (`secret`) path. When `getKeyring` is used,
+   * the callback is responsible for handling stale-keyring detection itself.
+   */
+  readonly onInvalidKey?: 'error' | 'reset'
+  /**
    * Enable the public envelope subsystem (`docs/subsystems/public-envelope.md`).
    * Pass `true` for the default schema (every standard field, 256 KB
    * icon cap, 200-char text cap), or a `PublicEnvelopeSchema` to

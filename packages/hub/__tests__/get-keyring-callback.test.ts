@@ -150,6 +150,33 @@ describe('NoydbOptions.getKeyring (issue #5)', () => {
     await expect(db.openVault('V1')).rejects.toThrow(/SimulatedWebAuthnCancelled/)
   })
 
+  it('issue #6: openVault succeeds on a cleared data store when getKeyring callback returns a valid keyring', async () => {
+    const adapter = inlineMemory()
+
+    // Bootstrap: create a vault with some data so the keyring exists on disk.
+    const db1 = await createNoydb({ store: adapter, user: 'alice', secret: 'p' })
+    const v1 = await db1.openVault('niwat')
+    await v1.collection<Note>('notes').put('n1', { title: 'hello' })
+
+    // Capture the keyring as it would be held by an "auth store" (e.g. niwat-auth_noydb).
+    const authKeyring = await loadKeyring(adapter, 'niwat', 'alice', 'p')
+
+    // Simulate the user deleting niwat_noydb in DevTools — use a fresh empty adapter.
+    const clearedAdapter = inlineMemory()
+
+    // The app's getKeyring callback reads from the still-intact auth store
+    // (niwat-auth_noydb) and returns the keyring without touching the data store.
+    const db2 = await createNoydb({
+      store: clearedAdapter,
+      user: 'alice',
+      getKeyring: async () => authKeyring,
+    })
+
+    // Expected: openVault initialises a blank vault, not an InvalidKeyError.
+    const v2 = await db2.openVault('niwat')
+    expect(await v2.collection<Note>('notes').list()).toHaveLength(0)
+  })
+
   it('different vaults invoke the callback independently', async () => {
     const adapter = inlineMemory()
 

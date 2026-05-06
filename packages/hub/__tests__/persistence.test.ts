@@ -74,6 +74,87 @@ describe('persistence round-trip (simulated page reload)', () => {
     db2.close()
   })
 
+  it('issue #6: onInvalidKey: "reset" recovers a stale keyring as a blank vault', async () => {
+    // Use a custom adapter that exposes a "partial clear" — wipes all non-keyring
+    // collections while keeping the _keyring row, simulating what happens when a
+    // user deletes IDB records in DevTools but the keyring survives.
+    const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
+    function gc(c: string, col: string) {
+      let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
+      let coll = comp.get(col); if (!coll) { coll = new Map(); comp.set(col, coll) }
+      return coll
+    }
+    const adapter: NoydbStore = {
+      async get(c, col, id) { return store.get(c)?.get(col)?.get(id) ?? null },
+      async put(c, col, id, env, ev) {
+        const coll = gc(c, col); const ex = coll.get(id)
+        if (ev !== undefined && ex && ex._v !== ev) throw new ConflictError(ex._v)
+        coll.set(id, env)
+      },
+      async delete(c, col, id) { store.get(c)?.get(col)?.delete(id) },
+      async list(c, col) { const coll = store.get(c)?.get(col); return coll ? [...coll.keys()] : [] },
+      async loadAll(c) {
+        const comp = store.get(c); const s: VaultSnapshot = {}
+        if (comp) for (const [n, coll] of comp) { if (!n.startsWith('_')) { const r: Record<string, EncryptedEnvelope> = {}; for (const [id, e] of coll) r[id] = e; s[n] = r } }
+        return s
+      },
+      async saveAll(c, data) {
+        for (const [n, recs] of Object.entries(data)) { const coll = gc(c, n); for (const [id, e] of Object.entries(recs)) coll.set(id, e) }
+      },
+    }
+    // Expose a way to wipe all non-keyring collections for a vault (partial clear).
+    function clearDataCollections(vault: string) {
+      const comp = store.get(vault)
+      if (!comp) return
+      for (const colName of [...comp.keys()]) {
+        if (!colName.startsWith('_')) comp.delete(colName)
+      }
+    }
+
+    // Session 1: create vault with passphrase PASS, write data
+    const db1 = await createNoydb({ store: adapter, user: USER, secret: PASS })
+    const comp1 = await db1.openVault(COMP)
+    await comp1.collection<Invoice>('invoices').put('inv-1', { amount: 999, status: 'paid' })
+    db1.close()
+
+    // Simulate: user cleared the IDB data records but _keyring row survived.
+    clearDataCollections(COMP)
+
+    // Now the user's WebAuthn credential was rotated → different derived passphrase.
+    // Without onInvalidKey: 'reset' this throws InvalidKeyError (stale keyring, wrong key).
+    const db2 = await createNoydb({
+      store: adapter,
+      user: USER,
+      secret: 'rotated-passphrase-from-new-credential',
+      onInvalidKey: 'reset',
+    })
+
+    // Expected: blank vault — no TamperedError, no InvalidKeyError
+    const comp2 = await db2.openVault(COMP)
+    expect(await comp2.collection<Invoice>('invoices').list()).toHaveLength(0)
+    db2.close()
+
+    // Verify: new session with the rotated passphrase opens the blank vault correctly
+    const db3 = await createNoydb({ store: adapter, user: USER, secret: 'rotated-passphrase-from-new-credential' })
+    const comp3 = await db3.openVault(COMP)
+    await comp3.collection<Invoice>('invoices').put('inv-new', { amount: 1, status: 'draft' })
+    expect(await comp3.collection<Invoice>('invoices').count()).toBe(1)
+    db3.close()
+  })
+
+  it('issue #6: onInvalidKey defaults to "error" — wrong passphrase still throws', async () => {
+    const adapter = persistentMemory()
+
+    const db1 = await createNoydb({ store: adapter, user: USER, secret: PASS })
+    await db1.openVault(COMP)
+    db1.close()
+
+    // No onInvalidKey option → default 'error' behavior unchanged
+    const db2 = await createNoydb({ store: adapter, user: USER, secret: 'wrong' })
+    await expect(db2.openVault(COMP)).rejects.toThrow(InvalidKeyError)
+    db2.close()
+  })
+
   it('third session after changeSecret uses new passphrase correctly', async () => {
     const adapter = persistentMemory()
 

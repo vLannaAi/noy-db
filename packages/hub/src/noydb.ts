@@ -1513,9 +1513,21 @@ export class Noydb {
     try {
       keyring = await loadKeyring(this.options.store, vault, this.options.user, this.options.secret)
     } catch (err) {
-      // Only create a new keyring if no keyring exists (NoAccessError).
-      // If the keyring exists but the passphrase is wrong (InvalidKeyError), propagate the error.
       if (err instanceof NoAccessError) {
+        // No keyring on disk — first boot or cleared store.
+        keyring = await createOwnerKeyring(
+          this.options.store,
+          vault,
+          this.options.user,
+          this.options.secret,
+          { validate: this.options.validatePassphrase === true },
+        )
+      } else if (err instanceof InvalidKeyError && this.options.onInvalidKey === 'reset') {
+        // Stale keyring: exists in the store but the current credentials can't
+        // decrypt it (e.g. the data records were cleared while the _keyring row
+        // survived, or a WebAuthn credential was rotated between sessions).
+        // The caller opted into reset — delete the stale row and start fresh.
+        await this.options.store.delete(vault, '_keyring', this.options.user)
         keyring = await createOwnerKeyring(
           this.options.store,
           vault,

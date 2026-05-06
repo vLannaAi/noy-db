@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/to-memory",
-  "version": "0.1.0-pre.6",
+  "version": "0.1.0-pre.7",
   "description": "In-memory adapter for noy-db — ideal for testing, development, and ephemeral workloads",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
