@@ -1405,17 +1405,29 @@ export class Noydb {
 
   /**
    * Persist a recovery enrollment. v0.1.0-pre.5 accepts the `'paper'`
-   * profile — the developer first calls
-   * `@noy-db/on-recovery/generateRecoveryCodeSet` to mint codes +
-   * entries, shows the codes to the user once, then hands the entries
-   * here.
+   * profile.
+   *
+   * The hub wraps the user's DEK set (not the KEK) under a code-derived
+   * AES-GCM key — see `team/recovery.ts` for the rationale. The mint
+   * helper {@link mintPaperRecoveryEntry} is the canonical primitive;
+   * pair it with `db.getKeyring(vault)` to obtain the live DEK set:
    *
    * ```ts
-   * import { generateRecoveryCodeSet } from '@noy-db/on-recovery'
-   * const { codes, entries } = await generateRecoveryCodeSet({ kek, count: 10 })
+   * import { mintPaperRecoveryEntry } from '@noy-db/hub'
+   *
+   * const keyring = await db.getKeyring('acme')
+   * const codes: string[] = ['CORRECT-HORSE-1', 'BATTERY-STAPLE-2', ...]
+   * const entries = await Promise.all(
+   *   codes.map((code, i) => mintPaperRecoveryEntry(keyring.deks, code, `code-${i}`)),
+   * )
    * await db.enrollRecovery('acme', { profile: 'paper', entries })
    * showCodesToUser(codes)
    * ```
+   *
+   * `@noy-db/on-recovery@<=0.1.0-pre.7`'s `generateRecoveryCodeSet`
+   * produces an incompatible `wrappedKEK` shape — see #38. Use
+   * `mintPaperRecoveryEntry` from hub directly until on-recovery is
+   * rewritten to delegate.
    */
   async enrollRecovery(
     vault: string,
@@ -1487,8 +1499,30 @@ export class Noydb {
     this.quickUnlock.delete(vault)
   }
 
-  /** Get or load the keyring for a vault. */
-  private async getKeyring(vault: string): Promise<UnlockedKeyring> {
+  /**
+   * Public accessor for the unlocked keyring of a vault — issue #28.
+   *
+   * Returns the cached `UnlockedKeyring` (already in memory after
+   * `createNoydb` + first vault touch); loads it on demand if absent.
+   * Used by `@noy-db/on-*` ceremonies that need the live DEK set
+   * (paper recovery via {@link mintPaperRecoveryEntry}, tier-3 PIN
+   * enrolment via on-pin's `enrollPin`, custom on-* ceremonies that
+   * don't have a hub-side wrapper).
+   *
+   * No new permission gate — this is an accessor over already-unlocked
+   * state. The keyring is materialized only after the calling session
+   * has unlocked the vault at tier 1, 2, or 3, so exposing it does not
+   * widen access. Throws `ValidationError` when encryption is enabled
+   * and no `secret` / `getKeyring` is configured.
+   *
+   * ```ts
+   * const keyring = await db.getKeyring('acme')
+   * // keyring.deks: Map<collection, CryptoKey>
+   * // keyring.kek:  CryptoKey   (non-extractable; null for tier-3 sessions)
+   * // keyring.role / .permissions / .authenticators
+   * ```
+   */
+  async getKeyring(vault: string): Promise<UnlockedKeyring> {
     if (this.options.encrypt === false) {
       return createPlaintextKeyring(this.options.user)
     }

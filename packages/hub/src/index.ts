@@ -387,12 +387,14 @@ export {
   describeAllUsersAuth,
 } from './auth-introspection/index.js'
 
-// Recovery storage — issue #10
+// Recovery storage — issue #10, mint/unwrap helpers added in pre.8 (#39)
 export {
   loadPaperRecoveryEntries,
   savePaperRecoveryEntries,
   burnPaperRecoveryEntry,
   hasRecoveryEnrolled,
+  mintPaperRecoveryEntry,
+  unwrapDeksFromPaperEntry,
 } from './team/recovery.js'
 export type { PaperRecoveryEntry, PaperRecoveryDoc } from './team/recovery.js'
 
