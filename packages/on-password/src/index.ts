@@ -12,12 +12,23 @@
  *   phrase format (issue #7); the password is validated against a
  *   length / regex rule the developer chooses.
  * - **Different storage** — the phrase derives the KEK; the password
- *   derives a wrapping key that wraps the SAME KEK in its own
- *   keyring slot (LUKS pattern).
+ *   derives a wrapping key that wraps the SAME DEK SET in its own
+ *   keyring slot (LUKS-like multi-slot, wrap-DEKs variant).
  *
- * The slot is added to the keyring via `db.enrollAuthenticator`; the
- * KEK is recovered via `db.unlockViaAuthenticator` — both routes hit
- * the policy gate engine (issue #9).
+ * ## Wrap-DEKs format (#26 Path C)
+ *
+ * Slots produced by this package use the wrap-DEKs variant of
+ * `KeyringAuthenticator` — they encrypt the serialized DEK set under
+ * a password-derived AES-GCM key, NOT the KEK. This unifies tier-2
+ * password slots with the tier-0 (paper recovery, `mintPaperRecoveryEntry`)
+ * and tier-3 (`@noy-db/on-pin`'s `wrappedKeyring`) primitives — all
+ * three sidestep the non-extractable-KEK constraint by wrapping the
+ * DEK set rather than the KEK itself.
+ *
+ * Trade-off: an `UnlockedKeyring` produced via password-slot unlock
+ * has `kek: null`. Sensitive operations (`enrollAuthenticator`,
+ * `rotatePassphrase`) require a tier-1 unlock anyway — re-enter the
+ * master phrase.
  *
  * @see docs/subsystems/session-tiers.md → Tier 2 — `on-password`
  *
@@ -37,6 +48,8 @@ export const PASSWORD_DEFAULT_MIN_LENGTH = 12
 
 /** Per-slot salt size. */
 const SALT_BYTES = 32
+/** AES-GCM IV size. */
+const IV_BYTES = 12
 
 const subtle = globalThis.crypto.subtle
 
@@ -88,12 +101,18 @@ export interface EnrollPasswordOptions {
  * step (this function) from the persistence step (the hub) keeps the
  * package small and lets the hub's policy gate run between the two.
  *
+ * The slot uses the **wrap-DEKs** variant of `KeyringAuthenticator`:
+ * the DEK set is serialized to JSON and encrypted with AES-GCM under
+ * a PBKDF2-derived key. No requirement on `keyring.kek` — works with
+ * tier-1 unlocked keyrings; throws if `keyring.deks` is empty.
+ *
  * Usage:
  *
  * ```ts
  * import { enrollPasswordAuthenticator } from '@noy-db/on-password'
  *
- * const slot = await enrollPasswordAuthenticator(unlocked, {
+ * const keyring = await db.getKeyring('acme')
+ * const slot = await enrollPasswordAuthenticator(keyring, {
  *   password: 'daily-password-2026',
  *   minLength: 14,
  * })
@@ -117,21 +136,36 @@ export async function enrollPasswordAuthenticator(
     )
   }
 
-  if (!keyring.kek) {
+  if (keyring.deks.size === 0) {
     throw new Error(
-      'enrollPasswordAuthenticator: the supplied keyring has no KEK in memory. ' +
-        'Tier-3 quick-resume keyrings cannot enrol new tier-2 slots; re-authenticate at tier 1 first.',
+      'enrollPasswordAuthenticator: the supplied keyring has no DEKs in memory. ' +
+        'Re-authenticate at tier 1 first.',
     )
   }
 
   const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES))
+  const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES))
   const wrappingKey = await derivePasswordWrappingKey(options.password, salt)
-  const wrapped = await subtle.wrapKey('raw', keyring.kek, wrappingKey, 'AES-KW')
+
+  // Serialize the DEK set as JSON `{ deks: { collection: base64 } }`.
+  const exported: Record<string, string> = {}
+  for (const [coll, dek] of keyring.deks) {
+    const raw = await subtle.exportKey('raw', dek)
+    exported[coll] = bytesToBase64(new Uint8Array(raw))
+  }
+  const plaintext = new TextEncoder().encode(JSON.stringify({ deks: exported }))
+  const ciphertext = await subtle.encrypt(
+    { name: 'AES-GCM', iv: iv as BufferSource },
+    wrappingKey,
+    plaintext as BufferSource,
+  )
 
   return {
     id: options.id ?? 'password-daily',
     method: 'password',
-    wrapped_kek: bytesToBase64(new Uint8Array(wrapped)),
+    wrapKind: 'deks',
+    wrapped_deks: bytesToBase64(new Uint8Array(ciphertext)),
+    iv: bytesToBase64(iv),
     meta: {
       salt: bytesToBase64(salt),
       minLength,
@@ -142,17 +176,25 @@ export async function enrollPasswordAuthenticator(
 }
 
 /**
- * Recover the KEK from a password slot's `wrapped_kek` ciphertext.
- * Returns the unwrapped KEK as a non-extractable `CryptoKey` ready for
- * AES-KW unwrap of DEKs. Used inside the verify callback passed to
- * `db.unlockViaAuthenticator`.
+ * Recover the DEK set from a wrap-DEKs password slot. Returns the raw
+ * DEK map; the hub-friendly verifier {@link verifyPasswordSlot} wraps
+ * this and produces a full `UnlockedKeyring`.
  *
- * @throws {@link PasswordInvalidError} when the password is wrong.
+ * @throws {@link PasswordInvalidError} when the password is wrong or
+ *   the slot is not a wrap-DEKs slot (e.g. a legacy wrap-KEK password
+ *   slot from before pre.8 — those need re-enrollment).
  */
-export async function unwrapKekWithPassword(
+export async function unwrapDeksWithPassword(
   slot: KeyringAuthenticator,
   password: string,
-): Promise<CryptoKey> {
+): Promise<Map<string, CryptoKey>> {
+  if (slot.wrapKind !== 'deks') {
+    throw new PasswordInvalidError(
+      'Password slot is not a wrap-DEKs slot. Pre-pre.8 wrap-KEK password ' +
+        'slots are no longer supported — re-enrol via enrollPasswordAuthenticator.',
+    )
+  }
+
   const meta = slot.meta as { salt?: unknown }
   if (typeof meta.salt !== 'string') {
     throw new PasswordInvalidError(
@@ -161,33 +203,54 @@ export async function unwrapKekWithPassword(
   }
   const salt = base64ToBytes(meta.salt)
   const wrappingKey = await derivePasswordWrappingKey(password, salt)
+
+  let plaintext: ArrayBuffer
   try {
-    return await subtle.unwrapKey(
-      'raw',
-      base64ToBytes(slot.wrapped_kek) as BufferSource,
+    plaintext = await subtle.decrypt(
+      { name: 'AES-GCM', iv: base64ToBytes(slot.iv) as BufferSource },
       wrappingKey,
-      'AES-KW',
-      { name: 'AES-KW', length: 256 },
-      false,
-      ['wrapKey', 'unwrapKey'],
+      base64ToBytes(slot.wrapped_deks) as BufferSource,
     )
   } catch {
     throw new PasswordInvalidError()
   }
+
+  const parsed = JSON.parse(new TextDecoder().decode(plaintext)) as { deks: Record<string, string> }
+  const deks = new Map<string, CryptoKey>()
+  for (const [coll, b64] of Object.entries(parsed.deks)) {
+    const raw = base64ToBytes(b64)
+    const key = await subtle.importKey(
+      'raw',
+      raw as BufferSource,
+      { name: 'AES-GCM', length: 256 },
+      true,
+      ['encrypt', 'decrypt'],
+    )
+    deks.set(coll, key)
+  }
+  return deks
 }
 
 /**
  * Hub-friendly verify callback. Pass to `db.unlockViaAuthenticator`:
  *
  * ```ts
+ * import { verifyPasswordSlot } from '@noy-db/on-password'
+ *
  * const unlocked = await db.unlockViaAuthenticator('acme', 'password-daily',
- *   (slot) => verifyPasswordSlot(slot, 'daily-password-2026', { adapter: store, vault: 'acme', userId: 'alice' }),
+ *   (slot) => verifyPasswordSlot(slot, 'daily-password-2026', { keyring }),
  * )
  * ```
  *
- * The callback re-loads the keyring file via the supplied adapter,
- * unwraps every DEK with the recovered KEK, and returns the
- * `UnlockedKeyring` the hub installs in its keyring cache.
+ * Unwraps the DEK set with the supplied password and returns an
+ * `UnlockedKeyring` the hub installs in its keyring cache. The
+ * returned keyring has `kek: null` — sensitive operations (enrol new
+ * slot, rotate phrase) require a tier-1 unlock from the master phrase.
+ *
+ * Pass the current `keyring` (from `db.getKeyring(vault)`) to copy
+ * identity fields (userId, role, permissions, authenticators) onto
+ * the recovered `UnlockedKeyring`. Those fields aren't recoverable
+ * from the wrapped-DEKs ciphertext alone.
  *
  * @throws {@link PasswordInvalidError} when the password is wrong.
  */
@@ -196,20 +259,35 @@ export async function verifyPasswordSlot(
   password: string,
   options: VerifyPasswordSlotOptions,
 ): Promise<UnlockedKeyring> {
-  const kek = await unwrapKekWithPassword(slot, password)
-  return options.materialize(kek)
+  const deks = await unwrapDeksWithPassword(slot, password)
+  const reference = options.keyring
+  return {
+    userId: reference.userId,
+    displayName: reference.displayName,
+    role: reference.role,
+    permissions: reference.permissions,
+    authenticators: reference.authenticators,
+    salt: reference.salt,
+    ...(reference.exportCapability !== undefined && { exportCapability: reference.exportCapability }),
+    ...(reference.importCapability !== undefined && { importCapability: reference.importCapability }),
+    ...(reference.policy !== undefined && { policy: reference.policy }),
+    deks,
+    // Wrap-DEKs unlock cannot recover the KEK. Sensitive ops route
+    // through tier-1 via re-entry of the master phrase. Matches the
+    // existing tier-3 (`@noy-db/on-pin`) pattern.
+    kek: null as unknown as CryptoKey,
+  }
 }
 
 /** Adapter shape required by {@link verifyPasswordSlot}. */
 export interface VerifyPasswordSlotOptions {
   /**
-   * Caller-supplied "given the recovered KEK, build the
-   * `UnlockedKeyring`" routine. The hub provides the standard
-   * implementation in {@link buildUnlockedKeyringFromKek}; consumers
-   * with non-standard storage (e.g. encrypted browser-extension
-   * stores) can pass their own.
+   * The current vault keyring (typically `await db.getKeyring(vault)`).
+   * Identity fields (`userId`, `role`, `permissions`, `authenticators`,
+   * `salt`) are copied onto the recovered `UnlockedKeyring`. The DEK
+   * map is replaced with the unwrapped contents of the password slot.
    */
-  readonly materialize: (kek: CryptoKey) => Promise<UnlockedKeyring>
+  readonly keyring: UnlockedKeyring
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────
@@ -233,9 +311,9 @@ async function derivePasswordWrappingKey(
       hash: 'SHA-256',
     },
     ikm,
-    { name: 'AES-KW', length: 256 },
+    { name: 'AES-GCM', length: 256 },
     false,
-    ['wrapKey', 'unwrapKey'],
+    ['encrypt', 'decrypt'],
   )
 }
 

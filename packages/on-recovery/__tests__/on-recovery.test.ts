@@ -1,42 +1,35 @@
+/**
+ * @noy-db/on-recovery — post pre.8 (#38 Option A).
+ *
+ * The package is now a thin code-generator + parser layer over the
+ * hub's `mintPaperRecoveryEntry` primitive. These tests verify:
+ *   1. Code-set generation produces the expected count + format.
+ *   2. Codes round-trip through `parseRecoveryCode` (whitespace /
+ *      hyphens / case insensitive, checksum validation).
+ *   3. Entries delegate to the hub's wrap-DEKs format — round-tripping
+ *      via the hub's `unwrapDeksFromPaperEntry` recovers the same DEK
+ *      bytes that were enrolled.
+ *   4. Burn-on-use semantics work at the consumer layer.
+ */
 import { describe, expect, it } from 'vitest'
 import {
-  deriveRecoveryWrappingKey,
   formatRecoveryCode,
   generateRecoveryCodeSet,
   parseRecoveryCode,
-  unwrapKEKFromRecovery,
-  wrapKEKForRecovery,
 } from '../src/index.js'
+import { unwrapDeksFromPaperEntry } from '@noy-db/hub'
 
-async function freshKEK(): Promise<CryptoKey> {
-  return crypto.subtle.generateKey(
-    { name: 'AES-GCM', length: 256 },
-    true,  // extractable — let tests round-trip via exportKey
-    ['encrypt', 'decrypt'],
-  )
+const subtle = globalThis.crypto.subtle
+
+async function freshDeks(): Promise<Map<string, CryptoKey>> {
+  const dek1 = await subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt'])
+  const dek2 = await subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt'])
+  return new Map([['invoices', dek1], ['clients', dek2]])
 }
 
-/**
- * Functional-equivalence test: encrypt with `original`, decrypt with
- * `candidate`. If both operations succeed on the same plaintext, the
- * two CryptoKeys are identical (AES-GCM auth tag ensures this).
- * Works regardless of extractability.
- */
-async function assertSameKey(original: CryptoKey, candidate: CryptoKey): Promise<void> {
-  const iv = crypto.getRandomValues(new Uint8Array(12))
-  const plaintext = new TextEncoder().encode('noydb-functional-equivalence-probe')
-  const ciphertext = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv: iv as BufferSource },
-    original,
-    plaintext as BufferSource,
-  )
-  const recovered = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv: iv as BufferSource },
-    candidate,
-    ciphertext,
-  )
-  const recoveredText = new TextDecoder().decode(recovered)
-  expect(recoveredText).toBe('noydb-functional-equivalence-probe')
+async function dekBytes(dek: CryptoKey): Promise<string> {
+  const raw = new Uint8Array(await subtle.exportKey('raw', dek))
+  return Array.from(raw).map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 
 // PBKDF2 with 600K iterations is CPU-intensive. Under parallel vitest
@@ -44,60 +37,73 @@ async function assertSameKey(original: CryptoKey, candidate: CryptoKey): Promise
 // the worst-case 20-code-set generation under CPU contention.
 const KDF_TIMEOUT = 30_000
 
-describe('generateRecoveryCodeSet', () => {
+describe('generateRecoveryCodeSet (delegates to hub mintPaperRecoveryEntry)', () => {
   it('generates the default 10 codes', async () => {
-    const kek = await freshKEK()
-    const result = await generateRecoveryCodeSet({ kek })
+    const deks = await freshDeks()
+    const result = await generateRecoveryCodeSet({ deks })
     expect(result.codes).toHaveLength(10)
     expect(result.entries).toHaveLength(10)
   }, KDF_TIMEOUT)
 
   it('honours the count option', async () => {
-    const kek = await freshKEK()
-    const result = await generateRecoveryCodeSet({ kek, count: 5 })
+    const deks = await freshDeks()
+    const result = await generateRecoveryCodeSet({ deks, count: 5 })
     expect(result.codes).toHaveLength(5)
     expect(result.entries).toHaveLength(5)
   }, KDF_TIMEOUT)
 
   it('codes are formatted in groups of 4 separated by hyphens', async () => {
-    const kek = await freshKEK()
-    const { codes } = await generateRecoveryCodeSet({ kek, count: 1 })
+    const deks = await freshDeks()
+    const { codes } = await generateRecoveryCodeSet({ deks, count: 1 })
     // 28 chars = 7 groups of 4, hyphen-separated
     expect(codes[0]).toMatch(/^[A-Z2-7]{4}(-[A-Z2-7]{4}){6}$/)
   }, KDF_TIMEOUT)
 
   it('every code is unique across a single enrollment', async () => {
-    const kek = await freshKEK()
-    const { codes } = await generateRecoveryCodeSet({ kek, count: 20 })
+    const deks = await freshDeks()
+    const { codes } = await generateRecoveryCodeSet({ deks, count: 20 })
     expect(new Set(codes).size).toBe(20)
   }, KDF_TIMEOUT)
 
-  it('every entry has a unique codeId', async () => {
-    const kek = await freshKEK()
-    const { entries } = await generateRecoveryCodeSet({ kek, count: 10 })
-    const ids = entries.map(e => e.codeId)
+  it('every entry has a unique codeId (ULID)', async () => {
+    const deks = await freshDeks()
+    const { entries } = await generateRecoveryCodeSet({ deks, count: 10 })
+    const ids = entries.map((e) => e.codeId)
     expect(new Set(ids).size).toBe(10)
   }, KDF_TIMEOUT)
 
+  it('entries use the hub PaperRecoveryEntry shape (wrap-DEKs)', async () => {
+    const deks = await freshDeks()
+    const { entries } = await generateRecoveryCodeSet({ deks, count: 1 })
+    const e = entries[0]!
+    expect(typeof e.codeId).toBe('string')
+    expect(typeof e.salt).toBe('string')
+    expect(typeof e.iv).toBe('string')           // wrap-DEKs has IV (no wrappedKEK)
+    expect(typeof e.wrappedDeks).toBe('string')
+    expect(typeof e.enrolledAt).toBe('string')
+    // Anti-regression: the broken pre.7 shape had `wrappedKEK` instead.
+    expect((e as Record<string, unknown>).wrappedKEK).toBeUndefined()
+  }, KDF_TIMEOUT)
+
   it('rejects out-of-range count', async () => {
-    const kek = await freshKEK()
-    await expect(generateRecoveryCodeSet({ kek, count: 0 })).rejects.toThrow(/count must be/)
-    await expect(generateRecoveryCodeSet({ kek, count: -1 })).rejects.toThrow(/count must be/)
-    await expect(generateRecoveryCodeSet({ kek, count: 101 })).rejects.toThrow(/count must be/)
+    const deks = await freshDeks()
+    await expect(generateRecoveryCodeSet({ deks, count: 0 })).rejects.toThrow(/count must be/)
+    await expect(generateRecoveryCodeSet({ deks, count: -1 })).rejects.toThrow(/count must be/)
+    await expect(generateRecoveryCodeSet({ deks, count: 101 })).rejects.toThrow(/count must be/)
   })
 })
 
 describe('parseRecoveryCode', () => {
   it('accepts a well-formed code with hyphens', async () => {
-    const kek = await freshKEK()
-    const { codes } = await generateRecoveryCodeSet({ kek, count: 1 })
+    const deks = await freshDeks()
+    const { codes } = await generateRecoveryCodeSet({ deks, count: 1 })
     const result = parseRecoveryCode(codes[0]!)
     expect(result.status).toBe('valid')
   }, KDF_TIMEOUT)
 
   it('accepts whitespace, lowercase, and missing hyphens', async () => {
-    const kek = await freshKEK()
-    const { codes } = await generateRecoveryCodeSet({ kek, count: 1 })
+    const deks = await freshDeks()
+    const { codes } = await generateRecoveryCodeSet({ deks, count: 1 })
     const normalized = codes[0]!.replace(/-/g, '')
     expect(parseRecoveryCode(normalized).status).toBe('valid')
     expect(parseRecoveryCode(normalized.toLowerCase()).status).toBe('valid')
@@ -112,10 +118,9 @@ describe('parseRecoveryCode', () => {
   })
 
   it('rejects codes with wrong checksum', async () => {
-    const kek = await freshKEK()
-    const { codes } = await generateRecoveryCodeSet({ kek, count: 1 })
+    const deks = await freshDeks()
+    const { codes } = await generateRecoveryCodeSet({ deks, count: 1 })
     const normalized = codes[0]!.replace(/-/g, '')
-    // Flip the last char of checksum — probability of accidental validity ~1/32
     const lastChar = normalized[normalized.length - 1]!
     const flipped = lastChar === 'A' ? 'B' : 'A'
     const tampered = normalized.slice(0, -1) + flipped
@@ -123,7 +128,7 @@ describe('parseRecoveryCode', () => {
   }, KDF_TIMEOUT)
 
   it('rejects codes with non-Base32 characters', () => {
-    const bad = 'AAAA-0OIL-AAAA-AAAA-AAAA-AAAA'  // 0, O, I, L are not in Base32 alphabet
+    const bad = 'AAAA-0OIL-AAAA-AAAA-AAAA-AAAA'  // 0, O, I, L are not in Base32
     expect(parseRecoveryCode(bad).status).toBe('invalid-format')
   })
 })
@@ -134,65 +139,49 @@ describe('formatRecoveryCode', () => {
   })
 
   it('is the inverse of the strip in parseRecoveryCode', async () => {
-    const kek = await freshKEK()
-    const { codes } = await generateRecoveryCodeSet({ kek, count: 1 })
+    const deks = await freshDeks()
+    const { codes } = await generateRecoveryCodeSet({ deks, count: 1 })
     const parsed = parseRecoveryCode(codes[0]!)
     if (parsed.status !== 'valid') throw new Error('expected valid')
     expect(formatRecoveryCode(parsed.code)).toBe(codes[0])
   }, KDF_TIMEOUT)
 })
 
-describe('wrap + unwrap round-trip', () => {
-  it('unwraps a functionally-equivalent KEK when given the correct code', async () => {
-    const kek = await freshKEK()
-    const { codes, entries } = await generateRecoveryCodeSet({ kek, count: 1 })
+describe('hub-delegated round-trip (wrap-DEKs)', () => {
+  it('unwraps the same DEK bytes when given the correct code', async () => {
+    const deks = await freshDeks()
+    const { codes, entries } = await generateRecoveryCodeSet({ deks, count: 1 })
     const parsed = parseRecoveryCode(codes[0]!)
     if (parsed.status !== 'valid') throw new Error('expected valid')
 
-    const unwrapped = await unwrapKEKFromRecovery(parsed.code, entries[0]!)
-    await assertSameKey(kek, unwrapped)
-  }, 20_000)
+    const recovered = await unwrapDeksFromPaperEntry(entries[0]!, parsed.code)
+    expect(recovered.size).toBe(2)
+    for (const coll of deks.keys()) {
+      expect(recovered.has(coll)).toBe(true)
+      expect(await dekBytes(recovered.get(coll)!)).toBe(await dekBytes(deks.get(coll)!))
+    }
+  }, KDF_TIMEOUT)
 
   it('fails to unwrap when the code is wrong', async () => {
-    const kek = await freshKEK()
-    const { codes, entries } = await generateRecoveryCodeSet({ kek, count: 2 })
+    const deks = await freshDeks()
+    const { codes, entries } = await generateRecoveryCodeSet({ deks, count: 2 })
     const parsedA = parseRecoveryCode(codes[0]!)
     if (parsedA.status !== 'valid') throw new Error('expected valid')
 
-    // Try to unwrap entry 0 using code 1 — should fail (AES-KW auth)
-    await expect(unwrapKEKFromRecovery(parsedA.code, entries[1]!)).rejects.toThrow()
-  }, 20_000)
-
-  it('low-level wrap/unwrap produces a functionally-equivalent KEK', async () => {
-    const kek = await freshKEK()
-    const salt = crypto.getRandomValues(new Uint8Array(16))
-    // Any string works for the low-level wrap test; length matches the normalized code format.
-    const code = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAA'  // 28 chars
-    const wrapped = await wrapKEKForRecovery(kek, code, salt)
-    const wrappingKey = await deriveRecoveryWrappingKey(code, salt)
-    const unwrapped = await crypto.subtle.unwrapKey(
-      'raw',
-      wrapped as BufferSource,
-      wrappingKey,
-      'AES-KW',
-      { name: 'AES-GCM', length: 256 },
-      false,
-      ['encrypt', 'decrypt'],
-    )
-    await assertSameKey(kek, unwrapped)
-  }, 20_000)
+    // Try to unwrap entry 0 using code 1 — must fail (AES-GCM auth tag).
+    await expect(unwrapDeksFromPaperEntry(entries[1]!, parsedA.code)).rejects.toThrow()
+  }, KDF_TIMEOUT)
 })
 
 describe('burn-on-use semantics (application-layer)', () => {
   it('after the caller deletes the entry, the code is unusable', async () => {
-    const kek = await freshKEK()
-    const { codes, entries } = await generateRecoveryCodeSet({ kek, count: 3 })
+    const deks = await freshDeks()
+    const { codes, entries } = await generateRecoveryCodeSet({ deks, count: 3 })
 
-    // Consumer side: unlock with entry 0, then "delete" it from storage.
     const parsed0 = parseRecoveryCode(codes[0]!)
     if (parsed0.status !== 'valid') throw new Error('expected valid')
-    const unwrapped = await unwrapKEKFromRecovery(parsed0.code, entries[0]!)
-    expect(unwrapped).toBeDefined()
+    const unwrapped = await unwrapDeksFromPaperEntry(entries[0]!, parsed0.code)
+    expect(unwrapped.size).toBeGreaterThan(0)
 
     // Simulate burn: drop entry 0 from the stored list.
     const stillEnrolled = entries.slice(1)
@@ -201,7 +190,7 @@ describe('burn-on-use semantics (application-layer)', () => {
     let usableAgain = false
     for (const entry of stillEnrolled) {
       try {
-        await unwrapKEKFromRecovery(parsed0.code, entry)
+        await unwrapDeksFromPaperEntry(entry, parsed0.code)
         usableAgain = true
         break
       } catch {
@@ -209,6 +198,5 @@ describe('burn-on-use semantics (application-layer)', () => {
       }
     }
     expect(usableAgain).toBe(false)
-  }, 30_000)
+  }, KDF_TIMEOUT)
 })
-

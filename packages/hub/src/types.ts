@@ -498,7 +498,13 @@ export type RecoveryEnrollment =
  *
  * @see docs/subsystems/session-tiers.md → Tier 2 — Authenticate (multi-slot)
  */
-export interface KeyringAuthenticator {
+/**
+ * Shared fields across all authenticator slot variants. The variant
+ * (`KeyringAuthenticatorWrappingKEK` vs `KeyringAuthenticatorWrappingDEKs`)
+ * carries the actual wrapped material; everything below is identity +
+ * metadata only.
+ */
+interface KeyringAuthenticatorBase {
   /** Caller-chosen identifier — e.g. `'webauthn-yubikey-blue'`, `'oidc-google'`, `'password-daily'`. */
   readonly id: string
   /** Method family — selects which `@noy-db/on-*` package handles unlock. */
@@ -510,8 +516,6 @@ export interface KeyringAuthenticator {
    * tier 2 may add a sibling slot when the active policy permits.
    */
   readonly enrolled_via_tier: 1 | 2
-  /** Base64 wrapped-KEK ciphertext under the method-derived key. */
-  readonly wrapped_kek: string
   /**
    * Method-specific metadata: WebAuthn cred id, OIDC issuer/sub, PBKDF2
    * salt for `on-password`, etc. The schema is open by design — the
@@ -519,6 +523,62 @@ export interface KeyringAuthenticator {
    */
   readonly meta: Record<string, unknown>
 }
+
+/**
+ * Slot that wraps the KEK directly under a method-derived AES-KW key.
+ * Used by ceremonies where the on-* package can produce/recover an
+ * extractable KEK from its own credential — WebAuthn (PRF-derived
+ * wrapping key) and split-key OIDC.
+ *
+ * `wrapKind` is optional/absent on slots written before pre.8 — those
+ * legacy slots are treated as wrap-KEK by default at unlock time.
+ */
+export interface KeyringAuthenticatorWrappingKEK extends KeyringAuthenticatorBase {
+  readonly wrapKind?: 'kek'
+  /** Base64 wrapped-KEK ciphertext under the method-derived key. */
+  readonly wrapped_kek: string
+}
+
+/**
+ * Slot that wraps the DEK set (not the KEK) under a method-derived
+ * AES-GCM key — sidesteps the non-extractable-KEK constraint by
+ * encrypting the serialized `{ deks: { collection: rawDekBase64 } }`
+ * directly. Mirrors the format used by `mintPaperRecoveryEntry`
+ * (`PaperRecoveryEntry`) and `@noy-db/on-pin`'s `PinResumeState` —
+ * the unified wrap-DEKs primitive across tier-0 / tier-2 / tier-3.
+ *
+ * Trade-off: a slot of this kind reconstructs `UnlockedKeyring` with
+ * `kek: null` after unlock. That is semantically correct for tier-2
+ * (sensitive ops like `enrollAuthenticator` / `rotatePassphrase`
+ * require a tier-1 unlock anyway) and matches how `@noy-db/on-pin`
+ * already behaves at tier 3.
+ *
+ * @see `mintPaperRecoveryEntry` in `team/recovery.ts` — same shape on
+ *      a different on-disk path (`_meta/recovery-paper`).
+ */
+export interface KeyringAuthenticatorWrappingDEKs extends KeyringAuthenticatorBase {
+  readonly wrapKind: 'deks'
+  /** Base64 AES-GCM ciphertext of `{ deks: { collection: base64rawDek } }`. */
+  readonly wrapped_deks: string
+  /** Base64 AES-GCM IV used for the `wrapped_deks` ciphertext. */
+  readonly iv: string
+}
+
+/**
+ * Discriminated union over the two wrap-format variants. Reads from
+ * disk should always go through this type so the variant is preserved.
+ *
+ * Discriminator: `wrapKind`. Absent → wrap-KEK (legacy / WebAuthn /
+ * OIDC). Present and `'deks'` → wrap-DEKs (password / future on-* that
+ * want to sidestep extractable-KEK).
+ *
+ * The type-level XOR enforces "exactly one of `wrapped_kek` /
+ * `wrapped_deks` is present" — a structural guarantee that the runtime
+ * dispatch is safe.
+ */
+export type KeyringAuthenticator =
+  | KeyringAuthenticatorWrappingKEK
+  | KeyringAuthenticatorWrappingDEKs
 
 export interface KeyringFile {
   readonly _noydb_keyring: typeof NOYDB_KEYRING_VERSION

@@ -3,17 +3,26 @@
  *
  * What you'll learn
  * ─────────────────
- * `generateRecoveryCodeSet({ kek, count })` produces N high-entropy,
+ * `generateRecoveryCodeSet({ deks, count })` produces N high-entropy,
  * human-readable codes (groups of 4 chars separated by `-`) plus a
- * matching `entries` array — each entry holds the code's salt and
- * wrapped-KEK ciphertext (safe to persist). Hand the codes to the user;
- * keep the entries with the vault. Any code + its matching entry
- * unwraps the KEK via `unwrapKEKFromRecovery()`.
+ * matching `entries` array — each entry holds the code's salt + IV +
+ * wrapped-DEKs ciphertext (safe to persist). Hand the codes to the
+ * user; the entries go to the vault via
+ * `db.enrollRecovery({ profile: 'paper', entries })`. Any code + its
+ * matching entry round-trips through `unwrapDeksFromPaperEntry()` to
+ * recover the same DEK set.
  *
  * Why it matters
  * ──────────────
  * The "I lost my phone" recovery path. PBKDF2 (600K iterations) over the
  * typed code keeps brute-force cost high even if the wrapped blob leaks.
+ *
+ * Format note (post pre.8 — #38 Option A)
+ * ───────────────────────────────────────
+ * Recovery now wraps the DEK set (not the KEK), matching the hub's
+ * unified wrap-DEKs primitive used by tier-0 (paper recovery), tier-2
+ * (`@noy-db/on-password`), and tier-3 (`@noy-db/on-pin`). The pre.7
+ * wrap-KEK shape is gone.
  *
  * Prerequisites
  * ─────────────
@@ -30,12 +39,18 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { generateRecoveryCodeSet, parseRecoveryCode, unwrapKEKFromRecovery } from '@noy-db/on-recovery'
+import { generateRecoveryCodeSet, parseRecoveryCode } from '@noy-db/on-recovery'
+import { unwrapDeksFromPaperEntry } from '@noy-db/hub'
+
+async function freshDeks(): Promise<Map<string, CryptoKey>> {
+  const dek = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt'])
+  return new Map([['invoices', dek]])
+}
 
 describe('Showcase 26 — Recovery codes', () => {
   it('generates N codes; every one parses cleanly', async () => {
-    const kek = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt'])
-    const set = await generateRecoveryCodeSet({ kek, count: 5 })
+    const deks = await freshDeks()
+    const set = await generateRecoveryCodeSet({ deks, count: 5 })
     expect(set.codes).toHaveLength(5)
     expect(set.entries).toHaveLength(5)
 
@@ -45,9 +60,9 @@ describe('Showcase 26 — Recovery codes', () => {
     }
   })
 
-  it('any code from the set unwraps the same KEK that was wrapped at enrollment', async () => {
-    const kek = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt'])
-    const set = await generateRecoveryCodeSet({ kek, count: 3 })
+  it('any code from the set recovers the same DEKs that were wrapped at enrollment', async () => {
+    const deks = await freshDeks()
+    const set = await generateRecoveryCodeSet({ deks, count: 3 })
 
     // The user types the first code on the recovery sheet; we look up the
     // matching entry by index (in production the entries are persisted
@@ -57,13 +72,13 @@ describe('Showcase 26 — Recovery codes', () => {
     if (parsed.status !== 'valid') throw new Error('parse failed')
 
     const entry = set.entries[0]!
-    const unwrapped = await unwrapKEKFromRecovery(parsed.code, entry)
+    const recovered = await unwrapDeksFromPaperEntry(entry, parsed.code)
 
     // Round-trip a payload through both the original and the recovered
-    // KEK — proves the unwrap reproduced the exact same key bytes.
+    // DEK — proves the unwrap reproduced the exact same key bytes.
     const iv = crypto.getRandomValues(new Uint8Array(12))
-    const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, kek, new TextEncoder().encode('survived'))
-    const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, unwrapped, ct)
+    const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, deks.get('invoices')!, new TextEncoder().encode('survived'))
+    const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, recovered.get('invoices')!, ct)
     expect(new TextDecoder().decode(pt)).toBe('survived')
   })
 })
