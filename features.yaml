@@ -169,7 +169,26 @@ features:
       - 'Phrase format: lowercase letters + single spaces, ≥6 words default (≥8 strict), ≥3 chars/word, no repeated adjacent'
       - 'Policy gates store one VaultPolicy per vault at _meta/policy (Option A); keyring policy field reserved for future strengthening-only override (Option C)'
       - 'Managed-passphrase mode mandates at least one strong recovery profile and disables rotate-passphrase gate'
-    related: [team, permissions, on-passphrase, on-webauthn, on-oidc, on-pin, on-totp, on-email-otp, on-recovery, on-shamir, on-magic-link, on-threat]
+    related: [team, permissions, on-passphrase, on-webauthn, on-oidc, on-pin, on-totp, on-email-otp, on-recovery, on-shamir, on-magic-link, on-threat, auth-landscape]
+
+  - id: auth-landscape
+    name: Auth / unlock / sealing-key landscape map
+    cluster: collaboration-and-auth
+    spec: docs/subsystems/auth-landscape.md#auth-landscape
+    subsystem_doc: docs/subsystems/auth-landscape.md
+    package: '@noy-db/hub'
+    factory: null
+    status: stable
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Three functions never conflated: authenticator (on-*), identity provider (on-oidc bridge), sealing-key store (seal-*)'
+      - 'Vendor-flavored OIDC providers route through on-oidc with different issuers — no per-vendor on-* packages'
+      - 'OS keychains (DPAPI, Keychain, Keystore, libsecret) are sealing-key stores, not authenticators — they belong in the planned seal-* family'
+      - 'SMS / security questions / pattern lock deliberately omitted — unfit for vault auth (NIST SP 800-63B SMS deprecation, low entropy, social-engineerable)'
+    related: [session-tiers, on-passphrase, on-webauthn, on-oidc, on-pin, on-totp, on-email-otp, on-recovery, on-shamir, on-magic-link, on-threat]
 
   - id: public-envelope
     name: Public envelope (owner-curated plaintext metadata)
