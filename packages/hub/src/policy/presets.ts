@@ -21,7 +21,19 @@ export const PERSONAL_POLICY: VaultPolicy = Object.freeze({
   gates: {
     'rotate-passphrase': {
       minTier: 1,
-      factors: [{ anyOf: ['totp', 'email-otp', 'recovery'] }],
+      // Any second factor satisfies the gate — off-device kinds (TOTP,
+      // email-OTP, paper recovery, roaming WebAuthn) are the strongest;
+      // platform-bound kinds (platform WebAuthn, password, PIN) are
+      // accepted because requiring "something off-device" is overkill
+      // for personal/SMB threat models. Consumers needing the off-device
+      // guarantee should use STRICT_POLICY or override this gate.
+      factors: [{
+        anyOf: [
+          'totp', 'email-otp', 'recovery',
+          'webauthn-roaming', 'webauthn-platform',
+          'password', 'pin',
+        ],
+      }],
     },
     'recover-passphrase': {
       minTier: 1,
@@ -100,13 +112,17 @@ export const STRICT_POLICY: VaultPolicy = Object.freeze({
       factors: [{ anyOf: ['totp', 'email-otp'] }],
     },
     // STRICT peer-recovery: the issuer must present a recovery code
-    // OR a fresh second factor at the moment of recovery. This binds
-    // the high-trust operation to a verifiable proof (recovery sheet
-    // photographed by an attacker won't suffice — they'd also need
-    // tier-1 unlock first; this gate is the freshness binding on top).
+    // OR a fresh off-device second factor at the moment of recovery.
+    // This binds the high-trust operation to a verifiable proof
+    // (recovery sheet photographed by an attacker won't suffice —
+    // they'd also need tier-1 unlock first; this gate is the freshness
+    // binding on top). Roaming WebAuthn (YubiKey-class hardware key)
+    // accepted; platform-bound kinds (Touch ID, password, PIN)
+    // intentionally excluded under STRICT because they don't survive
+    // device theft — the off-device requirement is the whole point.
     'peer-recover-user': {
       minTier: 1,
-      factors: [{ anyOf: ['recovery', 'totp', 'email-otp'] }],
+      factors: [{ anyOf: ['recovery', 'totp', 'email-otp', 'webauthn-roaming'] }],
     },
     'export-bundle': {
       minTier: 1,
