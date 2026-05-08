@@ -1,5 +1,28 @@
 # @noy-db/on-magic-link
 
+## 0.1.0-pre.9
+
+### Features
+
+- **`acceptInvite` forwards `passphrasePolicy` + `allowWeakPassphrase` to the inner rotation** ([#53](https://github.com/vLannaAi/noy-db/issues/53)) — `AcceptInviteOptions` gains two new optional fields:
+
+  ```ts
+  await acceptInvite(encoded, {
+    store,
+    newPhrase: HYPHENATED_PHRASE,
+    passphrasePolicy: { customValidator: ... },  // ← new
+    allowWeakPassphrase: false,                  // ← new
+  })
+  ```
+
+  Pre-#53, the inner `keyringRotatePassphrase` ran the default phrase validator regardless of the consumer's vault policy — `customValidator` / `pattern` set on `noydbOptions.policy` did NOT flow through. Consumers using non-default phrase shapes (Thai/EN-mixed phrases, hyphen-separated alphanumeric, BIP-39 word lists) hit a spurious `WeakPassphraseError` on the rotation step even when their `newPhrase` was valid under their own policy.
+
+  `noydbOptions.policy.passphrase` is intentionally NOT auto-derived — `noydbOptions` flows to the post-rotation `createNoydb`, not the rotation itself; keeping the field explicit avoids a subtle mismatch where the rotation and the opened session validate under different policies. Consumers should pass the same `PassphrasePolicy` to both `noydbOptions.policy.passphrase` and the new `passphrasePolicy` field.
+
+### Patch Changes
+
+- Updated dependencies — @noy-db/hub@0.1.0-pre.9
+
 ## 0.1.0-pre.8
 
 ### Features
