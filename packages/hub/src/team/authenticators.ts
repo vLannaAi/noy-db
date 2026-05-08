@@ -14,7 +14,7 @@
  * @module
  */
 import type { NoydbStore, KeyringAuthenticator } from '../types.js'
-import { ValidationError } from '../errors.js'
+import { NoAccessError, ValidationError } from '../errors.js'
 import type { UnlockedKeyring } from './keyring.js'
 import { persistKeyring } from './keyring.js'
 
@@ -94,6 +94,90 @@ export async function enrollAuthenticator(
   const next = appendSlot(keyring, slot)
   await persistKeyring(store, vault, next)
   return next
+}
+
+/**
+ * Caller payload for {@link updateAuthenticator} (#55). Mutates only
+ * `meta` — the slot's id, method, and wrap material are immutable
+ * through this primitive, preserving the anti-slot-swap guard.
+ *
+ * `meta` is **merged** at the top level: keys absent from the patch
+ * are preserved, keys present overwrite. To clear a meta key, pass
+ * `null` for that key explicitly. (Same semantics as #57's
+ * `UserApi.updateMe`, scoped to this top-level merge — no recursion
+ * into nested meta values.)
+ */
+export interface UpdateAuthenticatorOptions {
+  readonly meta?: Record<string, unknown>
+}
+
+/**
+ * Mutate a tier-2 authenticator slot's `meta` blob (slot rename,
+ * label changes). The slot's `id`, `method`, and wrap material
+ * (`wrapped_kek` for wrap-KEK; `wrapped_deks` + `iv` for wrap-DEKs)
+ * are immutable through this entry point — the anti-slot-swap guard
+ * is structural, not gate-driven, so even if the policy gate is
+ * weakened a future caller cannot use this path to swap one slot's
+ * crypto for another's.
+ *
+ * `meta` patch semantics:
+ *   - Top-level merge — absent keys preserved, present keys overwrite
+ *   - `null` value — delete that meta key
+ *   - Non-object values (string, number, boolean, array) — replace verbatim
+ *
+ * @throws `NoAccessError` when no slot with the given id exists.
+ * @throws `ValidationError` when no patch field is provided.
+ *
+ * @see #55
+ */
+export async function updateAuthenticator(
+  store: NoydbStore,
+  vault: string,
+  keyring: UnlockedKeyring,
+  slotId: string,
+  options: UpdateAuthenticatorOptions,
+): Promise<UnlockedKeyring> {
+  if (options.meta === undefined) {
+    throw new ValidationError(
+      `updateAuthenticator: at least one of meta must be provided ` +
+        `(slotId: "${slotId}").`,
+    )
+  }
+
+  const idx = keyring.authenticators.findIndex((a) => a.id === slotId)
+  if (idx === -1) {
+    throw new NoAccessError(
+      `updateAuthenticator: slot "${slotId}" not found in vault "${vault}".`,
+    )
+  }
+  const existing = keyring.authenticators[idx]!
+
+  // Merge at the top level. Absent keys preserved (same as #57's
+  // updateMe semantics, but non-recursive — meta is a flat label
+  // bag in practice, no consumer nests it).
+  const mergedMeta: Record<string, unknown> = { ...existing.meta }
+  for (const [k, v] of Object.entries(options.meta)) {
+    if (v === undefined) continue // skip
+    if (v === null) {
+      delete mergedMeta[k]
+      continue
+    }
+    mergedMeta[k] = v
+  }
+
+  // Reconstruct the slot preserving wrapKind discrimination. The
+  // immutable fields (id, method, wrapped_kek / wrapped_deks + iv,
+  // enrolled_at, enrolled_via_tier) all flow through ...existing.
+  const next: KeyringAuthenticator = { ...existing, meta: mergedMeta }
+  const nextSlots = [...keyring.authenticators]
+  nextSlots[idx] = next
+
+  const nextKeyring: UnlockedKeyring = {
+    ...keyring,
+    authenticators: nextSlots,
+  }
+  await persistKeyring(store, vault, nextKeyring)
+  return nextKeyring
 }
 
 /**
