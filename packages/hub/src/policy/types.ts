@@ -77,6 +77,16 @@ export type BuiltInGateName =
   | 'edit-own-profile'
   /** Authorize reading other principals' user envelopes (#22). */
   | 'view-team-profiles'
+  /**
+   * Authorize an atomic peer-recovery — `db.recoverUser` (#33, #34).
+   * Distinct from `revoke-user` because peer-recovery is intentional
+   * re-issuance of someone's keyring under a temp passphrase, NOT
+   * removal. Allows owner→owner natively (matches the threat model:
+   * a co-owner explicitly recovering another co-owner). Ships with a
+   * factor-proof default in `STRICT_POLICY` so the issuer must
+   * affirmatively prove identity at the moment of recovery.
+   */
+  | 'peer-recover-user'
 
 /** Either a built-in gate name or an `app:*` custom gate. */
 export type GateName = BuiltInGateName | `app:${string}`

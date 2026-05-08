@@ -27,6 +27,10 @@ import {
   type RecoverPassphraseInput,
 } from './team/rotate-recover.js'
 import {
+  recoverUser as keyringRecoverUser,
+  type RecoverUserOptions,
+} from './team/peer-recover.js'
+import {
   loadPaperRecoveryEntries,
   savePaperRecoveryEntries,
   hasRecoveryEnrolled,
@@ -1401,6 +1405,66 @@ export class Noydb {
     const userId = this.options.user
     const next = await keyringRecoverPassphrase(this.options.store, vault, userId, input)
     this.keyringCache.set(vault, next)
+  }
+
+  /**
+   * Atomic peer-recovery — re-wraps an EXISTING user's keyring under
+   * a fresh temp passphrase in a single store write. Closes #34's
+   * partial-failure window (the previous compose-from-primitives
+   * pattern was `db.revoke + db.grant`, two writes — if the issuer
+   * cancelled between them the target was locked out entirely).
+   *
+   * Different from `db.revoke + db.grant`:
+   *
+   *   - Same `userId`, role, permissions, capabilities preserved.
+   *   - DEKs unchanged → every other principal in the vault keeps
+   *     access. No key rotation.
+   *   - Allows owner→owner natively (#33). The existing
+   *     `db.revoke` retains its block — peer-recovery is a separate,
+   *     intentionally-named operation.
+   *   - Tier-2 slots dropped (they wrap the old KEK).
+   *
+   * Gated by `peer-recover-user`; `STRICT_POLICY` requires a
+   * recovery / TOTP / email-OTP factor proof at the moment of
+   * recovery, so the issuer affirmatively re-asserts identity.
+   *
+   * The recipient should call `db.rotatePassphrase` on first session
+   * to choose their own phrase — the temp acts as a single-use
+   * bridge.
+   *
+   * ```ts
+   * await db.recoverUser('acme', {
+   *   userId: 'bob',
+   *   passphrase: 'temporary-correct-horse-battery-staple-printer',
+   * }, { factors: [{ kind: 'recovery' }] })
+   * // Bob opens createNoydb({ user: 'bob', secret: tempPhrase })
+   * // and immediately calls db.rotatePassphrase to set his own.
+   * ```
+   *
+   * @throws `NoAccessError` when no keyring exists for the target.
+   * @throws `PermissionDeniedError` when the caller's role can't
+   *         recover the target's role (admin→owner is blocked even
+   *         under recovery).
+   * @throws `PrivilegeEscalationError` when the caller lacks a DEK
+   *         the target previously had access to.
+   *
+   * @see #33 #34 — the issues this method closes.
+   */
+  async recoverUser(
+    vault: string,
+    options: RecoverUserOptions,
+    factors?: { factors?: ReadonlyArray<FactorProof>; sharedDevice?: boolean },
+  ): Promise<void> {
+    await this.checkGate(vault, 'peer-recover-user', factors)
+    const callerKeyring = await this.getKeyring(vault)
+    await keyringRecoverUser(this.options.store, vault, callerKeyring, options)
+    // If the caller is recovering THEIR OWN keyring (rare but
+    // possible — e.g. a self-recovery flow that bypasses the password
+    // ceremony), the keyringCache entry is now stale. Drop it so the
+    // next access reloads with the fresh wrapping.
+    if (options.userId === this.options.user) {
+      this.keyringCache.delete(vault)
+    }
   }
 
   /**

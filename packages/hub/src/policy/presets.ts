@@ -32,6 +32,12 @@ export const PERSONAL_POLICY: VaultPolicy = Object.freeze({
     'rotate-unlock': { minTier: 2 },
     'enroll-user': { minTier: 1 },
     'revoke-user': { minTier: 1 },
+    // Peer-recovery is a high-trust intentional op — co-owners
+    // recovering each other should not need an off-device factor in
+    // the personal/SMB threat model (the partner is already vetted by
+    // virtue of being a co-owner). Tier-1 unlock is the floor; the
+    // STRICT preset adds a recovery/email-OTP requirement.
+    'peer-recover-user': { minTier: 1 },
     'export-bundle': { minTier: 1 },
     'export-plaintext': {
       minTier: 1,
@@ -92,6 +98,15 @@ export const STRICT_POLICY: VaultPolicy = Object.freeze({
     'revoke-user': {
       minTier: 1,
       factors: [{ anyOf: ['totp', 'email-otp'] }],
+    },
+    // STRICT peer-recovery: the issuer must present a recovery code
+    // OR a fresh second factor at the moment of recovery. This binds
+    // the high-trust operation to a verifiable proof (recovery sheet
+    // photographed by an attacker won't suffice — they'd also need
+    // tier-1 unlock first; this gate is the freshness binding on top).
+    'peer-recover-user': {
+      minTier: 1,
+      factors: [{ anyOf: ['recovery', 'totp', 'email-otp'] }],
     },
     'export-bundle': {
       minTier: 1,
