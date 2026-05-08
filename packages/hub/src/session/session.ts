@@ -248,7 +248,7 @@ export async function resolveSession(token: SessionToken): Promise<UnlockedKeyri
     role: payload.role,
     permissions: payload.permissions,
     deks,
-    kek: null as unknown as CryptoKey, // KEK not available in session context
+    kek: null, // KEK not available in session context
     salt: base64ToBuffer(payload.salt),
     authenticators: [],
   }

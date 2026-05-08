@@ -24,6 +24,11 @@
  */
 import type { NoydbStore, EncryptedEnvelope } from '../types.js'
 import { NOYDB_FORMAT_VERSION } from '../types.js'
+import {
+  mintWrappedDeksBlob,
+  unwrapDeksFromBlob,
+  type WrappedDeksBlob,
+} from './wrapped-deks.js'
 
 /**
  * One paper recovery code as persisted in `_meta/recovery-paper`.
@@ -39,15 +44,15 @@ import { NOYDB_FORMAT_VERSION } from '../types.js'
  * resume — the cryptographic guarantee is identical (AES-GCM with a
  * PBKDF2-derived key), and it sidesteps the non-extractable-KEK
  * constraint cleanly.
+ *
+ * Type-level composition (#44): `PaperRecoveryEntry extends
+ * WrappedDeksBlob` — the three crypto fields (`salt`, `iv`,
+ * `wrappedDeks`) come from the shared primitive; `codeId` and
+ * `enrolledAt` are paper-recovery's own metadata. Wire format
+ * unchanged.
  */
-export interface PaperRecoveryEntry {
+export interface PaperRecoveryEntry extends WrappedDeksBlob {
   readonly codeId: string
-  /** Base64 PBKDF2 salt. */
-  readonly salt: string
-  /** Base64 AES-GCM IV used for the wrapped-DEK ciphertext. */
-  readonly iv: string
-  /** Base64 AES-GCM ciphertext — JSON `{ deks: Record<string, base64> }`. */
-  readonly wrappedDeks: string
   readonly enrolledAt: string
 }
 
@@ -116,16 +121,16 @@ export async function hasRecoveryEnrolled(
   return paper.length > 0
 }
 
-const subtle = globalThis.crypto.subtle
-const RECOVERY_PBKDF2_ITERATIONS = 600_000
-
 /**
  * Generate one paper-recovery entry from an unlocked DEK set.
  *
- * Returns both the printable code (shown to the user once) and the
- * serializable entry (persisted via {@link savePaperRecoveryEntries}).
- * The recovery flow unwraps the DEK set, then mints a fresh KEK from
- * the user's new passphrase.
+ * Returns the serializable entry (persisted via
+ * {@link savePaperRecoveryEntries}). The recovery flow unwraps the
+ * DEK set, then mints a fresh KEK from the user's new passphrase.
+ *
+ * Thin wrapper over {@link mintWrappedDeksBlob} (#44) — the crypto
+ * lives in the shared primitive; this function just adds paper-
+ * recovery's own metadata (`codeId`, `enrolledAt`).
  *
  * @param deks      Map of collection-name → DEK (extractable).
  * @param code      The plaintext recovery code (caller-supplied;
@@ -138,28 +143,10 @@ export async function mintPaperRecoveryEntry(
   code: string,
   codeId: string,
 ): Promise<PaperRecoveryEntry> {
-  const salt = crypto.getRandomValues(new Uint8Array(32))
-  const iv = crypto.getRandomValues(new Uint8Array(12))
-  const wrappingKey = await deriveRecoveryWrappingKey(code, salt)
-
-  // Serialize the DEK set as JSON `{ deks: { collection: base64 } }`.
-  const exported: Record<string, string> = {}
-  for (const [coll, dek] of deks) {
-    const raw = await subtle.exportKey('raw', dek)
-    exported[coll] = bytesToBase64(new Uint8Array(raw))
-  }
-  const plaintext = new TextEncoder().encode(JSON.stringify({ deks: exported }))
-  const ciphertext = await subtle.encrypt(
-    { name: 'AES-GCM', iv: iv as BufferSource },
-    wrappingKey,
-    plaintext as BufferSource,
-  )
-
+  const blob = await mintWrappedDeksBlob(deks, code)
   return {
+    ...blob,
     codeId,
-    salt: bytesToBase64(salt),
-    iv: bytesToBase64(iv),
-    wrappedDeks: bytesToBase64(new Uint8Array(ciphertext)),
     enrolledAt: new Date().toISOString(),
   }
 }
@@ -168,65 +155,18 @@ export async function mintPaperRecoveryEntry(
  * Decrypt a recovery entry to recover the raw DEK set. Used by the
  * `recoverPassphrase` flow after the user's code has been parsed.
  *
+ * Thin wrapper over {@link unwrapDeksFromBlob} (#44).
+ *
  * @throws when the code does not match the entry (AES-GCM auth tag fail).
  */
 export async function unwrapDeksFromPaperEntry(
   entry: PaperRecoveryEntry,
   code: string,
 ): Promise<Map<string, CryptoKey>> {
-  const wrappingKey = await deriveRecoveryWrappingKey(code, base64ToBytes(entry.salt))
-  const plaintext = await subtle.decrypt(
-    { name: 'AES-GCM', iv: base64ToBytes(entry.iv) as BufferSource },
-    wrappingKey,
-    base64ToBytes(entry.wrappedDeks) as BufferSource,
-  )
-  const parsed = JSON.parse(new TextDecoder().decode(plaintext)) as { deks: Record<string, string> }
-  const deks = new Map<string, CryptoKey>()
-  for (const [coll, b64] of Object.entries(parsed.deks)) {
-    const raw = base64ToBytes(b64)
-    const key = await subtle.importKey(
-      'raw',
-      raw as BufferSource,
-      { name: 'AES-GCM', length: 256 },
-      true,
-      ['encrypt', 'decrypt'],
-    )
-    deks.set(coll, key)
-  }
-  return deks
+  return unwrapDeksFromBlob(entry, code)
 }
 
-async function deriveRecoveryWrappingKey(code: string, salt: Uint8Array): Promise<CryptoKey> {
-  const ikm = await subtle.importKey(
-    'raw',
-    new TextEncoder().encode(code),
-    'PBKDF2',
-    false,
-    ['deriveKey'],
-  )
-  return subtle.deriveKey(
-    {
-      name: 'PBKDF2',
-      salt: salt as BufferSource,
-      iterations: RECOVERY_PBKDF2_ITERATIONS,
-      hash: 'SHA-256',
-    },
-    ikm,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt', 'decrypt'],
-  )
-}
-
-function bytesToBase64(b: Uint8Array): string {
-  let s = ''
-  for (const x of b) s += String.fromCharCode(x)
-  return btoa(s)
-}
-
-function base64ToBytes(b64: string): Uint8Array {
-  const s = atob(b64)
-  const out = new Uint8Array(s.length)
-  for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i)
-  return out
-}
+// Legacy crypto helpers (deriveRecoveryWrappingKey, bytesToBase64,
+// base64ToBytes) were inlined here pre-#44. They now live in the
+// canonical wrap-DEKs primitive at `./wrapped-deks.ts` and are
+// reached via `mintWrappedDeksBlob` / `unwrapDeksFromBlob`.

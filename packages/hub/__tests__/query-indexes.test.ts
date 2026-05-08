@@ -354,7 +354,7 @@ describe('Collection.query() — index-aware execution', () => {
     expect(invoices2.query().where('status', '==', 'open').count()).toBe(1)
   })
 
-  it('22. indexed query is at least 5× faster than a linear scan on 10K records (DoD)', async () => {
+  it('22. indexed query is materially faster than a linear scan on 10K records (DoD)', { retry: 2 }, async () => {
     const localDb = await createNoydb({
       store: memory(),
       user: 'owner',
@@ -408,10 +408,16 @@ describe('Collection.query() — index-aware execution', () => {
     // faster than linear scans on a 10K-record benchmark". 5× is the
     // headline target. Locally this consistently runs at 4–6×. The CI
     // gate is set to 2× to absorb noise from shared GitHub Actions
-    // runners (seen as low as 2.85× under parallel load); the margin
-    // is still unambiguous proof that indexes dominate linear scans.
-    // If the ratio ever drops below 2×, something's genuinely broken
-    // in the index path and the test will catch it.
+    // runners + parallel test workers (seen as low as 2.85× under
+    // contention); the margin is still unambiguous proof that indexes
+    // dominate linear scans. If the ratio ever drops below 2×,
+    // something's genuinely broken in the index path.
+    //
+    // The `it(..., { retry: 2 })` annotation handles the rare case
+    // where a single noisy run dips under 2× from CPU contention
+    // alone — three attempts total. Lowering the threshold further
+    // would weaken the assertion's signal-to-noise; retry is the
+    // honest tool for "good test, occasional CPU pressure."
     expect(speedup).toBeGreaterThan(2)
   }, 60_000) // generous timeout for the seeding phase
 })

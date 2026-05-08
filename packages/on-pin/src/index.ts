@@ -346,7 +346,7 @@ async function deserializeKeyring(bytes: Uint8Array): Promise<UnlockedKeyring> {
     deks,
     // KEK is deliberately null — PIN-resume returns a keyring that can
     // read/write but cannot open additional vaults or rotate keys.
-    kek: null as unknown as CryptoKey,
+    kek: null,
     authenticators: [],
   }
 }

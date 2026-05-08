@@ -1,5 +1,17 @@
 # @noy-db/on-password
 
+## 0.1.0-pre.8
+
+### Breaking changes
+
+- **Wrap-DEKs refactor** ([#26](https://github.com/vLannaAi/noy-db/issues/26)) — slot now uses the wrap-DEKs variant of `KeyringAuthenticator` (`wrapKind: 'deks'`). `enrollPasswordAuthenticator` no longer requires `keyring.kek` (works with any tier-1-unlocked keyring). `verifyPasswordSlot` returns `UnlockedKeyring` with `kek: null` and now takes `{ store, vault, userId }` for cold-start support — the `materialize` callback option is removed. `unwrapKekWithPassword` removed; replaced by `unwrapDeksWithPassword`. Pre-pre.8 wrap-KEK password slots throw `PasswordInvalidError` with a clear "re-enrol" message.
+
+- **Now delegates to hub's `mintWrappedDeksBlob`** ([#44](https://github.com/vLannaAi/noy-db/issues/44)) — removes ~40 LOC of inline crypto helpers (PBKDF2 derivation, base64 codecs, JSON serialization). The slot envelope's wire format is unchanged; the consolidation is purely code-level deduplication.
+
+### Patch Changes
+
+- Updated dependencies — @noy-db/hub@0.1.0-pre.8
+
 ## 0.1.0-pre.7
 
 ### Patch Changes

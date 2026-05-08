@@ -34,26 +34,26 @@
  *
  * @packageDocumentation
  */
-import type {
-  EnrollAuthenticatorOptions,
-  KeyringAuthenticator,
-  KeyringFile,
-  NoydbStore,
-  UnlockedKeyring,
+import {
+  base64ToBuffer,
+  mintWrappedDeksBlob,
+  unwrapDeksFromBlob,
+  type EnrollAuthenticatorOptions,
+  type KeyringAuthenticator,
+  type KeyringFile,
+  type NoydbStore,
+  type UnlockedKeyring,
 } from '@noy-db/hub'
 
-/** PBKDF2 iteration count — matches the tier-1 phrase derivation. */
+/**
+ * PBKDF2 iteration count — matches the tier-1 phrase derivation.
+ * Exported as a documented invariant; the actual derivation lives
+ * in hub's canonical wrap-DEKs primitive (#44).
+ */
 export const PASSWORD_PBKDF2_ITERATIONS = 600_000
 
 /** Default minimum password length. Override per-app via `enrollPasswordAuthenticator`. */
 export const PASSWORD_DEFAULT_MIN_LENGTH = 12
-
-/** Per-slot salt size. */
-const SALT_BYTES = 32
-/** AES-GCM IV size. */
-const IV_BYTES = 12
-
-const subtle = globalThis.crypto.subtle
 
 // ─── Errors ────────────────────────────────────────────────────────────
 
@@ -145,31 +145,20 @@ export async function enrollPasswordAuthenticator(
     )
   }
 
-  const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES))
-  const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES))
-  const wrappingKey = await derivePasswordWrappingKey(options.password, salt)
-
-  // Serialize the DEK set as JSON `{ deks: { collection: base64 } }`.
-  const exported: Record<string, string> = {}
-  for (const [coll, dek] of keyring.deks) {
-    const raw = await subtle.exportKey('raw', dek)
-    exported[coll] = bytesToBase64(new Uint8Array(raw))
-  }
-  const plaintext = new TextEncoder().encode(JSON.stringify({ deks: exported }))
-  const ciphertext = await subtle.encrypt(
-    { name: 'AES-GCM', iv: iv as BufferSource },
-    wrappingKey,
-    plaintext as BufferSource,
-  )
+  // Delegate the wrap-DEKs crypto to the canonical hub primitive (#44).
+  // The slot envelope still stores `salt` inside `meta` for backward
+  // compatibility with the pre-#44 slot format; the issue defers
+  // moving it to top-level for parity with PaperRecoveryEntry.
+  const blob = await mintWrappedDeksBlob(keyring.deks, options.password)
 
   return {
     id: options.id ?? 'password-daily',
     method: 'password',
     wrapKind: 'deks',
-    wrapped_deks: bytesToBase64(new Uint8Array(ciphertext)),
-    iv: bytesToBase64(iv),
+    wrapped_deks: blob.wrappedDeks,
+    iv: blob.iv,
     meta: {
-      salt: bytesToBase64(salt),
+      salt: blob.salt,
       minLength,
       ...(options.pattern !== undefined ? { pattern: options.pattern.source } : {}),
     },
@@ -203,34 +192,20 @@ export async function unwrapDeksWithPassword(
       'Password slot is missing the per-slot salt — keyring may be corrupted.',
     )
   }
-  const salt = base64ToBytes(meta.salt)
-  const wrappingKey = await derivePasswordWrappingKey(password, salt)
 
-  let plaintext: ArrayBuffer
+  // Delegate to the canonical wrap-DEKs primitive (#44). The blob's
+  // three fields (salt / iv / wrappedDeks) are reconstructed from
+  // the slot's split layout: salt lives in meta, iv + wrappedDeks
+  // at top level. Pre-#44, this code re-implemented the same crypto
+  // inline.
   try {
-    plaintext = await subtle.decrypt(
-      { name: 'AES-GCM', iv: base64ToBytes(slot.iv) as BufferSource },
-      wrappingKey,
-      base64ToBytes(slot.wrapped_deks) as BufferSource,
+    return await unwrapDeksFromBlob(
+      { salt: meta.salt, iv: slot.iv, wrappedDeks: slot.wrapped_deks },
+      password,
     )
   } catch {
     throw new PasswordInvalidError()
   }
-
-  const parsed = JSON.parse(new TextDecoder().decode(plaintext)) as { deks: Record<string, string> }
-  const deks = new Map<string, CryptoKey>()
-  for (const [coll, b64] of Object.entries(parsed.deks)) {
-    const raw = base64ToBytes(b64)
-    const key = await subtle.importKey(
-      'raw',
-      raw as BufferSource,
-      { name: 'AES-GCM', length: 256 },
-      true,
-      ['encrypt', 'decrypt'],
-    )
-    deks.set(coll, key)
-  }
-  return deks
 }
 
 /**
@@ -282,7 +257,7 @@ export async function verifyPasswordSlot(
     )
   }
   const file = JSON.parse(env._data) as KeyringFile
-  const salt = base64ToBytes(file.salt)
+  const salt = new Uint8Array(base64ToBuffer(file.salt))
 
   return {
     userId: file.user_id,
@@ -298,8 +273,7 @@ export async function verifyPasswordSlot(
     // Wrap-DEKs unlock cannot recover the KEK. Sensitive ops route
     // through tier-1 via re-entry of the master phrase. Matches the
     // existing tier-3 (`@noy-db/on-pin`) pattern.
-    // TODO(#41): drop the cast once UnlockedKeyring.kek is CryptoKey | null.
-    kek: null as unknown as CryptoKey,
+    kek: null,
   }
 }
 
@@ -313,42 +287,6 @@ export interface VerifyPasswordSlotOptions {
   readonly userId: string
 }
 
-// ─── Helpers ───────────────────────────────────────────────────────────
-
-async function derivePasswordWrappingKey(
-  password: string,
-  salt: Uint8Array,
-): Promise<CryptoKey> {
-  const ikm = await subtle.importKey(
-    'raw',
-    new TextEncoder().encode(password),
-    'PBKDF2',
-    false,
-    ['deriveKey'],
-  )
-  return subtle.deriveKey(
-    {
-      name: 'PBKDF2',
-      salt: salt as BufferSource,
-      iterations: PASSWORD_PBKDF2_ITERATIONS,
-      hash: 'SHA-256',
-    },
-    ikm,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt', 'decrypt'],
-  )
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let s = ''
-  for (const b of bytes) s += String.fromCharCode(b)
-  return btoa(s)
-}
-
-function base64ToBytes(b64: string): Uint8Array {
-  const s = atob(b64)
-  const out = new Uint8Array(s.length)
-  for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i)
-  return out
-}
+// All wrap-DEKs crypto helpers (PBKDF2 derivation, base64
+// codecs) moved to hub's `team/wrapped-deks.ts` in #44 — both this
+// package and `mintPaperRecoveryEntry` now share one implementation.

@@ -1447,6 +1447,12 @@ export class Vault {
     // grantor's own KEK as a simpler first cut; swapping to a proper
     // per-target KEK exchange (via `on-magic-link` or OIDC) is a
     // follow-up tracked in the design doc.
+    if (!this.keyring.kek) {
+      throw new ValidationError(
+        'issueDelegation: keyring.kek is null — issuing a delegation requires ' +
+          'a tier-1 unlock. Re-authenticate at tier 1 (passphrase) first.',
+      )
+    }
     const targetKek = this.keyring.kek
     const delegationsDek = await this.getDEK(DELEGATIONS_COLLECTION)
     return issueDelegation(

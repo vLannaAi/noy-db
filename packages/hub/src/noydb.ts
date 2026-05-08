@@ -120,7 +120,7 @@ function createPlaintextKeyring(userId: string): UnlockedKeyring {
     role: 'owner',
     permissions: {},
     deks: new Map(),
-    kek: null as unknown as CryptoKey,
+    kek: null,
     salt: new Uint8Array(0),
     authenticators: [],
   }

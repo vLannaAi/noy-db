@@ -73,7 +73,7 @@ async function makeKeyring(): Promise<UnlockedKeyring> {
     role: 'owner',
     permissions: { invoices: 'rw', clients: 'rw' },
     deks: new Map([['invoices', dek], ['clients', dek]]),
-    kek: null as unknown as CryptoKey,
+    kek: null,
     salt: new Uint8Array(32).fill(9),
   }
 }

@@ -263,7 +263,7 @@ export async function loadDevUnlock(
     role: parsed.role,
     permissions: parsed.permissions,
     deks,
-    kek: null as unknown as CryptoKey,
+    kek: null,
     salt: base64ToBuffer(parsed.salt),
     authenticators: [],
   }
