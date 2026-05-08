@@ -11,7 +11,7 @@ import {
   bufferToBase64,
   base64ToBuffer,
 } from '../crypto.js'
-import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, KeyringExpiredError } from '../errors.js'
+import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, KeyringExpiredError, ValidationError } from '../errors.js'
 import { assertStrongPassphrase, type PassphrasePolicy } from '../validation.js'
 import {
   saveUserEnvelope,
@@ -69,7 +69,28 @@ export interface UnlockedKeyring {
   readonly role: Role
   readonly permissions: Permissions
   readonly deks: Map<string, CryptoKey>
-  readonly kek: CryptoKey
+  /**
+   * The KEK, when this keyring was unlocked via tier 1 (passphrase) or
+   * a wrap-KEK tier-2 method (WebAuthn / OIDC). `null` when the
+   * keyring was opened via:
+   *
+   *   - Unencrypted mode (no KEK exists)
+   *   - Tier-3 PIN quick-resume (`@noy-db/on-pin`)
+   *   - Wrap-DEKs tier-2 unlock (`@noy-db/on-password`'s
+   *     `verifyPasswordSlot` after #26 Path C)
+   *   - Session-state restore (`session/session.ts`)
+   *   - Dev-unlock fixture (`session/dev-unlock.ts`)
+   *
+   * Consumers performing tier-1 operations that need the KEK
+   * (DEK rewrap, keyring persist, delegation issue/unwrap) must
+   * null-check and throw a clear error if absent — re-authenticate
+   * at tier 1 first to recover the KEK.
+   *
+   * Tightened from `CryptoKey` to `CryptoKey | null` in pre.8 (#41).
+   * The runtime contract has always allowed null; the type now
+   * matches reality.
+   */
+  readonly kek: CryptoKey | null
   readonly salt: Uint8Array
   /**
    * `@noy-db/as-*` export capability. Absent when the
@@ -914,6 +935,14 @@ export async function persistKeyring(
   vault: string,
   keyring: UnlockedKeyring,
 ): Promise<void> {
+  if (!keyring.kek) {
+    throw new ValidationError(
+      'persistKeyring: keyring.kek is null — cannot wrap DEKs without the KEK. ' +
+        'This typically means the keyring was opened via tier-3 PIN resume, ' +
+        'session restore, or a wrap-DEKs tier-2 unlock. Re-authenticate at ' +
+        'tier 1 (passphrase) before persisting.',
+    )
+  }
   const wrappedDeks: Record<string, string> = {}
   for (const [collName, dek] of keyring.deks) {
     wrappedDeks[collName] = await wrapKey(dek, keyring.kek)

@@ -52,7 +52,7 @@ async function makeTestKeyring(): Promise<UnlockedKeyring> {
       ['invoices', dek1],
       ['clients', dek2],
     ]),
-    kek: null as unknown as CryptoKey, // simulate post-unlock state
+    kek: null, // simulate post-unlock state
     salt: new Uint8Array(32).fill(7),
   }
 }

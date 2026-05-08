@@ -45,7 +45,7 @@ async function makeKeyring(overrides?: Partial<UnlockedKeyring>): Promise<Unlock
     role: 'owner',
     permissions: { invoices: 'rw' },
     deks: new Map([['invoices', dek]]),
-    kek: null as unknown as CryptoKey,
+    kek: null,
     salt: new Uint8Array(32).fill(7),
     ...overrides,
   }

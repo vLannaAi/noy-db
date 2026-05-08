@@ -298,8 +298,7 @@ export async function verifyPasswordSlot(
     // Wrap-DEKs unlock cannot recover the KEK. Sensitive ops route
     // through tier-1 via re-entry of the master phrase. Matches the
     // existing tier-3 (`@noy-db/on-pin`) pattern.
-    // TODO(#41): drop the cast once UnlockedKeyring.kek is CryptoKey | null.
-    kek: null as unknown as CryptoKey,
+    kek: null,
   }
 }
 

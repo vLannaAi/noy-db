@@ -161,6 +161,11 @@ export async function loadActiveDelegations(
     if (token.toUser !== user.userId) continue
     if (token.until <= nowIso) continue
 
+    // A user without a KEK in memory (tier-3 PIN resume, wrap-DEKs
+    // tier-2 unlock, session restore) cannot unwrap delegation tokens
+    // — those were wrapped under the user's KEK at issue time. Skip
+    // this token; the consumer reaches it again at tier-1 unlock.
+    if (!user.kek) continue
     let dek: CryptoKey
     try {
       dek = await unwrapKey(token.wrappedDek, user.kek)
