@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/to-turso",
-  "version": "0.1.0-pre.8",
+  "version": "0.1.0-pre.9",
   "description": "Turso / libSQL adapter for noy-db — edge SQLite with built-in replication. Wraps @libsql/client through a small async shim that speaks the same noy-db store contract as @noy-db/to-sqlite.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
