@@ -95,6 +95,75 @@ describe('vault.user.* — write-self', () => {
     expect(me!.data.profile.displayName).toBe('Alice2')
   })
 
+  it('updateMe() with null deletes the targeted field (#57)', async () => {
+    const vault = await db.openVault('demo')
+    await vault.user.updateMe<TestProfile>({
+      profile: { displayName: 'Alice', locale: 'en-US' },
+      preferences: { theme: 'dark' },
+    })
+    // Delete locale only.
+    await vault.user.updateMe<TestProfile>({
+      profile: { locale: null },
+    })
+    const me = await vault.user.me<TestProfile>()
+    expect(me!.data.profile.locale).toBeUndefined()
+    expect(Object.keys(me!.data.profile)).not.toContain('locale')
+    // Untargeted fields preserved.
+    expect(me!.data.profile.displayName).toBe('Alice')
+    expect(me!.data.preferences.theme).toBe('dark')
+  })
+
+  it('updateMe() with undefined skips (#57 — preserves pre-feature merge behavior)', async () => {
+    const vault = await db.openVault('demo')
+    await vault.user.updateMe<TestProfile>({
+      profile: { displayName: 'Alice', locale: 'en-US' },
+    })
+    // Explicitly set undefined — should be a no-op, NOT a delete. This
+    // is the contract distinction from `null`.
+    await vault.user.updateMe<TestProfile>({
+      profile: { locale: undefined },
+    })
+    const me = await vault.user.me<TestProfile>()
+    expect(me!.data.profile.locale).toBe('en-US')
+    expect(me!.data.profile.displayName).toBe('Alice')
+  })
+
+  it('updateMe() can null-delete an entire nested object (#57)', async () => {
+    const vault = await db.openVault('demo')
+    await vault.user.updateMe<TestProfile>({
+      profile: { displayName: 'Alice' },
+      app: { signature: 'A.', tags: ['x', 'y'] },
+    })
+    // Drop the entire `app` subtree in one move.
+    await vault.user.updateMe<TestProfile>({
+      app: null,
+    })
+    const me = await vault.user.me<TestProfile>()
+    expect(me!.data.app).toBeUndefined()
+    expect(Object.keys(me!.data)).not.toContain('app')
+    expect(me!.data.profile.displayName).toBe('Alice')
+  })
+
+  it('updateMe() null on a non-existent key is a no-op (#57)', async () => {
+    const vault = await db.openVault('demo')
+    await vault.user.updateMe<TestProfile>({
+      profile: { displayName: 'Alice' },
+    })
+    // Deleting `app.signature` when `app` was never set must NOT
+    // create an empty `app` object as a side effect of the recursion.
+    await vault.user.updateMe<TestProfile>({
+      app: { signature: null },
+    })
+    const me = await vault.user.me<TestProfile>()
+    // Because `source.app` was undefined, deepMerge enters the
+    // recursion branch and emits a fresh `app: {}` (after the delete
+    // removes `signature`). The resulting envelope has `app: {}`.
+    // Document this behavior — consumers needing pure no-op semantics
+    // should guard at the call site.
+    expect(me!.data.profile.displayName).toBe('Alice')
+    expect(me!.data.app).toEqual({})
+  })
+
   it('sequential updateMe() calls advance _v monotonically', async () => {
     const vault = await db.openVault('demo')
     const a = await vault.user.updateMe<TestProfile>({ profile: { displayName: 'A' } })
