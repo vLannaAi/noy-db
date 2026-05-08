@@ -1,14 +1,21 @@
 /**
  * **Wrap-DEKs primitive (#44)** — a single canonical shape for the
  * pattern of "serialize a DEK set, encrypt it under a credential-derived
- * AES-GCM key." Shared across tiers and on-* packages:
+ * AES-GCM key." Used by:
  *
  *   - **tier-0** — paper recovery entries (`_meta/recovery-paper`),
  *     credential = the printed code.
  *   - **tier-2** — password authenticator slots (`KeyringFile.authenticators`,
  *     `wrapKind: 'deks'`), credential = the daily password.
- *   - **tier-3** — `@noy-db/on-pin`'s `wrappedKeyring` quick-resume,
- *     credential = the PIN.
+ *
+ * **Not** used by `@noy-db/on-pin` — tier-3 wraps the DEK set under
+ * the same conceptual pattern but at **100,000 PBKDF2 iterations**
+ * (vs the 600,000 here), because the protection window for a PIN
+ * slot is short (idle-timeout-bounded, typically 15 min) and 600k
+ * iterations would make every PIN-resume noticeably slow. The wire
+ * formats are deliberately incompatible. See `@noy-db/on-pin`'s
+ * `PIN_PBKDF2_ITERATIONS` and the threat-model rationale in its
+ * module docstring.
  *
  * Before #44, the same crypto lived in two places: `mintPaperRecoveryEntry`
  * (in `team/recovery.ts`) and `enrollPasswordAuthenticator` (in
