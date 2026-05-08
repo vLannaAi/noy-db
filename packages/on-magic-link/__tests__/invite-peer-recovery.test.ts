@@ -286,6 +286,96 @@ describe('audit doc + payload encoding', () => {
     expect(typeof audit.acceptedAt).toBe('string')
   }, 180_000)
 
+  it('forwards passphrasePolicy to the inner rotation (#53)', async () => {
+    const store = inlineMemory()
+    const alice = await createNoydb({ store, user: 'alice', secret: ALICE_PHRASE })
+    await alice.openVault('acme')
+
+    const { encoded } = await issueInvite(alice, 'acme', {
+      userId: 'bob',
+      displayName: 'Bob',
+      role: 'admin',
+    })
+
+    // Hyphen-separated phrase — rejected by the default lowercase+spaces
+    // validator, accepted by a customValidator. Without the #53 fix,
+    // the inner rotation throws WeakPassphraseError regardless of any
+    // policy plumbed through `noydbOptions`.
+    const HYPHENATED_PHRASE = 'mrs-niwat-her-own-phrase-2026'
+    const passphrase = {
+      customValidator: (phrase: string) =>
+        phrase.length >= 16 && /^[a-z0-9-]+$/.test(phrase)
+          ? ({ ok: true, words: 1 } as const)
+          : ({ ok: false, reason: 'invalid-chars' } as const),
+    }
+
+    const result = await acceptInvite(encoded, {
+      store,
+      newPhrase: HYPHENATED_PHRASE,
+      passphrasePolicy: passphrase,
+    })
+    expect(result.payload.userId).toBe('bob')
+
+    // Reopen with the hyphenated phrase to confirm it actually rotated.
+    const reopen = await createNoydb({
+      store,
+      user: 'bob',
+      secret: HYPHENATED_PHRASE,
+      policy: { passphrase, gates: {} },
+    })
+    await reopen.openVault('acme')
+    const verify = await reopen.getKeyring('acme')
+    expect(verify.userId).toBe('bob')
+  }, 180_000)
+
+  it('rejects newPhrase that violates the supplied passphrasePolicy (#53)', async () => {
+    const store = inlineMemory()
+    const alice = await createNoydb({ store, user: 'alice', secret: ALICE_PHRASE })
+    await alice.openVault('acme')
+
+    const { encoded } = await issueInvite(alice, 'acme', {
+      userId: 'bob',
+      displayName: 'Bob',
+      role: 'admin',
+    })
+
+    // Strict customValidator: must contain a digit. Plain word-phrase
+    // newPhrase (default-validator-passing) must fail under this policy.
+    await expect(
+      acceptInvite(encoded, {
+        store,
+        newPhrase: BOB_NEW_PHRASE,
+        passphrasePolicy: {
+          customValidator: (phrase: string) =>
+            /\d/.test(phrase)
+              ? ({ ok: true, words: 1 } as const)
+              : ({ ok: false, reason: 'invalid-chars' } as const),
+        },
+      }),
+    ).rejects.toThrow(/invalid-chars/)
+  }, 60_000)
+
+  it('allowWeakPassphrase: true bypasses the rotation validator (#53)', async () => {
+    const store = inlineMemory()
+    const alice = await createNoydb({ store, user: 'alice', secret: ALICE_PHRASE })
+    await alice.openVault('acme')
+
+    const { encoded } = await issueInvite(alice, 'acme', {
+      userId: 'bob',
+      displayName: 'Bob',
+      role: 'admin',
+    })
+
+    // 'short' would normally fail the strength validator. With
+    // allowWeakPassphrase: true, the rotation accepts it.
+    const result = await acceptInvite(encoded, {
+      store,
+      newPhrase: 'short',
+      allowWeakPassphrase: true,
+    })
+    expect(result.payload.userId).toBe('bob')
+  }, 120_000)
+
   it('encodeInvitePayload / decodeInvitePayload round-trip without loss', () => {
     const payload = {
       tokenId: '01HX6E1N0Q8WYK3F4A2J3D2F5G',

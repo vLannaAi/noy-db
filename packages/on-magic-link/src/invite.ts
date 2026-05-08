@@ -36,6 +36,7 @@ import {
   type EncryptedEnvelope,
   type Role,
   type FactorProof,
+  type PassphrasePolicy,
 } from '@noy-db/hub'
 
 const INVITE_AUDIT_DOC_PREFIX = 'invite-audit-'
@@ -133,6 +134,32 @@ export interface AcceptInviteOptions {
    * `sessionPolicy` tweaks the application layer wants in scope.
    */
   readonly noydbOptions?: Omit<Parameters<typeof createNoydb>[0], 'store' | 'user' | 'secret'>
+  /**
+   * Forwarded to the inner `keyringRotatePassphrase` call so the
+   * recipient's `newPhrase` is validated against the same policy the
+   * vault uses elsewhere. Without this, the rotation step applies the
+   * default phrase validator (lowercase letters + spaces) regardless
+   * of any `customValidator` / `pattern` set on the vault — a
+   * consumer using non-default phrase shapes (e.g. hyphen-separated
+   * alphanumeric, BIP-39 word-lists, Thai/EN-mixed scripts) hits a
+   * spurious `WeakPassphraseError`.
+   *
+   * `noydbOptions.policy.passphrase` is NOT auto-derived because
+   * `noydbOptions` flows to the post-rotation `createNoydb`, not the
+   * rotation itself. Passing the same `PassphrasePolicy` here and
+   * (via `noydbOptions.policy.passphrase`) keeps both gates aligned.
+   *
+   * Added in pre.9 (#53).
+   */
+  readonly passphrasePolicy?: PassphrasePolicy
+  /**
+   * Skip phrase strength validation for the recipient's `newPhrase`.
+   * Forwarded to the inner rotation. Use sparingly — bypasses the
+   * structural rules that protect against weak phrases.
+   *
+   * Added in pre.9 (#53).
+   */
+  readonly allowWeakPassphrase?: boolean
 }
 
 export interface AcceptInviteResult {
@@ -400,6 +427,8 @@ export async function acceptInvite(
   await keyringRotatePassphrase(options.store, payload.vault, payload.userId, {
     oldPassphrase: payload.tempPhrase,
     newPassphrase: options.newPhrase,
+    ...(options.passphrasePolicy !== undefined && { passphrasePolicy: options.passphrasePolicy }),
+    ...(options.allowWeakPassphrase !== undefined && { allowWeakPassphrase: options.allowWeakPassphrase }),
   })
 
   // Mark accepted — second acceptInvite for this token throws.
