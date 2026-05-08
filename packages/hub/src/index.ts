@@ -103,6 +103,7 @@ export type {
   NoydbEventMap,
   GrantOptions,
   RevokeOptions,
+  UpdateUserOptions,
   UserInfo,
   NoydbOptions,
   HistoryConfig,

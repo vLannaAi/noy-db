@@ -50,6 +50,12 @@ export const PERSONAL_POLICY: VaultPolicy = Object.freeze({
     // virtue of being a co-owner). Tier-1 unlock is the floor; the
     // STRICT preset adds a recovery/email-OTP requirement.
     'peer-recover-user': { minTier: 1 },
+    // update-user: post-grant identity mutation (role/displayName/
+    // permissions). PERSONAL_POLICY treats this on par with enroll-user
+    // / revoke-user — tier-1 unlock alone. The role-elevation guard
+    // inside the implementation is the structural backstop that this
+    // gate's settings cannot weaken.
+    'update-user': { minTier: 1 },
     'export-bundle': { minTier: 1 },
     'export-plaintext': {
       minTier: 1,
@@ -123,6 +129,18 @@ export const STRICT_POLICY: VaultPolicy = Object.freeze({
     'peer-recover-user': {
       minTier: 1,
       factors: [{ anyOf: ['recovery', 'totp', 'email-otp', 'webauthn-roaming'] }],
+    },
+    // STRICT update-user: matches the enroll-user / revoke-user shape
+    // (off-device factor required). Update-user is admin-shaped — it
+    // mutates someone else's role/permissions; STRICT requires a fresh
+    // off-device factor proof so the operator affirmatively re-asserts
+    // identity at the moment of mutation. Platform-bound factors
+    // (Touch ID / password / PIN) intentionally excluded: same logic as
+    // peer-recover-user — the off-device requirement is the whole
+    // point under STRICT.
+    'update-user': {
+      minTier: 1,
+      factors: [{ anyOf: ['totp', 'email-otp'] }],
     },
     'export-bundle': {
       minTier: 1,

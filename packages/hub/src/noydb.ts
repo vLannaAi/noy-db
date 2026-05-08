@@ -3,6 +3,7 @@ import type {
   NoydbEventMap,
   GrantOptions,
   RevokeOptions,
+  UpdateUserOptions,
   UserInfo,
   PushResult,
   PullResult,
@@ -66,6 +67,7 @@ import {
   rotateKeys as keyringRotate,
   changeSecret as keyringChangeSecret,
   listUsers as keyringListUsers,
+  updateKeyringIdentity,
 } from './team/keyring.js'
 import type { UnlockedKeyring } from './team/keyring.js'
 import {
@@ -455,6 +457,65 @@ export class Noydb {
     this.checkPolicyOperation(vault, 'revoke')
     const keyring = await this.getKeyring(vault)
     await keyringRevoke(this.options.store, vault, keyring, options)
+  }
+
+  /**
+   * Mutate post-grant identity fields on an existing keyring — `role`,
+   * `displayName`, and/or `permissions`. Pure plaintext-header rewrite:
+   * no DEK rewrap, no KEK required, no authenticator slots touched.
+   * Tier-2 enrollments and recovery codes survive.
+   *
+   * Different from `db.revoke + db.grant`:
+   *
+   *   - Same `userId`, same DEK wrappings, same `granted_by`, same
+   *     `_users/<keyringId>` envelope. Only the specified header
+   *     fields move. Last-write-wins via the standard keyring put.
+   *   - No cascade on role demotion (admins demoted to operator keep
+   *     the keyrings they previously granted; the cascade rules are
+   *     a `db.revoke` concern, not `db.updateUser`).
+   *   - Tier-2 slots NOT dropped — the wrapping is unaffected.
+   *
+   * Role-elevation guard: BOTH the old and new role must satisfy
+   * `db.grant`'s hierarchy. Owner can do anything; admin manages
+   * admin/operator/viewer/client laterally; admin cannot promote to
+   * owner OR demote from owner. The guard runs regardless of the
+   * `update-user` policy gate's settings — gates can only be more
+   * permissive than the structural floor, never less.
+   *
+   * Gated by `update-user`. `STRICT_POLICY` requires a TOTP/email-OTP
+   * factor proof so the operator affirmatively re-asserts identity at
+   * the moment of mutation; `PERSONAL_POLICY` accepts a tier-1 unlock
+   * alone.
+   *
+   * ```ts
+   * await db.updateUser('acme', {
+   *   userId: 'bob',
+   *   role: 'operator',                 // promote
+   *   permissions: { invoices: 'rw' },
+   * }, { factors: [{ kind: 'totp' }] })
+   * ```
+   *
+   * @throws `NoAccessError` when no keyring exists for the target.
+   * @throws `PermissionDeniedError` when the role hierarchy rejects.
+   * @throws `ValidationError` when no field is provided.
+   *
+   * @see #54
+   */
+  async updateUser(
+    vault: string,
+    options: UpdateUserOptions,
+    factors?: { factors?: ReadonlyArray<FactorProof>; sharedDevice?: boolean },
+  ): Promise<void> {
+    await this.checkGate(vault, 'update-user', factors)
+    const keyring = await this.getKeyring(vault)
+    await updateKeyringIdentity(this.options.store, vault, keyring, options)
+    // If the caller updated their own role / permissions, the cached
+    // unlocked keyring is stale — drop it so the next access reloads
+    // with the new header fields. (DEKs unchanged, so the cached
+    // unlock still works; only the role-gated checks would diverge.)
+    if (options.userId === this.options.user) {
+      this.keyringCache.delete(vault)
+    }
   }
 
   /**

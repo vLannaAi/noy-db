@@ -1,4 +1,4 @@
-import type { NoydbStore, KeyringFile, KeyringAuthenticator, Role, Permissions, GrantOptions, RevokeOptions, UserInfo, EncryptedEnvelope, ExportCapability, ExportFormat, ImportCapability, VaultPolicyOnDisk } from '../types.js'
+import type { NoydbStore, KeyringFile, KeyringAuthenticator, Role, Permissions, GrantOptions, RevokeOptions, UpdateUserOptions, UserInfo, EncryptedEnvelope, ExportCapability, ExportFormat, ImportCapability, VaultPolicyOnDisk } from '../types.js'
 import { NOYDB_KEYRING_VERSION, NOYDB_FORMAT_VERSION } from '../types.js'
 import {
   deriveKey,
@@ -55,6 +55,24 @@ function canGrant(callerRole: Role, targetRole: Role): boolean {
 
 function canRevoke(callerRole: Role, targetRole: Role): boolean {
   if (targetRole === 'owner') return false // owner cannot be revoked
+  if (callerRole === 'owner') return true
+  if (callerRole === 'admin') return ADMIN_GRANTABLE_TARGETS.includes(targetRole)
+  return false
+}
+
+/**
+ * Whether `callerRole` can mutate a keyring whose role is (or becomes)
+ * `targetRole`. Used by `updateKeyringIdentity` (#54).
+ *
+ * Mirrors `canGrant`'s hierarchy: admins manage admin/operator/viewer/
+ * client laterally; admins cannot create or destroy `owner`-shaped
+ * keyrings. Owner can do anything.
+ *
+ * Both the OLD role and the NEW role must satisfy this check —
+ * otherwise admin could elevate themselves (`admin → owner`) or demote
+ * an owner (`owner → admin`) under cover of "update."
+ */
+function canUpdateRole(callerRole: Role, targetRole: Role): boolean {
   if (callerRole === 'owner') return true
   if (callerRole === 'admin') return ADMIN_GRANTABLE_TARGETS.includes(targetRole)
   return false
@@ -487,6 +505,87 @@ export async function revoke(
   if (options.rotateKeys !== false && affectedCollections.size > 0) {
     await rotateKeys(adapter, vault, callerKeyring, [...affectedCollections])
   }
+}
+
+// ─── Update User (#54) ─────────────────────────────────────────────────
+
+/**
+ * Mutate `role`, `displayName`, and/or `permissions` on an existing
+ * keyring. Pure plaintext-header rewrite — no DEK rewrap, no KEK
+ * required, no authenticator slots touched. Tier-2 enrollments and
+ * recovery codes survive the operation.
+ *
+ * Role-elevation guard: BOTH the old role AND the new role must
+ * satisfy `canUpdateRole(callerRole, _)`. This blocks the two
+ * privilege-escalation shapes:
+ *   - admin elevates someone (or themselves) to owner
+ *   - admin demotes an owner to a role they then control
+ *
+ * Owner is always allowed. Admin manages admin / operator / viewer /
+ * client laterally.
+ *
+ * Identity preserved: same userId, same DEK wrappings. Last-write-wins
+ * through the standard keyring put (same concurrency story as `grant`
+ * and `revoke`).
+ *
+ * @throws `NoAccessError` when no keyring exists for the target.
+ * @throws `PermissionDeniedError` when the role hierarchy rejects.
+ * @throws `ValidationError` when the diff is empty (nothing to update).
+ *
+ * @see #54
+ */
+export async function updateKeyringIdentity(
+  adapter: NoydbStore,
+  vault: string,
+  callerKeyring: UnlockedKeyring,
+  options: UpdateUserOptions,
+): Promise<void> {
+  if (
+    options.role === undefined &&
+    options.displayName === undefined &&
+    options.permissions === undefined
+  ) {
+    throw new ValidationError(
+      `updateUser: at least one of role / displayName / permissions must be provided ` +
+        `(userId: "${options.userId}").`,
+    )
+  }
+
+  const env = await adapter.get(vault, '_keyring', options.userId)
+  if (!env) {
+    throw new NoAccessError(
+      `updateUser: user "${options.userId}" has no keyring in vault "${vault}".`,
+    )
+  }
+  const target = JSON.parse(env._data) as KeyringFile
+
+  // Role-elevation guard. The OLD role must be one this caller is
+  // allowed to manage, AND the NEW role (if changing) must be too.
+  // Two-sided check: blocks admin→owner promotion (new side) and
+  // demoting an owner (old side).
+  if (!canUpdateRole(callerKeyring.role, target.role)) {
+    throw new PermissionDeniedError(
+      `Role "${callerKeyring.role}" cannot update a keyring with role "${target.role}"`,
+    )
+  }
+  if (
+    options.role !== undefined &&
+    options.role !== target.role &&
+    !canUpdateRole(callerKeyring.role, options.role)
+  ) {
+    throw new PermissionDeniedError(
+      `Role "${callerKeyring.role}" cannot promote target to role "${options.role}"`,
+    )
+  }
+
+  const next: KeyringFile = {
+    ...target,
+    ...(options.role !== undefined && { role: options.role }),
+    ...(options.displayName !== undefined && { display_name: options.displayName }),
+    ...(options.permissions !== undefined && { permissions: options.permissions }),
+  }
+
+  await writeKeyringFile(adapter, vault, options.userId, next)
 }
 
 // ─── Key Rotation ──────────────────────────────────────────────────────
