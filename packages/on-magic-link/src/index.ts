@@ -478,3 +478,32 @@ export async function readMagicLinkGrant(options: {
 // these helpers.
 export { MAGIC_LINK_GRANTS_COLLECTION, deriveMagicLinkContentKey }
 export type { MagicLinkGrantPayload }
+
+// ─── Invite + peer-recovery (#32) ─────────────────────────────────
+// Parallel primitives in the same package, layered on top of db.grant
+// (invite mints a NEW user) and db.recoverUser (peer-recovery rewraps
+// an EXISTING user). Different threat model than delegation grants —
+// the temp passphrase travels in the URL fragment, single-use enforced
+// by atomic rotation inside acceptInvite. See ./invite.ts.
+export {
+  issueInvite,
+  issuePeerRecovery,
+  acceptInvite,
+  revokeInvite,
+  encodeInvitePayload,
+  decodeInvitePayload,
+  InviteExpiredError,
+  InviteRevokedError,
+  InviteAlreadyAcceptedError,
+  InviteAuditMissingError,
+} from './invite.js'
+export type {
+  InviteKind,
+  InvitePayload,
+  InviteAuditDoc,
+  IssueInviteOptions,
+  IssuePeerRecoveryOptions,
+  IssueInviteResult,
+  AcceptInviteOptions,
+  AcceptInviteResult,
+} from './invite.js'
