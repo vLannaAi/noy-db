@@ -337,6 +337,8 @@ export type {
   RecoverPassphraseInput,
   RecoverPassphraseResult,
   RecoveryProof,
+  SlotRewrapContext,
+  SlotRewrapCeremony,
 } from './team/rotate-recover.js'
 
 // Public envelope (docs/subsystems/public-envelope.md)
