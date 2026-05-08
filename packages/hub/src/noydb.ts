@@ -1424,10 +1424,15 @@ export class Noydb {
    * showCodesToUser(codes)
    * ```
    *
-   * `@noy-db/on-recovery@<=0.1.0-pre.7`'s `generateRecoveryCodeSet`
-   * produces an incompatible `wrappedKEK` shape — see #38. Use
-   * `mintPaperRecoveryEntry` from hub directly until on-recovery is
-   * rewritten to delegate.
+   * As of pre.8, `@noy-db/on-recovery`'s `generateRecoveryCodeSet`
+   * delegates to `mintPaperRecoveryEntry` internally — its output is
+   * fed directly to this API. Pick whichever fits your code-gen layer:
+   *
+   * ```ts
+   * import { generateRecoveryCodeSet } from '@noy-db/on-recovery'
+   * const { codes, entries } = await generateRecoveryCodeSet({ deks: keyring.deks, count: 8 })
+   * await db.enrollRecovery('acme', { profile: 'paper', entries })
+   * ```
    */
   async enrollRecovery(
     vault: string,

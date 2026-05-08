@@ -1,27 +1,31 @@
 /**
  * Cryptographic round-trip tests for the tier-2 password authenticator.
  *
- * The tests build a minimal `UnlockedKeyring` with a real AES-KW KEK
- * and verify:
- *   1. enroll → unlock with the same password recovers the KEK
+ * Post-PR1b (#26 Path C) the slot uses the **wrap-DEKs** variant — the
+ * password-derived AES-GCM key encrypts the DEK set, NOT the KEK.
+ * Verifies:
+ *   1. enroll → verify with the same password recovers the DEK set
  *   2. wrong password rejects with `PasswordInvalidError`
- *   3. tier-1 phrase ≠ tier-2 password (independent slot, independent strength)
+ *   3. tier-1 phrase ≠ tier-2 password (independent slot)
  *   4. weak password rejects with `PasswordTooWeakError`
- *   5. removing a slot does not affect other slots
+ *   5. verifyPasswordSlot returns kek:null (sensitive ops require tier-1)
  */
 import { describe, it, expect } from 'vitest'
 import {
   enrollPasswordAuthenticator,
-  unwrapKekWithPassword,
+  unwrapDeksWithPassword,
+  verifyPasswordSlot,
   PasswordTooWeakError,
   PasswordInvalidError,
 } from '../src/index.js'
-import type { UnlockedKeyring } from '@noy-db/hub'
+import type { UnlockedKeyring, KeyringAuthenticator, NoydbStore, EncryptedEnvelope, KeyringFile } from '@noy-db/hub'
 
 const subtle = globalThis.crypto.subtle
 
 async function buildKeyring(): Promise<UnlockedKeyring> {
-  // Mint a real KEK so wrap/unwrap round-trips through AES-KW.
+  // Mint a real KEK (extractable=false matches hub's runtime invariant)
+  // and two DEKs so the wrap-DEKs round-trip exercises the JSON
+  // serialization path.
   const ikm = await subtle.importKey(
     'raw',
     new TextEncoder().encode('correct horse battery staple printer toaster'),
@@ -38,79 +42,69 @@ async function buildKeyring(): Promise<UnlockedKeyring> {
     },
     ikm,
     { name: 'AES-KW', length: 256 },
-    true,
+    false,
     ['wrapKey', 'unwrapKey'],
   )
+  const dek1 = await subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt'])
+  const dek2 = await subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt'])
   return {
     userId: 'alice',
     displayName: 'alice',
     role: 'owner',
     permissions: {},
-    deks: new Map(),
+    deks: new Map([['invoices', dek1], ['clients', dek2]]),
     kek,
     salt: new Uint8Array(32),
     authenticators: [],
   }
 }
 
-describe('@noy-db/on-password — enroll + unlock', () => {
-  it('enrolls a slot whose password unlocks the same KEK', async () => {
+function slotFromOptions(opts: Awaited<ReturnType<typeof enrollPasswordAuthenticator>>): KeyringAuthenticator {
+  if (opts.wrapKind !== 'deks') throw new Error('expected wrap-DEKs slot')
+  return {
+    id: opts.id,
+    method: opts.method,
+    enrolled_at: new Date().toISOString(),
+    enrolled_via_tier: opts.enrolled_via_tier ?? 1,
+    wrapKind: 'deks',
+    wrapped_deks: opts.wrapped_deks,
+    iv: opts.iv,
+    meta: opts.meta,
+  }
+}
+
+describe('@noy-db/on-password — wrap-DEKs enroll + verify (#26 Path C)', () => {
+  it('enrolls a wrap-DEKs slot whose password recovers the same DEK set', async () => {
     const keyring = await buildKeyring()
-    const slot = await enrollPasswordAuthenticator(keyring, {
+    const opts = await enrollPasswordAuthenticator(keyring, {
       password: 'daily-password-2026',
     })
-    expect(slot.method).toBe('password')
-    expect(slot.id).toBe('password-daily')
-    expect(typeof slot.wrapped_kek).toBe('string')
+    expect(opts.method).toBe('password')
+    expect(opts.id).toBe('password-daily')
+    expect(opts.wrapKind).toBe('deks')
+    if (opts.wrapKind !== 'deks') throw new Error('unreachable')
+    expect(typeof opts.wrapped_deks).toBe('string')
+    expect(typeof opts.iv).toBe('string')
 
-    const recoveredKek = await unwrapKekWithPassword(
-      {
-        id: slot.id,
-        method: 'password',
-        enrolled_at: new Date().toISOString(),
-        enrolled_via_tier: 1,
-        wrapped_kek: slot.wrapped_kek,
-        meta: slot.meta,
-      },
-      'daily-password-2026',
-    )
+    const recovered = await unwrapDeksWithPassword(slotFromOptions(opts), 'daily-password-2026')
+    expect(recovered.size).toBe(2)
+    expect(recovered.has('invoices')).toBe(true)
+    expect(recovered.has('clients')).toBe(true)
 
-    // Sanity: re-wrap a small DEK with the recovered KEK, then unwrap with the original.
-    const dek = await subtle.generateKey(
-      { name: 'AES-GCM', length: 256 },
-      true,
-      ['encrypt', 'decrypt'],
-    )
-    const wrapped = await subtle.wrapKey('raw', dek, recoveredKek, 'AES-KW')
-    const unwrapped = await subtle.unwrapKey(
-      'raw',
-      wrapped,
-      keyring.kek,
-      'AES-KW',
-      { name: 'AES-GCM', length: 256 },
-      true,
-      ['encrypt', 'decrypt'],
-    )
-    expect(unwrapped).toBeDefined()
+    // The recovered DEK must be byte-equivalent to the original — exportKey('raw')
+    // should yield identical bytes.
+    const originalRaw = new Uint8Array(await subtle.exportKey('raw', keyring.deks.get('invoices')!))
+    const recoveredRaw = new Uint8Array(await subtle.exportKey('raw', recovered.get('invoices')!))
+    expect(Array.from(recoveredRaw)).toEqual(Array.from(originalRaw))
   }, 30_000)
 
   it('rejects a wrong password with PasswordInvalidError', async () => {
     const keyring = await buildKeyring()
-    const slot = await enrollPasswordAuthenticator(keyring, {
+    const opts = await enrollPasswordAuthenticator(keyring, {
       password: 'daily-password-2026',
     })
     await expect(
-      unwrapKekWithPassword(
-        {
-          id: slot.id,
-          method: 'password',
-          enrolled_at: new Date().toISOString(),
-          enrolled_via_tier: 1,
-          wrapped_kek: slot.wrapped_kek,
-          meta: slot.meta,
-        },
-        'wrong-password-9999',
-      ),
+      unwrapDeksWithPassword(slotFromOptions(opts), 'wrong-password-9999'),
     ).rejects.toBeInstanceOf(PasswordInvalidError)
   }, 30_000)
 
@@ -135,7 +129,7 @@ describe('@noy-db/on-password — enroll + unlock', () => {
     const keyring = await buildKeyring()
     await expect(
       enrollPasswordAuthenticator(keyring, {
-        password: 'no-digits-here-2',  // satisfies, has '2'
+        password: 'no-digits-here-2',
         pattern: /[0-9]/,
       }),
     ).resolves.toBeDefined()
@@ -150,23 +144,113 @@ describe('@noy-db/on-password — enroll + unlock', () => {
 
   it('different password ≠ tier-1 phrase (independent storage)', async () => {
     const keyring = await buildKeyring()
-    const slot = await enrollPasswordAuthenticator(keyring, {
+    const opts = await enrollPasswordAuthenticator(keyring, {
       password: 'daily-password-2026',
     })
     // The tier-1 phrase used to derive the keyring is "correct horse...";
     // it must NOT unlock the password slot.
     await expect(
-      unwrapKekWithPassword(
-        {
-          id: slot.id,
-          method: 'password',
-          enrolled_at: new Date().toISOString(),
-          enrolled_via_tier: 1,
-          wrapped_kek: slot.wrapped_kek,
-          meta: slot.meta,
-        },
-        'correct horse battery staple printer toaster',
+      unwrapDeksWithPassword(slotFromOptions(opts), 'correct horse battery staple printer toaster'),
+    ).rejects.toBeInstanceOf(PasswordInvalidError)
+  }, 30_000)
+
+  it('rejects a wrap-KEK slot (legacy pre-pre.8 password slots) with the re-enrol message', async () => {
+    // Construct a synthetic legacy slot that mimics the pre-PR1b shape.
+    const legacy: KeyringAuthenticator = {
+      id: 'password-legacy',
+      method: 'password',
+      enrolled_at: new Date().toISOString(),
+      enrolled_via_tier: 1,
+      wrapped_kek: 'd2hhdGV2ZXItbGVnYWN5LWJ5dGVz',
+      meta: { salt: 'c2FsdC1ub3JtYWw=', minLength: 12 },
+    }
+    // Pin the user-facing recovery instruction — a future refactor that
+    // throws PasswordInvalidError for a different reason would silently
+    // regress the "re-enrol" UX. Per Niwat's PR #42 review point 4.
+    await expect(
+      unwrapDeksWithPassword(legacy, 'daily-password-2026'),
+    ).rejects.toMatchObject({
+      name: 'PasswordInvalidError',
+      message: expect.stringMatching(/wrap-DEKs|re-enrol/),
+    })
+  })
+
+  it('verifyPasswordSlot returns UnlockedKeyring with kek:null + identity from disk (cold-start path)', async () => {
+    // Niwat PR #42 review point 3: verifier loads identity from
+    // `_keyring/<userId>` directly, so cold-start (createNoydb +
+    // getKeyring callback) works without a pre-existing keyring.
+    const keyring = await buildKeyring()
+    const opts = await enrollPasswordAuthenticator(keyring, {
+      password: 'daily-password-2026',
+    })
+
+    // Build a real store with a written keyring file to feed the verifier.
+    const store = inlineMemory()
+    const file: KeyringFile = {
+      _noydb_keyring: 1,
+      user_id: 'alice',
+      display_name: 'Alice Example',
+      role: 'owner',
+      permissions: {},
+      deks: {},
+      salt: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+      created_at: new Date().toISOString(),
+      granted_by: 'alice',
+    }
+    await store.put('acme', '_keyring', 'alice', {
+      _noydb: 1,
+      _v: 1,
+      _ts: new Date().toISOString(),
+      _iv: '',
+      _data: JSON.stringify(file),
+    })
+
+    const unlocked = await verifyPasswordSlot(
+      slotFromOptions(opts),
+      'daily-password-2026',
+      { store, vault: 'acme', userId: 'alice' },
+    )
+    expect(unlocked.userId).toBe('alice')
+    expect(unlocked.displayName).toBe('Alice Example')
+    expect(unlocked.role).toBe('owner')
+    expect(unlocked.deks.size).toBe(2)
+    // wrap-DEKs unlock cannot recover the KEK — must be null.
+    expect(unlocked.kek).toBeNull()
+  }, 30_000)
+
+  it('verifyPasswordSlot throws when the keyring file is missing', async () => {
+    const keyring = await buildKeyring()
+    const opts = await enrollPasswordAuthenticator(keyring, {
+      password: 'daily-password-2026',
+    })
+    const store = inlineMemory()
+    await expect(
+      verifyPasswordSlot(
+        slotFromOptions(opts),
+        'daily-password-2026',
+        { store, vault: 'acme', userId: 'ghost' },
       ),
     ).rejects.toBeInstanceOf(PasswordInvalidError)
   }, 30_000)
 })
+
+function inlineMemory(): NoydbStore {
+  const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
+  function gc(c: string, col: string) {
+    let comp = store.get(c)
+    if (!comp) { comp = new Map(); store.set(c, comp) }
+    let coll = comp.get(col)
+    if (!coll) { coll = new Map(); comp.set(col, coll) }
+    return coll
+  }
+  return {
+    name: 'inline-memory',
+    async get(c: string, col: string, id: string) { return gc(c, col).get(id) },
+    async put(c: string, col: string, id: string, env: EncryptedEnvelope) { gc(c, col).set(id, env) },
+    async delete(c: string, col: string, id: string) { gc(c, col).delete(id) },
+    async list(c: string, col: string) { return [...gc(c, col).keys()] },
+    async loadAll() { return {} },
+    async saveAll() {},
+    capabilities: { casAtomic: true, auth: { kind: 'none' } },
+  } as unknown as NoydbStore
+}

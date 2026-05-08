@@ -18,22 +18,44 @@ import { ValidationError } from '../errors.js'
 import type { UnlockedKeyring } from './keyring.js'
 import { persistKeyring } from './keyring.js'
 
-/** Input shape for `enrollAuthenticator`. */
-export interface EnrollAuthenticatorOptions {
+/** Fields shared across both wrap-KEK and wrap-DEKs enroll inputs. */
+interface EnrollAuthenticatorBase {
   readonly id: string
   readonly method: KeyringAuthenticator['method']
-  /** Already-wrapped KEK ciphertext (base64) — produced by the on-* package. */
-  readonly wrapped_kek: string
   /** Method-specific metadata (cred id, salt, …). */
   readonly meta: Record<string, unknown>
   /** Tier the active session held when enrolling. Defaults to 1. */
   readonly enrolled_via_tier?: 1 | 2
 }
 
+/** Wrap-KEK enroll input (WebAuthn, OIDC). */
+export interface EnrollAuthenticatorWrappingKEKOptions extends EnrollAuthenticatorBase {
+  /** Already-wrapped KEK ciphertext (base64) — produced by the on-* package. */
+  readonly wrapped_kek: string
+  readonly wrapKind?: 'kek'
+}
+
+/** Wrap-DEKs enroll input (password, future on-* using the unified wrap-DEKs primitive). */
+export interface EnrollAuthenticatorWrappingDEKsOptions extends EnrollAuthenticatorBase {
+  readonly wrapKind: 'deks'
+  /** Base64 AES-GCM ciphertext of `{ deks: { collection: base64rawDek } }`. */
+  readonly wrapped_deks: string
+  /** Base64 AES-GCM IV used for the `wrapped_deks` ciphertext. */
+  readonly iv: string
+}
+
+/** Discriminated union over the two enroll input shapes. */
+export type EnrollAuthenticatorOptions =
+  | EnrollAuthenticatorWrappingKEKOptions
+  | EnrollAuthenticatorWrappingDEKsOptions
+
 /**
  * Append a new authenticator slot to the keyring file. Throws
  * `ValidationError` if a slot with the same id already exists — the
  * caller decides whether to remove + re-enroll.
+ *
+ * Accepts either wrap-KEK (WebAuthn, OIDC) or wrap-DEKs (password)
+ * input. The variant is preserved verbatim into `KeyringAuthenticator`.
  */
 export async function enrollAuthenticator(
   store: NoydbStore,
@@ -49,14 +71,25 @@ export async function enrollAuthenticator(
     )
   }
 
-  const slot: KeyringAuthenticator = {
+  const base = {
     id: options.id,
     method: options.method,
     enrolled_at: new Date().toISOString(),
     enrolled_via_tier: options.enrolled_via_tier ?? 1,
-    wrapped_kek: options.wrapped_kek,
     meta: options.meta,
-  }
+  } as const
+
+  const slot: KeyringAuthenticator = options.wrapKind === 'deks'
+    ? {
+        ...base,
+        wrapKind: 'deks',
+        wrapped_deks: options.wrapped_deks,
+        iv: options.iv,
+      }
+    : {
+        ...base,
+        wrapped_kek: options.wrapped_kek,
+      }
 
   const next = appendSlot(keyring, slot)
   await persistKeyring(store, vault, next)
