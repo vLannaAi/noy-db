@@ -25,6 +25,7 @@ import {
   recoverPassphrase as keyringRecoverPassphrase,
   type RotatePassphraseInput,
   type RecoverPassphraseInput,
+  type RecoverPassphraseResult,
 } from './team/rotate-recover.js'
 import {
   recoverUser as keyringRecoverUser,
@@ -34,8 +35,10 @@ import {
   loadPaperRecoveryEntries,
   savePaperRecoveryEntries,
   hasRecoveryEnrolled,
+  mintPaperRecoveryEntry,
   type PaperRecoveryEntry,
 } from './team/recovery.js'
+import { generateULID } from './bundle/ulid.js'
 import { RecoveryNotEnrolledError } from './policy/errors.js'
 import {
   describeAuthConfig as fnDescribeAuthConfig,
@@ -1400,11 +1403,50 @@ export class Noydb {
     vault: string,
     input: RecoverPassphraseInput,
     factors?: { factors?: ReadonlyArray<FactorProof>; sharedDevice?: boolean },
-  ): Promise<void> {
+  ): Promise<RecoverPassphraseResult> {
     await this.checkGate(vault, 'recover-passphrase', factors)
     const userId = this.options.user
+
+    // Snapshot the entries BEFORE recovery — the team function burns
+    // exactly one entry, so post-recovery `_meta/recovery-paper`
+    // contains `entriesBeforeRecovery.length - 1` entries (the ones
+    // the user did NOT just consume). Those are what we replace
+    // under the auto-rotation logic from #36.
+    const entriesBeforeRecovery = await loadPaperRecoveryEntries(this.options.store, vault)
+
     const next = await keyringRecoverPassphrase(this.options.store, vault, userId, input)
     this.keyringCache.set(vault, next)
+
+    const rotateRemaining = input.rotateRemainingCodes ?? true
+    const remainingAfterBurn = Math.max(0, entriesBeforeRecovery.length - 1)
+    if (!rotateRemaining || remainingAfterBurn === 0) {
+      return { newCodes: [] }
+    }
+
+    // Auto-rotate: replace the remaining entries with a fresh set
+    // minted under the new keyring's DEKs. Wraps the same DEK set the
+    // recovered keyring just got, so the new codes round-trip through
+    // a future `db.recoverPassphrase` cleanly.
+    //
+    // If this step fails (store error mid-mint), we leave the existing
+    // post-burn entries in place — the user falls back to the
+    // pre-#36 behavior (remaining N-1 codes still valid). Strictly
+    // safer than wiping then failing.
+    const codeGen = input.codeGenerator ?? generateULID
+    const newCodeCount = input.newCodeCount ?? remainingAfterBurn
+    const codes: string[] = []
+    const newEntries: PaperRecoveryEntry[] = []
+    for (let i = 0; i < newCodeCount; i++) {
+      const rawCode = codeGen()
+      const entry = await mintPaperRecoveryEntry(next.deks, rawCode, generateULID())
+      codes.push(rawCode)
+      newEntries.push(entry)
+    }
+    // Single replace-all write — `savePaperRecoveryEntries` overwrites
+    // `_meta/recovery-paper` atomically (one envelope `put`).
+    await savePaperRecoveryEntries(this.options.store, vault, newEntries)
+
+    return { newCodes: codes }
   }
 
   /**

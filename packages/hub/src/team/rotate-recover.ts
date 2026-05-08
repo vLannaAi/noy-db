@@ -259,6 +259,59 @@ export interface RecoverPassphraseInput {
   readonly recoveryProof: RecoveryProof
   readonly passphrasePolicy?: PassphrasePolicy
   readonly allowWeakPassphrase?: boolean
+  /**
+   * After a successful paper-recovery, replace ALL remaining recovery
+   * entries with freshly-minted ones. Defaults to `true` (defensive).
+   *
+   * Rationale (issue #36): the user just demonstrated they had access
+   * to AT LEAST one code. The remaining codes from the same printed
+   * sheet may also be compromised — photographed, leaked via a
+   * screen-share slip, or in the hands of whoever stole the sheet.
+   * Auto-rotation closes the window without requiring consumer action.
+   *
+   * Set to `false` to preserve the original behavior (only the matched
+   * code is burned; the rest stay valid).
+   *
+   * Hub-side orchestration is non-atomic with the recovery itself:
+   * if the rotation step fails after a successful burn, the user
+   * falls back to the pre-rotation state (remaining codes still
+   * valid). Strictly safer than the previous default — a failed
+   * rotation degrades gracefully rather than leaving the vault
+   * locked or codes dual-existing.
+   */
+  readonly rotateRemainingCodes?: boolean
+  /**
+   * Number of fresh codes to mint when `rotateRemainingCodes` is on.
+   * Defaults to the count of remaining entries POST-burn (e.g. if
+   * the user enrolled 8 originally and just consumed 1, defaults to
+   * 7). Pass an explicit number to mint a different count — useful
+   * when the consumer wants to refresh to a target N regardless of
+   * how many were left.
+   */
+  readonly newCodeCount?: number
+  /**
+   * Override the default raw-code generator. The default is hub's
+   * {@link generateULID} — uppercase Crockford-Base32, 26 chars,
+   * passes through `normalizePaperCode` untouched.
+   *
+   * Pass `() => generateRawCode()` from `@noy-db/on-recovery` when
+   * the consumer prefers the Base32 + checksum format with hyphenated
+   * display. The `mintPaperRecoveryEntry` helper accepts any string —
+   * the generator just needs to produce a high-entropy unique value.
+   */
+  readonly codeGenerator?: () => string
+}
+
+/**
+ * Return shape of `db.recoverPassphrase`. `newCodes` is populated when
+ * `rotateRemainingCodes` was enabled and at least one entry was
+ * rotated; an empty array means no rotation happened (rotation
+ * disabled, or no remaining codes after burn). Show the codes to the
+ * user once — they are the canonical credential for future recovery
+ * and CANNOT be retrieved again.
+ */
+export interface RecoverPassphraseResult {
+  readonly newCodes: readonly string[]
 }
 
 /**
