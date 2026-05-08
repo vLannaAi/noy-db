@@ -97,6 +97,8 @@ Biometrics never *are* the secret — they gate access to a local credential. So
 
 All require **online at auth time**. All map to `on-oidc` with different issuer URLs. Differences are ecosystem fit and built-in 2FA strength, not protocol.
 
+> **Server-side dependency** — OIDC is the only `on-*` family that requires **consumer-operated infrastructure**. The split-key model needs an HTTP service that verifies ID tokens against the issuer's JWKS and stores the per-user `serverHalf` indexed by `sub`. noy-db documents the protocol (`PUT/GET /kek-fragment`) at [`packages/on-oidc/src/index.ts`](../../packages/on-oidc/src/index.ts) but does **not** ship a reference implementation, hosted instance, or deploy template — that's a deliberate boundary, not a backlog item. Consumers with no off-device infrastructure should prefer [`@noy-db/on-webauthn`](../../packages/on-webauthn) (platform passkey via Touch ID / Face ID / Windows Hello) — same UX as "Login with X" without the server, because the platform passkey IS the device-bound credential. See [issue #37](https://github.com/vLannaAi/noy-db/issues/37) for the discussion that closed this question.
+
 | Provider | Personal | Shared | Default factors | Notes / caveat | noy-db match |
 |---|:--:|:--:|---|---|---|
 | Google Sign-In | ✅ | ⚠️ leaves session | K + optional D (Google Prompt / TOTP / key) | Consumer + Workspace | `on-oidc` |
