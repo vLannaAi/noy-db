@@ -399,6 +399,13 @@ export {
 } from './team/recovery.js'
 export type { PaperRecoveryEntry, PaperRecoveryDoc } from './team/recovery.js'
 
+// Canonical wrap-DEKs primitive (#44) — shared crypto for tier-0
+// (paper recovery), tier-2 wrap-DEKs (password), tier-3 (on-pin).
+// `mintPaperRecoveryEntry` and `enrollPasswordAuthenticator` both
+// delegate to these helpers.
+export { mintWrappedDeksBlob, unwrapDeksFromBlob } from './team/wrapped-deks.js'
+export type { WrappedDeksBlob } from './team/wrapped-deks.js'
+
 // Peer-recovery — issues #33 + #34 (atomic db.recoverUser primitive).
 // The team/peer-recover module also runs through Noydb.recoverUser for
 // the policy-gated path; consumers can use the lower-level function
