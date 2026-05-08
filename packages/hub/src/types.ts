@@ -537,6 +537,10 @@ export interface KeyringAuthenticatorWrappingKEK extends KeyringAuthenticatorBas
   readonly wrapKind?: 'kek'
   /** Base64 wrapped-KEK ciphertext under the method-derived key. */
   readonly wrapped_kek: string
+  /** XOR guard — wrap-KEK slots must NOT carry wrap-DEKs material. */
+  readonly wrapped_deks?: never
+  /** XOR guard — wrap-KEK slots must NOT carry wrap-DEKs material. */
+  readonly iv?: never
 }
 
 /**
@@ -562,6 +566,8 @@ export interface KeyringAuthenticatorWrappingDEKs extends KeyringAuthenticatorBa
   readonly wrapped_deks: string
   /** Base64 AES-GCM IV used for the `wrapped_deks` ciphertext. */
   readonly iv: string
+  /** XOR guard — wrap-DEKs slots must NOT carry wrap-KEK material. */
+  readonly wrapped_kek?: never
 }
 
 /**

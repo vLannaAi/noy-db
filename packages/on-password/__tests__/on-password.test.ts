@@ -18,7 +18,7 @@ import {
   PasswordTooWeakError,
   PasswordInvalidError,
 } from '../src/index.js'
-import type { UnlockedKeyring, KeyringAuthenticator } from '@noy-db/hub'
+import type { UnlockedKeyring, KeyringAuthenticator, NoydbStore, EncryptedEnvelope, KeyringFile } from '@noy-db/hub'
 
 const subtle = globalThis.crypto.subtle
 
@@ -154,7 +154,7 @@ describe('@noy-db/on-password — wrap-DEKs enroll + verify (#26 Path C)', () =>
     ).rejects.toBeInstanceOf(PasswordInvalidError)
   }, 30_000)
 
-  it('rejects a wrap-KEK slot (legacy pre-pre.8 password slots) with a clear error', async () => {
+  it('rejects a wrap-KEK slot (legacy pre-pre.8 password slots) with the re-enrol message', async () => {
     // Construct a synthetic legacy slot that mimics the pre-PR1b shape.
     const legacy: KeyringAuthenticator = {
       id: 'password-legacy',
@@ -164,25 +164,93 @@ describe('@noy-db/on-password — wrap-DEKs enroll + verify (#26 Path C)', () =>
       wrapped_kek: 'd2hhdGV2ZXItbGVnYWN5LWJ5dGVz',
       meta: { salt: 'c2FsdC1ub3JtYWw=', minLength: 12 },
     }
+    // Pin the user-facing recovery instruction — a future refactor that
+    // throws PasswordInvalidError for a different reason would silently
+    // regress the "re-enrol" UX. Per Niwat's PR #42 review point 4.
     await expect(
       unwrapDeksWithPassword(legacy, 'daily-password-2026'),
-    ).rejects.toBeInstanceOf(PasswordInvalidError)
+    ).rejects.toMatchObject({
+      name: 'PasswordInvalidError',
+      message: expect.stringMatching(/wrap-DEKs|re-enrol/),
+    })
   })
 
-  it('verifyPasswordSlot returns UnlockedKeyring with kek:null + reference identity fields', async () => {
+  it('verifyPasswordSlot returns UnlockedKeyring with kek:null + identity from disk (cold-start path)', async () => {
+    // Niwat PR #42 review point 3: verifier loads identity from
+    // `_keyring/<userId>` directly, so cold-start (createNoydb +
+    // getKeyring callback) works without a pre-existing keyring.
     const keyring = await buildKeyring()
     const opts = await enrollPasswordAuthenticator(keyring, {
       password: 'daily-password-2026',
     })
+
+    // Build a real store with a written keyring file to feed the verifier.
+    const store = inlineMemory()
+    const file: KeyringFile = {
+      _noydb_keyring: 1,
+      user_id: 'alice',
+      display_name: 'Alice Example',
+      role: 'owner',
+      permissions: {},
+      deks: {},
+      salt: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+      created_at: new Date().toISOString(),
+      granted_by: 'alice',
+    }
+    await store.put('acme', '_keyring', 'alice', {
+      _noydb: 1,
+      _v: 1,
+      _ts: new Date().toISOString(),
+      _iv: '',
+      _data: JSON.stringify(file),
+    })
+
     const unlocked = await verifyPasswordSlot(
       slotFromOptions(opts),
       'daily-password-2026',
-      { keyring },
+      { store, vault: 'acme', userId: 'alice' },
     )
     expect(unlocked.userId).toBe('alice')
+    expect(unlocked.displayName).toBe('Alice Example')
     expect(unlocked.role).toBe('owner')
     expect(unlocked.deks.size).toBe(2)
     // wrap-DEKs unlock cannot recover the KEK — must be null.
     expect(unlocked.kek).toBeNull()
   }, 30_000)
+
+  it('verifyPasswordSlot throws when the keyring file is missing', async () => {
+    const keyring = await buildKeyring()
+    const opts = await enrollPasswordAuthenticator(keyring, {
+      password: 'daily-password-2026',
+    })
+    const store = inlineMemory()
+    await expect(
+      verifyPasswordSlot(
+        slotFromOptions(opts),
+        'daily-password-2026',
+        { store, vault: 'acme', userId: 'ghost' },
+      ),
+    ).rejects.toBeInstanceOf(PasswordInvalidError)
+  }, 30_000)
 })
+
+function inlineMemory(): NoydbStore {
+  const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
+  function gc(c: string, col: string) {
+    let comp = store.get(c)
+    if (!comp) { comp = new Map(); store.set(c, comp) }
+    let coll = comp.get(col)
+    if (!coll) { coll = new Map(); comp.set(col, coll) }
+    return coll
+  }
+  return {
+    name: 'inline-memory',
+    async get(c: string, col: string, id: string) { return gc(c, col).get(id) },
+    async put(c: string, col: string, id: string, env: EncryptedEnvelope) { gc(c, col).set(id, env) },
+    async delete(c: string, col: string, id: string) { gc(c, col).delete(id) },
+    async list(c: string, col: string) { return [...gc(c, col).keys()] },
+    async loadAll() { return {} },
+    async saveAll() {},
+    capabilities: { casAtomic: true, auth: { kind: 'none' } },
+  } as unknown as NoydbStore
+}

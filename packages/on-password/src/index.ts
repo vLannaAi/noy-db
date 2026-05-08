@@ -37,6 +37,8 @@
 import type {
   EnrollAuthenticatorOptions,
   KeyringAuthenticator,
+  KeyringFile,
+  NoydbStore,
   UnlockedKeyring,
 } from '@noy-db/hub'
 
@@ -238,7 +240,8 @@ export async function unwrapDeksWithPassword(
  * import { verifyPasswordSlot } from '@noy-db/on-password'
  *
  * const unlocked = await db.unlockViaAuthenticator('acme', 'password-daily',
- *   (slot) => verifyPasswordSlot(slot, 'daily-password-2026', { keyring }),
+ *   (slot) => verifyPasswordSlot(slot, 'daily-password-2026',
+ *     { store, vault: 'acme', userId: 'alice' }),
  * )
  * ```
  *
@@ -247,12 +250,22 @@ export async function unwrapDeksWithPassword(
  * returned keyring has `kek: null` — sensitive operations (enrol new
  * slot, rotate phrase) require a tier-1 unlock from the master phrase.
  *
- * Pass the current `keyring` (from `db.getKeyring(vault)`) to copy
- * identity fields (userId, role, permissions, authenticators) onto
- * the recovered `UnlockedKeyring`. Those fields aren't recoverable
- * from the wrapped-DEKs ciphertext alone.
+ * The `{ store, vault, userId }` shape works in both contexts:
+ *   - **Warm re-unlock** — db is alive; consumer already has identity
+ *     in memory but pays one cheap `_keyring/<userId>` read.
+ *   - **Cold-start** (`createNoydb({ getKeyring: ... })`) — consumer
+ *     does NOT have a keyring yet; the verifier loads identity from
+ *     disk before returning the unlocked keyring. This is the
+ *     primary cold-start tier-2 path (Niwat tier-2b uses this).
  *
- * @throws {@link PasswordInvalidError} when the password is wrong.
+ * Identity fields (userId, displayName, role, permissions,
+ * authenticators, salt, capability bits, per-keyring policy) are read
+ * directly from the `_keyring/<userId>` envelope's plaintext header —
+ * those fields are not encrypted because the sync engine + grant flow
+ * need them without a key.
+ *
+ * @throws {@link PasswordInvalidError} when the password is wrong or
+ *   the keyring file is missing.
  */
 export async function verifyPasswordSlot(
   slot: KeyringAuthenticator,
@@ -260,34 +273,44 @@ export async function verifyPasswordSlot(
   options: VerifyPasswordSlotOptions,
 ): Promise<UnlockedKeyring> {
   const deks = await unwrapDeksWithPassword(slot, password)
-  const reference = options.keyring
+
+  const env = await options.store.get(options.vault, '_keyring', options.userId)
+  if (!env) {
+    throw new PasswordInvalidError(
+      `verifyPasswordSlot: no keyring found at "${options.vault}/_keyring/${options.userId}". ` +
+        'Verify the vault and userId are correct.',
+    )
+  }
+  const file = JSON.parse(env._data) as KeyringFile
+  const salt = base64ToBytes(file.salt)
+
   return {
-    userId: reference.userId,
-    displayName: reference.displayName,
-    role: reference.role,
-    permissions: reference.permissions,
-    authenticators: reference.authenticators,
-    salt: reference.salt,
-    ...(reference.exportCapability !== undefined && { exportCapability: reference.exportCapability }),
-    ...(reference.importCapability !== undefined && { importCapability: reference.importCapability }),
-    ...(reference.policy !== undefined && { policy: reference.policy }),
+    userId: file.user_id,
+    displayName: file.display_name,
+    role: file.role,
+    permissions: file.permissions,
+    authenticators: file.authenticators ?? [],
+    salt,
+    ...(file.export_capability !== undefined && { exportCapability: file.export_capability }),
+    ...(file.import_capability !== undefined && { importCapability: file.import_capability }),
+    ...(file.policy !== undefined && { policy: file.policy }),
     deks,
     // Wrap-DEKs unlock cannot recover the KEK. Sensitive ops route
     // through tier-1 via re-entry of the master phrase. Matches the
     // existing tier-3 (`@noy-db/on-pin`) pattern.
+    // TODO(#41): drop the cast once UnlockedKeyring.kek is CryptoKey | null.
     kek: null as unknown as CryptoKey,
   }
 }
 
 /** Adapter shape required by {@link verifyPasswordSlot}. */
 export interface VerifyPasswordSlotOptions {
-  /**
-   * The current vault keyring (typically `await db.getKeyring(vault)`).
-   * Identity fields (`userId`, `role`, `permissions`, `authenticators`,
-   * `salt`) are copied onto the recovered `UnlockedKeyring`. The DEK
-   * map is replaced with the unwrapped contents of the password slot.
-   */
-  readonly keyring: UnlockedKeyring
+  /** The vault's NoydbStore — used to load `_keyring/<userId>`. */
+  readonly store: NoydbStore
+  /** Vault name — same value passed to `db.openVault(name)`. */
+  readonly vault: string
+  /** User id — same value passed to `createNoydb({ user })`. */
+  readonly userId: string
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────
