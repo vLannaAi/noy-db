@@ -398,6 +398,13 @@ export {
 } from './team/recovery.js'
 export type { PaperRecoveryEntry, PaperRecoveryDoc } from './team/recovery.js'
 
+// Peer-recovery — issues #33 + #34 (atomic db.recoverUser primitive).
+// The team/peer-recover module also runs through Noydb.recoverUser for
+// the policy-gated path; consumers can use the lower-level function
+// directly when they don't want hub-level gating (e.g. in tests).
+export { recoverUser } from './team/peer-recover.js'
+export type { RecoverUserOptions } from './team/peer-recover.js'
+
 // Export-capability helpers
 export { hasExportCapability, evaluateExportCapability } from './team/keyring.js'
 export { hasImportCapability, evaluateImportCapability } from './team/keyring.js'
