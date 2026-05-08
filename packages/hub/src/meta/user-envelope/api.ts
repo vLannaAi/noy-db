@@ -34,6 +34,25 @@ export type DeepPartial<T> = T extends object
   ? { [P in keyof T]?: DeepPartial<T[P]> }
   : T
 
+/**
+ * Recursive partial with `null` allowed at every level — used by
+ * `updateMe` (#57) to express deletion intent in addition to merge.
+ *
+ * Semantics inside `updateMe`:
+ *   - `undefined` (or absent key) — skip; source value preserved
+ *   - `null` — delete the key from the resulting envelope
+ *   - any other value — overwrite (deep-merge for plain objects,
+ *     replace for primitives / arrays)
+ *
+ * Matches lodash `_.merge` behavior on `null` and Firestore's
+ * `FieldValue.delete()` semantics. Loosened from `DeepPartial<T>` per
+ * #57; consumers wanting the original "merge-only" surface can keep
+ * importing `DeepPartial` and avoid passing `null`.
+ */
+export type DeepPartialOrNull<T> = T extends object
+  ? { [P in keyof T]?: DeepPartialOrNull<T[P]> | null }
+  : T
+
 /** Cancel a previously-registered subscription. */
 export type Unsubscribe = () => void
 
@@ -112,12 +131,23 @@ export class UserApi {
    * the envelope on first call. Optimistic-concurrency safe — a stale
    * `_v` (parallel writer on another device) throws `ConflictError`.
    *
+   * Patch semantics (#57):
+   *   - `undefined` (or omitted key) — skip; existing value preserved
+   *   - `null` — delete the field from the merged result
+   *   - any other value — overwrite (deep-merge for plain objects,
+   *     replace for primitives / arrays)
+   *
+   * To clear a field, pass `null` rather than `undefined`. Callers
+   * with shape `T = string | null` where `null` is a meaningful value
+   * should use `setMe` for that specific field instead — `null` here
+   * always means delete.
+   *
    * Gated by the `edit-own-profile` policy gate (default `minTier: 3`).
    * Pass `presented` to satisfy tightened policies that require a
    * factor proof (e.g. STRICT_POLICY's TOTP requirement).
    */
   async updateMe<T extends object = Record<string, unknown>>(
-    patch: DeepPartial<T>,
+    patch: DeepPartialOrNull<T>,
     presented?: UserEnvelopePresented,
   ): Promise<UserEnvelope<T>> {
     if (this.checkGate) await this.checkGate('edit-own-profile', presented)
@@ -305,23 +335,54 @@ export class UserApi {
 }
 
 /**
- * Recursive plain-object deep merge. Patch values overwrite source
- * values; arrays are replaced (not concatenated); null / undefined in
- * patch is treated as a delete-key intent only when explicitly set.
+ * Recursive plain-object deep merge with delete intent (#57).
  *
- * For the user envelope use case, "delete a preference" should go
- * through `setMe(newWholePayload)` — `updateMe` is for *additive* and
- * *modifying* updates only.
+ * Patch semantics:
+ *   - `undefined` — skip the key; source value preserved
+ *   - `null` — delete the key from output (lodash `_.merge` /
+ *     Firestore `FieldValue.delete()` semantics)
+ *   - plain object — recurse (deep merge)
+ *   - any other value — replace (arrays are replaced, not concatenated)
+ *
+ * Safe against the JS quirk where an own property explicitly set to
+ * `undefined` is iterated by `Object.entries`. We dispatch on the value
+ * BEFORE writing, so `{ k: undefined }` triggers the skip branch rather
+ * than overwriting `out[k]` with undefined.
  */
-function deepMerge<T>(source: T, patch: DeepPartial<T>): T {
+function deepMerge<T>(source: T, patch: DeepPartialOrNull<T>): T {
   if (!isPlainObject(source) || !isPlainObject(patch)) {
+    // Top-level non-object replace. `null` patch at the leaf level
+    // would have been caught by the parent recursion's branch table;
+    // at the top level it means "set the whole envelope to null,"
+    // which the type system already prevents (T extends object).
     return patch as unknown as T
   }
   const out: Record<string, unknown> = { ...(source as Record<string, unknown>) }
   for (const [key, patchVal] of Object.entries(patch as Record<string, unknown>)) {
+    if (patchVal === undefined) {
+      // Skip — preserve the source value at this key. Matches the
+      // pre-#57 behavior so callers who never used `null` see no diff.
+      continue
+    }
+    if (patchVal === null) {
+      // Delete intent. `delete` rather than `out[key] = undefined`
+      // because JSON.stringify drops undefined fields silently and
+      // we want the deletion to be visible to consumers iterating
+      // the merged object (e.g. `Object.keys(merged.profile)`).
+      delete out[key]
+      continue
+    }
     const sourceVal = (source as Record<string, unknown>)[key]
-    if (isPlainObject(sourceVal) && isPlainObject(patchVal)) {
-      out[key] = deepMerge(sourceVal, patchVal as DeepPartial<typeof sourceVal>)
+    if (isPlainObject(patchVal)) {
+      // Recurse for any plain-object patch — including the "source is
+      // missing this key" case. Without recursing through a synthetic
+      // empty source, nested `null` deletions in the patch would land
+      // as literal `null` values instead of triggering the delete
+      // branch (e.g. `{ app: { signature: null } }` against a missing
+      // `app` would emit `{ app: { signature: null } }` instead of
+      // `{ app: {} }`).
+      const recurseSource = isPlainObject(sourceVal) ? sourceVal : {}
+      out[key] = deepMerge(recurseSource, patchVal as DeepPartialOrNull<typeof recurseSource>)
     } else {
       out[key] = patchVal
     }

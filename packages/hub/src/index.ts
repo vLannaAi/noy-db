@@ -374,6 +374,7 @@ export {
 export type { UserEnvelope } from './meta/user-envelope/index.js'
 export type {
   DeepPartial,
+  DeepPartialOrNull,
   Unsubscribe,
   LiveUserEnvelope,
   UserEnvelopePresented,
