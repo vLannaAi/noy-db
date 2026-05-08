@@ -1,5 +1,15 @@
 # @noy-db/on-recovery
 
+## 0.1.0-pre.8
+
+### Breaking changes
+
+- **Now delegates to hub's `mintPaperRecoveryEntry`** ([#38](https://github.com/vLannaAi/noy-db/issues/38)) — fixes the format-mismatch bug where `generateRecoveryCodeSet` produced `RecoveryCodeEntry` objects with `wrappedKEK` (incompatible with the hub's `PaperRecoveryEntry` shape that uses `wrappedDeks`). The signature changes: `generateRecoveryCodeSet({ deks, count })` (was: `{ kek, count }`). Internally calls hub's `mintPaperRecoveryEntry`. Removed: `unwrapKEKFromRecovery`, `wrapKEKForRecovery`, `deriveRecoveryWrappingKey`, `RecoveryCodeEntry` type — recovery unwrap goes through hub's `unwrapDeksFromPaperEntry`. The package is now a thin code-generator + parser layer; the wrap format is owned end-to-end by the hub.
+
+### Patch Changes
+
+- Updated dependencies — @noy-db/hub@0.1.0-pre.8
+
 ## 0.1.0-pre.7
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/to-browser-local",
-  "version": "0.1.0-pre.7",
+  "version": "0.1.0-pre.8",
   "description": "localStorage adapter for noy-db with optional key obfuscation",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
