@@ -38,6 +38,49 @@ export interface PassphrasePolicy {
   readonly minWordLength?: number
   /** Reject adjacent identical words ("the the"). Default true. */
   readonly rejectRepeatedAdjacent?: boolean
+  /**
+   * Override the default character-class rule (`/^[a-z]+( [a-z]+)*$/`).
+   *
+   * The hub's strict default is lowercase-letters-and-single-spaces
+   * because that's what the EFF wordlist generator emits and what
+   * most attacker password lists are keyed on. Use this knob to allow
+   * digits, uppercase, hyphens, or non-Latin scripts when the
+   * consumer's audience needs them — e.g.:
+   *
+   * ```ts
+   * // Thai + English mix with digits permitted
+   * pattern: /^[\p{L}0-9 ]+( [\p{L}0-9 ]+)*$/u
+   *
+   * // Allow uppercase + hyphens (passphrase-with-hyphens style)
+   * pattern: /^[A-Za-z]+([- ][A-Za-z]+)*$/
+   * ```
+   *
+   * The OTHER structural rules still apply (min-words split by space,
+   * min-word-length, repeated-adjacent, leading/trailing whitespace,
+   * double-space). For non-space-delimited word semantics, use
+   * {@link customValidator} instead.
+   *
+   * Added in pre.8 (#31).
+   */
+  readonly pattern?: RegExp
+  /**
+   * Replace ALL validation entirely with a custom function. When set,
+   * none of the other PassphrasePolicy fields apply — the consumer
+   * owns every rule (word splitting, character classes, entropy
+   * thresholds, allowlist/denylist). Use sparingly; this is the
+   * escape hatch for domain-specific phrase formats:
+   *
+   *   - Localized wordlists with non-space word boundaries
+   *   - BIP-39 seed phrases (24 words, fixed wordlist, etc.)
+   *   - Organization-specific HR password policies
+   *
+   * The returned `PassphraseValidationResult` is what
+   * {@link assertStrongPassphrase} dispatches on — `ok: true` accepts;
+   * `ok: false` throws `WeakPassphraseError` with the supplied reason.
+   *
+   * Added in pre.8 (#31).
+   */
+  readonly customValidator?: (phrase: string) => PassphraseValidationResult
 }
 
 /** Result of a check. Discriminated union — compile-time exhaustive. */
@@ -90,6 +133,13 @@ export function validatePassphrase(
   s: string,
   opts?: PassphrasePolicy,
 ): PassphraseValidationResult {
+  // Escape hatch: customValidator owns the entire decision. None of
+  // the structural rules below run when this is set — the consumer is
+  // responsible for the full validation contract.
+  if (opts?.customValidator) {
+    return opts.customValidator(s)
+  }
+
   const minWords = opts?.minWords ?? DEFAULT_MIN_WORDS
   const minWordLength = opts?.minWordLength ?? DEFAULT_MIN_WORD_LENGTH
   const rejectRepeated = opts?.rejectRepeatedAdjacent ?? true
@@ -106,7 +156,13 @@ export function validatePassphrase(
     return { ok: false, reason: 'double-space' }
   }
 
-  if (!/^[a-z]+( [a-z]+)*$/.test(s)) {
+  // The default character class is lowercase-letters-and-spaces;
+  // consumers can override via PassphrasePolicy.pattern (e.g. to
+  // allow digits, uppercase, or non-Latin scripts). Word splitting
+  // below remains space-based — for non-space word semantics the
+  // consumer should use customValidator instead.
+  const charPattern = opts?.pattern ?? /^[a-z]+( [a-z]+)*$/
+  if (!charPattern.test(s)) {
     return { ok: false, reason: 'invalid-chars' }
   }
 

@@ -13,13 +13,43 @@
  */
 import type { PassphrasePolicy } from '../validation.js'
 
-/** A single off-device factor surface — the proof an actor presents at gate time. */
+/**
+ * A single factor surface — the proof an actor presents at gate time.
+ *
+ * | Kind | Source | Off-device? |
+ * |---|---|---|
+ * | `totp` | RFC 6238 authenticator app (Google Auth, 1Password) | yes |
+ * | `email-otp` | one-time code mailed to the user | yes |
+ * | `recovery` | printable Base32 code (`@noy-db/on-recovery`) | yes (paper) |
+ * | `shamir` | k-of-n threshold share (`@noy-db/on-shamir`) | yes |
+ * | `webauthn-roaming` | hardware key (YubiKey, SoloKey, Titan) | yes (key portable) |
+ * | `webauthn-platform` | platform passkey (Touch ID, Face ID, Hello) | no (device-bound) |
+ * | `password` | tier-2 daily password (`@noy-db/on-password`) | no |
+ * | `pin` | tier-3 quick-resume PIN (`@noy-db/on-pin`) | no |
+ *
+ * Off-device kinds (TOTP, email-OTP, recovery, shamir, roaming WebAuthn)
+ * are the strongest factor proofs because they require something
+ * separate from the device the user just unlocked. Platform / password /
+ * PIN are useful for "fresh proof of *this* user" but don't bind across
+ * devices — policies can require ANY of them or insist on a count of 2
+ * to force a mix.
+ *
+ * Added in pre.8 (#30): `webauthn-platform`, `password`, `pin` —
+ * previously consumers with no off-device infrastructure (no TOTP,
+ * no email-OTP, paper recovery not enrolled) had to disable the
+ * factor requirement entirely on `rotate-passphrase`. Now they can
+ * pin "any second factor I have wired" without losing the freshness
+ * guarantee.
+ */
 export type FactorKind =
   | 'totp'
   | 'email-otp'
   | 'recovery'
   | 'shamir'
   | 'webauthn-roaming'
+  | 'webauthn-platform'
+  | 'password'
+  | 'pin'
 
 /**
  * One factor requirement entry. The default is "any one of the listed
