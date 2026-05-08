@@ -38,6 +38,52 @@ import {
 } from './recovery.js'
 import { assertStrongPassphrase, type PassphrasePolicy } from '../validation.js'
 import type { UnlockedKeyring } from './keyring.js'
+import type { KeyringAuthenticator } from '../types.js'
+import type { EnrollAuthenticatorOptions } from './authenticators.js'
+import { ValidationError } from '../errors.js'
+
+/**
+ * Context handed to a {@link SlotRewrapCeremony} when `rotatePassphrase`
+ * preserves a tier-2 slot. The ceremony's job is to re-derive its
+ * method-specific wrapping material (PRF assertion, PBKDF2 of a
+ * daily-password, etc.) and wrap the freshly rewrapped DEK set under
+ * the new wrapping key.
+ *
+ * Two surfaces are exposed:
+ *
+ *   - `newDeks` — the rewrapped (extractable) DEK set the slot will
+ *     wrap. This is what `mintPaperRecoveryEntry` / `enrollPassword-
+ *     Authenticator` / `wrapKeyringSummary` (in `@noy-db/on-webauthn`)
+ *     all consume; effectively the canonical input for every
+ *     post-Path C tier-2 ceremony.
+ *
+ *   - `newKek` — the freshly-derived KEK (extractable for the
+ *     ceremony scope only). Only relevant for forward-compatibility
+ *     with a hypothetical future on-* package that wants to wrap the
+ *     KEK itself under a method-derived key. None of the shipped
+ *     on-* packages need this; they all operate on `newDeks`.
+ *
+ * The ceremony MUST preserve `oldSlot.id` and `oldSlot.method` in the
+ * returned `EnrollAuthenticatorOptions`. Hub validates these — a
+ * mismatch throws `ValidationError` (prevents slot-type swap mid-
+ * rotation, e.g. converting a webauthn slot to a password slot under
+ * cover of preservation).
+ */
+export interface SlotRewrapContext {
+  readonly newKek: CryptoKey
+  readonly newDeks: Map<string, CryptoKey>
+  readonly oldSlot: KeyringAuthenticator
+}
+
+/**
+ * Callback that re-enrolls one tier-2 slot during `rotatePassphrase`.
+ * Returns the new slot's `EnrollAuthenticatorOptions` — same shape
+ * the consumer would pass to `db.enrollAuthenticator` for a fresh
+ * enrollment. Hub persists the result atomically with the rotation.
+ */
+export type SlotRewrapCeremony = (
+  ctx: SlotRewrapContext,
+) => Promise<EnrollAuthenticatorOptions>
 
 /** Caller payload for {@link rotatePassphrase}. */
 export interface RotatePassphraseInput {
@@ -45,19 +91,40 @@ export interface RotatePassphraseInput {
   readonly newPassphrase: string
   readonly passphrasePolicy?: PassphrasePolicy
   readonly allowWeakPassphrase?: boolean
+  /**
+   * Map of slot id → re-enrolment ceremony. Slots whose id appears
+   * here are PRESERVED across rotation (the ceremony re-derives the
+   * method-specific wrapping under the new keyring); slots whose id
+   * is absent are DROPPED (the pre-#29 behavior).
+   *
+   * Without this map, `rotatePassphrase` retains the pre-pre.8
+   * behavior of wiping every tier-2 slot. Consumers building a
+   * "rotate without losing my biometric" flow supply ceremonies for
+   * each slot they want to keep.
+   *
+   * If a ceremony throws, the entire rotation throws — no partial
+   * state. Callers wrap individual ceremonies in try/catch + return
+   * a sentinel if they want graceful degradation per slot.
+   *
+   * Added in pre.8 (#29).
+   */
+  readonly slotCeremonies?: { readonly [slotId: string]: SlotRewrapCeremony }
 }
 
 /**
  * Re-derive the user's KEK from `oldPassphrase`, rewrap every DEK
  * under a freshly-derived KEK from `newPassphrase`, and persist.
  *
- * Tier-2 authenticator slots are NOT preserved — each slot wraps the
- * old KEK and would need the user's per-slot derivation key to
- * re-wrap; the hub doesn't hold that. The user re-enrols any slots
- * after rotation. v0.1.0-pre.5 limitation.
+ * Tier-2 authenticator slots are dropped UNLESS the caller supplies
+ * a `slotCeremonies` map (#29) — each ceremony re-derives its
+ * method-specific wrapping under the new keyring, and hub persists
+ * the rewrapped slots atomically with the rotation. Slots whose id
+ * isn't in the map are still dropped (pre-pre.8 behavior).
  *
  * @throws `InvalidKeyError` if `oldPassphrase` does not unwrap the keyring.
  * @throws `WeakPassphraseError` if `newPassphrase` fails the strength rule.
+ * @throws `ValidationError` if a ceremony's result mismatches the
+ *         slot's id or method (anti-slot-swap guard).
  */
 export async function rotatePassphrase(
   store: NoydbStore,
@@ -93,14 +160,75 @@ export async function rotatePassphrase(
     wrappedDeks[coll] = await wrapKey(dek, newKek)
   }
 
+  // Slot rewrap (#29). Without slotCeremonies, we drop every existing
+  // slot — the pre-pre.8 behavior. With a ceremony map, slots whose
+  // id appears in the map are preserved; the rest are dropped.
+  const oldSlots = file.authenticators ?? []
+  const newSlots: KeyringAuthenticator[] = []
+  if (input.slotCeremonies && oldSlots.length > 0) {
+    for (const oldSlot of oldSlots) {
+      const ceremony = input.slotCeremonies[oldSlot.id]
+      if (!ceremony) continue // drop — same as pre-#29 behavior
+
+      const result = await ceremony({ newKek, newDeks: deks, oldSlot })
+
+      // Anti-slot-swap guard. The ceremony MUST preserve identity —
+      // a mismatch would let the consumer convert a webauthn slot to
+      // a password slot mid-rotation, which would silently change
+      // the security profile of the slot under cover of "rotation."
+      if (result.id !== oldSlot.id) {
+        throw new ValidationError(
+          `slotCeremonies['${oldSlot.id}'] returned id="${result.id}". ` +
+            'The id must match the rotated slot — a ceremony cannot ' +
+            'change a slot\'s identity.',
+        )
+      }
+      if (result.method !== oldSlot.method) {
+        throw new ValidationError(
+          `slotCeremonies['${oldSlot.id}'] returned method="${result.method}", ` +
+            `expected "${oldSlot.method}". The method must match the rotated ` +
+            'slot — a ceremony cannot change the auth method (e.g. webauthn ' +
+            '→ password) under cover of rotation.',
+        )
+      }
+
+      // Build the persisted slot from the ceremony result. Mirrors
+      // the same construction `enrollAuthenticator` does — wrap-DEKs
+      // variants carry { wrapped_deks, iv }; wrap-KEK variants
+      // carry { wrapped_kek }.
+      const baseFields = {
+        id: result.id,
+        method: result.method,
+        // Preserve original enrolled_at — rotation is rewrapping, not
+        // re-enrollment. The slot's enrolment timestamp tracks when
+        // the user originally added the slot, not when it was last
+        // rewrapped. Forensics consumers reading enrolled_at are
+        // tracking the slot's ORIGIN, not its CURRENT wrapping.
+        enrolled_at: oldSlot.enrolled_at,
+        enrolled_via_tier: result.enrolled_via_tier ?? oldSlot.enrolled_via_tier,
+        meta: result.meta,
+      } as const
+      const newSlot: KeyringAuthenticator = result.wrapKind === 'deks'
+        ? {
+            ...baseFields,
+            wrapKind: 'deks',
+            wrapped_deks: result.wrapped_deks,
+            iv: result.iv,
+          }
+        : {
+            ...baseFields,
+            wrapped_kek: result.wrapped_kek,
+          }
+      newSlots.push(newSlot)
+    }
+  }
+
   const next: KeyringFile = {
     ...file,
     _noydb_keyring: NOYDB_KEYRING_VERSION,
     deks: wrappedDeks,
     salt: bufferToBase64(newSalt),
-    // Tier-2 slots reference the old KEK — drop them. User
-    // re-enrols afterwards via `db.enrollAuthenticator`.
-    authenticators: [],
+    authenticators: newSlots,
   }
 
   await writeKeyringFile(store, vault, userId, next)
@@ -113,7 +241,7 @@ export async function rotatePassphrase(
     deks,
     kek: newKek,
     salt: newSalt,
-    authenticators: [],
+    authenticators: newSlots,
     ...(file.export_capability !== undefined && { exportCapability: file.export_capability }),
     ...(file.import_capability !== undefined && { importCapability: file.import_capability }),
   }
