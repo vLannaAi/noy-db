@@ -1027,6 +1027,40 @@ export interface GrantOptions {
   readonly initialProfile?: unknown
 }
 
+/**
+ * Caller payload for `db.updateUser` (#54). Mutate one or more
+ * identity fields on an existing keyring without rotating any keys.
+ *
+ * `role`, `displayName`, and `permissions` live in the plaintext header
+ * of `_keyring/<userId>` (the sync engine reads them without keys).
+ * Mutating them is a JSON header swap — no DEK rewrap, no KEK
+ * required, no authenticator slots touched. Tier-2 slots and recovery
+ * enrollments survive unchanged. Last-write-wins through the existing
+ * keyring put (same concurrency story as `db.grant` / `db.revoke`).
+ *
+ * Top-level fields are partial-merge: absent fields are not modified.
+ * `permissions`, however, is a **full replacement** at the map level —
+ * passing `{ invoices: 'rw' }` REPLACES the entire permissions map,
+ * silently dropping any other entries. To partially update, read the
+ * current keyring and merge: `permissions: { ...current, invoices: 'rw' }`.
+ * To clear all permissions, pass `permissions: {}` explicitly.
+ *
+ * Role-elevation guard: the same hierarchy as `db.grant`. Admins can
+ * change `admin` / `operator` / `viewer` / `client` to and from each
+ * other; admins cannot promote to or demote from `owner`. Owners can
+ * do anything. Non-admin callers (operator/viewer/client) cannot call
+ * `db.updateUser` at all — for self-displayName changes, use
+ * `vault.user.updateMe` (the user-envelope API).
+ *
+ * @see #54
+ */
+export interface UpdateUserOptions {
+  readonly userId: string
+  readonly role?: Role
+  readonly displayName?: string
+  readonly permissions?: Permissions
+}
+
 export interface RevokeOptions {
   readonly userId: string
   readonly rotateKeys?: boolean

@@ -117,6 +117,15 @@ export type BuiltInGateName =
    * affirmatively prove identity at the moment of recovery.
    */
   | 'peer-recover-user'
+  /**
+   * Authorize a post-grant identity mutation — `db.updateUser` (#54).
+   * Covers `role`, `displayName`, `permissions` changes on an existing
+   * keyring. Pure plaintext-header rewrite — no DEKs touched, no KEK
+   * required. The role-elevation guard inside the implementation
+   * mirrors `db.grant`'s hierarchy (admin cannot promote to owner)
+   * regardless of this gate's settings.
+   */
+  | 'update-user'
 
 /** Either a built-in gate name or an `app:*` custom gate. */
 export type GateName = BuiltInGateName | `app:${string}`
