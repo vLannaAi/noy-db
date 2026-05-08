@@ -334,6 +334,7 @@ export {
 export type {
   RotatePassphraseInput,
   RecoverPassphraseInput,
+  RecoverPassphraseResult,
   RecoveryProof,
 } from './team/rotate-recover.js'
 
