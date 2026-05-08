@@ -56,7 +56,7 @@
 
 import { bufferToBase64, base64ToBuffer } from '@noy-db/hub'
 import { ValidationError } from '@noy-db/hub'
-import type { UnlockedKeyring, Role } from '@noy-db/hub'
+import type { UnlockedKeyring, Role, EnrollAuthenticatorOptions, SlotRewrapContext } from '@noy-db/hub'
 
 // Re-export from core for convenience
 export { ValidationError } from '@noy-db/hub'
@@ -570,6 +570,217 @@ export async function unlockWebAuthn(
   }
 
   return unwrapKeyringSummary(enrollment, wrappingKey)
+}
+
+/**
+ * `SlotRewrapCeremony` for WebAuthn slots — used by hub's
+ * `rotatePassphrase({ slotCeremonies: { [slotId]: webAuthnSlotRewrapCeremony } })`
+ * to preserve a tier-2 WebAuthn enrollment across a tier-1 phrase
+ * rotation without requiring re-enrollment of the credential (#56).
+ *
+ * The credential itself is unaffected by phrase rotation — the
+ * wrapping key derived from PRF (or rawId fallback) is bound to the
+ * authenticator, not to the passphrase. What needs to change is the
+ * **wrapped payload**: the encrypted blob the slot's `wrapped_kek`
+ * field holds. After rotation, the old payload still has the old
+ * DEKs (now stale because rotatePassphrase rewrapped them under a
+ * fresh KEK); the new payload must hold the freshly rewrapped
+ * `ctx.newDeks`.
+ *
+ * Single ceremony, two operations:
+ *   1. Trigger one WebAuthn assertion to derive the wrapping key.
+ *   2. Decrypt the OLD `wrapped_kek` to extract identity fields
+ *      (userId, displayName, role, permissions, salt) — these don't
+ *      change on rotation, so they're carried verbatim into the new
+ *      payload.
+ *   3. Encrypt the NEW payload (same identity + `ctx.newDeks`) under
+ *      the same wrapping key, with a fresh IV.
+ *   4. Return `EnrollAuthenticatorOptions` preserving `oldSlot.id`
+ *      and `method: 'webauthn'` (hub validates these to prevent
+ *      slot-type swap mid-rotation).
+ *
+ * Niwat (consumer) shipped a workaround at #44 — detect dropped slots
+ * after rotate and offer "Re-enrol Touch ID" inline. This ceremony
+ * eliminates that step.
+ *
+ * Out of scope: tier-3 PIN. PIN state lives in `QuickUnlockStore`
+ * (RAM-only), not in `KeyringFile.authenticators[]`, so
+ * `slotCeremonies` doesn't apply. Clear PIN state on rotate; let
+ * the user set a fresh PIN via `db.enrollUnlock` immediately after.
+ *
+ * @throws {WebAuthnNotAvailableError} when the environment lacks WebAuthn.
+ * @throws {WebAuthnCancelledError} when the user dismisses the assertion.
+ * @throws {WebAuthnMultiDeviceError} when `meta.requireSingleDevice` was
+ *         set at enrollment and the authenticator now reports BE=1.
+ * @throws {ValidationError} when `oldSlot.method !== 'webauthn'`,
+ *         when required `meta` fields are missing, or when the old
+ *         payload fails to decrypt (credential changed / payload
+ *         tampered).
+ *
+ * @see #56 #29 — the ceremony plumbing this fills in.
+ */
+export async function webAuthnSlotRewrapCeremony(
+  ctx: SlotRewrapContext,
+  options: WebAuthnUnlockOptions = {},
+): Promise<EnrollAuthenticatorOptions> {
+  if (ctx.oldSlot.method !== 'webauthn') {
+    throw new ValidationError(
+      `webAuthnSlotRewrapCeremony: oldSlot.method is "${ctx.oldSlot.method}"; expected "webauthn". ` +
+        'This ceremony only handles WebAuthn slots — pair other methods with their own helpers.',
+    )
+  }
+  if (ctx.oldSlot.wrapKind === 'deks') {
+    throw new ValidationError(
+      'webAuthnSlotRewrapCeremony: oldSlot is a wrap-DEKs slot; expected wrap-KEK. ' +
+        'WebAuthn slots use the wrap-KEK variant; mismatch indicates the slot was ' +
+        'enrolled by a different on-* package.',
+    )
+  }
+  if (!isWebAuthnAvailable()) {
+    throw new WebAuthnNotAvailableError()
+  }
+
+  // Pull the per-slot fields needed for assertion + decrypt. These were
+  // written into `meta` by `enrollWebAuthn` (via `db.enrollWebAuthn`).
+  const meta = ctx.oldSlot.meta as {
+    credentialId?: unknown
+    wrapIv?: unknown
+    prfUsed?: unknown
+    beFlag?: unknown
+    requireSingleDevice?: unknown
+  }
+  if (typeof meta.credentialId !== 'string' || meta.credentialId.length === 0) {
+    throw new ValidationError(
+      'webAuthnSlotRewrapCeremony: oldSlot.meta.credentialId is missing or invalid. ' +
+        'The slot was not enrolled via @noy-db/on-webauthn.',
+    )
+  }
+  if (typeof meta.wrapIv !== 'string' || meta.wrapIv.length === 0) {
+    throw new ValidationError(
+      'webAuthnSlotRewrapCeremony: oldSlot.meta.wrapIv is missing — the slot may be ' +
+        'pre-#16 (synthetic-keyring shape) and must be re-enrolled via db.enrollWebAuthn.',
+    )
+  }
+  const prfUsed = meta.prfUsed === true
+
+  // 1. Trigger the assertion. Same path `unlockWebAuthn` uses.
+  const credentialIdBuf = base64ToBuffer(meta.credentialId)
+  const timeout = options.timeout ?? 60_000
+  const extensionsInput = (prfUsed
+    ? { prf: { eval: { first: PRF_SALT } } }
+    : {}
+  ) as AuthenticationExtensionsClientInputs
+
+  const assertion = await navigator.credentials.get({
+    publicKey: {
+      challenge: globalThis.crypto.getRandomValues(new Uint8Array(32)),
+      allowCredentials: [{ type: 'public-key', id: credentialIdBuf as BufferSource }],
+      userVerification: 'required',
+      extensions: extensionsInput,
+      timeout,
+    },
+  }) as PublicKeyCredential | null
+
+  if (!assertion) {
+    throw new WebAuthnCancelledError('assertion')
+  }
+
+  // BE-flag guard at assertion time — same rule unlockWebAuthn enforces.
+  const authData = (assertion.response as AuthenticatorAssertionResponse).authenticatorData
+  const beFlag = extractBEFlag(authData)
+  if (meta.requireSingleDevice === true && beFlag) {
+    throw new WebAuthnMultiDeviceError()
+  }
+
+  // 2. Derive the wrapping key — deterministic per credential, so this
+  //    is the SAME key the original enrollment used.
+  let wrappingKey: CryptoKey
+  if (prfUsed) {
+    const extensions = assertion.getClientExtensionResults() as {
+      prf?: { results?: { first?: ArrayBuffer } }
+    }
+    const prfOutput = extensions.prf?.results?.first
+    if (!prfOutput) {
+      throw new ValidationError(
+        'webAuthnSlotRewrapCeremony: PRF output missing at assertion time. ' +
+          'The authenticator may have lost PRF capability — re-enrol the slot via db.enrollWebAuthn.',
+      )
+    }
+    wrappingKey = await deriveKeyFromPRF(prfOutput)
+  } else {
+    wrappingKey = await deriveKeyFromRawId(assertion.rawId)
+  }
+
+  // 3. Decrypt the OLD wrapped_kek to extract carry-through identity
+  //    fields. The slot's wrapped_kek IS the old wrappedPayload
+  //    (mapping established by db.enrollWebAuthn at noydb.ts:1178).
+  const oldIv = base64ToBuffer(meta.wrapIv)
+  const oldCiphertext = base64ToBuffer(ctx.oldSlot.wrapped_kek)
+  let oldPlaintext: ArrayBuffer
+  try {
+    oldPlaintext = await globalThis.crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: oldIv },
+      wrappingKey,
+      oldCiphertext,
+    )
+  } catch {
+    throw new ValidationError(
+      'webAuthnSlotRewrapCeremony: failed to decrypt the old wrapped payload. ' +
+        'The wrapping key derived from this credential does not match — possible ' +
+        'cross-tenant slot mix-up or a corrupted enrollment.',
+    )
+  }
+  const oldPayload = JSON.parse(new TextDecoder().decode(oldPlaintext)) as {
+    userId: string
+    displayName: string
+    role: Role
+    permissions: Record<string, 'rw' | 'ro'>
+    deks: Record<string, string>
+    salt: string
+  }
+
+  // 4. Build the NEW payload — identity fields preserved, deks
+  //    replaced with ctx.newDeks (rewrapped under the new KEK in the
+  //    keyring file; here we serialize them as raw bytes for the
+  //    self-contained webauthn-side reconstruction).
+  const newDekMap: Record<string, string> = {}
+  for (const [collName, dek] of ctx.newDeks) {
+    const raw = await globalThis.crypto.subtle.exportKey('raw', dek)
+    newDekMap[collName] = bufferToBase64(raw)
+  }
+  const newPayload = JSON.stringify({
+    userId: oldPayload.userId,
+    displayName: oldPayload.displayName,
+    role: oldPayload.role,
+    permissions: oldPayload.permissions,
+    deks: newDekMap,
+    salt: oldPayload.salt,
+  })
+
+  // 5. Encrypt with the same wrapping key under a fresh IV.
+  const newIv = globalThis.crypto.getRandomValues(new Uint8Array(12))
+  const newCiphertext = await globalThis.crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: newIv },
+    wrappingKey,
+    new TextEncoder().encode(newPayload),
+  )
+
+  // 6. Return EnrollAuthenticatorOptions preserving id + method.
+  //    Hub's rotate validates these — a mismatch throws ValidationError
+  //    (slot-type swap defense; see SlotRewrapContext docstring).
+  return {
+    id: ctx.oldSlot.id,
+    method: 'webauthn',
+    wrapped_kek: bufferToBase64(newCiphertext),
+    enrolled_via_tier: ctx.oldSlot.enrolled_via_tier,
+    meta: {
+      credentialId: meta.credentialId,
+      wrapIv: bufferToBase64(newIv),
+      prfUsed,
+      beFlag,
+      requireSingleDevice: meta.requireSingleDevice === true,
+    },
+  }
 }
 
 /**
