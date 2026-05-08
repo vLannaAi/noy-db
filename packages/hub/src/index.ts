@@ -321,7 +321,7 @@ export {
   removeAuthenticator,
   findAuthenticator,
 } from './team/authenticators.js'
-export type { EnrollAuthenticatorOptions } from './team/authenticators.js'
+export type { EnrollAuthenticatorOptions, UpdateAuthenticatorOptions } from './team/authenticators.js'
 
 // Tier-3 quick-unlock state — issue #11
 export { QuickUnlockStore } from './session/unlock-state.js'

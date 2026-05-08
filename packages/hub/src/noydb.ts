@@ -73,8 +73,10 @@ import type { UnlockedKeyring } from './team/keyring.js'
 import {
   enrollAuthenticator as keyringEnrollAuthenticator,
   removeAuthenticator as keyringRemoveAuthenticator,
+  updateAuthenticator as keyringUpdateAuthenticator,
   findAuthenticator,
   type EnrollAuthenticatorOptions,
+  type UpdateAuthenticatorOptions,
 } from './team/authenticators.js'
 import { QuickUnlockStore, type QuickUnlockState } from './session/unlock-state.js'
 import type { KeyringAuthenticator } from './types.js'
@@ -1207,6 +1209,46 @@ export class Noydb {
   async listAuthenticators(vault: string): Promise<ReadonlyArray<KeyringAuthenticator>> {
     const keyring = await this.getKeyring(vault)
     return keyring.authenticators
+  }
+
+  /**
+   * Mutate the `meta` blob on an existing authenticator slot — slot
+   * rename, label change, attachment of UI hints. The slot's `id`,
+   * `method`, and wrap material (`wrapped_kek` / `wrapped_deks` + `iv`)
+   * are immutable through this method. Anti-slot-swap is structural,
+   * not gate-driven.
+   *
+   * `meta` patch semantics (#57-aligned):
+   *   - Top-level merge — absent keys preserved
+   *   - `null` value — delete that meta key
+   *   - Other values — replace verbatim
+   *
+   * Use case: per-slot nickname for "iPhone Touch ID" vs "MacBook
+   * Touch ID" disambiguation in admin UIs. The slot id (auto-derived
+   * from credentialId prefix) is not human-friendly; `meta.nickname`
+   * is.
+   *
+   * Gated by `update-authenticator`. PERSONAL_POLICY: tier-1 unlock
+   * alone (matches enroll/remove). STRICT_POLICY: tier-1 +
+   * TOTP/email-OTP factor proof — a malicious rename on a shared
+   * workstation could mislead the user about which device a slot
+   * corresponds to, so STRICT requires fresh factor binding.
+   *
+   * @throws `NoAccessError` when no slot with the given id exists.
+   * @throws `ValidationError` when no patch field is provided.
+   *
+   * @see #55
+   */
+  async updateAuthenticator(
+    vault: string,
+    slotId: string,
+    options: UpdateAuthenticatorOptions,
+    presented?: { factors?: ReadonlyArray<FactorProof>; sharedDevice?: boolean },
+  ): Promise<void> {
+    await this.checkGate(vault, 'update-authenticator', presented)
+    const keyring = await this.getKeyring(vault)
+    const next = await keyringUpdateAuthenticator(this.options.store, vault, keyring, slotId, options)
+    this.keyringCache.set(vault, next)
   }
 
   /**

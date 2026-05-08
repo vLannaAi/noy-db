@@ -97,6 +97,15 @@ export type BuiltInGateName =
   | 'recover-passphrase'
   | 'enroll-authenticator'
   | 'remove-authenticator'
+  /**
+   * Authorize a meta-only mutation on an existing authenticator slot —
+   * `db.updateAuthenticator` (#55). The slot's wrap material, id, and
+   * method are immutable through this gate; only the `meta` blob
+   * (nicknames, method-specific labels) can change. Anti-slot-swap
+   * guard is preserved structurally regardless of this gate's
+   * settings.
+   */
+  | 'update-authenticator'
   | 'rotate-unlock'
   | 'enroll-user'
   | 'revoke-user'

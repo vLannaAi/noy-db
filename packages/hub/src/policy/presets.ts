@@ -41,6 +41,12 @@ export const PERSONAL_POLICY: VaultPolicy = Object.freeze({
     },
     'enroll-authenticator': { minTier: 1 },
     'remove-authenticator': { minTier: 1 },
+    // update-authenticator: meta-only mutation (slot rename, label
+    // changes). Symmetric with enroll/remove under PERSONAL — tier-1
+    // unlock alone. The structural anti-slot-swap guard inside the
+    // implementation enforces wrap-material/id/method immutability
+    // regardless of this gate's settings.
+    'update-authenticator': { minTier: 1 },
     'rotate-unlock': { minTier: 2 },
     'enroll-user': { minTier: 1 },
     'revoke-user': { minTier: 1 },
@@ -105,6 +111,15 @@ export const STRICT_POLICY: VaultPolicy = Object.freeze({
       factors: [{ anyOf: ['totp', 'email-otp'] }],
     },
     'remove-authenticator': {
+      minTier: 1,
+      factors: [{ anyOf: ['totp', 'email-otp'] }],
+    },
+    // STRICT update-authenticator: same factor floor as enroll/remove.
+    // Even though meta changes don't touch wrap material, a malicious
+    // rename could mislead the user about which device a slot
+    // corresponds to ("MacBook Touch ID" → "iPhone Touch ID" on a
+    // shared workstation). STRICT requires a fresh factor proof.
+    'update-authenticator': {
       minTier: 1,
       factors: [{ anyOf: ['totp', 'email-otp'] }],
     },
