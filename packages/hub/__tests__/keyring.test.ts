@@ -309,8 +309,8 @@ describe('keyring', () => {
       // Encrypt something
       const { iv, data } = await encrypt('test-data', dek)
 
-      // Change passphrase
-      const updated = await changeSecret(adapter, COMP, owner, 'new-pass')
+      // Change passphrase (test exercises rewrap, not strength validation)
+      const updated = await changeSecret(adapter, COMP, owner, 'new-pass', { allowWeakPassphrase: true })
 
       // Old passphrase should fail to load (DEKs present, wrong KEK)
       await expect(
@@ -325,6 +325,26 @@ describe('keyring', () => {
       const newDek = loaded.deks.get('invoices')!
       const decrypted = await decrypt(iv, data, newDek)
       expect(decrypted).toBe('test-data')
+    })
+
+    it('rejects a weak new passphrase by default', async () => {
+      const owner = await createOwnerKeyring(adapter, COMP, 'owner-01', 'correct horse battery staple printer toaster')
+      const getDEK = await ensureCollectionDEK(adapter, COMP, owner)
+      await getDEK('invoices')
+
+      await expect(
+        changeSecret(adapter, COMP, owner, 'weak'),
+      ).rejects.toThrow()
+    })
+
+    it('accepts a weak new passphrase when allowWeakPassphrase: true', async () => {
+      const owner = await createOwnerKeyring(adapter, COMP, 'owner-01', 'correct horse battery staple printer toaster')
+      const getDEK = await ensureCollectionDEK(adapter, COMP, owner)
+      await getDEK('invoices')
+
+      await expect(
+        changeSecret(adapter, COMP, owner, 'weak', { allowWeakPassphrase: true }),
+      ).resolves.toBeDefined()
     })
   })
 
