@@ -96,7 +96,7 @@ import {
   PERSONAL_POLICY,
   mergePolicy,
   type ActiveTier,
-  type FactorProof,
+  type FactorProofBundle,
   type GateName,
   type VaultPolicy,
 } from './policy/index.js'
@@ -507,7 +507,7 @@ export class Noydb {
   async updateUser(
     vault: string,
     options: UpdateUserOptions,
-    factors?: { factors?: ReadonlyArray<FactorProof>; sharedDevice?: boolean },
+    factors?: FactorProofBundle,
   ): Promise<void> {
     await this.checkGate(vault, 'update-user', factors)
     const keyring = await this.getKeyring(vault)
@@ -1117,15 +1117,15 @@ export class Noydb {
   async checkGate(
     vault: string,
     gate: GateName,
-    presented?: { factors?: ReadonlyArray<FactorProof>; sharedDevice?: boolean },
+    factors?: FactorProofBundle,
   ): Promise<void> {
     const policy = await this.getPolicy(vault)
     const tier = this.activeTier.get(vault) ?? 1
     await policyCheckGate(policy, gate, {
       activeTier: tier,
-      ...(presented?.factors !== undefined ? { factors: presented.factors } : {}),
-      ...(presented?.sharedDevice !== undefined
-        ? { sharedDevice: presented.sharedDevice }
+      ...(factors?.factors !== undefined ? { factors: factors.factors } : {}),
+      ...(factors?.sharedDevice !== undefined
+        ? { sharedDevice: factors.sharedDevice }
         : {}),
     })
   }
@@ -1194,9 +1194,9 @@ export class Noydb {
   async enrollAuthenticator(
     vault: string,
     options: EnrollAuthenticatorOptions,
-    presented?: { factors?: ReadonlyArray<FactorProof>; sharedDevice?: boolean },
+    factors?: FactorProofBundle,
   ): Promise<void> {
-    await this.checkGate(vault, 'enroll-authenticator', presented)
+    await this.checkGate(vault, 'enroll-authenticator', factors)
     const keyring = await this.getKeyring(vault)
     const next = await keyringEnrollAuthenticator(this.options.store, vault, keyring, options)
     this.keyringCache.set(vault, next)
@@ -1210,9 +1210,9 @@ export class Noydb {
   async removeAuthenticator(
     vault: string,
     slotId: string,
-    presented?: { factors?: ReadonlyArray<FactorProof>; sharedDevice?: boolean },
+    factors?: FactorProofBundle,
   ): Promise<void> {
-    await this.checkGate(vault, 'remove-authenticator', presented)
+    await this.checkGate(vault, 'remove-authenticator', factors)
     const keyring = await this.getKeyring(vault)
     const next = await keyringRemoveAuthenticator(this.options.store, vault, keyring, slotId)
     this.keyringCache.set(vault, next)
@@ -1256,9 +1256,9 @@ export class Noydb {
     vault: string,
     slotId: string,
     options: UpdateAuthenticatorOptions,
-    presented?: { factors?: ReadonlyArray<FactorProof>; sharedDevice?: boolean },
+    factors?: FactorProofBundle,
   ): Promise<void> {
-    await this.checkGate(vault, 'update-authenticator', presented)
+    await this.checkGate(vault, 'update-authenticator', factors)
     const keyring = await this.getKeyring(vault)
     const next = await keyringUpdateAuthenticator(this.options.store, vault, keyring, slotId, options)
     this.keyringCache.set(vault, next)
@@ -1314,9 +1314,9 @@ export class Noydb {
   async enrollWebAuthn(
     vault: string,
     ceremony: (keyring: UnlockedKeyring) => Promise<EnrollAuthenticatorOptions>,
-    presented?: { factors?: ReadonlyArray<FactorProof>; sharedDevice?: boolean },
+    factors?: FactorProofBundle,
   ): Promise<{ credentialId: string }> {
-    await this.checkGate(vault, 'enroll-authenticator', presented)
+    await this.checkGate(vault, 'enroll-authenticator', factors)
     const keyring = await this.getKeyring(vault)
     const slotOptions = await ceremony(keyring)
     if (slotOptions.method !== 'webauthn') {
@@ -1467,7 +1467,7 @@ export class Noydb {
   async describeUserAuth(
     vault: string,
     userId: string,
-    factors?: { factors?: ReadonlyArray<FactorProof>; sharedDevice?: boolean },
+    factors?: FactorProofBundle,
   ): Promise<string> {
     await this.checkGate(vault, 'view-user-auth', factors)
     return fnDescribeUserAuth(this.options.store, vault, userId)
@@ -1476,7 +1476,7 @@ export class Noydb {
   /** Bulk variant for owner dashboards. Gated by `view-user-auth`. */
   async describeAllUsersAuth(
     vault: string,
-    factors?: { factors?: ReadonlyArray<FactorProof>; sharedDevice?: boolean },
+    factors?: FactorProofBundle,
   ): Promise<Array<{ userId: string; description: string }>> {
     await this.checkGate(vault, 'view-user-auth', factors)
     return fnDescribeAllUsersAuth(this.options.store, vault)
@@ -1500,7 +1500,7 @@ export class Noydb {
   async rotatePassphrase(
     vault: string,
     input: RotatePassphraseInput,
-    factors?: { factors?: ReadonlyArray<FactorProof>; sharedDevice?: boolean },
+    factors?: FactorProofBundle,
   ): Promise<void> {
     await this.checkGate(vault, 'rotate-passphrase', factors)
     const userId = this.options.user
@@ -1518,7 +1518,7 @@ export class Noydb {
   async recoverPassphrase(
     vault: string,
     input: RecoverPassphraseInput,
-    factors?: { factors?: ReadonlyArray<FactorProof>; sharedDevice?: boolean },
+    factors?: FactorProofBundle,
   ): Promise<RecoverPassphraseResult> {
     await this.checkGate(vault, 'recover-passphrase', factors)
     const userId = this.options.user
@@ -1611,7 +1611,7 @@ export class Noydb {
   async recoverUser(
     vault: string,
     options: RecoverUserOptions,
-    factors?: { factors?: ReadonlyArray<FactorProof>; sharedDevice?: boolean },
+    factors?: FactorProofBundle,
   ): Promise<void> {
     await this.checkGate(vault, 'peer-recover-user', factors)
     const callerKeyring = await this.getKeyring(vault)
@@ -1694,9 +1694,9 @@ export class Noydb {
   async enrollUnlock(
     vault: string,
     state: QuickUnlockState,
-    presented?: { factors?: ReadonlyArray<FactorProof>; sharedDevice?: boolean },
+    factors?: FactorProofBundle,
   ): Promise<void> {
-    await this.checkGate(vault, 'rotate-unlock', presented)
+    await this.checkGate(vault, 'rotate-unlock', factors)
     this.quickUnlock.set(vault, state)
   }
 

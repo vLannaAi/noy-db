@@ -628,6 +628,7 @@ export type {
   FactorKind,
   FactorRequirement,
   FactorProof,
+  FactorProofBundle,
   WarningRules,
   ActiveTier,
   PolicyDenyReason,

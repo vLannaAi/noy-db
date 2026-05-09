@@ -159,5 +159,25 @@ export interface FactorProof {
   readonly payload?: unknown
 }
 
+/**
+ * Bundle of factor proofs + session-context flags passed to a gated
+ * Noydb method. Used as the optional last parameter of every method
+ * that runs through `checkGate`: `db.grant`, `db.revoke`, `db.updateUser`,
+ * `db.enrollAuthenticator`, `db.removeAuthenticator`, `db.updateAuthenticator`,
+ * `db.enrollWebAuthn`, `db.rotatePassphrase`, `db.recoverPassphrase`,
+ * `db.recoverUser`, `db.enrollUnlock`, `db.describeUserAuth`,
+ * `db.describeAllUsersAuth`.
+ *
+ * Pre-#89 this type was inlined at every call site as
+ * `{ factors?: ReadonlyArray<FactorProof>; sharedDevice?: boolean }`
+ * and parameter names alternated between `factors` and `presented`.
+ * Now exported so consumers can name their helpers and so the param
+ * name converges to `factors` everywhere.
+ */
+export interface FactorProofBundle {
+  readonly factors?: ReadonlyArray<FactorProof>
+  readonly sharedDevice?: boolean
+}
+
 /** Active session tier — what the engine compares against `gate.minTier`. */
 export type ActiveTier = 1 | 2 | 3
