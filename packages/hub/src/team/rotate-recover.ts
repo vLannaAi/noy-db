@@ -425,8 +425,20 @@ async function recoverViaPaperCode(
     authenticators: [], // tier-2 slots wrap old KEK, drop them
   }
 
-  await writeKeyringFile(store, vault, userId, next)
+  // Burn first, then rewrite the keyring. The two writes are not
+  // atomic — if the second fails (#84), the safer ordering is:
+  //
+  //   1. Code burned, keyring untouched: user keeps their old passphrase
+  //      and loses one recovery code (recoverable: contact admin / use
+  //      another code).
+  //
+  //   2. Keyring rewritten, code unburned: user has rotated, but the
+  //      consumed code REMAINS VALID. Anyone with access to the paper
+  //      sheet can use it again. Security regression.
+  //
+  // Burning first picks (1) over (2).
   await burnPaperRecoveryEntry(store, vault, recovered.entry.codeId)
+  await writeKeyringFile(store, vault, userId, next)
 
   return {
     userId: file.user_id,

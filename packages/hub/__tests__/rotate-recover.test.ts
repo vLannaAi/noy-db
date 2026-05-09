@@ -21,6 +21,7 @@ import {
 import {
   savePaperRecoveryEntries,
   mintPaperRecoveryEntry,
+  loadPaperRecoveryEntries,
 } from '../src/team/recovery.js'
 import { generateDEK } from '../src/crypto.js'
 import { persistKeyring } from '../src/team/keyring.js'
@@ -146,6 +147,43 @@ describe('recoverPassphrase (paper profile)', () => {
         recoveryProof: { profile: 'paper', payload: { code } },
       }),
     ).rejects.toThrow()
+  }, 60_000)
+
+  it('issue #84: burn happens before keyring rewrite — failed rewrite leaves code BURNED, old phrase intact', async () => {
+    // Pre-fix ordering (write keyring → burn code) made store-side failure
+    // between the two writes leave the consumed code reusable: keyring is
+    // already on the new passphrase, but the burn step never landed. After
+    // #84, burn comes first — so a failure on the keyring write leaves the
+    // user on their OLD passphrase with the code GONE.
+    const { store, code } = await buildVaultWithPaperRecovery()
+
+    // Wrap the store: every put to `_keyring` fails. The recovery call's
+    // first `_keyring` put is the rewrap (the initial create has already
+    // happened in buildVaultWithPaperRecovery via persistKeyring on the
+    // unwrapped base). The burn write is a put to `_meta/recovery-paper`,
+    // not `_keyring`, so it succeeds.
+    const wrapped: NoydbStore = {
+      ...(store as NoydbStore),
+      async put(c, col, id, env, ev) {
+        if (col === '_keyring') throw new Error('simulated store failure on keyring write')
+        return store.put(c, col, id, env, ev)
+      },
+    } as NoydbStore
+
+    await expect(
+      recoverPassphrase(wrapped, 'acme', 'alice', {
+        newPassphrase: STRONG_NEW,
+        recoveryProof: { profile: 'paper', payload: { code } },
+      }),
+    ).rejects.toThrow()
+
+    // Code is GONE — burned before the failing keyring write.
+    const remaining = await loadPaperRecoveryEntries(store, 'acme')
+    expect(remaining).toHaveLength(0)
+
+    // Old passphrase still works — the keyring was never rewritten.
+    const reloaded = await loadKeyring(store, 'acme', 'alice', STRONG_OLD)
+    expect(reloaded.userId).toBe('alice')
   }, 60_000)
 
   it('rejects an unknown paper code', async () => {
