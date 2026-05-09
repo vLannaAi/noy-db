@@ -1,5 +1,57 @@
 # Changelog — hub
 
+## 0.1.0-pre.10
+
+### Audit-and-cleanup batch
+
+A 2026-05-09 deep-review of the pre.9 surface (security + API consistency) filed 15 issues; iterative code review of the resulting fixes filed 4 more; one in-flight symmetry close. **20 PRs land in this release**, addressing 18 issues.
+
+#### Security (P0)
+
+- **STRICT_POLICY enroll-user / revoke-user gates are no longer dead-coded** ([#79](https://github.com/vLannaAi/noy-db/issues/79)) — `db.grant` and `db.revoke` now invoke `checkGate('enroll-user', factors)` and `checkGate('revoke-user', factors)` on top of the legacy `checkPolicyOperation`. Adds optional `factors?: FactorProofBundle` parameter to both methods. **Behavior change for STRICT_POLICY consumers**: grants and revokes without a factor proof now correctly throw `PolicyDeniedError` (the documented contract). PERSONAL_POLICY (default) is unchanged — its gates are `minTier: 1` with no factor requirement.
+
+- **`db.changeSecret` validates passphrase strength by default** ([#80](https://github.com/vLannaAi/noy-db/issues/80)) — `assertStrongPassphrase` fires unconditionally unless `allowWeakPassphrase: true` is passed. Pre-fix, `changeSecret` was opt-in (`validate: true`) and the public `db.changeSecret` never opted in — bypassable from the consumer surface even after pre.5 #7 shipped phrase strength validation. **Breaking change**: existing consumers passing weak passphrases through `db.changeSecret` will throw `WeakPassphraseError`. Pass `{ allowWeakPassphrase: true }` to preserve old behavior; for fresh code, use `db.rotatePassphrase` which has the same validation contract end-to-end. The `db.changeSecret` signature gains an optional options argument: `changeSecret(vault, newPassphrase, options?: PassphrasePolicy & { allowWeakPassphrase? })`.
+
+- **`grant()` rejects when caller's kek is null** ([#81](https://github.com/vLannaAi/noy-db/issues/81)) — closes the tier-2 capability matrix violation. Pre-fix, `grant()` iterated `callerKeyring.deks` and wrapped under the new user's `newKek` without ever reading `callerKeyring.kek`, so a tier-2 wrap-DEKs session (`@noy-db/on-password`) or tier-3 PIN-resume session (`@noy-db/on-pin`) could create new user keyrings. The documented contract (per `auth-landscape.md`) is that those tiers cannot perform privileged admin operations. Now mirrors `persistKeyring`'s null-`kek` guard at the head of `grant()`. Same fix applied to `buildRecipientKeyringFile` ([#112](https://github.com/vLannaAi/noy-db/issues/112), bundle-recipient mint) — adjacent site flagged by code review of the original fix.
+
+- **`onInvalidKey: 'reset'` no longer destroys valid keyrings on partial corruption** ([#82](https://github.com/vLannaAi/noy-db/issues/82)) — the audit's highest-impact P0 (silent data loss). Pre-fix, `loadKeyring` walked the wrapped-DEK set in a bare `for...of`; the first corrupted byte killed the load with `InvalidKeyError`, and `onInvalidKey: 'reset'` (#6, pre.7) destroyed the keyring even when the KEK was correct. Now each DEK unwraps independently — mixed success ⇒ corruption (new `KeyringCorruptError`, reset does NOT fire); all-fail ⇒ wrong key (reset fires as documented). New `KeyringCorruptError` class carries `failedCollections: readonly string[]` and `intactCount: number` for targeted recovery UI. Exported from `@noy-db/hub` for `instanceof` checks. `listAccessibleVaults` updated to skip `KeyringCorruptError` like the other expected-failure modes (single corrupt vault no longer poisons the enumeration).
+
+- **Passphrase canary closes the single-DEK + all-DEKs-corrupt ambiguity from #82** ([#113](https://github.com/vLannaAi/noy-db/issues/113)) — additive `KeyringFile.canary?: string` field. The canary is a fixed 256-bit AES-GCM key wrapped under the keyring's KEK with AES-KW. AES-KW is deterministic, so each write site mints fresh on persist without round-tripping a `canary` field through `UnlockedKeyring`. `loadKeyring` verifies the canary first; combined with each-DEK try/catch, this distinguishes wrong-passphrase from corruption even when ALL DEKs (including a single-DEK keyring's sole DEK) are corrupted. Pre-#113 keyrings without the field load via the legacy multi-DEK heuristic from #99 — backward compatible, no migration required.
+
+#### Atomicity / contract holes (P1)
+
+- **`rotatePassphrase` slot ceremony validates `wrapKind`** ([#83](https://github.com/vLannaAi/noy-db/issues/83)) — extends pre.8 #29's anti-slot-swap guard with a third equality check on `wrapKind` alongside `id` and `method`. Closes the hole where a buggy or hostile ceremony could change the slot's session-tier contract under cover of rotation: `'kek' → 'deks'` downgrade silently produces `kek: null` at unlock; `'deks' → 'kek'` upgrade bricks the slot via an AES-KW failure.
+
+- **`recoverPassphrase` burns the paper recovery code BEFORE rewriting the keyring** ([#84](https://github.com/vLannaAi/noy-db/issues/84)) — atomicity reordering. Pre-fix, a store error after the keyring write left the user on the new passphrase but the consumed paper code remained valid (anyone with the same paper sheet could reuse it — security regression). Post-fix, the failure mode flips from security to usability: code burned + keyring not rewritten ⇒ user keeps old passphrase, loses one code (recoverable via admin / another code).
+
+- **`UpdateUserOptions.displayName` accepts `null` to clear the field** ([#85](https://github.com/vLannaAi/noy-db/issues/85)) — aligns `db.updateUser` with the `null`-as-clear convention pre.9 #57 shipped for `UserApi.updateMe`. Type widens from `string | undefined` to `string | null | undefined`. `null` clears (stored as the empty string; UI consumers typically render the empty case by falling back to the user id). `permissions` stays full-replacement at the map level (documented invariant).
+
+- **`RecoverPassphraseInput.recoveryProof` TS-narrowed to `'paper'`** ([#86](https://github.com/vLannaAi/noy-db/issues/86)) — matches `db.enrollRecovery`'s TS-narrow discipline. Pre-fix, the type accepted a 4-variant union (`paper | shamir | multi-channel | admin-mediated`) and three of the four threw `RecoveryProfileNotImplementedError` at runtime. The runtime guard remains — `as unknown as RecoveryProof` bypasses the type but still hits the error. **Breaking-but-narrowing**: a consumer with `recoveryProof` typed as the wide union (e.g. ferrying through helper code) will get a TS error after this lands.
+
+#### DX / surface coherence (P2)
+
+- **`docs/subsystems/plaintext-bypass.md` invariant catalog** ([#87](https://github.com/vLannaAi/noy-db/issues/87)) — every collection that stores JSON in cleartext (`_keyring/<userId>`, `_meta/policy`, `_meta/recovery-paper`, `_meta/handle`, `_meta/public-envelope`, `_meta/invite-audit-<id>`, `_meta/sync-credentials`, ledger, consent, blob index) listed with rationale, plus a threat-model surface ("what an attacker with store-only access can learn"), plus an explicit checklist for adding or removing a bypass.
+
+- **`db.getKeyring()` returns a defensive copy** ([#88](https://github.com/vLannaAi/noy-db/issues/88), [#114](https://github.com/vLannaAi/noy-db/issues/114)) — pre-fix, the returned `UnlockedKeyring`'s `deks` Map (typed `readonly`, but the Map itself isn't) was the live cached reference. A consumer calling `.deks.set()` corrupted the hub's internal state. Now returns a defensive shallow copy with fresh `Map`, fresh `authenticators` array, and per-element clones of `meta`. Hub-internal callers use a new `private getKeyringInternal` that returns the live ref so mutations from `ensureCollectionDEK` still land on the cache. CryptoKey handles inside `deks` stay shared (opaque references; encrypt/decrypt opaque). 14 internal call sites switched.
+
+- **`FactorProofBundle` unifies the gate-method param shape** ([#89](https://github.com/vLannaAi/noy-db/issues/89)) — same shape `{ factors?, sharedDevice? }` was inlined at 12 sites with the parameter name alternating `factors` / `presented`. Now exported as a named type from `@noy-db/hub` (re-exported from the `policy` subpath); param name converges to `factors` everywhere.
+
+- **Subpath barrels (`team/`, `i18n/`, `query/`, `session/`, `bundle/`, `store/`) populated** ([#90](https://github.com/vLannaAi/noy-db/issues/90)) — pre-fix, `@noy-db/hub/team` exported only `UnlockedKeyring` + sync helpers; the rest of the team API (rotate/recover, authenticator family, paper recovery primitives, magic-link grant, peer-recover, listUsers) was reachable only through the root barrel. Per-domain errors (`SessionExpiredError`, `JoinTooLargeError`, `BundleIntegrityError`, `StoreCapabilityError`, the i18n trio) couldn't be `instanceof`-checked from a subpath import. All subpaths now own their domain's full export set.
+
+- **`KeyringAuthenticator` variant types re-exported from index.ts** ([#91](https://github.com/vLannaAi/noy-db/issues/91)) — `KeyringAuthenticatorWrappingKEK`, `KeyringAuthenticatorWrappingDEKs`, `EnrollAuthenticatorWrappingKEKOptions`, `EnrollAuthenticatorWrappingDEKsOptions`. `@noy-db/on-*` package authors writing variant-specific helpers can now name the type directly instead of reconstructing via `Extract<KeyringAuthenticator, { wrapKind: 'deks' }>`.
+
+- **Adapter/Compartment naming residue cleaned up** ([#92](https://github.com/vLannaAi/noy-db/issues/92)) — user-visible strings (`session/dev-unlock.ts`, `collection.ts`), JSDoc in `types.ts`, and three sed-truncation artefacts (`team/index.ts`, `index.ts`, `errors.ts`). The internal `syncAdapter` field name on Collection / Vault / PresenceHandle is intentionally NOT renamed in this release — internal-only but touches multiple constructors and their tests.
+
+- **Leftover `null as unknown as CryptoKey` casts in showcases** ([#93](https://github.com/vLannaAi/noy-db/issues/93)) — pre.8 #41 tightened `UnlockedKeyring.kek` to `CryptoKey | null`. The hub source was correctly migrated; three showcase fixtures (`23-on-webauthn`, `24-on-oidc`, `30-on-pin`) still carried casts. Replaced with literal `null`.
+
+#### Documentation
+
+- **`docs/subsystems/auth-landscape.md` § Package boundaries** ([#43](https://github.com/vLannaAi/noy-db/issues/43)) — names the layering between `@noy-db/hub` (cryptosystem) and the `@noy-db/on-*` packages (user-facing input format) explicitly. Closes #43 as wontfix-by-design — folding `on-recovery` into a `@noy-db/hub/recovery-codes` subpath would anchor Base32 as the canonical format and break consumer swap-ability for no real bundle saving.
+
+#### Issues closed
+
+#43 (wontfix-by-design), #79, #80, #81, #82, #83, #84, #85, #86, #87, #88, #89, #90, #91, #92, #93, #112, #113, #114
+
 ## 0.1.0-pre.9
 
 ### Consumer-iteration cycle on pre.8 APIs
