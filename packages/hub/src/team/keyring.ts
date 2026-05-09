@@ -864,6 +864,14 @@ export async function buildRecipientKeyringFile(
   callerKeyring: UnlockedKeyring,
   recipient: BundleRecipient,
 ): Promise<KeyringFile> {
+  if (!callerKeyring.kek) {
+    throw new ValidationError(
+      'buildRecipientKeyringFile: caller keyring has no KEK — tier-2 wrap-DEKs ' +
+        'and tier-3 PIN-resume sessions cannot create bundle recipients. ' +
+        'Re-authenticate at tier 1 (passphrase) before building a bundle.',
+    )
+  }
+
   const role: Role = recipient.role ?? 'viewer'
   const permissions = resolvePermissions(role, recipient.permissions)
 
