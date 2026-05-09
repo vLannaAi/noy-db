@@ -9,6 +9,7 @@ export type {
   FactorKind,
   FactorRequirement,
   FactorProof,
+  FactorProofBundle,
   GatePolicy,
   WarningRules,
   GateName,
