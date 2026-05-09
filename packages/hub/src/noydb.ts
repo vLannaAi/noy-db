@@ -1787,10 +1787,26 @@ export class Noydb {
    */
   async getKeyring(vault: string): Promise<UnlockedKeyring> {
     const live = await this.getKeyringInternal(vault)
+    // Deep-ish defensive copy. Each container the consumer might
+    // reasonably mutate is freshly cloned. CryptoKey handles inside
+    // `deks` are intentionally shared — they're opaque references that
+    // both encrypt and decrypt go through. `salt` (Uint8Array) is left
+    // as-is: no realistic mutation path. (#88, extended in #114.)
     return {
       ...live,
       deks: new Map(live.deks),
-      authenticators: [...live.authenticators],
+      permissions: { ...live.permissions },
+      authenticators: live.authenticators.map((a) => ({
+        ...a,
+        meta: { ...a.meta },
+      })),
+      ...(live.policy !== undefined ? { policy: { ...live.policy } } : {}),
+      ...(live.exportCapability !== undefined
+        ? { exportCapability: { ...live.exportCapability } }
+        : {}),
+      ...(live.importCapability !== undefined
+        ? { importCapability: { ...live.importCapability } }
+        : {}),
     }
   }
 
