@@ -49,3 +49,14 @@ export type { ScanPageProvider } from './scan-builder.js'
 // Re-export note: QueryPlan, Clause, FilterClause, GroupClause are intentionally
 // non-parametric — their `T` was removed for variance reasons. The Query<T> type
 // at the public API surface still flows the record type through generic methods.
+
+// ─── Query / aggregate errors ────────────────────────
+// Re-exported from the central errors module so subpath consumers can
+// `instanceof JoinTooLargeError` without falling back to the root barrel.
+export {
+  GroupCardinalityError,
+  IndexRequiredError,
+  IndexWriteFailureError,
+  JoinTooLargeError,
+  DanglingReferenceError,
+} from '../errors.js'

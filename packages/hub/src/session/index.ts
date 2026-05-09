@@ -47,3 +47,13 @@ export type { DevUnlockOptions } from './dev-unlock.js'
 // ─── Strategy seam ─────────────────────────────────────
 export { withSession } from './active.js'
 export type { SessionStrategy } from './strategy.js'
+
+// ─── Session errors ────────────────────────────────────
+// Re-exported from the central errors module so subpath consumers can
+// `instanceof SessionExpiredError` without falling back to the root
+// barrel. Tree-shakers drop the names a consumer doesn't reference.
+export {
+  SessionExpiredError,
+  SessionNotFoundError,
+  SessionPolicyError,
+} from '../errors.js'
