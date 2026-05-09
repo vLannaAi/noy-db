@@ -28,7 +28,7 @@ The recipient-list shape is structurally a portable keyring (`Record<userId, Key
 - PBKDF2-SHA256 with 600,000 iterations for key derivation.
 - AES-KW (RFC 3394) for wrapping DEKs with the KEK.
 - KEK never persisted. Lives in memory for the duration of an active session.
-- Stores only see ciphertext.
+- Stores only see ciphertext for *record* data. A small, audited set of internal collections (`_keyring/*`, `_meta/policy`, `_meta/recovery-paper`, the ledger, …) necessarily stores JSON in cleartext so the sync engine, recovery flows, and bundle readers can do their work without keys. See [`docs/subsystems/plaintext-bypass.md`](./docs/subsystems/plaintext-bypass.md) for the catalog and the threat-model surface.
 
 ## Open for change pre-1.0
 
