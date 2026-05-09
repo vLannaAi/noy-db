@@ -117,8 +117,9 @@ export interface UnlockedKeyring {
    */
   readonly exportCapability?: ExportCapability
   /**
-   * `@noy-db/as-*` import capability (issue ). Absent when the
-   * keyring was written before  landed — default-closed semantics
+   * `@noy-db/as-*` import capability. Absent when the
+   * keyring was written before the import-capability extension
+   * landed — default-closed semantics
    * apply via `hasImportCapability` (no plaintext format granted, no
    * bundle import granted, regardless of role).
    */

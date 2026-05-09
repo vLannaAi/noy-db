@@ -85,7 +85,7 @@ export type Permissions = Record<string, Permission>
 
 // ─── Encrypted Envelope ────────────────────────────────────────────────
 
-/** The encrypted wrapper stored by adapters. Adapters only ever see this. */
+/** The encrypted wrapper stored by stores. Stores only ever see this. */
 export interface EncryptedEnvelope {
   readonly _noydb: typeof NOYDB_FORMAT_VERSION
   readonly _v: number
@@ -202,8 +202,8 @@ export interface ListPageResult {
 
 export interface NoydbStore {
   /**
-   * Optional human-readable adapter name (e.g. 'memory', 'file', 'dynamo').
-   * Used in diagnostic messages and the listPage fallback warning. Adapters
+   * Optional human-readable store name (e.g. 'memory', 'file', 'dynamo').
+   * Used in diagnostic messages and the listPage fallback warning. Stores
    * are encouraged to set this so logs are clearer about which backend is
    * involved when something goes wrong.
    */
@@ -238,23 +238,23 @@ export interface NoydbStore {
 
   /**
    * Optional: list record IDs in a collection that have `_ts` after `since`.
-   * Used by partial sync (`pull({ modifiedSince })`). Adapters that omit this
+   * Used by partial sync (`pull({ modifiedSince })`). Stores that omit this
    * fall back to a full `loadAll` + client-side timestamp filter.
    */
   listSince?(vault: string, collection: string, since: string): Promise<string[]>
 
   /**
-   * Optional pagination extension. Adapters that implement `listPage` get
-   * the streaming `Collection.scan()` fast path; adapters that don't are
+   * Optional pagination extension. Stores that implement `listPage` get
+   * the streaming `Collection.scan()` fast path; stores that don't are
    * silently fallen back to a full `loadAll()` + slice (with a one-time
    * console.warn).
    *
-   * `cursor` is opaque to the core — each adapter encodes its own paging
+   * `cursor` is opaque to the core — each store encodes its own paging
    * state (DynamoDB: base64 LastEvaluatedKey JSON; S3: ContinuationToken;
    * memory/file/browser: numeric offset of a sorted id list). Pass
    * `undefined` to start from the beginning.
    *
-   * `limit` is a soft upper bound on `items.length`. Adapters MAY return
+   * `limit` is a soft upper bound on `items.length`. Stores MAY return
    * fewer items even when more exist (e.g. if the underlying store has
    * its own page size cap), and MUST signal "no more pages" by returning
    * `nextCursor: null`.
@@ -873,7 +873,7 @@ export interface PullOptions {
   collections?: string[]
   /**
    * Only pull records with `_ts` strictly after this ISO timestamp.
-   * Adapters that implement `listSince` use it directly; others fall back
+   * Stores that implement `listSince` use it directly; others fall back
    * to a full scan with client-side filtering.
    */
   modifiedSince?: string
@@ -1111,8 +1111,8 @@ export interface AccessibleVault {
  */
 export interface ListAccessibleVaultsOptions {
   /**
-   * Minimum role the caller must hold to include a compartment in the
-   * result. Compartments where the caller's role is strictly *below*
+   * Minimum role the caller must hold to include a vault in the
+   * result. Vaults where the caller's role is strictly *below*
    * this threshold are silently excluded. Defaults to `'client'`,
    * which means "every vault I can unwrap is returned." Set to
    * `'admin'` for "vaults where I can grant/revoke," or

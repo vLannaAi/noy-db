@@ -6,7 +6,8 @@
  * estimated at ~4-6 KB.
  *
  * The main `@noy-db/hub` entry still re-exports every symbol for
- * backward compatibility through.x.
+ * backward compatibility — direct subpath import is purely a
+ * tree-shaking opt-in.
  *
  * Named re-exports (not `export *`) so tsup keeps the barrel
  * populated even with `sideEffects: false`.

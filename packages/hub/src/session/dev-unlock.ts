@@ -196,7 +196,7 @@ export async function enableDevUnlock(
   console.warn(
     '%c⚠️ NOYDB DEV UNLOCK ACTIVE ⚠️',
     'color: red; font-size: 16px; font-weight: bold',
-    `\n\nCompartment "${vault}" user "${userId}" is stored in ` +
+    `\n\nVault "${vault}" user "${userId}" is stored in ` +
     `${options.persistAcrossTabs ? 'localStorage' : 'sessionStorage'} in PLAINTEXT DEKs.\n` +
     'This is ONLY safe for local development. Never use in production.\n' +
     'Call clearDevUnlock() to remove.',
