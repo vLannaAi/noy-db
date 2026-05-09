@@ -11,7 +11,7 @@ import {
   bufferToBase64,
   base64ToBuffer,
 } from '../crypto.js'
-import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, KeyringExpiredError, ValidationError } from '../errors.js'
+import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, KeyringExpiredError, KeyringCorruptError, ValidationError } from '../errors.js'
 import { assertStrongPassphrase, type PassphrasePolicy } from '../validation.js'
 import {
   saveUserEnvelope,
@@ -171,10 +171,34 @@ export async function loadKeyring(
   const salt = base64ToBuffer(keyringFile.salt)
   const kek = await deriveKey(passphrase, salt)
 
+  // Unwrap each DEK independently — if some succeed and some fail, the
+  // passphrase is correct (the KEK derives) but specific entries are
+  // corrupted. Surface that as KeyringCorruptError so onInvalidKey:
+  // 'reset' does NOT fire and destroy the intact DEKs.
   const deks = new Map<string, CryptoKey>()
+  const failedCollections: string[] = []
+  let firstUnwrapError: unknown = null
   for (const [collName, wrappedDek] of Object.entries(keyringFile.deks)) {
-    const dek = await unwrapKey(wrappedDek, kek)
-    deks.set(collName, dek)
+    try {
+      const dek = await unwrapKey(wrappedDek, kek)
+      deks.set(collName, dek)
+    } catch (err) {
+      failedCollections.push(collName)
+      if (firstUnwrapError === null) firstUnwrapError = err
+    }
+  }
+  if (failedCollections.length > 0) {
+    if (deks.size > 0) {
+      throw new KeyringCorruptError({
+        failedCollections,
+        intactCount: deks.size,
+      })
+    }
+    // No DEKs unwrapped — KEK is wrong (or every DEK is corrupt, which
+    // looks identical from here). Surface the original InvalidKeyError
+    // so onInvalidKey: 'reset' can fire its documented stale-credential
+    // recovery path.
+    throw firstUnwrapError
   }
 
   return {

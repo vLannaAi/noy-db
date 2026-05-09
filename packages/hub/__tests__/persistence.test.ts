@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
-import { ConflictError, InvalidKeyError } from '../src/errors.js'
+import { ConflictError, InvalidKeyError, KeyringCorruptError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
 
 /** Shared memory adapter — persists across createNoydb calls. */
@@ -175,6 +175,51 @@ describe('persistence round-trip (simulated page reload)', () => {
     const comp3 = await db3.openVault(COMP)
     const inv = await comp3.collection<Invoice>('invoices').get('inv-1')
     expect(inv).toEqual({ amount: 7000, status: 'sent' })
+    db3.close()
+  })
+
+  it('issue #82: partial DEK corruption throws KeyringCorruptError, NOT onInvalidKey: "reset"', async () => {
+    // Build a vault with multiple DEKs (one per collection + system).
+    const adapter = persistentMemory()
+    const db1 = await createNoydb({ store: adapter, user: USER, secret: PASS })
+    const comp1 = await db1.openVault(COMP)
+    await comp1.collection<Invoice>('invoices').put('inv-1', { amount: 100, status: 'paid' })
+    await comp1.collection<Invoice>('payments').put('pay-1', { amount: 50, status: 'cleared' })
+    db1.close()
+
+    // Surgically corrupt ONE wrapped DEK in the keyring file. Pick a
+    // collection name (any one — they all wrap with AES-KW under the
+    // same KEK), replace its base64 ciphertext with garbage of the
+    // same length. The other DEKs remain valid.
+    const env = await adapter.get(COMP, '_keyring', USER)
+    const file = JSON.parse(env!._data) as { deks: Record<string, string> }
+    const collNames = Object.keys(file.deks).filter((n) => !n.startsWith('_'))
+    const victim = collNames[0]!
+    const original = file.deks[victim]!
+    file.deks[victim] = Buffer.from(new Uint8Array(original.length).fill(0)).toString('base64').slice(0, original.length)
+    await adapter.put(COMP, '_keyring', USER, {
+      ...env!,
+      _data: JSON.stringify(file),
+    })
+
+    // Reload with the CORRECT passphrase + onInvalidKey: 'reset'. Pre-fix,
+    // the loop's first failure threw InvalidKeyError, the reset path fired,
+    // and the keyring was destroyed. Post-fix, the partial unwrap is
+    // recognized as corruption and KeyringCorruptError is raised — the
+    // reset path does NOT fire.
+    const db2 = await createNoydb({
+      store: adapter,
+      user: USER,
+      secret: PASS,
+      onInvalidKey: 'reset',
+    })
+    await expect(db2.openVault(COMP)).rejects.toBeInstanceOf(KeyringCorruptError)
+    db2.close()
+
+    // The keyring on disk was NOT replaced — opening with a different
+    // passphrase still fails, proving the original keyring survives.
+    const db3 = await createNoydb({ store: adapter, user: USER, secret: 'wrong-pass' })
+    await expect(db3.openVault(COMP)).rejects.toThrow(InvalidKeyError)
     db3.close()
   })
 

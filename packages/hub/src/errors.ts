@@ -134,6 +134,35 @@ export class InvalidKeyError extends NoydbError {
   }
 }
 
+/**
+ * Thrown when a keyring's wrapped-DEK set unwraps partially — at least
+ * one DEK succeeds (proving the KEK is correct) but at least one fails.
+ * The passphrase is right; the failed entries are corrupted.
+ *
+ * This is distinct from {@link InvalidKeyError} so that
+ * `NoydbOptions.onInvalidKey: 'reset'` does NOT fire — resetting on
+ * partial corruption would destroy the still-valid DEKs and the data
+ * they protect, which is silent data loss in response to a feature
+ * designed for stale-credential recovery.
+ */
+export class KeyringCorruptError extends NoydbError {
+  readonly failedCollections: readonly string[]
+  readonly intactCount: number
+  constructor(opts: { failedCollections: readonly string[]; intactCount: number; message?: string }) {
+    super(
+      'KEYRING_CORRUPT',
+      opts.message ??
+        `Keyring has ${opts.failedCollections.length} corrupted wrapped DEK(s) ` +
+          `(${opts.failedCollections.join(', ')}); ${opts.intactCount} other DEK(s) ` +
+          `unwrapped successfully — the passphrase is correct, the entries are damaged. ` +
+          `Do NOT use onInvalidKey: 'reset' here — that would destroy the intact DEKs.`,
+    )
+    this.name = 'KeyringCorruptError'
+    this.failedCollections = opts.failedCollections
+    this.intactCount = opts.intactCount
+  }
+}
+
 // ─── Access Errors ─────────────────────────────────────────────────────
 
 /**

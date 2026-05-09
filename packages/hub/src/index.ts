@@ -194,6 +194,7 @@ export {
   DecryptionError,
   TamperedError,
   InvalidKeyError,
+  KeyringCorruptError,
   NoAccessError,
   ReadOnlyError,
   PermissionDeniedError,
