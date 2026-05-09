@@ -68,10 +68,26 @@ describe('PR1a public surface', () => {
       expect(keyring.kek).toBeInstanceOf(CryptoKey)
     })
 
-    it('returns the same instance on repeated calls (cached)', async () => {
+    it('returns equal-but-distinct snapshots on repeated calls (defensive copy, #88)', async () => {
+      // Pre-#88 this test asserted Object.is identity (`a === b`). Post-#88
+      // the contract changed: db.getKeyring() returns a defensive copy so
+      // consumers can't corrupt the cache via .deks.set/.delete or
+      // .permissions['k'] = ... mutations. Two calls now return distinct
+      // outer objects with equal content; the underlying CryptoKey handles
+      // are still shared (intentional — opaque references).
       const a = await db.getKeyring('acme')
       const b = await db.getKeyring('acme')
-      expect(a).toBe(b)
+      expect(a).not.toBe(b)
+      expect(a.deks).not.toBe(b.deks) // fresh Map per snapshot
+      expect(a.userId).toBe(b.userId)
+      expect(a.role).toBe(b.role)
+      expect([...a.deks.keys()].sort()).toEqual([...b.deks.keys()].sort())
+      // Underlying CryptoKey handles are shared (the cache and both
+      // snapshots reference the same key — encrypt/decrypt all flow
+      // through it).
+      for (const coll of a.deks.keys()) {
+        expect(a.deks.get(coll)).toBe(b.deks.get(coll))
+      }
     })
   })
 

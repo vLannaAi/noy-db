@@ -206,4 +206,65 @@ describe('NoydbOptions.getKeyring (issue #5)', () => {
 
     expect(seenVaults).toEqual(['VA', 'VB'])
   })
+
+  it('issue #88: db.getKeyring() returns a defensive copy — mutations on the returned Map do NOT leak into the cache', async () => {
+    const adapter = inlineMemory()
+    const db = await createNoydb({ store: adapter, user: 'alice', secret: 'p' })
+    const vault = await db.openVault('acme')
+    await vault.collection<Note>('notes').put('n-1', { title: 'first' })
+
+    const snapshot1 = await db.getKeyring('acme')
+    const collectionsBefore = [...snapshot1.deks.keys()].sort()
+
+    // Mutate the returned Map. Pre-fix this would corrupt the hub's
+    // cached keyring; post-fix it's a no-op on the cached state.
+    snapshot1.deks.set('hijacked', snapshot1.deks.get('notes')!)
+    snapshot1.deks.delete('notes')
+
+    const snapshot2 = await db.getKeyring('acme')
+    const collectionsAfter = [...snapshot2.deks.keys()].sort()
+    expect(collectionsAfter).toEqual(collectionsBefore)
+    expect(snapshot2.deks.has('hijacked')).toBe(false)
+    expect(snapshot2.deks.has('notes')).toBe(true)
+
+    // Subsequent vault operations still work — the cache wasn't corrupted.
+    await vault.collection<Note>('notes').put('n-2', { title: 'second' })
+    expect((await vault.collection<Note>('notes').get('n-2'))?.title).toBe('second')
+  })
+
+  it('issue #114: defensive copy also clones permissions and per-authenticator meta', async () => {
+    const adapter = inlineMemory()
+    const db = await createNoydb({ store: adapter, user: 'alice', secret: 'p' })
+    await db.openVault('acme')
+    // Inject a tier-2 slot directly into alice's keyring file so the snapshot
+    // has a non-empty `authenticators` array with a real `meta` to mutate.
+    const env = await adapter.get('acme', '_keyring', 'alice')
+    const file = JSON.parse(env!._data) as Record<string, unknown> & { authenticators?: unknown[] }
+    file.authenticators = [{
+      id: 'webauthn-yubi',
+      method: 'webauthn',
+      enrolled_at: new Date().toISOString(),
+      enrolled_via_tier: 1,
+      wrapped_kek: 'YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=',
+      meta: { credentialId: 'cred-yubi', nickname: 'Original' },
+    }]
+    await adapter.put('acme', '_keyring', 'alice', { ...env!, _data: JSON.stringify(file) })
+    // Force a fresh keyring load (the cache was populated from the original
+    // envelope before we patched in the slot).
+    db.close()
+    const db2 = await createNoydb({ store: adapter, user: 'alice', secret: 'p' })
+    await db2.openVault('acme')
+
+    const snapshot1 = await db2.getKeyring('acme')
+
+    // Mutate fields the original PR didn't deep-copy. Each of these would
+    // corrupt the cache pre-#114 (they'd land on the cached keyring's
+    // shared sub-objects).
+    ;(snapshot1.permissions as Record<string, 'ro' | 'rw'>)['injected'] = 'rw'
+    ;(snapshot1.authenticators[0]!.meta as Record<string, unknown>)['nickname'] = 'Hijacked'
+
+    const snapshot2 = await db2.getKeyring('acme')
+    expect((snapshot2.permissions as Record<string, 'ro' | 'rw'>)['injected']).toBeUndefined()
+    expect(snapshot2.authenticators[0]!.meta['nickname']).toBe('Original')
+  })
 })
