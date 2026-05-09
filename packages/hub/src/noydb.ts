@@ -448,16 +448,43 @@ export class Noydb {
     return comp
   }
 
-  /** Grant access to a user for a vault. */
-  async grant(vault: string, options: GrantOptions): Promise<void> {
+  /**
+   * Grant access to a user for a vault.
+   *
+   * Gated by `enroll-user`. `STRICT_POLICY` requires a TOTP / email-OTP
+   * factor proof so the operator affirmatively re-asserts identity at
+   * the moment of grant; `PERSONAL_POLICY` accepts a tier-1 unlock alone.
+   *
+   * The legacy `requireReAuthFor: ['grant']` session-policy check still
+   * fires on top — both are independent opt-ins.
+   */
+  async grant(
+    vault: string,
+    options: GrantOptions,
+    factors?: { factors?: ReadonlyArray<FactorProof>; sharedDevice?: boolean },
+  ): Promise<void> {
     this.checkPolicyOperation(vault, 'grant')
+    await this.checkGate(vault, 'enroll-user', factors)
     const keyring = await this.getKeyring(vault)
     await keyringGrant(this.options.store, vault, keyring, options)
   }
 
-  /** Revoke a user's access to a vault. */
-  async revoke(vault: string, options: RevokeOptions): Promise<void> {
+  /**
+   * Revoke a user's access to a vault.
+   *
+   * Gated by `revoke-user`. `STRICT_POLICY` requires a TOTP / email-OTP
+   * factor proof; `PERSONAL_POLICY` accepts a tier-1 unlock alone.
+   *
+   * The legacy `requireReAuthFor: ['revoke']` session-policy check still
+   * fires on top — both are independent opt-ins.
+   */
+  async revoke(
+    vault: string,
+    options: RevokeOptions,
+    factors?: { factors?: ReadonlyArray<FactorProof>; sharedDevice?: boolean },
+  ): Promise<void> {
     this.checkPolicyOperation(vault, 'revoke')
+    await this.checkGate(vault, 'revoke-user', factors)
     const keyring = await this.getKeyring(vault)
     await keyringRevoke(this.options.store, vault, keyring, options)
   }

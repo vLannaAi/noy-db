@@ -310,12 +310,15 @@ describe('db.recoverUser (#33 + #34 hub-level integration)', () => {
       policy: STRICT_POLICY,
     })
     await db.openVault('acme')
+    // grant() under STRICT_POLICY requires a factor proof (#79 wired the
+    // enroll-user gate). Pass TOTP for the setup; the actual assertion
+    // below is about recoverUser's gate, not grant's.
     await db.grant('acme', {
       userId: 'bob',
       displayName: 'Bob',
       role: 'admin',
       passphrase: BOB_PHRASE,
-    })
+    }, { factors: [{ kind: 'totp', mintedAt: new Date().toISOString() }] })
 
     // Without a factor proof, the gate denies.
     await expect(

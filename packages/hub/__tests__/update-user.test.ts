@@ -445,12 +445,15 @@ describe('Noydb.updateUser (hub-level wiring, #54)', () => {
       policy: STRICT_POLICY,
     })
     await alice.openVault('acme')
+    // grant() under STRICT_POLICY requires a factor proof (#79 wired the
+    // enroll-user gate). Pass TOTP for the setup; the actual assertion
+    // below is about updateUser's gate, not grant's.
     await alice.grant('acme', {
       userId: 'bob',
       displayName: 'Bob',
       role: 'admin',
       passphrase: 'glasses cabinet bicycle umbrella thunder velvet picnic',
-    })
+    }, { factors: [{ kind: 'totp', mintedAt: new Date().toISOString() }] })
 
     // No factor proof — STRICT_POLICY's update-user gate requires totp/email-otp.
     await expect(
