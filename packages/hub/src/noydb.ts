@@ -95,7 +95,6 @@ import {
   PERSONAL_POLICY,
   mergePolicy,
   type ActiveTier,
-  type FactorProof,
   type FactorProofBundle,
   type GateName,
   type VaultPolicy,
