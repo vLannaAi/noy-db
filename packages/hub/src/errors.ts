@@ -295,7 +295,7 @@ export class KeyringExpiredError extends NoydbError {
 
 /**
  * Thrown when an `@noy-db/as-*` import is attempted but the invoking
- * keyring lacks the required import-capability bit (issue ).
+ * keyring lacks the required import-capability bit.
  *
  * - `tier: 'plaintext'` — a plaintext-tier import (`as-csv`, `as-json`,
  *   `as-ndjson`, `as-zip`, …) was attempted but the keyring's

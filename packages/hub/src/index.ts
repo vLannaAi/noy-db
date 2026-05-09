@@ -517,8 +517,10 @@ export {
 } from './team/sync-credentials.js'
 export type { SyncCredential } from './team/sync-credentials.js'
 
-// Magic-link unlock — extracted to @noy-db/on-magic-link in.
-// Consumers should: `import { ... } from '@noy-db/on-magic-link'`.
+// Magic-link unlock — `@noy-db/on-magic-link` provides the high-level
+// invite / peer-recovery flows. The lower-level `MagicLinkGrant*`
+// primitives below stay in hub because `on-magic-link` consumes them;
+// direct use is supported but uncommon.
 
 // Session policies —
 export { PolicyEnforcer, createEnforcer, validateSessionPolicy } from './session/session-policy.js'

@@ -90,7 +90,7 @@ function warnOnceFallback(adapterName: string): void {
   // Only warn in non-test environments — vitest runs are noisy enough.
   if (typeof process !== 'undefined' && process.env['NODE_ENV'] === 'test') return
   console.warn(
-    `[noy-db] Adapter "${adapterName}" does not implement listPage(); ` +
+    `[noy-db] Store "${adapterName}" does not implement listPage(); ` +
     `Collection.scan()/listPage() are using a synthetic fallback (slower). ` +
     `Add a listPage method to opt into the streaming fast path.`,
   )
