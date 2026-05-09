@@ -81,6 +81,8 @@ export type {
   Permissions,
   EncryptedEnvelope,
   KeyringAuthenticator,
+  KeyringAuthenticatorWrappingKEK,
+  KeyringAuthenticatorWrappingDEKs,
   VaultPolicyOnDisk,
   VaultSnapshot,
   NoydbStore,
@@ -321,7 +323,12 @@ export {
   removeAuthenticator,
   findAuthenticator,
 } from './team/authenticators.js'
-export type { EnrollAuthenticatorOptions, UpdateAuthenticatorOptions } from './team/authenticators.js'
+export type {
+  EnrollAuthenticatorOptions,
+  EnrollAuthenticatorWrappingKEKOptions,
+  EnrollAuthenticatorWrappingDEKsOptions,
+  UpdateAuthenticatorOptions,
+} from './team/authenticators.js'
 
 // Tier-3 quick-unlock state — issue #11
 export { QuickUnlockStore } from './session/unlock-state.js'
