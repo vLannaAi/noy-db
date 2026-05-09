@@ -191,6 +191,18 @@ export async function rotatePassphrase(
             '→ password) under cover of rotation.',
         )
       }
+      // wrapKind absent on legacy slots / wrap-KEK enroll inputs; treat as 'kek'.
+      const oldWrapKind = oldSlot.wrapKind ?? 'kek'
+      const newWrapKind = result.wrapKind ?? 'kek'
+      if (oldWrapKind !== newWrapKind) {
+        throw new ValidationError(
+          `slotCeremonies['${oldSlot.id}'] returned wrapKind="${newWrapKind}", ` +
+            `expected "${oldWrapKind}". The wrap format must match the rotated ` +
+            'slot — a ceremony cannot change the wrap shape (e.g. wrap-KEK → ' +
+            'wrap-DEKs) under cover of rotation, since that would silently ' +
+            'change the session tier produced at unlock.',
+        )
+      }
 
       // Build the persisted slot from the ceremony result. Mirrors
       // the same construction `enrollAuthenticator` does — wrap-DEKs

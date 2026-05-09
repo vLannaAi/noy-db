@@ -302,6 +302,75 @@ describe('rotatePassphrase slot preservation (#29)', () => {
     ).rejects.toBeInstanceOf(ValidationError)
   }, 60_000)
 
+  it('rejects wrapKind downgrade in ceremony result (anti-slot-swap, kek → deks)', async () => {
+    const store = await setupVaultWithSlots([
+      {
+        id: 'webauthn-touchid',
+        method: 'webauthn',
+        enrolled_at: '2026-01-01T00:00:00Z',
+        enrolled_via_tier: 1,
+        wrapped_kek: 'OLDWRAPPED',
+        meta: { credentialId: 'cred' },
+      },
+    ])
+
+    // Ceremony preserves id + method (matching webauthn) but flips
+    // wrapKind from absent (= 'kek') to 'deks'. Without the wrapKind
+    // guard this would silently change the slot's session-tier
+    // contract: a wrap-KEK slot produces `kek != null` at unlock,
+    // a wrap-DEKs slot produces `kek: null`.
+    const downgradeCeremony: SlotRewrapCeremony = async ({ oldSlot }) => ({
+      id: oldSlot.id,
+      method: oldSlot.method,
+      wrapKind: 'deks',
+      wrapped_deks: 'NEWWRAPPED',
+      iv: 'IV',
+      meta: { credentialId: 'cred' },
+    })
+
+    await expect(
+      rotatePassphrase(store, 'acme', 'alice', {
+        oldPassphrase: OLD_PHRASE,
+        newPassphrase: NEW_PHRASE,
+        slotCeremonies: { 'webauthn-touchid': downgradeCeremony },
+      }),
+    ).rejects.toBeInstanceOf(ValidationError)
+  }, 60_000)
+
+  it('rejects wrapKind upgrade in ceremony result (anti-slot-swap, deks → kek)', async () => {
+    const store = await setupVaultWithSlots([
+      {
+        id: 'password-daily',
+        method: 'password',
+        enrolled_at: '2026-01-01T00:00:00Z',
+        enrolled_via_tier: 1,
+        wrapKind: 'deks',
+        wrapped_deks: 'OLDWRAPPED',
+        iv: 'OLDIV',
+        meta: { salt: 'SALT' },
+      },
+    ])
+
+    // Ceremony preserves id + method (matching password) but flips
+    // wrapKind from 'deks' to absent (= 'kek'). The resulting slot
+    // would carry wrapped_kek that was never produced by AES-KW under
+    // a real KEK — the next unlock attempt would brick the slot.
+    const upgradeCeremony: SlotRewrapCeremony = async ({ oldSlot }) => ({
+      id: oldSlot.id,
+      method: oldSlot.method,
+      wrapped_kek: 'INVENTED',
+      meta: { salt: 'SALT' },
+    })
+
+    await expect(
+      rotatePassphrase(store, 'acme', 'alice', {
+        oldPassphrase: OLD_PHRASE,
+        newPassphrase: NEW_PHRASE,
+        slotCeremonies: { 'password-daily': upgradeCeremony },
+      }),
+    ).rejects.toBeInstanceOf(ValidationError)
+  }, 60_000)
+
   it('preserves enrolled_at across rotation (rotation is rewrapping, not re-enrollment)', async () => {
     const originalEnrolledAt = '2025-06-15T08:30:00.000Z'
     const store = await setupVaultWithSlots([
