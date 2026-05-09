@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
-import { ConflictError } from '../src/errors.js'
+import { ConflictError, ValidationError } from '../src/errors.js'
 import {
   createOwnerKeyring,
   loadKeyring,
@@ -10,6 +10,7 @@ import {
   listUsers,
   ensureCollectionDEK,
   persistKeyring,
+  buildRecipientKeyringFile,
 } from '../src/team/keyring.js'
 import { encrypt, decrypt } from '../src/crypto.js'
 
@@ -328,6 +329,48 @@ describe('keyring', () => {
       expect(users.map(u => u.userId).sort()).toEqual(['op-01', 'owner-01', 'viewer-01'])
       expect(users.find(u => u.userId === 'op-01')?.role).toBe('operator')
       expect(users.find(u => u.userId === 'viewer-01')?.role).toBe('viewer')
+    })
+  })
+
+  describe('buildRecipientKeyringFile (issue #112)', () => {
+    it('rejects when caller kek is null (tier-2 wrap-DEKs / tier-3 PIN-resume sessions cannot mint bundle recipients)', async () => {
+      const owner = await createOwnerKeyring(adapter, COMP, 'owner-01', 'ownerpass')
+      const getDEK = await ensureCollectionDEK(adapter, COMP, owner)
+      await getDEK('invoices')
+
+      // Same shape as the grant() tier-2 test: simulate an
+      // @noy-db/on-password unlock or tier-3 PIN-resume by spreading
+      // the owner keyring with kek replaced by null. The DEKs are still
+      // in memory; only the KEK is missing — exactly the state #81's
+      // grant guard rejected. buildRecipientKeyringFile shipped without
+      // the same guard until #112.
+      const tier2Caller = { ...owner, kek: null }
+
+      await expect(
+        buildRecipientKeyringFile(tier2Caller, {
+          id: 'recipient-01',
+          displayName: 'Recipient',
+          role: 'admin',
+          passphrase: 'a strong recipient passphrase here',
+        }),
+      ).rejects.toThrow(ValidationError)
+    })
+
+    it('still works for legitimate tier-1 callers', async () => {
+      const owner = await createOwnerKeyring(adapter, COMP, 'owner-01', 'ownerpass')
+      const getDEK = await ensureCollectionDEK(adapter, COMP, owner)
+      await getDEK('invoices')
+
+      const file = await buildRecipientKeyringFile(owner, {
+        id: 'recipient-01',
+        displayName: 'Recipient',
+        role: 'viewer',
+        passphrase: 'a strong recipient passphrase here',
+      })
+
+      expect(file.user_id).toBe('recipient-01')
+      expect(file.role).toBe('viewer')
+      expect(Object.keys(file.deks).length).toBeGreaterThan(0)
     })
   })
 })
