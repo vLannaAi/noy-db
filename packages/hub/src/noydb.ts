@@ -461,7 +461,7 @@ export class Noydb {
   async grant(
     vault: string,
     options: GrantOptions,
-    factors?: { factors?: ReadonlyArray<FactorProof>; sharedDevice?: boolean },
+    factors?: FactorProofBundle,
   ): Promise<void> {
     this.checkPolicyOperation(vault, 'grant')
     await this.checkGate(vault, 'enroll-user', factors)
@@ -481,7 +481,7 @@ export class Noydb {
   async revoke(
     vault: string,
     options: RevokeOptions,
-    factors?: { factors?: ReadonlyArray<FactorProof>; sharedDevice?: boolean },
+    factors?: FactorProofBundle,
   ): Promise<void> {
     this.checkPolicyOperation(vault, 'revoke')
     await this.checkGate(vault, 'revoke-user', factors)
