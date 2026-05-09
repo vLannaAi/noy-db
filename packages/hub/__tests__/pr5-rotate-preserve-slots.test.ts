@@ -102,7 +102,7 @@ describe('rotatePassphrase slot preservation (#29)', () => {
   it('preserves a wrap-DEKs slot via ceremony', async () => {
     const store = await setupVaultWithSlots([
       {
-        id: 'password-daily',
+        id: 'password',
         method: 'password',
         enrolled_at: '2026-01-01T00:00:00Z',
         enrolled_via_tier: 1,
@@ -131,7 +131,7 @@ describe('rotatePassphrase slot preservation (#29)', () => {
     await rotatePassphrase(store, 'acme', 'alice', {
       oldPassphrase: OLD_PHRASE,
       newPassphrase: NEW_PHRASE,
-      slotCeremonies: { 'password-daily': passwordCeremony },
+      slotCeremonies: { 'password': passwordCeremony },
     })
 
     expect(ceremonyCallCount).toBe(1)
@@ -140,7 +140,7 @@ describe('rotatePassphrase slot preservation (#29)', () => {
     const reloaded = await loadKeyring(store, 'acme', 'alice', NEW_PHRASE)
     expect(reloaded.authenticators).toHaveLength(1)
     const slot = reloaded.authenticators[0]!
-    expect(slot.id).toBe('password-daily')
+    expect(slot.id).toBe('password')
     expect(slot.method).toBe('password')
     if (slot.wrapKind === 'deks') {
       expect(slot.wrapped_deks).toBe('NEWWRAPPEDDEKSBASE64')
@@ -204,7 +204,7 @@ describe('rotatePassphrase slot preservation (#29)', () => {
         meta: { credentialId: 'cred-yubikey' },
       },
       {
-        id: 'password-daily',
+        id: 'password',
         method: 'password',
         enrolled_at: '2026-01-02T00:00:00Z',
         enrolled_via_tier: 1,
@@ -214,7 +214,7 @@ describe('rotatePassphrase slot preservation (#29)', () => {
         meta: { salt: 'SALT', minLength: 12 },
       },
       {
-        id: 'pin-daily',
+        id: 'pin-resume',
         method: 'password', // tier-3 PIN slots also use the 'password' method
         enrolled_at: '2026-01-03T00:00:00Z',
         enrolled_via_tier: 3,

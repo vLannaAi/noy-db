@@ -45,8 +45,8 @@ import { ValidationError } from '../errors.js'
 /**
  * Context handed to a {@link SlotRewrapCeremony} when `rotatePassphrase`
  * preserves a tier-2 slot. The ceremony's job is to re-derive its
- * method-specific wrapping material (PRF assertion, PBKDF2 of a
- * daily-password, etc.) and wrap the freshly rewrapped DEK set under
+ * method-specific wrapping material (PRF assertion, PBKDF2 of the
+ * password, etc.) and wrap the freshly rewrapped DEK set under
  * the new wrapping key.
  *
  * Two surfaces are exposed:

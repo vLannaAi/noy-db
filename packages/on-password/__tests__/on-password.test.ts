@@ -77,16 +77,16 @@ describe('@noy-db/on-password — wrap-DEKs enroll + verify (#26 Path C)', () =>
   it('enrolls a wrap-DEKs slot whose password recovers the same DEK set', async () => {
     const keyring = await buildKeyring()
     const opts = await enrollPasswordAuthenticator(keyring, {
-      password: 'daily-password-2026',
+      password: 'strong-password-2026',
     })
     expect(opts.method).toBe('password')
-    expect(opts.id).toBe('password-daily')
+    expect(opts.id).toBe('password')
     expect(opts.wrapKind).toBe('deks')
     if (opts.wrapKind !== 'deks') throw new Error('unreachable')
     expect(typeof opts.wrapped_deks).toBe('string')
     expect(typeof opts.iv).toBe('string')
 
-    const recovered = await unwrapDeksWithPassword(slotFromOptions(opts), 'daily-password-2026')
+    const recovered = await unwrapDeksWithPassword(slotFromOptions(opts), 'strong-password-2026')
     expect(recovered.size).toBe(2)
     expect(recovered.has('invoices')).toBe(true)
     expect(recovered.has('clients')).toBe(true)
@@ -101,7 +101,7 @@ describe('@noy-db/on-password — wrap-DEKs enroll + verify (#26 Path C)', () =>
   it('rejects a wrong password with PasswordInvalidError', async () => {
     const keyring = await buildKeyring()
     const opts = await enrollPasswordAuthenticator(keyring, {
-      password: 'daily-password-2026',
+      password: 'strong-password-2026',
     })
     await expect(
       unwrapDeksWithPassword(slotFromOptions(opts), 'wrong-password-9999'),
@@ -145,7 +145,7 @@ describe('@noy-db/on-password — wrap-DEKs enroll + verify (#26 Path C)', () =>
   it('different password ≠ tier-1 phrase (independent storage)', async () => {
     const keyring = await buildKeyring()
     const opts = await enrollPasswordAuthenticator(keyring, {
-      password: 'daily-password-2026',
+      password: 'strong-password-2026',
     })
     // The tier-1 phrase used to derive the keyring is "correct horse...";
     // it must NOT unlock the password slot.
@@ -168,7 +168,7 @@ describe('@noy-db/on-password — wrap-DEKs enroll + verify (#26 Path C)', () =>
     // throws PasswordInvalidError for a different reason would silently
     // regress the "re-enrol" UX. Per Niwat's PR #42 review point 4.
     await expect(
-      unwrapDeksWithPassword(legacy, 'daily-password-2026'),
+      unwrapDeksWithPassword(legacy, 'strong-password-2026'),
     ).rejects.toMatchObject({
       name: 'PasswordInvalidError',
       message: expect.stringMatching(/wrap-DEKs|re-enrol/),
@@ -181,7 +181,7 @@ describe('@noy-db/on-password — wrap-DEKs enroll + verify (#26 Path C)', () =>
     // getKeyring callback) works without a pre-existing keyring.
     const keyring = await buildKeyring()
     const opts = await enrollPasswordAuthenticator(keyring, {
-      password: 'daily-password-2026',
+      password: 'strong-password-2026',
     })
 
     // Build a real store with a written keyring file to feed the verifier.
@@ -207,7 +207,7 @@ describe('@noy-db/on-password — wrap-DEKs enroll + verify (#26 Path C)', () =>
 
     const unlocked = await verifyPasswordSlot(
       slotFromOptions(opts),
-      'daily-password-2026',
+      'strong-password-2026',
       { store, vault: 'acme', userId: 'alice' },
     )
     expect(unlocked.userId).toBe('alice')
@@ -221,13 +221,13 @@ describe('@noy-db/on-password — wrap-DEKs enroll + verify (#26 Path C)', () =>
   it('verifyPasswordSlot throws when the keyring file is missing', async () => {
     const keyring = await buildKeyring()
     const opts = await enrollPasswordAuthenticator(keyring, {
-      password: 'daily-password-2026',
+      password: 'strong-password-2026',
     })
     const store = inlineMemory()
     await expect(
       verifyPasswordSlot(
         slotFromOptions(opts),
-        'daily-password-2026',
+        'strong-password-2026',
         { store, vault: 'acme', userId: 'ghost' },
       ),
     ).rejects.toBeInstanceOf(PasswordInvalidError)

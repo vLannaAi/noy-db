@@ -79,7 +79,7 @@ describe('KeyringAuthenticator wrap-KEK / wrap-DEKs (#26 Path C)', () => {
     await persistKeyring(store, 'acme', keyring)
 
     const next = await enrollAuthenticator(store, 'acme', keyring, {
-      id: 'password-daily',
+      id: 'password',
       method: 'password',
       wrapKind: 'deks',
       wrapped_deks: 'Y2lwaGVydGV4dC1iYXNlNjQ=',
@@ -114,7 +114,7 @@ describe('KeyringAuthenticator wrap-KEK / wrap-DEKs (#26 Path C)', () => {
       wrapped_kek: 'd2VicGF5bG9hZA==',
     })
     const afterPassword = await enrollAuthenticator(store, 'acme', afterWebAuthn, {
-      id: 'password-daily',
+      id: 'password',
       method: 'password',
       wrapKind: 'deks',
       wrapped_deks: 'cHdkLXdyYXBwZWQ=',
