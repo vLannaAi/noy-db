@@ -162,6 +162,29 @@ describe('cross-vault queries.', () => {
       expect(accessible.find((c) => c.id === 'T-mismatched')).toBeUndefined()
     })
 
+    it('issue #82 follow-up: a partially-corrupted vault is silently skipped, not surfaced as KeyringCorruptError', async () => {
+      // Without this, `listAccessibleVaults()` would throw the moment it
+      // hit the corrupted vault, and the caller would not be able to
+      // enumerate ANY of their healthy vaults — a single corruption would
+      // poison the whole list.
+      // Surgically corrupt one wrapped DEK in T2's _keyring/alice envelope
+      // so loadKeyring throws KeyringCorruptError (mixed-success path).
+      const env = await adapter.get('T2', '_keyring', 'alice')
+      const file = JSON.parse(env!._data) as { deks: Record<string, string> }
+      const collNames = Object.keys(file.deks).filter((n) => !n.startsWith('_'))
+      const victim = collNames[0]!
+      const original = file.deks[victim]!
+      file.deks[victim] = Buffer.from(new Uint8Array(original.length).fill(0))
+        .toString('base64')
+        .slice(0, original.length)
+      await adapter.put('T2', '_keyring', 'alice', { ...env!, _data: JSON.stringify(file) })
+
+      // Enumeration must succeed and include T1 + T7. T2 is silently dropped.
+      const accessible = await aliceDb.listAccessibleVaults()
+      expect(accessible.map((c) => c.id).sort()).toEqual(['T1', 'T7'])
+      expect(accessible.find((c) => c.id === 'T2')).toBeUndefined()
+    })
+
     it('throws StoreCapabilityError against adapters without listVaults', async () => {
       const dumb = memoryWithoutEnumeration()
       const db = await createNoydb({ store: dumb, user: 'alice', secret: 'alice-pass' })

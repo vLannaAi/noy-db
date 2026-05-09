@@ -20,7 +20,7 @@ import type {
   ReAuthOperation,
   TranslatorAuditEntry,
 } from './types.js'
-import { ValidationError, NoAccessError, InvalidKeyError, StoreCapabilityError } from './errors.js'
+import { ValidationError, NoAccessError, InvalidKeyError, KeyringCorruptError, StoreCapabilityError } from './errors.js'
 import type { PassphrasePolicy } from './validation.js'
 import {
   rotatePassphrase as keyringRotatePassphrase,
@@ -694,8 +694,17 @@ export class Noydb {
           this.options.secret,
         )
       } catch (err) {
-        if (err instanceof NoAccessError || err instanceof InvalidKeyError) {
-          continue // silent: caller has no key material for this vault
+        if (
+          err instanceof NoAccessError ||
+          err instanceof InvalidKeyError ||
+          err instanceof KeyringCorruptError
+        ) {
+          // No accessible key material for this vault. KeyringCorruptError
+          // is included so a single partially-corrupted vault does NOT
+          // poison the enumeration of every other healthy vault — the
+          // caller can probe a corrupted vault directly via openVault()
+          // / loadKeyring() if they want to act on it.
+          continue
         }
         throw err // unexpected error — surface it
       }
