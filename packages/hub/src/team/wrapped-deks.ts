@@ -6,7 +6,7 @@
  *   - **tier-0** — paper recovery entries (`_meta/recovery-paper`),
  *     credential = the printed code.
  *   - **tier-2** — password authenticator slots (`KeyringFile.authenticators`,
- *     `wrapKind: 'deks'`), credential = the daily password.
+ *     `wrapKind: 'deks'`), credential = the user's password.
  *
  * **Not** used by `@noy-db/on-pin` — tier-3 wraps the DEK set under
  * the same conceptual pattern but at **100,000 PBKDF2 iterations**
@@ -73,8 +73,8 @@ export interface WrappedDeksBlob {
  * PBKDF2-SHA256(credential, salt, 600K), serializes the DEK set as
  * `{ deks: { coll: rawBase64 } }`, and AES-GCM-encrypts.
  *
- * The `credential` is the user-typed string (recovery code, daily
- * password, PIN). Caller normalization rules apply (e.g. paper
+ * The `credential` is the user-typed string (recovery code, password,
+ * PIN). Caller normalization rules apply (e.g. paper
  * recovery uppercase-strips the code before reaching this function).
  *
  * @param deks - DEK set to wrap. Each DEK must be exportable via

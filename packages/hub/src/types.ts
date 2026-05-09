@@ -505,7 +505,7 @@ export type RecoveryEnrollment =
  * metadata only.
  */
 interface KeyringAuthenticatorBase {
-  /** Caller-chosen identifier — e.g. `'webauthn-yubikey-blue'`, `'oidc-google'`, `'password-daily'`. */
+  /** Caller-chosen identifier — e.g. `'webauthn-yubikey-blue'`, `'oidc-google'`, `'password'`. */
   readonly id: string
   /** Method family — selects which `@noy-db/on-*` package handles unlock. */
   readonly method: 'webauthn' | 'oidc' | 'password'

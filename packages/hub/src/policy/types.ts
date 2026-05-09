@@ -24,7 +24,7 @@ import type { PassphrasePolicy } from '../validation.js'
  * | `shamir` | k-of-n threshold share (`@noy-db/on-shamir`) | yes |
  * | `webauthn-roaming` | hardware key (YubiKey, SoloKey, Titan) | yes (key portable) |
  * | `webauthn-platform` | platform passkey (Touch ID, Face ID, Hello) | no (device-bound) |
- * | `password` | tier-2 daily password (`@noy-db/on-password`) | no |
+ * | `password` | tier-2 password (`@noy-db/on-password`) | no |
  * | `pin` | tier-3 quick-resume PIN (`@noy-db/on-pin`) | no |
  *
  * Off-device kinds (TOTP, email-OTP, recovery, shamir, roaming WebAuthn)

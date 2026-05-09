@@ -94,7 +94,7 @@ describe('updateAuthenticator (team layer, #55)', () => {
     await persistKeyring(store, 'acme', keyring)
 
     await enrollAuthenticator(store, 'acme', keyring, {
-      id: 'password-daily',
+      id: 'password',
       method: 'password',
       wrapKind: 'deks',
       wrapped_deks: 'YmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmI=',
@@ -103,8 +103,8 @@ describe('updateAuthenticator (team layer, #55)', () => {
     })
     // Reload to pick up the persisted slot in a fresh keyring snapshot.
     const fresh = await loadKeyring(store, 'acme', 'alice', PHRASE)
-    await updateAuthenticator(store, 'acme', fresh, 'password-daily', {
-      meta: { nickname: 'Daily password' },
+    await updateAuthenticator(store, 'acme', fresh, 'password', {
+      meta: { nickname: 'My password' },
     })
 
     const reloaded = await loadKeyring(store, 'acme', 'alice', PHRASE)
@@ -116,7 +116,7 @@ describe('updateAuthenticator (team layer, #55)', () => {
     }
     expect(slot.meta.salt).toBe('cmFuZG9tc2FsdA==')
     expect(slot.meta.minLength).toBe(12)
-    expect(slot.meta.nickname).toBe('Daily password')
+    expect(slot.meta.nickname).toBe('My password')
   }, 60_000)
 
   it('null in a meta key deletes that key (#55 ↔ #57 semantics)', async () => {

@@ -37,7 +37,7 @@ export async function describeAuthConfig(
   lines.push(`  Phrase format: ${policy.passphrase?.minWords ?? 6}+ words, lowercase letters, ≥${policy.passphrase?.minWordLength ?? 3} chars/word`)
   lines.push('  Strength validator: enforced (override available for tests only)')
   lines.push('')
-  lines.push('Tier 2 — Authenticate (daily login)')
+  lines.push('Tier 2 — Authenticate (routine login)')
   lines.push('  Allowed methods: WebAuthn (passkey), OIDC, Password')
   lines.push('  Slots per user: unlimited')
   lines.push('')

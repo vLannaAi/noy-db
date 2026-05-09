@@ -42,7 +42,7 @@ Conflating these is the single most common source of misdesign in this space. A 
 | Method | Online? | Personal | Shared | Factor | noy-db match |
 |---|:--:|:--:|:--:|:--:|---|
 | Master passphrase (Diceware) | ❌ | ✅ | ⚠️ shoulder-surf | K | **tier-1, internal to hub** (no `on-*`) |
-| Daily password | ❌ | ✅ | ⚠️ | K | `on-password` |
+| Password (tier-2) | ❌ | ✅ | ⚠️ | K | `on-password` |
 | Numeric PIN (4–6 digits) | ❌ | ✅ | ❌ low entropy | K | `on-pin` (**tier 3 only**) |
 | Pattern lock (Android-style) | ❌ | ⚠️ | ❌ | K weak | ❌ deliberately omitted |
 | Security questions | varies | ⚠️ | ❌ | K weak | ❌ deliberately omitted (social-engineerable, low entropy) |

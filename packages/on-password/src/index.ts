@@ -1,10 +1,10 @@
 /**
- * **@noy-db/on-password** — tier-2 daily-password authenticator slot.
+ * **@noy-db/on-password** — tier-2 password authenticator slot.
  *
  * The user's tier-1 *phrase* is the rarely-typed master that derives
- * the KEK. This package adds a SEPARATE secret — a daily-typed
- * password — as a tier-2 slot in the multi-slot keyring. The two
- * credentials have:
+ * the KEK. This package adds a SEPARATE secret — a password the user
+ * types at each unlock — as a tier-2 slot in the multi-slot keyring.
+ * The two credentials have:
  *
  * - **Different lifecycles** — the phrase rotates yearly; the password
  *   rotates per the developer's policy.
@@ -84,9 +84,9 @@ export class PasswordInvalidError extends Error {
 
 /** Options for {@link enrollPasswordAuthenticator}. */
 export interface EnrollPasswordOptions {
-  /** Slot id. Default: `'password-daily'`. */
+  /** Slot id. Default: `'password'`. */
   readonly id?: string
-  /** Daily password the user will type. Distinct from the tier-1 phrase. */
+  /** Password the user will type at unlock. Distinct from the tier-1 phrase. */
   readonly password: string
   /** Minimum length. Default 12. */
   readonly minLength?: number
@@ -115,7 +115,7 @@ export interface EnrollPasswordOptions {
  *
  * const keyring = await db.getKeyring('acme')
  * const slot = await enrollPasswordAuthenticator(keyring, {
- *   password: 'daily-password-2026',
+ *   password: 'strong-password-2026',
  *   minLength: 14,
  * })
  * await db.enrollAuthenticator('acme', slot, {
@@ -152,7 +152,7 @@ export async function enrollPasswordAuthenticator(
   const blob = await mintWrappedDeksBlob(keyring.deks, options.password)
 
   return {
-    id: options.id ?? 'password-daily',
+    id: options.id ?? 'password',
     method: 'password',
     wrapKind: 'deks',
     wrapped_deks: blob.wrappedDeks,
@@ -214,8 +214,8 @@ export async function unwrapDeksWithPassword(
  * ```ts
  * import { verifyPasswordSlot } from '@noy-db/on-password'
  *
- * const unlocked = await db.unlockViaAuthenticator('acme', 'password-daily',
- *   (slot) => verifyPasswordSlot(slot, 'daily-password-2026',
+ * const unlocked = await db.unlockViaAuthenticator('acme', 'password',
+ *   (slot) => verifyPasswordSlot(slot, 'strong-password-2026',
  *     { store, vault: 'acme', userId: 'alice' }),
  * )
  * ```

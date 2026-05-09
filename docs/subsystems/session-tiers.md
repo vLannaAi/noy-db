@@ -14,7 +14,7 @@ noy-db's authentication is structured as a **three-tier privilege ladder**. Each
 The model exists to satisfy three competing constraints at once:
 
 1. **Zero-knowledge.** The admin must never know the user's passphrase. The user controls the root secret.
-2. **Ergonomic daily use.** Users do not type the master passphrase every time they open the vault. Daily login goes through tier 2; quick resume after idle goes through tier 3.
+2. **Ergonomic frequent use.** Users do not type the master passphrase every time they open the vault. Routine login goes through tier 2; quick resume after idle goes through tier 3.
 3. **Robust failure modes.** Lost device, lost passkey, forgotten passphrase, coerced user — each has a recovery path that does not collapse the security model.
 
 The `@noy-db/on-*` family already provides the cryptographic primitives. This document specifies how they compose into a coherent session lifecycle and how a developer configures it.
@@ -24,7 +24,7 @@ The `@noy-db/on-*` family already provides the cryptographic primitives. This do
 | Tier | Name | Role | Lifetime | Storage of the factor |
 |---|---|---|---|---|
 | **1** | **Passphrase** (root) | Master key — derives the KEK via PBKDF2. **Factory-fixed in `@noy-db/hub` core**, no `on-passphrase` package. | Years; touched only at enrollment, recovery, and tier-1-gated actions. | User's head (default) or `SealingKeyProvider` (managed mode). |
-| **2** | **Authenticate** | Daily login — replaces passphrase entry. **Multi-slot** (LUKS pattern): any one enrolled method unlocks. | Days/weeks (configurable). On expiry → re-authenticate. | `on-webauthn` / `on-oidc` / `on-password` slots in the keyring file. |
+| **2** | **Authenticate** | Routine login — replaces passphrase entry. **Multi-slot** (LUKS pattern): any one enrolled method unlocks. | Days/weeks (configurable). On expiry → re-authenticate. | `on-webauthn` / `on-oidc` / `on-password` slots in the keyring file. |
 | **3** | **Unlock** | Quick-resume after idle. Idle-timeout configurable per app. | Minutes (e.g. 15 min). On expiry → fall back to tier 2. | `on-pin` (the canonical tier-3 primitive). |
 
 A privileged auxiliary layer sits alongside the ladder:
@@ -117,7 +117,7 @@ interface KeyringFile {
 }
 
 interface KeyringAuthenticator {
-  id: string                                // 'webauthn-yubikey-blue', 'oidc-google', 'password-daily'
+  id: string                                // 'webauthn-yubikey-blue', 'oidc-google', 'password'
   method: 'webauthn' | 'oidc' | 'password'
   enrolled_at: string                        // ISO 8601
   enrolled_via_tier: 1 | 2                   // tier-1 enrolls a fresh slot; tier-2 may add a sibling per policy
@@ -132,9 +132,9 @@ interface KeyringAuthenticator {
 |---|---|---|---|
 | `webauthn` | [`@noy-db/on-webauthn`](../packages/on-webauthn) | device (platform passkey) or possession (roaming key) | PRF extension preferred. Distinguish platform vs roaming via `requireSingleDevice` / `BE` flag. |
 | `oidc` | [`@noy-db/on-oidc`](../packages/on-oidc) | possession (provider session) + knowledge (split-key passphrase half) | Half the KEK lives on the device, half is fetched from the OIDC provider's key connector on successful federated login. |
-| `password` | `@noy-db/on-password` (TBD — design-only) | knowledge (separate from tier-1 phrase) | Tier-2 daily password — distinct secret from the tier-1 phrase. PBKDF2-derived wrapping key in its own slot. Pair with `on-email-otp` or `on-totp` for the SaaS UX. |
+| `password` | `@noy-db/on-password` (TBD — design-only) | knowledge (separate from tier-1 phrase) | Tier-2 password — distinct secret from the tier-1 phrase. PBKDF2-derived wrapping key in its own slot. Pair with `on-email-otp` or `on-totp` for the SaaS UX. |
 
-`on-password` is interpreted as **tier-2 daily password as separate secret** (locked 2026-05-04). It is not a rebrand of the tier-1 phrase. Users have two distinct credentials: a rarely-typed master phrase (tier 1) and a daily password (tier 2). Failure-mode mitigation: enforce different minimum strength rules (tier 1 = phrase format; tier 2 = ≥12 chars or a developer-defined regex).
+`on-password` is interpreted as **tier-2 password as a separate secret** (locked 2026-05-04). It is not a rebrand of the tier-1 phrase. Users have two distinct credentials: a rarely-typed master phrase (tier 1) and a routinely-typed password (tier 2). Failure-mode mitigation: enforce different minimum strength rules (tier 1 = phrase format; tier 2 = ≥12 chars or a developer-defined regex).
 
 ### API
 
@@ -445,7 +445,7 @@ Tracked under milestone [`v0.1.0-pre.5`](https://github.com/vLannaAi/noy-db/mile
 | `packages/hub/src/policy/` module + gate engine + `checkGate()` | ✅ shipped | `0.1.0-pre.5` ([#9](https://github.com/vLannaAi/noy-db/issues/9)) |
 | `rotatePassphrase` / `recoverPassphrase` APIs (paper profile end-to-end; other 3 throw `RecoveryProfileNotImplementedError`) | ✅ shipped (paper) / 🟡 partial | `0.1.0-pre.5` ([#10](https://github.com/vLannaAi/noy-db/issues/10)) |
 | `enrollAuthenticator` / `removeAuthenticator` / `unlockViaAuthenticator` / `enrollUnlock` / `unlockViaPin` APIs | ✅ shipped | `0.1.0-pre.5` ([#11](https://github.com/vLannaAi/noy-db/issues/11)) |
-| `@noy-db/on-password` package (tier-2 daily password) | ✅ shipped | `0.1.0-pre.5` ([#12](https://github.com/vLannaAi/noy-db/issues/12)) |
+| `@noy-db/on-password` package (tier-2 password) | ✅ shipped | `0.1.0-pre.5` ([#12](https://github.com/vLannaAi/noy-db/issues/12)) |
 | `describeAuthConfig` / `diagramAuthConfig` + per-user views (gated by `view-user-auth`) | ✅ shipped | `0.1.0-pre.5` ([#13](https://github.com/vLannaAi/noy-db/issues/13)) |
 | Managed-passphrase mode + `SealingKeyProvider` | ⏸ backlog (post-1.0) | [#14](https://github.com/vLannaAi/noy-db/issues/14) |
 | Per-keyring policy override merge engine (Option C runtime) | ⏸ backlog (deferred) | [#15](https://github.com/vLannaAi/noy-db/issues/15) |

@@ -151,7 +151,7 @@ describe('db.listWebAuthnSlots() (#16)', () => {
 
     // Mix in a password slot via the existing enrollAuthenticator path.
     await db.enrollAuthenticator('demo', {
-      id: 'password-daily',
+      id: 'password',
       method: 'password',
       wrapped_kek: FAKE_WRAPPED_PAYLOAD,
       meta: { salt: 'fake-salt-base64' },
