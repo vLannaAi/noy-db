@@ -214,6 +214,42 @@ Out of scope for `on-*` — users compose them upstream by *storing their passph
 | Push-notification factor (Duo / Okta Verify / MS Authenticator number-match) | **low** | Reachable via `on-oidc`; standalone package only if a consumer needs out-of-IdP push. |
 | `on-bankid` / regional ID wallets (BankID, ItsMe, EUDI) | **low** | Niche; spin up if a Nordic/EU consumer materializes. |
 
+## Package boundaries — hub vs. `on-*`
+
+A recurring question (see issue [#43](https://github.com/vLannaAi/noy-db/issues/43)): why is recovery-code generation in `@noy-db/on-recovery` rather than `@noy-db/hub`? The same question applies to `on-password` and `on-pin`. The answer is the same in all three cases — **hub owns the cryptosystem, the `on-*` package owns the user-facing input format**.
+
+### One sentence
+
+The shared "wrap a DEK set under a credential-derived key" primitive ({@link mintWrappedDeksBlob} / {@link unwrapDeksFromBlob} in `team/wrapped-deks.ts`) is identical for paper recovery, daily passwords, and PINs. What differs is what counts as the **credential**: a printed Base32 + checksum string, a typed password, or a 4-digit PIN. The hub takes any string and runs PBKDF2; the `on-*` package owns the rules for what string is well-formed.
+
+### Why it's split this way
+
+| Concern | Lives in | Why |
+|---|---|---|
+| Cryptosystem (PBKDF2-SHA256 600K → AES-GCM wrap of the DEK set) | `@noy-db/hub/team/wrapped-deks.ts` | One audited implementation. Every package calls it. A bug-fix or security review touches one file. |
+| On-disk format (`PaperRecoveryEntry`, `KeyringFile.authenticators[]`, `_meta/recovery-paper`) | `@noy-db/hub` | The hub knows how to read every keyring it ever wrote; the `on-*` packages can come and go without changing the format. |
+| Orchestration (`db.enrollRecovery`, `db.recoverPassphrase`, `db.enrollAuthenticator`, `db.unlockViaAuthenticator`) | `@noy-db/hub` | These compose multiple primitives + run policy gates. They don't change per credential family. |
+| User-facing string format (Base32 alphabet + checksum, password validation rules, PIN length policy) | The `on-*` package | Each consumer can swap. A regulated consumer needing BIP-39 word lists writes `on-recovery-bip39` without touching hub. |
+| Auto-rotation, burn-on-use, atomicity windows | `@noy-db/hub` | These are properties of the primitive, not the format. |
+
+### The classification rule
+
+When a new feature lands, ask: **"Does this thing produce wrap-key material directly, or does it just shape user input?"**
+
+- **Produces wrap-key material directly** (passphrase → PBKDF2 → KEK; KEK → AES-KW → DEKs; the wrap-DEKs primitive itself) → **hub**. There is one cryptosystem. There is one of it.
+- **Shapes user input** (Base32 codes with checksums, daily password length policies, 4-digit PINs, WebAuthn ceremonies, OIDC token flows) → **a package**. There are many possible shapes; each consumer picks one.
+
+### Implications for issue #43
+
+`@noy-db/on-recovery` (~110 LOC after pre.8 #38) is exactly that: a string-format helper that delegates the cryptosystem to hub. The split is not a leftover — it is the design that lets a consumer swap Base32 for BIP-39 (or any other format) without forking hub. **The package stays.** What was originally requested in #43 (folding into a `@noy-db/hub/recovery-codes` subpath) would anchor Base32 as the canonical format and break that swap-ability for no real bundle saving (~3 KB).
+
+The original concern in #43 was **discoverability** — that consumers had to learn they need both packages. That's addressed by:
+
+- This section.
+- The JSDoc on `db.enrollRecovery` already pointing at `mintPaperRecoveryEntry` and `@noy-db/on-recovery` (post-pre.8 #39).
+
+Closed as **wontfix-by-design** — the layering is intentional.
+
 ## Decision rules — when to ship a new `on-*` package
 
 When evaluating a new authenticator request, walk this checklist before reaching for `pnpm create`:
