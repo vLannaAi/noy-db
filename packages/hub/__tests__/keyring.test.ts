@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
-import { ConflictError } from '../src/errors.js'
+import { ConflictError, ValidationError } from '../src/errors.js'
 import {
   createOwnerKeyring,
   loadKeyring,
@@ -196,6 +196,26 @@ describe('keyring', () => {
           passphrase: 'pass',
         }),
       ).rejects.toThrow('cannot grant')
+    })
+
+    it('rejects when caller kek is null (tier-2 wrap-DEKs / tier-3 PIN-resume sessions cannot grant)', async () => {
+      const owner = await createOwnerKeyring(adapter, COMP, 'owner-01', 'ownerpass')
+      const getDEK = await ensureCollectionDEK(adapter, COMP, owner)
+      await getDEK('invoices')
+
+      // Simulate a tier-2 wrap-DEKs unlock (e.g. @noy-db/on-password) or tier-3
+      // PIN-resume: same DEKs in memory, but kek is null because the slot
+      // wraps DEKs directly without producing a KEK.
+      const tier2Caller = { ...owner, kek: null }
+
+      await expect(
+        grant(adapter, COMP, tier2Caller, {
+          userId: 'mallory',
+          displayName: 'Mallory',
+          role: 'admin',
+          passphrase: 'attacker-pass',
+        }),
+      ).rejects.toThrow(ValidationError)
     })
   })
 
