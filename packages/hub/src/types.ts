@@ -597,6 +597,21 @@ export interface KeyringFile {
   readonly created_at: string
   readonly granted_by: string
   /**
+   * Passphrase canary — base64 AES-KW-wrapped form of a known constant
+   * 256-bit value, wrapped under the keyring's KEK (#113).
+   *
+   * Optional: pre-#113 keyrings load with no canary and fall back to
+   * the multi-DEK corruption heuristic from #82. Keyrings written after
+   * #113 carry one and let `loadKeyring` distinguish wrong-passphrase
+   * from corruption even when ALL DEKs (including a single-DEK keyring's
+   * sole DEK) are corrupted.
+   *
+   * AES-KW is deterministic — every write site mints fresh on each
+   * persist; same KEK + same constant input always produces the same
+   * ciphertext, so this round-trips without state.
+   */
+  readonly canary?: string
+  /**
    * Tier-2 authenticator slots (multi-slot keyring extension).
    * Optional / append-only: keyring files written before the
    * extension load with an empty list. Each slot independently wraps

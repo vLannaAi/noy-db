@@ -38,6 +38,7 @@ import {
 } from './recovery.js'
 import { assertStrongPassphrase, type PassphrasePolicy } from '../validation.js'
 import type { UnlockedKeyring } from './keyring.js'
+import { mintKeyringCanary } from './keyring.js'
 import type { KeyringAuthenticator } from '../types.js'
 import type { EnrollAuthenticatorOptions } from './authenticators.js'
 import { ValidationError } from '../errors.js'
@@ -235,12 +236,14 @@ export async function rotatePassphrase(
     }
   }
 
+  const canary = await mintKeyringCanary(newKek)
   const next: KeyringFile = {
     ...file,
     _noydb_keyring: NOYDB_KEYRING_VERSION,
     deks: wrappedDeks,
     salt: bufferToBase64(newSalt),
     authenticators: newSlots,
+    canary,
   }
 
   await writeKeyringFile(store, vault, userId, next)
@@ -417,12 +420,14 @@ async function recoverViaPaperCode(
     wrappedDeks[coll] = await wrapKey(dek, newKek)
   }
 
+  const canary = await mintKeyringCanary(newKek)
   const next: KeyringFile = {
     ...file,
     _noydb_keyring: NOYDB_KEYRING_VERSION,
     deks: wrappedDeks,
     salt: bufferToBase64(newSalt),
     authenticators: [], // tier-2 slots wrap old KEK, drop them
+    canary,
   }
 
   // Burn first, then rewrite the keyring. The two writes are not
