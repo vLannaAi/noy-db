@@ -260,6 +260,14 @@ export async function grant(
   callerKeyring: UnlockedKeyring,
   options: GrantOptions,
 ): Promise<void> {
+  if (!callerKeyring.kek) {
+    throw new ValidationError(
+      'grant: caller keyring has no KEK — tier-2 wrap-DEKs and tier-3 PIN-resume ' +
+        'sessions cannot grant access to other users. Re-authenticate at tier 1 ' +
+        '(passphrase) before granting.',
+    )
+  }
+
   if (!canGrant(callerKeyring.role, options.role)) {
     throw new PermissionDeniedError(
       `Role "${callerKeyring.role}" cannot grant role "${options.role}"`,
