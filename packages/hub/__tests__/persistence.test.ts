@@ -162,7 +162,7 @@ describe('persistence round-trip (simulated page reload)', () => {
     const db1 = await createNoydb({ store: adapter, user: USER, secret: PASS })
     const comp1 = await db1.openVault(COMP)
     await comp1.collection<Invoice>('invoices').put('inv-1', { amount: 7000, status: 'sent' })
-    await db1.changeSecret(COMP, 'new-passphrase')
+    await db1.changeSecret(COMP, 'new-passphrase', { allowWeakPassphrase: true })
     db1.close()
 
     // Session 2: old passphrase fails

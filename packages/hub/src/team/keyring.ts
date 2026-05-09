@@ -731,19 +731,23 @@ export async function rotateKeys(
 /**
  * Change the user's passphrase. Re-wraps every DEK under the new KEK.
  *
- * Pass `{ validate: true }` (or a `PassphrasePolicy`) to gate the new
- * phrase on the strength rules. `db.rotatePassphrase()` adds a
- * `checkGate('rotate-passphrase')` step on top of this primitive and
- * always validates.
+ * Validates the new passphrase against the strength rules unless
+ * `allowWeakPassphrase: true` is passed. Mirrors `rotatePassphrase`'s
+ * default-on validation contract.
+ *
+ * `db.rotatePassphrase()` adds a `checkGate('rotate-passphrase')` step
+ * on top of this primitive and additionally requires the OLD passphrase
+ * for re-derivation; `changeSecret` reuses the cached unlocked KEK so
+ * the OLD passphrase is not retyped.
  */
 export async function changeSecret(
   adapter: NoydbStore,
   vault: string,
   keyring: UnlockedKeyring,
   newPassphrase: string,
-  passphraseOpts?: PassphrasePolicy & { validate?: boolean; allowWeakPassphrase?: boolean },
+  passphraseOpts?: PassphrasePolicy & { allowWeakPassphrase?: boolean },
 ): Promise<UnlockedKeyring> {
-  if (passphraseOpts?.validate && !passphraseOpts.allowWeakPassphrase) {
+  if (!passphraseOpts?.allowWeakPassphrase) {
     assertStrongPassphrase(newPassphrase, passphraseOpts)
   }
   const newSalt = generateSalt()

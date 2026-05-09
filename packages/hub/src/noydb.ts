@@ -21,6 +21,7 @@ import type {
   TranslatorAuditEntry,
 } from './types.js'
 import { ValidationError, NoAccessError, InvalidKeyError, StoreCapabilityError } from './errors.js'
+import type { PassphrasePolicy } from './validation.js'
 import {
   rotatePassphrase as keyringRotatePassphrase,
   recoverPassphrase as keyringRecoverPassphrase,
@@ -795,8 +796,19 @@ export class Noydb {
     return results
   }
 
-  /** Change the current user's passphrase for a vault. */
-  async changeSecret(vault: string, newPassphrase: string): Promise<void> {
+  /**
+   * Change the current user's passphrase for a vault.
+   *
+   * Validates the new passphrase against the strength rules. Pass
+   * `{ allowWeakPassphrase: true }` to skip — typically only useful for
+   * fixtures and migrations. Pass a `PassphrasePolicy` to override the
+   * default rules (e.g. consumer-tunable `pattern` / `customValidator`).
+   */
+  async changeSecret(
+    vault: string,
+    newPassphrase: string,
+    options?: PassphrasePolicy & { allowWeakPassphrase?: boolean },
+  ): Promise<void> {
     this.checkPolicyOperation(vault, 'changeSecret')
     const keyring = await this.getKeyring(vault)
     const updated = await keyringChangeSecret(
@@ -804,6 +816,7 @@ export class Noydb {
       vault,
       keyring,
       newPassphrase,
+      options,
     )
     this.keyringCache.set(vault, updated)
   }
