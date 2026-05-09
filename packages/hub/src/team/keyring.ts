@@ -11,7 +11,7 @@ import {
   bufferToBase64,
   base64ToBuffer,
 } from '../crypto.js'
-import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, KeyringExpiredError, KeyringCorruptError, ValidationError } from '../errors.js'
+import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, KeyringExpiredError, KeyringCorruptError, InvalidKeyError, ValidationError } from '../errors.js'
 import { assertStrongPassphrase, type PassphrasePolicy } from '../validation.js'
 import {
   saveUserEnvelope,
@@ -140,6 +140,54 @@ export interface UnlockedKeyring {
   readonly policy?: VaultPolicyOnDisk
 }
 
+// ─── Passphrase canary (#113) ──────────────────────────────────────────
+//
+// The canary is a fixed 256-bit AES-GCM key (32 zero bytes), wrapped
+// under the keyring's KEK with AES-KW. Because AES-KW is deterministic
+// (RFC 3394 fixed IV), wrapping the same constant under the same KEK
+// always yields the same ciphertext — so every write site can mint
+// fresh on each persist without round-tripping a `canary` field
+// through UnlockedKeyring.
+//
+// On load, the canary unwraps cleanly iff the KEK is correct AND the
+// canary bytes on disk are intact. Combined with each-DEK try/catch,
+// this distinguishes wrong-passphrase (canary fails AND every DEK fails)
+// from corruption (canary succeeds OR at least one DEK succeeds) —
+// closing the all-DEKs-corrupt and single-DEK ambiguities that the
+// pre-canary heuristic from #82 / #99 left open.
+
+const CANARY_PLAINTEXT_BYTES = new Uint8Array(32)
+let canaryKeyPromise: Promise<CryptoKey> | null = null
+
+function getCanaryKey(): Promise<CryptoKey> {
+  if (canaryKeyPromise === null) {
+    canaryKeyPromise = globalThis.crypto.subtle.importKey(
+      'raw',
+      CANARY_PLAINTEXT_BYTES as BufferSource,
+      { name: 'AES-GCM', length: 256 },
+      true, // extractable so AES-KW can wrap it
+      ['encrypt', 'decrypt'],
+    )
+  }
+  return canaryKeyPromise
+}
+
+/** Mint a fresh wrapped-canary string. Deterministic for a given KEK. */
+export async function mintKeyringCanary(kek: CryptoKey): Promise<string> {
+  const canaryKey = await getCanaryKey()
+  return wrapKey(canaryKey, kek)
+}
+
+/** Try to unwrap the canary. Returns true iff KEK + canary bytes are intact. */
+async function verifyKeyringCanary(wrappedCanary: string, kek: CryptoKey): Promise<boolean> {
+  try {
+    await unwrapKey(wrappedCanary, kek)
+    return true
+  } catch {
+    return false
+  }
+}
+
 // ─── Load / Create ─────────────────────────────────────────────────────
 
 /** Load and unlock a user's keyring for a vault. */
@@ -172,10 +220,18 @@ export async function loadKeyring(
   const salt = base64ToBuffer(keyringFile.salt)
   const kek = await deriveKey(passphrase, salt)
 
-  // Unwrap each DEK independently — if some succeed and some fail, the
-  // passphrase is correct (the KEK derives) but specific entries are
-  // corrupted. Surface that as KeyringCorruptError so onInvalidKey:
-  // 'reset' does NOT fire and destroy the intact DEKs.
+  // Verify the canary first when present. A canary success proves the
+  // KEK is correct independent of any DEK byte — so subsequent DEK
+  // unwrap failures are unambiguously corruption, not wrong-pass. A
+  // canary failure with at least one DEK success indicates the KEK
+  // is correct but the canary itself is corrupt. (#113)
+  // `null` sentinel = legacy keyring without canary; falls back to the
+  // multi-DEK heuristic from #82 / #99.
+  const canaryOk: boolean | null = keyringFile.canary !== undefined
+    ? await verifyKeyringCanary(keyringFile.canary, kek)
+    : null
+
+  // Unwrap each DEK independently — collect successes and failures.
   const deks = new Map<string, CryptoKey>()
   const failedCollections: string[] = []
   let firstUnwrapError: unknown = null
@@ -188,18 +244,33 @@ export async function loadKeyring(
       if (firstUnwrapError === null) firstUnwrapError = err
     }
   }
-  if (failedCollections.length > 0) {
+
+  if (canaryOk === true) {
+    // KEK proven correct by the canary. Any DEK failure is corruption.
+    if (failedCollections.length > 0) {
+      throw new KeyringCorruptError({ failedCollections, intactCount: deks.size })
+    }
+  } else if (canaryOk === false) {
+    // Canary failed. If any DEK unwrapped, KEK is correct → canary bytes
+    // are corrupted (rare; reported under the '_canary' sentinel).
     if (deks.size > 0) {
       throw new KeyringCorruptError({
-        failedCollections,
+        failedCollections: [...failedCollections, '_canary'],
         intactCount: deks.size,
       })
     }
-    // No DEKs unwrapped — KEK is wrong (or every DEK is corrupt, which
-    // looks identical from here). Surface the original InvalidKeyError
-    // so onInvalidKey: 'reset' can fire its documented stale-credential
-    // recovery path.
-    throw firstUnwrapError
+    // Canary failed AND no DEK unwrapped — wrong KEK (or whole-file
+    // corruption). Surface the original InvalidKeyError so
+    // onInvalidKey: 'reset' can fire its documented recovery path.
+    throw firstUnwrapError instanceof Error ? firstUnwrapError : new InvalidKeyError()
+  } else {
+    // Legacy keyring (no canary). Fall back to the multi-DEK heuristic.
+    if (failedCollections.length > 0) {
+      if (deks.size > 0) {
+        throw new KeyringCorruptError({ failedCollections, intactCount: deks.size })
+      }
+      throw firstUnwrapError instanceof Error ? firstUnwrapError : new InvalidKeyError()
+    }
   }
 
   return {
@@ -249,6 +320,7 @@ export async function createOwnerKeyring(
   // pre-existing keyrings" rollout note in the spec).
   const userEnvelopeDek = await generateDEK()
   const wrappedUserEnvelopeDek = await wrapKey(userEnvelopeDek, kek)
+  const canary = await mintKeyringCanary(kek)
 
   const keyringFile: KeyringFile = {
     _noydb_keyring: NOYDB_KEYRING_VERSION,
@@ -260,6 +332,7 @@ export async function createOwnerKeyring(
     salt: bufferToBase64(salt),
     created_at: new Date().toISOString(),
     granted_by: userId,
+    canary,
   }
 
   await writeKeyringFile(adapter, vault, userId, keyringFile)
@@ -369,6 +442,7 @@ export async function grant(
     }
   }
 
+  const canary = await mintKeyringCanary(newKek)
   const keyringFile: KeyringFile = {
     _noydb_keyring: NOYDB_KEYRING_VERSION,
     user_id: options.userId,
@@ -379,6 +453,7 @@ export async function grant(
     salt: bufferToBase64(newSalt),
     created_at: new Date().toISOString(),
     granted_by: callerKeyring.userId,
+    canary,
     ...(options.exportCapability !== undefined && { export_capability: options.exportCapability }),
     ...(options.importCapability !== undefined && { import_capability: options.importCapability }),
   }
@@ -795,6 +870,7 @@ export async function changeSecret(
     wrappedDeks[collName] = await wrapKey(dek, newKek)
   }
 
+  const canary = await mintKeyringCanary(newKek)
   const keyringFile: KeyringFile = {
     _noydb_keyring: NOYDB_KEYRING_VERSION,
     user_id: keyring.userId,
@@ -805,6 +881,7 @@ export async function changeSecret(
     salt: bufferToBase64(newSalt),
     created_at: new Date().toISOString(),
     granted_by: keyring.userId,
+    canary,
   }
 
   await writeKeyringFile(adapter, vault, keyring.userId, keyringFile)
@@ -937,6 +1014,7 @@ export async function buildRecipientKeyringFile(
     }
   }
 
+  const canary = await mintKeyringCanary(newKek)
   return {
     _noydb_keyring: NOYDB_KEYRING_VERSION,
     user_id: recipient.id,
@@ -947,6 +1025,7 @@ export async function buildRecipientKeyringFile(
     salt: bufferToBase64(newSalt),
     created_at: new Date().toISOString(),
     granted_by: callerKeyring.userId,
+    canary,
     ...(recipient.exportCapability !== undefined
       ? { export_capability: recipient.exportCapability }
       : {}),
@@ -1094,6 +1173,7 @@ export async function persistKeyring(
   for (const [collName, dek] of keyring.deks) {
     wrappedDeks[collName] = await wrapKey(dek, keyring.kek)
   }
+  const canary = await mintKeyringCanary(keyring.kek)
 
   const keyringFile: KeyringFile = {
     _noydb_keyring: NOYDB_KEYRING_VERSION,
@@ -1105,6 +1185,7 @@ export async function persistKeyring(
     salt: bufferToBase64(keyring.salt),
     created_at: new Date().toISOString(),
     granted_by: keyring.userId,
+    canary,
     ...(keyring.exportCapability !== undefined && { export_capability: keyring.exportCapability }),
     ...(keyring.importCapability !== undefined && { import_capability: keyring.importCapability }),
     ...(keyring.authenticators.length > 0 && { authenticators: keyring.authenticators }),

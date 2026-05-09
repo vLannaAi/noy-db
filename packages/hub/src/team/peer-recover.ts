@@ -39,6 +39,7 @@ import { deriveKey, generateSalt, wrapKey, bufferToBase64 } from '../crypto.js'
 import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError } from '../errors.js'
 import { assertStrongPassphrase, type PassphrasePolicy } from '../validation.js'
 import type { UnlockedKeyring } from './keyring.js'
+import { mintKeyringCanary } from './keyring.js'
 
 const ADMIN_RECOVERABLE_TARGETS: readonly Role[] = ['operator', 'viewer', 'client', 'admin']
 
@@ -171,7 +172,10 @@ export async function recoverUser(
   // 6. Build the recovered keyring file. Identity preserved; wrapping
   //    refreshed; tier-2 slots dropped (they wrap the OLD KEK and
   //    can't survive a tier-1 phrase change — same precedent as
-  //    rotatePassphrase).
+  //    rotatePassphrase). Mint a fresh canary under newKek (#113); the
+  //    OLD canary on the spread `...target` would fail to verify against
+  //    the new KEK and trip KeyringCorruptError on next load.
+  const canary = await mintKeyringCanary(newKek)
   const next: KeyringFile = {
     ...target,
     _noydb_keyring: NOYDB_KEYRING_VERSION,
@@ -181,6 +185,7 @@ export async function recoverUser(
     salt: bufferToBase64(newSalt),
     granted_by: callerKeyring.userId,
     authenticators: [],
+    canary,
   }
 
   // 7. Single atomic write — overwrites the existing envelope.

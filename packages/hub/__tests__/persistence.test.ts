@@ -223,6 +223,83 @@ describe('persistence round-trip (simulated page reload)', () => {
     db3.close()
   })
 
+  it('issue #113: canary distinguishes single-DEK corruption from wrong passphrase', async () => {
+    // Pre-#113 (with #99 only), a keyring with exactly one corrupted DEK
+    // could not be distinguished from a wrong passphrase — both surfaced
+    // as InvalidKeyError, and onInvalidKey: 'reset' would silently
+    // destroy the user's only DEK. Post-#113, the canary proves the KEK
+    // is correct; the corrupted DEK is reported as KeyringCorruptError.
+    const adapter = persistentMemory()
+    const db1 = await createNoydb({ store: adapter, user: USER, secret: PASS })
+    const comp1 = await db1.openVault(COMP)
+    await comp1.collection<Invoice>('invoices').put('inv-1', { amount: 100, status: 'paid' })
+    db1.close()
+
+    const env = await adapter.get(COMP, '_keyring', USER)
+    const file = JSON.parse(env!._data) as { deks: Record<string, string>; canary?: string }
+    expect(file.canary).toBeDefined() // sanity: canary minted on owner-create
+    const original = file.deks['invoices']!
+    file.deks['invoices'] = Buffer.from(new Uint8Array(original.length).fill(0))
+      .toString('base64')
+      .slice(0, original.length)
+    await adapter.put(COMP, '_keyring', USER, { ...env!, _data: JSON.stringify(file) })
+
+    // Correct passphrase + onInvalidKey: 'reset': the canary proves the
+    // KEK is right, the corrupt DEK becomes KeyringCorruptError, reset
+    // does NOT fire.
+    const db2 = await createNoydb({
+      store: adapter, user: USER, secret: PASS, onInvalidKey: 'reset',
+    })
+    await expect(db2.openVault(COMP)).rejects.toBeInstanceOf(KeyringCorruptError)
+    db2.close()
+
+    // Wrong passphrase still throws InvalidKeyError — keyring on disk
+    // wasn't reset.
+    const dbWrong = await createNoydb({ store: adapter, user: USER, secret: 'wrong-pass' })
+    await expect(dbWrong.openVault(COMP)).rejects.toThrow(InvalidKeyError)
+    dbWrong.close()
+  })
+
+  it('issue #113: canary corruption with intact DEKs surfaces as KeyringCorruptError', async () => {
+    const adapter = persistentMemory()
+    const db1 = await createNoydb({ store: adapter, user: USER, secret: PASS })
+    const comp1 = await db1.openVault(COMP)
+    await comp1.collection<Invoice>('invoices').put('inv-1', { amount: 100, status: 'paid' })
+    db1.close()
+
+    const env = await adapter.get(COMP, '_keyring', USER)
+    const file = JSON.parse(env!._data) as { canary?: string }
+    expect(file.canary).toBeDefined()
+    file.canary = Buffer.from(new Uint8Array(file.canary!.length).fill(0))
+      .toString('base64')
+      .slice(0, file.canary!.length)
+    await adapter.put(COMP, '_keyring', USER, { ...env!, _data: JSON.stringify(file) })
+
+    const db2 = await createNoydb({ store: adapter, user: USER, secret: PASS })
+    await expect(db2.openVault(COMP)).rejects.toBeInstanceOf(KeyringCorruptError)
+    db2.close()
+  })
+
+  it('issue #113: legacy keyring without canary still loads via the multi-DEK heuristic', async () => {
+    const adapter = persistentMemory()
+    const db1 = await createNoydb({ store: adapter, user: USER, secret: PASS })
+    const comp1 = await db1.openVault(COMP)
+    await comp1.collection<Invoice>('invoices').put('inv-1', { amount: 100, status: 'paid' })
+    db1.close()
+
+    // Strip the canary to simulate a pre-#113 keyring.
+    const env = await adapter.get(COMP, '_keyring', USER)
+    const file = JSON.parse(env!._data) as Record<string, unknown>
+    delete file['canary']
+    await adapter.put(COMP, '_keyring', USER, { ...env!, _data: JSON.stringify(file) })
+
+    // Correct passphrase still works (no canary, all DEKs unwrap).
+    const db2 = await createNoydb({ store: adapter, user: USER, secret: PASS })
+    const comp2 = await db2.openVault(COMP)
+    expect((await comp2.collection<Invoice>('invoices').get('inv-1'))?.amount).toBe(100)
+    db2.close()
+  })
+
   it('count and list on fresh instance reflect adapter state', async () => {
     const adapter = persistentMemory()
 
