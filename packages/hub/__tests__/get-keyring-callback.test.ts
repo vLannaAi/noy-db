@@ -206,4 +206,29 @@ describe('NoydbOptions.getKeyring (issue #5)', () => {
 
     expect(seenVaults).toEqual(['VA', 'VB'])
   })
+
+  it('issue #88: db.getKeyring() returns a defensive copy — mutations on the returned Map do NOT leak into the cache', async () => {
+    const adapter = inlineMemory()
+    const db = await createNoydb({ store: adapter, user: 'alice', secret: 'p' })
+    const vault = await db.openVault('acme')
+    await vault.collection<Note>('notes').put('n-1', { title: 'first' })
+
+    const snapshot1 = await db.getKeyring('acme')
+    const collectionsBefore = [...snapshot1.deks.keys()].sort()
+
+    // Mutate the returned Map. Pre-fix this would corrupt the hub's
+    // cached keyring; post-fix it's a no-op on the cached state.
+    snapshot1.deks.set('hijacked', snapshot1.deks.get('notes')!)
+    snapshot1.deks.delete('notes')
+
+    const snapshot2 = await db.getKeyring('acme')
+    const collectionsAfter = [...snapshot2.deks.keys()].sort()
+    expect(collectionsAfter).toEqual(collectionsBefore)
+    expect(snapshot2.deks.has('hijacked')).toBe(false)
+    expect(snapshot2.deks.has('notes')).toBe(true)
+
+    // Subsequent vault operations still work — the cache wasn't corrupted.
+    await vault.collection<Note>('notes').put('n-2', { title: 'second' })
+    expect((await vault.collection<Note>('notes').get('n-2'))?.title).toBe('second')
+  })
 })

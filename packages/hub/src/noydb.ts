@@ -269,7 +269,7 @@ export class Noydb {
       return comp
     }
 
-    const keyring = await this.getKeyring(name)
+    const keyring = await this.getKeyringInternal(name)
     // Tier-1 unlock — passphrase / getKeyring callbacks both yield the
     // most-privileged tier. Tier-2 / tier-3 unlocks (issue #11) install
     // a lower tier here when they land.
@@ -461,11 +461,11 @@ export class Noydb {
   async grant(
     vault: string,
     options: GrantOptions,
-    factors?: { factors?: ReadonlyArray<FactorProof>; sharedDevice?: boolean },
+    factors?: FactorProofBundle,
   ): Promise<void> {
     this.checkPolicyOperation(vault, 'grant')
     await this.checkGate(vault, 'enroll-user', factors)
-    const keyring = await this.getKeyring(vault)
+    const keyring = await this.getKeyringInternal(vault)
     await keyringGrant(this.options.store, vault, keyring, options)
   }
 
@@ -481,11 +481,11 @@ export class Noydb {
   async revoke(
     vault: string,
     options: RevokeOptions,
-    factors?: { factors?: ReadonlyArray<FactorProof>; sharedDevice?: boolean },
+    factors?: FactorProofBundle,
   ): Promise<void> {
     this.checkPolicyOperation(vault, 'revoke')
     await this.checkGate(vault, 'revoke-user', factors)
-    const keyring = await this.getKeyring(vault)
+    const keyring = await this.getKeyringInternal(vault)
     await keyringRevoke(this.options.store, vault, keyring, options)
   }
 
@@ -537,7 +537,7 @@ export class Noydb {
     factors?: FactorProofBundle,
   ): Promise<void> {
     await this.checkGate(vault, 'update-user', factors)
-    const keyring = await this.getKeyring(vault)
+    const keyring = await this.getKeyringInternal(vault)
     await updateKeyringIdentity(this.options.store, vault, keyring, options)
     // If the caller updated their own role / permissions, the cached
     // unlocked keyring is stale — drop it so the next access reloads
@@ -568,7 +568,7 @@ export class Noydb {
    */
   async rotate(vault: string, collections: string[]): Promise<void> {
     this.checkPolicyOperation(vault, 'rotate')
-    const keyring = await this.getKeyring(vault)
+    const keyring = await this.getKeyringInternal(vault)
     await keyringRotate(this.options.store, vault, keyring, collections)
     // Refresh the cached keyring so subsequent operations see the
     // freshly-rotated DEKs. Without this, `ensureCollectionDEK` on
@@ -837,7 +837,7 @@ export class Noydb {
     options?: PassphrasePolicy & { allowWeakPassphrase?: boolean },
   ): Promise<void> {
     this.checkPolicyOperation(vault, 'changeSecret')
-    const keyring = await this.getKeyring(vault)
+    const keyring = await this.getKeyringInternal(vault)
     const updated = await keyringChangeSecret(
       this.options.store,
       vault,
@@ -1224,7 +1224,7 @@ export class Noydb {
     factors?: FactorProofBundle,
   ): Promise<void> {
     await this.checkGate(vault, 'enroll-authenticator', factors)
-    const keyring = await this.getKeyring(vault)
+    const keyring = await this.getKeyringInternal(vault)
     const next = await keyringEnrollAuthenticator(this.options.store, vault, keyring, options)
     this.keyringCache.set(vault, next)
   }
@@ -1240,14 +1240,14 @@ export class Noydb {
     factors?: FactorProofBundle,
   ): Promise<void> {
     await this.checkGate(vault, 'remove-authenticator', factors)
-    const keyring = await this.getKeyring(vault)
+    const keyring = await this.getKeyringInternal(vault)
     const next = await keyringRemoveAuthenticator(this.options.store, vault, keyring, slotId)
     this.keyringCache.set(vault, next)
   }
 
   /** Read the slot list for a vault. Internal — `describeAuthConfig` (#13) consumes this. */
   async listAuthenticators(vault: string): Promise<ReadonlyArray<KeyringAuthenticator>> {
-    const keyring = await this.getKeyring(vault)
+    const keyring = await this.getKeyringInternal(vault)
     return keyring.authenticators
   }
 
@@ -1286,7 +1286,7 @@ export class Noydb {
     factors?: FactorProofBundle,
   ): Promise<void> {
     await this.checkGate(vault, 'update-authenticator', factors)
-    const keyring = await this.getKeyring(vault)
+    const keyring = await this.getKeyringInternal(vault)
     const next = await keyringUpdateAuthenticator(this.options.store, vault, keyring, slotId, options)
     this.keyringCache.set(vault, next)
   }
@@ -1344,7 +1344,7 @@ export class Noydb {
     factors?: FactorProofBundle,
   ): Promise<{ credentialId: string }> {
     await this.checkGate(vault, 'enroll-authenticator', factors)
-    const keyring = await this.getKeyring(vault)
+    const keyring = await this.getKeyringInternal(vault)
     const slotOptions = await ceremony(keyring)
     if (slotOptions.method !== 'webauthn') {
       throw new ValidationError(
@@ -1378,7 +1378,7 @@ export class Noydb {
     enrolledAt: string
     credentialId: string
   }>> {
-    const keyring = await this.getKeyring(vault)
+    const keyring = await this.getKeyringInternal(vault)
     return keyring.authenticators
       .filter((a) => a.method === 'webauthn')
       .map((a) => {
@@ -1405,7 +1405,7 @@ export class Noydb {
     slotId: string,
     verify: (slot: KeyringAuthenticator) => Promise<UnlockedKeyring>,
   ): Promise<UnlockedKeyring> {
-    const keyring = await this.getKeyring(vault)
+    const keyring = await this.getKeyringInternal(vault)
     const slot = findAuthenticator(keyring, slotId)
     if (!slot) {
       throw new ValidationError(
@@ -1641,7 +1641,7 @@ export class Noydb {
     factors?: FactorProofBundle,
   ): Promise<void> {
     await this.checkGate(vault, 'peer-recover-user', factors)
-    const callerKeyring = await this.getKeyring(vault)
+    const callerKeyring = await this.getKeyringInternal(vault)
     await keyringRecoverUser(this.options.store, vault, callerKeyring, options)
     // If the caller is recovering THEIR OWN keyring (rare but
     // possible — e.g. a self-recovery flow that bypasses the password
@@ -1756,8 +1756,17 @@ export class Noydb {
   /**
    * Public accessor for the unlocked keyring of a vault — issue #28.
    *
-   * Returns the cached `UnlockedKeyring` (already in memory after
-   * `createNoydb` + first vault touch); loads it on demand if absent.
+   * Returns a **defensive shallow copy** so consumers can read the DEK
+   * map and authenticator list without the risk of mutating the hub's
+   * internal cache (#88). Internal hub code paths use a live reference
+   * via `getKeyringInternal`; ceremonies and external consumers always
+   * get a snapshot.
+   *
+   * The CryptoKey values inside `deks` are not cloned — Web Crypto
+   * keys are opaque handles, and a shared handle is intentional
+   * (encrypt / decrypt go through the same key the cache holds).
+   * Only the container Map / authenticator array is fresh.
+   *
    * Used by `@noy-db/on-*` ceremonies that need the live DEK set
    * (paper recovery via {@link mintPaperRecoveryEntry}, tier-3 PIN
    * enrolment via on-pin's `enrollPin`, custom on-* ceremonies that
@@ -1772,11 +1781,27 @@ export class Noydb {
    * ```ts
    * const keyring = await db.getKeyring('acme')
    * // keyring.deks: Map<collection, CryptoKey>
-   * // keyring.kek:  CryptoKey   (non-extractable; null for tier-3 sessions)
+   * // keyring.kek:  CryptoKey | null   (null for tier-3 / wrap-DEKs sessions)
    * // keyring.role / .permissions / .authenticators
    * ```
    */
   async getKeyring(vault: string): Promise<UnlockedKeyring> {
+    const live = await this.getKeyringInternal(vault)
+    return {
+      ...live,
+      deks: new Map(live.deks),
+      authenticators: [...live.authenticators],
+    }
+  }
+
+  /**
+   * Live-reference variant used by the hub's own code paths. Internal
+   * mutations on `deks` (e.g. {@link ensureCollectionDEK} adding a
+   * collection key) need to land on the cached keyring so subsequent
+   * accesses see them. Not exposed publicly — callers outside hub
+   * should use {@link getKeyring}, which returns a defensive copy.
+   */
+  private async getKeyringInternal(vault: string): Promise<UnlockedKeyring> {
     if (this.options.encrypt === false) {
       return createPlaintextKeyring(this.options.user)
     }
