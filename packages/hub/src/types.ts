@@ -1039,6 +1039,11 @@ export interface GrantOptions {
  * keyring put (same concurrency story as `db.grant` / `db.revoke`).
  *
  * Top-level fields are partial-merge: absent fields are not modified.
+ * `null` on `displayName` clears the field (stored as the empty string;
+ * UI consumers typically render the empty case by falling back to the
+ * user id). `undefined` / absent leaves the field untouched. Mirrors
+ * the `null`-as-clear convention `UserApi.updateMe` uses (#57).
+ *
  * `permissions`, however, is a **full replacement** at the map level —
  * passing `{ invoices: 'rw' }` REPLACES the entire permissions map,
  * silently dropping any other entries. To partially update, read the
@@ -1057,7 +1062,7 @@ export interface GrantOptions {
 export interface UpdateUserOptions {
   readonly userId: string
   readonly role?: Role
-  readonly displayName?: string
+  readonly displayName?: string | null
   readonly permissions?: Permissions
 }
 
