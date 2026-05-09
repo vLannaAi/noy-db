@@ -15,10 +15,12 @@ import {
   enrollPasswordAuthenticator,
   unwrapDeksWithPassword,
   verifyPasswordSlot,
+  passwordSlotRewrapCeremony,
   PasswordTooWeakError,
   PasswordInvalidError,
 } from '../src/index.js'
-import type { UnlockedKeyring, KeyringAuthenticator, NoydbStore, EncryptedEnvelope, KeyringFile } from '@noy-db/hub'
+import type { UnlockedKeyring, KeyringAuthenticator, NoydbStore, EncryptedEnvelope, KeyringFile, SlotRewrapContext } from '@noy-db/hub'
+import { ValidationError } from '@noy-db/hub'
 
 const subtle = globalThis.crypto.subtle
 
@@ -232,6 +234,95 @@ describe('@noy-db/on-password — wrap-DEKs enroll + verify (#26 Path C)', () =>
       ),
     ).rejects.toBeInstanceOf(PasswordInvalidError)
   }, 30_000)
+})
+
+describe('passwordSlotRewrapCeremony (#96)', () => {
+  /** Build a SlotRewrapContext with newly-rotated DEKs + the slot to preserve. */
+  async function buildContext(slot: KeyringAuthenticator): Promise<SlotRewrapContext> {
+    const newDek1 = await subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt'])
+    const newDek2 = await subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt'])
+    // newKek is required by SlotRewrapContext but the password ceremony
+    // doesn't use it (wrap-DEKs unlocks don't recover a KEK).
+    const newKek = await subtle.generateKey({ name: 'AES-KW', length: 256 }, true, ['wrapKey', 'unwrapKey'])
+    return {
+      newKek,
+      newDeks: new Map([['invoices', newDek1], ['clients', newDek2]]),
+      oldSlot: slot,
+    }
+  }
+
+  it('preserves slot id, method, wrapKind across rotation; new wrapping unlocks via the same password', async () => {
+    const keyring = await buildKeyring()
+    const opts = await enrollPasswordAuthenticator(keyring, {
+      id: 'password',
+      password: 'daily-password-2026',
+      minLength: 14,
+    })
+    const slot = slotFromOptions(opts)
+
+    const ctx = await buildContext(slot)
+    const ceremony = passwordSlotRewrapCeremony('daily-password-2026')
+    const result = await ceremony(ctx)
+
+    // Anti-slot-swap invariants — same id / method / wrapKind. Hub's
+    // rotate-recover validates these structurally; this test pins them
+    // at the ceremony layer too.
+    expect(result.id).toBe('password')
+    expect(result.method).toBe('password')
+    expect(result.wrapKind).toBe('deks')
+    if (result.wrapKind !== 'deks') throw new Error('unreachable')
+
+    // Strength config carried through.
+    expect(result.meta.minLength).toBe(14)
+
+    // The new slot unwraps to the rotated DEK set, not the original.
+    const recovered = await unwrapDeksWithPassword(slotFromOptions(result), 'daily-password-2026')
+    expect(recovered.size).toBe(2)
+    expect([...recovered.keys()].sort()).toEqual(['clients', 'invoices'])
+  }, 60_000)
+
+  it('rejects oldSlot.method !== "password" with ValidationError (anti-cross-method)', async () => {
+    const wrongMethodSlot: KeyringAuthenticator = {
+      id: 'webauthn-yubi',
+      method: 'webauthn',
+      enrolled_at: new Date().toISOString(),
+      enrolled_via_tier: 1,
+      wrapped_kek: 'YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=',
+      meta: { credentialId: 'cred' },
+    }
+    const ctx = await buildContext(wrongMethodSlot)
+    const ceremony = passwordSlotRewrapCeremony('daily-password-2026')
+    await expect(ceremony(ctx)).rejects.toBeInstanceOf(ValidationError)
+  }, 30_000)
+
+  it('rejects legacy wrap-KEK password slot with ValidationError', async () => {
+    const legacyWrapKekSlot: KeyringAuthenticator = {
+      id: 'password',
+      method: 'password',
+      enrolled_at: '2025-01-01T00:00:00Z',
+      enrolled_via_tier: 1,
+      wrapped_kek: 'YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=',
+      meta: { salt: 'YWFh' },
+    }
+    const ctx = await buildContext(legacyWrapKekSlot)
+    const ceremony = passwordSlotRewrapCeremony('daily-password-2026')
+    await expect(ceremony(ctx)).rejects.toBeInstanceOf(ValidationError)
+  }, 30_000)
+
+  it('preserves enrolled_via_tier from the old slot', async () => {
+    const keyring = await buildKeyring()
+    const opts = await enrollPasswordAuthenticator(keyring, {
+      password: 'daily-password-2026',
+      enrolledViaTier: 2,
+    })
+    const slot = slotFromOptions(opts)
+    expect(slot.enrolled_via_tier).toBe(2)
+
+    const ctx = await buildContext(slot)
+    const ceremony = passwordSlotRewrapCeremony('daily-password-2026')
+    const result = await ceremony(ctx)
+    expect(result.enrolled_via_tier).toBe(2)
+  }, 60_000)
 })
 
 function inlineMemory(): NoydbStore {
