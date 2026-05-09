@@ -581,7 +581,10 @@ export async function updateKeyringIdentity(
   const next: KeyringFile = {
     ...target,
     ...(options.role !== undefined && { role: options.role }),
-    ...(options.displayName !== undefined && { display_name: options.displayName }),
+    ...(options.displayName !== undefined && {
+      // null clears the field (stored as ""); a string sets it.
+      display_name: options.displayName ?? '',
+    }),
     ...(options.permissions !== undefined && { permissions: options.permissions }),
   }
 

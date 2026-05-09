@@ -113,6 +113,53 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
     expect(bob.role).toBe('admin')
   }, 60_000)
 
+  it('issue #85: displayName: null clears the field (matches UserApi.updateMe convention)', async () => {
+    const store = inlineMemory()
+    const aliceKr = await createOwnerKeyring(store, 'acme', 'alice', ALICE_PHRASE)
+    aliceKr.deks.set('invoices', await generateDEK())
+    await persistKeyring(store, 'acme', aliceKr)
+    await grant(store, 'acme', aliceKr, {
+      userId: 'bob',
+      displayName: 'Bob the Original',
+      role: 'admin',
+      passphrase: BOB_PHRASE,
+    })
+
+    await updateKeyringIdentity(store, 'acme', aliceKr, {
+      userId: 'bob',
+      displayName: null,
+    })
+
+    const bob = await loadKeyring(store, 'acme', 'bob', BOB_PHRASE)
+    expect(bob.displayName).toBe('')
+    // Other fields untouched.
+    expect(bob.role).toBe('admin')
+  }, 60_000)
+
+  it('issue #85: displayName: undefined leaves the field untouched (preserve semantics)', async () => {
+    const store = inlineMemory()
+    const aliceKr = await createOwnerKeyring(store, 'acme', 'alice', ALICE_PHRASE)
+    aliceKr.deks.set('invoices', await generateDEK())
+    await persistKeyring(store, 'acme', aliceKr)
+    await grant(store, 'acme', aliceKr, {
+      userId: 'bob',
+      displayName: 'Bob the Original',
+      role: 'admin',
+      passphrase: BOB_PHRASE,
+    })
+
+    // Update only role — displayName should survive.
+    await updateKeyringIdentity(store, 'acme', aliceKr, {
+      userId: 'bob',
+      role: 'operator',
+      permissions: { invoices: 'rw' },
+    })
+
+    const bob = await loadKeyring(store, 'acme', 'bob', BOB_PHRASE)
+    expect(bob.displayName).toBe('Bob the Original')
+    expect(bob.role).toBe('operator')
+  }, 60_000)
+
   it('tier-2 authenticator slots survive the update (#54 vs peer-recover)', async () => {
     const store = inlineMemory()
     const aliceKr = await createOwnerKeyring(store, 'acme', 'alice', ALICE_PHRASE)
