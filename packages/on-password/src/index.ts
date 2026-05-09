@@ -38,10 +38,13 @@ import {
   base64ToBuffer,
   mintWrappedDeksBlob,
   unwrapDeksFromBlob,
+  ValidationError,
   type EnrollAuthenticatorOptions,
   type KeyringAuthenticator,
   type KeyringFile,
   type NoydbStore,
+  type SlotRewrapCeremony,
+  type SlotRewrapContext,
   type UnlockedKeyring,
 } from '@noy-db/hub'
 
@@ -285,6 +288,100 @@ export interface VerifyPasswordSlotOptions {
   readonly vault: string
   /** User id — same value passed to `createNoydb({ user })`. */
   readonly userId: string
+}
+
+/**
+ * `SlotRewrapCeremony` factory for password slots — the password parallel
+ * to `webAuthnSlotRewrapCeremony` (#56). Used by hub's
+ * `rotatePassphrase({ slotCeremonies: { [slotId]: passwordSlotRewrapCeremony(pwd) } })`
+ * to preserve a tier-2 password enrollment across a tier-1 phrase
+ * rotation without forcing the user to re-enroll the password (#96).
+ *
+ * Returns a closure capturing the password so the result matches
+ * hub's `SlotRewrapCeremony` signature `(ctx) => Promise<EnrollAuthenticatorOptions>`
+ * directly. Pass into `slotCeremonies` keyed by the existing slot id:
+ *
+ * ```ts
+ * import { passwordSlotRewrapCeremony } from '@noy-db/on-password'
+ *
+ * await db.rotatePassphrase('acme', {
+ *   oldPassphrase: oldPhrase,
+ *   newPassphrase: newPhrase,
+ *   slotCeremonies: {
+ *     'password': passwordSlotRewrapCeremony('strong-password-2026'),
+ *   },
+ * })
+ * ```
+ *
+ * The password itself is unaffected by phrase rotation — what needs to
+ * change is the **wrapped DEK set**: the encrypted blob the slot's
+ * `wrapped_deks` field holds. After rotation, the old blob still has
+ * the old DEKs (now stale because rotatePassphrase rewrapped them
+ * under a fresh KEK); the new blob must hold the freshly rewrapped
+ * `ctx.newDeks`.
+ *
+ * Single ceremony, one operation:
+ *   1. Validate `oldSlot.method === 'password'` and `oldSlot.wrapKind === 'deks'`.
+ *   2. Re-mint the wrap-DEKs blob via {@link enrollPasswordAuthenticator}
+ *      using the supplied password against `ctx.newDeks`.
+ *   3. Return `EnrollAuthenticatorOptions` preserving `oldSlot.id`,
+ *      `method: 'password'`, and the strength config (`minLength`,
+ *      `pattern`) carried in the old slot's `meta`. Hub validates
+ *      `id` + `method` + `wrapKind` to prevent slot-type swap mid-
+ *      rotation.
+ *
+ * Pre-pre.8 wrap-KEK password slots (legacy) cannot be rewrapped via
+ * this ceremony — they must be re-enrolled fresh via
+ * {@link enrollPasswordAuthenticator}. The validation throws
+ * {@link ValidationError} for those.
+ *
+ * @throws {ValidationError} when `oldSlot.method !== 'password'` or
+ *         `oldSlot.wrapKind !== 'deks'`.
+ * @throws {PasswordTooWeakError} when the supplied password fails the
+ *         strength rules carried in `oldSlot.meta` (minLength, pattern).
+ *
+ * @see #56 webAuthnSlotRewrapCeremony — the WebAuthn parallel.
+ * @see #29 — the slotCeremonies plumbing this fills in.
+ */
+export function passwordSlotRewrapCeremony(password: string): SlotRewrapCeremony {
+  return async (ctx: SlotRewrapContext): Promise<EnrollAuthenticatorOptions> => {
+    if (ctx.oldSlot.method !== 'password') {
+      throw new ValidationError(
+        `passwordSlotRewrapCeremony: oldSlot.method is "${ctx.oldSlot.method}"; expected "password". ` +
+          'This ceremony only handles password slots — pair other methods with their own helpers.',
+      )
+    }
+    if (ctx.oldSlot.wrapKind !== 'deks') {
+      throw new ValidationError(
+        'passwordSlotRewrapCeremony: oldSlot is a wrap-KEK slot; expected wrap-DEKs. ' +
+          'Password slots use the wrap-DEKs variant since #26 Path C; legacy wrap-KEK ' +
+          'password slots are not supported here — re-enrol via enrollPasswordAuthenticator.',
+      )
+    }
+
+    // Preserve the strength config the slot was originally enrolled with —
+    // a rotation should not silently downgrade minLength or drop a pattern.
+    const oldMeta = ctx.oldSlot.meta as { minLength?: unknown; pattern?: unknown }
+    const minLength = typeof oldMeta.minLength === 'number' ? oldMeta.minLength : undefined
+    const pattern = typeof oldMeta.pattern === 'string' ? new RegExp(oldMeta.pattern) : undefined
+
+    return enrollPasswordAuthenticator(
+      // enrollPasswordAuthenticator only reads `keyring.deks`, so a
+      // synthetic minimal keyring is enough. The freshly-rewrapped DEKs
+      // come from hub via `ctx.newDeks`.
+      { deks: ctx.newDeks } as UnlockedKeyring,
+      {
+        id: ctx.oldSlot.id,
+        password,
+        ...(minLength !== undefined && { minLength }),
+        ...(pattern !== undefined && { pattern }),
+        // Carry the original tier so hub's anti-slot-swap guard plus
+        // the rotate-recover preservation rule keep the slot's
+        // provenance honest.
+        enrolledViaTier: ctx.oldSlot.enrolled_via_tier,
+      },
+    )
+  }
 }
 
 // All wrap-DEKs crypto helpers (PBKDF2 derivation, base64
