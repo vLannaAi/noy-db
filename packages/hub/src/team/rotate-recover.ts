@@ -247,12 +247,19 @@ export async function rotatePassphrase(
   }
 }
 
-/** Caller payload for {@link recoverPassphrase}. */
-export type RecoveryProof =
-  | { readonly profile: 'paper'; readonly payload: { readonly code: string } }
-  | { readonly profile: 'shamir'; readonly payload: { readonly shares: ReadonlyArray<string> } }
-  | { readonly profile: 'multi-channel'; readonly payload: { readonly proofs: ReadonlyArray<unknown> } }
-  | { readonly profile: 'admin-mediated'; readonly payload: { readonly token: string; readonly factor?: unknown } }
+/**
+ * Caller payload for {@link recoverPassphrase}.
+ *
+ * **Narrowed to `'paper'` only (#86).** The other three profiles
+ * (`shamir`, `multi-channel`, `admin-mediated`) are documented in the
+ * spec but not yet wired end-to-end. Matching the discipline of
+ * {@link db.enrollRecovery}, the type rejects them at compile time
+ * rather than accepting them and throwing at runtime. The runtime
+ * guard ({@link RecoveryProfileNotImplementedError}) remains so
+ * consumers who bypass TS via `as unknown as RecoveryProof` still
+ * receive a clear error.
+ */
+export type RecoveryProof = { readonly profile: 'paper'; readonly payload: { readonly code: string } }
 
 export interface RecoverPassphraseInput {
   readonly newPassphrase: string
@@ -333,31 +340,18 @@ export async function recoverPassphrase(
     assertStrongPassphrase(input.newPassphrase, input.passphrasePolicy)
   }
 
-  switch (input.recoveryProof.profile) {
-    case 'paper':
-      return recoverViaPaperCode(store, vault, userId, input)
-    case 'shamir':
-      throw new RecoveryProfileNotImplementedError(
-        'shamir',
-        'https://github.com/vLannaAi/noy-db/issues/10',
-      )
-    case 'multi-channel':
-      throw new RecoveryProfileNotImplementedError(
-        'multi-channel',
-        'https://github.com/vLannaAi/noy-db/issues/10',
-      )
-    case 'admin-mediated':
-      throw new RecoveryProfileNotImplementedError(
-        'admin-mediated',
-        'https://github.com/vLannaAi/noy-db/issues/10',
-      )
-    default: {
-      // Exhaustiveness check — TS narrows to `never` if the union is
-      // covered. A missing branch surfaces here at compile time.
-      const _exhaustive: never = input.recoveryProof
-      throw new Error(`Unknown recovery profile: ${String(_exhaustive)}`)
-    }
+  // Runtime defense-in-depth: the type narrows to 'paper' (#86), but
+  // a consumer bypassing TS via `as unknown as RecoveryProof` should
+  // still hit a clear error rather than silently fall into the paper
+  // handler with a malformed payload.
+  const profile = (input.recoveryProof as { profile: string }).profile
+  if (profile !== 'paper') {
+    throw new RecoveryProfileNotImplementedError(
+      profile,
+      'https://github.com/vLannaAi/noy-db/issues/10',
+    )
   }
+  return recoverViaPaperCode(store, vault, userId, input)
 }
 
 async function recoverViaPaperCode(
