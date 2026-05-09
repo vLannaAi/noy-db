@@ -14,6 +14,81 @@
 
 // ─── Keyring / multi-user ───────────────────────────────────
 export type { UnlockedKeyring } from './keyring.js'
+export {
+  loadKeyring,
+  createOwnerKeyring,
+  grant,
+  revoke,
+  changeSecret,
+  listUsers,
+  listUsersWithEnvelopes,
+  ensureCollectionDEK,
+  persistKeyring,
+  updateKeyringIdentity,
+  buildRecipientKeyringFile,
+} from './keyring.js'
+export type { BundleRecipient } from './keyring.js'
+
+// ─── Tier-2 authenticator slots (#11) ───────────────────
+export {
+  enrollAuthenticator,
+  removeAuthenticator,
+  updateAuthenticator,
+  findAuthenticator,
+} from './authenticators.js'
+export type {
+  EnrollAuthenticatorOptions,
+  EnrollAuthenticatorWrappingKEKOptions,
+  EnrollAuthenticatorWrappingDEKsOptions,
+  UpdateAuthenticatorOptions,
+} from './authenticators.js'
+
+// ─── Tier-1 change flows (#10, #29, #36) ────────────────
+export {
+  rotatePassphrase,
+  recoverPassphrase,
+} from './rotate-recover.js'
+export type {
+  RotatePassphraseInput,
+  RecoverPassphraseInput,
+  RecoverPassphraseResult,
+  RecoveryProof,
+  SlotRewrapContext,
+  SlotRewrapCeremony,
+} from './rotate-recover.js'
+
+// ─── Atomic peer-recovery (#33, #34) ────────────────────
+export { recoverUser } from './peer-recover.js'
+export type { RecoverUserOptions } from './peer-recover.js'
+
+// ─── Paper recovery primitives (#28, #39) ───────────────
+export {
+  mintPaperRecoveryEntry,
+  unwrapDeksFromPaperEntry,
+  loadPaperRecoveryEntries,
+  savePaperRecoveryEntries,
+  burnPaperRecoveryEntry,
+} from './recovery.js'
+export type { PaperRecoveryEntry } from './recovery.js'
+
+// ─── Shared wrap-DEKs primitive (#26 Path C, #44) ───────
+export {
+  mintWrappedDeksBlob,
+  unwrapDeksFromBlob,
+} from './wrapped-deks.js'
+export type { WrappedDeksBlob } from './wrapped-deks.js'
+
+// ─── Magic-link grant primitives (consumed by @noy-db/on-magic-link) ─
+export {
+  writeMagicLinkGrant,
+  readMagicLinkGrantRecord,
+  listMagicLinkGrants,
+  unwrapMagicLinkGrant,
+  revokeMagicLinkGrant,
+  deriveMagicLinkContentKey,
+  magicLinkGrantRecordId,
+  isMagicLinkGrantExpired,
+} from './magic-link-grant.js'
 
 // ─── Export-capability helpers ───────────────────────────
 export {
@@ -21,7 +96,7 @@ export {
   evaluateExportCapability,
 } from './keyring.js'
 
-// ─── Import-capability helpers (issue ) ─────────────────────────
+// ─── Import-capability helpers ─────────────────────────
 export {
   hasImportCapability,
   evaluateImportCapability,

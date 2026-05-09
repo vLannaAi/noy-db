@@ -39,3 +39,13 @@ export type {
 } from './format.js'
 
 export { generateULID, isULID } from './ulid.js'
+
+// ─── Bundle / backup errors ─────────────────────────────
+// Re-exported from the central errors module so subpath consumers can
+// `instanceof BundleIntegrityError` without falling back to the root barrel.
+export {
+  BundleIntegrityError,
+  BundleVersionConflictError,
+  BackupLedgerError,
+  BackupCorruptedError,
+} from '../errors.js'

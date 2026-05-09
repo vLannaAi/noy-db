@@ -17,3 +17,16 @@ export * from './dictionary.js'
 // ─── Strategy seam ─────────────────────────────────────
 export { withI18n } from './active.js'
 export type { I18nStrategy } from './strategy.js'
+
+// ─── i18n errors ───────────────────────────────────────
+// Re-exported from the central errors module so subpath consumers can
+// `instanceof MissingTranslationError` without falling back to the
+// root barrel. Tree-shakers drop the names a consumer doesn't reference.
+export {
+  ReservedCollectionNameError,
+  DictKeyMissingError,
+  DictKeyInUseError,
+  MissingTranslationError,
+  LocaleNotSpecifiedError,
+  TranslatorNotConfiguredError,
+} from '../errors.js'
