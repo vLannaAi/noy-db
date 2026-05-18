@@ -22,20 +22,25 @@ export interface AmendmentChangeMeta {
  *
  * @internal
  */
+// Internal storage alias — guards are heterogeneous in their record type T,
+// so the registry stores them at the upper bound of GuardStrategy's T constraint.
+type AnyGuard = GuardStrategy<Record<string, unknown>>
+type AnyChange = GuardChange<Record<string, unknown>>
+
 export class GuardRegistry {
-  private readonly _byCollection = new Map<string, GuardStrategy<any>[]>()
-  private _amendmentChanges: Map<string, GuardChange<any>[]> | null = null
+  private readonly _byCollection = new Map<string, AnyGuard[]>()
+  private _amendmentChanges: Map<string, AnyChange[]> | null = null
   private _amendmentMeta: Map<string, AmendmentChangeMeta[]> | null = null
 
   /** Register a guard. Multiple guards per collection are allowed. */
   register<T extends Record<string, unknown>>(spec: GuardStrategy<T>): void {
     const existing = this._byCollection.get(spec.collection)
-    if (existing) existing.push(spec as GuardStrategy<any>)
-    else this._byCollection.set(spec.collection, [spec as GuardStrategy<any>])
+    if (existing) existing.push(spec as unknown as AnyGuard)
+    else this._byCollection.set(spec.collection, [spec as unknown as AnyGuard])
   }
 
   /** All guards registered against `collection` in registration order. */
-  guardsFor(collection: string): ReadonlyArray<GuardStrategy<any>> {
+  guardsFor(collection: string): ReadonlyArray<AnyGuard> {
     return this._byCollection.get(collection) ?? []
   }
 
@@ -51,7 +56,12 @@ export class GuardRegistry {
     const guards = this._byCollection.get(collection)
     if (!guards) return
     for (const g of guards) {
-      if (g.check) await g.check(incoming, ctx)
+      if (g.check) {
+        await g.check(
+          incoming as unknown as Record<string, unknown>,
+          ctx as unknown as GuardContext<Record<string, unknown>>,
+        )
+      }
     }
   }
 
@@ -92,7 +102,7 @@ export class GuardRegistry {
       throw new Error('GuardRegistry.collectChange called outside an amendment')
     }
     const list = this._amendmentChanges.get(collection)
-    const entry: GuardChange<T> = { before, after }
+    const entry = { before, after } as unknown as AnyChange
     if (list) list.push(entry)
     else this._amendmentChanges.set(collection, [entry])
 
@@ -106,7 +116,7 @@ export class GuardRegistry {
    * Drain the change-set and close the amendment window. The caller
    * (transaction commit) feeds these to each affected guard's invariant.
    */
-  consumeChanges(): ReadonlyMap<string, ReadonlyArray<GuardChange<any>>> {
+  consumeChanges(): ReadonlyMap<string, ReadonlyArray<AnyChange>> {
     const out = this._amendmentChanges ?? new Map()
     this._amendmentChanges = null
     return out

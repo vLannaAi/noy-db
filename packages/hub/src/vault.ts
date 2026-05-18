@@ -331,6 +331,7 @@ export class Vault {
     historyStrategy?: HistoryStrategy | undefined
     i18nStrategy?: I18nStrategy | undefined
     syncStrategy?: SyncStrategy | undefined
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     guardStrategies?: ReadonlyArray<GuardStrategyHandle<any>> | undefined
   }) {
     this.adapter = opts.adapter

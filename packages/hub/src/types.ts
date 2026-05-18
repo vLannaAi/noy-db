@@ -1745,6 +1745,7 @@ export interface NoydbOptions {
    * Multiple guards per collection are allowed; they are dispatched
    * in registration order on `collection.put()`.
    */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly guardStrategies?: ReadonlyArray<GuardStrategyHandle<any>>
   /** Optional remote store(s) for sync. Accepts a single store, a SyncTarget, or an array. */
   readonly sync?: NoydbStore | SyncTarget | SyncTarget[]
