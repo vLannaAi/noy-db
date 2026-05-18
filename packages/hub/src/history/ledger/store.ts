@@ -508,6 +508,13 @@ export class LedgerStore {
       const entry = matching[i]
       if (!entry) continue
 
+      // Defensive: skip every non-put/non-delete op variant. The
+      // outer filter on `e.collection === collection && e.id === id`
+      // already excludes `amendment` entries (their collection/id are
+      // empty strings), but a top-of-loop guard keeps the walker
+      // robust if a future op variant slips through the filter.
+      if (entry.op !== 'put' && entry.op !== 'delete') continue
+
       // Match check FIRST — before applying this entry's reverse
       // patch. `state` at this point is the record state immediately
       // after this entry's put (or before this entry's delete), so

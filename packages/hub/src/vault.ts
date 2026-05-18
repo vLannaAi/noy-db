@@ -2246,11 +2246,20 @@ export class Vault {
     for (let i = allEntries.length - 1; i >= 0; i--) {
       const entry = allEntries[i]
       if (!entry) continue
+      // Amendment entries are multi-record audit entries whose
+      // `collection` and `id` are empty strings — building a `"/"`
+      // key here would mark that synthetic slot as seen and falsely
+      // trip the data check on a record that never existed. Skip
+      // them BEFORE the key/seen bookkeeping so they neither
+      // tombstone real entries nor enter the latest map.
+      if (entry.op === 'amendment') continue
       const key = `${entry.collection}/${entry.id}`
       if (seen.has(key)) continue
       seen.add(key)
       // For deletes the data collection should NOT have the record,
-      // so we skip — there's nothing to cross-check.
+      // so we skip — there's nothing to cross-check. Marking the key
+      // as seen above ensures any earlier `put` of the same id is
+      // also skipped (the record was subsequently deleted).
       if (entry.op === 'delete') continue
       latest.set(key, {
         collection: entry.collection,
