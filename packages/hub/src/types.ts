@@ -38,6 +38,7 @@ import type { I18nStrategy } from './i18n/strategy.js'
 import type { SessionStrategy } from './session/strategy.js'
 import type { SyncStrategy } from './team/sync-strategy.js'
 import type { GuardStrategyHandle } from './guards/types.js'
+import type { DerivationStrategyHandle } from './derivations/types.js'
 import type { UnlockedKeyring } from './team/keyring.js'
 import type { VaultPolicy } from './policy/types.js'
 import type { PublicEnvelopeSchema } from './meta/public-envelope/types.js'
@@ -1747,6 +1748,14 @@ export interface NoydbOptions {
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly guardStrategies?: ReadonlyArray<GuardStrategyHandle<any>>
+  /**
+   * Optional derivation strategies — source-to-output projections that
+   * fire on `collection.put()`. Each handle is the output of
+   * `withDerivation()` from `@noy-db/hub/derivations`. The vault
+   * validates the derivation graph for cycles on `openVault`; a cyclic
+   * graph throws `DerivationCycleError`.
+   */
+  readonly derivationStrategies?: ReadonlyArray<DerivationStrategyHandle>
   /** Optional remote store(s) for sync. Accepts a single store, a SyncTarget, or an array. */
   readonly sync?: NoydbStore | SyncTarget | SyncTarget[]
   /** User identifier. */

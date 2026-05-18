@@ -67,6 +67,8 @@ import { NO_SYNC, type SyncStrategy } from './team/sync-strategy.js'
 import { GuardRegistry } from './guards/registry.js'
 import type { GuardStrategyHandle } from './guards/types.js'
 import { ReadOnlyVaultFacade } from './guards/read-only-facade.js'
+import { DerivationRegistry } from './derivations/registry.js'
+import type { DerivationStrategyHandle } from './derivations/types.js'
 import type { LocaleReadOptions, ConflictPolicy } from './types.js'
 import type { CrdtMode } from './crdt/crdt.js'
 import { ReservedCollectionNameError } from './errors.js'
@@ -136,6 +138,7 @@ export class Vault {
   private readonly i18nStrategy: I18nStrategy
   private readonly syncStrategy: SyncStrategy
   private readonly guardRegistry: GuardRegistry
+  private readonly derivationRegistry: DerivationRegistry
   /**
    * Cached read-only facade handed to guard callbacks via `ctx.vault`.
    * Allocated lazily on first guard invocation to avoid the cost in
@@ -359,6 +362,7 @@ export class Vault {
         this.guardRegistry.register(handle.spec)
       }
     }
+    this.derivationRegistry = new DerivationRegistry()
     this.historyConfig = opts.historyConfig ?? { enabled: true }
     this.reloadKeyring = opts.reloadKeyring
     this.locale = opts.locale
@@ -1306,6 +1310,25 @@ export class Vault {
   /** @internal — Collection.put calls into this. */
   _getGuardRegistry(): GuardRegistry {
     return this.guardRegistry
+  }
+
+  /**
+   * @internal — called by `Noydb.openVault` after construction.
+   * Registers derivation strategies (async because `strategyHash`
+   * computation goes through `crypto.subtle.digest`) and validates
+   * the derivation graph for cycles. Throws `DerivationCycleError`
+   * if a cycle is detected.
+   */
+  async _initDerivations(handles: ReadonlyArray<DerivationStrategyHandle>): Promise<void> {
+    for (const h of handles) {
+      await this.derivationRegistry.register(h.spec)
+    }
+    this.derivationRegistry.validate()
+  }
+
+  /** @internal — consumed by `Collection.put` at write-time. */
+  _getDerivationRegistry(): DerivationRegistry {
+    return this.derivationRegistry
   }
 
   /**
