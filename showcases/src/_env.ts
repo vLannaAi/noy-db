@@ -187,3 +187,32 @@ export const DRIVE_GATE_VARS = [
   'NOYDB_SHOWCASE_DRIVE_CLIENT_SECRET',
   'NOYDB_SHOWCASE_DRIVE_REFRESH_TOKEN',
 ] as const
+
+/**
+ * SMTP — required by the on-email-otp + on-magic-link real-provider
+ * showcases (#66, #67). Both showcases reuse the same six vars to
+ * deliver a real OTP / magic-link email to a mailbox the developer
+ * controls. See `showcases/src/_smtp.ts` for the nodemailer wrapper.
+ */
+export const SMTP_GATE_VARS = [
+  'NOYDB_SHOWCASE_SMTP_HOST',
+  'NOYDB_SHOWCASE_SMTP_PORT',
+  'NOYDB_SHOWCASE_SMTP_USER',
+  'NOYDB_SHOWCASE_SMTP_PASS',
+  'NOYDB_SHOWCASE_SMTP_FROM',
+  'NOYDB_SHOWCASE_SMTP_TO',
+] as const
+
+/**
+ * IMAP — optional companion to SMTP. When ALL four are set, the
+ * showcases switch from manual mode (stdin prompt) to auto mode (poll
+ * the mailbox via imapflow, scrape the OTP / link, complete verify
+ * in-test). When any is missing, the showcase falls back to manual
+ * mode, which is in turn skipped under CI.
+ */
+export const SMTP_IMAP_GATE_VARS = [
+  'NOYDB_SHOWCASE_SMTP_IMAP_HOST',
+  'NOYDB_SHOWCASE_SMTP_IMAP_PORT',
+  'NOYDB_SHOWCASE_SMTP_IMAP_USER',
+  'NOYDB_SHOWCASE_SMTP_IMAP_PASS',
+] as const
