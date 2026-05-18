@@ -8,7 +8,7 @@
  */
 
 import type { Noydb } from '../noydb.js'
-import type { TxContext } from './transaction.js'
+import type { TxContext, AmendmentTxOptions } from './transaction.js'
 
 /**
  * @internal
@@ -17,6 +17,7 @@ export interface TxStrategy {
   runTransaction<T>(
     db: Noydb,
     fn: (tx: TxContext) => Promise<T> | T,
+    options?: AmendmentTxOptions,
   ): Promise<T>
 }
 

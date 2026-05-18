@@ -1308,6 +1308,20 @@ export class Vault {
   }
 
   /**
+   * @internal — exposed for `runTransaction({ amendment: true })`
+   * to append the structured `op: 'amendment'` audit entry without
+   * dragging this private accessor onto the public surface or
+   * forcing the tx executor to depend on the history-strategy
+   * shape directly. Returns `null` when no history strategy is
+   * configured, in which case the amendment commits silently
+   * (the records still write through; only the multi-record
+   * audit summary is skipped).
+   */
+  _getLedgerOrNull(): LedgerStore | null {
+    return this.getLedgerOrNull()
+  }
+
+  /**
    * Return a read-only view of this vault as it existed at
    * `timestamp`. Time-machine queries are reconstructed from the
    * per-version history snapshots persisted by every `put()`, then

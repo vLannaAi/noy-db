@@ -948,7 +948,12 @@ export class Collection<T> {
           role: this.keyring.role,
         }
         if (registry.isAmendmentActive()) {
-          registry.collectChange(this.name, id, existingRecord, incomingRecord)
+          const vBefore = existingEnv?._v ?? 0
+          // `put` deterministically bumps version by 1 — see the
+          // `version = existing.version + 1` line further down in this
+          // method. Computing vAfter here keeps the audit math local
+          // to the call site that decides it.
+          registry.collectChange(this.name, id, existingRecord, incomingRecord, vBefore, vBefore + 1)
         } else {
           await registry.runChecks(this.name, incomingRecord, ctx)
           for (const g of guards) {
@@ -1278,11 +1283,20 @@ export class Collection<T> {
             role: this.keyring.role,
           }
           if (registry.isAmendmentActive()) {
+            // For deletes, the record version is the version that was
+            // visible at delete time; we record vBefore = that version
+            // and vAfter = same (the ledger entry's `op` discriminator
+            // is `delete`, not `put`, so the consumer treats the
+            // tombstone shape correctly). Amendment-tracked deletes
+            // are rare today but the contract is symmetric with put.
+            const vBefore = existingEnv._v
             registry.collectChange(
               this.name,
               id,
               existingRecord,
               null as unknown as Record<string, unknown>,
+              vBefore,
+              vBefore,
             )
           } else {
             // For deletes, `incoming` to the check is the existing
@@ -2024,6 +2038,39 @@ export class Collection<T> {
   // ─── Internal ──────────────────────────────────────────────────
 
   /** Load all records from adapter into memory cache. */
+  /**
+   * @internal — refresh the in-memory cache entry for a single id by
+   * re-reading from the adapter. Used by the transaction executor's
+   * Phase-3 revert path: that path writes the prior envelope directly
+   * via the raw store (to avoid re-firing Collection-level side
+   * effects), which would otherwise leave this Collection's eager
+   * cache holding the rolled-back value. After revert, the executor
+   * calls this hook so subsequent `get` / `query` reads see the
+   * actual on-disk state.
+   *
+   * Lazy mode: drops the LRU entry; the next `get` repopulates from
+   * the adapter. Eager mode: re-reads the envelope and either sets
+   * the cache entry (record still present) or deletes it (record was
+   * gone before the tx and the revert deleted it again).
+   */
+  async _invalidateCacheEntry(id: string): Promise<void> {
+    if (this.lazy && this.lru) {
+      this.lru.remove(id)
+      return
+    }
+    if (!this.hydrated) return
+    const previous = this.cache.get(id)
+    const envelope = await this.adapter.get(this.vault, this.name, id)
+    if (!envelope) {
+      this.cache.delete(id)
+      if (previous) this.indexes?.remove(id, previous.record)
+      return
+    }
+    const record = await this.decryptRecord(envelope)
+    this.cache.set(id, { record, version: envelope._v })
+    this.indexes?.upsert(id, record, previous ? previous.record : null)
+  }
+
   private async ensureHydrated(): Promise<void> {
     if (this.hydrated) return
 

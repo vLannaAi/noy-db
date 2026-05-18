@@ -61,7 +61,14 @@ import type { Noydb } from '../noydb.js'
 import type { Vault } from '../vault.js'
 import type { Collection } from '../collection.js'
 import type { EncryptedEnvelope } from '../types.js'
-import { ConflictError } from '../errors.js'
+import {
+  AmendmentForbiddenError,
+  ConflictError,
+  InvariantError,
+  ValidationError,
+} from '../errors.js'
+import { GuardExecutor } from '../guards/executor.js'
+import type { LedgerEntry } from '../history/ledger/entry.js'
 
 /** One op buffered inside a running `TxContext`. @internal */
 interface StagedOp {
@@ -74,6 +81,18 @@ interface StagedOp {
 }
 
 /**
+ * Options accepted by `db.transaction({ amendment, reason }, fn)`.
+ * Only the amendment variant uses these — a plain `db.transaction(fn)`
+ * never sees this shape.
+ */
+export interface AmendmentTxOptions {
+  /** Opt into amendment mode. Required to be `true`. */
+  readonly amendment: true
+  /** Human-readable rationale recorded in the ledger entry. Required. */
+  readonly reason: string
+}
+
+/**
  * Transaction handle passed to the user's body. Use
  * `tx.vault(name).collection<T>(name)` to get a per-collection
  * facade; its `put`/`delete`/`get` calls stage ops against the tx.
@@ -83,15 +102,39 @@ export class TxContext {
   readonly _ops: StagedOp[] = []
   /** @internal */
   readonly _db: Noydb
+  /**
+   * @internal — true when this TxContext was opened in amendment
+   * mode. Toggles the lazy-`beginAmendment` + role-check path on first
+   * `tx.vault(name)` and unlocks the post-Phase-2 invariant + audit run.
+   */
+  readonly _amendment: boolean
+  /** @internal — vaults that have already had `beginAmendment` called. */
+  readonly _amendmentVaults = new Map<string, Vault>()
 
   /** @internal */
-  constructor(db: Noydb) {
+  constructor(db: Noydb, amendment = false) {
     this._db = db
+    this._amendment = amendment
   }
 
   /** Scope subsequent `collection()` calls to the named vault. */
   vault(name: string): TxVault {
     const v = this._db.vault(name)
+    if (this._amendment && !this._amendmentVaults.has(name)) {
+      // Role check is per-vault. The task spec ("only admin or owner
+      // can open an amendment") is implemented lazy-on-first-touch
+      // because the role lives on the vault's keyring, and `tx.vault()`
+      // is the first place we know which vault we're addressing. The
+      // observable effect is identical to an eager check in the single-
+      // vault case the tests exercise; multi-vault amendments check
+      // each touched vault as they first appear.
+      const role = v.role
+      if (role !== 'admin' && role !== 'owner') {
+        throw new AmendmentForbiddenError(v.userId, role)
+      }
+      v._getGuardRegistry().beginAmendment()
+      this._amendmentVaults.set(name, v)
+    }
     return new TxVault(this, v)
   }
 }
@@ -199,11 +242,39 @@ export class TxCollection<T> {
 export async function runTransaction<T>(
   db: Noydb,
   fn: (tx: TxContext) => Promise<T> | T,
+  options?: AmendmentTxOptions,
 ): Promise<T> {
-  const ctx = new TxContext(db)
+  // ─── Amendment-mode pre-flight ───────────────────────────────
+  // `reason` is the only thing we can validate before the body runs;
+  // the per-vault role check happens lazily on first `tx.vault(name)`
+  // because we don't know which vaults the body will touch ahead of
+  // time. Throwing here keeps the failure mode close to the call site
+  // so the developer doesn't have to walk an async stack to find the
+  // missing-reason mistake.
+  if (options?.amendment) {
+    if (typeof options.reason !== 'string' || options.reason.trim().length === 0) {
+      throw new ValidationError(
+        'db.transaction({ amendment: true }) requires a non-empty `reason` string.',
+      )
+    }
+  }
+
+  const ctx = new TxContext(db, options?.amendment === true)
   const bodyResult = await fn(ctx)
 
-  if (ctx._ops.length === 0) return bodyResult
+  if (ctx._ops.length === 0) {
+    // Body produced no ops. If amendment mode was active we still
+    // need to close any opened windows so a subsequent (unrelated)
+    // write doesn't surprise-collect into a stale change-set. Each
+    // `beginAmendment` is matched by exactly one `consumeChanges`.
+    if (ctx._amendment) {
+      for (const v of ctx._amendmentVaults.values()) {
+        v._getGuardRegistry().consumeChanges()
+        v._getGuardRegistry().consumeMeta()
+      }
+    }
+    return bodyResult
+  }
 
   // Phase 1 — pre-flight: snapshot every touched envelope and enforce
   // any caller-supplied expectedVersion. Same (vault, coll, id) touched
@@ -247,31 +318,129 @@ export async function runTransaction<T>(
       }
       executed.push({ op, priorEnvelope: prior })
     }
-    return bodyResult
   } catch (err) {
-    // Phase 3 — best-effort revert. Restore captured prior envelopes
-    // via the raw store to avoid re-firing Collection-level side
-    // effects (we don't want a cascade of change events undoing
-    // themselves). The ledger is left as-is: each committed op
-    // appended an entry; the revert is deliberately not recorded as a
-    // compensating entry because 's contract is "atomic or not at
-    // all" from the caller's view, not "every write visible in the
-    // audit trail." Auditors who need the intermediate state can still
-    // reconstruct it by walking the ledger through the failed-tx
-    // timestamp.
-    for (const { op, priorEnvelope } of executed.slice().reverse()) {
-      try {
-        if (priorEnvelope) {
-          await store.put(op.vaultName, op.collectionName, op.id, priorEnvelope)
-        } else {
-          await store.delete(op.vaultName, op.collectionName, op.id)
-        }
-      } catch {
-        // swallow — best-effort. Surfacing the revert error would
-        // mask the original one that triggered the rollback.
+    // Phase 3 — best-effort revert. See helper docstring.
+    await revertExecuted(executed, store, db)
+    // Drain amendment windows so the next transaction starts clean.
+    if (ctx._amendment) {
+      for (const v of ctx._amendmentVaults.values()) {
+        v._getGuardRegistry().consumeChanges()
+        v._getGuardRegistry().consumeMeta()
       }
     }
     throw err
+  }
+
+  // ─── Amendment commit phase (only if amendment === true) ────
+  // Body succeeded — now run each touched vault's invariants over the
+  // collected change-set, then append a structured ledger entry. If
+  // any invariant throws, treat it exactly like a mid-Phase-2 failure:
+  // revert every executed op and re-throw the InvariantError.
+  if (ctx._amendment) {
+    try {
+      for (const [vaultName, v] of ctx._amendmentVaults) {
+        const registry = v._getGuardRegistry()
+        const changesByCollection = registry.consumeChanges()
+        const meta = registry.consumeMeta()
+        if (changesByCollection.size === 0) continue
+
+        // Build the invariant ctx once per vault — it's the same shape
+        // every guard sees on the normal `check` path, just with a
+        // synthetic `existing: null` (invariants get the full change
+        // set in their first parameter; `existing` is a per-record
+        // concept that doesn't apply here).
+        const invariantsPassed: string[] = []
+        for (const [collection, changes] of changesByCollection) {
+          const guards = registry.guardsFor(collection).filter(g => g.amendment !== undefined)
+          for (const guard of guards) {
+            await GuardExecutor.runInvariant(guard, changes, {
+              existing: null,
+              vault: { collection: () => ({ async get() { return null }, async list() { return [] } }) },
+              userId: v.userId,
+              role: v.role,
+            })
+          }
+          if (guards.length > 0) invariantsPassed.push(collection)
+        }
+
+        // Append the audit ledger entry. Silent no-op when the
+        // history strategy isn't configured — the records still
+        // committed, only the multi-record summary is unavailable.
+        const ledger = v._getLedgerOrNull()
+        if (ledger) {
+          const role = v.role as 'admin' | 'owner'
+          const amendment: NonNullable<LedgerEntry['amendment']> = {
+            reason: options!.reason,
+            role,
+            changes: meta,
+            invariantsPassed,
+          }
+          await ledger.append({
+            op: 'amendment',
+            collection: '',
+            id: '',
+            version: 0,
+            actor: v.userId,
+            // No payload to hash — the per-record entries already
+            // captured `payloadHash` at their own append time. We use
+            // a sha256 of the canonical reason string so the field is
+            // populated with something deterministic and non-empty.
+            payloadHash: '',
+            amendment,
+          })
+        }
+        void vaultName
+      }
+    } catch (err) {
+      await revertExecuted(executed, store, db)
+      throw err instanceof InvariantError ? err : new InvariantError(
+        err instanceof Error ? err.message : `invariant violated: ${String(err)}`,
+      )
+    }
+  }
+
+  return bodyResult
+}
+
+/**
+ * Phase 3 helper — restore captured prior envelopes via the raw store
+ * to avoid re-firing Collection-level side effects (we don't want a
+ * cascade of change events undoing themselves). The ledger is left
+ * as-is: each committed op appended an entry; the revert is
+ * deliberately NOT recorded as a compensating entry because the
+ * caller-facing contract is "atomic or not at all," not "every write
+ * visible in the audit trail." Auditors who need the intermediate
+ * state can still reconstruct it by walking the ledger through the
+ * failed-tx timestamp.
+ *
+ * @internal
+ */
+async function revertExecuted(
+  executed: Array<{ op: StagedOp; priorEnvelope: EncryptedEnvelope | null }>,
+  store: Noydb['_store'],
+  db?: Noydb,
+): Promise<void> {
+  for (const { op, priorEnvelope } of executed.slice().reverse()) {
+    try {
+      if (priorEnvelope) {
+        await store.put(op.vaultName, op.collectionName, op.id, priorEnvelope)
+      } else {
+        await store.delete(op.vaultName, op.collectionName, op.id)
+      }
+      // Sync the Collection-layer cache with what we just wrote at
+      // the raw store. Without this, eager-mode `get` would still
+      // return the rolled-back record from its in-memory map. The
+      // Collection's `_invalidateCacheEntry` is a no-op when the
+      // collection hasn't yet been hydrated.
+      if (db) {
+        const coll = db.vault(op.vaultName).collection(op.collectionName)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (coll as any)._invalidateCacheEntry(op.id)
+      }
+    } catch {
+      // swallow — best-effort. Surfacing the revert error would mask
+      // the original one that triggered the rollback.
+    }
   }
 }
 

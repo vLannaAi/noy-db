@@ -1,6 +1,22 @@
 import type { GuardStrategy, GuardContext, GuardChange } from './types.js'
 
 /**
+ * Per-record metadata attached to every entry in an amendment's
+ * change-set. Carried in a parallel map alongside `_amendmentChanges`
+ * so the public {@link GuardChange} shape (`{ before, after }`) stays
+ * clean for invariant authors — the audit ledger reads this side
+ * structure to produce the `{ collection, id, vBefore, vAfter }`
+ * tuples for the amendment entry.
+ *
+ * @internal
+ */
+export interface AmendmentChangeMeta {
+  readonly id: string
+  readonly vBefore: number
+  readonly vAfter: number
+}
+
+/**
  * Vault-internal singleton that holds the guard graph and dispatches
  * per-collection guard execution. Owned by `Vault`; not exported.
  *
@@ -9,6 +25,7 @@ import type { GuardStrategy, GuardContext, GuardChange } from './types.js'
 export class GuardRegistry {
   private readonly _byCollection = new Map<string, GuardStrategy<any>[]>()
   private _amendmentChanges: Map<string, GuardChange<any>[]> | null = null
+  private _amendmentMeta: Map<string, AmendmentChangeMeta[]> | null = null
 
   /** Register a guard. Multiple guards per collection are allowed. */
   register<T extends Record<string, unknown>>(spec: GuardStrategy<T>): void {
@@ -48,6 +65,7 @@ export class GuardRegistry {
   /** Open a new amendment change-collection window. */
   beginAmendment(): void {
     this._amendmentChanges = new Map()
+    this._amendmentMeta = new Map()
   }
 
   /** True iff we're currently inside an amendment transaction. */
@@ -55,20 +73,33 @@ export class GuardRegistry {
     return this._amendmentChanges !== null
   }
 
-  /** Record a {before, after} pair for the active amendment. */
+  /**
+   * Record a {before, after} pair for the active amendment. `vBefore`
+   * and `vAfter` are stored in a parallel meta structure so the public
+   * {@link GuardChange} shape handed to invariant callbacks stays
+   * `{ before, after }` only — the audit ledger reads version metadata
+   * via {@link consumeMeta}.
+   */
   collectChange<T>(
     collection: string,
-    _id: string,
+    id: string,
     before: T | null,
     after: T,
+    vBefore = 0,
+    vAfter = 0,
   ): void {
-    if (this._amendmentChanges === null) {
+    if (this._amendmentChanges === null || this._amendmentMeta === null) {
       throw new Error('GuardRegistry.collectChange called outside an amendment')
     }
     const list = this._amendmentChanges.get(collection)
     const entry: GuardChange<T> = { before, after }
     if (list) list.push(entry)
     else this._amendmentChanges.set(collection, [entry])
+
+    const metaList = this._amendmentMeta.get(collection)
+    const metaEntry: AmendmentChangeMeta = { id, vBefore, vAfter }
+    if (metaList) metaList.push(metaEntry)
+    else this._amendmentMeta.set(collection, [metaEntry])
   }
 
   /**
@@ -78,6 +109,27 @@ export class GuardRegistry {
   consumeChanges(): ReadonlyMap<string, ReadonlyArray<GuardChange<any>>> {
     const out = this._amendmentChanges ?? new Map()
     this._amendmentChanges = null
+    return out
+  }
+
+  /**
+   * Drain the parallel id/version metadata captured during the
+   * amendment. Returned as a flat list with `collection` denormalised
+   * so the audit ledger can emit one `{ collection, id, vBefore,
+   * vAfter }` tuple per record. Must be called AFTER
+   * {@link consumeChanges} (or independently) — calling it closes the
+   * meta window in the same way.
+   */
+  consumeMeta(): ReadonlyArray<{ collection: string; id: string; vBefore: number; vAfter: number }> {
+    const out: { collection: string; id: string; vBefore: number; vAfter: number }[] = []
+    if (this._amendmentMeta) {
+      for (const [collection, list] of this._amendmentMeta) {
+        for (const m of list) {
+          out.push({ collection, id: m.id, vBefore: m.vBefore, vAfter: m.vAfter })
+        }
+      }
+    }
+    this._amendmentMeta = null
     return out
   }
 }
