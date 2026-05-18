@@ -66,6 +66,7 @@ import { NO_I18N, type I18nStrategy } from './i18n/strategy.js'
 import { NO_SYNC, type SyncStrategy } from './team/sync-strategy.js'
 import { GuardRegistry } from './guards/registry.js'
 import type { GuardStrategyHandle } from './guards/types.js'
+import { ReadOnlyVaultFacade } from './guards/read-only-facade.js'
 import type { LocaleReadOptions, ConflictPolicy } from './types.js'
 import type { CrdtMode } from './crdt/crdt.js'
 import { ReservedCollectionNameError } from './errors.js'
@@ -135,6 +136,12 @@ export class Vault {
   private readonly i18nStrategy: I18nStrategy
   private readonly syncStrategy: SyncStrategy
   private readonly guardRegistry: GuardRegistry
+  /**
+   * Cached read-only facade handed to guard callbacks via `ctx.vault`.
+   * Allocated lazily on first guard invocation to avoid the cost in
+   * vaults that never register a guard.
+   */
+  private guardReadOnlyFacade: ReadOnlyVaultFacade | null = null
   private getDEK: (collectionName: string) => Promise<CryptoKey>
 
   /**
@@ -520,6 +527,15 @@ export class Vault {
         onRegisterConflictResolver: this.onRegisterConflictResolver,
         onAccess: (op, id) => this._logConsent(op, collectionName, id),
         periodGuard: (existing, incoming) => this._assertTsWritable(existing, incoming),
+        guardSource: {
+          registry: () => this.guardRegistry,
+          readOnlyVault: () => {
+            if (this.guardReadOnlyFacade === null) {
+              this.guardReadOnlyFacade = new ReadOnlyVaultFacade(this)
+            }
+            return this.guardReadOnlyFacade
+          },
+        },
       }
       if (options?.indexes !== undefined) collOpts.indexes = options.indexes
       if (options?.reconcileOnOpen !== undefined) collOpts.reconcileOnOpen = options.reconcileOnOpen
