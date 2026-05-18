@@ -353,6 +353,7 @@ export class Noydb {
       ...(this.options.historyStrategy !== undefined ? { historyStrategy: this.options.historyStrategy } : {}),
       ...(this.options.i18nStrategy !== undefined ? { i18nStrategy: this.options.i18nStrategy } : {}),
       ...(this.options.syncStrategy !== undefined ? { syncStrategy: this.options.syncStrategy } : {}),
+      ...(this.options.guardStrategies !== undefined ? { guardStrategies: this.options.guardStrategies } : {}),
       locale: opts?.locale,
       // Thread the translator hook so Collection.put() can invoke it
       plaintextTranslator: this.options.plaintextTranslator
@@ -413,6 +414,7 @@ export class Noydb {
       ...(this.options.historyStrategy !== undefined ? { historyStrategy: this.options.historyStrategy } : {}),
       ...(this.options.i18nStrategy !== undefined ? { i18nStrategy: this.options.i18nStrategy } : {}),
       ...(this.options.syncStrategy !== undefined ? { syncStrategy: this.options.syncStrategy } : {}),
+      ...(this.options.guardStrategies !== undefined ? { guardStrategies: this.options.guardStrategies } : {}),
       })
       this.vaultCache.set(name, comp)
       return comp
@@ -442,6 +444,7 @@ export class Noydb {
       ...(this.options.historyStrategy !== undefined ? { historyStrategy: this.options.historyStrategy } : {}),
       ...(this.options.i18nStrategy !== undefined ? { i18nStrategy: this.options.i18nStrategy } : {}),
       ...(this.options.syncStrategy !== undefined ? { syncStrategy: this.options.syncStrategy } : {}),
+      ...(this.options.guardStrategies !== undefined ? { guardStrategies: this.options.guardStrategies } : {}),
       emitter: this.emitter,
     })
     this.vaultCache.set(name, comp)

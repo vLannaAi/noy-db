@@ -64,6 +64,8 @@ import { isDictCollectionName } from './i18n/dictionary.js'
 import type { I18nTextDescriptor } from './i18n/core.js'
 import { NO_I18N, type I18nStrategy } from './i18n/strategy.js'
 import { NO_SYNC, type SyncStrategy } from './team/sync-strategy.js'
+import { GuardRegistry } from './guards/registry.js'
+import type { GuardStrategyHandle } from './guards/types.js'
 import type { LocaleReadOptions, ConflictPolicy } from './types.js'
 import type { CrdtMode } from './crdt/crdt.js'
 import { ReservedCollectionNameError } from './errors.js'
@@ -132,6 +134,7 @@ export class Vault {
   private readonly historyStrategy: HistoryStrategy
   private readonly i18nStrategy: I18nStrategy
   private readonly syncStrategy: SyncStrategy
+  private readonly guardRegistry: GuardRegistry
   private getDEK: (collectionName: string) => Promise<CryptoKey>
 
   /**
@@ -321,6 +324,7 @@ export class Vault {
     historyStrategy?: HistoryStrategy | undefined
     i18nStrategy?: I18nStrategy | undefined
     syncStrategy?: SyncStrategy | undefined
+    guardStrategies?: ReadonlyArray<GuardStrategyHandle<any>> | undefined
   }) {
     this.adapter = opts.adapter
     this.name = opts.name
@@ -341,6 +345,12 @@ export class Vault {
     this.historyStrategy = opts.historyStrategy ?? NO_HISTORY
     this.i18nStrategy = opts.i18nStrategy ?? NO_I18N
     this.syncStrategy = opts.syncStrategy ?? NO_SYNC
+    this.guardRegistry = new GuardRegistry()
+    if (opts.guardStrategies) {
+      for (const handle of opts.guardStrategies) {
+        this.guardRegistry.register(handle.spec)
+      }
+    }
     this.historyConfig = opts.historyConfig ?? { enabled: true }
     this.reloadKeyring = opts.reloadKeyring
     this.locale = opts.locale
@@ -1274,6 +1284,11 @@ export class Vault {
       })
     }
     return this.ledgerStore
+  }
+
+  /** @internal — Collection.put calls into this. */
+  _getGuardRegistry(): GuardRegistry {
+    return this.guardRegistry
   }
 
   /**
