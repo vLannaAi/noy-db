@@ -467,6 +467,27 @@ features:
       - 'casAtomic stores: genuine atomicity. casAtomic:false: ordered-with-rollback'
     related: [vault-and-collections]
 
+  - id: guards
+    name: Record lock, field freeze, amendment invariant
+    cluster: time-and-audit
+    spec: docs/subsystems/guards.md#guards
+    subsystem_doc: docs/subsystems/guards.md
+    package: '@noy-db/hub/guards'
+    factory: withGuard
+    status: preview
+    showcases:
+      - id: 79-with-guard
+        path: showcases/src/79-with-guard.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'check + frozenFields run on plaintext, before encryption'
+      - 'amendment: true requires admin|owner role; fail-fast at transaction open'
+      - 'invariant runs at commit over the full change-set; throw → full rollback'
+      - 'every successful amendment appends a LedgerEntry with op: amendment'
+    related: [transactions, periods]
+
   - id: bundle
     name: '.noydb container format'
     cluster: snapshot-and-portability
