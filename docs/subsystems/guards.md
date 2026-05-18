@@ -52,7 +52,7 @@ const disbursementGuard = withGuard<Disbursement>({
 const db = await createNoydb({
   store: ...,
   user: ...,
-  guardStrategy: [disbursementGuard],
+  guardStrategies: [disbursementGuard],
   txStrategy: withTransactions(), // required for amendment mode
 })
 ```
@@ -110,10 +110,11 @@ All four extend `NoydbError`:
 
 ## Behavior when NOT opted in
 
-- `createNoydb({ guardStrategy: [...] })` is the only way to register guards;
+- `createNoydb({ guardStrategies: [...] })` is the only way to register guards;
   without it, no guard fires
-- `db.transaction({ amendment: true, ... })` throws — amendment mode requires
-  the guard strategy
+- Amendment mode requires `withTransactions`; without `withGuard` it's a silent
+  no-op (the empty change-set short-circuits before the role check, invariant,
+  and audit append)
 - `RecordLockedError` / `FieldFrozenError` / `InvariantError` /
   `AmendmentForbiddenError` are still importable from `@noy-db/hub/guards`
   but are never thrown by core
@@ -197,4 +198,4 @@ Visible via `vault.ledger().entries()` like every other ledger entry.
 
 - [SUBSYSTEMS.md](../../SUBSYSTEMS.md)
 - `docs/superpowers/specs/2026-05-18-guards-design.md`
-- `__tests__/guards.test.ts`, `showcases/src/79-with-guard.showcase.test.ts`
+- `__tests__/guards/*.test.ts`, `showcases/src/79-with-guard.showcase.test.ts`
