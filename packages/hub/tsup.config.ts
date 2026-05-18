@@ -40,6 +40,7 @@ const ENTRIES = {
   'guards/index': 'src/guards/index.ts',
   'shadow/index': 'src/shadow/index.ts',
   'tx/index': 'src/tx/index.ts',
+  'derivations/index': 'src/derivations/index.ts',
   'sync/index': 'src/sync/index.ts',
   'util/index': 'src/util/index.ts',
 }

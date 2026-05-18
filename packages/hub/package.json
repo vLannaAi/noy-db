@@ -186,6 +186,16 @@
         "default": "./dist/tx/index.cjs"
       }
     },
+    "./derivations": {
+      "import": {
+        "types": "./dist/derivations/index.d.ts",
+        "default": "./dist/derivations/index.js"
+      },
+      "require": {
+        "types": "./dist/derivations/index.d.cts",
+        "default": "./dist/derivations/index.cjs"
+      }
+    },
     "./sync": {
       "import": {
         "types": "./dist/sync/index.d.ts",
