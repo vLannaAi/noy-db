@@ -1308,6 +1308,21 @@ export class Vault {
   }
 
   /**
+   * @internal — exposed for `runTransaction({ amendment: true })` so
+   * the amendment invariant runner can pass the SAME read-only vault
+   * facade that the per-record `Collection.put` guard hook uses
+   * (`guardSource.readOnlyVault()` above). Lazily constructs and
+   * caches the facade on first access — matches the per-collection
+   * pattern in `collection()` above.
+   */
+  _getReadOnlyFacade(): ReadOnlyVaultFacade {
+    if (this.guardReadOnlyFacade === null) {
+      this.guardReadOnlyFacade = new ReadOnlyVaultFacade(this)
+    }
+    return this.guardReadOnlyFacade
+  }
+
+  /**
    * @internal — exposed for `runTransaction({ amendment: true })`
    * to append the structured `op: 'amendment'` audit entry without
    * dragging this private accessor onto the public surface or

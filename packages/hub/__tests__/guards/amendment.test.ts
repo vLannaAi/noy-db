@@ -138,6 +138,66 @@ describe('withTransactions amendment mode', () => {
     ).rejects.toBeInstanceOf(ValidationError)
   })
 
+  it('invariant ctx.vault exposes the real ReadOnlyVaultFacade for cross-collection reads', async () => {
+    // Regression: an earlier draft passed a stub vault into the invariant
+    // runner that returned null/[] for every collection, which broke any
+    // amendment that needed to validate against a sibling collection
+    // (e.g. "lines sum to invoice total"). This test pins the contract
+    // that ctx.vault is the same facade Collection.put's guard hook sees.
+    interface Invoice extends Record<string, unknown> { id: string; total: number }
+    interface XLine extends Record<string, unknown> { id: string; invoiceId: string; amount: number }
+    let observedInvoice: Invoice | null = 'sentinel' as unknown as Invoice
+    const lineGuard = withGuard<XLine>({
+      collection: 'xlines',
+      check: async () => { throw new Error('locked — normal write blocked') },
+      amendment: {
+        roles: ['admin', 'owner'],
+        invariant: async (changes, ctx) => {
+          // Cross-collection read — this is what the stub broke.
+          const invoiceId = changes[0]!.after.invoiceId
+          observedInvoice = await ctx.vault
+            .collection<Invoice>('invoices')
+            .get(invoiceId)
+          const sum = changes.reduce((t, c) => t + c.after.amount, 0)
+          if (observedInvoice && sum !== observedInvoice.total) {
+            throw new InvariantError(
+              `lines sum ${sum} ≠ invoice total ${observedInvoice.total}`,
+            )
+          }
+        },
+      },
+    })
+    const db = await createNoydb({
+      store: memory(),
+      user: 'alice',
+      secret: 'guards-amendment-xread-passphrase-2026',
+      guardStrategies: [lineGuard],
+      txStrategy: withTransactions(),
+    })
+    const v = await db.openVault('demo')
+    // Seed the invoice via a normal put (no guard on `invoices`).
+    await v.collection<Invoice>('invoices').put('inv-1', { id: 'inv-1', total: 100 })
+    // Amend the lines under amendment mode — the invariant reads
+    // `invoices/inv-1` through ctx.vault. With the stub it would have
+    // received null and either (a) silently passed or (b) thrown the
+    // wrong error; with the real facade it sees total=100 and the
+    // matching sum makes the invariant pass.
+    await db.transaction({ amendment: true, reason: 'seed lines' }, async (tx) => {
+      tx.vault('demo').collection<XLine>('xlines').put('ln-1', { id: 'ln-1', invoiceId: 'inv-1', amount: 60 })
+      tx.vault('demo').collection<XLine>('xlines').put('ln-2', { id: 'ln-2', invoiceId: 'inv-1', amount: 40 })
+    })
+    expect(observedInvoice).not.toBeNull()
+    expect(observedInvoice).toMatchObject({ id: 'inv-1', total: 100 })
+    // And the mismatched case still throws — confirms the invariant
+    // actually consulted the cross-collection read.
+    await expect(
+      db.transaction({ amendment: true, reason: 'bad split' }, async (tx) => {
+        tx.vault('demo').collection<XLine>('xlines').put('ln-1', { id: 'ln-1', invoiceId: 'inv-1', amount: 60 })
+        tx.vault('demo').collection<XLine>('xlines').put('ln-2', { id: 'ln-2', invoiceId: 'inv-1', amount: 41 })
+      }),
+    ).rejects.toBeInstanceOf(InvariantError)
+  })
+
   it('writes an AmendmentLedgerEntry on commit (op: amendment, role, reason)', async () => {
     const db = await createNoydb({
       store: memory(),

@@ -1531,6 +1531,11 @@ export class Collection<T> {
         try {
           if (prior) await this.adapter.put(this.vault, this.name, id, prior)
           else await this.adapter.delete(this.vault, this.name, id)
+          // Cache desync guard — the raw adapter writes above bypass
+          // `Collection.put`/`delete`, so the in-memory cache + indexes
+          // still reflect the executed (now-reverted) value. Same
+          // helper used by the tx executor's compensation path.
+          await this._invalidateCacheEntry(id)
         } catch { /* best-effort */ }
       }
       throw err

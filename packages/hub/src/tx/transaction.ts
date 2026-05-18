@@ -355,7 +355,7 @@ export async function runTransaction<T>(
           for (const guard of guards) {
             await GuardExecutor.runInvariant(guard, changes, {
               existing: null,
-              vault: { collection: () => ({ async get() { return null }, async list() { return [] } }) },
+              vault: v._getReadOnlyFacade(),
               userId: v.userId,
               role: v.role,
             })
