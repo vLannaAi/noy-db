@@ -1337,6 +1337,46 @@ export class Vault {
   }
 
   /**
+   * Re-derive every record in the named source collection. Useful
+   * after a strategy change to bring previously-derived records
+   * up-to-date.
+   *
+   * Sequential in v1; parallelisation deferred to v2.
+   */
+  async deriveAll(sourceCollection: string): Promise<{ derived: number; failed: number }> {
+    const registry = this._getDerivationRegistry()
+    const strategies = registry.strategiesForSource(sourceCollection)
+    if (strategies.length === 0) return { derived: 0, failed: 0 }
+
+    const { DerivationExecutor } = await import('./derivations/executor.js')
+
+    const sourceColl = this.collection<Record<string, unknown>>(sourceCollection)
+    const records = await sourceColl.list()
+    let derived = 0
+    let failed = 0
+    for (const record of records) {
+      if (typeof record !== 'object' || record === null) continue
+      const id = (record as { id?: unknown }).id
+      if (typeof id !== 'string') continue
+      for (const { spec, strategyHash } of strategies) {
+        const sourceWithId = { ...(record as Record<string, unknown>), id }
+        const result = await DerivationExecutor.run(spec, sourceWithId, 0, strategyHash)
+        let anyFailed = false
+        for (const key of Object.keys(spec.outputs)) {
+          const out = result.outputs[key]
+          if (!out || !out.ok) { anyFailed = true; continue }
+          const outSpec = spec.outputs[key]
+          if (!outSpec) continue
+          await this.collection(outSpec.collection).put(id, out.value as Record<string, unknown>)
+        }
+        if (anyFailed) failed++
+        else derived++
+      }
+    }
+    return { derived, failed }
+  }
+
+  /**
    * @internal — exposed for `runTransaction({ amendment: true })` so
    * the amendment invariant runner can pass the SAME read-only vault
    * facade that the per-record `Collection.put` guard hook uses
