@@ -541,6 +541,11 @@ export class Vault {
             return this.guardReadOnlyFacade
           },
         },
+        derivationSource: {
+          registry: () => this.derivationRegistry,
+          getCollection: (name: string) =>
+            this.collection(name) as unknown as Collection<Record<string, unknown>>,
+        },
       }
       if (options?.indexes !== undefined) collOpts.indexes = options.indexes
       if (options?.reconcileOnOpen !== undefined) collOpts.reconcileOnOpen = options.reconcileOnOpen
