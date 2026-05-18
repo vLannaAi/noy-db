@@ -472,6 +472,21 @@ export type {
   GuardChange,
 } from './guards/index.js'
 
+// Derivations (Dim 14) — see docs/superpowers/specs/2026-05-01-dim14-derivation-v1-design.md
+export { withDerivation } from './derivations/index.js'
+export type {
+  DerivationStrategy,
+  DerivationStrategyHandle,
+  DerivedFromMeta,
+  OutputSpec,
+} from './derivations/index.js'
+export {
+  DerivationCycleError,
+  DerivationDepthError,
+  DerivationOutputUnknownError,
+  DerivationOutputShapeError,
+} from './errors.js'
+
 // Accounting periods
 export { PERIODS_COLLECTION } from './periods/index.js'
 export type {
