@@ -310,13 +310,20 @@ export async function runTransaction<T>(
       const coll = db.vault(op.vaultName).collection(op.collectionName)
       const key = keyOf(op)
       const prior = priorEnvelopes.get(key) ?? null
+      // Record the revert plan BEFORE the call so a mid-`coll.put` throw
+      // (e.g. strict-mode derivation failure firing after `store.put`
+      // has already committed the envelope) still has its source write
+      // reverted. `revertExecuted` is best-effort: putting prior back is
+      // idempotent when the failing op never actually wrote, and
+      // `_invalidateCacheEntry` is a no-op when the collection isn't
+      // hydrated.
+      executed.push({ op, priorEnvelope: prior })
       if (op.type === 'put') {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await coll.put(op.id, op.record as any)
       } else {
         await coll.delete(op.id)
       }
-      executed.push({ op, priorEnvelope: prior })
     }
   } catch (err) {
     // Phase 3 — best-effort revert. See helper docstring.
