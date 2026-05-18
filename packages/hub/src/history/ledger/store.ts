@@ -96,6 +96,13 @@ export interface AppendInput {
    * as the entry's `deltaHash` field.
    */
   delta?: JsonPatch
+  /**
+   * Present only for `op === 'amendment'` — structured audit
+   * payload for multi-record repair operations performed via
+   * `withTransactions(...)`. Carried through verbatim to the
+   * resulting ledger entry.
+   */
+  amendment?: LedgerEntry['amendment']
 }
 
 /**
@@ -290,10 +297,11 @@ export class LedgerStore {
       actor: input.actor === '' ? this.actor : input.actor,
       payloadHash: input.payloadHash,
     } as const
-    const entry: LedgerEntry =
-      deltaHash !== undefined
-        ? { ...entryBase, deltaHash }
-        : entryBase
+    const entry: LedgerEntry = {
+      ...entryBase,
+      ...(deltaHash !== undefined ? { deltaHash } : {}),
+      ...(input.amendment !== undefined ? { amendment: input.amendment } : {}),
+    }
 
     const envelope = await this.encryptEntry(entry)
     // expectedVersion: 0 ≡ "the slot must not yet exist." Honored by
