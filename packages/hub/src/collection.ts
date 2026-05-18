@@ -39,7 +39,7 @@ import type { ReadOnlyVaultFacade } from './guards/types.js'
 import { GuardExecutor } from './guards/executor.js'
 import type { DerivationRegistry } from './derivations/registry.js'
 import { DerivationExecutor } from './derivations/executor.js'
-import { markStale } from './derivations/stale.js'
+import { markStale, resolveStaleOnRead } from './derivations/stale.js'
 
 /** Callback for dirty tracking (sync engine integration). */
 export type OnDirtyCallback = (collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>
@@ -872,6 +872,18 @@ export class Collection<T> {
    *          `null` if not found.
    */
   async get(id: string, locale?: LocaleReadOptions): Promise<T | null> {
+    // --- Lazy derivation resolution ---
+    // If this collection is the output of a lazy-mode derivation
+    // strategy, consult the stale map and re-derive on demand before
+    // reading. No-op when nothing is pending — keeps the read fast
+    // path cheap.
+    if (this.derivationSource !== undefined) {
+      const registry = this.derivationSource.registry()
+      if (registry.strategiesProducingOutput(this.name).length > 0) {
+        await resolveStaleOnRead(this.derivationSource, this.name, id)
+      }
+    }
+
     let record: T | null
 
     if (this.lazy && this.lru) {
@@ -1326,7 +1338,7 @@ export class Collection<T> {
           await outputCollection.put(id, out.value)
         }
       } else {
-        await markStale(this.vault, spec, id)
+        await markStale(registry, spec, id)
       }
     }
   }
