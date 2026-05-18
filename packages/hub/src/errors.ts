@@ -470,6 +470,86 @@ export class PeriodClosedError extends NoydbError {
   }
 }
 
+/**
+ * Thrown when a `put()` or `delete()` is rejected by a guard's `check`
+ * function. The `reason` is the message the guard supplied — typically a
+ * short business description (e.g. "invoice is issued"). The full
+ * collection + id are surfaced so audit UIs can link back to the record.
+ */
+export class RecordLockedError extends NoydbError {
+  readonly collection: string
+  readonly id: string
+  readonly reason: string
+
+  constructor(collection: string, id: string, reason: string) {
+    super(
+      'RECORD_LOCKED',
+      `Cannot modify ${collection}/${id} — locked by guard: ${reason}. ` +
+        `Use withTransactions({ amendment: true, reason }) with admin/owner role to override.`,
+    )
+    this.name = 'RecordLockedError'
+    this.collection = collection
+    this.id = id
+    this.reason = reason
+  }
+}
+
+/**
+ * Thrown when a `put()` changes one or more fields that are frozen by a
+ * `frozenFields` guard. The `fields` list contains the specific paths
+ * that were detected as changed.
+ */
+export class FieldFrozenError extends NoydbError {
+  readonly collection: string
+  readonly id: string
+  readonly fields: readonly string[]
+
+  constructor(collection: string, id: string, fields: readonly string[]) {
+    super(
+      'FIELD_FROZEN',
+      `Cannot change frozen field(s) on ${collection}/${id}: ${fields.join(', ')}. ` +
+        `Use withTransactions({ amendment: true, reason }) with admin/owner role to override.`,
+    )
+    this.name = 'FieldFrozenError'
+    this.collection = collection
+    this.id = id
+    this.fields = fields
+  }
+}
+
+/**
+ * Thrown by an amendment invariant when the proposed change-set violates
+ * the declared business rule (e.g. disbursement total not preserved).
+ * Triggers a full transaction rollback via the existing revert pass.
+ */
+export class InvariantError extends NoydbError {
+  constructor(message: string) {
+    super('INVARIANT_VIOLATED', message)
+    this.name = 'InvariantError'
+  }
+}
+
+/**
+ * Thrown at `withTransactions({ amendment: true })` open if the caller's
+ * role is not in the guard's allowed amendment roles. Fail-fast: thrown
+ * before any writes are attempted.
+ */
+export class AmendmentForbiddenError extends NoydbError {
+  readonly userId: string
+  readonly role: string
+
+  constructor(userId: string, role: string) {
+    super(
+      'AMENDMENT_FORBIDDEN',
+      `User "${userId}" with role "${role}" cannot open an amendment transaction. ` +
+        `Amendments require admin or owner role.`,
+    )
+    this.name = 'AmendmentForbiddenError'
+    this.userId = userId
+    this.role = role
+  }
+}
+
 // ─── Hierarchical Access Errors ─────────────────────
 
 /**
