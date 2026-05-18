@@ -8,3 +8,13 @@ export type {
   GuardContext,
   GuardChange,
 } from './types.js'
+
+// Re-export error classes so `@noy-db/hub/guards` is self-contained.
+// Splitting: true in tsup.config.ts deduplicates the class definitions
+// across subpath boundaries, so `instanceof` works.
+export {
+  RecordLockedError,
+  FieldFrozenError,
+  InvariantError,
+  AmendmentForbiddenError,
+} from '../errors.js'
