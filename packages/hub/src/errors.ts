@@ -1332,3 +1332,79 @@ export class PathEscapeError extends NoydbError {
     this.targetDir = opts.targetDir
   }
 }
+
+// ─── Derivation Errors ──────────────────────────────
+
+/**
+ * Thrown at vault open if the derivation graph contains a cycle.
+ * `path` is the offending chain (e.g. `['a', 'b', 'c', 'a']`).
+ */
+export class DerivationCycleError extends NoydbError {
+  readonly path: readonly string[]
+
+  constructor(path: readonly string[]) {
+    super(
+      'DERIVATION_CYCLE',
+      `Derivation graph contains a cycle: ${path.join(' → ')}. ` +
+        `Refusing to open vault — break the cycle before retrying.`,
+    )
+    this.name = 'DerivationCycleError'
+    this.path = path
+  }
+}
+
+/**
+ * Thrown when a cascade of source → output → source → … exceeds the
+ * configured `maxDepth` (default 5).
+ */
+export class DerivationDepthError extends NoydbError {
+  readonly limit: number
+  readonly attempted: number
+
+  constructor(limit: number, attempted: number) {
+    super(
+      'DERIVATION_DEPTH',
+      `Derivation cascade exceeded max depth ${limit} (attempted ${attempted}). ` +
+        `Pass lifecycle: { maxDepth: N } to raise the limit if intentional.`,
+    )
+    this.name = 'DerivationDepthError'
+    this.limit = limit
+    this.attempted = attempted
+  }
+}
+
+/**
+ * Thrown at registration if a `withDerivation` strategy references an
+ * output `collection` that isn't otherwise declared (no schema, no use
+ * elsewhere). Surfacing this early catches typos in collection names.
+ */
+export class DerivationOutputUnknownError extends NoydbError {
+  readonly collection: string
+
+  constructor(collection: string) {
+    super(
+      'DERIVATION_OUTPUT_UNKNOWN',
+      `Derivation output collection "${collection}" is not declared on the vault. ` +
+        `Register the collection (e.g. via schema) before registering a derivation that writes to it.`,
+    )
+    this.name = 'DerivationOutputUnknownError'
+    this.collection = collection
+  }
+}
+
+/**
+ * Thrown when the user's `derive` function returns a value that doesn't
+ * match the declared output spec (e.g. wrong shape, wrong key set).
+ */
+export class DerivationOutputShapeError extends NoydbError {
+  readonly outputKey: string
+
+  constructor(outputKey: string, detail: string) {
+    super(
+      'DERIVATION_OUTPUT_SHAPE',
+      `Derivation output "${outputKey}" has invalid shape: ${detail}.`,
+    )
+    this.name = 'DerivationOutputShapeError'
+    this.outputKey = outputKey
+  }
+}
