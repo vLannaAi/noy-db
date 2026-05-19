@@ -265,12 +265,14 @@ export class TxCollection<T> {
 }
 
 /**
- * Commit plan: pre-flight check + execution + revert plan. Returned
- * from `runTransaction`.
+ * Commit plan: pre-flight check + execution + revert plan.
  *
- * @internal — exposed only for the `Collection.putMany({atomic:true})`
- * wire-up so the bulk path can share the executor without creating
- * an outer TxContext.
+ * @internal — driven by `withTransactions()` (via `tx/active.ts`) for
+ * user-facing `db.transaction(...)` calls and by the `amendment` path
+ * in `noydb.ts`. `Collection.putManyAtomic` runs its own Phase 2 loop
+ * but shares the `_activeTxContext` mechanism (and the `revertExecuted`
+ * helper) so nested side-effect derivation writes get registered for
+ * revert alongside the bulk-put source ops (#133).
  */
 export async function runTransaction<T>(
   db: Noydb,
@@ -487,9 +489,12 @@ export async function runTransaction<T>(
  * state can still reconstruct it by walking the ledger through the
  * failed-tx timestamp.
  *
- * @internal
+ * @internal — shared between `runTransaction` and
+ * `Collection.putManyAtomic`. Both register source ops + nested
+ * derivation side-effect ops onto `_executed`; this helper unwinds the
+ * combined list in reverse on rollback.
  */
-async function revertExecuted(
+export async function revertExecuted(
   executed: ReadonlyArray<ExecutedOp>,
   store: Noydb['_store'],
   db?: Noydb,

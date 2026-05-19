@@ -126,4 +126,53 @@ describe('Strict-mode derivation multi-output orphan (#133)', () => {
     // Strategy B's output is absent — its derive threw and was logged.
     expect(await v.collection<Bad>('bad').get('id1')).toBeNull()
   })
+
+  it('rolls back early-written outputs when putMany({ atomic: true }) hits a strict failure mid-batch (#133)', async () => {
+    // Two strategies on the same source — strategy A succeeds, strategy B's derive throws.
+    // The bulk-atomic path runs its own Phase 2 loop (NOT runTransaction);
+    // pre-fix it never published an _activeTxContext, so derived outputs
+    // written for id1 by Strategy A before Strategy B threw were
+    // orphaned. The fix wraps Phase 2 with the same set/clear pattern.
+    const stratGood = withDerivation<Src, { good: Good }>({
+      source: 'src',
+      deterministic: true,
+      outputs: { good: { shape: 'record', collection: 'good' } },
+      derive: (s) => ({ good: { value: s.payload.length } }),
+      strict: true,
+      lifecycle: 'eager',
+    })
+    const stratBad = withDerivation<Src, { bad: Bad }>({
+      source: 'src',
+      deterministic: true,
+      outputs: { bad: { shape: 'record', collection: 'bad' } },
+      derive: () => { throw new Error('always-fails') },
+      strict: true,
+      lifecycle: 'eager',
+    })
+    const db = await createNoydb({
+      store: memory(),
+      user: 'alice',
+      secret: 'derivation-orphan-133-putmany-passphrase-2026',
+      derivationStrategies: [stratGood, stratBad],
+    })
+    const v = await db.openVault('demo')
+
+    await expect(
+      v.collection<Src>('src').putMany(
+        [
+          ['id1', { id: 'id1', payload: 'data' }],
+          ['id2', { id: 'id2', payload: 'data2' }],
+        ],
+        { atomic: true },
+      ),
+    ).rejects.toThrow()
+
+    // After atomic failure: source should NOT have either id1 or id2.
+    expect(await v.collection<Src>('src').get('id1')).toBeNull()
+    expect(await v.collection<Src>('src').get('id2')).toBeNull()
+    // Derived 'good' outputs that were written for id1 BEFORE id2's
+    // strategyBad threw must also be absent (the orphan-window fix).
+    expect(await v.collection<Good>('good').get('id1')).toBeNull()
+    expect(await v.collection<Good>('good').get('id2')).toBeNull()
+  })
 })

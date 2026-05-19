@@ -84,7 +84,8 @@ import type { KeyringAuthenticator } from './types.js'
 import type { SyncEngine } from './team/sync.js'
 import type { SyncTransaction } from './team/sync-transaction.js'
 import { NO_SYNC, type SyncStrategy } from './team/sync-strategy.js'
-import type { TxContext, AmendmentTxOptions } from './tx/transaction.js'
+import type { AmendmentTxOptions } from './tx/transaction.js'
+import { TxContext } from './tx/transaction.js'
 import { NO_TX, type TxStrategy } from './tx/strategy.js'
 import { INDEXED_STORE_POLICY } from './store/sync-policy.js'
 import type { PolicyEnforcer } from './session/session-policy.js'
@@ -1015,15 +1016,34 @@ export class Noydb {
   }
 
   /**
-   * Called by `runTransaction` at Phase 2 start. Nested transactions
-   * are not supported — overwriting an existing context indicates a
-   * bug in the caller, but we tolerate it (best-effort) rather than
-   * throwing inside the executor.
+   * Called by `runTransaction` at Phase 2 start, and by
+   * `Collection.putManyAtomic` (via `derivationSource.setActiveTxContext`)
+   * for its own Phase 2 loop. Nested or concurrent (non-nested)
+   * transactions on the same Noydb instance are NOT supported —
+   * overwriting an active context means another transaction is still
+   * running and its `_executed` list would be cross-contaminated by
+   * the nested writes. We tolerate the overwrite (best-effort, no
+   * throw) to keep the rare interleaving from breaking consumers who
+   * currently get lucky with timing, but applications should ensure
+   * their multi-record commits are serialised on a single Noydb.
    *
    * @internal
    */
   _setActiveTxContext(ctx: TxContext): void {
     this._activeTxContext = ctx
+  }
+
+  /**
+   * Factory for a transient `TxContext` bound to this Noydb. Used by
+   * `Collection.putManyAtomic` (via `derivationSource.createTxContext`)
+   * to publish an active context for the duration of its bulk-atomic
+   * Phase 2 loop, so recursive derivation-output writes register on
+   * `ctx._executed` and roll back together with the source ops (#133).
+   *
+   * @internal
+   */
+  _createTxContext(): TxContext {
+    return new TxContext(this)
   }
 
   /**
