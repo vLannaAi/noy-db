@@ -573,6 +573,10 @@ export class Vault {
                 registry: () => this.derivationRegistry as DerivationRegistry,
                 getCollection: (name: string) =>
                   this.collection(name) as unknown as Collection<Record<string, unknown>>,
+                getActiveTxContext: () => this.noydb._activeTxContextOrNull,
+                createTxContext: () => this.noydb._createTxContext(),
+                setActiveTxContext: (ctx) => this.noydb._setActiveTxContext(ctx),
+                clearActiveTxContext: (ctx) => this.noydb._clearActiveTxContext(ctx),
               },
             }
           : {}),

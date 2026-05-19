@@ -84,7 +84,8 @@ import type { KeyringAuthenticator } from './types.js'
 import type { SyncEngine } from './team/sync.js'
 import type { SyncTransaction } from './team/sync-transaction.js'
 import { NO_SYNC, type SyncStrategy } from './team/sync-strategy.js'
-import type { TxContext, AmendmentTxOptions } from './tx/transaction.js'
+import type { AmendmentTxOptions } from './tx/transaction.js'
+import { TxContext } from './tx/transaction.js'
 import { NO_TX, type TxStrategy } from './tx/strategy.js'
 import { INDEXED_STORE_POLICY } from './store/sync-policy.js'
 import type { PolicyEnforcer } from './session/session-policy.js'
@@ -164,6 +165,17 @@ export class Noydb {
   private readonly txStrategy: TxStrategy
   private readonly sessionStrategy: SessionStrategy
   private readonly syncStrategy: SyncStrategy
+  /**
+   * Currently-running multi-record transaction, set by
+   * `runTransaction` at the start of Phase 2 (commit) and cleared in
+   * the same function's `finally` block. Side-effect writes triggered
+   * during a staged op's `Collection.put` (today: eager derivation
+   * outputs) register their pre-write envelope on `_executed` here so
+   * a mid-batch failure rolls them back alongside the main staged ops
+   * (#133). `null` outside of Phase 2.
+   * @internal
+   */
+  private _activeTxContext: TxContext | null = null
 
   // ─── plaintextTranslator state ─────────────────────────
   /**
@@ -988,6 +1000,63 @@ export class Noydb {
    */
   get _store(): NoydbStore {
     return this.options.store
+  }
+
+  /**
+   * Currently-running multi-record transaction, or `null` outside
+   * Phase 2. `Collection.dispatchDerivations` consults this so a
+   * recursive derived-output write inside `Collection.put` can register
+   * its envelope onto `ctx._executed` and roll back with the main
+   * staged ops on mid-batch failure (#133).
+   *
+   * @internal
+   */
+  get _activeTxContextOrNull(): TxContext | null {
+    return this._activeTxContext
+  }
+
+  /**
+   * Called by `runTransaction` at Phase 2 start, and by
+   * `Collection.putManyAtomic` (via `derivationSource.setActiveTxContext`)
+   * for its own Phase 2 loop. Nested or concurrent (non-nested)
+   * transactions on the same Noydb instance are NOT supported —
+   * overwriting an active context means another transaction is still
+   * running and its `_executed` list would be cross-contaminated by
+   * the nested writes. We tolerate the overwrite (best-effort, no
+   * throw) to keep the rare interleaving from breaking consumers who
+   * currently get lucky with timing, but applications should ensure
+   * their multi-record commits are serialised on a single Noydb.
+   *
+   * @internal
+   */
+  _setActiveTxContext(ctx: TxContext): void {
+    this._activeTxContext = ctx
+  }
+
+  /**
+   * Factory for a transient `TxContext` bound to this Noydb. Used by
+   * `Collection.putManyAtomic` (via `derivationSource.createTxContext`)
+   * to publish an active context for the duration of its bulk-atomic
+   * Phase 2 loop, so recursive derivation-output writes register on
+   * `ctx._executed` and roll back together with the source ops (#133).
+   *
+   * @internal
+   */
+  _createTxContext(): TxContext {
+    return new TxContext(this)
+  }
+
+  /**
+   * Called by `runTransaction` in its `finally`. Only clears when the
+   * passed ctx matches the active one — a defensive no-op if some
+   * other code path already cleared it.
+   *
+   * @internal
+   */
+  _clearActiveTxContext(ctx: TxContext): void {
+    if (this._activeTxContext === ctx) {
+      this._activeTxContext = null
+    }
   }
 
   /** Get sync status for a vault. */
