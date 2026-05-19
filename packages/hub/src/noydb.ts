@@ -20,7 +20,11 @@ import type {
   ReAuthOperation,
   TranslatorAuditEntry,
 } from './types.js'
-import { ValidationError, NoAccessError, InvalidKeyError, KeyringCorruptError, StoreCapabilityError } from './errors.js'
+import { ValidationError, NoAccessError, InvalidKeyError, KeyringCorruptError, StoreCapabilityError, PermissionDeniedError } from './errors.js'
+import {
+  readDirectoryConfig,
+  persistDirectoryConfig,
+} from './directory/storage.js'
 import type { PassphrasePolicy } from './validation.js'
 import {
   rotatePassphrase as keyringRotatePassphrase,
@@ -1240,6 +1244,42 @@ export class Noydb {
     }
     this.policyCache.set(vault, merged)
     return merged
+  }
+
+  /**
+   * Read the current vault-level user-directory toggle (#122). Returns
+   * the default-on shape (`{ enabled: true }`) when no `_meta/directory`
+   * document has been persisted yet.
+   *
+   * No role gate — anyone who can open the vault can read the toggle.
+   */
+  async getDirectoryEnabled(vault: string): Promise<boolean> {
+    if (this.closed) throw new ValidationError('Instance is closed')
+    const persisted = await readDirectoryConfig(this.options.store, vault)
+    return persisted?.enabled ?? true
+  }
+
+  /**
+   * Toggle the vault's user-directory listing on or off (#122).
+   * Owner-only. When disabled, `listUsersWithEnvelopes()` throws
+   * {@link import('./errors.js').DirectoryDisabledError} for callers
+   * whose role is neither `owner` nor `admin`.
+   *
+   * Honest caveat: this is a UX flag, not a privacy guarantee. The
+   * keyring file at `_keyring/<userId>` and the envelope ciphertext at
+   * `_users/<keyringId>` remain observable to anyone with direct store
+   * read access — only the hub-level enumeration is gated. See
+   * `docs/subsystems/user-envelope.md` → "Directory visibility".
+   */
+  async setDirectoryEnabled(vault: string, enabled: boolean): Promise<void> {
+    if (this.closed) throw new ValidationError('Instance is closed')
+    const keyring = await this.getKeyringInternal(vault)
+    if (keyring.role !== 'owner') {
+      throw new PermissionDeniedError(
+        `setDirectoryEnabled requires owner role; caller has role "${keyring.role}"`,
+      )
+    }
+    await persistDirectoryConfig(this.options.store, vault, { enabled })
   }
 
   /**

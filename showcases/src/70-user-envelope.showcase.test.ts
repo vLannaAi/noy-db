@@ -50,6 +50,7 @@ import { describe, it, expect } from 'vitest'
 import {
   createNoydb,
   PolicyDeniedError,
+  DirectoryDisabledError,
   listUsersWithEnvelopes,
   USER_ENVELOPE_COLLECTION,
 } from '@noy-db/hub'
@@ -250,7 +251,7 @@ describe('Showcase 70 — User envelope', () => {
     const dek = await (v as unknown as {
       getDEK: (c: string) => Promise<CryptoKey>
     }).getDEK(USER_ENVELOPE_COLLECTION)
-    const rows = await listUsersWithEnvelopes<AppProfile>(store, 'demo', dek)
+    const rows = await listUsersWithEnvelopes<AppProfile>(store, 'demo', dek, 'owner')
 
     expect(rows.length).toBe(2)
     const byId = new Map(rows.map((r) => [r.user.userId, r]))
@@ -259,5 +260,50 @@ describe('Showcase 70 — User envelope', () => {
     expect(byId.get('bob')!.user.role).toBe('operator')
     expect(byId.get('bob')!.envelope!.data.profile?.displayName).toBe('Bob the Auditor')
     db.close()
+  })
+
+  it('user-list visibility — hidden users filtered by default, directory toggle for owners (#122)', async () => {
+    const store = memory()
+    const aliceDb = await createNoydb({ store, user: 'alice', secret: 'alice-pass-2026' })
+    const v = await aliceDb.openVault('demo')
+    await v.user.updateMe<AppProfile>({ profile: { displayName: 'Alice' } })
+    await aliceDb.grant('demo', {
+      userId: 'bob',
+      displayName: 'Bob',
+      role: 'operator',
+      passphrase: 'bob-pass-2026',
+      permissions: { invoices: 'rw' },
+    })
+
+    // Bob opts out of the team directory.
+    const bobDb = await createNoydb({ store, user: 'bob', secret: 'bob-pass-2026' })
+    const bobV = await bobDb.openVault('demo')
+    await bobV.user.setMyVisibility({ hidden: true })
+
+    const dek = await (v as unknown as {
+      getDEK: (c: string) => Promise<CryptoKey>
+    }).getDEK(USER_ENVELOPE_COLLECTION)
+
+    // Default listing skips bob.
+    const visible = await listUsersWithEnvelopes<AppProfile>(store, 'demo', dek, 'operator')
+    expect(visible.map((r) => r.user.userId).sort()).toEqual(['alice'])
+
+    // Owner with includeHidden sees everyone.
+    const allOwner = await listUsersWithEnvelopes<AppProfile>(store, 'demo', dek, 'owner', {
+      includeHidden: true,
+    })
+    expect(allOwner.map((r) => r.user.userId).sort()).toEqual(['alice', 'bob'])
+
+    // Owner disables the whole directory; bob can no longer enumerate.
+    await aliceDb.setDirectoryEnabled('demo', false)
+    await expect(
+      listUsersWithEnvelopes<AppProfile>(store, 'demo', dek, 'operator'),
+    ).rejects.toBeInstanceOf(DirectoryDisabledError)
+
+    // Owner still can.
+    const ownerView = await listUsersWithEnvelopes<AppProfile>(store, 'demo', dek, 'owner')
+    expect(ownerView.length).toBe(1) // alice — bob still hidden
+    aliceDb.close()
+    bobDb.close()
   })
 })

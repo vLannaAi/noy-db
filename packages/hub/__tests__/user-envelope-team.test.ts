@@ -91,7 +91,7 @@ describe('team integration — listUsersWithEnvelopes (#23)', () => {
       getDEK: (c: string) => Promise<CryptoKey>
     }).getDEK(USER_ENVELOPE_COLLECTION)
 
-    const rows = await listUsersWithEnvelopes<TestProfile>(store, 'demo', dek)
+    const rows = await listUsersWithEnvelopes<TestProfile>(store, 'demo', dek, 'owner')
     expect(rows.length).toBe(3)
 
     const byId = new Map(rows.map((r) => [r.user.userId, r]))
@@ -117,7 +117,7 @@ describe('team integration — listUsersWithEnvelopes (#23)', () => {
       getDEK: (c: string) => Promise<CryptoKey>
     }).getDEK(USER_ENVELOPE_COLLECTION)
 
-    const rows = await listUsersWithEnvelopes<TestProfile>(store, 'demo', dek)
+    const rows = await listUsersWithEnvelopes<TestProfile>(store, 'demo', dek, 'owner')
     const carol = rows.find((r) => r.user.userId === 'carol')!
     expect(carol.envelope).toBeNull()
     // The keyring info is still present so the caller can fall back
