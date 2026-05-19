@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/in-yjs",
-  "version": "0.1.0-pre.11",
+  "version": "0.1.0-pre.12",
   "description": "Yjs Y.Doc interop for noy-db — collaborative rich-text fields with encrypted-at-rest Yjs state",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",

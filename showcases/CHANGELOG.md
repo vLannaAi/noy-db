@@ -1,5 +1,13 @@
 # @noy-db/showcases
 
+## 0.1.0-pre.12
+
+### Patch Changes
+
+- Updated dependencies
+  - @noy-db/hub@0.1.0-pre.12
+
+
 ## 0.1.0-pre.11
 
 ### Patch Changes

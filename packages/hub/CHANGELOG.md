@@ -1,5 +1,56 @@
 # Changelog — hub
 
+## 0.1.0-pre.12
+
+Three follow-ups from pre.11's guards + derivation work: bundle regression plugged ([#130](https://github.com/vLannaAi/noy-db/issues/130)), strict-mode multi-output orphan window closed ([#133](https://github.com/vLannaAi/noy-db/issues/133)), and user-list visibility flags shipped ([#122](https://github.com/vLannaAi/noy-db/issues/122)). Plus [#132](https://github.com/vLannaAi/noy-db/issues/132) closed as superseded by #130.
+
+### Bundle regression fix (#130)
+
+Root cause: `Vault` and `Collection` had **static value imports** of `GuardRegistry`, `DerivationRegistry`, `ReadOnlyVaultFacade`, `GuardExecutor`, and `DerivationExecutor` — forcing the classes into `dist/index.js` even when consumers only imported `createNoydb`. Verified by inspecting the generated dist artefacts: the 5 class names all appeared in the floor bundle's top-level imports.
+
+- **Fix** — converted all 5 to type-only imports + lazy `await import(...)` at construction / dispatch time. Mirrors the deferred-load approach already used by some other subsystems.
+- **Bundle measurement** — floor dropped from **45,238 gz → 39,524 gz (−12.6%)**. Not all the way to the v0.25 baseline because of intervening features unrelated to the regression — the baseline has been reset on a methodology that now uses `splitting: true` (matches what real consumer bundlers emit).
+- **Leak canaries** — 5 new symbol-presence assertions added to `check-bundle.mjs`, plus a new `eagerImports` field that catches splitting-aware regressions. The prior leak would have silently passed CI without these.
+- PR [#138](https://github.com/vLannaAi/noy-db/pull/138), follow-up fixups in commit `03544b3` per code review.
+
+### Strict-mode derivation orphan (#133)
+
+When a strict-mode derivation produced multiple outputs and a later strategy threw, the first M outputs were already written via the `dispatchDerivations` `Collection.put` recursion. Those nested writes were **not** visible to the outer transaction's revert plan, so `revertExecuted` rolled back the source but left orphans on disk.
+
+- **Fix** — `Noydb` now tracks the active transaction context (set by `runTransaction` at Phase 2 start, cleared in `finally`). `Collection.dispatchDerivations` checks the active context and registers each derived put as a side-effect op in `ctx._executed` before the write fires. `revertExecuted` already walks `_executed` in reverse — side-effect entries get reverted naturally.
+- **Adjacent site fixed in flight** — same treatment applied to `Collection.putManyAtomic`, which has its own bespoke commit loop and would have had the identical orphan window otherwise (caught in code review).
+- **Reproduction scope** — the orphan was only reproducible with **two strategies on the same source**; single-strategy multi-output never partially writes because `DerivationExecutor.run` validates all output shapes upfront before any persistence call.
+- PR [#139](https://github.com/vLannaAi/noy-db/pull/139).
+
+### User-list visibility flags (#122)
+
+Two new visibility controls on top of the per-vault user envelope (pre.6 work):
+
+- **Per-user `hidden` flag** — stored at `_meta/visibility/<keyringId>` (sidecar, plaintext bypass — mirrors `_meta/policy` and `_meta/handle`). Set via `vault.user.setMyVisibility({ hidden: true })` (own-only). `listUsersWithEnvelopes` filters hidden envelopes by default; admin / owner callers pass `{ includeHidden: true }` to see them.
+- **Vault-level `directory.enabled` flag** — stored at `_meta/directory`. Toggled via `Noydb.setDirectoryEnabled(vault, enabled)` (owner-only). When false, `listUsersWithEnvelopes` throws the new `DirectoryDisabledError` for non-admin / non-owner callers.
+- **Breaking API change** — `listUsersWithEnvelopes` gained a required `callerRole: Role` parameter. Consumers using the function directly must update; the hub-internal wrappers source `callerRole` from the unlocked keyring (signed-by-construction, no bypass). Documented as a minor-version surface change.
+- **Design adaptation** — the issue proposed adding `hidden` to `PublicUserEnvelope.data`, but `UserEnvelope.data: T` is opaque-to-hub by contract (apps own the schema). Used the sidecar pattern instead, preserving the existing invariant.
+- **New error** — `DirectoryDisabledError`, exported from `@noy-db/hub` and the `team/` subpath barrel for `instanceof` checks.
+- **Honest caveat documented** — visibility is a **UX flag, not a privacy guarantee**. The keyring count and envelope ciphertext are still observable to anyone with store-read access; hidden hides only the joined plaintext from the directory enumeration.
+- **Lifecycle** — `revoke()` also deletes the visibility sidecar (commit `6f5543c`, caught by code review). Without this, a re-granted same-userId would silently inherit the old flag.
+- PR [#140](https://github.com/vLannaAi/noy-db/pull/140), follow-up fixup `6f5543c`.
+
+### Closed without code (#132)
+
+The original premise — "pre-hash the `withDerivation` handle so `register()` becomes sync so the `Vault` constructor can own derivation init" — was broken by #130. To plug the bundle regression, `DerivationRegistry` is now dynamically imported via `await import(...)` — the constructor can no longer reference `new DerivationRegistry()` directly. Pre-hashing alone has independent minor value (debugging) but doesn't move the needle on the original goal (plugging the `Noydb.vault()` sync fallback accessor gap). Closed with rationale; revisit if anyone hits the fallback gap in practice.
+
+### Test count growth
+
+1485 → **1494** hub tests (9 new across the three fixes / features). 124 test files total.
+
+### Known follow-ups (pre.13 milestone)
+
+- Remaining real-provider showcase batch (Apple / Google / LINE): [#64](https://github.com/vLannaAi/noy-db/issues/64), [#65](https://github.com/vLannaAi/noy-db/issues/65), [#73](https://github.com/vLannaAi/noy-db/issues/73), [#74](https://github.com/vLannaAi/noy-db/issues/74), [#75](https://github.com/vLannaAi/noy-db/issues/75), [#76](https://github.com/vLannaAi/noy-db/issues/76).
+
+### Issues closed
+
+#122, #130, #132, #133
+
 ## 0.1.0-pre.11
 
 Two new subsystems land in the same release: **`withGuard`** (record lock + field freeze + role-gated amendment invariant) and **`withDerivation`** (deterministic derived data, Dim 14 v1). Closes the pre.11 milestone — 8 substantive issues, 2 PRs, plus 4 reviewer-caught side-fixes and 2 tier-2 auth showcases.
