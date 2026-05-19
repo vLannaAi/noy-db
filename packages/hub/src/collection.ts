@@ -37,6 +37,9 @@ import { NO_AGGREGATE, type AggregateStrategy } from './aggregate/strategy.js'
 import type { GuardRegistry } from './guards/registry.js'
 import type { ReadOnlyVaultFacade } from './guards/types.js'
 import { GuardExecutor } from './guards/executor.js'
+import type { DerivationRegistry } from './derivations/registry.js'
+import { DerivationExecutor } from './derivations/executor.js'
+import { markStale, resolveStaleOnRead } from './derivations/stale.js'
 
 /** Callback for dirty tracking (sync engine integration). */
 export type OnDirtyCallback = (collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>
@@ -368,6 +371,20 @@ export class Collection<T> {
     | undefined
 
   /**
+   * Vault-internal hook for derivation dispatch. When set,
+   * `Collection.put` consults the registry after the source-write
+   * commits and writes derived outputs through `getCollection(name).put`.
+   * Same structural-interface pattern as `guardSource` to avoid a
+   * circular Vault import.
+   */
+  private readonly derivationSource:
+    | {
+        registry(): DerivationRegistry
+        getCollection(name: string): Collection<Record<string, unknown>>
+      }
+    | undefined
+
+  /**
    * Optional back-reference to the owning compartment's ref
    * enforcer. When present, `Collection.put` calls
    * `refEnforcer.enforceRefsOnPut(name, record)` before the adapter
@@ -656,6 +673,17 @@ export class Collection<T> {
       registry(): GuardRegistry
       readOnlyVault(): ReadOnlyVaultFacade
     } | undefined
+    /**
+     * Optional back-reference to the owning vault's derivation
+     * registry + collection accessor. When present, successful
+     * `put()` dispatches registered derivation strategies for the
+     * source collection. Same structural-interface pattern as
+     * `guardSource` to avoid a circular Vault import.
+     */
+    derivationSource?: {
+      registry(): DerivationRegistry
+      getCollection(name: string): Collection<Record<string, unknown>>
+    } | undefined
   }) {
     this.adapter = opts.adapter
     this.vault = opts.vault
@@ -688,6 +716,7 @@ export class Collection<T> {
     this.onAccess = opts.onAccess
     this.periodGuard = opts.periodGuard
     this.guardSource = opts.guardSource
+    this.derivationSource = opts.derivationSource
 
     // hierarchical-tier wiring
     this.tiers = opts.tiers && opts.tiers.length > 0 ? new Set(opts.tiers) : null
@@ -843,6 +872,18 @@ export class Collection<T> {
    *          `null` if not found.
    */
   async get(id: string, locale?: LocaleReadOptions): Promise<T | null> {
+    // --- Lazy derivation resolution ---
+    // If this collection is the output of a lazy-mode derivation
+    // strategy, consult the stale map and re-derive on demand before
+    // reading. No-op when nothing is pending — keeps the read fast
+    // path cheap.
+    if (this.derivationSource !== undefined) {
+      const registry = this.derivationSource.registry()
+      if (registry.strategiesProducingOutput(this.name).length > 0) {
+        await resolveStaleOnRead(this.derivationSource, this.name, id)
+      }
+    }
+
     let record: T | null
 
     if (this.lazy && this.lru) {
@@ -1141,6 +1182,7 @@ export class Collection<T> {
       await this.onDirty?.(this.name, id, 'put', version)
       this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action: 'put' } satisfies ChangeEvent)
       await this.onAccess?.('put', id)
+      await this.dispatchDerivations(id, record, version)
       return
     }
     // ─── End CRDT mode ──────────────────────────────────────────────────
@@ -1249,6 +1291,56 @@ export class Collection<T> {
     } satisfies ChangeEvent)
 
     await this.onAccess?.('put', id)
+
+    // Derivation dispatch — AFTER store + ledger + emitter commit so a
+    // failed source-write never produces orphan derived outputs. The
+    // recursive `put` into output collections re-enters this pipeline
+    // (encrypt + ledger + emit) intentionally; cycle detection at vault
+    // open is the primary defense against infinite recursion.
+    await this.dispatchDerivations(id, record, version)
+  }
+
+  /**
+   * Fire registered derivation strategies for this source collection.
+   * Eager mode runs `derive` inline and writes each output via the
+   * sibling `Collection.put`; lazy mode marks dependent outputs stale
+   * (D11 stub today). Errors in non-strict mode are logged and
+   * skipped; strict mode propagates the first failing output's error.
+   *
+   * Skips entirely when the record being written is itself a derived
+   * output (carries `_derivedFrom`) — defensive guard against missed
+   * cycle detection.
+   */
+  private async dispatchDerivations(id: string, record: T, version: number): Promise<void> {
+    if (this.derivationSource === undefined) return
+    const incoming = record as unknown as Record<string, unknown>
+    if (incoming && typeof incoming === 'object' && '_derivedFrom' in incoming) return
+    const registry = this.derivationSource.registry()
+    const strategies = registry.strategiesForSource(this.name)
+    if (strategies.length === 0) return
+    for (const { spec, strategyHash } of strategies) {
+      const mode = typeof spec.lifecycle === 'string' ? spec.lifecycle : spec.lifecycle.mode
+      if (mode === 'eager') {
+        const sourceWithId = { ...incoming, id } as Record<string, unknown> & { id: string }
+        const result = await DerivationExecutor.run(spec, sourceWithId, version, strategyHash)
+        for (const key of Object.keys(spec.outputs)) {
+          const out = result.outputs[key]
+          if (!out) continue
+          if (!out.ok) {
+            const err = out.error ?? new Error(`derivation output "${key}" failed`)
+            if (spec.strict) throw err
+            console.warn(`[derivation] output "${key}" for source "${spec.source}" id="${id}" failed:`, err)
+            continue
+          }
+          const outSpec = spec.outputs[key]
+          if (!outSpec) continue
+          const outputCollection = this.derivationSource.getCollection(outSpec.collection)
+          await outputCollection.put(id, out.value)
+        }
+      } else {
+        await markStale(registry, spec, id)
+      }
+    }
   }
 
   /** Delete a record by ID. */

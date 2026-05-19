@@ -384,6 +384,7 @@ export class Noydb {
             }
           : undefined,
     })
+    await comp._initDerivations(this.options.derivationStrategies ?? [])
     this.vaultCache.set(name, comp)
     return comp
   }

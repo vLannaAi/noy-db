@@ -1,0 +1,86 @@
+import { describe, it, expect } from 'vitest'
+import { createNoydb, withDerivation, DerivationCycleError } from '../../src/index.js'
+import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
+
+function memory(): NoydbStore {
+  const data = new Map<string, EncryptedEnvelope>()
+  const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
+  return {
+    capabilities: { casAtomic: true, auth: { kind: 'none' } },
+    async get(v, c, i) { return data.get(k(v, c, i)) ?? null },
+    async put(v, c, i, env) { data.set(k(v, c, i), env) },
+    async delete(v, c, i) { data.delete(k(v, c, i)) },
+    async list(v, c) {
+      const prefix = `${v}/${c}/`
+      return [...data.keys()].filter(key => key.startsWith(prefix)).map(key => key.slice(prefix.length))
+    },
+    async loadAll(v) {
+      const out: Record<string, Record<string, EncryptedEnvelope>> = {}
+      for (const [key, env] of data) {
+        const [vname, cname, id] = key.split('/')
+        if (vname === v) {
+          out[cname] = out[cname] ?? {}
+          out[cname][id] = env
+        }
+      }
+      return out
+    },
+    async saveAll(v, payload) {
+      for (const c of Object.keys(payload)) {
+        for (const i of Object.keys(payload[c])) {
+          data.set(k(v, c, i), payload[c][i])
+        }
+      }
+    },
+  }
+}
+
+describe('Vault.derivationRegistry wiring', () => {
+  it('createNoydb accepts derivationStrategies', async () => {
+    const handle = withDerivation({
+      source: 'pdfs',
+      deterministic: true,
+      outputs: { meta: { shape: 'record', collection: 'pdf-meta' } },
+      derive: () => ({ meta: { len: 0 } }),
+      lifecycle: 'eager',
+    })
+    const db = await createNoydb({
+      store: memory(),
+      user: 'alice',
+      secret: 'derivation-vault-wiring-passphrase-2026',
+      derivationStrategies: [handle],
+    })
+    const vault = await db.openVault('demo')
+    const reg = (vault as any)._getDerivationRegistry()
+    expect(reg.strategiesForSource('pdfs')).toHaveLength(1)
+    expect(reg.strategiesForSource('absent')).toHaveLength(0)
+  })
+
+  it('createNoydb works without derivationStrategies', async () => {
+    const db = await createNoydb({
+      store: memory(),
+      user: 'alice',
+      secret: 'derivation-vault-wiring-empty-passphrase-2026',
+    })
+    const vault = await db.openVault('demo')
+    const reg = (vault as any)._getDerivationRegistry()
+    expect(reg.strategiesForSource('any')).toHaveLength(0)
+  })
+
+  it('refuses to open vault with a cyclic derivation graph', async () => {
+    const bad = withDerivation({
+      source: 'a',
+      deterministic: true,
+      outputs: { o: { shape: 'record', collection: 'a' } }, // self-cycle
+      derive: () => ({ o: {} }),
+      lifecycle: 'eager',
+    })
+    const db = await createNoydb({
+      store: memory(),
+      user: 'alice',
+      secret: 'derivation-vault-wiring-cycle-passphrase-2026',
+      derivationStrategies: [bad],
+    })
+    await expect(db.openVault('demo')).rejects.toBeInstanceOf(DerivationCycleError)
+  })
+})

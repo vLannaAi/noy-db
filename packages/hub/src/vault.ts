@@ -67,6 +67,8 @@ import { NO_SYNC, type SyncStrategy } from './team/sync-strategy.js'
 import { GuardRegistry } from './guards/registry.js'
 import type { GuardStrategyHandle } from './guards/types.js'
 import { ReadOnlyVaultFacade } from './guards/read-only-facade.js'
+import { DerivationRegistry } from './derivations/registry.js'
+import type { DerivationStrategyHandle } from './derivations/types.js'
 import type { LocaleReadOptions, ConflictPolicy } from './types.js'
 import type { CrdtMode } from './crdt/crdt.js'
 import { ReservedCollectionNameError } from './errors.js'
@@ -136,6 +138,7 @@ export class Vault {
   private readonly i18nStrategy: I18nStrategy
   private readonly syncStrategy: SyncStrategy
   private readonly guardRegistry: GuardRegistry
+  private readonly derivationRegistry: DerivationRegistry
   /**
    * Cached read-only facade handed to guard callbacks via `ctx.vault`.
    * Allocated lazily on first guard invocation to avoid the cost in
@@ -359,6 +362,7 @@ export class Vault {
         this.guardRegistry.register(handle.spec)
       }
     }
+    this.derivationRegistry = new DerivationRegistry()
     this.historyConfig = opts.historyConfig ?? { enabled: true }
     this.reloadKeyring = opts.reloadKeyring
     this.locale = opts.locale
@@ -536,6 +540,11 @@ export class Vault {
             }
             return this.guardReadOnlyFacade
           },
+        },
+        derivationSource: {
+          registry: () => this.derivationRegistry,
+          getCollection: (name: string) =>
+            this.collection(name) as unknown as Collection<Record<string, unknown>>,
         },
       }
       if (options?.indexes !== undefined) collOpts.indexes = options.indexes
@@ -1306,6 +1315,65 @@ export class Vault {
   /** @internal — Collection.put calls into this. */
   _getGuardRegistry(): GuardRegistry {
     return this.guardRegistry
+  }
+
+  /**
+   * @internal — called by `Noydb.openVault` after construction.
+   * Registers derivation strategies (async because `strategyHash`
+   * computation goes through `crypto.subtle.digest`) and validates
+   * the derivation graph for cycles. Throws `DerivationCycleError`
+   * if a cycle is detected.
+   */
+  async _initDerivations(handles: ReadonlyArray<DerivationStrategyHandle>): Promise<void> {
+    for (const h of handles) {
+      await this.derivationRegistry.register(h.spec)
+    }
+    this.derivationRegistry.validate()
+  }
+
+  /** @internal — consumed by `Collection.put` at write-time. */
+  _getDerivationRegistry(): DerivationRegistry {
+    return this.derivationRegistry
+  }
+
+  /**
+   * Re-derive every record in the named source collection. Useful
+   * after a strategy change to bring previously-derived records
+   * up-to-date.
+   *
+   * Sequential in v1; parallelisation deferred to v2.
+   */
+  async deriveAll(sourceCollection: string): Promise<{ derived: number; failed: number }> {
+    const registry = this._getDerivationRegistry()
+    const strategies = registry.strategiesForSource(sourceCollection)
+    if (strategies.length === 0) return { derived: 0, failed: 0 }
+
+    const { DerivationExecutor } = await import('./derivations/executor.js')
+
+    const sourceColl = this.collection<Record<string, unknown>>(sourceCollection)
+    const records = await sourceColl.list()
+    let derived = 0
+    let failed = 0
+    for (const record of records) {
+      if (typeof record !== 'object' || record === null) continue
+      const id = (record as { id?: unknown }).id
+      if (typeof id !== 'string') continue
+      for (const { spec, strategyHash } of strategies) {
+        const sourceWithId = { ...record, id }
+        const result = await DerivationExecutor.run(spec, sourceWithId, 0, strategyHash)
+        let anyFailed = false
+        for (const key of Object.keys(spec.outputs)) {
+          const out = result.outputs[key]
+          if (!out || !out.ok) { anyFailed = true; continue }
+          const outSpec = spec.outputs[key]
+          if (!outSpec) continue
+          await this.collection(outSpec.collection).put(id, out.value)
+        }
+        if (anyFailed) failed++
+        else derived++
+      }
+    }
+    return { derived, failed }
   }
 
   /**

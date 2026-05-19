@@ -467,6 +467,28 @@ features:
       - 'casAtomic stores: genuine atomicity. casAtomic:false: ordered-with-rollback'
     related: [vault-and-collections]
 
+  - id: derivations
+    name: Deterministic derived data
+    cluster: write-and-mutate
+    spec: docs/subsystems/derivations.md#derivations
+    subsystem_doc: docs/subsystems/derivations.md
+    package: '@noy-db/hub/derivations'
+    factory: withDerivation
+    status: preview
+    showcases:
+      - id: 80-with-derivation
+        path: showcases/src/80-with-derivation.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'derive runs on plaintext, after DEK unwrap, before encrypt'
+      - 'outputs encrypted with same DEK as source by default'
+      - '_derivedFrom lives in encrypted payload, not unencrypted envelope'
+      - 'strict: true rolls back source write on output failure inside withTransactions'
+      - 'cycle detection at vault open — refuses cyclic graphs'
+    related: [guards, transactions]
+
   - id: guards
     name: Record lock, field freeze, amendment invariant
     cluster: time-and-audit
