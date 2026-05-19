@@ -67,7 +67,7 @@ import {
   InvariantError,
   ValidationError,
 } from '../errors.js'
-import { GuardExecutor } from '../guards/executor.js'
+import type { GuardExecutor as GuardExecutorModule } from '../guards/executor.js'
 import type { LedgerEntry } from '../history/ledger/entry.js'
 
 /** One op buffered inside a running `TxContext`. @internal */
@@ -366,6 +366,12 @@ export async function runTransaction<T>(
   // any invariant throws, treat it exactly like a mid-Phase-2 failure:
   // revert every executed op and re-throw the InvariantError.
   if (ctx._amendment) {
+    // Lazy-load GuardExecutor at the dispatch site — keeps the floor
+    // bundle free of the guards subsystem when amendments aren't used.
+    // Mirrors the deferred-load pattern from #130 elsewhere in this PR.
+    const { GuardExecutor } = (await import('../guards/executor.js')) as {
+      GuardExecutor: typeof GuardExecutorModule
+    }
     try {
       for (const [vaultName, v] of ctx._amendmentVaults) {
         const registry = v._getGuardRegistry()
