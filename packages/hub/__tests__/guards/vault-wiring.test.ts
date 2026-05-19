@@ -54,14 +54,18 @@ describe('Vault.guardRegistry wiring', () => {
     expect(reg.guardsFor('absent')).toHaveLength(0)
   })
 
-  it('createNoydb works without guardStrategies (empty registry)', async () => {
+  it('createNoydb works without guardStrategies (null registry)', async () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
       secret: 'guards-vault-wiring-empty-passphrase-2026',
     })
     const vault = await db.openVault('demo')
+    // After #130: vaults that never register a guardStrategy keep
+    // the registry `null` so the GuardRegistry class chunk stays out
+    // of the floor bundle. Callers must gate on null (Collection.put
+    // does so via `if (this.guardSource)` — see `vault.collection()`).
     const reg = (vault as any)._getGuardRegistry()
-    expect(reg.guardsFor('any')).toHaveLength(0)
+    expect(reg).toBeNull()
   })
 })

@@ -123,21 +123,31 @@ const SCENARIOS = [
 async function buildScenario(scenario) {
   const tmpDir = mkdtempSync(join(tmpdir(), 'noy-db-bundle-'))
   const entry = join(tmpDir, 'entry.mjs')
-  const outfile = join(tmpDir, 'bundle.mjs')
+  const outdir = join(tmpDir, 'out')
 
   writeFileSync(entry, scenario.code)
 
   // Resolve @noy-db/hub through the workspace's hub dist directly.
   // We use --packages=external for everything else so the measurement
   // reflects only @noy-db/hub's contribution to the consumer bundle.
+  //
+  // `splitting: true` is REQUIRED for accurate measurement after #130
+  // — the hub now uses dynamic `import()` to defer guard + derivation
+  // class loading. Without splitting, esbuild inlines those imports
+  // into the entry chunk and the floor measurement counts code that a
+  // real consumer bundler (Vite, webpack, esbuild-with-splitting,
+  // Rollup) would emit as a separate chunk loaded on demand. We
+  // measure only the entry chunk's size; the split chunks live in
+  // their own files and aren't charged against the floor.
   await build({
     entryPoints: [entry],
-    outfile,
+    outdir,
     bundle: true,
     format: 'esm',
     target: 'es2022',
     minify: true,
     treeShaking: true,
+    splitting: true,
     nodePaths: [join(HUB_DIR, '..', '..', 'node_modules')],
     alias: {
       '@noy-db/hub': join(HUB_DIR, 'dist', 'index.js'),
@@ -157,21 +167,28 @@ async function buildScenario(scenario) {
     logLevel: 'silent',
   })
 
-  const minified = readFileSync(outfile)
+  // Measure the entry chunk only — what a consumer's "open createNoydb"
+  // route actually loads. Dynamic-import chunks are loaded on demand
+  // when the consumer reaches code that registers a guard / derivation.
+  const minified = readFileSync(join(outdir, 'entry.js'))
   const gzipped = gzipSync(minified)
 
   // Cross-leak detection runs against the un-gzipped, un-minified
-  // bundle so canary class names survive. We rebuild without minify
-  // for this check — small but worth the cost for clear failures.
-  const probeOutfile = join(tmpDir, 'probe.mjs')
+  // ENTRY chunk only so canary class names survive AND we don't
+  // false-positive on classes that legitimately live in a
+  // dynamic-import chunk (the whole point of code splitting). A leak
+  // is a class statically reachable from the entry — anything in a
+  // split chunk is loaded on demand and not a cross-leak.
+  const probeDir = join(tmpDir, 'probe')
   await build({
     entryPoints: [entry],
-    outfile: probeOutfile,
+    outdir: probeDir,
     bundle: true,
     format: 'esm',
     target: 'es2022',
     minify: false,
     treeShaking: true,
+    splitting: true,
     nodePaths: [join(HUB_DIR, '..', '..', 'node_modules')],
     alias: {
       '@noy-db/hub': join(HUB_DIR, 'dist', 'index.js'),
@@ -190,7 +207,7 @@ async function buildScenario(scenario) {
     },
     logLevel: 'silent',
   })
-  const probe = readFileSync(probeOutfile, 'utf8')
+  const probe = readFileSync(join(probeDir, 'entry.js'), 'utf8')
 
   const leaks = scenario.leakCanaries.filter((canary) =>
     probe.includes(canary),

@@ -1,6 +1,9 @@
 import type { Collection } from '../collection.js'
 import type { DerivationRegistry } from './registry.js'
-import { DerivationExecutor } from './executor.js'
+// Type-only — runtime class loaded via dynamic import in
+// `resolveStaleOnRead` only when a stale flag actually fires. Keeps
+// the executor chunk out of the floor bundle (#130).
+import type { DerivationExecutor as DerivationExecutorType } from './executor.js'
 import type { DerivationStrategy } from './types.js'
 
 /**
@@ -73,6 +76,14 @@ export async function resolveStaleOnRead(
   const map = _staleByRegistry.get(registry)
   if (!map) return
 
+  // Dynamic-import the executor only when at least one stale flag
+  // actually fires. Vaults with no derivation strategies never call
+  // this function (gated on `derivationSource` in `Collection.get`);
+  // vaults with strategies but no pending stale ids reach the
+  // `pending.has(spec)` short-circuit below without ever touching
+  // the executor chunk. See #130.
+  let DerivationExecutor: typeof DerivationExecutorType | null = null
+
   for (const { spec, strategyHash } of producers) {
     const k = keyFor(spec.source, id)
     const pending = map.get(k)
@@ -92,6 +103,9 @@ export async function resolveStaleOnRead(
     // sourceVersion: not tracked in v1 stale map; pass 0 — matches the
     // forthcoming v0 semantics, `_derivedFrom.sourceVersion` is
     // informational, not load-bearing for correctness.
+    if (DerivationExecutor === null) {
+      ({ DerivationExecutor } = (await import('./executor.js')) as { DerivationExecutor: typeof DerivationExecutorType })
+    }
     const result = await DerivationExecutor.run(spec, sourceWithId, 0, strategyHash)
     for (const key of Object.keys(spec.outputs)) {
       const out = result.outputs[key]
