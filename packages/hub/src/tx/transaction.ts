@@ -67,7 +67,7 @@ import {
   InvariantError,
   ValidationError,
 } from '../errors.js'
-import { GuardExecutor } from '../guards/executor.js'
+import type { GuardExecutor as GuardExecutorModule } from '../guards/executor.js'
 import type { LedgerEntry } from '../history/ledger/entry.js'
 
 /** One op buffered inside a running `TxContext`. @internal */
@@ -132,7 +132,20 @@ export class TxContext {
       if (role !== 'admin' && role !== 'owner') {
         throw new AmendmentForbiddenError(v.userId, role)
       }
-      v._getGuardRegistry().beginAmendment()
+      // Amendments require an initialised guard registry — they
+      // produce a structured invariant + change-set audit. A vault
+      // opened without `guardStrategies` (or via the sync fallback
+      // path) has a null registry and cannot run an amendment.
+      const reg = v._getGuardRegistry()
+      if (reg === null) {
+        throw new ValidationError(
+          `Vault "${name}": amendment mode requires at least one ` +
+          `guardStrategy registered via createNoydb({ guardStrategies }). ` +
+          `Open the vault with guardStrategies before calling ` +
+          `db.transaction({ amendment: true }).`,
+        )
+      }
+      reg.beginAmendment()
       this._amendmentVaults.set(name, v)
     }
     return new TxVault(this, v)
@@ -269,8 +282,14 @@ export async function runTransaction<T>(
     // `beginAmendment` is matched by exactly one `consumeChanges`.
     if (ctx._amendment) {
       for (const v of ctx._amendmentVaults.values()) {
-        v._getGuardRegistry().consumeChanges()
-        v._getGuardRegistry().consumeMeta()
+        // Registry is guaranteed non-null here — `tx.vault(name)`
+        // threw above if it was null before adding to
+        // `_amendmentVaults`.
+        const reg = v._getGuardRegistry()
+        if (reg !== null) {
+          reg.consumeChanges()
+          reg.consumeMeta()
+        }
       }
     }
     return bodyResult
@@ -331,8 +350,11 @@ export async function runTransaction<T>(
     // Drain amendment windows so the next transaction starts clean.
     if (ctx._amendment) {
       for (const v of ctx._amendmentVaults.values()) {
-        v._getGuardRegistry().consumeChanges()
-        v._getGuardRegistry().consumeMeta()
+        const reg = v._getGuardRegistry()
+        if (reg !== null) {
+          reg.consumeChanges()
+          reg.consumeMeta()
+        }
       }
     }
     throw err
@@ -344,12 +366,26 @@ export async function runTransaction<T>(
   // any invariant throws, treat it exactly like a mid-Phase-2 failure:
   // revert every executed op and re-throw the InvariantError.
   if (ctx._amendment) {
+    // Lazy-load GuardExecutor at the dispatch site — keeps the floor
+    // bundle free of the guards subsystem when amendments aren't used.
+    // Mirrors the deferred-load pattern from #130 elsewhere in this PR.
+    const { GuardExecutor } = (await import('../guards/executor.js')) as {
+      GuardExecutor: typeof GuardExecutorModule
+    }
     try {
       for (const [vaultName, v] of ctx._amendmentVaults) {
         const registry = v._getGuardRegistry()
+        // Registry is guaranteed non-null at this point — the
+        // `tx.vault(name)` path that populates `_amendmentVaults`
+        // throws if the registry is null. The defensive check here
+        // is for TypeScript's narrowing.
+        if (registry === null) continue
         const changesByCollection = registry.consumeChanges()
         const meta = registry.consumeMeta()
         if (changesByCollection.size === 0) continue
+
+        const readOnlyVault = v._getReadOnlyFacade()
+        if (readOnlyVault === null) continue
 
         // Build the invariant ctx once per vault — it's the same shape
         // every guard sees on the normal `check` path, just with a
@@ -362,7 +398,7 @@ export async function runTransaction<T>(
           for (const guard of guards) {
             await GuardExecutor.runInvariant(guard, changes, {
               existing: null,
-              vault: v._getReadOnlyFacade(),
+              vault: readOnlyVault,
               userId: v.userId,
               role: v.role,
             })

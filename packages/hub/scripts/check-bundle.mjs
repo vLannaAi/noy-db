@@ -60,6 +60,15 @@ const SCENARIOS = [
     leakCanaries: [
       // Each canary names a class whose presence in the floor bundle
       // would mean its subsystem leaked through a runtime import.
+      //
+      // NOTE: with `splitting: true` (the post-#130 measurement mode)
+      // class/const-literal definitions live in shared chunk files,
+      // not in entry.js. These literal-pattern canaries therefore
+      // catch a regression only if the bundling strategy ever loses
+      // splitting and the definition gets inlined back into the entry.
+      // The discriminating signal under code-splitting is `eagerImports`
+      // (below) — the bare symbol appearing in the entry's top-level
+      // `import { ... } from "./chunk-…"` prologue.
       'class LedgerStore',     // history (re-added post.)
       'class Aggregation',     // aggregate
       'class GroupedQuery',    // aggregate
@@ -69,6 +78,30 @@ const SCENARIOS = [
       'class PolicyEnforcer',  // session
       'class VaultInstant',    // history (time-machine)
       'class VaultFrame',      // shadow
+      'class GuardRegistry',        // guards/registry.ts — must stay opt-in
+      'class ReadOnlyVaultFacade',  // guards/read-only-facade.ts — must stay opt-in
+      'class DerivationRegistry',   // derivations/registry.ts — must stay opt-in
+      // Object-literal export shape (`const X = { ... }`). The trailing
+      // `{` discriminates the actual static export from the lazy-loader
+      // placeholder pattern `let GuardExecutor = null` that legitimately
+      // lives in dynamic-import call sites.
+      'GuardExecutor = {',          // guards/executor.ts (const object, not class) — must stay opt-in
+      'DerivationExecutor = {',     // derivations/executor.ts (const object, not class) — must stay opt-in
+    ],
+    // Eager-import canaries — bare symbol names. The check scans the
+    // entry chunk's top-level import prologue only; a hit means the
+    // symbol arrived via a static `import { X } from "./chunk-…"`
+    // statement rather than the intended `await import()` at the
+    // call site. This is the load-bearing leak signal under
+    // `splitting: true` — see #138 review (canaries didn't catch
+    // residual statics because chunked definitions never appear in
+    // entry.js).
+    eagerImports: [
+      'GuardRegistry',
+      'ReadOnlyVaultFacade',
+      'DerivationRegistry',
+      'GuardExecutor',
+      'DerivationExecutor',
     ],
   },
   {
@@ -123,21 +156,31 @@ const SCENARIOS = [
 async function buildScenario(scenario) {
   const tmpDir = mkdtempSync(join(tmpdir(), 'noy-db-bundle-'))
   const entry = join(tmpDir, 'entry.mjs')
-  const outfile = join(tmpDir, 'bundle.mjs')
+  const outdir = join(tmpDir, 'out')
 
   writeFileSync(entry, scenario.code)
 
   // Resolve @noy-db/hub through the workspace's hub dist directly.
   // We use --packages=external for everything else so the measurement
   // reflects only @noy-db/hub's contribution to the consumer bundle.
+  //
+  // `splitting: true` is REQUIRED for accurate measurement after #130
+  // — the hub now uses dynamic `import()` to defer guard + derivation
+  // class loading. Without splitting, esbuild inlines those imports
+  // into the entry chunk and the floor measurement counts code that a
+  // real consumer bundler (Vite, webpack, esbuild-with-splitting,
+  // Rollup) would emit as a separate chunk loaded on demand. We
+  // measure only the entry chunk's size; the split chunks live in
+  // their own files and aren't charged against the floor.
   await build({
     entryPoints: [entry],
-    outfile,
+    outdir,
     bundle: true,
     format: 'esm',
     target: 'es2022',
     minify: true,
     treeShaking: true,
+    splitting: true,
     nodePaths: [join(HUB_DIR, '..', '..', 'node_modules')],
     alias: {
       '@noy-db/hub': join(HUB_DIR, 'dist', 'index.js'),
@@ -157,21 +200,28 @@ async function buildScenario(scenario) {
     logLevel: 'silent',
   })
 
-  const minified = readFileSync(outfile)
+  // Measure the entry chunk only — what a consumer's "open createNoydb"
+  // route actually loads. Dynamic-import chunks are loaded on demand
+  // when the consumer reaches code that registers a guard / derivation.
+  const minified = readFileSync(join(outdir, 'entry.js'))
   const gzipped = gzipSync(minified)
 
   // Cross-leak detection runs against the un-gzipped, un-minified
-  // bundle so canary class names survive. We rebuild without minify
-  // for this check — small but worth the cost for clear failures.
-  const probeOutfile = join(tmpDir, 'probe.mjs')
+  // ENTRY chunk only so canary class names survive AND we don't
+  // false-positive on classes that legitimately live in a
+  // dynamic-import chunk (the whole point of code splitting). A leak
+  // is a class statically reachable from the entry — anything in a
+  // split chunk is loaded on demand and not a cross-leak.
+  const probeDir = join(tmpDir, 'probe')
   await build({
     entryPoints: [entry],
-    outfile: probeOutfile,
+    outdir: probeDir,
     bundle: true,
     format: 'esm',
     target: 'es2022',
     minify: false,
     treeShaking: true,
+    splitting: true,
     nodePaths: [join(HUB_DIR, '..', '..', 'node_modules')],
     alias: {
       '@noy-db/hub': join(HUB_DIR, 'dist', 'index.js'),
@@ -190,11 +240,56 @@ async function buildScenario(scenario) {
     },
     logLevel: 'silent',
   })
-  const probe = readFileSync(probeOutfile, 'utf8')
+  const probe = readFileSync(join(probeDir, 'entry.js'), 'utf8')
 
   const leaks = scenario.leakCanaries.filter((canary) =>
     probe.includes(canary),
   )
+
+  // Eager-import scan — extract the top-level `import { ... } from
+  // "./chunk-…"` prologue and look for any banned symbol name. Under
+  // `splitting: true` this is the only place a static-vs-dynamic
+  // regression shows up in the entry chunk (the symbol's definition
+  // lives in a separate chunk file and never enters entry.js, so the
+  // literal-pattern canaries above can't see it).
+  const eagerImports = scenario.eagerImports ?? []
+  if (eagerImports.length > 0) {
+    // The prologue is every top-level `import` statement (possibly
+    // multi-line) at the head of the file. Esbuild always emits these
+    // before any function/class/const declarations. We walk the file
+    // line-by-line tracking brace depth inside an open `import {` block
+    // so multi-line specifier lists count as part of the prologue.
+    const lines = probe.split('\n')
+    let prologueEnd = 0
+    let inImportBlock = false
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+      if (inImportBlock) {
+        prologueEnd = i + 1
+        if (line.includes('}')) inImportBlock = false
+        continue
+      }
+      const trimmed = line.trim()
+      if (trimmed === '' || trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*')) {
+        prologueEnd = i + 1
+        continue
+      }
+      if (trimmed.startsWith('import')) {
+        prologueEnd = i + 1
+        if (trimmed.includes('{') && !trimmed.includes('}')) inImportBlock = true
+        continue
+      }
+      break
+    }
+    const prologue = lines.slice(0, prologueEnd).join('\n')
+    for (const symbol of eagerImports) {
+      // Match the symbol as a standalone identifier inside the
+      // braces of an import specifier list (allowing trailing commas
+      // and `as` aliases).
+      const re = new RegExp(`^\\s*${symbol}(?:\\s*,|\\s+as\\s+\\w+|\\s*$)`, 'm')
+      if (re.test(prologue)) leaks.push(`eager-import:${symbol}`)
+    }
+  }
 
   rmSync(tmpDir, { recursive: true, force: true })
 

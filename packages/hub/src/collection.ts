@@ -36,9 +36,15 @@ import { NO_BLOBS, type BlobStrategy } from './blobs/strategy.js'
 import { NO_AGGREGATE, type AggregateStrategy } from './aggregate/strategy.js'
 import type { GuardRegistry } from './guards/registry.js'
 import type { ReadOnlyVaultFacade } from './guards/types.js'
-import { GuardExecutor } from './guards/executor.js'
+// Type-only — runtime class loaded via dynamic import in the
+// frozen-field branch of `put()` / amendment paths. Keeps the guard
+// executor chunk out of the floor bundle (#130).
+import type { GuardExecutor as GuardExecutorType } from './guards/executor.js'
 import type { DerivationRegistry } from './derivations/registry.js'
-import { DerivationExecutor } from './derivations/executor.js'
+// Type-only — runtime class loaded via dynamic import in
+// `dispatchDerivations` when an eager-mode strategy fires. Keeps the
+// derivation executor chunk out of the floor bundle (#130).
+import type { DerivationExecutor as DerivationExecutorType } from './derivations/executor.js'
 import { markStale, resolveStaleOnRead } from './derivations/stale.js'
 
 /** Callback for dirty tracking (sync engine integration). */
@@ -997,6 +1003,11 @@ export class Collection<T> {
           registry.collectChange(this.name, id, existingRecord, incomingRecord, vBefore, vBefore + 1)
         } else {
           await registry.runChecks(this.name, incomingRecord, ctx)
+          // Dynamic-import the executor only when at least one guard
+          // is registered AND a non-amendment write fires. Consumers
+          // who never call `withGuard()` never reach this branch and
+          // never pull `GuardExecutor` into their bundle (#130).
+          const { GuardExecutor } = (await import('./guards/executor.js')) as { GuardExecutor: typeof GuardExecutorType }
           for (const g of guards) {
             await GuardExecutor.checkFrozenFields(g, id, existingRecord, incomingRecord)
           }
@@ -1318,9 +1329,18 @@ export class Collection<T> {
     const registry = this.derivationSource.registry()
     const strategies = registry.strategiesForSource(this.name)
     if (strategies.length === 0) return
+    // Dynamic-import the executor only on the first eager-mode
+    // dispatch. Lazy-mode dispatches use `markStale` (a pure helper)
+    // which doesn't reach into the executor at all. Keeps the
+    // derivation executor chunk out of the floor bundle for any
+    // consumer that doesn't fire an eager derivation (#130).
+    let DerivationExecutor: typeof DerivationExecutorType | null = null
     for (const { spec, strategyHash } of strategies) {
       const mode = typeof spec.lifecycle === 'string' ? spec.lifecycle : spec.lifecycle.mode
       if (mode === 'eager') {
+        if (DerivationExecutor === null) {
+          ({ DerivationExecutor } = (await import('./derivations/executor.js')) as { DerivationExecutor: typeof DerivationExecutorType })
+        }
         const sourceWithId = { ...incoming, id } as Record<string, unknown> & { id: string }
         const result = await DerivationExecutor.run(spec, sourceWithId, version, strategyHash)
         for (const key of Object.keys(spec.outputs)) {

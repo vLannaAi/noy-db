@@ -56,15 +56,19 @@ describe('Vault.derivationRegistry wiring', () => {
     expect(reg.strategiesForSource('absent')).toHaveLength(0)
   })
 
-  it('createNoydb works without derivationStrategies', async () => {
+  it('createNoydb works without derivationStrategies (null registry)', async () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
       secret: 'derivation-vault-wiring-empty-passphrase-2026',
     })
     const vault = await db.openVault('demo')
+    // After #130: vaults that never register a derivationStrategy keep
+    // the registry `null` so the DerivationRegistry class chunk stays
+    // out of the floor bundle. Callers must gate on null
+    // (`Collection.dispatchDerivations` does so via `if (this.derivationSource)`).
     const reg = (vault as any)._getDerivationRegistry()
-    expect(reg.strategiesForSource('any')).toHaveLength(0)
+    expect(reg).toBeNull()
   })
 
   it('refuses to open vault with a cyclic derivation graph', async () => {

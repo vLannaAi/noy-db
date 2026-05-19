@@ -64,10 +64,16 @@ import { isDictCollectionName } from './i18n/dictionary.js'
 import type { I18nTextDescriptor } from './i18n/core.js'
 import { NO_I18N, type I18nStrategy } from './i18n/strategy.js'
 import { NO_SYNC, type SyncStrategy } from './team/sync-strategy.js'
-import { GuardRegistry } from './guards/registry.js'
+// Type-only imports for the guard + derivation subsystems. The
+// runtime classes are loaded on demand via `await import(...)` inside
+// `_initGuards` / `_initDerivations` (and the read-only-facade
+// accessor below) so consumers that never register a guard or
+// derivation strategy don't pay the chunk cost. See #130 for the
+// bundle regression this seam plugs.
+import type { GuardRegistry } from './guards/registry.js'
 import type { GuardStrategyHandle } from './guards/types.js'
-import { ReadOnlyVaultFacade } from './guards/read-only-facade.js'
-import { DerivationRegistry } from './derivations/registry.js'
+import type { ReadOnlyVaultFacade } from './guards/read-only-facade.js'
+import type { DerivationRegistry } from './derivations/registry.js'
 import type { DerivationStrategyHandle } from './derivations/types.js'
 import type { LocaleReadOptions, ConflictPolicy } from './types.js'
 import type { CrdtMode } from './crdt/crdt.js'
@@ -137,12 +143,25 @@ export class Vault {
   private readonly historyStrategy: HistoryStrategy
   private readonly i18nStrategy: I18nStrategy
   private readonly syncStrategy: SyncStrategy
-  private readonly guardRegistry: GuardRegistry
-  private readonly derivationRegistry: DerivationRegistry
+  /**
+   * Per-vault guard registry. `null` until `_initGuards()` runs; stays
+   * `null` for vaults that never register any guard strategy. The
+   * runtime class is dynamic-imported on demand so consumers that
+   * never use guards don't pull `GuardRegistry`/`GuardExecutor` into
+   * their bundle (#130).
+   */
+  private guardRegistry: GuardRegistry | null = null
+  /**
+   * Per-vault derivation registry. Same lazy-load contract as
+   * `guardRegistry` — `null` until `_initDerivations()` runs with at
+   * least one strategy handle. See #130 for the bundle motivation.
+   */
+  private derivationRegistry: DerivationRegistry | null = null
   /**
    * Cached read-only facade handed to guard callbacks via `ctx.vault`.
-   * Allocated lazily on first guard invocation to avoid the cost in
-   * vaults that never register a guard.
+   * Allocated eagerly inside `_initGuards()` so the read accessor
+   * stays synchronous (callers in `tx/transaction.ts` rely on that).
+   * Stays `null` for vaults with no guards configured.
    */
   private guardReadOnlyFacade: ReadOnlyVaultFacade | null = null
   private getDEK: (collectionName: string) => Promise<CryptoKey>
@@ -356,13 +375,16 @@ export class Vault {
     this.historyStrategy = opts.historyStrategy ?? NO_HISTORY
     this.i18nStrategy = opts.i18nStrategy ?? NO_I18N
     this.syncStrategy = opts.syncStrategy ?? NO_SYNC
-    this.guardRegistry = new GuardRegistry()
-    if (opts.guardStrategies) {
-      for (const handle of opts.guardStrategies) {
-        this.guardRegistry.register(handle.spec)
-      }
-    }
-    this.derivationRegistry = new DerivationRegistry()
+    // Guard + derivation registries are initialised lazily via
+    // `_initGuards()` / `_initDerivations()` from `Noydb.openVault()`.
+    // The classes are dynamic-imported there so vaults that never
+    // register a strategy don't pull the subsystem code into the
+    // floor bundle. See #130. The `opts.guardStrategies` argument is
+    // intentionally accepted but unused on the constructor — the sync
+    // `vault()` fallback path in `noydb.ts` does NOT call `_initGuards`,
+    // matching the existing behaviour for `_initDerivations`. See #132
+    // for the follow-up that makes the fallback path async.
+    void opts.guardStrategies
     this.historyConfig = opts.historyConfig ?? { enabled: true }
     this.reloadKeyring = opts.reloadKeyring
     this.locale = opts.locale
@@ -532,20 +554,28 @@ export class Vault {
         onRegisterConflictResolver: this.onRegisterConflictResolver,
         onAccess: (op, id) => this._logConsent(op, collectionName, id),
         periodGuard: (existing, incoming) => this._assertTsWritable(existing, incoming),
-        guardSource: {
-          registry: () => this.guardRegistry,
-          readOnlyVault: () => {
-            if (this.guardReadOnlyFacade === null) {
-              this.guardReadOnlyFacade = new ReadOnlyVaultFacade(this)
+        // Guard / derivation sources are only wired when the
+        // corresponding registry has been initialised. Vaults without
+        // guards/derivations skip this entirely so `Collection.put`'s
+        // `if (this.guardSource)` / `if (this.derivationSource)`
+        // branches no-op without ever touching the subsystem code.
+        ...(this.guardRegistry !== null
+          ? {
+              guardSource: {
+                registry: () => this.guardRegistry as GuardRegistry,
+                readOnlyVault: () => this._ensureReadOnlyFacade(),
+              },
             }
-            return this.guardReadOnlyFacade
-          },
-        },
-        derivationSource: {
-          registry: () => this.derivationRegistry,
-          getCollection: (name: string) =>
-            this.collection(name) as unknown as Collection<Record<string, unknown>>,
-        },
+          : {}),
+        ...(this.derivationRegistry !== null
+          ? {
+              derivationSource: {
+                registry: () => this.derivationRegistry as DerivationRegistry,
+                getCollection: (name: string) =>
+                  this.collection(name) as unknown as Collection<Record<string, unknown>>,
+              },
+            }
+          : {}),
       }
       if (options?.indexes !== undefined) collOpts.indexes = options.indexes
       if (options?.reconcileOnOpen !== undefined) collOpts.reconcileOnOpen = options.reconcileOnOpen
@@ -1312,27 +1342,65 @@ export class Vault {
     return this.ledgerStore
   }
 
-  /** @internal — Collection.put calls into this. */
-  _getGuardRegistry(): GuardRegistry {
+  /**
+   * @internal — called by `Noydb.openVault` after construction.
+   * Dynamic-imports `GuardRegistry` + `ReadOnlyVaultFacade` and seeds
+   * the registry with the supplied strategy handles. No-op when the
+   * handles array is empty — keeps the guard subsystem out of the
+   * floor bundle for consumers that don't use guards (#130).
+   *
+   * The read-only facade is eagerly instantiated here so the sync
+   * accessor `_getReadOnlyFacade()` (called from the tx amendment
+   * runner) stays synchronous.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async _initGuards(handles: ReadonlyArray<GuardStrategyHandle<any>>): Promise<void> {
+    if (handles.length === 0) return
+    const [{ GuardRegistry }, { ReadOnlyVaultFacade }] = await Promise.all([
+      import('./guards/registry.js'),
+      import('./guards/read-only-facade.js'),
+    ])
+    const registry = new GuardRegistry()
+    for (const h of handles) registry.register(h.spec)
+    this.guardRegistry = registry
+    this.guardReadOnlyFacade = new ReadOnlyVaultFacade(this)
+  }
+
+  /**
+   * @internal — Collection.put calls into this. Returns `null` for
+   * vaults that never registered any guard strategy. Callers MUST
+   * gate on null (the existing `if (this.guardSource)` branches in
+   * `Collection` already do this transitively).
+   */
+  _getGuardRegistry(): GuardRegistry | null {
     return this.guardRegistry
   }
 
   /**
    * @internal — called by `Noydb.openVault` after construction.
-   * Registers derivation strategies (async because `strategyHash`
-   * computation goes through `crypto.subtle.digest`) and validates
-   * the derivation graph for cycles. Throws `DerivationCycleError`
-   * if a cycle is detected.
+   * Dynamic-imports `DerivationRegistry` and registers the supplied
+   * derivation strategies (async because `strategyHash` computation
+   * goes through `crypto.subtle.digest`). No-op when the handles
+   * array is empty — keeps the derivation subsystem out of the floor
+   * bundle for consumers that don't use derivations (#130). Throws
+   * `DerivationCycleError` if a cycle is detected after registration.
    */
   async _initDerivations(handles: ReadonlyArray<DerivationStrategyHandle>): Promise<void> {
+    if (handles.length === 0) return
+    const { DerivationRegistry } = await import('./derivations/registry.js')
+    const registry = new DerivationRegistry()
     for (const h of handles) {
-      await this.derivationRegistry.register(h.spec)
+      await registry.register(h.spec)
     }
-    this.derivationRegistry.validate()
+    registry.validate()
+    this.derivationRegistry = registry
   }
 
-  /** @internal — consumed by `Collection.put` at write-time. */
-  _getDerivationRegistry(): DerivationRegistry {
+  /**
+   * @internal — consumed by `Collection.put` at write-time. Returns
+   * `null` for vaults that never registered any derivation strategy.
+   */
+  _getDerivationRegistry(): DerivationRegistry | null {
     return this.derivationRegistry
   }
 
@@ -1345,6 +1413,7 @@ export class Vault {
    */
   async deriveAll(sourceCollection: string): Promise<{ derived: number; failed: number }> {
     const registry = this._getDerivationRegistry()
+    if (registry === null) return { derived: 0, failed: 0 }
     const strategies = registry.strategiesForSource(sourceCollection)
     if (strategies.length === 0) return { derived: 0, failed: 0 }
 
@@ -1380,15 +1449,37 @@ export class Vault {
    * @internal — exposed for `runTransaction({ amendment: true })` so
    * the amendment invariant runner can pass the SAME read-only vault
    * facade that the per-record `Collection.put` guard hook uses
-   * (`guardSource.readOnlyVault()` above). Lazily constructs and
-   * caches the facade on first access — matches the per-collection
-   * pattern in `collection()` above.
+   * (`guardSource.readOnlyVault()` above). Eagerly instantiated by
+   * `_initGuards()` so this accessor stays synchronous; returns
+   * `null` for vaults that never registered any guard (amendments
+   * require at least one guard, so the caller should never see null).
    */
-  _getReadOnlyFacade(): ReadOnlyVaultFacade {
-    if (this.guardReadOnlyFacade === null) {
-      this.guardReadOnlyFacade = new ReadOnlyVaultFacade(this)
-    }
+  _getReadOnlyFacade(): ReadOnlyVaultFacade | null {
     return this.guardReadOnlyFacade
+  }
+
+  /**
+   * Internal lazy-allocator for the read-only facade. Used by the
+   * per-collection `guardSource.readOnlyVault` callback when guards
+   * ARE configured but `_initGuards()` raced with the first guard
+   * invocation (theoretically impossible — `Noydb.openVault` awaits
+   * `_initGuards` before returning — but we keep the defensive lazy
+   * path so the closure's contract stays "always returns a facade").
+   */
+  private _ensureReadOnlyFacade(): ReadOnlyVaultFacade {
+    if (this.guardReadOnlyFacade !== null) return this.guardReadOnlyFacade
+    // Synchronous fall-back: dynamic import isn't available here,
+    // but `_initGuards` always sets the facade before any
+    // guard-hook can fire. Reaching this branch means a Vault was
+    // constructed without `_initGuards` being awaited — e.g. via
+    // the sync `Noydb.vault()` fallback path. Throw with a
+    // pointer rather than silently building an invalid context.
+    throw new Error(
+      'Vault: guard hook fired before _initGuards() completed. ' +
+      'This typically means the vault was opened via the sync ' +
+      'fallback path (Noydb.vault(name)) without first calling ' +
+      'await db.openVault(name). See issue #132.',
+    )
   }
 
   /**

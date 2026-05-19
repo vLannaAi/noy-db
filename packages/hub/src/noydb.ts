@@ -384,6 +384,11 @@ export class Noydb {
             }
           : undefined,
     })
+    // Initialise the optional guard + derivation registries via
+    // dynamic-import. Both calls are no-ops when the corresponding
+    // strategies array is empty / unset, leaving the subsystem code
+    // out of the floor bundle for consumers that don't use it (#130).
+    await comp._initGuards(this.options.guardStrategies ?? [])
     await comp._initDerivations(this.options.derivationStrategies ?? [])
     this.vaultCache.set(name, comp)
     return comp

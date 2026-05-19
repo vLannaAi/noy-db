@@ -123,6 +123,21 @@ describe('withTransactions amendment mode', () => {
     expect(l1?.amount).toBe(100)  // reverted
   })
 
+  it('amendment: true on vault with no guardStrategies throws ValidationError', async () => {
+    const db = await createNoydb({
+      store: memory(),
+      user: 'alice',
+      secret: 'guards-amendment-no-strategies-passphrase-2026',
+      txStrategy: withTransactions(),
+    })
+    await db.openVault('demo')
+    await expect(
+      db.transaction({ amendment: true, reason: 'no guards here' }, async (tx) => {
+        tx.vault('demo')
+      }),
+    ).rejects.toBeInstanceOf(ValidationError)
+  })
+
   it('amendment: true without reason throws ValidationError at open', async () => {
     const db = await createNoydb({
       store: memory(),
