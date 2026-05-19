@@ -1,5 +1,13 @@
 # @noy-db/playground-nuxt
 
+## 0.1.0-pre.11
+
+### Patch Changes
+
+- Updated dependencies
+  - @noy-db/hub@0.1.0-pre.11
+
+
 ## 0.1.0-pre.7
 
 ### Patch Changes

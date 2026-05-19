@@ -1,5 +1,53 @@
 # Changelog — hub
 
+## 0.1.0-pre.11
+
+Two new subsystems land in the same release: **`withGuard`** (record lock + field freeze + role-gated amendment invariant) and **`withDerivation`** (deterministic derived data, Dim 14 v1). Closes the pre.11 milestone — 8 substantive issues, 2 PRs, plus 4 reviewer-caught side-fixes and 2 tier-2 auth showcases.
+
+### Guards subsystem (#123 epic)
+
+`withGuard` plumbs a uniform three-axis guard primitive — record-level lock, field-level freeze, and role-gated amendment invariant — into the `Collection.put` / `.delete` write path. Strategies register against (collection, fieldOrLock) pairs; the executor runs synchronously inside the put pipeline with full plaintext access. Cross-collection invariants get a `ReadOnlyVaultFacade` so the strategy can read sibling collections without re-entering the write lock.
+
+- **`withGuard` factory + `GuardStrategy` types** ([#123](https://github.com/vLannaAi/noy-db/issues/123)) — `withGuard(spec)` returns a strategy handle; the spec declares `collection`, `kind: 'lock' | 'freeze' | 'invariant'`, target field(s) or lock condition, and an optional `amendable` clause (role list + invariant predicate). New `@noy-db/hub/guards` subpath barrel (sibling of `@noy-db/hub/periods` in the `time-and-audit` cluster).
+- **`GuardRegistry` + `GuardExecutor`** ([#124](https://github.com/vLannaAi/noy-db/issues/124)) — registration at vault open, dispatch on every put/delete, frozen-field diff (`fieldChanged(prev, next, path)` deep-equality with array-aware semantics), amendment change collection, invariant runner. Strategies that throw are surfaced as one of the four typed errors below.
+- **`LedgerEntry` extension with `op: 'amendment'` + audit-aware skip** ([#125](https://github.com/vLannaAi/noy-db/issues/125)) — every successful amendment writes an extra ledger entry carrying the changed-fields diff + invocation factors. `verifyBackupIntegrity` and `reconstructAtVersion` skip `op: 'amendment'` entries when reconstructing the canonical record stream (these are audit overlays, not state transitions). **Side-fix during review**: pre-fix, both helpers would have falsely failed integrity on any vault with amendment entries — the bug existed in latent form because no amendment entries existed yet. Fixed in this release before any user could hit it.
+- **`Collection.put` / `.delete` guard hook + `ReadOnlyVaultFacade`** ([#126](https://github.com/vLannaAi/noy-db/issues/126)) — guard executor runs after permission check, before encryption + ledger commit. `ReadOnlyVaultFacade` exposes a frozen vault snapshot to amendment invariants so cross-collection rules (e.g. "amendment of `invoices` requires open `period` in `periods`") can read sibling state. **Side-fix during review**: the initial PR stubbed the facade as `null` / `[]`, blinding cross-collection reads; caught in code review and replaced with a real read-only proxy over the in-memory plaintext layer.
+- **Four error classes** ([#127](https://github.com/vLannaAi/noy-db/issues/127)) — `RecordLockedError`, `FieldFrozenError`, `InvariantError`, `AmendmentForbiddenError`. All carry `collection`, `id`, and rule context; `InvariantError` and `AmendmentForbiddenError` additionally carry the changed-fields list and the invariant's name. Exported from the `@noy-db/hub/guards` subpath barrel + root for `instanceof` checks.
+- **Showcase 79 — accounting end-to-end** ([#128](https://github.com/vLannaAi/noy-db/issues/128)) — invoice lock after issue, frozen `amount` / `clientId` post-finalization, period-aware amendment invariant requiring open accounting period + audit-trail role. Full round-trip including ledger replay verification.
+- **Side-fix during review** — cache-invalidation in `putManyAtomic` revert path. The transaction-revert pass touched the canonical record but not the cached plaintext, leaving a stale entry. Caught while verifying guard rollback semantics; fix benefits any future `putManyAtomic` revert scenario.
+
+### Derivations subsystem (#129 epic, Dim 14 v1)
+
+`withDerivation` plumbs deterministic derived data — every put on the source collection eagerly recomputes outputs and stamps `_derivedFrom` metadata on each output record. Lazy lifecycle (stale tracking + on-read resolution in `Collection.get`) provides the read-path resolution when the source mutates outside a put (sync replay, batch import).
+
+- **`withDerivation` factory + types** — `DerivationStrategy`, `OutputSpec`, `DerivedFromMeta`. New `@noy-db/hub/derivations` subpath barrel (sibling of `@noy-db/hub/tx` in the `write-and-mutate` cluster).
+- **`DerivationRegistry` with DFS cycle detection** — runs at vault open. Builds a strategy DAG; rejects open with `DerivationCycleError` if the cycle wouldn't terminate (carries the offending strategy chain). Max-depth ceiling enforced via `DerivationDepthError`.
+- **`DerivationExecutor`** — runs `derive(record)` on plaintext under the same in-memory snapshot the put sees, validates output shape against the registered `OutputSpec` (`DerivationOutputShapeError`), rejects unknown output collections (`DerivationOutputUnknownError`), stamps `_derivedFrom: { source, sourceId, sourceVersion, strategyHash }` on each output record.
+- **`computeStrategyHash`** — SHA-256 over `source-collection-name + sorted(output-keys) + derive.toString()`. Stable across runs; lets the lazy path detect drift when the strategy redeploys against existing output records.
+- **Four error classes** — `DerivationCycleError`, `DerivationDepthError`, `DerivationOutputUnknownError`, `DerivationOutputShapeError`. Exported from the `@noy-db/hub/derivations` subpath barrel + root.
+- **Eager dispatch in `Collection.put`** — after store + ledger commit, the registry's `derivationSource(collection, id)` callback fires, executor walks the strategies, writes outputs. Strict mode rethrows; soft mode marks stale.
+- **Lazy lifecycle** — stale tracking via `WeakMap<DerivationRegistry, Set<string>>`. `Collection.get` checks staleness, resolves on read, writes-through. Bulk recompute via `vault.deriveAll(collection)` for cold-cache scenarios.
+- **Side-fix during review** — `runTransaction` revert-plan reorder. Pre-fix, `executed.push(...)` ran AFTER the put/delete call, so a mid-put throw (including strict-mode derivation failures) bypassed rollback registration and corrupted the transaction's exit state. Now `executed.push(...)` runs BEFORE the call. The fix benefits any future mid-`Collection.put` throw scenario, not just derivation strict-mode.
+- **Showcase 80 — PDF source → meta + text outputs** — round-trip exercising eager + lazy paths, cycle-detection at open, strategy-hash drift recognition.
+
+### Tier-2 auth showcase coverage (#77, #78)
+
+Closes the two `priority: high` real-provider gaps from the 2026-05-09 audit — the only tier-2 packages that hold wrap-key material on their own (`on-password` derives a wrap-DEKs key via PBKDF2; `on-webauthn` releases a PRF fragment to wrap KEK).
+
+- **Showcase 71 — `on-password` tier-2 capability matrix** ([#78](https://github.com/vLannaAi/noy-db/issues/78)) — 16 scenarios pinning the `kek: null` keyring security contract: cold-start unlock via `(vault, userId, password)` triple; capability matrix on tier-1-gated ops (✅ read/write/query, ❌ enrollAuthenticator/rotatePassphrase/grant); re-elevation back to tier 1 restores full capability; password-vs-phrase policy split (password strength is `PasswordPolicy`, phrase strength is `PassphrasePolicy` — they cannot bleed); `@noy-db/on-threat` lockout integration; username-binding regression (slot id `password:<userId>` prevents cross-user replay). Uses `@vitest-environment node` to dodge happy-dom's partial `subtle.exportKey` polyfill.
+- **Showcase 72 — `on-webauthn` Playwright virtual authenticator** ([#77](https://github.com/vLannaAi/noy-db/issues/77)) — gated behind `NOYDB_SHOWCASE_WEBAUTHN_VIRTUAL=1` + one-shot `pnpm exec playwright install chromium`. Drives a real Chromium CDP virtual authenticator with PRF support; covers register + assert + PRF determinism (same salt → same fragment) + salt sensitivity (different salt → different fragment) + cross-device rejection (different credential id → assert fails).
+
+### Known follow-ups (pre.12 milestone)
+
+- **[#130](https://github.com/vLannaAi/noy-db/issues/130) — bundle-size regression (~30–48% gz)** introduced by the guards `index.ts` re-export. Under investigation; likely a subpath-barrel-only fix once we trace the exact transitive pull.
+- **[#131](https://github.com/vLannaAi/noy-db/issues/131) — `GuardStrategyHandle<any>` type variance refactor** (backlog) — the registry currently widens to `any` at the dispatch boundary; can tighten with a discriminated-union handle once the public surface settles.
+- **[#132](https://github.com/vLannaAi/noy-db/issues/132) — `withDerivation` pre-hashed register** — make the factory hash the strategy at construction time so `register()` becomes sync. Plugs the `Noydb.vault()` fallback gap where async-register currently forces a single-tick boundary at vault open.
+- **[#133](https://github.com/vLannaAi/noy-db/issues/133) — strict-mode multi-output orphan window** — if a strict-mode derivation produces N outputs and output K throws shape validation, outputs 0..K-1 are already written. Fix is a two-pass write (validate all → commit all) but needs design for the cycle-aware case.
+
+### Issues closed
+
+#77, #78, #123, #124, #125, #126, #127, #128, #129
+
 ## 0.1.0-pre.10
 
 ### Audit-and-cleanup batch

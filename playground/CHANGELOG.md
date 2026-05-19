@@ -1,5 +1,13 @@
 # @noy-db/playground
 
+## 0.1.0-pre.11
+
+### Patch Changes
+
+- Updated dependencies
+  - @noy-db/hub@0.1.0-pre.11
+
+
 ## 1.0.5
 
 ### Patch Changes
