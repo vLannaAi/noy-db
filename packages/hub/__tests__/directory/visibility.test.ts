@@ -162,6 +162,49 @@ describe('User-list visibility (#122)', () => {
     adminDb.close()
   })
 
+  it('revoke deletes the visibility sidecar (no leak to re-granted userId)', async () => {
+    const store = inlineMemory()
+    const aliceDb = await createNoydb({ store, user: 'alice', secret: 'alice-pass-2026-strong' })
+    const v = await aliceDb.openVault('demo')
+    await v.user.updateMe({ profile: { displayName: 'Alice' } })
+
+    // Grant bob, bob marks self hidden.
+    await aliceDb.grant('demo', {
+      userId: 'bob',
+      displayName: 'Bob',
+      role: 'operator',
+      passphrase: 'bob-pass-2026-strong',
+    })
+    const bobDb = await createNoydb({ store, user: 'bob', secret: 'bob-pass-2026-strong' })
+    const bobV = await bobDb.openVault('demo')
+    await bobV.user.setMyVisibility({ hidden: true })
+    expect(await bobV.user.getMyVisibility()).toEqual({ hidden: true })
+    bobDb.close()
+
+    // Owner revokes bob, then re-grants the same userId.
+    await aliceDb.revoke('demo', { userId: 'bob' })
+    await aliceDb.grant('demo', {
+      userId: 'bob',
+      displayName: 'Bob (fresh)',
+      role: 'operator',
+      passphrase: 'bob-pass-redux-2026-strong',
+    })
+
+    // Fresh listing — bob is NOT hidden anymore. The sidecar from the
+    // revoked principal did not leak to the re-granted userId.
+    const dek = await getDek(v)
+    const visible = await listUsersWithEnvelopes(store, 'demo', dek, 'owner')
+    expect(visible.map((r) => r.user.userId).sort()).toEqual(['alice', 'bob'])
+
+    // And no orphaned visibility doc remains.
+    const bobAfter = await createNoydb({ store, user: 'bob', secret: 'bob-pass-redux-2026-strong' })
+    const bobAfterV = await bobAfter.openVault('demo')
+    expect(await bobAfterV.user.getMyVisibility()).toEqual({ hidden: false })
+
+    aliceDb.close()
+    bobAfter.close()
+  })
+
   it('peer-recovery preserves the hidden flag', async () => {
     const store = inlineMemory()
     const aliceDb = await createNoydb({ store, user: 'alice', secret: 'alice-pass-2026-strong' })

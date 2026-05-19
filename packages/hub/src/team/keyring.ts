@@ -13,7 +13,7 @@ import {
 } from '../crypto.js'
 import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, KeyringExpiredError, KeyringCorruptError, InvalidKeyError, ValidationError, DirectoryDisabledError } from '../errors.js'
 import { readDirectoryConfig } from '../directory/storage.js'
-import { readUserVisibility } from '../directory/visibility.js'
+import { readUserVisibility, deleteUserVisibility } from '../directory/visibility.js'
 import { assertStrongPassphrase, type PassphrasePolicy } from '../validation.js'
 import {
   saveUserEnvelope,
@@ -605,6 +605,12 @@ export async function revoke(
     // error when the envelope was never written (e.g. the user was
     // granted but never authenticated to write their own profile).
     await deleteUserEnvelope(adapter, vault, userId)
+    // Also drop the visibility sidecar at `_meta/visibility/<userId>`.
+    // If the same `userId` is re-granted later (rare for humans,
+    // possible for service accounts and test fixtures), the new
+    // principal must start with a fresh visibility state instead of
+    // silently inheriting the revoked user's `hidden` flag.
+    await deleteUserVisibility(adapter, vault, userId)
   }
 
   // Single rotation pass at the end. The cost is O(records in

@@ -75,6 +75,20 @@ export async function persistUserVisibility(
   await store.put(vault, META_COLLECTION, visibilityRecordId(keyringId), envelope)
 }
 
+/**
+ * Delete the visibility flag for `keyringId`. Called from `revoke()`
+ * alongside `deleteUserEnvelope` so the sidecar does not leak to a
+ * re-granted principal with the same `userId`. Idempotent — the store's
+ * `delete()` is already a no-op when the record is absent.
+ */
+export async function deleteUserVisibility(
+  store: NoydbStore,
+  vault: string,
+  keyringId: string,
+): Promise<void> {
+  await store.delete(vault, META_COLLECTION, visibilityRecordId(keyringId))
+}
+
 function isUserVisibility(x: unknown): x is UserVisibility {
   if (x === null || typeof x !== 'object') return false
   if (!('hidden' in x)) return false

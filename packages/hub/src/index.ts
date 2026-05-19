@@ -450,6 +450,7 @@ export {
   persistDirectoryConfig,
   readUserVisibility,
   persistUserVisibility,
+  deleteUserVisibility,
   visibilityRecordId,
   DIRECTORY_RECORD_ID,
   VISIBILITY_RECORD_PREFIX,

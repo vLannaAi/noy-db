@@ -16,6 +16,7 @@ export {
 export {
   readUserVisibility,
   persistUserVisibility,
+  deleteUserVisibility,
   visibilityRecordId,
   VISIBILITY_RECORD_PREFIX,
 } from './visibility.js'
