@@ -1,6 +1,6 @@
 # Subsystems — the catalog
 
-The 17 opt-in capabilities that compose with the always-on core. Each entry is a tree-shake-able module behind a `with*()` strategy seam — when you don't import the factory, none of the subsystem's code reaches your bundle.
+The 19 opt-in capabilities that compose with the always-on core. Each entry is a tree-shake-able module behind a `with*()` strategy seam — when you don't import the factory, none of the subsystem's code reaches your bundle.
 
 See [SUBSYSTEMS.md](../../SUBSYSTEMS.md) for the catalog overview, dependency graph, starter recipes, and CI invariants.
 
@@ -20,6 +20,7 @@ See [SUBSYSTEMS.md](../../SUBSYSTEMS.md) for the catalog overview, dependency gr
 | [history](./history.md) | Versioning, diff, revert, time-machine, audit ledger |
 | [transactions](./transactions.md) | Multi-record atomic writes |
 | [crdt](./crdt.md) | LWW-Map / RGA / Yjs interop |
+| [derivations](./derivations.md) | Deterministic derived data (eager / lazy) — Dim 14 |
 
 ## Cluster C — Data Shape
 
@@ -34,6 +35,7 @@ See [SUBSYSTEMS.md](../../SUBSYSTEMS.md) for the catalog overview, dependency gr
 |---|---|
 | [periods](./periods.md) | Accounting periods + closed-period write guard |
 | [consent](./consent.md) | Consent audit log (GDPR/PIPL-friendly) |
+| [guards](./guards.md) | Record lock + field-level freeze + role-gated amendment invariant with ledger audit |
 
 ## Cluster E — Snapshot & Portability
 

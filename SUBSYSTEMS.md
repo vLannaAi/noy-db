@@ -21,7 +21,7 @@ const db = await createNoydb({
 
 When a subsystem is not opted into, its real implementation is replaced by a NO-OP stub (or a throwing stub on opt-in surfaces) and the heavy code is fully tree-shaken from the bundle.
 
-This document lists the always-on core and the 17 subsystems. It is the table of contents for the rest of the documentation.
+This document lists the always-on core and the 19 subsystems. It is the table of contents for the rest of the documentation.
 
 ---
 
@@ -43,7 +43,7 @@ Anything outside this floor is a subsystem.
 
 ---
 
-## The 17 subsystems
+## The 19 subsystems
 
 Each subsystem has its own subpath export under `@noy-db/hub/<name>`, a `with<Name>()` factory, and a doc page in `docs/subsystems/<name>.md`. The "LOC saved" column is the bundle weight a consumer avoids by **not** opting in.
 
@@ -60,9 +60,10 @@ Each subsystem has its own subpath export under `@noy-db/hub/<name>`, a `with<Na
 
 | # | Subpath | Headline | LOC saved | Pairs with |
 |---|---|---|---:|---|
-| 5 | `@noy-db/hub/history` | Versioning, diff, revert, time-machine, audit ledger (hash-chained) | 1,880 | `periods`, `consent`, `shadow` |
-| 6 | `@noy-db/hub/transactions` | Multi-record atomic writes (`db.transaction(fn)`) | 280 | `history`, `sync` |
+| 5 | `@noy-db/hub/history` | Versioning, diff, revert, time-machine, audit ledger (hash-chained) | 1,880 | `periods`, `consent`, `shadow`, `guards` |
+| 6 | `@noy-db/hub/transactions` | Multi-record atomic writes (`db.transaction(fn)`) | 280 | `history`, `sync`, `derivations`, `guards` |
 | 7 | `@noy-db/hub/crdt` | LWW-Map / RGA / Yjs interop | 221 | `live`, `sync` |
+| 18 | `@noy-db/hub/derivations` | Deterministic derived data — source → outputs (eager / lazy) with cycle detection and strict-mode rollback (Dim 14) | ~550 | `transactions` (strict-mode rollback), `guards` |
 
 ### Cluster C — Data Shape
 
@@ -77,6 +78,7 @@ Each subsystem has its own subpath export under `@noy-db/hub/<name>`, a `with<Na
 |---|---|---|---:|---|
 | 10 | `@noy-db/hub/periods` | Accounting periods + closed-period write guard | 334 | `history` |
 | 11 | `@noy-db/hub/consent` | Consent audit log (GDPR/PIPL-friendly) | 194 | `history` |
+| 19 | `@noy-db/hub/guards` | Record lock + field-level freeze + role-gated amendment invariant with `op: 'amendment'` ledger entry | ~700 | `history` (amendment audit), `transactions` (amendment-mode rollback), `team` (role check) |
 
 ### Cluster E — Snapshot & Portability
 
@@ -102,7 +104,7 @@ Each subsystem has its own subpath export under `@noy-db/hub/<name>`, a `with<Na
 |---|---|---|---:|---|
 | 17 | `@noy-db/hub/routing` | Multi-store routing + middleware + sync-policy + lazy-mode + LRU cache | ~1,985 | `indexing`, `bundle` |
 
-**Totals:** ~13,200 LOC across all 17 subsystems are tree-shake-able. A consumer using only the core ships ~6,500 LOC. A consumer opting into all 17 ships ~28,000 LOC (parity with today).
+**Totals:** ~14,450 LOC across all 19 subsystems are tree-shake-able. A consumer using only the core ships ~6,500 LOC. A consumer opting into all 19 ships ~29,500 LOC.
 
 ---
 
@@ -324,6 +326,9 @@ sync ─────► crdt, live, team   (sync engine reuses CRDT merge + pres
 team ─────► session            (token sessions enforce grants)
 periods ──► history            (closed-period guard reads ledger)
 consent ──► history            (consent audit appends ledger entries)
+guards ───► history            (successful amendment appends `op: 'amendment'` ledger entry)
+guards ───► transactions       (amendment mode set via `db.transaction({ amendment, reason }, fn)`)
+derivations ► transactions     (strict-mode failure triggers source rollback via shared revert plan)
 ```
 
 Soft pairings (mentioned in "Pairs well with" but not enforced) are listed per page.
