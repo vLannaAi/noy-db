@@ -9,6 +9,7 @@
 export async function computeStrategyHash(
   source: string,
   outputKeys: readonly string[],
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   derive: (...args: any[]) => any,
 ): Promise<string> {
   const canonical = JSON.stringify({

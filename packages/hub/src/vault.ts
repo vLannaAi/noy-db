@@ -1359,7 +1359,7 @@ export class Vault {
       const id = (record as { id?: unknown }).id
       if (typeof id !== 'string') continue
       for (const { spec, strategyHash } of strategies) {
-        const sourceWithId = { ...(record as Record<string, unknown>), id }
+        const sourceWithId = { ...record, id }
         const result = await DerivationExecutor.run(spec, sourceWithId, 0, strategyHash)
         let anyFailed = false
         for (const key of Object.keys(spec.outputs)) {
@@ -1367,7 +1367,7 @@ export class Vault {
           if (!out || !out.ok) { anyFailed = true; continue }
           const outSpec = spec.outputs[key]
           if (!outSpec) continue
-          await this.collection(outSpec.collection).put(id, out.value as Record<string, unknown>)
+          await this.collection(outSpec.collection).put(id, out.value)
         }
         if (anyFailed) failed++
         else derived++
