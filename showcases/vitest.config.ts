@@ -4,6 +4,18 @@ export default defineConfig({
   test: {
     // happy-dom so Vue/Pinia reactivity works for #01, #04, #06, #07, #09
     environment: 'happy-dom',
+    // Showcase 71 (on-password) calls hub's `mintWrappedDeksBlob` which
+    // does `subtle.exportKey('raw', dek)`. happy-dom's WebCrypto polyfill
+    // rejects that with `InvalidAccessException: key is not extractable`
+    // even when the DEK was generated with `extractable: true`. Node's
+    // built-in Web Crypto is fully spec-compliant, so this showcase
+    // runs against `node` instead. Showcase 72 (on-webauthn-virtual)
+    // also stays on node — it spawns Chromium via Playwright and does
+    // not need happy-dom's DOM at all.
+    environmentMatchGlobs: [
+      ['src/71-on-password-tier2.showcase.test.ts', 'node'],
+      ['src/72-on-webauthn-virtual.showcase.test.ts', 'node'],
+    ],
     include: ['src/**/*.showcase.test.ts', 'src/**/*.recipe.test.ts'],
     testTimeout: 30_000,
     // happy-dom's WebCrypto implementation is occasionally flaky on

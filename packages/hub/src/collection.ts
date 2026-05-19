@@ -34,6 +34,9 @@ import { NO_SYNC, type SyncStrategy } from './team/sync-strategy.js'
 import type { BlobSet } from './blobs/blob-set.js'
 import { NO_BLOBS, type BlobStrategy } from './blobs/strategy.js'
 import { NO_AGGREGATE, type AggregateStrategy } from './aggregate/strategy.js'
+import type { GuardRegistry } from './guards/registry.js'
+import type { ReadOnlyVaultFacade } from './guards/types.js'
+import { GuardExecutor } from './guards/executor.js'
 
 /** Callback for dirty tracking (sync engine integration). */
 export type OnDirtyCallback = (collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>
@@ -346,6 +349,25 @@ export class Collection<T> {
     | undefined
 
   /**
+   * Optional back-reference to the owning vault's guard registry + a
+   * read-only vault facade. When present, `Collection.put` and
+   * `Collection.delete` consult the registry for guards declared
+   * against this collection and run their `check` + `frozenFields`
+   * before the adapter write. Absent in unit tests that construct
+   * a Collection directly; production code always sets it via
+   * `Vault.collection()`.
+   *
+   * Typed structurally rather than as `Vault` to avoid a circular
+   * import (mirrors the `refEnforcer` / `joinResolver` pattern).
+   */
+  private readonly guardSource:
+    | {
+        registry(): GuardRegistry
+        readOnlyVault(): ReadOnlyVaultFacade
+      }
+    | undefined
+
+  /**
    * Optional back-reference to the owning compartment's ref
    * enforcer. When present, `Collection.put` calls
    * `refEnforcer.enforceRefsOnPut(name, record)` before the adapter
@@ -624,6 +646,16 @@ export class Collection<T> {
       existing: { ts: string | null; record: Record<string, unknown> | null } | null,
       incoming: Record<string, unknown> | null,
     ) => Promise<void>
+    /**
+     * Optional back-reference to the owning vault's guard registry +
+     * read-only facade. When present, put/delete consult registered
+     * guards for this collection. Same structural-interface pattern
+     * as `refEnforcer` to avoid a circular Vault import.
+     */
+    guardSource?: {
+      registry(): GuardRegistry
+      readOnlyVault(): ReadOnlyVaultFacade
+    } | undefined
   }) {
     this.adapter = opts.adapter
     this.vault = opts.vault
@@ -655,6 +687,7 @@ export class Collection<T> {
     this.syncAdapter = opts.syncAdapter
     this.onAccess = opts.onAccess
     this.periodGuard = opts.periodGuard
+    this.guardSource = opts.guardSource
 
     // hierarchical-tier wiring
     this.tiers = opts.tiers && opts.tiers.length > 0 ? new Set(opts.tiers) : null
@@ -886,6 +919,48 @@ export class Collection<T> {
   async put(id: string, record: T): Promise<void> {
     if (!hasWritePermission(this.keyring, this.name)) {
       throw new ReadOnlyError()
+    }
+
+    // Guard hook (record lock + field freeze). Runs BEFORE the
+    // period guard so a guard-blocked write fails before any
+    // schema work, i18n translation, history, or ledger churn.
+    // Inside an active amendment we skip the synchronous check
+    // and frozen-field diff — those run at commit time on the
+    // collected change-set instead.
+    if (this.guardSource) {
+      const registry = this.guardSource.registry()
+      const guards = registry.guardsFor(this.name)
+      if (guards.length > 0) {
+        const existingEnv = await this.adapter.get(this.vault, this.name, id)
+        let existingRecord: Record<string, unknown> | null = null
+        if (existingEnv) {
+          try {
+            existingRecord = (await this.decryptRecord(existingEnv, { skipValidation: true })) as unknown as Record<string, unknown>
+          } catch {
+            existingRecord = null
+          }
+        }
+        const incomingRecord = record as unknown as Record<string, unknown>
+        const ctx = {
+          existing: existingRecord,
+          vault: this.guardSource.readOnlyVault(),
+          userId: this.keyring.userId,
+          role: this.keyring.role,
+        }
+        if (registry.isAmendmentActive()) {
+          const vBefore = existingEnv?._v ?? 0
+          // `put` deterministically bumps version by 1 — see the
+          // `version = existing.version + 1` line further down in this
+          // method. Computing vAfter here keeps the audit math local
+          // to the call site that decides it.
+          registry.collectChange(this.name, id, existingRecord, incomingRecord, vBefore, vBefore + 1)
+        } else {
+          await registry.runChecks(this.name, incomingRecord, ctx)
+          for (const g of guards) {
+            await GuardExecutor.checkFrozenFields(g, id, existingRecord, incomingRecord)
+          }
+        }
+      }
     }
 
     // accounting-period guard. Runs BEFORE any other
@@ -1182,6 +1257,61 @@ export class Collection<T> {
       throw new ReadOnlyError()
     }
 
+    // Guard hook for deletes. Symmetric to put(): consult the
+    // registry, decrypt the prior record (if any), then either
+    // collect the {before, null} change pair into an active
+    // amendment or run the guards' `check` callback. Frozen-field
+    // diffing is skipped (it's a put concept). Delete-of-absent is
+    // a no-op — no guard is consulted because there's nothing to
+    // protect, matching the idempotent-delete contract.
+    if (this.guardSource) {
+      const registry = this.guardSource.registry()
+      const guards = registry.guardsFor(this.name)
+      if (guards.length > 0) {
+        const existingEnv = await this.adapter.get(this.vault, this.name, id)
+        if (existingEnv) {
+          let existingRecord: Record<string, unknown> | null = null
+          try {
+            existingRecord = (await this.decryptRecord(existingEnv, { skipValidation: true })) as unknown as Record<string, unknown>
+          } catch {
+            existingRecord = null
+          }
+          const ctx = {
+            existing: existingRecord,
+            vault: this.guardSource.readOnlyVault(),
+            userId: this.keyring.userId,
+            role: this.keyring.role,
+          }
+          if (registry.isAmendmentActive()) {
+            // For deletes, the record version is the version that was
+            // visible at delete time; we record vBefore = that version
+            // and vAfter = same (the ledger entry's `op` discriminator
+            // is `delete`, not `put`, so the consumer treats the
+            // tombstone shape correctly). Amendment-tracked deletes
+            // are rare today but the contract is symmetric with put.
+            const vBefore = existingEnv._v
+            registry.collectChange(
+              this.name,
+              id,
+              existingRecord,
+              null as unknown as Record<string, unknown>,
+              vBefore,
+              vBefore,
+            )
+          } else {
+            // For deletes, `incoming` to the check is the existing
+            // record — the guard's check decides whether the
+            // deletion is permitted by inspecting `ctx.existing`.
+            await registry.runChecks(
+              this.name,
+              existingRecord ?? {},
+              ctx,
+            )
+          }
+        }
+      }
+    }
+
     // accounting-period guard (same contract as put;
     // incoming is null because this is a delete).
     if (this.periodGuard !== undefined) {
@@ -1401,6 +1531,11 @@ export class Collection<T> {
         try {
           if (prior) await this.adapter.put(this.vault, this.name, id, prior)
           else await this.adapter.delete(this.vault, this.name, id)
+          // Cache desync guard — the raw adapter writes above bypass
+          // `Collection.put`/`delete`, so the in-memory cache + indexes
+          // still reflect the executed (now-reverted) value. Same
+          // helper used by the tx executor's compensation path.
+          await this._invalidateCacheEntry(id)
         } catch { /* best-effort */ }
       }
       throw err
@@ -1908,6 +2043,39 @@ export class Collection<T> {
   // ─── Internal ──────────────────────────────────────────────────
 
   /** Load all records from adapter into memory cache. */
+  /**
+   * @internal — refresh the in-memory cache entry for a single id by
+   * re-reading from the adapter. Used by the transaction executor's
+   * Phase-3 revert path: that path writes the prior envelope directly
+   * via the raw store (to avoid re-firing Collection-level side
+   * effects), which would otherwise leave this Collection's eager
+   * cache holding the rolled-back value. After revert, the executor
+   * calls this hook so subsequent `get` / `query` reads see the
+   * actual on-disk state.
+   *
+   * Lazy mode: drops the LRU entry; the next `get` repopulates from
+   * the adapter. Eager mode: re-reads the envelope and either sets
+   * the cache entry (record still present) or deletes it (record was
+   * gone before the tx and the revert deleted it again).
+   */
+  async _invalidateCacheEntry(id: string): Promise<void> {
+    if (this.lazy && this.lru) {
+      this.lru.remove(id)
+      return
+    }
+    if (!this.hydrated) return
+    const previous = this.cache.get(id)
+    const envelope = await this.adapter.get(this.vault, this.name, id)
+    if (!envelope) {
+      this.cache.delete(id)
+      if (previous) this.indexes?.remove(id, previous.record)
+      return
+    }
+    const record = await this.decryptRecord(envelope)
+    this.cache.set(id, { record, version: envelope._v })
+    this.indexes?.upsert(id, record, previous ? previous.record : null)
+  }
+
   private async ensureHydrated(): Promise<void> {
     if (this.hydrated) return
 

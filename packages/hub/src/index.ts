@@ -227,6 +227,10 @@ export {
   KeyringExpiredError,
   ReadOnlyAtInstantError,
   ReadOnlyFrameError,
+  RecordLockedError,
+  FieldFrozenError,
+  InvariantError,
+  AmendmentForbiddenError,
 } from './errors.js'
 
 // Bundle format — `.noydb` container
@@ -458,6 +462,15 @@ export { SyncTransaction } from './team/sync-transaction.js'
 // Multi-record transactions
 export { TxContext, TxVault, TxCollection, runTransaction } from './tx/transaction.js'
 export type { TxOp } from './types.js'
+
+// Guards (record lock + field freeze + amendment invariant) — see docs/superpowers/specs/2026-05-18-guards-design.md
+export { withGuard } from './guards/index.js'
+export type {
+  GuardStrategy,
+  GuardStrategyHandle,
+  GuardContext,
+  GuardChange,
+} from './guards/index.js'
 
 // Accounting periods
 export { PERIODS_COLLECTION } from './periods/index.js'

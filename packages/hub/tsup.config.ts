@@ -37,6 +37,7 @@ const ENTRIES = {
   'bundle/index': 'src/bundle/index.ts',
   'consent/index': 'src/consent/index.ts',
   'periods/index': 'src/periods/index.ts',
+  'guards/index': 'src/guards/index.ts',
   'shadow/index': 'src/shadow/index.ts',
   'tx/index': 'src/tx/index.ts',
   'sync/index': 'src/sync/index.ts',

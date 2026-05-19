@@ -73,12 +73,17 @@ export interface LedgerEntry {
 
   /**
    * Which kind of mutation this entry records. only supports
-   * data operations (`put`, `delete`). Access-control operations
-   * (`grant`, `revoke`, `rotate`) will be added in a follow-up once
-   * the keyring write path is instrumented — that's tracked in the
-   * epic issue.
+   * data operations (`put`, `delete`, `amendment`). Access-control
+   * operations (`grant`, `revoke`, `rotate`) will be added in a
+   * follow-up once the keyring write path is instrumented — that's
+   * tracked in the epic issue.
+   *
+   * `'amendment'` is the multi-record audit entry written by the
+   * guards subsystem when an admin/owner uses `withTransactions(...)`
+   * to repair a constraint-violating state. See `amendment` field
+   * below for the structured payload.
    */
-  readonly op: 'put' | 'delete'
+  readonly op: 'put' | 'delete' | 'amendment'
 
   /** The collection the mutation targeted. */
   readonly collection: string
@@ -132,6 +137,25 @@ export interface LedgerEntry {
    * entirely — never `{ deltaHash: undefined }`.
    */
   readonly deltaHash?: string
+
+  /**
+   * Present only when `op === 'amendment'`. Records the human reason,
+   * the role of the actor, the (collection, id, vBefore, vAfter) tuple
+   * for every record touched, and which guard invariants passed.
+   *
+   * See docs/superpowers/specs/2026-05-18-guards-design.md.
+   */
+  readonly amendment?: {
+    readonly reason: string
+    readonly role: 'admin' | 'owner'
+    readonly changes: ReadonlyArray<{
+      readonly collection: string
+      readonly id: string
+      readonly vBefore: number
+      readonly vAfter: number
+    }>
+    readonly invariantsPassed: ReadonlyArray<string>
+  }
 }
 
 /**

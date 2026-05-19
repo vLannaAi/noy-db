@@ -9,3 +9,4 @@ export { withTransactions } from './active.js'
 export type { TxStrategy } from './strategy.js'
 
 export { TxContext, TxVault, TxCollection, runTransaction } from './transaction.js'
+export type { AmendmentTxOptions } from './transaction.js'

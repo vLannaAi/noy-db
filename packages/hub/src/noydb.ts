@@ -84,7 +84,7 @@ import type { KeyringAuthenticator } from './types.js'
 import type { SyncEngine } from './team/sync.js'
 import type { SyncTransaction } from './team/sync-transaction.js'
 import { NO_SYNC, type SyncStrategy } from './team/sync-strategy.js'
-import type { TxContext } from './tx/transaction.js'
+import type { TxContext, AmendmentTxOptions } from './tx/transaction.js'
 import { NO_TX, type TxStrategy } from './tx/strategy.js'
 import { INDEXED_STORE_POLICY } from './store/sync-policy.js'
 import type { PolicyEnforcer } from './session/session-policy.js'
@@ -353,6 +353,7 @@ export class Noydb {
       ...(this.options.historyStrategy !== undefined ? { historyStrategy: this.options.historyStrategy } : {}),
       ...(this.options.i18nStrategy !== undefined ? { i18nStrategy: this.options.i18nStrategy } : {}),
       ...(this.options.syncStrategy !== undefined ? { syncStrategy: this.options.syncStrategy } : {}),
+      ...(this.options.guardStrategies !== undefined ? { guardStrategies: this.options.guardStrategies } : {}),
       locale: opts?.locale,
       // Thread the translator hook so Collection.put() can invoke it
       plaintextTranslator: this.options.plaintextTranslator
@@ -413,6 +414,7 @@ export class Noydb {
       ...(this.options.historyStrategy !== undefined ? { historyStrategy: this.options.historyStrategy } : {}),
       ...(this.options.i18nStrategy !== undefined ? { i18nStrategy: this.options.i18nStrategy } : {}),
       ...(this.options.syncStrategy !== undefined ? { syncStrategy: this.options.syncStrategy } : {}),
+      ...(this.options.guardStrategies !== undefined ? { guardStrategies: this.options.guardStrategies } : {}),
       })
       this.vaultCache.set(name, comp)
       return comp
@@ -442,6 +444,7 @@ export class Noydb {
       ...(this.options.historyStrategy !== undefined ? { historyStrategy: this.options.historyStrategy } : {}),
       ...(this.options.i18nStrategy !== undefined ? { i18nStrategy: this.options.i18nStrategy } : {}),
       ...(this.options.syncStrategy !== undefined ? { syncStrategy: this.options.syncStrategy } : {}),
+      ...(this.options.guardStrategies !== undefined ? { guardStrategies: this.options.guardStrategies } : {}),
       emitter: this.emitter,
     })
     this.vaultCache.set(name, comp)
@@ -923,6 +926,19 @@ export class Noydb {
    */
   transaction<T>(fn: (tx: TxContext) => Promise<T> | T): Promise<T>
   /**
+   * Open an amendment-mode transaction. Requires `admin` or `owner`
+   * role on every vault touched by the body; throws
+   * `AmendmentForbiddenError` on first non-privileged `tx.vault(name)`
+   * call. Guard `check` callbacks are SKIPPED inside an amendment —
+   * the staged change-set is fed to each guard's `amendment.invariant`
+   * after the body returns, and the multi-record summary is appended
+   * to the vault's ledger as `op: 'amendment'`.
+   */
+  transaction<T>(
+    options: AmendmentTxOptions,
+    fn: (tx: TxContext) => Promise<T> | T,
+  ): Promise<T>
+  /**
    * Create a sync transaction for the given vault.
    * The vault must already be open via `openVault()`.
    * Call `tx.put()` / `tx.delete()` to stage changes, then `tx.commit()`
@@ -930,12 +946,23 @@ export class Noydb {
    */
   transaction(vault: string): SyncTransaction
   transaction<T>(
-    arg: string | ((tx: TxContext) => Promise<T> | T),
+    arg: string | AmendmentTxOptions | ((tx: TxContext) => Promise<T> | T),
+    maybeFn?: (tx: TxContext) => Promise<T> | T,
   ): SyncTransaction | Promise<T> {
     if (typeof arg === 'function') {
       return this.txStrategy.runTransaction(this, arg)
     }
-    const vault = arg
+    if (typeof arg === 'object' && arg !== null && arg.amendment === true) {
+      // Two-arg amendment form. We forward `arg` as the options bag —
+      // the executor handles reason validation + per-vault role check.
+      if (typeof maybeFn !== 'function') {
+        throw new ValidationError(
+          'db.transaction({ amendment: true }, fn) requires the callback as the second argument.',
+        )
+      }
+      return this.txStrategy.runTransaction(this, maybeFn, arg)
+    }
+    const vault = arg as string
     const comp = this.vaultCache.get(vault)
     if (!comp) {
       throw new ValidationError(

@@ -156,6 +156,16 @@
         "default": "./dist/periods/index.cjs"
       }
     },
+    "./guards": {
+      "import": {
+        "types": "./dist/guards/index.d.ts",
+        "default": "./dist/guards/index.js"
+      },
+      "require": {
+        "types": "./dist/guards/index.d.cts",
+        "default": "./dist/guards/index.cjs"
+      }
+    },
     "./shadow": {
       "import": {
         "types": "./dist/shadow/index.d.ts",

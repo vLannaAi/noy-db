@@ -64,6 +64,9 @@ import { isDictCollectionName } from './i18n/dictionary.js'
 import type { I18nTextDescriptor } from './i18n/core.js'
 import { NO_I18N, type I18nStrategy } from './i18n/strategy.js'
 import { NO_SYNC, type SyncStrategy } from './team/sync-strategy.js'
+import { GuardRegistry } from './guards/registry.js'
+import type { GuardStrategyHandle } from './guards/types.js'
+import { ReadOnlyVaultFacade } from './guards/read-only-facade.js'
 import type { LocaleReadOptions, ConflictPolicy } from './types.js'
 import type { CrdtMode } from './crdt/crdt.js'
 import { ReservedCollectionNameError } from './errors.js'
@@ -132,6 +135,13 @@ export class Vault {
   private readonly historyStrategy: HistoryStrategy
   private readonly i18nStrategy: I18nStrategy
   private readonly syncStrategy: SyncStrategy
+  private readonly guardRegistry: GuardRegistry
+  /**
+   * Cached read-only facade handed to guard callbacks via `ctx.vault`.
+   * Allocated lazily on first guard invocation to avoid the cost in
+   * vaults that never register a guard.
+   */
+  private guardReadOnlyFacade: ReadOnlyVaultFacade | null = null
   private getDEK: (collectionName: string) => Promise<CryptoKey>
 
   /**
@@ -321,6 +331,8 @@ export class Vault {
     historyStrategy?: HistoryStrategy | undefined
     i18nStrategy?: I18nStrategy | undefined
     syncStrategy?: SyncStrategy | undefined
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    guardStrategies?: ReadonlyArray<GuardStrategyHandle<any>> | undefined
   }) {
     this.adapter = opts.adapter
     this.name = opts.name
@@ -341,6 +353,12 @@ export class Vault {
     this.historyStrategy = opts.historyStrategy ?? NO_HISTORY
     this.i18nStrategy = opts.i18nStrategy ?? NO_I18N
     this.syncStrategy = opts.syncStrategy ?? NO_SYNC
+    this.guardRegistry = new GuardRegistry()
+    if (opts.guardStrategies) {
+      for (const handle of opts.guardStrategies) {
+        this.guardRegistry.register(handle.spec)
+      }
+    }
     this.historyConfig = opts.historyConfig ?? { enabled: true }
     this.reloadKeyring = opts.reloadKeyring
     this.locale = opts.locale
@@ -510,6 +528,15 @@ export class Vault {
         onRegisterConflictResolver: this.onRegisterConflictResolver,
         onAccess: (op, id) => this._logConsent(op, collectionName, id),
         periodGuard: (existing, incoming) => this._assertTsWritable(existing, incoming),
+        guardSource: {
+          registry: () => this.guardRegistry,
+          readOnlyVault: () => {
+            if (this.guardReadOnlyFacade === null) {
+              this.guardReadOnlyFacade = new ReadOnlyVaultFacade(this)
+            }
+            return this.guardReadOnlyFacade
+          },
+        },
       }
       if (options?.indexes !== undefined) collOpts.indexes = options.indexes
       if (options?.reconcileOnOpen !== undefined) collOpts.reconcileOnOpen = options.reconcileOnOpen
@@ -1274,6 +1301,40 @@ export class Vault {
       })
     }
     return this.ledgerStore
+  }
+
+  /** @internal — Collection.put calls into this. */
+  _getGuardRegistry(): GuardRegistry {
+    return this.guardRegistry
+  }
+
+  /**
+   * @internal — exposed for `runTransaction({ amendment: true })` so
+   * the amendment invariant runner can pass the SAME read-only vault
+   * facade that the per-record `Collection.put` guard hook uses
+   * (`guardSource.readOnlyVault()` above). Lazily constructs and
+   * caches the facade on first access — matches the per-collection
+   * pattern in `collection()` above.
+   */
+  _getReadOnlyFacade(): ReadOnlyVaultFacade {
+    if (this.guardReadOnlyFacade === null) {
+      this.guardReadOnlyFacade = new ReadOnlyVaultFacade(this)
+    }
+    return this.guardReadOnlyFacade
+  }
+
+  /**
+   * @internal — exposed for `runTransaction({ amendment: true })`
+   * to append the structured `op: 'amendment'` audit entry without
+   * dragging this private accessor onto the public surface or
+   * forcing the tx executor to depend on the history-strategy
+   * shape directly. Returns `null` when no history strategy is
+   * configured, in which case the amendment commits silently
+   * (the records still write through; only the multi-record
+   * audit summary is skipped).
+   */
+  _getLedgerOrNull(): LedgerStore | null {
+    return this.getLedgerOrNull()
   }
 
   /**
@@ -2215,11 +2276,20 @@ export class Vault {
     for (let i = allEntries.length - 1; i >= 0; i--) {
       const entry = allEntries[i]
       if (!entry) continue
+      // Amendment entries are multi-record audit entries whose
+      // `collection` and `id` are empty strings — building a `"/"`
+      // key here would mark that synthetic slot as seen and falsely
+      // trip the data check on a record that never existed. Skip
+      // them BEFORE the key/seen bookkeeping so they neither
+      // tombstone real entries nor enter the latest map.
+      if (entry.op === 'amendment') continue
       const key = `${entry.collection}/${entry.id}`
       if (seen.has(key)) continue
       seen.add(key)
       // For deletes the data collection should NOT have the record,
-      // so we skip — there's nothing to cross-check.
+      // so we skip — there's nothing to cross-check. Marking the key
+      // as seen above ensures any earlier `put` of the same id is
+      // also skipped (the record was subsequently deleted).
       if (entry.op === 'delete') continue
       latest.set(key, {
         collection: entry.collection,

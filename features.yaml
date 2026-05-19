@@ -467,6 +467,27 @@ features:
       - 'casAtomic stores: genuine atomicity. casAtomic:false: ordered-with-rollback'
     related: [vault-and-collections]
 
+  - id: guards
+    name: Record lock, field freeze, amendment invariant
+    cluster: time-and-audit
+    spec: docs/subsystems/guards.md#guards
+    subsystem_doc: docs/subsystems/guards.md
+    package: '@noy-db/hub/guards'
+    factory: withGuard
+    status: preview
+    showcases:
+      - id: 79-with-guard
+        path: showcases/src/79-with-guard.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'check + frozenFields run on plaintext, before encryption'
+      - 'amendment: true requires admin|owner role; fail-fast at transaction open'
+      - 'invariant runs at commit over the full change-set; throw → full rollback'
+      - 'every successful amendment appends a LedgerEntry with op: amendment'
+    related: [transactions, periods]
+
   - id: bundle
     name: '.noydb container format'
     cluster: snapshot-and-portability
@@ -734,13 +755,16 @@ adapters:
     cas_atomic: true
     use_case: self-hosted-sql
     status: stable
-    showcases: []
+    showcases:
+      - id: 73-storage-mysql
+        path: showcases/src/73-storage-mysql.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
     invariants:
       - 'casAtomic: true (UPDATE … WHERE _v = $expectedVersion)'
       - 'Uses the JSON column type — MySQL 5.7.8+'
+      - 'Real-provider showcase exercises the JSON column write path + idempotent schema creation against a docker-compose MySQL 8 container (issue #69)'
     related: [stores-contract, to-postgres]
 
   - id: to-sqlite
@@ -805,13 +829,16 @@ adapters:
     cas_atomic: false
     use_case: remote-disk
     status: stable
-    showcases: []
+    showcases:
+      - id: 74-storage-ssh
+        path: showcases/src/74-storage-ssh.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
     invariants:
       - 'Public-key auth only (passwords explicitly rejected)'
       - 'casAtomic: false (no atomic CAS over SFTP)'
+      - 'Real-provider showcase exercises the put-then-rename atomic-write pattern against a docker-compose OpenSSH container (issue #70)'
     related: [stores-contract, to-file, to-smb, to-nfs]
 
   - id: to-smb
@@ -820,13 +847,16 @@ adapters:
     cas_atomic: false
     use_case: enterprise-fileshare
     status: stable
-    showcases: []
+    showcases:
+      - id: 75-storage-smb
+        path: showcases/src/75-storage-smb.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
     invariants:
       - 'NTLM or Kerberos auth'
       - 'casAtomic: false (best-effort lockfile only)'
+      - 'Real-provider showcase exercises NTLM auth + put-then-rename against a docker-compose Samba container; Kerberos is out-of-scope at the showcase level (issue #71)'
     related: [stores-contract, to-ssh, to-nfs]
 
   - id: to-nfs
@@ -835,13 +865,16 @@ adapters:
     cas_atomic: false
     use_case: enterprise-fileshare
     status: stable
-    showcases: []
+    showcases:
+      - id: 76-storage-nfs
+        path: showcases/src/76-storage-nfs.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
     invariants:
       - 'Operates on a pre-mounted NFS path; diagnostic pre-flight checks the mount'
       - 'casAtomic: false (NFS rename/atomic-write semantics are kernel-dependent)'
+      - 'Real-provider showcase verifies the diagnostic pre-flight against a real NFSv4.2 mount and against a non-NFS plain dir (issue #72; Linux-only host-side mount required)'
     related: [stores-contract, to-smb, to-file]
 
   - id: to-icloud
@@ -1151,13 +1184,16 @@ auths:
     showcases:
       - id: 23-on-webauthn
         path: showcases/src/23-on-webauthn.showcase.test.ts
+      - id: 72-on-webauthn-virtual
+        path: showcases/src/72-on-webauthn-virtual.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
     invariants:
       - 'PRF extension preferred; rawId-HKDF fallback for older authenticators'
       - 'requireSingleDevice rejects backup-eligible (syncable) credentials'
-    related: [on-passphrase]
+      - 'Real-provider showcase drives Chromium CDP virtual authenticator and verifies PRF determinism + salt sensitivity + cross-device rejection (issue #77)'
+    related: [on-passphrase, on-password]
 
   - id: on-oidc
     name: OIDC split-key unlock
@@ -1185,6 +1221,8 @@ auths:
     showcases:
       - id: 25-on-magic-link
         path: showcases/src/25-on-magic-link.showcase.test.ts
+      - id: 78-on-magic-link-smtp
+        path: showcases/src/78-on-magic-link-smtp.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
@@ -1192,7 +1230,8 @@ auths:
       - 'Always viewer-scoped role'
       - 'Server-secret + token + vault → HKDF-derived AES-KW key'
       - 'Token bound to a single vault; cannot unlock another'
-    related: [on-passphrase, permissions]
+      - 'Real-provider showcase delivers the invite URL via nodemailer SMTP, scrapes it back via imapflow IMAP, and verifies acceptInvite + InviteAlreadyAcceptedError replay rejection (issue #67)'
+    related: [on-passphrase, permissions, on-email-otp]
 
   - id: on-recovery
     name: Printable recovery codes
@@ -1254,13 +1293,16 @@ auths:
     showcases:
       - id: 29-on-email-otp
         path: showcases/src/29-on-email-otp.showcase.test.ts
+      - id: 77-on-email-otp-smtp
+        path: showcases/src/77-on-email-otp-smtp.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
     invariants:
       - 'Transport injected by caller; package never sends mail itself'
       - 'Constant-time digest compare; TTL + max-attempts enforced'
-    related: [on-passphrase, on-totp]
+      - 'Real-provider showcase delivers OTP via nodemailer SMTP and verifies the code typed back (auto-scraped from imapflow IMAP, or pasted manually) round-trips through verify() (issue #66)'
+    related: [on-passphrase, on-totp, on-magic-link]
 
   - id: on-pin
     name: Session-resume PIN
@@ -1302,15 +1344,18 @@ auths:
     factor: knowledge
     status: preview
     subsystem_doc: docs/subsystems/session-tiers.md
-    showcases: []
+    showcases:
+      - id: 71-on-password-tier2
+        path: showcases/src/71-on-password-tier2.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
     invariants:
       - 'PBKDF2-SHA256 (600,000 iterations) — matches tier-1 phrase derivation'
-      - 'Per-slot salt; wraps the SAME KEK in its own keyring slot (LUKS pattern)'
+      - 'Per-slot salt; wraps the DEK set under a password-derived key (wrap-DEKs variant per #26 Path C; not the KEK)'
       - 'Distinct from tier-1 phrase — different lifecycle, different strength rules'
-    related: [on-passphrase, on-totp, on-email-otp]
+      - 'Tier-2 unlock produces a kek:null keyring; tier-1-gated ops (enrollAuthenticator, rotatePassphrase, recoverUser, grant, revoke) reject with PolicyDeniedError — pinned by showcase 71 (issue #78)'
+    related: [on-passphrase, on-totp, on-email-otp, on-webauthn]
 
 # ─── Export formats (phase 4) ─────────────────────────────────────────
 

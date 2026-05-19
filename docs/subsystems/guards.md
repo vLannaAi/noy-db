@@ -1,0 +1,201 @@
+# guards
+
+> **Subpath:** `@noy-db/hub/guards`
+> **Factory:** `withGuard()`
+> **Cluster:** B — Write & Mutate
+> **LOC cost:** ~310 (off-bundle when not opted in)
+
+## What it does
+
+Three write-boundary primitives in one strategy: a per-record **lock** (`check`),
+per-field **freeze** (`frozenFields`), and an **amendment invariant** that
+permits controlled multi-record edits inside `db.transaction({ amendment: true,
+reason })`. Guard callbacks run after DEK unwrap on plaintext, before
+encryption and before the period seal — the store never sees plaintext.
+
+## When you need it
+
+- Accounting / financial books where issued invoices must not change
+- Workflows that freeze specific fields after a status transition (e.g.
+  `amount` immutable once `status === 'paid'`)
+- Audit-tracked corrections that must preserve an invariant (totals,
+  balanced double-entry pairs)
+- Any domain where a single permission bit ("can write") is too coarse
+
+## Opt-in
+
+```ts
+import { createNoydb } from '@noy-db/hub'
+import { withGuard, RecordLockedError, InvariantError } from '@noy-db/hub/guards'
+import { withTransactions } from '@noy-db/hub/tx'
+
+const disbursementGuard = withGuard<Disbursement>({
+  collection: 'disbursements',
+  check: async (incoming, { vault }) => {
+    const inv = await vault.collection<Invoice>('invoices').get(incoming.invoiceId)
+    if (inv?.status === 'issued') {
+      throw new RecordLockedError('disbursements', incoming.id, 'invoice is issued')
+    }
+  },
+  amendment: {
+    roles: ['admin', 'owner'],
+    invariant: (changes) => {
+      const sum = (s: 'before' | 'after') =>
+        changes.reduce((t, c) => t + ((c[s])?.amount ?? 0), 0)
+      if (sum('before') !== sum('after')) {
+        throw new InvariantError('total must be preserved')
+      }
+    },
+  },
+})
+
+const db = await createNoydb({
+  store: ...,
+  user: ...,
+  guardStrategies: [disbursementGuard],
+  txStrategy: withTransactions(), // required for amendment mode
+})
+```
+
+## API
+
+Three primitives, one strategy:
+
+| Primitive | When it fires | Throws |
+|---|---|---|
+| `check` | Every `put()` / `delete()` (skipped in amendment mode) | Anything; conventionally `RecordLockedError` |
+| `frozenFields` | Every `put()` after `when(existing)` becomes true | `FieldFrozenError` listing changed frozen fields |
+| `amendment` | Inside `withTransactions({ amendment: true, reason })` | `InvariantError` if the rule fails |
+
+### Amendment flow
+
+```
+db.transaction({ amendment: true, reason }, async tx => {
+  await tx.vault('books').collection('lines').put(...)
+  await tx.vault('books').collection('lines').put(...)
+})
+
+  → 1. Validate reason (ValidationError if missing/empty)
+  → 2. First tx.vault(name): role check (admin | owner) — AmendmentForbiddenError fail-fast
+  → 3. beginAmendment() on touched vault's registry
+  → 4. Writes buffered — check + frozenFields skipped, collectChange records (before, after) + (id, vBefore, vAfter)
+  → 5. Invariant at commit (over full change-set) — InvariantError = rollback
+  → 6. Audit entry to ledger (op: 'amendment') if historyStrategy is configured
+```
+
+### Composition order
+
+`withGuard` runs **before encryption** and **before** the period seal check:
+
+```
+Collection.put
+  1. Permission check
+  2. GuardRegistry.check           ← this doc
+  3. PeriodGuard
+  4. Schema validation
+  5. i18n auto-translate
+  6. Ref enforcement
+  7. Encrypt + store.put
+  8. Ledger append
+```
+
+### Errors
+
+All four extend `NoydbError`:
+
+- `RecordLockedError(collection, id, reason)` — `check` threw
+- `FieldFrozenError(collection, id, fields[])` — frozen field changed
+- `InvariantError(message)` — amendment invariant rejected
+- `AmendmentForbiddenError(userId, role)` — caller can't open amendment
+
+## Behavior when NOT opted in
+
+- `createNoydb({ guardStrategies: [...] })` is the only way to register guards;
+  without it, no guard fires
+- Amendment mode requires `withTransactions`; without `withGuard` it's a silent
+  no-op (the empty change-set short-circuits before the role check, invariant,
+  and audit append)
+- `RecordLockedError` / `FieldFrozenError` / `InvariantError` /
+  `AmendmentForbiddenError` are still importable from `@noy-db/hub/guards`
+  but are never thrown by core
+
+## Pairs well with
+
+- **transactions** — amendment mode is layered on `withTransactions`
+- **history** — successful amendments append a multi-record summary entry to
+  the hash-chained ledger (per-record entries always fire from `Collection.put`)
+- **periods** — guards run before the period seal, so a lock can preempt a
+  `PeriodClosedError` with a more specific reason
+
+## Edge cases & limits
+
+- **Guards see the pre-schema-validation incoming record.** If a schema
+  validator coerces values (trims strings, applies defaults), the guard
+  observes the raw user-supplied shape; the stored shape is post-coercion.
+  Guards should only consume fields declared in `frozenFields.fields` or
+  read via `ctx.vault` — those paths are stable across schema transforms.
+- **On `delete`, `incoming === ctx.existing`.** Conceptually `incoming` is
+  absent for a delete, but the guard's `check` callback receives the
+  existing record so it can inspect status before allowing the deletion.
+  Read `ctx.existing` to be explicit.
+- **`delete` of a non-existent record is a no-op.** Guards are not consulted
+  in that case; the call returns without error.
+- **Multiple guards on the same collection** run in registration order;
+  first throw wins (short-circuits remaining guards).
+- **Amendment authorization is binary in v1.** The `amendment.roles` field
+  on a guard is declarative documentation — runtime authorization is
+  enforced by the vault's keyring role (must be `admin` or `owner`). A
+  future v2 may consult the per-guard list for finer-grained roles.
+- **Amendment audit append is conditional on `historyStrategy`.** Vaults
+  without history still enforce amendment rules (role check + invariant +
+  rollback) but skip the multi-record summary entry.
+- **`verifyBackupIntegrity` and `reconstructAtVersion` skip amendment
+  entries** — they're audit-only and don't reflect per-record state.
+
+### Zero-knowledge guarantee
+
+Guard functions run **after DEK unwrap, on plaintext, inside the encrypted
+boundary**. The store sees only ciphertext envelopes. The
+`ReadOnlyVaultFacade` passed as `ctx.vault` decrypts on access — no
+plaintext leaks to the store.
+
+### Audit-entry shape
+
+```ts
+{
+  op: 'amendment',
+  actor: 'alice',
+  ts: '2026-05-18T...',
+  collection: '',  // amendment is multi-record; collection/id are empty
+  id: '',
+  version: 0,
+  payloadHash: '',  // per-record entries carry real hashes
+  amendment: {
+    reason: 'correct split between travel and meals',
+    role: 'admin',
+    changes: [
+      { collection: 'disbursements', id: 'd1', vBefore: 2, vAfter: 3 },
+      { collection: 'disbursements', id: 'd2', vBefore: 1, vAfter: 2 },
+    ],
+    invariantsPassed: ['disbursements'],
+  },
+}
+```
+
+Visible via `vault.ledger().entries()` like every other ledger entry.
+
+### Deferred to v2
+
+- Per-field amendment (amend only specific frozen fields)
+- Time-limited amendment windows
+- Cross-vault guards (a guard on vault A that reads vault B)
+- Guards on `loadAll` / `saveAll`
+- Per-guard role list enforcement (currently keyring-role-only)
+- Multi-vault amendment audit entries (architectural support exists but is
+  untested in v1)
+
+## See also
+
+- [SUBSYSTEMS.md](../../SUBSYSTEMS.md)
+- `docs/superpowers/specs/2026-05-18-guards-design.md`
+- `__tests__/guards/*.test.ts`, `showcases/src/79-with-guard.showcase.test.ts`

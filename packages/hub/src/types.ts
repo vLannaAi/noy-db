@@ -37,6 +37,7 @@ import type { HistoryStrategy } from './history/strategy.js'
 import type { I18nStrategy } from './i18n/strategy.js'
 import type { SessionStrategy } from './session/strategy.js'
 import type { SyncStrategy } from './team/sync-strategy.js'
+import type { GuardStrategyHandle } from './guards/types.js'
 import type { UnlockedKeyring } from './team/keyring.js'
 import type { VaultPolicy } from './policy/types.js'
 import type { PublicEnvelopeSchema } from './meta/public-envelope/types.js'
@@ -1738,6 +1739,14 @@ export interface NoydbOptions {
    * @internal
    */
   readonly syncStrategy?: SyncStrategy
+  /**
+   * Optional guard strategies — collection-level write guards. Each
+   * handle is the output of `withGuard()` from `@noy-db/hub/guards`.
+   * Multiple guards per collection are allowed; they are dispatched
+   * in registration order on `collection.put()`.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  readonly guardStrategies?: ReadonlyArray<GuardStrategyHandle<any>>
   /** Optional remote store(s) for sync. Accepts a single store, a SyncTarget, or an array. */
   readonly sync?: NoydbStore | SyncTarget | SyncTarget[]
   /** User identifier. */
