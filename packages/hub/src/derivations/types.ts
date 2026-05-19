@@ -68,5 +68,6 @@ export interface DerivationStrategy<
 /** Returned by `withDerivation()` and consumed by `createNoydb`. */
 export interface DerivationStrategyHandle {
   readonly __noydb_strategy: 'derivation'
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly spec: DerivationStrategy<any, any>
 }

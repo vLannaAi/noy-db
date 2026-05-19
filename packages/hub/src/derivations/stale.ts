@@ -82,8 +82,7 @@ export async function resolveStaleOnRead(
     // We use the same getCollection accessor that eager dispatch uses
     // — it returns the live `Collection<any>` instance with full
     // crypto / keyring wiring.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const sourceColl = accessor.getCollection(spec.source) as Collection<any>
+    const sourceColl = accessor.getCollection(spec.source)
     const source = await sourceColl.get(id)
     if (!source) {
       pending.delete(spec)
@@ -98,14 +97,14 @@ export async function resolveStaleOnRead(
       const out = result.outputs[key]
       if (!out) continue
       if (!out.ok) {
+        const err = out.error ?? new Error(`derivation output "${key}" failed`)
         if (spec.strict) {
           // Leave the stale flag set so a future read retries.
-          throw out.error
+          throw err
         }
-        // eslint-disable-next-line no-console
         console.warn(
           `[derivation] lazy output "${key}" for source "${spec.source}" id="${id}" failed:`,
-          out.error,
+          err,
         )
         continue
       }

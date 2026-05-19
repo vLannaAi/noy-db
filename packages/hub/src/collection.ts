@@ -1327,9 +1327,9 @@ export class Collection<T> {
           const out = result.outputs[key]
           if (!out) continue
           if (!out.ok) {
-            if (spec.strict) throw out.error
-            // eslint-disable-next-line no-console
-            console.warn(`[derivation] output "${key}" for source "${spec.source}" id="${id}" failed:`, out.error)
+            const err = out.error ?? new Error(`derivation output "${key}" failed`)
+            if (spec.strict) throw err
+            console.warn(`[derivation] output "${key}" for source "${spec.source}" id="${id}" failed:`, err)
             continue
           }
           const outSpec = spec.outputs[key]

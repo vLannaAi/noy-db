@@ -27,6 +27,7 @@ export function withDerivation<
   }
   return {
     __noydb_strategy: 'derivation',
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     spec: spec as DerivationStrategy<any, any>,
   }
 }
