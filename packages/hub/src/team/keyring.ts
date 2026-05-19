@@ -11,7 +11,9 @@ import {
   bufferToBase64,
   base64ToBuffer,
 } from '../crypto.js'
-import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, KeyringExpiredError, KeyringCorruptError, InvalidKeyError, ValidationError } from '../errors.js'
+import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, KeyringExpiredError, KeyringCorruptError, InvalidKeyError, ValidationError, DirectoryDisabledError } from '../errors.js'
+import { readDirectoryConfig } from '../directory/storage.js'
+import { readUserVisibility } from '../directory/visibility.js'
 import { assertStrongPassphrase, type PassphrasePolicy } from '../validation.js'
 import {
   saveUserEnvelope,
@@ -1066,6 +1068,18 @@ export async function listUsers(
 }
 
 /**
+ * Optional filter knobs for {@link listUsersWithEnvelopes}.
+ *
+ * - `includeHidden` — when true, principals with `_meta/visibility/<id>`
+ *   set to `{ hidden: true }` are returned alongside everyone else.
+ *   Requires `owner` or `admin` callerRole; lower roles get
+ *   {@link import('../errors.js').PermissionDeniedError}.
+ */
+export interface ListUsersOptions {
+  readonly includeHidden?: boolean
+}
+
+/**
  * Joined enumeration: every keyring + its `_users/<keyringId>`
  * envelope side by side. Convenience for admin UIs that want to
  * render team-member lists with profile data ("Bob — operator —
@@ -1073,6 +1087,27 @@ export async function listUsers(
  *
  * `userEnvelopeDek` is the vault's `_users` collection DEK
  * (`vault.getDEK('_users')`); used to decrypt every envelope.
+ *
+ * `callerRole` (#122) drives the directory-visibility checks:
+ *
+ *  - When the vault's `_meta/directory` document has `enabled: false`,
+ *    only `owner` and `admin` callers may enumerate; anyone else gets
+ *    {@link import('../errors.js').DirectoryDisabledError}.
+ *  - Principals with `_meta/visibility/<id>` set to `{ hidden: true }`
+ *    are filtered out by default. `owner`/`admin` callers can pass
+ *    `{ includeHidden: true }` to see them; lower roles passing that
+ *    option get `PermissionDeniedError`.
+ *
+ * Honest caveat (#122): these filters are a UX hint, not a security
+ * boundary. The keyring file is still listed at `_keyring/*` and the
+ * envelope ciphertext at `_users/*`. A caller with direct store access
+ * — or a caller that calls this function with `callerRole: 'owner'`
+ * unconditionally — sees every principal. The protection is only as
+ * strong as the role the calling layer passes in. The hub-level wrapper
+ * on `Vault` sources `callerRole` from the unlocked keyring's `role`
+ * field, which is signed-by-construction (it lives in the user's own
+ * keyring file). See `docs/subsystems/user-envelope.md` →
+ * "Directory visibility".
  *
  * Principals without a persisted envelope (legacy keyrings predating
  * the user-envelope feature) come back with `envelope: null`. The
@@ -1086,10 +1121,31 @@ export async function listUsersWithEnvelopes<T = unknown>(
   adapter: NoydbStore,
   vault: string,
   userEnvelopeDek: CryptoKey,
+  callerRole: Role,
+  options: ListUsersOptions = {},
 ): Promise<Array<{ user: UserInfo; envelope: UserEnvelopeReader<T> | null }>> {
+  const isPrivileged = callerRole === 'owner' || callerRole === 'admin'
+
+  // 1. Vault-level directory toggle.
+  const dirConfig = await readDirectoryConfig(adapter, vault)
+  if (dirConfig?.enabled === false && !isPrivileged) {
+    throw new DirectoryDisabledError(vault)
+  }
+
+  // 2. `includeHidden` requires admin/owner.
+  if (options.includeHidden && !isPrivileged) {
+    throw new PermissionDeniedError(
+      'Permission denied — listUsersWithEnvelopes({ includeHidden: true }) requires owner or admin role',
+    )
+  }
+
   const users = await listUsers(adapter, vault)
   const out: Array<{ user: UserInfo; envelope: UserEnvelopeReader<T> | null }> = []
   for (const user of users) {
+    if (!options.includeHidden) {
+      const visibility = await readUserVisibility(adapter, vault, user.userId)
+      if (visibility?.hidden) continue
+    }
     const envelope = await loadUserEnvelopeFn<T>(
       adapter,
       vault,

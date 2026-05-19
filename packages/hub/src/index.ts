@@ -441,6 +441,21 @@ export { buildRecipientKeyringFile } from './team/keyring.js'
 // (#23). Useful for admin UIs that want to render team-member lists
 // with profile data in a single pass.
 export { listUsers, listUsersWithEnvelopes } from './team/keyring.js'
+export type { ListUsersOptions } from './team/keyring.js'
+
+// Directory visibility (#122) — vault-level user-list toggle +
+// per-user opt-out.
+export {
+  readDirectoryConfig,
+  persistDirectoryConfig,
+  readUserVisibility,
+  persistUserVisibility,
+  visibilityRecordId,
+  DIRECTORY_RECORD_ID,
+  VISIBILITY_RECORD_PREFIX,
+} from './directory/index.js'
+export type { DirectoryConfig, UserVisibility } from './directory/index.js'
+export { DirectoryDisabledError } from './errors.js'
 
 // Core classes
 export { Noydb, createNoydb } from './noydb.js'

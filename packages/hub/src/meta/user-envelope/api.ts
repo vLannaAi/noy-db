@@ -24,6 +24,11 @@ import {
   listUserEnvelopeIds,
 } from './storage.js'
 import type { UserEnvelope } from './types.js'
+import {
+  persistUserVisibility,
+  readUserVisibility,
+} from '../../directory/visibility.js'
+import type { UserVisibility } from '../../directory/types.js'
 
 /**
  * Recursive partial. Used for `updateMe(patch)` so callers can hand in
@@ -193,6 +198,44 @@ export class UserApi {
     )
     this.fireChange(this.writerKeyringId, written)
     return written
+  }
+
+  // ─── Visibility (#122) ───────────────────────────────────────────────
+
+  /**
+   * Read the current user's visibility flag from
+   * `_meta/visibility/<keyringId>`. Returns `{ hidden: false }` when no
+   * document has been persisted (the default-visible case).
+   */
+  async getMyVisibility(): Promise<UserVisibility> {
+    const persisted = await readUserVisibility(this.adapter, this.vaultName, this.writerKeyringId)
+    return persisted ?? { hidden: false }
+  }
+
+  /**
+   * Update the current user's visibility in the team directory.
+   *
+   * - `hidden: true` — opt out of the default `listUsersWithEnvelopes`
+   *   listing. `owner`/`admin` callers can still see the user by passing
+   *   `{ includeHidden: true }`.
+   * - `hidden: false` — opt back in.
+   *
+   * Own-only by construction: the keyringId argument doesn't exist on
+   * this method, so no caller can hide or unhide another principal.
+   *
+   * Honest caveat: this is a UX flag, not a privacy guarantee. The
+   * envelope ciphertext at `_users/<keyringId>` and the keyring file at
+   * `_keyring/<userId>` are both still observable to anyone with direct
+   * store read access. See `docs/subsystems/user-envelope.md` →
+   * "Directory visibility".
+   */
+  async setMyVisibility(visibility: UserVisibility): Promise<void> {
+    await persistUserVisibility(
+      this.adapter,
+      this.vaultName,
+      this.writerKeyringId,
+      { hidden: visibility.hidden },
+    )
   }
 
   // ─── Read-anyone ─────────────────────────────────────────────────────

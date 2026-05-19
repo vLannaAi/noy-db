@@ -550,6 +550,34 @@ export class AmendmentForbiddenError extends NoydbError {
   }
 }
 
+/**
+ * Thrown by `listUsersWithEnvelopes` when the vault's user directory
+ * has been disabled (via `db.setDirectoryEnabled(vault, false)`) and
+ * the caller's role is neither `owner` nor `admin`. Owner/admin can
+ * still enumerate users — the toggle is a UX privacy switch, not a
+ * security boundary.
+ *
+ * Honest caveat: this is a UX flag, not a privacy guarantee. The
+ * envelope ciphertext is still in the store, the keyring file is
+ * still listed at `_keyring/*`, and anyone with direct store read
+ * access can count keyrings without going through the hub. See
+ * `docs/subsystems/user-envelope.md` → "Directory visibility".
+ */
+export class DirectoryDisabledError extends NoydbError {
+  readonly vault: string
+
+  constructor(vault: string) {
+    super(
+      'DIRECTORY_DISABLED',
+      `Vault "${vault}" has its user directory disabled. ` +
+        `Only owners and admins can call listUsersWithEnvelopes() here. ` +
+        `Use db.setDirectoryEnabled(vault, true) to re-enable.`,
+    )
+    this.name = 'DirectoryDisabledError'
+    this.vault = vault
+  }
+}
+
 // ─── Hierarchical Access Errors ─────────────────────
 
 /**

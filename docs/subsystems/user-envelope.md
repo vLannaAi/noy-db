@@ -156,6 +156,43 @@ Two new built-in policy gates, registered alongside the existing tier-2/tier-3 g
 - **Subscribe / live in v1 fire only on local writes.** Cross-instance changes flow via team/sync; subscribers there see the change when sync replays through the API. Wiring raw store-level changes into subscribers is a follow-up.
 - **`UserProfileProvider` (managed-mode IdP integration) is documented but not exported in v1.** The interface shape is locked; runtime wiring lands post-1.0 alongside managed-passphrase mode (#14).
 
+## Directory visibility
+
+Two complementary opt-outs on top of `listUsersWithEnvelopes` (#122):
+
+- **`vault.user.setMyVisibility({ hidden: true })`** — per-user opt-out.
+  Persisted as a plaintext sidecar at `_meta/visibility/<keyringId>`.
+  Hidden users are filtered out of the default listing; `owner`/`admin`
+  callers can pass `{ includeHidden: true }` to see them. Own-only by
+  construction (no method to hide another principal).
+- **`db.setDirectoryEnabled(vault, false)`** — vault-level toggle.
+  Owner-only. Persisted at `_meta/directory`. When disabled,
+  `listUsersWithEnvelopes` throws `DirectoryDisabledError` for any
+  caller whose role is neither `owner` nor `admin`.
+
+Both flags live in `_meta` rather than inside the encrypted
+`UserEnvelope<T>.data` payload — `data` is opaque-to-hub by contract,
+and the directory filter must work even when an envelope decryption
+fails (legacy keyrings predating the envelope feature, or a corrupted
+envelope). Storing them as plaintext sidecars matches the
+`_meta/policy` pattern documented in
+[`plaintext-bypass.md`](./plaintext-bypass.md).
+
+**Honest caveat — this is a UX flag, not a privacy guarantee.** The
+keyring file at `_keyring/<userId>` is still listed (an attacker with
+direct store read access can count keyrings and read role +
+permissions metadata). The envelope ciphertext at
+`_users/<keyringId>` is still present in the store. The visibility +
+directory flags only gate the hub-level enumeration helper — they
+prevent admin-UIs from accidentally rendering a hidden user, not a
+determined adversary from learning who has access. Apps that need
+real principal anonymity should use a dedicated identity store
+external to the vault.
+
+Peer-recovery preserves both flags: `db.recoverUser` only rewrites the
+keyring file, so the user's visibility doc and the vault's directory
+doc both survive the rotation.
+
 ## See also
 
 - `docs/superpowers/specs/2026-05-05-user-envelope-design.md` — design spec
@@ -163,3 +200,4 @@ Two new built-in policy gates, registered alongside the existing tier-2/tier-3 g
 - `showcases/src/recipe-user-preferences.recipe.test.ts` — reference shape pattern + device-local pattern
 - `docs/subsystems/session-tiers.md` — policy gate DSL the new gates plug into
 - `docs/subsystems/team.md` — multi-user grant/revoke flows the lifecycle binds to
+- `docs/subsystems/plaintext-bypass.md` — `_meta/directory` and `_meta/visibility/<keyringId>` are documented bypasses

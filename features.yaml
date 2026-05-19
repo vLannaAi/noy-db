@@ -566,7 +566,30 @@ features:
       - 'keyring-bound lifecycle: envelope created on grant (with optional initialProfile), deleted on cascade-revoke'
       - 'vault is source of truth (managed-mode UserProfileProvider documented but not exported in v1)'
       - '_users DEK propagates via system-collection branch in team/keyring grant() — eager-provisioned at owner creation for new vaults'
-    related: [permissions, team, session-tiers]
+    related: [permissions, team, session-tiers, directory-visibility]
+
+  - id: directory-visibility
+    name: User-list visibility flags
+    cluster: collaboration-and-auth
+    spec: docs/subsystems/user-envelope.md#directory-visibility
+    subsystem_doc: docs/subsystems/user-envelope.md
+    package: '@noy-db/hub'
+    factory: null
+    status: preview
+    showcases:
+      - id: 70-user-envelope
+        path: showcases/src/70-user-envelope.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'per-user hidden flag stored at _meta/visibility/<keyringId> (plaintext sidecar, not inside UserEnvelope.data)'
+      - 'vault-level enabled flag stored at _meta/directory (plaintext sidecar; owner-only mutation)'
+      - 'listUsersWithEnvelopes filters hidden users by default; { includeHidden: true } requires owner/admin role'
+      - 'directory disabled => DirectoryDisabledError for non-owner/non-admin callers; owner/admin still enumerate'
+      - 'UX hint, not a privacy guarantee: _keyring/* and _users/* ciphertext remain observable to direct store readers'
+      - 'peer-recovery preserves both flags (db.recoverUser only rewrites _keyring/<userId>)'
+    related: [user-envelope, team, permissions]
 
   - id: routing
     name: Per-collection storage routing

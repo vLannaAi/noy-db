@@ -28,7 +28,7 @@ export {
   updateKeyringIdentity,
   buildRecipientKeyringFile,
 } from './keyring.js'
-export type { BundleRecipient } from './keyring.js'
+export type { BundleRecipient, ListUsersOptions } from './keyring.js'
 
 // ─── Tier-2 authenticator slots (#11) ───────────────────
 export {
