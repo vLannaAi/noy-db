@@ -71,13 +71,24 @@ import type { GuardExecutor as GuardExecutorModule } from '../guards/executor.js
 import type { LedgerEntry } from '../history/ledger/entry.js'
 
 /** One op buffered inside a running `TxContext`. @internal */
-interface StagedOp {
+export interface StagedOp {
   type: 'put' | 'delete'
   vaultName: string
   collectionName: string
   id: string
   record?: unknown
   expectedVersion?: number
+}
+
+/**
+ * One executed op (main staged op or recursive side-effect like a
+ * derivation output) paired with the envelope captured before the write.
+ * `revertExecuted` walks this array in reverse on rollback.
+ * @internal
+ */
+export interface ExecutedOp {
+  op: StagedOp
+  priorEnvelope: EncryptedEnvelope | null
 }
 
 /**
@@ -100,6 +111,15 @@ export interface AmendmentTxOptions {
 export class TxContext {
   /** @internal */
   readonly _ops: StagedOp[] = []
+  /**
+   * @internal — write log built up in Phase 2. Each entry records the
+   * envelope captured BEFORE the write so a mid-batch failure can
+   * restore prior state via `revertExecuted`. Side-effect writes (e.g.
+   * recursive derivation outputs fired inside `Collection.put`) are
+   * appended here in execution order so they roll back alongside the
+   * main staged ops (#133).
+   */
+  readonly _executed: ExecutedOp[] = []
   /** @internal */
   readonly _db: Noydb
   /**
@@ -323,41 +343,52 @@ export async function runTransaction<T>(
   // Phase 2 — execute via the Collection layer so history snapshots,
   // ledger entries, and change events fire normally. We capture each
   // successful op so a mid-batch throw can revert in Phase 3.
-  const executed: Array<{ op: StagedOp; priorEnvelope: EncryptedEnvelope | null }> = []
+  //
+  // `_activeTxContext` is published on the Noydb instance for the
+  // duration of Phase 2 so recursive writes triggered inside
+  // `Collection.put` (today: eager derivation outputs) can register
+  // their own envelopes onto `ctx._executed` and roll back alongside
+  // the main staged ops (#133). The `finally` clears it before the
+  // amendment commit phase runs.
+  db._setActiveTxContext(ctx)
   try {
-    for (const op of ctx._ops) {
-      const coll = db.vault(op.vaultName).collection(op.collectionName)
-      const key = keyOf(op)
-      const prior = priorEnvelopes.get(key) ?? null
-      // Record the revert plan BEFORE the call so a mid-`coll.put` throw
-      // (e.g. strict-mode derivation failure firing after `store.put`
-      // has already committed the envelope) still has its source write
-      // reverted. `revertExecuted` is best-effort: putting prior back is
-      // idempotent when the failing op never actually wrote, and
-      // `_invalidateCacheEntry` is a no-op when the collection isn't
-      // hydrated.
-      executed.push({ op, priorEnvelope: prior })
-      if (op.type === 'put') {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await coll.put(op.id, op.record as any)
-      } else {
-        await coll.delete(op.id)
-      }
-    }
-  } catch (err) {
-    // Phase 3 — best-effort revert. See helper docstring.
-    await revertExecuted(executed, store, db)
-    // Drain amendment windows so the next transaction starts clean.
-    if (ctx._amendment) {
-      for (const v of ctx._amendmentVaults.values()) {
-        const reg = v._getGuardRegistry()
-        if (reg !== null) {
-          reg.consumeChanges()
-          reg.consumeMeta()
+    try {
+      for (const op of ctx._ops) {
+        const coll = db.vault(op.vaultName).collection(op.collectionName)
+        const key = keyOf(op)
+        const prior = priorEnvelopes.get(key) ?? null
+        // Record the revert plan BEFORE the call so a mid-`coll.put` throw
+        // (e.g. strict-mode derivation failure firing after `store.put`
+        // has already committed the envelope) still has its source write
+        // reverted. `revertExecuted` is best-effort: putting prior back is
+        // idempotent when the failing op never actually wrote, and
+        // `_invalidateCacheEntry` is a no-op when the collection isn't
+        // hydrated.
+        ctx._executed.push({ op, priorEnvelope: prior })
+        if (op.type === 'put') {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          await coll.put(op.id, op.record as any)
+        } else {
+          await coll.delete(op.id)
         }
       }
+    } catch (err) {
+      // Phase 3 — best-effort revert. See helper docstring.
+      await revertExecuted(ctx._executed, store, db)
+      // Drain amendment windows so the next transaction starts clean.
+      if (ctx._amendment) {
+        for (const v of ctx._amendmentVaults.values()) {
+          const reg = v._getGuardRegistry()
+          if (reg !== null) {
+            reg.consumeChanges()
+            reg.consumeMeta()
+          }
+        }
+      }
+      throw err
     }
-    throw err
+  } finally {
+    db._clearActiveTxContext(ctx)
   }
 
   // ─── Amendment commit phase (only if amendment === true) ────
@@ -435,7 +466,7 @@ export async function runTransaction<T>(
         void vaultName
       }
     } catch (err) {
-      await revertExecuted(executed, store, db)
+      await revertExecuted(ctx._executed, store, db)
       throw err instanceof InvariantError ? err : new InvariantError(
         err instanceof Error ? err.message : `invariant violated: ${String(err)}`,
       )
@@ -459,7 +490,7 @@ export async function runTransaction<T>(
  * @internal
  */
 async function revertExecuted(
-  executed: Array<{ op: StagedOp; priorEnvelope: EncryptedEnvelope | null }>,
+  executed: ReadonlyArray<ExecutedOp>,
   store: Noydb['_store'],
   db?: Noydb,
 ): Promise<void> {

@@ -164,6 +164,17 @@ export class Noydb {
   private readonly txStrategy: TxStrategy
   private readonly sessionStrategy: SessionStrategy
   private readonly syncStrategy: SyncStrategy
+  /**
+   * Currently-running multi-record transaction, set by
+   * `runTransaction` at the start of Phase 2 (commit) and cleared in
+   * the same function's `finally` block. Side-effect writes triggered
+   * during a staged op's `Collection.put` (today: eager derivation
+   * outputs) register their pre-write envelope on `_executed` here so
+   * a mid-batch failure rolls them back alongside the main staged ops
+   * (#133). `null` outside of Phase 2.
+   * @internal
+   */
+  private _activeTxContext: TxContext | null = null
 
   // ─── plaintextTranslator state ─────────────────────────
   /**
@@ -988,6 +999,44 @@ export class Noydb {
    */
   get _store(): NoydbStore {
     return this.options.store
+  }
+
+  /**
+   * Currently-running multi-record transaction, or `null` outside
+   * Phase 2. `Collection.dispatchDerivations` consults this so a
+   * recursive derived-output write inside `Collection.put` can register
+   * its envelope onto `ctx._executed` and roll back with the main
+   * staged ops on mid-batch failure (#133).
+   *
+   * @internal
+   */
+  get _activeTxContextOrNull(): TxContext | null {
+    return this._activeTxContext
+  }
+
+  /**
+   * Called by `runTransaction` at Phase 2 start. Nested transactions
+   * are not supported — overwriting an existing context indicates a
+   * bug in the caller, but we tolerate it (best-effort) rather than
+   * throwing inside the executor.
+   *
+   * @internal
+   */
+  _setActiveTxContext(ctx: TxContext): void {
+    this._activeTxContext = ctx
+  }
+
+  /**
+   * Called by `runTransaction` in its `finally`. Only clears when the
+   * passed ctx matches the active one — a defensive no-op if some
+   * other code path already cleared it.
+   *
+   * @internal
+   */
+  _clearActiveTxContext(ctx: TxContext): void {
+    if (this._activeTxContext === ctx) {
+      this._activeTxContext = null
+    }
   }
 
   /** Get sync status for a vault. */

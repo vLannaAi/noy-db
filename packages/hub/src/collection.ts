@@ -41,6 +41,7 @@ import type { ReadOnlyVaultFacade } from './guards/types.js'
 // executor chunk out of the floor bundle (#130).
 import type { GuardExecutor as GuardExecutorType } from './guards/executor.js'
 import type { DerivationRegistry } from './derivations/registry.js'
+import type { TxContext } from './tx/transaction.js'
 // Type-only — runtime class loaded via dynamic import in
 // `dispatchDerivations` when an eager-mode strategy fires. Keeps the
 // derivation executor chunk out of the floor bundle (#130).
@@ -387,6 +388,7 @@ export class Collection<T> {
     | {
         registry(): DerivationRegistry
         getCollection(name: string): Collection<Record<string, unknown>>
+        getActiveTxContext(): TxContext | null
       }
     | undefined
 
@@ -689,6 +691,14 @@ export class Collection<T> {
     derivationSource?: {
       registry(): DerivationRegistry
       getCollection(name: string): Collection<Record<string, unknown>>
+      /**
+       * Read access to the owning Noydb's currently-active multi-record
+       * transaction context, or `null` when no transaction is running.
+       * `dispatchDerivations` consults this so a recursive derived-output
+       * write can register its pre-write envelope onto `ctx._executed`
+       * and roll back alongside the source op on mid-batch failure (#133).
+       */
+      getActiveTxContext(): TxContext | null
     } | undefined
   }) {
     this.adapter = opts.adapter
@@ -1355,6 +1365,26 @@ export class Collection<T> {
           const outSpec = spec.outputs[key]
           if (!outSpec) continue
           const outputCollection = this.derivationSource.getCollection(outSpec.collection)
+          // #133 — if we're inside a multi-record transaction, register
+          // this derived write as a side-effect op on the active ctx
+          // BEFORE it fires. `revertExecuted` walks `_executed` in
+          // reverse on rollback, so capturing the pre-write envelope
+          // here lets a later mid-batch failure restore this output's
+          // prior state alongside the source op. Outside a transaction
+          // the context is null and tracking is skipped.
+          const txCtx = this.derivationSource.getActiveTxContext()
+          if (txCtx !== null) {
+            const prior = await this.adapter.get(this.vault, outSpec.collection, id)
+            txCtx._executed.push({
+              op: {
+                type: 'put',
+                vaultName: this.vault,
+                collectionName: outSpec.collection,
+                id,
+              },
+              priorEnvelope: prior,
+            })
+          }
           await outputCollection.put(id, out.value)
         }
       } else {
