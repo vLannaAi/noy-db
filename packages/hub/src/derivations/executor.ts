@@ -1,5 +1,5 @@
 import { DerivationOutputShapeError } from '../errors.js'
-import type { DerivationStrategy, DerivedFromMeta } from './types.js'
+import type { DerivationContext, DerivationStrategy, DerivedFromMeta } from './types.js'
 
 export interface RunResult {
   outputs: Record<string, OutputResult>
@@ -32,12 +32,13 @@ export const DerivationExecutor = {
     source: TSource & { id: string },
     sourceVersion: number,
     strategyHash: string,
+    ctx: DerivationContext,
   ): Promise<RunResult> {
     const outputs: Record<string, OutputResult> = {}
     let derived: Partial<TOutputs>
 
     try {
-      derived = await Promise.resolve(strategy.derive(source as TSource))
+      derived = await Promise.resolve(strategy.derive(source as TSource, ctx))
     } catch (err) {
       for (const key of Object.keys(strategy.outputs)) {
         outputs[key] = {

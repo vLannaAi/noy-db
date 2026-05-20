@@ -52,6 +52,44 @@ const db = await createNoydb({
 
 ## API
 
+### `derive(source, ctx)` and the read-only vault facade
+
+The `derive` function receives a second argument: a `DerivationContext`
+carrying the same `ReadOnlyVaultFacade` guards see as `ctx.vault`. Use it
+to fetch sibling records without denormalising them onto the source row.
+
+```ts
+withDerivation<Allocation, { receipt: Receipt }>({
+  source: 'allocations',
+  deterministic: true,
+  outputs: { receipt: { shape: 'record', collection: 'receipts' } },
+  derive: async (alloc, ctx) => {
+    const payment = await ctx.vault.collection<Payment>('payments').get(alloc.paymentId)
+    const bill = await ctx.vault.collection<Bill>('bills').get(alloc.billId)
+    return {
+      receipt: {
+        id: alloc.id,
+        paymentId: alloc.paymentId,
+        issuedAt: payment!.paymentDate,
+        clientId: bill!.clientId,
+        appliedAmount: alloc.appliedAmount,
+      },
+    }
+  },
+  lifecycle: 'eager',
+})
+```
+
+`ctx.vault` exposes `.get(id)`, `.list()`, and `.query()` — no write
+capability is reachable from the facade. The strategy hash incorporates
+`derive.toString()`, so the function source pins the inputs; whatever
+sibling reads happen inside `derive` must be deterministic given the
+same source record (the consumer's responsibility — the hash does not
+fingerprint sibling-record content).
+
+Available on both lifecycles: the eager dispatch and the lazy
+resolve-on-read paths both pass the same facade.
+
 ### Lifecycles
 
 - **`eager`** — derive runs synchronously inside the source-write transaction.

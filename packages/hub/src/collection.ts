@@ -389,6 +389,7 @@ export class Collection<T> {
     | {
         registry(): DerivationRegistry
         getCollection(name: string): Collection<Record<string, unknown>>
+        getReadOnlyFacade(): ReadOnlyVaultFacade
         getActiveTxContext(): TxContext | null
         /**
          * Construct a fresh transient TxContext bound to the owning
@@ -705,6 +706,12 @@ export class Collection<T> {
     derivationSource?: {
       registry(): DerivationRegistry
       getCollection(name: string): Collection<Record<string, unknown>>
+      /**
+       * Read-only vault facade handed to `derive(source, ctx)` so a
+       * derivation can fetch sibling records (#147). Same shape and
+       * instance the guards subsystem uses for `check(incoming, ctx)`.
+       */
+      getReadOnlyFacade(): ReadOnlyVaultFacade
       /**
        * Read access to the owning Noydb's currently-active multi-record
        * transaction context, or `null` when no transaction is running.
@@ -1376,7 +1383,8 @@ export class Collection<T> {
           ({ DerivationExecutor } = (await import('./derivations/executor.js')) as { DerivationExecutor: typeof DerivationExecutorType })
         }
         const sourceWithId = { ...incoming, id } as Record<string, unknown> & { id: string }
-        const result = await DerivationExecutor.run(spec, sourceWithId, version, strategyHash)
+        const ctx = { vault: this.derivationSource.getReadOnlyFacade() }
+        const result = await DerivationExecutor.run(spec, sourceWithId, version, strategyHash, ctx)
         for (const key of Object.keys(spec.outputs)) {
           const out = result.outputs[key]
           if (!out) continue

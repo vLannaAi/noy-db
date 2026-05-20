@@ -1,4 +1,5 @@
 import type { Collection } from '../collection.js'
+import type { ReadOnlyVaultFacade } from '../guards/types.js'
 import type { DerivationRegistry } from './registry.js'
 // Type-only — runtime class loaded via dynamic import in
 // `resolveStaleOnRead` only when a stale flag actually fires. Keeps
@@ -17,6 +18,12 @@ export interface DerivationStaleAccessor {
   registry(): DerivationRegistry
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   getCollection(name: string): Collection<any>
+  /**
+   * Read-only vault facade handed to `derive(source, ctx)` on the lazy
+   * resolve-on-read path. Same instance/shape as the eager path uses
+   * (#147).
+   */
+  getReadOnlyFacade(): ReadOnlyVaultFacade
 }
 
 /**
@@ -106,7 +113,8 @@ export async function resolveStaleOnRead(
     if (DerivationExecutor === null) {
       ({ DerivationExecutor } = (await import('./executor.js')) as { DerivationExecutor: typeof DerivationExecutorType })
     }
-    const result = await DerivationExecutor.run(spec, sourceWithId, 0, strategyHash)
+    const ctx = { vault: accessor.getReadOnlyFacade() }
+    const result = await DerivationExecutor.run(spec, sourceWithId, 0, strategyHash, ctx)
     for (const key of Object.keys(spec.outputs)) {
       const out = result.outputs[key]
       if (!out) continue
