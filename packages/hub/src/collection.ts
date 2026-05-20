@@ -1405,6 +1405,26 @@ export class Collection<T> {
           // prior state alongside the source op. Outside a transaction
           // the context is null and tracking is skipped.
           const txCtx = this.derivationSource.getActiveTxContext()
+          if (out.skipped === true) {
+            // #144: optional output returned null. Delete the
+            // previously-emitted output at this id, if any. Capture the
+            // prior envelope for tx rollback symmetry first.
+            const prior = await this.adapter.get(this.vault, outSpec.collection, id)
+            if (prior === null) continue
+            if (txCtx !== null) {
+              txCtx._executed.push({
+                op: {
+                  type: 'delete',
+                  vaultName: this.vault,
+                  collectionName: outSpec.collection,
+                  id,
+                },
+                priorEnvelope: prior,
+              })
+            }
+            await outputCollection.delete(id)
+            continue
+          }
           if (txCtx !== null) {
             const prior = await this.adapter.get(this.vault, outSpec.collection, id)
             txCtx._executed.push({

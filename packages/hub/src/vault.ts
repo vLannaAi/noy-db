@@ -1456,6 +1456,13 @@ export class Vault {
           if (!out || !out.ok) { anyFailed = true; continue }
           const outSpec = spec.outputs[key]
           if (!outSpec) continue
+          if (out.skipped === true) {
+            // #144: optional output skipped — delete any prior emission.
+            // No txCtx hookup needed: `deriveAll` runs outside the
+            // multi-record transaction window by design.
+            await this.collection(outSpec.collection).delete(id)
+            continue
+          }
           await this.collection(outSpec.collection).put(id, out.value)
         }
         if (anyFailed) failed++

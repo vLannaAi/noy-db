@@ -133,6 +133,13 @@ export async function resolveStaleOnRead(
       const outSpec = spec.outputs[key]
       if (!outSpec) continue
       const outputColl = accessor.getCollection(outSpec.collection)
+      if (out.skipped === true) {
+        // #144: optional output skipped on lazy resolve — delete any
+        // prior emission so the read returns null (matches eager-path
+        // tombstone semantics).
+        await outputColl.delete(id)
+        continue
+      }
       await outputColl.put(id, out.value)
     }
     pending.delete(spec)

@@ -38,6 +38,16 @@ export interface DerivedFromMeta {
 export interface OutputSpec {
   shape: 'record'
   collection: string
+  /**
+   * When `true`, the `derive` function may return `null` (or
+   * `undefined`) for this output key. The executor interprets that as
+   * "no output for this invocation": a previously-emitted output at
+   * the same id is deleted (mirroring the empty-group / empty-aggregate
+   * semantics flagged in #142); a never-emitted output is a silent
+   * no-op. When `false` (default), returning `null` throws
+   * `DerivationOutputShapeError` — same as v1.
+   */
+  optional?: boolean
 }
 
 /**

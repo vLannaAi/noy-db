@@ -10,6 +10,15 @@ export interface OutputResult {
   value: Record<string, unknown>
   ok: boolean
   error?: Error
+  /**
+   * `true` when an optional output (#144) returned `null` /
+   * `undefined`. The caller deletes any previously-emitted output at
+   * the same id (mirrors "tombstone for derived data"); a never-emitted
+   * output is a silent no-op. `ok: true` because skipping is a
+   * successful outcome, not a failure — the executor still ran and
+   * the strategy hash is honoured.
+   */
+  skipped?: boolean
 }
 
 /**
@@ -59,11 +68,25 @@ export const DerivationExecutor = {
     }
 
     for (const key of Object.keys(strategy.outputs)) {
+      const outSpec = strategy.outputs[key]
+      if (!outSpec) continue
       const value = (derived as Record<string, unknown>)[key]
-      if (value === undefined || value === null || typeof value !== 'object') {
+      if (value === undefined || value === null) {
+        if (outSpec.optional === true) {
+          // #144: optional output explicitly skipped. Mark for caller
+          // so any prior-emitted output at this id can be deleted.
+          outputs[key] = { value: {}, ok: true, skipped: true }
+          continue
+        }
         throw new DerivationOutputShapeError(
           key,
-          `expected object, got ${value === undefined ? 'undefined' : typeof value}`,
+          `expected object, got ${value === undefined ? 'undefined' : 'null'}`,
+        )
+      }
+      if (typeof value !== 'object') {
+        throw new DerivationOutputShapeError(
+          key,
+          `expected object, got ${typeof value}`,
         )
       }
       outputs[key] = {

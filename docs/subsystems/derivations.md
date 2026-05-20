@@ -90,6 +90,35 @@ fingerprint sibling-record content).
 Available on both lifecycles: the eager dispatch and the lazy
 resolve-on-read paths both pass the same facade.
 
+### Optional outputs (#144)
+
+Declare an output as `optional: true` to let `derive` return `null` for
+that key:
+
+```ts
+outputs: {
+  receipt: { shape: 'record', collection: 'receipts', optional: true },
+},
+derive: (alloc) => ({
+  receipt: alloc.servicesNetPortion > 0
+    ? { id: alloc.id, paymentId: alloc.paymentId, appliedAmount: alloc.appliedAmount }
+    : null,
+})
+```
+
+Semantics:
+
+- `null` (or `undefined`) for an optional output → no write fires.
+- If a previous derivation emitted an output at this id, it's **deleted**
+  (tombstone for derived data). The eager path captures the prior
+  envelope on the active TxContext so the delete rolls back alongside
+  the source op on transaction failure (#133).
+- A never-emitted optional output is a silent no-op.
+- Returning `null` for a required output (default — no `optional` flag)
+  still throws `DerivationOutputShapeError`.
+
+Same behavior on eager and lazy lifecycles, and through `vault.deriveAll()`.
+
 ### Lifecycles
 
 - **`eager`** — derive runs synchronously inside the source-write transaction.
