@@ -1407,22 +1407,14 @@ export class Collection<T> {
           const txCtx = this.derivationSource.getActiveTxContext()
           if (out.skipped === true) {
             // #144: optional output returned null. Delete the
-            // previously-emitted output at this id, if any. Capture the
-            // prior envelope for tx rollback symmetry first.
-            const prior = await this.adapter.get(this.vault, outSpec.collection, id)
-            if (prior === null) continue
-            if (txCtx !== null) {
-              txCtx._executed.push({
-                op: {
-                  type: 'delete',
-                  vaultName: this.vault,
-                  collectionName: outSpec.collection,
-                  id,
-                },
-                priorEnvelope: prior,
-              })
-            }
-            await outputCollection.delete(id)
+            // previously-emitted output at this id, if any. Routed
+            // through `_internalDelete` so a user-registered
+            // `onDelete` (#145) on the output collection does NOT
+            // fire — this is a system-internal tombstone, not a
+            // user-initiated delete. The txCtx hookup captures the
+            // prior envelope inside `_internalDelete` for #133-style
+            // rollback symmetry; delete-of-absent is a silent no-op.
+            await outputCollection._internalDelete(id, txCtx)
             continue
           }
           if (txCtx !== null) {
@@ -1447,6 +1439,48 @@ export class Collection<T> {
 
   /** Delete a record by ID. */
   async delete(id: string): Promise<void> {
+    await this._doDelete(id, false)
+  }
+
+  /**
+   * @internal — system-internal delete that bypasses user-facing
+   * delete hooks (`onDelete`, accounting-period guard, FK ref
+   * enforcer). Used by derivation tombstones (#144) and MV refresh
+   * (Dim 14 v2) — system housekeeping shouldn't trip user invariants
+   * registered against the output collection. The ledger entry and
+   * history snapshot still fire so backup integrity and time-travel
+   * reconstruction stay consistent.
+   *
+   * Returns silently for delete-of-absent (idempotent contract).
+   *
+   * When a `txCtx` is supplied, the prior envelope is captured and
+   * pushed onto `txCtx._executed` BEFORE the delete fires — mirrors
+   * the #133 rollback hardening for puts. Callers outside a
+   * multi-record transaction pass `null` and skip the tracking.
+   *
+   * Permission handling is unchanged: the caller must still hold
+   * write permission on the collection (derivations run under the
+   * user's keyring). Internal deletes are NOT routed through the
+   * amendment change-set.
+   */
+  async _internalDelete(id: string, txCtx: TxContext | null = null): Promise<void> {
+    if (txCtx !== null) {
+      const prior = await this.adapter.get(this.vault, this.name, id)
+      if (prior === null) return
+      txCtx._executed.push({
+        op: {
+          type: 'delete',
+          vaultName: this.vault,
+          collectionName: this.name,
+          id,
+        },
+        priorEnvelope: prior,
+      })
+    }
+    await this._doDelete(id, true)
+  }
+
+  private async _doDelete(id: string, internal: boolean): Promise<void> {
     if (!hasWritePermission(this.keyring, this.name)) {
       throw new ReadOnlyError()
     }
@@ -1458,7 +1492,7 @@ export class Collection<T> {
     // diffing is skipped (it's a put concept). Delete-of-absent is
     // a no-op — no guard is consulted because there's nothing to
     // protect, matching the idempotent-delete contract.
-    if (this.guardSource) {
+    if (!internal && this.guardSource) {
       const registry = this.guardSource.registry()
       const guards = registry.guardsFor(this.name)
       if (guards.length > 0) {
@@ -1508,7 +1542,7 @@ export class Collection<T> {
 
     // accounting-period guard (same contract as put;
     // incoming is null because this is a delete).
-    if (this.periodGuard !== undefined) {
+    if (!internal && this.periodGuard !== undefined) {
       const existingEnv = await this.adapter.get(this.vault, this.name, id)
       let priorRecord: Record<string, unknown> | null = null
       if (existingEnv) {
@@ -1531,7 +1565,7 @@ export class Collection<T> {
     // recursively deletes the referencing records first, then falls
     // through to the normal delete path below. `warn` is a no-op
     // here — violations surface through `checkIntegrity()`.
-    if (this.refEnforcer !== undefined) {
+    if (!internal && this.refEnforcer !== undefined) {
       await this.refEnforcer.enforceRefsOnDelete(this.name, id)
     }
 

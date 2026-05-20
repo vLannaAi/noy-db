@@ -119,6 +119,28 @@ Semantics:
 
 Same behavior on eager and lazy lifecycles, and through `vault.deriveAll()`.
 
+#### Tombstone-vs-onDelete composition
+
+A tombstone is a **system-internal** delete: the derivation engine
+revoking its own prior emission because the source flipped to the
+"no output" branch. User `onDelete` guards registered on the output
+collection are **not** consulted on tombstones — same way amendments
+bypass user-facing hooks. If they fired, a consumer registering both
+(a) an `optional: true` derivation and (b) an `onDelete: () => throw`
+on the output collection would deadlock: every flip-to-null source
+write would block on the user's own append-only rule.
+
+Concretely: if you ship a `paymentAllocation → receipt` derivation with
+`optional: true`, AND `receipts.onDelete: throw` for legal-document
+immutability, **the tombstone bypass keeps both coherent**. Users can
+no longer manually delete a receipt (good), and the system can still
+revoke its own prior emission when the underlying allocation
+restructures (also good).
+
+The bypass is scoped to the system-internal delete path
+(`Collection._internalDelete`); a user-initiated `Collection.delete`
+on the same record still fires `onDelete` normally.
+
 ### Lifecycles
 
 - **`eager`** — derive runs synchronously inside the source-write transaction.

@@ -58,11 +58,38 @@ export interface GuardStrategy<T extends Record<string, unknown>> {
    */
   check?: (incoming: T, ctx: GuardContext<T>) => Promise<void> | void
   /**
-   * Fires on `Collection.delete` before the adapter delete and before
-   * the ledger append. The `existing` argument is the currently-persisted
-   * record. Throw to cancel the delete — no partial state, no tombstone
-   * ledger entry. Skipped during an amendment transaction (admin/owner
-   * override).
+   * Fires on user-initiated `Collection.delete` before the adapter
+   * delete and before the ledger append. The `existing` argument is
+   * the currently-persisted record. Throw to cancel the delete — no
+   * partial state, no tombstone ledger entry.
+   *
+   * Skipped during an amendment transaction (admin/owner override) —
+   * amendments are the unlock primitive. To make a delete TRULY
+   * unconditional (e.g. legal-document immutability rules), pair
+   * `onDelete` with an `amendment.invariant` that re-throws on any
+   * `before !== null && after === null` change:
+   *
+   * ```ts
+   * withGuard<Receipt>({
+   *   collection: 'receipts',
+   *   onDelete: () => { throw new RecordLockedError(...) },
+   *   amendment: {
+   *     roles: ['admin', 'owner'],
+   *     invariant: (changes) => {
+   *       for (const c of changes) {
+   *         if (c.before !== null && c.after === null) {
+   *           throw new RecordLockedError(...) // wrapped as InvariantError
+   *         }
+   *       }
+   *     },
+   *   },
+   * })
+   * ```
+   *
+   * Also skipped on system-internal deletes (derivation tombstones from
+   * #144, MV refresh from Dim 14 v2) — those use `_internalDelete`
+   * which bypasses every user-facing delete hook. Housekeeping ops are
+   * NOT user-initiated and should not trip user invariants.
    *
    * Delete of an absent record is a no-op and does not consult any
    * guard, matching the idempotent-delete contract.

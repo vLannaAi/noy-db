@@ -1459,8 +1459,10 @@ export class Vault {
           if (out.skipped === true) {
             // #144: optional output skipped — delete any prior emission.
             // No txCtx hookup needed: `deriveAll` runs outside the
-            // multi-record transaction window by design.
-            await this.collection(outSpec.collection).delete(id)
+            // multi-record transaction window by design. Routed
+            // through `_internalDelete` so the bulk recompute does not
+            // trip user `onDelete` (#145) on the output collection.
+            await this.collection(outSpec.collection)._internalDelete(id)
             continue
           }
           await this.collection(outSpec.collection).put(id, out.value)

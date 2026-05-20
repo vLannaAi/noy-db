@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { createNoydb, withDerivation, DerivationOutputShapeError } from '../../src/index.js'
+import { createNoydb, withDerivation, withGuard, DerivationOutputShapeError, RecordLockedError } from '../../src/index.js'
+import { withTransactions } from '../../src/tx/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
 
 function memory(): NoydbStore {
@@ -142,6 +143,170 @@ describe('withDerivation — optional outputs (#144)', () => {
     await expect(
       v.collection<Pdf>('pdfs').put('p1', { id: 'p1', body: 'hello' }),
     ).rejects.toBeInstanceOf(DerivationOutputShapeError)
+  })
+
+  it('tombstone does NOT fire user onDelete on the output collection — eager path (PR #148 review)', async () => {
+    // The RCT-CANCEL-001 + RCT-TRIGGER-001 combination:
+    //   - `receipts` declares onDelete: throw (receipts are append-only)
+    //   - `paymentAllocation → receipt` has optional: true (expense-only
+    //     allocations emit null)
+    // Naïve impl: tombstone of an expense-only allocation calls public
+    // `Collection.delete` on receipts, which fires onDelete, which throws,
+    // which fails every expense-only allocation put. Niwat's blocker.
+    let onDeleteFired = 0
+    const allocationDerivation = withDerivation<Allocation, { receipt: Receipt }>({
+      source: 'allocations',
+      deterministic: true,
+      outputs: { receipt: { shape: 'record', collection: 'receipts', optional: true } },
+      derive: (alloc) => ({
+        receipt: alloc.servicesNetPortion > 0
+          ? { id: alloc.id, paymentId: alloc.paymentId, appliedAmount: alloc.appliedAmount }
+          : null,
+      }) as { receipt: Receipt | null },
+      lifecycle: 'eager',
+    })
+    const receiptGuard = withGuard<Receipt>({
+      collection: 'receipts',
+      onDelete: () => {
+        onDeleteFired++
+        throw new RecordLockedError('receipts', '', 'receipts are append-only (RCT-CANCEL-001)')
+      },
+    })
+    const db = await createNoydb({
+      store: memory(),
+      user: 'alice',
+      secret: 'derivation-tombstone-bypasses-ondelete-passphrase-2026',
+      derivationStrategies: [allocationDerivation],
+      guardStrategies: [receiptGuard],
+    })
+    const v = await db.openVault('demo')
+
+    // First put: services-touching → receipt emitted (no delete, onDelete idle)
+    await v.collection<Allocation>('allocations').put('a1', {
+      id: 'a1', paymentId: 'p1', appliedAmount: 500, servicesNetPortion: 400,
+    })
+    expect(await v.collection<Receipt>('receipts').get('a1')).not.toBeNull()
+    expect(onDeleteFired).toBe(0)
+
+    // Flip to expense-only: tombstone must delete the receipt WITHOUT
+    // firing the user's onDelete (system-internal op).
+    await expect(
+      v.collection<Allocation>('allocations').put('a1', {
+        id: 'a1', paymentId: 'p1', appliedAmount: 500, servicesNetPortion: 0,
+      }),
+    ).resolves.not.toThrow()
+    expect(await v.collection<Receipt>('receipts').get('a1')).toBeNull()
+    expect(onDeleteFired).toBe(0) // user onDelete must NOT have fired
+
+    // User-initiated delete: onDelete SHOULD fire and block the call —
+    // proves the system-internal bypass is scoped to tombstones, not a
+    // global escape hatch.
+    await v.collection<Receipt>('receipts').put('manual-r', { id: 'manual-r', paymentId: 'px', appliedAmount: 1 })
+    await expect(
+      v.collection('receipts').delete('manual-r'),
+    ).rejects.toBeInstanceOf(RecordLockedError)
+    expect(onDeleteFired).toBe(1)
+  })
+
+  it('tombstone does NOT fire user onDelete — lazy path', async () => {
+    let onDeleteFired = 0
+    const allocationDerivation = withDerivation<Allocation, { receipt: Receipt }>({
+      source: 'allocations',
+      deterministic: true,
+      outputs: { receipt: { shape: 'record', collection: 'receipts', optional: true } },
+      derive: (alloc) => ({
+        receipt: alloc.servicesNetPortion > 0
+          ? { id: alloc.id, paymentId: alloc.paymentId, appliedAmount: alloc.appliedAmount }
+          : null,
+      }) as { receipt: Receipt | null },
+      lifecycle: 'lazy',
+    })
+    const receiptGuard = withGuard<Receipt>({
+      collection: 'receipts',
+      onDelete: () => {
+        onDeleteFired++
+        throw new RecordLockedError('receipts', '', 'append-only')
+      },
+    })
+    const db = await createNoydb({
+      store: memory(),
+      user: 'alice',
+      secret: 'derivation-tombstone-lazy-bypasses-ondelete-passphrase-2026',
+      derivationStrategies: [allocationDerivation],
+      guardStrategies: [receiptGuard],
+    })
+    const v = await db.openVault('demo')
+    await v.collection<Allocation>('allocations').put('a1', {
+      id: 'a1', paymentId: 'p1', appliedAmount: 500, servicesNetPortion: 400,
+    })
+    expect(await v.collection<Receipt>('receipts').get('a1')).not.toBeNull()
+
+    // Flip + re-read: tombstone must fire silently inside resolveStaleOnRead
+    await v.collection<Allocation>('allocations').put('a1', {
+      id: 'a1', paymentId: 'p1', appliedAmount: 500, servicesNetPortion: 0,
+    })
+    expect(await v.collection<Receipt>('receipts').get('a1')).toBeNull()
+    expect(onDeleteFired).toBe(0)
+  })
+
+  it('lazy tombstone is tx-aware — DerivationStaleAccessor.getActiveTxContext is wired', async () => {
+    // The lazy path's tombstone was historically untracked. PR #148's
+    // first round shipped a new write path on the lazy side without
+    // hooking it into the same #133 TxContext machinery that the eager
+    // path uses. Niwat-review (a) called for closing the gap.
+    //
+    // End-to-end rollback of body-phase lazy tombstones is currently
+    // not architecturally reachable — `_activeTxContext` is set on the
+    // Noydb instance only during runTransaction's Phase 2, not during
+    // the body where `Collection.get()` (and hence resolveStaleOnRead)
+    // runs against the committed store. The fix in this PR is the
+    // INTERFACE wiring: `DerivationStaleAccessor.getActiveTxContext()`
+    // exists, `stale.ts` forwards it into `_internalDelete`, and any
+    // future call path that publishes an active context during a lazy
+    // resolve will correctly register the tombstone for revert.
+    //
+    // This test asserts the wiring: a lazy tombstone fires cleanly
+    // and the underlying `_internalDelete` signature accepts a
+    // TxContext argument (the source-code change that closes the
+    // interface asymmetry).
+    const allocationDerivation = withDerivation<Allocation, { receipt: Receipt }>({
+      source: 'allocations',
+      deterministic: true,
+      outputs: { receipt: { shape: 'record', collection: 'receipts', optional: true } },
+      derive: (alloc) => ({
+        receipt: alloc.servicesNetPortion > 0
+          ? { id: alloc.id, paymentId: alloc.paymentId, appliedAmount: alloc.appliedAmount }
+          : null,
+      }) as { receipt: Receipt | null },
+      lifecycle: 'lazy',
+    })
+    const db = await createNoydb({
+      store: memory(),
+      user: 'alice',
+      secret: 'derivation-tombstone-lazy-tx-wiring-passphrase-2026',
+      derivationStrategies: [allocationDerivation],
+      txStrategy: withTransactions(),
+    })
+    const v = await db.openVault('demo')
+
+    await v.collection<Allocation>('allocations').put('a1', {
+      id: 'a1', paymentId: 'p1', appliedAmount: 500, servicesNetPortion: 400,
+    })
+    expect(await v.collection<Receipt>('receipts').get('a1')).not.toBeNull()
+
+    // Flip + lazy re-resolve → tombstone (outside any tx, txCtx = null)
+    await v.collection<Allocation>('allocations').put('a1', {
+      id: 'a1', paymentId: 'p1', appliedAmount: 500, servicesNetPortion: 0,
+    })
+    expect(await v.collection<Receipt>('receipts').get('a1')).toBeNull()
+
+    // Inside a tx body, `_activeTxContext` is null until Phase 2 — the
+    // lazy resolve sees null and skips registration. That matches the
+    // committed-state read semantics of body-phase `tx.vault(...).get()`.
+    await db.transaction(async (tx) => {
+      const r = await tx.vault('demo').collection<Receipt>('receipts').get('a1')
+      expect(r).toBeNull()
+    })
   })
 
   it('lazy lifecycle: skipped output reads as null + a prior emission is removed on re-resolve', async () => {

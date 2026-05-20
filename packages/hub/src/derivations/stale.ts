@@ -1,5 +1,6 @@
 import type { Collection } from '../collection.js'
 import type { ReadOnlyVaultFacade } from '../guards/types.js'
+import type { TxContext } from '../tx/transaction.js'
 import type { DerivationRegistry } from './registry.js'
 // Type-only — runtime class loaded via dynamic import in
 // `resolveStaleOnRead` only when a stale flag actually fires. Keeps
@@ -24,6 +25,15 @@ export interface DerivationStaleAccessor {
    * (#147).
    */
   getReadOnlyFacade(): ReadOnlyVaultFacade
+  /**
+   * Active multi-record TxContext or `null`. The lazy resolve-on-read
+   * path uses this to register tombstone deletes on `_executed` so a
+   * later rollback restores the prior emission. Mirrors the eager
+   * path's #133-style tracking; the lazy `put` was historically
+   * unregistered but #144's tombstone delete (a NEW write path)
+   * matches the eager registration for symmetry.
+   */
+  getActiveTxContext(): TxContext | null
 }
 
 /**
@@ -136,8 +146,15 @@ export async function resolveStaleOnRead(
       if (out.skipped === true) {
         // #144: optional output skipped on lazy resolve — delete any
         // prior emission so the read returns null (matches eager-path
-        // tombstone semantics).
-        await outputColl.delete(id)
+        // tombstone semantics). Routed through `_internalDelete` so a
+        // user-registered `onDelete` (#145) on the output collection
+        // does NOT fire. The active TxContext (if any) is forwarded:
+        // `resolveStaleOnRead` is reachable from `Collection.get()`
+        // which can be called from inside a transaction, so the
+        // tombstone must be observable to `revertExecuted` on
+        // rollback. Closes the #133-asymmetry surfaced in PR #148
+        // review.
+        await outputColl._internalDelete(id, accessor.getActiveTxContext())
         continue
       }
       await outputColl.put(id, out.value)

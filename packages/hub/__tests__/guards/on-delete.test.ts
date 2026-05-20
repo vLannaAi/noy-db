@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { createNoydb, withGuard, RecordLockedError } from '../../src/index.js'
+import { createNoydb, withGuard, RecordLockedError, InvariantError } from '../../src/index.js'
 import { withTransactions } from '../../src/tx/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
 
@@ -163,5 +163,72 @@ describe('withGuard.onDelete (#145)', () => {
     )
     expect(onDeleteCalls).toBe(1) // not incremented during amendment
     expect(await invs.get('inv1')).toBeNull()
+  })
+
+  it('unconditional delete-block — pair onDelete + amendment.invariant (RCT-CANCEL-001 shape)', async () => {
+    // Niwat-review on #145: `onDelete: () => throw` alone is NOT
+    // unconditional — admin amendments still bypass it. For
+    // legal-document immutability (e.g. Thai Revenue Code §86: receipts
+    // are append-only forever), the consumer must pair the two hooks:
+    //
+    //   - `onDelete` blocks normal-mode user deletes
+    //   - `amendment.invariant` re-throws on any `before !== null &&
+    //     after === null` change, blocking the amendment escape too
+    //
+    // This test pins the canonical pairing so consumers copying the
+    // worked example don't ship with a silent amendment-shaped gap.
+    interface Receipt extends Record<string, unknown> { id: string; amount: number }
+    const guard = withGuard<Receipt>({
+      collection: 'receipts',
+      onDelete: () => {
+        throw new RecordLockedError('receipts', '', 'receipts are append-only (RCT-CANCEL-001)')
+      },
+      amendment: {
+        roles: ['admin', 'owner'],
+        invariant: (changes) => {
+          for (const c of changes) {
+            if (c.before !== null && c.after === null) {
+              throw new RecordLockedError(
+                'receipts',
+                '',
+                'receipts are append-only — amendment cannot delete (RCT-CANCEL-001)',
+              )
+            }
+          }
+        },
+      },
+    })
+    const db = await createNoydb({
+      store: memory(),
+      user: 'alice',
+      role: 'owner',
+      secret: 'guards-ondelete-unconditional-passphrase-2026',
+      guardStrategies: [guard],
+      txStrategy: withTransactions(),
+    })
+    const v = await db.openVault('demo')
+    await v.collection<Receipt>('receipts').put('r1', { id: 'r1', amount: 100 })
+
+    // Normal-mode delete: blocked by onDelete
+    await expect(
+      v.collection('receipts').delete('r1'),
+    ).rejects.toBeInstanceOf(RecordLockedError)
+    expect(await v.collection<Receipt>('receipts').get('r1')).not.toBeNull()
+
+    // Amendment delete: blocked by invariant at commit (onDelete IS
+    // bypassed as designed; invariant catches it). The thrown
+    // RecordLockedError is wrapped in InvariantError by
+    // GuardExecutor.runInvariant — the message survives.
+    await expect(
+      db.transaction(
+        { vault: 'demo', amendment: true, reason: 'attempt to delete' },
+        async (tx) => {
+          await tx.vault('demo').collection('receipts').delete('r1')
+        },
+      ),
+    ).rejects.toThrow(/RCT-CANCEL-001/)
+    expect(InvariantError).toBeDefined() // sanity import
+    // Record still present — invariant rolled back the staged delete
+    expect(await v.collection<Receipt>('receipts').get('r1')).not.toBeNull()
   })
 })

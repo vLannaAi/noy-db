@@ -73,6 +73,49 @@ argument shapes mirror each other but the semantics are explicit:
 `check(incoming, ctx)` validates a record being **written**;
 `onDelete(existing, ctx)` validates a record being **removed**.
 
+### `onDelete` bypass paths
+
+Two paths skip `onDelete`. Both are by design:
+
+1. **Amendment transactions** (`db.transaction({ amendment: true })`)
+   for admin/owner — amendments are the generic unlock primitive,
+   consistent with how `frozenFields` lets staged writes through.
+2. **System-internal deletes** — derivation tombstones (#144) and MV
+   refresh deletes (Dim 14 v2) route through an internal-only delete
+   path. Housekeeping ops are not user-initiated and would otherwise
+   trip user invariants registered against output collections.
+
+### Truly unconditional delete-block — pair the two hooks
+
+`onDelete: () => { throw }` alone is NOT unconditional. An admin
+amendment can still bypass it. For legal-document immutability rules
+(e.g. Thai Revenue Code §86: receipts are append-only forever) pair
+`onDelete` with an `amendment.invariant` that re-throws on any
+delete-shaped change:
+
+```ts
+withGuard<Receipt>({
+  collection: 'receipts',
+  onDelete: () => {
+    throw new RecordLockedError('receipts', '', 'receipts are append-only')
+  },
+  amendment: {
+    roles: ['admin', 'owner'],
+    invariant: (changes) => {
+      for (const c of changes) {
+        if (c.before !== null && c.after === null) {
+          throw new RecordLockedError('receipts', '', 'amendment cannot delete')
+        }
+      }
+    },
+  },
+})
+```
+
+The thrown `RecordLockedError` inside `invariant` is wrapped in
+`InvariantError` by `GuardExecutor.runInvariant` (the message survives);
+the staged delete rolls back, the record stays.
+
 ### Amendment flow
 
 ```
