@@ -678,7 +678,7 @@ The consumer-facing surface collapses to a single virtual collection — `vault.
 | `list()` / `.query()` | — | — | — | Union of ids in base ∪ overlay; per-id merge from the table above; predicate evaluated per row |
 | `live()` / `.subscribe()` | — | — | — | Merged change-stream from both base and overlay; emit re-merged row per source change |
 | `put(record)` | — | — | — | Routes to overlay collection; `id` derived via the base MV's `rowKey(record)`; no effect on base |
-| `put(id, record)` | — | — | — | Validates that `id === rowKey(record)`; throws `OverlayIdMismatchError(id, expected)` if they diverge. Pass-through write when consistent. See § Virtual-collection writes below. |
+| `put(id, record)` | — | — | — | Validates that `id === rowKey(record)`; throws `OverlayIdMismatchError(actual, expected)` if they diverge. Pass-through write when consistent. See § Virtual-collection writes below. |
 | `delete(id)` | ✓ | ✓ | — | Removes overlay row only; base row resurfaces on next read |
 | `delete(id)` | ✓ | absent | — | No-op (idempotent contract) |
 | `delete(id)` | absent | ✓ | — | Removes overlay row; next read returns `null` |
@@ -723,7 +723,7 @@ For consumers who do need to write to the overlay collection directly (e.g. bulk
 The standard `Collection<T>.put(id, record)` signature is preserved on the virtual collection for API compatibility, but its behavior is **validate-and-throw on mismatch** rather than pass-through. Calling `vault.collection('pnd1').put(id, record)` checks `id === rowKey(record)`:
 
 - **Match:** pass-through write to the overlay collection — equivalent to `put(record)`.
-- **Mismatch:** throws `OverlayIdMismatchError(id, rowKey(record))` synchronously before any write. The consumer's foot-gun (typoed separator, copy-pasted id from a different row, etc.) surfaces immediately rather than producing a silent orphaned-override row.
+- **Mismatch:** throws `OverlayIdMismatchError(actual, expected)` synchronously before any write — `actual` is the consumer-supplied `id`, `expected` is `rowKey(record)`. The consumer's foot-gun (typoed separator, copy-pasted id from a different row, etc.) surfaces immediately rather than producing a silent orphaned-override row.
 
 Picked validate-throw over the alternatives ("use verbatim", "reject explicit-id form entirely") for two reasons:
 
@@ -776,6 +776,10 @@ If `base` is itself an MV output, the MV's source-collection edges already flow 
 | Lazy stale-bit lost on vault close | Re-materialize on next read (idempotent; matches v1) |
 | User `onDelete` registered on output collection | Bypassed for refresh-driven deletes via `_internalDelete` (#145 composition) |
 | User `amendment.invariant` on output collection during admin amendment | Sees MV-cascaded tombstones via `collectChange` (#145 follow-up) — can reject the amendment |
+| Overlay `base` references a virtual overlay name (multi-overlay stacking attempt) | Throw `OverlayBaseIsVirtualError(name, base)` at vault init — see § Pre-registration validation (overlay) |
+| Overlay `overlay` references an unknown collection or an MV-owned collection | Throw `OverlayCollectionUnavailableError(name, overlay)` at vault init |
+| Overlay `name` collides with an MV output or a concrete source collection | Throw `OverlayNameCollisionError(name)` at vault init |
+| `vault.collection(virtualName).put(id, record)` with `id !== rowKey(record)` | Throw `OverlayIdMismatchError(actual, expected)` synchronously before any write; direct writes to the underlying overlay collection bypass this validation |
 
 ## Testing strategy
 
