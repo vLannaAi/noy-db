@@ -43,6 +43,7 @@ import type { UnlockedKeyring } from './team/keyring.js'
 import type { VaultPolicy } from './policy/types.js'
 import type { PublicEnvelopeSchema } from './meta/public-envelope/types.js'
 import type { MaterializedViewStrategyHandle } from './materialized-views/types.js'
+import type { OverlayedViewStrategyHandle } from './overlay-views/types.js'
 
 /** Format version for encrypted record envelopes. */
 export const NOYDB_FORMAT_VERSION = 1 as const
@@ -1765,6 +1766,14 @@ export interface NoydbOptions {
    * cyclic graph throws `MaterializedViewCycleError`.
    */
   readonly materializedViewStrategies?: ReadonlyArray<MaterializedViewStrategyHandle>
+  /**
+   * Optional overlay strategies (#154). Each handle returned by
+   * `withOverlayedView()` from `@noy-db/hub/overlay-views`. The vault
+   * validates name uniqueness + base concreteness + overlay
+   * availability at `openVault`; a clash throws one of the
+   * `Overlay*Error` family.
+   */
+  readonly overlayedViewStrategies?: ReadonlyArray<OverlayedViewStrategyHandle>
   /** Optional remote store(s) for sync. Accepts a single store, a SyncTarget, or an array. */
   readonly sync?: NoydbStore | SyncTarget | SyncTarget[]
   /** User identifier. */

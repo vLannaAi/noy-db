@@ -22,6 +22,9 @@ import type { OnDirtyCallback } from './collection.js'
 import type { UnlockedKeyring, BundleRecipient } from './team/keyring.js'
 import type { MaterializedViewRegistry } from './materialized-views/registry.js'
 import type { MaterializedViewStrategyHandle, MVQueryContext } from './materialized-views/types.js'
+import type { OverlayedViewRegistry } from './overlay-views/registry.js'
+import type { OverlayedViewStrategyHandle } from './overlay-views/types.js'
+import { OverlayedCollection } from './overlay-views/virtual-collection.js'
 import type { PublicEnvelope } from './meta/public-envelope/types.js'
 import { buildRecipientKeyringFile } from './team/keyring.js'
 import { ensureCollectionDEK, hasAccess, hasExportCapability, hasImportCapability } from './team/keyring.js'
@@ -165,6 +168,12 @@ export class Vault {
    * `_initMaterializedViews()` runs with at least one MV handle.
    */
   private materializedViewRegistry: MaterializedViewRegistry | null = null
+  /**
+   * Per-vault overlay registry (#154). Same lazy-load contract as
+   * `materializedViewRegistry` — `null` until `_initOverlayedViews()`
+   * runs with at least one handle.
+   */
+  private overlayedViewRegistry: OverlayedViewRegistry | null = null
   /**
    * Cached read-only facade handed to guard callbacks via `ctx.vault`,
    * and to derivation callbacks via `derive(source, ctx)`. Allocated
@@ -502,6 +511,26 @@ export class Vault {
     /**  — how lower-tier reads see above-tier records. */
     tierMode?: TierMode
   }): Collection<T> {
+    // Overlay intercept (#154). When the requested collection name
+    // matches a registered `withOverlayedView`, return the virtual
+    // proxy that merges base + overlay on read and routes writes to
+    // the overlay collection. The proxy implements the core
+    // Collection<T> read/write surface (get, list, put, delete);
+    // reactive APIs (live, subscribe) are out of scope for #154.
+    const overlayRegistry = this.overlayedViewRegistry
+    if (overlayRegistry !== null && overlayRegistry.isOverlay(collectionName)) {
+      const spec = overlayRegistry.byName(collectionName)
+      if (spec) {
+        // Recursive call into the same method — the base + overlay
+        // are real collections, so they re-enter this method without
+        // hitting the overlay intercept (their names won't match).
+        const base = this.collection<T>(spec.base)
+        const overlay = this.collection<T>(spec.overlay)
+        const baseRowKey = overlayRegistry.resolveBaseRowKey(collectionName, this.materializedViewRegistry)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return new OverlayedCollection<any>(spec, base, overlay, baseRowKey) as unknown as Collection<T>
+      }
+    }
     // Guard: reject reserved _dict_* names
     if (isDictCollectionName(collectionName)) {
       throw new ReservedCollectionNameError(collectionName)
@@ -1483,6 +1512,48 @@ export class Vault {
    */
   _getMaterializedViewRegistry(): MaterializedViewRegistry | null {
     return this.materializedViewRegistry
+  }
+
+  /**
+   * @internal — called by `Noydb.openVault` after MVs are wired.
+   * Dynamic-imports `OverlayedViewRegistry`, registers each spec,
+   * validates against the MV registry for name/base/overlay collisions.
+   * Throws on validation failure.
+   */
+  async _initOverlayedViews(
+    handles: ReadonlyArray<OverlayedViewStrategyHandle>,
+  ): Promise<void> {
+    if (handles.length === 0) return
+    const { OverlayedViewRegistry } = await import('./overlay-views/registry.js')
+    const registry = new OverlayedViewRegistry()
+    const mvRegistry = this.materializedViewRegistry
+    // Build the predicate set for registration validation:
+    //  - isOverlayName: an already-registered overlay's virtual name
+    //  - isMVOutput: a collection name owned by an MV
+    const overlayNames = new Set<string>()
+    for (const h of handles) overlayNames.add(h.spec.name)
+    const isMVOutput = (name: string): boolean => {
+      if (!mvRegistry) return false
+      for (const reg of mvRegistry.all()) {
+        if (reg.outputCollection === name) return true
+      }
+      return false
+    }
+    for (const h of handles) {
+      registry.register(h.spec, {
+        isOverlayName: (n) => overlayNames.has(n) && n !== h.spec.name,
+        isMVOutput,
+      })
+    }
+    this.overlayedViewRegistry = registry
+  }
+
+  /**
+   * @internal — consumed by `Vault.collection()`. Returns `null` for
+   * vaults with no overlays registered.
+   */
+  _getOverlayedViewRegistry(): OverlayedViewRegistry | null {
+    return this.overlayedViewRegistry
   }
 
   /**
