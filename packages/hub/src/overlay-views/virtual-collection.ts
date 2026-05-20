@@ -143,4 +143,89 @@ export class OverlayedCollection<T extends Record<string, unknown> = any> {
   private shadowPredicateApplies(row: T): boolean {
     return (row as Record<string, unknown>)[this.spec.shadowField] === this.spec.shadowValue
   }
+
+  // ─── Throw-stubs for the unimplemented Collection<T> surface ───────
+  //
+  // `Vault.collection(name)` widens the return type to `Collection<T>`
+  // for the overlay intercept, but `OverlayedCollection` doesn't
+  // implement the full surface. These stubs catch the common
+  // reactive / chainable APIs with a clear "not yet implemented"
+  // error pointing at the relevant issue — so consumers don't hit a
+  // cryptic `undefined is not a function` runtime crash.
+  //
+  // Closes niwat-review of PR #160.
+
+  /** @throws — chainable Query<T> over a virtual collection is deferred. */
+  query(): never {
+    throw new Error(
+      `OverlayedCollection "${this.spec.name}".query() is not yet implemented for overlay views (#154). ` +
+        `Use \`list()\` + filter for now, or read from the underlying \`${this.spec.base}\` / \`${this.spec.overlay}\` collections directly. ` +
+        `Reactive APIs land in a future MV sub-issue.`,
+    )
+  }
+
+  /** @throws — change-stream subscription over a virtual collection is deferred. */
+  subscribe(): never {
+    throw new Error(
+      `OverlayedCollection "${this.spec.name}".subscribe() is not yet implemented for overlay views (#154). ` +
+        `Subscribe to the underlying \`${this.spec.base}\` / \`${this.spec.overlay}\` collections individually for now. ` +
+        `Merged change-stream lands in a future MV sub-issue.`,
+    )
+  }
+
+  /** @throws — live query over a virtual collection is deferred. */
+  live(): never {
+    throw new Error(
+      `OverlayedCollection "${this.spec.name}".live() is not yet implemented for overlay views (#154). ` +
+        `Reactive APIs land in a future MV sub-issue.`,
+    )
+  }
+
+  /** @throws — async iteration over a virtual collection is deferred. */
+  scan(): never {
+    throw new Error(
+      `OverlayedCollection "${this.spec.name}".scan() is not yet implemented for overlay views (#154). ` +
+        `Use \`list()\` for now (no row-count ceiling at niwat scale), or scan the underlying collections directly.`,
+    )
+  }
+
+  /** @throws — lazy-mode query is not applicable to virtual collections. */
+  lazyQuery(): never {
+    throw new Error(
+      `OverlayedCollection "${this.spec.name}".lazyQuery() is not supported. ` +
+        `Virtual collections always materialize through base + overlay reads — lazy-mode indexed lookups don't apply.`,
+    )
+  }
+
+  /** @throws — bulk-atomic put is deferred to a future MV sub-issue. */
+  putManyAtomic(): never {
+    throw new Error(
+      `OverlayedCollection "${this.spec.name}".putManyAtomic() is not yet implemented for overlay views (#154). ` +
+        `Use sequential \`.put(record)\` calls for now, or write to \`${this.spec.overlay}\` directly.`,
+    )
+  }
+
+  /** @throws — bulk delete is deferred to a future MV sub-issue. */
+  deleteMany(): never {
+    throw new Error(
+      `OverlayedCollection "${this.spec.name}".deleteMany() is not yet implemented for overlay views (#154). ` +
+        `Use sequential \`.delete(id)\` calls for now, or operate on \`${this.spec.overlay}\` directly.`,
+    )
+  }
+
+  /** @throws — `.first()` over a virtual collection is deferred. */
+  first(): never {
+    throw new Error(
+      `OverlayedCollection "${this.spec.name}".first() is not yet implemented for overlay views (#154). ` +
+        `Use \`(await list())[0]\` for now.`,
+    )
+  }
+
+  /** @throws — `.count()` over a virtual collection is deferred. */
+  count(): never {
+    throw new Error(
+      `OverlayedCollection "${this.spec.name}".count() is not yet implemented for overlay views (#154). ` +
+        `Use \`(await list()).length\` for now.`,
+    )
+  }
 }

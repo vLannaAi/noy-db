@@ -245,6 +245,67 @@ describe('withOverlayedView read-shadow primitive (#154)', () => {
     })
   })
 
+  describe('unimplemented Collection<T> surface throws clearly (niwat-review of #160)', () => {
+    async function setupVirtual() {
+      const baseMV = withMaterializedView<BaseRow>({
+        name: 'mv1',
+        query: (db) => db.collection<BaseRow>('src').query(),
+        rowKey: (r) => r.clientId,
+        refresh: 'eager',
+      })
+      const overlay = withOverlayedView({
+        name: 'v',
+        base: 'mv1',
+        overlay: 'overlay',
+        shadowField: 'dataStatus',
+        shadowValue: 'override',
+      })
+      const db = await createNoydb({
+        store: memory(),
+        user: 'alice',
+        secret: 'overlay-stub-passphrase-2026',
+        materializedViewStrategies: [baseMV],
+        overlayedViewStrategies: [overlay],
+      })
+      const vault = await db.openVault('demo')
+      // Surface is widened to Collection<T> via the Vault intercept,
+      // but `OverlayedCollection` only implements the core read/write
+      // surface. The throw-stubs make the error message clear instead
+      // of a cryptic "undefined is not a function" crash.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return vault.collection<BaseRow>('v') as any
+    }
+
+    it('.query() throws with a clear "not yet implemented" message', async () => {
+      const virtual = await setupVirtual()
+      expect(() => virtual.query()).toThrow(/not yet implemented for overlay views/)
+    })
+
+    it('.subscribe() throws with a clear "not yet implemented" message', async () => {
+      const virtual = await setupVirtual()
+      expect(() => virtual.subscribe(() => {/* noop */})).toThrow(/not yet implemented for overlay views/)
+    })
+
+    it('.live() throws with a clear "not yet implemented" message', async () => {
+      const virtual = await setupVirtual()
+      expect(() => virtual.live()).toThrow(/not yet implemented for overlay views/)
+    })
+
+    it('.scan() / .first() / .count() / putManyAtomic / deleteMany throw with helpful errors', async () => {
+      const virtual = await setupVirtual()
+      expect(() => virtual.scan()).toThrow(/not yet implemented/)
+      expect(() => virtual.first()).toThrow(/not yet implemented/)
+      expect(() => virtual.count()).toThrow(/not yet implemented/)
+      expect(() => virtual.putManyAtomic()).toThrow(/not yet implemented/)
+      expect(() => virtual.deleteMany()).toThrow(/not yet implemented/)
+    })
+
+    it('.lazyQuery() throws indicating overlay views never go through lazy-mode', async () => {
+      const virtual = await setupVirtual()
+      expect(() => virtual.lazyQuery()).toThrow(/not supported/)
+    })
+  })
+
   describe('pre-registration validation', () => {
     it('throws OverlayNameCollisionError when virtual name collides with an MV output', async () => {
       const mv = withMaterializedView<BaseRow>({
