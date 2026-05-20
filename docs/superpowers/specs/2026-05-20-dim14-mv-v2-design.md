@@ -125,7 +125,7 @@ Ship a `withMaterializedView` strategy in `@noy-db/hub` that lets a vault declar
 - **No new store interface.** MV rows route through existing stores via existing collections.
 - **No tombstone collateral on user collections.** Refresh-driven deletes use `Collection._internalDelete` so a user-registered `onDelete` on the output collection is not tripped by housekeeping. An amendment window IS still surfaced to `amendment.invariant` (matches the #145 follow-up resolution: housekeeping ≠ user-initiated, but an active amendment is still about the user's intent).
 - **Atomic with `withTransactions`.** A single source `Collection.put` that triggers eager re-materialization runs all dependent MV writes/tombstones inside the same transaction. `strict: true` aborts the whole transaction on any output failure (composes with v1 `strict` semantics).
-- **MV is read-only projection.** No write API on the MV collection beyond what materialization itself produces. Operator-editable lifecycle on top of an MV is `withOverlayedView` — explicitly deferred to v2.5 (see § Scope deferred).
+- **MV is read-only projection.** No write API on the MV collection beyond what materialization itself produces. Operator-editable lifecycle on top of an MV is `withOverlayedView` — a separate primitive that ships alongside MV in v2 (see § Composition with operator-editable lifecycle). Arbitrary `mergePolicy` callbacks on top of overlay are deferred to v3 (see § Scope deferred).
 
 ## Type surface
 
@@ -453,7 +453,12 @@ Concrete behavior:
 | Consumer changes the literal `ctx` (e.g. `{ asOf: '2026-05-20' }` → `'2026-06-01'`) | changes | yes |
 | Consumer keeps `ctx` shape but reorders keys (`{ a, b }` vs `{ b, a }`) | unchanged | no (canonical serialization) |
 
-**Dynamic `ctx` is unsafe.** If the consumer writes `ctx: { asOf: new Date().toISOString() }` directly in the `query()` callback, the hash changes on every materialization → infinite-refresh loop. For time-dependent MVs the correct pattern is:
+**Dynamic `ctx` is incompatible with `eager` AND `lazy`.** If the consumer writes `ctx: { asOf: new Date().toISOString() }` directly in the `query()` callback, the hash changes on every materialization → infinite-refresh loop. The trap shape differs per refresh mode but the failure is the same:
+
+- `refresh: 'eager'` — every source write triggers re-materialization with a new `ctx` (new clock reading) → write storm
+- `refresh: 'lazy'` — every read after a source write re-evaluates `queryHash` against the new `ctx` → constant `queryHash` mismatch → re-materialize on every read → read-path storm
+
+For time-dependent MVs the correct pattern is:
 
 - `refresh: 'manual'` — the consumer decides when to refresh and supplies the new `ctx` at that point (e.g. a daily cron-style trigger in app code calls `vault.refreshView('overdue-aggregate')` with a freshly-materialized strategy whose `ctx.asOf` reflects "today")
 
@@ -615,7 +620,7 @@ Lazy-mode behavior matches v1: the lazy resolve-on-read path uses `_internalDele
 
 The MV-emitted rows are distinguished by carrying `_materializedFrom` inside `_data`. Consumers can detect "this is an MV row" by reading the metadata (e.g. for showing a "computed" badge in a UI), but the shape on read is identical to any other record.
 
-User collections that mix MV rows and user-edited rows are **not supported in v2** — that's the overlay use case explicitly deferred to v2.5. v2's contract is: an MV's output collection is owned by the MV. Manual writes through the public `Collection.put` are not refused (zero-knowledge writes can't be gated post-hoc) but are subject to overwrite on the next refresh and are documented as "do not mix."
+User collections that mix MV rows and user-edited rows are **not supported via `withMaterializedView` alone** — that's the overlay use case, addressed by the `withOverlayedView` primitive that ships alongside MV in v2 (see § Composition with operator-editable lifecycle). The MV's contract is: an MV's output collection is owned by the MV. Manual writes through the public `Collection.put` on the MV's output collection are not refused (zero-knowledge writes can't be gated post-hoc) but are subject to overwrite on the next refresh and are documented as "do not mix" — the canonical pattern for adding writable rows on top is `withOverlayedView`.
 
 ## Composition with operator-editable lifecycle (`withOverlayedView`)
 
@@ -672,7 +677,8 @@ The consumer-facing surface collapses to a single virtual collection — `vault.
 | `get(id)` | absent | absent | n/a | `null` |
 | `list()` / `.query()` | — | — | — | Union of ids in base ∪ overlay; per-id merge from the table above; predicate evaluated per row |
 | `live()` / `.subscribe()` | — | — | — | Merged change-stream from both base and overlay; emit re-merged row per source change |
-| `put(id, record)` | — | — | — | Routes to overlay collection; no effect on base. (Virtual `put` derives `id` via the base MV's `rowKey` if the consumer omits it — see below.) |
+| `put(record)` | — | — | — | Routes to overlay collection; `id` derived via the base MV's `rowKey(record)`; no effect on base |
+| `put(id, record)` | — | — | — | Validates that `id === rowKey(record)`; throws `OverlayIdMismatchError(id, expected)` if they diverge. Pass-through write when consistent. See § Virtual-collection writes below. |
 | `delete(id)` | ✓ | ✓ | — | Removes overlay row only; base row resurfaces on next read |
 | `delete(id)` | ✓ | absent | — | No-op (idempotent contract) |
 | `delete(id)` | absent | ✓ | — | Removes overlay row; next read returns `null` |
@@ -712,11 +718,31 @@ await vault.collection('pnd1').put({
 
 For consumers who do need to write to the overlay collection directly (e.g. bulk-imports outside the virtual layer), `vault.collection('pnd1').overlay.rowKey(row)` exposes the same function. Mismatched ids in `pnd1-overlay` still work as raw rows — they just won't shadow anything via the virtual collection.
 
+#### Explicit-id `put(id, record)` — validate, don't trust
+
+The standard `Collection<T>.put(id, record)` signature is preserved on the virtual collection for API compatibility, but its behavior is **validate-and-throw on mismatch** rather than pass-through. Calling `vault.collection('pnd1').put(id, record)` checks `id === rowKey(record)`:
+
+- **Match:** pass-through write to the overlay collection — equivalent to `put(record)`.
+- **Mismatch:** throws `OverlayIdMismatchError(id, rowKey(record))` synchronously before any write. The consumer's foot-gun (typoed separator, copy-pasted id from a different row, etc.) surfaces immediately rather than producing a silent orphaned-override row.
+
+Picked validate-throw over the alternatives ("use verbatim", "reject explicit-id form entirely") for two reasons:
+
+1. **Preserves the standard `Collection<T>.put(id, record)` signature** — code that's generic over collections doesn't need an overlay-specific code path.
+2. **Surfaces typos immediately** — silent orphans are exactly the foot-gun class the round-3 review pushed to eliminate; making the explicit-id form work silently when consistent and loudly when inconsistent is the same logic applied to write-time validation.
+
+Direct writes to the underlying overlay collection (`vault.collection('pnd1-overlay').put(arbitraryId, record)`) bypass this validation — the constraint is on the virtual collection, not on the raw overlay. Bulk-imports outside the virtual layer therefore retain full id control; the validation is for the consumer-facing virtual API only.
+
 ### Read-shadow only — explicit non-goals
 
 - **No arbitrary `mergePolicy` callback.** v2 ships the single-field-shadow primitive only. Field-level merges, priority lattices, history-aware reconciliation all stay v3 work.
 - **No automatic write-to-base.** The overlay primitive cannot create base rows or modify them; the base is owned by whatever upstream wrote it (typically an MV).
 - **No multi-overlay stacking.** A given virtual collection has exactly one base and one overlay. Multi-tier shadowing (overlay-A shadows base; overlay-B shadows the result of A) is v3.
+
+### Pre-registration validation (overlay)
+
+- `base` must reference a **concrete** collection — either a real source collection or an MV's output collection. A virtual overlay name is not permitted as `base` in v2 (multi-overlay stacking is a v3 non-goal listed above). Enforces the non-goal at vault init rather than letting it ship as a latent dependency-tracking gap: the shallow expansion in `QueryDependencyAnalyzer` would truncate at the inner overlay name, leaving downstream MVs that read the outer virtual collection silently stale on writes to the concrete sources further down the chain. Throws `OverlayBaseIsVirtualError(name, base)` at vault init.
+- `overlay` must reference a real, vault-known collection that is NOT itself an MV output (the overlay collection is user-writable; an MV-owned collection isn't). Throws `OverlayCollectionUnavailableError(name, overlay)` at vault init.
+- `name` (the virtual collection name) must not collide with any registered MV output collection or any concrete source collection. Throws `OverlayNameCollisionError(name)` at vault init.
 
 ### Cycle detection
 
@@ -770,7 +796,8 @@ If `base` is itself an MV output, the MV's source-collection edges already flow 
 - Admin amendment cascade — admin amendment edits source → MV re-materializes → tombstones a row → `amendment.invariant` sees the `{before, after: null}` change and can reject the amendment
 - **Declared predicates** — MV with `predicates: { isOverdue: { hash, fn } }` and `.wherePredicate('isOverdue', { asOf })` correctly filters; `queryHash` changes when `hash` bumps; refresh fires after a `hash` bump
 - **Overlay read-shadow** — `withOverlayedView({ name: 'pnd1', base: 'pnd1-aggregate', overlay: 'pnd1-overlay', shadowField: 'dataStatus', shadowValue: 'override' })`; before any overlay write, `vault.collection('pnd1').get(id)` returns base; after writing an overlay row with `dataStatus === 'override'`, get returns overlay; after writing a non-override overlay row, get falls back to base; `.list()` / `.query()` apply the merge per row
-- **Overlay write routing** — `vault.collection('pnd1').put(id, ...)` writes to `pnd1-overlay`, NOT to `pnd1-aggregate`; the MV is unaffected; the next MV refresh does not clobber the overlay
+- **Overlay write routing** — `vault.collection('pnd1').put(record)` (id derived from the base MV's `rowKey`) writes to `pnd1-overlay`, NOT to `pnd1-aggregate`; the MV is unaffected; the next MV refresh does not clobber the overlay
+- **Overlay explicit-id validation** — `vault.collection('pnd1').put(id, record)` with `id !== rowKey(record)` throws `OverlayIdMismatchError`; passing `id === rowKey(record)` writes normally (pass-through)
 - **Overlay delete = un-override** — `vault.collection('pnd1').delete(id)` removes the overlay row only; the base row resurfaces on the next read
 - **Overlay cycle detection** — `withOverlayedView` declared with `base === overlay` or with a cycle through a chained MV is refused at vault open
 
