@@ -158,12 +158,13 @@ export class Vault {
    */
   private derivationRegistry: DerivationRegistry | null = null
   /**
-   * Cached read-only facade handed to guard callbacks via `ctx.vault`.
-   * Allocated eagerly inside `_initGuards()` so the read accessor
-   * stays synchronous (callers in `tx/transaction.ts` rely on that).
-   * Stays `null` for vaults with no guards configured.
+   * Cached read-only facade handed to guard callbacks via `ctx.vault`,
+   * and to derivation callbacks via `derive(source, ctx)`. Allocated
+   * eagerly inside `_initGuards()` and/or `_initDerivations()` so read
+   * accessors stay synchronous (callers in `tx/transaction.ts` rely on
+   * that). Stays `null` for vaults with neither subsystem configured.
    */
-  private guardReadOnlyFacade: ReadOnlyVaultFacade | null = null
+  private readOnlyFacade: ReadOnlyVaultFacade | null = null
   private getDEK: (collectionName: string) => Promise<CryptoKey>
 
   /**
@@ -573,6 +574,7 @@ export class Vault {
                 registry: () => this.derivationRegistry as DerivationRegistry,
                 getCollection: (name: string) =>
                   this.collection(name) as unknown as Collection<Record<string, unknown>>,
+                getReadOnlyFacade: () => this._ensureReadOnlyFacade(),
                 getActiveTxContext: () => this.noydb._activeTxContextOrNull,
                 createTxContext: () => this.noydb._createTxContext(),
                 setActiveTxContext: (ctx) => this.noydb._setActiveTxContext(ctx),
@@ -1367,7 +1369,7 @@ export class Vault {
     const registry = new GuardRegistry()
     for (const h of handles) registry.register(h.spec)
     this.guardRegistry = registry
-    this.guardReadOnlyFacade = new ReadOnlyVaultFacade(this)
+    this.readOnlyFacade = new ReadOnlyVaultFacade(this)
   }
 
   /**
@@ -1391,13 +1393,22 @@ export class Vault {
    */
   async _initDerivations(handles: ReadonlyArray<DerivationStrategyHandle>): Promise<void> {
     if (handles.length === 0) return
-    const { DerivationRegistry } = await import('./derivations/registry.js')
+    const [{ DerivationRegistry }, { ReadOnlyVaultFacade }] = await Promise.all([
+      import('./derivations/registry.js'),
+      import('./guards/read-only-facade.js'),
+    ])
     const registry = new DerivationRegistry()
     for (const h of handles) {
       await registry.register(h.spec)
     }
     registry.validate()
     this.derivationRegistry = registry
+    // Share the facade with guards: if `_initGuards` ran first the slot
+    // is already populated. Otherwise allocate so `derive(source, ctx)`
+    // has a vault accessor without re-importing the class per call.
+    if (this.readOnlyFacade === null) {
+      this.readOnlyFacade = new ReadOnlyVaultFacade(this)
+    }
   }
 
   /**
@@ -1425,6 +1436,11 @@ export class Vault {
 
     const sourceColl = this.collection<Record<string, unknown>>(sourceCollection)
     const records = await sourceColl.list()
+    // `_initDerivations` populates `readOnlyFacade` — assert non-null
+    // for the closure-captured ctx. Falls back to a fresh facade on the
+    // sync-fallback path (Noydb.vault() without await) for the same
+    // defensive reason `_ensureReadOnlyFacade` exists.
+    const ctx = { vault: this.readOnlyFacade ?? new (await import('./guards/read-only-facade.js')).ReadOnlyVaultFacade(this) }
     let derived = 0
     let failed = 0
     for (const record of records) {
@@ -1433,13 +1449,22 @@ export class Vault {
       if (typeof id !== 'string') continue
       for (const { spec, strategyHash } of strategies) {
         const sourceWithId = { ...record, id }
-        const result = await DerivationExecutor.run(spec, sourceWithId, 0, strategyHash)
+        const result = await DerivationExecutor.run(spec, sourceWithId, 0, strategyHash, ctx)
         let anyFailed = false
         for (const key of Object.keys(spec.outputs)) {
           const out = result.outputs[key]
           if (!out || !out.ok) { anyFailed = true; continue }
           const outSpec = spec.outputs[key]
           if (!outSpec) continue
+          if (out.skipped === true) {
+            // #144: optional output skipped — delete any prior emission.
+            // No txCtx hookup needed: `deriveAll` runs outside the
+            // multi-record transaction window by design. Routed
+            // through `_internalDelete` so the bulk recompute does not
+            // trip user `onDelete` (#145) on the output collection.
+            await this.collection(outSpec.collection)._internalDelete(id)
+            continue
+          }
           await this.collection(outSpec.collection).put(id, out.value)
         }
         if (anyFailed) failed++
@@ -1459,7 +1484,7 @@ export class Vault {
    * require at least one guard, so the caller should never see null).
    */
   _getReadOnlyFacade(): ReadOnlyVaultFacade | null {
-    return this.guardReadOnlyFacade
+    return this.readOnlyFacade
   }
 
   /**
@@ -1471,7 +1496,7 @@ export class Vault {
    * path so the closure's contract stays "always returns a facade").
    */
   private _ensureReadOnlyFacade(): ReadOnlyVaultFacade {
-    if (this.guardReadOnlyFacade !== null) return this.guardReadOnlyFacade
+    if (this.readOnlyFacade !== null) return this.readOnlyFacade
     // Synchronous fall-back: dynamic import isn't available here,
     // but `_initGuards` always sets the facade before any
     // guard-hook can fire. Reaching this branch means a Vault was

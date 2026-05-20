@@ -9,6 +9,24 @@
 - **Showcase + recipe coverage.** A runnable end-to-end test for every `with*()` strategy and every storage destination so adopters pick a backend by reading working code.
 - **`by-*` session-share family.** `@noy-db/by-peer` (WebRTC, renamed from `@noy-db/p2p`) and `@noy-db/by-tabs` (BroadcastChannel multi-tab sync) shipped together with the family debut. Next: `@noy-db/by-server` (WebSocket / SSE relay) and `@noy-db/by-room` (Liveblocks / Yjs y-websocket).
 
+## In flight
+
+**`0.1.0-pre.14` — Dim 14 v2 (MV) + Guards/Derivations v1.5.** Bundled milestone for two related strands:
+
+- **Guards/Derivations v1.5** — fast-follow refinements to the pre.11 primitives driven by first-consumer use. Landing first to give MV a hardened `ReadOnlyVaultFacade` foundation:
+  - [#146](https://github.com/vLannaAi/noy-db/issues/146) `withGuard`: expose `.query()` on `ReadOnlyVaultFacade` for aggregating checks.
+  - [#147](https://github.com/vLannaAi/noy-db/issues/147) `withDerivation`: give `derive(source, ctx)` the same `ReadOnlyVaultFacade` guards have.
+  - [#145](https://github.com/vLannaAi/noy-db/issues/145) `withGuard.onDelete` — reject delete based on record state.
+  - [#144](https://github.com/vLannaAi/noy-db/issues/144) `withDerivation` optional outputs (`null` = skip emission).
+- **Dim 14 v2 — `withMaterializedView`** — collection-level query derivation (query → materialized collection). Extends `withDerivation` v1 (#129):
+  - [#142](https://github.com/vLannaAi/noy-db/issues/142) v2 design spec (blocking).
+  - [#143](https://github.com/vLannaAi/noy-db/issues/143) implementation epic.
+  - Deferred to v3: streaming MVs (Dim 12), MapReduce views, scheduled refresh (Dim 11 hooks), rendered/server-authoritative views.
+
+Execution order: v1.5 (#146 → #147 → #145 → #144) → spec (#142) → MV epic (#143).
+
+**`0.1.0-pre.13` — Real-provider showcase batch (Apple/Google/LINE).** Deferred (env-gated, parked 2026-05-20). Showcase coverage is a 1.0 gate, not a pre-release gate; the six issues stay open at `priority: low` to close opportunistically when real-provider creds are in hand: [#64](https://github.com/vLannaAi/noy-db/issues/64), [#65](https://github.com/vLannaAi/noy-db/issues/65), [#73](https://github.com/vLannaAi/noy-db/issues/73), [#74](https://github.com/vLannaAi/noy-db/issues/74), [#75](https://github.com/vLannaAi/noy-db/issues/75), [#76](https://github.com/vLannaAi/noy-db/issues/76).
+
 ## Recently shipped (and what's deferred)
 
 The following capabilities are now in main:
@@ -18,7 +36,7 @@ The following capabilities are now in main:
   - **Strict-mode derivation orphan** ([#133](https://github.com/vLannaAi/noy-db/issues/133)) — when a strict-mode derivation produced multiple outputs and a later strategy threw, the first M outputs were already written via `dispatchDerivations`'s nested `Collection.put` recursion and were invisible to the outer transaction's revert plan. `Noydb` now tracks the active `TxContext` (set by `runTransaction` at Phase 2, cleared in `finally`); `dispatchDerivations` registers each derived put as a side-effect op in `ctx._executed` before the write fires; `revertExecuted` walks them in reverse on rollback. Same treatment applied to `Collection.putManyAtomic`'s bespoke commit loop (caught in review). (PR [#139](https://github.com/vLannaAi/noy-db/pull/139))
   - **User-list visibility flags** ([#122](https://github.com/vLannaAi/noy-db/issues/122)) — per-user `hidden` flag at `_meta/visibility/<keyringId>` (sidecar plaintext bypass, mirrors `_meta/policy`) set via `vault.user.setMyVisibility({ hidden: true })` (own-only); vault-level `directory.enabled` at `_meta/directory` toggled via `Noydb.setDirectoryEnabled(vault, enabled)` (owner-only). `listUsersWithEnvelopes` filters hidden envelopes by default; admin/owner pass `{ includeHidden: true }`. New `DirectoryDisabledError`. **Breaking API surface change**: `listUsersWithEnvelopes` gained a required `callerRole: Role` parameter. Honest caveat documented: visibility is a UX flag, not a privacy guarantee — keyring count + envelope ciphertext remain observable to anyone with store-read access. Lifecycle: `revoke()` also deletes the visibility sidecar (commit `6f5543c`, caught in review). (PR [#140](https://github.com/vLannaAi/noy-db/pull/140))
   - **Closed without code** ([#132](https://github.com/vLannaAi/noy-db/issues/132)) — `withDerivation` pre-hashed register was superseded by #130: plugging the bundle regression dynamically imports `DerivationRegistry`, so the `Vault` constructor can no longer reference `new DerivationRegistry()` directly. Closed with rationale; revisit if anyone hits the `Noydb.vault()` sync fallback gap in practice.
-  - **Known follow-ups for pre.13** — remaining real-provider showcase batch (Apple / Google / LINE): [#64](https://github.com/vLannaAi/noy-db/issues/64), [#65](https://github.com/vLannaAi/noy-db/issues/65), [#73](https://github.com/vLannaAi/noy-db/issues/73), [#74](https://github.com/vLannaAi/noy-db/issues/74), [#75](https://github.com/vLannaAi/noy-db/issues/75), [#76](https://github.com/vLannaAi/noy-db/issues/76).
+  - **Follow-ups (see § In flight above)** — pre.13 deferred; pre.14 reframed as Dim 14 v2 + Guards/Derivations v1.5.
 - **Guards + Derivations subsystems (v0.1.0-pre.11).** Two new write-path primitives land in the same release, plus tier-2 auth showcase coverage.
   - **`withGuard`** ([#123](https://github.com/vLannaAi/noy-db/issues/123)) — record-level lock + field-level freeze + role-gated amendment invariant, dispatched inside `Collection.put` / `.delete`. Amendments write a dedicated `op: 'amendment'` ledger entry; `verifyBackupIntegrity` and `reconstructAtVersion` skip them when reconstructing the canonical record stream. Four error classes: `RecordLockedError` / `FieldFrozenError` / `InvariantError` / `AmendmentForbiddenError`. Cross-collection invariants get a `ReadOnlyVaultFacade` for sibling reads. New `@noy-db/hub/guards` subpath. (#123, #124, #125, #126, #127, #128)
   - **`withDerivation`** ([#129](https://github.com/vLannaAi/noy-db/issues/129)) — Dim 14 v1. Deterministic source → outputs with eager dispatch on `Collection.put` + lazy resolution on `Collection.get`. `computeStrategyHash` (SHA-256 over source + sorted outputs + derive.toString()) detects drift; `DerivationRegistry` runs DFS cycle detection at vault open. `vault.deriveAll(collection)` provides the bulk recompute primitive. Four error classes: `DerivationCycleError` / `DerivationDepthError` / `DerivationOutputUnknownError` / `DerivationOutputShapeError`. New `@noy-db/hub/derivations` subpath. (#129)

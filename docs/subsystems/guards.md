@@ -59,13 +59,71 @@ const db = await createNoydb({
 
 ## API
 
-Three primitives, one strategy:
+Four primitives, one strategy:
 
 | Primitive | When it fires | Throws |
 |---|---|---|
-| `check` | Every `put()` / `delete()` (skipped in amendment mode) | Anything; conventionally `RecordLockedError` |
+| `check` | Every `put()` (skipped in amendment mode) | Anything; conventionally `RecordLockedError` |
+| `onDelete` | Every `delete()` of an existing record (skipped in amendment mode); skipped for delete-of-absent | Anything; conventionally `RecordLockedError` |
 | `frozenFields` | Every `put()` after `when(existing)` becomes true | `FieldFrozenError` listing changed frozen fields |
 | `amendment` | Inside `withTransactions({ amendment: true, reason })` | `InvariantError` if the rule fails |
+
+`check` is put-only — `onDelete` is the dedicated delete-time hook. The
+argument shapes mirror each other but the semantics are explicit:
+`check(incoming, ctx)` validates a record being **written**;
+`onDelete(existing, ctx)` validates a record being **removed**.
+
+### `onDelete` bypass paths
+
+Two paths skip the `onDelete` callback. Both are by design:
+
+1. **Amendment transactions** (`db.transaction({ amendment: true })`)
+   for admin/owner — amendments are the generic unlock primitive,
+   consistent with how `frozenFields` lets staged writes through. The
+   `amendment.invariant` block (if declared) DOES still see the
+   `{ before, after: null }` change pair and can reject the delete at
+   commit time.
+2. **System-internal deletes** — derivation tombstones (#144) and MV
+   refresh deletes (Dim 14 v2) route through an internal-only delete
+   path. Housekeeping ops are not user-initiated and would otherwise
+   trip user invariants registered against output collections. **If
+   the internal delete fires while an amendment window is open**
+   (e.g. an admin amendment edits a source row → triggers a
+   derivation cascade → cascades a tombstone), the change pair IS
+   pushed onto the amendment's change-set and surfaces to
+   `amendment.invariant`. This keeps the "truly unconditional" paired
+   pattern below honest.
+
+### Truly unconditional delete-block — pair the two hooks
+
+`onDelete: () => { throw }` alone is NOT unconditional. An admin
+amendment can still bypass it. For legal-document immutability rules
+(e.g. Thai Revenue Code §86: receipts are append-only forever) pair
+`onDelete` with an `amendment.invariant` that re-throws on any
+delete-shaped change:
+
+```ts
+withGuard<Receipt>({
+  collection: 'receipts',
+  onDelete: () => {
+    throw new RecordLockedError('receipts', '', 'receipts are append-only')
+  },
+  amendment: {
+    roles: ['admin', 'owner'],
+    invariant: (changes) => {
+      for (const c of changes) {
+        if (c.before !== null && c.after === null) {
+          throw new RecordLockedError('receipts', '', 'amendment cannot delete')
+        }
+      }
+    },
+  },
+})
+```
+
+The thrown `RecordLockedError` inside `invariant` is wrapped in
+`InvariantError` by `GuardExecutor.runInvariant` (the message survives);
+the staged delete rolls back, the record stays.
 
 ### Amendment flow
 
@@ -158,6 +216,48 @@ Guard functions run **after DEK unwrap, on plaintext, inside the encrypted
 boundary**. The store sees only ciphertext envelopes. The
 `ReadOnlyVaultFacade` passed as `ctx.vault` decrypts on access — no
 plaintext leaks to the store.
+
+### `ReadOnlyVaultFacade` surface
+
+```ts
+ctx.vault.collection<T>(name).get(id)    // single record
+ctx.vault.collection<T>(name).list()     // every record (decrypts all)
+ctx.vault.collection<T>(name).query()    // chainable read-only builder
+```
+
+`query()` returns the same `Query<T>` builder used elsewhere in the
+library. Its terminals (`toArray`, `first`, `count`, `aggregate`,
+`groupBy`, `live`) are read-only — there is no `.update()` / `.delete()`
+on a `Query`. Prefer `.query().aggregate({ ... })` over `.list()` +
+manual reduce when enforcing Σ-style invariants: only the records the
+predicate touches get materialised, and the aggregate path is the same
+one used by the rest of the library.
+
+```ts
+// Σ-over-siblings invariant — payment-allocation sum must not exceed payment
+import { sum } from '@noy-db/hub'
+
+withGuard<Allocation>({
+  collection: 'allocations',
+  check: async (incoming, { vault, existing }) => {
+    const payment = await vault.collection<Payment>('payments').get(incoming.paymentId)
+    const { total } = await vault
+      .collection<Allocation>('allocations')
+      .query()
+      .where('paymentId', '==', incoming.paymentId)
+      .aggregate({ total: sum<Allocation>('appliedAmount') })
+      .run()
+    const otherTotal = total - (existing?.appliedAmount ?? 0)
+    if (otherTotal + incoming.appliedAmount > payment.amount) {
+      throw new InvariantError('allocations', incoming.id, '…')
+    }
+  },
+})
+```
+
+Aggregates require the `aggregateStrategy: withAggregate()` opt-in (the
+same opt-in everything else in the query DSL respects) — `query()`
+itself is always present on the facade.
 
 ### Audit-entry shape
 

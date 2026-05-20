@@ -1,4 +1,6 @@
 import type { Collection } from '../collection.js'
+import type { ReadOnlyVaultFacade } from '../guards/types.js'
+import type { TxContext } from '../tx/transaction.js'
 import type { DerivationRegistry } from './registry.js'
 // Type-only — runtime class loaded via dynamic import in
 // `resolveStaleOnRead` only when a stale flag actually fires. Keeps
@@ -17,6 +19,21 @@ export interface DerivationStaleAccessor {
   registry(): DerivationRegistry
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   getCollection(name: string): Collection<any>
+  /**
+   * Read-only vault facade handed to `derive(source, ctx)` on the lazy
+   * resolve-on-read path. Same instance/shape as the eager path uses
+   * (#147).
+   */
+  getReadOnlyFacade(): ReadOnlyVaultFacade
+  /**
+   * Active multi-record TxContext or `null`. The lazy resolve-on-read
+   * path uses this to register tombstone deletes on `_executed` so a
+   * later rollback restores the prior emission. Mirrors the eager
+   * path's #133-style tracking; the lazy `put` was historically
+   * unregistered but #144's tombstone delete (a NEW write path)
+   * matches the eager registration for symmetry.
+   */
+  getActiveTxContext(): TxContext | null
 }
 
 /**
@@ -106,7 +123,8 @@ export async function resolveStaleOnRead(
     if (DerivationExecutor === null) {
       ({ DerivationExecutor } = (await import('./executor.js')) as { DerivationExecutor: typeof DerivationExecutorType })
     }
-    const result = await DerivationExecutor.run(spec, sourceWithId, 0, strategyHash)
+    const ctx = { vault: accessor.getReadOnlyFacade() }
+    const result = await DerivationExecutor.run(spec, sourceWithId, 0, strategyHash, ctx)
     for (const key of Object.keys(spec.outputs)) {
       const out = result.outputs[key]
       if (!out) continue
@@ -125,6 +143,20 @@ export async function resolveStaleOnRead(
       const outSpec = spec.outputs[key]
       if (!outSpec) continue
       const outputColl = accessor.getCollection(outSpec.collection)
+      if (out.skipped === true) {
+        // #144: optional output skipped on lazy resolve — delete any
+        // prior emission so the read returns null (matches eager-path
+        // tombstone semantics). Routed through `_internalDelete` so a
+        // user-registered `onDelete` (#145) on the output collection
+        // does NOT fire. The active TxContext (if any) is forwarded:
+        // `resolveStaleOnRead` is reachable from `Collection.get()`
+        // which can be called from inside a transaction, so the
+        // tombstone must be observable to `revertExecuted` on
+        // rollback. Closes the #133-asymmetry surfaced in PR #148
+        // review.
+        await outputColl._internalDelete(id, accessor.getActiveTxContext())
+        continue
+      }
       await outputColl.put(id, out.value)
     }
     pending.delete(spec)

@@ -65,6 +65,28 @@ export class GuardRegistry {
     }
   }
 
+  /**
+   * Run every guard's `onDelete` for this collection. First throw wins —
+   * remaining guards are not invoked. Guards without an `onDelete` skip.
+   * Mirrors {@link runChecks} but for the delete path.
+   */
+  async runOnDelete<T>(
+    collection: string,
+    existing: T,
+    ctx: GuardContext<T>,
+  ): Promise<void> {
+    const guards = this._byCollection.get(collection)
+    if (!guards) return
+    for (const g of guards) {
+      if (g.onDelete) {
+        await g.onDelete(
+          existing as unknown as Record<string, unknown>,
+          ctx as unknown as GuardContext<Record<string, unknown>>,
+        )
+      }
+    }
+  }
+
   /** True if any guard for `collection` declares an `amendment` block. */
   hasAmendment(collection: string): boolean {
     const guards = this._byCollection.get(collection)

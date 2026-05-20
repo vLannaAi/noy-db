@@ -1,3 +1,17 @@
+import type { ReadOnlyVaultFacade } from '../guards/types.js'
+
+/**
+ * Runtime context handed to `derive(source, ctx)`. Mirrors `GuardContext`'s
+ * narrow shape: read-only vault access, no write capability, no
+ * transaction handle. Determinism is the consumer's responsibility — the
+ * strategy hash includes `derive.toString()`, so the source string fixes
+ * the function's inputs; whatever sibling reads `derive` performs must
+ * yield the same outputs for the same source.
+ */
+export interface DerivationContext {
+  vault: ReadOnlyVaultFacade
+}
+
 /**
  * Metadata that travels inside the `_data` payload of a derived record.
  * Lives in encrypted payload, not in the unencrypted envelope — the
@@ -24,6 +38,16 @@ export interface DerivedFromMeta {
 export interface OutputSpec {
   shape: 'record'
   collection: string
+  /**
+   * When `true`, the `derive` function may return `null` (or
+   * `undefined`) for this output key. The executor interprets that as
+   * "no output for this invocation": a previously-emitted output at
+   * the same id is deleted (mirroring the empty-group / empty-aggregate
+   * semantics flagged in #142); a never-emitted output is a silent
+   * no-op. When `false` (default), returning `null` throws
+   * `DerivationOutputShapeError` — same as v1.
+   */
+  optional?: boolean
 }
 
 /**
@@ -49,8 +73,13 @@ export interface DerivationStrategy<
    * Pure function from source to outputs. Runs on plaintext, after DEK
    * unwrap. Returns a map of named outputs. Each output is encrypted +
    * stored via the existing `Collection.put` pipeline.
+   *
+   * `ctx.vault` is the same `ReadOnlyVaultFacade` guards see — fetch
+   * sibling records via `ctx.vault.collection<T>(name).get(id)` /
+   * `.list()` / `.query()`. The vault accessor is read-only; there is
+   * no path to a writer from `ctx`.
    */
-  derive: (source: TSource) => Promise<TOutputs> | TOutputs
+  derive: (source: TSource, ctx: DerivationContext) => Promise<TOutputs> | TOutputs
   /**
    * `'eager'` runs `derive` synchronously inside the source-write
    * transaction. `'lazy'` marks outputs stale on source-change and

@@ -52,6 +52,95 @@ const db = await createNoydb({
 
 ## API
 
+### `derive(source, ctx)` and the read-only vault facade
+
+The `derive` function receives a second argument: a `DerivationContext`
+carrying the same `ReadOnlyVaultFacade` guards see as `ctx.vault`. Use it
+to fetch sibling records without denormalising them onto the source row.
+
+```ts
+withDerivation<Allocation, { receipt: Receipt }>({
+  source: 'allocations',
+  deterministic: true,
+  outputs: { receipt: { shape: 'record', collection: 'receipts' } },
+  derive: async (alloc, ctx) => {
+    const payment = await ctx.vault.collection<Payment>('payments').get(alloc.paymentId)
+    const bill = await ctx.vault.collection<Bill>('bills').get(alloc.billId)
+    return {
+      receipt: {
+        id: alloc.id,
+        paymentId: alloc.paymentId,
+        issuedAt: payment!.paymentDate,
+        clientId: bill!.clientId,
+        appliedAmount: alloc.appliedAmount,
+      },
+    }
+  },
+  lifecycle: 'eager',
+})
+```
+
+`ctx.vault` exposes `.get(id)`, `.list()`, and `.query()` — no write
+capability is reachable from the facade. The strategy hash incorporates
+`derive.toString()`, so the function source pins the inputs; whatever
+sibling reads happen inside `derive` must be deterministic given the
+same source record (the consumer's responsibility — the hash does not
+fingerprint sibling-record content).
+
+Available on both lifecycles: the eager dispatch and the lazy
+resolve-on-read paths both pass the same facade.
+
+### Optional outputs (#144)
+
+Declare an output as `optional: true` to let `derive` return `null` for
+that key:
+
+```ts
+outputs: {
+  receipt: { shape: 'record', collection: 'receipts', optional: true },
+},
+derive: (alloc) => ({
+  receipt: alloc.servicesNetPortion > 0
+    ? { id: alloc.id, paymentId: alloc.paymentId, appliedAmount: alloc.appliedAmount }
+    : null,
+})
+```
+
+Semantics:
+
+- `null` (or `undefined`) for an optional output → no write fires.
+- If a previous derivation emitted an output at this id, it's **deleted**
+  (tombstone for derived data). The eager path captures the prior
+  envelope on the active TxContext so the delete rolls back alongside
+  the source op on transaction failure (#133).
+- A never-emitted optional output is a silent no-op.
+- Returning `null` for a required output (default — no `optional` flag)
+  still throws `DerivationOutputShapeError`.
+
+Same behavior on eager and lazy lifecycles, and through `vault.deriveAll()`.
+
+#### Tombstone-vs-onDelete composition
+
+A tombstone is a **system-internal** delete: the derivation engine
+revoking its own prior emission because the source flipped to the
+"no output" branch. User `onDelete` guards registered on the output
+collection are **not** consulted on tombstones — same way amendments
+bypass user-facing hooks. If they fired, a consumer registering both
+(a) an `optional: true` derivation and (b) an `onDelete: () => throw`
+on the output collection would deadlock: every flip-to-null source
+write would block on the user's own append-only rule.
+
+Concretely: if you ship a `paymentAllocation → receipt` derivation with
+`optional: true`, AND `receipts.onDelete: throw` for legal-document
+immutability, **the tombstone bypass keeps both coherent**. Users can
+no longer manually delete a receipt (good), and the system can still
+revoke its own prior emission when the underlying allocation
+restructures (also good).
+
+The bypass is scoped to the system-internal delete path
+(`Collection._internalDelete`); a user-initiated `Collection.delete`
+on the same record still fires `onDelete` normally.
+
 ### Lifecycles
 
 - **`eager`** — derive runs synchronously inside the source-write transaction.
