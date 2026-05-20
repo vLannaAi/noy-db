@@ -215,6 +215,7 @@ export class Query<T> {
       { ...this.plan, clauses: [...this.plan.clauses, clause] },
       this.joinContext,
       this.aggregateStrategy,
+      this.predicates,
     )
   }
 
@@ -225,7 +226,7 @@ export class Query<T> {
    */
   or(builder: (q: Query<T>) => Query<T>): Query<T> {
     const sub = builder(
-      new Query<T>(this.source as QuerySource<T>, EMPTY_PLAN, this.joinContext, this.aggregateStrategy),
+      new Query<T>(this.source as QuerySource<T>, EMPTY_PLAN, this.joinContext, this.aggregateStrategy, this.predicates),
     )
     const group: GroupClause = {
       type: 'group',
@@ -237,6 +238,7 @@ export class Query<T> {
       { ...this.plan, clauses: [...this.plan.clauses, group] },
       this.joinContext,
       this.aggregateStrategy,
+      this.predicates,
     )
   }
 
@@ -246,7 +248,7 @@ export class Query<T> {
    */
   and(builder: (q: Query<T>) => Query<T>): Query<T> {
     const sub = builder(
-      new Query<T>(this.source as QuerySource<T>, EMPTY_PLAN, this.joinContext, this.aggregateStrategy),
+      new Query<T>(this.source as QuerySource<T>, EMPTY_PLAN, this.joinContext, this.aggregateStrategy, this.predicates),
     )
     const group: GroupClause = {
       type: 'group',
@@ -258,6 +260,7 @@ export class Query<T> {
       { ...this.plan, clauses: [...this.plan.clauses, group] },
       this.joinContext,
       this.aggregateStrategy,
+      this.predicates,
     )
   }
 
@@ -272,6 +275,7 @@ export class Query<T> {
       { ...this.plan, clauses: [...this.plan.clauses, clause] },
       this.joinContext,
       this.aggregateStrategy,
+      this.predicates,
     )
   }
 
@@ -282,6 +286,7 @@ export class Query<T> {
       { ...this.plan, orderBy: [...this.plan.orderBy, { field, direction }] },
       this.joinContext,
       this.aggregateStrategy,
+      this.predicates,
     )
   }
 
@@ -292,6 +297,7 @@ export class Query<T> {
       { ...this.plan, limit: n },
       this.joinContext,
       this.aggregateStrategy,
+      this.predicates,
     )
   }
 
@@ -302,6 +308,7 @@ export class Query<T> {
       { ...this.plan, offset: n },
       this.joinContext,
       this.aggregateStrategy,
+      this.predicates,
     )
   }
 
@@ -413,6 +420,7 @@ export class Query<T> {
       { ...this.plan, joins: [...this.plan.joins, leg] },
       this.joinContext,
       this.aggregateStrategy,
+      this.predicates,
     )
   }
 
@@ -943,6 +951,24 @@ function serializePlan(plan: QueryPlan): unknown {
 function serializeClause(clause: Clause): unknown {
   if (clause.type === 'filter') {
     return { type: 'filter', fn: '[function]' }
+  }
+  if (clause.type === 'wherePredicate') {
+    // Strip the live `fn` reference (non-serializable) but keep the
+    // identity-carrying fields so distinct predicates still serialize
+    // distinctly. `predicateHash` + `ctxHash` are the hash identity;
+    // `name` is the named predicate reference. This matters because
+    // niwat-review of #159 caught that the previous fall-through
+    // (return clause) exposed the live fn and produced identical
+    // serializations for distinct predicates with different ctx
+    // values.
+    return {
+      type: 'wherePredicate',
+      name: clause.name,
+      ctx: clause.ctx,
+      predicateHash: clause.predicateHash,
+      ctxHash: clause.ctxHash,
+      fn: '[function]',
+    }
   }
   if (clause.type === 'group') {
     return {

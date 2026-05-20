@@ -192,4 +192,53 @@ describe('MV declaredDeterministicPredicates (#153)', () => {
       await db.openVault('demo')
     })()).rejects.toThrow(/not registered/i)
   })
+
+  it('predicates thread through chain methods (where/orderBy/limit/etc) (niwat-review of #159)', async () => {
+    // The original implementation only threaded `predicates` through
+    // `_withPredicates()` and `.wherePredicate()` itself — every other
+    // chain method (where, or, and, filter, orderBy, limit, offset,
+    // join) dropped the predicates map by constructing the new Query
+    // with only 4 args. Composition like .where().wherePredicate()
+    // would throw "no predicates registered". Fix passes `predicates`
+    // to every chain construction.
+    const mv = withMaterializedView<Invoice>({
+      name: 'overdue-chained',
+      predicates: {
+        isOverdue: {
+          hash: 'h1',
+          fn: (inv: Invoice, ctx?: unknown) => {
+            const { asOf } = ctx as { asOf: string }
+            return inv.status === 'open' && inv.dueDate < asOf
+          },
+        },
+      },
+      // Chain: where → wherePredicate → orderBy → limit
+      // Predicates must survive through each step.
+      query: (db) => db
+        .collection<Invoice>('inv')
+        .query()
+        .where('amount', '>', 50)
+        .wherePredicate('isOverdue', { asOf: '2026-05-20' })
+        .orderBy('amount', 'desc')
+        .limit(10),
+      rowKey: (r) => r.id,
+      refresh: 'eager',
+    })
+    const db = await createNoydb({
+      store: memory(),
+      user: 'alice',
+      secret: 'mv-predicates-chained-passphrase-2026',
+      materializedViewStrategies: [mv],
+    })
+    const vault = await db.openVault('demo')
+    // 'a' matches both (amount=100, overdue); 'b' fails amount filter;
+    // 'c' fails overdue filter (paid).
+    await vault.collection<Invoice>('inv').put('a', { id: 'a', status: 'open', amount: 100, dueDate: '2026-05-01' })
+    await vault.collection<Invoice>('inv').put('b', { id: 'b', status: 'open', amount: 25, dueDate: '2026-05-01' })
+    await vault.collection<Invoice>('inv').put('c', { id: 'c', status: 'paid', amount: 200, dueDate: '2026-05-01' })
+
+    expect(await vault.collection<Invoice>('overdue-chained').get('a')).not.toBeNull()
+    expect(await vault.collection<Invoice>('overdue-chained').get('b')).toBeNull()
+    expect(await vault.collection<Invoice>('overdue-chained').get('c')).toBeNull()
+  })
 })
