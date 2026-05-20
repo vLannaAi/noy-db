@@ -48,6 +48,8 @@ import { revertExecuted } from './tx/transaction.js'
 // derivation executor chunk out of the floor bundle (#130).
 import type { DerivationExecutor as DerivationExecutorType } from './derivations/executor.js'
 import { markStale, resolveStaleOnRead } from './derivations/stale.js'
+import type { MaterializedViewRegistry } from './materialized-views/registry.js'
+import type { MVQueryContext } from './materialized-views/types.js'
 
 /** Callback for dirty tracking (sync engine integration). */
 export type OnDirtyCallback = (collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>
@@ -408,6 +410,23 @@ export class Collection<T> {
     | undefined
 
   /**
+   * Vault-internal hook for materialized-view dispatch (#143/#150).
+   * Parallel to `derivationSource` — when set, `Collection.put` fires
+   * `MaterializedViewRegistry.onSourceWrite` after the source-write
+   * commits + after `dispatchDerivations` has run.
+   */
+  private readonly materializedViewSource:
+    | {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        registry(): MaterializedViewRegistry
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        getCollection(name: string): Collection<any>
+        getActiveTxContext(): TxContext | null
+        getQueryContext(): MVQueryContext
+      }
+    | undefined
+
+  /**
    * Optional back-reference to the owning compartment's ref
    * enforcer. When present, `Collection.put` calls
    * `refEnforcer.enforceRefsOnPut(name, record)` before the adapter
@@ -731,6 +750,20 @@ export class Collection<T> {
       /** Drop a previously-published TxContext. */
       clearActiveTxContext(ctx: TxContext): void
     } | undefined
+    /**
+     * Vault-internal hook for materialized-view dispatch (#143/#150).
+     * Parallel to `derivationSource`. When set, `Collection.put` fires
+     * registered MV `onSourceWrite` after the standard derivation
+     * dispatch.
+     */
+    materializedViewSource?: {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      registry(): MaterializedViewRegistry
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      getCollection(name: string): Collection<any>
+      getActiveTxContext(): TxContext | null
+      getQueryContext(): MVQueryContext
+    } | undefined
   }) {
     this.adapter = opts.adapter
     this.vault = opts.vault
@@ -764,6 +797,7 @@ export class Collection<T> {
     this.periodGuard = opts.periodGuard
     this.guardSource = opts.guardSource
     this.derivationSource = opts.derivationSource
+    this.materializedViewSource = opts.materializedViewSource
 
     // hierarchical-tier wiring
     this.tiers = opts.tiers && opts.tiers.length > 0 ? new Set(opts.tiers) : null
@@ -1235,6 +1269,7 @@ export class Collection<T> {
       this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action: 'put' } satisfies ChangeEvent)
       await this.onAccess?.('put', id)
       await this.dispatchDerivations(id, record, version)
+      await this.dispatchMaterializedViews(id, record)
       return
     }
     // ─── End CRDT mode ──────────────────────────────────────────────────
@@ -1350,6 +1385,44 @@ export class Collection<T> {
     // (encrypt + ledger + emit) intentionally; cycle detection at vault
     // open is the primary defense against infinite recursion.
     await this.dispatchDerivations(id, record, version)
+    await this.dispatchMaterializedViews(id, record)
+  }
+
+  /**
+   * Fire registered MV strategies whose dependency set includes this
+   * collection. Eager-mode MVs re-materialize inline via
+   * `MaterializedViewExecutor.refresh`; lazy / manual modes are
+   * no-ops in the foundation (subtask #150) — wired in #151.
+   *
+   * Skips entirely when the record being written is itself an
+   * MV-emitted row (carries `_materializedFrom`) — defensive guard
+   * against missed cycle detection.
+   *
+   * @internal
+   */
+  private async dispatchMaterializedViews(id: string, record: T): Promise<void> {
+    void id
+    if (this.materializedViewSource === undefined) return
+    const incoming = record as unknown as Record<string, unknown>
+    if (incoming && typeof incoming === 'object' && '_materializedFrom' in incoming) return
+    const registry = this.materializedViewSource.registry()
+    const mvs = registry.mvsForSource(this.name)
+    if (mvs.length === 0) return
+    // Dynamic-import the executor only on first eager-MV dispatch —
+    // keeps the MV executor chunk out of the floor bundle (mirrors the
+    // #130 dynamic-import pattern v1 uses for derivations).
+    const { MaterializedViewExecutor } = await import('./materialized-views/executor.js')
+    for (const reg of mvs) {
+      const mode = reg.spec.refresh
+      if (mode === 'eager') {
+        await MaterializedViewExecutor.refresh(reg, {
+          getCollection: (name) => this.materializedViewSource!.getCollection(name),
+          getActiveTxContext: () => this.materializedViewSource!.getActiveTxContext(),
+          getQueryContext: () => this.materializedViewSource!.getQueryContext(),
+        })
+      }
+      // lazy/manual: deferred to subtask #151
+    }
   }
 
   /**

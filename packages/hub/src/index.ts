@@ -503,6 +503,19 @@ export {
   DerivationOutputShapeError,
 } from './errors.js'
 
+// Materialized views (Dim 14 v2) — see docs/superpowers/specs/2026-05-20-dim14-mv-v2-design.md
+export { withMaterializedView } from './materialized-views/index.js'
+export type {
+  MaterializedViewStrategy,
+  MaterializedViewStrategyHandle,
+  MaterializedViewOutput,
+  MaterializedFromMeta,
+} from './materialized-views/index.js'
+export {
+  MaterializedViewCycleError,
+  MaterializedViewSourceUnknownError,
+} from './errors.js'
+
 // Accounting periods
 export { PERIODS_COLLECTION } from './periods/index.js'
 export type {

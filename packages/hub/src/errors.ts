@@ -1436,3 +1436,44 @@ export class DerivationOutputShapeError extends NoydbError {
     this.outputKey = outputKey
   }
 }
+
+/**
+ * Thrown at vault open if the materialized-view graph contains a
+ * cycle. `path` is the offending chain (e.g. `['a-mv', 'b-mv', 'a-mv']`).
+ * Detected by the same shared DFS that catches `DerivationCycleError`;
+ * surfaces with a distinct error type so consumers can disambiguate.
+ */
+export class MaterializedViewCycleError extends NoydbError {
+  readonly path: readonly string[]
+
+  constructor(path: readonly string[]) {
+    super(
+      'MATERIALIZED_VIEW_CYCLE',
+      `Materialized-view graph contains a cycle: ${path.join(' → ')}. ` +
+        `Refusing to open vault — break the cycle before retrying.`,
+    )
+    this.name = 'MaterializedViewCycleError'
+    this.path = path
+  }
+}
+
+/**
+ * Thrown at MV registration if the query references a source
+ * collection that isn't declared on the vault. Surfacing this early
+ * catches typos in collection names.
+ */
+export class MaterializedViewSourceUnknownError extends NoydbError {
+  readonly mvName: string
+  readonly collection: string
+
+  constructor(mvName: string, collection: string) {
+    super(
+      'MATERIALIZED_VIEW_SOURCE_UNKNOWN',
+      `Materialized view "${mvName}" references unknown source collection "${collection}". ` +
+        `Declare the collection (e.g. via schema or by writing to it once) before registering the MV.`,
+    )
+    this.name = 'MaterializedViewSourceUnknownError'
+    this.mvName = mvName
+    this.collection = collection
+  }
+}

@@ -115,6 +115,24 @@ export class Query<T> {
     this.aggregateStrategy = aggregateStrategy
   }
 
+  /**
+   * @internal — accessor for the materialized-view dependency
+   * analyzer. Not part of the public API; consumers should use the
+   * builder methods, not inspect the plan directly.
+   */
+  _plan(): QueryPlan {
+    return this.plan
+  }
+
+  /**
+   * @internal — accessor for the materialized-view dependency
+   * analyzer. Returns the join resolution context (or `undefined` for
+   * queries constructed without a Collection backing).
+   */
+  _joinContext(): JoinContext | undefined {
+    return this.joinContext
+  }
+
   /** Add a field comparison. Multiple where() calls are AND-combined. */
   where(field: string, op: Operator, value: unknown): Query<T> {
     const clause: FieldClause = { type: 'field', field, op, value }

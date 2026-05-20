@@ -196,6 +196,16 @@
         "default": "./dist/derivations/index.cjs"
       }
     },
+    "./materialized-views": {
+      "import": {
+        "types": "./dist/materialized-views/index.d.ts",
+        "default": "./dist/materialized-views/index.js"
+      },
+      "require": {
+        "types": "./dist/materialized-views/index.d.cts",
+        "default": "./dist/materialized-views/index.cjs"
+      }
+    },
     "./sync": {
       "import": {
         "types": "./dist/sync/index.d.ts",

@@ -406,6 +406,7 @@ export class Noydb {
     // out of the floor bundle for consumers that don't use it (#130).
     await comp._initGuards(this.options.guardStrategies ?? [])
     await comp._initDerivations(this.options.derivationStrategies ?? [])
+    await comp._initMaterializedViews(this.options.materializedViewStrategies ?? [])
     this.vaultCache.set(name, comp)
     return comp
   }
