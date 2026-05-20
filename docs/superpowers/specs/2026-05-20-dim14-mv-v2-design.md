@@ -35,13 +35,16 @@ Ship a `withMaterializedView` strategy in `@noy-db/hub` that lets a vault declar
 | `_materializedFrom` envelope metadata (query fingerprint + queryHash + version + ts) | ✓ | Extends `_derivedFrom`; lives in encrypted payload |
 | `MaterializedViewTooLargeError` row ceiling at 100k by default | ✓ | Mirrors `JoinTooLargeError`; overridable via `{ maxRows }` |
 | Same-collection-as-source MV with `outputPartition` discriminator | ✓ | Resolves cycle detector for niwat's `DERIV-PP30-001` shape |
-| Showcase + recipe + subsystem doc + `features.yaml` entry | ✓ | One showcase per refresh mode |
+| `declaredDeterministicPredicates` on MV strategy | ✓ | Pulled forward from v2.x (niwat-review of #149). Function-based filtering with a consumer-stable `predicateHash` folded into `queryHash`. Closes the general function-predicate gap; SSO-specific cross-product is still v3. |
+| `withOverlayedView` (read-shadow variant) | ✓ | Pulled forward from v2.5 (niwat-review of #149). Narrow primitive — single shadow predicate (`shadowField` + `shadowValue`), no arbitrary merge logic. Collapses W3-A/B/C-style consumer imperative shells into one declarative block per rule. |
+| Showcase + recipe + subsystem doc + `features.yaml` entry | ✓ | One showcase per refresh mode + one for overlay + one for predicates |
 
 ## v2 SCOPE — what's deferred
 
 | Feature | Deferred to | Why |
 |---|---|---|
-| `withOverlayedView({ base: mvName, overlayCollection, mergePolicy })` | v2.5 | Operator-editable lifecycle composition (niwat PND.1 use case). Separate primitive — MV stays pure read-only projection; overlay is the merge layer on top. Designing the merge contract is a non-trivial spec on its own. |
+| `withOverlayedView` with arbitrary `mergePolicy` callback | v3 | The read-shadow variant lands in v2 (see "in" table above). Arbitrary user-supplied merge functions — priority lattices, field-level merge, history-aware reconciliation — still need a dedicated spec and stay deferred. |
+| MV cross-join (`periods × workers` style cartesian semantics) | v3 | DERIV-SSO-001's full structural path needs cross-product semantics in the query DSL — separate primitive, not query-DSL-extension territory. The v2 path for SSO is a consumer-maintained `(workerId, period)` junction collection + MV aggregate (see § DERIV-SSO-001 v2 path). |
 | Scheduled refresh (`{ every: '1h' }`) | v3 | No general cron/scheduler primitive in `@noy-db/hub`; pairs with Dim 11 hooks/triggers |
 | Streaming MVs (incremental over Dim 12 streams) | v3 | Pairs with Dim 12 stream primitive's own v1 |
 | MapReduce views (`map` + optional `reduce`, CouchDB lineage) | v3 | Different shape; separate spec |
@@ -99,9 +102,13 @@ Ship a `withMaterializedView` strategy in `@noy-db/hub` that lets a vault declar
 | `_materializedFrom` envelope ext | `packages/hub/src/envelope.ts` (modify) | New optional metadata field inside `_data` |
 | `vault.refreshView(name)` method | `packages/hub/src/vault.ts` (modify) | Bulk re-materialize entrypoint |
 | `MaterializedViewTooLargeError` | `packages/hub/src/errors.ts` (modify) | Thrown when materialization exceeds `maxRows` |
-| Showcases | `showcases/src/81-with-mv-eager.showcase.test.ts`, `82-with-mv-lazy.showcase.test.ts` | One per refresh mode |
-| Subsystem doc | `docs/subsystems/derivations.md` (extend) | New § Materialized Views section |
-| `features.yaml` entry | `features.yaml` (modify) | New `materialized-views` row under the derivation cluster |
+| `withOverlayedView()` factory | `packages/hub/src/overlay-views/with-overlayed-view.ts` | API surface for the read-shadow overlay primitive |
+| `OverlayedViewRegistry` | `packages/hub/src/overlay-views/registry.ts` | Name→{base, overlay, shadow} mapping; shared cycle detection |
+| `OverlayedCollection` proxy | `packages/hub/src/overlay-views/virtual-collection.ts` | `Collection<T>`-shaped merge-on-read + write-to-overlay routing |
+| `QueryBuilder.wherePredicate(name, ctx?)` | `packages/hub/src/query/builder.ts` (modify) | Declared-predicate terminal added to the chainable builder |
+| Showcases | `showcases/src/81-with-mv-eager.showcase.test.ts`, `82-with-mv-lazy.showcase.test.ts`, `83-with-overlay.showcase.test.ts`, `84-with-mv-predicates.showcase.test.ts` | One per refresh mode + overlay + predicates |
+| Subsystem doc | `docs/subsystems/derivations.md` (extend) | New § Materialized Views + § Overlay views sections |
+| `features.yaml` entry | `features.yaml` (modify) | New `materialized-views` + `overlay-views` rows under the derivation cluster |
 
 ### Modified components
 
@@ -207,12 +214,91 @@ interface MaterializedViewStrategy<TRow> {
    * when the domain warrants it.
    */
   maxRows?: number
+  /**
+   * Declared deterministic predicates that the query may invoke via
+   * `.wherePredicate(name, ctx?)`. Function bodies have no stable
+   * canonical serialization, so the consumer supplies a stable
+   * `hash` per predicate — included in `queryHash` so a change to
+   * the function's semantics forces a refresh on next visit (mirrors
+   * v1's `strategyHash` mechanism for `derive`).
+   *
+   * Use when a `.where(field, op, value)` clause is too narrow:
+   * boolean predicates over array fields, date-range membership,
+   * cross-field invariants. The predicate fn receives the source row
+   * + an optional `ctx` argument the query call site supplies.
+   *
+   * Consumer responsibility: bump `hash` whenever the function's
+   * semantics change. Stale hashes do not corrupt; they just trigger
+   * a re-materialization that may not actually be needed.
+   */
+  predicates?: {
+    [name: string]: {
+      hash: string
+      fn: (row: unknown, ctx?: unknown) => boolean
+    }
+  }
 }
 
 // Returned by withMaterializedView()
 interface MaterializedViewStrategyHandle {
   __noydb_strategy: 'materialized-view'
   spec: MaterializedViewStrategy<unknown>
+}
+
+// New: overlay primitive — read-shadow merge of two collections
+interface OverlayedViewStrategy {
+  /**
+   * Virtual collection name. `vault.collection(name)` returns a view
+   * that merges `base` and `overlay` per the shadow rule. Reads union
+   * by id; writes route to `overlay` only (the `base` is owned by an
+   * MV or another upstream).
+   */
+  name: string
+  /**
+   * The collection providing the default rows. Typically an MV's
+   * output collection. The overlay primitive does NOT modify `base`
+   * — it only shadows on read.
+   */
+  base: string
+  /**
+   * User-writable collection that carries overrides. Independent
+   * write path; supports the standard `Collection` API including
+   * `withGuard` / `withDerivation` registration.
+   */
+  overlay: string
+  /**
+   * Single-field shadow predicate. When `overlay[shadowField] ===
+   * shadowValue` for a given id, reads of that id return the overlay
+   * row; otherwise reads return the base row. Designed to support
+   * "the operator can flip a row to 'override' mode and from then on
+   * their hand-edited values win." Niwat's `dataStatus === 'override'`
+   * is the canonical example.
+   *
+   * No callback merge, no priority lattice, no field-level merge —
+   * v2 stays explicitly narrow. Arbitrary merge policies are v3.
+   */
+  shadowField: string
+  shadowValue: unknown
+}
+
+interface OverlayedViewStrategyHandle {
+  __noydb_strategy: 'overlayed-view'
+  spec: OverlayedViewStrategy
+}
+
+// Query DSL extension (added to QueryBuilder for MV consumers)
+interface QueryBuilder<T> {
+  /**
+   * Invoke a declared predicate by name. The predicate must be
+   * registered on the calling MV's `predicates` map; `queryHash`
+   * folds the predicate's stable `hash` so a function-body change
+   * (via `hash` bump) is detected at refresh time.
+   *
+   * `ctx` is opaque to the query DSL — passed verbatim to the
+   * predicate fn. Useful for threading config values into the
+   * predicate (date ranges, feature flags, etc.).
+   */
+  wherePredicate(name: string, ctx?: unknown): QueryBuilder<T>
 }
 
 // Vault method (added)
@@ -290,22 +376,54 @@ The set is materialized at MV registration time. `MaterializedViewRegistry.onSou
 - The MV output collection must not overlap with the source set, UNLESS `output.partition` is declared AND the input query has a `.where(partition.field, '!=', partition.value)` clause (or equivalent — see § Cycle detection below).
 - The query plan must be deterministic — no `.subscribe()` / `.live()` terminals embedded (these would create a re-entrant cycle).
 
-### Function-based source-row predicates are not supported in v2
+### Function-based source-row predicates (`declaredDeterministicPredicates`)
 
-The MV `query()` builder accepts the standard `.where(field, op, value)` terminals + `.join` / `.groupBy` / `.aggregate`. Function-based predicates (e.g. niwat's `DERIV-SSO-001` "active employees during the period" rule, where the active-ness check is a function over an `employmentPeriods` array on the worker record) are **not supported** in v2. Reason: `queryHash` determinism requires a stable canonical serialization of the query plan; function bodies don't have one.
-
-**Workaround pattern (canonical for v2):** pre-derive the predicate result via a v1 `withDerivation`, then MV-aggregate over the pre-derived collection. For DERIV-SSO-001:
+The MV `query()` builder accepts the standard `.where(field, op, value)` terminals + `.join` / `.groupBy` / `.aggregate`. For cases where these aren't expressive enough — boolean predicates over array fields, date-range membership, cross-field invariants — v2 adds `declaredDeterministicPredicates`:
 
 ```ts
-// v1 derivation: per (worker, period) row with active-ness pre-computed
-withDerivation<Worker, { activeInPeriod: { id: string; workerId: string; period: string; active: boolean } }>({
-  source: 'workers',
-  outputs: { activeInPeriod: { shape: 'record', collection: 'worker-period-active' } },
-  derive: (w, ctx) => ({ /* per-period explosion using w.employmentPeriods */ }),
-  lifecycle: 'eager',
+withMaterializedView({
+  name: 'overdue-aggregate',
+  predicates: {
+    isOverdue: {
+      hash: 'is-overdue-v1',
+      fn: (inv: Invoice, ctx: { asOf: string }) =>
+        inv.status === 'open' && inv.dueDate < ctx.asOf,
+    },
+  },
+  query: () => invoices.query()
+    .wherePredicate('isOverdue', { asOf: '2026-05-20' })
+    .groupBy('clientId')
+    .aggregate({ outstanding: sum('amount') }),
+  rowKey: (r) => r.clientId,
+  refresh: 'eager',
 })
+```
 
-// v2 MV: aggregates over the pre-derived collection — pure where-clause query
+The function body's lack of canonical serialization is handled by the consumer-supplied `hash` field — folded into `queryHash` so a function change (signalled by a `hash` bump) forces a refresh on next visit. Same drift-detection pattern v1 `withDerivation` uses for `derive.toString()`.
+
+**Consumer responsibility:** bump `hash` whenever the predicate's semantics change. Failing to bump is not unsafe (the old hash matches the old MV rows; new rows just use the new function); failing to bump after a *non-equivalent* function change leaves stale rows around until the next refresh.
+
+#### DERIV-SSO-001 v2 path
+
+DERIV-SSO-001 from the niwat enforcement plan reads workers filtered to "active during the period" and counts per period. This needs **cross-product** semantics (periods × workers), which v2's query DSL does NOT add — predicate filtering operates on a single row at a time, and v2 has no cartesian join (deferred to v3).
+
+The honest v2 path for SSO is a **consumer-maintained junction collection** combined with a predicate filter. The junction is small enough (~niwat scale: 12 periods × 30 workers = 360 max rows) to maintain from app code without losing too much:
+
+```ts
+// niwat-app: junction collection. Rebuilt when a Worker's
+// employmentPeriods edit fires. ~30 LoC in a Vue composable.
+type WorkerPeriodActive = {
+  id: string            // `${workerId}|${period}`
+  workerId: string
+  period: string
+  active: boolean       // computed at write time from worker.employmentPeriods
+}
+
+// v2 MV: aggregates the junction by period. Predicate not strictly
+// needed here — `where('active', '==', true)` would do — but if
+// the consumer wants to derive `active` from the row instead of
+// storing it, the predicate primitive enables that without a junction
+// rewrite.
 withMaterializedView({
   name: 'sso-aggregate',
   query: () => workerPeriodActive.query()
@@ -317,7 +435,9 @@ withMaterializedView({
 })
 ```
 
-The composition is intentional — v1 owns "compute a deterministic field per source row," v2 owns "aggregate/project over rows by declared predicate." A future v2.x may add `declaredDeterministicPredicates: { activeInPeriod: fn }` with a registered `predicateHash` so the function can live inside the MV query directly, but v2 keeps the surface narrow.
+Cost vs the v3 cross-join path: ~30 LoC of junction-maintenance code in the consumer, repeated for each per-period rule. Smaller than the imperative shell `withOverlayedView` replaces; structural enforcement still holds *within* the predicate (the consumer can't accidentally count an inactive worker) but the junction maintenance itself is application-owned.
+
+A future v3 cross-join primitive (`workers.query().crossJoin('periods', { as: 'p' }).wherePredicate('activeInPeriod', { period: '$row.p.id' })`) closes the remaining structural gap. Not in v2.
 
 ## Lifecycle
 
@@ -380,11 +500,12 @@ Same MaterializedViewExecutor.refresh path; no implicit triggers.
 
 Single shared graph with v1 derivations:
 
-- Node types: `'derivation'` (v1) and `'materialized-view'` (v2). Each node is keyed by its `source` (derivation) or `name` (MV).
+- Node types: `'derivation'` (v1), `'materialized-view'` (v2), `'overlayed-view'` (v2). Each node is keyed by its `source` (derivation) or `name` (MV / overlay).
 - Edges:
   - Derivation: source collection → output collections (existing v1)
   - MV: every collection in the dependency set → MV's output collection (new)
-- Detection: DFS from each registered node at vault open. Throws `DerivationCycleError` (existing) or `MaterializedViewCycleError` (new) on any back-edge. Same vault-init failure mode as v1.
+  - Overlay: `base` → `name` and `overlay` → `name` (new)
+- Detection: DFS from each registered node at vault open. Throws `DerivationCycleError` (existing), `MaterializedViewCycleError` (new), or `OverlayedViewCycleError` (new) on any back-edge. Same vault-init failure mode as v1.
 
 ### Same-collection-as-source MV (partition discriminator)
 
@@ -399,6 +520,7 @@ withMaterializedView({
     .where('type', 'in', ['vatSales', 'vatPurchase', 'vatCredit'])
     .groupBy('period')
     .aggregate({ net: sum('amount') }),
+  rowKey: (r) => `pp30|${r.period}`,
   output: {
     collection: 'disbursements',
     partition: { field: 'type', value: 'pp30' },
@@ -439,42 +561,86 @@ The MV-emitted rows are distinguished by carrying `_materializedFrom` inside `_d
 
 User collections that mix MV rows and user-edited rows are **not supported in v2** — that's the overlay use case explicitly deferred to v2.5. v2's contract is: an MV's output collection is owned by the MV. Manual writes through the public `Collection.put` are not refused (zero-knowledge writes can't be gated post-hoc) but are subject to overwrite on the next refresh and are documented as "do not mix."
 
-## Composition with operator-editable lifecycle (v2.5 bridge)
+## Composition with operator-editable lifecycle (`withOverlayedView`)
 
-v2 MV is read-only projection. Many real consumers need an *operator-editable lifecycle* on top — a row that the system computes a default for, but that an operator can override, with state-machine fields (`dataStatus`, `filingStatus`, `overrideAt`, etc.) the MV cannot own. That's `withOverlayedView`, deferred to v2.5.
+v2 MV is read-only projection. Many real consumers need an *operator-editable lifecycle* on top — a row that the system computes a default for, but that an operator can override, with state-machine fields (`dataStatus`, `filingStatus`, `overrideAt`, etc.) the MV cannot own. That's `withOverlayedView`, **shipped in v2** (pulled forward from v2.5 per niwat-review of PR #149).
 
-**The canonical v2 pattern until v2.5 ships:** MV + imperative shell.
+### Canonical pattern — MV + overlay
 
-- MV writes to its own collection (e.g. `pnd1-aggregate`) — pure computed values, no lifecycle fields. Owned end-to-end by the MV.
-- A separate user-owned collection (e.g. `disbursements`) carries the operator-editable lifecycle. The application's upsert function reads the MV row for the auto-amount, owns the workflow state, applies any override-short-circuit logic.
+The MV owns the computed projection. A second user-writable collection — the overlay — carries the operator-editable fields. A `withOverlayedView` declaration binds them: reads from the virtual collection merge via a single shadow predicate; writes route to the overlay.
 
 ```ts
-// Consumer code, pre-v2.5
-async function upsertWhtS01Disbursement(clientId: string, period: string) {
-  const auto = await vault.collection('pnd1-aggregate').get(`${clientId}|${period}`)
-  if (!auto) return // MV hasn't materialized for this group yet
+// niwat-app: PND.1 disbursement — DERIV-PND1-001 + DSB-OVERRIDE-001 structural
+import { withMaterializedView, withOverlayedView, sum } from '@noy-db/hub'
 
-  const existing = await vault.collection('disbursements').get(`${clientId}/${period}/pnd1`)
-  if (existing?.dataStatus === 'override') return // operator override wins
+// 1. MV computes the aggregate. Owned end-to-end by the MV.
+const pnd1Aggregate = withMaterializedView({
+  name: 'pnd1-aggregate',
+  query: () => compensations.query()
+    .groupBy(['clientId', 'period'])
+    .aggregate({ taxTotal: sum('taxAmount') }),
+  rowKey: (r) => `${r.clientId}|${r.period}`,
+  refresh: 'eager',
+  onEmpty: 'delete',
+})
 
-  await vault.collection('disbursements').put(`${clientId}/${period}/pnd1`, {
-    ...existing,
-    amount: auto.taxTotal,
-    dataStatus: existing?.dataStatus ?? 'acquired',
-    // ... operator-owned fields preserved
-  })
-}
+// 2. Overlay merges with a user-owned collection carrying lifecycle fields.
+//    Reads from `vault.collection('pnd1')` return:
+//      - if pnd1-overlay row exists AND its dataStatus === 'override' → overlay row
+//      - else → pnd1-aggregate row
+//    Writes to `vault.collection('pnd1')` route to `pnd1-overlay`.
+const pnd1Overlay = withOverlayedView({
+  name: 'pnd1',
+  base: 'pnd1-aggregate',
+  overlay: 'pnd1-overlay',
+  shadowField: 'dataStatus',
+  shadowValue: 'override',
+})
+
+createNoydb({
+  ...,
+  materializedViews: [pnd1Aggregate],
+  overlayedViews: [pnd1Overlay],
+})
 ```
 
-This works today. The cost vs the full v2.5 primitive:
+The consumer-facing surface collapses to a single virtual collection — `vault.collection('pnd1')` — with structural enforcement on both sides:
 
-- Two collections instead of one — `as-pinia` / `in-pinia` wiring sees both
-- Upsert is imperative — the structural-enforcement promise only holds for the auto-amount, not the operator override invariant
-- No automatic re-upsert on MV re-materialization — the application must call `upsertWhtS01Disbursement` after writing source records (or hook it via `Collection.subscribe` on the MV collection)
+| Operation | What happens |
+|---|---|
+| `vault.collection('pnd1').get(id)` | Returns overlay row if shadow predicate true, else base row |
+| `vault.collection('pnd1').list()` / `.query()` | Union of ids in base ∪ overlay; per-id merge applies |
+| `vault.collection('pnd1').live()` / `.subscribe()` | Merged change-stream from both base and overlay |
+| `vault.collection('pnd1').put(id, record)` | Routes to overlay collection; no effect on base |
+| `vault.collection('pnd1').delete(id)` | Routes to overlay collection ("un-override"); base stays |
 
-When `withOverlayedView({ base: 'pnd1-aggregate', overlayCollection: 'disbursements', mergePolicy: ... })` ships in v2.5, the two collections collapse into one structural primitive, the upsert becomes declarative, and the lifecycle fields move into the overlay declaration.
+DERIV-PND1-001 + DSB-OVERRIDE-001 ship as **one declarative block per disbursement type** — no `upsertWhtS01Disbursement` imperative shell. Same shape for PP.30, future PND.3, PND.53, etc.
 
-**v2.5 ETA:** TBD — depends on pre.14 close + real-consumer demand assessment after MV ships. The bridge pattern above is sustainable for at least one full release cycle.
+### Read-shadow only — explicit non-goals
+
+- **No arbitrary `mergePolicy` callback.** v2 ships the single-field-shadow primitive only. Field-level merges, priority lattices, history-aware reconciliation all stay v3 work.
+- **No automatic write-to-base.** The overlay primitive cannot create base rows or modify them; the base is owned by whatever upstream wrote it (typically an MV).
+- **No multi-overlay stacking.** A given virtual collection has exactly one base and one overlay. Multi-tier shadowing (overlay-A shadows base; overlay-B shadows the result of A) is v3.
+
+### Cycle detection
+
+`withOverlayedView` adds edges to the shared `DerivationRegistry` graph:
+
+- `base` → `name` (virtual collection depends on base)
+- `overlay` → `name` (virtual collection depends on overlay)
+
+If `base` is itself an MV output, the MV's source-collection edges already flow through. Cycles detected via the same DFS used for v1 derivations and v2 MVs.
+
+### Architecture additions
+
+| Component | File | Responsibility |
+|---|---|---|
+| `withOverlayedView()` factory | `packages/hub/src/overlay-views/with-overlayed-view.ts` | API surface; returns `OverlayedViewStrategyHandle` |
+| `OverlayedViewRegistry` | `packages/hub/src/overlay-views/registry.ts` | Maintains the name→{base, overlay, shadow} mapping; integrates with `DerivationRegistry` for shared cycle detection |
+| `OverlayedCollection` (or virtual-collection proxy) | `packages/hub/src/overlay-views/virtual-collection.ts` | `Collection<T>`-compatible proxy that implements the merge-on-read + write-to-overlay routing |
+| Subsystem doc | `docs/subsystems/derivations.md` (extend) | New § Overlay views section |
+
+`Vault.collection(name)` checks the `OverlayedViewRegistry` before constructing a regular collection — if `name` matches an overlay, it returns the virtual proxy.
 
 ## Error handling
 
@@ -501,11 +667,16 @@ When `withOverlayedView({ base: 'pnd1-aggregate', overlayCollection: 'disburseme
 
 ### Integration tests
 
-- PND.1-style aggregate showcase — `compensations.groupBy(['clientId', 'period']).aggregate(sum('taxAmount'))` writes to `pnd1-aggregate`; source updates correctly re-aggregate; `onEmpty: 'delete'` drops empty-period rows
+- PND.1-style aggregate showcase — `compensations.groupBy(['clientId', 'period']).aggregate(sum('taxAmount'))` writes to `pnd1-aggregate` with `rowKey: (r) => \`${r.clientId}|${r.period}\``; source updates correctly re-aggregate; `onEmpty: 'delete'` drops empty-period rows
 - Same-collection partition MV — DERIV-PP30-001 shape: input is `disbursements.where('type', '!=', 'pp30')`; output is `disbursements` partitioned to `type === 'pp30'`; verify cycle detector accepts + refresh works
 - MV + derivation composition — chained: source → v1 derivation → MV reads derivation's output; cycle detector recognizes the chain
 - Tombstone bypass — MV with `onEmpty: 'delete'` writing to a collection that has `withGuard.onDelete: throw` registered; refresh-driven deletes succeed (user onDelete bypassed); user-initiated `delete` on the same collection still fires onDelete
 - Admin amendment cascade — admin amendment edits source → MV re-materializes → tombstones a row → `amendment.invariant` sees the `{before, after: null}` change and can reject the amendment
+- **Declared predicates** — MV with `predicates: { isOverdue: { hash, fn } }` and `.wherePredicate('isOverdue', { asOf })` correctly filters; `queryHash` changes when `hash` bumps; refresh fires after a `hash` bump
+- **Overlay read-shadow** — `withOverlayedView({ name: 'pnd1', base: 'pnd1-aggregate', overlay: 'pnd1-overlay', shadowField: 'dataStatus', shadowValue: 'override' })`; before any overlay write, `vault.collection('pnd1').get(id)` returns base; after writing an overlay row with `dataStatus === 'override'`, get returns overlay; after writing a non-override overlay row, get falls back to base; `.list()` / `.query()` apply the merge per row
+- **Overlay write routing** — `vault.collection('pnd1').put(id, ...)` writes to `pnd1-overlay`, NOT to `pnd1-aggregate`; the MV is unaffected; the next MV refresh does not clobber the overlay
+- **Overlay delete = un-override** — `vault.collection('pnd1').delete(id)` removes the overlay row only; the base row resurfaces on the next read
+- **Overlay cycle detection** — `withOverlayedView` declared with `base === overlay` or with a cycle through a chained MV is refused at vault open
 
 ### Security tests
 
@@ -532,7 +703,8 @@ When `withOverlayedView({ base: 'pnd1-aggregate', overlayCollection: 'disburseme
 ### Resolved during niwat-review of PR #149
 
 - ~~**Materialized output id derivation.**~~ **Resolved: `rowKey` is required for all MVs.** No default formula. Niwat-review on PR #149 flagged that the proposed `${clientId}/${period}` composite for groupBy MVs silently collides if any key value contains `/`. Explicit-always eliminates that class — minor ergonomic cost, structural clarity gain. See § Type surface.
-- ~~**Function-based source predicates.**~~ **Resolved: not supported in v2.** Workaround documented in § Pre-registration validation (pre-derive via v1 `withDerivation`, MV-aggregate over the pre-derived collection). A `declaredDeterministicPredicates` extension stays open for v2.x.
+- ~~**Function-based source predicates.**~~ **Resolved (round 2): pulled forward to v2 as `declaredDeterministicPredicates`.** Round 1 of niwat-review on PR #149 (proposed: defer to v2.x with a v1-derivation pre-materialize workaround) found in round 2 that v1's 1:1 `withDerivation` shape can't actually produce the junction collection the workaround needed. Rather than ship a broken canonical pattern, the primitive landed in v2 (~100 LoC scope). See § Function-based source-row predicates (`declaredDeterministicPredicates`).
+- ~~**Operator-editable lifecycle composition.**~~ **Resolved (round 2): pulled forward to v2 as `withOverlayedView` (read-shadow variant).** Round 1 of niwat-review proposed deferring to v2.5 with a documented "MV + imperative shell" bridge pattern. Round 2 argued the bridge pattern would force the same imperative shell three times in pre.14 (DERIV-PND1-001, -SSO-001, -PP30-001), each one rewritten when v2.5 ships. The minimum-useful read-shadow variant (~300–500 LoC, single shadow predicate, no arbitrary merge) lands in v2. Arbitrary `mergePolicy` callback stays deferred to v3. See § Composition with operator-editable lifecycle.
 
 ## Cross-references
 
@@ -561,6 +733,9 @@ The implementation epic (#143) should sequence roughly:
 10. **`onEmpty: 'delete'` tombstoning** — diff-against-prior-MV pass; route through `_internalDelete`
 11. **Cost ceiling + `MaterializedViewTooLargeError`** — enforced at executor commit
 12. **Strict-mode rollback** — atomic semantics inside `withTransactions`
-13. **Showcases (eager + lazy) + recipes + subsystem doc + `features.yaml` entry** — documentation and verification
+13. **`declaredDeterministicPredicates` + `.wherePredicate(name, ctx?)`** — adds the predicate primitive; fold `predicateHash` into `queryHash`; refresh-on-hash-bump
+14. **`withOverlayedView` factory + `OverlayedViewRegistry`** — registration; cycle detection edges in shared graph
+15. **`OverlayedCollection` virtual proxy** — `Collection<T>`-compatible merge-on-read + write-to-overlay routing; `Vault.collection(name)` resolves to the proxy when a name matches
+16. **Showcases (eager MV, lazy MV, overlay, predicates) + recipes + subsystem doc + `features.yaml` entries** — documentation and verification
 
-Each step produces a green test before the next begins.
+Each step produces a green test before the next begins. Steps 13–15 are independent of 1–12 and can stack at the tail without forcing a tree-rewrite of the prior steps.
