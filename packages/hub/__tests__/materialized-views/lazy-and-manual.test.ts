@@ -193,4 +193,55 @@ describe('MV lazy lifecycle + vault.refreshView (#151)', () => {
     const v2 = await db2.openVault('demo')
     await expect(v2.refreshView('does-not-exist')).rejects.toThrow(/refreshView.*does-not-exist/)
   })
+
+  it('list() triggers lazy-MV resolve-on-read (niwat-review of #157)', async () => {
+    const lazyMV = withMaterializedView<Item>({
+      name: 'red-items',
+      query: (db) => db.collection<Item>('items').query().where('tag', '==', 'red'),
+      rowKey: (r) => r.id,
+      refresh: 'lazy',
+    })
+    const db = await createNoydb({
+      store: memory(),
+      user: 'alice',
+      secret: 'mv-list-resolves-lazy-passphrase-2026',
+      materializedViewStrategies: [lazyMV],
+    })
+    const vault = await db.openVault('demo')
+    await vault.collection<Item>('items').put('a', { id: 'a', tag: 'red' })
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const reg = vault._getMaterializedViewRegistry()!
+    expect(isMVStale(reg, 'red-items')).toBe(true)
+
+    // list() should trigger the resolve-on-read hook — same as get()
+    const rows = await vault.collection<Item>('red-items').list()
+    expect(rows).toHaveLength(1)
+    expect(isMVStale(reg, 'red-items')).toBe(false)
+  })
+
+  it('refreshView returns executor counts with deleted in the shape (niwat-review of #157)', async () => {
+    // Tombstoning ships in #158 (next sub-issue). On this branch the
+    // executor always returns `deleted: 0` — but the shape is forward-
+    // compatible, so consumers reading `result.deleted` see a real
+    // number instead of `undefined`. The #158 branch adds the test
+    // that asserts `deleted: 1` when a row flips out of the query.
+    const mv = withMaterializedView<Item>({
+      name: 'red-items',
+      query: (db) => db.collection<Item>('items').query().where('tag', '==', 'red'),
+      rowKey: (r) => r.id,
+      refresh: 'manual',
+    })
+    const db = await createNoydb({
+      store: memory(),
+      user: 'alice',
+      secret: 'mv-refresh-deleted-count-passphrase-2026',
+      materializedViewStrategies: [mv],
+    })
+    const vault = await db.openVault('demo')
+    await vault.collection<Item>('items').put('a', { id: 'a', tag: 'red' })
+    const result = await vault.refreshView('red-items')
+    expect(result.written).toBe(1)
+    expect(result.deleted).toBe(0) // not undefined — shape stable
+    expect(result.failed).toBe(0)
+  })
 })

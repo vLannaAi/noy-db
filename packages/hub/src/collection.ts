@@ -1792,6 +1792,14 @@ export class Collection<T> {
         `Use collection.scan({ pageSize }) to iterate over the full collection.`,
       )
     }
+    // Lazy-MV resolve-on-read (#157 review): if this collection is the
+    // output of a registered lazy MV with a pending stale flag, run
+    // the executor before returning so callers see fresh data. No-op
+    // when nothing is pending — keeps the read path negligible.
+    if (this.materializedViewSource !== undefined) {
+      const { resolveStaleMVOnRead } = await import('./materialized-views/stale.js')
+      await resolveStaleMVOnRead(this.materializedViewSource, this.name)
+    }
     await this.ensureHydrated()
     const records = [...this.cache.values()].map(e => e.record)
     if (!locale) return records
@@ -1986,6 +1994,15 @@ export class Collection<T> {
    * Backward-compatible overload: passing a predicate function returns
    * the filtered records directly (the API). Prefer the chainable
    * form for new code.
+   *
+   * **Lazy-MV gap (#157):** `query()` is synchronous and does NOT
+   * trigger lazy materialized-view resolve-on-read. If this
+   * collection is a lazy MV's output and the MV is currently stale,
+   * `query().toArray()` returns the pre-stale snapshot. To force a
+   * fresh read on a lazy MV, either call `list()` (which DOES
+   * trigger resolve) or `vault.refreshView(mvName)` before querying.
+   * The proper fix — extending `QuerySource` with an async prepare
+   * hook — is a separate PR.
    *
    * @example
    * ```ts
@@ -2378,6 +2395,11 @@ export class Collection<T> {
    *   .where('year', '==', 2025)
    *   .aggregate({ total: sum('amount'), n: count() })
    * ```
+   *
+   * **Lazy-MV gap (#157):** `scan()` is synchronous-build and does
+   * NOT trigger lazy materialized-view resolve-on-read. For lazy
+   * MVs, call `list()` (which DOES resolve) or `vault.refreshView(name)`
+   * before scanning. Same shape as the `query()` limitation.
    *
    * Returns a `ScanBuilder<T>` instead of the raw async iterator
    * that previous versions used. The builder implements
