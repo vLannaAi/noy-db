@@ -46,8 +46,12 @@ export interface MaterializedViewOutput {
   collection?: string
   /**
    * For same-collection-as-source MVs — see § Same-collection partition
-   * discriminator in the v2 spec. Deferred to subtask #152; declared
-   * here so the type is stable across PRs.
+   * discriminator in the v2 spec. The cycle detector resolves the
+   * same-collection edge IFF the query has a where-clause that
+   * provably excludes `partition.value` (supports `==` against a
+   * different value, `!=` against the value, and `in` lists that
+   * don't contain it). Naïve same-collection MVs without a disjoint
+   * clause throw `MaterializedViewCycleError` at vault open.
    */
   partition?: { field: string; value: unknown }
 }
@@ -91,23 +95,44 @@ export interface MaterializedViewStrategy<TRow extends Record<string, unknown>> 
    */
   sources?: ReadonlyArray<string>
   /**
-   * Refresh policy. Foundation sub-issue (#150) implements `'eager'`;
-   * `'lazy'` and `'manual'` are wired in sub-issues #151.
+   * Refresh policy.
+   *
+   * - `'eager'` — re-materialize synchronously inside the source-write
+   *   transaction (composes with `withTransactions` for strict-mode
+   *   rollback).
+   * - `'lazy'` — mark stale on source-change; materialize on first
+   *   read of the MV.
+   * - `'manual'` — only materializes when `vault.refreshView(name)` is
+   *   called. Useful for very expensive MVs or time-dependent queries
+   *   whose `ctx` changes externally.
    */
   refresh: 'eager' | 'lazy' | 'manual'
   /** Output routing. Optional; defaults to writing the collection named after `name`. */
   output?: MaterializedViewOutput
   /**
    * What to do when a re-materialization produces zero rows for a key
-   * that previously had rows. Deferred to subtask #152.
+   * that previously had rows.
+   *
+   * - `'delete'` (default) — tombstone the prior MV row via
+   *   `Collection._internalDelete` (system housekeeping bypasses user
+   *   `onDelete` guards on the output collection — see PR #148's
+   *   composition fix).
+   * - `'keep'` — leave the prior MV row in place. Useful when zero
+   *   is a meaningful state.
    */
   onEmpty?: 'delete' | 'keep'
   /**
-   * Strict-mode rollback inside `withTransactions`. Deferred to subtask #152.
+   * `true` re-throws on any row-write failure → composes with
+   * `withTransactions` to roll back the source-write atomically via
+   * `revertExecuted` (#133). Default `false` (failed rows are
+   * isolated; other rows commit).
    */
   strict?: boolean
   /**
-   * Row-count ceiling for the materialized output. Deferred to subtask #152.
+   * Row-count ceiling for the materialized output. Throws
+   * `MaterializedViewTooLargeError` before any writes when exceeded
+   * — keeps the rollback clean. Default `100_000`; override per-MV
+   * when the domain warrants it.
    */
   maxRows?: number
 }

@@ -198,6 +198,36 @@ describe('MV correctness (#152)', () => {
       // With onEmpty: 'keep', 'a' lingers despite no longer matching the query.
       expect(await vault.collection<Item>('red-items').get('a')).not.toBeNull()
     })
+
+    it('refreshView returns the real deleted count (niwat-review of #157, verified in #158)', async () => {
+      // PR #157 added the deleted field to RefreshResult shape. This
+      // PR (#158) makes it carry the real tombstone count from the
+      // executor's diff-against-prior pass.
+      const mv = withMaterializedView<Item>({
+        name: 'red-items',
+        query: (db) => db.collection<Item>('items').query().where('tag', '==', 'red'),
+        rowKey: (r) => r.id,
+        refresh: 'manual',
+      })
+      const db = await createNoydb({
+        store: memory(),
+        user: 'alice',
+        secret: 'mv-correctness-refresh-deleted-passphrase-2026',
+        materializedViewStrategies: [mv],
+      })
+      const vault = await db.openVault('demo')
+      await vault.collection<Item>('items').put('a', { id: 'a', tag: 'red' })
+      await vault.collection<Item>('items').put('b', { id: 'b', tag: 'red' })
+      const first = await vault.refreshView('red-items')
+      expect(first.written).toBe(2)
+      expect(first.deleted).toBe(0)
+
+      // Flip 'a' to blue → next refresh writes 1 (b) + tombstones 1 (a).
+      await vault.collection<Item>('items').put('a', { id: 'a', tag: 'blue' })
+      const second = await vault.refreshView('red-items')
+      expect(second.written).toBe(1) // 'b' re-emitted
+      expect(second.deleted).toBe(1) // 'a' tombstoned
+    })
   })
 
   describe('same-collection partition (DERIV-PP30-001 shape)', () => {
