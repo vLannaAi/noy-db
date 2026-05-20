@@ -1515,11 +1515,6 @@ export class Vault {
     // state matches the registered strategy.
     const { clearMVStale } = await import('./materialized-views/stale.js')
     clearMVStale(registry, name)
-    // Forward the executor's real counts including `deleted`.
-    // Tombstoning ships in #152 (sibling sub-issue); this PR's #151
-    // refresh path nonetheless honors whatever the executor returns
-    // so the API contract doesn't lie about the deleted count once
-    // #152 merges.
     return result
   }
 

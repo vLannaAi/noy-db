@@ -1477,3 +1477,29 @@ export class MaterializedViewSourceUnknownError extends NoydbError {
     this.collection = collection
   }
 }
+
+/**
+ * Thrown by the MV executor when a refresh produces more rows than
+ * the configured ceiling. Default ceiling is 100k rows; override
+ * per-MV via `maxRows`. Mirrors `JoinTooLargeError` /
+ * `GroupCardinalityError` from the query DSL — the explosion is
+ * detected BEFORE writes hit the store, so the source-write
+ * transaction can roll back cleanly via strict-mode.
+ */
+export class MaterializedViewTooLargeError extends NoydbError {
+  readonly mvName: string
+  readonly expected: number
+  readonly limit: number
+
+  constructor(mvName: string, expected: number, limit: number) {
+    super(
+      'MATERIALIZED_VIEW_TOO_LARGE',
+      `Materialized view "${mvName}" would emit ${expected} rows, exceeding the configured limit of ${limit}. ` +
+        `Override via { maxRows: N } on the MV strategy if intentional, or tighten the query's filter/groupBy.`,
+    )
+    this.name = 'MaterializedViewTooLargeError'
+    this.mvName = mvName
+    this.expected = expected
+    this.limit = limit
+  }
+}

@@ -81,6 +81,16 @@ export interface MaterializedViewStrategy<TRow extends Record<string, unknown>> 
    */
   rowKey: (row: TRow) => string
   /**
+   * Explicit source collections (#152). Required when `query()` returns
+   * an `Aggregation` or `GroupedAggregation` rather than a `Query<T>`
+   * — the dependency analyzer can't introspect through `groupBy().aggregate()`
+   * back to the source. Optional for plain `Query<T>` results — the
+   * analyzer extracts dependencies automatically from the query plan.
+   *
+   * When set, takes precedence over auto-analysis.
+   */
+  sources?: ReadonlyArray<string>
+  /**
    * Refresh policy. Foundation sub-issue (#150) implements `'eager'`;
    * `'lazy'` and `'manual'` are wired in sub-issues #151.
    */

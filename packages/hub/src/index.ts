@@ -514,6 +514,7 @@ export type {
 export {
   MaterializedViewCycleError,
   MaterializedViewSourceUnknownError,
+  MaterializedViewTooLargeError,
 } from './errors.js'
 
 // Accounting periods
