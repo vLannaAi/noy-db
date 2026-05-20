@@ -290,13 +290,22 @@ interface OverlayedViewStrategyHandle {
 interface QueryBuilder<T> {
   /**
    * Invoke a declared predicate by name. The predicate must be
-   * registered on the calling MV's `predicates` map; `queryHash`
-   * folds the predicate's stable `hash` so a function-body change
-   * (via `hash` bump) is detected at refresh time.
+   * registered on the calling MV's `predicates` map.
+   *
+   * `queryHash` folds two things from this call site:
+   *   - the predicate's consumer-stable `hash` (covers function-body
+   *     semantics — bump when behavior changes)
+   *   - a canonical-JSON hash of `ctx` (covers runtime parameters —
+   *     change forces re-materialization on next visit)
    *
    * `ctx` is opaque to the query DSL — passed verbatim to the
    * predicate fn. Useful for threading config values into the
-   * predicate (date ranges, feature flags, etc.).
+   * predicate (date ranges, feature flags, etc.). `ctx` must be a
+   * stable value across the MV's lifetime — dynamic values (e.g.
+   * `{ asOf: new Date().toISOString() }`) make the hash change on
+   * every materialization, defeating staleness tracking. For
+   * time-dependent MVs, use `refresh: 'manual'` and trigger
+   * externally.
    */
   wherePredicate(name: string, ctx?: unknown): QueryBuilder<T>
 }
@@ -352,23 +361,51 @@ The analyzer walks the `Query`'s internal `QueryPlan` and returns the set of sou
 ### Algorithm sketch
 
 ```ts
-function analyzeDependencies(plan: QueryPlan, joinContext?: JoinContext): Set<string> {
+function analyzeDependencies(
+  plan: QueryPlan,
+  joinContext: JoinContext | undefined,
+  overlayResolver: OverlayResolver | undefined,
+): Set<string> {
   const deps = new Set<string>()
-  deps.add(plan.rootCollection)
+  // Root collection: expand if it's a virtual overlay name, else add directly.
+  expand(plan.rootCollection, deps, overlayResolver)
   for (const clause of plan.clauses) {
     if (clause.type === 'join') {
       const target = joinContext?.resolveRef(plan.rootCollection, clause.foreignKey)
-      if (target) deps.add(target)
+      if (target) expand(target, deps, overlayResolver)
     } else if (clause.type === 'group' && clause.subPlan) {
-      for (const d of analyzeDependencies(clause.subPlan, joinContext)) deps.add(d)
+      for (const d of analyzeDependencies(clause.subPlan, joinContext, overlayResolver)) {
+        deps.add(d)
+      }
     }
     // where / groupBy / aggregate don't add new sources
   }
   return deps
 }
+
+function expand(name: string, deps: Set<string>, overlayResolver: OverlayResolver | undefined) {
+  const overlay = overlayResolver?.resolveVirtual(name)
+  if (overlay !== undefined) {
+    // `name` is a withOverlayedView virtual collection — both the base
+    // and the overlay collection are real sources whose writes must
+    // trigger refresh of any downstream MV reading the virtual name.
+    deps.add(overlay.base)
+    deps.add(overlay.overlay)
+  } else {
+    deps.add(name)
+  }
+}
 ```
 
 The set is materialized at MV registration time. `MaterializedViewRegistry.onSourceWrite(source, ...)` fires when **any** member of the set is written.
+
+#### Overlay resolution
+
+A downstream MV that reads from `vault.collection('pnd1')` (a `withOverlayedView` virtual name) has its dependency set expanded to `{pnd1-aggregate, pnd1-overlay}` — writes to either side trigger refresh. Without this expansion, source writes would silently leave the downstream MV stale.
+
+`OverlayResolver` is the analog of `joinResolver`: a small interface (`resolveVirtual(name): { base, overlay } | undefined`) backed by the `OverlayedViewRegistry`. The MV `Vault._initMaterializedViews` plumbs both resolvers into the analyzer at vault init.
+
+The expansion is **shallow** in v2 — if `pnd1-aggregate` itself depends on another virtual collection, that's resolved at the upstream MV's analysis time, not transitively here. Cycle detection (which IS transitive) covers the "chain of MVs through overlays" case via the shared `DerivationRegistry` graph.
 
 ### Pre-registration validation
 
@@ -402,6 +439,25 @@ withMaterializedView({
 The function body's lack of canonical serialization is handled by the consumer-supplied `hash` field — folded into `queryHash` so a function change (signalled by a `hash` bump) forces a refresh on next visit. Same drift-detection pattern v1 `withDerivation` uses for `derive.toString()`.
 
 **Consumer responsibility:** bump `hash` whenever the predicate's semantics change. Failing to bump is not unsafe (the old hash matches the old MV rows; new rows just use the new function); failing to bump after a *non-equivalent* function change leaves stale rows around until the next refresh.
+
+#### `ctx`-hash folding
+
+The `ctx` argument passed at each `.wherePredicate(name, ctx)` call site is canonicalized (deep, sorted-key JSON) and its SHA-256 is folded into `queryHash`. This makes runtime parameters symmetric with the function body: changing `ctx` forces re-materialization the same way bumping `hash` does. Together they cover both halves of "this MV's filter is no longer the same."
+
+Concrete behavior:
+
+| Scenario | queryHash | Refresh on next read |
+|---|:---:|:---:|
+| Consumer re-deploys with same `predicates.hash` and same literal `ctx` | unchanged | no |
+| Consumer bumps `predicates.hash` | changes | yes |
+| Consumer changes the literal `ctx` (e.g. `{ asOf: '2026-05-20' }` → `'2026-06-01'`) | changes | yes |
+| Consumer keeps `ctx` shape but reorders keys (`{ a, b }` vs `{ b, a }`) | unchanged | no (canonical serialization) |
+
+**Dynamic `ctx` is unsafe.** If the consumer writes `ctx: { asOf: new Date().toISOString() }` directly in the `query()` callback, the hash changes on every materialization → infinite-refresh loop. For time-dependent MVs the correct pattern is:
+
+- `refresh: 'manual'` — the consumer decides when to refresh and supplies the new `ctx` at that point (e.g. a daily cron-style trigger in app code calls `vault.refreshView('overdue-aggregate')` with a freshly-materialized strategy whose `ctx.asOf` reflects "today")
+
+The spec stays narrow on time-handling: time-dependent MVs are the consumer's responsibility. v2 ships the deterministic-on-stable-inputs case cleanly; "MV that knows it's stale because the wall clock advanced" is v3 (pairs with Dim 11 hooks/triggers).
 
 #### DERIV-SSO-001 v2 path
 
@@ -606,15 +662,55 @@ createNoydb({
 
 The consumer-facing surface collapses to a single virtual collection — `vault.collection('pnd1')` — with structural enforcement on both sides:
 
-| Operation | What happens |
-|---|---|
-| `vault.collection('pnd1').get(id)` | Returns overlay row if shadow predicate true, else base row |
-| `vault.collection('pnd1').list()` / `.query()` | Union of ids in base ∪ overlay; per-id merge applies |
-| `vault.collection('pnd1').live()` / `.subscribe()` | Merged change-stream from both base and overlay |
-| `vault.collection('pnd1').put(id, record)` | Routes to overlay collection; no effect on base |
-| `vault.collection('pnd1').delete(id)` | Routes to overlay collection ("un-override"); base stays |
+| Operation | Base row | Overlay row | Shadow predicate | Result |
+|---|:---:|:---:|:---:|---|
+| `get(id)` | ✓ | absent | n/a | base row |
+| `get(id)` | ✓ | ✓ | true | overlay row |
+| `get(id)` | ✓ | ✓ | false | base row (overlay shadowed but predicate fails) |
+| `get(id)` | absent | ✓ | true | **overlay row (orphaned-override; intentional)** |
+| `get(id)` | absent | ✓ | false | `null` (overlay exists but predicate doesn't qualify it; no base to fall back to) |
+| `get(id)` | absent | absent | n/a | `null` |
+| `list()` / `.query()` | — | — | — | Union of ids in base ∪ overlay; per-id merge from the table above; predicate evaluated per row |
+| `live()` / `.subscribe()` | — | — | — | Merged change-stream from both base and overlay; emit re-merged row per source change |
+| `put(id, record)` | — | — | — | Routes to overlay collection; no effect on base. (Virtual `put` derives `id` via the base MV's `rowKey` if the consumer omits it — see below.) |
+| `delete(id)` | ✓ | ✓ | — | Removes overlay row only; base row resurfaces on next read |
+| `delete(id)` | ✓ | absent | — | No-op (idempotent contract) |
+| `delete(id)` | absent | ✓ | — | Removes overlay row; next read returns `null` |
+| `delete(id)` | absent | absent | — | No-op (idempotent contract) |
 
 DERIV-PND1-001 + DSB-OVERRIDE-001 ship as **one declarative block per disbursement type** — no `upsertWhtS01Disbursement` imperative shell. Same shape for PP.30, future PND.3, PND.53, etc.
+
+### Orphaned-override pattern
+
+A consumer may preemptively write an overlay row before the base MV has materialized for that key — e.g., an operator knows the auto-computed PND.1 amount will be wrong and wants to lock the override in before the first compensation lands.
+
+This is **intentional and supported**. From the table above:
+
+- The overlay row's `dataStatus: 'override'` qualifies the shadow predicate → `get(id)` returns the overlay row directly (no base to fall back to).
+- When source rows finally arrive and the MV materializes a base row, the merge still favours the overlay (predicate still true) — operator intent preserved.
+- If the operator "un-overrides" (deletes the overlay row) before the base materializes, `get(id)` returns `null` until the MV catches up — same as any not-yet-materialized id.
+
+The opposite case — overlay row with predicate **false** and no base row — returns `null`. This is the "stale or aborted override" state: the row was written but doesn't satisfy the shadow rule and has nothing to mask. Consumers can observe it via `vault.collection('pnd1-overlay').get(id)` directly if they need to inspect; the virtual collection silently hides it.
+
+### Virtual-collection writes derive `id` from the base MV's `rowKey`
+
+The overlay primitive resolves the base MV's `rowKey` at vault init and uses it for `vault.collection('pnd1').put(record)` calls. The consumer doesn't compute the id format manually — eliminating an undocumented coupling that round-3 niwat-review flagged.
+
+```ts
+// Consumer code — id is derived from the base MV's rowKey
+// (which knows it's `${clientId}|${period}`)
+await vault.collection('pnd1').put({
+  clientId: 'c1',
+  period: '2026-05',
+  dataStatus: 'override',
+  amount: 99999,
+})
+// Internally:
+//   id = pnd1Aggregate.rowKey({ clientId: 'c1', period: '2026-05' })
+//   vault.collection('pnd1-overlay').put(id, { ...record })
+```
+
+For consumers who do need to write to the overlay collection directly (e.g. bulk-imports outside the virtual layer), `vault.collection('pnd1').overlay.rowKey(row)` exposes the same function. Mismatched ids in `pnd1-overlay` still work as raw rows — they just won't shadow anything via the virtual collection.
 
 ### Read-shadow only — explicit non-goals
 
@@ -696,7 +792,7 @@ If `base` is itself an MV output, the MV's source-collection edges already flow 
 
 1. **Diff strategy for incremental refresh.** Re-materializing the entire query result on every source write is O(query). Can we incrementally diff the prior MV snapshot against the new query result, only writing changed rows? Trade-off: more code complexity vs less write traffic. v2 default: full re-materialize; document the diff-incremental path as a v2.x optimization. *(Confirmed by niwat-review: niwat's scale doesn't need incremental in v2.)*
 2. **Refresh ordering when many MVs depend on the same source.** Sequential (FIFO of registration order)? Parallel-with-cap? Topological by dependency chain length? v1 derivations dispatch sequentially; recommend matching for v2. *(Confirmed by niwat-review: sequential FIFO matches the consumer mental model; topological opt-in is the natural v3 extension.)*
-3. **`queryHash` determinism for joined queries.** The query plan's serialized form must include join-target collection names (already in the plan) but should NOT include `joinResolver` instance state. Confirm in implementation. *(Cross-reference: if v2.x adds `declaredDeterministicPredicates`, the predicate's `predicateHash` must fold into `queryHash`. See § Pre-registration validation → "Function-based source-row predicates are not supported in v2".)*
+3. **`queryHash` determinism for joined queries.** The query plan's serialized form must include join-target collection names (already in the plan) but should NOT include `joinResolver` instance state. Confirm in implementation. *(Cross-reference: each declared predicate's `predicateHash` folds into `queryHash` — see § Function-based source-row predicates. Each `.wherePredicate(name, ctx)` call site also folds a canonical-JSON hash of `ctx` so runtime parameters are tracked symmetrically — see § `ctx`-hash folding.)*
 4. **`refreshView` concurrency.** Mirrors `deriveAll`'s open question. Sequential default; parallel via opt-in is v2.x.
 5. **Vault-init failure recovery.** Same as v1: fail-fast on cycle detection; document a future `--ignore-cycles` migration flag if a real consumer needs it.
 
