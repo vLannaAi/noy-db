@@ -4,6 +4,7 @@ import type { EncryptedEnvelope } from '../types.js'
 import { MaterializedViewTooLargeError } from '../errors.js'
 import type { MaterializedFromMeta, MVQueryContext } from './types.js'
 import type { RegisteredMV } from './registry.js'
+import { wrapDbWithPredicates } from './registry.js'
 
 /**
  * Accessor shape passed in from the owning Vault. Mirrors v1's
@@ -112,8 +113,15 @@ export const MaterializedViewExecutor = {
     const onEmpty = spec.onEmpty ?? 'delete'
     const strict = spec.strict ?? false
 
-    // 1. Materialize the query (branches on terminal shape).
-    const q = spec.query(accessor.getQueryContext())
+    // 1. Materialize the query (branches on terminal shape). If the
+    //    MV declared predicates, wrap the query context the same way
+    //    the registry did at registration time so `.wherePredicate()`
+    //    calls resolve to the registered functions.
+    const baseCtx = accessor.getQueryContext()
+    const ctxForQuery: MVQueryContext = spec.predicates
+      ? wrapDbWithPredicates(baseCtx, spec.predicates)
+      : baseCtx
+    const q = spec.query(ctxForQuery)
     const rows = await materializeQueryResult(q, spec.name)
 
     // 2. Cost ceiling check BEFORE any writes — keeps the rollback

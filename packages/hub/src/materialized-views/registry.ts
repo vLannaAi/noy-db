@@ -1,6 +1,7 @@
 import { MaterializedViewCycleError, MaterializedViewSourceUnknownError } from '../errors.js'
 import type { DerivationRegistry } from '../derivations/registry.js'
 import type { Clause, FieldClause } from '../query/predicate.js'
+import type { DeclaredPredicate } from '../query/builder.js'
 import { analyzeDependencies, summarizeQueryPlan } from './dependency-analyzer.js'
 import { computeQueryHash } from './query-hash.js'
 import type { MaterializedViewStrategy, MVQueryContext } from './types.js'
@@ -57,13 +58,19 @@ export class MaterializedViewRegistry {
     db: MVQueryContext,
     options?: { knownCollections?: (name: string) => boolean },
   ): Promise<void> {
+    // Build a predicate-aware db wrapper (#153). If `spec.predicates` is
+    // declared, the wrapper intercepts `.collection().query()` and
+    // attaches the predicates map to the resulting Query<T>. With no
+    // predicates declared, the wrapper is the original db unchanged.
+    const dbForQuery = spec.predicates ? wrapDbWithPredicates(db, spec.predicates) : db
+
     // Invoke the query callback once to inspect its plan / dependencies.
     // For Query<T> shapes the analyzer extracts deps + plan summary
     // automatically. Aggregation / GroupedAggregation shapes don't
     // expose the underlying Query, so the spec must declare `sources`
     // explicitly. `partitionClauses` are only populated for Query<T>
     // since same-collection-partition is a non-aggregate concern.
-    const q = spec.query(db)
+    const q = spec.query(dbForQuery)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const qAny = q as any
     const isQuery = typeof qAny._plan === 'function'
@@ -72,6 +79,14 @@ export class MaterializedViewRegistry {
     if (isQuery) {
       dependencies = analyzeDependencies(q)
       queryPlanSummary = summarizeQueryPlan(q)
+      // Fold `.wherePredicate(name, ctx)` references into the plan
+      // summary so predicate function or ctx changes (signalled by
+      // bumping `hash` or supplying a different ctx) propagate into
+      // `queryHash` and force refresh on next visit.
+      const predicateRefs = extractPredicateRefs(qAny._plan())
+      if (predicateRefs.length > 0) {
+        queryPlanSummary = JSON.stringify({ plan: queryPlanSummary, predicates: predicateRefs })
+      }
       // If `sources` is ALSO declared, take the union (consumer's
       // explicit list extends the auto-analyzed set).
       if (spec.sources) for (const s of spec.sources) dependencies.add(s)
@@ -244,6 +259,90 @@ export class MaterializedViewRegistry {
  */
 function isFieldClauseOnField(clause: Clause, field: string): clause is FieldClause {
   return clause.type === 'field' && clause.field === field
+}
+
+/**
+ * Wrap an `MVQueryContext` so its `.collection().query()` returns a
+ * Query<T> with the MV's declared predicates attached. Bare Queries
+ * (outside of any MV) don't gain `.wherePredicate()` — only Queries
+ * obtained through this wrapped db do.
+ *
+ * @internal
+ */
+export function wrapDbWithPredicates(
+  db: MVQueryContext,
+  predicates: NonNullable<MaterializedViewStrategy<Record<string, unknown>>['predicates']>,
+): MVQueryContext {
+  // Build the predicate map once — the fn signature in the MV spec
+  // is row-typed but the QueryBuilder casts to unknown, so we widen
+  // here for the Map.
+  const map = new Map<string, DeclaredPredicate>()
+  for (const [name, decl] of Object.entries(predicates)) {
+    map.set(name, {
+      hash: decl.hash,
+      fn: decl.fn as (record: unknown, ctx?: unknown) => boolean,
+    })
+  }
+  return {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    collection<T extends Record<string, unknown>>(name: string): any {
+      const c = db.collection<T>(name)
+      // Return an object that delegates everything to `c` but
+      // overrides `.query()` to attach predicates via the new
+      // `Query._withPredicates()` accessor.
+      return new Proxy(c, {
+        get(target, prop, receiver) {
+          if (prop === 'query') {
+            return (...args: unknown[]) => {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const q = (target.query as any)(...args)
+              // For non-aggregate Query<T>, attach predicates. For
+              // legacy predicate-arg overload that returns T[] (sync
+              // filter), pass through unchanged.
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              if (q && typeof q._withPredicates === 'function') {
+                return q._withPredicates(map)
+              }
+              return q
+            }
+          }
+          return Reflect.get(target, prop, receiver)
+        },
+      })
+    },
+  }
+}
+
+/**
+ * Walk a QueryPlan's clauses and collect predicate-reference markers
+ * for `queryHash` derivation. Returns a sorted array (deterministic
+ * order) of `{ name, predicateHash, ctxHash }` tuples — these are the
+ * hashable identity of each `.wherePredicate()` call site.
+ *
+ * @internal
+ */
+function extractPredicateRefs(
+  plan: { clauses: readonly Clause[] },
+): Array<{ name: string; predicateHash: string; ctxHash: string }> {
+  const refs: Array<{ name: string; predicateHash: string; ctxHash: string }> = []
+  const walk = (clauses: readonly Clause[]): void => {
+    for (const c of clauses) {
+      if (c.type === 'wherePredicate') {
+        refs.push({ name: c.name, predicateHash: c.predicateHash, ctxHash: c.ctxHash })
+      } else if (c.type === 'group') {
+        walk(c.clauses)
+      }
+    }
+  }
+  walk(plan.clauses)
+  // Stable-sort by (name, predicateHash, ctxHash) — same predicate
+  // appearing twice with different ctx hashes both flow through.
+  refs.sort((a, b) => {
+    if (a.name !== b.name) return a.name < b.name ? -1 : 1
+    if (a.predicateHash !== b.predicateHash) return a.predicateHash < b.predicateHash ? -1 : 1
+    return a.ctxHash < b.ctxHash ? -1 : a.ctxHash > b.ctxHash ? 1 : 0
+  })
+  return refs
 }
 
 /**
