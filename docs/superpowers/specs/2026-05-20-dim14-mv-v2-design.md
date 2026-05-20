@@ -138,6 +138,17 @@ interface MaterializedViewStrategy<TRow> {
    */
   query: () => Query<TRow>
   /**
+   * Pure function from a materialized row → stable id used in the
+   * output collection. **Required for all MVs** — no default. For
+   * groupBy MVs, supply something like
+   * `(row) => `${row.clientId}|${row.period}`` (use a separator that
+   * cannot appear in any groupBy field value to avoid collision).
+   * For non-groupBy MVs, supply a stable function over whatever
+   * uniquely identifies the projection. Resolving #6 from the
+   * niwat-review pass: explicit always beats default-with-pitfalls.
+   */
+  rowKey: (row: TRow) => string
+  /**
    * Refresh policy.
    *
    * - `'eager'` (default) — re-materialize synchronously inside the
@@ -279,6 +290,35 @@ The set is materialized at MV registration time. `MaterializedViewRegistry.onSou
 - The MV output collection must not overlap with the source set, UNLESS `output.partition` is declared AND the input query has a `.where(partition.field, '!=', partition.value)` clause (or equivalent — see § Cycle detection below).
 - The query plan must be deterministic — no `.subscribe()` / `.live()` terminals embedded (these would create a re-entrant cycle).
 
+### Function-based source-row predicates are not supported in v2
+
+The MV `query()` builder accepts the standard `.where(field, op, value)` terminals + `.join` / `.groupBy` / `.aggregate`. Function-based predicates (e.g. niwat's `DERIV-SSO-001` "active employees during the period" rule, where the active-ness check is a function over an `employmentPeriods` array on the worker record) are **not supported** in v2. Reason: `queryHash` determinism requires a stable canonical serialization of the query plan; function bodies don't have one.
+
+**Workaround pattern (canonical for v2):** pre-derive the predicate result via a v1 `withDerivation`, then MV-aggregate over the pre-derived collection. For DERIV-SSO-001:
+
+```ts
+// v1 derivation: per (worker, period) row with active-ness pre-computed
+withDerivation<Worker, { activeInPeriod: { id: string; workerId: string; period: string; active: boolean } }>({
+  source: 'workers',
+  outputs: { activeInPeriod: { shape: 'record', collection: 'worker-period-active' } },
+  derive: (w, ctx) => ({ /* per-period explosion using w.employmentPeriods */ }),
+  lifecycle: 'eager',
+})
+
+// v2 MV: aggregates over the pre-derived collection — pure where-clause query
+withMaterializedView({
+  name: 'sso-aggregate',
+  query: () => workerPeriodActive.query()
+    .where('active', '==', true)
+    .groupBy('period')
+    .aggregate({ workerCount: count() }),
+  rowKey: (r) => r.period,
+  refresh: 'eager',
+})
+```
+
+The composition is intentional — v1 owns "compute a deterministic field per source row," v2 owns "aggregate/project over rows by declared predicate." A future v2.x may add `declaredDeterministicPredicates: { activeInPeriod: fn }` with a registered `predicateHash` so the function can live inside the MV query directly, but v2 keeps the surface narrow.
+
 ## Lifecycle
 
 ### Eager (`refresh: 'eager'`)
@@ -393,9 +433,48 @@ Lazy-mode behavior matches v1: the lazy resolve-on-read path uses `_internalDele
 
 **MV writes to a regular collection.** Reads route through the standard `Collection<T>` API — `query()`, `get()`, `list()`, `live()`, `subscribe()`, and the `as-pinia` / `in-pinia` wiring all work unchanged. This matches niwat's stated preference (Pinia store wiring works without special-casing).
 
+**Output collection accessibility.** noy-db collections are dynamically accessible via `vault.collection(name)` — there is no pre-declaration step for collection schemas. The MV's output collection is implicitly created the first time materialization writes a row. No `schemas` config entry is required. The MV registration itself is what binds the name to the materialization strategy. If a consumer tries to access `vault.collection(mvName)` before materialization fires (e.g. an eager-MV before any source write), reads return an empty collection — the standard "empty collection" behavior, not an error.
+
 The MV-emitted rows are distinguished by carrying `_materializedFrom` inside `_data`. Consumers can detect "this is an MV row" by reading the metadata (e.g. for showing a "computed" badge in a UI), but the shape on read is identical to any other record.
 
 User collections that mix MV rows and user-edited rows are **not supported in v2** — that's the overlay use case explicitly deferred to v2.5. v2's contract is: an MV's output collection is owned by the MV. Manual writes through the public `Collection.put` are not refused (zero-knowledge writes can't be gated post-hoc) but are subject to overwrite on the next refresh and are documented as "do not mix."
+
+## Composition with operator-editable lifecycle (v2.5 bridge)
+
+v2 MV is read-only projection. Many real consumers need an *operator-editable lifecycle* on top — a row that the system computes a default for, but that an operator can override, with state-machine fields (`dataStatus`, `filingStatus`, `overrideAt`, etc.) the MV cannot own. That's `withOverlayedView`, deferred to v2.5.
+
+**The canonical v2 pattern until v2.5 ships:** MV + imperative shell.
+
+- MV writes to its own collection (e.g. `pnd1-aggregate`) — pure computed values, no lifecycle fields. Owned end-to-end by the MV.
+- A separate user-owned collection (e.g. `disbursements`) carries the operator-editable lifecycle. The application's upsert function reads the MV row for the auto-amount, owns the workflow state, applies any override-short-circuit logic.
+
+```ts
+// Consumer code, pre-v2.5
+async function upsertWhtS01Disbursement(clientId: string, period: string) {
+  const auto = await vault.collection('pnd1-aggregate').get(`${clientId}|${period}`)
+  if (!auto) return // MV hasn't materialized for this group yet
+
+  const existing = await vault.collection('disbursements').get(`${clientId}/${period}/pnd1`)
+  if (existing?.dataStatus === 'override') return // operator override wins
+
+  await vault.collection('disbursements').put(`${clientId}/${period}/pnd1`, {
+    ...existing,
+    amount: auto.taxTotal,
+    dataStatus: existing?.dataStatus ?? 'acquired',
+    // ... operator-owned fields preserved
+  })
+}
+```
+
+This works today. The cost vs the full v2.5 primitive:
+
+- Two collections instead of one — `as-pinia` / `in-pinia` wiring sees both
+- Upsert is imperative — the structural-enforcement promise only holds for the auto-amount, not the operator override invariant
+- No automatic re-upsert on MV re-materialization — the application must call `upsertWhtS01Disbursement` after writing source records (or hook it via `Collection.subscribe` on the MV collection)
+
+When `withOverlayedView({ base: 'pnd1-aggregate', overlayCollection: 'disbursements', mergePolicy: ... })` ships in v2.5, the two collections collapse into one structural primitive, the upsert becomes declarative, and the lifecycle fields move into the overlay declaration.
+
+**v2.5 ETA:** TBD — depends on pre.14 close + real-consumer demand assessment after MV ships. The bridge pattern above is sustainable for at least one full release cycle.
 
 ## Error handling
 
@@ -444,12 +523,16 @@ User collections that mix MV rows and user-edited rows are **not supported in v2
 
 ## Open implementation questions (resolve during writing-plans)
 
-1. **Diff strategy for incremental refresh.** Re-materializing the entire query result on every source write is O(query). Can we incrementally diff the prior MV snapshot against the new query result, only writing changed rows? Trade-off: more code complexity vs less write traffic. v2 default: full re-materialize; document the diff-incremental path as a v2.x optimization.
-2. **Refresh ordering when many MVs depend on the same source.** Sequential (FIFO of registration order)? Parallel-with-cap? Topological by dependency chain length? v1 derivations dispatch sequentially; recommend matching for v2.
-3. **`queryHash` determinism for joined queries.** The query plan's serialized form must include join-target collection names (already in the plan) but should NOT include `joinResolver` instance state. Confirm in implementation.
+1. **Diff strategy for incremental refresh.** Re-materializing the entire query result on every source write is O(query). Can we incrementally diff the prior MV snapshot against the new query result, only writing changed rows? Trade-off: more code complexity vs less write traffic. v2 default: full re-materialize; document the diff-incremental path as a v2.x optimization. *(Confirmed by niwat-review: niwat's scale doesn't need incremental in v2.)*
+2. **Refresh ordering when many MVs depend on the same source.** Sequential (FIFO of registration order)? Parallel-with-cap? Topological by dependency chain length? v1 derivations dispatch sequentially; recommend matching for v2. *(Confirmed by niwat-review: sequential FIFO matches the consumer mental model; topological opt-in is the natural v3 extension.)*
+3. **`queryHash` determinism for joined queries.** The query plan's serialized form must include join-target collection names (already in the plan) but should NOT include `joinResolver` instance state. Confirm in implementation. *(Cross-reference: if v2.x adds `declaredDeterministicPredicates`, the predicate's `predicateHash` must fold into `queryHash`. See § Pre-registration validation → "Function-based source-row predicates are not supported in v2".)*
 4. **`refreshView` concurrency.** Mirrors `deriveAll`'s open question. Sequential default; parallel via opt-in is v2.x.
 5. **Vault-init failure recovery.** Same as v1: fail-fast on cycle detection; document a future `--ignore-cycles` migration flag if a real consumer needs it.
-6. **Materialized output id derivation.** For `groupBy(['clientId', 'period'])` style MVs the row id is the natural composite of the groupBy keys (`${clientId}/${period}`). For non-groupBy MVs, the id needs a stable formula — propose `hashOf(rowPayload)` or require a `rowKey: (row) => string` declarator. Lean toward requiring `rowKey` for non-groupBy MVs; default to groupBy-key-tuple for groupBy MVs.
+
+### Resolved during niwat-review of PR #149
+
+- ~~**Materialized output id derivation.**~~ **Resolved: `rowKey` is required for all MVs.** No default formula. Niwat-review on PR #149 flagged that the proposed `${clientId}/${period}` composite for groupBy MVs silently collides if any key value contains `/`. Explicit-always eliminates that class — minor ergonomic cost, structural clarity gain. See § Type surface.
+- ~~**Function-based source predicates.**~~ **Resolved: not supported in v2.** Workaround documented in § Pre-registration validation (pre-derive via v1 `withDerivation`, MV-aggregate over the pre-derived collection). A `declaredDeterministicPredicates` extension stays open for v2.x.
 
 ## Cross-references
 
