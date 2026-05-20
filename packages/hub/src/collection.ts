@@ -1451,22 +1451,44 @@ export class Collection<T> {
    * history snapshot still fire so backup integrity and time-travel
    * reconstruction stay consistent.
    *
-   * Returns silently for delete-of-absent (idempotent contract).
+   * Returns silently for delete-of-absent (idempotent contract — both
+   * paths honour this: the `txCtx === null` path also reads the prior
+   * envelope and short-circuits before the ledger/event side-effects).
    *
    * When a `txCtx` is supplied, the prior envelope is captured and
    * pushed onto `txCtx._executed` BEFORE the delete fires — mirrors
    * the #133 rollback hardening for puts. Callers outside a
    * multi-record transaction pass `null` and skip the tracking.
    *
+   * Amendment composition: if `_internalDelete` runs while a vault's
+   * `GuardRegistry` has an amendment window open, the `{before, after:
+   * null}` change pair is pushed onto the amendment change-set the
+   * same way a user-initiated delete would. The `onDelete` user-hook
+   * is still skipped (housekeeping must not trip user invariants in
+   * normal mode), but the amendment's invariant DOES see the change
+   * — so a `RCT-CANCEL-001`-style invariant pairing can reject a
+   * derivation-driven tombstone fired during an admin amendment.
+   *
+   * Constraint to surface to consumers: output collections of
+   * derivations with `optional: true` outputs should not be the
+   * targets of `strict` or `cascade` inbound foreign-key refs —
+   * `_internalDelete` bypasses the ref enforcer by design (the
+   * `onDelete` bypass primitive). Treat the housekeeping path as
+   * "system can tombstone its own emissions regardless of FK shape."
+   *
    * Permission handling is unchanged: the caller must still hold
    * write permission on the collection (derivations run under the
-   * user's keyring). Internal deletes are NOT routed through the
-   * amendment change-set.
+   * user's keyring).
    */
   async _internalDelete(id: string, txCtx: TxContext | null = null): Promise<void> {
+    // Idempotency contract: short-circuit before any ledger/event
+    // side-effect when the target is absent. Both txCtx-aware and
+    // txCtx-null callers honour this — `deriveAll` recomputes
+    // expense-only allocations that never emitted a receipt without
+    // writing spurious v0 ledger entries.
+    const prior = await this.adapter.get(this.vault, this.name, id)
+    if (prior === null) return
     if (txCtx !== null) {
-      const prior = await this.adapter.get(this.vault, this.name, id)
-      if (prior === null) return
       txCtx._executed.push({
         op: {
           type: 'delete',
@@ -1488,11 +1510,20 @@ export class Collection<T> {
     // Guard hook for deletes. Symmetric to put(): consult the
     // registry, decrypt the prior record (if any), then either
     // collect the {before, null} change pair into an active
-    // amendment or run the guards' `check` callback. Frozen-field
+    // amendment or run the guards' `onDelete` callback. Frozen-field
     // diffing is skipped (it's a put concept). Delete-of-absent is
     // a no-op — no guard is consulted because there's nothing to
     // protect, matching the idempotent-delete contract.
-    if (!internal && this.guardSource) {
+    //
+    // For `internal === true` (system housekeeping — derivation
+    // tombstones, MV refresh): `onDelete` is bypassed, but the
+    // amendment change-collection still runs if a window is open.
+    // This means an `amendment.invariant` paired with `onDelete` for
+    // "TRULY unconditional" rules sees the system delete and can
+    // reject it — closing the niwat-review gap where a derivation
+    // tombstone fired during an admin amendment would otherwise
+    // silently bypass both hooks.
+    if (this.guardSource) {
       const registry = this.guardSource.registry()
       const guards = registry.guardsFor(this.name)
       if (guards.length > 0) {
@@ -1504,19 +1535,13 @@ export class Collection<T> {
           } catch {
             existingRecord = null
           }
-          const ctx = {
-            existing: existingRecord,
-            vault: this.guardSource.readOnlyVault(),
-            userId: this.keyring.userId,
-            role: this.keyring.role,
-          }
           if (registry.isAmendmentActive()) {
             // For deletes, the record version is the version that was
             // visible at delete time; we record vBefore = that version
             // and vAfter = same (the ledger entry's `op` discriminator
             // is `delete`, not `put`, so the consumer treats the
-            // tombstone shape correctly). Amendment-tracked deletes
-            // are rare today but the contract is symmetric with put.
+            // tombstone shape correctly). Fires for BOTH user and
+            // system-internal deletes (#145 follow-up).
             const vBefore = existingEnv._v
             registry.collectChange(
               this.name,
@@ -1526,10 +1551,18 @@ export class Collection<T> {
               vBefore,
               vBefore,
             )
-          } else {
+          } else if (!internal) {
             // Dedicated delete-time hook (#145). `check` is put-only;
             // `onDelete(existing, ctx)` receives the currently-persisted
             // record and decides whether the deletion is permitted.
+            // Skipped for internal deletes — housekeeping must not trip
+            // user invariants in normal-mode operation.
+            const ctx = {
+              existing: existingRecord,
+              vault: this.guardSource.readOnlyVault(),
+              userId: this.keyring.userId,
+              role: this.keyring.role,
+            }
             await registry.runOnDelete(
               this.name,
               existingRecord ?? {},

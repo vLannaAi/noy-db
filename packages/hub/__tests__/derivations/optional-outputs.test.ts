@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb, withDerivation, withGuard, DerivationOutputShapeError, RecordLockedError } from '../../src/index.js'
 import { withTransactions } from '../../src/tx/index.js'
+import { withHistory } from '../../src/history/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
 
 function memory(): NoydbStore {
@@ -307,6 +308,127 @@ describe('withDerivation — optional outputs (#144)', () => {
       const r = await tx.vault('demo').collection<Receipt>('receipts').get('a1')
       expect(r).toBeNull()
     })
+  })
+
+  it('idempotency: _internalDelete on absent record writes no ledger entry (deriveAll mass-recompute clean)', async () => {
+    // Niwat-review on #144 (concern A): vault.deriveAll() invokes
+    // _internalDelete(id) without a txCtx for every optional output
+    // that resolves to null. For a vault recomputing thousands of
+    // paymentAllocation → receipt derivations, the ones where the
+    // source never had a services portion (= never emitted a receipt)
+    // should be silent no-ops, not write v0 ledger entries.
+    const strategy = withDerivation<Allocation, { receipt: Receipt }>({
+      source: 'allocations',
+      deterministic: true,
+      outputs: { receipt: { shape: 'record', collection: 'receipts', optional: true } },
+      derive: (alloc) => ({
+        receipt: alloc.servicesNetPortion > 0
+          ? { id: alloc.id, paymentId: alloc.paymentId, appliedAmount: alloc.appliedAmount }
+          : null,
+      }) as { receipt: Receipt | null },
+      lifecycle: 'eager',
+    })
+    const db = await createNoydb({
+      store: memory(),
+      user: 'alice',
+      secret: 'derivation-deriveAll-idempotency-passphrase-2026',
+      derivationStrategies: [strategy],
+      historyStrategy: withHistory(),
+    })
+    const v = await db.openVault('demo')
+
+    // Seed 3 expense-only allocations — none emit a receipt
+    for (let i = 1; i <= 3; i++) {
+      await v.collection<Allocation>('allocations').put(`a${i}`, {
+        id: `a${i}`, paymentId: 'p1', appliedAmount: 100, servicesNetPortion: 0,
+      })
+    }
+    expect(await v.collection<Receipt>('receipts').get('a1')).toBeNull()
+
+    // Snapshot ledger length, run deriveAll, compare. Should write NO
+    // new entries — every tombstone is delete-of-absent, must be silent.
+    const ledgerBefore = (await v.ledger().entries()).length
+    await v.deriveAll('allocations')
+    const ledgerAfter = (await v.ledger().entries()).length
+    expect(ledgerAfter).toBe(ledgerBefore)
+  })
+
+  it('derivation tombstone inside an admin amendment is visible to amendment.invariant', async () => {
+    // Niwat-review on #145 (concern B): the docs' "TRULY unconditional"
+    // pairing must protect against derivation-driven tombstones fired
+    // during admin amendments, not just direct user deletes.
+    //
+    // Path: admin amendment edits an allocation → re-fires derivation →
+    // emits null → receipt tombstoned. Before the fix the amendment
+    // invariant never saw the change. After the fix collectChange runs
+    // even for system-internal deletes, so the invariant can reject.
+    let invariantSeenDelete = false
+    const allocationDerivation = withDerivation<Allocation, { receipt: Receipt }>({
+      source: 'allocations',
+      deterministic: true,
+      outputs: { receipt: { shape: 'record', collection: 'receipts', optional: true } },
+      derive: (alloc) => ({
+        receipt: alloc.servicesNetPortion > 0
+          ? { id: alloc.id, paymentId: alloc.paymentId, appliedAmount: alloc.appliedAmount }
+          : null,
+      }) as { receipt: Receipt | null },
+      lifecycle: 'eager',
+    })
+    const receiptGuard = withGuard<Receipt>({
+      collection: 'receipts',
+      onDelete: () => {
+        throw new RecordLockedError('receipts', '', 'append-only (normal mode)')
+      },
+      amendment: {
+        roles: ['admin', 'owner'],
+        invariant: (changes) => {
+          for (const c of changes) {
+            if (c.before !== null && c.after === null) {
+              invariantSeenDelete = true
+              throw new RecordLockedError(
+                'receipts',
+                '',
+                'append-only — even amendments cannot delete (RCT-CANCEL-001)',
+              )
+            }
+          }
+        },
+      },
+    })
+    const db = await createNoydb({
+      store: memory(),
+      user: 'alice',
+      role: 'owner',
+      secret: 'derivation-tombstone-in-amendment-passphrase-2026',
+      derivationStrategies: [allocationDerivation],
+      guardStrategies: [receiptGuard],
+      txStrategy: withTransactions(),
+    })
+    const v = await db.openVault('demo')
+
+    // Seed an allocation that DOES emit a receipt
+    await v.collection<Allocation>('allocations').put('a1', {
+      id: 'a1', paymentId: 'p1', appliedAmount: 500, servicesNetPortion: 400,
+    })
+    expect(await v.collection<Receipt>('receipts').get('a1')).not.toBeNull()
+
+    // Admin amendment edits the allocation to expense-only → derivation
+    // re-fires, emits null, tombstones the receipt. The invariant MUST
+    // see the {before, after: null} change and reject.
+    await expect(
+      db.transaction(
+        { vault: 'demo', amendment: true, reason: 'zero out services portion' },
+        async (tx) => {
+          await tx.vault('demo').collection('allocations').put('a1', {
+            id: 'a1', paymentId: 'p1', appliedAmount: 500, servicesNetPortion: 0,
+          })
+        },
+      ),
+    ).rejects.toThrow(/RCT-CANCEL-001/)
+
+    expect(invariantSeenDelete).toBe(true)
+    // Receipt should be restored — invariant rejection rolled back the tombstone
+    expect(await v.collection<Receipt>('receipts').get('a1')).not.toBeNull()
   })
 
   it('lazy lifecycle: skipped output reads as null + a prior emission is removed on re-resolve', async () => {

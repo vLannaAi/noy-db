@@ -75,15 +75,24 @@ argument shapes mirror each other but the semantics are explicit:
 
 ### `onDelete` bypass paths
 
-Two paths skip `onDelete`. Both are by design:
+Two paths skip the `onDelete` callback. Both are by design:
 
 1. **Amendment transactions** (`db.transaction({ amendment: true })`)
    for admin/owner — amendments are the generic unlock primitive,
-   consistent with how `frozenFields` lets staged writes through.
+   consistent with how `frozenFields` lets staged writes through. The
+   `amendment.invariant` block (if declared) DOES still see the
+   `{ before, after: null }` change pair and can reject the delete at
+   commit time.
 2. **System-internal deletes** — derivation tombstones (#144) and MV
    refresh deletes (Dim 14 v2) route through an internal-only delete
    path. Housekeeping ops are not user-initiated and would otherwise
-   trip user invariants registered against output collections.
+   trip user invariants registered against output collections. **If
+   the internal delete fires while an amendment window is open**
+   (e.g. an admin amendment edits a source row → triggers a
+   derivation cascade → cascades a tombstone), the change pair IS
+   pushed onto the amendment's change-set and surfaces to
+   `amendment.invariant`. This keeps the "truly unconditional" paired
+   pattern below honest.
 
 ### Truly unconditional delete-block — pair the two hooks
 
