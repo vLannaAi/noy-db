@@ -1481,9 +1481,41 @@ export class Vault {
    * @internal — consumed by `Collection.put` at write-time. Returns
    * `null` for vaults that never registered any MV strategy.
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   _getMaterializedViewRegistry(): MaterializedViewRegistry | null {
     return this.materializedViewRegistry
+  }
+
+  /**
+   * Manual re-materialize for a single registered MV (#151). Useful
+   * for `refresh: 'manual'` MVs (whose consumer drives refreshes
+   * externally), for stale-bit recovery on vault re-open, and as the
+   * explicit bulk-recompute escape hatch after a strategy change.
+   *
+   * Returns `{ written, deleted, failed }`. `deleted` is always 0 in
+   * foundation + this sub-issue — tombstoning lands in #152.
+   *
+   * Throws if `name` is not a registered MV.
+   */
+  async refreshView(name: string): Promise<{ written: number; deleted: number; failed: number }> {
+    const registry = this.materializedViewRegistry
+    if (registry === null) {
+      return { written: 0, deleted: 0, failed: 0 }
+    }
+    const reg = registry.byName(name)
+    if (!reg) {
+      throw new Error(`refreshView: no MV registered with name "${name}"`)
+    }
+    const { MaterializedViewExecutor } = await import('./materialized-views/executor.js')
+    const result = await MaterializedViewExecutor.refresh(reg, {
+      getCollection: (n) => this.collection(n),
+      getActiveTxContext: () => this.noydb._activeTxContextOrNull,
+      getQueryContext: () => this as unknown as MVQueryContext,
+    })
+    // Manual refresh clears any pending stale bit — the post-refresh
+    // state matches the registered strategy.
+    const { clearMVStale } = await import('./materialized-views/stale.js')
+    clearMVStale(registry, name)
+    return { written: result.written, deleted: 0, failed: result.failed }
   }
 
   /**

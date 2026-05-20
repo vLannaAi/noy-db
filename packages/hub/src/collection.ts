@@ -50,6 +50,8 @@ import type { DerivationExecutor as DerivationExecutorType } from './derivations
 import { markStale, resolveStaleOnRead } from './derivations/stale.js'
 import type { MaterializedViewRegistry } from './materialized-views/registry.js'
 import type { MVQueryContext } from './materialized-views/types.js'
+import type { MaterializedViewExecutor as MVExecutorType } from './materialized-views/executor.js'
+import type * as MVStaleModule from './materialized-views/stale.js'
 
 /** Callback for dirty tracking (sync engine integration). */
 export type OnDirtyCallback = (collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>
@@ -965,6 +967,15 @@ export class Collection<T> {
       }
     }
 
+    // Lazy-MV resolve-on-read (#151). When the collection being read
+    // is the output of a registered lazy MV that has at least one
+    // pending stale flag, run the executor before returning. No-op
+    // when nothing is pending.
+    if (this.materializedViewSource !== undefined) {
+      const { resolveStaleMVOnRead } = await import('./materialized-views/stale.js')
+      await resolveStaleMVOnRead(this.materializedViewSource, this.name)
+    }
+
     let record: T | null
 
     if (this.lazy && this.lru) {
@@ -1410,18 +1421,31 @@ export class Collection<T> {
     if (mvs.length === 0) return
     // Dynamic-import the executor only on first eager-MV dispatch —
     // keeps the MV executor chunk out of the floor bundle (mirrors the
-    // #130 dynamic-import pattern v1 uses for derivations).
-    const { MaterializedViewExecutor } = await import('./materialized-views/executor.js')
+    // #130 dynamic-import pattern v1 uses for derivations). Lazy mode
+    // uses the pure-helper `markMVStale` which lives in `stale.js` and
+    // is also dynamic-imported (only when at least one lazy MV depends
+    // on this source).
+    let executor: typeof MVExecutorType | null = null
+    let staleHelpers: typeof MVStaleModule | null = null
     for (const reg of mvs) {
       const mode = reg.spec.refresh
       if (mode === 'eager') {
-        await MaterializedViewExecutor.refresh(reg, {
+        if (executor === null) {
+          ;({ MaterializedViewExecutor: executor } = await import('./materialized-views/executor.js'))
+        }
+        await executor.refresh(reg, {
           getCollection: (name) => this.materializedViewSource!.getCollection(name),
           getActiveTxContext: () => this.materializedViewSource!.getActiveTxContext(),
           getQueryContext: () => this.materializedViewSource!.getQueryContext(),
         })
+      } else if (mode === 'lazy') {
+        if (staleHelpers === null) {
+          staleHelpers = await import('./materialized-views/stale.js')
+        }
+        staleHelpers.markMVStale(registry, reg.spec.name)
       }
-      // lazy/manual: deferred to subtask #151
+      // manual: no-op on source-write. `vault.refreshView(name)` is
+      // the only path that materializes a manual MV.
     }
   }
 
