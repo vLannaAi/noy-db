@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { createNoydb } from '../../src/index.js'
+import { createNoydb, withGuard, InvariantError } from '../../src/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/types.js'
 import { ConflictError } from '../../src/errors.js'
 import { ReadOnlyVaultFacade } from '../../src/guards/read-only-facade.js'
+import { sum } from '../../src/aggregate/reducers.js'
+import { withAggregate } from '../../src/aggregate/index.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -73,5 +75,90 @@ describe('ReadOnlyVaultFacade', () => {
     // No put/delete methods exposed
     expect((facade.collection('widgets') as object).hasOwnProperty('put')).toBe(false)
     expect((facade.collection('widgets') as object).hasOwnProperty('delete')).toBe(false)
+  })
+
+  it('exposes query() returning a chainable Query builder', async () => {
+    const db = await createNoydb({
+      store: memory(),
+      user: 'alice',
+      secret: 'guards-readonly-facade-query-passphrase-2026',
+      aggregateStrategy: withAggregate(),
+    })
+    const vault = await db.openVault('demo')
+    const widgets = vault.collection<{ name: string; price: number }>('widgets')
+    await widgets.put('w1', { name: 'red', price: 100 })
+    await widgets.put('w2', { name: 'blue', price: 200 })
+    await widgets.put('w3', { name: 'red', price: 150 })
+
+    const facade = new ReadOnlyVaultFacade(vault)
+    const q = facade.collection<{ name: string; price: number }>('widgets').query()
+
+    const reds = await q.where('name', '==', 'red').toArray()
+    expect(reds).toHaveLength(2)
+
+    const total = await facade
+      .collection<{ name: string; price: number }>('widgets')
+      .query()
+      .where('name', '==', 'red')
+      .aggregate({ total: sum('price') })
+      .run()
+    expect(total.total).toBe(250)
+  })
+
+  it('lets a guard enforce a Σ-over-siblings invariant via query().aggregate()', async () => {
+    interface Payment { id: string; amount: number }
+    interface Allocation { id: string; paymentId: string; appliedAmount: number }
+
+    const allocationGuard = withGuard<Allocation>({
+      collection: 'allocations',
+      check: async (incoming, { vault, existing }) => {
+        const payment = await vault.collection<Payment>('payments').get(incoming.paymentId)
+        if (!payment) throw new InvariantError('allocations', incoming.id, 'unknown paymentId')
+        const { total } = await vault
+          .collection<Allocation>('allocations')
+          .query()
+          .where('paymentId', '==', incoming.paymentId)
+          .aggregate({ total: sum<Allocation>('appliedAmount') })
+          .run()
+        const otherTotal = total - (existing?.appliedAmount ?? 0)
+        if (otherTotal + incoming.appliedAmount > payment.amount) {
+          throw new InvariantError(
+            'allocations',
+            incoming.id,
+            `Σ allocations (${otherTotal + incoming.appliedAmount}) exceeds payment.amount (${payment.amount})`,
+          )
+        }
+      },
+    })
+
+    const db = await createNoydb({
+      store: memory(),
+      user: 'alice',
+      secret: 'guards-readonly-facade-aggregate-passphrase-2026',
+      guardStrategies: [allocationGuard],
+      aggregateStrategy: withAggregate(),
+    })
+    const vault = await db.openVault('demo')
+    const payments = vault.collection<Payment>('payments')
+    const allocations = vault.collection<Allocation>('allocations')
+
+    await payments.put('p1', { id: 'p1', amount: 1000 })
+    await allocations.put('a1', { id: 'a1', paymentId: 'p1', appliedAmount: 400 })
+    await allocations.put('a2', { id: 'a2', paymentId: 'p1', appliedAmount: 500 })
+
+    // Over-allocation fails with InvariantError carrying the aggregated sum.
+    await expect(
+      allocations.put('a3', { id: 'a3', paymentId: 'p1', appliedAmount: 200 }),
+    ).rejects.toBeInstanceOf(InvariantError)
+
+    // Topping up to exactly payment.amount is accepted.
+    await expect(
+      allocations.put('a3', { id: 'a3', paymentId: 'p1', appliedAmount: 100 }),
+    ).resolves.not.toThrow()
+
+    // Existing allocation can be amended downward (subtracts its own contribution from the sum).
+    await expect(
+      allocations.put('a1', { id: 'a1', paymentId: 'p1', appliedAmount: 300 }),
+    ).resolves.not.toThrow()
   })
 })

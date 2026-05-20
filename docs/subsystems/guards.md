@@ -159,6 +159,48 @@ boundary**. The store sees only ciphertext envelopes. The
 `ReadOnlyVaultFacade` passed as `ctx.vault` decrypts on access — no
 plaintext leaks to the store.
 
+### `ReadOnlyVaultFacade` surface
+
+```ts
+ctx.vault.collection<T>(name).get(id)    // single record
+ctx.vault.collection<T>(name).list()     // every record (decrypts all)
+ctx.vault.collection<T>(name).query()    // chainable read-only builder
+```
+
+`query()` returns the same `Query<T>` builder used elsewhere in the
+library. Its terminals (`toArray`, `first`, `count`, `aggregate`,
+`groupBy`, `live`) are read-only — there is no `.update()` / `.delete()`
+on a `Query`. Prefer `.query().aggregate({ ... })` over `.list()` +
+manual reduce when enforcing Σ-style invariants: only the records the
+predicate touches get materialised, and the aggregate path is the same
+one used by the rest of the library.
+
+```ts
+// Σ-over-siblings invariant — payment-allocation sum must not exceed payment
+import { sum } from '@noy-db/hub'
+
+withGuard<Allocation>({
+  collection: 'allocations',
+  check: async (incoming, { vault, existing }) => {
+    const payment = await vault.collection<Payment>('payments').get(incoming.paymentId)
+    const { total } = await vault
+      .collection<Allocation>('allocations')
+      .query()
+      .where('paymentId', '==', incoming.paymentId)
+      .aggregate({ total: sum<Allocation>('appliedAmount') })
+      .run()
+    const otherTotal = total - (existing?.appliedAmount ?? 0)
+    if (otherTotal + incoming.appliedAmount > payment.amount) {
+      throw new InvariantError('allocations', incoming.id, '…')
+    }
+  },
+})
+```
+
+Aggregates require the `aggregateStrategy: withAggregate()` opt-in (the
+same opt-in everything else in the query DSL respects) — `query()`
+itself is always present on the facade.
+
 ### Audit-entry shape
 
 ```ts

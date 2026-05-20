@@ -1,13 +1,21 @@
 import type { Role } from '../types.js'
+import type { Query } from '../query/builder.js'
 
 /**
  * Minimum read surface exposed to guard `check` functions. Intentionally
  * narrow — guards can read other collections but never write.
+ *
+ * `query()` returns the same chainable builder used elsewhere. `Query<T>`
+ * has no write terminals (no `.update()` / `.delete()`) so exposing it
+ * here preserves the read-only contract while letting guards aggregate
+ * with `.where().aggregate()` / `.groupBy()` / `.join()` instead of
+ * decrypting every sibling row via `.list()`.
  */
 export interface ReadOnlyVaultFacade {
   collection<T = unknown>(name: string): {
     get(id: string): Promise<T | null>
     list(): Promise<T[]>
+    query(): Query<T>
   }
 }
 
