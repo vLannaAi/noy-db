@@ -1473,10 +1473,10 @@ export class Collection<T> {
               vBefore,
             )
           } else {
-            // For deletes, `incoming` to the check is the existing
-            // record — the guard's check decides whether the
-            // deletion is permitted by inspecting `ctx.existing`.
-            await registry.runChecks(
+            // Dedicated delete-time hook (#145). `check` is put-only;
+            // `onDelete(existing, ctx)` receives the currently-persisted
+            // record and decides whether the deletion is permitted.
+            await registry.runOnDelete(
               this.name,
               existingRecord ?? {},
               ctx,

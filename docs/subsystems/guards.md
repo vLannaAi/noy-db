@@ -59,13 +59,19 @@ const db = await createNoydb({
 
 ## API
 
-Three primitives, one strategy:
+Four primitives, one strategy:
 
 | Primitive | When it fires | Throws |
 |---|---|---|
-| `check` | Every `put()` / `delete()` (skipped in amendment mode) | Anything; conventionally `RecordLockedError` |
+| `check` | Every `put()` (skipped in amendment mode) | Anything; conventionally `RecordLockedError` |
+| `onDelete` | Every `delete()` of an existing record (skipped in amendment mode); skipped for delete-of-absent | Anything; conventionally `RecordLockedError` |
 | `frozenFields` | Every `put()` after `when(existing)` becomes true | `FieldFrozenError` listing changed frozen fields |
 | `amendment` | Inside `withTransactions({ amendment: true, reason })` | `InvariantError` if the rule fails |
+
+`check` is put-only — `onDelete` is the dedicated delete-time hook. The
+argument shapes mirror each other but the semantics are explicit:
+`check(incoming, ctx)` validates a record being **written**;
+`onDelete(existing, ctx)` validates a record being **removed**.
 
 ### Amendment flow
 

@@ -48,7 +48,26 @@ export interface GuardStrategyHandle<T extends Record<string, unknown>> {
 /** Public registration shape. See `withGuard()`. */
 export interface GuardStrategy<T extends Record<string, unknown>> {
   collection: string
+  /**
+   * Fires on `Collection.put` (insert + update). The `incoming` argument
+   * is the record being written. Throw to cancel the put.
+   *
+   * Does NOT fire on `Collection.delete` — use {@link onDelete} for
+   * delete-time validation. Skipped during an amendment transaction
+   * (`db.transaction({ amendment: true })`) — admin/owner override.
+   */
   check?: (incoming: T, ctx: GuardContext<T>) => Promise<void> | void
+  /**
+   * Fires on `Collection.delete` before the adapter delete and before
+   * the ledger append. The `existing` argument is the currently-persisted
+   * record. Throw to cancel the delete — no partial state, no tombstone
+   * ledger entry. Skipped during an amendment transaction (admin/owner
+   * override).
+   *
+   * Delete of an absent record is a no-op and does not consult any
+   * guard, matching the idempotent-delete contract.
+   */
+  onDelete?: (existing: T, ctx: GuardContext<T>) => Promise<void> | void
   frozenFields?: {
     when: (existing: T) => boolean
     fields: ReadonlyArray<keyof T>

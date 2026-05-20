@@ -103,11 +103,11 @@ describe('Collection.put — guard hook integration', () => {
     ).resolves.not.toThrow()
   })
 
-  it('blocks a delete on a locked record', async () => {
+  it('blocks a delete via onDelete hook (#145)', async () => {
     const guard = withGuard<Line>({
       collection: 'lines',
-      check: async (_incoming, { existing }) => {
-        if (existing) throw new RecordLockedError('lines', 'l1', 'no deletes')
+      onDelete: async (existing) => {
+        throw new RecordLockedError('lines', existing.id, 'no deletes')
       },
     })
     const db = await createNoydb({
@@ -119,5 +119,24 @@ describe('Collection.put — guard hook integration', () => {
     const v = await db.openVault('demo')
     await v.collection<Line>('lines').put('l1', { id: 'l1', invoiceId: 'x', amount: 10 })
     await expect(v.collection('lines').delete('l1')).rejects.toBeInstanceOf(RecordLockedError)
+  })
+
+  it('check is put-only — does not fire on delete', async () => {
+    let checkCalls = 0
+    const guard = withGuard<Line>({
+      collection: 'lines',
+      check: () => { checkCalls++ },
+    })
+    const db = await createNoydb({
+      store: memory(),
+      user: 'alice',
+      secret: 'guards-check-put-only-passphrase-2026',
+      guardStrategies: [guard],
+    })
+    const v = await db.openVault('demo')
+    await v.collection<Line>('lines').put('l1', { id: 'l1', invoiceId: 'x', amount: 10 })
+    expect(checkCalls).toBe(1)
+    await v.collection('lines').delete('l1')
+    expect(checkCalls).toBe(1) // delete did NOT re-invoke check
   })
 })
