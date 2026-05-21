@@ -87,10 +87,23 @@ export function summarizeQueryPlan(query: Query<any>): string {
 
 /**
  * Canonical string description of a UNION MV's plan, used as input to
- * `computeQueryHash`. Sorts arm collection names + groupBy fields +
- * aggregate spec keys so structural reorderings produce the same hash
- * (the order of `unionSources` and the field order inside `groupBy`
- * don't change semantics — sorting catches that).
+ * `computeQueryHash`.
+ *
+ * Asymmetry note (#165 niwat review):
+ *   - Arm collection names are NOT sorted. Declaration order is
+ *     semantically meaningful for the dedup-only UNION path —
+ *     `materializeUnionResult` iterates `spec.unionSources` in
+ *     declaration order and keeps the first-seen row per composite key
+ *     (tie-break precedence). If we sorted arms here, a consumer who
+ *     reordered `unionSources` to change precedence would compute the
+ *     same `queryHash`, refresh would be a no-op, and stale MV rows
+ *     would persist. Hashing in declaration order makes any reorder
+ *     trigger a refresh.
+ *   - `groupBy` fields ARE sorted. Multi-key groupBy buckets are
+ *     commutative (`canonicalGroupKey` produces the same composite key
+ *     regardless of field order in the input spec).
+ *   - `aggregate` keys ARE sorted. Reducer-spec keys are independent
+ *     of each other — order of declaration doesn't change output.
  *
  * Per-arm `map` functions are NOT fingerprinted; consumers must bump
  * the MV's `name` (or rely on application-level cache busting) when
@@ -99,9 +112,8 @@ export function summarizeQueryPlan(query: Query<any>): string {
 export function summarizeUnionPlan<T extends Record<string, unknown>>(
   spec: MaterializedViewStrategy<T>,
 ): string {
-  const arms = [...(spec.unionSources ?? [])]
+  const arms = (spec.unionSources ?? [])
     .map(s => s.collection)
-    .sort()
     .join(',')
   const groupBy: string = Array.isArray(spec.groupBy)
     ? [...spec.groupBy].sort().join(',')

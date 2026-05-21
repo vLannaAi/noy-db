@@ -391,3 +391,66 @@ describe('UNION MV — edges (#165)', () => {
     expect(rows).toHaveLength(0)
   })
 })
+
+describe('UNION MV — queryHash sensitivity (#165 niwat review)', () => {
+  it('reordering unionSources arms produces a different queryHash (declaration order is semantically meaningful)', async () => {
+    // Strategy A — arm "a" first, arm "b" second
+    const stratA = withMaterializedView<{ k: string; n: number }>({
+      name: 'order-sensitive',
+      unionSources: [
+        { collection: 'a', map: (r: Record<string, unknown>) => ({ k: r.k as string, n: r.n as number }) },
+        { collection: 'b', map: (r: Record<string, unknown>) => ({ k: r.k as string, n: r.n as number }) },
+      ],
+      groupBy: 'k',
+      // no aggregate — dedup-only path; first-seen row wins per composite key
+      rowKey: row => row.k,
+      refresh: 'eager',
+    })
+    // Strategy B — same fields, arms reversed
+    const stratB = withMaterializedView<{ k: string; n: number }>({
+      name: 'order-sensitive',
+      unionSources: [
+        { collection: 'b', map: (r: Record<string, unknown>) => ({ k: r.k as string, n: r.n as number }) },
+        { collection: 'a', map: (r: Record<string, unknown>) => ({ k: r.k as string, n: r.n as number }) },
+      ],
+      groupBy: 'k',
+      rowKey: row => row.k,
+      refresh: 'eager',
+    })
+
+    // Import summarizeUnionPlan directly to compare hashes
+    const { summarizeUnionPlan } = await import('../../src/materialized-views/dependency-analyzer.js')
+    const planA = summarizeUnionPlan(stratA.spec)
+    const planB = summarizeUnionPlan(stratB.spec)
+    expect(planA).not.toBe(planB)
+    expect(planA).toContain('union(a,b)')
+    expect(planB).toContain('union(b,a)')
+  })
+
+  it('reordering groupBy fields does NOT change queryHash (multi-key groupBy is commutative)', async () => {
+    const stratA = withMaterializedView<{ a: string; b: string; n: number }>({
+      name: 'commutative-groupby',
+      unionSources: [
+        { collection: 'x', map: (r: Record<string, unknown>) => ({ a: r.a as string, b: r.b as string, n: r.n as number }) },
+        { collection: 'y', map: (r: Record<string, unknown>) => ({ a: r.a as string, b: r.b as string, n: r.n as number }) },
+      ],
+      groupBy: ['a', 'b'],
+      aggregate: { total: sum('n') },
+      rowKey: row => `${row.a}|${row.b}`,
+      refresh: 'eager',
+    })
+    const stratB = withMaterializedView<{ a: string; b: string; n: number }>({
+      name: 'commutative-groupby',
+      unionSources: [
+        { collection: 'x', map: (r: Record<string, unknown>) => ({ a: r.a as string, b: r.b as string, n: r.n as number }) },
+        { collection: 'y', map: (r: Record<string, unknown>) => ({ a: r.a as string, b: r.b as string, n: r.n as number }) },
+      ],
+      groupBy: ['b', 'a'], // reversed
+      aggregate: { total: sum('n') },
+      rowKey: row => `${row.a}|${row.b}`,
+      refresh: 'eager',
+    })
+    const { summarizeUnionPlan } = await import('../../src/materialized-views/dependency-analyzer.js')
+    expect(summarizeUnionPlan(stratA.spec)).toBe(summarizeUnionPlan(stratB.spec))
+  })
+})
