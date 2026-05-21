@@ -346,6 +346,54 @@ cardinality ceilings) live in
 The walkthrough lives in showcase
 [`85-with-multikey-groupby`](../../showcases/src/85-with-multikey-groupby.showcase.test.ts).
 
+### UNION sources — `withMaterializedView` reading from multiple collections
+
+A materialized view can read from MULTIPLE sibling source collections in
+ONE declaration via `unionSources`. Per-source `map` projects each arm
+into the MV's row shape; `groupBy` + `aggregate` then run on the
+concatenated stream.
+
+```ts
+withMaterializedView<{ period: string; vat: number }>({
+  name: 'monthlyVat',
+  unionSources: [
+    { collection: 'taxReceipts', map: r => ({ period: r.issuedAt.slice(0, 7), vat:  r.vatAmount }) },
+    { collection: 'creditNotes', map: r => ({ period: r.issuedAt.slice(0, 7), vat: -r.vatAmount }) },
+  ],
+  groupBy: 'period',
+  aggregate: { vat: sum('vat') },
+  rowKey: row => row.period,
+  refresh: 'eager',
+})
+```
+
+**Mutually exclusive with `query`** — a strategy uses one or the other.
+Registration rejects strategies that declare both, or neither, or
+`unionSources` with fewer than 2 arms, or duplicate collection names
+across arms.
+
+**Per-source `map` is the schema-unification boundary.** The two source
+collections may have different schemas; each arm's `map` projects to the
+MV's row shape (the strategy's type parameter). The hub does NOT compare
+schemas across arms — consumer responsibility is that every `map` returns
+the same shape.
+
+**Source-write hooks fire on every arm.** A write to ANY collection in
+`unionSources` re-fires the MV refresh path. Naturally visible via the
+registry's dependency reverse-index.
+
+**Composes with multi-key `groupBy`.** UNION arms can roll up to a
+composite key — e.g. `groupBy: ['clientId', 'period']` over taxReceipts ∪
+creditNotes produces one row per (client, period) tuple.
+
+**Known gap (pre.14 hangover):** `Collection.delete` does NOT yet trigger
+eager MV refresh — only `put` does. UNION (and single-source) MVs with
+`onEmpty: 'delete'` re-tombstone on the next `put` to any source, or via
+`vault.refreshView('mvName')`. A follow-up PR will wire delete-time
+dispatch.
+
+See showcase [`86-with-union-mv`](../../showcases/src/86-with-union-mv.showcase.test.ts).
+
 ### Refresh modes
 
 - **`eager`** — every source write re-runs the query inside the same

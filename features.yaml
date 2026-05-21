@@ -509,6 +509,8 @@ features:
         path: showcases/src/84-with-mv-predicates.showcase.test.ts
       - id: 85-with-multikey-groupby
         path: showcases/src/85-with-multikey-groupby.showcase.test.ts
+      - id: 86-with-union-mv
+        path: showcases/src/86-with-union-mv.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
@@ -524,6 +526,7 @@ features:
       - 'cycle detection at vault open — same-collection edges allowed only with provably-disjoint output.partition'
       - 'maxRows ceiling throws MaterializedViewTooLargeError before any writes'
       - 'query callback may use multi-key groupBy(...fields); rowKey composites the grouped fields into a stable id'
+      - 'UNION mode (unionSources): reads from ≥2 sibling collections; per-source map projects to MV row shape; groupBy + aggregate run on concatenated stream'
     related: [derivations, overlay-views, transactions, guards]
 
   - id: overlay-views
