@@ -136,6 +136,49 @@ export type GroupedRowN<F extends readonly string[], R> =
   { [K in F[number]]: unknown } & R
 
 /**
+ * Shared base class for the chainable grouped-query wrappers. Holds
+ * the constructor + protected fields that both single-key
+ * `GroupedQuery<T, F>` and variadic `GroupedQueryN<T, F>` need; each
+ * subclass only overrides `aggregate()` with its own result-row
+ * generic.
+ *
+ * Not exported — implementation detail. Adding `.having()` /
+ * `.live()` / `.orderByGroup()` etc. in the future lands here once
+ * and both subclasses pick it up automatically.
+ *
+ * @internal
+ */
+abstract class GroupedQueryBase {
+  /**
+   * Field set this grouped query buckets on. Stored in declaration
+   * order — the same order is preserved on every result row by
+   * `groupAndReduce`. For the single-field constructor, this is
+   * `[field]`.
+   */
+  protected readonly fields: readonly string[]
+
+  constructor(
+    protected readonly executeRecords: () => readonly unknown[],
+    fieldOrFields: string | readonly string[],
+    protected readonly upstreams: readonly AggregationUpstream[],
+    /**
+     * Optional dict label resolver attached by the query builder when
+     * the grouping field is a dictKey. Variadic groupings always pass
+     * `undefined` — `<field>Label` projection has no meaningful shape
+     * for composite keys.
+     */
+    protected readonly dictLabelResolver?: (
+      key: string,
+      locale: string,
+      fallback?: string | readonly string[],
+    ) => Promise<string | undefined>,
+  ) {
+    this.fields =
+      typeof fieldOrFields === 'string' ? [fieldOrFields] : [...fieldOrFields]
+  }
+}
+
+/**
  * Chainable wrapper returned by `Query.groupBy(field)`. Terminates
  * with `.aggregate(spec)` which returns a `GroupedAggregation`.
  *
@@ -145,35 +188,7 @@ export type GroupedRowN<F extends readonly string[], R> =
  * them post-group would be a different operation (`having` /
  * `groupOrderBy`), out of scope for.
  */
-export class GroupedQuery<T, F extends string> {
-  /**
-   * Field set this grouped query buckets on. Stored in declaration
-   * order — the same order is preserved on every result row by
-   * `groupAndReduce`. For the back-compat single-field constructor,
-   * this is `[field]`.
-   */
-  private readonly fields: readonly string[]
-
-  constructor(
-    private readonly executeRecords: () => readonly unknown[],
-    field: F | readonly string[],
-    private readonly upstreams: readonly AggregationUpstream[],
-    /**
-     * Optional dict label resolver attached by the query builder when
-     * the grouping field is a dictKey.
-     */
-    private readonly dictLabelResolver?: (
-      key: string,
-      locale: string,
-      fallback?: string | readonly string[],
-    ) => Promise<string | undefined>,
-  ) {
-    this.fields = typeof field === 'string' ? [field] : [...field]
-    // T is phantom on the wrapper so consumers can still see the
-    // source row type on hover. Reference it to keep lint quiet.
-    void undefined as T | undefined
-  }
-
+export class GroupedQuery<T, F extends string> extends GroupedQueryBase {
   /**
    * Build a grouped aggregation. Returns a `GroupedAggregation`
    * with `.run()`, `.runAsync()`, and `.live()` terminals — same shape
@@ -183,6 +198,9 @@ export class GroupedQuery<T, F extends string> {
   aggregate<Spec extends AggregateSpec>(
     spec: Spec,
   ): GroupedAggregation<GroupedRow<F, AggregateResult<Spec>>> {
+    // T is phantom on the wrapper so consumers can still see the
+    // source row type on hover. Reference it to keep lint quiet.
+    void undefined as T | undefined
     return new GroupedAggregation<GroupedRow<F, AggregateResult<Spec>>>(
       this.executeRecords,
       this.fields,
@@ -198,26 +216,11 @@ export class GroupedQuery<T, F extends string> {
  * multi-arg `Query.groupBy(...fields)` overload. The runtime shape is
  * identical — only the type-level result-row narrowing differs.
  */
-export class GroupedQueryN<T, F extends readonly string[]> {
-  private readonly fields: readonly string[]
-
-  constructor(
-    private readonly executeRecords: () => readonly unknown[],
-    fields: F,
-    private readonly upstreams: readonly AggregationUpstream[],
-    private readonly dictLabelResolver?: (
-      key: string,
-      locale: string,
-      fallback?: string | readonly string[],
-    ) => Promise<string | undefined>,
-  ) {
-    this.fields = [...fields]
-    void undefined as T | undefined
-  }
-
+export class GroupedQueryN<T, F extends readonly string[]> extends GroupedQueryBase {
   aggregate<Spec extends AggregateSpec>(
     spec: Spec,
   ): GroupedAggregation<GroupedRowN<F, AggregateResult<Spec>>> {
+    void undefined as T | undefined
     return new GroupedAggregation<GroupedRowN<F, AggregateResult<Spec>>>(
       this.executeRecords,
       this.fields,

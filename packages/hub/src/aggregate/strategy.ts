@@ -57,19 +57,14 @@ export interface AggregateStrategy {
 
   /**
    * Variadic-keyed sibling — builds a `GroupedQueryN<T, F>` for
-   * `Query.groupBy(...fields)`. The dictLabelResolver, when present,
-   * applies only to single-field groupings; the builder is responsible
-   * for omitting it when `fields.length !== 1`.
+   * `Query.groupBy(...fields)`. No dictLabelResolver — `<field>Label`
+   * projection only applies to single-field groupings, which dispatch
+   * through `groupBy` above.
    */
   groupByN<T, F extends readonly string[]>(
     executeRecords: () => readonly unknown[],
     fields: F,
     upstreams: readonly AggregationUpstream[],
-    dictLabelResolver?: (
-      key: string,
-      locale: string,
-      fallback?: string | readonly string[],
-    ) => Promise<string | undefined>,
   ): GroupedQueryN<T, F>
 
   /**
