@@ -340,6 +340,14 @@ const STRATEGY_GATED_APIS = [
   { api: /\.exportBlobs\s*\(/, option: 'blobStrategy',    factory: 'withBlobs' },
 ]
 
+// Per-file exceptions: files that legitimately invoke a gated API
+// on a NON-vault surface (e.g., throw-stub assertions on overlay
+// virtual collections, where the method is named to match Collection<T>
+// but always throws regardless of indexStrategy).
+const STRATEGY_OPT_IN_EXEMPT = new Set([
+  'packages/hub/__tests__/overlay-views/overlay.test.ts',
+])
+
 function checkStrategyOptIns() {
   for (const pkgDir of listPackageDirs()) {
     walkTsFiles(join(pkgDir, 'src'), scanFileForStrategyOptIn)
@@ -348,6 +356,7 @@ function checkStrategyOptIns() {
 }
 
 function scanFileForStrategyOptIn(file, content) {
+  if (STRATEGY_OPT_IN_EXEMPT.has(relative(ROOT, file))) return
   // Use the stronger strip — error-message strings legitimately mention
   // method names like ".dictionary()" inside hint text, which the
   // comment-only strip would leave intact and trip false positives.

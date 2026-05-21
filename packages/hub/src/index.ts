@@ -517,6 +517,19 @@ export {
   MaterializedViewTooLargeError,
 } from './errors.js'
 
+// Overlay views (Dim 14 v2) — see docs/superpowers/specs/2026-05-20-dim14-mv-v2-design.md § Composition with operator-editable lifecycle
+export { withOverlayedView } from './overlay-views/index.js'
+export type {
+  OverlayedViewStrategy,
+  OverlayedViewStrategyHandle,
+} from './overlay-views/index.js'
+export {
+  OverlayBaseIsVirtualError,
+  OverlayCollectionUnavailableError,
+  OverlayNameCollisionError,
+  OverlayIdMismatchError,
+} from './errors.js'
+
 // Accounting periods
 export { PERIODS_COLLECTION } from './periods/index.js'
 export type {

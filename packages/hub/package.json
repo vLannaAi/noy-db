@@ -206,6 +206,16 @@
         "default": "./dist/materialized-views/index.cjs"
       }
     },
+    "./overlay-views": {
+      "import": {
+        "types": "./dist/overlay-views/index.d.ts",
+        "default": "./dist/overlay-views/index.js"
+      },
+      "require": {
+        "types": "./dist/overlay-views/index.d.cts",
+        "default": "./dist/overlay-views/index.cjs"
+      }
+    },
     "./sync": {
       "import": {
         "types": "./dist/sync/index.d.ts",

@@ -42,6 +42,7 @@ const ENTRIES = {
   'tx/index': 'src/tx/index.ts',
   'derivations/index': 'src/derivations/index.ts',
   'materialized-views/index': 'src/materialized-views/index.ts',
+  'overlay-views/index': 'src/overlay-views/index.ts',
   'sync/index': 'src/sync/index.ts',
   'util/index': 'src/util/index.ts',
 }

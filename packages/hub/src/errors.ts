@@ -1503,3 +1503,88 @@ export class MaterializedViewTooLargeError extends NoydbError {
     this.limit = limit
   }
 }
+
+/**
+ * Thrown at vault open when a `withOverlayedView` declaration uses
+ * another virtual-overlay name as its `base`. Multi-overlay stacking
+ * is a v2 non-goal — the shallow expansion in
+ * `QueryDependencyAnalyzer` would truncate at the inner overlay
+ * name, leaving downstream MVs silently stale.
+ */
+export class OverlayBaseIsVirtualError extends NoydbError {
+  readonly overlayName: string
+  readonly base: string
+
+  constructor(overlayName: string, base: string) {
+    super(
+      'OVERLAY_BASE_IS_VIRTUAL',
+      `withOverlayedView "${overlayName}": base "${base}" is another overlay's virtual name. ` +
+        `Multi-overlay stacking is a v3 feature; base must reference a concrete collection (a real source or an MV output).`,
+    )
+    this.name = 'OverlayBaseIsVirtualError'
+    this.overlayName = overlayName
+    this.base = base
+  }
+}
+
+/**
+ * Thrown at vault open when a `withOverlayedView`'s `overlay`
+ * references an unknown collection or an MV-owned collection. The
+ * overlay collection is user-writable; MV-owned collections aren't.
+ */
+export class OverlayCollectionUnavailableError extends NoydbError {
+  readonly overlayName: string
+  readonly overlay: string
+
+  constructor(overlayName: string, overlay: string) {
+    super(
+      'OVERLAY_COLLECTION_UNAVAILABLE',
+      `withOverlayedView "${overlayName}": overlay collection "${overlay}" is unavailable. ` +
+        `It must be a real vault-known collection that is NOT itself an MV output collection.`,
+    )
+    this.name = 'OverlayCollectionUnavailableError'
+    this.overlayName = overlayName
+    this.overlay = overlay
+  }
+}
+
+/**
+ * Thrown at vault open when a `withOverlayedView`'s virtual `name`
+ * collides with an MV output or a concrete source collection.
+ */
+export class OverlayNameCollisionError extends NoydbError {
+  readonly overlayName: string
+
+  constructor(overlayName: string) {
+    super(
+      'OVERLAY_NAME_COLLISION',
+      `withOverlayedView "${overlayName}": virtual name collides with an MV output or a concrete source collection. ` +
+        `Pick a unique name for the virtual collection.`,
+    )
+    this.name = 'OverlayNameCollisionError'
+    this.overlayName = overlayName
+  }
+}
+
+/**
+ * Thrown by the virtual overlay's `put(id, record)` when the
+ * consumer-supplied `id` doesn't match `rowKey(record)`. Catches
+ * fat-finger separator typos that would otherwise silently produce
+ * orphaned overlay rows. Direct writes to the underlying overlay
+ * collection (bypass the virtual layer) skip this validation.
+ */
+export class OverlayIdMismatchError extends NoydbError {
+  readonly actual: string
+  readonly expected: string
+
+  constructor(actual: string, expected: string) {
+    super(
+      'OVERLAY_ID_MISMATCH',
+      `Overlay put(id, record): id "${actual}" does not match the base MV's rowKey(record) → "${expected}". ` +
+        `Pass the row directly via .put(record) to derive the id, or fix the id to match the base MV's rowKey output.`,
+    )
+    this.name = 'OverlayIdMismatchError'
+    this.actual = actual
+    this.expected = expected
+  }
+}
