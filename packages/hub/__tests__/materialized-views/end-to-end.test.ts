@@ -155,14 +155,8 @@ describe('MV foundation (#150) — end-to-end', () => {
     expect(await vault.collection<Item>('mv-redtags').get('a')).toBeNull()
   })
 
-  it('lazy and manual MV strategies register but do not eagerly materialize (foundation no-op)', async () => {
+  it('manual MV: source write does not auto-materialize (read also passes through; only refreshView triggers)', async () => {
     interface Item extends Record<string, unknown> { id: string }
-    const lazyMV = withMaterializedView<Item>({
-      name: 'lazy-mv',
-      query: (db) => db.collection<Item>('items').query(),
-      rowKey: (r) => r.id,
-      refresh: 'lazy',
-    })
     const manualMV = withMaterializedView<Item>({
       name: 'manual-mv',
       query: (db) => db.collection<Item>('items').query(),
@@ -172,15 +166,14 @@ describe('MV foundation (#150) — end-to-end', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-foundation-lazy-manual-passphrase-2026',
-      materializedViewStrategies: [lazyMV, manualMV],
+      secret: 'mv-foundation-manual-passphrase-2026',
+      materializedViewStrategies: [manualMV],
     })
     const vault = await db.openVault('demo')
     await vault.collection<Item>('items').put('a', { id: 'a' })
-    // Foundation: lazy + manual do not materialize. Subtask #151 wires
-    // them. This test pins the no-op behavior so #151 has a clear
-    // delta to write against.
-    expect(await vault.collection<Item>('lazy-mv').get('a')).toBeNull()
+    // Manual MV: neither the source write nor the read triggers
+    // materialization. (Lazy semantics are covered by the dedicated
+    // lazy-and-manual test file.)
     expect(await vault.collection<Item>('manual-mv').get('a')).toBeNull()
   })
 })

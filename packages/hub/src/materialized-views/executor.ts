@@ -26,6 +26,13 @@ export interface MVExecutorAccessor {
 export interface RefreshResult {
   /** Rows newly written / overwritten. */
   written: number
+  /**
+   * Rows tombstoned via `_internalDelete`. Always 0 in this iteration
+   * (foundation + lazy/manual sub-issues #150/#151); populated by
+   * #152's `onEmpty: 'delete'` tombstoning pass. Forward-compat shape
+   * so `vault.refreshView()` callers get a stable contract.
+   */
+  deleted: number
   /** Failed row writes (non-strict mode). */
   failed: number
 }
@@ -123,6 +130,6 @@ export const MaterializedViewExecutor = {
         console.warn(`[mv] "${spec.name}" row write failed:`, err)
       }
     }
-    return { written, failed }
+    return { written, deleted: 0, failed }
   },
 }
