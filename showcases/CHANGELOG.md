@@ -1,5 +1,21 @@
 # @noy-db/showcases
 
+## 0.1.0-pre.14
+
+### Minor Changes
+
+Four new showcases for Dim 14 v2 ([#155](https://github.com/vLannaAi/noy-db/issues/155)):
+
+- `81-with-mv-eager.showcase.test.ts` — `withMaterializedView` eager refresh, groupBy + sum aggregate, tombstoning, `_materializedFrom` stamp (5 tests)
+- `82-with-mv-lazy.showcase.test.ts` — lazy lifecycle, stale-on-source-write, resolve on both `get()` and `list()`, `vault.refreshView`, refresh coalescing (5 tests)
+- `83-with-overlay.showcase.test.ts` — `withOverlayedView` base/overlay/predicate read truth table, write routing, `OverlayIdMismatchError` (5 tests)
+- `84-with-mv-predicates.showcase.test.ts` — declared deterministic predicates, `queryHash` sensitivity to `hash` bump + `ctx` change, chain composition (4 tests)
+
+### Patch Changes
+
+- Updated dependencies
+  - @noy-db/hub@0.1.0-pre.14
+
 ## 0.1.0-pre.12
 
 ### Patch Changes
