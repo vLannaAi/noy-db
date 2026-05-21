@@ -70,6 +70,17 @@ export class MaterializedViewRegistry {
     // expose the underlying Query, so the spec must declare `sources`
     // explicitly. `partitionClauses` are only populated for Query<T>
     // since same-collection-partition is a non-aggregate concern.
+    // UNION-form strategies (#165) have no `query` callback — registration
+    // validation in `withMaterializedView` enforces exactly one of
+    // `query` / `unionSources`. The UNION executor work lands in Tasks
+    // 10+11; for now, registry-time dependency analysis short-circuits
+    // for UNION-form strategies (sources come straight from
+    // `unionSources[].collection`).
+    if (!spec.query) {
+      throw new Error(
+        `[noy-db] internal: UNION-form MV "${spec.name}" reached single-source registry path — Task 10/11 executor work pending.`,
+      )
+    }
     const q = spec.query(dbForQuery)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const qAny = q as any

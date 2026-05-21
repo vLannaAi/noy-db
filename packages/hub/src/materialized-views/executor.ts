@@ -121,6 +121,15 @@ export const MaterializedViewExecutor = {
     const ctxForQuery: MVQueryContext = spec.predicates
       ? wrapDbWithPredicates(baseCtx, spec.predicates)
       : baseCtx
+    // UNION-form strategies (#165) have no `query` callback; the
+    // executor branch for them lands in Tasks 10+11. Until then, the
+    // registry path also rejects UNION-form, so reaching here means a
+    // single-source strategy and `spec.query` is guaranteed defined.
+    if (!spec.query) {
+      throw new Error(
+        `[noy-db] internal: UNION-form MV "${spec.name}" reached single-source executor path — Task 10/11 executor work pending.`,
+      )
+    }
     const q = spec.query(ctxForQuery)
     const rows = await materializeQueryResult(q, spec.name)
 

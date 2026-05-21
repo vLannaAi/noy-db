@@ -510,9 +510,11 @@ export type {
   MaterializedViewStrategyHandle,
   MaterializedViewOutput,
   MaterializedFromMeta,
+  UnionSource,
 } from './materialized-views/index.js'
 export {
   MaterializedViewCycleError,
+  MaterializedViewConfigError,
   MaterializedViewSourceUnknownError,
   MaterializedViewTooLargeError,
 } from './errors.js'

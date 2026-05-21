@@ -1,5 +1,6 @@
 import type { Query } from '../query/builder.js'
 import type { Collection } from '../collection.js'
+import type { AggregateSpec } from '../aggregate/aggregation.js'
 
 /**
  * Minimal vault-shaped accessor passed to the MV `query()` callback.
@@ -57,6 +58,29 @@ export interface MaterializedViewOutput {
 }
 
 /**
+ * One arm of a UNION materialized view. Reads rows from `collection`,
+ * then maps each into the MV's row shape via `map`.
+ *
+ * The per-source `map` is the schema-unification boundary — sibling
+ * collections can have different schemas, and `map` is where they
+ * meet the MV's row type. The hub does NOT compare schemas across
+ * arms; consumer responsibility is that every arm's `map` returns
+ * the same shape (the strategy's `TRow` type parameter enforces this
+ * at compile time).
+ */
+export interface UnionSource<TRow extends Record<string, unknown>> {
+  /** Source collection name. Must exist in the vault. */
+  readonly collection: string
+  /**
+   * Pure function from a source row to the unified MV row shape.
+   * Called once per source row at materialization time. Each arm's
+   * mapped output is concatenated into a single stream before
+   * `groupBy` + `aggregate` run.
+   */
+  readonly map: (sourceRow: Record<string, unknown>) => TRow
+}
+
+/**
  * Registration shape passed to `withMaterializedView()`.
  *
  * @typeParam TRow - the materialized row type (the query's result row)
@@ -68,16 +92,59 @@ export interface MaterializedViewStrategy<TRow extends Record<string, unknown>> 
    */
   name: string
   /**
-   * Declared query. Called at registration time with a vault-shaped
-   * accessor so the closure can compose collections without
-   * pre-existing in-scope references; called again at each refresh.
+   * Declared query (single-source mode). Called at registration time
+   * with a vault-shaped accessor so the closure can compose collections
+   * without pre-existing in-scope references; called again at each
+   * refresh.
    *
    * Built via the same `Query<T>` chainable builder used elsewhere —
    * `.where()`, `.join()`, `.groupBy()`, `.aggregate()`. The
    * dependency analyzer walks the returned plan to determine source
    * collections.
+   *
+   * Mutually exclusive with {@link unionSources}: a strategy must
+   * declare exactly one of `query` (single-source) or `unionSources`
+   * (multi-source UNION). Registration throws
+   * `MaterializedViewConfigError` if both are set or neither is set.
    */
-  query: (db: MVQueryContext) => Query<TRow>
+  query?: (db: MVQueryContext) => Query<TRow>
+  /**
+   * UNION-form sources (#165): an explicit list of sibling collections
+   * that contribute rows to a single MV. Each arm's `map` projects a
+   * source row into the MV's unified row shape; the mapped streams are
+   * concatenated, then {@link groupBy} + {@link aggregate} run on the
+   * combined output.
+   *
+   * Mutually exclusive with {@link query}. Registration throws
+   * `MaterializedViewConfigError` if both are set, if `unionSources`
+   * has fewer than 2 arms, or if two arms name the same `collection`.
+   *
+   * UNION mode replaces the dependency-analyzer path: the source
+   * collections come directly from `unionSources[].collection`, and
+   * {@link sources} is ignored.
+   */
+  unionSources?: ReadonlyArray<UnionSource<TRow>>
+  /**
+   * Group-key field(s) for UNION mode (#165). Applied to the
+   * concatenated mapped-row stream from {@link unionSources} before
+   * {@link aggregate} runs. Accepts a single field name or a tuple of
+   * field names for multi-key grouping (same shape as
+   * `Query.groupBy(...fields)`).
+   *
+   * UNION-mode only. Ignored if {@link query} is set — single-source
+   * grouping is expressed inside the `Query<T>` returned from `query()`
+   * via `.groupBy(...).aggregate(...)`.
+   */
+  groupBy?: string | ReadonlyArray<string>
+  /**
+   * Aggregation spec for UNION mode (#165). Applied per-group after
+   * {@link groupBy} buckets the concatenated mapped-row stream from
+   * {@link unionSources}. Same shape as the `AggregateSpec` passed to
+   * `Query.aggregate()`.
+   *
+   * UNION-mode only. Ignored if {@link query} is set.
+   */
+  aggregate?: AggregateSpec
   /**
    * Pure function from a materialized row → stable id used in the
    * output collection. Required — explicit always beats default-with-pitfalls
