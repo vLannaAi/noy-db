@@ -2,7 +2,7 @@ import { MaterializedViewCycleError, MaterializedViewSourceUnknownError } from '
 import type { DerivationRegistry } from '../derivations/registry.js'
 import type { Clause, FieldClause } from '../query/predicate.js'
 import type { DeclaredPredicate } from '../query/builder.js'
-import { analyzeDependencies, summarizeQueryPlan } from './dependency-analyzer.js'
+import { analyzeDependencies, summarizeQueryPlan, summarizeUnionPlan } from './dependency-analyzer.js'
 import { computeQueryHash } from './query-hash.js'
 import type { MaterializedViewStrategy, MVQueryContext } from './types.js'
 
@@ -70,51 +70,52 @@ export class MaterializedViewRegistry {
     // expose the underlying Query, so the spec must declare `sources`
     // explicitly. `partitionClauses` are only populated for Query<T>
     // since same-collection-partition is a non-aggregate concern.
-    // UNION-form strategies (#165) have no `query` callback — registration
-    // validation in `withMaterializedView` enforces exactly one of
-    // `query` / `unionSources`. The UNION executor work lands in Tasks
-    // 10+11; for now, registry-time dependency analysis short-circuits
-    // for UNION-form strategies (sources come straight from
-    // `unionSources[].collection`).
-    if (!spec.query) {
-      throw new Error(
-        `[noy-db] internal: UNION-form MV "${spec.name}" reached single-source registry path — Task 10/11 executor work pending.`,
-      )
-    }
-    const q = spec.query(dbForQuery)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const qAny = q as any
-    const isQuery = typeof qAny._plan === 'function'
+    // UNION-form strategies (#165): dependencies and plan summary come
+    // straight off the strategy — no `query` callback to introspect.
+    // The dependency-analyzer + summarizer are bypassed entirely; the
+    // executor handles materialization via `materializeUnionResult`.
     let dependencies: Set<string>
     let queryPlanSummary: string
-    if (isQuery) {
-      dependencies = analyzeDependencies(q)
-      queryPlanSummary = summarizeQueryPlan(q)
-      // Fold `.wherePredicate(name, ctx)` references into the plan
-      // summary so predicate function or ctx changes (signalled by
-      // bumping `hash` or supplying a different ctx) propagate into
-      // `queryHash` and force refresh on next visit.
-      const predicateRefs = extractPredicateRefs(qAny._plan())
-      if (predicateRefs.length > 0) {
-        queryPlanSummary = JSON.stringify({ plan: queryPlanSummary, predicates: predicateRefs })
-      }
-      // If `sources` is ALSO declared, take the union (consumer's
-      // explicit list extends the auto-analyzed set).
-      if (spec.sources) for (const s of spec.sources) dependencies.add(s)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let qAny: any = null
+    let isQuery = false
+    if (spec.unionSources) {
+      dependencies = new Set(spec.unionSources.map(s => s.collection))
+      queryPlanSummary = summarizeUnionPlan(spec)
     } else {
-      // Aggregate shape: require explicit `sources`.
-      if (!spec.sources || spec.sources.length === 0) {
-        throw new Error(
-          `withMaterializedView "${spec.name}": query() returned an aggregate ` +
-            `(Aggregation or GroupedAggregation) but no \`sources\` field is declared. ` +
-            `The dependency analyzer cannot walk through groupBy().aggregate() ` +
-            `back to the source — declare sources: [...] explicitly.`,
-        )
+      const q = spec.query!(dbForQuery)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      qAny = q as any
+      isQuery = typeof qAny._plan === 'function'
+      if (isQuery) {
+        dependencies = analyzeDependencies(q)
+        queryPlanSummary = summarizeQueryPlan(q)
+        // Fold `.wherePredicate(name, ctx)` references into the plan
+        // summary so predicate function or ctx changes (signalled by
+        // bumping `hash` or supplying a different ctx) propagate into
+        // `queryHash` and force refresh on next visit.
+        const predicateRefs = extractPredicateRefs(qAny._plan())
+        if (predicateRefs.length > 0) {
+          queryPlanSummary = JSON.stringify({ plan: queryPlanSummary, predicates: predicateRefs })
+        }
+        // If `sources` is ALSO declared, take the union (consumer's
+        // explicit list extends the auto-analyzed set).
+        if (spec.sources) for (const s of spec.sources) dependencies.add(s)
+      } else {
+        // Aggregate shape: require explicit `sources`.
+        if (!spec.sources || spec.sources.length === 0) {
+          throw new Error(
+            `withMaterializedView "${spec.name}": query() returned an aggregate ` +
+              `(Aggregation or GroupedAggregation) but no \`sources\` field is declared. ` +
+              `The dependency analyzer cannot walk through groupBy().aggregate() ` +
+              `back to the source — declare sources: [...] explicitly.`,
+          )
+        }
+        dependencies = new Set(spec.sources)
+        // Aggregate plans don't carry a chainable query plan for summary
+        // purposes; the dep-set + spec.name serve as the queryHash inputs.
+        queryPlanSummary = JSON.stringify({ aggregate: true, sources: [...spec.sources].sort() })
       }
-      dependencies = new Set(spec.sources)
-      // Aggregate plans don't carry a chainable query plan for summary
-      // purposes; the dep-set + spec.name serve as the queryHash inputs.
-      queryPlanSummary = JSON.stringify({ aggregate: true, sources: [...spec.sources].sort() })
     }
 
     // Sanity-check declared dependencies against the vault's known

@@ -1,5 +1,6 @@
 import type { Query, QueryPlan } from '../query/builder.js'
 import type { JoinContext } from '../query/join.js'
+import type { MaterializedViewStrategy } from './types.js'
 
 /**
  * Walks a `Query<T>` plan and returns the set of source collection
@@ -82,4 +83,29 @@ export function summarizeQueryPlan(query: Query<any>): string {
     offset: plan.offset,
     joins: plan.joins.map(j => ({ field: j.field, as: j.as, target: j.target, mode: j.mode })),
   })
+}
+
+/**
+ * Canonical string description of a UNION MV's plan, used as input to
+ * `computeQueryHash`. Sorts arm collection names + groupBy fields +
+ * aggregate spec keys so structural reorderings produce the same hash
+ * (the order of `unionSources` and the field order inside `groupBy`
+ * don't change semantics — sorting catches that).
+ *
+ * Per-arm `map` functions are NOT fingerprinted; consumers must bump
+ * the MV's `name` (or rely on application-level cache busting) when
+ * `map` semantics change non-equivalently.
+ */
+export function summarizeUnionPlan<T extends Record<string, unknown>>(
+  spec: MaterializedViewStrategy<T>,
+): string {
+  const arms = [...(spec.unionSources ?? [])]
+    .map(s => s.collection)
+    .sort()
+    .join(',')
+  const groupBy = Array.isArray(spec.groupBy)
+    ? [...spec.groupBy].sort().join(',')
+    : (spec.groupBy ?? '')
+  const aggKeys = spec.aggregate ? Object.keys(spec.aggregate).sort().join(',') : ''
+  return `union(${arms})|groupBy(${groupBy})|aggregate(${aggKeys})`
 }
