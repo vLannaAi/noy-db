@@ -62,6 +62,21 @@ describe('withMaterializedView UNION validation (#165)', () => {
     ).toThrow(/distinct collections/)
   })
 
+  it('rejects unionSources with empty groupBy array', () => {
+    expect(() =>
+      withMaterializedView({
+        name: 'bad-empty-groupby',
+        unionSources: [
+          { collection: 'a', map: (r) => r as Record<string, unknown> },
+          { collection: 'b', map: (r) => r as Record<string, unknown> },
+        ],
+        groupBy: [],
+        rowKey: () => 'k',
+        refresh: 'eager',
+      }),
+    ).toThrow(/empty array/)
+  })
+
   it('accepts a well-formed UNION strategy', () => {
     expect(() =>
       withMaterializedView<{ k: string; n: number }>({

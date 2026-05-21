@@ -70,6 +70,11 @@ export function withMaterializedView<TRow extends Record<string, unknown>>(
       }
       seen.add(s.collection)
     }
+    if (Array.isArray(spec.groupBy) && spec.groupBy.length === 0) {
+      throw new MaterializedViewConfigError(
+        `withMaterializedView "${spec.name}": groupBy must not be an empty array — omit it or provide at least one field name`,
+      )
+    }
   }
   if (typeof spec.rowKey !== 'function') {
     throw new ValidationError('withMaterializedView: rowKey is required (no default; see spec § Type surface)')
