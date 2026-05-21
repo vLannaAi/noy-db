@@ -266,7 +266,6 @@ source + output collection set.
 
 - Cache-tier backends (`to-cache-*`)
 - Built-in derivers (PDF, image, etc.)
-- `withMaterializedView` (collection-level query derivation)
 - Scheduled / cron-style refresh
 - Non-deterministic derivations with persistence
 - External / sandboxed derivation runtimes
@@ -277,8 +276,229 @@ source + output collection set.
 
 See the spec for the full deferred list.
 
+## Materialized Views
+
+> **Factory:** `withMaterializedView()`
+> **Subpath:** `@noy-db/hub` (re-exported)
+> **Spec:** `docs/superpowers/specs/2026-05-20-dim14-mv-v2-design.md`
+
+`withMaterializedView` (v2) is the query-level companion to v1's
+record-level `withDerivation`. Where `withDerivation` projects one
+source row into N typed outputs, `withMaterializedView` materializes
+the result of an entire `Query<T>` — filter, groupBy, aggregate, join
+— into a queryable collection that is kept fresh on source writes.
+
+```ts
+import { withMaterializedView, sum, count } from '@noy-db/hub'
+
+const pnd1 = withMaterializedView<Pnd1Row>({
+  name: 'pnd1',
+  query: (db) =>
+    db.collection<Compensation>('compensations')
+      .query()
+      .groupBy('clientId')
+      .aggregate({ tax: sum('taxAmount'), count: count() }),
+  rowKey: (row) => row.clientId,
+  sources: ['compensations'],  // required for aggregate / groupBy
+  refresh: 'eager',
+})
+```
+
+### Strategy fields
+
+| Field | Required? | Meaning |
+|-------|:---------:|---------|
+| `name` | yes | Stable identity. Default output collection name. |
+| `query: (db) => Query<TRow>` | yes | Materialized query, run at registration + every refresh. |
+| `rowKey: (row) => string` | yes | Stable id derivation. Explicit — no default. |
+| `refresh: 'eager' \| 'lazy' \| 'manual'` | yes | Refresh policy (see below). |
+| `sources?: string[]` | only for aggregate / groupBy | Explicit dependencies. Plain `Query<T>` shapes are auto-analyzed. |
+| `predicates?: { ... }` | no | Declared deterministic predicates (see § below). |
+| `output?: { collection?, partition? }` | no | Custom output name + same-collection partition discriminator. |
+| `onEmpty?: 'delete' \| 'keep'` | no, default `'delete'` | What to do when re-materialization yields zero rows for a previously-emitted key. |
+| `strict?: boolean` | no, default `false` | Re-throw row-write failures to enable transactional rollback. |
+| `maxRows?: number` | no, default `100_000` | Row-count ceiling; throws `MaterializedViewTooLargeError` before any writes. |
+
+### Refresh modes
+
+- **`eager`** — every source write re-runs the query inside the same
+  transaction. Outputs land synchronously. Pairs with `withTransactions`
+  + `strict: true` for atomic source-and-MV updates.
+- **`lazy`** — source writes mark the MV stale (in-memory). The next
+  read (`.get(id)` or `.list()`) on the MV's output collection triggers
+  the re-materialize before returning. Recommended for expensive views
+  with read-light workloads.
+- **`manual`** — only `vault.refreshView(name)` triggers
+  re-materialization. Useful for time-dependent queries whose `ctx`
+  changes externally, or very expensive views that opt out of the
+  source-write hook entirely.
+
+### `vault.refreshView(name)`
+
+```ts
+const { written, deleted, failed } = await vault.refreshView('pnd1')
+```
+
+Manual entry-point. Returns the executor's full result counts including
+tombstones (`deleted`). Throws if the MV name isn't registered.
+
+### `_materializedFrom` metadata
+
+Every materialized row carries:
+
+```ts
+{
+  _materializedFrom: {
+    mvName: 'pnd1',
+    queryHash: 'sha256-...',        // identity of the query structure
+    sourceVersions: { compensations: 7 },
+    materializedAt: '2026-05-21T...',
+  }
+}
+```
+
+Lives **inside the encrypted payload**, not in the unencrypted envelope
+— the storage backend cannot infer the MV graph from listing. Same
+zero-knowledge shape as v1's `_derivedFrom`.
+
+### Tombstoning (`onEmpty: 'delete'`)
+
+When a re-materialization produces zero rows for a key that previously
+had rows, the prior row is deleted via the `Collection._internalDelete`
+bypass. Same composition story as v1's `optional: true` tombstones:
+user `onDelete` guards on the output collection do **not** fire on
+housekeeping deletes. This keeps consumers free to register
+`onDelete: throw` rules on MV output collections without deadlocking
+their own refresh path.
+
+Opt out with `onEmpty: 'keep'` if zero is a meaningful read state.
+
+### Cycle detection
+
+The cycle detector walks the unified graph of derivations + MVs +
+overlays at `openVault` and rejects cycles with
+`MaterializedViewCycleError`. Same-collection edges (an MV whose
+source equals its output) are allowed **only** when `output.partition`
+provably disjoints the source filter (`==` against a different value,
+`!=` against the value, `in` lists that exclude it). Naïve
+same-collection MVs without a partition filter throw.
+
+### Errors
+
+All extend `NoydbError`:
+
+- `MaterializedViewCycleError(path[])` — cyclic MV graph
+- `MaterializedViewSourceUnknownError(mv, source)` — `sources` declared a name the vault doesn't know
+- `MaterializedViewTooLargeError(mv, rowCount, limit)` — `maxRows` exceeded
+
+### `declaredDeterministicPredicates`
+
+Some filters can't be expressed as `.where(field, op, value)` — date
+arithmetic, multi-field conditions, references to external time. The
+`predicates` field declares named functions that the query can call:
+
+```ts
+withMaterializedView<Invoice>({
+  name: 'overdue',
+  predicates: {
+    isOverdue: {
+      hash: 'is-overdue-v1',
+      fn: (inv, ctx) => inv.status === 'open' && inv.dueDate < (ctx as { asOf: string }).asOf,
+    },
+  },
+  query: (db) => db.collection<Invoice>('invoices').query()
+    .wherePredicate('isOverdue', { asOf: '2026-05-20' }),
+  rowKey: (r) => r.id,
+  refresh: 'eager',
+})
+```
+
+The predicate's `hash` field + a canonical-JSON hash of the `ctx`
+argument both fold into the MV's `queryHash`. **Bumping `hash`**
+(because the function's meaning changed) or **changing `ctx`** (e.g.
+moving `asOf`) **forces a refresh on next visit** — no ad-hoc
+invalidation logic in product code.
+
+Consumer responsibility: bump `hash` when the function semantics
+change. Failing to bump after a non-equivalent change leaves stale
+rows around until the next explicit refresh.
+
+`.wherePredicate()` is only available on `Query<T>` instances produced
+by an MV that declared the predicate map. A bare query throws
+`"no predicates registered on this query"` if you try to call it.
+
+## Overlay views
+
+> **Factory:** `withOverlayedView()`
+> **Subpath:** `@noy-db/hub` (re-exported)
+> **Spec:** `docs/superpowers/specs/2026-05-20-dim14-mv-v2-design.md` § Composition with operator-editable lifecycle
+
+Overlays let a vault expose a **virtual collection** that merges two
+concrete collections — typically an MV's output as `base` and a
+user-writable `overlay` for operator overrides. A single-field shadow
+predicate decides which side wins per row.
+
+```ts
+import { withOverlayedView } from '@noy-db/hub'
+
+const pnd1 = withOverlayedView({
+  name: 'pnd1',
+  base: 'pnd1-aggregate',       // MV output collection
+  overlay: 'pnd1-overlay',      // user-writable collection
+  shadowField: 'dataStatus',
+  shadowValue: 'override',
+})
+```
+
+Read semantics: `vault.collection('pnd1').get(id)` returns the overlay
+row **iff** `overlay[shadowField] === shadowValue`, otherwise the base
+row. No callback merge, no priority lattice, no field-level merge — v2
+stays explicitly narrow.
+
+Write semantics: `.put(id, record)` on the virtual collection routes
+to the overlay collection. The `id` argument must agree with the
+record's identity per the overlay's `rowKey`; mismatches throw
+`OverlayIdMismatchError`.
+
+### Why this exists
+
+Consumer pattern: an MV computes the "right" answer deterministically,
+but a regulated-domain operator needs to override specific rows (an
+accountant marks a row as `dataStatus: 'override'` and edits the
+amount). Without overlays, consumers had to either abandon the MV
+(lose determinism) or write sentinel rows back to the source (lose
+provenance). The overlay split keeps both paths honest.
+
+### Constraints
+
+- `base` must be a **concrete** collection (a real source or an MV
+  output) — not itself a virtual overlay name. Multi-overlay stacking
+  is a v3 non-goal; enforced at `openVault` via
+  `OverlayBaseIsVirtualError`.
+- `overlay` must be a vault-known collection that is **not** an MV
+  output. Operator writes go through the overlay's normal write
+  pipeline, so its own `withGuard` / `withDerivation` registrations
+  apply.
+- `name` must not collide with any concrete collection or MV output —
+  enforced via `OverlayNameCollisionError`.
+
+### Errors
+
+All extend `NoydbError`:
+
+- `OverlayBaseIsVirtualError(overlay, base)` — base resolves to another overlay's virtual name
+- `OverlayCollectionUnavailableError(overlay, missing)` — overlay or base collection not registered
+- `OverlayNameCollisionError(name, existing)` — virtual name collides with a concrete collection or MV
+- `OverlayIdMismatchError(actual, expected)` — `put(id, record)` where id doesn't equal `rowKey(record)`
+
 ## See also
 
 - [SUBSYSTEMS.md](../../SUBSYSTEMS.md)
 - `docs/superpowers/specs/2026-05-01-dim14-derivation-v1-design.md`
-- `__tests__/derivations/*.test.ts`, `showcases/src/80-with-derivation.showcase.test.ts`
+- `docs/superpowers/specs/2026-05-20-dim14-mv-v2-design.md`
+- `__tests__/derivations/*.test.ts`, `__tests__/materialized-views/*.test.ts`, `__tests__/overlay-views/*.test.ts`
+- `showcases/src/80-with-derivation.showcase.test.ts`
+- `showcases/src/81-with-mv-eager.showcase.test.ts`
+- `showcases/src/82-with-mv-lazy.showcase.test.ts`
+- `showcases/src/83-with-overlay.showcase.test.ts`
+- `showcases/src/84-with-mv-predicates.showcase.test.ts`

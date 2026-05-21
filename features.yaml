@@ -489,6 +489,60 @@ features:
       - 'cycle detection at vault open — refuses cyclic graphs'
     related: [guards, transactions]
 
+  - id: materialized-views
+    name: Query-level materialized views
+    cluster: write-and-mutate
+    spec: docs/subsystems/derivations.md#materialized-views
+    subsystem_doc: docs/subsystems/derivations.md
+    package: '@noy-db/hub'
+    factory: withMaterializedView
+    status: preview
+    showcases:
+      - id: 81-with-mv-eager
+        path: showcases/src/81-with-mv-eager.showcase.test.ts
+      - id: 82-with-mv-lazy
+        path: showcases/src/82-with-mv-lazy.showcase.test.ts
+      - id: 84-with-mv-predicates
+        path: showcases/src/84-with-mv-predicates.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'query() runs on plaintext, after DEK unwrap, before encrypt'
+      - 'materialized rows encrypted with same DEK as source(s)'
+      - '_materializedFrom lives in encrypted payload, not unencrypted envelope'
+      - 'eager refresh runs inside source-write transaction; strict:true rolls back source on row-write failure'
+      - 'lazy refresh: source writes mark stale, next read of MV output resolves'
+      - 'manual refresh: only vault.refreshView(name) re-materializes'
+      - 'onEmpty:delete tombstones via Collection._internalDelete — user onDelete guards bypassed for housekeeping'
+      - 'predicates: hash + canonical-JSON ctx fold into queryHash → refresh on hash bump or ctx change'
+      - 'cycle detection at vault open — same-collection edges allowed only with provably-disjoint output.partition'
+      - 'maxRows ceiling throws MaterializedViewTooLargeError before any writes'
+    related: [derivations, overlay-views, transactions, guards]
+
+  - id: overlay-views
+    name: Read-shadow virtual collections
+    cluster: write-and-mutate
+    spec: docs/subsystems/derivations.md#overlay-views
+    subsystem_doc: docs/subsystems/derivations.md
+    package: '@noy-db/hub'
+    factory: withOverlayedView
+    status: preview
+    showcases:
+      - id: 83-with-overlay
+        path: showcases/src/83-with-overlay.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'reads merge base + overlay via single-field shadow predicate; no callback / field-level merge'
+      - 'writes through virtual collection route to overlay collection (base untouched)'
+      - 'base must be concrete (real source or MV output); not another overlay'
+      - 'overlay collection must be vault-known and not an MV output'
+      - 'virtual name must not collide with concrete collections or MV outputs'
+      - 'put(id, record) validates id === rowKey(record) — OverlayIdMismatchError on disagreement'
+    related: [materialized-views, derivations]
+
   - id: guards
     name: Record lock, field freeze, amendment invariant
     cluster: time-and-audit
