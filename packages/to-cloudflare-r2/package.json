@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/to-cloudflare-r2",
-  "version": "0.1.0-pre.12",
+  "version": "0.1.0-pre.14",
   "description": "Cloudflare R2 adapter for noy-db — S3-compatible object storage with zero egress fees. Thin wrapper around @noy-db/to-aws-s3 configured for the R2 endpoint. casAtomic: false (same caveat as S3).",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",

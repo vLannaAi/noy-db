@@ -1,5 +1,60 @@
 # Changelog — hub
 
+## 0.1.0-pre.14
+
+Two related strands shipped together: **Guards/Derivations v1.5** fast-follows from the pre.11 surface, then **Dim 14 v2 — `withMaterializedView`** built on top. 12 issues closed across 7 merged PRs; ~3000 LOC added across `src/`; 1573 hub tests pass on the tip.
+
+### Guards/Derivations v1.5 ([#148](https://github.com/vLannaAi/noy-db/pull/148))
+
+Four fast-follow refinements that landed first to give the MV v2 work a hardened `ReadOnlyVaultFacade` foundation:
+
+- **`withGuard.onDelete`** ([#145](https://github.com/vLannaAi/noy-db/issues/145)) — guards can now reject deletes based on record state. Mirrors the `check` hook's shape but fires on `Collection.delete`. Used by the v2 MV tombstoning path: a `receipts.onDelete: throw` rule no longer deadlocks the system's own housekeeping deletes (see § Tombstone bypass below).
+- **`withDerivation` optional outputs** ([#144](https://github.com/vLannaAi/noy-db/issues/144)) — declare an output as `optional: true` and return `null` to skip emission. If a prior derivation emitted at this id, it's tombstoned via `Collection._internalDelete` (system-internal bypass of user `onDelete` guards). Returning `null` for a non-optional output still throws `DerivationOutputShapeError`.
+- **`derive(source, ctx)` gets the `ReadOnlyVaultFacade`** ([#147](https://github.com/vLannaAi/noy-db/issues/147)) — same facade guards have. `ctx.vault.collection<T>('siblings').get(id)` works inside `derive`. Strategy hash incorporates `derive.toString()` so the function body pins inputs; sibling reads must be deterministic given the same source row (consumer responsibility).
+- **`.query()` on `ReadOnlyVaultFacade`** ([#146](https://github.com/vLannaAi/noy-db/issues/146)) — aggregating checks can now express set-level invariants (`vault.collection('invoices').query().where(...).count()`) inside guard `check` callbacks. Closes the "I can't enforce 'no two open invoices for the same client' without sweeping list()s" gap.
+
+### Dim 14 v2 — `withMaterializedView` ([#149](https://github.com/vLannaAi/noy-db/issues/142) spec + [#143](https://github.com/vLannaAi/noy-db/issues/143) implementation epic)
+
+Query-level materialized views. Where `withDerivation` v1 projects one source row into N typed outputs, `withMaterializedView` materializes the result of an entire `Query<T>` — filter, groupBy, aggregate, join — into a queryable collection kept fresh on source writes. Six sub-issues across foundation, lifecycles, correctness, predicates, overlays, and showcases:
+
+- **Foundation** ([#150](https://github.com/vLannaAi/noy-db/issues/150), PR [#156](https://github.com/vLannaAi/noy-db/pull/156)) — `withMaterializedView({ name, query, rowKey, refresh })` factory; `MaterializedViewRegistry`; `MaterializedViewExecutor`; `Collection.put` source-write hook for eager refresh. `_materializedFrom` payload metadata (lives inside encrypted `_data`, opaque to the store — matches `_derivedFrom` precedent). `MaterializedViewCycleError` + `MaterializedViewSourceUnknownError`. New `@noy-db/hub/materialized-views` subpath.
+- **Lazy + manual lifecycles** ([#151](https://github.com/vLannaAi/noy-db/issues/151), PR [#157](https://github.com/vLannaAi/noy-db/pull/157)) — `refresh: 'lazy'` marks the MV stale on source writes; the next read of the MV output collection resolves on demand. `refresh: 'manual'` opts out of the source-write hook entirely; `vault.refreshView(name)` is the only refresh path. Returns `{ written, deleted, failed }` — niwat-review caught the original "deleted: 0 hardcode" pre-merge.
+- **Correctness — partition / onEmpty / ceiling / strict / aggregate** ([#152](https://github.com/vLannaAi/noy-db/issues/152), PR [#158](https://github.com/vLannaAi/noy-db/pull/158)) — five strategy fields:
+  - `output.partition: { field, value }` — same-collection edges are allowed when a where-clause provably excludes `partition.value` (`==` against a different value, `!=` against the value, `in` lists that exclude it). Cycle detector resolves these as non-cycles.
+  - `onEmpty: 'delete' | 'keep'` (default `'delete'`) — when a key that previously emitted rows yields zero rows, tombstone via `Collection._internalDelete`. User `onDelete` guards on the output collection are bypassed for housekeeping (the composition fix that makes #145 + MV refresh coherent).
+  - `maxRows` (default `100_000`) — row-count ceiling; throws `MaterializedViewTooLargeError` **before** any writes (clean rollback).
+  - `strict: true` re-throws row-write failures → composes with `withTransactions` to roll back the source-write atomically via `revertExecuted` (the orphan-window fix from pre.12 #133).
+  - **Aggregate / groupBy queries** — executor branches on the terminal shape (`Query<T>.toArray()` / `Aggregation.run()` / `GroupedAggregation.run()`). `groupBy().aggregate()` closes over its source so the dep analyzer can't introspect; aggregate MVs require explicit `sources?: string[]`.
+- **Declared deterministic predicates** ([#153](https://github.com/vLannaAi/noy-db/issues/153), PR [#159](https://github.com/vLannaAi/noy-db/pull/159)) — `MaterializedViewStrategy.predicates: { [name]: { hash, fn } }` registers named functions callable from inside the MV's `query()` callback via `.wherePredicate(name, ctx?)`. The predicate's `hash` **and** a canonical-JSON hash of the `ctx` argument both fold into `queryHash` — bumping `hash` or changing `ctx` forces refresh. Canonical use: `isOverdue` against an `asOf` date that moves externally. Niwat-review caught the original "predicates dropped through chain methods" pre-merge: every chain operator (`where`, `or`, `and`, `filter`, `orderBy`, `limit`, `offset`, `join`) now threads the predicates map.
+- **Overlay views — `withOverlayedView`** ([#154](https://github.com/vLannaAi/noy-db/issues/154), PR [#160](https://github.com/vLannaAi/noy-db/pull/160)) — read-shadow primitive. Declares a virtual collection that merges a `base` (typically an MV output) with a user-writable `overlay` via a single-field shadow predicate (`overlay[shadowField] === shadowValue`). Writes through the virtual proxy route to the overlay. Constraints: `base` must be concrete (no overlay-on-overlay stacking — v3 non-goal); `overlay` must not be an MV output; virtual name must not collide with concrete collections or MV outputs. Four error classes (`OverlayBaseIsVirtualError`, `OverlayCollectionUnavailableError`, `OverlayNameCollisionError`, `OverlayIdMismatchError`).
+- **Showcases + reader-facing docs** ([#155](https://github.com/vLannaAi/noy-db/issues/155), PR [#161](https://github.com/vLannaAi/noy-db/pull/161)) — four new showcases (`81-with-mv-eager`, `82-with-mv-lazy`, `83-with-overlay`, `84-with-mv-predicates`) totaling 19 tests; `docs/subsystems/derivations.md` extended with Materialized Views + Overlay views sections; `features.yaml` entries for `materialized-views` and `overlay-views`.
+
+### Composition story
+
+The pre.14 release closes the loop on the write-path primitive composition:
+
+- **Guards** ([#123](https://github.com/vLannaAi/noy-db/issues/123), pre.11) — block writes before encryption.
+- **Derivations** ([#129](https://github.com/vLannaAi/noy-db/issues/129), pre.11) — eager / lazy record-level projections, post-write.
+- **`withGuard.onDelete`** ([#145](https://github.com/vLannaAi/noy-db/issues/145), pre.14) — symmetric delete-side gate.
+- **Materialized views** ([#143](https://github.com/vLannaAi/noy-db/issues/143), pre.14) — query-level derivations; same encryption / opacity guarantees.
+- **Overlay views** ([#154](https://github.com/vLannaAi/noy-db/issues/154), pre.14) — operator-editable override layer over MV outputs.
+
+The `Collection._internalDelete` housekeeping bypass (introduced in #148 for #144's tombstoning) is the load-bearing primitive that keeps `withGuard.onDelete: throw` rules coherent with system-driven tombstones from optional derivations and MV `onEmpty: 'delete'` flows.
+
+### Process notes for niwat integration
+
+- All five MV PRs (#156–#160) plus #161 passed niwat-review with "No issues found" verdicts after pre-merge fixes. The niwat-review pattern that worked: surface composition issues (e.g. "list/query/scan don't trigger lazy resolve", "chain methods drop predicates map") before the PR landed on main.
+- Stacked-PR rebase pattern documented in [project memory](https://github.com/vLannaAi/noy-db/blob/main/) after this cycle: when squash-merging a stack of N PRs, the canonical recovery for the (N+1)th descendant is `reset --hard origin/main && cherry-pick <descendant-only-commits>` rather than re-rebasing the original branch. Re-rebasing leaks conflict markers when the parent's content has been merged with reviewer-fix tweaks.
+
+### Files of interest
+
+- `packages/hub/src/materialized-views/{executor,registry,stale,dependency-analyzer,query-hash,with-materialized-view}.ts`
+- `packages/hub/src/overlay-views/{registry,virtual-collection,with-overlayed-view,types}.ts`
+- `packages/hub/src/query/builder.ts` (predicates threading + `serializeClause` for `wherePredicate`)
+- `showcases/src/8{1,2,3,4}-*.showcase.test.ts`
+- `docs/subsystems/derivations.md` (extended)
+- `docs/superpowers/specs/2026-05-20-dim14-mv-v2-design.md` (the spec)
+
 ## 0.1.0-pre.12
 
 Three follow-ups from pre.11's guards + derivation work: bundle regression plugged ([#130](https://github.com/vLannaAi/noy-db/issues/130)), strict-mode multi-output orphan window closed ([#133](https://github.com/vLannaAi/noy-db/issues/133)), and user-list visibility flags shipped ([#122](https://github.com/vLannaAi/noy-db/issues/122)). Plus [#132](https://github.com/vLannaAi/noy-db/issues/132) closed as superseded by #130.

@@ -1,5 +1,12 @@
 # @noy-db/as-ndjson
 
+## 0.1.0-pre.14
+
+### Patch Changes
+
+- Updated dependencies
+  - @noy-db/hub@0.1.0-pre.14
+
 ## 0.1.0-pre.12
 
 ### Patch Changes
