@@ -42,6 +42,31 @@ export interface FilterClause {
   readonly fn: (record: unknown) => boolean
 }
 
+/**
+ * A declared deterministic predicate reference (#153). The query
+ * builder produces this via `.wherePredicate(name, ctx?)` when a
+ * Query has been augmented with a predicates map (typically by the
+ * materialized-view registry — see MV v2 spec § Function-based
+ * source-row predicates).
+ *
+ * `predicateHash` is the consumer-supplied stable hash for the
+ * function body; `ctxHash` is the canonical-JSON SHA-256 of `ctx`.
+ * Both fold into the MV's `queryHash` so a function or ctx change
+ * forces refresh on next visit.
+ *
+ * `fn` is resolved at builder time from the predicates map and
+ * embedded directly — so `evaluateClause` can fire it without a
+ * runtime lookup.
+ */
+export interface WherePredicateClause {
+  readonly type: 'wherePredicate'
+  readonly name: string
+  readonly ctx: unknown
+  readonly predicateHash: string
+  readonly ctxHash: string
+  readonly fn: (record: unknown, ctx?: unknown) => boolean
+}
+
 /** A logical group of clauses combined by AND or OR. */
 export interface GroupClause {
   readonly type: 'group'
@@ -49,7 +74,7 @@ export interface GroupClause {
   readonly clauses: readonly Clause[]
 }
 
-export type Clause = FieldClause | FilterClause | GroupClause
+export type Clause = FieldClause | FilterClause | WherePredicateClause | GroupClause
 
 /**
  * Read a possibly nested field path like "address.city" from a record.
@@ -136,6 +161,8 @@ export function evaluateClause(record: unknown, clause: Clause): boolean {
       return evaluateFieldClause(record, clause)
     case 'filter':
       return clause.fn(record)
+    case 'wherePredicate':
+      return clause.fn(record, clause.ctx)
     case 'group':
       if (clause.op === 'and') {
         for (const child of clause.clauses) {

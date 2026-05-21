@@ -95,6 +95,23 @@ export interface MaterializedViewStrategy<TRow extends Record<string, unknown>> 
    */
   sources?: ReadonlyArray<string>
   /**
+   * Declared deterministic predicates (#153). Each entry pairs a
+   * consumer-stable `hash` with a function. The `query()` callback's
+   * Query<T> can invoke them via `.wherePredicate(name, ctx?)`. The
+   * predicate's `hash` + a canonical-JSON hash of `ctx` both fold
+   * into `queryHash` — bumping either forces refresh on next visit.
+   *
+   * Consumer responsibility: bump `hash` when the function's semantics
+   * change. Failing to bump after a non-equivalent change leaves
+   * stale rows around until the next explicit refresh.
+   */
+  predicates?: {
+    [name: string]: {
+      hash: string
+      fn: (row: TRow, ctx?: unknown) => boolean
+    }
+  }
+  /**
    * Refresh policy.
    *
    * - `'eager'` — re-materialize synchronously inside the source-write

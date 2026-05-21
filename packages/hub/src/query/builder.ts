@@ -5,7 +5,7 @@
  * mutated. This makes plans safe to share, cache, and serialize.
  */
 
-import type { Clause, FieldClause, FilterClause, GroupClause, Operator } from './predicate.js'
+import type { Clause, FieldClause, FilterClause, GroupClause, Operator, WherePredicateClause } from './predicate.js'
 import { evaluateClause } from './predicate.js'
 import type { CollectionIndexes } from '../indexing/eager-indexes.js'
 import type { JoinContext, JoinLeg, JoinStrategy } from './join.js'
@@ -97,22 +97,36 @@ interface InternalSource {
  * joinContext, and calling `.join()` on it throws with an actionable
  * error. See `query/join.ts` for the full design.
  */
+/**
+ * Declared deterministic predicate (#153). Carries the consumer's
+ * stable `hash` (for function-body identity), the function itself,
+ * and is keyed by name when registered on a `Query<T>` via
+ * `_withPredicates()`.
+ */
+export interface DeclaredPredicate {
+  hash: string
+  fn: (record: unknown, ctx?: unknown) => boolean
+}
+
 export class Query<T> {
   private readonly source: InternalSource
   private readonly plan: QueryPlan
   private readonly joinContext: JoinContext | undefined
   private readonly aggregateStrategy: AggregateStrategy
+  private readonly predicates: ReadonlyMap<string, DeclaredPredicate> | undefined
 
   constructor(
     source: QuerySource<T>,
     plan: QueryPlan = EMPTY_PLAN,
     joinContext?: JoinContext,
     aggregateStrategy: AggregateStrategy = NO_AGGREGATE,
+    predicates?: ReadonlyMap<string, DeclaredPredicate>,
   ) {
     this.source = source as InternalSource
     this.plan = plan
     this.joinContext = joinContext
     this.aggregateStrategy = aggregateStrategy
+    this.predicates = predicates
   }
 
   /**
@@ -133,6 +147,66 @@ export class Query<T> {
     return this.joinContext
   }
 
+  /**
+   * @internal — clone this Query with a declared-predicate map
+   * attached. Used by the materialized-view registry to enable
+   * `.wherePredicate(name, ctx?)` for the MV's query callback (#153).
+   * Consumers don't call this directly.
+   */
+  _withPredicates(predicates: ReadonlyMap<string, DeclaredPredicate>): Query<T> {
+    return new Query<T>(
+      this.source as QuerySource<T>,
+      this.plan,
+      this.joinContext,
+      this.aggregateStrategy,
+      predicates,
+    )
+  }
+
+  /**
+   * Filter by a registered deterministic predicate (#153). Requires
+   * the Query to have been augmented with a predicates map (typically
+   * via the materialized-view registry — bare Queries constructed
+   * outside an MV throw on `.wherePredicate()`).
+   *
+   * `ctx` is an optional opaque value passed verbatim to the predicate
+   * function. Both `predicateHash` (from the registration) and a
+   * canonical-JSON hash of `ctx` fold into the MV's `queryHash`, so
+   * either changing forces refresh on next visit.
+   */
+  wherePredicate(name: string, ctx?: unknown): Query<T> {
+    if (!this.predicates) {
+      throw new Error(
+        `.wherePredicate("${name}"): no predicates registered on this Query. ` +
+          `Function-based predicates require the Query to be obtained from ` +
+          `inside a materialized-view query() callback whose strategy declares ` +
+          `\`predicates: { ${name}: { hash, fn } }\`.`,
+      )
+    }
+    const decl = this.predicates.get(name)
+    if (!decl) {
+      throw new Error(
+        `.wherePredicate("${name}"): predicate not registered. ` +
+          `Available: ${[...this.predicates.keys()].join(', ') || '(none)'}.`,
+      )
+    }
+    const clause: WherePredicateClause = {
+      type: 'wherePredicate',
+      name,
+      ctx,
+      predicateHash: decl.hash,
+      ctxHash: canonicalCtxHash(ctx),
+      fn: decl.fn,
+    }
+    return new Query<T>(
+      this.source as QuerySource<T>,
+      { ...this.plan, clauses: [...this.plan.clauses, clause] },
+      this.joinContext,
+      this.aggregateStrategy,
+      this.predicates,
+    )
+  }
+
   /** Add a field comparison. Multiple where() calls are AND-combined. */
   where(field: string, op: Operator, value: unknown): Query<T> {
     const clause: FieldClause = { type: 'field', field, op, value }
@@ -141,6 +215,7 @@ export class Query<T> {
       { ...this.plan, clauses: [...this.plan.clauses, clause] },
       this.joinContext,
       this.aggregateStrategy,
+      this.predicates,
     )
   }
 
@@ -151,7 +226,7 @@ export class Query<T> {
    */
   or(builder: (q: Query<T>) => Query<T>): Query<T> {
     const sub = builder(
-      new Query<T>(this.source as QuerySource<T>, EMPTY_PLAN, this.joinContext, this.aggregateStrategy),
+      new Query<T>(this.source as QuerySource<T>, EMPTY_PLAN, this.joinContext, this.aggregateStrategy, this.predicates),
     )
     const group: GroupClause = {
       type: 'group',
@@ -163,6 +238,7 @@ export class Query<T> {
       { ...this.plan, clauses: [...this.plan.clauses, group] },
       this.joinContext,
       this.aggregateStrategy,
+      this.predicates,
     )
   }
 
@@ -172,7 +248,7 @@ export class Query<T> {
    */
   and(builder: (q: Query<T>) => Query<T>): Query<T> {
     const sub = builder(
-      new Query<T>(this.source as QuerySource<T>, EMPTY_PLAN, this.joinContext, this.aggregateStrategy),
+      new Query<T>(this.source as QuerySource<T>, EMPTY_PLAN, this.joinContext, this.aggregateStrategy, this.predicates),
     )
     const group: GroupClause = {
       type: 'group',
@@ -184,6 +260,7 @@ export class Query<T> {
       { ...this.plan, clauses: [...this.plan.clauses, group] },
       this.joinContext,
       this.aggregateStrategy,
+      this.predicates,
     )
   }
 
@@ -198,6 +275,7 @@ export class Query<T> {
       { ...this.plan, clauses: [...this.plan.clauses, clause] },
       this.joinContext,
       this.aggregateStrategy,
+      this.predicates,
     )
   }
 
@@ -208,6 +286,7 @@ export class Query<T> {
       { ...this.plan, orderBy: [...this.plan.orderBy, { field, direction }] },
       this.joinContext,
       this.aggregateStrategy,
+      this.predicates,
     )
   }
 
@@ -218,6 +297,7 @@ export class Query<T> {
       { ...this.plan, limit: n },
       this.joinContext,
       this.aggregateStrategy,
+      this.predicates,
     )
   }
 
@@ -228,6 +308,7 @@ export class Query<T> {
       { ...this.plan, offset: n },
       this.joinContext,
       this.aggregateStrategy,
+      this.predicates,
     )
   }
 
@@ -339,6 +420,7 @@ export class Query<T> {
       { ...this.plan, joins: [...this.plan.joins, leg] },
       this.joinContext,
       this.aggregateStrategy,
+      this.predicates,
     )
   }
 
@@ -870,6 +952,24 @@ function serializeClause(clause: Clause): unknown {
   if (clause.type === 'filter') {
     return { type: 'filter', fn: '[function]' }
   }
+  if (clause.type === 'wherePredicate') {
+    // Strip the live `fn` reference (non-serializable) but keep the
+    // identity-carrying fields so distinct predicates still serialize
+    // distinctly. `predicateHash` + `ctxHash` are the hash identity;
+    // `name` is the named predicate reference. This matters because
+    // niwat-review of #159 caught that the previous fall-through
+    // (return clause) exposed the live fn and produced identical
+    // serializations for distinct predicates with different ctx
+    // values.
+    return {
+      type: 'wherePredicate',
+      name: clause.name,
+      ctx: clause.ctx,
+      predicateHash: clause.predicateHash,
+      ctxHash: clause.ctxHash,
+      fn: '[function]',
+    }
+  }
   if (clause.type === 'group') {
     return {
       type: 'group',
@@ -878,4 +978,33 @@ function serializeClause(clause: Clause): unknown {
     }
   }
   return clause
+}
+
+/**
+ * Compute a stable hash of a `ctx` value supplied to
+ * `.wherePredicate(name, ctx)`. Canonical-JSON: keys sorted at each
+ * level so `{a, b}` and `{b, a}` hash to the same value. Undefined ctx
+ * hashes to the empty string. The hash is sync because it just runs
+ * a cheap djb2-style fold — used at builder time, not security-sensitive.
+ *
+ * @internal
+ */
+function canonicalCtxHash(ctx: unknown): string {
+  if (ctx === undefined) return ""
+  const canonical = JSON.stringify(ctx, (_key, value) => {
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      const sorted: Record<string, unknown> = {}
+      for (const k of Object.keys(value as Record<string, unknown>).sort()) {
+        sorted[k] = (value as Record<string, unknown>)[k]
+      }
+      return sorted
+    }
+    return value
+  })
+  // djb2 fold over the canonical string; converted to hex.
+  let h = 5381
+  for (let i = 0; i < canonical.length; i++) {
+    h = ((h << 5) + h) ^ canonical.charCodeAt(i)
+  }
+  return (h >>> 0).toString(16).padStart(8, "0")
 }
