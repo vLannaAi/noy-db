@@ -83,9 +83,9 @@ store: s3({ bucket: 'my-vaults', client: myS3Client })
 
 ---
 
-## The 19-subsystem catalog
+## The 21-subsystem catalog
 
-A minimalist core (~6,500 LOC) plus 19 opt-in capabilities behind `with*()` strategy seams. Apps that don't import a strategy ship none of its code.
+A minimalist core (~6,500 LOC) plus 21 opt-in capabilities behind `with*()` strategy seams. Apps that don't import a strategy ship none of its code.
 
 ```ts
 import { createNoydb } from '@noy-db/hub'
@@ -99,14 +99,14 @@ const db = await createNoydb({
   historyStrategy: withHistory(),     // versioning + ledger + time-machine
   aggregateStrategy: withAggregate(), // sum/groupBy/avg
   blobStrategy: withBlobs(),          // file attachments
-  // ... 14 more available
+  // ... 18 more available
 })
 ```
 
 | Cluster | Subsystems |
 |---|---|
 | **Read & Query** | [indexing](docs/subsystems/indexing.md) · [joins](docs/subsystems/joins.md) · [aggregate](docs/subsystems/aggregate.md) · [live](docs/subsystems/live.md) |
-| **Write & Mutate** | [history](docs/subsystems/history.md) · [transactions](docs/subsystems/transactions.md) · [crdt](docs/subsystems/crdt.md) · [derivations](docs/subsystems/derivations.md) |
+| **Write & Mutate** | [history](docs/subsystems/history.md) · [transactions](docs/subsystems/transactions.md) · [crdt](docs/subsystems/crdt.md) · [derivations](docs/subsystems/derivations.md) · [materialized-views](docs/subsystems/derivations.md#materialized-views) · [overlay-views](docs/subsystems/derivations.md#overlay-views) |
 | **Data Shape** | [blobs](docs/subsystems/blobs.md) · [i18n](docs/subsystems/i18n.md) |
 | **Time & Audit** | [periods](docs/subsystems/periods.md) · [consent](docs/subsystems/consent.md) · [guards](docs/subsystems/guards.md) |
 | **Snapshot & Portability** | [shadow](docs/subsystems/shadow.md) · [bundle](docs/subsystems/bundle.md) |

@@ -63,7 +63,9 @@ Each subsystem has its own subpath export under `@noy-db/hub/<name>`, a `with<Na
 | 5 | `@noy-db/hub/history` | Versioning, diff, revert, time-machine, audit ledger (hash-chained) | 1,880 | `periods`, `consent`, `shadow`, `guards` |
 | 6 | `@noy-db/hub/transactions` | Multi-record atomic writes (`db.transaction(fn)`) | 280 | `history`, `sync`, `derivations`, `guards` |
 | 7 | `@noy-db/hub/crdt` | LWW-Map / RGA / Yjs interop | 221 | `live`, `sync` |
-| 18 | `@noy-db/hub/derivations` | Deterministic derived data — source → outputs (eager / lazy) with cycle detection and strict-mode rollback (Dim 14) | ~550 | `transactions` (strict-mode rollback), `guards` |
+| 18 | `@noy-db/hub/derivations` | Deterministic derived data — source → outputs (eager / lazy) with cycle detection and strict-mode rollback (Dim 14 v1) | ~550 | `transactions` (strict-mode rollback), `guards` |
+| 20 | `@noy-db/hub/materialized-views` | Query-level materialized views — `Query<T>` → output collection with eager / lazy / manual refresh, partition cycle-break, declared deterministic predicates with `queryHash` folding (Dim 14 v2) | ~1,400 | `derivations` (shared envelope shape), `transactions` (strict-mode), `overlay-views` (composition) |
+| 21 | `@noy-db/hub/overlay-views` | Read-shadow virtual collections — merges base (typically MV output) + user-writable overlay via single-field shadow predicate; operator-editable layer over deterministic MVs | ~600 | `materialized-views`, `guards` (overlay-side write hooks), `derivations` |
 
 ### Cluster C — Data Shape
 
@@ -329,6 +331,9 @@ consent ──► history            (consent audit appends ledger entries)
 guards ───► history            (successful amendment appends `op: 'amendment'` ledger entry)
 guards ───► transactions       (amendment mode set via `db.transaction({ amendment, reason }, fn)`)
 derivations ► transactions     (strict-mode failure triggers source rollback via shared revert plan)
+materialized-views ► derivations (shares the encrypted-payload metadata envelope; reuses housekeeping bypass)
+materialized-views ► transactions (strict-mode + `withTransactions` triggers source rollback)
+overlay-views ► materialized-views (typical base; cycle detector unifies the graph)
 ```
 
 Soft pairings (mentioned in "Pairs well with" but not enforced) are listed per page.
