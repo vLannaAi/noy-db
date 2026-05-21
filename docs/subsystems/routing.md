@@ -2,7 +2,7 @@
 
 > **Subpath:** *(currently always-core; `@noy-db/hub/routing` extraction is a planned follow-up)*
 > **Factory:** `withRouting()` *(planned)*
-> **Cluster:** G — Operations
+> **Cluster:** H — Operations
 > **LOC cost:** ~1,985 (planned — off-bundle when not opted in)
 
 ## What it does

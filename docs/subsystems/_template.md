@@ -2,7 +2,7 @@
 
 > **Subpath:** `@noy-db/hub/<name>`
 > **Factory:** `with<Name>()`
-> **Cluster:** <A–G>
+> **Cluster:** <A–H>
 > **LOC cost:** ~<n> (off-bundle when not opted in)
 
 ## What it does

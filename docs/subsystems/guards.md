@@ -2,7 +2,7 @@
 
 > **Subpath:** `@noy-db/hub/guards`
 > **Factory:** `withGuard()`
-> **Cluster:** B — Write & Mutate
+> **Cluster:** E — Time & Audit
 > **LOC cost:** ~310 (off-bundle when not opted in)
 
 ## What it does

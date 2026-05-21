@@ -2,7 +2,7 @@
 
 > **Subpath:** `@noy-db/hub/session`
 > **Factory:** `withSession()`
-> **Cluster:** F — Collaboration & Auth
+> **Cluster:** G — Collaboration & Auth
 > **LOC cost:** ~495 (off-bundle when not opted in)
 
 ## What it does
