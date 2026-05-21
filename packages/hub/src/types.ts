@@ -37,7 +37,7 @@ import type { HistoryStrategy } from './history/strategy.js'
 import type { I18nStrategy } from './i18n/strategy.js'
 import type { SessionStrategy } from './session/strategy.js'
 import type { SyncStrategy } from './team/sync-strategy.js'
-import type { GuardStrategyHandle } from './guards/types.js'
+import type { GuardStrategyHandleAny } from './guards/types.js'
 import type { DerivationStrategyHandle } from './derivations/types.js'
 import type { UnlockedKeyring } from './team/keyring.js'
 import type { VaultPolicy } from './policy/types.js'
@@ -1748,8 +1748,7 @@ export interface NoydbOptions {
    * Multiple guards per collection are allowed; they are dispatched
    * in registration order on `collection.put()`.
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  readonly guardStrategies?: ReadonlyArray<GuardStrategyHandle<any>>
+  readonly guardStrategies?: ReadonlyArray<GuardStrategyHandleAny>
   /**
    * Optional derivation strategies — source-to-output projections that
    * fire on `collection.put()`. Each handle is the output of

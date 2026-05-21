@@ -76,7 +76,7 @@ import { NO_SYNC, type SyncStrategy } from './team/sync-strategy.js'
 // derivation strategy don't pay the chunk cost. See #130 for the
 // bundle regression this seam plugs.
 import type { GuardRegistry } from './guards/registry.js'
-import type { GuardStrategyHandle } from './guards/types.js'
+import type { GuardStrategyHandleAny } from './guards/types.js'
 import type { ReadOnlyVaultFacade } from './guards/read-only-facade.js'
 import type { DerivationRegistry } from './derivations/registry.js'
 import type { DerivationStrategyHandle } from './derivations/types.js'
@@ -371,8 +371,7 @@ export class Vault {
     historyStrategy?: HistoryStrategy | undefined
     i18nStrategy?: I18nStrategy | undefined
     syncStrategy?: SyncStrategy | undefined
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    guardStrategies?: ReadonlyArray<GuardStrategyHandle<any>> | undefined
+    guardStrategies?: ReadonlyArray<GuardStrategyHandleAny> | undefined
   }) {
     this.adapter = opts.adapter
     this.name = opts.name
@@ -1407,8 +1406,7 @@ export class Vault {
    * accessor `_getReadOnlyFacade()` (called from the tx amendment
    * runner) stays synchronous.
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async _initGuards(handles: ReadonlyArray<GuardStrategyHandle<any>>): Promise<void> {
+  async _initGuards(handles: ReadonlyArray<GuardStrategyHandleAny>): Promise<void> {
     if (handles.length === 0) return
     const [{ GuardRegistry }, { ReadOnlyVaultFacade }] = await Promise.all([
       import('./guards/registry.js'),

@@ -45,6 +45,41 @@ export interface GuardStrategyHandle<T extends Record<string, unknown>> {
   readonly spec: GuardStrategy<T>
 }
 
+/**
+ * Existential erasure of `GuardStrategyHandle<T>` — used as the
+ * element type of `ReadonlyArray<>` fields where the per-handle T
+ * differs (e.g. `guardStrategies: [invoiceGuard, disbursementGuard]`).
+ *
+ * Background: `GuardStrategyHandle<T>` is INVARIANT in T because T
+ * appears in callback positions on the spec (`check(incoming: T, ctx)`,
+ * `invariant(changes: ReadonlyArray<GuardChange<T>>, ctx)`). So
+ * `Handle<Invoice>` is not assignable to `Handle<Record<string, unknown>>`.
+ * A bounded existential ("there exists some T satisfying the constraint
+ * such that this is a Handle<T>") is the right shape; TypeScript has
+ * no first-class existentials, so we fake it with a structurally narrow
+ * interface that ERASES T from both the discriminant and the spec.
+ *
+ * Consumers continue to construct typed handles via `withGuard<T>(...)`
+ * which returns `GuardStrategyHandle<T>`. Both `Handle<Invoice>` and
+ * `Handle<Disbursement>` structurally assign to `GuardStrategyHandleAny`,
+ * so an array of them is `GuardStrategyHandleAny[]`.
+ *
+ * Internal code that needs T re-narrows via the runtime discriminant
+ * (`__noydb_strategy === 'guard'`) plus per-handle type information
+ * carried by the registry.
+ *
+ * NOT exported from the public barrel — keeping this internal
+ * discourages consumers from constructing it directly. Used only as
+ * the array-element type on `Vault` / `NoydbOptions.guardStrategies`.
+ *
+ * @internal
+ */
+export interface GuardStrategyHandleAny {
+  readonly __noydb_strategy: 'guard'
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  readonly spec: GuardStrategy<any>
+}
+
 /** Public registration shape. See `withGuard()`. */
 export interface GuardStrategy<T extends Record<string, unknown>> {
   collection: string
