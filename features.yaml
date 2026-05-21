@@ -284,12 +284,15 @@ features:
     showcases:
       - id: 10-with-aggregate
         path: showcases/src/10-with-aggregate.showcase.test.ts
+      - id: 85-with-multikey-groupby
+        path: showcases/src/85-with-multikey-groupby.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
     invariants:
       - 'sum, count, avg, min, max, groupBy compose with where + join'
       - 'Live aggregations re-reduce on every upstream change (no incremental in v1)'
+      - 'groupBy: accepts 1..N field names; result rows carry every grouped field in declaration order + reducer outputs; field declaration order does not affect bucket identity (canonical key sorts names)'
     related: [query-basics, indexing]
 
   - id: indexing
@@ -504,6 +507,8 @@ features:
         path: showcases/src/82-with-mv-lazy.showcase.test.ts
       - id: 84-with-mv-predicates
         path: showcases/src/84-with-mv-predicates.showcase.test.ts
+      - id: 85-with-multikey-groupby
+        path: showcases/src/85-with-multikey-groupby.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
@@ -518,6 +523,7 @@ features:
       - 'predicates: hash + canonical-JSON ctx fold into queryHash → refresh on hash bump or ctx change'
       - 'cycle detection at vault open — same-collection edges allowed only with provably-disjoint output.partition'
       - 'maxRows ceiling throws MaterializedViewTooLargeError before any writes'
+      - 'query callback may use multi-key groupBy(...fields); rowKey composites the grouped fields into a stable id'
     related: [derivations, overlay-views, transactions, guards]
 
   - id: overlay-views

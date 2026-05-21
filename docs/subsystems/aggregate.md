@@ -48,6 +48,30 @@ await invoices.scan()
 
 Reducers exported from `@noy-db/hub`: `count`, `sum`, `avg`, `min`, `max`.
 
+### Multi-key groupBy
+
+`Query<T>.groupBy(...fields)` accepts one or more field names. The
+result rows carry every grouped field (in declaration order) plus the
+reducer outputs:
+
+```ts
+.groupBy('clientId', 'period')
+.aggregate({ total: sum('amount') })
+// → [ { clientId: 'c1', period: '2026-05', total: 300 }, … ]
+```
+
+Cardinality thresholds (10k warn, 100k throw) apply on the count of
+distinct tuples, not on the count of fields. The warning message lists
+every grouped field name.
+
+Order of fields in `groupBy(...)` does NOT affect the bucket identity —
+internally, the canonical key sorts field names before hashing. So
+`.groupBy('a', 'b')` and `.groupBy('b', 'a')` produce the same buckets;
+the difference is purely the declaration order of fields on the output
+rows.
+
+See showcase [`85-with-multikey-groupby`](../../showcases/src/85-with-multikey-groupby.showcase.test.ts).
+
 ## Behavior when NOT opted in
 
 - `query().aggregate(...)` throws with a pointer to `@noy-db/hub/aggregate`

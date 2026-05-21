@@ -319,6 +319,33 @@ const pnd1 = withMaterializedView<Pnd1Row>({
 | `strict?: boolean` | no, default `false` | Re-throw row-write failures to enable transactional rollback. |
 | `maxRows?: number` | no, default `100_000` | Row-count ceiling; throws `MaterializedViewTooLargeError` before any writes. |
 
+### Multi-key groupBy in MV queries
+
+The `query` callback can use multi-key `groupBy(...fields)` the same
+way any other `Query<T>` can. The `rowKey` callback then composites
+the grouped fields into a stable id — the choice of encoding is
+yours, but it must be deterministic:
+
+```ts
+withMaterializedView<Pnd1Row>({
+  name: 'pnd1-by-period',
+  query: (db) =>
+    db.collection<Compensation>('compensations')
+      .query()
+      .groupBy('clientId', 'period')
+      .aggregate({ tax: sum('taxAmount') }) as unknown as Query<Pnd1Row>,
+  rowKey: (row) => `${row.clientId}|${row.period}`,  // composite id
+  sources: ['compensations'],
+  refresh: 'eager',
+})
+```
+
+The deep mechanics of multi-key buckets (field-order invariance,
+cardinality ceilings) live in
+[`aggregate.md` § Multi-key groupBy](./aggregate.md#multi-key-groupby).
+The walkthrough lives in showcase
+[`85-with-multikey-groupby`](../../showcases/src/85-with-multikey-groupby.showcase.test.ts).
+
 ### Refresh modes
 
 - **`eager`** — every source write re-runs the query inside the same
