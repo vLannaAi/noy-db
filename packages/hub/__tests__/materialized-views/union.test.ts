@@ -170,3 +170,224 @@ describe('UNION MV — basic 2-source (#165)', () => {
     expect(row?.n).toBe(15)
   })
 })
+
+describe('UNION MV — combined with multi-key groupBy (#165 + #166)', () => {
+  it('niwat canonical monthly-VAT shape: union(taxReceipts, creditNotes) + groupBy(clientId, period)', async () => {
+    interface NiwatTaxReceipt extends Record<string, unknown> {
+      id: string
+      clientId: string
+      issuedAt: string
+      paidServicesVat: number
+    }
+    interface NiwatCreditNote extends Record<string, unknown> {
+      id: string
+      clientId: string
+      issuedAt: string
+      paidServicesVat: number
+    }
+    interface NiwatMonthlyVatRow extends Record<string, unknown> {
+      clientId: string
+      period: string
+      vat: number
+    }
+
+    const monthlyOutputVat = withMaterializedView<NiwatMonthlyVatRow>({
+      name: 'monthlyOutputVat',
+      unionSources: [
+        {
+          collection: 'taxReceipts',
+          map: r => {
+            const tr = r as unknown as NiwatTaxReceipt
+            return {
+              clientId: tr.clientId,
+              period: tr.issuedAt.slice(0, 7),
+              vat: tr.paidServicesVat,
+            }
+          },
+        },
+        {
+          collection: 'creditNotes',
+          map: r => {
+            const cn = r as unknown as NiwatCreditNote
+            return {
+              clientId: cn.clientId,
+              period: cn.issuedAt.slice(0, 7),
+              vat: -cn.paidServicesVat,
+            }
+          },
+        },
+      ],
+      groupBy: ['clientId', 'period'],
+      aggregate: { vat: sum('vat') },
+      rowKey: row => `${row.clientId}|${row.period}`,
+      refresh: 'eager',
+    })
+
+    const db = await createNoydb({
+      store: memory(),
+      user: 'alice',
+      secret: 'mv-union-multikey-niwat-passphrase-2026',
+      materializedViewStrategies: [monthlyOutputVat],
+      aggregateStrategy: withAggregate(),
+    })
+    const vault = await db.openVault('demo')
+
+    const receipts = vault.collection<NiwatTaxReceipt>('taxReceipts')
+    const notes = vault.collection<NiwatCreditNote>('creditNotes')
+
+    await receipts.put('r1', { id: 'r1', clientId: 'c1', issuedAt: '2026-05-01', paidServicesVat: 100 })
+    await receipts.put('r2', { id: 'r2', clientId: 'c1', issuedAt: '2026-05-15', paidServicesVat: 50 })
+    await receipts.put('r3', { id: 'r3', clientId: 'c2', issuedAt: '2026-05-10', paidServicesVat: 70 })
+    await notes.put('n1', { id: 'n1', clientId: 'c1', issuedAt: '2026-05-20', paidServicesVat: 20 })
+
+    const out = vault.collection<NiwatMonthlyVatRow & { _materializedFrom?: unknown }>('monthlyOutputVat')
+    const rows = await out.list()
+    expect(rows).toHaveLength(2)
+
+    const c1May = await out.get('c1|2026-05')
+    expect(c1May).not.toBeNull()
+    expect(c1May?.clientId).toBe('c1')
+    expect(c1May?.period).toBe('2026-05')
+    expect(c1May?.vat).toBe(130) // 100 + 50 - 20
+
+    const c2May = await out.get('c2|2026-05')
+    expect(c2May).not.toBeNull()
+    expect(c2May?.clientId).toBe('c2')
+    expect(c2May?.period).toBe('2026-05')
+    expect(c2May?.vat).toBe(70)
+  })
+})
+
+describe('UNION MV — edges (#165)', () => {
+  it('three-source UNION sums correctly', async () => {
+    interface ThreeArmRow extends Record<string, unknown> {
+      id: string
+      k: string
+      n: number
+    }
+
+    const totals = withMaterializedView<TotalsRow>({
+      name: 'totals',
+      unionSources: [
+        {
+          collection: 'a',
+          map: r => {
+            const row = r as unknown as ThreeArmRow
+            return { k: row.k, n: row.n }
+          },
+        },
+        {
+          collection: 'b',
+          map: r => {
+            const row = r as unknown as ThreeArmRow
+            return { k: row.k, n: row.n }
+          },
+        },
+        {
+          collection: 'c',
+          map: r => {
+            const row = r as unknown as ThreeArmRow
+            return { k: row.k, n: row.n }
+          },
+        },
+      ],
+      groupBy: 'k',
+      aggregate: { n: sum('n') },
+      rowKey: row => row.k,
+      refresh: 'eager',
+    })
+
+    const db = await createNoydb({
+      store: memory(),
+      user: 'alice',
+      secret: 'mv-union-three-source-passphrase-2026',
+      materializedViewStrategies: [totals],
+      aggregateStrategy: withAggregate(),
+    })
+    const vault = await db.openVault('demo')
+
+    const a = vault.collection<ThreeArmRow>('a')
+    const b = vault.collection<ThreeArmRow>('b')
+    const c = vault.collection<ThreeArmRow>('c')
+
+    await a.put('a-1', { id: 'a-1', k: 'x', n: 1 })
+    await b.put('b-1', { id: 'b-1', k: 'x', n: 2 })
+    await c.put('c-1', { id: 'c-1', k: 'x', n: 4 })
+
+    const out = vault.collection<TotalsRow & { _materializedFrom?: unknown }>('totals')
+    const row = await out.get('x')
+    expect(row).not.toBeNull()
+    expect(row?.n).toBe(7)
+  })
+
+  // KNOWN GAP (pre.14 hangover, surfaced by #165 review):
+  // `Collection._doDelete` does NOT call `dispatchMaterializedViews` —
+  // only `put` does (collection.ts ~1282/1398). This means source
+  // deletes never trigger eager MV refresh; tombstoning only fires
+  // when something *else* (a put on the source or a manual
+  // `vault.refreshView`) re-runs the executor. Affects ANY MV with
+  // `onEmpty: 'delete'` (the default), not just UNION-form. The
+  // executor + `listOutputIds` themselves are correct — the variant
+  // below uses an explicit `refreshView` to prove that, and the
+  // `it.todo` below pins the auto-dispatch gap for a future PR.
+  it.todo('onEmpty: delete tombstones MV row automatically when source rows are deleted (pending _doDelete → dispatchMaterializedViews wiring)')
+
+  it('onEmpty: delete (default) tombstones MV row when all contributing source rows are deleted (manual refresh)', async () => {
+    const totals = withMaterializedView<TotalsRow>({
+      name: 'totals',
+      unionSources: [
+        {
+          collection: 'a',
+          map: r => {
+            const row = r as unknown as ArmRowA
+            return { k: row.k, n: row.n }
+          },
+        },
+        {
+          collection: 'b',
+          map: r => {
+            const row = r as unknown as ArmRowB
+            return { k: row.k, n: row.n }
+          },
+        },
+      ],
+      groupBy: 'k',
+      aggregate: { n: sum('n') },
+      rowKey: row => row.k,
+      refresh: 'eager',
+      onEmpty: 'delete',
+    })
+
+    const db = await createNoydb({
+      store: memory(),
+      user: 'alice',
+      secret: 'mv-union-onempty-tombstone-passphrase-2026',
+      materializedViewStrategies: [totals],
+      aggregateStrategy: withAggregate(),
+    })
+    const vault = await db.openVault('demo')
+
+    const a = vault.collection<ArmRowA>('a')
+    const b = vault.collection<ArmRowB>('b')
+    const out = vault.collection<TotalsRow & { _materializedFrom?: unknown }>('totals')
+
+    await a.put('a-1', { id: 'a-1', k: 'x', n: 1 })
+    await b.put('b-1', { id: 'b-1', k: 'x', n: 2 })
+
+    let rows = await out.list()
+    expect(rows).toHaveLength(1)
+    const row = await out.get('x')
+    expect(row?.n).toBe(3)
+
+    // Delete both contributing source rows — MV row should tombstone.
+    await a.delete('a-1')
+    await b.delete('b-1')
+
+    // Probe: manual refresh DOES tombstone, proving executor + listOutputIds
+    // are correct — the gap is purely that `_doDelete` doesn't dispatch.
+    await vault.refreshView('totals')
+
+    rows = await out.list()
+    expect(rows).toHaveLength(0)
+  })
+})
