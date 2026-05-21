@@ -103,9 +103,11 @@ export function summarizeUnionPlan<T extends Record<string, unknown>>(
     .map(s => s.collection)
     .sort()
     .join(',')
-  const groupBy = Array.isArray(spec.groupBy)
+  const groupBy: string = Array.isArray(spec.groupBy)
     ? [...spec.groupBy].sort().join(',')
-    : (spec.groupBy ?? '')
+    : typeof spec.groupBy === 'string'
+      ? spec.groupBy
+      : ''
   const aggKeys = spec.aggregate ? Object.keys(spec.aggregate).sort().join(',') : ''
   return `union(${arms})|groupBy(${groupBy})|aggregate(${aggKeys})`
 }

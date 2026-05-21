@@ -103,7 +103,7 @@ async function materializeUnionResult<TRow extends Record<string, unknown>>(
   const unified: TRow[] = []
   for (const arm of spec.unionSources!) {
     const coll = db.collection<Record<string, unknown>>(arm.collection)
-    const sourceRows = await coll.query().toArray()
+    const sourceRows = coll.query().toArray()
     for (const r of sourceRows) {
       unified.push(arm.map(r))
     }
