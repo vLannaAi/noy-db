@@ -2,7 +2,7 @@
 
 > **Subpath:** `@noy-db/hub/consent`
 > **Factory:** `withConsent()`
-> **Cluster:** D — Time & Audit
+> **Cluster:** E — Time & Audit
 > **LOC cost:** ~194 (off-bundle when not opted in)
 
 ## What it does

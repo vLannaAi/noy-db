@@ -2,7 +2,7 @@
 
 > **Subpath:** `@noy-db/hub/sync`
 > **Factory:** `withSync()`
-> **Cluster:** F — Collaboration & Auth
+> **Cluster:** G — Collaboration & Auth
 > **LOC cost:** ~856 (off-bundle when not opted in)
 
 ## What it does

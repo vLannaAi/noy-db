@@ -2,7 +2,7 @@
 
 > **Subpath:** `@noy-db/hub/periods`
 > **Factory:** `withPeriods()`
-> **Cluster:** D — Time & Audit
+> **Cluster:** E — Time & Audit
 > **LOC cost:** ~334 (off-bundle when not opted in)
 
 ## What it does

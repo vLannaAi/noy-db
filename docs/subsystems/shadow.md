@@ -2,7 +2,7 @@
 
 > **Subpath:** `@noy-db/hub/shadow`
 > **Factory:** `withShadow()`
-> **Cluster:** E — Snapshot & Portability
+> **Cluster:** F — Snapshot & Portability
 > **LOC cost:** ~129 (off-bundle when not opted in)
 
 ## What it does

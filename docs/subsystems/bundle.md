@@ -2,7 +2,7 @@
 
 > **Subpath:** `@noy-db/hub/bundle`
 > **Factory:** none — direct named imports
-> **Cluster:** E — Snapshot & Portability
+> **Cluster:** F — Snapshot & Portability
 > **LOC cost:** ~846 (off-bundle when not opted in)
 
 ## What it does

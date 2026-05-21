@@ -43,7 +43,7 @@ Anything outside this floor is a subsystem.
 
 ---
 
-## The 19 subsystems
+## The 21 subsystems
 
 Each subsystem has its own subpath export under `@noy-db/hub/<name>`, a `with<Name>()` factory, and a doc page in `docs/subsystems/<name>.md`. The "LOC saved" column is the bundle weight a consumer avoids by **not** opting in.
 
@@ -63,18 +63,25 @@ Each subsystem has its own subpath export under `@noy-db/hub/<name>`, a `with<Na
 | 5 | `@noy-db/hub/history` | Versioning, diff, revert, time-machine, audit ledger (hash-chained) | 1,880 | `periods`, `consent`, `shadow`, `guards` |
 | 6 | `@noy-db/hub/transactions` | Multi-record atomic writes (`db.transaction(fn)`) | 280 | `history`, `sync`, `derivations`, `guards` |
 | 7 | `@noy-db/hub/crdt` | LWW-Map / RGA / Yjs interop | 221 | `live`, `sync` |
-| 18 | `@noy-db/hub/derivations` | Deterministic derived data — source → outputs (eager / lazy) with cycle detection and strict-mode rollback (Dim 14 v1) | ~550 | `transactions` (strict-mode rollback), `guards` |
+
+### Cluster C — Derived data
+
+The Dim 14 family. All three share the same encrypted-payload metadata envelope, the same housekeeping-delete bypass (so user `onDelete` guards on output collections don't deadlock system-internal tombstones), and a unified cycle detector at vault open.
+
+| # | Subpath | Headline | LOC saved | Pairs with |
+|---|---|---|---:|---|
+| 18 | `@noy-db/hub/derivations` | Deterministic derived data — source row → typed outputs (eager / lazy) with cycle detection and strict-mode rollback (Dim 14 v1) | ~550 | `transactions` (strict-mode rollback), `guards` |
 | 20 | `@noy-db/hub/materialized-views` | Query-level materialized views — `Query<T>` → output collection with eager / lazy / manual refresh, partition cycle-break, declared deterministic predicates with `queryHash` folding (Dim 14 v2) | ~1,400 | `derivations` (shared envelope shape), `transactions` (strict-mode), `overlay-views` (composition) |
 | 21 | `@noy-db/hub/overlay-views` | Read-shadow virtual collections — merges base (typically MV output) + user-writable overlay via single-field shadow predicate; operator-editable layer over deterministic MVs | ~600 | `materialized-views`, `guards` (overlay-side write hooks), `derivations` |
 
-### Cluster C — Data Shape
+### Cluster D — Data Shape
 
 | # | Subpath | Headline | LOC saved | Pairs with |
 |---|---|---|---:|---|
 | 8 | `@noy-db/hub/blobs` | Binary attachments + compaction + MIME-magic | 2,376 | `bundle`, `routing` |
 | 9 | `@noy-db/hub/i18n` | Multi-locale records + dict-key resolution + auto-translate hook | 854 | `aggregate` (groupBy on dict-key) |
 
-### Cluster D — Time & Audit
+### Cluster E — Time & Audit
 
 | # | Subpath | Headline | LOC saved | Pairs with |
 |---|---|---|---:|---|
@@ -82,14 +89,14 @@ Each subsystem has its own subpath export under `@noy-db/hub/<name>`, a `with<Na
 | 11 | `@noy-db/hub/consent` | Consent audit log (GDPR/PIPL-friendly) | 194 | `history` |
 | 19 | `@noy-db/hub/guards` | Record lock + field-level freeze + role-gated amendment invariant with `op: 'amendment'` ledger entry | ~700 | `history` (amendment audit), `transactions` (amendment-mode rollback), `team` (role check) |
 
-### Cluster E — Snapshot & Portability
+### Cluster F — Snapshot & Portability
 
 | # | Subpath | Headline | LOC saved | Pairs with |
 |---|---|---|---:|---|
 | 12 | `@noy-db/hub/shadow` | Read-only `vault.frame()` views | 129 | `history` (time-machine) |
 | 13 | `@noy-db/hub/bundle` | `.noydb` encrypted container format (backup, transport) | 846 | `blobs`, `routing` |
 
-### Cluster F — Collaboration & Auth
+### Cluster G — Collaboration & Auth
 
 | # | Subpath | Headline | LOC saved | Pairs with |
 |---|---|---|---:|---|
@@ -100,13 +107,13 @@ Each subsystem has its own subpath export under `@noy-db/hub/<name>`, a `with<Na
 
 <a id="user-envelope"></a>**`user-envelope`** is included in the always-on core because it has zero peer-dep cost and the policy gates (`edit-own-profile`, `view-team-profiles`) are valuable even for single-user vaults. See `docs/subsystems/user-envelope.md`.
 
-### Cluster G — Operations
+### Cluster H — Operations
 
 | # | Subpath | Headline | LOC saved | Pairs with |
 |---|---|---|---:|---|
 | 17 | `@noy-db/hub/routing` | Multi-store routing + middleware + sync-policy + lazy-mode + LRU cache | ~1,985 | `indexing`, `bundle` |
 
-**Totals:** ~14,450 LOC across all 19 subsystems are tree-shake-able. A consumer using only the core ships ~6,500 LOC. A consumer opting into all 19 ships ~29,500 LOC.
+**Totals:** ~16,450 LOC across all 21 subsystems are tree-shake-able. A consumer using only the core ships ~6,500 LOC. A consumer opting into all 21 ships ~31,500 LOC.
 
 ---
 
@@ -119,7 +126,7 @@ Every subsystem doc page (`docs/subsystems/<name>.md`) follows the same template
 
 > **Subpath:** `@noy-db/hub/<name>`
 > **Factory:** `with<Name>()`
-> **Cluster:** <A–G>
+> **Cluster:** <A–H>
 > **LOC cost:** ~<n> (off-bundle when not opted in)
 
 ## What it does

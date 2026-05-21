@@ -469,7 +469,7 @@ features:
 
   - id: derivations
     name: Deterministic derived data
-    cluster: write-and-mutate
+    cluster: derived-data
     spec: docs/subsystems/derivations.md#derivations
     subsystem_doc: docs/subsystems/derivations.md
     package: '@noy-db/hub/derivations'
@@ -491,7 +491,7 @@ features:
 
   - id: materialized-views
     name: Query-level materialized views
-    cluster: write-and-mutate
+    cluster: derived-data
     spec: docs/subsystems/derivations.md#materialized-views
     subsystem_doc: docs/subsystems/derivations.md
     package: '@noy-db/hub'
@@ -522,7 +522,7 @@ features:
 
   - id: overlay-views
     name: Read-shadow virtual collections
-    cluster: write-and-mutate
+    cluster: derived-data
     spec: docs/subsystems/derivations.md#overlay-views
     subsystem_doc: docs/subsystems/derivations.md
     package: '@noy-db/hub'

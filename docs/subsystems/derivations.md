@@ -2,7 +2,7 @@
 
 > **Subpath:** `@noy-db/hub/derivations`
 > **Factory:** `withDerivation()`
-> **Cluster:** B — Write & Mutate
+> **Cluster:** C — Derived data
 > **LOC cost:** ~preview (off-bundle when not opted in)
 > **Status:** preview, ships in 0.1.0-pre.11
 

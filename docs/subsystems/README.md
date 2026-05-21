@@ -20,18 +20,23 @@ See [SUBSYSTEMS.md](../../SUBSYSTEMS.md) for the catalog overview, dependency gr
 | [history](./history.md) | Versioning, diff, revert, time-machine, audit ledger |
 | [transactions](./transactions.md) | Multi-record atomic writes |
 | [crdt](./crdt.md) | LWW-Map / RGA / Yjs interop |
-| [derivations](./derivations.md) | Deterministic derived data (eager / lazy) — Dim 14 v1 |
-| [materialized-views](./derivations.md#materialized-views) | Query-level materialized views with eager / lazy / manual refresh — Dim 14 v2 |
-| [overlay-views](./derivations.md#overlay-views) | Read-shadow virtual collections (base + overlay) — Dim 14 v2 |
 
-## Cluster C — Data Shape
+## Cluster C — Derived data
+
+| Page | What it adds |
+|---|---|
+| [derivations](./derivations.md) | Deterministic derived data — source row → typed outputs (eager / lazy / strict-mode rollback) — Dim 14 v1 |
+| [materialized-views](./derivations.md#materialized-views) | Query-level materialized views — `Query<T>` → output collection (eager / lazy / manual refresh; declared deterministic predicates) — Dim 14 v2 |
+| [overlay-views](./derivations.md#overlay-views) | Read-shadow virtual collections — merges base + user-writable overlay via shadow predicate — Dim 14 v2 |
+
+## Cluster D — Data Shape
 
 | Page | What it adds |
 |---|---|
 | [blobs](./blobs.md) | Binary attachments + compaction + MIME-magic |
 | [i18n](./i18n.md) | Multi-locale records + dict-key resolution + auto-translate |
 
-## Cluster D — Time & Audit
+## Cluster E — Time & Audit
 
 | Page | What it adds |
 |---|---|
@@ -39,14 +44,14 @@ See [SUBSYSTEMS.md](../../SUBSYSTEMS.md) for the catalog overview, dependency gr
 | [consent](./consent.md) | Consent audit log (GDPR/PIPL-friendly) |
 | [guards](./guards.md) | Record lock + field-level freeze + role-gated amendment invariant with ledger audit |
 
-## Cluster E — Snapshot & Portability
+## Cluster F — Snapshot & Portability
 
 | Page | What it adds |
 |---|---|
 | [shadow](./shadow.md) | Read-only `vault.frame()` views |
 | [bundle](./bundle.md) | `.noydb` encrypted container format |
 
-## Cluster F — Collaboration & Auth
+## Cluster G — Collaboration & Auth
 
 | Page | What it adds |
 |---|---|
@@ -54,7 +59,7 @@ See [SUBSYSTEMS.md](../../SUBSYSTEMS.md) for the catalog overview, dependency gr
 | [team](./team.md) | Multi-user grant/revoke + magic-link + delegation + tiers |
 | [session](./session.md) | Token sessions, dev-unlock, policy enforcement |
 
-## Cluster G — Operations
+## Cluster H — Operations
 
 | Page | What it adds |
 |---|---|

@@ -2,7 +2,7 @@
 
 > **Subpath:** `@noy-db/hub/team`
 > **Factory:** `withTeam()` *(planned — keyring stays in core today; team subsystem extraction tracked separately)*
-> **Cluster:** F — Collaboration & Auth
+> **Cluster:** G — Collaboration & Auth
 > **LOC cost:** ~1,000 (off-bundle when not opted in)
 
 ## What it does

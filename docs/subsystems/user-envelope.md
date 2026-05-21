@@ -2,7 +2,7 @@
 
 > **Subpath:** none — included in always-on core
 > **Factory:** none — exposed as `vault.user.*`
-> **Cluster:** F — Collaboration & Auth
+> **Cluster:** G — Collaboration & Auth
 > **LOC cost:** ~600 (always-on; trivially small)
 > **Spec:** `docs/superpowers/specs/2026-05-05-user-envelope-design.md`
 

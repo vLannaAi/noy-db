@@ -2,7 +2,7 @@
 
 > **Subpath:** `@noy-db/hub/blobs`
 > **Factory:** `withBlobs()`
-> **Cluster:** C — Data Shape
+> **Cluster:** D — Data Shape
 > **LOC cost:** ~2,376 (off-bundle when not opted in)
 
 ## What it does
