@@ -102,8 +102,15 @@ describe('Showcase 85 — multi-key groupBy', () => {
     const vault = await db.openVault('books')
     const invoices = vault.collection<Invoice>('invoices')
 
-    await invoices.put('i1', { id: 'i1', clientId: 'acme', period: '2026-04', amount: 100 })
-    await invoices.put('i2', { id: 'i2', clientId: 'acme', period: '2026-04', amount: 200 })
+    // Fixture: three records spanning TWO distinct (clientId, period)
+    // tuples. A buggy implementation that didn't sort field names in
+    // the canonical key would treat ('clientId','period') and
+    // ('period','clientId') as different bucket spaces — producing a
+    // different bucket SET (not just different row property order)
+    // when the same input data is grouped under each ordering.
+    await invoices.put('i1', { id: 'i1', clientId: 'acme',   period: '2026-04', amount: 100 })
+    await invoices.put('i2', { id: 'i2', clientId: 'acme',   period: '2026-04', amount: 50 })
+    await invoices.put('i3', { id: 'i3', clientId: 'globex', period: '2026-04', amount: 200 })
 
     const rowsForward = invoices
       .query()
@@ -117,10 +124,23 @@ describe('Showcase 85 — multi-key groupBy', () => {
       .aggregate({ total: sum('amount') })
       .run()
 
-    expect(rowsForward).toHaveLength(1)
-    expect(rowsReversed).toHaveLength(1)
-    expect(rowsForward[0].total).toBe(300)
-    expect(rowsReversed[0].total).toBe(300)
+    // Both orderings produce the same bucket COUNT…
+    expect(rowsForward).toHaveLength(2)
+    expect(rowsReversed).toHaveLength(2)
+
+    // …and the same bucket CONTENTS (totals per clientId).
+    const forwardByClient = new Map(rowsForward.map((r) => [r.clientId, r]))
+    const reversedByClient = new Map(rowsReversed.map((r) => [r.clientId, r]))
+
+    expect(forwardByClient.get('acme')!.total).toBe(150)
+    expect(forwardByClient.get('globex')!.total).toBe(200)
+    expect(reversedByClient.get('acme')!.total).toBe(150)
+    expect(reversedByClient.get('globex')!.total).toBe(200)
+
+    // Property order on emitted rows DOES follow declaration order
+    // (cosmetic, but pinned so consumers can rely on it).
+    expect(Object.keys(rowsForward[0]).slice(0, 2)).toEqual(['clientId', 'period'])
+    expect(Object.keys(rowsReversed[0]).slice(0, 2)).toEqual(['period', 'clientId'])
 
     db.close()
   })

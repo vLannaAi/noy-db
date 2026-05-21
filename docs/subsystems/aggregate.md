@@ -72,6 +72,8 @@ rows.
 
 See showcase [`85-with-multikey-groupby`](../../showcases/src/85-with-multikey-groupby.showcase.test.ts).
 
+For usage inside `withMaterializedView` queries, see [`derivations.md` § Multi-key groupBy in MV queries](./derivations.md#multi-key-groupby-in-mv-queries).
+
 ## Behavior when NOT opted in
 
 - `query().aggregate(...)` throws with a pointer to `@noy-db/hub/aggregate`
