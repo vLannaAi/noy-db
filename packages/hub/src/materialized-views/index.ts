@@ -19,4 +19,5 @@ export type { MVExecutorAccessor, RefreshResult } from './executor.js'
 export {
   MaterializedViewCycleError,
   MaterializedViewSourceUnknownError,
+  MaterializedViewTooLargeError,
 } from '../errors.js'

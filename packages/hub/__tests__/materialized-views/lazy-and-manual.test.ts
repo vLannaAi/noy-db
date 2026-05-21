@@ -101,9 +101,10 @@ describe('MV lazy lifecycle + vault.refreshView (#151)', () => {
     expect(await vault.collection<Item>('red-items').get('b')).not.toBeNull()
     // Stale cleared again.
     expect(isMVStale(reg, 'red-items')).toBe(false)
-    // Note: 'a' will still appear in the MV until subtask #152
-    // implements tombstoning (onEmpty: 'delete' / row removal on
-    // disappearance). The MV doesn't tombstone in this iteration.
+    // With #152's onEmpty: 'delete' default, 'a' (now blue) is
+    // tombstoned by the refresh diff — the row disappeared from the
+    // query result, so it's removed from the MV.
+    expect(await vault.collection<Item>('red-items').get('a')).toBeNull()
   })
 
   it('manual MV: source writes do NOT materialize; only refreshView(name) does', async () => {
