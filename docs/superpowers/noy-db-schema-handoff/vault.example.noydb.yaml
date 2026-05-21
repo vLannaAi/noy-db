@@ -1,0 +1,197 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/vLannaAi/noy-db/main/packages/schema/noydb-schema.schema.json
+#
+# DESIGN SKETCH — accounting-app recipe.
+#
+# This file is the v0 reference for what `vault.noydb.yaml` should
+# read like. Use it to validate the JSON Schema design in issue #1
+# and to drive the parser tests in issue #3.
+#
+# Design rule: this file must be readable without the diagram.
+# References are field-local. No "relationships:" section at the
+# bottom. Comments preserved on round-trip.
+
+version: 1
+vault: acme-accounting
+
+# Subsystem opt-in. Affects what constructs are legal below.
+# (In scope per BRIEF.md — schema layer needs to know what's lit up.)
+subsystems:
+  history: true        # withHistory() — enables history blocks on collections
+  aggregate: true      # withAggregate() — enables aggregate views
+  blobs: true          # withBlobs() — enables blob-typed fields
+  i18n: true           # withI18n() — enables i18n field annotations
+  derivations: true    # enables view / overlay declarations
+
+# Reusable ACL fragments (YAML anchors — one of the reasons we chose YAML)
+acl_defaults:
+  internal_rw: &acl_internal_rw
+    read: [owner, admin, operator, viewer]
+    write: [owner, admin, operator]
+  client_visible: &acl_client_visible
+    read: [owner, admin, operator, viewer, client]
+    write: [owner, admin, operator]
+
+# ────────────────────────────────────────────────────────────────────
+# Collections
+# ────────────────────────────────────────────────────────────────────
+collections:
+
+  clients:
+    description: External parties the firm invoices.
+    label: { en: Clients, th: ลูกค้า, zh: 客户 }
+    acl: *acl_internal_rw
+    fields:
+      id:
+        type: string
+        primary: true
+        format: ulid
+      display_name:
+        type: string
+        constraints: { minLength: 1, maxLength: 200 }
+      tax_id:
+        type: string
+        optional: true
+        # Complex validation escapes to TS (hybrid Zod strategy, option C).
+        validate: ./schemas/clients.ts#TaxIdSchema
+      country:
+        type: string
+        constraints: { pattern: "^[A-Z]{2}$" }   # ISO 3166-1 alpha-2
+      created_at:
+        type: timestamp
+        default: now
+    indexes:
+      - fields: [country, display_name]
+      - fields: [tax_id]
+        unique: true
+        when: "tax_id != null"
+
+  invoices:
+    description: Outbound invoices in dual EUR/THB currencies.
+    label: { en: Invoices, th: ใบกำกับภาษี, zh: 发票 }
+    acl: *acl_internal_rw
+    fields:
+      id:
+        type: string
+        primary: true
+        format: "INV-{YYYY}-{seq:06}"
+      client_id:
+        type: string
+        references: clients.id          # ← field-local FK, named, greppable
+        on_delete: restrict
+      issued_at:
+        type: date
+      due_at:
+        type: date
+      currency:
+        type: enum
+        values: [EUR, THB]
+      amount:
+        type: decimal
+        constraints: { precision: 12, scale: 2, min: 0 }
+      status:
+        type: enum
+        values: [draft, issued, paid, void]
+        default: draft
+      notes:
+        type: i18nText                    # multi-locale field (i18n subsystem)
+        languages: [en, th]
+        optional: true
+    indexes:
+      - fields: [client_id, issued_at]
+      - fields: [status, due_at]
+    history:
+      enabled: true
+      tier: standard
+
+  line_items:
+    description: Per-invoice line items.
+    acl: *acl_internal_rw
+    fields:
+      id:
+        type: string
+        primary: true
+        format: ulid
+      invoice_id:
+        type: string
+        references: invoices.id
+        on_delete: cascade
+      description:
+        type: i18nText
+        languages: [en, th]
+      quantity:
+        type: decimal
+        constraints: { precision: 10, scale: 3, min: 0 }
+      unit_price:
+        type: decimal
+        constraints: { precision: 12, scale: 2, min: 0 }
+      line_total:
+        type: decimal
+        computed: "quantity * unit_price"   # derived; not stored
+    indexes:
+      - fields: [invoice_id]
+
+  payments:
+    description: Inbound payment records, possibly across multiple invoices.
+    acl: *acl_internal_rw
+    fields:
+      id:
+        type: string
+        primary: true
+        format: ulid
+      received_at:
+        type: timestamp
+      amount:
+        type: decimal
+        constraints: { precision: 12, scale: 2, min: 0 }
+      currency:
+        type: enum
+        values: [EUR, THB]
+      method:
+        type: enum
+        values: [wire, card, cash, other]
+      attachment:
+        type: blob                          # blobs subsystem
+        mime: [application/pdf, image/png, image/jpeg]
+        optional: true
+    indexes:
+      - fields: [received_at]
+
+# ────────────────────────────────────────────────────────────────────
+# Materialized views (aggregate subsystem)
+# ────────────────────────────────────────────────────────────────────
+views:
+
+  invoices_by_month:
+    kind: materialized
+    source: invoices
+    refresh:
+      mode: on_write                        # alternatives: scheduled, manual
+      debounce_ms: 500
+    group_by:
+      - field: client_id
+      - field: issued_at
+        granularity: month
+      - field: currency
+    aggregate:
+      invoice_count: { fn: count }
+      total_amount:  { fn: sum, field: amount }
+      avg_amount:    { fn: avg, field: amount }
+    acl: *acl_internal_rw
+
+# ────────────────────────────────────────────────────────────────────
+# Overlay views
+# ────────────────────────────────────────────────────────────────────
+overlays:
+
+  paid_invoices_by_month:
+    kind: overlay
+    of: invoices_by_month                   # ← refers to the MV above
+    filter: "status == 'paid'"
+    description: |
+      Same shape as invoices_by_month but restricted to paid invoices.
+      Used by the client portal — separate ACL because clients are
+      allowed to see this slice of their own data.
+    acl:
+      read: [owner, admin, operator, viewer, client]
+      write: []
+      scope: own_records                    # clients see only their own
