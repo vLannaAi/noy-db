@@ -42,6 +42,7 @@ import type { DerivationStrategyHandle } from './derivations/types.js'
 import type { UnlockedKeyring } from './team/keyring.js'
 import type { VaultPolicy } from './policy/types.js'
 import type { PublicEnvelopeSchema } from './meta/public-envelope/types.js'
+import type { MaterializedViewStrategyHandle } from './materialized-views/types.js'
 
 /** Format version for encrypted record envelopes. */
 export const NOYDB_FORMAT_VERSION = 1 as const
@@ -1756,6 +1757,14 @@ export interface NoydbOptions {
    * graph throws `DerivationCycleError`.
    */
   readonly derivationStrategies?: ReadonlyArray<DerivationStrategyHandle>
+  /**
+   * Optional materialized-view strategies (#143, foundation in #150).
+   * Each handle returned by `withMaterializedView()` from
+   * `@noy-db/hub/materialized-views`. The vault runs unified cycle
+   * detection across the MV + derivation graphs at `openVault`; a
+   * cyclic graph throws `MaterializedViewCycleError`.
+   */
+  readonly materializedViewStrategies?: ReadonlyArray<MaterializedViewStrategyHandle>
   /** Optional remote store(s) for sync. Accepts a single store, a SyncTarget, or an array. */
   readonly sync?: NoydbStore | SyncTarget | SyncTarget[]
   /** User identifier. */

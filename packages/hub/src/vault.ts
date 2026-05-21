@@ -20,6 +20,8 @@ import type { IndexDef } from './indexing/eager-indexes.js'
 import type { JoinableSource } from './query/index.js'
 import type { OnDirtyCallback } from './collection.js'
 import type { UnlockedKeyring, BundleRecipient } from './team/keyring.js'
+import type { MaterializedViewRegistry } from './materialized-views/registry.js'
+import type { MaterializedViewStrategyHandle, MVQueryContext } from './materialized-views/types.js'
 import type { PublicEnvelope } from './meta/public-envelope/types.js'
 import { buildRecipientKeyringFile } from './team/keyring.js'
 import { ensureCollectionDEK, hasAccess, hasExportCapability, hasImportCapability } from './team/keyring.js'
@@ -157,6 +159,12 @@ export class Vault {
    * least one strategy handle. See #130 for the bundle motivation.
    */
   private derivationRegistry: DerivationRegistry | null = null
+  /**
+   * Per-vault materialized-view registry (#143/#150). Same lazy-load
+   * contract as `derivationRegistry` — `null` until
+   * `_initMaterializedViews()` runs with at least one MV handle.
+   */
+  private materializedViewRegistry: MaterializedViewRegistry | null = null
   /**
    * Cached read-only facade handed to guard callbacks via `ctx.vault`,
    * and to derivation callbacks via `derive(source, ctx)`. Allocated
@@ -579,6 +587,17 @@ export class Vault {
                 createTxContext: () => this.noydb._createTxContext(),
                 setActiveTxContext: (ctx) => this.noydb._setActiveTxContext(ctx),
                 clearActiveTxContext: (ctx) => this.noydb._clearActiveTxContext(ctx),
+              },
+            }
+          : {}),
+        ...(this.materializedViewRegistry !== null
+          ? {
+              materializedViewSource: {
+                // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+                registry: () => this.materializedViewRegistry!,
+                getCollection: (name: string) => this.collection(name),
+                getActiveTxContext: () => this.noydb._activeTxContextOrNull,
+                getQueryContext: () => this as unknown as MVQueryContext,
               },
             }
           : {}),
@@ -1417,6 +1436,54 @@ export class Vault {
    */
   _getDerivationRegistry(): DerivationRegistry | null {
     return this.derivationRegistry
+  }
+
+  /**
+   * @internal — called by `Noydb.openVault` after collections are
+   * wired. Dynamic-imports `MaterializedViewRegistry`, registers each
+   * MV spec (which invokes its `query()` once for dependency
+   * analysis), then runs the unified cycle detection across the MV +
+   * derivation graphs. No-op when the handles array is empty — keeps
+   * the MV subsystem out of the floor bundle (mirrors v1 #130).
+   * Throws `MaterializedViewCycleError` if a cycle is detected.
+   */
+  async _initMaterializedViews(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    handles: ReadonlyArray<MaterializedViewStrategyHandle>,
+  ): Promise<void> {
+    if (handles.length === 0) return
+    const { MaterializedViewRegistry } = await import('./materialized-views/registry.js')
+    const registry = new MaterializedViewRegistry()
+    // Phase 1: publish the (empty) registry on `this` BEFORE
+    // registering any spec. The user's `query(db)` callback runs at
+    // registration time and may construct source Collections via
+    // `db.collection(name)` — those Collections are cached in the
+    // vault and their `materializedViewSource` is populated from
+    // `this.materializedViewRegistry` AT CONSTRUCTION TIME. If we
+    // assigned `this.materializedViewRegistry` only after the
+    // register() loop, the source Collections would cache with an
+    // unset source and never dispatch MV refreshes on later writes.
+    this.materializedViewRegistry = registry
+    // Pass `this` Vault as the MVQueryContext — its `collection<T>()`
+    // method is what the user's `query(db)` callback consumes.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = this as unknown as MVQueryContext
+    for (const h of handles) {
+      await registry.register(h.spec, db)
+    }
+    // Phase 2: unified cycle detection across MV + derivation graphs.
+    // Runs after all `register()` calls so the analyzer has every
+    // dep-set; throws `MaterializedViewCycleError` on the first cycle.
+    registry.validate(this.derivationRegistry)
+  }
+
+  /**
+   * @internal — consumed by `Collection.put` at write-time. Returns
+   * `null` for vaults that never registered any MV strategy.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  _getMaterializedViewRegistry(): MaterializedViewRegistry | null {
+    return this.materializedViewRegistry
   }
 
   /**
