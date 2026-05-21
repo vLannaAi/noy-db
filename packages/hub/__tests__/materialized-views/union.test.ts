@@ -322,7 +322,7 @@ describe('UNION MV — edges (#165)', () => {
 
   // KNOWN GAP (pre.14 hangover, surfaced by #165 review):
   // `Collection._doDelete` does NOT call `dispatchMaterializedViews` —
-  // only `put` does (collection.ts ~1282/1398). This means source
+  // only `put` does (collection.ts 1283/1399). This means source
   // deletes never trigger eager MV refresh; tombstoning only fires
   // when something *else* (a put on the source or a manual
   // `vault.refreshView`) re-runs the executor. Affects ANY MV with
