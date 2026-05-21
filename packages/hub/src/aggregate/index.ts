@@ -27,13 +27,14 @@ export type {
 
 export {
   GroupedQuery,
+  GroupedQueryN,
   GroupedAggregation,
   groupAndReduce,
   resetGroupByWarnings,
   GROUPBY_WARN_CARDINALITY,
   GROUPBY_MAX_CARDINALITY,
 } from './groupby.js'
-export type { GroupedRow } from './groupby.js'
+export type { GroupedRow, GroupedRowN } from './groupby.js'
 
 export { count, sum, avg, min, max } from './reducers.js'
 export type { Reducer, ReducerOptions } from './reducers.js'

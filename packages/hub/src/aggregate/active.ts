@@ -10,7 +10,7 @@
 
 import { Aggregation, reduceRecords } from './aggregation.js'
 import type { AggregateSpec, AggregateResult } from './aggregation.js'
-import { GroupedQuery } from './groupby.js'
+import { GroupedQuery, GroupedQueryN } from './groupby.js'
 import type { AggregateStrategy } from './strategy.js'
 
 /**
@@ -42,6 +42,9 @@ export function withAggregate(): AggregateStrategy {
     },
     groupBy(executeRecords, field, upstreams, dictLabelResolver) {
       return new GroupedQuery(executeRecords, field, upstreams, dictLabelResolver)
+    },
+    groupByN(executeRecords, fields, upstreams, dictLabelResolver) {
+      return new GroupedQueryN(executeRecords, fields, upstreams, dictLabelResolver)
     },
     async scanAggregate(iter, spec) {
       const collected: unknown[] = []

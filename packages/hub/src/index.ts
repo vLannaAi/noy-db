@@ -740,6 +740,7 @@ export {
   Aggregation,
   reduceRecords,
   GroupedQuery,
+  GroupedQueryN,
   GroupedAggregation,
   groupAndReduce,
   GROUPBY_WARN_CARDINALITY,
@@ -770,5 +771,6 @@ export type {
   AggregationUpstream,
   LiveAggregation,
   GroupedRow,
+  GroupedRowN,
   ScanPageProvider,
 } from './query/index.js'

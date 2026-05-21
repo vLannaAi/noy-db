@@ -13,7 +13,7 @@ import { applyJoins } from './join.js'
 import type { LiveQuery, LiveUpstream } from './live.js'
 import { buildLiveQuery } from './live.js'
 import type { AggregateSpec, AggregateResult, AggregationUpstream, Aggregation } from '../aggregate/aggregation.js'
-import type { GroupedQuery } from '../aggregate/groupby.js'
+import type { GroupedQuery, GroupedQueryN } from '../aggregate/groupby.js'
 import { NO_AGGREGATE, type AggregateStrategy } from '../aggregate/strategy.js'
 
 export interface OrderBy {
@@ -585,7 +585,14 @@ export class Query<T> {
    * The performance caveat is the same: filter clauses cost O(N)
    * per record and can't be index-accelerated.
    */
-  groupBy<F extends string>(field: F): GroupedQuery<T, F> {
+  groupBy<F extends string>(field: F): GroupedQuery<T, F>
+  groupBy<F extends readonly [string, string, ...string[]]>(
+    ...fields: F
+  ): GroupedQueryN<T, F>
+  groupBy(...fields: readonly string[]): GroupedQuery<T, string> | GroupedQueryN<T, readonly string[]> {
+    if (fields.length === 0) {
+      throw new Error('.groupBy() requires at least one field')
+    }
     // Same record-producing closure as .aggregate() — grouped and
     // non-grouped aggregations execute over the same candidate set.
     // We inline the closure here instead of sharing a helper so the
@@ -605,48 +612,23 @@ export class Query<T> {
       upstreams.push({ subscribe: (cb: () => void) => subscribe(cb) })
     }
 
-    // Wire dictKey label resolver for <field>Label projection
-    const joinCtx = this.joinContext
-    const dictLabelResolver = joinCtx?.resolveDictSource
-      ? (() => {
-          const dictSource = joinCtx.resolveDictSource(field)
-          if (!dictSource) return undefined
-          const snapshot = dictSource.snapshot()
-          const dictMap = new Map<string, Record<string, string>>()
-          for (const entry of snapshot) {
-            const k = (entry as Record<string, unknown>)['key']
-            const labels = (entry as Record<string, unknown>)['labels']
-            if (typeof k === 'string' && labels && typeof labels === 'object') {
-              dictMap.set(k, labels as Record<string, string>)
-            }
-          }
-          return async (
-            key: string,
-            locale: string,
-            fallback?: string | readonly string[],
-          ): Promise<string | undefined> => {
-            const labels = dictMap.get(key)
-            if (!labels) return undefined
-            if (labels[locale] !== undefined) return labels[locale]
-            const chain = Array.isArray(fallback)
-              ? (fallback as readonly string[])
-              : fallback
-                ? [fallback as string]
-                : []
-            for (const fb of chain) {
-              if (fb === 'any') {
-                const any = Object.values(labels)[0]
-                if (any !== undefined) return any
-              } else if (labels[fb] !== undefined) {
-                return labels[fb]
-              }
-            }
-            return undefined
-          }
-        })()
-      : undefined
-
-    return this.aggregateStrategy.groupBy<T, F>(executeRecords, field, upstreams, dictLabelResolver)
+    // Dict-label resolution is single-field only — the <field>Label
+    // projection has no meaningful shape for composite keys.
+    if (fields.length === 1) {
+      const field = fields[0]!
+      const dictLabelResolver = buildDictLabelResolver(this.joinContext, field)
+      return this.aggregateStrategy.groupBy<T, string>(
+        executeRecords,
+        field,
+        upstreams,
+        dictLabelResolver,
+      )
+    }
+    return this.aggregateStrategy.groupByN<T, readonly string[]>(
+      executeRecords,
+      fields,
+      upstreams,
+    )
   }
 
   /**
@@ -1007,4 +989,60 @@ function canonicalCtxHash(ctx: unknown): string {
     h = ((h << 5) + h) ^ canonical.charCodeAt(i)
   }
   return (h >>> 0).toString(16).padStart(8, "0")
+}
+
+/**
+ * Build a dict-label resolver for `Query.groupBy(field)` when the
+ * grouping field is a `dictKey`. Extracted from the inline closure
+ * inside `groupBy` so the multi-key path (which has no meaningful
+ * `<field>Label` shape) can skip it cleanly. Pure refactor — no
+ * behaviour change for the single-field path.
+ *
+ * Returns `undefined` when:
+ *   - the join context lacks a `resolveDictSource` hook, or
+ *   - no dictionary source is registered for `field`.
+ *
+ * @internal
+ */
+function buildDictLabelResolver(
+  joinCtx: JoinContext | undefined,
+  field: string,
+):
+  | ((key: string, locale: string, fallback?: string | readonly string[]) => Promise<string | undefined>)
+  | undefined {
+  if (!joinCtx?.resolveDictSource) return undefined
+  const dictSource = joinCtx.resolveDictSource(field)
+  if (!dictSource) return undefined
+  const snapshot = dictSource.snapshot()
+  const dictMap = new Map<string, Record<string, string>>()
+  for (const entry of snapshot) {
+    const k = (entry as Record<string, unknown>)['key']
+    const labels = (entry as Record<string, unknown>)['labels']
+    if (typeof k === 'string' && labels && typeof labels === 'object') {
+      dictMap.set(k, labels as Record<string, string>)
+    }
+  }
+  return async (
+    key: string,
+    locale: string,
+    fallback?: string | readonly string[],
+  ): Promise<string | undefined> => {
+    const labels = dictMap.get(key)
+    if (!labels) return undefined
+    if (labels[locale] !== undefined) return labels[locale]
+    const chain = Array.isArray(fallback)
+      ? (fallback as readonly string[])
+      : fallback
+        ? [fallback as string]
+        : []
+    for (const fb of chain) {
+      if (fb === 'any') {
+        const any = Object.values(labels)[0]
+        if (any !== undefined) return any
+      } else if (labels[fb] !== undefined) {
+        return labels[fb]
+      }
+    }
+    return undefined
+  }
 }

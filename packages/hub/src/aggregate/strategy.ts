@@ -19,7 +19,7 @@ import type {
   AggregateResult,
   AggregationUpstream,
 } from './aggregation.js'
-import type { GroupedQuery } from './groupby.js'
+import type { GroupedQuery, GroupedQueryN } from './groupby.js'
 
 /**
  * Seam interface. `@internal` — will promote to public only when the
@@ -56,6 +56,23 @@ export interface AggregateStrategy {
   ): GroupedQuery<T, F>
 
   /**
+   * Variadic-keyed sibling — builds a `GroupedQueryN<T, F>` for
+   * `Query.groupBy(...fields)`. The dictLabelResolver, when present,
+   * applies only to single-field groupings; the builder is responsible
+   * for omitting it when `fields.length !== 1`.
+   */
+  groupByN<T, F extends readonly string[]>(
+    executeRecords: () => readonly unknown[],
+    fields: F,
+    upstreams: readonly AggregationUpstream[],
+    dictLabelResolver?: (
+      key: string,
+      locale: string,
+      fallback?: string | readonly string[],
+    ) => Promise<string | undefined>,
+  ): GroupedQueryN<T, F>
+
+  /**
    * Terminal streaming aggregator for `ScanBuilder.aggregate(spec)`.
    * Takes an async iterable of decrypted records + the spec and
    * returns the reduced result.
@@ -83,5 +100,6 @@ const NOT_ENABLED = new Error(
 export const NO_AGGREGATE: AggregateStrategy = {
   aggregate() { throw NOT_ENABLED },
   groupBy() { throw NOT_ENABLED },
+  groupByN() { throw NOT_ENABLED },
   scanAggregate() { throw NOT_ENABLED },
 }
