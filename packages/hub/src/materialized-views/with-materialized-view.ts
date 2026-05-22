@@ -75,19 +75,6 @@ export function withMaterializedView<TRow extends Record<string, unknown>>(
         `withMaterializedView "${spec.name}": groupBy must not be an empty array — omit it or provide at least one field name`,
       )
     }
-    if (spec.aggregate && !spec.groupBy) {
-      throw new MaterializedViewConfigError(
-        `withMaterializedView "${spec.name}": UNION strategy with aggregate requires groupBy — `
-        + `use groupBy to declare the bucketing keys, or remove aggregate for a pure dedup MV`,
-      )
-    }
-    if (spec.predicates) {
-      throw new MaterializedViewConfigError(
-        `withMaterializedView "${spec.name}": predicates are not supported on UNION strategies — `
-        + `UNION mode does not use a Query<T> chain, so .wherePredicate() cannot fire. `
-        + `Use the query() form, or open an issue if per-arm predicates are needed`,
-      )
-    }
   }
   if (typeof spec.rowKey !== 'function') {
     throw new ValidationError('withMaterializedView: rowKey is required (no default; see spec § Type surface)')
