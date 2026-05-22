@@ -1048,8 +1048,18 @@ export class Collection<T> {
     return this.syncStrategy.buildPresence<P>(presenceOpts)
   }
 
-  /** Create or update a record. */
-  async put(id: string, record: T): Promise<void> {
+  /**
+   * Create or update a record.
+   *
+   * @param id      Record identifier.
+   * @param record  The record body (validated by the collection's schema
+   *                if one was attached at `vault.collection(...)` time).
+   * @param options Optional metadata for audit + import workflows.
+   *                `reason` is stamped onto the resulting ledger entry
+   *                (see #1) so audit consumers can filter via
+   *                `entries.filter(e => e.reason?.startsWith('import:'))`.
+   */
+  async put(id: string, record: T, options?: { readonly reason?: string }): Promise<void> {
     if (!hasWritePermission(this.keyring, this.name)) {
       throw new ReadOnlyError()
     }
@@ -1260,6 +1270,7 @@ export class Collection<T> {
           payloadHash: await this.historyStrategy.envelopePayloadHash(envelope),
         }
         if (existingResolved) appendInput.delta = this.historyStrategy.computePatch(resolvedRecord, existingResolved.record)
+        if (options?.reason !== undefined) appendInput.reason = options.reason
         await this.ledger.append(appendInput)
       }
 
@@ -1362,6 +1373,7 @@ export class Collection<T> {
         // delta scheme. See `LedgerStore.reconstruct` for the walk.
         appendInput.delta = this.historyStrategy.computePatch(record, existing.record)
       }
+      if (options?.reason !== undefined) appendInput.reason = options.reason
       await this.ledger.append(appendInput)
     }
 
