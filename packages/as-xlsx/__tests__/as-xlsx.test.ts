@@ -173,6 +173,46 @@ describe('writeXlsx — low-level', () => {
   it('throws on empty sheet list', async () => {
     await expect(writeXlsx([])).rejects.toThrow(/at least one sheet/)
   })
+
+  it('emits a <cols> block when widths are provided', async () => {
+    const bytes = await writeXlsx([
+      {
+        name: 'Widths',
+        header: ['short', 'long'],
+        rows: [['a', 'b']],
+        widths: [8, 32.5],
+      },
+    ])
+    const sheet = readZipFile(bytes, 'xl/worksheets/sheet1.xml')!
+    expect(sheet).toContain('<cols>')
+    expect(sheet).toMatch(/<col min="1" max="1" width="8" customWidth="1"\/>/)
+    expect(sheet).toMatch(/<col min="2" max="2" width="32\.5" customWidth="1"\/>/)
+    // `<cols>` must precede `<sheetData>` per the OOXML schema.
+    expect(sheet.indexOf('<cols>')).toBeLessThan(sheet.indexOf('<sheetData>'))
+  })
+
+  it('omits the <cols> block when widths are absent', async () => {
+    const bytes = await writeXlsx([
+      { name: 'NoWidths', rows: [[1]] },
+    ])
+    const sheet = readZipFile(bytes, 'xl/worksheets/sheet1.xml')!
+    expect(sheet).not.toContain('<cols>')
+  })
+
+  it('skips undefined / non-positive entries so widths can mix auto + explicit', async () => {
+    const bytes = await writeXlsx([
+      {
+        name: 'Mixed',
+        rows: [[1, 2, 3, 4]],
+        widths: [10, undefined, 0, 15],
+      },
+    ])
+    const sheet = readZipFile(bytes, 'xl/worksheets/sheet1.xml')!
+    expect(sheet).toMatch(/<col min="1" max="1" width="10"/)
+    expect(sheet).not.toMatch(/<col min="2"/)
+    expect(sheet).not.toMatch(/<col min="3"/)
+    expect(sheet).toMatch(/<col min="4" max="4" width="15"/)
+  })
 })
 
 describe('as-xlsx — vault integration', () => {

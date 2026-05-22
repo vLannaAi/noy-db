@@ -54,6 +54,17 @@ export interface XlsxSheet {
   readonly header?: readonly string[]
   /** Data rows — each is an array aligned with `header` if present. */
   readonly rows: readonly XlsxRow[]
+  /**
+   * Optional per-column widths in Excel character units (same scale as
+   * SheetJS's `wch`). When set, emits a `<cols>` block so Excel opens
+   * the file with the columns sized as specified instead of the default
+   * 10-character width. Index aligned with `header` / row cells.
+   *
+   * Non-finite or non-positive entries are skipped (column falls back
+   * to Excel's default width). A consumer typically passes `undefined`
+   * for "auto" columns and a number for explicit widths.
+   */
+  readonly widths?: ReadonlyArray<number | undefined>
 }
 
 /**
@@ -95,8 +106,23 @@ export async function writeXlsx(sheets: readonly XlsxSheet[]): Promise<Uint8Arra
     const lines: string[] = [
       XML_HEADER,
       '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">',
-      '<sheetData>',
     ]
+    // `<cols>` must precede `<sheetData>` per OOXML schema. Emit one
+    // `<col>` element per defined width; skip entries that are not
+    // positive finite numbers so consumers can mix explicit + auto.
+    if (sheet.widths && sheet.widths.length > 0) {
+      const colLines: string[] = []
+      for (let i = 0; i < sheet.widths.length; i++) {
+        const w = sheet.widths[i]
+        if (typeof w !== 'number' || !Number.isFinite(w) || w <= 0) continue
+        const n = i + 1
+        colLines.push(`<col min="${n}" max="${n}" width="${w}" customWidth="1"/>`)
+      }
+      if (colLines.length > 0) {
+        lines.push('<cols>', ...colLines, '</cols>')
+      }
+    }
+    lines.push('<sheetData>')
     let rowNum = 0
     if (sheet.header && sheet.header.length > 0) {
       rowNum++
