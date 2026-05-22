@@ -8,6 +8,7 @@
  *
  *   noydb inspect <file.noydb>
  *   noydb verify  <file.noydb>
+ *   noydb describe <file.noydb>
  *   noydb config validate <file.ts>
  *   noydb config scaffold [--profile=<A-J>]
  *   noydb monitor <config.ts> [--interval=ms]
@@ -20,6 +21,7 @@ import { runInspect } from '../commands/inspect.js'
 import { runVerify } from '../commands/verify.js'
 import { runConfigValidate, runConfigScaffold } from '../commands/config.js'
 import { runMonitor } from '../commands/monitor.js'
+import { runDescribe } from '../commands/describe.js'
 
 const VERSION = '0.1.0'
 
@@ -30,6 +32,7 @@ function usage(): string {
     'Usage:',
     '  noydb inspect <file.noydb>                 Print bundle header (no passphrase)',
     '  noydb verify  <file.noydb>                 Verify bundle integrity (no passphrase)',
+    '  noydb describe <file.noydb> [options]      Emit YAML/JSON audit of a bundle',
     '  noydb config validate <file.js|mjs>        Sanity-check a NoydbOptions file',
     '  noydb config scaffold [--profile=<A-J>]    Emit a topology-profile skeleton',
     '  noydb monitor <file.js|mjs> [--interval=ms] Live dashboard of store metrics',
@@ -55,9 +58,10 @@ async function main(argv: readonly string[]): Promise<number> {
   }
 
   switch (cmd) {
-    case 'inspect': return runInspect(rest)
-    case 'verify':  return runVerify(rest)
-    case 'monitor': return runMonitor(rest)
+    case 'inspect':  return runInspect(rest)
+    case 'verify':   return runVerify(rest)
+    case 'describe': return runDescribe(rest)
+    case 'monitor':  return runMonitor(rest)
     case 'config': {
       const [sub, ...subRest] = rest
       if (sub === 'validate') return runConfigValidate(subRest)

@@ -127,7 +127,50 @@ features:
       - 'envelope stored encrypted with the collection DEK under _schemas/<col>'
       - 'hash-based skip on every collection() registration — no _v churn on no-op re-derive'
       - 'v0 supports Zod via optional zod-to-json-schema peer-dep; other Standard Schema validators write a stub envelope flagging the kind'
-    related: [schema-and-refs]
+      - 'vault.dump() embeds _schemas under backup._internal so persisted schemas survive bundle round-trips'
+    related: [schema-and-refs, dump-schema-introspection, cli-describe]
+
+  - id: dump-schema-introspection
+    name: vault.dumpSchema() introspection primitive
+    cluster: core
+    spec: docs/superpowers/specs/2026-05-22-schema-dump-design.md
+    subsystem_doc: docs/superpowers/specs/2026-05-22-schema-dump-design.md
+    package: '@noy-db/hub'
+    factory: null
+    status: preview
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'returns a structured VaultSchemaSnapshot describing collections / MVs / overlays / derivations / subsystems'
+      - 'field source provenance: persisted (Route B) → live-validator (in-process Zod) → unknown'
+      - 'withStats: true adds records / bytes / oldest / newest via envelope walk (no decrypt needed)'
+      - 'internal collections under separate `internal:` block only when withStats is set'
+      - 'top-level keys alphabetical for diff stability; field order preserves validator declaration order'
+    related: [persisted-json-schema, cli-describe]
+
+  - id: cli-describe
+    name: noydb describe CLI command
+    cluster: core
+    spec: docs/superpowers/specs/2026-05-22-schema-dump-design.md
+    subsystem_doc: docs/superpowers/specs/2026-05-22-schema-dump-design.md
+    package: '@noy-db/cli'
+    factory: null
+    status: preview
+    showcases:
+      - id: 87-noydb-describe
+        path: showcases/src/87-noydb-describe.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'loads a .noydb bundle, unlocks with --user + --passphrase or NOYDB_PASSPHRASE env, emits YAML/JSON snapshot'
+      - 'always emits a structured _provenance field (generatedBy / source / sourceSha256 / emittedAt) — never a comment header'
+      - '--schemas <none|full|sidecar> controls JSON Schema body inclusion (default: none, summary only)'
+      - '--with-stats opts into counters + internal-collection breakdown'
+      - 'exit codes: 0 ok, 1 internal, 2 usage, 3 auth failure'
+    related: [persisted-json-schema, dump-schema-introspection]
 
   - id: query-basics
     name: Always-on query DSL

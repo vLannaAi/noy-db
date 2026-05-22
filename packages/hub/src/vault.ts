@@ -105,6 +105,7 @@ import {
 } from './team/magic-link-grant.js'
 import { UserApi } from './meta/user-envelope/api.js'
 import { persistSchemaIfNeeded } from './persisted-schemas/register.js'
+import { SCHEMAS_COLLECTION } from './persisted-schemas/storage.js'
 import type { DumpSchemaOptions, VaultSchemaSnapshot } from './introspection/types.js'
 import { dumpVaultSchema, type VaultIntrospectState } from './introspection/walk.js'
 import { USER_ENVELOPE_COLLECTION } from './meta/user-envelope/types.js'
@@ -2514,7 +2515,7 @@ export class Vault {
     // empty ledger and `verifyBackupIntegrity()` would have nothing
     // to compare against.
     const internalSnapshot: VaultSnapshot = {}
-    for (const internalName of [LEDGER_COLLECTION, LEDGER_DELTAS_COLLECTION]) {
+    for (const internalName of [LEDGER_COLLECTION, LEDGER_DELTAS_COLLECTION, SCHEMAS_COLLECTION]) {
       const ids = await this.adapter.list(this.name, internalName)
       if (ids.length === 0) continue
       const records: Record<string, EncryptedEnvelope> = {}
