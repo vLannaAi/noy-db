@@ -146,6 +146,18 @@ importers:
         specifier: ^22.0.0
         version: 22.19.17
 
+  packages/at-env:
+    devDependencies:
+      '@noy-db/hub':
+        specifier: workspace:*
+        version: link:../hub
+      '@noy-db/to-memory':
+        specifier: workspace:*
+        version: link:../to-memory
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.17
+
   packages/by-peer:
     devDependencies:
       '@noy-db/hub':
