@@ -261,6 +261,46 @@ describe('as-xlsx — vault integration', () => {
     await db.close()
   })
 
+  it('threads AsXlsxSheetOptions.widths through to the emitted <cols> block (#177)', async () => {
+    const { adapter } = await seedVault()
+    await grantXlsx(adapter)
+
+    const db = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const vault = await db.openVault('acme')
+    const bytes = await toBytes(vault, {
+      sheets: [
+        {
+          name: 'Invoices',
+          collection: 'invoices',
+          columns: ['id', 'client', 'amount', 'paid', 'date'],
+          widths: [12, 24, 10, 6, 14],
+        },
+      ],
+    })
+
+    const sheet = readZipFile(bytes, 'xl/worksheets/sheet1.xml')!
+    expect(sheet).toContain('<cols>')
+    expect(sheet).toContain('<col min="1" max="1" width="12" customWidth="1"/>')
+    expect(sheet).toContain('<col min="2" max="2" width="24" customWidth="1"/>')
+    expect(sheet).toContain('<col min="5" max="5" width="14" customWidth="1"/>')
+    expect(sheet.indexOf('<cols>')).toBeLessThan(sheet.indexOf('<sheetData>'))
+    await db.close()
+  })
+
+  it('omits <cols> when AsXlsxSheetOptions.widths is not set (#177 default)', async () => {
+    const { adapter } = await seedVault()
+    await grantXlsx(adapter)
+
+    const db = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const vault = await db.openVault('acme')
+    const bytes = await toBytes(vault, {
+      sheets: [{ name: 'Invoices', collection: 'invoices', columns: ['id'] }],
+    })
+    const sheet = readZipFile(bytes, 'xl/worksheets/sheet1.xml')!
+    expect(sheet).not.toContain('<cols>')
+    await db.close()
+  })
+
   it('refuses owner without xlsx grant', async () => {
     const { db } = await seedVault()
     const vault = await db.openVault('acme')

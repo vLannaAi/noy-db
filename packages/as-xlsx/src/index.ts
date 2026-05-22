@@ -54,6 +54,21 @@ export interface AsXlsxSheetOptions {
    * decryption; doesn't reduce I/O.
    */
   readonly filter?: (record: unknown) => boolean
+  /**
+   * Optional per-column character widths (Excel `wch` units). When set,
+   * the emitted sheet opens with the requested column widths instead of
+   * Excel's default 10-character fallback. Index aligned with
+   * `columns` / inferred-column order.
+   *
+   * Non-finite or non-positive entries are skipped so consumers can
+   * mix explicit + auto (pass `undefined` for "auto").
+   *
+   * Length is NOT validated against `columns.length` — extra entries
+   * are harmless (no `<col>` is emitted past the column count) and a
+   * short array leaves trailing columns at Excel's default. This
+   * mirrors `XlsxSheet.widths`, which it threads through.
+   */
+  readonly widths?: ReadonlyArray<number | undefined>
 }
 
 /** Single-collection convenience — passed where a sheet-list is accepted. */
@@ -114,6 +129,7 @@ export async function toBytes(vault: Vault, options: AsXlsxOptions): Promise<Uin
       name: sheetOpt.name,
       header: columns,
       rows: records.map((r) => columns.map((c) => r[c] ?? null)),
+      ...(sheetOpt.widths !== undefined ? { widths: sheetOpt.widths } : {}),
     })
   }
 
