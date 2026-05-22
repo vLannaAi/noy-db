@@ -1773,6 +1773,59 @@ export class Collection<T> {
     } satisfies ChangeEvent)
 
     await this.onAccess?.('delete', id)
+
+    // Symmetric to put (#181): user-initiated deletes must fire MV
+    // refresh so `onEmpty: 'delete'` MVs tombstone their now-orphan
+    // output rows. Gated on `!internal` to prevent recursion — the
+    // MV executor's own tombstoning round-trips through
+    // `_internalDelete → _doDelete(_, true)` and must NOT re-fire
+    // dispatch (matches put's `_materializedFrom` skip in spirit).
+    //
+    // Derivations intentionally NOT dispatched on delete: D11
+    // derivations are forward-edge (source put → derived output);
+    // the delete-side semantics for derivations are tracked
+    // separately. This fix scope is materialized views only.
+    if (!internal) {
+      await this.dispatchMaterializedViewsOnDelete(id)
+    }
+  }
+
+  /**
+   * Mirror of {@link dispatchMaterializedViews} for the delete path
+   * (#181). No record content is available (it's gone), so the
+   * `_materializedFrom` skip used by the put-side dispatch doesn't
+   * apply here — instead, the recursion guard is the `internal` gate
+   * at the `_doDelete` call site above.
+   *
+   * @internal
+   */
+  private async dispatchMaterializedViewsOnDelete(id: string): Promise<void> {
+    void id
+    if (this.materializedViewSource === undefined) return
+    const registry = this.materializedViewSource.registry()
+    const mvs = registry.mvsForSource(this.name)
+    if (mvs.length === 0) return
+    let executor: typeof MVExecutorType | null = null
+    let staleHelpers: typeof MVStaleModule | null = null
+    for (const reg of mvs) {
+      const mode = reg.spec.refresh
+      if (mode === 'eager') {
+        if (executor === null) {
+          ;({ MaterializedViewExecutor: executor } = await import('./materialized-views/executor.js'))
+        }
+        await executor.refresh(reg, {
+          getCollection: (name) => this.materializedViewSource!.getCollection(name),
+          getActiveTxContext: () => this.materializedViewSource!.getActiveTxContext(),
+          getQueryContext: () => this.materializedViewSource!.getQueryContext(),
+        })
+      } else if (mode === 'lazy') {
+        if (staleHelpers === null) {
+          staleHelpers = await import('./materialized-views/stale.js')
+        }
+        staleHelpers.markMVStale(registry, reg.spec.name)
+      }
+      // manual: no-op — `vault.refreshView(name)` is the only path.
+    }
   }
 
   /**

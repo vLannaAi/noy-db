@@ -320,17 +320,65 @@ describe('UNION MV — edges (#165)', () => {
     expect(row?.n).toBe(7)
   })
 
-  // KNOWN GAP (pre.14 hangover, surfaced by #165 review):
-  // `Collection._doDelete` does NOT call `dispatchMaterializedViews` —
-  // only `put` does (collection.ts 1283/1399). This means source
-  // deletes never trigger eager MV refresh; tombstoning only fires
-  // when something *else* (a put on the source or a manual
-  // `vault.refreshView`) re-runs the executor. Affects ANY MV with
-  // `onEmpty: 'delete'` (the default), not just UNION-form. The
-  // executor + `listOutputIds` themselves are correct — the variant
-  // below uses an explicit `refreshView` to prove that, and the
-  // `it.todo` below pins the auto-dispatch gap for a future PR.
-  it.todo('onEmpty: delete tombstones MV row automatically when source rows are deleted (pending _doDelete → dispatchMaterializedViews wiring)')
+  // Fix for #181: `Collection._doDelete` now calls
+  // `dispatchMaterializedViews` (mirroring put), so source deletes
+  // trigger eager MV refresh automatically. The internal=true path
+  // (used by MV refresh tombstoning itself) still skips dispatch to
+  // avoid recursion. Affects ANY MV with `onEmpty: 'delete'` (the
+  // default), not just UNION-form. The manual-refresh variant below
+  // remains as a separate proof that the executor is correct in
+  // isolation.
+  it('onEmpty: delete tombstones MV row automatically when source rows are deleted (#181)', async () => {
+    const totals = withMaterializedView<TotalsRow>({
+      name: 'totals',
+      unionSources: [
+        {
+          collection: 'a',
+          map: r => {
+            const row = r as unknown as ArmRowA
+            return { k: row.k, n: row.n }
+          },
+        },
+        {
+          collection: 'b',
+          map: r => {
+            const row = r as unknown as ArmRowB
+            return { k: row.k, n: row.n }
+          },
+        },
+      ],
+      groupBy: 'k',
+      aggregate: { n: sum('n') },
+      rowKey: row => row.k,
+      refresh: 'eager',
+      onEmpty: 'delete',
+    })
+
+    const db = await createNoydb({
+      store: memory(),
+      user: 'alice',
+      secret: 'mv-union-onempty-auto-tombstone-passphrase-2026',
+      materializedViewStrategies: [totals],
+      aggregateStrategy: withAggregate(),
+    })
+    const vault = await db.openVault('demo')
+    const a = vault.collection<ArmRowA>('a')
+    const b = vault.collection<ArmRowB>('b')
+    const out = vault.collection<TotalsRow & { _materializedFrom?: unknown }>('totals')
+
+    await a.put('a-1', { id: 'a-1', k: 'x', n: 1 })
+    await b.put('b-1', { id: 'b-1', k: 'x', n: 2 })
+    expect((await out.list())).toHaveLength(1)
+
+    // Delete both contributing source rows — the auto-dispatch from
+    // `_doDelete` should run the executor, listOutputIds finds the
+    // now-orphan 'x' row, and `onEmpty: 'delete'` tombstones it.
+    // NO `vault.refreshView('totals')` call here — that's the point.
+    await a.delete('a-1')
+    await b.delete('b-1')
+
+    expect((await out.list())).toHaveLength(0)
+  })
 
   it('onEmpty: delete (default) tombstones MV row when all contributing source rows are deleted (manual refresh)', async () => {
     const totals = withMaterializedView<TotalsRow>({
