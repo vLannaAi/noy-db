@@ -1505,6 +1505,36 @@ export class MaterializedViewTooLargeError extends NoydbError {
 }
 
 /**
+ * Thrown by `withMaterializedView()` at registration time when the
+ * strategy is structurally malformed. Distinct from
+ * `MaterializedViewSourceUnknownError` (the source list is well-formed
+ * but names a collection the vault doesn't know) and
+ * `MaterializedViewCycleError` (the source graph has a cycle): this
+ * error fires before either check, at the moment the spec is being
+ * normalized.
+ *
+ * Today the trigger cases are all about the `query` / `unionSources`
+ * dichotomy introduced by #165:
+ *   - both `query` and `unionSources` were set (mutually exclusive),
+ *   - neither `query` nor `unionSources` was set,
+ *   - `unionSources` has fewer than 2 arms,
+ *   - two arms in `unionSources` reference the same `collection`.
+ *
+ * The error message is prefixed with `[noy-db] withMaterializedView:`
+ * so it's grep-friendly in logs and looks consistent with the existing
+ * `ValidationError` messages from the same factory.
+ */
+export class MaterializedViewConfigError extends NoydbError {
+  constructor(message: string) {
+    super(
+      'MATERIALIZED_VIEW_CONFIG',
+      `[noy-db] withMaterializedView: ${message}`,
+    )
+    this.name = 'MaterializedViewConfigError'
+  }
+}
+
+/**
  * Thrown at vault open when a `withOverlayedView` declaration uses
  * another virtual-overlay name as its `base`. Multi-overlay stacking
  * is a v2 non-goal — the shallow expansion in

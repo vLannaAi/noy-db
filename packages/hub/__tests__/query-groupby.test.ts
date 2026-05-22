@@ -404,3 +404,127 @@ describe('groupBy > .live() re-fires on source changes', () => {
     expect(notifications).toBe(2) // no further notifications after stop
   })
 })
+
+// ---------------------------------------------------------------------------
+// Multi-key (#166) — variadic groupBy
+// ---------------------------------------------------------------------------
+
+interface TaxDoc {
+  id: string
+  clientId: string
+  period: string
+  direction: 'in' | 'out'
+  amount: number
+}
+
+describe('Query.groupBy — multi-key (#166)', () => {
+  it('emits one row per composite key, with every grouped field stamped on the row', () => {
+    const docs: TaxDoc[] = [
+      { id: '1', clientId: 'c1', period: '2026-05', direction: 'in',  amount: 100 },
+      { id: '2', clientId: 'c1', period: '2026-05', direction: 'in',  amount: 200 },
+      { id: '3', clientId: 'c1', period: '2026-06', direction: 'in',  amount: 300 },
+      { id: '4', clientId: 'c2', period: '2026-05', direction: 'in',  amount: 400 },
+    ]
+    const result = new Query<TaxDoc>(staticSource(docs), undefined, undefined, AGG)
+      .groupBy('clientId', 'period')
+      .aggregate({ total: sum('amount'), n: count() })
+      .run()
+    expect(result).toHaveLength(3)
+    const r1 = result.find(
+      (r) => r.clientId === 'c1' && r.period === '2026-05',
+    )!
+    const r2 = result.find(
+      (r) => r.clientId === 'c1' && r.period === '2026-06',
+    )!
+    const r3 = result.find(
+      (r) => r.clientId === 'c2' && r.period === '2026-05',
+    )!
+    expect(r1).toEqual({ clientId: 'c1', period: '2026-05', total: 300, n: 2 })
+    expect(r2).toEqual({ clientId: 'c1', period: '2026-06', total: 300, n: 1 })
+    expect(r3).toEqual({ clientId: 'c2', period: '2026-05', total: 400, n: 1 })
+  })
+
+  it('preserves grouped-field declaration order on result rows', () => {
+    const docs: TaxDoc[] = [
+      { id: '1', clientId: 'c1', period: '2026-05', direction: 'in', amount: 100 },
+    ]
+    const byPeriodClient = new Query<TaxDoc>(staticSource(docs), undefined, undefined, AGG)
+      .groupBy('period', 'clientId')
+      .aggregate({ n: count() })
+      .run()
+    expect(Object.keys(byPeriodClient[0]!).slice(0, 2)).toEqual(['period', 'clientId'])
+
+    const byClientPeriod = new Query<TaxDoc>(staticSource(docs), undefined, undefined, AGG)
+      .groupBy('clientId', 'period')
+      .aggregate({ n: count() })
+      .run()
+    expect(Object.keys(byClientPeriod[0]!).slice(0, 2)).toEqual(['clientId', 'period'])
+  })
+
+  it('handles three composite keys', () => {
+    const docs: TaxDoc[] = [
+      { id: '1', clientId: 'c1', period: '2026-05', direction: 'in',  amount: 100 },
+      { id: '2', clientId: 'c1', period: '2026-05', direction: 'in',  amount: 200 },
+      { id: '3', clientId: 'c1', period: '2026-05', direction: 'out', amount: 50  },
+    ]
+    const result = new Query<TaxDoc>(staticSource(docs), undefined, undefined, AGG)
+      .groupBy('clientId', 'period', 'direction')
+      .aggregate({ total: sum('amount'), n: count() })
+      .run()
+    expect(result).toHaveLength(2)
+    const inRow  = result.find((r) => r.direction === 'in')!
+    const outRow = result.find((r) => r.direction === 'out')!
+    expect(inRow).toEqual({
+      clientId: 'c1', period: '2026-05', direction: 'in',  total: 300, n: 2,
+    })
+    expect(outRow).toEqual({
+      clientId: 'c1', period: '2026-05', direction: 'out', total: 50, n: 1,
+    })
+  })
+
+  it('cardinality warning message lists all grouped field names', () => {
+    resetGroupByWarnings()
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const records = Array.from({ length: GROUPBY_WARN_CARDINALITY + 1 }, (_, i) => ({
+      id: `r${i}`,
+      a: `a${i}`,
+      b: `b${i}`,
+    }))
+    new Query(staticSource(records), undefined, undefined, AGG)
+      .groupBy('a', 'b')
+      .aggregate({ n: count() })
+      .run()
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    const msg = warnSpy.mock.calls[0]![0] as string
+    expect(msg).toContain('[a, b]')
+    warnSpy.mockRestore()
+  })
+
+  it('throws GroupCardinalityError at 100k distinct tuples', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const records = Array.from({ length: GROUPBY_MAX_CARDINALITY + 1 }, (_, i) => ({
+      id: `r${i}`,
+      a: `a${i}`,
+      b: `b${i}`,
+    }))
+    expect(() =>
+      new Query(staticSource(records), undefined, undefined, AGG)
+        .groupBy('a', 'b')
+        .aggregate({ n: count() })
+        .run(),
+    ).toThrow(GroupCardinalityError)
+    warnSpy.mockRestore()
+  })
+
+  it('back-compat: single-arg groupBy still works and returns narrowed field type', () => {
+    const result = new Query<Invoice>(staticSource(SAMPLE), undefined, undefined, AGG)
+      .groupBy('clientId')
+      .aggregate({ total: sum('amount'), n: count() })
+      .run()
+    // Narrowed type: rows[0].clientId is accessible at compile time
+    const first = result[0]!
+    expect(first.clientId).toBeDefined()
+    expect(typeof first.total).toBe('number')
+    expect(typeof first.n).toBe('number')
+  })
+})

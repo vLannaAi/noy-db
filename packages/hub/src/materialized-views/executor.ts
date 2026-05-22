@@ -2,9 +2,11 @@ import type { Collection } from '../collection.js'
 import type { TxContext } from '../tx/transaction.js'
 import type { EncryptedEnvelope } from '../types.js'
 import { MaterializedViewTooLargeError } from '../errors.js'
-import type { MaterializedFromMeta, MVQueryContext } from './types.js'
+import type { MaterializedFromMeta, MVQueryContext, MaterializedViewStrategy } from './types.js'
 import type { RegisteredMV } from './registry.js'
 import { wrapDbWithPredicates } from './registry.js'
+import { groupAndReduce } from '../aggregate/groupby.js'
+import { canonicalGroupKey } from '../aggregate/canonical-key.js'
 
 /**
  * Accessor shape passed in from the owning Vault. Mirrors v1's
@@ -74,6 +76,63 @@ async function materializeQueryResult(
 }
 
 /**
+ * Materialize a UNION-form MV (#165): read every arm's source
+ * collection, apply each arm's `map` to project rows into the unified
+ * MV row shape, concatenate the mapped streams, then optionally run
+ * `groupBy` + `aggregate` over the result.
+ *
+ * Modes (driven by `spec.groupBy` / `spec.aggregate`):
+ *
+ *   - No `groupBy` → return the concatenated mapped rows unchanged.
+ *   - `groupBy` without `aggregate` → dedupe by composite group key,
+ *     keep the first row seen per key (later arms don't overwrite
+ *     earlier arms — Map insertion order rules).
+ *   - `groupBy` + `aggregate` → delegate to the shared `groupAndReduce`
+ *     pipeline used by `Query.groupBy().aggregate()`.
+ *
+ * Per-arm `map` is the schema-unification boundary; the strategy's
+ * `TRow` type parameter enforces that every arm projects into the
+ * same shape at compile time.
+ *
+ * @internal
+ */
+async function materializeUnionResult<TRow extends Record<string, unknown>>(
+  spec: MaterializedViewStrategy<TRow>,
+  db: MVQueryContext,
+): Promise<ReadonlyArray<Record<string, unknown>>> {
+  const unified: TRow[] = []
+  for (const arm of spec.unionSources!) {
+    const coll = db.collection<Record<string, unknown>>(arm.collection)
+    const sourceRows = coll.query().toArray()
+    for (const r of sourceRows) {
+      unified.push(arm.map(r))
+    }
+  }
+
+  if (!spec.groupBy) return unified
+
+  const groupFields: readonly string[] =
+    typeof spec.groupBy === 'string' ? [spec.groupBy] : spec.groupBy
+
+  // groupBy without aggregate — dedupe by composite key, keep first
+  // seen row per key. Useful for cross-arm uniqueness (e.g. unify two
+  // sibling collections, keeping one row per natural key).
+  if (!spec.aggregate) {
+    const seen = new Map<string, TRow>()
+    for (const row of unified) {
+      const k = canonicalGroupKey(groupFields, row as Record<string, unknown>)
+      if (!seen.has(k)) seen.set(k, row)
+    }
+    return [...seen.values()]
+  }
+
+  // groupBy + aggregate — delegate to the shared pipeline used by
+  // `Query.groupBy().aggregate()`. Result rows carry each grouped
+  // field in declaration order followed by the spec's reducer outputs.
+  return groupAndReduce<Record<string, unknown>>(unified, groupFields, spec.aggregate)
+}
+
+/**
  * Run an MV's `query()` and write the result rows to the output
  * collection. Same-DEK encryption: routes through the standard
  * `Collection.put` pipeline, so the output collection's DEK is what
@@ -121,8 +180,16 @@ export const MaterializedViewExecutor = {
     const ctxForQuery: MVQueryContext = spec.predicates
       ? wrapDbWithPredicates(baseCtx, spec.predicates)
       : baseCtx
-    const q = spec.query(ctxForQuery)
-    const rows = await materializeQueryResult(q, spec.name)
+    // UNION-form strategies (#165): read every arm, map to the unified
+    // row shape, concatenate, then optionally groupBy + aggregate. The
+    // single-source `query()` path is untouched.
+    let rows: ReadonlyArray<Record<string, unknown>>
+    if (spec.unionSources) {
+      rows = await materializeUnionResult(spec, ctxForQuery)
+    } else {
+      const q = spec.query!(ctxForQuery)
+      rows = await materializeQueryResult(q, spec.name)
+    }
 
     // 2. Cost ceiling check BEFORE any writes — keeps the rollback
     //    clean if the source-write is wrapped in a transaction.

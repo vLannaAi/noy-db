@@ -10,6 +10,7 @@ export type {
   MaterializedViewStrategyHandle,
   MaterializedViewOutput,
   MaterializedFromMeta,
+  UnionSource,
 } from './types.js'
 export type { RegisteredMV } from './registry.js'
 export type { MVExecutorAccessor, RefreshResult } from './executor.js'
@@ -18,6 +19,7 @@ export type { MVExecutorAccessor, RefreshResult } from './executor.js'
 // (matches the v1 derivations subpath pattern).
 export {
   MaterializedViewCycleError,
+  MaterializedViewConfigError,
   MaterializedViewSourceUnknownError,
   MaterializedViewTooLargeError,
 } from '../errors.js'

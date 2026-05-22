@@ -36,13 +36,14 @@ export type {
 } from '../aggregate/aggregation.js'
 export {
   GroupedQuery,
+  GroupedQueryN,
   GroupedAggregation,
   groupAndReduce,
   resetGroupByWarnings,
   GROUPBY_WARN_CARDINALITY,
   GROUPBY_MAX_CARDINALITY,
 } from '../aggregate/groupby.js'
-export type { GroupedRow } from '../aggregate/groupby.js'
+export type { GroupedRow, GroupedRowN } from '../aggregate/groupby.js'
 export { ScanBuilder } from './scan-builder.js'
 export type { ScanPageProvider } from './scan-builder.js'
 

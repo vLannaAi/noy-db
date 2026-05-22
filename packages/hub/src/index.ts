@@ -510,9 +510,11 @@ export type {
   MaterializedViewStrategyHandle,
   MaterializedViewOutput,
   MaterializedFromMeta,
+  UnionSource,
 } from './materialized-views/index.js'
 export {
   MaterializedViewCycleError,
+  MaterializedViewConfigError,
   MaterializedViewSourceUnknownError,
   MaterializedViewTooLargeError,
 } from './errors.js'
@@ -740,6 +742,7 @@ export {
   Aggregation,
   reduceRecords,
   GroupedQuery,
+  GroupedQueryN,
   GroupedAggregation,
   groupAndReduce,
   GROUPBY_WARN_CARDINALITY,
@@ -770,5 +773,6 @@ export type {
   AggregationUpstream,
   LiveAggregation,
   GroupedRow,
+  GroupedRowN,
   ScanPageProvider,
 } from './query/index.js'

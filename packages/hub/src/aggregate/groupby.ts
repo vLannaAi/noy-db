@@ -67,6 +67,7 @@ import type {
   LiveAggregation,
 } from './aggregation.js'
 import { buildLiveAggregation } from './aggregation.js'
+import { canonicalGroupKey } from './canonical-key.js'
 import { GroupCardinalityError } from '../errors.js'
 
 /**
@@ -79,18 +80,23 @@ export const GROUPBY_WARN_CARDINALITY = 10_000
 export const GROUPBY_MAX_CARDINALITY = 100_000
 
 /**
- * One-shot warning dedup per-field — reactive dashboards
+ * One-shot warning dedup per-field-set — reactive dashboards
  * re-executing the same grouped query should produce the warning
- * once, not once per re-fire. Keyed on the grouping field name
- * because "this field has high cardinality on your current data"
- * is a field-level property, not a per-query one.
+ * once, not once per re-fire. Keyed on the sorted JSON of grouping
+ * field names so `.groupBy('a', 'b')` and `.groupBy('b', 'a')`
+ * share the same dedup slot (their result tuples are isomorphic).
  */
 const warnedCardinalityFields = new Set<string>()
-function warnCardinalityApproaching(field: string, observed: number): void {
-  if (warnedCardinalityFields.has(field)) return
-  warnedCardinalityFields.add(field)
+function warnCardinalityApproaching(
+  fields: readonly string[],
+  observed: number,
+): void {
+  const key = JSON.stringify([...fields].sort())
+  if (warnedCardinalityFields.has(key)) return
+  warnedCardinalityFields.add(key)
+  const label = `[${fields.join(', ')}]`
   console.warn(
-    `[noy-db] .groupBy("${field}") produced ${observed} distinct groups, ` +
+    `[noy-db] .groupBy(${label}) produced ${observed} distinct groups, ` +
       `${Math.round((observed / GROUPBY_MAX_CARDINALITY) * 100)}% of the ` +
       `${GROUPBY_MAX_CARDINALITY}-group ceiling. Narrow the query with ` +
       `.where() before grouping, or switch to a lower-cardinality field.`,
@@ -121,6 +127,58 @@ export function resetGroupByWarnings(): void {
 export type GroupedRow<F extends string, R> = { [K in F]: unknown } & R
 
 /**
+ * Multi-key variant — result-row shape for variadic
+ * `.groupBy(...fields)`. Every grouped field name appears on the row
+ * (typed as `unknown` for the same reason as `GroupedRow`), plus the
+ * reducer outputs from the spec.
+ */
+export type GroupedRowN<F extends readonly string[], R> =
+  { [K in F[number]]: unknown } & R
+
+/**
+ * Shared base class for the chainable grouped-query wrappers. Holds
+ * the constructor + protected fields that both single-key
+ * `GroupedQuery<T, F>` and variadic `GroupedQueryN<T, F>` need; each
+ * subclass only overrides `aggregate()` with its own result-row
+ * generic.
+ *
+ * Not exported — implementation detail. Adding `.having()` /
+ * `.live()` / `.orderByGroup()` etc. in the future lands here once
+ * and both subclasses pick it up automatically.
+ *
+ * @internal
+ */
+abstract class GroupedQueryBase {
+  /**
+   * Field set this grouped query buckets on. Stored in declaration
+   * order — the same order is preserved on every result row by
+   * `groupAndReduce`. For the single-field constructor, this is
+   * `[field]`.
+   */
+  protected readonly fields: readonly string[]
+
+  constructor(
+    protected readonly executeRecords: () => readonly unknown[],
+    fieldOrFields: string | readonly string[],
+    protected readonly upstreams: readonly AggregationUpstream[],
+    /**
+     * Optional dict label resolver attached by the query builder when
+     * the grouping field is a dictKey. Variadic groupings always pass
+     * `undefined` — `<field>Label` projection has no meaningful shape
+     * for composite keys.
+     */
+    protected readonly dictLabelResolver?: (
+      key: string,
+      locale: string,
+      fallback?: string | readonly string[],
+    ) => Promise<string | undefined>,
+  ) {
+    this.fields =
+      typeof fieldOrFields === 'string' ? [fieldOrFields] : [...fieldOrFields]
+  }
+}
+
+/**
  * Chainable wrapper returned by `Query.groupBy(field)`. Terminates
  * with `.aggregate(spec)` which returns a `GroupedAggregation`.
  *
@@ -130,26 +188,7 @@ export type GroupedRow<F extends string, R> = { [K in F]: unknown } & R
  * them post-group would be a different operation (`having` /
  * `groupOrderBy`), out of scope for.
  */
-export class GroupedQuery<T, F extends string> {
-  constructor(
-    private readonly executeRecords: () => readonly unknown[],
-    private readonly field: F,
-    private readonly upstreams: readonly AggregationUpstream[],
-    /**
-     * Optional dict label resolver attached by the query builder when
-     * the grouping field is a dictKey.
-     */
-    private readonly dictLabelResolver?: (
-      key: string,
-      locale: string,
-      fallback?: string | readonly string[],
-    ) => Promise<string | undefined>,
-  ) {
-    // T is phantom on the wrapper so consumers can still see the
-    // source row type on hover. Reference it to keep lint quiet.
-    void undefined as T | undefined
-  }
-
+export class GroupedQuery<T, F extends string> extends GroupedQueryBase {
   /**
    * Build a grouped aggregation. Returns a `GroupedAggregation`
    * with `.run()`, `.runAsync()`, and `.live()` terminals — same shape
@@ -159,9 +198,32 @@ export class GroupedQuery<T, F extends string> {
   aggregate<Spec extends AggregateSpec>(
     spec: Spec,
   ): GroupedAggregation<GroupedRow<F, AggregateResult<Spec>>> {
+    // T is phantom on the wrapper so consumers can still see the
+    // source row type on hover. Reference it to keep lint quiet.
+    void undefined as T | undefined
     return new GroupedAggregation<GroupedRow<F, AggregateResult<Spec>>>(
       this.executeRecords,
-      this.field,
+      this.fields,
+      spec,
+      this.upstreams,
+      this.dictLabelResolver,
+    )
+  }
+}
+
+/**
+ * Variadic-keyed sibling of `GroupedQuery<T, F>`. Constructed by the
+ * multi-arg `Query.groupBy(...fields)` overload. The runtime shape is
+ * identical — only the type-level result-row narrowing differs.
+ */
+export class GroupedQueryN<T, F extends readonly string[]> extends GroupedQueryBase {
+  aggregate<Spec extends AggregateSpec>(
+    spec: Spec,
+  ): GroupedAggregation<GroupedRowN<F, AggregateResult<Spec>>> {
+    void undefined as T | undefined
+    return new GroupedAggregation<GroupedRowN<F, AggregateResult<Spec>>>(
+      this.executeRecords,
+      this.fields,
       spec,
       this.upstreams,
       this.dictLabelResolver,
@@ -182,31 +244,51 @@ export class GroupedQuery<T, F extends string> {
  */
 export function groupAndReduce<R>(
   records: readonly unknown[],
-  field: string,
+  fieldOrFields: string | readonly string[],
   spec: AggregateSpec,
 ): R[] {
-  // Map preserves insertion order natively (ES2015), so first-seen
-  // keys determine output ordering without a parallel order array.
-  const buckets = new Map<unknown, unknown[]>()
+  const fields: readonly string[] =
+    typeof fieldOrFields === 'string' ? [fieldOrFields] : fieldOrFields
+  if (fields.length === 0) {
+    throw new Error('.groupBy() requires at least one field')
+  }
+
+  // Bucket value is { keyValues, records } so the output row can stamp
+  // every grouped field in DECLARATION ORDER. Map preserves insertion
+  // order natively (ES2015), so first-seen keys determine ordering.
+  interface Bucket {
+    keyValues: Record<string, unknown>
+    records: unknown[]
+  }
+  const buckets = new Map<string, Bucket>()
+  // Field-label string for error messages — matches the variadic
+  // surface (`[a, b]` for multi-key, `"k"` for single-key back-compat).
+  const fieldLabel = fields.length === 1 ? fields[0]! : `[${fields.join(', ')}]`
+
   for (const record of records) {
-    const key = readPath(record, field)
-    let bucket = buckets.get(key)
+    // Read each field's value into a row object, then canonicalise.
+    const keyValues: Record<string, unknown> = {}
+    for (const f of fields) {
+      keyValues[f] = readPath(record, f)
+    }
+    const dedupKey = canonicalGroupKey(fields, keyValues)
+    let bucket = buckets.get(dedupKey)
     if (bucket === undefined) {
       if (buckets.size >= GROUPBY_MAX_CARDINALITY) {
         throw new GroupCardinalityError(
-          field,
+          fieldLabel,
           buckets.size + 1,
           GROUPBY_MAX_CARDINALITY,
         )
       }
-      bucket = []
-      buckets.set(key, bucket)
+      bucket = { keyValues, records: [] }
+      buckets.set(dedupKey, bucket)
     }
-    bucket.push(record)
+    bucket.records.push(record)
   }
 
   if (buckets.size >= GROUPBY_WARN_CARDINALITY) {
-    warnCardinalityApproaching(field, buckets.size)
+    warnCardinalityApproaching(fields, buckets.size)
   }
 
   // Reduce each bucket through the spec. Same init/step/finalize
@@ -214,21 +296,26 @@ export function groupAndReduce<R>(
   // bucket. Inlining the loop here keeps the per-bucket path tight
   // — calling `reduceRecords` per bucket would recompute
   // `Object.keys(spec)` once per bucket unnecessarily.
-  const keys = Object.keys(spec)
+  const reducerKeys = Object.keys(spec)
   const out: R[] = []
-  for (const [groupKey, bucketRecords] of buckets) {
+  for (const bucket of buckets.values()) {
     const state: Record<string, unknown> = {}
-    for (const key of keys) {
-      state[key] = spec[key]!.init()
+    for (const rk of reducerKeys) {
+      state[rk] = spec[rk]!.init()
     }
-    for (const record of bucketRecords) {
-      for (const key of keys) {
-        state[key] = spec[key]!.step(state[key], record)
+    for (const record of bucket.records) {
+      for (const rk of reducerKeys) {
+        state[rk] = spec[rk]!.step(state[rk], record)
       }
     }
-    const row: Record<string, unknown> = { [field]: groupKey }
-    for (const key of keys) {
-      row[key] = spec[key]!.finalize(state[key])
+    // Stamp grouped fields FIRST, in declaration order — this is
+    // tested via `Object.keys(row).slice(0, fields.length)`.
+    const row: Record<string, unknown> = {}
+    for (const f of fields) {
+      row[f] = bucket.keyValues[f]
+    }
+    for (const rk of reducerKeys) {
+      row[rk] = spec[rk]!.finalize(state[rk])
     }
     out.push(row as unknown as R)
   }
@@ -246,9 +333,11 @@ export function groupAndReduce<R>(
  * bucket.
  */
 export class GroupedAggregation<R> {
+  private readonly fields: readonly string[]
+
   constructor(
     private readonly executeRecords: () => readonly unknown[],
-    private readonly field: string,
+    fields: string | readonly string[],
     private readonly spec: AggregateSpec,
     private readonly upstreams: readonly AggregationUpstream[],
     /**
@@ -260,11 +349,13 @@ export class GroupedAggregation<R> {
       locale: string,
       fallback?: string | readonly string[],
     ) => Promise<string | undefined>,
-  ) {}
+  ) {
+    this.fields = typeof fields === 'string' ? [fields] : [...fields]
+  }
 
   /** Execute the query, group, reduce, and return an array of rows. */
   run(): R[] {
-    return groupAndReduce<R>(this.executeRecords(), this.field, this.spec)
+    return groupAndReduce<R>(this.executeRecords(), this.fields, this.spec)
   }
 
   /**
@@ -275,22 +366,27 @@ export class GroupedAggregation<R> {
    *
    * The `<field>Label` field is appended to each row. Rows whose group
    * key has no dictionary entry get `<field>Label: undefined`.
+   *
+   * Dict-label resolution is single-field only — multi-key groupings
+   * do not produce a `<field>Label`. The resolver is only attached
+   * by the builder when `fields.length === 1`.
    */
   async runAsync(opts?: {
     locale?: string
     fallback?: string | readonly string[]
   }): Promise<R[]> {
-    const rows = groupAndReduce<R>(this.executeRecords(), this.field, this.spec)
-    if (!opts?.locale || !this.dictLabelResolver) return rows
+    const rows = groupAndReduce<R>(this.executeRecords(), this.fields, this.spec)
+    if (!opts?.locale || !this.dictLabelResolver || this.fields.length !== 1) return rows
 
     const resolve = this.dictLabelResolver
     const locale = opts.locale
     const fallback = opts.fallback
-    const labelKey = `${this.field}Label`
+    const field = this.fields[0]!
+    const labelKey = `${field}Label`
 
     return Promise.all(
       rows.map(async (row) => {
-        const key = (row as Record<string, unknown>)[this.field]
+        const key = (row as Record<string, unknown>)[field]
         if (typeof key !== 'string') return row
         const label = await resolve(key, locale, fallback)
         return { ...(row as Record<string, unknown>), [labelKey]: label } as unknown as R
@@ -316,7 +412,7 @@ export class GroupedAggregation<R> {
    */
   live(): LiveAggregation<R[]> {
     const recompute = (): R[] =>
-      groupAndReduce<R>(this.executeRecords(), this.field, this.spec)
+      groupAndReduce<R>(this.executeRecords(), this.fields, this.spec)
     return buildLiveAggregation<R[]>(recompute, this.upstreams)
   }
 }
