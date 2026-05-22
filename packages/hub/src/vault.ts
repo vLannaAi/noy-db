@@ -105,6 +105,8 @@ import {
 } from './team/magic-link-grant.js'
 import { UserApi } from './meta/user-envelope/api.js'
 import { persistSchemaIfNeeded } from './persisted-schemas/register.js'
+import type { DumpSchemaOptions, VaultSchemaSnapshot } from './introspection/types.js'
+import { dumpVaultSchema, type VaultIntrospectState } from './introspection/walk.js'
 import { USER_ENVELOPE_COLLECTION } from './meta/user-envelope/types.js'
 
 /** A vault (tenant namespace) containing collections. */
@@ -2339,6 +2341,56 @@ export class Vault {
   async collections(): Promise<string[]> {
     const snapshot = await this.adapter.loadAll(this.name)
     return Object.keys(snapshot)
+  }
+
+  /**
+   * Emit a structured introspection snapshot of this vault — vault name,
+   * subsystem opt-in matrix, collections + their fields, materialized
+   * views, overlay views, derivations. With `withStats: true`, walks
+   * every collection's envelopes to compute record counts, byte totals,
+   * and oldest/newest timestamps.
+   *
+   * Consumed by the `noydb describe` CLI to produce human-readable
+   * audit YAML/JSON from a `.noydb` bundle.
+   *
+   * Field provenance:
+   *   - `persisted`: read from `_schemas/<col>` envelope (Route B opt-in)
+   *   - `live-validator`: derived in-process from a Zod schema attached
+   *     to the live `Collection`
+   *   - `sampled`: inferred from decrypted records (deferred to a follow-up)
+   *   - `unknown`: no schema info available
+   *
+   * @see docs/superpowers/specs/2026-05-22-schema-dump-design.md
+   */
+  async dumpSchema(opts: DumpSchemaOptions = {}): Promise<VaultSchemaSnapshot> {
+    return dumpVaultSchema(this, opts)
+  }
+
+  /**
+   * Internal accessor for {@link dumpVaultSchema}. Exposes the structural
+   * state the walker needs (collection cache, registries, ref registry,
+   * adapter) without widening the public Vault surface.
+   *
+   * @internal
+   */
+  _introspectState(): VaultIntrospectState {
+    return {
+      name: this.name,
+      adapter: this.adapter,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      collectionCache: this.collectionCache as Map<string, any>,
+      refRegistry: this.refRegistry,
+      getDEK: this.getDEK,
+      subsystems: {
+        guards: this.guardRegistry !== null,
+        derivations: this.derivationRegistry !== null,
+        materializedViews: this.materializedViewRegistry !== null,
+        overlayViews: this.overlayedViewRegistry !== null,
+      },
+      mvRegistry: this.materializedViewRegistry,
+      overlayRegistry: this.overlayedViewRegistry,
+      derivationRegistry: this.derivationRegistry,
+    }
   }
 
   /**

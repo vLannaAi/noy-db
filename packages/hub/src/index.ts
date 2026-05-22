@@ -265,6 +265,22 @@ export type {
 } from './schema.js'
 export { validateSchemaInput, validateSchemaOutput } from './schema.js'
 
+// Introspection — vault.dumpSchema() returns a structured snapshot.
+// The CLI `noydb describe` command consumes this; programmatic callers
+// can use it directly from app code (admin pages, audit tooling).
+export type {
+  VaultSchemaSnapshot,
+  DumpSchemaOptions,
+  CollectionDescriptor,
+  CollectionStats,
+  FieldDescriptor,
+  FieldSource,
+  MaterializedViewDescriptor,
+  OverlayViewDescriptor,
+  DerivationDescriptor,
+  InternalCollectionStats,
+} from './introspection/index.js'
+
 // Persisted JSON Schema — opt-in per-collection encrypted snapshot
 // of the developer's Zod (or other Standard Schema) validator. Powers
 // `noydb describe` audit output from a bundle alone.
