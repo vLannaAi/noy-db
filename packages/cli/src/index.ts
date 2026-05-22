@@ -40,3 +40,7 @@ export type {
 
 export { runMonitor, formatSnapshot } from './commands/monitor.js'
 export type { MonitorOptions } from './commands/monitor.js'
+
+// describe — bundle → YAML/JSON audit (slice 3 of schema-dump)
+export { describeBundle, runDescribe } from './commands/describe.js'
+export type { DescribeOptions, DescribeFormat, SchemasMode } from './commands/describe.js'

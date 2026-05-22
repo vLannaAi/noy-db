@@ -50,13 +50,17 @@
   "peerDependencies": {
     "@noy-db/hub": "workspace:*",
     "@noy-db/to-meter": "workspace:*",
-    "@noy-db/to-probe": "workspace:*"
+    "@noy-db/to-probe": "workspace:*",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@noy-db/hub": "workspace:*",
     "@noy-db/to-meter": "workspace:*",
     "@noy-db/to-probe": "workspace:*",
-    "@types/node": "^22.0.0"
+    "@types/node": "^22.0.0",
+    "yaml": "^2.9.0",
+    "zod": "^3.23.0",
+    "zod-to-json-schema": "^3.25.2"
   },
   "keywords": [
     "noy-db",
