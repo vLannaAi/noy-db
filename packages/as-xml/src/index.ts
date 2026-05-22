@@ -341,11 +341,11 @@ export async function fromString(
       await vault.noydb.transaction((tx) => {
         const txVault = tx.vault(vault.name)
         for (const entry of plan.added) {
-          txVault.collection(entry.collection).put(entry.id, entry.record)
+          txVault.collection(entry.collection).put(entry.id, entry.record, { reason: 'import:xml' })
         }
         if (policy !== 'insert-only') {
           for (const entry of plan.modified) {
-            txVault.collection(entry.collection).put(entry.id, entry.record)
+            txVault.collection(entry.collection).put(entry.id, entry.record, { reason: 'import:xml' })
           }
         }
         if (policy === 'replace') {

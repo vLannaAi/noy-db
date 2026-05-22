@@ -10,6 +10,7 @@ import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub'
 import { ConflictError, createNoydb } from '@noy-db/hub'
 import { withTransactions } from '@noy-db/hub/tx'
+import { withHistory } from '@noy-db/hub/history'
 import { fromString, fromObject } from '../src/index.js'
 
 function memory(): NoydbStore {
@@ -162,6 +163,52 @@ describe('as-json fromObject — direct-object input', () => {
       invoices: [{ id: 'c', amount: 300, status: 'paid' }],
     })
     expect(importer.plan.added.map((e) => e.id)).toEqual(['c'])
+    db.close()
+  })
+})
+
+describe('as-json fromString — apply stamps `reason: "import:json"` on every ledger entry (#1)', () => {
+  it('imported rows are filterable from manual edits via ledger.reason', async () => {
+    const adapter = memory()
+    // Init: grant + seed an existing record manually (no reason — counts as manual edit).
+    const init = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-2026', historyStrategy: withHistory() })
+    await init.openVault('demo')
+    await init.grant('demo', {
+      userId: 'alice', displayName: 'Alice', role: 'owner',
+      passphrase: 'pw-2026',
+      importCapability: { plaintext: ['json'] },
+    })
+    init.close()
+
+    const db = await createNoydb({
+      store: adapter, user: 'alice', secret: 'pw-2026',
+      historyStrategy: withHistory(),
+      txStrategy: withTransactions(),
+    })
+    const vault = await db.openVault('demo')
+    const inv = vault.collection<Invoice>('invoices')
+    await inv.put('manual', { id: 'manual', amount: 99, status: 'draft' })
+
+    // Import via apply() — every put inside is tagged 'import:json'
+    const importer = await fromString(vault, JSON.stringify({
+      invoices: [
+        { id: 'imp-1', amount: 100, status: 'paid' },
+        { id: 'imp-2', amount: 200, status: 'paid' },
+      ],
+    }))
+    await importer.apply()
+
+    const entries = await vault.ledger().entries()
+    const reasonByOrder = entries.map((e) => ({ id: e.id, reason: e.reason }))
+    expect(reasonByOrder).toEqual([
+      { id: 'manual', reason: undefined },
+      { id: 'imp-1', reason: 'import:json' },
+      { id: 'imp-2', reason: 'import:json' },
+    ])
+
+    // Audit filter — the documented use case.
+    const imports = entries.filter((e) => e.reason?.startsWith('import:'))
+    expect(imports.map((e) => e.id)).toEqual(['imp-1', 'imp-2'])
     db.close()
   })
 })

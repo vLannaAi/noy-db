@@ -103,6 +103,13 @@ export interface AppendInput {
    * resulting ledger entry.
    */
   amendment?: LedgerEntry['amendment']
+  /**
+   * Optional human-readable tag describing why this mutation happened
+   * (#1). Threaded from `collection.put(_, _, { reason })`.
+   * Carried verbatim onto the resulting ledger entry's `reason` field;
+   * omitted from canonical JSON when undefined.
+   */
+  reason?: string
 }
 
 /**
@@ -301,6 +308,7 @@ export class LedgerStore {
       ...entryBase,
       ...(deltaHash !== undefined ? { deltaHash } : {}),
       ...(input.amendment !== undefined ? { amendment: input.amendment } : {}),
+      ...(input.reason !== undefined ? { reason: input.reason } : {}),
     }
 
     const envelope = await this.encryptEntry(entry)

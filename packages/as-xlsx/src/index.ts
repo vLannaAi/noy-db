@@ -390,11 +390,11 @@ export async function fromBytes(
       await vault.noydb.transaction((tx) => {
         const txVault = tx.vault(vault.name)
         for (const entry of plan.added) {
-          txVault.collection(entry.collection).put(entry.id, entry.record)
+          txVault.collection(entry.collection).put(entry.id, entry.record, { reason: 'import:xlsx' })
         }
         if (policy !== 'insert-only') {
           for (const entry of plan.modified) {
-            txVault.collection(entry.collection).put(entry.id, entry.record)
+            txVault.collection(entry.collection).put(entry.id, entry.record, { reason: 'import:xlsx' })
           }
         }
         if (policy === 'replace') {

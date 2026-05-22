@@ -78,6 +78,12 @@ export interface StagedOp {
   id: string
   record?: unknown
   expectedVersion?: number
+  /**
+   * Optional human-readable tag forwarded to the resulting ledger
+   * entry's `reason` field (#1). Set by callers via
+   * `tx.vault(v).collection(c).put(id, record, { reason })`.
+   */
+  reason?: string
 }
 
 /**
@@ -235,7 +241,7 @@ export class TxCollection<T> {
    * Supply `{ expectedVersion }` to enforce optimistic concurrency
    * during the commit pre-flight.
    */
-  put(id: string, record: T, options?: { expectedVersion?: number }): void {
+  put(id: string, record: T, options?: { expectedVersion?: number; reason?: string }): void {
     const op: StagedOp = {
       type: 'put',
       vaultName: this._vault.name,
@@ -244,6 +250,7 @@ export class TxCollection<T> {
       record,
     }
     if (options?.expectedVersion !== undefined) op.expectedVersion = options.expectedVersion
+    if (options?.reason !== undefined) op.reason = options.reason
     this._ctx._ops.push(op)
   }
 
@@ -369,7 +376,7 @@ export async function runTransaction<T>(
         ctx._executed.push({ op, priorEnvelope: prior })
         if (op.type === 'put') {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await coll.put(op.id, op.record as any)
+          await coll.put(op.id, op.record as any, op.reason !== undefined ? { reason: op.reason } : undefined)
         } else {
           await coll.delete(op.id)
         }

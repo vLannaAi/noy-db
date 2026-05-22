@@ -115,6 +115,18 @@ export interface LedgerEntry {
   readonly payloadHash: string
 
   /**
+   * Optional human-readable tag describing why this mutation happened
+   * (#1). Threaded through `collection.put(_, _, { reason })`. Common
+   * values include `'import:csv'`, `'import:json'`, `'import:xlsx'` from
+   * `as-*` ImportPlan.apply(), but consumers can use any string for
+   * domain-specific audit filtering. Auto-strip via `canonicalJson` —
+   * absent on the wire, never serialized as `null`.
+   *
+   * Audit consumers filter: `entries.filter(e => e.reason?.startsWith('import:'))`.
+   */
+  readonly reason?: string
+
+  /**
    * Optional hex-encoded sha256 of the encrypted JSON Patch delta
    * blob stored alongside this entry in `_ledger_deltas/`. Present
    * only for `put` operations that had a previous version — the
