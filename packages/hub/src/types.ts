@@ -44,6 +44,7 @@ import type { VaultPolicy } from './policy/types.js'
 import type { PublicEnvelopeSchema } from './meta/public-envelope/types.js'
 import type { MaterializedViewStrategyHandle } from './materialized-views/types.js'
 import type { OverlayedViewStrategyHandle } from './overlay-views/types.js'
+import type { SealingKeyProvider } from './team/managed-passphrase.js'
 
 /** Format version for encrypted record envelopes. */
 export const NOYDB_FORMAT_VERSION = 1 as const
@@ -1818,6 +1819,29 @@ export interface NoydbOptions {
    * subsequent sessions.
    */
   readonly getKeyring?: (vault: string) => Promise<UnlockedKeyring>
+  /**
+   * Passphrase mode (#14). Default `'standard'`.
+   *
+   *   - `'standard'` — the legacy flow. `secret` supplies the
+   *     plaintext passphrase, the user knows it, and the policy gate
+   *     `rotate-passphrase` is enabled.
+   *   - `'managed'` — rubber-hose-resistant mode. Hub generates a
+   *     256-bit random passphrase at first open and seals it under
+   *     the provided `sealingKey`. The user never sees or types the
+   *     passphrase, defeating the $5-wrench attack. Mutually
+   *     exclusive with `secret` and `getKeyring`.
+   *
+   * @see docs/subsystems/session-tiers.md → Managed-passphrase mode
+   */
+  readonly passphraseMode?: 'standard' | 'managed'
+  /**
+   * Provider that seals/unseals the auto-generated managed-mode
+   * passphrase. Required when `passphraseMode === 'managed'`; ignored
+   * otherwise. Implementations live in per-platform packages
+   * (`@noy-db/seal-macos-keychain`, `@noy-db/seal-wincred`,
+   * `@noy-db/seal-libsecret`, `@noy-db/seal-aws-kms`, …).
+   */
+  readonly sealingKey?: SealingKeyProvider
   /** Auth method. Default: 'passphrase'. */
   readonly auth?: 'passphrase' | 'biometric'
   /** Enable encryption. Default: true. */
