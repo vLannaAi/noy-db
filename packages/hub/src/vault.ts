@@ -104,6 +104,7 @@ import {
   type MagicLinkGrantRecord,
 } from './team/magic-link-grant.js'
 import { UserApi } from './meta/user-envelope/api.js'
+import { persistSchemaIfNeeded } from './persisted-schemas/register.js'
 import { USER_ENVELOPE_COLLECTION } from './meta/user-envelope/types.js'
 
 /** A vault (tenant namespace) containing collections. */
@@ -233,6 +234,17 @@ export class Vault {
    * docstring.
    */
   private ledgerStore: LedgerStore | null = null
+
+  /**
+   * Background writes for persisted-schema envelopes (#schema-dump v0
+   * slice 1). One promise per `collection({ persistJsonSchema: true })`
+   * registration that actually fired a derive call. Fire-and-forget
+   * from the collection factory; tests await
+   * {@link _drainPendingSchemaWrites} before asserting on storage.
+   * Production code does not need to drain — the writes are
+   * idempotent fingerprints, not correctness invariants.
+   */
+  private _pendingSchemaWrites: Promise<void>[] = []
 
   /**
    * Per-vault foreign-key reference registry. Collections
@@ -509,6 +521,19 @@ export class Vault {
     tiers?: readonly number[]
     /**  — how lower-tier reads see above-tier records. */
     tierMode?: TierMode
+    /**
+     * Opt-in persisted JSON Schema. When `true` AND a Zod `schema` is
+     * provided, hub derives a JSON Schema via `zod-to-json-schema`
+     * (optional peer-dep) and writes an encrypted snapshot to
+     * `_schemas/<collectionName>`. Re-runs on every open; hash-skip
+     * avoids write churn when the schema is unchanged.
+     *
+     * Default: `false`. Non-Zod Standard Schema validators receive a
+     * stub envelope flagging the kind without a JSON Schema body.
+     *
+     * @see docs/superpowers/specs/2026-05-22-schema-dump-design.md
+     */
+    persistJsonSchema?: boolean
   }): Collection<T> {
     // Overlay intercept (#154). When the requested collection name
     // matches a registered `withOverlayedView`, return the virtual
@@ -668,8 +693,48 @@ export class Vault {
       }
       coll = new Collection<T>(collOpts)
       this.collectionCache.set(collectionName, coll)
+
+      // Fire-and-forget persisted-schema write when opted in. Pushed
+      // onto _pendingSchemaWrites so tests can drain before asserting;
+      // production code ignores it (the writes are idempotent fingerprints).
+      if (options?.persistJsonSchema === true && options.schema !== undefined) {
+        const validator: unknown = options.schema
+        const work = (async () => {
+          try {
+            const dek = await this.getDEK(collectionName)
+            await persistSchemaIfNeeded({
+              store: this.adapter,
+              vault: this.name,
+              collectionName,
+              validator,
+              dek,
+            })
+          } catch (err) {
+            // Schema persistence is a fingerprint, not a correctness
+            // invariant — log and continue. Production callers can
+            // still detect failures via _drainPendingSchemaWrites.
+            // eslint-disable-next-line no-console
+            console.warn(
+              `[noy-db] persisted-schema write failed for "${collectionName}": `
+              + (err instanceof Error ? err.message : String(err)),
+            )
+          }
+        })()
+        this._pendingSchemaWrites.push(work)
+      }
     }
     return coll as Collection<T>
+  }
+
+  /**
+   * Await all background persisted-schema writes triggered by
+   * `collection({ persistJsonSchema: true })` calls on this vault.
+   * Used in tests; production code does not need to call this.
+   */
+  async _drainPendingSchemaWrites(): Promise<void> {
+    const pending = this._pendingSchemaWrites
+    this._pendingSchemaWrites = []
+    await Promise.allSettled(pending)
   }
 
   /**

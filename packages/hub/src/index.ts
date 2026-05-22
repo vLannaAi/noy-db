@@ -265,6 +265,23 @@ export type {
 } from './schema.js'
 export { validateSchemaInput, validateSchemaOutput } from './schema.js'
 
+// Persisted JSON Schema — opt-in per-collection encrypted snapshot
+// of the developer's Zod (or other Standard Schema) validator. Powers
+// `noydb describe` audit output from a bundle alone.
+export type {
+  PersistedSchemaEnvelope,
+  PersistedSchemaKind,
+  PersistSchemaResult,
+} from './persisted-schemas/index.js'
+export {
+  SCHEMAS_COLLECTION,
+  derivePersistedSchema,
+  isZodSchema,
+  loadPersistedSchema,
+  savePersistedSchema,
+  persistSchemaIfNeeded,
+} from './persisted-schemas/index.js'
+
 // Time-machine queries — vault.at(ts) method lives on
 // Vault; these classes are the return types.
 export { VaultInstant, CollectionInstant } from './history/time-machine.js'
