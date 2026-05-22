@@ -32,6 +32,8 @@ import {
   type RotatePassphraseInput,
   type RecoverPassphraseInput,
   type RecoverPassphraseResult,
+  type RotateRecoveryOptions,
+  type RotateRecoveryResult,
 } from './team/rotate-recover.js'
 import {
   recoverUser as keyringRecoverUser,
@@ -45,7 +47,7 @@ import {
   type PaperRecoveryEntry,
 } from './team/recovery.js'
 import { generateULID } from './bundle/ulid.js'
-import { RecoveryNotEnrolledError } from './policy/errors.js'
+import { RecoveryNotEnrolledError, RecoveryProfileNotImplementedError } from './policy/errors.js'
 import {
   describeAuthConfig as fnDescribeAuthConfig,
   diagramAuthConfig as fnDiagramAuthConfig,
@@ -1740,6 +1742,87 @@ export class Noydb {
     }
     // Single replace-all write — `savePaperRecoveryEntries` overwrites
     // `_meta/recovery-paper` atomically (one envelope `put`).
+    await savePaperRecoveryEntries(this.options.store, vault, newEntries)
+
+    return { newCodes: codes }
+  }
+
+  /**
+   * Deliberate paper-recovery-code regeneration (#121). User knows their
+   * passphrase but wants a fresh sheet — they lost the printout or
+   * suspect compromise of the off-site copy.
+   *
+   * Symmetric to {@link rotatePassphrase} for the recovery profile:
+   * gated, audit-trackable, ergonomic. Replaces (not appends) the
+   * paper sheet under `_meta/recovery-paper` in a single envelope `put`.
+   *
+   * Gated by the `rotate-recovery` policy gate:
+   *   - PERSONAL_POLICY: `{ minTier: 1 }` — knowing the passphrase
+   *     suffices, matching the pre-#121 low-level flow's bar.
+   *   - STRICT_POLICY: `{ minTier: 1, factors: [{ anyOf: ['totp',
+   *     'email-otp', 'webauthn-roaming'] }] }` — rotation is an
+   *     off-site-trust event; require an off-device factor so a
+   *     stolen unlocked laptop cannot silently mint a sheet for the
+   *     attacker.
+   *
+   * Defaults `count` to the existing sheet size so consumers aren't
+   * surprised by a different code count. Explicit `count` overrides.
+   *
+   * @throws {@link RecoveryProfileNotImplementedError} when `profile`
+   *         is anything other than `'paper'` (v1 dispatch limit).
+   * @throws {@link PolicyDeniedError} when the gate denies (missing
+   *         factor, tier mismatch, ...).
+   * @throws on missing paper sheet — "nothing to rotate" surfaces as
+   *         an error rather than silently minting an entire new sheet.
+   *
+   * @example Default count + show-once UI
+   * ```ts
+   * const { newCodes } = await db.rotateRecovery('acme', { profile: 'paper' })
+   * showCodesToUser(newCodes)
+   * ```
+   *
+   * @example STRICT-policy site with TOTP factor proof
+   * ```ts
+   * await db.rotateRecovery(
+   *   'acme',
+   *   { profile: 'paper', count: 10 },
+   *   { factors: [{ kind: 'totp', proof: '123456' }] },
+   * )
+   * ```
+   */
+  async rotateRecovery(
+    vault: string,
+    options: RotateRecoveryOptions,
+    factors?: FactorProofBundle,
+  ): Promise<RotateRecoveryResult> {
+    if (options.profile !== 'paper') {
+      throw new RecoveryProfileNotImplementedError(options.profile, '#10')
+    }
+    await this.checkGate(vault, 'rotate-recovery', factors)
+
+    const existing = await loadPaperRecoveryEntries(this.options.store, vault)
+    if (existing.length === 0) {
+      throw new Error(
+        `db.rotateRecovery: no recovery codes are enrolled for vault "${vault}". ` +
+        `Call db.enrollRecovery({ profile: 'paper', entries }) first; ` +
+        `rotateRecovery replaces an existing sheet rather than minting one from scratch.`,
+      )
+    }
+
+    const keyring = await this.getKeyring(vault)
+    const codeGen = options.codeGenerator ?? generateULID
+    const count = options.count ?? existing.length
+
+    const codes: string[] = []
+    const newEntries: PaperRecoveryEntry[] = []
+    for (let i = 0; i < count; i++) {
+      const rawCode = codeGen()
+      const entry = await mintPaperRecoveryEntry(keyring.deks, rawCode, generateULID())
+      codes.push(rawCode)
+      newEntries.push(entry)
+    }
+    // Atomic replace — `savePaperRecoveryEntries` overwrites
+    // `_meta/recovery-paper` in a single envelope `put`.
     await savePaperRecoveryEntries(this.options.store, vault, newEntries)
 
     return { newCodes: codes }
