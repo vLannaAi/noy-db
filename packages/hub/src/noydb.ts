@@ -46,8 +46,9 @@ import {
   mintPaperRecoveryEntry,
   type PaperRecoveryEntry,
 } from './team/recovery.js'
+import { resolveManagedSecret } from './team/managed-passphrase.js'
 import { generateULID } from './bundle/ulid.js'
-import { RecoveryNotEnrolledError, RecoveryProfileNotImplementedError } from './policy/errors.js'
+import { RecoveryNotEnrolledError, RecoveryProfileNotImplementedError, PolicyDeniedError } from './policy/errors.js'
 import {
   describeAuthConfig as fnDescribeAuthConfig,
   diagramAuthConfig as fnDiagramAuthConfig,
@@ -1684,6 +1685,25 @@ export class Noydb {
     input: RotatePassphraseInput,
     factors?: FactorProofBundle,
   ): Promise<void> {
+    // Managed-passphrase mode (#14): the user does NOT know the
+    // current passphrase (hub generated it and sealed it under the
+    // provider). Manual rotation via this method is impossible by
+    // construction — surface a clear error rather than fail mid-way
+    // with InvalidKeyError once `oldPassphrase` doesn't match the
+    // hub-generated one. Recovery-under-managed (which mints a fresh
+    // sealed passphrase via the provider) is the supported path; it
+    // lands in a follow-up.
+    if (this.options.passphraseMode === 'managed') {
+      throw new PolicyDeniedError(
+        'rotate-passphrase',
+        'disabled',
+        { minTier: 1, enabled: false },
+        'Managed-passphrase mode (#14): the passphrase is hub-generated '
+        + 'and sealed under the SealingKeyProvider — there is no '
+        + 'plaintext to rotate. Use the recovery flow (follow-up issue) '
+        + 'to mint a fresh sealed passphrase.',
+      )
+    }
     await this.checkGate(vault, 'rotate-passphrase', factors)
     const userId = this.options.user
     const next = await keyringRotatePassphrase(this.options.store, vault, userId, input)
@@ -2070,13 +2090,31 @@ export class Noydb {
       return keyring
     }
 
-    if (!this.options.secret) {
+    // Managed-passphrase mode (#14) — resolve the effective secret
+    // before falling into the normal load/create path. The first call
+    // mints + seals + persists; subsequent calls unseal what's there.
+    // The returned string takes the place of `options.secret` for the
+    // rest of this method (and is NOT persisted on `this.options`).
+    let effectiveSecret: string | undefined
+    if (this.options.passphraseMode === 'managed') {
+      // sealingKey presence was validated at createNoydb time.
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      effectiveSecret = await resolveManagedSecret(
+        this.options.store,
+        vault,
+        this.options.sealingKey!,
+      )
+    } else {
+      effectiveSecret = this.options.secret
+    }
+
+    if (!effectiveSecret) {
       throw new ValidationError('A secret (passphrase) or getKeyring callback is required when encryption is enabled')
     }
 
     let keyring: UnlockedKeyring
     try {
-      keyring = await loadKeyring(this.options.store, vault, this.options.user, this.options.secret)
+      keyring = await loadKeyring(this.options.store, vault, this.options.user, effectiveSecret)
     } catch (err) {
       if (err instanceof NoAccessError) {
         // No keyring on disk — first boot or cleared store.
@@ -2084,8 +2122,16 @@ export class Noydb {
           this.options.store,
           vault,
           this.options.user,
-          this.options.secret,
-          { validate: this.options.validatePassphrase === true },
+          effectiveSecret,
+          {
+            // Managed mode generates 256-bit base64 strings that don't satisfy
+            // the human-passphrase strength rules (no spaces, no "words").
+            // Skip validation in managed mode — the entropy floor is already
+            // 256 bits by construction.
+            validate: this.options.passphraseMode === 'managed'
+              ? false
+              : this.options.validatePassphrase === true,
+          },
         )
       } else if (err instanceof InvalidKeyError && this.options.onInvalidKey === 'reset') {
         // Stale keyring: exists in the store but the current credentials can't
@@ -2097,8 +2143,12 @@ export class Noydb {
           this.options.store,
           vault,
           this.options.user,
-          this.options.secret,
-          { validate: this.options.validatePassphrase === true },
+          effectiveSecret,
+          {
+            validate: this.options.passphraseMode === 'managed'
+              ? false
+              : this.options.validatePassphrase === true,
+          },
         )
       } else {
         throw err
@@ -2113,12 +2163,38 @@ export class Noydb {
 /** Create a new NOYDB instance. */
 export async function createNoydb(options: NoydbOptions): Promise<Noydb> {
   const encrypted = options.encrypt !== false
+  const managed = options.passphraseMode === 'managed'
 
   if (options.secret && options.getKeyring) {
     throw new ValidationError('Provide either `secret` or `getKeyring`, not both')
   }
 
-  if (encrypted && !options.secret && !options.getKeyring) {
+  // Managed-passphrase mode (#14) — mutually exclusive with both
+  // `secret` (the whole point is hub generates and seals; the user
+  // doesn't supply one) and `getKeyring` (a custom unlock path that
+  // bypasses the sealing flow entirely). Requires a SealingKeyProvider.
+  if (managed) {
+    if (options.secret) {
+      throw new ValidationError(
+        '`passphraseMode: "managed"` is mutually exclusive with `secret` — '
+        + 'managed mode generates the passphrase itself. Drop `secret`.',
+      )
+    }
+    if (options.getKeyring) {
+      throw new ValidationError(
+        '`passphraseMode: "managed"` is mutually exclusive with `getKeyring` — '
+        + 'a custom unlock callback would bypass the sealing flow. Drop `getKeyring`.',
+      )
+    }
+    if (!options.sealingKey) {
+      throw new ValidationError(
+        '`passphraseMode: "managed"` requires `sealingKey: SealingKeyProvider` '
+        + '(see @noy-db/seal-macos-keychain / @noy-db/seal-aws-kms / etc.).',
+      )
+    }
+  }
+
+  if (encrypted && !managed && !options.secret && !options.getKeyring) {
     throw new ValidationError('A secret (passphrase) or getKeyring callback is required when encryption is enabled')
   }
 

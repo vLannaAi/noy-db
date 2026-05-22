@@ -455,6 +455,19 @@ export type { PaperRecoveryEntry, PaperRecoveryDoc } from './team/recovery.js'
 export { mintWrappedDeksBlob, unwrapDeksFromBlob } from './team/wrapped-deks.js'
 export type { WrappedDeksBlob } from './team/wrapped-deks.js'
 
+// Managed-passphrase mode (#14) — rubber-hose-resistant vaults where
+// hub generates the passphrase and seals it under a developer-provided
+// SealingKeyProvider. The interface lives here; concrete providers
+// (macOS Keychain, Windows Credential Manager, libsecret, AWS KMS)
+// ship as separate packages.
+export type { SealingKeyProvider, SealedPassphrase } from './team/managed-passphrase.js'
+export {
+  MemorySealingKeyProvider,
+  loadSealedPassphrase,
+  saveSealedPassphrase,
+  SEALED_PASSPHRASE_RECORD_ID,
+} from './team/managed-passphrase.js'
+
 // Peer-recovery — issues #33 + #34 (atomic db.recoverUser primitive).
 // The team/peer-recover module also runs through Noydb.recoverUser for
 // the policy-gated path; consumers can use the lower-level function
