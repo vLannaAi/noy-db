@@ -77,6 +77,53 @@ describe('withMaterializedView UNION validation (#165)', () => {
     ).toThrow(/empty array/)
   })
 
+  it('rejects unionSources with aggregate but no groupBy (#169)', () => {
+    expect(() =>
+      withMaterializedView({
+        name: 'bad-aggregate-no-groupby',
+        unionSources: [
+          { collection: 'a', map: (r) => r as Record<string, unknown> },
+          { collection: 'b', map: (r) => r as Record<string, unknown> },
+        ],
+        aggregate: { total: sum('n') },
+        // groupBy intentionally omitted
+        rowKey: () => 'k',
+        refresh: 'eager',
+      }),
+    ).toThrow(/aggregate requires groupBy/)
+  })
+
+  it('rejects unionSources with predicates (#170 — not yet supported)', () => {
+    expect(() =>
+      withMaterializedView<{ k: string; n: number }>({
+        name: 'bad-predicates-on-union',
+        unionSources: [
+          {
+            collection: 'a',
+            map: (r) => ({
+              k: String((r as { k: unknown }).k),
+              n: Number((r as { n: unknown }).n),
+            }),
+          },
+          {
+            collection: 'b',
+            map: (r) => ({
+              k: String((r as { k: unknown }).k),
+              n: Number((r as { n: unknown }).n),
+            }),
+          },
+        ],
+        groupBy: 'k',
+        aggregate: { total: sum('n') },
+        predicates: {
+          isPositive: { hash: 'v1', fn: (row) => row.n > 0 },
+        },
+        rowKey: (row) => row.k,
+        refresh: 'eager',
+      }),
+    ).toThrow(/predicates are not supported on UNION/)
+  })
+
   it('accepts a well-formed UNION strategy', () => {
     expect(() =>
       withMaterializedView<{ k: string; n: number }>({
