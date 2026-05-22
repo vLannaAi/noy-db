@@ -98,6 +98,16 @@ export type BuiltInGateName =
   | 'enroll-authenticator'
   | 'remove-authenticator'
   /**
+   * Authorize a deliberate paper-recovery-code regeneration —
+   * `db.rotateRecovery` (#121). Symmetric to `rotate-passphrase` for
+   * the case where the user remembers their passphrase but wants a
+   * fresh sheet (lost the printout, suspect compromise of the off-site
+   * copy). PERSONAL allows tier-1; STRICT requires an off-device
+   * factor so a stolen unlocked laptop cannot silently mint a new
+   * sheet for an attacker.
+   */
+  | 'rotate-recovery'
+  /**
    * Authorize a meta-only mutation on an existing authenticator slot —
    * `db.updateAuthenticator` (#55). The slot's wrap material, id, and
    * method are immutable through this gate; only the `meta` blob

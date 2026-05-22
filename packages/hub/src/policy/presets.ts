@@ -39,6 +39,10 @@ export const PERSONAL_POLICY: VaultPolicy = Object.freeze({
       minTier: 1,
       enabled: true,
     },
+    // rotate-recovery (#121): deliberate paper-sheet regeneration
+    // when the user remembers their passphrase. PERSONAL matches the
+    // pre-#121 low-level flow's bar — knowing the passphrase is enough.
+    'rotate-recovery': { minTier: 1 },
     'enroll-authenticator': { minTier: 1 },
     'remove-authenticator': { minTier: 1 },
     // update-authenticator: meta-only mutation (slot rename, label
@@ -105,6 +109,14 @@ export const STRICT_POLICY: VaultPolicy = Object.freeze({
     'recover-passphrase': {
       minTier: 1,
       enabled: true,
+    },
+    // rotate-recovery (#121): STRICT requires an off-device factor —
+    // rotating recovery is an off-site-trust event; a stolen unlocked
+    // laptop must not be able to silently mint a new sheet for the
+    // attacker. Matches the `peer-recover-user` STRICT default.
+    'rotate-recovery': {
+      minTier: 1,
+      factors: [{ anyOf: ['totp', 'email-otp', 'webauthn-roaming'] }],
     },
     'enroll-authenticator': {
       minTier: 1,

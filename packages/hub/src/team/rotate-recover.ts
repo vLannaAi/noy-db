@@ -337,6 +337,38 @@ export interface RecoverPassphraseResult {
 }
 
 /**
+ * Input for {@link Noydb.rotateRecovery} (#121) — deliberate
+ * paper-recovery-code regeneration when the user knows their
+ * passphrase but wants a fresh sheet. Symmetric to
+ * {@link RotatePassphraseInput} for the recovery profile.
+ */
+export interface RotateRecoveryOptions {
+  /**
+   * Recovery profile to rotate. v0.1.0-pre.5 supports `'paper'`
+   * end-to-end; the other three profiles throw
+   * {@link RecoveryProfileNotImplementedError} (dispatch arrives with #10).
+   */
+  readonly profile: 'paper'
+  /**
+   * How many fresh codes to mint. Default: the existing sheet size,
+   * so consumers aren't surprised by a different code count after
+   * rotation. Explicit `count` overrides.
+   */
+  readonly count?: number
+  /**
+   * Optional code generator — mirrors
+   * {@link RecoverPassphraseInput.codeGenerator}. When omitted the
+   * implementation uses `generateULID()` (Crockford-base32, 26 chars).
+   */
+  readonly codeGenerator?: () => string
+}
+
+/** Result of {@link Noydb.rotateRecovery} — the show-once codes for the UI. */
+export interface RotateRecoveryResult {
+  readonly newCodes: readonly string[]
+}
+
+/**
  * Reset the user's passphrase using a recovery proof. v0.1.0-pre.5
  * supports the `'paper'` profile via `@noy-db/on-recovery` entries
  * persisted in `_meta/recovery-paper`. The other three profiles throw
