@@ -110,6 +110,25 @@ features:
       - 'Validation runs before encryption (write) and after decryption (read)'
     related: [vault-and-collections]
 
+  - id: persisted-json-schema
+    name: Persisted JSON Schema (opt-in)
+    cluster: core
+    spec: docs/superpowers/specs/2026-05-22-schema-dump-design.md
+    subsystem_doc: docs/core/05-schema-and-refs.md
+    package: '@noy-db/hub'
+    factory: null
+    status: preview
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'opt-in per collection via collection({ persistJsonSchema: true })'
+      - 'envelope stored encrypted with the collection DEK under _schemas/<col>'
+      - 'hash-based skip on every collection() registration — no _v churn on no-op re-derive'
+      - 'v0 supports Zod via optional zod-to-json-schema peer-dep; other Standard Schema validators write a stub envelope flagging the kind'
+    related: [schema-and-refs]
+
   - id: query-basics
     name: Always-on query DSL
     cluster: core
