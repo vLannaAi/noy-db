@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/showcases",
-  "version": "0.1.0-pre.14",
+  "version": "0.1.0-pre.15",
   "private": true,
   "description": "Automated end-to-end showcases for noy-db — each showcase doubles as a test, demo, and tutorial covering a specific topology pattern.",
   "type": "module",
