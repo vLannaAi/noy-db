@@ -1,5 +1,19 @@
 # @noy-db/showcases
 
+## 0.1.0-pre.15
+
+### Minor Changes
+
+Two new showcases for pre.15's Dim 14 v2 follow-up ([#167](https://github.com/vLannaAi/noy-db/pull/167)):
+
+- `85-with-multikey-groupby.showcase.test.ts` — variadic `Query.groupBy(...fields)` walkthrough, declaration-order row shape, niwat per-(client, period) monthly-VAT shape ([#166](https://github.com/vLannaAi/noy-db/issues/166))
+- `86-with-union-mv.showcase.test.ts` — UNION MV via `unionSources`, per-arm `map`, composed with multi-key groupBy for monthly-VAT across `taxReceipts` + `creditNotes` ([#165](https://github.com/vLannaAi/noy-db/issues/165))
+
+### Patch Changes
+
+- Updated dependencies
+  - @noy-db/hub@0.1.0-pre.15
+
 ## 0.1.0-pre.14
 
 ### Minor Changes

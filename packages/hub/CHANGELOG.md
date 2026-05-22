@@ -1,5 +1,68 @@
 # Changelog — hub
 
+## 0.1.0-pre.15
+
+A small fast-follow to pre.14's Dim 14 v2: extends `withMaterializedView` along two consumer-driven axes ([#165](https://github.com/vLannaAi/noy-db/issues/165) + [#166](https://github.com/vLannaAi/noy-db/issues/166)), folds in a pre.14 type-only cleanup ([#131](https://github.com/vLannaAi/noy-db/issues/131)), and resolves two niwat-review follow-ups ([#169](https://github.com/vLannaAi/noy-db/issues/169) + [#170](https://github.com/vLannaAi/noy-db/issues/170)). 5 issues closed, 1 PR merged ([#167](https://github.com/vLannaAi/noy-db/pull/167)), 28 new hub tests, 1601 hub tests on the tip.
+
+### Multi-key `groupBy` ([#166](https://github.com/vLannaAi/noy-db/issues/166))
+
+- `Query<T>.groupBy(...fields)` is now variadic with a back-compatible single-arg overload (TypeScript prefers the single-field overload via declaration order, so existing call sites keep their narrowed return type).
+- Result rows carry every grouped field in **declaration order**, followed by reducer outputs. `groupBy('clientId', 'period')` produces `{ clientId, period, ...aggregates }`.
+- New internal `canonicalGroupKey(fields, row)` helper — sorts field names lexicographically before serialising, so the bucket dedup key is invariant under field-argument order (`groupBy('a','b')` and `groupBy('b','a')` produce the same buckets). The helper is reused by the UNION MV dedup path.
+- `GroupedQueryBase` shared abstract class holds the constructor + protected fields; `GroupedQuery<T, F>` and `GroupedQueryN<T, F>` override only `aggregate()` for the appropriate return-type generic. Eliminates the drift risk of parallel near-identical wrappers.
+- Cardinality warning now lists every grouped field name (`[a, b, c]`); `GroupCardinalityError` at 100k distinct tuples; thresholds unchanged.
+- MV strategies can use multi-key `groupBy` inside `query()` callbacks unchanged — dependency analyzer correctly walks the multi-key plan node.
+
+### UNION materialised views ([#165](https://github.com/vLannaAi/noy-db/issues/165))
+
+`withMaterializedView` gained a new top-level mode: `unionSources: [{ collection, map }, ...]` reads from multiple sibling collections in one declaration. Per-source `map` is the schema-unification boundary — sibling collections with different schemas project to a single MV row shape (the strategy's `TRow` type parameter). Declarative `groupBy: string | ReadonlyArray<string>` + `aggregate` fields then run on the concatenated stream.
+
+Registration validation (new `MaterializedViewConfigError`):
+- Mutually exclusive with `query` — strategy uses one or the other
+- `unionSources.length >= 2` required
+- Distinct collection names across arms required
+- Empty `groupBy: []` rejected
+- `aggregate` without `groupBy` rejected ([#169](https://github.com/vLannaAi/noy-db/issues/169))
+- `predicates` rejected on UNION mode for now ([#170](https://github.com/vLannaAi/noy-db/issues/170)) — per-arm predicate semantics is a deferred feature
+
+Executor path: reads each arm, runs per-source `map`, concatenates, then dispatches by shape (no groupBy → return as-is; groupBy without aggregate → dedupe via `canonicalGroupKey`, first row wins per composite key; groupBy + aggregate → delegate to `groupAndReduce`). Source-write hook fires on every arm via the existing dependency reverse-index — `Collection.put` is unchanged.
+
+`summarizeUnionPlan` hashes arm collection names in **declaration order** (semantically meaningful for the dedup-only path — first-seen row per composite key wins, and reordering arms must trigger a refresh). `groupBy` fields and `aggregate` keys are still sorted (genuinely commutative). Two regression tests pin the asymmetry. (niwat review, [#167](https://github.com/vLannaAi/noy-db/pull/167) — first finding addressed in `6be47a2`.)
+
+`maxRows`, `onEmpty`, `strict` semantics inherited unchanged. Composes with multi-key groupBy: the niwat canonical monthly-VAT shape — `union(taxReceipts, creditNotes).groupBy('clientId', 'period').sum('vat')` — is the combined test fixture.
+
+### `GuardStrategyHandle` variance cleanup ([#131](https://github.com/vLannaAi/noy-db/issues/131))
+
+`GuardStrategyHandle<T>` is invariant in `T` because `T` appears in callback positions on the spec (`check(incoming: T, ctx)`, `invariant(changes: ReadonlyArray<GuardChange<T>>, ctx)`). Pre.14 worked around it with `GuardStrategyHandle<any>` + two `eslint-disable @typescript-eslint/no-explicit-any` annotations on public-API fields.
+
+The fix: a sealed internal `GuardStrategyHandleAny` existential interface (`{ __noydb_strategy: 'guard'; spec: GuardStrategy<any> }`) as the array element type. Both `Handle<Invoice>` and `Handle<Disbursement>` structurally widen to this erased form. Three call sites updated:
+
+- `NoydbOptions.guardStrategies` at `packages/hub/src/types.ts:1751–1752`
+- `Vault` constructor option at `packages/hub/src/vault.ts:374–375`
+- `_initGuards()` internal at `packages/hub/src/vault.ts:1410–1411` (bonus third site beyond the issue's two)
+
+The single `any` retained inside the existential body is the established named-existential pattern — `any` is now contained behind a private named boundary instead of leaking from public-API field positions. Type-only refactor; no behaviour change; guards test suite (48 tests) and showcase 79 unchanged.
+
+### Niwat-review follow-ups
+
+`5b385e7` adds two registration guards from the niwat review of [#167](https://github.com/vLannaAi/noy-db/pull/167):
+- [#169](https://github.com/vLannaAi/noy-db/issues/169) — UNION MV with `aggregate` requires `groupBy` (else the executor silently dropped the reducer)
+- [#170](https://github.com/vLannaAi/noy-db/issues/170) — `predicates` not supported on UNION MVs (predicate hashes weren't folded into `summarizeUnionPlan` and `.wherePredicate` never fired in the executor)
+
+Both fail-fast at registration with `MaterializedViewConfigError`, same pattern as the existing empty-`groupBy` and arm-distinct-collection guards.
+
+### Known follow-up
+
+`Collection._doDelete` does NOT call `dispatchMaterializedViews` (only the two `put` code paths at `packages/hub/src/collection.ts:1283` and `:1399` do). Deleting a source row never triggers an eager MV refresh; tombstoning fires only when a subsequent `put` on the same source re-runs the executor, or when `vault.refreshView()` is called manually. Affects all MVs with `onEmpty: 'delete'` (the default) — not just UNION-form. The tombstone test in `packages/hub/__tests__/materialized-views/union.test.ts` lands in manual-refresh form (proves the executor + `listOutputIds` are correct) and is paired with an `it.todo` at line 333 pinning the auto-dispatch gap for a future PR.
+
+### Showcases + docs
+
+- [`85-with-multikey-groupby`](https://github.com/vLannaAi/noy-db/blob/main/showcases/src/85-with-multikey-groupby.showcase.test.ts) — variadic groupBy walkthrough, declaration-order assertions, niwat per-(client, period) shape
+- [`86-with-union-mv`](https://github.com/vLannaAi/noy-db/blob/main/showcases/src/86-with-union-mv.showcase.test.ts) — UNION MV walkthrough with the monthly-VAT example
+- `docs/subsystems/aggregate.md` — new "Multi-key groupBy" section
+- `docs/subsystems/derivations.md` — "Multi-key groupBy in MV queries" + "UNION sources" sections
+- `features.yaml` — new invariants under `aggregate` and `materialized-views`; new showcase entries cross-linked from both
+
 ## 0.1.0-pre.14
 
 Two related strands shipped together: **Guards/Derivations v1.5** fast-follows from the pre.11 surface, then **Dim 14 v2 — `withMaterializedView`** built on top. 12 issues closed across 7 merged PRs; ~3000 LOC added across `src/`; 1573 hub tests pass on the tip.
