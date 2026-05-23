@@ -1,4 +1,4 @@
-# Sealing + `at-*` dimension — foundation for #188–#198
+# Sealing + `at-*` dimension — foundation for #188–#199
 
 > Internal foundation doc. Captures the dimensional model that grounds the
 > open managed-mode / sealing / recovery / bundle-delivery work
@@ -10,10 +10,11 @@
 
 - Date: 2026-05-23
 - Scope: pre-implementation foundation; precedes per-issue specs.
-- Tracks: #188, #189, #190, #191, #192, #193, #194, #195, #196, #197, #198
+- Tracks: #188, #189, #190, #191, #192, #193, #194, #195, #196, #197, #198, #199
 - Builds on: `SealingKeyProvider` v1 (#186, pre.14), `at-env` reference (#187, pre.14), `on-shamir` primitives (shipped).
 - Does **not** decide release sequencing — that's a separate brainstorm. This doc fixes the *model*.
 - 2026-05-23 update: §12 (bundle transformation taxonomy) + §13 (partition × sealing/recovery soundness check) added after #198 landed mid-session; the §11 at-* architecture survives the composition test, modulo the `setupNewVaultIdentity` refactor in §13.2.
+- 2026-05-23 update: §11.11 (data sovereignty by construction invariant) + §13.5 (client-initiated extraction) added. Sibling issue #199 filed covering `vault.user.exportMyAccessibleData` + `requestWithdrawal` (two-party ceremony) + `unilateralWithdrawal` (gated, default DISABLED) — three first-class APIs that surface the §11.11 invariant.
 
 ## 1. The vault-centric model
 
@@ -240,6 +241,7 @@ download.
 | #195 managed-mode enforcement | recovery + policy | vault refuses creation in unrecoverable shapes |
 | #197 bundle-delivery sealed envelope | as-noydb / IO | bundle handover gains parity with live session-open |
 | #198 partition extraction with owner transfer | as-noydb / IO + identity | bundle becomes a re-keyed projection of the vault (new owner, transitive-closure subset); composes with #195/#196/#197 via the `setupNewVaultIdentity` refactor (§13.2) |
+| #199 client-initiated data portability + withdrawal | as-noydb / IO + sovereignty | three primitives (`exportMyAccessibleData`, `requestWithdrawal`, `unilateralWithdrawal`) exercising §11.11 as first-class APIs; sibling to #198 with non-owner initiator, scope-bounded by caller's DEK access set |
 
 Reading this table top-to-bottom is the operational view of the
 constellation: **seven seal-location additions, one recovery-survivability
@@ -1270,12 +1272,46 @@ existing `vault.user.me`, `vault.user.updateMe`, etc.), backed by the
 same internal machinery as `extractPartition`. Cross-reference each
 direction in the docs.
 
-#### 13.5.5 Out of scope for this foundation doc — track separately
+#### 13.5.5 Withdrawal modes — two-party + unilateral
 
-- Whether `exportMyAccessibleData` should be its own GitHub issue or
-  ride alongside #198. Recommendation: file as a sibling issue with a
-  link to §13.5; #198's spec already touches the firm-side mechanics,
-  the sibling issue tracks the client-side semantics.
+The export primitive in §13.5.3 covers non-destructive portability. A
+client also needs the ability to **withdraw** their records from the
+source vault — extracting AND deleting from source. Two distinct modes
+matter:
+
+**Two-party withdrawal** — client requests, owner reviews, owner
+approves → atomic extract-and-delete under owner authority. Cooperative
+departure path. Suitable for any deployment.
+
+**Unilateral withdrawal** — client extracts AND deletes single-handedly,
+gated by a `client-unilateral-withdraw` policy gate that defaults to
+DISABLED. Suitable only for deployments where the firm has explicitly
+committed (contractually or under regulatory pressure like GDPR Art. 17)
+to honor client withdrawal without owner-side review. NOT suitable for
+tax/accounting where legal retention requirements forbid records
+deletion at client request.
+
+Both modes:
+- Share machinery with §13.5.3 + §13.2 (the same walker + re-key +
+  `setupNewVaultIdentity` internal)
+- Reuse #198's `extractPartition({ source: { onExtracted:
+  'delete-extracted' }})` under the hood
+- Default to non-destructive on the bundle side (the destination is
+  the client's new vault; only the source is deleted)
+- Record audit-ledger entries: `user-withdrawal-request`,
+  `user-withdrawal-approved`, `user-withdrawal-rejected`,
+  `user-unilateral-withdrawal` (with `legalBasis` field)
+- Are tracked as part of sibling issue #199 alongside the
+  non-destructive `exportMyAccessibleData`
+
+The architecture provides the capability for unilateral withdrawal;
+the deployment decides whether to enable it. This is the honest
+posture: §11.11 says a user can always *export*, but *deleting from
+source* is a separate authority — the policy gate exists so firms
+under retention regulations can decline to grant it, while firms with
+contractual portability commitments can enable it.
+
+#### 13.5.6 Out of scope for this foundation doc — track separately
 - The exact graph-cut semantics when an FK points outside the caller's
   scope (broken-FK marker? null? skip?). Belongs in #198's walker spec
   with a flag for "scope-bounded walk vs unbounded walk."
