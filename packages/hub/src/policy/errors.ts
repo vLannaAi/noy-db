@@ -56,13 +56,16 @@ export class RecoveryNotEnrolledError extends NoydbError {
 }
 
 /**
- * Raised by `db.recoverPassphrase` when the developer requests a
- * recovery profile other than `'paper'` in v0.1.0-pre.5. The other
- * three profiles (Shamir, multi-channel, admin-mediated) ship the API
- * shape now; their per-profile dispatch lands in follow-up issues.
+ * Raised by `db.recoverPassphrase` / `db.enrollRecovery` /
+ * `db.rotateRecovery` when the developer requests a recovery profile
+ * not yet wired in this hub release.
+ *
+ * Implemented: `paper` (#10, pre.5) and `shamir` (#196 slice 1, pre.16).
+ * Pending: `multi-channel` and `admin-mediated` (tracked under #196
+ * follow-up slices).
  *
  * The carried `profile` and `tracking` fields let consumers steer the
- * UI ("Shamir recovery is not yet wired up — open issue #N to follow").
+ * UI ("multi-channel recovery is not yet wired up — open issue #N to follow").
  */
 export class RecoveryProfileNotImplementedError extends NoydbError {
   readonly profile: string

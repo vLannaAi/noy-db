@@ -250,6 +250,10 @@ importers:
         version: 22.19.17
 
   packages/hub:
+    dependencies:
+      '@noy-db/on-shamir':
+        specifier: workspace:*
+        version: link:../on-shamir
     devDependencies:
       '@types/node':
         specifier: ^22.0.0

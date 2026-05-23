@@ -437,7 +437,9 @@ export {
   describeAllUsersAuth,
 } from './auth-introspection/index.js'
 
-// Recovery storage — issue #10, mint/unwrap helpers added in pre.8 (#39)
+// Recovery storage — issue #10 (paper, pre.5), Shamir slice (#196, pre.16).
+// Paper mint/unwrap helpers added in pre.8 (#39); Shamir mint/unwrap
+// added in #196 slice 1.
 export {
   loadPaperRecoveryEntries,
   savePaperRecoveryEntries,
@@ -445,8 +447,29 @@ export {
   hasRecoveryEnrolled,
   mintPaperRecoveryEntry,
   unwrapDeksFromPaperEntry,
+  loadShamirRecoveryEntries,
+  saveShamirRecoveryEntries,
+  mintShamirRecoveryEntry,
+  unwrapDeksFromShamirEntry,
+  encodeShareBase32,
+  decodeShareBase32,
 } from './team/recovery.js'
-export type { PaperRecoveryEntry, PaperRecoveryDoc } from './team/recovery.js'
+export type {
+  PaperRecoveryEntry,
+  PaperRecoveryDoc,
+  ShamirRecoveryEntry,
+  ShamirRecoveryDoc,
+} from './team/recovery.js'
+
+// Recovery dispatch types added in #196 slice 1 — discriminated
+// unions for the polymorphic enroll/rotate paths. (RecoveryProof /
+// RecoverPassphraseInput / RecoverPassphraseResult are already
+// exported above.)
+export type {
+  EnrollRecoveryResult,
+  RotateRecoveryOptions,
+  RotateRecoveryResult,
+} from './team/rotate-recover.js'
 
 // Canonical wrap-DEKs primitive (#44) — shared crypto for tier-0
 // (paper recovery), tier-2 wrap-DEKs (password), tier-3 (on-pin).

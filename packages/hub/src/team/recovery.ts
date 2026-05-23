@@ -29,6 +29,12 @@ import {
   unwrapDeksFromBlob,
   type WrappedDeksBlob,
 } from './wrapped-deks.js'
+import {
+  splitSecret,
+  combineSecret,
+  encodeShareBase32,
+  type RawShare,
+} from '@noy-db/on-shamir'
 
 /**
  * One paper recovery code as persisted in `_meta/recovery-paper`.
@@ -118,7 +124,190 @@ export async function hasRecoveryEnrolled(
   vault: string,
 ): Promise<boolean> {
   const paper = await loadPaperRecoveryEntries(store, vault)
-  return paper.length > 0
+  if (paper.length > 0) return true
+  const shamir = await loadShamirRecoveryEntries(store, vault)
+  return shamir.length > 0
+}
+
+// ─── Shamir recovery (#196 slice 1) ──────────────────────────────────────
+
+/**
+ * One Shamir-recovery entry as persisted in `_meta/recovery-shamir`.
+ *
+ * Like {@link PaperRecoveryEntry}, the entry composes
+ * {@link WrappedDeksBlob} (DEKs wrapped under a fresh ephemeral
+ * recovery secret) with profile-specific metadata. Unlike paper, the
+ * "credential" was never visible to the user — it was 32 random
+ * bytes split into N Shamir shares at enrollment. The shares ARE
+ * the credential; the user holds them, the hub never sees them
+ * again after `enrollRecovery` returns.
+ *
+ * Per the spec §5: the recovery secret is base64-encoded and
+ * passed as the `credential` arg to
+ * {@link mintWrappedDeksBlob} / {@link unwrapDeksFromBlob}. The
+ * PBKDF2 round over high-entropy input is harmless overhead — it
+ * keeps the shared primitive unchanged while letting Shamir reuse
+ * the same wrapping pipeline as paper.
+ */
+export interface ShamirRecoveryEntry extends WrappedDeksBlob {
+  /** Stable id for this entry. Allows multiple Shamir splits to coexist. */
+  readonly entryId: string
+  /** Threshold — minimum shares to reconstruct. */
+  readonly k: number
+  /** Total shares minted at enrollment. */
+  readonly n: number
+  /** x-coordinates of the n minted shares (audit metadata; not used at unlock). */
+  readonly xCoords: ReadonlyArray<number>
+  /** ISO timestamp. */
+  readonly enrolledAt: string
+  /** Optional caller-supplied label (e.g., "2-of-3 board escrow"). */
+  readonly label?: string
+}
+
+export interface ShamirRecoveryDoc {
+  readonly _noydb_recovery: 1
+  readonly profile: 'shamir'
+  readonly entries: ReadonlyArray<ShamirRecoveryEntry>
+}
+
+const SHAMIR_DOC_ID = 'recovery-shamir'
+
+/** Read the Shamir-recovery entries. Returns empty array when absent. */
+export async function loadShamirRecoveryEntries(
+  store: NoydbStore,
+  vault: string,
+): Promise<ReadonlyArray<ShamirRecoveryEntry>> {
+  const env = await store.get(vault, '_meta', SHAMIR_DOC_ID)
+  if (!env) return []
+  try {
+    const doc = JSON.parse(env._data) as ShamirRecoveryDoc
+    if (doc.profile !== 'shamir' || !Array.isArray(doc.entries)) return []
+    return doc.entries
+  } catch {
+    return []
+  }
+}
+
+/** Replace the Shamir-recovery entries (used by enrollment and rotation). */
+export async function saveShamirRecoveryEntries(
+  store: NoydbStore,
+  vault: string,
+  entries: ReadonlyArray<ShamirRecoveryEntry>,
+): Promise<void> {
+  const doc: ShamirRecoveryDoc = {
+    _noydb_recovery: 1,
+    profile: 'shamir',
+    entries,
+  }
+  const envelope: EncryptedEnvelope = {
+    _noydb: NOYDB_FORMAT_VERSION,
+    _v: 1,
+    _ts: new Date().toISOString(),
+    _iv: '',
+    _data: JSON.stringify(doc),
+  }
+  await store.put(vault, '_meta', SHAMIR_DOC_ID, envelope)
+}
+
+/**
+ * Mint a fresh Shamir recovery entry from a DEK set.
+ *
+ * 1. Generates a 32-byte recovery secret.
+ * 2. Wraps the DEK set under that secret via
+ *    {@link mintWrappedDeksBlob} (the recovery secret is base64-
+ *    encoded as the credential string — PBKDF2 over high-entropy
+ *    input is harmless overhead).
+ * 3. Splits the recovery secret via Shamir into `n` shares with
+ *    threshold `k`.
+ * 4. Zeros the in-memory recovery secret after wrapping + splitting.
+ *
+ * Returns:
+ *   - `entry` — the {@link ShamirRecoveryEntry} to persist.
+ *   - `shareStrings` — the `n` Base32-encoded share strings to
+ *     return to the caller. The HUB MUST NOT PERSIST THESE; once
+ *     returned they are the user's responsibility.
+ *
+ * @param deks - DEK set to wrap.
+ * @param entryId - Stable id for this entry (caller-supplied or
+ *                  hub-generated).
+ * @param k - Threshold (>= 2).
+ * @param n - Total shares (k <= n <= 255).
+ * @param label - Optional caller label.
+ */
+export async function mintShamirRecoveryEntry(
+  deks: Map<string, CryptoKey>,
+  entryId: string,
+  k: number,
+  n: number,
+  label?: string,
+): Promise<{ entry: ShamirRecoveryEntry; shareStrings: string[] }> {
+  // 1. Fresh 32-byte recovery secret.
+  const recoverySecret = crypto.getRandomValues(new Uint8Array(32))
+  try {
+    // 2. Wrap DEKs under base64-encoded secret as the credential.
+    const credential = bytesToBase64(recoverySecret)
+    const blob = await mintWrappedDeksBlob(deks, credential)
+
+    // 3. Shamir-split.
+    const shares = splitSecret(recoverySecret, k, n)
+    const shareStrings = shares.map(encodeShareBase32)
+    const xCoords = shares.map(s => s.x)
+
+    const entry: ShamirRecoveryEntry = {
+      ...blob,
+      entryId,
+      k,
+      n,
+      xCoords,
+      enrolledAt: new Date().toISOString(),
+      ...(label !== undefined && { label }),
+    }
+
+    return { entry, shareStrings }
+  } finally {
+    // 4. Best-effort zero of the in-memory secret. GC will reclaim either way.
+    recoverySecret.fill(0)
+  }
+}
+
+/**
+ * Decrypt a Shamir recovery entry to recover the raw DEK set.
+ *
+ * Combines K or more `shares`, reconstructs the recovery secret,
+ * unwraps the DEKs via {@link unwrapDeksFromBlob}.
+ *
+ * Throws (AES-GCM auth-tag mismatch) when the shares don't combine
+ * to the secret originally used to mint the entry — typically
+ * because they came from a different enrollment or were tampered
+ * with. Callers iterating multiple entries should catch.
+ */
+export async function unwrapDeksFromShamirEntry(
+  entry: ShamirRecoveryEntry,
+  shares: readonly RawShare[],
+): Promise<Map<string, CryptoKey>> {
+  if (shares.length < entry.k) {
+    throw new Error(
+      `Insufficient shares: this Shamir entry needs ${entry.k} of ${entry.n}, `
+      + `but ${shares.length} were provided.`,
+    )
+  }
+  const secret = combineSecret(shares)
+  try {
+    const credential = bytesToBase64(secret)
+    return await unwrapDeksFromBlob(entry, credential)
+  } finally {
+    secret.fill(0)
+  }
+}
+
+// Re-export the on-shamir share-string codecs so consumers don't
+// need a direct on-shamir import for the common share-handling path.
+export { encodeShareBase32, decodeShareBase32 } from '@noy-db/on-shamir'
+
+function bytesToBase64(b: Uint8Array): string {
+  let s = ''
+  for (const x of b) s += String.fromCharCode(x)
+  return btoa(s)
 }
 
 /**

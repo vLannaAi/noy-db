@@ -34,8 +34,12 @@ import {
   loadPaperRecoveryEntries,
   burnPaperRecoveryEntry,
   unwrapDeksFromPaperEntry,
+  loadShamirRecoveryEntries,
+  unwrapDeksFromShamirEntry,
   type PaperRecoveryEntry,
+  type ShamirRecoveryEntry,
 } from './recovery.js'
+import { decodeShareBase32, type RawShare } from '@noy-db/on-shamir'
 import { assertStrongPassphrase, type PassphrasePolicy } from '../validation.js'
 import type { UnlockedKeyring } from './keyring.js'
 import { mintKeyringCanary } from './keyring.js'
@@ -265,16 +269,21 @@ export async function rotatePassphrase(
 /**
  * Caller payload for {@link recoverPassphrase}.
  *
- * **Narrowed to `'paper'` only (#86).** The other three profiles
- * (`shamir`, `multi-channel`, `admin-mediated`) are documented in the
- * spec but not yet wired end-to-end. Matching the discipline of
- * {@link db.enrollRecovery}, the type rejects them at compile time
- * rather than accepting them and throwing at runtime. The runtime
- * guard ({@link RecoveryProfileNotImplementedError}) remains so
- * consumers who bypass TS via `as unknown as RecoveryProof` still
- * receive a clear error.
+ * As of #196 slice 1, `paper` and `shamir` are wired end-to-end.
+ * The remaining two profiles (`multi-channel`, `admin-mediated`)
+ * stay outside the union and throw
+ * {@link RecoveryProfileNotImplementedError} at the runtime guard
+ * when bypassed via `as unknown as RecoveryProof`.
  */
-export type RecoveryProof = { readonly profile: 'paper'; readonly payload: { readonly code: string } }
+export type RecoveryProof =
+  | { readonly profile: 'paper'; readonly payload: { readonly code: string } }
+  | { readonly profile: 'shamir'; readonly payload: {
+      /** Optional disambiguator when multiple Shamir entries are enrolled.
+       *  When omitted, hub tries each entry until one combines. */
+      readonly entryId?: string
+      /** K or more share strings (Base32-encoded per @noy-db/on-shamir). */
+      readonly shares: ReadonlyArray<string>
+    } }
 
 export interface RecoverPassphraseInput {
   readonly newPassphrase: string
@@ -338,34 +347,57 @@ export interface RecoverPassphraseResult {
 
 /**
  * Input for {@link Noydb.rotateRecovery} (#121) — deliberate
- * paper-recovery-code regeneration when the user knows their
- * passphrase but wants a fresh sheet. Symmetric to
- * {@link RotatePassphraseInput} for the recovery profile.
+ * recovery-credential regeneration when the user knows their
+ * passphrase but wants a fresh sheet (paper) or fresh shares
+ * (shamir). Symmetric to {@link RotatePassphraseInput}.
  */
-export interface RotateRecoveryOptions {
-  /**
-   * Recovery profile to rotate. v0.1.0-pre.5 supports `'paper'`
-   * end-to-end; the other three profiles throw
-   * {@link RecoveryProfileNotImplementedError} (dispatch arrives with #10).
-   */
-  readonly profile: 'paper'
-  /**
-   * How many fresh codes to mint. Default: the existing sheet size,
-   * so consumers aren't surprised by a different code count after
-   * rotation. Explicit `count` overrides.
-   */
-  readonly count?: number
-  /**
-   * Optional code generator — mirrors
-   * {@link RecoverPassphraseInput.codeGenerator}. When omitted the
-   * implementation uses `generateULID()` (Crockford-base32, 26 chars).
-   */
-  readonly codeGenerator?: () => string
+export type RotateRecoveryOptions =
+  | {
+      readonly profile: 'paper'
+      /** How many fresh codes to mint. Default: existing sheet size. */
+      readonly count?: number
+      /** Optional code generator — see {@link RecoverPassphraseInput.codeGenerator}. */
+      readonly codeGenerator?: () => string
+    }
+  | {
+      readonly profile: 'shamir'
+      /** New threshold. */
+      readonly k: number
+      /** New total share count. */
+      readonly n: number
+      /** Disambiguator when multiple Shamir entries exist; required if there are 2+. */
+      readonly entryId?: string
+      /** Optional updated label. */
+      readonly label?: string
+    }
+
+/**
+ * Result of {@link Noydb.rotateRecovery}. Shape varies by profile:
+ *
+ * - `paper` → `{ newCodes: string[] }` (and `entryId === 'paper-batch'`)
+ * - `shamir` → `{ newShares: string[], entryId }`
+ *
+ * `newCodes` is populated for paper rotations; `newShares` for
+ * Shamir rotations. Both are show-once — the hub does not
+ * retain them.
+ */
+export interface RotateRecoveryResult {
+  readonly newCodes?: readonly string[]
+  readonly newShares?: readonly string[]
+  readonly entryId?: string
 }
 
-/** Result of {@link Noydb.rotateRecovery} — the show-once codes for the UI. */
-export interface RotateRecoveryResult {
-  readonly newCodes: readonly string[]
+/**
+ * Result of {@link Noydb.enrollRecovery}. Shape varies by profile:
+ *
+ * - `paper` → `{ entryId: 'paper-batch' }` (caller minted the
+ *   entries; this is a sentinel since paper enrollments are batch-shaped).
+ * - `shamir` → `{ entryId, shares: string[] }` — shares are
+ *   show-once; the hub does not retain them.
+ */
+export interface EnrollRecoveryResult {
+  readonly entryId: string
+  readonly shares?: readonly string[]
 }
 
 /**
@@ -387,18 +419,21 @@ export async function recoverPassphrase(
     assertStrongPassphrase(input.newPassphrase, input.passphrasePolicy)
   }
 
-  // Runtime defense-in-depth: the type narrows to 'paper' (#86), but
-  // a consumer bypassing TS via `as unknown as RecoveryProof` should
-  // still hit a clear error rather than silently fall into the paper
-  // handler with a malformed payload.
+  // Runtime defense-in-depth: the type narrows to 'paper' | 'shamir'
+  // (#86 + #196), but a consumer bypassing TS via
+  // `as unknown as RecoveryProof` should still hit a clear error
+  // rather than silently fall into a handler with a malformed payload.
   const profile = (input.recoveryProof as { profile: string }).profile
-  if (profile !== 'paper') {
-    throw new RecoveryProfileNotImplementedError(
-      profile,
-      'https://github.com/vLannaAi/noy-db/issues/10',
-    )
+  if (profile === 'paper') {
+    return recoverViaPaperCode(store, vault, userId, input)
   }
-  return recoverViaPaperCode(store, vault, userId, input)
+  if (profile === 'shamir') {
+    return recoverViaShamir(store, vault, userId, input)
+  }
+  throw new RecoveryProfileNotImplementedError(
+    profile,
+    'https://github.com/vLannaAi/noy-db/issues/196',
+  )
 }
 
 async function recoverViaPaperCode(
@@ -501,6 +536,155 @@ async function recoverViaPaperCode(
  */
 function normalizePaperCode(input: string): string {
   return input.toUpperCase().replace(/[\s\-_]/g, '')
+}
+
+/**
+ * Recover the user's keyring via the Shamir profile.
+ *
+ * 1. Decode each supplied share string into a {@link RawShare}.
+ * 2. Load `_meta/recovery-shamir` entries.
+ * 3. If `payload.entryId` is supplied, restrict to that entry; else
+ *    iterate over all entries and try each until one combines.
+ * 4. For each candidate: filter shares to those whose `(k, n)`
+ *    match the entry's parameters, then attempt
+ *    `unwrapDeksFromShamirEntry`. AES-GCM auth-tag failure means
+ *    the combined secret doesn't match — try the next entry.
+ * 5. With unwrapped DEKs: derive fresh KEK from `newPassphrase` +
+ *    fresh salt, rewrap, write the keyring.
+ * 6. Shamir entries are NOT burned on recovery (shares reusable);
+ *    explicit {@link Noydb.rotateRecovery} is the refresh ceremony.
+ */
+async function recoverViaShamir(
+  store: NoydbStore,
+  vault: string,
+  userId: string,
+  input: RecoverPassphraseInput,
+): Promise<UnlockedKeyring> {
+  if (input.recoveryProof.profile !== 'shamir') throw new Error('unreachable')
+  const { entryId: requestedEntryId, shares: shareStrings } = input.recoveryProof.payload
+
+  if (shareStrings.length === 0) {
+    throw new ValidationError(
+      'Shamir recovery requires at least one share; received an empty array.',
+    )
+  }
+
+  const env = await store.get(vault, '_keyring', userId)
+  if (!env) {
+    throw new NoAccessError(`No keyring found for user "${userId}" in vault "${vault}".`)
+  }
+  const file = JSON.parse(env._data) as KeyringFile
+
+  // Decode share strings up front. A malformed string here is a
+  // validation error, not a per-entry try-next.
+  let decodedShares: RawShare[]
+  try {
+    decodedShares = shareStrings.map(s => decodeShareBase32(s))
+  } catch (err) {
+    throw new ValidationError(
+      'One or more Shamir shares could not be decoded. They may be '
+      + 'malformed, truncated, or from an incompatible version. '
+      + 'Original error: '
+      + (err instanceof Error ? err.message : String(err)),
+    )
+  }
+
+  const allEntries = await loadShamirRecoveryEntries(store, vault)
+  if (allEntries.length === 0) {
+    throw new NoAccessError(
+      `No Shamir-recovery entries enrolled for vault "${vault}". `
+      + 'Enroll via `db.enrollRecovery({ profile: "shamir", k, n })` before relying on recovery.',
+    )
+  }
+
+  // Restrict to a specific entry when entryId supplied.
+  let candidates: ReadonlyArray<ShamirRecoveryEntry>
+  if (requestedEntryId !== undefined) {
+    candidates = allEntries.filter(e => e.entryId === requestedEntryId)
+    if (candidates.length === 0) {
+      throw new NoAccessError(
+        `No Shamir-recovery entry with entryId="${requestedEntryId}" found `
+        + `in vault "${vault}". Available entries: `
+        + allEntries.map(e => `"${e.entryId}"`).join(', '),
+      )
+    }
+  } else {
+    candidates = allEntries
+  }
+
+  // Try each candidate entry. For each, the supplied shares must
+  // include at least k of the entry's xCoords for combine to succeed.
+  let recoveredDeks: Map<string, CryptoKey> | undefined
+  for (const entry of candidates) {
+    // Filter shares whose x-coordinates match this entry's set, so
+    // that mixing shares from different entries doesn't poison
+    // combineSecret.
+    const xCoordSet = new Set(entry.xCoords)
+    const matchingShares = decodedShares.filter(s => xCoordSet.has(s.x))
+    if (matchingShares.length < entry.k) {
+      // Not enough shares for this entry — could still match another.
+      continue
+    }
+    try {
+      const deks = await unwrapDeksFromShamirEntry(entry, matchingShares)
+      recoveredDeks = deks
+      break
+    } catch {
+      // AES-GCM auth-tag failure → shares don't belong to this entry → try the next.
+    }
+  }
+
+  if (!recoveredDeks) {
+    // Distinguish "below-threshold" from "no entry matches" so the
+    // error message is actionable.
+    const minK = Math.min(...candidates.map(e => e.k))
+    if (decodedShares.length < minK) {
+      throw new InvalidKeyError(
+        `Insufficient Shamir shares to combine: the smallest enrolled threshold is ${minK}, `
+        + `but only ${decodedShares.length} share${decodedShares.length === 1 ? ' was' : 's were'} provided.`,
+      )
+    }
+    throw new InvalidKeyError(
+      'Shamir shares do not match any enrolled entry. Possible causes: '
+      + 'shares were tampered with, came from a different enrollment, '
+      + 'or the entry was rotated after these shares were distributed.',
+    )
+  }
+
+  // Mint fresh KEK from new passphrase, rewrap DEKs (mirrors paper).
+  const newSalt = generateSalt()
+  const newKek = await deriveKey(input.newPassphrase, newSalt)
+  const wrappedDeks: Record<string, string> = {}
+  for (const [coll, dek] of recoveredDeks) {
+    wrappedDeks[coll] = await wrapKey(dek, newKek)
+  }
+
+  const canary = await mintKeyringCanary(newKek)
+  const next: KeyringFile = {
+    ...file,
+    _noydb_keyring: NOYDB_KEYRING_VERSION,
+    deks: wrappedDeks,
+    salt: bufferToBase64(newSalt),
+    authenticators: [], // tier-2 slots wrap old KEK, drop them on recovery
+    canary,
+  }
+
+  // No burn: Shamir entries persist across recoveries. Explicit
+  // rotateRecovery is the refresh ceremony.
+  await writeKeyringFile(store, vault, userId, next)
+
+  return {
+    userId: file.user_id,
+    displayName: file.display_name,
+    role: file.role,
+    permissions: file.permissions,
+    deks: recoveredDeks,
+    kek: newKek,
+    salt: newSalt,
+    authenticators: [],
+    ...(file.export_capability !== undefined && { exportCapability: file.export_capability }),
+    ...(file.import_capability !== undefined && { importCapability: file.import_capability }),
+  }
 }
 
 async function writeKeyringFile(

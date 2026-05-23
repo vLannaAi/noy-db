@@ -34,6 +34,7 @@ import {
   type RecoverPassphraseResult,
   type RotateRecoveryOptions,
   type RotateRecoveryResult,
+  type EnrollRecoveryResult,
 } from './team/rotate-recover.js'
 import {
   recoverUser as keyringRecoverUser,
@@ -45,6 +46,10 @@ import {
   hasRecoveryEnrolled,
   mintPaperRecoveryEntry,
   type PaperRecoveryEntry,
+  loadShamirRecoveryEntries,
+  saveShamirRecoveryEntries,
+  mintShamirRecoveryEntry,
+  type ShamirRecoveryEntry,
 } from './team/recovery.js'
 import { resolveManagedSecret } from './team/managed-passphrase.js'
 import { generateULID } from './bundle/ulid.js'
@@ -1815,9 +1820,24 @@ export class Noydb {
     options: RotateRecoveryOptions,
     factors?: FactorProofBundle,
   ): Promise<RotateRecoveryResult> {
-    if (options.profile !== 'paper') {
-      throw new RecoveryProfileNotImplementedError(options.profile, '#10')
+    if (options.profile === 'paper') {
+      return this.rotateRecoveryPaper(vault, options, factors)
     }
+    if (options.profile === 'shamir') {
+      return this.rotateRecoveryShamir(vault, options, factors)
+    }
+    // Defense-in-depth for `as unknown as ...` bypass.
+    throw new RecoveryProfileNotImplementedError(
+      (options as { profile: string }).profile,
+      '#196',
+    )
+  }
+
+  private async rotateRecoveryPaper(
+    vault: string,
+    options: Extract<RotateRecoveryOptions, { profile: 'paper' }>,
+    factors?: FactorProofBundle,
+  ): Promise<RotateRecoveryResult> {
     await this.checkGate(vault, 'rotate-recovery', factors)
 
     const existing = await loadPaperRecoveryEntries(this.options.store, vault)
@@ -1845,7 +1865,64 @@ export class Noydb {
     // `_meta/recovery-paper` in a single envelope `put`.
     await savePaperRecoveryEntries(this.options.store, vault, newEntries)
 
-    return { newCodes: codes }
+    return { newCodes: codes, entryId: 'paper-batch' }
+  }
+
+  private async rotateRecoveryShamir(
+    vault: string,
+    options: Extract<RotateRecoveryOptions, { profile: 'shamir' }>,
+    factors?: FactorProofBundle,
+  ): Promise<RotateRecoveryResult> {
+    await this.checkGate(vault, 'rotate-recovery', factors)
+
+    const existing = await loadShamirRecoveryEntries(this.options.store, vault)
+    if (existing.length === 0) {
+      throw new Error(
+        `db.rotateRecovery: no Shamir recovery entry is enrolled for vault "${vault}". ` +
+        `Call db.enrollRecovery({ profile: 'shamir', k, n }) first; ` +
+        `rotateRecovery replaces an existing entry rather than minting one from scratch.`,
+      )
+    }
+
+    // Pick which entry to rotate.
+    let targetEntryId: string
+    if (options.entryId !== undefined) {
+      const found = existing.find(e => e.entryId === options.entryId)
+      if (!found) {
+        throw new Error(
+          `db.rotateRecovery: no Shamir entry with entryId="${options.entryId}" found `
+          + `in vault "${vault}". Available: ${existing.map(e => `"${e.entryId}"`).join(', ')}.`,
+        )
+      }
+      targetEntryId = options.entryId
+    } else {
+      if (existing.length > 1) {
+        throw new Error(
+          `db.rotateRecovery: vault "${vault}" has ${existing.length} Shamir entries `
+          + `enrolled (${existing.map(e => `"${e.entryId}"`).join(', ')}). `
+          + `Pass \`entryId\` to disambiguate which one to rotate; ambiguous rotation `
+          + `would risk replacing the wrong entry.`,
+        )
+      }
+      targetEntryId = existing[0]!.entryId
+    }
+
+    const keyring = await this.getKeyring(vault)
+    const { entry, shareStrings } = await mintShamirRecoveryEntry(
+      keyring.deks,
+      targetEntryId,
+      options.k,
+      options.n,
+      options.label,
+    )
+
+    // Atomic single-doc replace: drop the old entry, insert the new one.
+    const next: ShamirRecoveryEntry[] = existing
+      .filter(e => e.entryId !== targetEntryId)
+      .concat(entry)
+    await saveShamirRecoveryEntries(this.options.store, vault, next)
+
+    return { newShares: shareStrings, entryId: targetEntryId }
   }
 
   /**
@@ -1941,27 +2018,55 @@ export class Noydb {
    */
   async enrollRecovery(
     vault: string,
-    enrollment: { profile: 'paper'; entries: ReadonlyArray<PaperRecoveryEntry> },
-  ): Promise<void> {
-    if (enrollment.profile !== 'paper') {
-      throw new ValidationError(
-        `enrollRecovery: only 'paper' is implemented in v0.1.0-pre.5. ` +
-          `Profile '${enrollment.profile as string}' is tracked under issue #10.`,
-      )
+    enrollment:
+      | { profile: 'paper'; entries: ReadonlyArray<PaperRecoveryEntry> }
+      | { profile: 'shamir'; k: number; n: number; label?: string; entryId?: string },
+  ): Promise<EnrollRecoveryResult> {
+    if (enrollment.profile === 'paper') {
+      const existing = await loadPaperRecoveryEntries(this.options.store, vault)
+      await savePaperRecoveryEntries(this.options.store, vault, [
+        ...existing,
+        ...enrollment.entries,
+      ])
+      // Paper enrollments don't have a single entryId — callers
+      // pre-mint with their own ids. Return a stable sentinel so the
+      // result type is consistent for both profiles.
+      return { entryId: 'paper-batch' }
     }
-    const existing = await loadPaperRecoveryEntries(this.options.store, vault)
-    await savePaperRecoveryEntries(this.options.store, vault, [
-      ...existing,
-      ...enrollment.entries,
-    ])
+    if (enrollment.profile === 'shamir') {
+      const keyring = await this.getKeyring(vault)
+      const entryId = enrollment.entryId ?? generateULID()
+      const { entry, shareStrings } = await mintShamirRecoveryEntry(
+        keyring.deks,
+        entryId,
+        enrollment.k,
+        enrollment.n,
+        enrollment.label,
+      )
+      const existing = await loadShamirRecoveryEntries(this.options.store, vault)
+      // If a Shamir entry with this id already exists, replace it
+      // (allows callers to be idempotent on `entryId`); otherwise append.
+      const next: ShamirRecoveryEntry[] = existing.filter(e => e.entryId !== entryId).concat(entry)
+      await saveShamirRecoveryEntries(this.options.store, vault, next)
+      return { entryId, shares: shareStrings }
+    }
+    // Defense-in-depth for `as unknown as ...` bypass at the call site.
+    throw new RecoveryProfileNotImplementedError(
+      (enrollment as { profile: string }).profile,
+      '#196',
+    )
   }
 
-  /** Read the persisted paper-recovery entries. Used by `describeAuthConfig` (#13). */
+  /** Read the persisted recovery entries (paper + Shamir). Used by `describeAuthConfig` (#13). */
   async listRecoveryEntries(
     vault: string,
-  ): Promise<{ paper: ReadonlyArray<PaperRecoveryEntry> }> {
+  ): Promise<{
+    paper: ReadonlyArray<PaperRecoveryEntry>
+    shamir: ReadonlyArray<ShamirRecoveryEntry>
+  }> {
     const paper = await loadPaperRecoveryEntries(this.options.store, vault)
-    return { paper }
+    const shamir = await loadShamirRecoveryEntries(this.options.store, vault)
+    return { paper, shamir }
   }
 
   // ─── Tier-3 enroll / unlock (issue #11) ────────────────────────

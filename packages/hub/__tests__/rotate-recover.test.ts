@@ -196,15 +196,33 @@ describe('recoverPassphrase (paper profile)', () => {
     ).rejects.toBeInstanceOf(InvalidKeyError)
   }, 60_000)
 
-  it('throws RecoveryProfileNotImplementedError for shamir', async () => {
+  it('shamir profile dispatches to the Shamir handler (#196 slice 1)', async () => {
+    // As of #196 slice 1 the shamir profile is wired end-to-end.
+    // Full positive coverage lives in shamir-recovery.test.ts.
+    // Here we just verify the dispatch — calling with no enrolled
+    // Shamir entry surfaces a NoAccessError from the Shamir handler,
+    // not a RecoveryProfileNotImplementedError from the dispatch
+    // guard. (Garbage share strings would fail decoding before reaching
+    // the no-entries check, so we use a syntactically valid share.)
     const store = inlineMemory()
     await createOwnerKeyring(store, 'acme', 'alice', STRONG_OLD)
     await expect(
       recoverPassphrase(store, 'acme', 'alice', {
         newPassphrase: STRONG_NEW,
-        recoveryProof: { profile: 'shamir', payload: { shares: ['a', 'b'] } },
+        recoveryProof: {
+          profile: 'shamir',
+          // Two well-formed-but-meaningless share strings; they will
+          // decode but combine to a secret matching no enrolled entry.
+          payload: { shares: [
+            'SHAMIR_S1_K2N3__AAEEAAAA-AAAA-AAAA-AAAA-AAAA-AAAA',
+            'SHAMIR_S2_K2N3__AAIEAAAA-AAAA-AAAA-AAAA-AAAA-AAAA',
+          ] },
+        },
       }),
-    ).rejects.toBeInstanceOf(RecoveryProfileNotImplementedError)
+      // No Shamir entries → NoAccessError from the handler;
+      // a strict RecoveryProfileNotImplementedError would mean the
+      // dispatch is broken.
+    ).rejects.not.toBeInstanceOf(RecoveryProfileNotImplementedError)
   })
 
   it('createNoydb({ requireRecovery: true }) throws when no recovery is enrolled', async () => {
