@@ -843,7 +843,7 @@ non-recoverable state via any official operation."** This holds at
 creation (#195), rotation (Q11.G), and any future identity-mutating
 primitive.
 
-### 11.10 Architectural invariant — the never-non-recoverable property
+### 11.10 Architectural invariant — never-non-recoverable
 
 A property the resolved questions name without making explicit. Worth
 stating once at the architecture level:
@@ -866,6 +866,52 @@ it after the operation. The current cases:
 Tests for each operation should include a "post-state still recoverable"
 case. The invariant is the safety net that justifies every other policy
 gate being cheap.
+
+### 11.11 Architectural invariant — data sovereignty by construction
+
+Companion to §11.10. A second structural property the architecture
+provides, equally load-bearing:
+
+> **A user with current decryption access to a set of records can
+> always extract those records as a portable `.noydb` bundle. No
+> policy gate can deny this. The architecture provides a structured,
+> audited path; absent such a path, the user can still extract via
+> dump-and-replay because the cryptographic capability is already
+> theirs.**
+
+The two invariants together describe the structural symmetry:
+
+| §11.10 | §11.11 |
+|---|---|
+| The vault never enters a non-recoverable state via any official operation. | A user with current decryption access can always extract a portable bundle. |
+| Protects the **owner** from losing access | Protects the **user** from losing portability |
+| Enforced at create / rotate / recover / extract | Enforced by the keyring + DEK model itself |
+| Implementation: entry + post-state checks | Implementation: keyring access *is* decryption capability — no library check can or should prevent what crypto permits |
+
+Why this matters outside the codebase:
+
+In markets where vendor lock-in is *structural* (most SaaS accounting
+software, ERP, CRM, healthcare records), the vendor holds the data and
+"migration" is a manual export-and-reimport project that loses audit
+trails, FK closure, and schema fidelity. The receiving system has to
+guess the source's data model.
+
+In noy-db's model, a user's keyring carries the cryptographic
+capability to decrypt their accessible scope. The library cannot
+prevent them from writing that plaintext to a bundle — therefore
+*structurally* cannot prevent export. The user-level export operation
+(see §13.5) is the structured path that makes the audit honest, but
+the underlying invariant is enforced by the cryptography itself, not
+by any library check.
+
+This produces a stronger claim for adopters than a vendor promise:
+noy-db's data sovereignty is a *cryptographic property*, not a T&C
+commitment. Any consumer evaluating noy-db for "client owns their
+data" use cases can verify it from the keyring + DEK design alone.
+
+Surfacing this property externally — when we eventually re-balance
+the README (§8) — is genuinely differentiated positioning. Today,
+park it in this foundation doc as an internal architectural anchor.
 
 ## 12. Bundle transformation taxonomy
 
@@ -1122,6 +1168,120 @@ out-of-scope for this foundation doc but should be tracked:
 
 These belong in #198's own spec, not in the at-* foundation. Cross-ref
 from #198's spec back to §13 here for the sealing/recovery composition.
+
+### 13.5 Client-initiated extraction — data sovereignty as a primitive
+
+§13.1's composition target assumes the *vault owner* initiates the
+extraction (per #198's "operation requires owner"). A complementary
+case matters at least as much — and is the case where §11.11's data
+sovereignty invariant becomes a first-class API rather than an implicit
+property: **a non-owner user extracting the subset of records they
+have access to, on their own initiative.**
+
+#### 13.5.1 The canonical scenario (accounting industry)
+
+- A firm holds the vault. A client has been granted access to their
+  own company's records spanning multiple years — bills, invoices,
+  payments, tax documents, ledger, audit trail.
+- The client decides to move to a different firm.
+- The client exports every record they have read access to — full FK
+  closure, ledger, audit log intact — as a single `.noydb` bundle.
+- The client hands the bundle to the receiving firm. The receiving
+  firm imports it; they can work on the client's historical data
+  immediately, schema-and-audit-preserved, no migration project.
+- The source firm continues to hold a copy (default: extraction is
+  non-destructive on source side — it's an export, not a withdrawal).
+
+This is the market-disruption case for client-controlled data
+portability. It works in noy-db's model because the client's keyring
+already carries the cryptographic capability to decrypt their scope;
+the API just provides a structured, audited path for what's otherwise
+a custom dump-and-replay script.
+
+#### 13.5.2 Three structural differences from #198
+
+| Aspect | #198 firm-initiated `extractPartition` | Client-initiated `exportMyAccessibleData` |
+|---|---|---|
+| **Initiator** | Vault owner | Any user with read access |
+| **Seed predicate** | Arbitrary, owner-supplied (`seeds: {...}`) | Implicit: "every record the calling keyring can read" |
+| **Source disposition** | `'leave-in-place'` OR `'delete-extracted'` (owner choice) | **Forced** `'leave-in-place'` — destructive variant requires firm decision separately |
+| **Policy gate** | `extract-partition` gate (owner only) | No deny path — see §11.11 |
+| **Audit ledger** | Written by owner | Written; visible to firm (honest disclosure, not gating) |
+
+#### 13.5.3 API sketch
+
+```ts
+const bundleBytes = await vault.user.exportMyAccessibleData({
+  // Optional scoping within the calling user's access set
+  // (e.g., one entity out of several the user can read)
+  scope?: { entity?: EntityId },
+
+  // Re-key the export under a new identity. Defaults to a single-owner
+  // keyring with the calling user as owner — they hand the bundle to
+  // whoever they choose afterward, or grant a new accountant via
+  // standard db.grant once the bundle is opened as a new vault.
+  reKey?: {
+    newOwner: {
+      userId: string,
+      passphrase?: string,
+      sealingKey?: SealingKeyProvider,   // managed-mode option
+      recovery: RecoveryProfileEnrollment[],  // per §195 if managed
+    },
+    carryOver?: UserId[],
+  },
+
+  // Always non-destructive on source by default. The destructive
+  // variant must be a separate firm-side decision (extractPartition
+  // with delete-extracted), not folded into the client's API.
+  // source.onExtracted is intentionally not exposed here.
+})
+```
+
+#### 13.5.4 Same machinery, different entry point
+
+Underlying primitives are the same as #198 (transitive-closure walker
++ re-key + bundle materialize + `setupNewVaultIdentity` per §13.2).
+The differences are **policy + defaults + naming**, not implementation:
+
+- The walker uses the calling user's DEK access set as its boundary —
+  attempting to follow an FK to a record the caller cannot decrypt
+  yields a *graph cut* (the FK isn't followed; the bundle's referential
+  closure is still complete *within the caller's accessible scope*).
+- The bundle materialize step writes the same `bundleKind:
+  'extracted-partition'` header (§12.4) plus a new optional
+  `bundleOrigin: 'self-initiated' | 'owner-initiated'` field so
+  receiving systems can distinguish.
+- The audit-ledger entry the operation writes to the **source vault**
+  is required (not optional). The firm cannot prevent the export but
+  IS notified it happened — same audit posture as `db.user.updateMe`
+  writing to the user-envelope subsystem.
+
+Whether this lives as a separate API entry point or as `extractPartition`
+with detected-non-owner-defaults is a naming decision. The argument for
+separate naming: the socio-technical contract differs. When an
+accountant calls `extractPartition`, that's an operational decision a
+firm makes about its own data. When a client calls
+`exportMyAccessibleData`, that's an exercise of data sovereignty by
+the data subject. Calling them by different names makes audit trails
+and policy reviews more honest.
+
+Recommendation: ship as a separate API on `vault.user.*` (mirrors
+existing `vault.user.me`, `vault.user.updateMe`, etc.), backed by the
+same internal machinery as `extractPartition`. Cross-reference each
+direction in the docs.
+
+#### 13.5.5 Out of scope for this foundation doc — track separately
+
+- Whether `exportMyAccessibleData` should be its own GitHub issue or
+  ride alongside #198. Recommendation: file as a sibling issue with a
+  link to §13.5; #198's spec already touches the firm-side mechanics,
+  the sibling issue tracks the client-side semantics.
+- The exact graph-cut semantics when an FK points outside the caller's
+  scope (broken-FK marker? null? skip?). Belongs in #198's walker spec
+  with a flag for "scope-bounded walk vs unbounded walk."
+- UI affordances on the source firm's admin side for receiving the
+  audit-ledger notification of a client export. Belongs in a future
+  admin-console / policy-observability spec, not here.
 
 ---
 
