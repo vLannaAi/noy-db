@@ -6,6 +6,8 @@ export type {
   DerivationStrategyHandle,
   DerivedFromMeta,
   OutputSpec,
+  RecordOutputSpec,
+  ArrayOutputSpec,
 } from './types.js'
 
 // Re-export error classes so `@noy-db/hub/derivations` is self-contained.
@@ -16,4 +18,5 @@ export {
   DerivationDepthError,
   DerivationOutputUnknownError,
   DerivationOutputShapeError,
+  DerivationCapExceededError,
 } from '../errors.js'

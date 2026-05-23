@@ -1497,8 +1497,8 @@ export class Collection<T> {
         for (const key of Object.keys(spec.outputs)) {
           const out = result.outputs[key]
           if (!out) continue
-          if (!out.ok) {
-            const err = out.error ?? new Error(`derivation output "${key}" failed`)
+          if (out.kind === 'failed') {
+            const err = out.error
             if (spec.strict) throw err
             console.warn(`[derivation] output "${key}" for source "${spec.source}" id="${id}" failed:`, err)
             continue
@@ -1507,13 +1507,67 @@ export class Collection<T> {
           if (!outSpec) continue
           const outputCollection = this.derivationSource.getCollection(outSpec.collection)
           // #133 — if we're inside a multi-record transaction, register
-          // this derived write as a side-effect op on the active ctx
-          // BEFORE it fires. `revertExecuted` walks `_executed` in
+          // derived writes as side-effect ops on the active ctx
+          // BEFORE they fire. `revertExecuted` walks `_executed` in
           // reverse on rollback, so capturing the pre-write envelope
           // here lets a later mid-batch failure restore this output's
           // prior state alongside the source op. Outside a transaction
           // the context is null and tracking is skipped.
           const txCtx = this.derivationSource.getActiveTxContext()
+
+          // ── Array-shape branch (#200) ──────────────────────────
+          if (out.kind === 'array') {
+            // Load the prior key set from the fanout sidecar.
+            const { loadFanoutSidecar, saveFanoutSidecar } = await import('./derivations/fanout-sidecar.js')
+            const prior = await loadFanoutSidecar(
+              this.adapter,
+              this.vault,
+              spec.source,
+              id,
+              key,
+            )
+            const prevKeys = new Set<string>(prior?.keys ?? [])
+            const newKeysList = out.entries.map(e => e.key)
+            const newKeysSet = new Set<string>(newKeysList)
+
+            // Diff — delete keys that were in prev but not in new.
+            for (const k of prevKeys) {
+              if (newKeysSet.has(k)) continue
+              await outputCollection._internalDelete(k, txCtx)
+            }
+
+            // Upsert every entry in the new set. (Slice 1: no
+            // identity-skip optimisation; write every row, idempotent
+            // at the (collection, id) level.)
+            for (const entry of out.entries) {
+              if (txCtx !== null) {
+                const priorEnvelope = await this.adapter.get(this.vault, outSpec.collection, entry.key)
+                txCtx._executed.push({
+                  op: {
+                    type: 'put',
+                    vaultName: this.vault,
+                    collectionName: outSpec.collection,
+                    id: entry.key,
+                  },
+                  priorEnvelope,
+                })
+              }
+              await outputCollection.put(entry.key, entry.value)
+            }
+
+            // Persist the new key set (last step — see spec §5.1
+            // on failure-mode symmetry).
+            await saveFanoutSidecar(this.adapter, this.vault, {
+              source: spec.source,
+              sourceId: id,
+              outputKey: key,
+              outputCollection: outSpec.collection,
+              keys: newKeysList,
+            })
+            continue
+          }
+
+          // ── Record-shape branch (existing v1 behavior) ─────────
           if (out.skipped === true) {
             // #144: optional output returned null. Delete the
             // previously-emitted output at this id, if any. Routed
@@ -1793,12 +1847,61 @@ export class Collection<T> {
     // `_internalDelete → _doDelete(_, true)` and must NOT re-fire
     // dispatch (matches put's `_materializedFrom` skip in spirit).
     //
-    // Derivations intentionally NOT dispatched on delete: D11
-    // derivations are forward-edge (source put → derived output);
-    // the delete-side semantics for derivations are tracked
-    // separately. This fix scope is materialized views only.
+    // Record-shape derivations intentionally NOT dispatched on delete:
+    // their derived-output id equals the source id, so the user can
+    // delete the output directly with `outputCollection.delete(id)` if
+    // they want. Array-shape derivations (#200) DO cascade on delete
+    // because their derived ids are opaque (from the `key(out)`
+    // extractor) — without cascade the rows become unfindable orphans.
     if (!internal) {
       await this.dispatchMaterializedViewsOnDelete(id)
+      await this.dispatchArrayDerivationsOnDelete(id)
+    }
+  }
+
+  /**
+   * Cascade deletes of array-shape derived rows when a source row is
+   * deleted (#200). Reads each registered strategy's fanout sidecar
+   * for this source id, deletes every listed derived row, then
+   * deletes the sidecar itself.
+   *
+   * Record-shape derivations are skipped — see _doDelete's comment
+   * for why the asymmetry is correct.
+   *
+   * @internal
+   */
+  private async dispatchArrayDerivationsOnDelete(id: string): Promise<void> {
+    if (this.derivationSource === undefined) return
+    const registry = this.derivationSource.registry()
+    const strategies = registry.strategiesForSource(this.name)
+    if (strategies.length === 0) return
+
+    // Dynamic-import the sidecar helpers — keeps the derivation
+    // chunk out of the floor bundle for consumers that don't use
+    // array-shape derivations.
+    let helpers: typeof import('./derivations/fanout-sidecar.js') | null = null
+    const txCtx = this.derivationSource.getActiveTxContext()
+
+    for (const { spec } of strategies) {
+      for (const [outputKey, outSpec] of Object.entries(spec.outputs)) {
+        if (outSpec.shape !== 'array') continue
+        if (helpers === null) {
+          helpers = await import('./derivations/fanout-sidecar.js')
+        }
+        const sidecar = await helpers.loadFanoutSidecar(
+          this.adapter,
+          this.vault,
+          spec.source,
+          id,
+          outputKey,
+        )
+        if (!sidecar) continue
+        const outputCollection = this.derivationSource.getCollection(outSpec.collection)
+        for (const derivedId of sidecar.keys) {
+          await outputCollection._internalDelete(derivedId, txCtx)
+        }
+        await helpers.deleteFanoutSidecar(this.adapter, this.vault, spec.source, id, outputKey)
+      }
     }
   }
 

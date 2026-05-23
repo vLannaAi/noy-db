@@ -34,8 +34,8 @@ export interface DerivedFromMeta {
   readonly strategyHash: string
 }
 
-/** Per-output declaration. v1: only `'record'` shape. */
-export interface OutputSpec {
+/** Record-shape output — one source row produces (optionally) one output row at the source's id. */
+export interface RecordOutputSpec {
   shape: 'record'
   collection: string
   /**
@@ -49,6 +49,52 @@ export interface OutputSpec {
    */
   optional?: boolean
 }
+
+/**
+ * Array-shape output (#200) — one source row produces a variable-length
+ * list of output rows, each with its own id (from the `key` extractor).
+ *
+ * On every source-row change, the dispatcher diffs the previously
+ * emitted key set against the new one: removed keys are deleted via
+ * `_internalDelete`, new and unchanged keys are upserted via
+ * `Collection.put`. Strict-mode rollback is preserved via the existing
+ * `_executed` tracking.
+ *
+ * Storage of the per-source-row key set lives at
+ * `_meta/derivations-fanout/<source>/<sourceId>/<outputKey>` as a
+ * plain JSON sidecar — keeps dispatch cost O(1) per source row.
+ *
+ * **Slice 1 limitation**: only `lifecycle: 'eager'` is supported.
+ * Registering an array-shape output with `lifecycle: 'lazy'` throws
+ * at `withDerivation` construction time.
+ */
+export interface ArrayOutputSpec {
+  shape: 'array'
+  collection: string
+  /**
+   * Stable identity extractor for each derived row. Called on every
+   * row returned by `derive`. The string MUST be unique within a
+   * single invocation — duplicate keys throw
+   * `DerivationOutputShapeError`.
+   *
+   * Type is intentionally `(out: Record<string, unknown>) => string`
+   * (not generic) because OutputSpec is type-erased at the registry
+   * level. Strategy-level inference still produces typed `out`
+   * through the strategy's `outputs` map.
+   */
+  key: (output: Record<string, unknown>) => string
+  /**
+   * Cap on derived rows per source-row invocation. Defaults to 64.
+   * Raise for carry-forward cases (e.g. monthly expansion of
+   * multi-year contracts). Exceeding the cap throws
+   * `DerivationCapExceededError` BEFORE any writes — partial fanout
+   * is never persisted.
+   */
+  maxFanout?: number
+}
+
+/** Discriminated union — record + array. */
+export type OutputSpec = RecordOutputSpec | ArrayOutputSpec
 
 /**
  * Registration shape passed to `withDerivation()`.

@@ -1689,19 +1689,47 @@ export class Vault {
         let anyFailed = false
         for (const key of Object.keys(spec.outputs)) {
           const out = result.outputs[key]
-          if (!out || !out.ok) { anyFailed = true; continue }
+          if (!out) continue
+          if (out.kind === 'failed') { anyFailed = true; continue }
           const outSpec = spec.outputs[key]
           if (!outSpec) continue
+          const outputColl = this.collection(outSpec.collection)
+
+          // Array-shape branch (#200) — diff against the fanout sidecar.
+          if (out.kind === 'array') {
+            const { loadFanoutSidecar, saveFanoutSidecar } =
+              await import('./derivations/fanout-sidecar.js')
+            const prior = await loadFanoutSidecar(this.adapter, this.name, spec.source, id, key)
+            const prevKeys = new Set<string>(prior?.keys ?? [])
+            const newKeysList = out.entries.map(e => e.key)
+            const newKeysSet = new Set<string>(newKeysList)
+            for (const k of prevKeys) {
+              if (newKeysSet.has(k)) continue
+              await outputColl._internalDelete(k)
+            }
+            for (const entry of out.entries) {
+              await outputColl.put(entry.key, entry.value)
+            }
+            await saveFanoutSidecar(this.adapter, this.name, {
+              source: spec.source,
+              sourceId: id,
+              outputKey: key,
+              outputCollection: outSpec.collection,
+              keys: newKeysList,
+            })
+            continue
+          }
+
           if (out.skipped === true) {
             // #144: optional output skipped — delete any prior emission.
             // No txCtx hookup needed: `deriveAll` runs outside the
             // multi-record transaction window by design. Routed
             // through `_internalDelete` so the bulk recompute does not
             // trip user `onDelete` (#145) on the output collection.
-            await this.collection(outSpec.collection)._internalDelete(id)
+            await outputColl._internalDelete(id)
             continue
           }
-          await this.collection(outSpec.collection).put(id, out.value)
+          await outputColl.put(id, out.value)
         }
         if (anyFailed) failed++
         else derived++

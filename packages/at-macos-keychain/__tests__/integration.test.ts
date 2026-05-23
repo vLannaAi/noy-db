@@ -39,7 +39,9 @@ describe('@noy-db/at-macos-keychain — integration with @noy-db/hub managed-pas
         entry: sharedEntry,
       }),
     })
-    const vault1 = await db1.openVault('demo')
+    const { vault: vault1 } = await db1.openVaultAndEnrollRecovery('demo', {
+      recovery: [{ profile: 'shamir', k: 2, n: 3 }],
+    })
     await vault1.collection<{ id: string; note: string }>('notes').put('n1', {
       id: 'n1',
       note: 'managed-mode write via at-macos-keychain',
@@ -77,7 +79,9 @@ describe('@noy-db/at-macos-keychain — integration with @noy-db/hub managed-pas
         entry: memoryEntry(),
       }),
     })
-    const vault1 = await db1.openVault('demo')
+    const { vault: vault1 } = await db1.openVaultAndEnrollRecovery('demo', {
+      recovery: [{ profile: 'shamir', k: 2, n: 3 }],
+    })
     await vault1.collection<{ id: string; note: string }>('notes').put('n1', {
       id: 'n1', note: 'alice-only',
     })
@@ -114,7 +118,9 @@ describe('@noy-db/at-macos-keychain — integration with @noy-db/hub managed-pas
         entry: sharedEntry,
       }),
     })
-    const v1 = await db1.openVault('persist')
+    const { vault: v1 } = await db1.openVaultAndEnrollRecovery('persist', {
+      recovery: [{ profile: 'shamir', k: 2, n: 3 }],
+    })
     await v1.collection<{ id: string; v: number }>('items').put('i1', { id: 'i1', v: 42 })
     db1.close()
 

@@ -1438,6 +1438,36 @@ export class DerivationOutputShapeError extends NoydbError {
 }
 
 /**
+ * Thrown by array-shape derivations (#200) when the `derive` function
+ * returns more rows than the output's `maxFanout` cap. The cap exists
+ * to keep dispatch cost bounded — without it a single source-row
+ * update could fan out to thousands of derived rows, dominating the
+ * write path.
+ *
+ * Defaults to `maxFanout: 64`. Raise on the output spec for
+ * carry-forward expansion cases (e.g. monthly rows across multi-year
+ * contracts).
+ */
+export class DerivationCapExceededError extends NoydbError {
+  readonly outputKey: string
+  readonly returned: number
+  readonly maxFanout: number
+
+  constructor(outputKey: string, returned: number, maxFanout: number) {
+    super(
+      'DERIVATION_CAP_EXCEEDED',
+      `Derivation array output "${outputKey}" returned ${returned} rows, exceeding `
+      + `maxFanout=${maxFanout}. Raise \`maxFanout\` on the OutputSpec if this fanout `
+      + 'is intended (the cap exists to keep dispatch cost bounded).',
+    )
+    this.name = 'DerivationCapExceededError'
+    this.outputKey = outputKey
+    this.returned = returned
+    this.maxFanout = maxFanout
+  }
+}
+
+/**
  * Thrown at vault open if the materialized-view graph contains a
  * cycle. `path` is the offending chain (e.g. `['a-mv', 'b-mv', 'a-mv']`).
  * Detected by the same shared DFS that catches `DerivationCycleError`;

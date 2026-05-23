@@ -25,6 +25,34 @@ export function withDerivation<
   if (typeof spec.derive !== 'function') {
     throw new ValidationError('withDerivation: derive must be a function')
   }
+
+  // #200 slice 1 — validate array-shape outputs.
+  const lifecycleMode = typeof spec.lifecycle === 'string' ? spec.lifecycle : spec.lifecycle.mode
+  for (const [outputKey, outputSpec] of Object.entries(spec.outputs)) {
+    if (outputSpec.shape === 'array') {
+      if (lifecycleMode !== 'eager') {
+        throw new ValidationError(
+          `withDerivation: shape 'array' supports lifecycle 'eager' only in this release `
+          + `(#200 slice 1). Output "${outputKey}" declared lifecycle '${lifecycleMode}'. `
+          + 'Switch to `lifecycle: "eager"` or use shape: "record".',
+        )
+      }
+      if (typeof outputSpec.key !== 'function') {
+        throw new ValidationError(
+          `withDerivation: shape 'array' output "${outputKey}" requires \`key: (out) => string\`.`,
+        )
+      }
+      if (outputSpec.maxFanout !== undefined) {
+        if (!Number.isInteger(outputSpec.maxFanout) || outputSpec.maxFanout < 1) {
+          throw new ValidationError(
+            `withDerivation: maxFanout for output "${outputKey}" must be a positive integer `
+            + `(got ${String(outputSpec.maxFanout)}).`,
+          )
+        }
+      }
+    }
+  }
+
   return {
     __noydb_strategy: 'derivation',
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -128,8 +128,8 @@ export async function resolveStaleOnRead(
     for (const key of Object.keys(spec.outputs)) {
       const out = result.outputs[key]
       if (!out) continue
-      if (!out.ok) {
-        const err = out.error ?? new Error(`derivation output "${key}" failed`)
+      if (out.kind === 'failed') {
+        const err = out.error
         if (spec.strict) {
           // Leave the stale flag set so a future read retries.
           throw err
@@ -137,6 +137,17 @@ export async function resolveStaleOnRead(
         console.warn(
           `[derivation] lazy output "${key}" for source "${spec.source}" id="${id}" failed:`,
           err,
+        )
+        continue
+      }
+      if (out.kind === 'array') {
+        // Defensive — array-shape requires `lifecycle: 'eager'`
+        // (validated at withDerivation registration, #200 slice 1).
+        // Reaching the lazy-resolve path for array-shape would mean
+        // a registration check was bypassed. Log and skip.
+        console.warn(
+          `[derivation] unexpected array-shape output "${key}" in lazy resolve path; `
+          + 'array-shape derivations require lifecycle: "eager" (#200 slice 1).',
         )
         continue
       }

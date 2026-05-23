@@ -109,13 +109,17 @@ describe('@noy-db/at-env — integration with @noy-db/hub managed-passphrase mod
     const store = memory()
     const provider = envSealingProvider({ envVar: TEST_ENV })
 
-    // First open — hub mints + seals via at-env, persists, derives KEK.
+    // First open — hub mints + seals via at-env, derives KEK, and
+    // atomically enrolls the strong recovery required by #195 for
+    // managed-mode vaults.
     const db1 = await createNoydb({
       store, user: 'alice',
       passphraseMode: 'managed',
       sealingKey: provider,
     })
-    const vault1 = await db1.openVault('demo')
+    const { vault: vault1 } = await db1.openVaultAndEnrollRecovery('demo', {
+      recovery: [{ profile: 'shamir', k: 2, n: 3 }],
+    })
     await vault1.collection<{ id: string; note: string }>('notes').put('n1', {
       id: 'n1', note: 'managed-mode write via at-env',
     })
