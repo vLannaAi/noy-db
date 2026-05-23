@@ -705,51 +705,167 @@ without it, a vault committed to `at-env` early can never move to
 non-`at-env` provider (so the day someone installs `at-aws-kms`, they
 can also migrate to it from `at-env`).
 
-### 11.8 Open architectural questions — status after Round 1
+### 11.8 Open architectural questions — final status
 
-| Question | Status | Where |
+| Question | Status | Resolution location |
 |---|---|---|
-| **Q11.A** — single `SealingKeyProvider` vs split `RecipientSealer`? | **Resolved**: split | §11.4 |
-| **Q11.B** — `pid` stability guarantee across provider library versions? | Open | — |
-| **Q11.C** — Multi-provider sealing (array of envelopes)? | Partly resolved: defer past first release, v1 envelope shape doesn't preclude it | §11.7 Op C |
-| **Q11.D** — Trial-and-error unseal vs strict `pid` dispatch? | Open | — |
+| **Q11.A** — single `SealingKeyProvider` vs split `RecipientSealer`? | ✓ Resolved: split | §11.4 |
+| **Q11.B** — `pid` stability guarantee across provider library versions? | ✓ Resolved: semver-frozen per provider package | §11.9.1 |
+| **Q11.C** — Multi-provider sealing (array of envelopes)? | ✓ Partly resolved: defer past first release; v1 envelope shape doesn't preclude it | §11.7 Op C |
+| **Q11.D** — Trial-and-error unseal vs strict `pid` dispatch? | ✓ Resolved: strict-by-default; opt-in flag at bundle-read only | §11.9.2 |
+| **Q11.E** — Recipient hint refresh on key rotation? | ✓ Resolved: hints encode aliases, never versions | §11.9.3 |
+| **Q11.F** — Import UX when no local provider matches? | ✓ Resolved: fail-closed with actionable error; `keepSenderSeal` opt-in | §11.9.4 |
+| **Q11.G** — Cross-provider rotation × #195 mandatory recovery? | ✓ Resolved: post-rotation invariant re-check (no proof gate) | §11.9.5 |
 
-Carrying into Round 2:
+### 11.9 Round-2 resolutions
 
-- **Q11.B (pid stability).** Once a `pid` format ships, every existing
-  envelope in the wild is anchored to it. The closest analogue in the
-  ecosystem is the `to-*` adapter `{ resource, kind, id }` triple — also
-  treated as a public stability boundary. Lean toward declaring `pid`
-  format frozen post-first-release, with a `pid v1 → v2` migration story
-  documented if we ever need to evolve it. Decide before #188 (first
-  non-env provider) ships.
-- **Q11.D (trial-and-error).** Strict `pid` dispatch is the safer
-  default — it catches "wrong provider configured" early. Trial-and-error
-  has a real use case when moving across deployment surfaces (a vault
-  migrating from cloud to on-prem) but should be opt-in via an explicit
-  `attemptUnsealAcrossProviders: true` flag, not silent fallback.
-  Probably resolve at the same time as Op B (cross-provider rotation),
-  since both touch the "multiple providers present at the same time"
-  shape.
+#### 11.9.1 Q11.B — `pid` semver-frozen at the provider package level
 
-New Round-2 questions arising from §11.4–11.7:
+Each `at-*` provider owns its `pid` format, structured as
+`<provider-class>:<canonical-identity>`. Once a provider ships v1.x,
+the `pid` format is **semver-frozen** — changing it is a major-version
+break of that provider package, treated with the same discipline as a
+public API break.
 
-- **Q11.E** — Recipient hints are published once and persisted by the
-  sender. How are they refreshed when the recipient rotates their
-  underlying KMS key? Argues for a `hintVersion` and a "republish to
-  the sender" channel. Not in scope for v1; document the limitation.
-- **Q11.F** — On import, the §11.6 default (re-seal locally) requires
-  the recipient to have an `at-*` provider configured. If they don't,
-  fail-closed message must be actionable: "No `at-*` provider
-  configured. Either configure one for vault `xyz` or import with
-  `keepSenderSeal: true` (advanced — keeps the sender's sealing
-  identity on your local vault)." UX detail; document.
-- **Q11.G** — Cross-provider rotation (§11.7 Op B) under managed mode
-  with #195's mandatory strong-recovery interacts subtly: rotating the
-  sealing provider doesn't invalidate the existing recovery proofs (they
-  unwrap the same DEKs), but the policy gate `rotate-sealing-provider`
-  might want to require a recovery proof as part of the rotation
-  ceremony for symmetric defense. Open for #195's spec.
+- Each provider package has a **pid-stability test** locking the format
+  against golden strings (e.g., `at-aws-kms` asserts `pid === 'aws-kms:arn:aws:kms:us-east-1:123:key/abc'`
+  for a fixed input).
+- Escape hatch if a future provider rewrite genuinely needs a new pid
+  format: §11.7 Op C (multi-provider sealing) — seal under both old
+  and new pid formats simultaneously through a deprecation window,
+  then drop the old.
+- A single `docs/subsystems/sealing-pid-stability.md` documents the
+  rule for all providers; per-provider READMEs cross-reference it.
+
+Rationale: `pid` is the dispatch primitive for every existing sealed
+envelope in the wild. Less discipline than `to-*` adapters' `{ resource,
+kind, id }` triple would let a casual rewrite break vaults
+ecosystem-wide.
+
+#### 11.9.2 Q11.D — Strict-by-default; opt-in trial only at bundle-read
+
+- `readNoydbBundle(bytes, { providers })` defaults to **strict `pid`
+  dispatch**: `envelope.pid` must match a registered provider exactly.
+- Opt-in via `readNoydbBundle(bytes, { providers,
+  attemptUnsealAcrossProviders: true })`. When `pid` doesn't match,
+  try each provider whose declared `alg`-support matches the envelope.
+  Surfaces extra credential prompts as a deliberate user choice.
+- **Live-vault session-open is strict only, no trial mode.** A vault
+  knows its provider; a mismatched provider on session-open is
+  operator error and the failure should be loud.
+
+Rationale: silent fallback surfaces unexpected credential prompts and
+undermines the type-system honesty of §11.4. Trial mode's only honest
+use case is deployment-surface migration (cloud → on-prem) — narrow
+enough that the flag pays for itself.
+
+#### 11.9.3 Q11.E — Recipient hints encode aliases, never versions
+
+`RecipientHint.material` MUST reference KMS keys by their **stable
+identifier**, never a specific key-version:
+
+| Provider | Required reference shape |
+|---|---|
+| `at-aws-kms` | KMS key **alias** (e.g., `alias/noydb-prod`), not key id/ARN of a specific version |
+| `at-gcp-kms` | Key **resource path without version** (e.g., `projects/.../cryptoKeys/managed`) |
+| `at-azure-keyvault` | Key **name** (no version suffix) |
+
+- `publishRecipientHint()` enforces this in code; emitting a
+  version-pinned hint is a provider bug.
+- KMS **rotation** (alias → new version) is transparent: existing
+  sealed envelopes still unseal because KMS dispatches alias → active
+  version on `Decrypt`.
+- KMS **deprecation** (revoking the alias entirely) is *deliberate
+  revocation* — destroys old envelopes. Document this as a feature:
+  it's how you revoke ability to open historical bundles.
+
+Rationale: closes the "Bob holds Alice's hint for 6 months, Alice
+rotates" failure mode without introducing a hint-refresh channel that
+would be a hard distributed-systems problem.
+
+#### 11.9.4 Q11.F — Import UX: fail-closed with actionable error
+
+When `readNoydbBundle` encounters a sealed-carried bundle whose `pid`
+matches no registered provider, throw `BundleSealMismatchError` with
+the message shape:
+
+```
+BundleSealMismatchError: bundle is sealed for provider
+  'aws-kms:arn:aws:kms:us-east-1:123:key/abc'
+but no registered provider matches.
+
+Resolutions:
+  1. Configure a provider matching the pid and retry import.
+  2. Pass `keepSenderSeal: true` to keep the sender's sealing identity
+     on your local vault (you'll need access to the sender's provider
+     to open the vault from here forward — see §11.6).
+  3. Pass `attemptUnsealAcrossProviders: true` to try each registered
+     provider regardless of pid (extra credential prompts; see Q11.D).
+```
+
+- Bundles **without** carried seal fall through to today's manual-
+  passphrase prompt; behavior unchanged.
+- `keepSenderSeal: true` (introduced in §11.6) intentionally adopts
+  the sender's `pid` as the local vault's `_meta/sealed-passphrase`,
+  intended for fleet provisioning where recipient devices share the
+  sender's provider identity (MDM, iCloud Keychain sync, same KMS
+  account).
+
+Rationale: the error message *is* the UX. Three named resolutions
+mean users hit this once, read, and pick — no debugging required.
+
+#### 11.9.5 Q11.G — Rotation re-validates the strong-recovery invariant
+
+`rotateSealingProvider(vault, newProvider)` runs the rotation, then
+re-checks: *"does this vault still have at least one strong recovery
+profile enrolled?"* (per the §4 table). If not, **rolls back** the
+rotation — cheap because Op B writes new envelope to
+`_meta/sealed-passphrase.pending` before atomic swap.
+
+Policy gate `rotate-sealing-provider`:
+
+| Preset | Requirement |
+|---|---|
+| PERSONAL | Tier-1 (passphrase or managed-provider seal) |
+| TEAM | Same as PERSONAL |
+| STRICT | Tier-2 off-device factor (parallels existing `rotate-passphrase` gate) |
+
+Optional caller flag `requireRecoveryProof: true` for ultra-cautious
+deployments that want recovery-proof gating on the rotation itself —
+but **not the default**, because rotation is routine maintenance
+(e.g., promoting from `at-env` to `at-aws-kms`), not a recovery event.
+
+Rationale: requiring recovery proof on every rotation is clunky UX.
+Re-validating the post-state catches the only thing structurally
+dangerous (leaving the vault non-recoverable). Names a broader
+property worth quoting in the doc: **"the vault never enters a
+non-recoverable state via any official operation."** This holds at
+creation (#195), rotation (Q11.G), and any future identity-mutating
+primitive.
+
+### 11.10 Architectural invariant — the never-non-recoverable property
+
+A property the resolved questions name without making explicit. Worth
+stating once at the architecture level:
+
+> **The vault never enters a non-recoverable state via any official
+> operation.**
+
+Concretely, every API that mutates the sealing identity or the recovery
+set is responsible for *checking* the invariant on entry AND *re-checking*
+it after the operation. The current cases:
+
+| Operation | Entry check | Post-state check |
+|---|---|---|
+| `createNoydb({ passphraseMode: 'managed' })` (#195) | reject if no strong recovery in input | (creation IS the post-state) |
+| `rotateSealingProvider` (Q11.G) | none required | re-validate strong-recovery enrolled; rollback if not |
+| `db.recoverManagedPassphrase` (#195) | recovery proof | (recovery IS the entry, post-state inherits validity) |
+| `db.rotateRecovery` (existing) | tier check per gate | new recovery set must still satisfy strong-recovery rule (under managed mode) |
+| `extractPartition({ reKey: ... })` (#198 / §13) | recovery enrolled in `reKey.recovery` per #195 | (creation IS the post-state) |
+
+Tests for each operation should include a "post-state still recoverable"
+case. The invariant is the safety net that justifies every other policy
+gate being cheap.
 
 ## 12. Bundle transformation taxonomy
 
