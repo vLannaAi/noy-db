@@ -460,11 +460,12 @@ export type { WrappedDeksBlob } from './team/wrapped-deks.js'
 // SealingKeyProvider. The interface lives here; concrete providers
 // (macOS Keychain, Windows Credential Manager, libsecret, AWS KMS)
 // ship as separate packages.
-export type { SealingKeyProvider, SealedPassphrase } from './team/managed-passphrase.js'
+export type { SealingKeyProvider, SealedPassphrase, SealedEnvelope } from './team/managed-passphrase.js'
 export {
   MemorySealingKeyProvider,
   loadSealedPassphrase,
   saveSealedPassphrase,
+  parseSealedEnvelope,
   SEALED_PASSPHRASE_RECORD_ID,
 } from './team/managed-passphrase.js'
 

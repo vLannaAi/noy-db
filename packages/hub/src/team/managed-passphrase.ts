@@ -162,10 +162,31 @@ export interface SealedPassphrase {
   readonly sealed: Uint8Array
 }
 
-interface PersistedShape {
+/**
+ * Wire-format envelope persisted at `_meta/sealed-passphrase` for
+ * managed-mode vaults. The provider produces raw sealed bytes via
+ * {@link SealingKeyProvider.seal}; this wrapper carries the dispatch
+ * metadata hub needs to pick the right provider on the unseal path.
+ *
+ * Stability boundary: once shipped, the wire format only grows by
+ * adding optional fields. See the at-* sealing dimension foundation
+ * doc, §11.9.1.
+ *
+ * v1 shape (this release): `{ v: 1, _noydb_sealed: 1, pid, payload }`.
+ *
+ * Legacy shape (pre.14, pre.15): `{ _noydb_sealed: 1, providerId, sealed }`
+ * — accepted on read for backwards compatibility; never produced on
+ * write going forward.
+ */
+export interface SealedEnvelope {
+  /** Envelope schema version. v1 is the shape shipped in pre.16. */
+  readonly v: 1
+  /** Magic marker for forensics + legacy-shape detection. */
   readonly _noydb_sealed: 1
-  readonly providerId: string
-  readonly sealed: string // base64
+  /** Matches the producing provider's `.id`. Dispatch key on unseal. */
+  readonly pid: string
+  /** Sealed bytes from the provider, base64-encoded on the wire. */
+  readonly payload: string
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -181,15 +202,64 @@ function base64ToBytes(b64: string): Uint8Array {
   return out
 }
 
+/**
+ * Parse a `_meta/sealed-passphrase` `_data` JSON string into the
+ * in-memory {@link SealedPassphrase} representation. Accepts both:
+ *
+ *   1. v1 wire format `{ v: 1, _noydb_sealed: 1, pid, payload }` —
+ *      the shape produced from pre.16 onward.
+ *   2. Legacy wire format `{ _noydb_sealed: 1, providerId, sealed }` —
+ *      the shape produced in pre.14/pre.15. Read-only; never written
+ *      going forward.
+ *
+ * Returns `undefined` for any input that doesn't match either shape,
+ * so callers can fall back to "no managed-mode envelope present."
+ *
+ * @internal — exported only for the migration safety-net test suite.
+ */
+export function parseSealedEnvelope(raw: unknown): SealedPassphrase | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined
+  const r = raw as Record<string, unknown>
+  if (r._noydb_sealed !== 1) return undefined
+
+  // v1 shape — preferred.
+  if (
+    r.v === 1
+    && typeof r.pid === 'string'
+    && typeof r.payload === 'string'
+  ) {
+    return {
+      _noydb_sealed: 1,
+      providerId: r.pid,
+      sealed: base64ToBytes(r.payload),
+    }
+  }
+
+  // Legacy shape — pre.14 / pre.15. Accept on read for compat.
+  if (
+    typeof r.providerId === 'string'
+    && typeof r.sealed === 'string'
+  ) {
+    return {
+      _noydb_sealed: 1,
+      providerId: r.providerId,
+      sealed: base64ToBytes(r.sealed),
+    }
+  }
+
+  return undefined
+}
+
 export async function saveSealedPassphrase(
   store: NoydbStore,
   vault: string,
   payload: { readonly providerId: string; readonly sealed: Uint8Array },
 ): Promise<void> {
-  const persisted: PersistedShape = {
+  const persisted: SealedEnvelope = {
+    v: 1,
     _noydb_sealed: 1,
-    providerId: payload.providerId,
-    sealed: bytesToBase64(payload.sealed),
+    pid: payload.providerId,
+    payload: bytesToBase64(payload.sealed),
   }
   const prior = await store.get(vault, '_meta', SEALED_PASSPHRASE_RECORD_ID)
   const env: EncryptedEnvelope = {
@@ -210,13 +280,7 @@ export async function loadSealedPassphrase(
   const envelope = await store.get(vault, '_meta', SEALED_PASSPHRASE_RECORD_ID)
   if (!envelope) return undefined
   try {
-    const parsed = JSON.parse(envelope._data) as PersistedShape
-    if (parsed._noydb_sealed !== 1) return undefined
-    return {
-      _noydb_sealed: 1,
-      providerId: parsed.providerId,
-      sealed: base64ToBytes(parsed.sealed),
-    }
+    return parseSealedEnvelope(JSON.parse(envelope._data))
   } catch {
     return undefined
   }
