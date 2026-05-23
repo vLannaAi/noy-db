@@ -401,6 +401,33 @@ export interface EnrollRecoveryResult {
 }
 
 /**
+ * Input shape for {@link Noydb.enrollRecovery} and
+ * {@link Noydb.openVaultAndEnrollRecovery} (#195). Discriminated
+ * union over recovery profiles.
+ *
+ * - `paper`: caller pre-mints entries (typically via
+ *   `mintPaperRecoveryEntry` or `@noy-db/on-recovery`'s
+ *   `generateRecoveryCodeSet`) and passes them in. The hub stores
+ *   them and surfaces an opaque batch id.
+ * - `shamir`: hub mints the recovery secret + the shares at
+ *   enrollment time. The shares are returned in
+ *   {@link EnrollRecoveryResult.shares} (show-once); the hub never
+ *   retains them.
+ *
+ * Multi-channel and admin-mediated will be added when the respective
+ * dispatch slices ship.
+ */
+export type RecoveryEnrollmentInput =
+  | { readonly profile: 'paper'; readonly entries: ReadonlyArray<PaperRecoveryEntry> }
+  | {
+      readonly profile: 'shamir'
+      readonly k: number
+      readonly n: number
+      readonly label?: string
+      readonly entryId?: string
+    }
+
+/**
  * Reset the user's passphrase using a recovery proof. v0.1.0-pre.5
  * supports the `'paper'` profile via `@noy-db/on-recovery` entries
  * persisted in `_meta/recovery-paper`. The other three profiles throw

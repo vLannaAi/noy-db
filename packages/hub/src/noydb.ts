@@ -35,6 +35,8 @@ import {
   type RotateRecoveryOptions,
   type RotateRecoveryResult,
   type EnrollRecoveryResult,
+  type RecoveryEnrollmentInput,
+  type RecoveryProof,
 } from './team/rotate-recover.js'
 import {
   recoverUser as keyringRecoverUser,
@@ -44,6 +46,7 @@ import {
   loadPaperRecoveryEntries,
   savePaperRecoveryEntries,
   hasRecoveryEnrolled,
+  hasStrongRecoveryEnrolled,
   mintPaperRecoveryEntry,
   type PaperRecoveryEntry,
   loadShamirRecoveryEntries,
@@ -51,9 +54,9 @@ import {
   mintShamirRecoveryEntry,
   type ShamirRecoveryEntry,
 } from './team/recovery.js'
-import { resolveManagedSecret } from './team/managed-passphrase.js'
+import { resolveManagedSecret, saveSealedPassphrase } from './team/managed-passphrase.js'
 import { generateULID } from './bundle/ulid.js'
-import { RecoveryNotEnrolledError, RecoveryProfileNotImplementedError, PolicyDeniedError } from './policy/errors.js'
+import { RecoveryNotEnrolledError, RecoveryProfileNotImplementedError, ManagedRecoveryNotEnrolledError, PolicyDeniedError } from './policy/errors.js'
 import {
   describeAuthConfig as fnDescribeAuthConfig,
   diagramAuthConfig as fnDiagramAuthConfig,
@@ -162,6 +165,14 @@ export class Noydb {
    * `_meta/policy` load; replaced by `db.updatePolicy()`.
    */
   private readonly policyCache = new Map<string, VaultPolicy>()
+  /**
+   * One-shot bypass for the managed-mode strong-recovery check (#195).
+   * Set true by {@link openVaultAndEnrollRecovery} for the duration of
+   * the bootstrap window so the keyring can be created before the
+   * strong recovery is enrolled. Always cleared (try/finally).
+   * @internal
+   */
+  private _skipNextManagedRecoveryCheck = false
   /** Per-vault tier-3 (PIN / quick-resume) state — issue #11. */
   private readonly quickUnlock = new QuickUnlockStore()
   /**
@@ -1319,13 +1330,16 @@ export class Noydb {
   }
 
   /** Read or persist the vault policy at `_meta/policy` on first open. */
-  private async bootstrapPolicy(vault: string): Promise<void> {
+  private async bootstrapPolicy(
+    vault: string,
+    opts?: { skipManagedCheck?: boolean },
+  ): Promise<void> {
     const onDisk = await loadVaultPolicy(this.options.store, vault)
     if (onDisk) {
       // Honour the on-disk document; developer overrides cannot
       // weaken what the vault committed to at creation time.
       this.policyCache.set(vault, onDisk)
-      await this.assertRecoveryEnrolled(vault, onDisk)
+      await this.assertRecoveryEnrolled(vault, onDisk, opts)
       return
     }
     // First time — persist the developer's policy (or default preset).
@@ -1334,21 +1348,46 @@ export class Noydb {
       : PERSONAL_POLICY
     await saveVaultPolicy(this.options.store, vault, initial)
     this.policyCache.set(vault, initial)
-    await this.assertRecoveryEnrolled(vault, initial)
+    await this.assertRecoveryEnrolled(vault, initial, opts)
   }
 
   /**
-   * Throw {@link RecoveryNotEnrolledError} when the developer
-   * explicitly opts into strict mandatory-recovery enforcement
-   * (`createNoydb({ requireRecovery: true })`) and no recovery
-   * entries are persisted.
+   * Throw {@link RecoveryNotEnrolledError} or
+   * {@link ManagedRecoveryNotEnrolledError} when recovery enrollment
+   * is missing.
    *
-   * The default behavior is lenient — `recover-passphrase` is enabled
-   * in `PERSONAL_POLICY` but the hub does not block vault open on
-   * missing enrollment. v1.0 will flip the default to strict; for now,
-   * apps that want the spec-mandated check turn it on per-vault.
+   * Two enforcement modes:
+   *
+   * 1. **Managed-mode mandatory strong-recovery (#195).** When
+   *    `passphraseMode === 'managed'`, the vault MUST have at least
+   *    one **strong** recovery profile (Shamir today). Paper alone is
+   *    rejected because under managed mode the user has no memorized
+   *    passphrase, so losing the paper sheet = losing every record.
+   *    This check is unconditional — independent of `requireRecovery`
+   *    and the `recover-passphrase` gate.
+   *
+   * 2. **Opt-in strict mandatory-recovery.** When
+   *    `requireRecovery: true` is set on createNoydb (and the gate is
+   *    not explicitly disabled), require ANY recovery profile (paper
+   *    or shamir). This is the v0.x default-off behavior; v1.0 may
+   *    flip it default-on.
+   *
+   * The managed-mode check fires from {@link bootstrapPolicy} unless
+   * the `skipManagedCheck` flag is set (used by
+   * {@link openVaultAndEnrollRecovery} to allow atomic create-and-enroll).
    */
-  private async assertRecoveryEnrolled(vault: string, policy: VaultPolicy): Promise<void> {
+  private async assertRecoveryEnrolled(
+    vault: string,
+    policy: VaultPolicy,
+    opts?: { skipManagedCheck?: boolean },
+  ): Promise<void> {
+    const skipManaged = (opts?.skipManagedCheck ?? false) || this._skipNextManagedRecoveryCheck
+    if (this.options.passphraseMode === 'managed' && !skipManaged) {
+      const enrolled = await hasStrongRecoveryEnrolled(this.options.store, vault)
+      if (!enrolled) {
+        throw new ManagedRecoveryNotEnrolledError(vault)
+      }
+    }
     if (this.options.requireRecovery !== true) return
     const gate = policy.gates['recover-passphrase']
     if (gate?.enabled === false) return
@@ -1926,6 +1965,190 @@ export class Noydb {
   }
 
   /**
+   * **Atomic create-and-enroll for managed-mode vaults (#195).**
+   *
+   * Bootstraps a managed-mode vault and enrolls strong recovery in
+   * a single ceremony. Under `passphraseMode: 'managed'`, every
+   * `openVault` call requires a strong recovery profile (Shamir
+   * today) to be enrolled — otherwise it throws
+   * {@link ManagedRecoveryNotEnrolledError}. This method bypasses
+   * the check temporarily so the keyring can be created, enrolls
+   * the supplied recovery profile(s), then returns the vault.
+   *
+   * For Shamir enrollments, the show-once share strings come back
+   * in `recoveryEnrollments[i].shares`. The hub never retains them
+   * — the caller MUST display them to the user (once) before any
+   * subsequent operation.
+   *
+   * Paper alone is NOT a strong profile under managed mode; passing
+   * `{ profile: 'paper', ... }` without an accompanying shamir entry
+   * is rejected at validation time.
+   *
+   * ```ts
+   * const db = await createNoydb({
+   *   store, user: 'alice',
+   *   passphraseMode: 'managed',
+   *   sealingKey: macosKeychainSealingProvider({ ... }),
+   * })
+   *
+   * const { vault, recoveryEnrollments } = await db.openVaultAndEnrollRecovery('acme', {
+   *   recovery: [{ profile: 'shamir', k: 2, n: 3 }],
+   * })
+   * for (const r of recoveryEnrollments) {
+   *   if (r.shares) showSharesToUser(r.shares)  // ONCE
+   * }
+   * ```
+   *
+   * @throws ValidationError if recovery is empty, or contains no
+   *   strong profile under managed mode.
+   */
+  async openVaultAndEnrollRecovery(
+    vault: string,
+    opts: {
+      readonly recovery: ReadonlyArray<RecoveryEnrollmentInput>
+      readonly locale?: string
+    },
+  ): Promise<{
+    readonly vault: Vault
+    readonly recoveryEnrollments: ReadonlyArray<EnrollRecoveryResult>
+  }> {
+    if (opts.recovery.length === 0) {
+      throw new ValidationError(
+        'openVaultAndEnrollRecovery: at least one recovery enrollment is required.',
+      )
+    }
+
+    // Validate "at least one strong" when managed mode is on.
+    if (this.options.passphraseMode === 'managed') {
+      const hasStrong = opts.recovery.some(r => r.profile === 'shamir')
+      if (!hasStrong) {
+        throw new ValidationError(
+          'openVaultAndEnrollRecovery: managed-mode vaults require at least one strong '
+          + 'recovery profile in the `recovery` array. Paper alone is not strong under '
+          + 'managed mode (no user passphrase to fall back on). Include '
+          + '{ profile: "shamir", k, n } in `recovery`.',
+        )
+      }
+    }
+
+    // Temporarily bypass the managed-mode strong-recovery check so
+    // openVault can create the keyring. Recovery enrollment happens
+    // inside this window; the check is restored at the end.
+    this._skipNextManagedRecoveryCheck = true
+    let vaultHandle: Vault
+    try {
+      vaultHandle = await this.openVault(vault, opts.locale !== undefined ? { locale: opts.locale } : undefined)
+    } finally {
+      this._skipNextManagedRecoveryCheck = false
+    }
+
+    // Enroll each recovery profile.
+    const recoveryEnrollments: EnrollRecoveryResult[] = []
+    for (const enrollment of opts.recovery) {
+      recoveryEnrollments.push(await this.enrollRecovery(vault, enrollment))
+    }
+
+    // Belt-and-braces final check — by now, strong recovery must be on disk.
+    if (this.options.passphraseMode === 'managed') {
+      const policy = this.policyCache.get(vault)
+      if (policy) {
+        await this.assertRecoveryEnrolled(vault, policy)
+      }
+    }
+
+    return { vault: vaultHandle, recoveryEnrollments }
+  }
+
+  /**
+   * **Recovery flow under managed-passphrase mode (#195).**
+   *
+   * Replaces the sealed passphrase of a managed-mode vault with a
+   * fresh 256-bit random, sealed under the configured
+   * `SealingKeyProvider`. The user never sees the new passphrase.
+   *
+   * Internally:
+   *   1. Verify the recovery proof (Shamir today) and unwrap the
+   *      DEK set.
+   *   2. Mint a fresh 256-bit random as the new effective passphrase.
+   *   3. Rewrap the DEK set under a fresh KEK derived from the new
+   *      passphrase (via the existing `recoverPassphrase` path).
+   *   4. Seal the random bytes under the provider and overwrite
+   *      `_meta/sealed-passphrase`.
+   *   5. Drop the keyring cache so the next operation re-derives.
+   *
+   * The vault's strong-recovery enrollment is preserved across
+   * recovery (Shamir entries are not burned on use — see #196).
+   *
+   * @throws ValidationError if the Noydb instance is not in managed mode.
+   */
+  async recoverManagedPassphrase(
+    vault: string,
+    options: {
+      readonly recoveryProof: RecoveryProof
+      readonly passphrasePolicy?: PassphrasePolicy
+    },
+  ): Promise<void> {
+    if (this.options.passphraseMode !== 'managed') {
+      throw new ValidationError(
+        'recoverManagedPassphrase: this method only applies to vaults opened '
+        + 'in managed-passphrase mode. For standard mode, use db.recoverPassphrase.',
+      )
+    }
+    const provider = this.options.sealingKey
+    if (!provider) {
+      throw new ValidationError(
+        'recoverManagedPassphrase: createNoydb({ passphraseMode: "managed" }) requires '
+        + '`sealingKey` to be supplied; without it the new sealed passphrase cannot '
+        + 'be persisted.',
+      )
+    }
+
+    // Mint fresh 256-bit random; base64 it for use as the new
+    // effective passphrase. AES-GCM auth-tag failures in the
+    // managed-mode envelope catch tampering.
+    const randomBytes = new Uint8Array(32)
+    globalThis.crypto.getRandomValues(randomBytes)
+    let binary = ''
+    for (let i = 0; i < randomBytes.length; i++) binary += String.fromCharCode(randomBytes[i]!)
+    const newPassphrase = btoa(binary)
+
+    try {
+      // Seal first; if the provider fails (KMS down, keychain locked),
+      // we don't touch the keyring. Then run recoverPassphrase which
+      // rewraps DEKs under the new KEK derived from the random bytes.
+      const sealed = await provider.seal(randomBytes)
+      await keyringRecoverPassphrase(
+        this.options.store,
+        vault,
+        this.options.user,
+        {
+          newPassphrase,
+          recoveryProof: options.recoveryProof,
+          // The new passphrase IS 256 bits of random; policy gates on
+          // length/entropy don't apply.
+          allowWeakPassphrase: true,
+          ...(options.passphrasePolicy !== undefined
+            ? { passphrasePolicy: options.passphrasePolicy }
+            : {}),
+        },
+      )
+      // Update _meta/sealed-passphrase with the freshly sealed random.
+      // The previous envelope is overwritten by saveSealedPassphrase.
+      await saveSealedPassphrase(this.options.store, vault, {
+        providerId: provider.id,
+        sealed,
+      })
+    } finally {
+      // Best-effort zero of the in-memory random buffer.
+      randomBytes.fill(0)
+    }
+
+    // Drop the keyring cache so the next openVault re-derives from
+    // the new sealed envelope.
+    this.keyringCache.delete(vault)
+  }
+
+  /**
    * Atomic peer-recovery — re-wraps an EXISTING user's keyring under
    * a fresh temp passphrase in a single store write. Closes #34's
    * partial-failure window (the previous compose-from-primitives
@@ -2018,9 +2241,7 @@ export class Noydb {
    */
   async enrollRecovery(
     vault: string,
-    enrollment:
-      | { profile: 'paper'; entries: ReadonlyArray<PaperRecoveryEntry> }
-      | { profile: 'shamir'; k: number; n: number; label?: string; entryId?: string },
+    enrollment: RecoveryEnrollmentInput,
   ): Promise<EnrollRecoveryResult> {
     if (enrollment.profile === 'paper') {
       const existing = await loadPaperRecoveryEntries(this.options.store, vault)

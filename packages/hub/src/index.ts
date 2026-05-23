@@ -759,6 +759,7 @@ export {
   PolicyDeniedError,
   RecoveryNotEnrolledError,
   RecoveryProfileNotImplementedError,
+  ManagedRecoveryNotEnrolledError,
   loadVaultPolicy,
   saveVaultPolicy,
   META_COLLECTION,

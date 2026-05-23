@@ -22,6 +22,7 @@ export {
   PolicyDeniedError,
   RecoveryNotEnrolledError,
   RecoveryProfileNotImplementedError,
+  ManagedRecoveryNotEnrolledError,
 } from './errors.js'
 export type { PolicyDenyReason } from './errors.js'
 

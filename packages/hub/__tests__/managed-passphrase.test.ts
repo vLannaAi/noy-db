@@ -134,13 +134,18 @@ describe('createNoydb({ passphraseMode: "managed" }) — slice 1', () => {
     ).rejects.toThrow(ValidationError)
   })
 
+  // Per #195, openVault under managed mode requires a STRONG recovery
+  // profile to be enrolled. Tests that exercise the #186 sealing core
+  // bootstrap via openVaultAndEnrollRecovery to satisfy that.
   it('first openVault generates a random passphrase, seals it, and persists', async () => {
     const db = await createNoydb({
       store, user: 'alice',
       passphraseMode: 'managed',
       sealingKey: provider,
     })
-    await db.openVault('acme')
+    await db.openVaultAndEnrollRecovery('acme', {
+      recovery: [{ profile: 'shamir', k: 2, n: 3 }],
+    })
     const loaded = await loadSealedPassphrase(store, 'acme')
     expect(loaded).toBeDefined()
     expect(loaded!.providerId).toBe('test-keychain')
@@ -148,13 +153,15 @@ describe('createNoydb({ passphraseMode: "managed" }) — slice 1', () => {
   })
 
   it('reopening reuses the persisted sealed passphrase (no new random generated)', async () => {
-    // First open — establishes the sealed envelope.
+    // First open — establishes the sealed envelope + strong recovery.
     const db1 = await createNoydb({
       store, user: 'alice',
       passphraseMode: 'managed',
       sealingKey: provider,
     })
-    await db1.openVault('acme')
+    await db1.openVaultAndEnrollRecovery('acme', {
+      recovery: [{ profile: 'shamir', k: 2, n: 3 }],
+    })
     const sealed1 = (await loadSealedPassphrase(store, 'acme'))!.sealed
     db1.close()
 
@@ -176,7 +183,9 @@ describe('createNoydb({ passphraseMode: "managed" }) — slice 1', () => {
       passphraseMode: 'managed',
       sealingKey: provider,
     })
-    const vault = await db.openVault('acme')
+    const { vault } = await db.openVaultAndEnrollRecovery('acme', {
+      recovery: [{ profile: 'shamir', k: 2, n: 3 }],
+    })
     const notes = vault.collection<Note>('notes')
     await notes.put('n1', { id: 'n1', body: 'managed-mode record' })
     db.close()
@@ -198,7 +207,9 @@ describe('createNoydb({ passphraseMode: "managed" }) — slice 1', () => {
       passphraseMode: 'managed',
       sealingKey: provider,
     })
-    await db.openVault('acme')
+    await db.openVaultAndEnrollRecovery('acme', {
+      recovery: [{ profile: 'shamir', k: 2, n: 3 }],
+    })
     await expect(
       db.rotatePassphrase('acme', {
         oldPassphrase: 'irrelevant — user does not know it',
@@ -214,7 +225,9 @@ describe('createNoydb({ passphraseMode: "managed" }) — slice 1', () => {
       passphraseMode: 'managed',
       sealingKey: provider,
     })
-    await db.openVault('acme')
+    await db.openVaultAndEnrollRecovery('acme', {
+      recovery: [{ profile: 'shamir', k: 2, n: 3 }],
+    })
     db.close()
 
     // Different provider id → unseal fails → reopen throws

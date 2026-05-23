@@ -56,6 +56,43 @@ export class RecoveryNotEnrolledError extends NoydbError {
 }
 
 /**
+ * Raised by `openVault` when a managed-passphrase-mode vault has no
+ * STRONG recovery profile enrolled (#195).
+ *
+ * Managed mode means the user never types a passphrase — the unlock
+ * material lives in a `SealingKeyProvider` (`at-*` package). If that
+ * provider's key is lost AND no strong recovery is enrolled, the
+ * vault is irrecoverable. To prevent that footgun, managed-mode vaults
+ * require at least one strong recovery profile (Shamir today;
+ * multi-channel / admin-mediated when those ship).
+ *
+ * Paper recovery alone is NOT strong under managed mode: the user has
+ * no memorized passphrase to fall back on, so losing the paper sheet =
+ * losing every record permanently.
+ *
+ * Bootstrap with `db.openVaultAndEnrollRecovery(vault, { recovery: [{ profile: "shamir", k, n }] })`
+ * to atomically create-and-enroll, or call `db.enrollRecovery(vault, { profile: "shamir", ... })`
+ * separately before re-attempting `openVault`.
+ */
+export class ManagedRecoveryNotEnrolledError extends NoydbError {
+  readonly vault: string
+  constructor(vault: string) {
+    super(
+      'MANAGED_RECOVERY_NOT_ENROLLED',
+      `Managed-mode vault "${vault}" requires at least one strong recovery profile `
+      + '(Shamir today; multi-channel / admin-mediated when they ship). Paper alone is '
+      + 'NOT strong under managed mode — losing the paper sheet would mean losing every '
+      + 'record permanently. '
+      + `Bootstrap with \`db.openVaultAndEnrollRecovery("${vault}", { recovery: [{ profile: "shamir", k: 2, n: 3 }] })\`, `
+      + 'or call `db.enrollRecovery(vault, { profile: "shamir", k, n })` separately, '
+      + 'then re-attempt `openVault`.',
+    )
+    this.name = 'ManagedRecoveryNotEnrolledError'
+    this.vault = vault
+  }
+}
+
+/**
  * Raised by `db.recoverPassphrase` / `db.enrollRecovery` /
  * `db.rotateRecovery` when the developer requests a recovery profile
  * not yet wired in this hub release.

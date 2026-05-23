@@ -129,6 +129,28 @@ export async function hasRecoveryEnrolled(
   return shamir.length > 0
 }
 
+/**
+ * Whether at least one **strong** recovery profile is enrolled (#195).
+ *
+ * "Strong" excludes paper-alone — under managed-passphrase mode the
+ * user has no memorized passphrase, so a stolen/lost paper sheet
+ * would be a single point of total loss. Strong profiles today:
+ *
+ *   - `shamir` (k-of-n threshold; survives loss of up to n-k shares)
+ *   - `multi-channel` (when shipped — #196 follow-up slice)
+ *   - `admin-mediated` (when shipped — #196 follow-up slice)
+ *
+ * Managed mode requires this check to pass before `openVault` returns.
+ */
+export async function hasStrongRecoveryEnrolled(
+  store: NoydbStore,
+  vault: string,
+): Promise<boolean> {
+  const shamir = await loadShamirRecoveryEntries(store, vault)
+  return shamir.length > 0
+  // When multi-channel / admin-mediated land, extend this check.
+}
+
 // ─── Shamir recovery (#196 slice 1) ──────────────────────────────────────
 
 /**
