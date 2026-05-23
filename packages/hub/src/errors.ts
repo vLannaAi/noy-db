@@ -968,6 +968,49 @@ export class BundleIntegrityError extends NoydbError {
   }
 }
 
+/**
+ * Thrown by `readNoydbBundle` (#197) when the bundle carries
+ * sealed per-user passphrases but no supplied `SealingKeyProvider`
+ * has a `.id` (= `pid`) matching the sealed entry's `pid`.
+ *
+ * Carries the failing pid + the user id so the recipient can
+ * surface an actionable prompt:
+ *
+ * ```
+ * BundleSealMismatchError: bundle carries sealed passphrase for user "alice"
+ *   under provider "macos-keychain:com.acme.app/alice@acme.example",
+ *   but no registered provider matches that pid.
+ * ```
+ *
+ * Three resolution paths the message names (per foundation §11.9.4):
+ *
+ * 1. Configure a provider matching the pid and retry import.
+ * 2. Pass `attemptUnsealAcrossProviders: true` to try each
+ *    registered provider regardless of pid.
+ * 3. Inspect without unsealing — pass no `sealingProviders` to
+ *    receive the sealed entries unmodified for offline analysis.
+ */
+export class BundleSealMismatchError extends NoydbError {
+  readonly userId: string
+  readonly pid: string
+  constructor(userId: string, pid: string) {
+    super(
+      'BUNDLE_SEAL_MISMATCH',
+      `bundle carries sealed passphrase for user "${userId}" under provider `
+      + `"${pid}", but no registered provider matches that pid.\n\n`
+      + 'Resolutions:\n'
+      + '  1. Configure a provider matching the pid and retry import.\n'
+      + '  2. Pass `attemptUnsealAcrossProviders: true` to try each registered\n'
+      + '     provider regardless of pid (extra credential prompts may surface).\n'
+      + '  3. Inspect the bundle without unsealing — pass no `sealingProviders`\n'
+      + '     to receive the sealed entries unmodified for offline analysis.',
+    )
+    this.name = 'BundleSealMismatchError'
+    this.userId = userId
+    this.pid = pid
+  }
+}
+
 // ─── i18n / Dictionary Errors ──────────────────────────
 
 /**

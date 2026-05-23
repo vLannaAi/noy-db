@@ -18,6 +18,7 @@ export {
 } from './bundle.js'
 export type {
   WriteNoydbBundleOptions,
+  ReadNoydbBundleOptions,
   NoydbBundleReadResult,
 } from './bundle.js'
 
@@ -45,6 +46,7 @@ export { generateULID, isULID } from './ulid.js'
 // `instanceof BundleIntegrityError` without falling back to the root barrel.
 export {
   BundleIntegrityError,
+  BundleSealMismatchError,
   BundleVersionConflictError,
   BackupLedgerError,
   BackupCorruptedError,

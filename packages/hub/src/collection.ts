@@ -47,6 +47,11 @@ import { revertExecuted } from './tx/transaction.js'
 // `dispatchDerivations` when an eager-mode strategy fires. Keeps the
 // derivation executor chunk out of the floor bundle (#130).
 import type { DerivationExecutor as DerivationExecutorType } from './derivations/executor.js'
+import type {
+  loadFanoutSidecar as LoadFanoutSidecarType,
+  deleteFanoutSidecar as DeleteFanoutSidecarType,
+  saveFanoutSidecar as SaveFanoutSidecarType,
+} from './derivations/fanout-sidecar.js'
 import { markStale, resolveStaleOnRead } from './derivations/stale.js'
 import type { MaterializedViewRegistry } from './materialized-views/registry.js'
 import type { MVQueryContext } from './materialized-views/types.js'
@@ -1879,7 +1884,11 @@ export class Collection<T> {
     // Dynamic-import the sidecar helpers — keeps the derivation
     // chunk out of the floor bundle for consumers that don't use
     // array-shape derivations.
-    let helpers: typeof import('./derivations/fanout-sidecar.js') | null = null
+    let helpers: {
+      loadFanoutSidecar: typeof LoadFanoutSidecarType
+      deleteFanoutSidecar: typeof DeleteFanoutSidecarType
+      saveFanoutSidecar: typeof SaveFanoutSidecarType
+    } | null = null
     const txCtx = this.derivationSource.getActiveTxContext()
 
     for (const { spec } of strategies) {

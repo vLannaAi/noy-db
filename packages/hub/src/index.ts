@@ -218,6 +218,7 @@ export {
   AlreadyElevatedError,
   LedgerContentionError,
   BundleIntegrityError,
+  BundleSealMismatchError,
   BundleVersionConflictError,
   SessionExpiredError,
   SessionNotFoundError,
@@ -246,6 +247,7 @@ export type {
 } from './bundle/format.js'
 export type {
   WriteNoydbBundleOptions,
+  ReadNoydbBundleOptions,
   NoydbBundleReadResult,
 } from './bundle/bundle.js'
 export {

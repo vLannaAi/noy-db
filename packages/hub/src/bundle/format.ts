@@ -129,6 +129,22 @@ export interface NoydbBundleHeader {
    * other unknown header key still rejects at parse time.
    */
   readonly publicEnvelope?: PublicEnvelope
+  /**
+   * Auto-unlock material indicator (#197). When present, the bundle
+   * body wraps the dump JSON in a structure carrying per-user
+   * passphrases — either plaintext (`'unsealed'`, public-by-design)
+   * or sealed under a `SealingKeyProvider` (`'sealed'`, requires
+   * matching provider on the recipient side).
+   *
+   * Visible pre-decompression so cloud listing UIs can warn before
+   * download: "this bundle opens itself for anyone holding the file"
+   * (unsealed) or "this bundle is sealed for a specific provider"
+   * (sealed).
+   *
+   * Absent → the body is a raw `vault.dump()` JSON string (the
+   * pre-#197 shape; back-compatible).
+   */
+  readonly autoUnlock?: 'unsealed' | 'sealed'
 }
 
 /**
@@ -143,6 +159,7 @@ const ALLOWED_HEADER_KEYS: ReadonlySet<string> = new Set([
   'bodyBytes',
   'bodySha256',
   'publicEnvelope',
+  'autoUnlock',
 ])
 
 /**
@@ -225,6 +242,14 @@ export function validateBundleHeader(
       )
     }
   }
+  if (h['autoUnlock'] !== undefined) {
+    if (h['autoUnlock'] !== 'unsealed' && h['autoUnlock'] !== 'sealed') {
+      const got = typeof h['autoUnlock'] === 'string' ? `"${h['autoUnlock']}"` : typeof h['autoUnlock']
+      throw new Error(
+        `.noydb bundle header.autoUnlock must be 'unsealed' or 'sealed' when present, got ${got}.`,
+      )
+    }
+  }
 }
 
 /**
@@ -244,6 +269,7 @@ export function encodeBundleHeader(header: NoydbBundleHeader): Uint8Array {
     bodyBytes: header.bodyBytes,
     bodySha256: header.bodySha256,
     ...(header.publicEnvelope !== undefined ? { publicEnvelope: header.publicEnvelope } : {}),
+    ...(header.autoUnlock !== undefined ? { autoUnlock: header.autoUnlock } : {}),
   })
   return new TextEncoder().encode(json)
 }
