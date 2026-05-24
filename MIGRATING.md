@@ -12,3 +12,5 @@ Shamir recovery now requires an injected provider.
    ```
 
 > Note: when multiple Shamir recovery entries are enrolled, supply the shares for a **single** entry per recovery attempt (optionally with `entryId`). Mixing shares from different entries in one call no longer recovers.
+
+> Managed-passphrase mode mandates a strong recovery profile, and Shamir is the only one — so **managed-mode vaults now also require a `shamirRecovery` provider**. Add `@noy-db/on-shamir` and pass `shamirRecovery: shamirRecoveryProvider()` to `createNoydb`.
