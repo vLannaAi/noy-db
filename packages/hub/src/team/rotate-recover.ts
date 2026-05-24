@@ -39,7 +39,7 @@ import {
   type PaperRecoveryEntry,
   type ShamirRecoveryEntry,
 } from './recovery.js'
-import { decodeShareBase32, type RawShare } from '@noy-db/on-shamir'
+import type { ShamirRecoveryProvider } from './shamir-recovery-provider.js'
 import { assertStrongPassphrase, type PassphrasePolicy } from '../validation.js'
 import type { UnlockedKeyring } from './keyring.js'
 import { mintKeyringCanary } from './keyring.js'
@@ -281,7 +281,7 @@ export type RecoveryProof =
       /** Optional disambiguator when multiple Shamir entries are enrolled.
        *  When omitted, hub tries each entry until one combines. */
       readonly entryId?: string
-      /** K or more share strings (Base32-encoded per @noy-db/on-shamir). */
+      /** K or more opaque share strings, as returned by `ShamirRecoveryProvider.splitToShares`. */
       readonly shares: ReadonlyArray<string>
     } }
 
@@ -437,6 +437,7 @@ export type RecoveryEnrollmentInput =
  * stored set).
  */
 export async function recoverPassphrase(
+  provider: ShamirRecoveryProvider,
   store: NoydbStore,
   vault: string,
   userId: string,
@@ -455,7 +456,7 @@ export async function recoverPassphrase(
     return recoverViaPaperCode(store, vault, userId, input)
   }
   if (profile === 'shamir') {
-    return recoverViaShamir(store, vault, userId, input)
+    return recoverViaShamir(provider, store, vault, userId, input)
   }
   throw new RecoveryProfileNotImplementedError(
     profile,
@@ -582,6 +583,7 @@ function normalizePaperCode(input: string): string {
  *    explicit {@link Noydb.rotateRecovery} is the refresh ceremony.
  */
 async function recoverViaShamir(
+  provider: ShamirRecoveryProvider,
   store: NoydbStore,
   vault: string,
   userId: string,
@@ -601,20 +603,6 @@ async function recoverViaShamir(
     throw new NoAccessError(`No keyring found for user "${userId}" in vault "${vault}".`)
   }
   const file = JSON.parse(env._data) as KeyringFile
-
-  // Decode share strings up front. A malformed string here is a
-  // validation error, not a per-entry try-next.
-  let decodedShares: RawShare[]
-  try {
-    decodedShares = shareStrings.map(s => decodeShareBase32(s))
-  } catch (err) {
-    throw new ValidationError(
-      'One or more Shamir shares could not be decoded. They may be '
-      + 'malformed, truncated, or from an incompatible version. '
-      + 'Original error: '
-      + (err instanceof Error ? err.message : String(err)),
-    )
-  }
 
   const allEntries = await loadShamirRecoveryEntries(store, vault)
   if (allEntries.length === 0) {
@@ -639,25 +627,22 @@ async function recoverViaShamir(
     candidates = allEntries
   }
 
-  // Try each candidate entry. For each, the supplied shares must
-  // include at least k of the entry's xCoords for combine to succeed.
+  // Try each candidate entry. Pass all share strings to the provider;
+  // provider.combineShares validates and throws on mismatch — the
+  // AES-GCM auth-tag is an additional guard.
   let recoveredDeks: Map<string, CryptoKey> | undefined
   for (const entry of candidates) {
-    // Filter shares whose x-coordinates match this entry's set, so
-    // that mixing shares from different entries doesn't poison
-    // combineSecret.
-    const xCoordSet = new Set(entry.xCoords)
-    const matchingShares = decodedShares.filter(s => xCoordSet.has(s.x))
-    if (matchingShares.length < entry.k) {
+    if (shareStrings.length < entry.k) {
       // Not enough shares for this entry — could still match another.
       continue
     }
     try {
-      const deks = await unwrapDeksFromShamirEntry(entry, matchingShares)
+      const deks = await unwrapDeksFromShamirEntry(provider, entry, shareStrings)
       recoveredDeks = deks
       break
     } catch {
-      // AES-GCM auth-tag failure → shares don't belong to this entry → try the next.
+      // provider.combineShares threw (malformed/mismatched shares) or
+      // AES-GCM auth-tag failure → try the next entry.
     }
   }
 
@@ -665,10 +650,10 @@ async function recoverViaShamir(
     // Distinguish "below-threshold" from "no entry matches" so the
     // error message is actionable.
     const minK = Math.min(...candidates.map(e => e.k))
-    if (decodedShares.length < minK) {
+    if (shareStrings.length < minK) {
       throw new InvalidKeyError(
         `Insufficient Shamir shares to combine: the smallest enrolled threshold is ${minK}, `
-        + `but only ${decodedShares.length} share${decodedShares.length === 1 ? ' was' : 's were'} provided.`,
+        + `but only ${shareStrings.length} share${shareStrings.length === 1 ? ' was' : 's were'} provided.`,
       )
     }
     throw new InvalidKeyError(

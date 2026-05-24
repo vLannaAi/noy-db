@@ -453,8 +453,6 @@ export {
   saveShamirRecoveryEntries,
   mintShamirRecoveryEntry,
   unwrapDeksFromShamirEntry,
-  encodeShareBase32,
-  decodeShareBase32,
 } from './team/recovery.js'
 export type {
   PaperRecoveryEntry,
