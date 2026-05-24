@@ -319,67 +319,151 @@ export interface ReadNoydbBundleOptions {
   readonly attemptUnsealAcrossProviders?: boolean
 }
 
-// ─── #197 auto-unlock helpers ──────────────────────────────────────
+// ─── #197/#215 auto-unlock helpers ────────────────────────────────────────────
 
 /**
- * Validate the #197 auto-unlock options and return the resulting
- * header `autoUnlock` value (or null when no auto-unlock requested).
+ * Internal normalized form of the auto-unlock options, computed once
+ * from the four public-facing fields (autoCredentials, sealedCredentials,
+ * autoPassphrases, sealedPassphrases). Callers work against this shape
+ * so the build + validate paths share a single normalizer.
+ */
+interface NormalizedAutoUnlock {
+  readonly mode: 'unsealed' | 'sealed'
+  readonly provider?: SealingKeyProvider
+  readonly perUser: Record<string, AutoCredential>
+}
+
+/**
+ * Coerce a `Record<string, string>` (legacy passphrase-only map) into
+ * a `Record<string, AutoCredential>` by tagging each entry as
+ * `kind: 'passphrase'`. Used by the normalizer to promote the deprecated
+ * `autoPassphrases`/`sealedPassphrases` sugar.
+ */
+function toAutoCredentials(m: Record<string, string>): Record<string, AutoCredential> {
+  return Object.fromEntries(
+    Object.entries(m).map(([u, value]) => [u, { kind: 'passphrase' as const, value }]),
+  )
+}
+
+/**
+ * Normalize the four auto-unlock option fields into a single
+ * `NormalizedAutoUnlock` (or `null` when none is set). Enforces mutual
+ * exclusion — exactly one of the four may be present. Promotes the
+ * deprecated sugar fields to `AutoCredential` shape.
  *
- * Validation per spec §3:
- *   - autoPassphrases + sealedPassphrases mutually exclusive
- *   - autoPassphrases requires `policy: 'public-by-design'`
- *   - non-empty perUser maps
- *   - sealedPassphrases.mode = 'self-target' (slice 1 only)
- *   - sealedPassphrases.provider must be supplied
+ * Does NOT validate field-level constraints (policy marker, perUser
+ * length, mode, provider presence, kind allowlist) — those are checked
+ * in `validateAutoUnlockOptions` after normalization.
+ */
+function normalizeAutoUnlock(opts: WriteNoydbBundleOptions): NormalizedAutoUnlock | null {
+  const set = [
+    opts.autoCredentials,
+    opts.sealedCredentials,
+    opts.autoPassphrases,
+    opts.sealedPassphrases,
+  ].filter(v => v !== undefined).length
+  if (set === 0) return null
+  if (set > 1) {
+    throw new ValidationError(
+      'writeNoydbBundle: only one of autoCredentials / sealedCredentials / '
+      + 'autoPassphrases / sealedPassphrases may be set.',
+    )
+  }
+  if (opts.autoCredentials !== undefined) {
+    return { mode: 'unsealed', perUser: opts.autoCredentials.perUser }
+  }
+  if (opts.autoPassphrases !== undefined) {
+    return { mode: 'unsealed', perUser: toAutoCredentials(opts.autoPassphrases.perUser) }
+  }
+  if (opts.sealedCredentials !== undefined) {
+    return { mode: 'sealed', provider: opts.sealedCredentials.provider, perUser: opts.sealedCredentials.perUser }
+  }
+  // sealedPassphrases — only remaining option
+  return {
+    mode: 'sealed',
+    provider: opts.sealedPassphrases!.provider,
+    perUser: toAutoCredentials(opts.sealedPassphrases!.perUser),
+  }
+}
+
+/**
+ * Validate the auto-unlock options and return the resulting header
+ * `autoUnlock` value (or null when no auto-unlock requested).
+ *
+ * Validation per spec (#197 + #215 §3):
+ *   - exactly one of autoCredentials / sealedCredentials /
+ *     autoPassphrases / sealedPassphrases may be set
+ *   - unsealed path: `policy: 'public-by-design'` marker required
+ *   - non-empty `perUser` maps
+ *   - sealed path: `mode: 'self-target'` + provider present
+ *   - every AutoCredential.kind ∈ {passphrase, password, pin}
+ *     (WebAuthn is hardware-bound and cannot be bundled)
  *
  * Throws {@link ValidationError} on any violation.
  */
 function validateAutoUnlockOptions(opts: WriteNoydbBundleOptions): 'unsealed' | 'sealed' | null {
-  if (opts.autoPassphrases !== undefined && opts.sealedPassphrases !== undefined) {
-    throw new ValidationError(
-      'writeNoydbBundle: `autoPassphrases` and `sealedPassphrases` are mutually exclusive. '
-      + 'Choose one or the other.',
-    )
-  }
-  if (opts.autoPassphrases !== undefined) {
-    if (opts.autoPassphrases.policy !== 'public-by-design') {
+  // normalizeAutoUnlock enforces mutual exclusion and promotes sugar.
+  const normalized = normalizeAutoUnlock(opts)
+  if (normalized === null) return null
+
+  const VALID_KINDS: ReadonlySet<string> = new Set(['passphrase', 'password', 'pin'])
+
+  // Validate every credential kind before any further checks.
+  for (const [userId, cred] of Object.entries(normalized.perUser)) {
+    if (!VALID_KINDS.has(cred.kind)) {
       throw new ValidationError(
-        'writeNoydbBundle: `autoPassphrases` requires `policy: "public-by-design"`. '
-        + 'This is an explicit opt-in marker — bundling plaintext credentials is '
-        + 'safe only when those credentials are intended to be public (demo data, '
-        + 'sample vaults). For production credentials, use `sealedPassphrases` instead.',
+        `writeNoydbBundle: credential for user '${userId}' has unsupported kind '${cred.kind}'. `
+        + 'auto-unlock supports passphrase/password/pin only; WebAuthn is hardware-bound '
+        + 'and cannot be bundled.',
       )
     }
-    const userCount = Object.keys(opts.autoPassphrases.perUser).length
+  }
+
+  if (normalized.mode === 'unsealed') {
+    // Read the policy marker from whichever active option carries it.
+    const policy = opts.autoCredentials?.policy ?? opts.autoPassphrases?.policy
+    if (policy !== 'public-by-design') {
+      throw new ValidationError(
+        'writeNoydbBundle: `autoCredentials` (or `autoPassphrases`) requires '
+        + '`policy: "public-by-design"`. '
+        + 'This is an explicit opt-in marker — bundling plaintext credentials is '
+        + 'safe only when those credentials are intended to be public (demo data, '
+        + 'sample vaults). For production credentials, use `sealedCredentials` instead.',
+      )
+    }
+    const userCount = Object.keys(normalized.perUser).length
     if (userCount === 0) {
       throw new ValidationError(
-        'writeNoydbBundle: `autoPassphrases.perUser` must have at least one entry.',
+        'writeNoydbBundle: `autoCredentials.perUser` (or `autoPassphrases.perUser`) '
+        + 'must have at least one entry.',
       )
     }
     return 'unsealed'
   }
-  if (opts.sealedPassphrases !== undefined) {
-    if (opts.sealedPassphrases.mode !== 'self-target') {
-      throw new ValidationError(
-        `writeNoydbBundle: \`sealedPassphrases.mode\` must be 'self-target' in slice 1 `
-        + `(got '${opts.sealedPassphrases.mode as string}'). Recipient-target sealing via the `
-        + 'RecipientSealer interface is deferred per foundation §11.4.',
-      )
-    }
-    if (opts.sealedPassphrases.provider === undefined) {
-      throw new ValidationError(
-        'writeNoydbBundle: `sealedPassphrases.provider` is required (a `SealingKeyProvider`).',
-      )
-    }
-    const userCount = Object.keys(opts.sealedPassphrases.perUser).length
-    if (userCount === 0) {
-      throw new ValidationError(
-        'writeNoydbBundle: `sealedPassphrases.perUser` must have at least one entry.',
-      )
-    }
-    return 'sealed'
+
+  // Sealed path.
+  const mode = opts.sealedCredentials?.mode ?? opts.sealedPassphrases?.mode
+  if (mode !== 'self-target') {
+    throw new ValidationError(
+      `writeNoydbBundle: \`sealedCredentials.mode\` (or \`sealedPassphrases.mode\`) must be `
+      + `'self-target' in slice 1 (got '${String(mode)}'). Recipient-target sealing via the `
+      + 'RecipientSealer interface is deferred per foundation §11.4.',
+    )
   }
-  return null
+  if (normalized.provider === undefined) {
+    throw new ValidationError(
+      'writeNoydbBundle: `sealedCredentials.provider` (or `sealedPassphrases.provider`) '
+      + 'is required (a `SealingKeyProvider`).',
+    )
+  }
+  const userCount = Object.keys(normalized.perUser).length
+  if (userCount === 0) {
+    throw new ValidationError(
+      'writeNoydbBundle: `sealedCredentials.perUser` (or `sealedPassphrases.perUser`) '
+      + 'must have at least one entry.',
+    )
+  }
+  return 'sealed'
 }
 
 /**
