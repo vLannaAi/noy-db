@@ -222,10 +222,17 @@ Reference the issue for mechanics; this table is the wiring map.
   envelope) into a reusable internal. No-functional-change refactor; the full
   `createNoydb` suite must pass unchanged. Consumed by `createNoydb` today and
   `createOwnerOnAdoptedPartition` (#208) tomorrow. Shape in foundation §13.2.
-- **`walkClosure(vault, { seeds, followReferences, maxDepth })`** — fixed-point FK
-  traversal over plaintext records. Seen-set cycle break, `maxDepth` default 16,
-  returns `{ closure: Map<collection, Set<id>>, graph: { depth, cyclesDetected } }`.
-  FK descriptor shape parallels `withGuard`'s cross-collection invariants.
+- **`walkClosure(vault, { seeds, maxDepth })`** — fixed-point FK traversal over
+  plaintext records. **The FK graph is auto-derived from the existing
+  `RefRegistry`** (the `ref('target')` declarations already on collections) —
+  decided 2026-05-24, per foundation §13.4 ("compose with declared FKs rather than
+  requiring redundant declaration"). The caller supplies only `seeds`; no
+  hand-written `followReferences` array. Seen-set cycle break, `maxDepth` default
+  16, returns `{ closure: Map<collection, Set<id>>, graph: { depth, cyclesDetected } }`.
+  (The step issues #201/#202/#203 show an explicit `followReferences` parameter;
+  this design supersedes that with registry auto-derivation. An explicit-edge
+  override may be added later if undeclared/computed FKs need extracting, but it is
+  out of scope for slice 1.)
 
 ### 4.2 Sender side
 
