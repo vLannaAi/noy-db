@@ -232,7 +232,11 @@ Reference the issue for mechanics; this table is the wiring map.
   (The step issues #201/#202/#203 show an explicit `followReferences` parameter;
   this design supersedes that with registry auto-derivation. An explicit-edge
   override may be added later if undeclared/computed FKs need extracting, but it is
-  out of scope for slice 1.)
+  out of scope for slice 1.) `cyclesDetected` reflects revisits during the
+  **inbound scope-expansion** phase only; outbound FK-completion reaching an
+  already-selected parent is normal DAG convergence and is not flagged. A record
+  whose `id` is not a string fails loud with `PartitionExtractionError` rather than
+  being silently dropped (a dropped record would dangle an FK in the bundle).
 
 ### 4.2 Sender side
 

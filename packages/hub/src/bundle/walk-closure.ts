@@ -48,6 +48,21 @@ export async function walkClosure(
 ): Promise<ClosureResult> {
   const closure = new Map<string, Set<string>>()
 
+  // Records carry a string `id` by construction (Collection.put(id: string)).
+  // A non-string id during the walk means a malformed record — fail loud
+  // rather than silently dropping it from the closure (which would leave a
+  // dangling FK or a missing child in the extracted bundle).
+  const requireStringId = (collection: string, record: Record<string, unknown>): string => {
+    const id = record['id']
+    if (typeof id !== 'string') {
+      throw new PartitionExtractionError(
+        `walkClosure: record in collection "${collection}" has a non-string ` +
+          `id (${typeof id}); cannot include it in the partition closure.`,
+      )
+    }
+    return id
+  }
+
   const add = (collection: string, id: string): boolean => {
     let set = closure.get(collection)
     if (!set) {
@@ -65,8 +80,7 @@ export async function walkClosure(
     const records = await coll.list()
     for (const record of records) {
       if (await predicate(record)) {
-        const id = record['id']
-        if (typeof id === 'string') add(collectionName, id)
+        add(collectionName, requireStringId(collectionName, record))
       }
     }
   }
@@ -93,6 +107,10 @@ export async function walkClosure(
       // Which collections reference THIS collection, and via which field?
       for (const inbound of refRegistry.getInbound(collectionName)) {
         const childColl = vault.collection<Record<string, unknown>>(inbound.collection)
+        // TODO(perf): re-scans the full inbound collection on every frontier
+        // element. O(frontier · inboundCollections · records) per depth. Fine
+        // at consumer-firm scale (foundation §13.4); revisit with an index or
+        // pagination if extraction over very large vaults gets slow.
         const childRecords = await childColl.list()
         for (const child of childRecords) {
           const fk = child[inbound.field]
@@ -100,8 +118,7 @@ export async function walkClosure(
           // (mirrors checkIntegrity's scalar guard, vault.ts).
           if (typeof fk !== 'string' && typeof fk !== 'number') continue
           if (String(fk) !== id) continue
-          const childId = child['id']
-          if (typeof childId !== 'string') continue
+          const childId = requireStringId(inbound.collection, child)
           if (add(inbound.collection, childId)) {
             next.push([inbound.collection, childId])
           } else {

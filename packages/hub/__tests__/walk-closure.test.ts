@@ -179,6 +179,17 @@ describe('walkClosure', () => {
     expect(graph.cyclesDetected).toBe(true)
   })
 
+  it('throws PartitionExtractionError on a record with a non-string id', async () => {
+    const company = await db.openVault('demo-co')
+    const clients = company.collection<{ id: unknown; operatorUserId: string }>('clients')
+    // A record whose body `id` is numeric — malformed for closure purposes.
+    await clients.put('c-num', { id: 123, operatorUserId: 'belle' })
+
+    await expect(
+      walkClosure(company, { seeds: { clients: () => true } }),
+    ).rejects.toThrow(PartitionExtractionError)
+  })
+
   it('is exported from the @noy-db/hub/bundle subpath', async () => {
     const mod = await import('../src/bundle/index.js')
     expect(typeof mod.walkClosure).toBe('function')
