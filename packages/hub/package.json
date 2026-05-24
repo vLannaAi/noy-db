@@ -255,9 +255,7 @@
     "typecheck": "tsc --noEmit",
     "bundle-check": "node scripts/check-bundle.mjs"
   },
-  "dependencies": {
-    "@noy-db/on-shamir": "workspace:*"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@types/node": "^22.0.0",
     "esbuild": "^0.25.0",
