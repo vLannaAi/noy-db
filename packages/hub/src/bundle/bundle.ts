@@ -57,6 +57,30 @@ import { pickLocale } from '../meta/public-envelope/storage.js'
 import type { PublicEnvelope } from '../meta/public-envelope/types.js'
 import type { SealingKeyProvider } from '../team/managed-passphrase.js'
 
+// ─── #215 auto-credential types ───────────────────────────────────────────────
+
+/**
+ * The credential kinds that can be bundled for auto-unlock.
+ * WebAuthn is intentionally excluded — it is hardware-bound and
+ * cannot be embedded as a portable credential.
+ */
+export type AutoCredentialKind = 'passphrase' | 'password' | 'pin'
+
+/**
+ * A typed credential for auto-unlock. Carries the credential `kind`
+ * alongside the plaintext `value`, so consumers can dispatch the
+ * correct login/prefill path rather than treating all credentials
+ * as passphrases.
+ *
+ * `bundle.ts` is a pure format layer — it carries the credential
+ * without interpreting it. The consumer is responsible for
+ * dispatching on `kind`.
+ */
+export interface AutoCredential {
+  readonly kind: AutoCredentialKind
+  readonly value: string
+}
+
 /**
  * Options accepted by `writeNoydbBundle`.
  *
@@ -128,6 +152,53 @@ export interface WriteNoydbBundleOptions {
    */
   readonly recipients?: readonly BundleRecipient[]
   /**
+   * Auto-unlock — unsealed per-user credentials (#215).
+   *
+   * Generalises `autoPassphrases` to support any bundleable credential
+   * kind (`passphrase` | `password` | `pin`).
+   *
+   * Public-by-design: anyone holding the bundle bytes can read these
+   * plaintext credentials. Use for demo data, sample vaults,
+   * prospect onboarding.
+   *
+   * The `policy: 'public-by-design'` discriminant is mandatory. A
+   * bare `{ perUser }` without it is rejected at write time — the
+   * safety net against a careless call against a production vault.
+   *
+   * Mutually exclusive with `sealedCredentials`, `autoPassphrases`,
+   * and `sealedPassphrases`.
+   */
+  readonly autoCredentials?: {
+    readonly policy: 'public-by-design'
+    readonly perUser: Record<string, AutoCredential>
+  }
+  /**
+   * Auto-unlock — per-user credentials sealed under a
+   * {@link SealingKeyProvider} (#215).
+   *
+   * Generalises `sealedPassphrases` to support any bundleable
+   * credential kind (`passphrase` | `password` | `pin`).
+   *
+   * The hub seals each user's plaintext credential under `provider`
+   * and embeds the resulting sealed envelopes in the bundle. The
+   * recipient must hold a provider with a matching `pid` (i.e.,
+   * `provider.id`) to auto-unseal on import.
+   *
+   * `mode: 'self-target'` is the only supported mode — sender and
+   * recipient share the same provider identity (same iCloud Keychain
+   * entry, same MDM-provisioned bundle id, same KMS account, etc.).
+   *
+   * Mutually exclusive with `autoCredentials`, `autoPassphrases`,
+   * and `sealedPassphrases`.
+   */
+  readonly sealedCredentials?: {
+    readonly mode: 'self-target'
+    readonly provider: SealingKeyProvider
+    readonly perUser: Record<string, AutoCredential>
+  }
+  /**
+   * @deprecated Use `autoCredentials` instead (#215).
+   *
    * Auto-unlock — unsealed per-user passphrases (#197 slice 1).
    *
    * Public-by-design: anyone holding the bundle bytes can read these
@@ -138,13 +209,16 @@ export interface WriteNoydbBundleOptions {
    * bare `{ perUser }` without it is rejected at write time — the
    * safety net against a careless call against a production vault.
    *
-   * Mutually exclusive with `sealedPassphrases`.
+   * Mutually exclusive with `autoCredentials`, `sealedCredentials`,
+   * and `sealedPassphrases`.
    */
   readonly autoPassphrases?: {
     readonly policy: 'public-by-design'
     readonly perUser: Record<string, string>
   }
   /**
+   * @deprecated Use `sealedCredentials` instead (#215).
+   *
    * Auto-unlock — per-user passphrases sealed under a
    * {@link SealingKeyProvider} (#197 slice 1, self-target only).
    *
@@ -159,7 +233,8 @@ export interface WriteNoydbBundleOptions {
    * Recipient-target sealing via the `RecipientSealer` interface
    * (foundation §11.4) is deferred to a follow-up slice.
    *
-   * Mutually exclusive with `autoPassphrases`.
+   * Mutually exclusive with `autoCredentials`, `sealedCredentials`,
+   * and `autoPassphrases`.
    */
   readonly sealedPassphrases?: {
     readonly mode: 'self-target'

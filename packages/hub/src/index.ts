@@ -249,6 +249,8 @@ export type {
   WriteNoydbBundleOptions,
   ReadNoydbBundleOptions,
   NoydbBundleReadResult,
+  AutoCredentialKind,
+  AutoCredential,
 } from './bundle/bundle.js'
 export {
   NOYDB_BUNDLE_MAGIC,
