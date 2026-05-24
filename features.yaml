@@ -1744,6 +1744,64 @@ transports:
       - 'Falls back to a no-op channel when BroadcastChannel is undefined (Node, older browsers)'
     related: [by-peer, sync]
 
+# ─── Sealing-key providers (Workstream D) — at-* family ──────────────
+
+sealers:
+  - id: at-env
+    name: Env-var sealing-key provider
+    package: '@noy-db/at-env'
+    backend: env
+    status: stable
+    subsystem_doc: docs/packages/at-hosts.md
+    showcases: []
+    invariants:
+      - 'Seals the hub-generated passphrase under a key read from the host environment variable; the provider never sees plaintext DEKs'
+    related: [auth-landscape, session-tiers]
+
+  - id: at-macos-keychain
+    name: macOS Keychain sealing-key provider
+    package: '@noy-db/at-macos-keychain'
+    backend: macos-keychain
+    status: stable
+    subsystem_doc: docs/packages/at-hosts.md
+    showcases: []
+    invariants:
+      - 'Seals the hub-generated passphrase under a key stored in the macOS Keychain; the provider never sees plaintext DEKs'
+    related: [auth-landscape, session-tiers]
+
+  - id: at-aws-kms
+    name: AWS KMS sealing-key provider
+    package: '@noy-db/at-aws-kms'
+    backend: aws-kms
+    status: stable
+    subsystem_doc: docs/packages/at-hosts.md
+    showcases: []
+    invariants:
+      - 'Seals and unseals via AWS KMS Encrypt/Decrypt API; key material never leaves KMS; IAM policy is the sole access gate'
+    related: [auth-landscape, session-tiers]
+
+  - id: at-gcp-kms
+    name: Google Cloud KMS sealing-key provider
+    package: '@noy-db/at-gcp-kms'
+    backend: gcp-kms
+    status: stable
+    subsystem_doc: docs/packages/at-hosts.md
+    showcases: []
+    invariants:
+      - 'Seals and unseals via Google Cloud KMS encrypt/decrypt RPC; key material never leaves Cloud KMS; IAM binding is the sole access gate'
+    related: [auth-landscape, session-tiers]
+
+  - id: at-azure-keyvault
+    name: Azure Key Vault sealing-key provider (RSA-OAEP-256)
+    package: '@noy-db/at-azure-keyvault'
+    backend: azure-keyvault
+    status: stable
+    subsystem_doc: docs/packages/at-hosts.md
+    showcases: []
+    invariants:
+      - 'Seals and unseals via Azure Key Vault RSA-OAEP-256 wrap/unwrap; always pin a versioned key id — auto-rotation on a versionless key orphans previously-sealed vaults'
+    related: [auth-landscape, session-tiers]
+
 # ─── Topologies (phase 8) — named compositions ───────────────────────
 #
 # A topology bundles together features + adapters + frameworks + auths +
