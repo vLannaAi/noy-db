@@ -79,6 +79,7 @@ export {
 
 import type { RawShare } from './shamir.js'
 import { combineSecret, splitSecret } from './shamir.js'
+import { encodeShareBase32, decodeShareBase32 } from './share-format.js'
 
 // ── High-level KEK API ──────────────────────────────────────────────────
 
@@ -112,6 +113,21 @@ export async function splitKEK(kek: CryptoKey, options: SplitKEKOptions): Promis
   } finally {
     // Zero the secret buffer — best-effort, GC will also reclaim.
     secret.fill(0)
+  }
+}
+
+// ── ShamirRecoveryProvider ─────────────────────────────────────────────
+
+/** Structural match for hub's ShamirRecoveryProvider (no hub import — avoids the cycle). */
+export interface ShamirRecoveryProvider {
+  splitToShares(secret: Uint8Array, k: number, n: number): string[]
+  combineShares(shares: readonly string[]): Uint8Array
+}
+
+export function shamirRecoveryProvider(): ShamirRecoveryProvider {
+  return {
+    splitToShares: (secret, k, n) => splitSecret(secret, k, n).map(encodeShareBase32),
+    combineShares: (shares) => combineSecret(shares.map(decodeShareBase32)),
   }
 }
 

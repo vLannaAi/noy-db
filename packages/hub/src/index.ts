@@ -486,6 +486,7 @@ export type { WrappedDeksBlob } from './team/wrapped-deks.js'
 // (macOS Keychain, Windows Credential Manager, libsecret, AWS KMS)
 // ship as separate packages.
 export type { SealingKeyProvider, SealedPassphrase, SealedEnvelope } from './team/managed-passphrase.js'
+export type { ShamirRecoveryProvider } from './team/shamir-recovery-provider.js'
 export {
   MemorySealingKeyProvider,
   loadSealedPassphrase,
