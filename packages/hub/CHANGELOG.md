@@ -1,5 +1,44 @@
 # Changelog — hub
 
+## 0.1.0-pre.16
+
+The **sealing dimension foundation** + the **`at-*` sealing-key provider family debut**. Where every prior tier protected the vault with something the user *knows* or *has* (passphrase, WebAuthn, PIN), `at-*` providers seal it with a key drawn from the *environment* — an env var, an OS keychain — for unattended / managed-host scenarios. Shipped alongside managed-passphrase mode, the recovery-profile dispatch groundwork, and the persisted-schema introspection trio.
+
+This release also lands a build fix: `main` had been red since [#196](https://github.com/vLannaAi/noy-db/issues/196) — see "Build" below.
+
+### Sealing dimension + managed-passphrase mode ([#14](https://github.com/vLannaAi/noy-db/issues/14) slice 1, [#186](https://github.com/vLannaAi/noy-db/issues/186))
+
+- New `SealingKeyProvider` contract + sealed envelope. A provider supplies a sealing key from outside the user's head; the vault's wrap material is sealed under it for hands-off unlock.
+- `@noy-db/at-env` ([#187](https://github.com/vLannaAi/noy-db/issues/187)) and `@noy-db/at-macos-keychain` ([#191](https://github.com/vLannaAi/noy-db/issues/191)) are the first two providers — the `at-*` family debut. Cloud/OS providers (AWS/GCP/Azure KMS, wincred, libsecret, WebAuthn-PRF) are tracked under the [at-\* sealing key providers](https://github.com/vLannaAi/noy-db/milestone/9) milestone.
+- Managed-passphrase mode mandates **at least one strong recovery profile** and disables the rotate-passphrase gate ([#195](https://github.com/vLannaAi/noy-db/issues/195)); `recoverManagedPassphrase` added.
+
+### Recovery + rotation
+
+- `db.rotateRecovery()` — gated, deliberate paper-code regeneration ([#121](https://github.com/vLannaAi/noy-db/issues/121), [#185](https://github.com/vLannaAi/noy-db/issues/185)).
+- Shamir recovery-profile dispatch ([#196](https://github.com/vLannaAi/noy-db/issues/196) slice 1) — the recovery path can route to a `shamir` profile.
+
+### Bundles + derivations (slice 1s)
+
+- Sealed bundle delivery: `autoPassphrases` + `sealedPassphrases` on `writeNoydbBundle` ([#197](https://github.com/vLannaAi/noy-db/issues/197) slice 1).
+- Variable-N derivations — `shape: 'array'` ([#200](https://github.com/vLannaAi/noy-db/issues/200) slice 1).
+
+> **Public-API surface lock.** `autoPassphrases`, `sealedPassphrases`, `recoverManagedPassphrase`, `rotateRecovery`, and the `managedPassphrase` option are exported public API as of this release — future slices of #196/#197/#200/#14 must extend, not rename, them.
+
+### Schema introspection trio
+
+- Persisted JSON Schema — opt-in encrypted `_schemas/<col>` envelope ([#174](https://github.com/vLannaAi/noy-db/issues/174)).
+- `vault.dumpSchema()` introspection primitive ([#175](https://github.com/vLannaAi/noy-db/issues/175)).
+- `noydb describe` CLI — bundle → YAML/JSON audit ([#176](https://github.com/vLannaAi/noy-db/issues/176), in `@noy-db/cli`).
+
+### Fixes
+
+- `Collection._doDelete` now dispatches eager MV refresh ([#181](https://github.com/vLannaAi/noy-db/issues/181), [#183](https://github.com/vLannaAi/noy-db/issues/183)).
+- Ledger entries can be tagged `import:<format>` via `collection.put({ reason })` ([#1](https://github.com/vLannaAi/noy-db/issues/1), [#184](https://github.com/vLannaAi/noy-db/issues/184)).
+
+### Build
+
+- Removed `@noy-db/on-shamir`'s spurious `peer`+`dev` dependencies on `@noy-db/hub`. #196 made hub import on-shamir's secret-sharing engine at runtime; combined with on-shamir's (never-imported) hub deps, turbo saw a `hub ↔ on-shamir` build cycle and **`main` failed CI from #196 through #197**. on-shamir is a self-contained primitive *consumed by* hub, so its hub deps were dead metadata. Properly decoupling hub from the on-shamir package (via injected provider) is tracked in [#211](https://github.com/vLannaAi/noy-db/issues/211) (deferred).
+
 ## 0.1.0-pre.15
 
 A small fast-follow to pre.14's Dim 14 v2: extends `withMaterializedView` along two consumer-driven axes ([#165](https://github.com/vLannaAi/noy-db/issues/165) + [#166](https://github.com/vLannaAi/noy-db/issues/166)), folds in a pre.14 type-only cleanup ([#131](https://github.com/vLannaAi/noy-db/issues/131)), and resolves two niwat-review follow-ups ([#169](https://github.com/vLannaAi/noy-db/issues/169) + [#170](https://github.com/vLannaAi/noy-db/issues/170)). 5 issues closed, 1 PR merged ([#167](https://github.com/vLannaAi/noy-db/pull/167)), 28 new hub tests, 1601 hub tests on the tip.

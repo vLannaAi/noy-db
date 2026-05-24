@@ -476,11 +476,7 @@ importers:
         specifier: workspace:*
         version: link:../hub
 
-  packages/on-shamir:
-    devDependencies:
-      '@noy-db/hub':
-        specifier: workspace:*
-        version: link:../hub
+  packages/on-shamir: {}
 
   packages/on-threat:
     devDependencies:

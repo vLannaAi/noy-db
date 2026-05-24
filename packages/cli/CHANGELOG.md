@@ -1,5 +1,11 @@
 # @noy-db/cli
 
+## 0.1.0-pre.16
+
+### Minor Changes
+
+- `noydb describe` — read a `.noydb` bundle and emit a YAML/JSON audit of its structure ([#176](https://github.com/vLannaAi/noy-db/issues/176)).
+
 ## 0.1.0-pre.15
 
 ### Patch Changes

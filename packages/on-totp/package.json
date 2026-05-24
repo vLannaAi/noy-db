@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/on-totp",
-  "version": "0.1.0-pre.15",
+  "version": "0.1.0-pre.16",
   "description": "TOTP (RFC 6238) authenticator-app second factor for noy-db — generate secrets, otpauth:// provisioning URIs, and constant-time code verification. Zero dependencies (HMAC-SHA1 via Web Crypto). Part of the @noy-db/on-* authentication family.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",

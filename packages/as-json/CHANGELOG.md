@@ -1,5 +1,13 @@
 # @noy-db/as-json
 
+## 0.1.0-pre.16
+
+### Patch Changes
+
+- Imports now tag the ledger entry `import:json` via `collection.put({ reason })` ([#184](https://github.com/vLannaAi/noy-db/issues/184)).
+- Updated dependencies
+  - @noy-db/hub@0.1.0-pre.16
+
 ## 0.1.0-pre.15
 
 ### Patch Changes

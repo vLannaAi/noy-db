@@ -8,21 +8,32 @@
 - **Bundle-size CI gate.** Pin the floor + per-subsystem allowances in `bundle-manifest.json`; CI fails on any unexplained regression.
 - **Showcase + recipe coverage.** A runnable end-to-end test for every `with*()` strategy and every storage destination so adopters pick a backend by reading working code.
 - **`by-*` session-share family.** `@noy-db/by-peer` (WebRTC, renamed from `@noy-db/p2p`) and `@noy-db/by-tabs` (BroadcastChannel multi-tab sync) shipped together with the family debut. Next: `@noy-db/by-server` (WebSocket / SSE relay) and `@noy-db/by-room` (Liveblocks / Yjs y-websocket).
+- **`at-*` sealing-key provider family.** `@noy-db/at-env` (env var) and `@noy-db/at-macos-keychain` (OS Keychain) debuted the family in `v0.1.0-pre.16` — sealing keys drawn from the environment for unattended / managed-host unlock. Next: the cloud/OS providers under the [at-\* sealing key providers](https://github.com/vLannaAi/noy-db/milestone/9) milestone (AWS/GCP/Azure KMS, wincred, libsecret, WebAuthn-PRF).
 
 ## In flight
 
-No active release milestone. Next candidates (no firm sequencing):
+Active epics + next candidates (no firm sequencing):
 
+- **Sealing dimension — `at-*` providers + transferable bundles.** Foundation + managed-passphrase mode + the first two `at-*` providers shipped in `v0.1.0-pre.16`. In flight: more `at-*` providers ([milestone 9](https://github.com/vLannaAi/noy-db/milestone/9)), and the partition-extraction / owner-transfer ceremony ([Transferable bundles, milestone 10](https://github.com/vLannaAi/noy-db/milestone/10) — #198 steps, 12 issues). Several pre.16 features landed as "slice 1" with public API now locked (sealed-bundle, Shamir dispatch, variable-N derivations).
 - **Dim 11 cross-join v3** — draft spec on branch `docs/dim11-cross-join-v1-spec`; not yet opened as a PR. Cross-join terminal on `Query<T>`, lateral form, cost ceiling, MV `queryHash` folding for cross-joined deps. Pattern follows the v2 cycle: spec PR → niwat review → multi-PR implementation epic.
 
 ## Backlog (deferred, no release target)
 
 **Real-provider showcase batch (Apple/Google/LINE).** Originally scoped as `0.1.0-pre.13`; deferred 2026-05-20 because showcase coverage is a 1.0 gate (not a pre-release gate). Milestone renamed to [Backlog: Real-provider showcases (env-gated)](https://github.com/vLannaAi/noy-db/milestone/6). Six issues stay open at `priority: low` to close opportunistically when real-provider creds are in hand: [#64](https://github.com/vLannaAi/noy-db/issues/64), [#65](https://github.com/vLannaAi/noy-db/issues/65), [#73](https://github.com/vLannaAi/noy-db/issues/73), [#74](https://github.com/vLannaAi/noy-db/issues/74), [#75](https://github.com/vLannaAi/noy-db/issues/75), [#76](https://github.com/vLannaAi/noy-db/issues/76).
 
+**Decouple hub from `@noy-db/on-shamir` ([#211](https://github.com/vLannaAi/noy-db/issues/211)).** pre.16 broke the `hub ↔ on-shamir` build cycle by dropping on-shamir's dead hub deps, but hub still hard-depends on the on-shamir package (its secret-sharing engine is bundled into core). The proper fix — invert via an injected `ShamirRecoveryProvider` so hub holds no static import — is deferred; it properly delivers #196's "dispatch" intent and carries a breaking surface change (hub re-exports the share codecs today).
+
 ## Recently shipped (and what's deferred)
 
 The following capabilities are now in main:
 
+- **Sealing dimension foundation + `at-*` family debut (v0.1.0-pre.16).** The first sealing-key providers plus managed-passphrase mode and the schema-introspection trio.
+  - **`at-*` family debut** — `@noy-db/at-env` ([#187](https://github.com/vLannaAi/noy-db/issues/187)) + `@noy-db/at-macos-keychain` ([#191](https://github.com/vLannaAi/noy-db/issues/191)), built on a new `SealingKeyProvider` contract + sealed envelope ([#14](https://github.com/vLannaAi/noy-db/issues/14) / [#186](https://github.com/vLannaAi/noy-db/issues/186)).
+  - **Recovery** — `db.rotateRecovery()` ([#121](https://github.com/vLannaAi/noy-db/issues/121)), managed-mode mandatory strong-recovery + `recoverManagedPassphrase` ([#195](https://github.com/vLannaAi/noy-db/issues/195)), Shamir recovery-profile dispatch ([#196](https://github.com/vLannaAi/noy-db/issues/196) slice 1).
+  - **Slice-1s (public API now locked)** — sealed bundle delivery `autoPassphrases`/`sealedPassphrases` ([#197](https://github.com/vLannaAi/noy-db/issues/197)), variable-N derivations `shape: 'array'` ([#200](https://github.com/vLannaAi/noy-db/issues/200)).
+  - **Schema introspection** — persisted JSON Schema ([#174](https://github.com/vLannaAi/noy-db/issues/174)), `vault.dumpSchema()` ([#175](https://github.com/vLannaAi/noy-db/issues/175)), `noydb describe` CLI ([#176](https://github.com/vLannaAi/noy-db/issues/176)).
+  - **Fixes** — `Collection._doDelete` eager MV refresh ([#183](https://github.com/vLannaAi/noy-db/issues/183), closing the pre.15 known follow-up), `import:<format>` ledger tagging ([#184](https://github.com/vLannaAi/noy-db/issues/184)), and the `hub ↔ on-shamir` build cycle (decouple tracked in [#211](https://github.com/vLannaAi/noy-db/issues/211)).
+  - **Process note:** the cycle reddened `main` from #196 through #197 — four PRs merged on a failing build. Branch protection should require the build check to pass before merge.
 - **Dim 14 v2 follow-up — multi-key groupBy + UNION MV + guards variance (v0.1.0-pre.15).** Small fast-follow on pre.14 driven by the niwat refactor. 5 issues closed in 1 PR ([#167](https://github.com/vLannaAi/noy-db/pull/167)), 28 new hub tests, 1601 hub tests on the tip.
   - **Multi-key groupBy** ([#166](https://github.com/vLannaAi/noy-db/issues/166)) — variadic `Query.groupBy(...fields)`, declaration-order row shape, shared `GroupedQueryBase` abstract, `canonicalGroupKey` helper.
   - **UNION MV** ([#165](https://github.com/vLannaAi/noy-db/issues/165)) — `unionSources: [{ collection, map }, ...]` on `withMaterializedView`. Composes with multi-key groupBy for the niwat monthly-VAT shape. New `MaterializedViewConfigError`.
