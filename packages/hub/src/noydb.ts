@@ -55,6 +55,7 @@ import {
   type ShamirRecoveryEntry,
 } from './team/recovery.js'
 import { resolveManagedSecret, saveSealedPassphrase } from './team/managed-passphrase.js'
+import type { ShamirRecoveryProvider } from './team/shamir-recovery-provider.js'
 import { generateULID } from './bundle/ulid.js'
 import { RecoveryNotEnrolledError, RecoveryProfileNotImplementedError, ManagedRecoveryNotEnrolledError, PolicyDeniedError } from './policy/errors.js'
 import {
@@ -1093,6 +1094,17 @@ export class Noydb {
     return engine.status()
   }
 
+  private requireShamirProvider(): ShamirRecoveryProvider {
+    const p = this.options.shamirRecovery
+    if (!p) {
+      throw new Error(
+        "shamir recovery requires a ShamirRecoveryProvider — pass "
+        + "shamirRecovery: shamirRecoveryProvider() from '@noy-db/on-shamir' to createNoydb()",
+      )
+    }
+    return p
+  }
+
   private getSyncEngine(vault: string): SyncEngine {
     const engine = this.syncEngines.get(vault)
     if (!engine) {
@@ -1776,7 +1788,7 @@ export class Noydb {
     // under the auto-rotation logic from #36.
     const entriesBeforeRecovery = await loadPaperRecoveryEntries(this.options.store, vault)
 
-    const next = await keyringRecoverPassphrase(this.options.store, vault, userId, input)
+    const next = await keyringRecoverPassphrase(this.options.shamirRecovery, this.options.store, vault, userId, input)
     this.keyringCache.set(vault, next)
 
     const rotateRemaining = input.rotateRemainingCodes ?? true
@@ -1948,6 +1960,7 @@ export class Noydb {
 
     const keyring = await this.getKeyring(vault)
     const { entry, shareStrings } = await mintShamirRecoveryEntry(
+      this.requireShamirProvider(),
       keyring.deks,
       targetEntryId,
       options.k,
@@ -2118,6 +2131,7 @@ export class Noydb {
       // rewraps DEKs under the new KEK derived from the random bytes.
       const sealed = await provider.seal(randomBytes)
       await keyringRecoverPassphrase(
+        this.options.shamirRecovery,
         this.options.store,
         vault,
         this.options.user,
@@ -2258,6 +2272,7 @@ export class Noydb {
       const keyring = await this.getKeyring(vault)
       const entryId = enrollment.entryId ?? generateULID()
       const { entry, shareStrings } = await mintShamirRecoveryEntry(
+        this.requireShamirProvider(),
         keyring.deks,
         entryId,
         enrollment.k,

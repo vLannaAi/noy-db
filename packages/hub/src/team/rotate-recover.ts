@@ -437,7 +437,7 @@ export type RecoveryEnrollmentInput =
  * stored set).
  */
 export async function recoverPassphrase(
-  provider: ShamirRecoveryProvider,
+  provider: ShamirRecoveryProvider | undefined,
   store: NoydbStore,
   vault: string,
   userId: string,
@@ -583,7 +583,7 @@ function normalizePaperCode(input: string): string {
  *    explicit {@link Noydb.rotateRecovery} is the refresh ceremony.
  */
 async function recoverViaShamir(
-  provider: ShamirRecoveryProvider,
+  provider: ShamirRecoveryProvider | undefined,
   store: NoydbStore,
   vault: string,
   userId: string,
@@ -609,6 +609,13 @@ async function recoverViaShamir(
     throw new NoAccessError(
       `No Shamir-recovery entries enrolled for vault "${vault}". `
       + 'Enroll via `db.enrollRecovery({ profile: "shamir", k, n })` before relying on recovery.',
+    )
+  }
+
+  if (!provider) {
+    throw new Error(
+      "shamir recovery requires a ShamirRecoveryProvider — pass "
+      + "shamirRecovery: shamirRecoveryProvider() from '@noy-db/on-shamir' to createNoydb()",
     )
   }
 

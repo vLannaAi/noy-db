@@ -45,6 +45,7 @@ import type { PublicEnvelopeSchema } from './meta/public-envelope/types.js'
 import type { MaterializedViewStrategyHandle } from './materialized-views/types.js'
 import type { OverlayedViewStrategyHandle } from './overlay-views/types.js'
 import type { SealingKeyProvider } from './team/managed-passphrase.js'
+import type { ShamirRecoveryProvider } from './team/shamir-recovery-provider.js'
 
 /** Format version for encrypted record envelopes. */
 export const NOYDB_FORMAT_VERSION = 1 as const
@@ -1842,6 +1843,9 @@ export interface NoydbOptions {
    * `@noy-db/seal-libsecret`, `@noy-db/seal-aws-kms`, …).
    */
   readonly sealingKey?: SealingKeyProvider
+  /** Required to use `profile: 'shamir'` recovery. Pass
+   *  `shamirRecoveryProvider()` from `@noy-db/on-shamir`. */
+  readonly shamirRecovery?: ShamirRecoveryProvider
   /** Auth method. Default: 'passphrase'. */
   readonly auth?: 'passphrase' | 'biometric'
   /** Enable encryption. Default: true. */
