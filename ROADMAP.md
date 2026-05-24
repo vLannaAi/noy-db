@@ -14,7 +14,7 @@
 
 Active epics + next candidates (no firm sequencing):
 
-- **`0.2` line — `at-*` family graduation (in flight).** On the `0.2` branch toward `0.2.0-pre.1`: hub↔on-shamir decouple (#211, the breaking change earning the minor bump), the cloud-KMS trio (#188/#189/#190), generalized bundle auto-unlock (`autoCredentials`/`sealedCredentials`, #215), and `at-*` registered in `features.yaml` (#214) + the `at-hosts.md` catalog. Then promote `0.2.0` → `latest`.
+- **Promote `0.2.0` → `latest`.** `0.2.0-pre.1` ships to `@next`; once it bakes (esp. real-cloud `at-*` provider validation), promote the stable `0.2.0` to the default install channel.
 - **Sealing dimension — transferable bundles.** Still ahead: the partition-extraction / owner-transfer ceremony ([Transferable bundles, milestone 10](https://github.com/vLannaAi/noy-db/milestone/10) — #198 steps, 12 issues), and the remaining `at-*` OS/hardware providers ([milestone 9](https://github.com/vLannaAi/noy-db/milestone/9)). Pre.16 "slice 1" features (sealed-bundle, Shamir dispatch, variable-N derivations) have public API locked.
 - **Dim 11 cross-join v3** — draft spec on branch `docs/dim11-cross-join-v1-spec`; not yet opened as a PR. Cross-join terminal on `Query<T>`, lateral form, cost ceiling, MV `queryHash` folding for cross-joined deps. Pattern follows the v2 cycle: spec PR → niwat review → multi-PR implementation epic.
 
@@ -22,11 +22,15 @@ Active epics + next candidates (no firm sequencing):
 
 **Real-provider showcase batch (Apple/Google/LINE).** Originally scoped as `0.1.0-pre.13`; deferred 2026-05-20 because showcase coverage is a 1.0 gate (not a pre-release gate). Milestone renamed to [Backlog: Real-provider showcases (env-gated)](https://github.com/vLannaAi/noy-db/milestone/6). Six issues stay open at `priority: low` to close opportunistically when real-provider creds are in hand: [#64](https://github.com/vLannaAi/noy-db/issues/64), [#65](https://github.com/vLannaAi/noy-db/issues/65), [#73](https://github.com/vLannaAi/noy-db/issues/73), [#74](https://github.com/vLannaAi/noy-db/issues/74), [#75](https://github.com/vLannaAi/noy-db/issues/75), [#76](https://github.com/vLannaAi/noy-db/issues/76).
 
-**Decouple hub from `@noy-db/on-shamir` ([#211](https://github.com/vLannaAi/noy-db/issues/211)).** pre.16 broke the `hub ↔ on-shamir` build cycle by dropping on-shamir's dead hub deps, but hub still hard-depends on the on-shamir package (its secret-sharing engine is bundled into core). The proper fix — invert via an injected `ShamirRecoveryProvider` so hub holds no static import — is deferred; it properly delivers #196's "dispatch" intent and carries a breaking surface change (hub re-exports the share codecs today).
-
 ## Recently shipped (and what's deferred)
 
 The following capabilities are now in main:
+
+- **`at-*` family graduation (v0.2.0-pre.1).** The minor bump (`0.1 → 0.2`) is earned by the breaking decouple. Five issues + 3 new packages across five PRs (#216/#217/#218/#219/#220).
+  - **hub ↔ on-shamir decouple** ([#211](https://github.com/vLannaAi/noy-db/issues/211)) — **breaking:** hub no longer re-exports the Shamir codecs; Shamir recovery takes an injected `ShamirRecoveryProvider`. Resolves the layering inversion (hub no longer depends on the on-shamir package).
+  - **Cloud-KMS provider trio** — `@noy-db/at-aws-kms` ([#188](https://github.com/vLannaAi/noy-db/issues/188)), `@noy-db/at-gcp-kms` ([#189](https://github.com/vLannaAi/noy-db/issues/189)), `@noy-db/at-azure-keyvault` ([#190](https://github.com/vLannaAi/noy-db/issues/190)).
+  - **Generalized bundle auto-unlock** ([#215](https://github.com/vLannaAi/noy-db/issues/215)) — `autoCredentials`/`sealedCredentials` carry `{ kind, value }` (passphrase/password/pin); old options deprecated-but-working; back-compatible reads.
+  - **Catalog** — `at-*` registered in `features.yaml` (`sealers:` section) + `docs/packages/at-hosts.md` ([#214](https://github.com/vLannaAi/noy-db/issues/214)); README names the two trust boundaries.
 
 - **Sealing dimension foundation + `at-*` family debut (v0.1.0-pre.16).** The first sealing-key providers plus managed-passphrase mode and the schema-introspection trio.
   - **`at-*` family debut** — `@noy-db/at-env` ([#187](https://github.com/vLannaAi/noy-db/issues/187)) + `@noy-db/at-macos-keychain` ([#191](https://github.com/vLannaAi/noy-db/issues/191)), built on a new `SealingKeyProvider` contract + sealed envelope ([#14](https://github.com/vLannaAi/noy-db/issues/14) / [#186](https://github.com/vLannaAi/noy-db/issues/186)).

@@ -1,5 +1,28 @@
 # Changelog — hub
 
+## 0.2.0-pre.1
+
+The **`at-*` family graduation** line. Minor bump (`0.1 → 0.2`) because it carries a **breaking change** (#211). The `at-*` sealing-key family — debuted in pre.16 — is now first-class: a cloud-KMS provider trio ships, bundle auto-unlock generalizes beyond passphrases, hub is decoupled from the Shamir plugin, and the family is registered in the catalog.
+
+### ⚠️ Breaking — hub ↔ on-shamir decouple ([#211](https://github.com/vLannaAi/noy-db/issues/211))
+
+- `@noy-db/hub` **no longer re-exports** the Shamir share codecs (`encodeShareBase32` / `decodeShareBase32`) — import them from `@noy-db/on-shamir` instead.
+- Shamir recovery now requires an **injected provider**: `createNoydb({ shamirRecovery: shamirRecoveryProvider() })` (from `@noy-db/on-shamir`). Managed-passphrase mode mandates strong recovery, so managed-mode vaults now also need this provider.
+- hub holds no static import of on-shamir — the layering inversion + build-cycle risk are gone. See `MIGRATING.md`.
+
+### Bundle auto-unlock generalized ([#215](https://github.com/vLannaAi/noy-db/issues/215))
+
+- New `autoCredentials` / `sealedCredentials` on `writeNoydbBundle`, carrying `{ kind: 'passphrase' | 'password' | 'pin', value }` — a delivered bundle one-click-unlocks whatever tier the user enrolled.
+- `autoPassphrases` / `sealedPassphrases` remain as **deprecated sugar** (`kind: 'passphrase'`). On read, `autoUnlock.perUser[user]` is now `{ kind, value }`; dispatch login by `kind` (PIN is a prefill, not an enrollment). WebAuthn is rejected (hardware-bound). Pre-0.2 bundles read back unchanged.
+
+### `at-*` cloud-KMS provider trio (new packages)
+
+- `@noy-db/at-aws-kms` ([#188](https://github.com/vLannaAi/noy-db/issues/188)), `@noy-db/at-gcp-kms` ([#189](https://github.com/vLannaAi/noy-db/issues/189)), `@noy-db/at-azure-keyvault` ([#190](https://github.com/vLannaAi/noy-db/issues/190)) — `SealingKeyProvider`s backed by cloud KMS encrypt/decrypt. Ambient credentials only.
+
+### Catalog
+
+- `at-*` registered in `features.yaml` (new `sealers:` section) + `docs/packages/at-hosts.md` ([#214](https://github.com/vLannaAi/noy-db/issues/214)). The README now names the **two trust boundaries**: zero-knowledge (`to-*`/`by-*`) vs trusted-compute (`at-*`, which *can* decrypt the scoped slice it unseals).
+
 ## 0.1.0-pre.16
 
 The **sealing dimension foundation** + the **`at-*` sealing-key provider family debut**. Where every prior tier protected the vault with something the user *knows* or *has* (passphrase, WebAuthn, PIN), `at-*` providers seal it with a key drawn from the *environment* — an env var, an OS keychain — for unattended / managed-host scenarios. Shipped alongside managed-passphrase mode, the recovery-profile dispatch groundwork, and the persisted-schema introspection trio.
