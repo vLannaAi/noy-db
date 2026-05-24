@@ -257,6 +257,7 @@
   },
   "dependencies": {},
   "devDependencies": {
+    "@noy-db/on-shamir": "workspace:*",
     "@types/node": "^22.0.0",
     "esbuild": "^0.25.0",
     "zod": "^3.23.0",

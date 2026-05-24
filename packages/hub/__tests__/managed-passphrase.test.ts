@@ -23,6 +23,7 @@ import {
   SEALED_PASSPHRASE_RECORD_ID,
   type SealingKeyProvider,
 } from '../src/team/managed-passphrase.js'
+import { shamirRecoveryProvider } from '@noy-db/on-shamir'
 
 function inlineMemory(): NoydbStore {
   const data = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -142,6 +143,7 @@ describe('createNoydb({ passphraseMode: "managed" }) — slice 1', () => {
       store, user: 'alice',
       passphraseMode: 'managed',
       sealingKey: provider,
+      shamirRecovery: shamirRecoveryProvider(),
     })
     await db.openVaultAndEnrollRecovery('acme', {
       recovery: [{ profile: 'shamir', k: 2, n: 3 }],
@@ -158,6 +160,7 @@ describe('createNoydb({ passphraseMode: "managed" }) — slice 1', () => {
       store, user: 'alice',
       passphraseMode: 'managed',
       sealingKey: provider,
+      shamirRecovery: shamirRecoveryProvider(),
     })
     await db1.openVaultAndEnrollRecovery('acme', {
       recovery: [{ profile: 'shamir', k: 2, n: 3 }],
@@ -182,6 +185,7 @@ describe('createNoydb({ passphraseMode: "managed" }) — slice 1', () => {
       store, user: 'alice',
       passphraseMode: 'managed',
       sealingKey: provider,
+      shamirRecovery: shamirRecoveryProvider(),
     })
     const { vault } = await db.openVaultAndEnrollRecovery('acme', {
       recovery: [{ profile: 'shamir', k: 2, n: 3 }],
@@ -206,6 +210,7 @@ describe('createNoydb({ passphraseMode: "managed" }) — slice 1', () => {
       store, user: 'alice',
       passphraseMode: 'managed',
       sealingKey: provider,
+      shamirRecovery: shamirRecoveryProvider(),
     })
     await db.openVaultAndEnrollRecovery('acme', {
       recovery: [{ profile: 'shamir', k: 2, n: 3 }],
@@ -224,6 +229,7 @@ describe('createNoydb({ passphraseMode: "managed" }) — slice 1', () => {
       store, user: 'alice',
       passphraseMode: 'managed',
       sealingKey: provider,
+      shamirRecovery: shamirRecoveryProvider(),
     })
     await db.openVaultAndEnrollRecovery('acme', {
       recovery: [{ profile: 'shamir', k: 2, n: 3 }],

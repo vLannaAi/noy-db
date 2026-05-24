@@ -26,6 +26,7 @@ import {
 } from '../src/index.js'
 import { ConflictError, ValidationError } from '../src/errors.js'
 import { ManagedRecoveryNotEnrolledError } from '../src/policy/errors.js'
+import { shamirRecoveryProvider } from '@noy-db/on-shamir'
 
 function inlineMemory(): NoydbStore {
   const data = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -103,6 +104,7 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
         user: ALICE,
         passphraseMode: 'managed',
         sealingKey: freshProvider('test-3'),
+        shamirRecovery: shamirRecoveryProvider(),
       })
 
       const result = await db.openVaultAndEnrollRecovery('acme', {
@@ -122,6 +124,7 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
       const db1 = await createNoydb({
         store, user: ALICE,
         passphraseMode: 'managed', sealingKey: provider,
+        shamirRecovery: shamirRecoveryProvider(),
       })
       await db1.openVaultAndEnrollRecovery('acme', {
         recovery: [{ profile: 'shamir', k: 2, n: 3 }],
@@ -168,6 +171,7 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
         user: ALICE,
         passphraseMode: 'managed',
         sealingKey: freshProvider('test-7'),
+        shamirRecovery: shamirRecoveryProvider(),
       })
       // Empty paper entries array — the paper profile is allowed
       // alongside shamir; the shamir profile is the one carrying the
@@ -187,6 +191,7 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
         user: ALICE,
         passphraseMode: 'managed',
         sealingKey: freshProvider('test-8'),
+        shamirRecovery: shamirRecoveryProvider(),
       })
       // First openVault throws (no strong recovery).
       await expect(db.openVault('acme')).rejects.toBeInstanceOf(ManagedRecoveryNotEnrolledError)
@@ -220,6 +225,7 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
       const db = await createNoydb({
         store, user: ALICE,
         passphraseMode: 'managed', sealingKey: provider,
+        shamirRecovery: shamirRecoveryProvider(),
       })
       const enroll = await db.openVaultAndEnrollRecovery('acme', {
         recovery: [{ profile: 'shamir', k: 2, n: 3 }],
@@ -262,6 +268,7 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
       const db = await createNoydb({
         store, user: ALICE,
         passphraseMode: 'managed', sealingKey: provider,
+        shamirRecovery: shamirRecoveryProvider(),
       })
       const enroll = await db.openVaultAndEnrollRecovery('acme', {
         recovery: [{ profile: 'shamir', k: 2, n: 3 }],
@@ -273,6 +280,7 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
       const db2 = await createNoydb({
         store, user: ALICE,
         passphraseMode: 'managed', sealingKey: provider,
+        shamirRecovery: shamirRecoveryProvider(),
       })
       await db2.recoverManagedPassphrase('acme', {
         recoveryProof: {
@@ -298,6 +306,7 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
       const db = await createNoydb({
         store, user: ALICE,
         passphraseMode: 'managed', sealingKey: provider,
+        shamirRecovery: shamirRecoveryProvider(),
       })
       const enroll = await db.openVaultAndEnrollRecovery('acme', {
         recovery: [{ profile: 'shamir', k: 2, n: 3 }],
