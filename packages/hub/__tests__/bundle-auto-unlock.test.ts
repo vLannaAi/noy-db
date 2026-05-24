@@ -83,8 +83,8 @@ describe('#197 — autoPassphrases (unsealed, public-by-design)', () => {
     expect(result.autoUnlock).toBeDefined()
     expect(result.autoUnlock!.kind).toBe('unsealed')
     expect(result.autoUnlock!.perUser).toEqual({
-      'demo-customer': 'demo-pass-1',
-      'demo-prospect': 'demo-pass-2',
+      'demo-customer': { kind: 'passphrase', value: 'demo-pass-1' },
+      'demo-prospect': { kind: 'passphrase', value: 'demo-pass-2' },
     })
   })
 
@@ -162,7 +162,7 @@ describe('#197 — sealedPassphrases (self-target)', () => {
     expect(result.autoUnlock).toBeDefined()
     expect(result.autoUnlock!.kind).toBe('sealed')
     expect(result.autoUnlock!.perUser).toEqual({
-      alice: 'alice-passphrase-here',
+      alice: { kind: 'passphrase', value: 'alice-passphrase-here' },
     })
   })
 
@@ -181,9 +181,9 @@ describe('#197 — sealedPassphrases (self-target)', () => {
     const result = await readNoydbBundle(bytes)
     expect(result.autoUnlock).toBeDefined()
     expect(result.autoUnlock!.kind).toBe('sealed')
-    // perUser values are base64 sealed bytes — opaque, not the plaintext.
-    expect(result.autoUnlock!.perUser['alice']).not.toBe('a-pass')
-    expect(result.autoUnlock!.perUser['alice'].length).toBeGreaterThan(0)
+    // perUser values are AutoCredential — value is opaque base64 sealed bytes, not the plaintext.
+    expect(result.autoUnlock!.perUser['alice']!.value).not.toBe('a-pass')
+    expect(result.autoUnlock!.perUser['alice']!.value.length).toBeGreaterThan(0)
   })
 
   it('throws BundleSealMismatchError when no provider matches pid (strict)', async () => {
