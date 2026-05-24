@@ -1228,6 +1228,18 @@ export class BackupCorruptedError extends NoydbError {
   }
 }
 
+/**
+ * Thrown by partition-extraction primitives (#198 epic) when the
+ * transitive-closure walk fails — e.g. the FK graph is deeper than
+ * `maxDepth`, signalling a runaway or unexpectedly cyclic graph.
+ */
+export class PartitionExtractionError extends NoydbError {
+  constructor(message: string) {
+    super('PARTITION_EXTRACTION', message)
+    this.name = 'PartitionExtractionError'
+  }
+}
+
 // ─── Session Errors ───────────────────────────────────────
 
 /**

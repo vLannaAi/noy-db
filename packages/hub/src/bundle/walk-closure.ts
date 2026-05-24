@@ -19,6 +19,7 @@
  * @module
  */
 import type { Vault } from '../vault.js'
+import { PartitionExtractionError } from '../errors.js'
 
 /** Seed predicate per collection. Records that return true become roots. */
 export interface WalkClosureOptions {
@@ -70,5 +71,43 @@ export async function walkClosure(
     }
   }
 
-  return { closure, graph: { depth: 0, cyclesDetected: false } }
+  const { refRegistry } = vault._introspectState()
+  const maxDepth = opts.maxDepth ?? 16
+  let depth = 0
+  let cyclesDetected = false
+
+  // Phase 1 — INBOUND expansion. Worklist of newly-added (collection,id)
+  // whose children we still need to pull.
+  let frontier: Array<[string, string]> = []
+  for (const [c, ids] of closure) for (const id of ids) frontier.push([c, id])
+
+  while (frontier.length > 0) {
+    if (++depth > maxDepth) {
+      throw new PartitionExtractionError(
+        `walkClosure exceeded maxDepth=${maxDepth}; the FK graph may be ` +
+          `unexpectedly deep or cyclic. Raise maxDepth or narrow the seeds.`,
+      )
+    }
+    const next: Array<[string, string]> = []
+    for (const [collectionName, id] of frontier) {
+      // Which collections reference THIS collection, and via which field?
+      for (const inbound of refRegistry.getInbound(collectionName)) {
+        const childColl = vault.collection<Record<string, unknown>>(inbound.collection)
+        const childRecords = await childColl.list()
+        for (const child of childRecords) {
+          if (String(child[inbound.field] ?? '') !== id) continue
+          const childId = child['id']
+          if (typeof childId !== 'string') continue
+          if (add(inbound.collection, childId)) {
+            next.push([inbound.collection, childId])
+          } else {
+            cyclesDetected = true
+          }
+        }
+      }
+    }
+    frontier = next
+  }
+
+  return { closure, graph: { depth, cyclesDetected } }
 }

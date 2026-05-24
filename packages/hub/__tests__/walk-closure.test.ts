@@ -14,7 +14,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
 import type { Noydb } from '../src/noydb.js'
 import { ref } from '../src/refs.js'
-import { ConflictError } from '../src/errors.js'
+import { ConflictError, PartitionExtractionError } from '../src/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { walkClosure } from '../src/bundle/walk-closure.js'
 
@@ -94,5 +94,44 @@ describe('walkClosure', () => {
     expect(result.closure.size).toBe(0)
     expect(result.graph.depth).toBe(0)
     expect(result.graph.cyclesDetected).toBe(false)
+  })
+
+  it('expands inbound: a seeded client pulls its bills, transitively', async () => {
+    const company = await db.openVault('demo-co')
+    const clients = company.collection<Client>('clients')
+    const bills = company.collection<Bill>('bills', { refs: { clientId: ref('clients') } })
+    const creditNotes = company.collection<{ id: string; billId: string }>(
+      'creditNotes', { refs: { billId: ref('bills') } },
+    )
+
+    await clients.put('c-belle', { id: 'c-belle', name: 'Hotel A', operatorUserId: 'belle' })
+    await clients.put('c-ann', { id: 'c-ann', name: 'Shop B', operatorUserId: 'ann' })
+    await bills.put('b-1', { id: 'b-1', clientId: 'c-belle', amount: 100 })
+    await bills.put('b-2', { id: 'b-2', clientId: 'c-ann', amount: 50 })
+    await creditNotes.put('cn-1', { id: 'cn-1', billId: 'b-1' })
+
+    const { closure } = await walkClosure(company, {
+      seeds: { clients: (c) => c['operatorUserId'] === 'belle' },
+    })
+
+    expect([...(closure.get('clients') ?? [])]).toEqual(['c-belle'])
+    expect([...(closure.get('bills') ?? [])]).toEqual(['b-1'])       // not b-2 (ann's)
+    expect([...(closure.get('creditNotes') ?? [])]).toEqual(['cn-1']) // transitive child
+  })
+
+  it('throws PartitionExtractionError when maxDepth is exceeded', async () => {
+    const company = await db.openVault('demo-co')
+    const nodes = company.collection<{ id: string; parentId: string | null }>(
+      'nodes', { refs: { parentId: ref('nodes', 'warn') } },
+    )
+    // A 5-deep chain: n0 <- n1 <- n2 <- n3 <- n4 (each parentId points up)
+    await nodes.put('n0', { id: 'n0', parentId: null })
+    for (let i = 1; i <= 4; i++) {
+      await nodes.put(`n${i}`, { id: `n${i}`, parentId: `n${i - 1}` })
+    }
+
+    await expect(
+      walkClosure(company, { seeds: { nodes: (n) => n['id'] === 'n0' }, maxDepth: 2 }),
+    ).rejects.toThrow(PartitionExtractionError)
   })
 })
