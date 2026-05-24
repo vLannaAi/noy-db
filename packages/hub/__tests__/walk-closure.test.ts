@@ -134,4 +134,27 @@ describe('walkClosure', () => {
       walkClosure(company, { seeds: { nodes: (n) => n['id'] === 'n0' }, maxDepth: 2 }),
     ).rejects.toThrow(PartitionExtractionError)
   })
+
+  it('completes outbound parents without re-expanding their other children', async () => {
+    const company = await db.openVault('demo-co')
+    const entities = company.collection<{ id: string; name: string }>('entities')
+    const clients = company.collection<Client & { entityId: string }>(
+      'clients', { refs: { entityId: ref('entities') } },
+    )
+    const bills = company.collection<Bill>('bills', { refs: { clientId: ref('clients') } })
+
+    await entities.put('e-1', { id: 'e-1', name: 'Group' })
+    // Two clients share entity e-1; only c-belle is seeded.
+    await clients.put('c-belle', { id: 'c-belle', name: 'Hotel', operatorUserId: 'belle', entityId: 'e-1' })
+    await clients.put('c-ann',   { id: 'c-ann',   name: 'Shop',  operatorUserId: 'ann',   entityId: 'e-1' })
+    await bills.put('b-1', { id: 'b-1', clientId: 'c-belle', amount: 100 })
+
+    const { closure } = await walkClosure(company, {
+      seeds: { clients: (c) => c['operatorUserId'] === 'belle' },
+    })
+
+    expect([...(closure.get('entities') ?? [])]).toEqual(['e-1'])   // parent pulled (FK validity)
+    expect([...(closure.get('clients') ?? [])].sort()).toEqual(['c-belle']) // NOT c-ann
+    expect([...(closure.get('bills') ?? [])]).toEqual(['b-1'])
+  })
 })

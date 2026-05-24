@@ -109,5 +109,39 @@ export async function walkClosure(
     frontier = next
   }
 
+  // Phase 2 — OUTBOUND completion. Pull referenced parents so no FK
+  // dangles. Transitive over outbound edges only; parents are NOT
+  // inbound-expanded (that would drag in unrelated siblings).
+  let outboundFrontier: Array<[string, string]> = []
+  for (const [c, ids] of closure) for (const id of ids) outboundFrontier.push([c, id])
+
+  while (outboundFrontier.length > 0) {
+    if (++depth > maxDepth) {
+      throw new PartitionExtractionError(
+        `walkClosure exceeded maxDepth=${maxDepth} during outbound completion.`,
+      )
+    }
+    const next: Array<[string, string]> = []
+    for (const [collectionName, id] of outboundFrontier) {
+      const outbound = refRegistry.getOutbound(collectionName)
+      if (Object.keys(outbound).length === 0) continue
+      const coll = vault.collection<Record<string, unknown>>(collectionName)
+      const record = await coll.get(id)
+      if (!record) continue
+      for (const [field, descriptor] of Object.entries(outbound)) {
+        const rawId = record[field]
+        if (rawId === null || rawId === undefined) continue
+        const parentId = String(rawId)
+        // Reaching an already-selected parent here is normal DAG
+        // convergence (a child referencing its in-scope parent), not a
+        // cycle — so do NOT flag cyclesDetected in the outbound phase.
+        if (add(descriptor.target, parentId)) {
+          next.push([descriptor.target, parentId])
+        }
+      }
+    }
+    outboundFrontier = next
+  }
+
   return { closure, graph: { depth, cyclesDetected } }
 }
