@@ -1,5 +1,12 @@
 # @noy-db/to-webdav
 
+## 0.1.0-pre.16
+
+### Patch Changes
+
+- Updated dependencies
+  - @noy-db/hub@0.1.0-pre.16
+
 ## 0.1.0-pre.15
 
 ### Patch Changes

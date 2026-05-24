@@ -1,5 +1,16 @@
 # @noy-db/showcases
 
+## 0.1.0-pre.16
+
+### Minor Changes
+
+- New showcase `87-noydb-describe.showcase.test.ts` — `noydb describe` bundle audit walkthrough ([#176](https://github.com/vLannaAi/noy-db/issues/176)).
+
+### Patch Changes
+
+- Updated dependencies
+  - @noy-db/hub@0.1.0-pre.16
+
 ## 0.1.0-pre.15
 
 ### Minor Changes

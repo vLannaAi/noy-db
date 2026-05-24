@@ -1,5 +1,17 @@
 # @noy-db/as-xlsx
 
+## 0.1.0-pre.16
+
+### Minor Changes
+
+- Expose column `widths` on `AsXlsxSheetOptions` ([#182](https://github.com/vLannaAi/noy-db/issues/182)).
+
+### Patch Changes
+
+- Imports now tag the ledger entry `import:xlsx` via `collection.put({ reason })` ([#184](https://github.com/vLannaAi/noy-db/issues/184)).
+- Updated dependencies
+  - @noy-db/hub@0.1.0-pre.16
+
 ## 0.1.0-pre.15
 
 ### Patch Changes

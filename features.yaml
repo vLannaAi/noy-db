@@ -246,9 +246,9 @@ features:
     playground_pages: []
     diagrams: []
     invariants:
-      - 'Three functions never conflated: authenticator (on-*), identity provider (on-oidc bridge), sealing-key store (seal-*)'
+      - 'Three functions never conflated: authenticator (on-*), identity provider (on-oidc bridge), sealing-key store (at-*)'
       - 'Vendor-flavored OIDC providers route through on-oidc with different issuers — no per-vendor on-* packages'
-      - 'OS keychains (DPAPI, Keychain, Keystore, libsecret) are sealing-key stores, not authenticators — they belong in the planned seal-* family'
+      - 'OS keychains (DPAPI, Keychain, Keystore, libsecret) are sealing-key stores, not authenticators — they belong in the at-* sealing-key provider family (debuted with at-env + at-macos-keychain)'
       - 'SMS / security questions / pattern lock deliberately omitted — unfit for vault auth (NIST SP 800-63B SMS deprecation, low entropy, social-engineerable)'
     related: [session-tiers, on-passphrase, on-webauthn, on-oidc, on-pin, on-totp, on-email-otp, on-recovery, on-shamir, on-magic-link, on-threat]
 

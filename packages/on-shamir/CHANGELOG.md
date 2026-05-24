@@ -1,5 +1,11 @@
 # @noy-db/on-shamir
 
+## 0.1.0-pre.16
+
+### Patch Changes
+
+- Removed the spurious `peer`+`dev` dependencies on `@noy-db/hub`. on-shamir is a self-contained primitive consumed by hub and never imported hub; the dead deps formed a `hub ↔ on-shamir` build cycle (see hub#211).
+
 ## 0.1.0-pre.15
 
 ### Patch Changes
