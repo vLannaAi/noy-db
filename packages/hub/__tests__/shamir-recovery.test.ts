@@ -15,6 +15,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope } from '../src/types.js'
 import { createNoydb, type Noydb } from '../src/index.js'
 import { ConflictError } from '../src/errors.js'
+import { shamirRecoveryProvider } from '@noy-db/on-shamir'
 
 function inlineMemory(): NoydbStore {
   const data = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -46,6 +47,7 @@ async function freshDb(): Promise<Noydb> {
     store: inlineMemory(),
     user: 'alice',
     secret: STRONG_OLD,
+    shamirRecovery: shamirRecoveryProvider(),
   })
   await db.openVault('acme')
   return db
@@ -213,7 +215,7 @@ describe('Shamir recovery — recoverPassphrase round-trip', () => {
     })
     // The Shamir entry is preserved (unlike paper-burn). Re-open
     // under the new passphrase, then the same shares can recover again.
-    const db2 = await createNoydb({ store: (db as any).options.store, user: 'alice', secret: STRONG_NEW })
+    const db2 = await createNoydb({ store: (db as any).options.store, user: 'alice', secret: STRONG_NEW, shamirRecovery: shamirRecoveryProvider() })
     await db2.openVault('acme')
     await db2.recoverPassphrase('acme', {
       newPassphrase: STRONG_NEW_2,
@@ -294,6 +296,36 @@ describe('Shamir recovery — multiple coexisting entries', () => {
       }),
     ).rejects.toThrow(/no.*entry|entryId|not.*found/i)
   })
+
+  it('rejects a mixed-bag of shares from two different entries (per-entry contract, #211)', async () => {
+    // Enroll two separate Shamir entries, each 2-of-3.
+    const a = await db.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3, entryId: 'board' })
+    const b = await db.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3, entryId: 'spouse' })
+
+    // Mixed bag: one share from entry A + one share from entry B, no entryId.
+    // AES-GCM auth-tag will reject for every candidate entry — fails closed.
+    await expect(
+      db.recoverPassphrase('acme', {
+        newPassphrase: STRONG_NEW,
+        recoveryProof: {
+          profile: 'shamir',
+          payload: { shares: [a.shares![0]!, b.shares![0]!] },
+        },
+      }),
+    ).rejects.toThrow()
+
+    // Supplying a same-entry pair for entry A (no entryId) DOES recover —
+    // the contract is "group shares per entry," not "shamir is broken."
+    await db.recoverPassphrase('acme', {
+      newPassphrase: STRONG_NEW,
+      recoveryProof: {
+        profile: 'shamir',
+        payload: { shares: [a.shares![0]!, a.shares![1]!] },
+      },
+    })
+    const db2 = await createNoydb({ store: storeRef, user: 'alice', secret: STRONG_NEW, shamirRecovery: shamirRecoveryProvider() })
+    expect((await db2.getKeyring('acme')).userId).toBe('alice')
+  })
 })
 
 describe('Shamir recovery — rotateRecovery', () => {
@@ -359,5 +391,20 @@ describe('Shamir recovery — error reporting at error class level', () => {
     await expect(
       db.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3 }),
     ).resolves.toBeDefined()
+  })
+})
+
+describe('Shamir recovery — no-provider guard', () => {
+  it('shamir enroll throws a clear error when no provider is configured', async () => {
+    const db = await createNoydb({
+      store: inlineMemory(),
+      user: 'alice',
+      secret: STRONG_OLD,
+      // intentionally NO shamirRecovery
+    })
+    await db.openVault('acme')
+    await expect(
+      db.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3 }),
+    ).rejects.toThrow(/requires a ShamirRecoveryProvider/)
   })
 })

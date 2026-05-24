@@ -29,12 +29,7 @@ import {
   unwrapDeksFromBlob,
   type WrappedDeksBlob,
 } from './wrapped-deks.js'
-import {
-  splitSecret,
-  combineSecret,
-  encodeShareBase32,
-  type RawShare,
-} from '@noy-db/on-shamir'
+import type { ShamirRecoveryProvider } from './shamir-recovery-provider.js'
 
 /**
  * One paper recovery code as persisted in `_meta/recovery-paper`.
@@ -178,8 +173,10 @@ export interface ShamirRecoveryEntry extends WrappedDeksBlob {
   readonly k: number
   /** Total shares minted at enrollment. */
   readonly n: number
-  /** x-coordinates of the n minted shares (audit metadata; not used at unlock). */
-  readonly xCoords: ReadonlyArray<number>
+  /** x-coordinates of the n minted shares. Informational. Omitted as of 0.2
+   *  (string-level provider doesn't expose share x-coords); kept optional so
+   *  pre-0.2 entries still read. */
+  readonly xCoords?: ReadonlyArray<number>
   /** ISO timestamp. */
   readonly enrolledAt: string
   /** Optional caller-supplied label (e.g., "2-of-3 board escrow"). */
@@ -257,37 +254,25 @@ export async function saveShamirRecoveryEntries(
  * @param label - Optional caller label.
  */
 export async function mintShamirRecoveryEntry(
+  provider: ShamirRecoveryProvider,
   deks: Map<string, CryptoKey>,
   entryId: string,
   k: number,
   n: number,
   label?: string,
 ): Promise<{ entry: ShamirRecoveryEntry; shareStrings: string[] }> {
-  // 1. Fresh 32-byte recovery secret.
   const recoverySecret = crypto.getRandomValues(new Uint8Array(32))
   try {
-    // 2. Wrap DEKs under base64-encoded secret as the credential.
     const credential = bytesToBase64(recoverySecret)
     const blob = await mintWrappedDeksBlob(deks, credential)
-
-    // 3. Shamir-split.
-    const shares = splitSecret(recoverySecret, k, n)
-    const shareStrings = shares.map(encodeShareBase32)
-    const xCoords = shares.map(s => s.x)
-
+    const shareStrings = provider.splitToShares(recoverySecret, k, n)
     const entry: ShamirRecoveryEntry = {
-      ...blob,
-      entryId,
-      k,
-      n,
-      xCoords,
+      ...blob, entryId, k, n,
       enrolledAt: new Date().toISOString(),
       ...(label !== undefined && { label }),
     }
-
     return { entry, shareStrings }
   } finally {
-    // 4. Best-effort zero of the in-memory secret. GC will reclaim either way.
     recoverySecret.fill(0)
   }
 }
@@ -304,27 +289,23 @@ export async function mintShamirRecoveryEntry(
  * with. Callers iterating multiple entries should catch.
  */
 export async function unwrapDeksFromShamirEntry(
+  provider: ShamirRecoveryProvider,
   entry: ShamirRecoveryEntry,
-  shares: readonly RawShare[],
+  shareStrings: readonly string[],
 ): Promise<Map<string, CryptoKey>> {
-  if (shares.length < entry.k) {
+  if (shareStrings.length < entry.k) {
     throw new Error(
       `Insufficient shares: this Shamir entry needs ${entry.k} of ${entry.n}, `
-      + `but ${shares.length} were provided.`,
+      + `but ${shareStrings.length} were provided.`,
     )
   }
-  const secret = combineSecret(shares)
+  const secret = provider.combineShares(shareStrings)
   try {
-    const credential = bytesToBase64(secret)
-    return await unwrapDeksFromBlob(entry, credential)
+    return await unwrapDeksFromBlob(entry, bytesToBase64(secret))
   } finally {
     secret.fill(0)
   }
 }
-
-// Re-export the on-shamir share-string codecs so consumers don't
-// need a direct on-shamir import for the common share-handling path.
-export { encodeShareBase32, decodeShareBase32 } from '@noy-db/on-shamir'
 
 function bytesToBase64(b: Uint8Array): string {
   let s = ''

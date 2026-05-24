@@ -132,7 +132,7 @@ describe('recoverPassphrase (paper profile)', () => {
   it('recovers via a paper code, unlocks with the new phrase, burns the code', async () => {
     const { store, code } = await buildVaultWithPaperRecovery()
 
-    await recoverPassphrase(store, 'acme', 'alice', {
+    await recoverPassphrase(undefined, store, 'acme', 'alice', {
       newPassphrase: STRONG_NEW,
       recoveryProof: { profile: 'paper', payload: { code } },
     })
@@ -142,7 +142,7 @@ describe('recoverPassphrase (paper profile)', () => {
 
     // Code was burned — second use must fail with no entries left.
     await expect(
-      recoverPassphrase(store, 'acme', 'alice', {
+      recoverPassphrase(undefined, store, 'acme', 'alice', {
         newPassphrase: 'glasses cabinet bicycle umbrella thunder oranges',
         recoveryProof: { profile: 'paper', payload: { code } },
       }),
@@ -171,7 +171,7 @@ describe('recoverPassphrase (paper profile)', () => {
     } as NoydbStore
 
     await expect(
-      recoverPassphrase(wrapped, 'acme', 'alice', {
+      recoverPassphrase(undefined, wrapped, 'acme', 'alice', {
         newPassphrase: STRONG_NEW,
         recoveryProof: { profile: 'paper', payload: { code } },
       }),
@@ -189,7 +189,7 @@ describe('recoverPassphrase (paper profile)', () => {
   it('rejects an unknown paper code', async () => {
     const { store } = await buildVaultWithPaperRecovery()
     await expect(
-      recoverPassphrase(store, 'acme', 'alice', {
+      recoverPassphrase(undefined, store, 'acme', 'alice', {
         newPassphrase: STRONG_NEW,
         recoveryProof: { profile: 'paper', payload: { code: 'WRONGCODE0000' } },
       }),
@@ -207,7 +207,7 @@ describe('recoverPassphrase (paper profile)', () => {
     const store = inlineMemory()
     await createOwnerKeyring(store, 'acme', 'alice', STRONG_OLD)
     await expect(
-      recoverPassphrase(store, 'acme', 'alice', {
+      recoverPassphrase(undefined, store, 'acme', 'alice', {
         newPassphrase: STRONG_NEW,
         recoveryProof: {
           profile: 'shamir',
@@ -219,8 +219,8 @@ describe('recoverPassphrase (paper profile)', () => {
           ] },
         },
       }),
-      // No Shamir entries → NoAccessError from the handler;
-      // a strict RecoveryProfileNotImplementedError would mean the
+      // No Shamir entries → NoAccessError (or the provider-missing error) from
+      // the handler; a strict RecoveryProfileNotImplementedError would mean the
       // dispatch is broken.
     ).rejects.not.toBeInstanceOf(RecoveryProfileNotImplementedError)
   })
@@ -262,14 +262,14 @@ describe('recoverPassphrase (paper profile)', () => {
     const store = inlineMemory()
     await createOwnerKeyring(store, 'acme', 'alice', STRONG_OLD)
     await expect(
-      recoverPassphrase(store, 'acme', 'alice', {
+      recoverPassphrase(undefined, store, 'acme', 'alice', {
         newPassphrase: STRONG_NEW,
         recoveryProof: { profile: 'multi-channel', payload: { proofs: [] } },
       }),
     ).rejects.toBeInstanceOf(RecoveryProfileNotImplementedError)
 
     await expect(
-      recoverPassphrase(store, 'acme', 'alice', {
+      recoverPassphrase(undefined, store, 'acme', 'alice', {
         newPassphrase: STRONG_NEW,
         recoveryProof: { profile: 'admin-mediated', payload: { token: 'x' } },
       }),

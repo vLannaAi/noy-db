@@ -10,6 +10,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '@noy-db/hub'
 import { memory } from '@noy-db/to-memory'
+import { shamirRecoveryProvider } from '@noy-db/on-shamir'
 import type { KeychainEntry } from '../src/index.js'
 import { macosKeychainSealingProvider } from '../src/index.js'
 
@@ -38,6 +39,7 @@ describe('@noy-db/at-macos-keychain — integration with @noy-db/hub managed-pas
         account: 'alice@acme.example',
         entry: sharedEntry,
       }),
+      shamirRecovery: shamirRecoveryProvider(),
     })
     const { vault: vault1 } = await db1.openVaultAndEnrollRecovery('demo', {
       recovery: [{ profile: 'shamir', k: 2, n: 3 }],
@@ -58,6 +60,7 @@ describe('@noy-db/at-macos-keychain — integration with @noy-db/hub managed-pas
         account: 'alice@acme.example',
         entry: sharedEntry,
       }),
+      shamirRecovery: shamirRecoveryProvider(),
     })
     const vault2 = await db2.openVault('demo')
     const note = await vault2.collection<{ id: string; note: string }>('notes').get('n1')
@@ -78,6 +81,7 @@ describe('@noy-db/at-macos-keychain — integration with @noy-db/hub managed-pas
         account: 'alice',
         entry: memoryEntry(),
       }),
+      shamirRecovery: shamirRecoveryProvider(),
     })
     const { vault: vault1 } = await db1.openVaultAndEnrollRecovery('demo', {
       recovery: [{ profile: 'shamir', k: 2, n: 3 }],
@@ -99,6 +103,7 @@ describe('@noy-db/at-macos-keychain — integration with @noy-db/hub managed-pas
         account: 'bob', // different!
         entry: memoryEntry(),
       }),
+      shamirRecovery: shamirRecoveryProvider(),
     })
     await expect(db2.openVault('demo')).rejects.toThrow(/sealed under provider id|provider/i)
     db2.close()
@@ -117,6 +122,7 @@ describe('@noy-db/at-macos-keychain — integration with @noy-db/hub managed-pas
         account: 'persist-test',
         entry: sharedEntry,
       }),
+      shamirRecovery: shamirRecoveryProvider(),
     })
     const { vault: v1 } = await db1.openVaultAndEnrollRecovery('persist', {
       recovery: [{ profile: 'shamir', k: 2, n: 3 }],
@@ -138,6 +144,7 @@ describe('@noy-db/at-macos-keychain — integration with @noy-db/hub managed-pas
         account: 'persist-test',
         entry: sharedEntry,
       }),
+      shamirRecovery: shamirRecoveryProvider(),
     })
     const v2 = await db2.openVault('persist')
     const item = await v2.collection<{ id: string; v: number }>('items').get('i1')

@@ -151,6 +151,9 @@ importers:
       '@noy-db/hub':
         specifier: workspace:*
         version: link:../hub
+      '@noy-db/on-shamir':
+        specifier: workspace:*
+        version: link:../on-shamir
       '@noy-db/to-memory':
         specifier: workspace:*
         version: link:../to-memory
@@ -166,6 +169,9 @@ importers:
       '@noy-db/hub':
         specifier: workspace:*
         version: link:../hub
+      '@noy-db/on-shamir':
+        specifier: workspace:*
+        version: link:../on-shamir
       '@noy-db/to-memory':
         specifier: workspace:*
         version: link:../to-memory
@@ -250,11 +256,10 @@ importers:
         version: 22.19.17
 
   packages/hub:
-    dependencies:
+    devDependencies:
       '@noy-db/on-shamir':
         specifier: workspace:*
         version: link:../on-shamir
-    devDependencies:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17

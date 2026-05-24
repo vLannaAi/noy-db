@@ -105,6 +105,7 @@ describe('@noy-db/at-env — integration with @noy-db/hub managed-passphrase mod
   it('round-trips a managed-mode vault end-to-end (no user passphrase typed)', async () => {
     const { createNoydb } = await import('@noy-db/hub')
     const { memory } = await import('@noy-db/to-memory')
+    const { shamirRecoveryProvider } = await import('@noy-db/on-shamir')
 
     const store = memory()
     const provider = envSealingProvider({ envVar: TEST_ENV })
@@ -116,6 +117,7 @@ describe('@noy-db/at-env — integration with @noy-db/hub managed-passphrase mod
       store, user: 'alice',
       passphraseMode: 'managed',
       sealingKey: provider,
+      shamirRecovery: shamirRecoveryProvider(),
     })
     const { vault: vault1 } = await db1.openVaultAndEnrollRecovery('demo', {
       recovery: [{ profile: 'shamir', k: 2, n: 3 }],
@@ -130,6 +132,7 @@ describe('@noy-db/at-env — integration with @noy-db/hub managed-passphrase mod
       store, user: 'alice',
       passphraseMode: 'managed',
       sealingKey: envSealingProvider({ envVar: TEST_ENV }),
+      shamirRecovery: shamirRecoveryProvider(),
     })
     const vault2 = await db2.openVault('demo')
     const note = await vault2.collection<{ id: string; note: string }>('notes').get('n1')
