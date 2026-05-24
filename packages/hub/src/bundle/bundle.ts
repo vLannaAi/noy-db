@@ -408,9 +408,12 @@ function normalizeAutoUnlock(opts: WriteNoydbBundleOptions): NormalizedAutoUnloc
  * Validate the auto-unlock options and return the resulting header
  * `autoUnlock` value (or null when no auto-unlock requested).
  *
+ * Takes the pre-computed `NormalizedAutoUnlock` so the caller (i.e.
+ * `writeNoydbBundle`) can pass the same object to `buildAutoUnlockWrapper`
+ * without a second `normalizeAutoUnlock` call.
+ *
  * Validation per spec (#197 + #215 §3):
- *   - exactly one of autoCredentials / sealedCredentials /
- *     autoPassphrases / sealedPassphrases may be set
+ *   - (mutual exclusion already enforced by normalizeAutoUnlock)
  *   - unsealed path: `policy: 'public-by-design'` marker required
  *   - non-empty `perUser` maps
  *   - sealed path: `mode: 'self-target'` + provider present
@@ -419,9 +422,10 @@ function normalizeAutoUnlock(opts: WriteNoydbBundleOptions): NormalizedAutoUnloc
  *
  * Throws {@link ValidationError} on any violation.
  */
-function validateAutoUnlockOptions(opts: WriteNoydbBundleOptions): 'unsealed' | 'sealed' | null {
-  // normalizeAutoUnlock enforces mutual exclusion and promotes sugar.
-  const normalized = normalizeAutoUnlock(opts)
+function validateAutoUnlockOptions(
+  opts: WriteNoydbBundleOptions,
+  normalized: NormalizedAutoUnlock | null,
+): 'unsealed' | 'sealed' | null {
   if (normalized === null) return null
 
   const VALID_KINDS: ReadonlySet<string> = new Set(['passphrase', 'password', 'pin'])
@@ -1001,12 +1005,10 @@ export async function writeNoydbBundle(
     )
   }
 
-  // #197/#215 — auto-unlock validation. Normalizes the four option
-  // fields, enforces mutual exclusion, validates the policy marker,
-  // perUser size, mode, provider, and credential kind allowlist.
-  // Compute normalized once so validate + build share the same object.
+  // #197/#215 — auto-unlock: normalize once, validate + build from the
+  // same NormalizedAutoUnlock object so there's no double-normalize call.
   const normalizedAutoUnlock = normalizeAutoUnlock(opts)
-  const autoUnlockMode = validateAutoUnlockOptions(opts)
+  const autoUnlockMode = validateAutoUnlockOptions(opts, normalizedAutoUnlock)
 
   const handle = await vault.getBundleHandle()
   const dumpJson = await vault.dump()
