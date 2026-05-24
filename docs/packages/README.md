@@ -1,6 +1,6 @@
 # Package catalogs
 
-> NOYDB ships as one core (`@noy-db/hub`) plus five prefixed package families. Each prefix reads as a preposition — the mental model stays the same as you scale from one-file vaults to multi-tenant cloud deployments.
+> NOYDB ships as one core (`@noy-db/hub`) plus six prefixed package families. Each prefix reads as a preposition — the mental model stays the same as you scale from one-file vaults to multi-tenant cloud deployments.
 
 | Prefix | Reads as | Catalog | Count |
 |---|---|---|---:|
@@ -9,6 +9,7 @@
 | `on-` | *"you get **on** via this method"* | [on-auth.md](./on-auth.md) | 9 |
 | `as-` | *"export **as** XLSX / JSON / …"* | [as-exports.md](./as-exports.md) | 9 |
 | `by-` | *"sync **by** way of …"* | [by-transports.md](./by-transports.md) | 2 today, 4 planned |
+| `at-` | *"sealed **at** a trusted host"* | [at-hosts.md](./at-hosts.md) | 5 |
 
 ## Quick reference
 
@@ -42,9 +43,15 @@ Live-state bridges between realms (peers, tabs, rooms, relay servers). Today `@n
 
 → **[by-transports.md](./by-transports.md)**
 
+### `at-*` — Sealing-key providers (trusted hosts)
+
+The online complement to offline-first. A host you operate — Lambda, EC2, a worker — pulls a sealing key from its environment (env var, OS keychain, cloud KMS) and unseals a scoped slice of the vault to serve users who never hold its keys. The host *can* read what it unseals; you trust it because it's yours. `@noy-db/at-env`, `@noy-db/at-macos-keychain`, `@noy-db/at-aws-kms`, `@noy-db/at-gcp-kms`, `@noy-db/at-azure-keyvault`.
+
+→ **[at-hosts.md](./at-hosts.md)**
+
 ## Vs. subsystems
 
-The five families above are **separate npm packages** — `npm install` what you want, omit what you don't. They keep your *dependency graph* small.
+The six families above are **separate npm packages** — `npm install` what you want, omit what you don't. They keep your *dependency graph* small.
 
 The 17 [subsystems](../subsystems/) are **internal opt-ins** within `@noy-db/hub` — gated by `with*()` strategy seams. They keep the *core package's bundle* small.
 

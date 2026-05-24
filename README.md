@@ -30,11 +30,13 @@ An encrypted, offline-first, **serverless** document store. The library lives in
 - **☁️ Serverless, runs anywhere.** No noy-db server. No Docker. No managed service. The library embeds in your app — ~30 KB, 0 runtime deps. Works in Node 18+, Bun, Deno, every modern browser, Cloudflare Workers, Electron, mobile PWAs.
 - **📴 Offline-first.** Every operation works without network. Sync when you want to, to whatever you want to. Single code path for online and offline — no "online mode" to toggle.
 - **👥 Multi-user, no auth server.** 5 roles (owner / admin / operator / viewer / client), per-collection permissions, key rotation on revoke. The keyring travels with the data.
-- **🧩 One core, many bridges.** `@noy-db/hub` is the encrypted document-store core. ~55 optional `to-*` / `in-*` / `on-*` / `as-*` / `by-*` packages let existing apps keep their preferred storage, framework, unlock method, export format, and session-share transport — without changing anything else.
+- **🧩 One core, many bridges.** `@noy-db/hub` is the encrypted document-store core. ~60 optional `to-*` / `in-*` / `on-*` / `as-*` / `by-*` / `at-*` packages let existing apps keep their preferred storage, framework, unlock method, export format, session-share transport, and server-side sealing host — without changing anything else.
 - **🔐 Advanced crypto features.** Hierarchical per-record tiers, deterministic encryption for searchable indexes, WebRTC peer-to-peer sync, AES-256-GCM blob store with deduplication, HKDF-keyed ETags, hash-chained audit ledger.
 - **🧪 Thousand-plus tests, CI in under a minute.** Every store / integration / auth / export package is mock-tested — CI runs without AWS, Google Drive, SFTP servers, or any real service.
 
-> **`@noy-db/hub` is the trust boundary.** Encryption happens in the core before data reaches any store. Every other package — `to-*`, `in-*`, `on-*`, `as-*`, `by-*` — is an optional adoption bridge that never sees plaintext.
+> **`@noy-db/hub` is the trust boundary.** Encryption happens in the core before data reaches any store. The `to-*`, `in-*`, `on-*`, `as-*`, and `by-*` bridges **never see plaintext** — zero-knowledge by construction.
+>
+> **Two trust boundaries.** The `at-*` family is the one deliberate exception: a sealing-key host *you* control (Lambda, EC2, a worker) **can decrypt the scoped slice it unseals** — that's the point, so you can run server-side work for users who never hold a key. You trust it because it's your infrastructure and the key lives in your managed key store; least privilege via per-user sealed credentials. Offline-first by default; online when you want.
 >
 > **Pre-1.0 stance.** The core privacy model, envelope format, keyrings, permissions, and query DSL are implemented and tested. Public APIs may still change based on adopter feedback before 1.0; data migrations and security-critical changes will be documented. No third-party cryptographic audit yet — that is a v1.0 target.
 
@@ -135,7 +137,7 @@ pnpm --filter @noy-db/showcases test           # run all showcase tests
 
 ---
 
-## The five package families
+## The six package families
 
 Each prefix reads as a preposition — the mental model stays the same as you scale from one-file vaults to multi-tenant cloud deployments.
 
@@ -146,6 +148,7 @@ Each prefix reads as a preposition — the mental model stays the same as you sc
 | **`on-`** | *"you get **on** via this method"* | **Unlock / auth** — composable primitives. Passkeys (WebAuthn), OIDC split-key, magic links, TOTP, email OTP, recovery codes, Shamir k-of-n, duress + honeypot. | [→ auth.md](docs/packages/on-auth.md) |
 | **`as-`** | *"export **as** XLSX / JSON / …"* | **Portable artefacts** — two-tier authorisation with audit ledger. CSV, Excel, XML, JSON, NDJSON, SQL dump, PDF blobs, ZIP, and the encrypted `.noydb` bundle. | [→ exports.md](docs/packages/as-exports.md) |
 | **`by-`** | *"sync **by** way of …"* | **Session-share transports** — live-state bridges between realms. `@noy-db/by-peer` (WebRTC peers, renamed from `@noy-db/p2p`) and `@noy-db/by-tabs` (BroadcastChannel multi-tab) ship today; `by-server`, `by-room` reserved. | [→ transports.md](docs/packages/by-transports.md) |
+| **`at-`** | *"sealed **at** a trusted host"* | **Sealing-key providers** — the online complement to offline-first. A host you control unseals a scoped slice for server-side work (it *can* decrypt what it unseals — the one non-zero-knowledge family). `at-env`, `at-macos-keychain`, `at-aws-kms`, `at-gcp-kms`, `at-azure-keyvault`. | [→ at-hosts.md](docs/packages/at-hosts.md) |
 
 Plus the hub (`@noy-db/hub`) and the standalone tools: `@noy-db/cli`, `create-noy-db` (scaffolder).
 

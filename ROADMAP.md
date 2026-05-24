@@ -8,13 +8,14 @@
 - **Bundle-size CI gate.** Pin the floor + per-subsystem allowances in `bundle-manifest.json`; CI fails on any unexplained regression.
 - **Showcase + recipe coverage.** A runnable end-to-end test for every `with*()` strategy and every storage destination so adopters pick a backend by reading working code.
 - **`by-*` session-share family.** `@noy-db/by-peer` (WebRTC, renamed from `@noy-db/p2p`) and `@noy-db/by-tabs` (BroadcastChannel multi-tab sync) shipped together with the family debut. Next: `@noy-db/by-server` (WebSocket / SSE relay) and `@noy-db/by-room` (Liveblocks / Yjs y-websocket).
-- **`at-*` sealing-key provider family.** `@noy-db/at-env` (env var) and `@noy-db/at-macos-keychain` (OS Keychain) debuted the family in `v0.1.0-pre.16` — sealing keys drawn from the environment for unattended / managed-host unlock. Next: the cloud/OS providers under the [at-\* sealing key providers](https://github.com/vLannaAi/noy-db/milestone/9) milestone (AWS/GCP/Azure KMS, wincred, libsecret, WebAuthn-PRF).
+- **`at-*` sealing-key provider family.** `@noy-db/at-env` (env var) and `@noy-db/at-macos-keychain` (OS Keychain) debuted the family in `v0.1.0-pre.16`; the cloud-KMS trio (`@noy-db/at-aws-kms`, `@noy-db/at-gcp-kms`, `@noy-db/at-azure-keyvault`) is on the `0.2` line. Next: the OS/hardware providers still under the [at-\* sealing key providers](https://github.com/vLannaAi/noy-db/milestone/9) milestone (wincred, libsecret, WebAuthn-PRF).
 
 ## In flight
 
 Active epics + next candidates (no firm sequencing):
 
-- **Sealing dimension — `at-*` providers + transferable bundles.** Foundation + managed-passphrase mode + the first two `at-*` providers shipped in `v0.1.0-pre.16`. In flight: more `at-*` providers ([milestone 9](https://github.com/vLannaAi/noy-db/milestone/9)), and the partition-extraction / owner-transfer ceremony ([Transferable bundles, milestone 10](https://github.com/vLannaAi/noy-db/milestone/10) — #198 steps, 12 issues). Several pre.16 features landed as "slice 1" with public API now locked (sealed-bundle, Shamir dispatch, variable-N derivations).
+- **`0.2` line — `at-*` family graduation (in flight).** On the `0.2` branch toward `0.2.0-pre.1`: hub↔on-shamir decouple (#211, the breaking change earning the minor bump), the cloud-KMS trio (#188/#189/#190), generalized bundle auto-unlock (`autoCredentials`/`sealedCredentials`, #215), and `at-*` registered in `features.yaml` (#214) + the `at-hosts.md` catalog. Then promote `0.2.0` → `latest`.
+- **Sealing dimension — transferable bundles.** Still ahead: the partition-extraction / owner-transfer ceremony ([Transferable bundles, milestone 10](https://github.com/vLannaAi/noy-db/milestone/10) — #198 steps, 12 issues), and the remaining `at-*` OS/hardware providers ([milestone 9](https://github.com/vLannaAi/noy-db/milestone/9)). Pre.16 "slice 1" features (sealed-bundle, Shamir dispatch, variable-N derivations) have public API locked.
 - **Dim 11 cross-join v3** — draft spec on branch `docs/dim11-cross-join-v1-spec`; not yet opened as a PR. Cross-join terminal on `Query<T>`, lateral form, cost ceiling, MV `queryHash` folding for cross-joined deps. Pattern follows the v2 cycle: spec PR → niwat review → multi-PR implementation epic.
 
 ## Backlog (deferred, no release target)
