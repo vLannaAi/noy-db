@@ -157,4 +157,25 @@ describe('walkClosure', () => {
     expect([...(closure.get('clients') ?? [])].sort()).toEqual(['c-belle']) // NOT c-ann
     expect([...(closure.get('bills') ?? [])]).toEqual(['b-1'])
   })
+
+  it('flags cyclesDetected and terminates on a self-referential / mutual cycle', async () => {
+    const company = await db.openVault('demo-co')
+    // a.refB -> b, b.refA -> a : a 2-node cycle.
+    const as = company.collection<{ id: string; refB: string | null; tag: string }>(
+      'as', { refs: { refB: ref('bs', 'warn') } },
+    )
+    const bs = company.collection<{ id: string; refA: string | null }>(
+      'bs', { refs: { refA: ref('as', 'warn') } },
+    )
+    await as.put('a-1', { id: 'a-1', refB: 'b-1', tag: 'seed' })
+    await bs.put('b-1', { id: 'b-1', refA: 'a-1' })
+
+    const { closure, graph } = await walkClosure(company, {
+      seeds: { as: (r) => r['tag'] === 'seed' },
+    })
+
+    expect([...(closure.get('as') ?? [])]).toEqual(['a-1'])
+    expect([...(closure.get('bs') ?? [])]).toEqual(['b-1'])
+    expect(graph.cyclesDetected).toBe(true)
+  })
 })
