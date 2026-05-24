@@ -1,5 +1,11 @@
 # @noy-db/on-shamir
 
+## 0.2.0-pre.1
+
+### Minor Changes
+
+- New `shamirRecoveryProvider()` export — implements hub's `ShamirRecoveryProvider` (string-level split/combine wrapping the existing share codecs), so hub uses Shamir recovery without importing this package ([#211](https://github.com/vLannaAi/noy-db/issues/211)).
+
 ## 0.1.0-pre.16
 
 ### Patch Changes

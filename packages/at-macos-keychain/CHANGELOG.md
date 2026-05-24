@@ -1,5 +1,13 @@
 # Changelog — at-macos-keychain
 
+## 0.2.0-pre.1
+
+### Patch Changes
+
+- Managed-mode vaults now also require a `shamirRecovery` provider passed to `createNoydb` (managed mode mandates strong recovery; [#211](https://github.com/vLannaAi/noy-db/issues/211)). No API change to this package.
+- Updated dependencies
+  - @noy-db/hub@0.2.0-pre.1
+
 ## 0.1.0-pre.16
 
 First release. Part of the `at-*` sealing-key provider family debut.
