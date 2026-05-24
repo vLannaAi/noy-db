@@ -4,6 +4,9 @@
  *
  * Covers the contract documented in
  * docs/superpowers/specs/2026-05-23-sealed-bundle-delivery.md.
+ *
+ * Extended for #215 — generalized auto-unlock across credential kinds
+ * (password, pin) + sugar/back-compat regression tests.
  */
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/index.js'
@@ -17,6 +20,13 @@ import {
   BundleSealMismatchError,
   ValidationError,
 } from '../src/index.js'
+import {
+  encodeBundleHeader,
+  decodeBundleHeader,
+  NOYDB_BUNDLE_PREFIX_BYTES,
+  readUint32BE,
+  writeUint32BE,
+} from '../src/bundle/format.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -83,8 +93,8 @@ describe('#197 — autoPassphrases (unsealed, public-by-design)', () => {
     expect(result.autoUnlock).toBeDefined()
     expect(result.autoUnlock!.kind).toBe('unsealed')
     expect(result.autoUnlock!.perUser).toEqual({
-      'demo-customer': 'demo-pass-1',
-      'demo-prospect': 'demo-pass-2',
+      'demo-customer': { kind: 'passphrase', value: 'demo-pass-1' },
+      'demo-prospect': { kind: 'passphrase', value: 'demo-pass-2' },
     })
   })
 
@@ -162,7 +172,7 @@ describe('#197 — sealedPassphrases (self-target)', () => {
     expect(result.autoUnlock).toBeDefined()
     expect(result.autoUnlock!.kind).toBe('sealed')
     expect(result.autoUnlock!.perUser).toEqual({
-      alice: 'alice-passphrase-here',
+      alice: { kind: 'passphrase', value: 'alice-passphrase-here' },
     })
   })
 
@@ -181,9 +191,9 @@ describe('#197 — sealedPassphrases (self-target)', () => {
     const result = await readNoydbBundle(bytes)
     expect(result.autoUnlock).toBeDefined()
     expect(result.autoUnlock!.kind).toBe('sealed')
-    // perUser values are base64 sealed bytes — opaque, not the plaintext.
-    expect(result.autoUnlock!.perUser['alice']).not.toBe('a-pass')
-    expect(result.autoUnlock!.perUser['alice'].length).toBeGreaterThan(0)
+    // perUser values are AutoCredential — value is opaque base64 sealed bytes, not the plaintext.
+    expect(result.autoUnlock!.perUser['alice']!.value).not.toBe('a-pass')
+    expect(result.autoUnlock!.perUser['alice']!.value.length).toBeGreaterThan(0)
   })
 
   it('throws BundleSealMismatchError when no provider matches pid (strict)', async () => {
@@ -321,5 +331,308 @@ describe('#197 — composes with publicEnvelope', () => {
     // publicEnvelope is undefined because the vault has none —
     // that's correct back-compat. The header just carries the new flag.
     expect(header.publicEnvelope).toBeUndefined()
+  })
+})
+
+// ─── #215 — generalized auto-unlock (new credential kinds + sugar/back-compat) ──
+
+describe('#215 — autoCredentials, password kind (unsealed)', () => {
+  it('round-trips password credential as { kind:"password", value }', async () => {
+    const { vault } = await freshVault()
+    const bytes = await writeNoydbBundle(vault, {
+      autoCredentials: {
+        policy: 'public-by-design',
+        perUser: { carol: { kind: 'password', value: 'hunter2' } },
+      },
+    })
+
+    const header = readNoydbBundleHeader(bytes)
+    expect(header.autoUnlock).toBe('unsealed')
+
+    const result = await readNoydbBundle(bytes)
+    expect(result.autoUnlock).toBeDefined()
+    expect(result.autoUnlock!.kind).toBe('unsealed')
+    expect(result.autoUnlock!.perUser['carol']).toEqual({ kind: 'password', value: 'hunter2' })
+  })
+})
+
+describe('#215 — autoCredentials, pin kind (unsealed)', () => {
+  it('round-trips pin credential as { kind:"pin", value }', async () => {
+    const { vault } = await freshVault()
+    const bytes = await writeNoydbBundle(vault, {
+      autoCredentials: {
+        policy: 'public-by-design',
+        perUser: { dave: { kind: 'pin', value: '1234' } },
+      },
+    })
+
+    const result = await readNoydbBundle(bytes)
+    expect(result.autoUnlock).toBeDefined()
+    expect(result.autoUnlock!.kind).toBe('unsealed')
+    expect(result.autoUnlock!.perUser['dave']).toEqual({ kind: 'pin', value: '1234' })
+  })
+})
+
+describe('#215 — autoCredentials, passphrase kind (unsealed)', () => {
+  it('round-trips passphrase credential via autoCredentials same as sugar path', async () => {
+    const { vault } = await freshVault()
+    const bytes = await writeNoydbBundle(vault, {
+      autoCredentials: {
+        policy: 'public-by-design',
+        perUser: { eve: { kind: 'passphrase', value: 'correct-horse' } },
+      },
+    })
+
+    const result = await readNoydbBundle(bytes)
+    expect(result.autoUnlock).toBeDefined()
+    expect(result.autoUnlock!.kind).toBe('unsealed')
+    expect(result.autoUnlock!.perUser['eve']).toEqual({ kind: 'passphrase', value: 'correct-horse' })
+  })
+})
+
+describe('#215 — sealedCredentials, password kind (sealed)', () => {
+  it('seals password credential and unseals to { kind:"password", value } when provider matches', async () => {
+    const { vault } = await freshVault()
+    const pid = 'macos-keychain:com.acme/carol'
+    const senderProvider = new MemorySealingKeyProvider({ id: pid })
+
+    const bytes = await writeNoydbBundle(vault, {
+      sealedCredentials: {
+        mode: 'self-target',
+        provider: senderProvider,
+        perUser: { carol: { kind: 'password', value: 'hunter2' } },
+      },
+    })
+
+    const header = readNoydbBundleHeader(bytes)
+    expect(header.autoUnlock).toBe('sealed')
+
+    // WITH matching provider — should unseal to { kind:'password', value }
+    const recipientProvider = new MemorySealingKeyProvider({ id: pid })
+    const result = await readNoydbBundle(bytes, { sealingProviders: [recipientProvider] })
+
+    expect(result.autoUnlock).toBeDefined()
+    expect(result.autoUnlock!.kind).toBe('sealed')
+    expect(result.autoUnlock!.perUser['carol']).toEqual({ kind: 'password', value: 'hunter2' })
+  })
+
+  it('passes through sealed entry with kind preserved when no sealingProviders supplied', async () => {
+    const { vault } = await freshVault()
+    const senderProvider = new MemorySealingKeyProvider({ id: 'test-sealed-password-pid' })
+
+    const bytes = await writeNoydbBundle(vault, {
+      sealedCredentials: {
+        mode: 'self-target',
+        provider: senderProvider,
+        perUser: { carol: { kind: 'password', value: 'hunter2' } },
+      },
+    })
+
+    // WITHOUT provider — kind is preserved in passthrough, value is the opaque sealed bytes
+    const result = await readNoydbBundle(bytes)
+    expect(result.autoUnlock).toBeDefined()
+    expect(result.autoUnlock!.kind).toBe('sealed')
+    const entry = result.autoUnlock!.perUser['carol']!
+    expect(entry.kind).toBe('password')
+    // value is the opaque base64 sealed blob, NOT the plaintext
+    expect(entry.value).not.toBe('hunter2')
+    expect(entry.value.length).toBeGreaterThan(0)
+  })
+})
+
+describe('#215 — sugar back-compat', () => {
+  it('autoPassphrases sugar round-trips as { kind:"passphrase", value }', async () => {
+    const { vault } = await freshVault()
+    const bytes = await writeNoydbBundle(vault, {
+      autoPassphrases: {
+        policy: 'public-by-design',
+        perUser: { 'legacy-user': 'legacy-pass' },
+      },
+    })
+
+    const result = await readNoydbBundle(bytes)
+    expect(result.autoUnlock).toBeDefined()
+    expect(result.autoUnlock!.kind).toBe('unsealed')
+    expect(result.autoUnlock!.perUser['legacy-user']).toEqual({
+      kind: 'passphrase',
+      value: 'legacy-pass',
+    })
+  })
+
+  it('sealedPassphrases sugar unseals as { kind:"passphrase", value }', async () => {
+    const { vault } = await freshVault()
+    const pid = 'macos-keychain:com.acme/legacy'
+    const senderProvider = new MemorySealingKeyProvider({ id: pid })
+
+    const bytes = await writeNoydbBundle(vault, {
+      sealedPassphrases: {
+        mode: 'self-target',
+        provider: senderProvider,
+        perUser: { 'legacy-user': 'legacy-pass' },
+      },
+    })
+
+    const recipientProvider = new MemorySealingKeyProvider({ id: pid })
+    const result = await readNoydbBundle(bytes, { sealingProviders: [recipientProvider] })
+
+    expect(result.autoUnlock).toBeDefined()
+    expect(result.autoUnlock!.kind).toBe('sealed')
+    expect(result.autoUnlock!.perUser['legacy-user']).toEqual({
+      kind: 'passphrase',
+      value: 'legacy-pass',
+    })
+  })
+
+  /**
+   * Pre-0.2 bundles stored bare strings in the unsealed `perUser` map.
+   * We verify the `coerceUnsealed` path by injecting a crafted bundle body
+   * (written with compression:'none' so the body is accessible without
+   * decompression, then surgically patching the perUser entry to a bare
+   * string and recomputing the header hash).
+   */
+  it('pre-0.2 bare-string entry in unsealed body coerces to { kind:"passphrase", value }', async () => {
+    const { vault } = await freshVault()
+
+    // Write an uncompressed unsealed bundle so the body bytes are raw UTF-8 JSON.
+    const originalBytes = await writeNoydbBundle(vault, {
+      compression: 'none',
+      autoCredentials: {
+        policy: 'public-by-design',
+        perUser: { bob: { kind: 'passphrase', value: 'old-secret' } },
+      },
+    })
+
+    // ── Parse the prefix to locate header + body ──────────────────────────
+    const headerLen = readUint32BE(originalBytes, 6)
+    const bodyOffset = NOYDB_BUNDLE_PREFIX_BYTES + headerLen
+    const headerBytes = originalBytes.slice(NOYDB_BUNDLE_PREFIX_BYTES, bodyOffset)
+    const header = decodeBundleHeader(headerBytes)
+    const bodyBytes = originalBytes.slice(bodyOffset)
+
+    // ── Patch: replace the AutoCredential object with a bare string ───────
+    const bodyStr = new TextDecoder().decode(bodyBytes)
+    const bodyObj = JSON.parse(bodyStr) as {
+      _noydb_bundle_body: 1
+      dump: string
+      _autoUnlock: { kind: 'unsealed'; perUser: Record<string, unknown> }
+    }
+    // Simulate a pre-0.2 bundle: store a bare string instead of { kind, value }
+    bodyObj._autoUnlock.perUser['bob'] = 'old-secret'
+    const patchedBodyBytes = new TextEncoder().encode(JSON.stringify(bodyObj))
+
+    // ── Recompute body SHA-256 for the patched body ───────────────────────
+    const copy = new Uint8Array(patchedBodyBytes.length)
+    copy.set(patchedBodyBytes)
+    const digestBuf = await crypto.subtle.digest('SHA-256', copy)
+    const digestView = new Uint8Array(digestBuf)
+    let newSha = ''
+    for (let i = 0; i < digestView.length; i++) newSha += digestView[i]!.toString(16).padStart(2, '0')
+
+    // ── Rebuild header with updated bodyBytes + bodySha256 ────────────────
+    const patchedHeader = {
+      ...header,
+      bodyBytes: patchedBodyBytes.length,
+      bodySha256: newSha,
+    }
+    const patchedHeaderBytes = encodeBundleHeader(patchedHeader)
+
+    // ── Reassemble: prefix (first 6 bytes keep flags/algo) + new headerLen + new header + body ──
+    const patchedPrefix = new Uint8Array(NOYDB_BUNDLE_PREFIX_BYTES)
+    // Copy magic + flags + algo bytes unchanged
+    patchedPrefix.set(originalBytes.slice(0, 6))
+    writeUint32BE(patchedPrefix, 6, patchedHeaderBytes.length)
+
+    const patchedBundle = new Uint8Array(
+      patchedPrefix.length + patchedHeaderBytes.length + patchedBodyBytes.length,
+    )
+    let off = 0
+    patchedBundle.set(patchedPrefix, off); off += patchedPrefix.length
+    patchedBundle.set(patchedHeaderBytes, off); off += patchedHeaderBytes.length
+    patchedBundle.set(patchedBodyBytes, off)
+
+    // ── Read back — coerceUnsealed should promote the bare string ─────────
+    const result = await readNoydbBundle(patchedBundle)
+    expect(result.autoUnlock).toBeDefined()
+    expect(result.autoUnlock!.kind).toBe('unsealed')
+    expect(result.autoUnlock!.perUser['bob']).toEqual({ kind: 'passphrase', value: 'old-secret' })
+  })
+})
+
+describe('#215 — mutual exclusion (mixing rejected)', () => {
+  it('autoCredentials + autoPassphrases together throw ValidationError matching /only one of/', async () => {
+    const { vault } = await freshVault()
+    await expect(
+      writeNoydbBundle(vault, {
+        autoCredentials: {
+          policy: 'public-by-design',
+          perUser: { alice: { kind: 'passphrase', value: 'a' } },
+        },
+        autoPassphrases: {
+          policy: 'public-by-design',
+          perUser: { bob: 'b' },
+        },
+      }),
+    ).rejects.toSatisfy(
+      (err: unknown) => err instanceof ValidationError && /only one of/i.test((err as Error).message),
+    )
+  })
+
+  it('autoCredentials + sealedCredentials together throw ValidationError matching /only one of/', async () => {
+    const { vault } = await freshVault()
+    const provider = new MemorySealingKeyProvider({ id: 'test-mix' })
+    await expect(
+      writeNoydbBundle(vault, {
+        autoCredentials: {
+          policy: 'public-by-design',
+          perUser: { alice: { kind: 'passphrase', value: 'a' } },
+        },
+        sealedCredentials: {
+          mode: 'self-target',
+          provider,
+          perUser: { bob: { kind: 'password', value: 'b' } },
+        },
+      }),
+    ).rejects.toSatisfy(
+      (err: unknown) => err instanceof ValidationError && /only one of/i.test((err as Error).message),
+    )
+  })
+})
+
+describe('#215 — unsupported credential kind rejected', () => {
+  it('autoCredentials with kind:"webauthn" rejects with ValidationError naming the kind and valid kinds', async () => {
+    const { vault } = await freshVault()
+    await expect(
+      writeNoydbBundle(vault, {
+        autoCredentials: {
+          policy: 'public-by-design',
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          perUser: { alice: { kind: 'webauthn' as any, value: 'x' } },
+        },
+      }),
+    ).rejects.toSatisfy((err: unknown) => {
+      if (!(err instanceof ValidationError)) return false
+      const msg = (err as Error).message
+      // Error must name the bad kind and at minimum mention passphrase/password/pin
+      return /webauthn/i.test(msg) && /passphrase/i.test(msg)
+    })
+  })
+
+  it('sealedCredentials with kind:"webauthn" rejects with ValidationError', async () => {
+    const { vault } = await freshVault()
+    const provider = new MemorySealingKeyProvider({ id: 'test-bad-kind' })
+    await expect(
+      writeNoydbBundle(vault, {
+        sealedCredentials: {
+          mode: 'self-target',
+          provider,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          perUser: { alice: { kind: 'webauthn' as any, value: 'x' } },
+        },
+      }),
+    ).rejects.toSatisfy((err: unknown) => {
+      if (!(err instanceof ValidationError)) return false
+      const msg = (err as Error).message
+      return /webauthn/i.test(msg)
+    })
   })
 })

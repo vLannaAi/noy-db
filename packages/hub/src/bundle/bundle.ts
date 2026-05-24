@@ -57,6 +57,30 @@ import { pickLocale } from '../meta/public-envelope/storage.js'
 import type { PublicEnvelope } from '../meta/public-envelope/types.js'
 import type { SealingKeyProvider } from '../team/managed-passphrase.js'
 
+// ─── #215 auto-credential types ───────────────────────────────────────────────
+
+/**
+ * The credential kinds that can be bundled for auto-unlock.
+ * WebAuthn is intentionally excluded — it is hardware-bound and
+ * cannot be embedded as a portable credential.
+ */
+export type AutoCredentialKind = 'passphrase' | 'password' | 'pin'
+
+/**
+ * A typed credential for auto-unlock. Carries the credential `kind`
+ * alongside the plaintext `value`, so consumers can dispatch the
+ * correct login/prefill path rather than treating all credentials
+ * as passphrases.
+ *
+ * `bundle.ts` is a pure format layer — it carries the credential
+ * without interpreting it. The consumer is responsible for
+ * dispatching on `kind`.
+ */
+export interface AutoCredential {
+  readonly kind: AutoCredentialKind
+  readonly value: string
+}
+
 /**
  * Options accepted by `writeNoydbBundle`.
  *
@@ -128,6 +152,53 @@ export interface WriteNoydbBundleOptions {
    */
   readonly recipients?: readonly BundleRecipient[]
   /**
+   * Auto-unlock — unsealed per-user credentials (#215).
+   *
+   * Generalises `autoPassphrases` to support any bundleable credential
+   * kind (`passphrase` | `password` | `pin`).
+   *
+   * Public-by-design: anyone holding the bundle bytes can read these
+   * plaintext credentials. Use for demo data, sample vaults,
+   * prospect onboarding.
+   *
+   * The `policy: 'public-by-design'` discriminant is mandatory. A
+   * bare `{ perUser }` without it is rejected at write time — the
+   * safety net against a careless call against a production vault.
+   *
+   * Mutually exclusive with `sealedCredentials`, `autoPassphrases`,
+   * and `sealedPassphrases`.
+   */
+  readonly autoCredentials?: {
+    readonly policy: 'public-by-design'
+    readonly perUser: Record<string, AutoCredential>
+  }
+  /**
+   * Auto-unlock — per-user credentials sealed under a
+   * {@link SealingKeyProvider} (#215).
+   *
+   * Generalises `sealedPassphrases` to support any bundleable
+   * credential kind (`passphrase` | `password` | `pin`).
+   *
+   * The hub seals each user's plaintext credential under `provider`
+   * and embeds the resulting sealed envelopes in the bundle. The
+   * recipient must hold a provider with a matching `pid` (i.e.,
+   * `provider.id`) to auto-unseal on import.
+   *
+   * `mode: 'self-target'` is the only supported mode — sender and
+   * recipient share the same provider identity (same iCloud Keychain
+   * entry, same MDM-provisioned bundle id, same KMS account, etc.).
+   *
+   * Mutually exclusive with `autoCredentials`, `autoPassphrases`,
+   * and `sealedPassphrases`.
+   */
+  readonly sealedCredentials?: {
+    readonly mode: 'self-target'
+    readonly provider: SealingKeyProvider
+    readonly perUser: Record<string, AutoCredential>
+  }
+  /**
+   * @deprecated Use `autoCredentials` instead (#215).
+   *
    * Auto-unlock — unsealed per-user passphrases (#197 slice 1).
    *
    * Public-by-design: anyone holding the bundle bytes can read these
@@ -138,13 +209,16 @@ export interface WriteNoydbBundleOptions {
    * bare `{ perUser }` without it is rejected at write time — the
    * safety net against a careless call against a production vault.
    *
-   * Mutually exclusive with `sealedPassphrases`.
+   * Mutually exclusive with `autoCredentials`, `sealedCredentials`,
+   * and `sealedPassphrases`.
    */
   readonly autoPassphrases?: {
     readonly policy: 'public-by-design'
     readonly perUser: Record<string, string>
   }
   /**
+   * @deprecated Use `sealedCredentials` instead (#215).
+   *
    * Auto-unlock — per-user passphrases sealed under a
    * {@link SealingKeyProvider} (#197 slice 1, self-target only).
    *
@@ -159,7 +233,8 @@ export interface WriteNoydbBundleOptions {
    * Recipient-target sealing via the `RecipientSealer` interface
    * (foundation §11.4) is deferred to a follow-up slice.
    *
-   * Mutually exclusive with `autoPassphrases`.
+   * Mutually exclusive with `autoCredentials`, `sealedCredentials`,
+   * and `autoPassphrases`.
    */
   readonly sealedPassphrases?: {
     readonly mode: 'self-target'
@@ -178,30 +253,44 @@ export interface NoydbBundleReadResult {
   readonly header: NoydbBundleHeader
   readonly dumpJson: string
   /**
-   * Auto-unlock material (#197). Present only when the header's
-   * `autoUnlock` flag is set AND the body's wrapped structure
-   * survived parsing. Values are **plaintext** passphrases ready to
-   * pass to `createNoydb({ secret })` — either delivered plain
-   * (`kind: 'unsealed'`) or unsealed at read time using one of the
-   * supplied `sealingProviders` (`kind: 'sealed'`).
+   * Auto-unlock material (#197, widened in #215). Present only when
+   * the header's `autoUnlock` flag is set AND the body's wrapped
+   * structure survived parsing. Values are typed credentials — either
+   * delivered plain (`kind: 'unsealed'`) or unsealed at read time
+   * using one of the supplied `sealingProviders` (`kind: 'sealed'`).
+   *
+   * Consumers dispatch on `cred.kind` to choose the correct login /
+   * prefill path. Pre-0.2 bundles (bare string entries) are coerced
+   * to `{ kind: 'passphrase', value }` on read for back-compat.
+   *
+   * For `kind: 'sealed'` bundles read without `sealingProviders`, the
+   * `value` field is the raw base64 sealed bytes — opaque to the
+   * consumer until unsealed elsewhere.
    */
   readonly autoUnlock?: {
     readonly kind: 'unsealed' | 'sealed'
-    readonly perUser: Record<string, string>
+    readonly perUser: Record<string, AutoCredential>
   }
 }
 
 /**
- * Sealed-passphrase entry as it appears in the bundle body's
+ * Sealed credential entry as it appears in the bundle body's
  * `_autoUnlock.perUser` map when the bundle was written with
- * `sealedPassphrases`. Provider's sealed output is base64-encoded;
- * the `pid` is the dispatch key matched against
- * recipient-supplied `SealingKeyProvider.id`.
+ * `sealedCredentials` (or the deprecated `sealedPassphrases`).
+ * Provider's sealed output is base64-encoded; the `pid` is the
+ * dispatch key matched against recipient-supplied
+ * `SealingKeyProvider.id`. The `kind` carries the plaintext-tier
+ * metadata so the consumer can dispatch on credential type without
+ * unsealing first.
+ *
+ * Back-compat: `kind` is absent in pre-0.2 bundles — readers must
+ * default to `'passphrase'` when not present.
  */
 interface SealedAutoUnlockEntry {
   readonly pid: string
   readonly sealed: string
   readonly alg: 'aes-256-gcm'
+  readonly kind?: AutoCredentialKind
   readonly hint?: Record<string, unknown>
 }
 
@@ -209,12 +298,16 @@ interface SealedAutoUnlockEntry {
  * Discriminated wrapper carried in the bundle body when the header's
  * `autoUnlock` flag is set. Without the flag, the body is the raw
  * `vault.dump()` JSON string (the pre-#197 shape).
+ *
+ * Back-compat: pre-0.2 bundles carry bare `string` values in the
+ * unsealed `perUser` map. Readers must coerce those to
+ * `{ kind: 'passphrase', value }`.
  */
 interface AutoUnlockBody {
   readonly _noydb_bundle_body: 1
   readonly dump: string
   readonly _autoUnlock:
-    | { readonly kind: 'unsealed'; readonly perUser: Record<string, string> }
+    | { readonly kind: 'unsealed'; readonly perUser: Record<string, AutoCredential | string> }
     | { readonly kind: 'sealed'; readonly perUser: Record<string, SealedAutoUnlockEntry> }
 }
 
@@ -244,100 +337,190 @@ export interface ReadNoydbBundleOptions {
   readonly attemptUnsealAcrossProviders?: boolean
 }
 
-// ─── #197 auto-unlock helpers ──────────────────────────────────────
+// ─── #197/#215 auto-unlock helpers ────────────────────────────────────────────
 
 /**
- * Validate the #197 auto-unlock options and return the resulting
- * header `autoUnlock` value (or null when no auto-unlock requested).
+ * Internal normalized form of the auto-unlock options, computed once
+ * from the four public-facing fields (autoCredentials, sealedCredentials,
+ * autoPassphrases, sealedPassphrases). Callers work against this shape
+ * so the build + validate paths share a single normalizer.
+ */
+interface NormalizedAutoUnlock {
+  readonly mode: 'unsealed' | 'sealed'
+  readonly provider?: SealingKeyProvider
+  readonly perUser: Record<string, AutoCredential>
+}
+
+/**
+ * Coerce a `Record<string, string>` (legacy passphrase-only map) into
+ * a `Record<string, AutoCredential>` by tagging each entry as
+ * `kind: 'passphrase'`. Used by the normalizer to promote the deprecated
+ * `autoPassphrases`/`sealedPassphrases` sugar.
+ */
+function toAutoCredentials(m: Record<string, string>): Record<string, AutoCredential> {
+  return Object.fromEntries(
+    Object.entries(m).map(([u, value]) => [u, { kind: 'passphrase' as const, value }]),
+  )
+}
+
+/**
+ * Normalize the four auto-unlock option fields into a single
+ * `NormalizedAutoUnlock` (or `null` when none is set). Enforces mutual
+ * exclusion — exactly one of the four may be present. Promotes the
+ * deprecated sugar fields to `AutoCredential` shape.
  *
- * Validation per spec §3:
- *   - autoPassphrases + sealedPassphrases mutually exclusive
- *   - autoPassphrases requires `policy: 'public-by-design'`
- *   - non-empty perUser maps
- *   - sealedPassphrases.mode = 'self-target' (slice 1 only)
- *   - sealedPassphrases.provider must be supplied
+ * Does NOT validate field-level constraints (policy marker, perUser
+ * length, mode, provider presence, kind allowlist) — those are checked
+ * in `validateAutoUnlockOptions` after normalization.
+ */
+function normalizeAutoUnlock(opts: WriteNoydbBundleOptions): NormalizedAutoUnlock | null {
+  const set = [
+    opts.autoCredentials,
+    opts.sealedCredentials,
+    opts.autoPassphrases,
+    opts.sealedPassphrases,
+  ].filter(v => v !== undefined).length
+  if (set === 0) return null
+  if (set > 1) {
+    throw new ValidationError(
+      'writeNoydbBundle: only one of autoCredentials / sealedCredentials / '
+      + 'autoPassphrases / sealedPassphrases may be set.',
+    )
+  }
+  if (opts.autoCredentials !== undefined) {
+    return { mode: 'unsealed', perUser: opts.autoCredentials.perUser }
+  }
+  if (opts.autoPassphrases !== undefined) {
+    return { mode: 'unsealed', perUser: toAutoCredentials(opts.autoPassphrases.perUser) }
+  }
+  if (opts.sealedCredentials !== undefined) {
+    return { mode: 'sealed', provider: opts.sealedCredentials.provider, perUser: opts.sealedCredentials.perUser }
+  }
+  // sealedPassphrases — only remaining option
+  return {
+    mode: 'sealed',
+    provider: opts.sealedPassphrases!.provider,
+    perUser: toAutoCredentials(opts.sealedPassphrases!.perUser),
+  }
+}
+
+/**
+ * Validate the auto-unlock options and return the resulting header
+ * `autoUnlock` value (or null when no auto-unlock requested).
+ *
+ * Takes the pre-computed `NormalizedAutoUnlock` so the caller (i.e.
+ * `writeNoydbBundle`) can pass the same object to `buildAutoUnlockWrapper`
+ * without a second `normalizeAutoUnlock` call.
+ *
+ * Validation per spec (#197 + #215 §3):
+ *   - (mutual exclusion already enforced by normalizeAutoUnlock)
+ *   - unsealed path: `policy: 'public-by-design'` marker required
+ *   - non-empty `perUser` maps
+ *   - sealed path: `mode: 'self-target'` + provider present
+ *   - every AutoCredential.kind ∈ {passphrase, password, pin}
+ *     (WebAuthn is hardware-bound and cannot be bundled)
  *
  * Throws {@link ValidationError} on any violation.
  */
-function validateAutoUnlockOptions(opts: WriteNoydbBundleOptions): 'unsealed' | 'sealed' | null {
-  if (opts.autoPassphrases !== undefined && opts.sealedPassphrases !== undefined) {
-    throw new ValidationError(
-      'writeNoydbBundle: `autoPassphrases` and `sealedPassphrases` are mutually exclusive. '
-      + 'Choose one or the other.',
-    )
-  }
-  if (opts.autoPassphrases !== undefined) {
-    if (opts.autoPassphrases.policy !== 'public-by-design') {
+function validateAutoUnlockOptions(
+  opts: WriteNoydbBundleOptions,
+  normalized: NormalizedAutoUnlock | null,
+): 'unsealed' | 'sealed' | null {
+  if (normalized === null) return null
+
+  const VALID_KINDS: ReadonlySet<string> = new Set(['passphrase', 'password', 'pin'])
+
+  // Validate every credential kind before any further checks.
+  for (const [userId, cred] of Object.entries(normalized.perUser)) {
+    if (!VALID_KINDS.has(cred.kind)) {
       throw new ValidationError(
-        'writeNoydbBundle: `autoPassphrases` requires `policy: "public-by-design"`. '
-        + 'This is an explicit opt-in marker — bundling plaintext credentials is '
-        + 'safe only when those credentials are intended to be public (demo data, '
-        + 'sample vaults). For production credentials, use `sealedPassphrases` instead.',
+        `writeNoydbBundle: credential for user '${userId}' has unsupported kind '${cred.kind}'. `
+        + 'auto-unlock supports passphrase/password/pin only; WebAuthn is hardware-bound '
+        + 'and cannot be bundled.',
       )
     }
-    const userCount = Object.keys(opts.autoPassphrases.perUser).length
+  }
+
+  if (normalized.mode === 'unsealed') {
+    // Read the policy marker from whichever active option carries it.
+    const policy = opts.autoCredentials?.policy ?? opts.autoPassphrases?.policy
+    if (policy !== 'public-by-design') {
+      throw new ValidationError(
+        'writeNoydbBundle: `autoCredentials` (or `autoPassphrases`) requires '
+        + '`policy: "public-by-design"`. '
+        + 'This is an explicit opt-in marker — bundling plaintext credentials is '
+        + 'safe only when those credentials are intended to be public (demo data, '
+        + 'sample vaults). For production credentials, use `sealedCredentials` instead.',
+      )
+    }
+    const userCount = Object.keys(normalized.perUser).length
     if (userCount === 0) {
       throw new ValidationError(
-        'writeNoydbBundle: `autoPassphrases.perUser` must have at least one entry.',
+        'writeNoydbBundle: `autoCredentials.perUser` (or `autoPassphrases.perUser`) '
+        + 'must have at least one entry.',
       )
     }
     return 'unsealed'
   }
-  if (opts.sealedPassphrases !== undefined) {
-    if (opts.sealedPassphrases.mode !== 'self-target') {
-      throw new ValidationError(
-        `writeNoydbBundle: \`sealedPassphrases.mode\` must be 'self-target' in slice 1 `
-        + `(got '${opts.sealedPassphrases.mode as string}'). Recipient-target sealing via the `
-        + 'RecipientSealer interface is deferred per foundation §11.4.',
-      )
-    }
-    if (opts.sealedPassphrases.provider === undefined) {
-      throw new ValidationError(
-        'writeNoydbBundle: `sealedPassphrases.provider` is required (a `SealingKeyProvider`).',
-      )
-    }
-    const userCount = Object.keys(opts.sealedPassphrases.perUser).length
-    if (userCount === 0) {
-      throw new ValidationError(
-        'writeNoydbBundle: `sealedPassphrases.perUser` must have at least one entry.',
-      )
-    }
-    return 'sealed'
+
+  // Sealed path.
+  const mode = opts.sealedCredentials?.mode ?? opts.sealedPassphrases?.mode
+  if (mode !== 'self-target') {
+    throw new ValidationError(
+      `writeNoydbBundle: \`sealedCredentials.mode\` (or \`sealedPassphrases.mode\`) must be `
+      + `'self-target' in slice 1 (got '${String(mode)}'). Recipient-target sealing via the `
+      + 'RecipientSealer interface is deferred per foundation §11.4.',
+    )
   }
-  return null
+  if (normalized.provider === undefined) {
+    throw new ValidationError(
+      'writeNoydbBundle: `sealedCredentials.provider` (or `sealedPassphrases.provider`) '
+      + 'is required (a `SealingKeyProvider`).',
+    )
+  }
+  const userCount = Object.keys(normalized.perUser).length
+  if (userCount === 0) {
+    throw new ValidationError(
+      'writeNoydbBundle: `sealedCredentials.perUser` (or `sealedPassphrases.perUser`) '
+      + 'must have at least one entry.',
+    )
+  }
+  return 'sealed'
 }
 
 /**
  * Build the body wrapper carrying the dump + `_autoUnlock` blob.
- * The `autoUnlockMode` was already validated by the time we get here.
+ * Takes the pre-computed `NormalizedAutoUnlock` so both validate and
+ * build work off the same normalized form (no double-normalize).
  */
 async function buildAutoUnlockWrapper(
   dumpJson: string,
-  opts: WriteNoydbBundleOptions,
+  normalized: NormalizedAutoUnlock,
 ): Promise<AutoUnlockBody> {
-  if (opts.autoPassphrases !== undefined) {
+  if (normalized.mode === 'unsealed') {
     return {
       _noydb_bundle_body: 1,
       dump: dumpJson,
       _autoUnlock: {
         kind: 'unsealed',
-        perUser: { ...opts.autoPassphrases.perUser },
+        perUser: { ...normalized.perUser },
       },
     }
   }
-  // sealedPassphrases path — seal each user's passphrase under the provider.
-  if (opts.sealedPassphrases === undefined) {
+  // Sealed path — seal each user's credential value under the provider.
+  const provider = normalized.provider
+  if (provider === undefined) {
     throw new Error('unreachable — validation should have caught this')
   }
-  const { provider, perUser } = opts.sealedPassphrases
   const sealedPerUser: Record<string, SealedAutoUnlockEntry> = {}
   const encoder = new TextEncoder()
-  for (const [userId, passphrase] of Object.entries(perUser)) {
-    const sealed = await provider.seal(encoder.encode(passphrase))
+  for (const [userId, cred] of Object.entries(normalized.perUser)) {
+    const sealed = await provider.seal(encoder.encode(cred.value))
     sealedPerUser[userId] = {
       pid: provider.id,
       sealed: bytesToBase64(sealed),
       alg: 'aes-256-gcm',
+      kind: cred.kind,
     }
   }
   return {
@@ -392,32 +575,50 @@ function parseAutoUnlockBody(bodyString: string): { dump: string; blob: AutoUnlo
 }
 
 /**
- * Resolve the `_autoUnlock` blob into a plaintext per-user map.
+ * Coerce an unsealed perUser entry to `AutoCredential`. Pre-0.2 bundles
+ * store bare strings; 0.2+ bundles store `{ kind, value }` objects.
+ */
+function coerceUnsealed(entry: AutoCredential | string): AutoCredential {
+  if (typeof entry === 'string') return { kind: 'passphrase', value: entry }
+  return entry
+}
+
+/**
+ * Resolve the `_autoUnlock` blob into a typed per-user credential map.
  *
- * - For `kind: 'unsealed'`: pass through unchanged.
+ * - For `kind: 'unsealed'`: pass through, coercing pre-0.2 bare strings
+ *   to `{ kind: 'passphrase', value }`.
  * - For `kind: 'sealed'`: pick a `SealingKeyProvider` from
  *   `opts.sealingProviders` whose `.id` matches each entry's `pid`;
- *   unseal to plaintext. When no provider matches AND strict mode
+ *   unseal to `AutoCredential`. When no provider matches AND strict mode
  *   (default), throw `BundleSealMismatchError`. With
  *   `attemptUnsealAcrossProviders: true`, try each provider whose
  *   `alg` matches the envelope.
  * - When `sealingProviders` is unset entirely on a `'sealed'` bundle,
- *   pass through SEALED entries unchanged (caller can inspect).
+ *   pass through the SEALED entries as `{ kind, value: base64sealed }` —
+ *   the caller can inspect or unseal elsewhere.
+ *
+ * Pre-0.2 sealed entries missing `kind` default to `'passphrase'`.
  */
 async function resolveAutoUnlock(
   blob: AutoUnlockBody['_autoUnlock'],
   opts: ReadNoydbBundleOptions,
-): Promise<{ kind: 'unsealed' | 'sealed'; perUser: Record<string, string> }> {
+): Promise<{ kind: 'unsealed' | 'sealed'; perUser: Record<string, AutoCredential> }> {
   if (blob.kind === 'unsealed') {
-    return { kind: 'unsealed', perUser: { ...blob.perUser } }
+    const resolved: Record<string, AutoCredential> = {}
+    for (const [userId, entry] of Object.entries(blob.perUser)) {
+      resolved[userId] = coerceUnsealed(entry)
+    }
+    return { kind: 'unsealed', perUser: resolved }
   }
   // Sealed path.
   if (opts.sealingProviders === undefined || opts.sealingProviders.length === 0) {
-    // Inspection mode — pass the sealed payload through unchanged as
-    // an opaque base64 string. The caller is signalled by `kind: 'sealed'`.
-    const passthrough: Record<string, string> = {}
+    // Inspection mode — pass the sealed payload through as a typed
+    // credential whose `value` is the opaque base64 sealed bytes.
+    // The caller is signalled by `kind: 'sealed'` on the outer result.
+    const passthrough: Record<string, AutoCredential> = {}
     for (const [userId, entry] of Object.entries(blob.perUser)) {
-      passthrough[userId] = entry.sealed
+      passthrough[userId] = { kind: entry.kind ?? 'passphrase', value: entry.sealed }
     }
     return { kind: 'sealed', perUser: passthrough }
   }
@@ -425,9 +626,10 @@ async function resolveAutoUnlock(
   for (const p of opts.sealingProviders) providersByPid.set(p.id, p)
 
   const decoder = new TextDecoder()
-  const unsealedMap: Record<string, string> = {}
+  const unsealedMap: Record<string, AutoCredential> = {}
 
   for (const [userId, entry] of Object.entries(blob.perUser)) {
+    const credKind: AutoCredentialKind = entry.kind ?? 'passphrase'
     const provider = providersByPid.get(entry.pid)
     if (provider === undefined) {
       if (opts.attemptUnsealAcrossProviders === true) {
@@ -445,13 +647,13 @@ async function resolveAutoUnlock(
         if (opened === null) {
           throw new BundleSealMismatchError(userId, entry.pid)
         }
-        unsealedMap[userId] = opened
+        unsealedMap[userId] = { kind: credKind, value: opened }
         continue
       }
       throw new BundleSealMismatchError(userId, entry.pid)
     }
     const plaintextBytes = await provider.unseal(base64ToBytes(entry.sealed))
-    unsealedMap[userId] = decoder.decode(plaintextBytes)
+    unsealedMap[userId] = { kind: credKind, value: decoder.decode(plaintextBytes) }
   }
   return { kind: 'sealed', perUser: unsealedMap }
 }
@@ -803,10 +1005,10 @@ export async function writeNoydbBundle(
     )
   }
 
-  // #197 — auto-unlock validation. Mutual exclusion + opt-in marker
-  // for autoPassphrases. Reject empty perUser maps. Slice 1 supports
-  // only mode: 'self-target' for sealedPassphrases.
-  const autoUnlockMode = validateAutoUnlockOptions(opts)
+  // #197/#215 — auto-unlock: normalize once, validate + build from the
+  // same NormalizedAutoUnlock object so there's no double-normalize call.
+  const normalizedAutoUnlock = normalizeAutoUnlock(opts)
+  const autoUnlockMode = validateAutoUnlockOptions(opts, normalizedAutoUnlock)
 
   const handle = await vault.getBundleHandle()
   const dumpJson = await vault.dump()
@@ -825,9 +1027,9 @@ export async function writeNoydbBundle(
   // If no auto-unlock requested, body remains the raw dump JSON
   // (pre-#197 shape). Otherwise build the wrapped body containing the
   // dump + `_autoUnlock` blob and serialize.
-  const bodyJsonStr = autoUnlockMode === null
+  const bodyJsonStr = normalizedAutoUnlock === null
     ? filtered
-    : JSON.stringify(await buildAutoUnlockWrapper(filtered, opts))
+    : JSON.stringify(await buildAutoUnlockWrapper(filtered, normalizedAutoUnlock))
   const dumpBytes = new TextEncoder().encode(bodyJsonStr)
 
   const { format, streamFormat } = selectCompression(opts.compression)
