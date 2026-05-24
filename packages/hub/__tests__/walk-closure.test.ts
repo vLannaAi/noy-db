@@ -178,4 +178,10 @@ describe('walkClosure', () => {
     expect([...(closure.get('bs') ?? [])]).toEqual(['b-1'])
     expect(graph.cyclesDetected).toBe(true)
   })
+
+  it('is exported from the @noy-db/hub/bundle subpath', async () => {
+    const mod = await import('../src/bundle/index.js')
+    expect(typeof mod.walkClosure).toBe('function')
+    expect(typeof mod.PartitionExtractionError).toBe('function')
+  })
 })

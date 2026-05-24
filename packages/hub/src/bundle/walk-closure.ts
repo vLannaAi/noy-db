@@ -95,7 +95,11 @@ export async function walkClosure(
         const childColl = vault.collection<Record<string, unknown>>(inbound.collection)
         const childRecords = await childColl.list()
         for (const child of childRecords) {
-          if (String(child[inbound.field] ?? '') !== id) continue
+          const fk = child[inbound.field]
+          // Only scalar FK values can match an id; skip null/objects
+          // (mirrors checkIntegrity's scalar guard, vault.ts).
+          if (typeof fk !== 'string' && typeof fk !== 'number') continue
+          if (String(fk) !== id) continue
           const childId = child['id']
           if (typeof childId !== 'string') continue
           if (add(inbound.collection, childId)) {
@@ -130,7 +134,8 @@ export async function walkClosure(
       if (!record) continue
       for (const [field, descriptor] of Object.entries(outbound)) {
         const rawId = record[field]
-        if (rawId === null || rawId === undefined) continue
+        // Only scalar FK values reference a parent id; skip null/objects.
+        if (typeof rawId !== 'string' && typeof rawId !== 'number') continue
         const parentId = String(rawId)
         // Reaching an already-selected parent here is normal DAG
         // convergence (a child referencing its in-scope parent), not a
