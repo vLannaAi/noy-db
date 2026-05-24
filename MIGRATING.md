@@ -10,3 +10,5 @@ Shamir recovery now requires an injected provider.
    import { shamirRecoveryProvider } from '@noy-db/on-shamir'
    const db = await createNoydb({ store, shamirRecovery: shamirRecoveryProvider() })
    ```
+
+> Note: when multiple Shamir recovery entries are enrolled, supply the shares for a **single** entry per recovery attempt (optionally with `entryId`). Mixing shares from different entries in one call no longer recovers.

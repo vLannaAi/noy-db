@@ -296,6 +296,36 @@ describe('Shamir recovery — multiple coexisting entries', () => {
       }),
     ).rejects.toThrow(/no.*entry|entryId|not.*found/i)
   })
+
+  it('rejects a mixed-bag of shares from two different entries (per-entry contract, #211)', async () => {
+    // Enroll two separate Shamir entries, each 2-of-3.
+    const a = await db.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3, entryId: 'board' })
+    const b = await db.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3, entryId: 'spouse' })
+
+    // Mixed bag: one share from entry A + one share from entry B, no entryId.
+    // AES-GCM auth-tag will reject for every candidate entry — fails closed.
+    await expect(
+      db.recoverPassphrase('acme', {
+        newPassphrase: STRONG_NEW,
+        recoveryProof: {
+          profile: 'shamir',
+          payload: { shares: [a.shares![0]!, b.shares![0]!] },
+        },
+      }),
+    ).rejects.toThrow()
+
+    // Supplying a same-entry pair for entry A (no entryId) DOES recover —
+    // the contract is "group shares per entry," not "shamir is broken."
+    await db.recoverPassphrase('acme', {
+      newPassphrase: STRONG_NEW,
+      recoveryProof: {
+        profile: 'shamir',
+        payload: { shares: [a.shares![0]!, a.shares![1]!] },
+      },
+    })
+    const db2 = await createNoydb({ store: storeRef, user: 'alice', secret: STRONG_NEW, shamirRecovery: shamirRecoveryProvider() })
+    expect((await db2.getKeyring('acme')).userId).toBe('alice')
+  })
 })
 
 describe('Shamir recovery — rotateRecovery', () => {
