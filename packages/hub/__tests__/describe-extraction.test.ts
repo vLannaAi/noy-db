@@ -117,4 +117,26 @@ describe('describeExtraction', () => {
     expect(clientsStats.newestTs).toBeDefined()
     expect(clientsStats.oldestTs! <= clientsStats.newestTs!).toBe(true)
   })
+
+  it('passes through the walk graph metadata and reports no inaccessible records for an owner', async () => {
+    const company = await db.openVault('demo-co')
+    const clients = company.collection<Client>('clients')
+    const bills = company.collection<Bill>('bills', { refs: { clientId: ref('clients') } })
+    const creditNotes = company.collection<{ id: string; billId: string }>(
+      'creditNotes', { refs: { billId: ref('bills') } },
+    )
+
+    await clients.put('c-1', { id: 'c-1', name: 'A', operatorUserId: 'belle' })
+    await bills.put('b-1', { id: 'b-1', clientId: 'c-1', amount: 100 })
+    await creditNotes.put('cn-1', { id: 'cn-1', billId: 'b-1' })
+
+    const preview = await describeExtraction(company, {
+      seeds: { clients: (c) => c['operatorUserId'] === 'belle' },
+    })
+
+    // clients -> bills -> creditNotes : two inbound expansion hops.
+    expect(preview.graph.depth).toBe(2)
+    expect(preview.graph.cyclesDetected).toBe(false)
+    expect(preview.inaccessible).toEqual([])
+  })
 })

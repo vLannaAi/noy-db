@@ -87,8 +87,14 @@ export async function walkClosure(
 
   const { refRegistry } = vault._introspectState()
   const maxDepth = opts.maxDepth ?? 16
-  let depth = 0
   let cyclesDetected = false
+
+  // `depth` counts PRODUCTIVE expansion generations (rounds that added at
+  // least one new record), taken as the max over the two phases — i.e. the
+  // FK hop-distance the closure needed, not the raw loop-iteration count.
+  // The terminal draining pass that adds nothing does not count.
+  let inboundDepth = 0
+  let outboundDepth = 0
 
   // Phase 1 — INBOUND expansion. Worklist of newly-added (collection,id)
   // whose children we still need to pull.
@@ -96,12 +102,6 @@ export async function walkClosure(
   for (const [c, ids] of closure) for (const id of ids) frontier.push([c, id])
 
   while (frontier.length > 0) {
-    if (++depth > maxDepth) {
-      throw new PartitionExtractionError(
-        `walkClosure exceeded maxDepth=${maxDepth}; the FK graph may be ` +
-          `unexpectedly deep or cyclic. Raise maxDepth or narrow the seeds.`,
-      )
-    }
     const next: Array<[string, string]> = []
     for (const [collectionName, id] of frontier) {
       // Which collections reference THIS collection, and via which field?
@@ -127,6 +127,12 @@ export async function walkClosure(
         }
       }
     }
+    if (next.length > 0 && ++inboundDepth > maxDepth) {
+      throw new PartitionExtractionError(
+        `walkClosure exceeded maxDepth=${maxDepth}; the FK graph may be ` +
+          `unexpectedly deep or cyclic. Raise maxDepth or narrow the seeds.`,
+      )
+    }
     frontier = next
   }
 
@@ -137,11 +143,6 @@ export async function walkClosure(
   for (const [c, ids] of closure) for (const id of ids) outboundFrontier.push([c, id])
 
   while (outboundFrontier.length > 0) {
-    if (++depth > maxDepth) {
-      throw new PartitionExtractionError(
-        `walkClosure exceeded maxDepth=${maxDepth} during outbound completion.`,
-      )
-    }
     const next: Array<[string, string]> = []
     for (const [collectionName, id] of outboundFrontier) {
       const outbound = refRegistry.getOutbound(collectionName)
@@ -162,8 +163,15 @@ export async function walkClosure(
         }
       }
     }
+    if (next.length > 0 && ++outboundDepth > maxDepth) {
+      throw new PartitionExtractionError(
+        `walkClosure exceeded maxDepth=${maxDepth} during outbound completion.`,
+      )
+    }
     outboundFrontier = next
   }
+
+  const depth = Math.max(inboundDepth, outboundDepth)
 
   return { closure, graph: { depth, cyclesDetected } }
 }
