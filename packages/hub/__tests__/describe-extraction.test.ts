@@ -96,4 +96,25 @@ describe('describeExtraction', () => {
     // byCollection is sorted by name for determinism
     expect(preview.byCollection.map((c) => c.name)).toEqual(['bills', 'clients'])
   })
+
+  it('sums envelope bytes and tracks oldest/newest _ts without decrypting', async () => {
+    const company = await db.openVault('demo-co')
+    const clients = company.collection<Client>('clients')
+
+    await clients.put('c-1', { id: 'c-1', name: 'A', operatorUserId: 'belle' })
+    await clients.put('c-2', { id: 'c-2', name: 'B', operatorUserId: 'belle' })
+
+    const preview = await describeExtraction(company, {
+      seeds: { clients: () => true },
+    })
+
+    const clientsStats = preview.byCollection.find((c) => c.name === 'clients')!
+    expect(clientsStats.recordCount).toBe(2)
+    expect(clientsStats.bytes).toBeGreaterThan(0)
+    expect(preview.totalBytes).toBe(clientsStats.bytes)
+    // Both records exist; oldest <= newest lexicographically.
+    expect(clientsStats.oldestTs).toBeDefined()
+    expect(clientsStats.newestTs).toBeDefined()
+    expect(clientsStats.oldestTs! <= clientsStats.newestTs!).toBe(true)
+  })
 })

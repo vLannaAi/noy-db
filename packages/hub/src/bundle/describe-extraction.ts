@@ -32,17 +32,49 @@ export async function describeExtraction(
 ): Promise<ExtractionPreview> {
   const { closure, graph } = await walkClosure(vault, opts)
 
-  const byCollection = [...closure.entries()]
-    .map(([name, ids]) => ({ name, recordCount: ids.size, bytes: 0 }))
-    .sort((a, b) => a.name.localeCompare(b.name))
+  const { name: vaultName, adapter } = vault._introspectState()
+  const encoder = new TextEncoder()
 
-  const totalRecords = byCollection.reduce((n, c) => n + c.recordCount, 0)
+  const byCollection: Array<{
+    name: string; recordCount: number; bytes: number; oldestTs?: string; newestTs?: string
+  }> = []
+  const inaccessible: Array<{ collection: string; id: string }> = []
+  let totalBytes = 0
+  let totalRecords = 0
+
+  for (const [collectionName, ids] of closure) {
+    let bytes = 0
+    let oldestTs: string | undefined
+    let newestTs: string | undefined
+    let recordCount = 0
+
+    for (const id of ids) {
+      const env = await adapter.get(vaultName, collectionName, id)
+      if (!env) {
+        // Walk reached it (via decrypted list) but the raw store read
+        // returned nothing — surface rather than miscount.
+        inaccessible.push({ collection: collectionName, id })
+        continue
+      }
+      recordCount++
+      bytes += encoder.encode(JSON.stringify(env)).length
+      const ts = env._ts
+      if (oldestTs === undefined || ts < oldestTs) oldestTs = ts
+      if (newestTs === undefined || ts > newestTs) newestTs = ts
+    }
+
+    byCollection.push({ name: collectionName, recordCount, bytes, oldestTs, newestTs })
+    totalBytes += bytes
+    totalRecords += recordCount
+  }
+
+  byCollection.sort((a, b) => a.name.localeCompare(b.name))
 
   return Object.freeze({
     totalRecords,
-    totalBytes: 0,
+    totalBytes,
     byCollection,
     graph,
-    inaccessible: [],
+    inaccessible,
   })
 }
