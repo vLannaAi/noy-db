@@ -44,6 +44,8 @@ export { generateULID, isULID } from './ulid.js'
 // ─── Partition extraction (#198 epic) ───────────────────
 export { walkClosure } from './walk-closure.js'
 export type { WalkClosureOptions, ClosureResult } from './walk-closure.js'
+export { describeExtraction } from './describe-extraction.js'
+export type { ExtractionPreview } from './describe-extraction.js'
 
 // ─── Bundle / backup errors ─────────────────────────────
 // Re-exported from the central errors module so subpath consumers can

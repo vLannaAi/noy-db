@@ -139,4 +139,9 @@ describe('describeExtraction', () => {
     expect(preview.graph.cyclesDetected).toBe(false)
     expect(preview.inaccessible).toEqual([])
   })
+
+  it('is exported from the @noy-db/hub/bundle subpath', async () => {
+    const mod = await import('../src/bundle/index.js')
+    expect(typeof mod.describeExtraction).toBe('function')
+  })
 })

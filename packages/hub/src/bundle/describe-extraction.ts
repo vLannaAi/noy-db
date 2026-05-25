@@ -63,7 +63,15 @@ export async function describeExtraction(
       if (newestTs === undefined || ts > newestTs) newestTs = ts
     }
 
-    byCollection.push({ name: collectionName, recordCount, bytes, oldestTs, newestTs })
+    byCollection.push({
+      name: collectionName,
+      recordCount,
+      bytes,
+      // Spread conditionally — exactOptionalPropertyTypes forbids an
+      // explicit `undefined` on an optional property.
+      ...(oldestTs !== undefined ? { oldestTs } : {}),
+      ...(newestTs !== undefined ? { newestTs } : {}),
+    })
     totalBytes += bytes
     totalRecords += recordCount
   }
