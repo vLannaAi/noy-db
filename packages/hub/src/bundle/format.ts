@@ -145,6 +145,22 @@ export interface NoydbBundleHeader {
    * pre-#197 shape; back-compatible).
    */
   readonly autoUnlock?: 'unsealed' | 'sealed'
+  /**
+   * Bundle's role in the source → destination lifecycle (#203).
+   *   - omitted / 'snapshot' (default): backup/copy of an existing vault.
+   *   - 'extracted-partition': re-keyed projection awaiting adoption.
+   */
+  readonly bundleKind?: 'snapshot' | 'extracted-partition'
+  /**
+   * Transfer-seal INDICATOR (#206) — metadata only, no payload (the
+   * sealed DEKs live in the body). Present iff
+   * bundleKind === 'extracted-partition'.
+   */
+  readonly transferSeal?: {
+    readonly v: 1
+    readonly alg: 'aes-256-gcm-pre-shared'
+    readonly sealId: string
+  }
 }
 
 /**
@@ -160,6 +176,8 @@ const ALLOWED_HEADER_KEYS: ReadonlySet<string> = new Set([
   'bodySha256',
   'publicEnvelope',
   'autoUnlock',
+  'bundleKind',
+  'transferSeal',
 ])
 
 /**
@@ -250,6 +268,54 @@ export function validateBundleHeader(
       )
     }
   }
+  if (h['bundleKind'] !== undefined) {
+    if (h['bundleKind'] !== 'snapshot' && h['bundleKind'] !== 'extracted-partition') {
+      const got = typeof h['bundleKind'] === 'string' ? `"${h['bundleKind']}"` : typeof h['bundleKind']
+      throw new Error(
+        `.noydb bundle header.bundleKind must be 'snapshot' or 'extracted-partition' when present, got ${got}.`,
+      )
+    }
+  }
+  if (h['transferSeal'] !== undefined) {
+    const ts = h['transferSeal']
+    if (ts === null || typeof ts !== 'object' || Array.isArray(ts)) {
+      throw new Error(`.noydb bundle header.transferSeal must be a JSON object when present, got ${typeof ts}.`)
+    }
+    const t = ts as Record<string, unknown>
+    if (t['v'] !== 1) {
+      throw new Error(`.noydb bundle header.transferSeal.v must be 1, got ${String(t['v'])}.`)
+    }
+    if (t['alg'] !== 'aes-256-gcm-pre-shared') {
+      throw new Error(`.noydb bundle header.transferSeal.alg must be 'aes-256-gcm-pre-shared', got ${String(t['alg'])}.`)
+    }
+    if (typeof t['sealId'] !== 'string' || t['sealId'].length === 0) {
+      throw new Error(`.noydb bundle header.transferSeal.sealId must be a non-empty string, got ${String(t['sealId'])}.`)
+    }
+  }
+  // Cross-field invariant: the seal indicator and the extracted-partition
+  // kind imply each other. An extracted partition is unlocked via its
+  // transfer seal; a seal without the kind is a malformed header.
+  const isExtracted = h['bundleKind'] === 'extracted-partition'
+  const hasSeal = h['transferSeal'] !== undefined
+  if (hasSeal && !isExtracted) {
+    throw new Error(
+      `.noydb bundle header.transferSeal requires bundleKind === 'extracted-partition'.`,
+    )
+  }
+  if (isExtracted && !hasSeal) {
+    throw new Error(
+      `.noydb bundle header with bundleKind === 'extracted-partition' must carry a transferSeal indicator.`,
+    )
+  }
+  // An extracted partition's unlock path IS the transfer seal. A parallel
+  // autoUnlock credential would create two unlock paths and weaken the
+  // one-time-seal guarantee (spec §12.3). Reject the combination.
+  if (isExtracted && h['autoUnlock'] !== undefined) {
+    throw new Error(
+      `.noydb bundle header cannot carry both autoUnlock and bundleKind === 'extracted-partition' — `
+      + `an extracted partition is unlocked via its transfer seal, not an auto-credential.`,
+    )
+  }
 }
 
 /**
@@ -270,6 +336,8 @@ export function encodeBundleHeader(header: NoydbBundleHeader): Uint8Array {
     bodySha256: header.bodySha256,
     ...(header.publicEnvelope !== undefined ? { publicEnvelope: header.publicEnvelope } : {}),
     ...(header.autoUnlock !== undefined ? { autoUnlock: header.autoUnlock } : {}),
+    ...(header.bundleKind !== undefined ? { bundleKind: header.bundleKind } : {}),
+    ...(header.transferSeal !== undefined ? { transferSeal: header.transferSeal } : {}),
   })
   return new TextEncoder().encode(json)
 }

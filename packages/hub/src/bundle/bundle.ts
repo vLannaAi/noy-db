@@ -575,6 +575,75 @@ function parseAutoUnlockBody(bodyString: string): { dump: string; blob: AutoUnlo
 }
 
 /**
+ * Transfer-seal payload (#206). The destination DEKs, exported to raw
+ * bytes and AES-256-GCM-sealed *as a set* under the one-time transfer
+ * key. `adoptPartition` (#207) unseals this; `createOwnerOnAdoptedPartition`
+ * (#208) re-wraps the raw DEKs under the recipient's KEK.
+ */
+export interface TransferSealPayload {
+  readonly v: 1
+  readonly alg: 'aes-256-gcm-pre-shared'
+  readonly sealId: string
+  /** base64(AES-256-GCM(transferKey, JSON of { collection: base64(rawDEK) })) — iv ‖ ct ‖ tag. */
+  readonly payload: string
+}
+
+/**
+ * Body wrapper for an extracted, transfer-sealed partition (#203/#206).
+ * Sibling to {@link AutoUnlockBody}; selected by `header.bundleKind ===
+ * 'extracted-partition'`. The inner `dump` is a re-keyed projection with
+ * an empty `keyrings` map.
+ */
+export interface ExtractedPartitionBody {
+  readonly _noydb_bundle_body: 1
+  readonly dump: string
+  readonly _transferSeal: TransferSealPayload
+}
+
+export function buildExtractedPartitionWrapper(
+  dumpJson: string,
+  seal: TransferSealPayload,
+): ExtractedPartitionBody {
+  return { _noydb_bundle_body: 1, dump: dumpJson, _transferSeal: seal }
+}
+
+export function parseExtractedPartitionBody(
+  bodyString: string,
+): { dump: string; seal: TransferSealPayload } {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(bodyString)
+  } catch (err) {
+    throw new BundleIntegrityError(
+      'header declared extracted-partition but body could not be parsed as JSON wrapper: '
+      + (err instanceof Error ? err.message : String(err)),
+    )
+  }
+  if (typeof parsed !== 'object' || parsed === null) {
+    throw new BundleIntegrityError('extracted-partition body is not a JSON object')
+  }
+  const obj = parsed as Record<string, unknown>
+  if (obj['_noydb_bundle_body'] !== 1) {
+    throw new BundleIntegrityError(
+      'extracted-partition body missing `_noydb_bundle_body: 1` discriminator',
+    )
+  }
+  if (typeof obj['dump'] !== 'string') {
+    throw new BundleIntegrityError('extracted-partition body must carry a string `dump` field')
+  }
+  const seal = obj['_transferSeal']
+  if (typeof seal !== 'object' || seal === null) {
+    throw new BundleIntegrityError('extracted-partition body missing `_transferSeal` blob')
+  }
+  const s = seal as Record<string, unknown>
+  if (s['v'] !== 1 || s['alg'] !== 'aes-256-gcm-pre-shared'
+      || typeof s['sealId'] !== 'string' || typeof s['payload'] !== 'string') {
+    throw new BundleIntegrityError('extracted-partition `_transferSeal` blob is malformed')
+  }
+  return { dump: obj['dump'], seal: seal as TransferSealPayload }
+}
+
+/**
  * Coerce an unsealed perUser entry to `AutoCredential`. Pre-0.2 bundles
  * store bare strings; 0.2+ bundles store `{ kind, value }` objects.
  */
