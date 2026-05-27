@@ -46,6 +46,8 @@ export { walkClosure } from './walk-closure.js'
 export type { WalkClosureOptions, ClosureResult } from './walk-closure.js'
 export { describeExtraction } from './describe-extraction.js'
 export type { ExtractionPreview } from './describe-extraction.js'
+export { extractPartition } from './extract-partition.js'
+export type { ExtractPartitionResult } from './extract-partition.js'
 
 // ─── Bundle / backup errors ─────────────────────────────
 // Re-exported from the central errors module so subpath consumers can
