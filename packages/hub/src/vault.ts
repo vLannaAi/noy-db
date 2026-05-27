@@ -2784,7 +2784,7 @@ export class Vault {
       // trip the data check on a record that never existed. Skip
       // them BEFORE the key/seen bookkeeping so they neither
       // tombstone real entries nor enter the latest map.
-      if (entry.op === 'amendment') continue
+      if (entry.op === 'amendment' || entry.op === 'lifecycle') continue
       const key = `${entry.collection}/${entry.id}`
       if (seen.has(key)) continue
       seen.add(key)

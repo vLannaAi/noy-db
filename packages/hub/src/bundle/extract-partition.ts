@@ -271,11 +271,19 @@ export async function extractPartition(
 
   const { seal, transferKey } = await sealDeks(deks)
 
-  // TODO(#226): write a `partition-handed-over:<sealId>` entry to the SOURCE
-  // vault's ledger (spec §4.2 / invariant 4 — the firm's audit signal that an
-  // extraction happened). Deferred: needs the LedgerStore append + hash-chain
-  // path and a no-history fallback; doing it wrong corrupts verifyBackupIntegrity.
-  // Extraction stays non-destructive of records regardless.
+  // Source-side audit (#226 / spec §4.2 / invariant 4): record that a partition
+  // was handed over. Non-destructive — an audit append, no record touched.
+  // No-op when the source vault has no history strategy. append() fills
+  // index/prevHash/ts and (since actor is '') the ledger's configured actor.
+  await vault._getLedgerOrNull()?.append({
+    op: 'lifecycle',
+    collection: '',
+    id: '',
+    version: 0,
+    actor: '',
+    payloadHash: '',
+    reason: `partition-handed-over:${seal.sealId}`,
+  })
 
   // Build the dump JSON: unowned (empty keyrings), empty ledger (default),
   // re-keyed collections only.
