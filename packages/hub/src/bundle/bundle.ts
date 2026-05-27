@@ -1064,6 +1064,48 @@ async function applyPlaintextFilters(
  * pass it as the request body. The `@noy-db/file` adapter wraps
  * this with a `saveBundle(path, vault)` helper.
  */
+/**
+ * Assemble the final `.noydb` container bytes from a body JSON string +
+ * header extras. Shared by `writeNoydbBundle` and `extractPartition`
+ * so both producers go through one compress/hash/prefix path.
+ *
+ * @internal
+ */
+export async function assembleBundleContainer(opts: {
+  handle: string
+  bodyJsonStr: string
+  compression: WriteNoydbBundleOptions['compression']
+  /** Header fields beyond the always-present four. */
+  headerExtras?: Partial<Pick<NoydbBundleHeader, 'publicEnvelope' | 'autoUnlock' | 'bundleKind' | 'transferSeal'>>
+}): Promise<Uint8Array> {
+  const dumpBytes = new TextEncoder().encode(opts.bodyJsonStr)
+  const { format, streamFormat } = selectCompression(opts.compression)
+  const body = streamFormat === null
+    ? dumpBytes
+    : await pumpThroughStream(dumpBytes, new CompressionStream(streamFormat))
+  const bodySha256 = await sha256Hex(body)
+
+  const header: NoydbBundleHeader = {
+    formatVersion: NOYDB_BUNDLE_FORMAT_VERSION,
+    handle: opts.handle,
+    bodyBytes: body.length,
+    bodySha256,
+    ...(opts.headerExtras?.publicEnvelope !== undefined ? { publicEnvelope: opts.headerExtras.publicEnvelope } : {}),
+    ...(opts.headerExtras?.autoUnlock !== undefined ? { autoUnlock: opts.headerExtras.autoUnlock } : {}),
+    ...(opts.headerExtras?.bundleKind !== undefined ? { bundleKind: opts.headerExtras.bundleKind } : {}),
+    ...(opts.headerExtras?.transferSeal !== undefined ? { transferSeal: opts.headerExtras.transferSeal } : {}),
+  }
+  const headerBytes = encodeBundleHeader(header)
+
+  const prefix = new Uint8Array(NOYDB_BUNDLE_PREFIX_BYTES)
+  prefix.set(NOYDB_BUNDLE_MAGIC, 0)
+  prefix[4] = (streamFormat === null ? 0 : FLAG_COMPRESSED) | FLAG_HAS_INTEGRITY_HASH
+  prefix[5] = format
+  writeUint32BE(prefix, 6, headerBytes.length)
+
+  return concatBytes([prefix, headerBytes, body])
+}
+
 export async function writeNoydbBundle(
   vault: Vault,
   opts: WriteNoydbBundleOptions = {},
@@ -1099,15 +1141,6 @@ export async function writeNoydbBundle(
   const bodyJsonStr = normalizedAutoUnlock === null
     ? filtered
     : JSON.stringify(await buildAutoUnlockWrapper(filtered, normalizedAutoUnlock))
-  const dumpBytes = new TextEncoder().encode(bodyJsonStr)
-
-  const { format, streamFormat } = selectCompression(opts.compression)
-  const body = streamFormat === null
-    ? dumpBytes
-    : await pumpThroughStream(dumpBytes, new CompressionStream(streamFormat))
-
-  const bodySha256 = await sha256Hex(body)
-
   // Snapshot the source vault's public envelope into the header
   // when one is persisted. `Vault.getPublicEnvelope` tolerates a
   // missing document and returns undefined, which we propagate as
@@ -1116,25 +1149,15 @@ export async function writeNoydbBundle(
   // headers exactly like before, preserving back-compat.
   const publicEnvelope = await vault.getPublicEnvelope()
 
-  const header: NoydbBundleHeader = {
-    formatVersion: NOYDB_BUNDLE_FORMAT_VERSION,
+  return assembleBundleContainer({
     handle,
-    bodyBytes: body.length,
-    bodySha256,
-    ...(publicEnvelope !== undefined ? { publicEnvelope } : {}),
-    ...(autoUnlockMode !== null ? { autoUnlock: autoUnlockMode } : {}),
-  }
-  const headerBytes = encodeBundleHeader(header)
-
-  // Assemble the fixed prefix in a 10-byte buffer.
-  const prefix = new Uint8Array(NOYDB_BUNDLE_PREFIX_BYTES)
-  prefix.set(NOYDB_BUNDLE_MAGIC, 0)
-  prefix[4] =
-    (streamFormat === null ? 0 : FLAG_COMPRESSED) | FLAG_HAS_INTEGRITY_HASH
-  prefix[5] = format
-  writeUint32BE(prefix, 6, headerBytes.length)
-
-  return concatBytes([prefix, headerBytes, body])
+    bodyJsonStr,
+    compression: opts.compression,
+    headerExtras: {
+      ...(publicEnvelope !== undefined ? { publicEnvelope } : {}),
+      ...(autoUnlockMode !== null ? { autoUnlock: autoUnlockMode } : {}),
+    },
+  })
 }
 
 /**
