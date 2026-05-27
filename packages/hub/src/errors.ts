@@ -1240,6 +1240,30 @@ export class PartitionExtractionError extends NoydbError {
   }
 }
 
+/**
+ * Thrown by `adoptPartition` (#207) when the transfer seal can't be
+ * opened — a wrong/short transfer key (AES-GCM auth-tag failure) or a
+ * malformed sealed payload.
+ */
+export class TransferSealError extends NoydbError {
+  constructor(message: string) {
+    super('TRANSFER_SEAL', message)
+    this.name = 'TransferSealError'
+  }
+}
+
+/**
+ * Thrown when an adoption-lifecycle precondition fails — re-adopting a
+ * partition already consumed in this store (#207), or owner-creation on a
+ * vault that isn't in the adopted-unowned state (#208).
+ */
+export class AdoptionStateError extends NoydbError {
+  constructor(message: string) {
+    super('ADOPTION_STATE', message)
+    this.name = 'AdoptionStateError'
+  }
+}
+
 // ─── Session Errors ───────────────────────────────────────
 
 /**

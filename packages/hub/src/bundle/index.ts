@@ -48,6 +48,9 @@ export { describeExtraction } from './describe-extraction.js'
 export type { ExtractionPreview } from './describe-extraction.js'
 export { extractPartition } from './extract-partition.js'
 export type { ExtractPartitionResult } from './extract-partition.js'
+export { adoptPartition, unsealDeks } from './adopt-partition.js'
+export type { AdoptPartitionOptions, AdoptPartitionResult } from './adopt-partition.js'
+export { TransferSealError, AdoptionStateError } from '../errors.js'
 
 // ─── Bundle / backup errors ─────────────────────────────
 // Re-exported from the central errors module so subpath consumers can
