@@ -12,6 +12,7 @@ import { NOYDB_BACKUP_VERSION } from '../types.js'
 import { decrypt, encrypt, generateDEK, bufferToBase64 } from '../crypto.js'
 import { PartitionExtractionError } from '../errors.js'
 import { walkClosure, type WalkClosureOptions } from './walk-closure.js'
+import { generateULID } from './ulid.js'
 import {
   assembleBundleContainer,
   buildExtractedPartitionWrapper,
@@ -119,6 +120,12 @@ export async function extractPartition(
   const { collections, deks } = await reKeyClosure(vault, closure)
   const { seal, transferKey } = await sealDeks(deks)
 
+  // TODO(#226): write a `partition-handed-over:<sealId>` entry to the SOURCE
+  // vault's ledger (spec §4.2 / invariant 4 — the firm's audit signal that an
+  // extraction happened). Deferred: needs the LedgerStore append + hash-chain
+  // path and a no-history fallback; doing it wrong corrupts verifyBackupIntegrity.
+  // Extraction stays non-destructive of records regardless.
+
   // Build the dump JSON: unowned (empty keyrings), empty ledger (default),
   // re-keyed collections only.
   const { name: vaultName } = vault._introspectState()
@@ -132,7 +139,10 @@ export async function extractPartition(
   }
   const bodyJsonStr = JSON.stringify(buildExtractedPartitionWrapper(JSON.stringify(backup), seal))
 
-  const handle = await vault.getBundleHandle()
+  // An extracted partition is a NEW vault, not a re-export of the source —
+  // mint a fresh handle rather than reusing the source's stable ULID
+  // (which would collide if a recipient imports both source + partition).
+  const handle = generateULID()
   const bundleBytes = await assembleBundleContainer({
     handle,
     bodyJsonStr,
