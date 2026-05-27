@@ -11,6 +11,8 @@ import { base64ToBuffer, wrapKey } from '../crypto.js'
 import { TransferSealError, AdoptionStateError, ValidationError } from '../errors.js'
 import type { NoydbStore, VaultSnapshot, KeyringFile } from '../types.js'
 import { createOwnerKeyring } from '../team/keyring.js'
+import { LedgerStore } from '../history/ledger/store.js'
+import { LEDGER_COLLECTION } from '../history/ledger/constants.js'
 import type { TransferSealPayload } from './bundle.js'
 import { readNoydbBundleHeader, readNoydbBundle, parseExtractedPartitionBody } from './bundle.js'
 
@@ -190,7 +192,23 @@ export async function createOwnerOnAdoptedPartition(
   const mergedFile: KeyringFile = { ...keyringFile, deks: mergedDeks }
   await store.put(vaultName, '_keyring', userId, { ...env, _data: JSON.stringify(mergedFile) })
 
-  // 5. (#209) Destroy the transfer seal; retain sealId + consumedAt for audit.
+  // 5. (#226 destination) If the partition carried an audit chain (carryLedger
+  //    sealed the _ledger DEK), record the ownership transition on it. No-op
+  //    otherwise — no _ledger DEK means no chain to extend.
+  const ledgerDek = partitionDeks.get(LEDGER_COLLECTION)
+  if (ledgerDek) {
+    const ledger = new LedgerStore({
+      adapter: store,
+      vault: vaultName,
+      encrypted: true,
+      getDEK: async () => ledgerDek,
+      actor: userId,
+    })
+    await ledger.append({ op: 'lifecycle', collection: '', id: '', version: 0, actor: '', payloadHash: '', reason: `creation-of-new-owner:${userId}` })
+    await ledger.append({ op: 'lifecycle', collection: '', id: '', version: 0, actor: '', payloadHash: '', reason: `transfer-seal-consumed:${adoption.sealId}` })
+  }
+
+  // 6. (#209) Destroy the transfer seal; retain sealId + consumedAt for audit.
   const consumed = { sealId: adoption.sealId, adoptedAt: adoption.adoptedAt, consumedAt: new Date().toISOString() }
   await store.put(vaultName, '_meta', 'adoption', { ...adoptionEnv, _data: JSON.stringify(consumed) })
 
