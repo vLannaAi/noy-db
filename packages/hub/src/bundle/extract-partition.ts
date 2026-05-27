@@ -13,6 +13,7 @@ import { decrypt, encrypt, generateDEK, bufferToBase64 } from '../crypto.js'
 import { PartitionExtractionError } from '../errors.js'
 import { walkClosure, type WalkClosureOptions } from './walk-closure.js'
 import { generateULID } from './ulid.js'
+import { SCHEMAS_COLLECTION } from '../persisted-schemas/storage.js'
 import {
   assembleBundleContainer,
   buildExtractedPartitionWrapper,
@@ -55,6 +56,33 @@ export async function reKeyClosure(
   }
 
   return { collections, deks }
+}
+
+/**
+ * Re-key the persisted JSON Schemas (`_schemas/<collection>`) for the
+ * closure collections under the destination DEKs (#204). Returns a
+ * `{ collection: envelope }` map for the carried collections that actually
+ * have a schema; collections without one are omitted.
+ */
+export async function reKeySchemas(
+  vault: Vault,
+  closure: Map<string, Set<string>>,
+  destDeks: Map<string, CryptoKey>,
+): Promise<Record<string, EncryptedEnvelope>> {
+  const { name: vaultName, adapter, getDEK } = vault._introspectState()
+  const out: Record<string, EncryptedEnvelope> = {}
+
+  for (const collectionName of closure.keys()) {
+    const env = await adapter.get(vaultName, SCHEMAS_COLLECTION, collectionName)
+    if (!env) continue // collection has no persisted schema — skip
+    const destDek = destDeks.get(collectionName)
+    if (!destDek) continue
+    const srcDek = await getDEK(collectionName)
+    const plaintext = await decrypt(env._iv, env._data, srcDek)
+    const { iv, data } = await encrypt(plaintext, destDek)
+    out[collectionName] = { ...env, _iv: iv, _data: data }
+  }
+  return out
 }
 
 /** A minted transfer key (raw 32 bytes) + the seal carrying the DEK set. */
@@ -107,7 +135,10 @@ export interface ExtractPartitionResult {
  */
 export async function extractPartition(
   vault: Vault,
-  opts: WalkClosureOptions & { readonly compression?: 'auto' | 'brotli' | 'gzip' | 'none' },
+  opts: WalkClosureOptions & {
+    readonly compression?: 'auto' | 'brotli' | 'gzip' | 'none'
+    readonly carrySchemas?: boolean
+  },
 ): Promise<ExtractPartitionResult> {
   if (vault.role !== 'owner') {
     throw new PartitionExtractionError(
@@ -118,6 +149,8 @@ export async function extractPartition(
 
   const { closure } = await walkClosure(vault, opts)
   const { collections, deks } = await reKeyClosure(vault, closure)
+  const internal = opts.carrySchemas ? await reKeySchemas(vault, closure, deks) : {}
+  const hasInternal = Object.keys(internal).length > 0
   const { seal, transferKey } = await sealDeks(deks)
 
   // TODO(#226): write a `partition-handed-over:<sealId>` entry to the SOURCE
@@ -136,6 +169,7 @@ export async function extractPartition(
     _exported_by: '', // unowned — no source user travels
     keyrings: {},
     collections,
+    ...(hasInternal ? { _internal: { [SCHEMAS_COLLECTION]: internal } } : {}),
   }
   const bodyJsonStr = JSON.stringify(buildExtractedPartitionWrapper(JSON.stringify(backup), seal))
 

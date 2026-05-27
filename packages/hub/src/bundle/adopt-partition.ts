@@ -106,8 +106,18 @@ export async function adoptPartition(
     }
   }
 
-  const backup = JSON.parse(dump) as { collections: VaultSnapshot }
+  const backup = JSON.parse(dump) as { collections: VaultSnapshot; _internal?: VaultSnapshot }
   await destinationStore.saveAll(vaultName, backup.collections)
+
+  // Import carried internal collections (e.g. _schemas from #204 carrySchemas).
+  // saveAll only writes data collections; _internal is written per-record.
+  if (backup._internal) {
+    for (const [collection, records] of Object.entries(backup._internal)) {
+      for (const [id, envelope] of Object.entries(records)) {
+        await destinationStore.put(vaultName, collection, id, envelope)
+      }
+    }
+  }
 
   const adoptedAt = new Date().toISOString()
   const adoption = { sealId: seal.sealId, adoptedAt, needsOwner: true as const, transferSeal: seal }
