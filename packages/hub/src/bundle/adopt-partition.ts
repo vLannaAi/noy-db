@@ -7,9 +7,10 @@
  *
  * @module
  */
-import { base64ToBuffer } from '../crypto.js'
+import { base64ToBuffer, wrapKey } from '../crypto.js'
 import { TransferSealError, AdoptionStateError, ValidationError } from '../errors.js'
-import type { NoydbStore, VaultSnapshot } from '../types.js'
+import type { NoydbStore, VaultSnapshot, KeyringFile } from '../types.js'
+import { createOwnerKeyring } from '../team/keyring.js'
 import type { TransferSealPayload } from './bundle.js'
 import { readNoydbBundleHeader, readNoydbBundle, parseExtractedPartitionBody } from './bundle.js'
 
@@ -50,7 +51,9 @@ export async function unsealDeks(
   }
   const deks = new Map<string, CryptoKey>()
   for (const [collection, b64] of Object.entries(dekMap)) {
-    const dek = await crypto.subtle.importKey('raw', base64ToBuffer(b64), 'AES-GCM', false, ['encrypt', 'decrypt'])
+    // Extractable: the recipient must be able to re-wrap these under their
+    // own KEK (AES-KW) at owner-creation (#208). Matches generateDEK.
+    const dek = await crypto.subtle.importKey('raw', base64ToBuffer(b64) as BufferSource, 'AES-GCM', true, ['encrypt', 'decrypt'])
     deks.set(collection, dek)
   }
   return deks
@@ -113,4 +116,73 @@ export async function adoptPartition(
   })
 
   return { vaultName, needsOwner: true, sealId: seal.sealId }
+}
+
+export interface CreateOwnerResult {
+  readonly vaultName: string
+  readonly userId: string
+}
+
+/**
+ * Mint the first owner keyring on an adopted-but-unowned partition (#208),
+ * then destroy the transfer seal (#209). Standard-mode passphrase only —
+ * recovery enrollment + managed mode are post-hoc / follow-ups.
+ *
+ * Reuses `createOwnerKeyring` to derive the KEK + write the base keyring,
+ * then wraps the partition's DEKs (recovered from the seal) under that KEK
+ * and re-persists the merged keyring file.
+ */
+export async function createOwnerOnAdoptedPartition(
+  store: NoydbStore,
+  vaultName: string,
+  opts: { readonly userId: string; readonly passphrase: string; readonly transferKey: Uint8Array },
+): Promise<CreateOwnerResult> {
+  const { userId, passphrase, transferKey } = opts
+
+  // 1. Verify adopted-unowned state.
+  const adoptionEnv = await store.get(vaultName, '_meta', 'adoption')
+  if (!adoptionEnv) {
+    throw new AdoptionStateError(
+      `vault "${vaultName}" is not an adopted partition (no _meta/adoption). `
+      + `createOwnerOnAdoptedPartition only applies to vaults created via adoptPartition.`,
+    )
+  }
+  const adoption = JSON.parse(adoptionEnv._data) as {
+    sealId: string; adoptedAt: string; needsOwner?: boolean
+    consumedAt?: string; transferSeal?: TransferSealPayload
+  }
+  if (adoption.consumedAt !== undefined || adoption.transferSeal === undefined) {
+    throw new AdoptionStateError(
+      `vault "${vaultName}" already has an owner (transfer seal consumed at ${adoption.consumedAt}).`,
+    )
+  }
+  if ((await store.list(vaultName, '_keyring')).length > 0) {
+    throw new AdoptionStateError(`vault "${vaultName}" already has a keyring; cannot create a second owner.`)
+  }
+
+  // 2. Recover the partition DEKs from the seal (throws on wrong key) BEFORE
+  //    writing any keyring, so a bad transfer key leaves no trace.
+  const partitionDeks = await unsealDeks(adoption.transferSeal, transferKey)
+
+  // 3. Mint the owner keyring (KEK + _users DEK + canary, written to disk).
+  const unlocked = await createOwnerKeyring(store, vaultName, userId, passphrase)
+
+  // 4. Merge the partition DEKs (wrapped under the new KEK) into the keyring.
+  const env = await store.get(vaultName, '_keyring', userId)
+  if (!env) throw new AdoptionStateError(`keyring write for "${userId}" did not persist`)
+  const keyringFile = JSON.parse(env._data) as KeyringFile
+  const kek = unlocked.kek
+  if (!kek) throw new AdoptionStateError(`owner keyring for "${userId}" has no KEK to wrap partition DEKs under`)
+  const mergedDeks: Record<string, string> = { ...keyringFile.deks }
+  for (const [collection, dek] of partitionDeks) {
+    mergedDeks[collection] = await wrapKey(dek, kek)
+  }
+  const mergedFile: KeyringFile = { ...keyringFile, deks: mergedDeks }
+  await store.put(vaultName, '_keyring', userId, { ...env, _data: JSON.stringify(mergedFile) })
+
+  // 5. (#209) Destroy the transfer seal; retain sealId + consumedAt for audit.
+  const consumed = { sealId: adoption.sealId, adoptedAt: adoption.adoptedAt, consumedAt: new Date().toISOString() }
+  await store.put(vaultName, '_meta', 'adoption', { ...adoptionEnv, _data: JSON.stringify(consumed) })
+
+  return { vaultName, userId }
 }

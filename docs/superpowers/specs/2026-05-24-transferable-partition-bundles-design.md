@@ -75,10 +75,11 @@ writes ledger entries.
                             │ _keyring still EMPTY                       │
                             │ adoption.needsOwner = true                │
                             └─────────────────────┬─────────────────────┘
-                                                  │ createNoydb({ store,
-                                                  │   expecting: 'adopted-partition' })
-                                                  │   .createOwnerOnAdoptedPartition()  #208
-                                                  │ then automatic cleanup              #209
+                                                  │ createOwnerOnAdoptedPartition(
+                                                  │   store, vaultName,
+                                                  │   { userId, passphrase, transferKey })  #208
+                                                  │ + automatic seal cleanup                #209
+                                                  │ (then createNoydb opens it normally)
                                                   v
                             ┌─────────────────────────────────────────┐
                             │ OWNED                                     │
@@ -273,18 +274,27 @@ Reference the issue for mechanics; this table is the wiring map.
   `_meta/adoption` with `needsOwner: true`. Returns
   `{ vaultName, needsOwner: true, sealId }`. Vault is queryable but sensitive ops
   require an owner.
-- **`createNoydb({ store, expecting: 'adopted-partition' })`
-  `.createOwnerOnAdoptedPartition(vaultName, opts)`** (#208) — explicit flag (NOT
-  silent detection — chosen 2026-05-24 to prevent a mistyped passphrase from
-  dropping into adoption flow). Preconditions: `_meta/adoption` present,
-  `_keyring` empty. Mints the recipient owner via `setupNewVaultIdentity`,
-  re-wraps the destination DEKs under the recipient KEK. Composes with #195
-  mandatory strong-recovery in managed mode. Writes `creation-of-new-owner`
-  ledger entry.
-- **Transfer-seal cleanup** (#209) — runs automatically after a successful
-  `createOwnerOnAdoptedPartition`. Clears `_meta/adoption.transferSeal`, retains
-  `sealId` + sets `consumedAt`, writes `transfer-seal-consumed` ledger entry.
-  Idempotent (no-op if already consumed).
+- **`createOwnerOnAdoptedPartition(store, vaultName, { userId, passphrase, transferKey })`**
+  (#208) — a **free, store-level function** (NOT `createNoydb({ expecting: … })`;
+  the `expecting:` flag was dropped 2026-05-25 in favour of a separate explicit
+  call, which preserves the same no-silent-detection safety with no `createNoydb`
+  open-path surgery). Preconditions: `_meta/adoption` present + unconsumed,
+  `_keyring` empty (else `AdoptionStateError`). Recovers the partition DEKs by
+  re-unsealing with `transferKey`, mints the recipient owner via the existing
+  `createOwnerKeyring` primitive (the planned `setupNewVaultIdentity` refactor is
+  **not needed** — `createOwnerKeyring` already is that primitive), then merges the
+  partition DEKs wrapped under the recipient KEK into the keyring. **Scope: standard
+  passphrase mode only** — recovery enrollment at owner-create and
+  `passphraseMode: 'managed'` (with #195/#196/#14 composition) are deferred to
+  follow-ups; the recipient enrols recovery post-hoc via `db.enrollRecovery(...)`.
+  After this the recipient opens the vault normally via `createNoydb({ store, user,
+  secret })`.
+- **Transfer-seal cleanup** (#209) — runs automatically inside
+  `createOwnerOnAdoptedPartition` once the owner keyring is written. Clears
+  `_meta/adoption.transferSeal`, retains `sealId` + sets `consumedAt`. (The
+  `creation-of-new-owner` / `transfer-seal-consumed` ledger entries are deferred
+  with the #226 source-ledger work — the adopted partition starts with an empty
+  ledger, so there is no chain to append to yet.)
 
 ## 5. Build order
 
