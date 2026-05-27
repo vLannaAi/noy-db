@@ -292,9 +292,11 @@ Reference the issue for mechanics; this table is the wiring map.
 - **Transfer-seal cleanup** (#209) — runs automatically inside
   `createOwnerOnAdoptedPartition` once the owner keyring is written. Clears
   `_meta/adoption.transferSeal`, retains `sealId` + sets `consumedAt`. (The
-  `creation-of-new-owner` / `transfer-seal-consumed` ledger entries are deferred
-  with the #226 source-ledger work — the adopted partition starts with an empty
-  ledger, so there is no chain to append to yet.)
+  destination-side `creation-of-new-owner` / `transfer-seal-consumed` ledger
+  entries are **deferred to [#226](https://github.com/vLannaAi/noy-db/issues/226)**,
+  not skipped: the adopted partition starts with an empty ledger so there is no
+  chain to append to yet, but once `carryLedger` (#205) ships there is one and these
+  entries belong on it.)
 
 ## 5. Build order
 
@@ -337,12 +339,13 @@ TDD per project norm.
   missing-seal adoption, double-adoption rejection, cleanup idempotency.
 - **End-to-end ceremony test** (the niwat hotel-department scenario): seed
   `clients` by `operatorUserId`, follow the bill/receipt/payment/worker FK graph,
-  `extractPartition` → `adoptPartition` into a fresh store → `createNoydb({
-  expecting: 'adopted-partition' })` → `createOwnerOnAdoptedPartition`. Assert:
-  source vault unchanged (non-destructive), destination owned by the recipient,
-  transfer seal destroyed, every FK in the partition still resolves, source ledger
-  carries `partition-handed-over`, destination ledger carries
-  `transfer-seal-consumed`.
+  `extractPartition` → `adoptPartition` into a fresh store →
+  `createOwnerOnAdoptedPartition` → `createNoydb({ store, user, secret })` opens it
+  normally. Assert: source vault unchanged (non-destructive), destination owned by
+  the recipient, transfer seal destroyed, every FK in the partition still resolves.
+  (Source `partition-handed-over` + destination `creation-of-new-owner` /
+  `transfer-seal-consumed` ledger entries are deferred to [#226](https://github.com/vLannaAi/noy-db/issues/226)
+  — see §4.3.)
 
 ## 8. Docs & catalog
 
