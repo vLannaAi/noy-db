@@ -50,6 +50,7 @@ See [SUBSYSTEMS.md](../../SUBSYSTEMS.md) for the catalog overview, dependency gr
 |---|---|
 | [shadow](./shadow.md) | Read-only `vault.frame()` views |
 | [bundle](./bundle.md) | `.noydb` encrypted container format |
+| [transferable-partitions](./transferable-partitions.md) | Extract a re-keyed sub-portfolio into a new independently-owned vault (extract → adopt → own) |
 
 ## Cluster G — Collaboration & Auth
 

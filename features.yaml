@@ -659,7 +659,7 @@ features:
     name: Transferable partition bundles (extract → adopt → own)
     cluster: snapshot-and-portability
     spec: docs/superpowers/specs/2026-05-24-transferable-partition-bundles-design.md
-    subsystem_doc: docs/superpowers/specs/2026-05-24-transferable-partition-bundles-design.md
+    subsystem_doc: docs/subsystems/transferable-partitions.md
     package: '@noy-db/hub/bundle'
     factory: null
     status: preview
