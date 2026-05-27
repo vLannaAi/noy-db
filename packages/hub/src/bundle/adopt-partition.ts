@@ -11,6 +11,10 @@ import { base64ToBuffer, wrapKey } from '../crypto.js'
 import { TransferSealError, AdoptionStateError, ValidationError } from '../errors.js'
 import type { NoydbStore, VaultSnapshot, KeyringFile } from '../types.js'
 import { createOwnerKeyring } from '../team/keyring.js'
+import { resolveManagedSecret } from '../team/managed-passphrase.js'
+import type { SealingKeyProvider } from '../team/managed-passphrase.js'
+import type { ShamirRecoveryProvider } from '../team/shamir-recovery-provider.js'
+import type { RecoveryEnrollmentInput } from '../team/rotate-recover.js'
 import { LedgerStore } from '../history/ledger/store.js'
 import { LEDGER_COLLECTION } from '../history/ledger/constants.js'
 import type { TransferSealPayload } from './bundle.js'
@@ -135,21 +139,63 @@ export interface CreateOwnerResult {
   readonly userId: string
 }
 
+/** Standard-mode owner: recipient supplies the passphrase. */
+export interface CreateOwnerStandardOptions {
+  readonly userId: string
+  readonly passphrase: string
+  readonly transferKey: Uint8Array
+}
+
+/**
+ * Managed-mode owner (#208 follow-up): the passphrase is minted + sealed under
+ * a `SealingKeyProvider` (e.g. an `at-*` OS keychain) so the partition
+ * auto-unlocks on the recipient's device. Managed mode mandates a strong
+ * (Shamir) recovery profile at creation (#195), which needs the
+ * `shamirRecovery` provider injected.
+ */
+export interface CreateOwnerManagedOptions {
+  readonly userId: string
+  readonly passphraseMode: 'managed'
+  readonly sealingKey: SealingKeyProvider
+  readonly recovery: ReadonlyArray<RecoveryEnrollmentInput>
+  readonly shamirRecovery: ShamirRecoveryProvider
+  readonly transferKey: Uint8Array
+}
+
+export type CreateOwnerOptions = CreateOwnerStandardOptions | CreateOwnerManagedOptions
+
+function isManaged(o: CreateOwnerOptions): o is CreateOwnerManagedOptions {
+  return 'passphraseMode' in o && o.passphraseMode === 'managed'
+}
+
 /**
  * Mint the first owner keyring on an adopted-but-unowned partition (#208),
- * then destroy the transfer seal (#209). Standard-mode passphrase only —
- * recovery enrollment + managed mode are post-hoc / follow-ups.
+ * then destroy the transfer seal (#209).
  *
- * Reuses `createOwnerKeyring` to derive the KEK + write the base keyring,
- * then wraps the partition's DEKs (recovered from the seal) under that KEK
- * and re-persists the merged keyring file.
+ * Standard mode: the recipient supplies a passphrase. Managed mode: the
+ * passphrase is minted + sealed under a `SealingKeyProvider` and a strong
+ * (Shamir) recovery profile is enrolled (#195) — orchestrated via the existing
+ * `openVaultAndEnrollRecovery` ceremony.
+ *
+ * Either way, reuses `createOwnerKeyring` to derive the KEK + write the base
+ * keyring, then wraps the partition's DEKs (recovered from the seal) under that
+ * KEK and re-persists the merged keyring file.
  */
 export async function createOwnerOnAdoptedPartition(
   store: NoydbStore,
   vaultName: string,
-  opts: { readonly userId: string; readonly passphrase: string; readonly transferKey: Uint8Array },
+  opts: CreateOwnerOptions,
 ): Promise<CreateOwnerResult> {
-  const { userId, passphrase, transferKey } = opts
+  const { userId, transferKey } = opts
+
+  // Managed mode requires a strong (Shamir) recovery profile, validated BEFORE
+  // any disk write (#195) — same gate as createNoydb.
+  if (isManaged(opts) && !opts.recovery.some((r) => r.profile === 'shamir')) {
+    throw new AdoptionStateError(
+      'managed-mode adoption requires at least one strong (shamir) recovery profile in '
+      + '`recovery` — paper alone is not strong when there is no user passphrase to fall back on.',
+    )
+  }
 
   // 1. Verify adopted-unowned state.
   const adoptionEnv = await store.get(vaultName, '_meta', 'adoption')
@@ -175,6 +221,15 @@ export async function createOwnerOnAdoptedPartition(
   // 2. Recover the partition DEKs from the seal (throws on wrong key) BEFORE
   //    writing any keyring, so a bad transfer key leaves no trace.
   const partitionDeks = await unsealDeks(adoption.transferSeal, transferKey)
+
+  // Resolve the owner passphrase. Managed mode mints a random passphrase, seals
+  // it under the provider, and persists _meta/sealed-passphrase (so the
+  // partition auto-unlocks on the recipient's device); standard mode uses the
+  // caller's passphrase. Idempotent under retry — resolveManagedSecret's reopen
+  // arm reuses an already-sealed passphrase.
+  const passphrase = isManaged(opts)
+    ? await resolveManagedSecret(store, vaultName, opts.sealingKey)
+    : opts.passphrase
 
   // 3. Mint the owner keyring (KEK + _users DEK + canary, written to disk).
   const unlocked = await createOwnerKeyring(store, vaultName, userId, passphrase)
@@ -211,6 +266,24 @@ export async function createOwnerOnAdoptedPartition(
   // 6. (#209) Destroy the transfer seal; retain sealId + consumedAt for audit.
   const consumed = { sealId: adoption.sealId, adoptedAt: adoption.adoptedAt, consumedAt: new Date().toISOString() }
   await store.put(vaultName, '_meta', 'adoption', { ...adoptionEnv, _data: JSON.stringify(consumed) })
+
+  // 7. Managed mode (#208 follow-up): enroll the mandatory strong recovery
+  //    (#195) by orchestrating the existing public ceremony. The partition is
+  //    now a managed-mode vault on disk (sealed passphrase + keyring), so we
+  //    open it as a normal client and let openVaultAndEnrollRecovery do the
+  //    gate-bypass + enroll + re-assert. Dynamic import keeps the Noydb class
+  //    out of the @noy-db/hub/bundle static graph.
+  if (isManaged(opts)) {
+    const { createNoydb } = await import('../noydb.js')
+    const db = await createNoydb({
+      store,
+      user: userId,
+      passphraseMode: 'managed',
+      sealingKey: opts.sealingKey,
+      shamirRecovery: opts.shamirRecovery,
+    })
+    await db.openVaultAndEnrollRecovery(vaultName, { recovery: opts.recovery })
+  }
 
   return { vaultName, userId }
 }

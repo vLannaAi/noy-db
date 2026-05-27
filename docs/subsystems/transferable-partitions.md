@@ -100,7 +100,7 @@ All three lifecycle events ride a generic `'lifecycle'` ledger op (empty `collec
 
 ## Edge cases & limits
 
-- **Standard passphrase mode only** at owner-create today; managed mode (`SealingKeyProvider` / `at-*`) + recovery enrollment at creation are follow-ups (enroll recovery post-hoc via `db.enrollRecovery`).
+- **Managed mode at owner-create** is supported: pass `{ passphraseMode: 'managed', sealingKey, recovery, shamirRecovery }` to `createOwnerOnAdoptedPartition` and the partition auto-unlocks on the recipient's device (e.g. via an `at-*` OS keychain) with no passphrase. Managed mode **mandates a strong (Shamir) recovery profile** at creation (#195) — the `shamirRecovery` provider (`@noy-db/on-shamir`) must be injected. A half-completed managed adoption (keyring + sealed passphrase written, recovery enrollment interrupted) is **idempotent under retry** — re-run with the same `sealingKey` + `recovery`.
 - **`walkClosure` performance** is O(frontier · inbound-collections · records) per depth — fine at consumer-firm scale (≤100k records, FK depth ≤5); `maxDepth` (default 16) throws `PartitionExtractionError` on runaway graphs.
 - **No source-side delete** — the ceremony is non-destructive of source records; destructive withdrawal is a separate concern (sibling #199).
 - **`carryLedger` slice 1** carries `_ledger` entries only; `_ledger_deltas` (historical versions) + `_history` snapshots are a follow-up.
