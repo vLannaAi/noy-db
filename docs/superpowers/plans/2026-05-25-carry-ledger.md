@@ -181,17 +181,29 @@ export async function reKeyLedger(
     (e) => (e.op === 'put' || e.op === 'delete') && inClosure(e.collection, e.id),
   )
 
-  // 3. Re-chain: fresh index 0..N-1, prevHash = hashEntry(prev), payloadHash
-  //    recomputed against the re-keyed envelope for puts (deletes keep theirs;
-  //    verifyBackupIntegrity does not cross-check delete payloadHashes).
+  // 3. Re-chain: fresh index 0..N-1, prevHash = hashEntry(prev). payloadHash is
+  //    recomputed ONLY for the LATEST put per (col,id) — that's the one
+  //    verifyBackupIntegrity cross-checks against the carried envelope. Earlier
+  //    puts + deletes keep their SOURCE payloadHash verbatim (option (a), per
+  //    advisor review): recomputing an intermediate put to the current ciphertext
+  //    would make it assert something false about an older version.
+  const latestPutKey = new Set<string>()
+  for (let i = kept.length - 1; i >= 0; i--) {
+    const e = kept[i]!
+    const key = `${e.collection}/${e.id}`
+    if (e.op === 'put' && !latestPutKey.has(key)) latestPutKey.add(`@${i}`) // mark this index as a latest-put
+    if (e.op === 'put') latestPutKey.add(key) // mark (col,id) seen so earlier puts are NOT latest
+  }
+  // (Simpler: track the index of the latest put per key directly — see impl note.)
   const entries: Record<string, EncryptedEnvelope> = {}
   let prevHash = ''
   let last: LedgerEntry | undefined
   for (let i = 0; i < kept.length; i++) {
     const src = kept[i]!
     const reKeyedEnv = reKeyedCollections[src.collection]?.[src.id]
+    const isLatestPut = latestPutKey.has(`@${i}`)
     const payloadHash =
-      src.op === 'put' && reKeyedEnv ? await envelopePayloadHash(reKeyedEnv) : src.payloadHash
+      isLatestPut && reKeyedEnv ? await envelopePayloadHash(reKeyedEnv) : src.payloadHash
     // Preserve op/collection/id/version/ts/actor/reason; drop deltaHash/amendment
     // (slice 1 carries no deltas). Conditionally include reason (canonicalJson
     // rejects undefined).

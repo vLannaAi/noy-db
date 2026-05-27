@@ -14,6 +14,11 @@ import { PartitionExtractionError } from '../errors.js'
 import { walkClosure, type WalkClosureOptions } from './walk-closure.js'
 import { generateULID } from './ulid.js'
 import { SCHEMAS_COLLECTION } from '../persisted-schemas/storage.js'
+import { NOYDB_FORMAT_VERSION } from '../types.js'
+import { LEDGER_COLLECTION } from '../history/ledger/constants.js'
+import { canonicalJson, hashEntry } from '../history/ledger/entry.js'
+import type { LedgerEntry } from '../history/ledger/entry.js'
+import { envelopePayloadHash } from '../history/ledger/hash.js'
 import {
   assembleBundleContainer,
   buildExtractedPartitionWrapper,
@@ -85,6 +90,95 @@ export async function reKeySchemas(
   return out
 }
 
+const paddedIndex = (n: number): string => String(n).padStart(10, '0')
+
+export interface ReKeyLedgerResult {
+  /** { paddedIndex: re-encrypted entry envelope } for backup._internal._ledger. */
+  readonly entries: Record<string, EncryptedEnvelope>
+  /** Recomputed ledgerHead for the carried chain (index -1 when empty). */
+  readonly head: { hash: string; index: number; ts: string }
+}
+
+/**
+ * Build the carried `_ledger` chain for an extracted partition (#205, slice 1).
+ * Filters source entries to the closure, RE-CHAINS them (fresh index + prevHash),
+ * and re-encrypts under `ledgerDek`. The `payloadHash` is recomputed against the
+ * re-keyed envelope ONLY for the latest `put` per (collection,id) — the entry
+ * `verifyBackupIntegrity` cross-checks; earlier puts + deletes keep their source
+ * `payloadHash` verbatim (recomputing an intermediate put would assert a false
+ * hash for an older version). Amendments + out-of-closure entries are dropped;
+ * `_ledger_deltas`/`_history` are deferred to slice 2.
+ */
+export async function reKeyLedger(
+  vault: Vault,
+  closure: Map<string, Set<string>>,
+  reKeyedCollections: Record<string, Record<string, EncryptedEnvelope>>,
+  ledgerDek: CryptoKey,
+): Promise<ReKeyLedgerResult> {
+  const { name: vaultName, adapter, getDEK } = vault._introspectState()
+  const srcLedgerDek = await getDEK(LEDGER_COLLECTION)
+
+  // 1. Load + decrypt source entries in index order.
+  const ids = (await adapter.list(vaultName, LEDGER_COLLECTION)).sort()
+  const srcEntries: LedgerEntry[] = []
+  for (const id of ids) {
+    const env = await adapter.get(vaultName, LEDGER_COLLECTION, id)
+    if (!env) continue
+    srcEntries.push(JSON.parse(await decrypt(env._iv, env._data, srcLedgerDek)) as LedgerEntry)
+  }
+
+  // 2. Keep closure put/delete entries (drop amendments + out-of-closure).
+  const kept = srcEntries.filter(
+    (e) => (e.op === 'put' || e.op === 'delete') && (closure.get(e.collection)?.has(e.id) ?? false),
+  )
+
+  // 3a. Reverse pass: index of the LATEST put per (collection,id).
+  const latestPutIndex = new Map<string, number>()
+  for (let i = kept.length - 1; i >= 0; i--) {
+    const e = kept[i]!
+    if (e.op !== 'put') continue
+    const key = `${e.collection}/${e.id}`
+    if (!latestPutIndex.has(key)) latestPutIndex.set(key, i)
+  }
+
+  // 3b. Forward re-chain + re-encrypt.
+  const entries: Record<string, EncryptedEnvelope> = {}
+  let prevHash = ''
+  let last: LedgerEntry | undefined
+  for (let i = 0; i < kept.length; i++) {
+    const src = kept[i]!
+    const key = `${src.collection}/${src.id}`
+    const isLatestPut = src.op === 'put' && latestPutIndex.get(key) === i
+    const reKeyedEnv = reKeyedCollections[src.collection]?.[src.id]
+    const payloadHash = isLatestPut && reKeyedEnv
+      ? await envelopePayloadHash(reKeyedEnv)
+      : src.payloadHash
+    const entry: LedgerEntry = {
+      index: i,
+      prevHash,
+      op: src.op,
+      collection: src.collection,
+      id: src.id,
+      version: src.version,
+      ts: src.ts,
+      actor: src.actor,
+      payloadHash,
+      ...(src.reason !== undefined ? { reason: src.reason } : {}),
+    }
+    const { iv, data } = await encrypt(canonicalJson(entry), ledgerDek)
+    entries[paddedIndex(i)] = {
+      _noydb: NOYDB_FORMAT_VERSION, _v: i + 1, _ts: entry.ts, _iv: iv, _data: data, _by: entry.actor,
+    }
+    prevHash = await hashEntry(entry)
+    last = entry
+  }
+
+  return {
+    entries,
+    head: last ? { hash: prevHash, index: last.index, ts: last.ts } : { hash: '', index: -1, ts: '' },
+  }
+}
+
 /** A minted transfer key (raw 32 bytes) + the seal carrying the DEK set. */
 export interface SealResult {
   readonly seal: TransferSealPayload
@@ -138,6 +232,7 @@ export async function extractPartition(
   opts: WalkClosureOptions & {
     readonly compression?: 'auto' | 'brotli' | 'gzip' | 'none'
     readonly carrySchemas?: boolean
+    readonly carryLedger?: boolean
   },
 ): Promise<ExtractPartitionResult> {
   if (vault.role !== 'owner') {
@@ -149,8 +244,31 @@ export async function extractPartition(
 
   const { closure } = await walkClosure(vault, opts)
   const { collections, deks } = await reKeyClosure(vault, closure)
-  const internal = opts.carrySchemas ? await reKeySchemas(vault, closure, deks) : {}
+
+  // carryLedger (#205): mint a fresh _ledger DEK, build the carried chain, and
+  // SEAL the ledger DEK alongside the data DEKs so #208 wraps it into the
+  // recipient keyring (lets them decrypt + verify the chain). Must run BEFORE
+  // sealDeks.
+  let ledgerHead: { hash: string; index: number; ts: string } | undefined
+  let ledgerEntries: Record<string, EncryptedEnvelope> | undefined
+  if (opts.carryLedger) {
+    const ledgerDek = await generateDEK()
+    const built = await reKeyLedger(vault, closure, collections, ledgerDek)
+    if (built.head.index >= 0) {
+      ledgerEntries = built.entries
+      ledgerHead = built.head
+      deks.set(LEDGER_COLLECTION, ledgerDek)
+    }
+  }
+
+  // Build _internal (schemas #204 + ledger #205). reKeySchemas reads data-
+  // collection DEKs only, so it is unaffected by the _ledger DEK added above.
+  const internalSchemas = opts.carrySchemas ? await reKeySchemas(vault, closure, deks) : {}
+  const internal: Record<string, Record<string, EncryptedEnvelope>> = {}
+  if (Object.keys(internalSchemas).length > 0) internal[SCHEMAS_COLLECTION] = internalSchemas
+  if (ledgerEntries) internal[LEDGER_COLLECTION] = ledgerEntries
   const hasInternal = Object.keys(internal).length > 0
+
   const { seal, transferKey } = await sealDeks(deks)
 
   // TODO(#226): write a `partition-handed-over:<sealId>` entry to the SOURCE
@@ -169,7 +287,8 @@ export async function extractPartition(
     _exported_by: '', // unowned — no source user travels
     keyrings: {},
     collections,
-    ...(hasInternal ? { _internal: { [SCHEMAS_COLLECTION]: internal } } : {}),
+    ...(hasInternal ? { _internal: internal } : {}),
+    ...(ledgerHead ? { ledgerHead: { hash: ledgerHead.hash, index: ledgerHead.index, ts: ledgerHead.ts } } : {}),
   }
   const bodyJsonStr = JSON.stringify(buildExtractedPartitionWrapper(JSON.stringify(backup), seal))
 
