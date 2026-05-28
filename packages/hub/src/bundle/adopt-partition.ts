@@ -100,8 +100,12 @@ export async function adoptPartition(
   // recipient's KEK.
   await unsealDeks(seal, transferKey)
 
-  // One-time-per-destination: refuse to re-adopt the same partition into
-  // a store that already consumed this seal.
+  // Single-occupancy per vaultName: an `_meta/adoption` marker already present
+  // means this slot holds a partition (adopted-and-unowned, or already owned).
+  // saveAll below would overwrite its data and replace the marker, stranding the
+  // prior adoption's transfer seal. Refuse regardless of sealId — re-adopting the
+  // SAME bundle is a redundant call, and adopting a DIFFERENT bundle here would
+  // clobber the existing partition. Either way, pick a fresh vaultName.
   const existing = await destinationStore.get(vaultName, '_meta', 'adoption')
   if (existing) {
     const prior = JSON.parse(existing._data) as { sealId?: string }
@@ -110,6 +114,11 @@ export async function adoptPartition(
         `partition (sealId ${seal.sealId}) is already adopted into vault "${vaultName}".`,
       )
     }
+    throw new AdoptionStateError(
+      `vault "${vaultName}" already holds an adopted partition (sealId ${prior.sealId}); `
+      + `adopting a different partition (sealId ${seal.sealId}) here would overwrite it. `
+      + `Adopt into a fresh vaultName instead.`,
+    )
   }
 
   const backup = JSON.parse(dump) as { collections: VaultSnapshot; _internal?: VaultSnapshot }
@@ -180,6 +189,14 @@ function isManaged(o: CreateOwnerOptions): o is CreateOwnerManagedOptions {
  * Either way, reuses `createOwnerKeyring` to derive the KEK + write the base
  * keyring, then wraps the partition's DEKs (recovered from the seal) under that
  * KEK and re-persists the merged keyring file.
+ *
+ * Idempotent under retry: the seal is destroyed LAST (Stage D), after the
+ * keyring (Stage A), the ledger transition (Stage B), and — in managed mode —
+ * strong-recovery enrollment (Stage C). A failure in the fallible enrollment
+ * step leaves the seal intact, and re-running with the same `userId` +
+ * `transferKey` resumes from the first incomplete stage. (Multi-profile recovery
+ * arrays may re-enroll an already-enrolled profile on retry; managed mode's
+ * mandated single Shamir profile does not.)
  */
 export async function createOwnerOnAdoptedPartition(
   store: NoydbStore,
@@ -214,42 +231,67 @@ export async function createOwnerOnAdoptedPartition(
       `vault "${vaultName}" already has an owner (transfer seal consumed at ${adoption.consumedAt}).`,
     )
   }
-  if ((await store.list(vaultName, '_keyring')).length > 0) {
-    throw new AdoptionStateError(`vault "${vaultName}" already has a keyring; cannot create a second owner.`)
-  }
 
   // 2. Recover the partition DEKs from the seal (throws on wrong key) BEFORE
-  //    writing any keyring, so a bad transfer key leaves no trace.
+  //    writing any keyring, so a bad transfer key leaves no trace. Always
+  //    validated, including when resuming a partial prior call.
   const partitionDeks = await unsealDeks(adoption.transferSeal, transferKey)
 
-  // Resolve the owner passphrase. Managed mode mints a random passphrase, seals
-  // it under the provider, and persists _meta/sealed-passphrase (so the
-  // partition auto-unlocks on the recipient's device); standard mode uses the
-  // caller's passphrase. Idempotent under retry — resolveManagedSecret's reopen
-  // arm reuses an already-sealed passphrase.
-  const passphrase = isManaged(opts)
-    ? await resolveManagedSecret(store, vaultName, opts.sealingKey)
-    : opts.passphrase
+  // The ceremony below is split into stages so a failure in the fallible
+  // managed-enrollment step (network/provider outage) leaves the call RETRYABLE
+  // — the seal is destroyed only once everything durable is in place. Each stage
+  // detects its own prior completion rather than relying on a single resume bit.
 
-  // 3. Mint the owner keyring (KEK + _users DEK + canary, written to disk).
-  const unlocked = await createOwnerKeyring(store, vaultName, userId, passphrase)
-
-  // 4. Merge the partition DEKs (wrapped under the new KEK) into the keyring.
-  const env = await store.get(vaultName, '_keyring', userId)
-  if (!env) throw new AdoptionStateError(`keyring write for "${userId}" did not persist`)
-  const keyringFile = JSON.parse(env._data) as KeyringFile
-  const kek = unlocked.kek
-  if (!kek) throw new AdoptionStateError(`owner keyring for "${userId}" has no KEK to wrap partition DEKs under`)
-  const mergedDeks: Record<string, string> = { ...keyringFile.deks }
-  for (const [collection, dek] of partitionDeks) {
-    mergedDeks[collection] = await wrapKey(dek, kek)
+  // A keyring present for a DIFFERENT user (with the seal still unconsumed) is a
+  // genuine second-owner attempt — refuse it. A same-user keyring is a resumed
+  // partial call and is handled by the stage checks below.
+  const existingKeyring = await store.get(vaultName, '_keyring', userId)
+  const otherOwners = (await store.list(vaultName, '_keyring')).filter((u) => u !== userId)
+  if (otherOwners.length > 0) {
+    throw new AdoptionStateError(
+      `vault "${vaultName}" already has a keyring for a different owner; cannot create owner "${userId}".`,
+    )
   }
-  const mergedFile: KeyringFile = { ...keyringFile, deks: mergedDeks }
-  await store.put(vaultName, '_keyring', userId, { ...env, _data: JSON.stringify(mergedFile) })
 
-  // 5. (#226 destination) If the partition carried an audit chain (carryLedger
-  //    sealed the _ledger DEK), record the ownership transition on it. No-op
-  //    otherwise — no _ledger DEK means no chain to extend.
+  // Stage A — mint the owner keyring + merge the partition DEKs. Considered done
+  // only when the keyring already holds every partition DEK. createOwnerKeyring
+  // overwrites (fresh KEK + fresh _users DEK), so re-running is safe ONLY while
+  // no recovery has been enrolled yet — guaranteed here because enrollment
+  // (Stage C) runs strictly after Stage A completes.
+  const partitionCollections = [...partitionDeks.keys()]
+  const priorDeks = existingKeyring ? (JSON.parse(existingKeyring._data) as KeyringFile).deks : {}
+  const ownerMinted = existingKeyring !== null && partitionCollections.every((c) => c in priorDeks)
+  if (!ownerMinted) {
+    // Resolve the owner passphrase. Managed mode mints a random passphrase, seals
+    // it under the provider, and persists _meta/sealed-passphrase (so the
+    // partition auto-unlocks on the recipient's device); standard mode uses the
+    // caller's passphrase. Idempotent under retry — resolveManagedSecret's reopen
+    // arm reuses an already-sealed passphrase.
+    const passphrase = isManaged(opts)
+      ? await resolveManagedSecret(store, vaultName, opts.sealingKey)
+      : opts.passphrase
+
+    // Mint the owner keyring (KEK + _users DEK + canary, written to disk).
+    const unlocked = await createOwnerKeyring(store, vaultName, userId, passphrase)
+
+    // Merge the partition DEKs (wrapped under the new KEK) into the keyring.
+    const env = await store.get(vaultName, '_keyring', userId)
+    if (!env) throw new AdoptionStateError(`keyring write for "${userId}" did not persist`)
+    const keyringFile = JSON.parse(env._data) as KeyringFile
+    const kek = unlocked.kek
+    if (!kek) throw new AdoptionStateError(`owner keyring for "${userId}" has no KEK to wrap partition DEKs under`)
+    const mergedDeks: Record<string, string> = { ...keyringFile.deks }
+    for (const [collection, dek] of partitionDeks) {
+      mergedDeks[collection] = await wrapKey(dek, kek)
+    }
+    const mergedFile: KeyringFile = { ...keyringFile, deks: mergedDeks }
+    await store.put(vaultName, '_keyring', userId, { ...env, _data: JSON.stringify(mergedFile) })
+  }
+
+  // Stage B — (#226 destination) record the ownership transition on the carried
+  // audit chain (carryLedger sealed the _ledger DEK). No-op without that DEK.
+  // Idempotent: appended only if the closing `transfer-seal-consumed` entry is
+  // absent, so a retry does not duplicate the pair.
   const ledgerDek = partitionDeks.get(LEDGER_COLLECTION)
   if (ledgerDek) {
     const ledger = new LedgerStore({
@@ -259,20 +301,21 @@ export async function createOwnerOnAdoptedPartition(
       getDEK: async () => ledgerDek,
       actor: userId,
     })
-    await ledger.append({ op: 'lifecycle', collection: '', id: '', version: 0, actor: '', payloadHash: '', reason: `creation-of-new-owner:${userId}` })
-    await ledger.append({ op: 'lifecycle', collection: '', id: '', version: 0, actor: '', payloadHash: '', reason: `transfer-seal-consumed:${adoption.sealId}` })
+    const consumedReason = `transfer-seal-consumed:${adoption.sealId}`
+    const alreadyRecorded = (await ledger.loadAllEntries()).some((e) => e.reason === consumedReason)
+    if (!alreadyRecorded) {
+      await ledger.append({ op: 'lifecycle', collection: '', id: '', version: 0, actor: '', payloadHash: '', reason: `creation-of-new-owner:${userId}` })
+      await ledger.append({ op: 'lifecycle', collection: '', id: '', version: 0, actor: '', payloadHash: '', reason: consumedReason })
+    }
   }
 
-  // 6. (#209) Destroy the transfer seal; retain sealId + consumedAt for audit.
-  const consumed = { sealId: adoption.sealId, adoptedAt: adoption.adoptedAt, consumedAt: new Date().toISOString() }
-  await store.put(vaultName, '_meta', 'adoption', { ...adoptionEnv, _data: JSON.stringify(consumed) })
-
-  // 7. Managed mode (#208 follow-up): enroll the mandatory strong recovery
+  // Stage C — Managed mode (#208 follow-up): enroll the mandatory strong recovery
   //    (#195) by orchestrating the existing public ceremony. The partition is
   //    now a managed-mode vault on disk (sealed passphrase + keyring), so we
   //    open it as a normal client and let openVaultAndEnrollRecovery do the
   //    gate-bypass + enroll + re-assert. Dynamic import keeps the Noydb class
-  //    out of the @noy-db/hub/bundle static graph.
+  //    out of the @noy-db/hub/bundle static graph. Runs BEFORE seal destruction
+  //    so a failure here leaves the seal intact and the call retryable.
   if (isManaged(opts)) {
     const { createNoydb } = await import('../noydb.js')
     const db = await createNoydb({
@@ -284,6 +327,13 @@ export async function createOwnerOnAdoptedPartition(
     })
     await db.openVaultAndEnrollRecovery(vaultName, { recovery: opts.recovery })
   }
+
+  // Stage D — (#209) Destroy the transfer seal LAST — the commit point. Everything
+  //    above is either idempotent or resumable, so the seal is only consumed
+  //    once the owner keyring (and, in managed mode, strong recovery) is
+  //    durably in place. Retain sealId + consumedAt for audit.
+  const consumed = { sealId: adoption.sealId, adoptedAt: adoption.adoptedAt, consumedAt: new Date().toISOString() }
+  await store.put(vaultName, '_meta', 'adoption', { ...adoptionEnv, _data: JSON.stringify(consumed) })
 
   return { vaultName, userId }
 }

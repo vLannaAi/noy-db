@@ -116,6 +116,79 @@ describe('managed-mode adoption', () => {
     ).rejects.toThrow(/shamir|strong/)
   })
 
+  it('is idempotent under retry when recovery enrollment fails mid-ceremony', async () => {
+    const { dest, transferKey } = await extractAndAdopt()
+    const provider = new MemorySealingKeyProvider({ id: 'belle-keychain' })
+    const real = shamirRecoveryProvider()
+
+    // Inject a one-shot outage into the recovery-enrollment step (which runs
+    // AFTER the keyring is minted and the seal is destroyed in the buggy order).
+    let splitCalls = 0
+    const flaky = {
+      splitToShares(secret: Uint8Array, k: number, n: number) {
+        if (splitCalls++ === 0) throw new Error('injected provider outage')
+        return real.splitToShares(secret, k, n)
+      },
+      combineShares: (shares: readonly string[]) => real.combineShares(shares),
+    }
+
+    const opts = {
+      userId: 'belle' as const,
+      passphraseMode: 'managed' as const,
+      sealingKey: provider,
+      recovery: [{ profile: 'shamir' as const, k: 2, n: 3 }],
+      shamirRecovery: flaky,
+      transferKey,
+    }
+
+    // First attempt fails inside recovery enrollment.
+    await expect(createOwnerOnAdoptedPartition(dest, 'acme', opts)).rejects.toThrow(/injected provider outage/)
+
+    // Retry must RESUME and complete — not reject because the seal was
+    // prematurely consumed before enrollment on the first attempt.
+    const result = await createOwnerOnAdoptedPartition(dest, 'acme', opts)
+    expect(result).toEqual({ vaultName: 'acme', userId: 'belle' })
+
+    // Recovery is now enrolled and the partition auto-unlocks for the recipient.
+    const belleDb = await createNoydb({
+      store: dest, user: 'belle', passphraseMode: 'managed',
+      sealingKey: provider, shamirRecovery: real,
+    })
+    const vault = await belleDb.openVault('acme')
+    expect(await vault.collection<Client>('clients').get('c-1')).toMatchObject({ id: 'c-1', name: 'Hotel' })
+  })
+
+  it('refuses a different owner on a partition half-owned by another user', async () => {
+    const { dest, transferKey } = await extractAndAdopt()
+    const real = shamirRecoveryProvider()
+    let splitCalls = 0
+    const flaky = {
+      splitToShares(secret: Uint8Array, k: number, n: number) {
+        if (splitCalls++ === 0) throw new Error('injected provider outage')
+        return real.splitToShares(secret, k, n)
+      },
+      combineShares: (shares: readonly string[]) => real.combineShares(shares),
+    }
+
+    // Belle mints the keyring but enrollment fails — the seal stays unconsumed,
+    // leaving the partition half-owned by belle.
+    await expect(
+      createOwnerOnAdoptedPartition(dest, 'acme', {
+        userId: 'belle',
+        passphraseMode: 'managed',
+        sealingKey: new MemorySealingKeyProvider({ id: 'belle-keychain' }),
+        recovery: [{ profile: 'shamir', k: 2, n: 3 }],
+        shamirRecovery: flaky,
+        transferKey,
+      }),
+    ).rejects.toThrow(/injected provider outage/)
+
+    // Carol cannot claim the same adopted partition while belle's keyring is present.
+    await expect(
+      createOwnerOnAdoptedPartition(dest, 'acme', { userId: 'carol', passphrase: 'carol-2026', transferKey }),
+    ).rejects.toThrow(/different owner/)
+  })
+
   it('still supports the standard passphrase arm unchanged', async () => {
     const { dest, transferKey } = await extractAndAdopt()
     const result = await createOwnerOnAdoptedPartition(dest, 'acme', {

@@ -154,6 +154,22 @@ describe('adoptPartition rejections', () => {
     ).rejects.toThrow(AdoptionStateError)
   })
 
+  it('refuses to adopt a DIFFERENT partition into a vault that already holds one (no clobber)', async () => {
+    const a = await makeExtractedBundle()
+    const b = await makeExtractedBundle() // fresh seal + transfer key → different sealId
+    const dest = memory()
+    await adoptPartition(a.bundleBytes, { transferKey: a.transferKey, destinationStore: dest, vaultName: 'acme' })
+
+    await expect(
+      adoptPartition(b.bundleBytes, { transferKey: b.transferKey, destinationStore: dest, vaultName: 'acme' }),
+    ).rejects.toThrow(AdoptionStateError)
+
+    // The original adoption marker must survive the rejected second bundle.
+    const adoptionEnv = await dest.get('acme', '_meta', 'adoption')
+    const adoption = JSON.parse(adoptionEnv!._data) as { sealId: string }
+    expect(adoption.sealId).toBe(a.sealId)
+  })
+
   it('allows adopting the same partition into a DIFFERENT store (bundle is unchanged)', async () => {
     const { bundleBytes, transferKey, sealId } = await makeExtractedBundle()
     await adoptPartition(bundleBytes, { transferKey, destinationStore: memory(), vaultName: 'a' })
