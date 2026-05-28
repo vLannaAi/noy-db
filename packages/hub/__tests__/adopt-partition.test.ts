@@ -154,6 +154,26 @@ describe('adoptPartition rejections', () => {
     ).rejects.toThrow(AdoptionStateError)
   })
 
+  it('refuses to adopt into a vaultName that already holds a regular (non-adopted) vault', async () => {
+    // A vault created the ordinary way has NO _meta/adoption marker, so a
+    // marker-only guard would let adoptPartition's saveAll clobber it — on SQL
+    // adapters that's DELETE WHERE vault=? and wipes the existing keyring,
+    // making the downstream other-owners check meaningless.
+    const dest = memory()
+    const aliceDb = await createNoydb({ store: dest, user: 'alice', secret: 'alice-passphrase-2026' })
+    await (await aliceDb.openVault('taken')).collection<Client>('clients').put('a-1', { id: 'a-1', name: 'A', operatorUserId: 'alice' })
+    expect(await dest.list('taken', '_keyring')).toEqual(['alice'])
+
+    const { bundleBytes, transferKey } = await makeExtractedBundle()
+    await expect(
+      adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'taken' }),
+    ).rejects.toThrow(AdoptionStateError)
+
+    // Alice's keyring + a-1 must survive the rejected adoption.
+    expect(await dest.list('taken', '_keyring')).toEqual(['alice'])
+    expect(await dest.get('taken', 'clients', 'a-1')).toBeTruthy()
+  })
+
   it('refuses to adopt a DIFFERENT partition into a vault that already holds one (no clobber)', async () => {
     const a = await makeExtractedBundle()
     const b = await makeExtractedBundle() // fresh seal + transfer key → different sealId

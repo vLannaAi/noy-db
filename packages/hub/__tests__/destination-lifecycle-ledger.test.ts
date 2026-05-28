@@ -88,6 +88,48 @@ describe('destination lifecycle ledger entries (#226)', () => {
     expect((await vault.verifyBackupIntegrity()).ok).toBe(true)
   })
 
+  it('does not duplicate creation-of-new-owner when retried after a Stage B partial failure', async () => {
+    const company = await srcVault()
+    const { bundleBytes, transferKey, sealId } = await extractPartition(company, { seeds: { clients: () => true }, carryLedger: true })
+
+    // Wrap destination so the SECOND of the two Stage-B appends fails exactly
+    // once, simulating a crash strictly between the two adjacent puts. We arm
+    // the fault only after adoptPartition has imported its carried ledger so
+    // the injection lands on the actual Stage-B boundary, not on imports.
+    const dest = memory()
+    let stageBAppendCount = 0
+    let armed = false
+    const flakyDest: NoydbStore = {
+      ...dest,
+      async put(c, col, id, env, ev) {
+        if (armed && col === '_ledger') {
+          stageBAppendCount++
+          if (stageBAppendCount === 2) throw new Error('injected ledger outage')
+        }
+        return dest.put(c, col, id, env, ev)
+      },
+    }
+
+    await adoptPartition(bundleBytes, { transferKey, destinationStore: flakyDest, vaultName: 'acme' })
+    armed = true
+    await expect(
+      createOwnerOnAdoptedPartition(flakyDest, 'acme', { userId: 'belle', passphrase: 'belle-2026', transferKey }),
+    ).rejects.toThrow(/injected ledger outage/)
+
+    // Retry against the clean adapter — Stage B must not re-append the first entry.
+    armed = false
+    await createOwnerOnAdoptedPartition(flakyDest, 'acme', { userId: 'belle', passphrase: 'belle-2026', transferKey })
+
+    const db = await createNoydb({ store: dest, user: 'belle', secret: 'belle-2026', historyStrategy: withHistory() })
+    const vault = await db.openVault('acme')
+    const entries = await vault._getLedgerOrNull()!.loadAllEntries()
+
+    const creationEntries = entries.filter((e) => e.op === 'lifecycle' && e.reason === 'creation-of-new-owner:belle')
+    const consumedEntries = entries.filter((e) => e.op === 'lifecycle' && e.reason === `transfer-seal-consumed:${sealId}`)
+    expect(creationEntries).toHaveLength(1)
+    expect(consumedEntries).toHaveLength(1)
+  })
+
   it('is a no-op when the partition carried no ledger (carryLedger off)', async () => {
     const company = await srcVault()
     const { bundleBytes, transferKey } = await extractPartition(company, { seeds: { clients: () => true } })

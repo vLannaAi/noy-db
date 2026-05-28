@@ -153,9 +153,12 @@ describe('Showcase 88 — transferable partition bundles', () => {
     // The carried audit chain verifies over the re-keyed data.
     expect((await hotel.verifyBackupIntegrity()).ok).toBe(true)
 
-    // Belle is the sole owner: Alice is nowhere in the partition's keyring, so
-    // she cannot read it — the access barrier is cryptographic (no DEK she can
-    // unwrap), surfaced when she tries to read.
+    // The cryptographic barrier is on the DATA, not on keyring presence:
+    // `openVault` is permissive and will auto-mint a fresh `_keyring/alice`
+    // entry for any user on first access (a long-standing noydb behaviour).
+    // What Alice cannot do is decrypt Belle's records — her freshly-minted
+    // `clients` DEK can't open AES-GCM ciphertext written under Belle's DEK,
+    // and that auth-tag failure is the actual guarantee.
     const aliceDb = await createNoydb({ store: belleStore, user: 'alice', secret: 'alice-director-2026' })
     const aliceView = await aliceDb.openVault('niwat-hotel')
     await expect(aliceView.collection<Client>('clients').get('c-hotelA')).rejects.toThrow()

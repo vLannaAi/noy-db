@@ -121,6 +121,20 @@ export async function adoptPartition(
     )
   }
 
+  // The marker-only check above misses a worse case: a vaultName already in use
+  // by an ORDINARY vault (createNoydb + openVault) carries no `_meta/adoption`,
+  // yet `saveAll` below is destructive on SQL adapters (`DELETE FROM ... WHERE
+  // vault = ?` followed by upsert) and would wipe the legitimate keyring +
+  // data. Refuse adoption into ANY occupied slot — a fresh vaultName is the
+  // documented precondition.
+  const existingKeyring = await destinationStore.list(vaultName, '_keyring')
+  if (existingKeyring.length > 0) {
+    throw new AdoptionStateError(
+      `vault "${vaultName}" already holds a keyring (an unrelated owner exists at this slot); `
+      + `adoptPartition requires a fresh vaultName to avoid destructive saveAll on SQL adapters.`,
+    )
+  }
+
   const backup = JSON.parse(dump) as { collections: VaultSnapshot; _internal?: VaultSnapshot }
   await destinationStore.saveAll(vaultName, backup.collections)
 
@@ -301,10 +315,16 @@ export async function createOwnerOnAdoptedPartition(
       getDEK: async () => ledgerDek,
       actor: userId,
     })
+    const creationReason = `creation-of-new-owner:${userId}`
     const consumedReason = `transfer-seal-consumed:${adoption.sealId}`
-    const alreadyRecorded = (await ledger.loadAllEntries()).some((e) => e.reason === consumedReason)
-    if (!alreadyRecorded) {
-      await ledger.append({ op: 'lifecycle', collection: '', id: '', version: 0, actor: '', payloadHash: '', reason: `creation-of-new-owner:${userId}` })
+    // Gate each append on its own presence — a crash or store error strictly
+    // between the two adjacent puts would otherwise re-append the first one
+    // on retry. The pair is the audit record, not a single transaction.
+    const recordedReasons = new Set((await ledger.loadAllEntries()).map((e) => e.reason))
+    if (!recordedReasons.has(creationReason)) {
+      await ledger.append({ op: 'lifecycle', collection: '', id: '', version: 0, actor: '', payloadHash: '', reason: creationReason })
+    }
+    if (!recordedReasons.has(consumedReason)) {
       await ledger.append({ op: 'lifecycle', collection: '', id: '', version: 0, actor: '', payloadHash: '', reason: consumedReason })
     }
   }

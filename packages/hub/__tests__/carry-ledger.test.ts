@@ -146,6 +146,26 @@ describe('reKeyLedger', () => {
   })
 })
 
+describe('extractPartition carryLedger — non-destructive on the source', () => {
+  it('does not mint a phantom _ledger DEK in the source keyring when the source has no history', async () => {
+    // Source vault opened WITHOUT withHistory(): keyring has no _ledger DEK.
+    // carryLedger: true on such a vault must not auto-mint and persist one
+    // (contradicts the "non-destructive on the source" module-level claim).
+    const sourceStore = memory()
+    const db = await createNoydb({ store: sourceStore, user: 'alice', secret: 'pw-1234' })
+    const vault = await db.openVault('demo-co')
+    await vault.collection<Client>('clients').put('c-1', { id: 'c-1', name: 'Hotel', operatorUserId: 'belle' })
+
+    const before = JSON.parse((await sourceStore.get('demo-co', '_keyring', 'alice'))!._data) as { deks: Record<string, unknown> }
+    expect(before.deks).not.toHaveProperty('_ledger')
+
+    await extractPartition(vault, { seeds: { clients: () => true }, carryLedger: true })
+
+    const after = JSON.parse((await sourceStore.get('demo-co', '_keyring', 'alice'))!._data) as { deks: Record<string, unknown> }
+    expect(after.deks).not.toHaveProperty('_ledger')
+  })
+})
+
 describe('extractPartition carryLedger', () => {
   it('carries _internal._ledger + ledgerHead when carryLedger: true', async () => {
     const company = await srcVault()

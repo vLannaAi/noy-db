@@ -83,6 +83,38 @@ async function bundleBody(bytes: Uint8Array) {
   return JSON.parse(dump) as { collections: Record<string, unknown>; _internal?: { _schemas?: Record<string, unknown> } }
 }
 
+/**
+ * Same memory adapter as above but defers `_schemas` writes by one macrotask,
+ * so the schema row is not on disk by the time extractPartition reads it
+ * unless extractPartition explicitly drains the pending-writes queue first.
+ * Models the race that production stores (network, SQL) hit naturally.
+ */
+function delayedSchemaMemory(): NoydbStore {
+  const inner = memory()
+  return {
+    ...inner,
+    async put(c, col, id, env, ev) {
+      if (col === '_schemas') await new Promise<void>((r) => setTimeout(r, 0))
+      return inner.put(c, col, id, env, ev)
+    },
+  }
+}
+
+describe('extractPartition({ carrySchemas: true })', () => {
+  it('drains pending persisted-schema writes so the bundle never misses an in-flight schema', async () => {
+    const db = await createNoydb({ store: delayedSchemaMemory(), user: 'alice', secret: 'test-passphrase-1234' })
+    const c = await db.openVault('demo-co')
+    c.collection<Client>('clients', { schema: ClientSchema, persistJsonSchema: true })
+    await c.collection<Client>('clients').put('c-1', { id: 'c-1', name: 'Hotel', operatorUserId: 'belle' })
+    // Deliberately DO NOT call c._drainPendingSchemaWrites() — extractPartition
+    // must drain on its own when carrySchemas is true.
+    const { bundleBytes } = await extractPartition(c, { seeds: { clients: () => true }, carrySchemas: true })
+    const body = await bundleBody(bundleBytes)
+    expect(body._internal?._schemas).toBeDefined()
+    expect(Object.keys(body._internal!._schemas!)).toContain('clients')
+  })
+})
+
 describe('reKeySchemas', () => {
   it('re-keys persisted schemas for closure collections under the destination DEKs', async () => {
     const company = await vaultWithSchema()

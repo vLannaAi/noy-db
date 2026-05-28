@@ -242,6 +242,13 @@ export async function extractPartition(
     )
   }
 
+  // Persisted-schema writes (collection({ persistJsonSchema: true })) are fire-
+  // and-forget queued onto vault._pendingSchemaWrites — a caller that does
+  // `collection() → put() → extractPartition({ carrySchemas: true })` in quick
+  // succession can hit a window where _schemas/<col> is not yet on disk and
+  // reKeySchemas silently drops the row. Drain BEFORE reKeySchemas reads.
+  if (opts.carrySchemas) await vault._drainPendingSchemaWrites()
+
   const { closure } = await walkClosure(vault, opts)
   const { collections, deks } = await reKeyClosure(vault, closure)
 
@@ -251,7 +258,12 @@ export async function extractPartition(
   // sealDeks.
   let ledgerHead: { hash: string; index: number; ts: string } | undefined
   let ledgerEntries: Record<string, EncryptedEnvelope> | undefined
-  if (opts.carryLedger) {
+  if (opts.carryLedger && vault._getLedgerOrNull() !== null) {
+    // Skip when the source vault has no history strategy: reKeyLedger's first
+    // `getDEK(LEDGER_COLLECTION)` would auto-mint and persist a phantom
+    // _ledger DEK on the source keyring (contradicting "non-destructive on
+    // the source"), and there's nothing to carry anyway. Mirrors the same
+    // null-guard the source audit-append uses below.
     const ledgerDek = await generateDEK()
     const built = await reKeyLedger(vault, closure, collections, ledgerDek)
     if (built.head.index >= 0) {
