@@ -486,13 +486,60 @@ function validateAutoUnlockOptions(
     return 'unsealed'
   }
 
-  // Sealed path.
-  const mode = opts.sealedCredentials?.mode ?? opts.sealedPassphrases?.mode
-  if (mode !== 'self-target') {
+  // Sealed path — branch on mode.
+  if (normalized.mode === 'sealed-recipient') {
+    const provider = normalized.provider
+    if (provider === undefined || typeof (provider as RecipientSealer).publishRecipientHint !== 'function'
+        || typeof (provider as RecipientSealer).sealForRecipient !== 'function') {
+      throw new ValidationError(
+        'writeNoydbBundle: `sealedCredentials.provider` for mode \'recipient-target\' must be a '
+        + 'RecipientSealer (publishRecipientHint + sealForRecipient). Self-only providers '
+        + '(MemorySealingKeyProvider, at-macos-keychain, etc.) do not satisfy this contract.',
+      )
+    }
+    const hints = normalized.hints
+    if (hints === undefined) {
+      throw new Error('unreachable — sealed-recipient normalization must populate hints')
+    }
+    for (const userId of Object.keys(normalized.perUser)) {
+      const hint = hints[userId]
+      if (hint === undefined) {
+        throw new ValidationError(
+          `writeNoydbBundle: \`sealedCredentials.perUser['${userId}']\` missing required \`hint\` for mode 'recipient-target'.`,
+        )
+      }
+      if (hint.v !== 1) {
+        throw new ValidationError(
+          `writeNoydbBundle: \`sealedCredentials.perUser['${userId}'].hint.v\` must be 1 (got ${hint.v}).`,
+        )
+      }
+      if (hint.alg !== 'rsa-oaep-sha256') {
+        throw new ValidationError(
+          `writeNoydbBundle: \`sealedCredentials.perUser['${userId}'].hint.alg\` must be 'rsa-oaep-sha256' in slice 1 (got '${hint.alg}').`,
+        )
+      }
+      if (hint.pid !== provider.id) {
+        throw new ValidationError(
+          `writeNoydbBundle: \`sealedCredentials.perUser['${userId}'].hint.pid\` ('${hint.pid}') does not match the provider id ('${provider.id}'). `
+          + 'Sender cannot seal for a recipient whose hint points at a different provider.',
+        )
+      }
+    }
+    const userCount = Object.keys(normalized.perUser).length
+    if (userCount === 0) {
+      throw new ValidationError(
+        'writeNoydbBundle: `sealedCredentials.perUser` must have at least one entry.',
+      )
+    }
+    return 'sealed'
+  }
+
+  // mode === 'sealed-self'
+  const selfTargetMode = opts.sealedCredentials?.mode ?? opts.sealedPassphrases?.mode
+  if (selfTargetMode !== 'self-target') {
     throw new ValidationError(
       `writeNoydbBundle: \`sealedCredentials.mode\` (or \`sealedPassphrases.mode\`) must be `
-      + `'self-target' (got '${String(mode)}'). The 'recipient-target' arm is type-defined but `
-      + 'not yet wired through to the sealing layer — coming in the next commit.',
+      + `'self-target' or 'recipient-target' (got '${String(selfTargetMode)}').`,
     )
   }
   if (normalized.provider === undefined) {

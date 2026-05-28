@@ -17,6 +17,7 @@ import {
   readNoydbBundle,
   readNoydbBundleHeader,
   MemorySealingKeyProvider,
+  MemoryRecipientSealer,
   BundleSealMismatchError,
   ValidationError,
 } from '../src/index.js'
@@ -634,5 +635,57 @@ describe('#215 — unsupported credential kind rejected', () => {
       const msg = (err as Error).message
       return /webauthn/i.test(msg)
     })
+  })
+})
+
+describe('recipient-target sealedCredentials — validation', () => {
+  it('rejects a recipient-target entry with a missing hint', async () => {
+    const { vault: v } = await freshVault()
+    const recipient = new MemoryRecipientSealer({ id: 'r1' })
+
+    await expect(
+      writeNoydbBundle(v, {
+        sealedCredentials: {
+          mode: 'recipient-target',
+          provider: recipient,
+          // @ts-expect-error — intentionally missing hint to test runtime guard
+          perUser: { alice: { credential: { kind: 'passphrase', value: 'p' } } },
+        },
+      }),
+    ).rejects.toThrow(/hint/)
+  })
+
+  it('rejects when hint.pid does not match the provider id', async () => {
+    const { vault: v } = await freshVault()
+    const recipient = new MemoryRecipientSealer({ id: 'r1' })
+    const otherRecipient = new MemoryRecipientSealer({ id: 'r2' })
+    const otherHint = await otherRecipient.publishRecipientHint()
+
+    await expect(
+      writeNoydbBundle(v, {
+        sealedCredentials: {
+          mode: 'recipient-target',
+          provider: recipient, // id = 'r1'
+          perUser: { alice: { credential: { kind: 'passphrase', value: 'p' }, hint: otherHint } }, // hint.pid = 'r2'
+        },
+      }),
+    ).rejects.toThrow(/pid/)
+  })
+
+  it('rejects a recipient-target mode with a self-only provider (runtime guard for JS callers)', async () => {
+    const { vault: v } = await freshVault()
+    const selfOnly = new MemorySealingKeyProvider({ id: 'self-only' })
+    const someHint = await new MemoryRecipientSealer({ id: 'r1' }).publishRecipientHint()
+
+    await expect(
+      writeNoydbBundle(v, {
+        sealedCredentials: {
+          mode: 'recipient-target',
+          // @ts-expect-error — runtime guard for JS callers; TS rejects this at compile time
+          provider: selfOnly,
+          perUser: { alice: { credential: { kind: 'passphrase', value: 'p' }, hint: someHint } },
+        },
+      }),
+    ).rejects.toThrow(/RecipientSealer/)
   })
 })
