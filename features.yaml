@@ -653,6 +653,7 @@ features:
       - '10-byte magic prefix (NDB1) + JSON header + compressed body'
       - 'Body integrity hash — readNoydbBundle rejects tampered files'
       - 'ULID handle in header for safe cloud-storage drops'
+      - 'auto-unlock: sealed-self (provider id matches both ends) and sealed-recipient (sender uses recipient-published RSA-OAEP hint; reader dispatches by pid, unseal handles hybrid CEK wrap opaquely) — see docs/superpowers/specs/2026-05-28-recipient-target-bundle-sealing-design.md'
     related: [history, vault-and-collections]
 
   - id: transferable-partition

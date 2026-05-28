@@ -100,6 +100,21 @@ The `recipients` array, after re-keying, materialises as `Record<userId, Keyring
 - Handle is content-addressed at the *vault* level; two backups of the same vault share a handle
 - Header rejects unknown keys at parse time — minimum-disclosure invariant
 
+## Recipient-target sealing (slice 2)
+
+`sealedCredentials.mode: 'recipient-target'` lets a sender ship a bundle
+to a recipient whose `SealingKeyProvider` the sender does not have. The
+recipient publishes a `RecipientHint` (RSA-OAEP-SHA256 public material +
+`pid`) via any out-of-band channel; the sender passes it per-user. The
+sealing provider must implement `RecipientSealer` (`publishRecipientHint`
++ `sealForRecipient`) — handover-capable cloud-KMS providers do,
+self-only providers (`at-macos-keychain`, `at-env`) do not. The reader
+side is unchanged: `pid` dispatch finds the matching local provider,
+which transparently parses the hybrid CEK-wrap envelope inside the
+opaque `sealed` bytes. See [`recipient-target sealing
+design`](../superpowers/specs/2026-05-28-recipient-target-bundle-sealing-design.md)
+for the full spec.
+
 ## See also
 
 - [SUBSYSTEMS.md](../../SUBSYSTEMS.md)
