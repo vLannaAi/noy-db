@@ -82,8 +82,15 @@ export interface LedgerEntry {
    * guards subsystem when an admin/owner uses `withTransactions(...)`
    * to repair a constraint-violating state. See `amendment` field
    * below for the structured payload.
+   *
+   * `'lifecycle'` records a non-data audit event (e.g. partition
+   * handover, #226) — `collection`/`id` are empty and the event detail
+   * lives in `reason` (e.g. `'partition-handed-over:<sealId>'`). Like
+   * `amendment`, it carries no data envelope, so `verifyBackupIntegrity`
+   * skips it in the data cross-check (it still participates in the
+   * tamper-evident chain).
    */
-  readonly op: 'put' | 'delete' | 'amendment'
+  readonly op: 'put' | 'delete' | 'amendment' | 'lifecycle'
 
   /** The collection the mutation targeted. */
   readonly collection: string

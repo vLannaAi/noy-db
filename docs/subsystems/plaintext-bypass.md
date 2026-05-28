@@ -42,6 +42,7 @@ Each entry below is a deliberate decision. The "Why" column is load-bearing: a f
 | `_collection-cap/<…>` | `collection.ts` | Per-collection capability rows. Cross-engine sanity check; must be readable to validate before the engine can decide which DEKs to load. |
 | `_meta/directory` | `directory/storage.ts` | Vault-level directory toggle (`{ enabled: boolean }`) flipped via owner-only `db.setDirectoryEnabled`. Read by `listUsersWithEnvelopes` to decide whether non-admin/non-owner callers can enumerate; must be readable from the same plaintext-header layer as `_meta/policy` (the read happens before any DEK is needed). UX flag, not a privacy boundary — see [`user-envelope.md`](./user-envelope.md) → Directory visibility. |
 | `_meta/visibility/<keyringId>` | `directory/visibility.ts` | Per-user "hide me from `listUsersWithEnvelopes`" opt-out (`{ hidden: boolean }`), written by `vault.user.setMyVisibility`. Read by the enumeration helper to filter; must work even when the user's envelope cannot be decrypted (legacy keyring, missing `_users` DEK propagation, corrupted ciphertext). UX flag, not a privacy boundary — see [`user-envelope.md`](./user-envelope.md) → Directory visibility. |
+| `_meta/adoption` | `bundle/adopt-partition.ts` | Transient marker for an **adopted-but-unowned** transferable partition ([`transferable-partitions.md`](./transferable-partitions.md)). Written by `adoptPartition` on a vault that has **no keyring yet** — there is no DEK to encrypt under, and `createOwnerOnAdoptedPartition` must read it to find the pending adoption. While unowned it carries the `transferSeal` payload (the partition DEK set sealed AES-GCM under the out-of-band 32-byte transfer key); the *sealing* is the security boundary, the document is inert without that key. Once the owner is minted the seal is destroyed: the row is rewritten to `{ sealId, adoptedAt, consumedAt }` only — no key material remains. |
 
 ## What is NOT in the bypass set (verified encrypted)
 
@@ -59,6 +60,7 @@ A compromise of a store backend (S3 bucket, IndexedDB dump, captured WebDAV sess
 - **From `_meta/recovery-paper`:** wrapped-DEK blobs offline-attackable against the recovery codes. PBKDF2 600K is the entire defense — short / reused codes lose.
 - **From `_meta/public-envelope`:** whatever the owner explicitly published.
 - **From the ledger and consent stores:** an audit trail of *which* records changed, *when*, and *who* did it — but never *what* the records contain.
+- **From `_meta/adoption` (only while a partition is adopted-but-unowned):** the sealed partition-DEK blob, offline-attackable against the 32-byte transfer key. That key is a 256-bit random delivered out-of-band and never stored, so brute force is infeasible; the leak is the blob plus the `sealId` and adoption timestamp. After `createOwnerOnAdoptedPartition` the blob is gone.
 
 The product invariant "stores see only ciphertext" applies to the data that flows through `Collection<T>.put`. The infrastructure metadata above is a documented, bounded leak.
 

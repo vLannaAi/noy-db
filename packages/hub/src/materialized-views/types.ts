@@ -9,7 +9,7 @@ import type { AggregateSpec } from '../aggregate/aggregation.js'
  * Vault implements this shape natively.
  */
 export interface MVQueryContext {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   collection<T extends Record<string, unknown>>(name: string): Collection<T>
 }
 

@@ -655,6 +655,30 @@ features:
       - 'ULID handle in header for safe cloud-storage drops'
     related: [history, vault-and-collections]
 
+  - id: transferable-partition
+    name: Transferable partition bundles (extract → adopt → own)
+    cluster: snapshot-and-portability
+    spec: docs/superpowers/specs/2026-05-24-transferable-partition-bundles-design.md
+    subsystem_doc: docs/subsystems/transferable-partitions.md
+    package: '@noy-db/hub/bundle'
+    factory: null
+    status: preview
+    showcases:
+      - id: 88-transferable-partition
+        path: showcases/src/88-transferable-partition.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'walkClosure auto-derives the FK graph from the RefRegistry (ref() decls); two-phase — inbound scope growth from seeds, outbound completion for FK validity'
+      - 'extractPartition is owner-only and non-destructive of source records; mints fresh per-collection DEKs and re-encrypts the closure under them'
+      - 'transfer seal carries the DEK set sealed under a one-time 32-byte transfer key (no destination KEK); header bundleKind=extracted-partition + transferSeal indicator'
+      - 'adoptPartition imports the re-keyed body into a destination store unowned (_meta/adoption); one-time per destination'
+      - 'createOwnerOnAdoptedPartition mints the recipient owner (reuses createOwnerKeyring), wraps the partition DEKs under the new KEK, and destroys the transfer seal'
+      - 'carrySchemas / carryLedger (opt-in) carry persisted JSON Schemas + the re-chained audit ledger; verifyBackupIntegrity passes over re-keyed data'
+      - 'extractPartition appends a partition-handed-over:<sealId> lifecycle entry to the source ledger (audit signal; no-op without history)'
+    related: [bundle, persisted-json-schema, history, team]
+
   - id: session
     name: Session tokens + dev unlock
     cluster: collaboration-and-auth

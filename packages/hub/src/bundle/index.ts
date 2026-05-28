@@ -41,6 +41,24 @@ export type {
 
 export { generateULID, isULID } from './ulid.js'
 
+// ─── Partition extraction (#198 epic) ───────────────────
+export { walkClosure } from './walk-closure.js'
+export type { WalkClosureOptions, ClosureResult } from './walk-closure.js'
+export { describeExtraction } from './describe-extraction.js'
+export type { ExtractionPreview } from './describe-extraction.js'
+export { extractPartition } from './extract-partition.js'
+export type { ExtractPartitionResult } from './extract-partition.js'
+export { adoptPartition, unsealDeks, createOwnerOnAdoptedPartition } from './adopt-partition.js'
+export type {
+  AdoptPartitionOptions,
+  AdoptPartitionResult,
+  CreateOwnerResult,
+  CreateOwnerOptions,
+  CreateOwnerStandardOptions,
+  CreateOwnerManagedOptions,
+} from './adopt-partition.js'
+export { TransferSealError, AdoptionStateError } from '../errors.js'
+
 // ─── Bundle / backup errors ─────────────────────────────
 // Re-exported from the central errors module so subpath consumers can
 // `instanceof BundleIntegrityError` without falling back to the root barrel.
@@ -50,4 +68,5 @@ export {
   BundleVersionConflictError,
   BackupLedgerError,
   BackupCorruptedError,
+  PartitionExtractionError,
 } from '../errors.js'

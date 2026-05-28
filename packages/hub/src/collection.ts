@@ -424,7 +424,7 @@ export class Collection<T> {
    */
   private readonly materializedViewSource:
     | {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         registry(): MaterializedViewRegistry
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         getCollection(name: string): Collection<any>
@@ -764,7 +764,7 @@ export class Collection<T> {
      * dispatch.
      */
     materializedViewSource?: {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       registry(): MaterializedViewRegistry
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       getCollection(name: string): Collection<any>

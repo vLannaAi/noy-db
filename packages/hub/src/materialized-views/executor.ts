@@ -238,7 +238,7 @@ export const MaterializedViewExecutor = {
       } catch (err) {
         failed++
         if (strict) throw err
-        // eslint-disable-next-line no-console
+         
         console.warn(`[mv] "${spec.name}" row write failed:`, err)
       }
     }
@@ -268,7 +268,7 @@ export const MaterializedViewExecutor = {
         } catch (err) {
           failed++
           if (strict) throw err
-          // eslint-disable-next-line no-console
+           
           console.warn(`[mv] "${spec.name}" tombstone failed for id="${priorId}":`, err)
         }
       }

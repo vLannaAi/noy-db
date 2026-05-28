@@ -218,11 +218,11 @@ export class CollectionInstant<T = unknown> {
     for (const e of entries) {
       if (e.collection !== this.name || e.id !== id) continue
       if (e.ts > this.targetTs) break   // entries are time-ordered by index
-      // `amendment` entries are audit-only summaries — they carry no
-      // (collection, id) tuple of their own and would never match the
-      // filter above. The narrow here is a type guard, not a runtime
+      // `amendment` + `lifecycle` entries are audit-only summaries — they
+      // carry no (collection, id) tuple of their own and would never match
+      // the filter above. The narrow here is a type guard, not a runtime
       // skip.
-      if (e.op === 'amendment') continue
+      if (e.op === 'amendment' || e.op === 'lifecycle') continue
       latest = { op: e.op, version: e.version }
     }
     if (!latest) return null
