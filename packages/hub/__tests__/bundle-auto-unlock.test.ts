@@ -655,21 +655,23 @@ describe('recipient-target sealedCredentials — validation', () => {
     ).rejects.toThrow(/hint/)
   })
 
-  it('rejects when hint.pid does not match the provider id', async () => {
+  it('rejects when hint.alg is not rsa-oaep-sha256', async () => {
     const { vault: v } = await freshVault()
     const recipient = new MemoryRecipientSealer({ id: 'r1' })
-    const otherRecipient = new MemoryRecipientSealer({ id: 'r2' })
-    const otherHint = await otherRecipient.publishRecipientHint()
+    const goodHint = await recipient.publishRecipientHint()
+    // Craft a hint with an unsupported alg — RecipientHint.alg is typed but
+    // the validator's runtime guard must also catch it for JS callers.
+    const badHint = { ...goodHint, alg: 'unsupported-alg' } as unknown as typeof goodHint
 
     await expect(
       writeNoydbBundle(v, {
         sealedCredentials: {
           mode: 'recipient-target',
-          provider: recipient, // id = 'r1'
-          perUser: { alice: { credential: { kind: 'passphrase', value: 'p' }, hint: otherHint } }, // hint.pid = 'r2'
+          provider: recipient,
+          perUser: { alice: { credential: { kind: 'passphrase', value: 'p' }, hint: badHint } },
         },
       }),
-    ).rejects.toThrow(/pid/)
+    ).rejects.toThrow(/rsa-oaep-sha256/)
   })
 
   it('rejects a recipient-target mode with a self-only provider (runtime guard for JS callers)', async () => {
@@ -687,5 +689,78 @@ describe('recipient-target sealedCredentials — validation', () => {
         },
       }),
     ).rejects.toThrow(/RecipientSealer/)
+  })
+})
+
+describe('recipient-target sealedCredentials — round-trip', () => {
+  it('seals for two recipients; each opens only their own credential', async () => {
+    const { vault: v } = await freshVault()
+
+    const aliceRs = new MemoryRecipientSealer({ id: 'alice-rs' })
+    const bobRs = new MemoryRecipientSealer({ id: 'bob-rs' })
+    const aliceHint = await aliceRs.publishRecipientHint()
+    const bobHint = await bobRs.publishRecipientHint()
+
+    // Sender uses a third instance — production shape: sender doesn't hold
+    // any recipient's private key.
+    const sender = new MemoryRecipientSealer({ id: 'sender-rs' })
+
+    const bytes = await writeNoydbBundle(v, {
+      sealedCredentials: {
+        mode: 'recipient-target',
+        provider: sender,
+        perUser: {
+          alice: { credential: { kind: 'passphrase', value: 'alice-pass-bundled' }, hint: aliceHint },
+          bob:   { credential: { kind: 'passphrase', value: 'bob-pass-bundled' },   hint: bobHint },
+        },
+      },
+    })
+
+    // Recipient side — alice unseals with her provider.
+    const aliceRead = await readNoydbBundle(bytes, { sealingProviders: [aliceRs] })
+    expect(aliceRead.autoUnlock?.kind).toBe('sealed')
+    expect(aliceRead.autoUnlock?.perUser.alice).toMatchObject({ kind: 'passphrase', value: 'alice-pass-bundled' })
+
+    const bobRead = await readNoydbBundle(bytes, { sealingProviders: [bobRs] })
+    expect(bobRead.autoUnlock?.perUser.bob).toMatchObject({ kind: 'passphrase', value: 'bob-pass-bundled' })
+  })
+
+  it('a third-party recipient (different keypair) cannot unseal someone else\'s entry', async () => {
+    const { vault: v } = await freshVault()
+    const aliceRs = new MemoryRecipientSealer({ id: 'alice-rs' })
+    const intruderRs = new MemoryRecipientSealer({ id: 'alice-rs' }) // same id, different keypair
+    const aliceHint = await aliceRs.publishRecipientHint()
+    const sender = new MemoryRecipientSealer({ id: 'sender-rs' })
+
+    const bytes = await writeNoydbBundle(v, {
+      sealedCredentials: {
+        mode: 'recipient-target',
+        provider: sender,
+        perUser: { alice: { credential: { kind: 'passphrase', value: 'p' }, hint: aliceHint } },
+      },
+    })
+
+    // Intruder has the same pid (so the reader's dispatch finds it) but a
+    // different keypair → unseal fails inside the provider.
+    await expect(readNoydbBundle(bytes, { sealingProviders: [intruderRs] })).rejects.toThrow(/decrypt|OperationError|operation/i)
+  })
+
+  it('back-compat: self-target bundles still round-trip with no hint field', async () => {
+    const { vault: v } = await freshVault()
+    const selfProvider = new MemorySealingKeyProvider({ id: 'shared-keychain' })
+
+    const bytes = await writeNoydbBundle(v, {
+      sealedCredentials: {
+        mode: 'self-target',
+        provider: selfProvider,
+        perUser: { alice: { kind: 'passphrase', value: 'alice-pass-bundled' } },
+      },
+    })
+    const recipientProvider = new MemorySealingKeyProvider({ id: 'shared-keychain' })
+    const read = await readNoydbBundle(bytes, { sealingProviders: [recipientProvider] })
+    expect(read.autoUnlock?.kind).toBe('sealed')
+    expect(read.autoUnlock?.perUser.alice).toMatchObject({ kind: 'passphrase', value: 'alice-pass-bundled' })
+    // Self-target entries omit the hint field
+    expect((read.autoUnlock?.perUser.alice as Record<string, unknown>).hint).toBeUndefined()
   })
 })

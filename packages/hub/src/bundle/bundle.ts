@@ -239,11 +239,11 @@ export interface WriteNoydbBundleOptions {
    * recipient must hold a provider with a matching `pid` (i.e.,
    * `provider.id`) to auto-unseal on import.
    *
-   * `mode: 'self-target'` is the only mode in slice 1 — sender and
-   * recipient share the same provider identity (same iCloud Keychain
+   * `mode: 'self-target'` is the only mode for `sealedPassphrases` — sender
+   * and recipient share the same provider identity (same iCloud Keychain
    * entry, same MDM-provisioned bundle id, same KMS account, etc.).
-   * Recipient-target sealing via the `RecipientSealer` interface
-   * (foundation §11.4) is deferred to a follow-up slice.
+   * For recipient-target sealing via the `RecipientSealer` interface,
+   * use `sealedCredentials` with `mode: 'recipient-target'` (§11.4).
    *
    * Mutually exclusive with `autoCredentials`, `sealedCredentials`,
    * and `autoPassphrases`.
@@ -303,7 +303,13 @@ interface SealedAutoUnlockEntry {
   readonly sealed: string
   readonly alg: 'aes-256-gcm'
   readonly kind?: AutoCredentialKind
-  readonly hint?: Record<string, unknown>
+  /**
+   * Recipient-target only: the RecipientHint the sender used to seal.
+   * Carried for recipient verifiability ("yes this was sealed against
+   * my published hint"). Self-target entries omit it. Pre-0.2 readers
+   * ignore unknown fields, so this is back-compatible.
+   */
+  readonly hint?: RecipientHint
 }
 
 /**
@@ -439,7 +445,7 @@ function normalizeAutoUnlock(opts: WriteNoydbBundleOptions): NormalizedAutoUnloc
  *   - (mutual exclusion already enforced by normalizeAutoUnlock)
  *   - unsealed path: `policy: 'public-by-design'` marker required
  *   - non-empty `perUser` maps
- *   - sealed path: provider present; runtime accepts `mode: 'self-target'` only in this slice (recipient-target rejected per §11.4 until the next commit lifts the guard)
+ *   - sealed path: provider present; both `mode: 'self-target'` and `mode: 'recipient-target'` accepted; recipient-target requires a `RecipientSealer` provider and per-user `hint` (§11.4)
  *   - every AutoCredential.kind ∈ {passphrase, password, pin}
  *     (WebAuthn is hardware-bound and cannot be bundled)
  *
@@ -518,12 +524,9 @@ function validateAutoUnlockOptions(
           `writeNoydbBundle: \`sealedCredentials.perUser['${userId}'].hint.alg\` must be 'rsa-oaep-sha256' in slice 1 (got '${hint.alg}').`,
         )
       }
-      if (hint.pid !== provider.id) {
-        throw new ValidationError(
-          `writeNoydbBundle: \`sealedCredentials.perUser['${userId}'].hint.pid\` ('${hint.pid}') does not match the provider id ('${provider.id}'). `
-          + 'Sender cannot seal for a recipient whose hint points at a different provider.',
-        )
-      }
+      // Note: hint.pid identifies the recipient, not the sender — no pid===sender.id check here.
+      // The sender holds a RecipientSealer that calls sealForRecipient(plaintext, hint);
+      // the hint's pid is the dispatch key on the reader side (matched against recipient providers).
     }
     const userCount = Object.keys(normalized.perUser).length
     if (userCount === 0) {
@@ -577,29 +580,45 @@ async function buildAutoUnlockWrapper(
       },
     }
   }
-  // Sealed path — seal each user's credential value under the provider.
-  if (normalized.mode === 'sealed-recipient') {
-    // Actual sealing logic is deferred to Task 5; validation already
-    // rejects recipient-target at this stage so this branch is unreachable
-    // in the current slice.
-    throw new Error('unreachable — validator rejects recipient-target in this slice')
-  }
-  // normalized.mode === 'sealed-self'
-  const provider = normalized.provider as SealingKeyProvider | undefined
+  // Sealed path — branch on mode.
+  const provider = normalized.provider
   if (provider === undefined) {
     throw new Error('unreachable — validation should have caught this')
   }
   const sealedPerUser: Record<string, SealedAutoUnlockEntry> = {}
   const encoder = new TextEncoder()
-  for (const [userId, cred] of Object.entries(normalized.perUser)) {
-    const sealed = await provider.seal(encoder.encode(cred.value))
-    sealedPerUser[userId] = {
-      pid: provider.id,
-      sealed: bytesToBase64(sealed),
-      alg: 'aes-256-gcm',
-      kind: cred.kind,
+
+  if (normalized.mode === 'sealed-recipient') {
+    const recipientSealer = provider as RecipientSealer
+    const hints = normalized.hints
+    if (hints === undefined) {
+      throw new Error('unreachable — sealed-recipient normalization must populate hints')
+    }
+    for (const [userId, cred] of Object.entries(normalized.perUser)) {
+      const hint = hints[userId]!
+      const sealed = await recipientSealer.sealForRecipient(encoder.encode(cred.value), hint)
+      sealedPerUser[userId] = {
+        pid: hint.pid,                  // use the recipient's pid, not the sender's
+        sealed: bytesToBase64(sealed),
+        alg: 'aes-256-gcm',
+        kind: cred.kind,
+        hint,
+      }
+    }
+  } else {
+    // mode === 'sealed-self'
+    const selfSealer = provider as SealingKeyProvider
+    for (const [userId, cred] of Object.entries(normalized.perUser)) {
+      const sealed = await selfSealer.seal(encoder.encode(cred.value))
+      sealedPerUser[userId] = {
+        pid: selfSealer.id,
+        sealed: bytesToBase64(sealed),
+        alg: 'aes-256-gcm',
+        kind: cred.kind,
+      }
     }
   }
+
   return {
     _noydb_bundle_body: 1,
     dump: dumpJson,
@@ -740,6 +759,11 @@ function coerceUnsealed(entry: AutoCredential | string): AutoCredential {
  *   (default), throw `BundleSealMismatchError`. With
  *   `attemptUnsealAcrossProviders: true`, try each provider whose
  *   `alg` matches the envelope.
+ *   Exception: if an unmatched entry carries a `hint` field (recipient-target
+ *   entries), it passes through as `{ kind, value: base64sealed }` rather than
+ *   throwing — multi-recipient bundles have N-1 unmatched entries from each
+ *   recipient's perspective, and the consumer is expected to ignore entries
+ *   not addressed to them.
  * - When `sealingProviders` is unset entirely on a `'sealed'` bundle,
  *   pass through the SEALED entries as `{ kind, value: base64sealed }` —
  *   the caller can inspect or unseal elsewhere.
@@ -791,9 +815,22 @@ async function resolveAutoUnlock(
           }
         }
         if (opened === null) {
+          if (entry.hint !== undefined) {
+            // Recipient-target entry not addressed to any held key — pass through sealed.
+            // Other recipients' entries in a multi-recipient bundle are opaque to us.
+            unsealedMap[userId] = { kind: credKind, value: entry.sealed }
+            continue
+          }
           throw new BundleSealMismatchError(userId, entry.pid)
         }
         unsealedMap[userId] = { kind: credKind, value: opened }
+        continue
+      }
+      if (entry.hint !== undefined) {
+        // Recipient-target entry not addressed to any held key — pass through sealed.
+        // Multi-recipient bundles deliberately seal each user's entry under their own
+        // public key; a reader holding only alice's key will not match bob's pid.
+        unsealedMap[userId] = { kind: credKind, value: entry.sealed }
         continue
       }
       throw new BundleSealMismatchError(userId, entry.pid)
