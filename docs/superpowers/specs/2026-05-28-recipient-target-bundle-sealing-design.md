@@ -63,12 +63,17 @@ export interface RecipientSealer {
   readonly id: string
   /** Produce hint material a sender uses to seal-for-this-recipient. */
   publishRecipientHint(): Promise<RecipientHint>
-  /** Seal plaintext for the recipient described by hint. */
-  sealForRecipient(plaintext: Uint8Array, hint: RecipientHint): Promise<SealedEnvelope>
+  /**
+   * Seal plaintext for the recipient described by hint. Returns opaque
+   * bytes — same contract as `SealingKeyProvider.seal()`. The bundle
+   * layer base64-encodes the bytes into `SealedAutoUnlockEntry.sealed`
+   * without inspecting them.
+   */
+  sealForRecipient(plaintext: Uint8Array, hint: RecipientHint): Promise<Uint8Array>
 }
 ```
 
-`SealedEnvelope` is unchanged in its required fields but gains one optional field to carry the hybrid wrapping key (see §6).
+`SealedEnvelope` (the `_meta/sealed-passphrase` envelope used by managed-mode vaults) is **not** touched. Recipient-target sealing is bundle-layer only.
 
 ## 5. Write-side API
 
@@ -88,34 +93,34 @@ Per-user payload shape is inline `{ credential, hint }` rather than a parallel `
 
 ## 6. Wire format
 
+The bundle layer only sees opaque bytes — `SealingKeyProvider.seal()` and `RecipientSealer.sealForRecipient()` both return `Uint8Array`, and the bundle base64-encodes them into `SealedAutoUnlockEntry.sealed`. The hybrid scheme lives entirely **inside** the provider's opaque blob, not at the bundle layer.
+
 `SealedAutoUnlockEntry` in `packages/hub/src/bundle/bundle.ts` gains one optional field:
 
 ```ts
 interface SealedAutoUnlockEntry {
   readonly pid: string
-  readonly sealed: string                    // base64 hybrid-encrypted bytes
-  readonly alg: 'aes-256-gcm'                // outer-AEAD identifier; UNCHANGED
+  readonly sealed: string                    // base64 — provider-opaque; may contain hybrid TLV internally
+  readonly alg: 'aes-256-gcm'                // unchanged; provider-attested outer AEAD
   readonly kind?: AutoCredentialKind
-  readonly hint?: Record<string, unknown>    // NEW — present for recipient-target only, opaque to reader
+  readonly hint?: Record<string, unknown>    // NEW — present for recipient-target only
 }
 ```
 
-The `hint` field is included for recipient verifiability — a recipient can confirm "yes this was sealed against my published hint" before unsealing. Readers may ignore it. Self-target entries omit it. Pre-0.2 readers ignore unknown fields, so this is back-compatible.
+The `hint` field is for recipient verifiability — a recipient can confirm "yes this was sealed against my published hint" before unsealing. Self-target entries omit it. Pre-0.2 readers ignore unknown fields, so this is back-compatible.
 
-`SealedEnvelope` gains one optional field to carry the RSA-wrapped CEK:
+`SealedEnvelope` (the `_meta/sealed-passphrase` envelope used by managed-mode vaults, NOT the bundle entry) is unchanged — recipient-target sealing is a bundle-level concept; vault-level sealing always operates on the vault owner's own provider.
 
-```ts
-interface SealedEnvelope {
-  readonly pid: string
-  readonly sealed: string
-  readonly alg: 'aes-256-gcm'
-  readonly wrappedKey?: string               // NEW — base64 RSA-OAEP-wrapped 32-byte AES key
-}
+**Hybrid scheme — internal to the provider's opaque bytes.** RSA-OAEP-SHA256 cannot encrypt arbitrary-length plaintext (limited to ~190 bytes at 2048-bit). `MemoryRecipientSealer.sealForRecipient(plaintext, hint)` mints a fresh 32-byte CEK, AES-GCM-encrypts the plaintext under it, RSA-OAEP-wraps the CEK with the recipient's public key, and concatenates a self-describing TLV into the returned `Uint8Array`:
+
+```
+byte  0       : version (0x01)
+bytes 1..256  : RSA-OAEP-wrapped CEK (fixed 256 bytes at RSA-2048)
+bytes 257..268: AES-GCM IV (12 bytes)
+bytes 269..   : AES-GCM ciphertext ‖ 16-byte tag
 ```
 
-**Hybrid scheme.** RSA-OAEP-SHA256 cannot encrypt arbitrary-length plaintext (limited to ~190 bytes at 2048-bit). The sender mints a fresh 32-byte CEK, AES-GCM-encrypts the plaintext under it, RSA-OAEP-wraps the CEK with the recipient's public key, and packs both into the envelope. `sealed` is the AES-GCM ciphertext (layout `iv(12) ‖ ct ‖ tag`); `wrappedKey` is the RSA-OAEP-wrapped CEK. The recipient's `unseal()` checks `wrappedKey` presence, RSA-unwraps the CEK with their private key, then AES-GCM-decrypts.
-
-This keeps `alg: 'aes-256-gcm'` invariant across modes — the unseal dispatcher sees the same outer AEAD regardless of how the CEK arrived. `wrappedKey === undefined` means self-target (CEK derived from the provider's symmetric key, current behaviour); `wrappedKey !== undefined` means hybrid recipient-target.
+`MemoryRecipientSealer.unseal(bytes)` parses the TLV, RSA-unwraps the CEK with its private key, AES-GCM-decrypts. The bundle layer is unaware of any of this — it just stores the base64 and dispatches by `pid`. Future cloud-provider implementations (`at-aws-kms`, etc.) are free to use their own opaque layouts; the only contract is that `sealForRecipient(p, hint).then(unseal)` is the identity.
 
 ## 7. `MemoryRecipientSealer` reference implementation
 
@@ -135,9 +140,9 @@ export class MemoryRecipientSealer implements SealingKeyProvider, RecipientSeale
   }
 
   async publishRecipientHint(): Promise<RecipientHint> { /* export SPKI PEM */ }
-  async sealForRecipient(plaintext: Uint8Array, hint: RecipientHint): Promise<SealedEnvelope> { /* import pem, hybrid encrypt */ }
-  async seal(plaintext: Uint8Array): Promise<SealedEnvelope> { /* self-target: same as sealForRecipient against own published hint */ }
-  async unseal(env: SealedEnvelope): Promise<Uint8Array> { /* RSA-unwrap CEK, AES-GCM decrypt */ }
+  async sealForRecipient(plaintext: Uint8Array, hint: RecipientHint): Promise<Uint8Array> { /* import pem, hybrid encrypt, return TLV bytes */ }
+  async seal(plaintext: Uint8Array): Promise<Uint8Array> { /* self-target: sealForRecipient against own published hint */ }
+  async unseal(bytes: Uint8Array): Promise<Uint8Array> { /* parse TLV, RSA-unwrap CEK, AES-GCM decrypt */ }
 }
 ```
 
