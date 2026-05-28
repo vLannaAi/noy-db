@@ -15,6 +15,18 @@
  *   - {@link MemorySealingKeyProvider} — in-memory test provider; uses
  *     a deterministic per-instance "key" so two providers with
  *     different ids cannot unseal each other's outputs.
+ *   - {@link RecipientHint} — public material a sender uses to seal
+ *     plaintext for a specific recipient; published by
+ *     {@link RecipientSealer.publishRecipientHint} and transported
+ *     out-of-band to the sender before bundle writes.
+ *   - {@link RecipientSealer} — interface for asymmetric/granted
+ *     providers that support recipient-target sealing (RSA-OAEP,
+ *     cloud-KMS asymmetric, etc.); distinct from self-only
+ *     {@link SealingKeyProvider} (macOS Keychain, WebAuthn-PRF).
+ *   - {@link MemoryRecipientSealer} — in-process reference
+ *     implementation of both `RecipientSealer` and
+ *     `SealingKeyProvider` using real WebCrypto RSA-OAEP + AES-GCM;
+ *     safe for tests and same-process sender/recipient scenarios.
  *   - {@link loadSealedPassphrase} / {@link saveSealedPassphrase} —
  *     plaintext envelope storage at `_meta/sealed-passphrase`.
  *     Mirrors the `_meta/handle` and `_meta/public-envelope` AES-
@@ -146,6 +158,154 @@ export class MemorySealingKeyProvider implements SealingKeyProvider {
       out[i] = body[i]! ^ this.keyBytes[i % 16]!
     }
     return out
+  }
+}
+
+/**
+ * Public material a sender uses to seal-for-this-recipient. Published by
+ * a recipient's RecipientSealer; transported to the sender out-of-band
+ * (email, S3, in-app message). The sender obtains the hint, supplies it
+ * to writeNoydbBundle's sealedCredentials.perUser[userId].hint, and the
+ * hub seals each user's credential against it. Per foundation §11.4.
+ */
+export type RecipientHint = {
+  readonly v: 1
+  /** Recipient's provider id; matches the SealedAutoUnlockEntry.pid they'll unseal under. */
+  readonly pid: string
+  /** Algorithm the sender uses to produce the seal. Slice 1 ships RSA-OAEP-SHA256 only. */
+  readonly alg: 'rsa-oaep-sha256'
+  /** Public material — alg-specific. For 'rsa-oaep-sha256': { publicKeyPem: string }. */
+  readonly material: Readonly<Record<string, unknown>>
+}
+
+/**
+ * Handover-capable provider. Implemented additionally by asymmetric/granted
+ * providers (cloud-KMS asymmetric, Azure RSA Key Vault, AWS KMS with grant).
+ * Self-only providers (macOS Keychain, env-var, WebAuthn-PRF) do NOT
+ * implement this — the §11.2 capability matrix lives in the type system.
+ *
+ * Per foundation §11.4. A function that requires recipient-target sealing
+ * takes `RecipientSealer`, not `SealingKeyProvider` — the compiler rejects
+ * passing a self-only provider at the spec site.
+ */
+export interface RecipientSealer {
+  readonly id: string
+  /** Produce hint material a sender uses to seal-for-this-recipient. */
+  publishRecipientHint(): Promise<RecipientHint>
+  /**
+   * Seal plaintext for the recipient described by `hint`. Returns opaque
+   * bytes — same contract as `SealingKeyProvider.seal()`. The bundle
+   * layer base64-encodes the bytes into `SealedAutoUnlockEntry.sealed`
+   * without inspecting them.
+   */
+  sealForRecipient(plaintext: Uint8Array, hint: RecipientHint): Promise<Uint8Array>
+}
+
+/**
+ * Reference implementation of `RecipientSealer` + `SealingKeyProvider`.
+ * Uses WebCrypto RSA-OAEP-SHA256 (2048-bit) to wrap a fresh 32-byte
+ * AES-GCM CEK, AES-GCM-encrypts plaintext under it, and packs the
+ * result into a self-describing TLV:
+ *
+ *   byte  0       : version (0x01)
+ *   bytes 1..256  : RSA-OAEP-wrapped CEK (fixed 256 bytes at RSA-2048)
+ *   bytes 257..268: AES-GCM IV (12 bytes)
+ *   bytes 269..   : AES-GCM ciphertext ‖ 16-byte tag
+ *
+ * Implements BOTH interfaces. `seal(plaintext)` (self-target) is just
+ * `sealForRecipient(plaintext, this own hint)` — same TLV. Convenient
+ * for tests where one provider plays both ends. Real cloud providers
+ * (`at-aws-kms`, etc.) will pick their own internal layouts; the only
+ * contract is round-trip identity.
+ *
+ * SAFE for production within its scope — the cryptography is real
+ * (RSA-OAEP + AES-GCM via WebCrypto), but the keypair lives in-process
+ * and is regenerated on every construction. Not suitable as a managed
+ * keychain; use it for tests and for shipping bundles where the
+ * recipient instance lives in the same process as the sender (rare).
+ */
+export class MemoryRecipientSealer implements SealingKeyProvider, RecipientSealer {
+  readonly id: string
+  private readonly keypair: Promise<CryptoKeyPair>
+
+  constructor(opts: { id: string }) {
+    this.id = opts.id
+    this.keypair = crypto.subtle.generateKey(
+      { name: 'RSA-OAEP', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+      true,
+      ['encrypt', 'decrypt'],
+    )
+  }
+
+  async publishRecipientHint(): Promise<RecipientHint> {
+    const { publicKey } = await this.keypair
+    const spki = await crypto.subtle.exportKey('spki', publicKey)
+    const pem = '-----BEGIN PUBLIC KEY-----\n'
+      + bytesToBase64(new Uint8Array(spki)).match(/.{1,64}/g)!.join('\n')
+      + '\n-----END PUBLIC KEY-----\n'
+    return { v: 1, pid: this.id, alg: 'rsa-oaep-sha256', material: { publicKeyPem: pem } }
+  }
+
+  async sealForRecipient(plaintext: Uint8Array, hint: RecipientHint): Promise<Uint8Array> {
+    if (hint.v !== 1) {
+      throw new Error(`MemoryRecipientSealer.sealForRecipient: unsupported hint.v ${String(hint.v)} (expected 1)`)
+    }
+    if (hint.alg !== 'rsa-oaep-sha256') {
+      throw new Error(`MemoryRecipientSealer.sealForRecipient: unsupported hint.alg '${String(hint.alg)}' (expected 'rsa-oaep-sha256')`)
+    }
+    const pem = hint.material['publicKeyPem']
+    if (typeof pem !== 'string') {
+      throw new Error('MemoryRecipientSealer.sealForRecipient: hint.material.publicKeyPem missing or not a string')
+    }
+    // Parse PEM → SPKI bytes.
+    const b64 = pem.replace(/-----BEGIN PUBLIC KEY-----/, '').replace(/-----END PUBLIC KEY-----/, '').replace(/\s+/g, '')
+    const spki = base64ToBytes(b64)
+    const recipientPub = await crypto.subtle.importKey(
+      'spki', spki as BufferSource,
+      { name: 'RSA-OAEP', hash: 'SHA-256' },
+      false, ['encrypt'],
+    )
+    // Mint fresh CEK + IV, AES-GCM encrypt plaintext.
+    const cekBytes = crypto.getRandomValues(new Uint8Array(32))
+    const cek = await crypto.subtle.importKey('raw', cekBytes as BufferSource, 'AES-GCM', false, ['encrypt'])
+    const iv = crypto.getRandomValues(new Uint8Array(12))
+    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv as BufferSource }, cek, plaintext as BufferSource))
+    // RSA-OAEP-wrap the CEK bytes.
+    const wrapped = new Uint8Array(await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, recipientPub, cekBytes as BufferSource))
+    cekBytes.fill(0)
+    if (wrapped.length !== 256) {
+      throw new Error(`MemoryRecipientSealer.sealForRecipient: expected 256-byte RSA-OAEP wrap, got ${wrapped.length}`)
+    }
+    // TLV layout.
+    const out = new Uint8Array(1 + 256 + 12 + ct.length)
+    out[0] = 0x01
+    out.set(wrapped, 1)
+    out.set(iv, 1 + 256)
+    out.set(ct, 1 + 256 + 12)
+    return out
+  }
+
+  async seal(plaintext: Uint8Array): Promise<Uint8Array> {
+    const hint = await this.publishRecipientHint()
+    return this.sealForRecipient(plaintext, hint)
+  }
+
+  async unseal(bytes: Uint8Array): Promise<Uint8Array> {
+    if (bytes.length < 1 + 256 + 12 + 16) {
+      throw new Error('MemoryRecipientSealer.unseal: sealed input too short')
+    }
+    if (bytes[0] !== 0x01) {
+      throw new Error(`MemoryRecipientSealer.unseal: unknown TLV version ${bytes[0]}`)
+    }
+    const wrapped = bytes.subarray(1, 1 + 256)
+    const iv = bytes.subarray(1 + 256, 1 + 256 + 12)
+    const ct = bytes.subarray(1 + 256 + 12)
+    const { privateKey } = await this.keypair
+    const cekBytes = new Uint8Array(await crypto.subtle.decrypt({ name: 'RSA-OAEP' }, privateKey, wrapped as BufferSource))
+    const cek = await crypto.subtle.importKey('raw', cekBytes as BufferSource, 'AES-GCM', false, ['decrypt'])
+    const pt = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv as BufferSource }, cek, ct as BufferSource))
+    cekBytes.fill(0)
+    return pt
   }
 }
 
