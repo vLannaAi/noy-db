@@ -55,7 +55,7 @@ import type { Vault } from '../vault.js'
 import type { BundleRecipient } from '../team/keyring.js'
 import { pickLocale } from '../meta/public-envelope/storage.js'
 import type { PublicEnvelope } from '../meta/public-envelope/types.js'
-import type { SealingKeyProvider } from '../team/managed-passphrase.js'
+import type { SealingKeyProvider, RecipientSealer, RecipientHint } from '../team/managed-passphrase.js'
 
 // ─── #215 auto-credential types ───────────────────────────────────────────────
 
@@ -184,18 +184,30 @@ export interface WriteNoydbBundleOptions {
    * recipient must hold a provider with a matching `pid` (i.e.,
    * `provider.id`) to auto-unseal on import.
    *
-   * `mode: 'self-target'` is the only supported mode — sender and
-   * recipient share the same provider identity (same iCloud Keychain
-   * entry, same MDM-provisioned bundle id, same KMS account, etc.).
+   * `mode: 'self-target'` — sender and recipient share the same
+   * provider identity (same iCloud Keychain entry, same
+   * MDM-provisioned bundle id, same KMS account, etc.).
+   *
+   * `mode: 'recipient-target'` — asymmetric sealing via a
+   * {@link RecipientSealer}. Each user entry carries a
+   * `credential` and a `hint` (the recipient's public material).
+   * The bundle can only be unsealed by the holder of the matching
+   * private key.
    *
    * Mutually exclusive with `autoCredentials`, `autoPassphrases`,
    * and `sealedPassphrases`.
    */
-  readonly sealedCredentials?: {
-    readonly mode: 'self-target'
-    readonly provider: SealingKeyProvider
-    readonly perUser: Record<string, AutoCredential>
-  }
+  readonly sealedCredentials?:
+    | {
+        readonly mode: 'self-target'
+        readonly provider: SealingKeyProvider
+        readonly perUser: Record<string, AutoCredential>
+      }
+    | {
+        readonly mode: 'recipient-target'
+        readonly provider: RecipientSealer
+        readonly perUser: Record<string, { readonly credential: AutoCredential; readonly hint: RecipientHint }>
+      }
   /**
    * @deprecated Use `autoCredentials` instead (#215).
    *
@@ -346,9 +358,11 @@ export interface ReadNoydbBundleOptions {
  * so the build + validate paths share a single normalizer.
  */
 interface NormalizedAutoUnlock {
-  readonly mode: 'unsealed' | 'sealed'
-  readonly provider?: SealingKeyProvider
+  readonly mode: 'unsealed' | 'sealed-self' | 'sealed-recipient'
+  readonly provider?: SealingKeyProvider | RecipientSealer
   readonly perUser: Record<string, AutoCredential>
+  /** Present only for `sealed-recipient`. Same key set as `perUser`. */
+  readonly hints?: Record<string, RecipientHint>
 }
 
 /**
@@ -394,11 +408,20 @@ function normalizeAutoUnlock(opts: WriteNoydbBundleOptions): NormalizedAutoUnloc
     return { mode: 'unsealed', perUser: toAutoCredentials(opts.autoPassphrases.perUser) }
   }
   if (opts.sealedCredentials !== undefined) {
-    return { mode: 'sealed', provider: opts.sealedCredentials.provider, perUser: opts.sealedCredentials.perUser }
+    if (opts.sealedCredentials.mode === 'recipient-target') {
+      const perUser: Record<string, AutoCredential> = {}
+      const hints: Record<string, RecipientHint> = {}
+      for (const [userId, entry] of Object.entries(opts.sealedCredentials.perUser)) {
+        perUser[userId] = entry.credential
+        hints[userId] = entry.hint
+      }
+      return { mode: 'sealed-recipient', provider: opts.sealedCredentials.provider, perUser, hints }
+    }
+    return { mode: 'sealed-self', provider: opts.sealedCredentials.provider, perUser: opts.sealedCredentials.perUser }
   }
   // sealedPassphrases — only remaining option
   return {
-    mode: 'sealed',
+    mode: 'sealed-self',
     provider: opts.sealedPassphrases!.provider,
     perUser: toAutoCredentials(opts.sealedPassphrases!.perUser),
   }
@@ -416,7 +439,7 @@ function normalizeAutoUnlock(opts: WriteNoydbBundleOptions): NormalizedAutoUnloc
  *   - (mutual exclusion already enforced by normalizeAutoUnlock)
  *   - unsealed path: `policy: 'public-by-design'` marker required
  *   - non-empty `perUser` maps
- *   - sealed path: `mode: 'self-target'` + provider present
+ *   - sealed path: provider present; runtime accepts `mode: 'self-target'` only in this slice (recipient-target rejected per §11.4 until the next commit lifts the guard)
  *   - every AutoCredential.kind ∈ {passphrase, password, pin}
  *     (WebAuthn is hardware-bound and cannot be bundled)
  *
@@ -468,8 +491,8 @@ function validateAutoUnlockOptions(
   if (mode !== 'self-target') {
     throw new ValidationError(
       `writeNoydbBundle: \`sealedCredentials.mode\` (or \`sealedPassphrases.mode\`) must be `
-      + `'self-target' in slice 1 (got '${String(mode)}'). Recipient-target sealing via the `
-      + 'RecipientSealer interface is deferred per foundation §11.4.',
+      + `'self-target' (got '${String(mode)}'). The 'recipient-target' arm is type-defined but `
+      + 'not yet wired through to the sealing layer — coming in the next commit.',
     )
   }
   if (normalized.provider === undefined) {
@@ -508,7 +531,14 @@ async function buildAutoUnlockWrapper(
     }
   }
   // Sealed path — seal each user's credential value under the provider.
-  const provider = normalized.provider
+  if (normalized.mode === 'sealed-recipient') {
+    // Actual sealing logic is deferred to Task 5; validation already
+    // rejects recipient-target at this stage so this branch is unreachable
+    // in the current slice.
+    throw new Error('unreachable — validator rejects recipient-target in this slice')
+  }
+  // normalized.mode === 'sealed-self'
+  const provider = normalized.provider as SealingKeyProvider | undefined
   if (provider === undefined) {
     throw new Error('unreachable — validation should have caught this')
   }
