@@ -690,6 +690,22 @@ describe('recipient-target sealedCredentials — validation', () => {
       }),
     ).rejects.toThrow(/RecipientSealer/)
   })
+
+  it('rejects a recipient-target entry with an empty hint.pid', async () => {
+    const { vault: v } = await freshVault()
+    const recipient = new MemoryRecipientSealer({ id: 'r1' })
+    const validHint = await recipient.publishRecipientHint()
+    const emptyPidHint = { ...validHint, pid: '' }
+    await expect(
+      writeNoydbBundle(v, {
+        sealedCredentials: {
+          mode: 'recipient-target',
+          provider: recipient,
+          perUser: { alice: { credential: { kind: 'passphrase', value: 'p' }, hint: emptyPidHint } },
+        },
+      }),
+    ).rejects.toThrow(/pid/)
+  })
 })
 
 describe('recipient-target sealedCredentials — round-trip', () => {

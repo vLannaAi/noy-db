@@ -153,13 +153,13 @@ export class MemoryRecipientSealer implements SealingKeyProvider, RecipientSeale
 In `validateAutoUnlockOptions`:
 
 - The existing `mode: 'self-target'` arm: unchanged.
-- New `mode: 'recipient-target'` arm: verify `typeof provider.publishRecipientHint === 'function' && typeof provider.sealForRecipient === 'function'` (runtime guard for JS callers; TS callers can't reach this without satisfying `RecipientSealer`). Verify every `perUser[userId].hint` is present, well-formed (`v === 1`, non-empty `pid`, supported `alg`), and that `hint.pid === provider.id` (sender cannot seal for a recipient whose hint points at a different provider).
+- New `mode: 'recipient-target'` arm: verify `typeof provider.publishRecipientHint === 'function' && typeof provider.sealForRecipient === 'function'` (runtime guard for JS callers; TS callers can't reach this without satisfying `RecipientSealer`). Verify every `perUser[userId].hint` is present, well-formed (`v === 1`, supported `alg`), and that `hint.pid` is a non-empty string identifying the recipient (the dispatch key the reader's `pid` lookup matches against the recipient's local provider). NOTE: `hint.pid` deliberately need not match the sender's `provider.id` — in recipient-target mode the sender and recipient are different parties.
 - The previous "deferred per foundation §11.4" `ValidationError` is removed.
 - Cross-arm mutual-exclusion with `autoCredentials` / `autoPassphrases` / `sealedPassphrases` is unchanged.
 
 ## 9. Read-side API
 
-API surface unchanged. The recipient calls `readNoydbBundle(bytes, { sealingProviders: [memoryRecipientSealerInstance] })` exactly as for self-target bundles. `pid` dispatch finds the matching provider; the provider's `unseal()` implementation grows a branch on `wrappedKey` presence to handle hybrid envelopes (RSA-OAEP-unwrap CEK, then AES-GCM-decrypt). No new option or code path in the bundle reader itself — the hybrid handling lives entirely inside the provider's `unseal()`.
+API surface unchanged. The recipient calls `readNoydbBundle(bytes, { sealingProviders: [memoryRecipientSealerInstance] })` exactly as for self-target bundles. `pid` dispatch finds the matching provider; the provider's `unseal()` implementation transparently parses the hybrid TLV inside the opaque `sealed` bytes (RSA-OAEP-unwrap CEK, then AES-GCM-decrypt) — entirely internal to the provider, the bundle layer sees only opaque `Uint8Array`. No new option or code path in the bundle reader itself — the hybrid handling lives entirely inside the provider's `unseal()`.
 
 ## 10. Test plan
 
@@ -167,11 +167,11 @@ New describe block `recipient-target sealedCredentials` in `packages/hub/__tests
 
 1. **happy path** — two `MemoryRecipientSealer` instances (`alice-rs`, `bob-rs`), each publishes a hint, sender writes bundle with `mode: 'recipient-target'` and the two hints, two readers unseal under their respective providers, each gets the right plaintext.
 2. **missing hint** — a per-user entry without `hint` → write-side `ValidationError` citing the offending `userId`.
-3. **mismatched pid** — `hint.pid !== provider.id` for some user → write-side `ValidationError`.
+3. **mismatched alg** — `hint.alg !== 'rsa-oaep-sha256'` → write-side `ValidationError`. (The shipped design intentionally does NOT enforce `hint.pid === provider.id`, since sender and recipient are different parties.)
 4. **wrong recipient** — third-party provider (different keypair) tries to unseal → AES-GCM auth-tag failure surfaced as the standard unseal error.
 5. **mode mismatch** — passing `mode: 'recipient-target'` with a self-only provider (no `publishRecipientHint`/`sealForRecipient`) → runtime `ValidationError`. (TS callers can't reach this; covered for JS interop.)
 6. **wire-format back-compat** — a bundle written with `mode: 'self-target'` reads unchanged (no `hint` field, no `wrappedKey` field).
-7. **hint round-trip** — recipient confirms `entry.hint?.pid === recipient.id` before unsealing (demonstrates the verifiability use case).
+7. **hint round-trip** — verifiability is covered implicitly by the wrong-recipient test (different keypair → AES-GCM auth-tag failure); an explicit `entry.hint?.pid === recipient.id` round-trip test is a follow-up for the cloud-KMS slices.
 
 `MemoryRecipientSealer` itself gets a focused unit test (round-trip seal/unseal, wrong-key failure).
 
@@ -179,7 +179,7 @@ New describe block `recipient-target sealedCredentials` in `packages/hub/__tests
 
 | File | Change |
 |---|---|
-| `packages/hub/src/team/managed-passphrase.ts` | `RecipientHint` type, `RecipientSealer` interface, `MemoryRecipientSealer` class. Add `wrappedKey?: string` to `SealedEnvelope`. |
+| `packages/hub/src/team/managed-passphrase.ts` | `RecipientHint` type, `RecipientSealer` interface, `MemoryRecipientSealer` class. |
 | `packages/hub/src/bundle/bundle.ts` | `sealedCredentials.mode: 'recipient-target'` arm. `SealedAutoUnlockEntry.hint?` field. `validateAutoUnlockOptions` recipient-target arm + removal of "deferred per §11.4" `ValidationError`. Write-side hybrid encrypt path. |
 | `packages/hub/src/index.ts` | Re-export `RecipientHint`, `RecipientSealer`, `MemoryRecipientSealer`. |
 | `packages/hub/__tests__/bundle-auto-unlock.test.ts` | New `recipient-target sealedCredentials` describe block (7 tests). |
@@ -200,6 +200,6 @@ New describe block `recipient-target sealedCredentials` in `packages/hub/__tests
 ## 13. Risks and review points
 
 - **Hybrid envelope correctness.** The CEK lifecycle has to be tight: minted per-seal (never reused across users), AES-GCM IV minted per-seal (never reused under the same CEK), CEK zeroed after wrapping. The reference impl pins these in code with comments.
-- **Hint-mismatch detection.** `hint.pid !== provider.id` at write time catches the "sealing under the wrong recipient's published material" mistake. Tests cover this explicitly.
-- **Read-path regressions.** Adding `wrappedKey` to `SealedEnvelope` is the only field touching the existing self-target path. Test 6 pins back-compat: a self-target bundle reads unchanged.
+- **Hint-mismatch detection.** `hint.pid` non-emptiness check at write time catches the "empty dispatch key" mistake. Tests cover this explicitly.
+- **Read-path regressions.** Reader behaviour with multi-recipient bundles is the only meaningful new behaviour on the read path. The hint-discriminated pass-through (entries with `hint !== undefined` that don't match any provided sealing provider are surfaced as opaque base64 rather than throwing `BundleSealMismatchError`) maintains the existing inspection-mode contract for self-target bundles. Test 6 pins back-compat: a self-target bundle reads unchanged with no `hint` field on entries.
 - **Algorithm scope.** Pinning `alg: 'rsa-oaep-sha256'` as the only supported algorithm in this slice avoids a premature union. The first cloud-provider follow-up will extend it (e.g. `'kms-encrypt-cross-account'`).

@@ -519,6 +519,11 @@ function validateAutoUnlockOptions(
           `writeNoydbBundle: \`sealedCredentials.perUser['${userId}'].hint.v\` must be 1 (got ${String(hint.v)}).`,
         )
       }
+      if (typeof hint.pid !== 'string' || hint.pid.length === 0) {
+        throw new ValidationError(
+          `writeNoydbBundle: \`sealedCredentials.perUser['${userId}'].hint.pid\` must be a non-empty string identifying the recipient.`,
+        )
+      }
       if (hint.alg !== 'rsa-oaep-sha256') {
         throw new ValidationError(
           `writeNoydbBundle: \`sealedCredentials.perUser['${userId}'].hint.alg\` must be 'rsa-oaep-sha256' in slice 1 (got '${String(hint.alg)}').`,
