@@ -91,7 +91,7 @@ async function niwatVault() {
   return vault
 }
 
-const hotelSeed = { clients: (c: Client) => c.operatorUserId === 'belle' }
+const hotelSeed = { clients: (c: Record<string, unknown>) => c.operatorUserId === 'belle' }
 
 describe('Showcase 88 — transferable partition bundles', () => {
   it('describeExtraction previews exactly the closure that would travel', async () => {

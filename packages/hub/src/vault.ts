@@ -649,7 +649,7 @@ export class Vault {
         ...(this.materializedViewRegistry !== null
           ? {
               materializedViewSource: {
-                // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+                 
                 registry: () => this.materializedViewRegistry!,
                 getCollection: (name: string) => this.collection(name),
                 getActiveTxContext: () => this.noydb._activeTxContextOrNull,
@@ -716,7 +716,7 @@ export class Vault {
             // Schema persistence is a fingerprint, not a correctness
             // invariant — log and continue. Production callers can
             // still detect failures via _drainPendingSchemaWrites.
-            // eslint-disable-next-line no-console
+             
             console.warn(
               `[noy-db] persisted-schema write failed for "${collectionName}": `
               + (err instanceof Error ? err.message : String(err)),
@@ -1543,7 +1543,7 @@ export class Vault {
    * Throws `MaterializedViewCycleError` if a cycle is detected.
    */
   async _initMaterializedViews(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     handles: ReadonlyArray<MaterializedViewStrategyHandle>,
   ): Promise<void> {
     if (handles.length === 0) return
@@ -1561,7 +1561,7 @@ export class Vault {
     this.materializedViewRegistry = registry
     // Pass `this` Vault as the MVQueryContext — its `collection<T>()`
     // method is what the user's `query(db)` callback consumes.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const db = this as unknown as MVQueryContext
     for (const h of handles) {
       await registry.register(h.spec, db)

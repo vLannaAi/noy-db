@@ -311,7 +311,7 @@ export function wrapDbWithPredicates(
               // For non-aggregate Query<T>, attach predicates. For
               // legacy predicate-arg overload that returns T[] (sync
               // filter), pass through unchanged.
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+               
               if (q && typeof q._withPredicates === 'function') {
                 return q._withPredicates(map)
               }

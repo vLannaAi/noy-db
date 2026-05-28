@@ -2439,7 +2439,7 @@ export class Noydb {
     let effectiveSecret: string | undefined
     if (this.options.passphraseMode === 'managed') {
       // sealingKey presence was validated at createNoydb time.
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+       
       effectiveSecret = await resolveManagedSecret(
         this.options.store,
         vault,
