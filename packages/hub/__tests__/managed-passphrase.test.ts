@@ -18,6 +18,7 @@ import { createNoydb } from '../src/noydb.js'
 import { ConflictError, ValidationError } from '../src/errors.js'
 import {
   MemorySealingKeyProvider,
+  MemoryRecipientSealer,
   loadSealedPassphrase,
   saveSealedPassphrase,
   SEALED_PASSPHRASE_RECORD_ID,
@@ -244,5 +245,54 @@ describe('createNoydb({ passphraseMode: "managed" }) — slice 1', () => {
       sealingKey: wrongProvider,
     })
     await expect(db2.openVault('acme')).rejects.toThrow()
+  })
+})
+
+describe('MemoryRecipientSealer', () => {
+  it('round-trips: sealForRecipient → unseal returns the original plaintext', async () => {
+    const recipient = new MemoryRecipientSealer({ id: 'alice-rs' })
+    const hint = await recipient.publishRecipientHint()
+
+    const sender = new MemoryRecipientSealer({ id: 'sender-rs' })
+    const plaintext = new TextEncoder().encode('hello recipient')
+    const sealed = await sender.sealForRecipient(plaintext, hint)
+
+    const opened = await recipient.unseal(sealed)
+    expect(new TextDecoder().decode(opened)).toBe('hello recipient')
+  })
+
+  it('unseals fail when a third-party provider tries to open someone else\'s envelope', async () => {
+    const alice = new MemoryRecipientSealer({ id: 'alice-rs' })
+    const carol = new MemoryRecipientSealer({ id: 'carol-rs' })
+    const aliceHint = await alice.publishRecipientHint()
+
+    const sender = new MemoryRecipientSealer({ id: 'sender-rs' })
+    const sealed = await sender.sealForRecipient(new TextEncoder().encode('for alice only'), aliceHint)
+
+    await expect(carol.unseal(sealed)).rejects.toThrow(/decrypt|OperationError|operation/i)
+  })
+
+  it('unseal rejects a tampered ciphertext (AES-GCM auth tag catches the flip)', async () => {
+    const recipient = new MemoryRecipientSealer({ id: 'recipient' })
+    const hint = await recipient.publishRecipientHint()
+    const sender = new MemoryRecipientSealer({ id: 'sender' })
+    const sealed = await sender.sealForRecipient(new TextEncoder().encode('original message'), hint)
+
+    // Flip a byte in the ciphertext region (after the version + wrapped CEK + IV header).
+    const tampered = new Uint8Array(sealed)
+    tampered[1 + 256 + 12 + 1] ^= 0x01
+
+    await expect(recipient.unseal(tampered)).rejects.toThrow()
+  })
+
+  it('publishRecipientHint returns a v:1 RSA-OAEP-SHA256 hint with the provider id and a PEM public key', async () => {
+    const recipient = new MemoryRecipientSealer({ id: 'belle-rs' })
+    const hint = await recipient.publishRecipientHint()
+    expect(hint.v).toBe(1)
+    expect(hint.pid).toBe('belle-rs')
+    expect(hint.alg).toBe('rsa-oaep-sha256')
+    expect(typeof hint.material['publicKeyPem']).toBe('string')
+    expect(hint.material['publicKeyPem']).toMatch(/^-----BEGIN PUBLIC KEY-----/)
+    expect(hint.material['publicKeyPem']).toMatch(/-----END PUBLIC KEY-----\n?$/)
   })
 })
