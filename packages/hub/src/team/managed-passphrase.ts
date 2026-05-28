@@ -234,7 +234,7 @@ export class MemoryRecipientSealer implements SealingKeyProvider, RecipientSeale
       { name: 'RSA-OAEP', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
       true,
       ['encrypt', 'decrypt'],
-    ) as Promise<CryptoKeyPair>
+    )
   }
 
   async publishRecipientHint(): Promise<RecipientHint> {
@@ -248,10 +248,10 @@ export class MemoryRecipientSealer implements SealingKeyProvider, RecipientSeale
 
   async sealForRecipient(plaintext: Uint8Array, hint: RecipientHint): Promise<Uint8Array> {
     if (hint.v !== 1) {
-      throw new Error(`MemoryRecipientSealer.sealForRecipient: unsupported hint.v ${hint.v} (expected 1)`)
+      throw new Error(`MemoryRecipientSealer.sealForRecipient: unsupported hint.v ${String(hint.v)} (expected 1)`)
     }
     if (hint.alg !== 'rsa-oaep-sha256') {
-      throw new Error(`MemoryRecipientSealer.sealForRecipient: unsupported hint.alg '${hint.alg}' (expected 'rsa-oaep-sha256')`)
+      throw new Error(`MemoryRecipientSealer.sealForRecipient: unsupported hint.alg '${String(hint.alg)}' (expected 'rsa-oaep-sha256')`)
     }
     const pem = hint.material['publicKeyPem']
     if (typeof pem !== 'string') {

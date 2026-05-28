@@ -516,12 +516,12 @@ function validateAutoUnlockOptions(
       }
       if (hint.v !== 1) {
         throw new ValidationError(
-          `writeNoydbBundle: \`sealedCredentials.perUser['${userId}'].hint.v\` must be 1 (got ${hint.v}).`,
+          `writeNoydbBundle: \`sealedCredentials.perUser['${userId}'].hint.v\` must be 1 (got ${String(hint.v)}).`,
         )
       }
       if (hint.alg !== 'rsa-oaep-sha256') {
         throw new ValidationError(
-          `writeNoydbBundle: \`sealedCredentials.perUser['${userId}'].hint.alg\` must be 'rsa-oaep-sha256' in slice 1 (got '${hint.alg}').`,
+          `writeNoydbBundle: \`sealedCredentials.perUser['${userId}'].hint.alg\` must be 'rsa-oaep-sha256' in slice 1 (got '${String(hint.alg)}').`,
         )
       }
       // Note: hint.pid identifies the recipient, not the sender — no pid===sender.id check here.
