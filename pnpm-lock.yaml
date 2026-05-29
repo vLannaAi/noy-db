@@ -848,6 +848,22 @@ importers:
         specifier: ^3.23.0
         version: 3.25.76
 
+  recipes/attestation-verifier:
+    dependencies:
+      '@noy-db/attestation':
+        specifier: workspace:*
+        version: link:../../packages/attestation
+    devDependencies:
+      esbuild:
+        specifier: ^0.25.0
+        version: 0.25.12
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.4(@types/node@22.19.17)(happy-dom@18.0.1)(jiti@2.6.1)(terser@5.46.1)(yaml@2.9.0)
+
   showcases:
     dependencies:
       '@libsql/client':

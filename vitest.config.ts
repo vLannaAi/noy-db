@@ -5,6 +5,7 @@ export default defineConfig({
     projects: [
       'packages/*/vitest.config.ts',
       'test-harnesses/*/vitest.config.ts',
+      'recipes/*/vitest.config.ts',
     ],
     coverage: {
       provider: 'v8',
