@@ -1062,9 +1062,15 @@ importers:
       '@marsaud/smb2':
         specifier: ^0.18.0
         version: 0.18.0
+      '@noy-db/attestation':
+        specifier: workspace:*
+        version: link:../packages/attestation
       '@noy-db/cli':
         specifier: workspace:*
         version: link:../packages/cli
+      '@noy-db/recipe-attestation-verifier':
+        specifier: workspace:*
+        version: link:../recipes/attestation-verifier
       '@tanstack/query-core':
         specifier: ^5.59.0
         version: 5.99.2
