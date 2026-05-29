@@ -688,7 +688,9 @@ features:
     package: '@noy-db/hub/attestation'
     factory: null
     status: preview
-    showcases: []
+    showcases:
+      - id: 89-attestation-revocation
+        path: showcases/src/89-attestation-revocation.showcase.test.ts
     recipes: [attestation-verifier]
     playground_pages: []
     diagrams: []
@@ -697,6 +699,7 @@ features:
       - 'authenticity via Ed25519 signature over the per-field commitment (a plain hash would be forgeable); integrity via per-field salted hashes enabling which-field-differs localization'
       - 'issue is owner-only; the signing keypair is stored encrypted under the _attestations collection DEK (not the KEK, which is AES-KW-only)'
       - '_attestations index records are encrypted and pin the source record version'
+      - 'revocation is whole-doc: vault.revokeAttestation tracks an encrypted _attestations/_revoked set; publishRevocationList signs it with the firm key (same keyId as issued docs) — the offline verifier bundles the signed list to gate "still valid today?"'
     related: [history, bundle]
 
   - id: session
