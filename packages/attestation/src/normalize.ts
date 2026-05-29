@@ -40,7 +40,7 @@ export function normalizeField(value: unknown, n: Normalizer): string {
         return String(Math.round(value * 100))
       }
       // For string values: strip currency symbols / spaces / commas but keep digits, dot, minus
-      const stripped = String(value).replace(/[^0-9.\-]/g, '')
+      const stripped = String(value).replace(/[^0-9.-]/g, '')
       // A valid numeric string must have at least one digit
       if (!/[0-9]/.test(stripped)) {
         throw new Error(`normalizeField(cents): not a finite number: ${String(value)}`)

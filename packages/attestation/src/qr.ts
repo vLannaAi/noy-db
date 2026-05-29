@@ -34,6 +34,6 @@ export function decodeQr(s: string): QrPayload {
   }
   return {
     v: 1, docId: p['docId'], salt: p['salt'], alg: 'ed25519',
-    keyId: p['keyId'], fieldHashes: p['fieldHashes'] as string[], sig: p['sig'],
+    keyId: p['keyId'], fieldHashes: p['fieldHashes'], sig: p['sig'],
   }
 }

@@ -12,7 +12,7 @@ export async function generateDocSigningKeyPair(): Promise<{
   publicKeyB64: string        // base64url raw (32 bytes) — non-secret, publishable
   privateKeyPkcs8B64: string  // base64url pkcs8 — secret, wrap before persisting
 }> {
-  const kp = (await globalThis.crypto.subtle.generateKey(ALG, true, ['sign', 'verify'])) as CryptoKeyPair
+  const kp = await globalThis.crypto.subtle.generateKey(ALG, true, ['sign', 'verify'])
   const rawPub = new Uint8Array(await globalThis.crypto.subtle.exportKey('raw', kp.publicKey))
   const pkcs8 = new Uint8Array(await globalThis.crypto.subtle.exportKey('pkcs8', kp.privateKey))
   const publicKeyB64 = bytesToB64url(rawPub)
