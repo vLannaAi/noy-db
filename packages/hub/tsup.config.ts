@@ -45,6 +45,7 @@ const ENTRIES = {
   'overlay-views/index': 'src/overlay-views/index.ts',
   'sync/index': 'src/sync/index.ts',
   'util/index': 'src/util/index.ts',
+  'attestation/index': 'src/attestation/index.ts',
 }
 
 export default defineConfig([

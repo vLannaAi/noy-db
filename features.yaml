@@ -680,6 +680,25 @@ features:
       - 'extractPartition appends a partition-handed-over:<sealId> lifecycle entry to the source ledger (audit signal; no-op without history)'
     related: [bundle, persisted-json-schema, history, team]
 
+  - id: attestation
+    name: Document attestation (signed-QR offline verification)
+    cluster: time-and-audit
+    spec: docs/superpowers/specs/2026-05-29-attestation-core-and-issue-design.md
+    subsystem_doc: docs/superpowers/specs/2026-05-29-document-attestation-umbrella-design.md
+    package: '@noy-db/hub/attestation'
+    factory: null
+    status: preview
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'verification is offline: the signed per-field commitment travels in the QR; no server holds or returns document content'
+      - 'authenticity via Ed25519 signature over the per-field commitment (a plain hash would be forgeable); integrity via per-field salted hashes enabling which-field-differs localization'
+      - 'issue is owner-only; the signing keypair is stored encrypted under the _attestations collection DEK (not the KEK, which is AES-KW-only)'
+      - '_attestations index records are encrypted and pin the source record version'
+    related: [history, bundle]
+
   - id: session
     name: Session tokens + dev unlock
     cluster: collaboration-and-auth

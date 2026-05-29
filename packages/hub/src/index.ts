@@ -232,6 +232,7 @@ export {
   FieldFrozenError,
   InvariantError,
   AmendmentForbiddenError,
+  AttestationError,
 } from './errors.js'
 
 // Bundle format — `.noydb` container

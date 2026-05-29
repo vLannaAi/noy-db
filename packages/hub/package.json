@@ -235,6 +235,16 @@
         "types": "./dist/util/index.d.cts",
         "default": "./dist/util/index.cjs"
       }
+    },
+    "./attestation": {
+      "import": {
+        "types": "./dist/attestation/index.d.ts",
+        "default": "./dist/attestation/index.js"
+      },
+      "require": {
+        "types": "./dist/attestation/index.d.cts",
+        "default": "./dist/attestation/index.cjs"
+      }
     }
   },
   "main": "./dist/index.cjs",
@@ -255,7 +265,9 @@
     "typecheck": "tsc --noEmit",
     "bundle-check": "node scripts/check-bundle.mjs"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@noy-db/attestation": "workspace:*"
+  },
   "devDependencies": {
     "@noy-db/on-shamir": "workspace:*",
     "@types/node": "^22.0.0",

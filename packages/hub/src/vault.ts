@@ -36,6 +36,7 @@ import {
   AlreadyElevatedError,
   ElevationExpiredError,
   TierNotGrantedError,
+  AttestationError,
 } from './errors.js'
 import type { NoydbEventEmitter } from './events.js'
 import { BackupLedgerError, BackupCorruptedError } from './errors.js'
@@ -106,6 +107,8 @@ import {
 import { UserApi } from './meta/user-envelope/api.js'
 import { persistSchemaIfNeeded } from './persisted-schemas/register.js'
 import { SCHEMAS_COLLECTION } from './persisted-schemas/storage.js'
+import type { AttestationFieldSchema } from '@noy-db/attestation'
+import type { IssueContext } from './attestation/issue.js'
 import type { DumpSchemaOptions, VaultSchemaSnapshot } from './introspection/types.js'
 import { dumpVaultSchema, type VaultIntrospectState } from './introspection/walk.js'
 import { USER_ENVELOPE_COLLECTION } from './meta/user-envelope/types.js'
@@ -223,6 +226,13 @@ export class Vault {
    * `vault.compact()`. Indexed by collection name.
    */
   private readonly blobFieldsRegistry = new Map<string, BlobFieldsConfig<unknown>>()
+
+  /**
+   * Per-collection attestation field-schema (issue side). Populated on
+   * `collection({ attestation })` and read by `issueAttestation()`.
+   * Indexed by collection name.
+   */
+  private readonly attestationRegistry = new Map<string, AttestationFieldSchema>()
 
   /**
    * Per-vault ledger store. Lazy-initialized on first
@@ -537,6 +547,8 @@ export class Vault {
      * @see docs/superpowers/specs/2026-05-22-schema-dump-design.md
      */
     persistJsonSchema?: boolean
+    /** — declare the per-field schema for document attestation (issue side). */
+    attestation?: AttestationFieldSchema
   }): Collection<T> {
     // Overlay intercept (#154). When the requested collection name
     // matches a registered `withOverlayedView`, return the virtual
@@ -581,6 +593,11 @@ export class Vault {
       // register blobFields retention/TTL policy
       if (options?.blobFields) {
         this.blobFieldsRegistry.set(collectionName, options.blobFields as BlobFieldsConfig<unknown>)
+      }
+
+      // register the per-collection attestation field-schema
+      if (options?.attestation !== undefined) {
+        this.attestationRegistry.set(collectionName, options.attestation)
       }
 
       // Register dictKey fields: store field → dictionary name mapping
@@ -1129,6 +1146,39 @@ export class Vault {
       (entry) => this.writeExportAudit(entry),
       options,
     )
+  }
+
+  async issueAttestation(collectionName: string, id: string): Promise<{ docId: string; qr: string; keyId: string; publicKeyB64: string }> {
+    const fieldSchema = this.attestationRegistry.get(collectionName)
+    if (!fieldSchema) {
+      throw new AttestationError(`issueAttestation: collection '${collectionName}' has no attestation field-schema. Declare it via vault.collection('${collectionName}', { attestation: { fields: [...] } }).`)
+    }
+    const { issueAttestationCore } = await import('./attestation/issue.js')
+    const out = await issueAttestationCore(this.makeIssueContext(), { collection: collectionName, id, fieldSchema })
+    return { docId: out.docId, qr: out.qr, keyId: out.keyId, publicKeyB64: out.publicKeyB64 }
+  }
+
+  async getDocumentSigningPublicKey(): Promise<{ keyId: string; publicKeyB64: string }> {
+    const { loadOrCreateSigner } = await import('./attestation/signer.js')
+    const signer = await loadOrCreateSigner(this.adapter, this.name, this.getDEK)
+    return { keyId: signer.keyId, publicKeyB64: signer.publicKeyB64 }
+  }
+
+  private makeIssueContext(): IssueContext {
+    const adapter = this.adapter, vaultName = this.name, getDEK = this.getDEK
+    return {
+      store: adapter,
+      vault: vaultName,
+      role: this.keyring.role,
+      getDEK: async () => getDEK('_attestations'),
+      readRecord: async (collection: string, recId: string) => {
+        const env = await adapter.get(vaultName, collection, recId)
+        if (!env) return null
+        const record = (await this.collection(collection).get(recId, { locale: 'raw' })) as Record<string, unknown> | null
+        if (record === null) return null
+        return { record, version: env._v }
+      },
+    }
   }
 
   private async writeExportAudit(entry: ExportBlobsAuditEntry): Promise<void> {

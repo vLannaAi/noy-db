@@ -1264,6 +1264,16 @@ export class AdoptionStateError extends NoydbError {
   }
 }
 
+// ─── Attestation Errors ────────────────────────────────────
+
+/** Document-attestation failures: undeclared field-schema, non-owner issue, missing field, signer failure. */
+export class AttestationError extends NoydbError {
+  constructor(message: string) {
+    super('ATTESTATION', message)
+    this.name = 'AttestationError'
+  }
+}
+
 // ─── Session Errors ───────────────────────────────────────
 
 /**
