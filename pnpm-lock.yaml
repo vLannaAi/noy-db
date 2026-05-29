@@ -236,6 +236,8 @@ importers:
         specifier: ^22.0.0
         version: 22.19.17
 
+  packages/attestation: {}
+
   packages/by-peer:
     devDependencies:
       '@noy-db/hub':
