@@ -180,3 +180,6 @@ backup/
 
 # ─── Local-only AI configs (not published) ─────────────────────────
 CLAUDE.md
+
+# ─── Brainstorming visual-companion artifacts (transient) ──────────
+.superpowers/

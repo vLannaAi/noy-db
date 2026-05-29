@@ -5,3 +5,4 @@ packages:
   - "playground/cli"
   - "playground/nuxt"
   - "showcases"
+  - "recipes/*"
