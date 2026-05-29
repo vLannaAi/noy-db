@@ -689,7 +689,7 @@ features:
     factory: null
     status: preview
     showcases: []
-    recipes: []
+    recipes: [attestation-verifier]
     playground_pages: []
     diagrams: []
     invariants:
@@ -2122,3 +2122,11 @@ recipes:
     status: preview
     exercises:
       features: [user-envelope, vault-and-collections]
+
+  - id: attestation-verifier
+    name: Offline document-attestation verifier
+    doc: docs/recipes/attestation-verifier.md
+    showcase_path: showcases/src/recipe-attestation-verifier.recipe.test.ts
+    status: preview
+    exercises:
+      features: [attestation]
