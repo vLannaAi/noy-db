@@ -5,6 +5,7 @@ import { generateDocSigningKeyPair } from '@noy-db/attestation'
 
 export const ATTESTATIONS_COLLECTION = '_attestations'
 export const SIGNER_RECORD_ID = '_signer'
+export const REVOKED_RECORD_ID = '_revoked'
 
 export interface DocSigner {
   readonly keyId: string

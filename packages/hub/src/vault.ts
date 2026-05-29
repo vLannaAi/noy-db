@@ -107,8 +107,9 @@ import {
 import { UserApi } from './meta/user-envelope/api.js'
 import { persistSchemaIfNeeded } from './persisted-schemas/register.js'
 import { SCHEMAS_COLLECTION } from './persisted-schemas/storage.js'
-import type { AttestationFieldSchema } from '@noy-db/attestation'
+import type { AttestationFieldSchema, RevocationList } from '@noy-db/attestation'
 import type { IssueContext } from './attestation/issue.js'
+import type { RevokeContext } from './attestation/revoke.js'
 import type { DumpSchemaOptions, VaultSchemaSnapshot } from './introspection/types.js'
 import { dumpVaultSchema, type VaultIntrospectState } from './introspection/walk.js'
 import { USER_ENVELOPE_COLLECTION } from './meta/user-envelope/types.js'
@@ -1178,6 +1179,36 @@ export class Vault {
         if (record === null) return null
         return { record, version: env._v }
       },
+    }
+  }
+
+  async revokeAttestation(docId: string): Promise<void> {
+    const { revokeDocCore } = await import('./attestation/revoke.js')
+    await revokeDocCore(this.makeRevokeContext(), docId)
+  }
+
+  async unrevokeAttestation(docId: string): Promise<void> {
+    const { unrevokeDocCore } = await import('./attestation/revoke.js')
+    await unrevokeDocCore(this.makeRevokeContext(), docId)
+  }
+
+  async getRevokedDocIds(): Promise<string[]> {
+    const { getRevokedDocIdsCore } = await import('./attestation/revoke.js')
+    return getRevokedDocIdsCore(this.makeRevokeContext())
+  }
+
+  async publishRevocationList(): Promise<RevocationList> {
+    const { publishRevocationListCore } = await import('./attestation/revoke.js')
+    return publishRevocationListCore(this.makeRevokeContext())
+  }
+
+  private makeRevokeContext(): RevokeContext {
+    const adapter = this.adapter, vaultName = this.name, getDEK = this.getDEK
+    return {
+      store: adapter,
+      vault: vaultName,
+      role: this.keyring.role,
+      getDEK: async () => getDEK('_attestations'),
     }
   }
 
