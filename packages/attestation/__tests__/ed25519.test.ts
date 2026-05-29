@@ -32,4 +32,12 @@ describe('Ed25519', () => {
     const { keyIdFor } = await import('../src/ed25519.js')
     expect(await keyIdFor(kp.publicKeyB64)).toBe(kp.keyId)
   })
+  it('returns false (does not throw) on malformed key/sig input', async () => {
+    const kp = await generateDocSigningKeyPair()
+    const sig = await ed25519Sign(kp.privateKeyPkcs8B64, utf8('m'))
+    // malformed public key (not a valid 32-byte raw Ed25519 key)
+    expect(await ed25519Verify('not-valid-base64-key', sig, utf8('m'))).toBe(false)
+    // malformed signature string
+    expect(await ed25519Verify(kp.publicKeyB64, 'AA', utf8('m'))).toBe(false)
+  })
 })

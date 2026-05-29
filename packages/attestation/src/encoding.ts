@@ -59,7 +59,7 @@ export function canonicalJson(value: unknown): string {
 }
 
 export async function sha256Bytes(input: string): Promise<Uint8Array> {
-  const digest = await globalThis.crypto.subtle.digest('SHA-256', utf8(input))
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', utf8(input) as BufferSource)
   return new Uint8Array(digest)
 }
 
