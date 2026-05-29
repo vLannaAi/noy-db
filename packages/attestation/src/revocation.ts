@@ -14,6 +14,9 @@ function listCore(revokedDocIds: readonly string[], asOf: string, keyId: string)
 }
 
 export function isRevoked(docId: string, list: RevocationList): boolean {
+  // The list is untrusted (typically network-fetched). Fail closed on a
+  // malformed shape rather than throwing a raw TypeError.
+  if (!Array.isArray(list?.revokedDocIds)) return false
   return list.revokedDocIds.includes(docId)
 }
 
@@ -26,6 +29,10 @@ export async function signRevocationList(
 }
 
 export async function verifyRevocationList(list: RevocationList, publicKeyB64: string): Promise<boolean> {
-  if (list.v !== 1) return false
+  // Untrusted input — validate the shape before touching it (no raw TypeError).
+  if (list?.v !== 1 || !Array.isArray(list.revokedDocIds)
+      || typeof list.asOf !== 'string' || typeof list.keyId !== 'string' || typeof list.sig !== 'string') {
+    return false
+  }
   return ed25519Verify(publicKeyB64, list.sig, listCore(list.revokedDocIds, list.asOf, list.keyId))
 }
