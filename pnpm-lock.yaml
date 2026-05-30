@@ -1132,6 +1132,9 @@ importers:
       '@noy-db/recipe-attestation-verifier':
         specifier: workspace:*
         version: link:../recipes/attestation-verifier
+      '@noy-db/recipe-aws-kms-pdf-attestation':
+        specifier: workspace:*
+        version: link:../recipes/aws-kms-pdf-attestation
       '@tanstack/query-core':
         specifier: ^5.59.0
         version: 5.99.2
