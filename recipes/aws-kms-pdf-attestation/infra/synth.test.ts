@@ -10,7 +10,7 @@ describe('CDK stack synthesizes', () => {
     const t = Template.fromStack(stack)
     t.resourceCountIs('AWS::KMS::Key', 1)
     t.resourceCountIs('AWS::S3::Bucket', 1)
-    t.hasResourceProperties('AWS::Lambda::Function', { PackageType: 'Image', Architectures: ['arm64'], MemorySize: 2048 })
+    t.hasResourceProperties('AWS::Lambda::Function', { PackageType: 'Image', Architectures: ['x86_64'], MemorySize: 2048 })
     t.resourceCountIs('AWS::Lambda::Url', 1)
     t.hasResourceProperties('AWS::S3::Bucket', {
       PublicAccessBlockConfiguration: { BlockPublicAcls: true, RestrictPublicBuckets: true },

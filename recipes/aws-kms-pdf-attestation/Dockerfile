@@ -1,7 +1,15 @@
 # Lambda container for the KMS-PDF render recipe (arm64, Node 22).
-FROM public.ecr.aws/lambda/nodejs:22-arm64
-# @sparticuz/chromium needs these shared libs present in the image.
-RUN dnf install -y tar bzip2 && dnf clean all
+FROM public.ecr.aws/lambda/nodejs:22-x86_64
+# @sparticuz/chromium needs these shared libs present in the image. The
+# Amazon Linux 2023 Lambda base lacks Chromium's runtime deps (libnss3.so et al);
+# install the documented set so the headless browser can launch.
+RUN dnf install -y tar bzip2 \
+      nss nss-util nspr \
+      atk at-spi2-atk at-spi2-core cups-libs \
+      libdrm libxkbcommon libXcomposite libXdamage libXext libXfixes \
+      libXrandr libXScrnSaver libxshmfence mesa-libgbm \
+      pango cairo alsa-lib gtk3 \
+    && dnf clean all
 WORKDIR ${LAMBDA_TASK_ROOT}
 # A minimal package.json that only declares ESM. We deliberately do NOT copy the
 # workspace package.json — it has `workspace:*` deps npm cannot install
