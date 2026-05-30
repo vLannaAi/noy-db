@@ -51,7 +51,10 @@ export async function renderPdf(html: string): Promise<Uint8Array> {
   const browser = await browserPromise
   const page = await browser.newPage()
   try {
-    await page.setContent(html, { waitUntil: 'networkidle0' })
+    // 'load' is sufficient: the invoice HTML has no network resources (inline
+    // SVG QR + inline CSS). puppeteer-core's setContent only accepts
+    // 'load' | 'domcontentloaded' (networkidle* are navigation-only).
+    await page.setContent(html, { waitUntil: 'load' })
     const pdf = await page.pdf({ format: 'A4', printBackground: true })
     return new Uint8Array(pdf)
   } finally {
