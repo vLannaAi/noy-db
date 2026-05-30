@@ -1,0 +1,44 @@
+{
+  "name": "@noy-db/recipe-aws-kms-pdf-attestation",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Deployable reference: KMS-decrypt an S3 doc record, render HTML→PDF with the attestation QR as vector. Recipe, not published.",
+  "exports": {
+    ".": "./src/payload.ts",
+    "./seal": "./src/seal.ts",
+    "./render-core": "./src/render-core.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "bundle": "esbuild src/handler.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/handler.js --external:@sparticuz/chromium --external:puppeteer-core",
+    "synth": "cdk synth --app 'npx tsx infra/app.ts'"
+  },
+  "dependencies": {
+    "@noy-db/at-aws-kms": "workspace:*",
+    "@aws-sdk/client-kms": "^3.0.0",
+    "@aws-sdk/client-s3": "^3.0.0",
+    "qrcode": "^1.5.4",
+    "puppeteer-core": "^24.0.0",
+    "@sparticuz/chromium": "^138.0.0"
+  },
+  "peerDependencies": {
+    "@noy-db/hub": "workspace:*"
+  },
+  "devDependencies": {
+    "@noy-db/hub": "workspace:*",
+    "@noy-db/attestation": "workspace:*",
+    "@noy-db/recipe-attestation-verifier": "workspace:*",
+    "@noy-db/to-memory": "workspace:*",
+    "@types/qrcode": "^1.5.5",
+    "@types/node": "^22.0.0",
+    "aws-cdk-lib": "^2.160.0",
+    "constructs": "^10.3.0",
+    "aws-cdk": "^2.160.0",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}
