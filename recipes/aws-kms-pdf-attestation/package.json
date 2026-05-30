@@ -12,7 +12,7 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "bundle": "esbuild src/handler.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/handler.js --external:@sparticuz/chromium --external:puppeteer-core",
+    "bundle": "esbuild src/handler.ts --bundle --platform=node --format=cjs --target=node22 --outfile=dist/handler.cjs --external:@sparticuz/chromium --external:puppeteer-core",
     "synth": "cdk synth --app 'npx tsx infra/app.ts'"
   },
   "dependencies": {
