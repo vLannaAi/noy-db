@@ -691,13 +691,15 @@ features:
     showcases:
       - id: 89-attestation-revocation
         path: showcases/src/89-attestation-revocation.showcase.test.ts
-    recipes: [attestation-verifier]
+    recipes: [attestation-verifier, aws-kms-pdf-attestation]
     playground_pages: []
     diagrams: []
     invariants:
       - 'verification is offline: the signed per-field commitment travels in the QR; no server holds or returns document content'
       - 'authenticity via Ed25519 signature over the per-field commitment (a plain hash would be forgeable); integrity via per-field salted hashes enabling which-field-differs localization'
       - 'issue is owner-only; the signing keypair is stored encrypted under the _attestations collection DEK (not the KEK, which is AES-KW-only)'
+      - 'the signing key is minted exactly once and only by the owner: getDocumentSigningPublicKey reads an existing key for any DEK-holder (the public key is not secret) but only the owner may mint a missing one; a non-owner read on a fresh vault raises AttestationError instead of silently minting'
+      - 'concurrent first-mints converge: loadOrCreateSigner guards the mint with put(expectedVersion:0) ("must not exist") and, on the losing race, re-reads and returns the winning keypair rather than surfacing a raw ConflictError'
       - '_attestations index records are encrypted and pin the source record version'
       - 'revocation is whole-doc: vault.revokeAttestation tracks an encrypted _attestations/_revoked set; publishRevocationList signs it with the firm key (same keyId as issued docs) — the offline verifier bundles the signed list to gate "still valid today?"'
     related: [history, bundle]

@@ -1,6 +1,6 @@
 # Document Attestation — umbrella design
 
-**Status:** umbrella spec (cross-cutting contracts + decomposition; each sub-system gets its own spec → plan)
+**Status:** SHIPPED (preview) — all five sub-systems merged. ① pure core `@noy-db/attestation` (#235) · ①b hub issue side `@noy-db/hub/attestation` (#236) · ④ offline verifier recipe (#237) · ⑤ revocation publishing (#238) · ③ AWS-KMS HTML→PDF render recipe (#239, real-AWS verified). Post-epic hardening: magic-link share gate for ③ (#240) + Secrets-Manager deploy fix (#241), and signer hardening — owner-gated mint-on-read + concurrent-first-mint convergence (#242). This remains the cross-cutting design of record; per-sub-system specs/plans live alongside it.
 **Authoring date:** 2026-05-29
 **Cluster:** `time-and-audit` (beside `history` / `consent` — provenance + tamper-evidence)
 **Relates to:** #197 (recipient-target sealed delivery — the `at-aws-kms` KMS path lands in sub-system ③), the ledger hash primitives (`canonicalJson`, `sha256Hex` in `history/ledger/entry.ts`)
