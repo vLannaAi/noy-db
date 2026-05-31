@@ -1160,7 +1160,16 @@ export class Vault {
   }
 
   async getDocumentSigningPublicKey(): Promise<{ keyId: string; publicKeyB64: string }> {
-    const { loadOrCreateSigner } = await import('./attestation/signer.js')
+    const { loadSigner, loadOrCreateSigner } = await import('./attestation/signer.js')
+    // Reading an existing public key is open to any role that holds the
+    // _attestations DEK — the public key is not secret. But MINTING the
+    // signer is the firm's identity operation (same rule as issueAttestation):
+    // a non-owner read must not silently create it.
+    const existing = await loadSigner(this.adapter, this.name, this.getDEK)
+    if (existing) return { keyId: existing.keyId, publicKeyB64: existing.publicKeyB64 }
+    if (this.keyring.role !== 'owner') {
+      throw new AttestationError(`getDocumentSigningPublicKey: no document-signing key exists yet; only the 'owner' may mint it. Caller is '${this.keyring.role}'. Have the owner issue an attestation (or call this) first.`)
+    }
     const signer = await loadOrCreateSigner(this.adapter, this.name, this.getDEK)
     return { keyId: signer.keyId, publicKeyB64: signer.publicKeyB64 }
   }

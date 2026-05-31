@@ -106,3 +106,53 @@ describe('vault.issueAttestation (integration)', () => {
     expect(r.perField.find(f => f.path === 'vendorName')?.match).toBe(true)
   })
 })
+
+describe('vault.getDocumentSigningPublicKey (mint-on-read role gate)', () => {
+  it('owner: mints the signing key on first read and returns it', async () => {
+    const db = await createNoydb({ store: memory(), user: 'firm', secret: 'firm-passphrase-2026' })
+    const vault = await db.openVault('books')
+
+    const { keyId, publicKeyB64 } = await vault.getDocumentSigningPublicKey()
+    expect(keyId).toHaveLength(16)
+    expect(publicKeyB64).toBeTruthy()
+
+    // Idempotent: a second read returns the same key (no re-mint).
+    const again = await vault.getDocumentSigningPublicKey()
+    expect(again.keyId).toBe(keyId)
+  })
+
+  it('non-owner on a fresh vault: refuses to mint and throws AttestationError (no signer written)', async () => {
+    const adapter = memory()
+    const ownerDb = await createNoydb({ store: adapter, user: 'firm', secret: 'firm-passphrase-2026' })
+    await ownerDb.openVault('books')
+    await ownerDb.grant('books', { userId: 'viewer-01', displayName: 'Viewer', role: 'viewer', passphrase: 'viewer-pass' })
+
+    const viewerDb = await createNoydb({ store: adapter, user: 'viewer-01', secret: 'viewer-pass' })
+    const viewerVault = await viewerDb.openVault('books')
+
+    await expect(viewerVault.getDocumentSigningPublicKey()).rejects.toThrow(AttestationError)
+    // Crucially: no _signer record was minted as a side effect of the read.
+    expect(await adapter.get('books', '_attestations', '_signer')).toBeNull()
+  })
+
+  it('non-owner after the owner has minted: the read does NOT mint (gate only guards minting)', async () => {
+    const adapter = memory()
+    const ownerDb = await createNoydb({ store: adapter, user: 'firm', secret: 'firm-passphrase-2026' })
+    const ownerVault = await ownerDb.openVault('books')
+    const minted = await ownerVault.getDocumentSigningPublicKey() // owner mints
+    await ownerDb.grant('books', { userId: 'viewer-01', displayName: 'Viewer', role: 'viewer', passphrase: 'viewer-pass' })
+
+    const viewerDb = await createNoydb({ store: adapter, user: 'viewer-01', secret: 'viewer-pass' })
+    const viewerVault = await viewerDb.openVault('books')
+
+    // The signer already exists, so loadSigner short-circuits before the gate —
+    // a non-owner read returns the owner's public key (a viewer holds the
+    // _attestations DEK and can decrypt it) and never reaches the mint branch.
+    const before = await adapter.get('books', '_attestations', '_signer')
+    const result = await viewerVault.getDocumentSigningPublicKey()
+    const after = await adapter.get('books', '_attestations', '_signer')
+    expect(result.keyId).toBe(minted.keyId)
+    expect(result.publicKeyB64).toBe(minted.publicKeyB64)
+    expect(after).toEqual(before) // read did not mint or mutate
+  })
+})
