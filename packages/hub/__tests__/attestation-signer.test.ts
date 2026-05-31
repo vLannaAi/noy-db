@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { loadOrCreateSigner } from '../src/attestation/signer.js'
-import { generateDEK } from '../src/crypto.js'
-import { ed25519Verify, signPayloadCore } from '@noy-db/attestation'
+import { loadOrCreateSigner, loadSigner, SIGNER_RECORD_ID, ATTESTATIONS_COLLECTION, type DocSigner } from '../src/attestation/signer.js'
+import { generateDEK, encrypt } from '../src/crypto.js'
+import { ed25519Verify, signPayloadCore, generateDocSigningKeyPair } from '@noy-db/attestation'
+import { NOYDB_FORMAT_VERSION } from '../src/types.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError } from '../src/errors.js'
 
@@ -53,5 +54,85 @@ describe('loadOrCreateSigner', () => {
     const { utf8, canonicalJson } = await import('@noy-db/attestation')
     const core = utf8(canonicalJson({ v: 1, docId: 'd', salt: 's', keyId: signer.keyId, fieldHashes: ['h'] }))
     expect(await ed25519Verify(signer.publicKeyB64, sig, core)).toBe(true)
+  })
+})
+
+/**
+ * Models the exact lost-race sequence deterministically (no Promise.all
+ * interleaving): the first `get` returns null (winner hasn't committed from
+ * this caller's view, so it proceeds to mint), the `put(…, 0)` throws
+ * ConflictError (another writer committed in between), and the re-read `get`
+ * now returns the winner. With `winnerEnv: null` the winner stays invisible
+ * even after the put — the pathological "record vanished" case.
+ */
+function lostRaceStore(winnerEnv: EncryptedEnvelope | null): { store: NoydbStore; putCalls: number } {
+  const state = { putCalls: 0 }
+  const store: NoydbStore = {
+    name: 'lost-race',
+    async get(_v, c, id) {
+      if (c !== ATTESTATIONS_COLLECTION || id !== SIGNER_RECORD_ID) return null
+      return state.putCalls > 0 ? winnerEnv : null // winner visible only after the losing put
+    },
+    async put() { state.putCalls++; throw new ConflictError(1, 'Version conflict: expected 0, found 1') },
+    async delete() {},
+    async list() { return [] },
+    async loadAll() { return {} as VaultSnapshot },
+    async saveAll() {},
+  }
+  return { store, get putCalls() { return state.putCalls } }
+}
+
+async function sealSigner(signer: DocSigner, dek: CryptoKey): Promise<EncryptedEnvelope> {
+  const { iv, data } = await encrypt(JSON.stringify(signer), dek)
+  return { _noydb: NOYDB_FORMAT_VERSION, _v: 1, _ts: '2026-05-31T00:00:00.000Z', _iv: iv, _data: data }
+}
+
+describe('loadOrCreateSigner — concurrent first-mint (lost race)', () => {
+  it('on ConflictError, re-reads and returns the winner signer (convergence, not its own mint)', async () => {
+    const dek = await generateDEK()
+    const getDEK = async () => dek
+    const winner = await generateDocSigningKeyPair()
+    const race = lostRaceStore(await sealSigner(winner, dek))
+
+    const result = await loadOrCreateSigner(race.store, 'v1', getDEK)
+
+    // The loser minted its own keypair in memory, but converges on the winner.
+    expect(result.keyId).toBe(winner.keyId)
+    expect(result.publicKeyB64).toBe(winner.publicKeyB64)
+    expect(result.privateKeyPkcs8B64).toBe(winner.privateKeyPkcs8B64)
+    expect(race.putCalls).toBe(1) // attempted once, did not retry/clobber
+  })
+
+  it('throws (not null) if the conflicting record vanishes before re-read', async () => {
+    const dek = await generateDEK()
+    const getDEK = async () => dek
+    // get returns null (record gone), but put still throws ConflictError →
+    // pathological: must surface a clear error, never let null escape.
+    const { store } = lostRaceStore(null)
+
+    await expect(loadOrCreateSigner(store, 'v1', getDEK)).rejects.toThrow()
+  })
+})
+
+describe('loadSigner — pure read (never mints)', () => {
+  it('returns null when no signer exists and writes nothing', async () => {
+    const store = memory()
+    const dek = await generateDEK()
+    const getDEK = async () => dek
+
+    const result = await loadSigner(store, 'v1', getDEK)
+
+    expect(result).toBeNull()
+    expect(await store.get('v1', ATTESTATIONS_COLLECTION, SIGNER_RECORD_ID)).toBeNull()
+  })
+
+  it('returns the persisted signer when one exists', async () => {
+    const store = memory()
+    const dek = await generateDEK()
+    const getDEK = async () => dek
+    const minted = await loadOrCreateSigner(store, 'v1', getDEK)
+
+    const loaded = await loadSigner(store, 'v1', getDEK)
+    expect(loaded?.keyId).toBe(minted.keyId)
   })
 })
