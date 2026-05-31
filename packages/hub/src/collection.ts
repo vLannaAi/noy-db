@@ -13,6 +13,7 @@ import type { UnlockedKeyring } from './team/keyring.js'
 import { hasWritePermission } from './team/keyring.js'
 import type { NoydbEventEmitter } from './events.js'
 import type { WriteQueueTracker } from './write-queue.js'
+import type { WriteHookRegistry, WriteEvent } from './write-hooks.js'
 import type { SchemaUpdateGate } from './schema-update/gate.js'
 import type { SchemaFenceController } from './schema-update/fence-controller.js'
 import type { StandardSchemaV1 } from './schema.js'
@@ -133,6 +134,8 @@ export class Collection<T> {
   private readonly writeQueue: WriteQueueTracker | undefined
   private readonly schemaUpdateGate: SchemaUpdateGate | undefined
   private readonly schemaFence: SchemaFenceController | undefined
+  private readonly writeHooks: WriteHookRegistry | undefined
+  private readonly activeTxId: (() => string | null) | undefined
   private readonly getDEK: (collectionName: string) => Promise<CryptoKey>
   private readonly onDirty: OnDirtyCallback | undefined
   private readonly historyConfig: HistoryConfig
@@ -509,6 +512,10 @@ export class Collection<T> {
     schemaUpdateGate?: SchemaUpdateGate | undefined
     /** #232 — vault-level fence controller; `put`/`delete` consult it. */
     schemaFence?: SchemaFenceController | undefined
+    /** #230 — hub-level write-hook registry; fired around put/delete. */
+    writeHooks?: WriteHookRegistry | undefined
+    /** #230 — active transaction id supplier (null outside a transaction). */
+    activeTxId?: (() => string | null) | undefined
     getDEK: (collectionName: string) => Promise<CryptoKey>
     historyConfig?: HistoryConfig | undefined
     onDirty?: OnDirtyCallback | undefined
@@ -798,6 +805,8 @@ export class Collection<T> {
     this.writeQueue = opts.writeQueue
     this.schemaUpdateGate = opts.schemaUpdateGate
     this.schemaFence = opts.schemaFence
+    this.writeHooks = opts.writeHooks
+    this.activeTxId = opts.activeTxId
     this.blobStrategy = opts.blobStrategy ?? NO_BLOBS
     this.aggregateStrategy = opts.aggregateStrategy ?? NO_AGGREGATE
     this.crdtStrategy = opts.crdtStrategy ?? NO_CRDT
@@ -1091,11 +1100,38 @@ export class Collection<T> {
     // toward writeQueue.depth.
     await this.schemaUpdateGate?.assertWritable()
     await this.schemaFence?.assertWritable(this.name) // #232
-    // TODO(#232-slice2): audit putManyAtomic / tx-execute / CRDT / blob
-    // write paths for tracking before drain relies on onFlush() as a
-    // complete quiesce barrier.
-    if (!this.writeQueue) return this.putInternal(id, record, options)
-    return this.writeQueue.track(() => this.putInternal(id, record, options))
+    // TODO(#232-slice2 / #230-followup): putManyAtomic / tx-execute / CRDT /
+    // blob write paths are not yet tracked by writeQueue nor fired through
+    // the write hooks.
+    let event: WriteEvent | undefined
+    if (this.#hooksActive()) {
+      const before = await this.#priorRecordForHook(id)
+      event = {
+        op: before === null ? 'create' : 'update',
+        collection: this.name, docId: id, before, after: record,
+        userId: this.keyring.userId, timestamp: Date.now(), txId: this.#txIdForHook(),
+      }
+      await this.writeHooks!.runBefore(event) // throw → aborts the write
+    }
+    if (this.writeQueue) await this.writeQueue.track(() => this.putInternal(id, record, options))
+    else await this.putInternal(id, record, options)
+    if (event) await this.writeHooks!.runAfter(event)
+  }
+
+  /** @internal #230 — true when hooks should fire for this write (handlers exist, not re-entrant). */
+  #hooksActive(): boolean {
+    return this.writeHooks !== undefined && this.writeHooks.hasHandlers && !this.writeHooks.suppressed
+  }
+
+  /** @internal #230 — decrypt the current record for a hook's `before`, or null. */
+  async #priorRecordForHook(id: string): Promise<unknown | null> {
+    const env = await this.adapter.get(this.vault, this.name, id)
+    if (!env) return null
+    return (await this.decryptRecord(env, { skipValidation: true })) as unknown
+  }
+
+  #txIdForHook(): string {
+    return this.activeTxId?.() ?? generateULID()
   }
 
   /** @internal Untracked put body — call {@link put}, not this. */
@@ -1647,8 +1683,18 @@ export class Collection<T> {
   async delete(id: string): Promise<void> {
     await this.schemaUpdateGate?.assertWritable() // #245
     await this.schemaFence?.assertWritable(this.name) // #232
-    if (!this.writeQueue) return this.deleteInternal(id)
-    return this.writeQueue.track(() => this.deleteInternal(id))
+    let event: WriteEvent | undefined
+    if (this.#hooksActive()) {
+      const before = await this.#priorRecordForHook(id)
+      event = {
+        op: 'delete', collection: this.name, docId: id, before, after: null,
+        userId: this.keyring.userId, timestamp: Date.now(), txId: this.#txIdForHook(),
+      }
+      await this.writeHooks!.runBefore(event)
+    }
+    if (this.writeQueue) await this.writeQueue.track(() => this.deleteInternal(id))
+    else await this.deleteInternal(id)
+    if (event) await this.writeHooks!.runAfter(event)
   }
 
   /**
