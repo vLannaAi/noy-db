@@ -256,7 +256,7 @@ Surfaces #232 to the app via `@noy-db/in-vue` (note: package is `in-vue`, not `@
 3. `hub.writeQueue.onFlush()` is the quiesce primitive and is independently usable for `beforeunload`/lock guards.
 4. Zero new presence/heartbeat or plaintext-bypass subsystems — all coordination reuses `by-peer`, `Collection.presence()`, and encrypted `_meta`.
 5. Apps that import no update strategy incur no bundle cost from the `update` subsystem (the core detection/dispatch seam is the only always-on cost, and only does work when `persistJsonSchema` is on).
-6. With `persistJsonSchema: true` and `schemaUpdate: [additiveOnly()]`, a non-additive change is refused at registration with `NonAdditiveSchemaChangeError`; an additive change passes.
+6. With `persistJsonSchema: true` and `schemaUpdate: [additiveOnly()]`, a non-additive change is detected at registration (the baseline is NOT overwritten) and **refused on the next `put`/`delete`** with `NonAdditiveSchemaChangeError`; an additive change passes. (`collection()` is synchronous, so the rejection surfaces at the write path; tests can also await the schema-check drain for eager feedback.)
 7. Strategy lists evaluate in order: given `[coordinatedCutover({from:3,to:4,…}), additiveOnly()]`, a v3→v4 break triggers a cutover, an unrelated break is rejected by the backstop, and an additive change passes — and the first non-`allow` decision short-circuits the rest.
 8. A custom `SchemaUpdateStrategy` implemented outside the hub composes in the same list with no core change.
 
