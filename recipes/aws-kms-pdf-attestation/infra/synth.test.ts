@@ -45,10 +45,12 @@ describe('CDK stack synthesizes', () => {
     )
     expect(hasLayer).toBe(true)
 
-    // The render function carries the KMS-sealed share secret as an env var.
+    // A Secrets Manager secret holds the share-signing secret (plaintext never in
+    // the template / CFN state), and the render fn references it by ARN env var.
+    t.resourceCountIs('AWS::SecretsManager::Secret', 1)
     const renderFn = Object.values(fns).find(
       (r) => (r as { Properties?: { Environment?: { Variables?: Record<string, unknown> } } })
-        .Properties?.Environment?.Variables?.['SHARE_SECRET_CIPHERTEXT'] !== undefined,
+        .Properties?.Environment?.Variables?.['SHARE_SECRET_ARN'] !== undefined,
     )
     expect(renderFn).toBeDefined()
   })

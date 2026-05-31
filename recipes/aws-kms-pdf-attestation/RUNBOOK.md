@@ -42,19 +42,19 @@ await sealAndUpload(
 
 ## 3. Invoke + verify (via a magic link)
 The endpoint requires a signed share link — a bare `?docId=` is rejected (403).
-Mint a link firm-side. You need the plaintext share secret: decrypt the
-function's `SHARE_SECRET_CIPHERTEXT` env var once with the recipe KMS key, e.g.
+Mint a link firm-side. You need the share secret string from Secrets Manager
+(the function's `SHARE_SECRET_ARN`):
 ```bash
-CIPH=$(aws lambda get-function-configuration --function-name <RenderFn> \
-  --query 'Environment.Variables.SHARE_SECRET_CIPHERTEXT' --output text)
-aws kms decrypt --ciphertext-blob "fileb://<(printf %s "$CIPH" | base64 -d)" \
-  --query Plaintext --output text | base64 -d > /tmp/share.secret   # 32 raw bytes
+ARN=$(aws lambda get-function-configuration --function-name <RenderFn> \
+  --query 'Environment.Variables.SHARE_SECRET_ARN' --output text)
+SECRET=$(aws secretsmanager get-secret-value --secret-id "$ARN" \
+  --query SecretString --output text)   # the ASCII share-signing secret
 ```
-Then mint + fetch:
+Then mint + fetch (the secret bytes are the utf8 encoding of that string —
+identical to how the Lambda derives them):
 ```ts
 import { mintShareLink } from '@noy-db/recipe-aws-kms-pdf-attestation/share-link'
-import { readFileSync } from 'node:fs'
-const secret = new Uint8Array(readFileSync('/tmp/share.secret'))
+const secret = new TextEncoder().encode(process.env.SECRET!) // the SECRET above
 const url = await mintShareLink('<docId>', { secret, baseUrl: '<FunctionUrl>' })
 // → https://<fn-url>/?d=<docId>&exp=<ms>&sig=<...>
 ```
@@ -66,8 +66,8 @@ Open `invoice.pdf`; scan the QR with the offline verifier (recipe ④) — it mu
 read `authentic-valid` for the printed fields.
 
 Links are **multi-use until `exp`** (default 24h, 7d cap). **Revocation = rotate
-the share secret** (re-deploy so the AwsCustomResource regenerates it) — this
-invalidates all live links at once. There is no per-link revocation.
+the Secrets Manager secret** (`aws secretsmanager rotate-secret`, or re-deploy a
+fresh stack) — this invalidates all live links at once. No per-link revocation.
 
 ## 4. Teardown (after you confirm "done")
 ```bash

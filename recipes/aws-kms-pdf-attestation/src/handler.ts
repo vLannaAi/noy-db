@@ -1,5 +1,6 @@
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
 import { KMSClient, DecryptCommand } from '@aws-sdk/client-kms'
+import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager'
 import { decodeRenderPayload } from './payload.js'
 import { buildInvoiceHtml, renderPdf as defaultRenderPdf } from './render-core.js'
 import { verifyShareToken } from './share-link.js'
@@ -62,21 +63,24 @@ export function makeHandler(deps: HandlerDeps) {
 }
 
 /** The deployed Lambda entry point: ambient-cred clients + the real renderPdf. */
-// The share-signing secret is stored KMS-encrypted in SHARE_SECRET_CIPHERTEXT
-// (base64). Module scope can't await, so decrypt it lazily on first invoke and
-// cache it for the life of the warm environment.
+// The share-signing secret lives in Secrets Manager (ARN in SHARE_SECRET_ARN).
+// Module scope can't await, so fetch it lazily on first invoke and cache it for
+// the warm environment. The secret is an ASCII string; the shareSecret bytes are
+// its utf8 encoding — mint + verify must use the identical encoding.
 let cachedSecret: Uint8Array | null = null
-async function resolveShareSecret(kms: Pick<KMSClient, 'send'>): Promise<Uint8Array> {
+async function resolveShareSecret(sm: Pick<SecretsManagerClient, 'send'>): Promise<Uint8Array> {
   if (cachedSecret) return cachedSecret
-  const blob = Buffer.from(process.env['SHARE_SECRET_CIPHERTEXT'] ?? '', 'base64')
-  const out = (await kms.send(new DecryptCommand({ CiphertextBlob: blob }) as never)) as { Plaintext?: Uint8Array }
-  if (!out.Plaintext) throw new Error('SHARE_SECRET_CIPHERTEXT decrypt returned no plaintext')
-  cachedSecret = new Uint8Array(out.Plaintext)
+  const out = (await sm.send(
+    new GetSecretValueCommand({ SecretId: process.env['SHARE_SECRET_ARN'] ?? '' }) as never,
+  )) as { SecretString?: string }
+  if (!out.SecretString) throw new Error('SHARE_SECRET_ARN: GetSecretValue returned no SecretString')
+  cachedSecret = new TextEncoder().encode(out.SecretString)
   return cachedSecret
 }
 
 const s3 = new S3Client({})
 const kms = new KMSClient({})
+const sm = new SecretsManagerClient({})
 const baseDeps = {
   s3,
   kms,
@@ -87,6 +91,6 @@ const baseDeps = {
 }
 
 export async function handler(event: FnUrlEvent): Promise<FnUrlResult> {
-  const shareSecret = await resolveShareSecret(kms)
+  const shareSecret = await resolveShareSecret(sm)
   return makeHandler({ ...baseDeps, shareSecret })(event)
 }
