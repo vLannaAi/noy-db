@@ -115,7 +115,7 @@ import { SCHEMAS_COLLECTION } from './persisted-schemas/storage.js'
 import type { AttestationFieldSchema, RevocationList } from '@noy-db/attestation'
 import type { IssueContext } from './attestation/issue.js'
 import type { RevokeContext } from './attestation/revoke.js'
-import type { DumpSchemaOptions, VaultSchemaSnapshot } from './introspection/types.js'
+import type { DumpSchemaOptions, VaultSchemaSnapshot, SchemaIntrospection } from './introspection/types.js'
 import { dumpVaultSchema, type VaultIntrospectState } from './introspection/walk.js'
 import { USER_ENVELOPE_COLLECTION } from './meta/user-envelope/types.js'
 
@@ -230,6 +230,8 @@ export class Vault {
   /** #232 — per-client heartbeat/watcher; started lazily on cutover registration. */
   #fenceWatcher: FenceWatcher | undefined
   #fenceCoordinationStarted = false
+  /** #229 — per-collection registered schema-update strategy names. */
+  readonly #schemaUpdateNames = new Map<string, string[]>()
 
   /**
    * per-collection `blobFields` retention/TTL config.
@@ -632,6 +634,11 @@ export class Vault {
           dictFieldMap[field] = desc.name
         }
         this.dictKeyFieldRegistry.set(collectionName, dictFieldMap)
+      }
+
+      // #229 — capture registered schema-update strategy names for introspection.
+      if ((options?.schemaUpdate?.length ?? 0) > 0) {
+        this.#schemaUpdateNames.set(collectionName, (options!.schemaUpdate ?? []).map((s) => s.name))
       }
 
       // #245 — schema-update gate. Built only when persistence + strategies
@@ -2603,6 +2610,50 @@ export class Vault {
    */
   async dumpSchema(opts: DumpSchemaOptions = {}): Promise<VaultSchemaSnapshot> {
     return dumpVaultSchema(this, opts)
+  }
+
+  /**
+   * Lightweight read of the vault's registered schema (#229): collections
+   * (+ doc counts), guards, materialized views, schema-update strategies,
+   * and the unlocked user's grants. Cheap — one `adapter.list` per
+   * collection, no decryption. For a full snapshot + stats use dumpSchema().
+   * Post-unlock by construction (a Vault only exists with an unlocked keyring).
+   */
+  async introspect(): Promise<SchemaIntrospection> {
+    const byCol = (a: { collection: string }, b: { collection: string }) =>
+      a.collection.localeCompare(b.collection)
+
+    // Union of collections registered this session (collectionCache) and
+    // collections with persisted records (collections()), so registered-but-
+    // empty collections are reported too.
+    const names = [...new Set([...this.collectionCache.keys(), ...(await this.collections())])]
+      .filter((n) => !n.startsWith('_'))
+      .sort((a, b) => a.localeCompare(b))
+    const collections: { name: string; docCount: number }[] = []
+    for (const name of names) {
+      const ids = await this.adapter.list(this.name, name)
+      collections.push({ name, docCount: ids.length })
+    }
+
+    const guards = (this._getGuardRegistry()?.summary() ?? []).slice().sort(byCol)
+
+    const materializedViews = (this._getMaterializedViewRegistry()?.all() ?? [])
+      .map((mv) => ({ name: mv.spec.name, sourceCollections: [...mv.dependencies].sort() }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+
+    const schemaUpdate = [...this.#schemaUpdateNames.entries()]
+      .map(([collection, strategies]) => ({ collection, strategies }))
+      .sort(byCol)
+
+    // Grants reflect what the unlocked user can actually access: the
+    // collections they hold a DEK for, with the level from `permissions`
+    // (absent ⇒ implicit full access for owner/admin → 'rw').
+    const grants = [...this.keyring.deks.keys()]
+      .filter((collection) => !collection.startsWith('_'))
+      .map((collection) => ({ collection, permission: this.keyring.permissions[collection] ?? 'rw' as const }))
+      .sort(byCol)
+
+    return { collections, guards, materializedViews, schemaUpdate, grants }
   }
 
   /**

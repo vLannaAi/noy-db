@@ -44,6 +44,14 @@ export class GuardRegistry {
     return this._byCollection.get(collection) ?? []
   }
 
+  /** Per-collection guard counts, for introspection (#229). */
+  summary(): { collection: string; count: number }[] {
+    return [...this._byCollection.entries()].map(([collection, guards]) => ({
+      collection,
+      count: guards.length,
+    }))
+  }
+
   /**
    * Run every guard's `check` for this collection. First throw wins —
    * remaining guards are not invoked. Guards without a `check` skip.

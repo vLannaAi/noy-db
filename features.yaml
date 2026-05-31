@@ -841,6 +841,24 @@ features:
       - 'txId is shared across all writes in one db.transaction(); a fresh ULID per standalone write'
     related: [vault-and-collections, observable-write-queue]
 
+  - id: schema-introspection
+    name: Runtime schema introspection
+    cluster: core
+    spec: docs/superpowers/specs/2026-06-01-schema-introspection-design.md
+    subsystem_doc: docs/superpowers/specs/2026-06-01-schema-introspection-design.md
+    package: '@noy-db/hub'
+    factory: null
+    status: preview
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'vault.introspect() reports collection doc counts via adapter.list, without decryption'
+      - 'guards / materializedViews / schemaUpdate arrays are empty (not errors) when the subsystem is off'
+      - 'schemaUpdate strategy names are captured at collection() registration time'
+    related: [dump-schema-introspection, schema-update-strategies]
+
 # ─── Storage adapters (phase 2) ──────────────────────────────────────
 
 adapters:

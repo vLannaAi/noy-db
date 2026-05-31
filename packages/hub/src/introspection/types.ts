@@ -9,6 +9,16 @@
  */
 
 import type { PersistedSchemaKind } from '../persisted-schemas/types.js'
+import type { Permission } from '../types.js'
+
+/** Flat snapshot of a vault's registered schema (#229). */
+export interface SchemaIntrospection {
+  readonly collections: ReadonlyArray<{ name: string; docCount: number }>
+  readonly guards: ReadonlyArray<{ collection: string; count: number }>
+  readonly materializedViews: ReadonlyArray<{ name: string; sourceCollections: string[] }>
+  readonly schemaUpdate: ReadonlyArray<{ collection: string; strategies: string[] }>
+  readonly grants: ReadonlyArray<{ collection: string; permission: Permission }>
+}
 
 /** Where the field-level info in the snapshot came from. */
 export type FieldSource = 'persisted' | 'live-validator' | 'sampled' | 'unknown'
