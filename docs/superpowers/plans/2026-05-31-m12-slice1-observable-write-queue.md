@@ -355,19 +355,28 @@ In the "Events" section of `noydb.ts` (right after the `off<K ...>` method at ~l
   }
 ```
 
-- [ ] **Step 4: Thread the tracker into every Collection construction**
+- [ ] **Step 4: Expose an internal tracker accessor + thread it via Vault**
 
-There are several `new Collection({ ... emitter: this.emitter, ... })` sites in `noydb.ts` (the `emitter: this.emitter,` lines around 334, 350, 366, 449, 492). For EACH of those construction objects, add the tracker right beside the `emitter:` line:
+CORRECTION (discovered at execution): the `emitter: this.emitter,` sites in `noydb.ts` are NOT all `new Collection(...)` — `emitter` is also threaded into `BuildSyncEngineOptions` and `Vault` opts. The single real `Collection` construction is `vault.ts:715` via the `collOpts` object (~line 613). `Vault` already holds `public readonly noydb` and reaches into it for internal services (e.g. `this.noydb._createTxContext()`). Follow that convention instead of threading through `noydb.ts` sites.
+
+In `noydb.ts`, add an internal accessor next to the public `writeQueue` getter:
+
+```ts
+  /**
+   * @internal Mutable tracker behind {@link writeQueue}. Threaded into
+   * each Collection (via Vault) so `put`/`delete` can `track()` writes.
+   */
+  get _writeQueueTracker(): WriteQueueTracker {
+    return this.writeQueueTracker
+  }
+```
+
+In `vault.ts`, add to the `collOpts` object (beside `emitter: this.emitter,`):
 
 ```ts
         emitter: this.emitter,
-        writeQueue: this.writeQueueTracker,
+        writeQueue: this.noydb._writeQueueTracker,
 ```
-
-Run this to enumerate the exact sites first:
-
-Run: `grep -n "emitter: this.emitter," packages/hub/src/noydb.ts`
-Then add `writeQueue: this.writeQueueTracker,` immediately after each one.
 
 - [ ] **Step 5: Verify it type-checks (will fail until Task 4 adds the opt)**
 
