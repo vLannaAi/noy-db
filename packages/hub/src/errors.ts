@@ -823,6 +823,30 @@ export class SchemaValidationError extends NoydbError {
   }
 }
 
+/** Base for schema-evolution strategy rejections (#245). */
+export class SchemaUpdateError extends NoydbError {
+  constructor(code: string, message: string) {
+    super(code, message)
+    this.name = 'SchemaUpdateError'
+  }
+}
+
+/** A non-additive schema change was rejected by the `additiveOnly()` strategy. */
+export class NonAdditiveSchemaChangeError extends SchemaUpdateError {
+  constructor(message: string) {
+    super('NON_ADDITIVE_SCHEMA_CHANGE', message)
+    this.name = 'NonAdditiveSchemaChangeError'
+  }
+}
+
+/** A schema change was rejected by the `lockSchema()` strategy. */
+export class SchemaLockedError extends SchemaUpdateError {
+  constructor(message: string) {
+    super('SCHEMA_LOCKED', message)
+    this.name = 'SchemaLockedError'
+  }
+}
+
 // ─── Query DSL Errors ─────────────────────────────────────────────────
 
 /**

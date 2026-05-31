@@ -799,6 +799,24 @@ features:
       - 'onFlush() rejects if a write errored during the wait, never silently resolves'
     related: [vault-and-collections]
 
+  - id: schema-update-strategies
+    name: Schema-update strategy framework
+    cluster: core
+    spec: docs/superpowers/specs/2026-05-31-m12-schema-migration-epic-design.md#3a-open-update-strategy-model-mechanism-not-policy
+    subsystem_doc: docs/superpowers/specs/2026-05-31-m12-schema-migration-epic-design.md
+    package: '@noy-db/hub'
+    factory: null
+    status: preview
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'detection runs before the persisted-schema baseline is overwritten'
+      - 'a reject decision is enforced at the write path (put/delete throw); the baseline is not overwritten'
+      - 'ordered strategy list: first non-allow decision wins and short-circuits'
+    related: [persisted-json-schema, observable-write-queue]
+
 # ─── Storage adapters (phase 2) ──────────────────────────────────────
 
 adapters:
