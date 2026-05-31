@@ -819,6 +819,7 @@ features:
       - 'a client whose open-snapshot is behind the live fence generation is refused with MigrationRequiredError'
       - 'multi-client cutover: the migrator waits for every active client (fresh heartbeat) to ack the draining generation, or times out (QuiesceTimeoutError)'
       - 'heartbeat + fence watcher start lazily only when a coordinatedCutover is registered; stopped on vault lock/close'
+      - 'in-vue useMigrationState() surfaces fenceState + schemaVersion as refs, seeded from vault.schemaFenceState() and updated on schema:fence-changed'
     related: [persisted-json-schema, observable-write-queue]
 
 # ─── Storage adapters (phase 2) ──────────────────────────────────────

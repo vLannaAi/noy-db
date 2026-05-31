@@ -109,6 +109,7 @@ import { persistSchemaIfNeeded } from './persisted-schemas/register.js'
 import { SchemaUpdateGate } from './schema-update/gate.js'
 import { SchemaFenceController } from './schema-update/fence-controller.js'
 import { FenceWatcher } from './schema-update/fence-watcher.js'
+import { loadFence, type FenceDoc } from './schema-update/fence.js'
 import type { SchemaUpdateStrategy, UpdateDecision, TransformFn } from './schema-update/types.js'
 import { SCHEMAS_COLLECTION } from './persisted-schemas/storage.js'
 import type { AttestationFieldSchema, RevocationList } from '@noy-db/attestation'
@@ -840,6 +841,11 @@ export class Vault {
   /** Recover a stuck cutover fence (#232) — reset to normal without bumping. */
   async abortSchemaCutover(): Promise<void> {
     await this.schemaFence.abort()
+  }
+
+  /** Current schema-cutover fence state for this vault (#232/#233). Thin live read. */
+  async schemaFenceState(): Promise<FenceDoc> {
+    return loadFence(this.adapter, this.name)
   }
 
   /** @internal Start the per-client heartbeat + fence watcher once a cutover is registered (#232). */

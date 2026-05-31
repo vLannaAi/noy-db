@@ -181,6 +181,7 @@ export type {
   SchemaUpdateStrategy,
 } from './schema-update/index.js'
 export { blindUpdate, additiveOnly, lockSchema, coordinatedCutover } from './schema-update/index.js'
+export type { FenceState, FenceDoc } from './schema-update/fence.js'
 
 // Sync policy
 export type { SyncPolicy, PushPolicy, PullPolicy, PushMode, PullMode, SyncSchedulerStatus } from './store/sync-policy.js'
