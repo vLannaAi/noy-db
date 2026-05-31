@@ -7,5 +7,6 @@ HTML invoice → PDF with the attestation QR as vector. Private recipe, not publ
 - Deploy / verify / teardown (real AWS, profile-driven): `RUNBOOK.md`
 - CI-safe data-path test: `pnpm --filter @noy-db/recipe-aws-kms-pdf-attestation test`
 
-Render stack: puppeteer-core + @sparticuz/chromium (arm64), container Lambda,
-Node 22, ≥2 GB, QR as inline `<svg>` (vector).
+Render stack: puppeteer-core + @sparticuz/chromium, **arm64 zip Lambda + public
+Chromium layer** (no Docker/ECR), Node 22, ≥2 GB, QR as inline `<svg>` (vector).
+A self-contained container variant is documented in `RUNBOOK.md` (and `Dockerfile`).

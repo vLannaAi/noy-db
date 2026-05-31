@@ -1,4 +1,8 @@
-# Lambda container for the KMS-PDF render recipe (arm64, Node 22).
+# ALTERNATIVE packaging — self-contained container image (no public layer).
+# The DEFAULT deploy is an arm64 zip + public Chromium layer (see infra/stack.ts
+# + RUNBOOK.md "Container alternative"). This Dockerfile is x86_64 because the npm
+# @sparticuz/chromium binary is x86-only; bundle with
+# `--external:@sparticuz/chromium --external:puppeteer-core` if you use it.
 FROM public.ecr.aws/lambda/nodejs:22-x86_64
 # @sparticuz/chromium needs these shared libs present in the image. The
 # Amazon Linux 2023 Lambda base lacks Chromium's runtime deps (libnss3.so et al);

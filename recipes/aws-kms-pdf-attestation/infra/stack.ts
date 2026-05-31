@@ -3,13 +3,35 @@ import type { Construct } from 'constructs'
 import * as s3 from 'aws-cdk-lib/aws-s3'
 import * as kms from 'aws-cdk-lib/aws-kms'
 import * as lambda from 'aws-cdk-lib/aws-lambda'
-import * as ecrAssets from 'aws-cdk-lib/aws-ecr-assets'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const DOCS_PREFIX = 'docs'
 const here = dirname(fileURLToPath(import.meta.url))
 
+// shelfio chrome-aws-lambda arm64 layer — Chromium v149 / @sparticuz/chromium@149,
+// region ap-southeast-1. Verified live via get-layer-version-by-arn
+// (CompatibleArchitectures=arm64; provides nodejs/node_modules/@sparticuz/chromium).
+// A region-pinned ARN: change it if you deploy elsewhere (see the recipe's README
+// for the full per-region table) — https://github.com/shelfio/chrome-aws-lambda-layer
+const CHROMIUM_LAYER_ARN =
+  'arn:aws:lambda:ap-southeast-1:764866452798:layer:chrome-aws-lambda-arm64:9'
+
+/**
+ * KMS-PDF render Lambda — ZIP function on arm64 (Graviton) with Chromium supplied
+ * by a public Lambda layer (no container image / ECR).
+ *
+ * Why this shape (measured trade-off vs. a container image):
+ *  - arm64: ~20% cheaper GB-s at identical render performance. The npm
+ *    @sparticuz/chromium binary is x86-only, but the layer ships a native arm64
+ *    build, so the layer route is what unlocks Graviton here.
+ *  - artifact: ~1.7 MB zip + the AWS-hosted 66 MB layer (you store/push nothing),
+ *    vs. a ~527 MB ECR image.
+ *  - no Docker in the deploy path.
+ * The container variant remains available in `Dockerfile` (see RUNBOOK.md
+ * "Container alternative") for air-gapped/self-contained deployments that can't
+ * depend on a third-party public layer.
+ */
 export class KmsPdfAttestationStack extends Stack {
   constructor(scope: Construct, id: string, props?: StackProps) {
     super(scope, id, props)
@@ -27,14 +49,17 @@ export class KmsPdfAttestationStack extends Stack {
       autoDeleteObjects: true, // recipe/demo
     })
 
-    // x86_64: @sparticuz/chromium ships an x86_64 Chromium binary via npm (no
-    // arm64 build), so the Lambda arch + image platform must be x86_64 or the
-    // browser fails to launch (qemu can't run the x86 binary on arm64).
-    const fn = new lambda.DockerImageFunction(this, 'RenderFn', {
-      code: lambda.DockerImageCode.fromImageAsset(join(here, '..'), {
-        platform: ecrAssets.Platform.LINUX_AMD64,
-      }),
-      architecture: lambda.Architecture.X86_64,
+    const fn = new lambda.Function(this, 'RenderFn', {
+      runtime: lambda.Runtime.NODEJS_22_X,
+      architecture: lambda.Architecture.ARM_64,
+      handler: 'handler.handler',
+      // dist/handler.cjs bundles puppeteer-core but externalizes
+      // @sparticuz/chromium, which the layer provides at /opt/nodejs/node_modules.
+      // Run `pnpm --filter @noy-db/recipe-aws-kms-pdf-attestation run bundle` first.
+      code: lambda.Code.fromAsset(join(here, '..', 'dist')),
+      layers: [
+        lambda.LayerVersion.fromLayerVersionArn(this, 'ChromiumLayer', CHROMIUM_LAYER_ARN),
+      ],
       memorySize: 2048,
       timeout: Duration.seconds(30),
       environment: { DOCS_BUCKET: bucket.bucketName, KMS_KEY_ID: key.keyArn, DOCS_PREFIX },
