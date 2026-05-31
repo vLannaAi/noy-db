@@ -13,6 +13,7 @@ import type { UnlockedKeyring } from './team/keyring.js'
 import { hasWritePermission } from './team/keyring.js'
 import type { NoydbEventEmitter } from './events.js'
 import type { WriteQueueTracker } from './write-queue.js'
+import type { SchemaUpdateGate } from './schema-update/gate.js'
 import type { StandardSchemaV1 } from './schema.js'
 import { validateSchemaInput, validateSchemaOutput } from './schema.js'
 import type { LedgerStore } from './history/ledger/index.js'
@@ -129,6 +130,7 @@ export class Collection<T> {
   private readonly encrypted: boolean
   private readonly emitter: NoydbEventEmitter
   private readonly writeQueue: WriteQueueTracker | undefined
+  private readonly schemaUpdateGate: SchemaUpdateGate | undefined
   private readonly getDEK: (collectionName: string) => Promise<CryptoKey>
   private readonly onDirty: OnDirtyCallback | undefined
   private readonly historyConfig: HistoryConfig
@@ -501,6 +503,8 @@ export class Collection<T> {
      * construction in tests still works untracked.
      */
     writeQueue?: WriteQueueTracker | undefined
+    /** #245 — per-collection schema-update gate; `put`/`delete` await it. */
+    schemaUpdateGate?: SchemaUpdateGate | undefined
     getDEK: (collectionName: string) => Promise<CryptoKey>
     historyConfig?: HistoryConfig | undefined
     onDirty?: OnDirtyCallback | undefined
@@ -788,6 +792,7 @@ export class Collection<T> {
     this.encrypted = opts.encrypted
     this.emitter = opts.emitter
     this.writeQueue = opts.writeQueue
+    this.schemaUpdateGate = opts.schemaUpdateGate
     this.blobStrategy = opts.blobStrategy ?? NO_BLOBS
     this.aggregateStrategy = opts.aggregateStrategy ?? NO_AGGREGATE
     this.crdtStrategy = opts.crdtStrategy ?? NO_CRDT
@@ -1076,6 +1081,10 @@ export class Collection<T> {
    *                `entries.filter(e => e.reason?.startsWith('import:'))`.
    */
   async put(id: string, record: T, options?: { readonly reason?: string }): Promise<void> {
+    // #245 — refuse the write if an update strategy rejected the schema
+    // change. Awaited OUTSIDE track() so a rejected write never counts
+    // toward writeQueue.depth.
+    await this.schemaUpdateGate?.assertWritable()
     // TODO(#232-slice2): audit putManyAtomic / tx-execute / CRDT / blob
     // write paths for tracking before drain relies on onFlush() as a
     // complete quiesce barrier.
@@ -1630,6 +1639,7 @@ export class Collection<T> {
    * (#227) so `hub.writeQueue.pending` reflects this write.
    */
   async delete(id: string): Promise<void> {
+    await this.schemaUpdateGate?.assertWritable() // #245
     if (!this.writeQueue) return this.deleteInternal(id)
     return this.writeQueue.track(() => this.deleteInternal(id))
   }

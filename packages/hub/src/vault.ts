@@ -106,6 +106,8 @@ import {
 } from './team/magic-link-grant.js'
 import { UserApi } from './meta/user-envelope/api.js'
 import { persistSchemaIfNeeded } from './persisted-schemas/register.js'
+import { SchemaUpdateGate } from './schema-update/gate.js'
+import type { SchemaUpdateStrategy, UpdateDecision } from './schema-update/types.js'
 import { SCHEMAS_COLLECTION } from './persisted-schemas/storage.js'
 import type { AttestationFieldSchema, RevocationList } from '@noy-db/attestation'
 import type { IssueContext } from './attestation/issue.js'
@@ -548,6 +550,13 @@ export class Vault {
      * @see docs/superpowers/specs/2026-05-22-schema-dump-design.md
      */
     persistJsonSchema?: boolean
+    /**
+     * Ordered schema-update strategies (#245). On a detected schema
+     * change, evaluated in order; the first non-`allow` decision wins.
+     * A `reject` is enforced at the write path (`put`/`delete` throw).
+     * Requires `persistJsonSchema: true` (detection needs the baseline).
+     */
+    schemaUpdate?: readonly SchemaUpdateStrategy[]
     /** — declare the per-field schema for document attestation (issue side). */
     attestation?: AttestationFieldSchema
   }): Collection<T> {
@@ -610,6 +619,28 @@ export class Vault {
         this.dictKeyFieldRegistry.set(collectionName, dictFieldMap)
       }
 
+      // #245 — schema-update gate. Built only when persistence + strategies
+      // are on. Detection runs in the same work pushed to the drain; the
+      // gate caches the decision and the write path (put/delete) enforces it.
+      let schemaUpdateGate: SchemaUpdateGate | undefined
+      if (
+        options?.persistJsonSchema === true &&
+        options.schema !== undefined &&
+        (options.schemaUpdate?.length ?? 0) > 0
+      ) {
+        const validator: unknown = options.schema
+        const strategies = options.schemaUpdate ?? []
+        const work = (async (): Promise<UpdateDecision> => {
+          const dek = await this.getDEK(collectionName)
+          const result = await persistSchemaIfNeeded({
+            store: this.adapter, vault: this.name, collectionName, validator, dek, strategies,
+          })
+          return result.decision ?? { action: 'allow' }
+        })()
+        this._pendingSchemaWrites.push(work.then(() => {}, () => {}))
+        schemaUpdateGate = new SchemaUpdateGate(work)
+      }
+
       const collOpts: ConstructorParameters<typeof Collection<T>>[0] = {
         adapter: this.adapter,
         vault: this.name,
@@ -618,6 +649,7 @@ export class Vault {
         encrypted: this.encrypted,
         emitter: this.emitter,
         writeQueue: this.noydb._writeQueueTracker,
+        schemaUpdateGate,
         getDEK: this.getDEK,
         onDirty: this.onDirty,
         historyConfig: this.historyConfig,
@@ -719,7 +751,13 @@ export class Vault {
       // Fire-and-forget persisted-schema write when opted in. Pushed
       // onto _pendingSchemaWrites so tests can drain before asserting;
       // production code ignores it (the writes are idempotent fingerprints).
-      if (options?.persistJsonSchema === true && options.schema !== undefined) {
+      // When schemaUpdate strategies are present, persistence already ran
+      // inside the gate's work above (#245) — skip the un-gated path here.
+      if (
+        options?.persistJsonSchema === true &&
+        options.schema !== undefined &&
+        (options.schemaUpdate?.length ?? 0) === 0
+      ) {
         const validator: unknown = options.schema
         const work = (async () => {
           try {
