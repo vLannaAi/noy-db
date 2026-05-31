@@ -67,6 +67,7 @@ import {
   InvariantError,
   ValidationError,
 } from '../errors.js'
+import { generateULID } from '../bundle/ulid.js'
 import type { GuardExecutor as GuardExecutorModule } from '../guards/executor.js'
 import type { LedgerEntry } from '../history/ledger/entry.js'
 
@@ -115,6 +116,8 @@ export interface AmendmentTxOptions {
  * facade; its `put`/`delete`/`get` calls stage ops against the tx.
  */
 export class TxContext {
+  /** Stable id for this transaction; shared by all writes it performs (#230). */
+  readonly txId: string = generateULID()
   /** @internal */
   readonly _ops: StagedOp[] = []
   /**
