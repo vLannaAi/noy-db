@@ -847,6 +847,22 @@ export class SchemaLockedError extends SchemaUpdateError {
   }
 }
 
+/** Write attempted while a schema cutover fence is up (draining/migrating, or this collection has a pending cutover). */
+export class SchemaFenceError extends SchemaUpdateError {
+  constructor(message: string) {
+    super('SCHEMA_FENCE', message)
+    this.name = 'SchemaFenceError'
+  }
+}
+
+/** Write attempted by a client whose generation snapshot is behind the live fence — reload required. */
+export class MigrationRequiredError extends SchemaUpdateError {
+  constructor(message: string) {
+    super('MIGRATION_REQUIRED', message)
+    this.name = 'MigrationRequiredError'
+  }
+}
+
 // ─── Query DSL Errors ─────────────────────────────────────────────────
 
 /**

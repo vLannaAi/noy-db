@@ -107,6 +107,7 @@ import {
 import { UserApi } from './meta/user-envelope/api.js'
 import { persistSchemaIfNeeded } from './persisted-schemas/register.js'
 import { SchemaUpdateGate } from './schema-update/gate.js'
+import { SchemaFenceController } from './schema-update/fence-controller.js'
 import type { SchemaUpdateStrategy, UpdateDecision } from './schema-update/types.js'
 import { SCHEMAS_COLLECTION } from './persisted-schemas/storage.js'
 import type { AttestationFieldSchema, RevocationList } from '@noy-db/attestation'
@@ -222,6 +223,8 @@ export class Vault {
    */
   private readonly reloadKeyring: (() => Promise<UnlockedKeyring>) | undefined
   private readonly collectionCache = new Map<string, Collection<unknown>>()
+  /** #232 — vault-level schema cutover fence/controller. */
+  readonly schemaFence: SchemaFenceController
 
   /**
    * per-collection `blobFields` retention/TTL config.
@@ -406,6 +409,11 @@ export class Vault {
     this.noydb = opts.noydb
     this.keyring = opts.keyring
     this.encrypted = opts.encrypted
+    this.schemaFence = new SchemaFenceController({
+      store: this.adapter,
+      vault: this.name,
+      onFlush: () => this.noydb._writeQueueTracker.onFlush(),
+    })
     this.emitter = opts.emitter
     this.onDirty = opts.onDirty
     this.onRegisterConflictResolver = opts.onRegisterConflictResolver
@@ -635,7 +643,11 @@ export class Vault {
           const result = await persistSchemaIfNeeded({
             store: this.adapter, vault: this.name, collectionName, validator, dek, strategies,
           })
-          return result.decision ?? { action: 'allow' }
+          const decision = result.decision ?? { action: 'allow' as const }
+          if (decision.action === 'cutover') {
+            this.schemaFence.registerPendingCutover(collectionName, decision.transform)
+          }
+          return decision
         })()
         this._pendingSchemaWrites.push(work.then(() => {}, () => {}))
         schemaUpdateGate = new SchemaUpdateGate(work)
@@ -650,6 +662,7 @@ export class Vault {
         emitter: this.emitter,
         writeQueue: this.noydb._writeQueueTracker,
         schemaUpdateGate,
+        schemaFence: this.schemaFence,
         getDEK: this.getDEK,
         onDirty: this.onDirty,
         historyConfig: this.historyConfig,
@@ -795,6 +808,20 @@ export class Vault {
     const pending = this._pendingSchemaWrites
     this._pendingSchemaWrites = []
     await Promise.allSettled(pending)
+  }
+
+  /**
+   * Run a coordinated schema cutover (#232, single-client). Drains pending
+   * writes, applies every pending collection transform in bulk, bumps the
+   * vault schema generation, and clears the fence. Returns the count of
+   * collections migrated. (Sub-slice 3b adds multi-client quiesce + election.)
+   */
+  async runSchemaCutover(): Promise<{ migrated: number }> {
+    return this.schemaFence.runCutover(async (collectionName, transform) => {
+      const coll = this.collectionCache.get(collectionName)
+      if (!coll) return
+      await coll._applyCutoverTransform(transform)
+    })
   }
 
   /**

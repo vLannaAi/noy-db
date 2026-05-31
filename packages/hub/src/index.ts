@@ -180,7 +180,7 @@ export type {
   UpdateDecision,
   SchemaUpdateStrategy,
 } from './schema-update/index.js'
-export { blindUpdate, additiveOnly, lockSchema } from './schema-update/index.js'
+export { blindUpdate, additiveOnly, lockSchema, coordinatedCutover } from './schema-update/index.js'
 
 // Sync policy
 export type { SyncPolicy, PushPolicy, PullPolicy, PushMode, PullMode, SyncSchedulerStatus } from './store/sync-policy.js'
@@ -249,6 +249,8 @@ export {
   SchemaUpdateError,
   NonAdditiveSchemaChangeError,
   SchemaLockedError,
+  SchemaFenceError,
+  MigrationRequiredError,
 } from './errors.js'
 
 // Bundle format — `.noydb` container
