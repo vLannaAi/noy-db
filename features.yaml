@@ -817,6 +817,8 @@ features:
       - 'ordered strategy list: first non-allow decision wins and short-circuits'
       - 'coordinatedCutover blocks writes on a pending non-additive change until vault.runSchemaCutover() runs (SchemaFenceError)'
       - 'a client whose open-snapshot is behind the live fence generation is refused with MigrationRequiredError'
+      - 'multi-client cutover: the migrator waits for every active client (fresh heartbeat) to ack the draining generation, or times out (QuiesceTimeoutError)'
+      - 'heartbeat + fence watcher start lazily only when a coordinatedCutover is registered; stopped on vault lock/close'
     related: [persisted-json-schema, observable-write-queue]
 
 # ─── Storage adapters (phase 2) ──────────────────────────────────────
