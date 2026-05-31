@@ -223,7 +223,8 @@ export class CollectionInstant<T = unknown> {
       // the filter above. The narrow here is a type guard, not a runtime
       // skip.
       if (e.op === 'amendment' || e.op === 'lifecycle') continue
-      latest = { op: e.op, version: e.version }
+      // `migration` is a record rewrite (cutover) — resolve it like a put.
+      latest = { op: e.op === 'migration' ? 'put' : e.op, version: e.version }
     }
     if (!latest) return null
     if (latest.op === 'delete') return null

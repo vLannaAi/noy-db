@@ -90,7 +90,7 @@ export interface LedgerEntry {
    * skips it in the data cross-check (it still participates in the
    * tamper-evident chain).
    */
-  readonly op: 'put' | 'delete' | 'amendment' | 'lifecycle'
+  readonly op: 'put' | 'delete' | 'amendment' | 'lifecycle' | 'migration'
 
   /** The collection the mutation targeted. */
   readonly collection: string
