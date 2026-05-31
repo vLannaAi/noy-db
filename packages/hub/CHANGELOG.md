@@ -1,5 +1,29 @@
 # Changelog — hub
 
+## 0.2.0-pre.2
+
+The **transferable bundles + document attestation** line. Additive over pre.1: a new vault-coupled attestation subsystem, the transferable-partition bundle ceremony, and recipient-target sealing — plus a signer-hardening fix.
+
+### Document attestation — issue + revocation side ([#236](https://github.com/vLannaAi/noy-db/issues/236), [#238](https://github.com/vLannaAi/noy-db/issues/238))
+
+- New `@noy-db/hub/attestation` subpath. Declare `collection(name, { attestation: { fields } })`, then `vault.issueAttestation(collection, id)` mints a signed-QR commitment (`{ docId, qr, keyId, publicKeyB64 }`) and writes an encrypted `_attestations/<docId>` index (field paths + source version only — never field values). Owner-only.
+- `vault.getDocumentSigningPublicKey()` publishes the firm's Ed25519 public key for offline verification.
+- Whole-doc revocation: `vault.revokeAttestation(docId)` / `unrevokeAttestation` track an encrypted `_attestations/_revoked` set; `publishRevocationList()` signs it with the firm key (same `keyId` as issued docs).
+- Pairs with the pure, hub-free `@noy-db/attestation` verifier core.
+
+### Signer hardening ([#242](https://github.com/vLannaAi/noy-db/issues/242))
+
+- `getDocumentSigningPublicKey` now reads an existing key for any DEK-holder but **only the owner may mint a missing one** (a non-owner read on a fresh vault raises `AttestationError` instead of silently minting the firm's identity key).
+- Concurrent first-mints **converge**: the loser of the `put(expectedVersion:0)` race re-reads and returns the winning keypair rather than surfacing a raw `ConflictError`.
+
+### Transferable partition bundles ([#225](https://github.com/vLannaAi/noy-db/issues/225))
+
+- `extractPartition(vault, opts)` projects a seed-predicate FK-closure (`walkClosure`, auto-derived from the `RefRegistry`) into a re-keyed bundle sealed under a one-time transfer key; `adoptPartition` + `createOwnerOnAdoptedPartition` complete the recipient-side ceremony under a new owner. Optional `carrySchemas` / `carryLedger`.
+
+### Recipient-target bundle sealing ([#234](https://github.com/vLannaAi/noy-db/issues/234))
+
+- Final slice of recipient-target sealed delivery — a bundle can be sealed so only the intended recipient can open it.
+
 ## 0.2.0-pre.1
 
 The **`at-*` family graduation** line. Minor bump (`0.1 → 0.2`) because it carries a **breaking change** (#211). The `at-*` sealing-key family — debuted in pre.16 — is now first-class: a cloud-KMS provider trio ships, bundle auto-unlock generalizes beyond passphrases, hub is decoupled from the Shamir plugin, and the family is registered in the catalog.

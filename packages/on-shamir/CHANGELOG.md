@@ -1,5 +1,12 @@
 # @noy-db/on-shamir
 
+## 0.2.0-pre.2
+
+### Patch Changes
+
+- Updated dependencies
+  - @noy-db/hub@0.2.0-pre.2
+
 ## 0.2.0-pre.1
 
 ### Minor Changes
