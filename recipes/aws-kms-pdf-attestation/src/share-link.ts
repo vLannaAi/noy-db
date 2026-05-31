@@ -11,9 +11,11 @@ export interface MintShareLinkOptions {
 }
 
 export interface ShareTokenParams {
-  d?: string
-  exp?: string
-  sig?: string
+  // Values come straight from a query string, which is inherently
+  // `string | undefined`; accept undefined explicitly (exactOptionalPropertyTypes).
+  d?: string | undefined
+  exp?: string | undefined
+  sig?: string | undefined
 }
 
 export type ShareVerdict =
