@@ -24,7 +24,7 @@ The QR carries the signed per-field commitment; the PDF is generated, never
 verified server-side. The render payload is capped at 4 KB (KMS plaintext limit).
 
 The render endpoint is gated by a **stateless signed magic link** — an
-HMAC-SHA256 over `canonicalJson({v, docId, exp})` with a KMS-sealed secret. A
+HMAC-SHA256 over `canonicalJson({v, docId, exp})` with a Secrets Manager secret. A
 data-holder mints a self-expiring, shareable URL (`?d=&exp=&sig=`); the hub-free
 Lambda verifies it with **no AWS authorizer / Cognito / IdP**. A bare `?docId=`
 is rejected (403) — there is no unauthenticated path. Links are **multi-use

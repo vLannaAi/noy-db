@@ -3,8 +3,7 @@ import type { Construct } from 'constructs'
 import * as s3 from 'aws-cdk-lib/aws-s3'
 import * as kms from 'aws-cdk-lib/aws-kms'
 import * as lambda from 'aws-cdk-lib/aws-lambda'
-import * as iam from 'aws-cdk-lib/aws-iam'
-import * as cr from 'aws-cdk-lib/custom-resources'
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -51,34 +50,21 @@ export class KmsPdfAttestationStack extends Stack {
       autoDeleteObjects: true, // recipe/demo
     })
 
-    // Deploy-time: ask KMS for 32 random bytes, then encrypt them under our key.
-    // The ciphertext (base64) becomes the function's SHARE_SECRET_CIPHERTEXT env
-    // var; the function KMS-decrypts it lazily at runtime to verify share links.
-    // The plaintext secret never appears in the template (only the ciphertext).
-    const genSecret = new cr.AwsCustomResource(this, 'GenShareSecret', {
-      onCreate: {
-        service: 'KMS',
-        action: 'generateRandom',
-        parameters: { NumberOfBytes: 32 },
-        physicalResourceId: cr.PhysicalResourceId.of('share-secret-plaintext'),
+    // Deploy-time: Secrets Manager generates a random share-signing secret. The
+    // plaintext appears in NEITHER the template NOR CloudFormation state (the
+    // native construct holds only an ARN reference); the function reads the value
+    // at cold-start via GetSecretValue. Separate from the doc-sealing KMS key, so
+    // rotating share-signing never touches data access.
+    const shareSecret = new secretsmanager.Secret(this, 'ShareSecret', {
+      description: 'noy-db attestation: HMAC secret for share-link minting/verification',
+      removalPolicy: RemovalPolicy.DESTROY, // recipe/demo: destroy on teardown
+      generateSecretString: {
+        // 64 hex chars = 256 bits of entropy; ASCII so it round-trips as utf8.
+        excludePunctuation: true,
+        includeSpace: false,
+        passwordLength: 64,
       },
-      policy: cr.AwsCustomResourcePolicy.fromSdkCalls({ resources: cr.AwsCustomResourcePolicy.ANY_RESOURCE }),
     })
-    const plaintextB64 = genSecret.getResponseField('Plaintext') // base64 (SDK returns blobs base64)
-
-    const sealSecret = new cr.AwsCustomResource(this, 'SealShareSecret', {
-      onCreate: {
-        service: 'KMS',
-        action: 'encrypt',
-        parameters: { KeyId: key.keyId, Plaintext: plaintextB64 },
-        physicalResourceId: cr.PhysicalResourceId.of('share-secret-ciphertext'),
-      },
-      policy: cr.AwsCustomResourcePolicy.fromStatements([
-        new iam.PolicyStatement({ actions: ['kms:Encrypt'], resources: [key.keyArn] }),
-      ]),
-    })
-    sealSecret.node.addDependency(genSecret)
-    const shareSecretCiphertext = sealSecret.getResponseField('CiphertextBlob') // base64
 
     const fn = new lambda.Function(this, 'RenderFn', {
       runtime: lambda.Runtime.NODEJS_22_X,
@@ -97,13 +83,15 @@ export class KmsPdfAttestationStack extends Stack {
         DOCS_BUCKET: bucket.bucketName,
         KMS_KEY_ID: key.keyArn,
         DOCS_PREFIX,
-        SHARE_SECRET_CIPHERTEXT: shareSecretCiphertext,
+        // ARN, not the value — the function reads it via GetSecretValue at init.
+        SHARE_SECRET_ARN: shareSecret.secretArn,
       },
     })
 
-    // Least privilege: decrypt with the one key + read the one prefix.
+    // Least privilege: decrypt with the one key + read the one prefix + read the secret.
     key.grantDecrypt(fn)
     bucket.grantRead(fn, `${DOCS_PREFIX}/*`)
+    shareSecret.grantRead(fn)
 
     const url = fn.addFunctionUrl({ authType: lambda.FunctionUrlAuthType.NONE })
     new CfnOutput(this, 'FunctionUrl', { value: url.url })
