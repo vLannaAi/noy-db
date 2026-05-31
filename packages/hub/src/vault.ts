@@ -108,7 +108,8 @@ import { UserApi } from './meta/user-envelope/api.js'
 import { persistSchemaIfNeeded } from './persisted-schemas/register.js'
 import { SchemaUpdateGate } from './schema-update/gate.js'
 import { SchemaFenceController } from './schema-update/fence-controller.js'
-import type { SchemaUpdateStrategy, UpdateDecision } from './schema-update/types.js'
+import { FenceWatcher } from './schema-update/fence-watcher.js'
+import type { SchemaUpdateStrategy, UpdateDecision, TransformFn } from './schema-update/types.js'
 import { SCHEMAS_COLLECTION } from './persisted-schemas/storage.js'
 import type { AttestationFieldSchema, RevocationList } from '@noy-db/attestation'
 import type { IssueContext } from './attestation/issue.js'
@@ -225,6 +226,9 @@ export class Vault {
   private readonly collectionCache = new Map<string, Collection<unknown>>()
   /** #232 — vault-level schema cutover fence/controller. */
   readonly schemaFence: SchemaFenceController
+  /** #232 — per-client heartbeat/watcher; started lazily on cutover registration. */
+  #fenceWatcher: FenceWatcher | undefined
+  #fenceCoordinationStarted = false
 
   /**
    * per-collection `blobFields` retention/TTL config.
@@ -648,6 +652,7 @@ export class Vault {
           const decision = result.decision ?? { action: 'allow' as const }
           if (decision.action === 'cutover') {
             this.schemaFence.registerPendingCutover(collectionName, decision.transform)
+            this._ensureFenceCoordination()
           }
           return decision
         })()
@@ -813,17 +818,56 @@ export class Vault {
   }
 
   /**
-   * Run a coordinated schema cutover (#232, single-client). Drains pending
-   * writes, applies every pending collection transform in bulk, bumps the
-   * vault schema generation, and clears the fence. Returns the count of
-   * collections migrated. (Sub-slice 3b adds multi-client quiesce + election.)
+   * Run a coordinated schema cutover (#232). Drains pending writes, waits
+   * for the active client set to quiesce (the ack-barrier), applies every
+   * pending collection transform in bulk, bumps the vault schema generation,
+   * and clears the fence. Returns the count of collections migrated.
+   * `opts.onPoll` (tests) advances other clients between barrier checks.
    */
-  async runSchemaCutover(): Promise<{ migrated: number }> {
-    return this.schemaFence.runCutover(async (collectionName, transform) => {
-      const coll = this.collectionCache.get(collectionName)
-      if (!coll) return
-      await coll._applyCutoverTransform(transform)
+  async runSchemaCutover(opts?: { onPoll?: () => Promise<void> }): Promise<{ migrated: number }> {
+    return this.schemaFence.runCutover(
+      (collectionName, transform) => this.#runCutoverTransform(collectionName, transform),
+      opts,
+    )
+  }
+
+  async #runCutoverTransform(collectionName: string, transform: TransformFn): Promise<void> {
+    const coll = this.collectionCache.get(collectionName)
+    if (!coll) return
+    await coll._applyCutoverTransform(transform)
+  }
+
+  /** Recover a stuck cutover fence (#232) — reset to normal without bumping. */
+  async abortSchemaCutover(): Promise<void> {
+    await this.schemaFence.abort()
+  }
+
+  /** @internal Start the per-client heartbeat + fence watcher once a cutover is registered (#232). */
+  _ensureFenceCoordination(): void {
+    if (this.#fenceCoordinationStarted) return
+    this.#fenceCoordinationStarted = true
+    this.#fenceWatcher = new FenceWatcher({
+      store: this.adapter,
+      vault: this.name,
+      clientId: this.noydb._clientId,
+      onFlush: () => this.noydb._writeQueueTracker.onFlush(),
+      emit: (e) => this.emitter.emit('schema:fence-changed', { vault: this.name, ...e }),
     })
+    this.#fenceWatcher.start(2_000) // heartbeat + poll; unref'd so it never holds the process open
+  }
+
+  /** @internal Stop the heartbeat/watcher (vault lock/close). */
+  _stopFenceCoordination(): void {
+    this.#fenceWatcher?.stop()
+    this.#fenceWatcher = undefined
+    this.#fenceCoordinationStarted = false
+  }
+
+  /** @internal Drive one heartbeat + watch cycle deterministically (tests). */
+  async _fenceTick(): Promise<void> {
+    this._ensureFenceCoordination()
+    await this.#fenceWatcher!.beat()
+    await this.#fenceWatcher!.check()
   }
 
   /**

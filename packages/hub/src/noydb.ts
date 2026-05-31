@@ -1185,6 +1185,7 @@ export class Noydb {
     this.policyEnforcers.get(vault)?.destroy()
     this.policyEnforcers.delete(vault)
     // Live caches: scrub DEKs, vault instance, active tier.
+    this.vaultCache.get(vault)?._stopFenceCoordination() // #232 — stop heartbeat/watcher timers
     this.keyringCache.delete(vault)
     this.vaultCache.delete(vault)
     this.activeTier.delete(vault)
@@ -1212,6 +1213,7 @@ export class Noydb {
       engine.stopAutoSync()
     }
     this.syncEngines.clear()
+    for (const v of this.vaultCache.values()) v._stopFenceCoordination() // #232 — stop heartbeat/watcher timers
     this.keyringCache.clear()
     this.vaultCache.clear()
     this.activeTier.clear()
