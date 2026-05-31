@@ -2133,3 +2133,10 @@ recipes:
     status: preview
     exercises:
       features: [attestation]
+  - id: aws-kms-pdf-attestation
+    name: AWS-KMS PDF attestation render (generation side)
+    doc: docs/recipes/aws-kms-pdf-attestation.md
+    showcase_path: showcases/src/recipe-aws-kms-pdf-attestation.recipe.test.ts
+    status: preview
+    exercises:
+      features: [attestation]
