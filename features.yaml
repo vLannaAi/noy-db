@@ -822,6 +822,25 @@ features:
       - 'in-vue useMigrationState() surfaces fenceState + schemaVersion as refs, seeded from vault.schemaFenceState() and updated on schema:fence-changed'
     related: [persisted-json-schema, observable-write-queue]
 
+  - id: write-lifecycle-hooks
+    name: Write lifecycle hooks
+    cluster: core
+    spec: docs/superpowers/specs/2026-06-01-write-lifecycle-hooks-design.md
+    subsystem_doc: docs/superpowers/specs/2026-06-01-write-lifecycle-hooks-design.md
+    package: '@noy-db/hub'
+    factory: null
+    status: preview
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'onBeforeWrite is awaited; a throw aborts the write (no adapter write, no ledger entry)'
+      - 'onAfterWrite is awaited; a handler error is warned, never rolled back'
+      - 'writes performed inside a hook do not re-fire the hooks (re-entrancy guard)'
+      - 'txId is shared across all writes in one db.transaction(); a fresh ULID per standalone write'
+    related: [vault-and-collections, observable-write-queue]
+
 # ─── Storage adapters (phase 2) ──────────────────────────────────────
 
 adapters:

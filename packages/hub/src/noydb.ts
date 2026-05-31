@@ -77,6 +77,7 @@ import {
 import { Vault } from './vault.js'
 import { NoydbEventEmitter } from './events.js'
 import { WriteQueueTracker, type WriteQueue } from './write-queue.js'
+import { WriteHookRegistry, type WriteHook, type Unsubscribe } from './write-hooks.js'
 import {
   loadKeyring,
   createOwnerKeyring,
@@ -154,6 +155,7 @@ export class Noydb {
   private readonly options: NoydbOptions
   private readonly emitter = new NoydbEventEmitter()
   private readonly writeQueueTracker = new WriteQueueTracker()
+  private readonly writeHooks = new WriteHookRegistry()
   private readonly clientId = generateULID()
   private readonly vaultCache = new Map<string, Vault>()
   private readonly keyringCache = new Map<string, UnlockedKeyring>()
@@ -1148,6 +1150,27 @@ export class Noydb {
    */
   get _writeQueueTracker(): WriteQueueTracker {
     return this.writeQueueTracker
+  }
+
+  /**
+   * Register a hook that runs before each write (#230). Awaited; a throw
+   * aborts the write. Returns an unsubscribe function.
+   */
+  onBeforeWrite(handler: WriteHook): Unsubscribe {
+    return this.writeHooks.onBeforeWrite(handler)
+  }
+
+  /**
+   * Register a hook that runs after each committed write (#230). Awaited;
+   * a handler error is warned, never rolled back. Returns an unsubscribe fn.
+   */
+  onAfterWrite(handler: WriteHook): Unsubscribe {
+    return this.writeHooks.onAfterWrite(handler)
+  }
+
+  /** @internal The write-hook registry, threaded into each Collection. */
+  get _writeHooks(): WriteHookRegistry {
+    return this.writeHooks
   }
 
   /** @internal Stable per-instance id for schema-cutover coordination (#232). */

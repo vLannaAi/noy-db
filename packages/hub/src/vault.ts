@@ -669,6 +669,8 @@ export class Vault {
         encrypted: this.encrypted,
         emitter: this.emitter,
         writeQueue: this.noydb._writeQueueTracker,
+        writeHooks: this.noydb._writeHooks,
+        activeTxId: () => this.noydb._activeTxContextOrNull?.txId ?? null,
         schemaUpdateGate,
         schemaFence: this.schemaFence,
         getDEK: this.getDEK,

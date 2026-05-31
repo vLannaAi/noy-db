@@ -172,6 +172,9 @@ export type { WrappedBundleNoydbStore, WrapBundleStoreOptions } from './store/bu
 // Observable write-queue (#227)
 export type { WriteQueue } from './write-queue.js'
 
+// Write lifecycle hooks (#230)
+export type { WriteEvent, WriteHook } from './write-hooks.js'
+
 // Schema-update strategies (#245)
 export type {
   SchemaDelta,
