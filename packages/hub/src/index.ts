@@ -249,6 +249,8 @@ export {
   SchemaUpdateError,
   NonAdditiveSchemaChangeError,
   SchemaLockedError,
+  SchemaFenceError,
+  MigrationRequiredError,
 } from './errors.js'
 
 // Bundle format — `.noydb` container
