@@ -24,7 +24,7 @@ export function useMigrationState(
   const db: Noydb = typeof dbOrVault === 'object' ? dbOrVault : useNoydb()
   const vaultName: string | undefined = typeof dbOrVault === 'string' ? dbOrVault : maybeVault
 
-  const fenceState = ref<FenceState>('normal') as Ref<FenceState>
+  const fenceState = ref<FenceState>('normal')
   const schemaVersion = ref(0)
 
   // Seed from the live fence (the event fires on change, not on mount).
