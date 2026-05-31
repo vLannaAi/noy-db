@@ -1124,7 +1124,7 @@ export class Collection<T> {
   }
 
   /** @internal #230 — decrypt the current record for a hook's `before`, or null. */
-  async #priorRecordForHook(id: string): Promise<unknown | null> {
+  async #priorRecordForHook(id: string): Promise<unknown> {
     const env = await this.adapter.get(this.vault, this.name, id)
     if (!env) return null
     return (await this.decryptRecord(env, { skipValidation: true })) as unknown

@@ -8,8 +8,8 @@ export interface WriteEvent {
   readonly op: 'create' | 'update' | 'delete'
   readonly collection: string
   readonly docId: string
-  readonly before: unknown | null
-  readonly after: unknown | null
+  readonly before: unknown // decrypted prior record; null on 'create'
+  readonly after: unknown // the record written; null on 'delete'
   readonly userId: string
   readonly timestamp: number
   readonly txId: string
