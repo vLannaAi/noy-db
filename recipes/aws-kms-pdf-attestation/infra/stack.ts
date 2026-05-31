@@ -3,6 +3,8 @@ import type { Construct } from 'constructs'
 import * as s3 from 'aws-cdk-lib/aws-s3'
 import * as kms from 'aws-cdk-lib/aws-kms'
 import * as lambda from 'aws-cdk-lib/aws-lambda'
+import * as iam from 'aws-cdk-lib/aws-iam'
+import * as cr from 'aws-cdk-lib/custom-resources'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -49,6 +51,35 @@ export class KmsPdfAttestationStack extends Stack {
       autoDeleteObjects: true, // recipe/demo
     })
 
+    // Deploy-time: ask KMS for 32 random bytes, then encrypt them under our key.
+    // The ciphertext (base64) becomes the function's SHARE_SECRET_CIPHERTEXT env
+    // var; the function KMS-decrypts it lazily at runtime to verify share links.
+    // The plaintext secret never appears in the template (only the ciphertext).
+    const genSecret = new cr.AwsCustomResource(this, 'GenShareSecret', {
+      onCreate: {
+        service: 'KMS',
+        action: 'generateRandom',
+        parameters: { NumberOfBytes: 32 },
+        physicalResourceId: cr.PhysicalResourceId.of('share-secret-plaintext'),
+      },
+      policy: cr.AwsCustomResourcePolicy.fromSdkCalls({ resources: cr.AwsCustomResourcePolicy.ANY_RESOURCE }),
+    })
+    const plaintextB64 = genSecret.getResponseField('Plaintext') // base64 (SDK returns blobs base64)
+
+    const sealSecret = new cr.AwsCustomResource(this, 'SealShareSecret', {
+      onCreate: {
+        service: 'KMS',
+        action: 'encrypt',
+        parameters: { KeyId: key.keyId, Plaintext: plaintextB64 },
+        physicalResourceId: cr.PhysicalResourceId.of('share-secret-ciphertext'),
+      },
+      policy: cr.AwsCustomResourcePolicy.fromStatements([
+        new iam.PolicyStatement({ actions: ['kms:Encrypt'], resources: [key.keyArn] }),
+      ]),
+    })
+    sealSecret.node.addDependency(genSecret)
+    const shareSecretCiphertext = sealSecret.getResponseField('CiphertextBlob') // base64
+
     const fn = new lambda.Function(this, 'RenderFn', {
       runtime: lambda.Runtime.NODEJS_22_X,
       architecture: lambda.Architecture.ARM_64,
@@ -62,7 +93,12 @@ export class KmsPdfAttestationStack extends Stack {
       ],
       memorySize: 2048,
       timeout: Duration.seconds(30),
-      environment: { DOCS_BUCKET: bucket.bucketName, KMS_KEY_ID: key.keyArn, DOCS_PREFIX },
+      environment: {
+        DOCS_BUCKET: bucket.bucketName,
+        KMS_KEY_ID: key.keyArn,
+        DOCS_PREFIX,
+        SHARE_SECRET_CIPHERTEXT: shareSecretCiphertext,
+      },
     })
 
     // Least privilege: decrypt with the one key + read the one prefix.
