@@ -251,6 +251,7 @@ export {
   SchemaLockedError,
   SchemaFenceError,
   MigrationRequiredError,
+  QuiesceTimeoutError,
 } from './errors.js'
 
 // Bundle format — `.noydb` container

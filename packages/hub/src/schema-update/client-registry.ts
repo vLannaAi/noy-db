@@ -55,10 +55,12 @@ export async function listClientDocs(store: NoydbStore, vault: string): Promise<
 export async function activeQuiesced(
   store: NoydbStore,
   vault: string,
-  opts: { generation: number; now: number; staleMs: number },
+  opts: { generation: number; now: number; staleMs: number; excludeClientId?: string },
 ): Promise<boolean> {
   const docs = await listClientDocs(store, vault)
-  const active = docs.filter(d => d.lastSeen >= opts.now - opts.staleMs)
+  const active = docs.filter(
+    d => d.lastSeen >= opts.now - opts.staleMs && d.clientId !== opts.excludeClientId,
+  )
   return active.every(d => d.quiescedAtVersion === opts.generation)
 }
 
