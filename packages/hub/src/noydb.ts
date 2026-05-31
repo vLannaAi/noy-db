@@ -154,6 +154,7 @@ export class Noydb {
   private readonly options: NoydbOptions
   private readonly emitter = new NoydbEventEmitter()
   private readonly writeQueueTracker = new WriteQueueTracker()
+  private readonly clientId = generateULID()
   private readonly vaultCache = new Map<string, Vault>()
   private readonly keyringCache = new Map<string, UnlockedKeyring>()
   private readonly syncEngines = new Map<string, SyncEngine>()
@@ -1149,6 +1150,11 @@ export class Noydb {
     return this.writeQueueTracker
   }
 
+  /** @internal Stable per-instance id for schema-cutover coordination (#232). */
+  get _clientId(): string {
+    return this.clientId
+  }
+
   /**
    * Soft-lock a single vault: clear its in-memory keyring, DEKs, vault
    * instance, sync engine, policy enforcer, and active-tier entry —
@@ -1179,6 +1185,7 @@ export class Noydb {
     this.policyEnforcers.get(vault)?.destroy()
     this.policyEnforcers.delete(vault)
     // Live caches: scrub DEKs, vault instance, active tier.
+    this.vaultCache.get(vault)?._stopFenceCoordination() // #232 — stop heartbeat/watcher timers
     this.keyringCache.delete(vault)
     this.vaultCache.delete(vault)
     this.activeTier.delete(vault)
@@ -1206,6 +1213,7 @@ export class Noydb {
       engine.stopAutoSync()
     }
     this.syncEngines.clear()
+    for (const v of this.vaultCache.values()) v._stopFenceCoordination() // #232 — stop heartbeat/watcher timers
     this.keyringCache.clear()
     this.vaultCache.clear()
     this.activeTier.clear()

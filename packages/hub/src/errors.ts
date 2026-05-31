@@ -863,6 +863,14 @@ export class MigrationRequiredError extends SchemaUpdateError {
   }
 }
 
+/** A coordinated cutover timed out waiting for active clients to quiesce. */
+export class QuiesceTimeoutError extends SchemaUpdateError {
+  constructor(message: string) {
+    super('QUIESCE_TIMEOUT', message)
+    this.name = 'QuiesceTimeoutError'
+  }
+}
+
 // ─── Query DSL Errors ─────────────────────────────────────────────────
 
 /**
