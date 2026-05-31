@@ -257,7 +257,13 @@ No UI in either sub-slice (CLI/programmatic trigger is fine for tests). UI is Sl
 
 ### Slice 4 — #233 reactive fence-state + Vue UI
 
-Surfaces #232 to the app via `@noy-db/in-vue` (note: package is `in-vue`, not `@noy-db/vue` as the issue draft says). `useMigrationState()` composable (`fenceState`, `schemaVersion`, `activePeers` as refs), lifecycle hooks (`onDrainStart`/`onQuiesceRequired`/`onMigrating`/`onComplete`/`onError`), `ackQuiesced()`, optional `onFence: 'queue' | 'throw'` (default `throw`) with a configurable queue depth (default 50), and error-boundary-friendly typed errors. Tree-shake-able.
+Surfaces #232 to the app via `@noy-db/in-vue` (note: package is `in-vue`, not `@noy-db/vue` as the issue draft says).
+
+**Minimal, finalized scope:** `useMigrationState(vaultName?)` returns `{ fenceState, schemaVersion }` as Vue `ref`s. It **seeds** from a new small public accessor `vault.schemaFenceState(): { fenceState, currentSchemaVersion }` on mount (the `schema:fence-changed` event fires on change, not on mount, so a component mounting mid-drain needs the seed), then updates both refs on every `schema:fence-changed` event (filtered to `vaultName` when given). Unsubscribes on scope dispose (the `useSync` named-handler + `onUnmounted`/`onScopeDispose` idiom). The app drives its own overlay: `<DrainOverlay v-if="fenceState !== 'normal'" :state="fenceState" />`. The already-public `SchemaFenceError`/`MigrationRequiredError` serve the app's error boundary.
+
+The only new hub surface is `vault.schemaFenceState()` (a thin `loadFence` read). Tested with `effectScope` + a real `Noydb` instance, asserting the refs seed correctly and update when the hub emits `schema:fence-changed`.
+
+**Deferred:** `activePeers` (the live client set — needs a `vault.listActivePeers()` registry accessor + a poll loop; add when a UI wants a "waiting for N tabs" indicator); `onFence: 'queue'` write-queueing during drain (a backend buffer/replay feature, complex — current behavior is `throw`/`SchemaFenceError`); explicit lifecycle-hook callbacks and `ackQuiesced()` (the watcher in 3b already acks automatically; the reactive `fenceState` ref covers the UI's needs, so per-transition callbacks are redundant for now).
 
 ### Independent follow-ups (after headline, not gating)
 
