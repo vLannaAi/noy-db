@@ -782,6 +782,23 @@ features:
       - 'Always-core today; planned withRouting() extraction tracked separately'
     related: [stores-contract]
 
+  - id: observable-write-queue
+    name: Observable write-queue
+    cluster: operations
+    spec: docs/superpowers/specs/2026-05-31-m12-schema-migration-epic-design.md#5-slice-plan
+    subsystem_doc: docs/superpowers/specs/2026-05-31-m12-schema-migration-epic-design.md
+    package: '@noy-db/hub'
+    factory: null
+    status: stable
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'hub.writeQueue.pending is true while any Collection.put/delete is in flight'
+      - 'onFlush() rejects if a write errored during the wait, never silently resolves'
+    related: [vault-and-collections]
+
 # ─── Storage adapters (phase 2) ──────────────────────────────────────
 
 adapters:

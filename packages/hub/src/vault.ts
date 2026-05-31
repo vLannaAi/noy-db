@@ -617,6 +617,7 @@ export class Vault {
         keyring: this.keyring,
         encrypted: this.encrypted,
         emitter: this.emitter,
+        writeQueue: this.noydb._writeQueueTracker,
         getDEK: this.getDEK,
         onDirty: this.onDirty,
         historyConfig: this.historyConfig,

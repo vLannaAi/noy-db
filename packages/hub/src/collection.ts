@@ -12,6 +12,7 @@ import type { GhostRecord, TierMode, CrossTierAccessEvent } from './types.js'
 import type { UnlockedKeyring } from './team/keyring.js'
 import { hasWritePermission } from './team/keyring.js'
 import type { NoydbEventEmitter } from './events.js'
+import type { WriteQueueTracker } from './write-queue.js'
 import type { StandardSchemaV1 } from './schema.js'
 import { validateSchemaInput, validateSchemaOutput } from './schema.js'
 import type { LedgerStore } from './history/ledger/index.js'
@@ -127,6 +128,7 @@ export class Collection<T> {
   private readonly keyring: UnlockedKeyring
   private readonly encrypted: boolean
   private readonly emitter: NoydbEventEmitter
+  private readonly writeQueue: WriteQueueTracker | undefined
   private readonly getDEK: (collectionName: string) => Promise<CryptoKey>
   private readonly onDirty: OnDirtyCallback | undefined
   private readonly historyConfig: HistoryConfig
@@ -492,6 +494,13 @@ export class Collection<T> {
     keyring: UnlockedKeyring
     encrypted: boolean
     emitter: NoydbEventEmitter
+    /**
+     * Vault-level in-flight write tracker (#227). When present,
+     * `put`/`delete` run inside `writeQueue.track()` so `hub.writeQueue`
+     * reflects outstanding writes. Optional so direct Collection
+     * construction in tests still works untracked.
+     */
+    writeQueue?: WriteQueueTracker | undefined
     getDEK: (collectionName: string) => Promise<CryptoKey>
     historyConfig?: HistoryConfig | undefined
     onDirty?: OnDirtyCallback | undefined
@@ -778,6 +787,7 @@ export class Collection<T> {
     this.keyring = opts.keyring
     this.encrypted = opts.encrypted
     this.emitter = opts.emitter
+    this.writeQueue = opts.writeQueue
     this.blobStrategy = opts.blobStrategy ?? NO_BLOBS
     this.aggregateStrategy = opts.aggregateStrategy ?? NO_AGGREGATE
     this.crdtStrategy = opts.crdtStrategy ?? NO_CRDT
@@ -1054,7 +1064,8 @@ export class Collection<T> {
   }
 
   /**
-   * Create or update a record.
+   * Create or update a record. Runs inside the hub's write-queue tracker
+   * (#227) so `hub.writeQueue.pending` reflects this write.
    *
    * @param id      Record identifier.
    * @param record  The record body (validated by the collection's schema
@@ -1065,6 +1076,15 @@ export class Collection<T> {
    *                `entries.filter(e => e.reason?.startsWith('import:'))`.
    */
   async put(id: string, record: T, options?: { readonly reason?: string }): Promise<void> {
+    // TODO(#232-slice2): audit putManyAtomic / tx-execute / CRDT / blob
+    // write paths for tracking before drain relies on onFlush() as a
+    // complete quiesce barrier.
+    if (!this.writeQueue) return this.putInternal(id, record, options)
+    return this.writeQueue.track(() => this.putInternal(id, record, options))
+  }
+
+  /** @internal Untracked put body — call {@link put}, not this. */
+  private async putInternal(id: string, record: T, options?: { readonly reason?: string }): Promise<void> {
     if (!hasWritePermission(this.keyring, this.name)) {
       throw new ReadOnlyError()
     }
@@ -1605,8 +1625,17 @@ export class Collection<T> {
     }
   }
 
-  /** Delete a record by ID. */
+  /**
+   * Delete a record by ID. Runs inside the hub's write-queue tracker
+   * (#227) so `hub.writeQueue.pending` reflects this write.
+   */
   async delete(id: string): Promise<void> {
+    if (!this.writeQueue) return this.deleteInternal(id)
+    return this.writeQueue.track(() => this.deleteInternal(id))
+  }
+
+  /** @internal Untracked delete body — call {@link delete}, not this. */
+  private async deleteInternal(id: string): Promise<void> {
     await this._doDelete(id, false)
   }
 
