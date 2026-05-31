@@ -49,7 +49,7 @@ Resolved during brainstorming; do not revert without a new spec:
 | `SchemaVersionStaleError` on read (orig OQ#5) | **Eliminated** | After the window every record is the new version |
 | Barrier enforcement | **Cooperative + documented hardening** | `hub.write()` throws `SchemaFenceError` by convention; sealing-host enforcement is a documented future option, not built |
 | Election (orig OQ#1) | **Reuse `by-peer` Web Locks** | No new leader mechanism, no `at-*` host dependency |
-| Fence-state storage (orig OQ#4) | **Reuse encrypted `_meta/policy` machinery** | No plaintext subsystem; fence doc holds no PII anyway |
+| Fence-state storage (orig OQ#4) | **Reuse the `_meta/policy` storage pattern** (plaintext envelope, `_iv: ''`) | Not a new mechanism; fence holds no PII (counter + state enum), so plaintext is intentional |
 | Quiesce timeout (orig OQ#3) | **Configurable per-migration, vault default 60 s** | Unquiesced-past-timeout clients drop from the active set (presence marks them stale); migration proceeds |
 | Subsystem name | **`update`** — import `@noy-db/hub/update`, per-collection `schemaUpdate: [...]` | Framed as "schema update" for app authors, not DB-migration jargon |
 | Evolution model | **Open, pluggable update *strategies* — NOT a fixed tier ladder** | Coordinated cutover is one strategy among many; new strategies need no core change |
@@ -128,7 +128,7 @@ This section specs the **`coordinatedCutover` update strategy** (§3a) — the h
 ### Fence document (encrypted, post-unlock only)
 
 ```
-_meta/schema-fence  (encrypted, reuses _meta/policy load/save/cache)
+_meta/schema-fence  (plaintext envelope like _meta/policy — no PII; reuses the _meta convention)
   {
     currentSchemaVersion: number,                                   // hub-managed; vault-level "generation"
     fenceState: 'normal' | 'draining' | 'migrating' | 'complete'
