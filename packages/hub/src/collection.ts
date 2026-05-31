@@ -1644,6 +1644,37 @@ export class Collection<T> {
     return this.writeQueue.track(() => this.deleteInternal(id))
   }
 
+  /**
+   * @internal #232 — bulk-rewrite every record through a cutover transform.
+   * Raw adapter path (bypasses the write gate + guards — the transform is
+   * trusted and runs only during the `migrating` phase). Bumps each
+   * record's `_v` and appends a ledger `op:'migration'` entry.
+   */
+  async _applyCutoverTransform(
+    transform: (doc: Record<string, unknown>) => Record<string, unknown>,
+  ): Promise<number> {
+    const ids = await this.adapter.list(this.vault, this.name)
+    let count = 0
+    for (const id of ids) {
+      const env = await this.adapter.get(this.vault, this.name, id)
+      if (!env) continue
+      const record = (await this.decryptRecord(env, { skipValidation: true })) as unknown as Record<string, unknown>
+      const next = transform(record)
+      const nextVersion = (env._v ?? 0) + 1
+      const newEnv = await this.encryptRecord(next as unknown as T, nextVersion)
+      await this.adapter.put(this.vault, this.name, id, newEnv)
+      await this._invalidateCacheEntry(id) // refresh in-memory cache after the raw write
+      if (this.ledger) {
+        await this.ledger.append({
+          op: 'migration', collection: this.name, id, version: nextVersion,
+          actor: this.keyring.userId, payloadHash: '', reason: 'schema:coordinated-cutover',
+        }).catch(() => { /* ledger is best-effort here */ })
+      }
+      count++
+    }
+    return count
+  }
+
   /** @internal Untracked delete body — call {@link delete}, not this. */
   private async deleteInternal(id: string): Promise<void> {
     await this._doDelete(id, false)
