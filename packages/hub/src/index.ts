@@ -236,6 +236,9 @@ export {
   InvariantError,
   AmendmentForbiddenError,
   AttestationError,
+  SchemaUpdateError,
+  NonAdditiveSchemaChangeError,
+  SchemaLockedError,
 } from './errors.js'
 
 // Bundle format — `.noydb` container
