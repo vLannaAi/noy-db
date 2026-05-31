@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/in-react",
-  "version": "0.2.0-pre.1",
+  "version": "0.2.0-pre.2",
   "description": "React hooks for noy-db — useNoydb, useVault, useCollection, useQuery, useSync. Uses useSyncExternalStore for reactive subscriptions. Zero deps beyond React.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
