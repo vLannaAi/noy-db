@@ -22,9 +22,17 @@ PDF. Pairs with the offline verifier (recipe `attestation-verifier`).
 ## Trust + scope
 The QR carries the signed per-field commitment; the PDF is generated, never
 verified server-side. The render payload is capped at 4 KB (KMS plaintext limit).
-The Function URL is `authType: NONE` for the demo — **production must add IAM /
-JWT authz** since it returns rendered PDFs. Deploy/verify/teardown is
-profile-driven; see `recipes/aws-kms-pdf-attestation/RUNBOOK.md`.
+
+The render endpoint is gated by a **stateless signed magic link** — an
+HMAC-SHA256 over `canonicalJson({v, docId, exp})` with a KMS-sealed secret. A
+data-holder mints a self-expiring, shareable URL (`?d=&exp=&sig=`); the hub-free
+Lambda verifies it with **no AWS authorizer / Cognito / IdP**. A bare `?docId=`
+is rejected (403) — there is no unauthenticated path. Links are **multi-use
+within the TTL** (default 24h, 7d cap — a public-audience bearer capability);
+**revocation = rotate the share secret** (invalidates all live links). The
+Function URL stays `authType: NONE` at the AWS layer — the Lambda itself is the
+gate. Deploy/verify/teardown is profile-driven; see
+`recipes/aws-kms-pdf-attestation/RUNBOOK.md`.
 
 The CI showcase (`showcases/src/recipe-aws-kms-pdf-attestation.recipe.test.ts`)
 covers the data path with a mock KMS; the Chromium render + real AWS run only

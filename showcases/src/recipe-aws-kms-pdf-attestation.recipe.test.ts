@@ -55,4 +55,27 @@ describe('recipe: aws-kms-pdf-attestation (CI slice, mock KMS)', () => {
     const v = await verifyDocument(decoded.qr, printed, { publicKeys: { [keyId]: publicKeyB64 }, fieldSchema: attestation })
     expect(v.outcome).toBe('authentic-valid')
   })
+
+  it('a minted share link gates the render endpoint; unsigned requests are rejected', async () => {
+    const { makeHandler } = await import('@noy-db/recipe-aws-kms-pdf-attestation/handler')
+    const { mintShareLink } = await import('@noy-db/recipe-aws-kms-pdf-attestation/share-link')
+    const { encodeRenderPayload } = await import('@noy-db/recipe-aws-kms-pdf-attestation')
+
+    const shareSecret = new Uint8Array(32).fill(5)
+    const stored = encodeRenderPayload({ docId: 'inv-1', qr: 'q', fields: { invoiceNo: 'INV-1', total: 1, issueDate: '2026-05-29' } })
+    const s3 = { send: async () => ({ Body: { transformToByteArray: async () => stored } }) }
+    const kms = { send: async (cmd: { input: { CiphertextBlob: Uint8Array } }) => ({ Plaintext: cmd.input.CiphertextBlob }) }
+    const renderPdf = async () => new Uint8Array([0x25, 0x50, 0x44, 0x46])
+    const handler = makeHandler({ s3: s3 as never, kms: kms as never, renderPdf, bucket: 'b', keyId: 'k', prefix: 'docs', shareSecret })
+
+    // unsigned → rejected (the open ?docId= path is closed)
+    const unsigned = await handler({ rawPath: '/inv-1', queryStringParameters: { docId: 'inv-1' } } as never)
+    expect(unsigned.statusCode).toBe(403)
+
+    // minted link → accepted
+    const url = await mintShareLink('inv-1', { secret: shareSecret, baseUrl: 'https://fn/' })
+    const q = new URL(url).searchParams
+    const ok = await handler({ rawPath: '/', queryStringParameters: { d: q.get('d')!, exp: q.get('exp')!, sig: q.get('sig')! } } as never)
+    expect(ok.statusCode).toBe(200)
+  })
 })

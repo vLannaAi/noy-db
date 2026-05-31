@@ -40,13 +40,34 @@ await sealAndUpload(
 )
 ```
 
-## 3. Invoke + verify
+## 3. Invoke + verify (via a magic link)
+The endpoint requires a signed share link — a bare `?docId=` is rejected (403).
+Mint a link firm-side. You need the plaintext share secret: decrypt the
+function's `SHARE_SECRET_CIPHERTEXT` env var once with the recipe KMS key, e.g.
 ```bash
-curl -s "<FunctionUrl>?docId=<docId>" -o invoice.pdf
-file invoice.pdf   # → PDF document
+CIPH=$(aws lambda get-function-configuration --function-name <RenderFn> \
+  --query 'Environment.Variables.SHARE_SECRET_CIPHERTEXT' --output text)
+aws kms decrypt --ciphertext-blob "fileb://<(printf %s "$CIPH" | base64 -d)" \
+  --query Plaintext --output text | base64 -d > /tmp/share.secret   # 32 raw bytes
+```
+Then mint + fetch:
+```ts
+import { mintShareLink } from '@noy-db/recipe-aws-kms-pdf-attestation/share-link'
+import { readFileSync } from 'node:fs'
+const secret = new Uint8Array(readFileSync('/tmp/share.secret'))
+const url = await mintShareLink('<docId>', { secret, baseUrl: '<FunctionUrl>' })
+// → https://<fn-url>/?d=<docId>&exp=<ms>&sig=<...>
+```
+```bash
+curl -s "<minted-url>" -o invoice.pdf && file invoice.pdf            # → PDF document
+curl -s -o /dev/null -w '%{http_code}\n' "<FunctionUrl>?docId=<docId>"  # → 403 (no token)
 ```
 Open `invoice.pdf`; scan the QR with the offline verifier (recipe ④) — it must
 read `authentic-valid` for the printed fields.
+
+Links are **multi-use until `exp`** (default 24h, 7d cap). **Revocation = rotate
+the share secret** (re-deploy so the AwsCustomResource regenerates it) — this
+invalidates all live links at once. There is no per-link revocation.
 
 ## 4. Teardown (after you confirm "done")
 ```bash

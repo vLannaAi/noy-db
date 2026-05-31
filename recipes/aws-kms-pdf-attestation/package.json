@@ -7,7 +7,9 @@
   "exports": {
     ".": "./src/payload.ts",
     "./seal": "./src/seal.ts",
-    "./render-core": "./src/render-core.ts"
+    "./render-core": "./src/render-core.ts",
+    "./handler": "./src/handler.ts",
+    "./share-link": "./src/share-link.ts"
   },
   "scripts": {
     "test": "vitest run",
