@@ -175,6 +175,9 @@ export type { WriteQueue } from './write-queue.js'
 // Write lifecycle hooks (#230)
 export type { WriteEvent, WriteHook } from './write-hooks.js'
 
+// Runtime schema introspection (#229)
+export type { SchemaIntrospection } from './introspection/types.js'
+
 // Schema-update strategies (#245)
 export type {
   SchemaDelta,

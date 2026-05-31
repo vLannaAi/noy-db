@@ -17,7 +17,7 @@
 - `guards`: `{ collection, count }[]` — from `GuardRegistry` (new `summary()` accessor; today it only has `guardsFor(name)`).
 - `materializedViews`: `{ name, sourceCollections }[]` — reuse `MaterializedViewRegistry.all()` (`outputCollection` + `dependencies`).
 - `schemaUpdate`: `{ collection, strategies: string[] }[]` — strategy `.name`s. **Not stored anywhere today** — captured into a vault-level map at `collection({ schemaUpdate })` registration.
-- `grants`: `{ collection, permission }[]` — from `vault.keyring.permissions` (a plain `Record<string, Permission>`), for the unlocked user.
+- `grants`: `{ collection, permission }[]` — the collections the unlocked user can actually access (their `keyring.deks` keys), with the level from `keyring.permissions[col]` falling back to `'rw'` for implicit/owner access (owners carry an empty `permissions` map). Internal `_`-collections excluded.
 
 **Out (deferred):**
 - i18n bilingual fields (smaller win; private registries; add later if a UI needs it).
