@@ -76,6 +76,7 @@ import {
 } from './meta/public-envelope/index.js'
 import { Vault } from './vault.js'
 import { NoydbEventEmitter } from './events.js'
+import { WriteQueueTracker, type WriteQueue } from './write-queue.js'
 import {
   loadKeyring,
   createOwnerKeyring,
@@ -152,6 +153,7 @@ function createPlaintextKeyring(userId: string): UnlockedKeyring {
 export class Noydb {
   private readonly options: NoydbOptions
   private readonly emitter = new NoydbEventEmitter()
+  private readonly writeQueueTracker = new WriteQueueTracker()
   private readonly vaultCache = new Map<string, Vault>()
   private readonly keyringCache = new Map<string, UnlockedKeyring>()
   private readonly syncEngines = new Map<string, SyncEngine>()
@@ -1121,6 +1123,28 @@ export class Noydb {
 
   off<K extends keyof NoydbEventMap>(event: K, handler: (data: NoydbEventMap[K]) => void): void {
     this.emitter.off(event, handler)
+  }
+
+  /**
+   * Observable write-queue for this hub instance. Reflects outstanding
+   * in-flight writes across all collections. See {@link WriteQueue}.
+   *
+   * @example
+   * window.addEventListener('beforeunload', (e) => {
+   *   if (db.writeQueue.pending) { e.preventDefault(); e.returnValue = '' }
+   * })
+   */
+  get writeQueue(): WriteQueue {
+    return this.writeQueueTracker
+  }
+
+  /**
+   * @internal Mutable tracker behind {@link writeQueue}. Threaded into
+   * each Collection (via Vault) so `put`/`delete` can `track()` writes.
+   * Not part of the public surface — consumers use `writeQueue`.
+   */
+  get _writeQueueTracker(): WriteQueueTracker {
+    return this.writeQueueTracker
   }
 
   /**
