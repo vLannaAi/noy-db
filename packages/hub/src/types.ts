@@ -962,6 +962,12 @@ export interface ChangeEvent {
 export interface NoydbEventMap {
   'change': ChangeEvent
   'error': Error
+  /**
+   * Same-instance signal that this vault's schema-fence state changed
+   * (#232). For UI integration (#233). Cross-client coordination goes
+   * through the store, not this event.
+   */
+  'schema:fence-changed': { vault: string; currentSchemaVersion: number; fenceState: 'normal' | 'draining' | 'migrating' | 'complete' }
   'sync:push': PushResult
   'sync:pull': PullResult
   'sync:conflict': Conflict
