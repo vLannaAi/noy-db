@@ -44,5 +44,12 @@ describe('CDK stack synthesizes', () => {
         && ((r as { Properties: { Layers: unknown[] } }).Properties.Layers.length > 0),
     )
     expect(hasLayer).toBe(true)
+
+    // The render function carries the KMS-sealed share secret as an env var.
+    const renderFn = Object.values(fns).find(
+      (r) => (r as { Properties?: { Environment?: { Variables?: Record<string, unknown> } } })
+        .Properties?.Environment?.Variables?.['SHARE_SECRET_CIPHERTEXT'] !== undefined,
+    )
+    expect(renderFn).toBeDefined()
   })
 })
