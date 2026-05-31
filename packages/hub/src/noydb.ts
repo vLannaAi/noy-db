@@ -154,6 +154,7 @@ export class Noydb {
   private readonly options: NoydbOptions
   private readonly emitter = new NoydbEventEmitter()
   private readonly writeQueueTracker = new WriteQueueTracker()
+  private readonly clientId = generateULID()
   private readonly vaultCache = new Map<string, Vault>()
   private readonly keyringCache = new Map<string, UnlockedKeyring>()
   private readonly syncEngines = new Map<string, SyncEngine>()
@@ -1147,6 +1148,11 @@ export class Noydb {
    */
   get _writeQueueTracker(): WriteQueueTracker {
     return this.writeQueueTracker
+  }
+
+  /** @internal Stable per-instance id for schema-cutover coordination (#232). */
+  get _clientId(): string {
+    return this.clientId
   }
 
   /**

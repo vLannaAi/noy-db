@@ -413,6 +413,8 @@ export class Vault {
       store: this.adapter,
       vault: this.name,
       onFlush: () => this.noydb._writeQueueTracker.onFlush(),
+      clientId: this.noydb._clientId,
+      emit: (e) => this.emitter.emit('schema:fence-changed', { vault: this.name, ...e }),
     })
     this.emitter = opts.emitter
     this.onDirty = opts.onDirty
