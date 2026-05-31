@@ -823,6 +823,54 @@ export class SchemaValidationError extends NoydbError {
   }
 }
 
+/** Base for schema-evolution strategy rejections (#245). */
+export class SchemaUpdateError extends NoydbError {
+  constructor(code: string, message: string) {
+    super(code, message)
+    this.name = 'SchemaUpdateError'
+  }
+}
+
+/** A non-additive schema change was rejected by the `additiveOnly()` strategy. */
+export class NonAdditiveSchemaChangeError extends SchemaUpdateError {
+  constructor(message: string) {
+    super('NON_ADDITIVE_SCHEMA_CHANGE', message)
+    this.name = 'NonAdditiveSchemaChangeError'
+  }
+}
+
+/** A schema change was rejected by the `lockSchema()` strategy. */
+export class SchemaLockedError extends SchemaUpdateError {
+  constructor(message: string) {
+    super('SCHEMA_LOCKED', message)
+    this.name = 'SchemaLockedError'
+  }
+}
+
+/** Write attempted while a schema cutover fence is up (draining/migrating, or this collection has a pending cutover). */
+export class SchemaFenceError extends SchemaUpdateError {
+  constructor(message: string) {
+    super('SCHEMA_FENCE', message)
+    this.name = 'SchemaFenceError'
+  }
+}
+
+/** Write attempted by a client whose generation snapshot is behind the live fence — reload required. */
+export class MigrationRequiredError extends SchemaUpdateError {
+  constructor(message: string) {
+    super('MIGRATION_REQUIRED', message)
+    this.name = 'MigrationRequiredError'
+  }
+}
+
+/** A coordinated cutover timed out waiting for active clients to quiesce. */
+export class QuiesceTimeoutError extends SchemaUpdateError {
+  constructor(message: string) {
+    super('QUIESCE_TIMEOUT', message)
+    this.name = 'QuiesceTimeoutError'
+  }
+}
+
 // ─── Query DSL Errors ─────────────────────────────────────────────────
 
 /**

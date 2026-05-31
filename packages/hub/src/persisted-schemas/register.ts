@@ -16,6 +16,9 @@
 
 import { derivePersistedSchema } from './derive.js'
 import { loadPersistedSchema, savePersistedSchema } from './storage.js'
+import { computeSchemaDelta } from '../schema-update/delta.js'
+import { evaluateStrategies } from '../schema-update/dispatch.js'
+import type { SchemaUpdateStrategy, UpdateDecision } from '../schema-update/types.js'
 import type { NoydbStore } from '../types.js'
 import type { PersistedSchemaEnvelope } from './types.js'
 
@@ -26,6 +29,8 @@ export interface PersistSchemaResult {
   readonly skipped: boolean
   /** The envelope that was either written or matched. */
   readonly envelope: PersistedSchemaEnvelope
+  /** The update-strategy decision, present when strategies ran (#245). */
+  readonly decision?: UpdateDecision
 }
 
 export async function persistSchemaIfNeeded(opts: {
@@ -34,16 +39,42 @@ export async function persistSchemaIfNeeded(opts: {
   readonly collectionName: string
   readonly validator: unknown
   readonly dek: CryptoKey
+  readonly strategies?: readonly SchemaUpdateStrategy[]
 }): Promise<PersistSchemaResult> {
   const fresh = await derivePersistedSchema(opts.validator)
   const stored = await loadPersistedSchema(opts.store, opts.vault, opts.collectionName, opts.dek)
 
   if (stored && isEquivalent(stored, fresh)) {
-    return { written: false, skipped: true, envelope: stored }
+    return { written: false, skipped: true, envelope: stored, decision: { action: 'allow' } }
+  }
+
+  // Changed (or first registration). Run update strategies only when we
+  // have a comparable JSON-Schema baseline and strategies were registered.
+  let decision: UpdateDecision = { action: 'allow' }
+  const strategies = opts.strategies ?? []
+  if (
+    stored &&
+    strategies.length > 0 &&
+    stored.kind === fresh.kind &&
+    isPlainObject(stored.jsonSchema) &&
+    isPlainObject(fresh.jsonSchema)
+  ) {
+    const delta = computeSchemaDelta(stored.jsonSchema, fresh.jsonSchema, opts.collectionName)
+    decision = await evaluateStrategies(delta, strategies, { collection: opts.collectionName })
+  }
+
+  if (decision.action !== 'allow') {
+    // reject (or, in #232, cutover): do NOT overwrite the baseline — the
+    // old schema stays the source of truth until the change is resolved.
+    return { written: false, skipped: false, envelope: stored ?? fresh, decision }
   }
 
   await savePersistedSchema(opts.store, opts.vault, opts.collectionName, opts.dek, fresh)
-  return { written: true, skipped: false, envelope: fresh }
+  return { written: true, skipped: false, envelope: fresh, decision }
+}
+
+function isPlainObject(v: unknown): v is object {
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 
 function isEquivalent(a: PersistedSchemaEnvelope, b: PersistedSchemaEnvelope): boolean {

@@ -76,6 +76,7 @@ import {
 } from './meta/public-envelope/index.js'
 import { Vault } from './vault.js'
 import { NoydbEventEmitter } from './events.js'
+import { WriteQueueTracker, type WriteQueue } from './write-queue.js'
 import {
   loadKeyring,
   createOwnerKeyring,
@@ -152,6 +153,8 @@ function createPlaintextKeyring(userId: string): UnlockedKeyring {
 export class Noydb {
   private readonly options: NoydbOptions
   private readonly emitter = new NoydbEventEmitter()
+  private readonly writeQueueTracker = new WriteQueueTracker()
+  private readonly clientId = generateULID()
   private readonly vaultCache = new Map<string, Vault>()
   private readonly keyringCache = new Map<string, UnlockedKeyring>()
   private readonly syncEngines = new Map<string, SyncEngine>()
@@ -428,6 +431,8 @@ export class Noydb {
     await comp._initDerivations(this.options.derivationStrategies ?? [])
     await comp._initMaterializedViews(this.options.materializedViewStrategies ?? [])
     await comp._initOverlayedViews(this.options.overlayedViewStrategies ?? [])
+    // #232 — snapshot the schema-fence generation once per opened vault.
+    await comp.schemaFence.init()
     this.vaultCache.set(name, comp)
     return comp
   }
@@ -1124,6 +1129,33 @@ export class Noydb {
   }
 
   /**
+   * Observable write-queue for this hub instance. Reflects outstanding
+   * in-flight writes across all collections. See {@link WriteQueue}.
+   *
+   * @example
+   * window.addEventListener('beforeunload', (e) => {
+   *   if (db.writeQueue.pending) { e.preventDefault(); e.returnValue = '' }
+   * })
+   */
+  get writeQueue(): WriteQueue {
+    return this.writeQueueTracker
+  }
+
+  /**
+   * @internal Mutable tracker behind {@link writeQueue}. Threaded into
+   * each Collection (via Vault) so `put`/`delete` can `track()` writes.
+   * Not part of the public surface — consumers use `writeQueue`.
+   */
+  get _writeQueueTracker(): WriteQueueTracker {
+    return this.writeQueueTracker
+  }
+
+  /** @internal Stable per-instance id for schema-cutover coordination (#232). */
+  get _clientId(): string {
+    return this.clientId
+  }
+
+  /**
    * Soft-lock a single vault: clear its in-memory keyring, DEKs, vault
    * instance, sync engine, policy enforcer, and active-tier entry —
    * WITHOUT destroying the `Noydb` instance.
@@ -1153,6 +1185,7 @@ export class Noydb {
     this.policyEnforcers.get(vault)?.destroy()
     this.policyEnforcers.delete(vault)
     // Live caches: scrub DEKs, vault instance, active tier.
+    this.vaultCache.get(vault)?._stopFenceCoordination() // #232 — stop heartbeat/watcher timers
     this.keyringCache.delete(vault)
     this.vaultCache.delete(vault)
     this.activeTier.delete(vault)
@@ -1180,6 +1213,7 @@ export class Noydb {
       engine.stopAutoSync()
     }
     this.syncEngines.clear()
+    for (const v of this.vaultCache.values()) v._stopFenceCoordination() // #232 — stop heartbeat/watcher timers
     this.keyringCache.clear()
     this.vaultCache.clear()
     this.activeTier.clear()

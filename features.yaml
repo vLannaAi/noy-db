@@ -782,6 +782,46 @@ features:
       - 'Always-core today; planned withRouting() extraction tracked separately'
     related: [stores-contract]
 
+  - id: observable-write-queue
+    name: Observable write-queue
+    cluster: operations
+    spec: docs/superpowers/specs/2026-05-31-m12-schema-migration-epic-design.md#5-slice-plan
+    subsystem_doc: docs/superpowers/specs/2026-05-31-m12-schema-migration-epic-design.md
+    package: '@noy-db/hub'
+    factory: null
+    status: stable
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'hub.writeQueue.pending is true while any Collection.put/delete is in flight'
+      - 'onFlush() rejects if a write errored during the wait, never silently resolves'
+    related: [vault-and-collections]
+
+  - id: schema-update-strategies
+    name: Schema-update strategy framework
+    cluster: core
+    spec: docs/superpowers/specs/2026-05-31-m12-schema-migration-epic-design.md#3a-open-update-strategy-model-mechanism-not-policy
+    subsystem_doc: docs/superpowers/specs/2026-05-31-m12-schema-migration-epic-design.md
+    package: '@noy-db/hub'
+    factory: null
+    status: preview
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'detection runs before the persisted-schema baseline is overwritten'
+      - 'a reject decision is enforced at the write path (put/delete throw); the baseline is not overwritten'
+      - 'ordered strategy list: first non-allow decision wins and short-circuits'
+      - 'coordinatedCutover blocks writes on a pending non-additive change until vault.runSchemaCutover() runs (SchemaFenceError)'
+      - 'a client whose open-snapshot is behind the live fence generation is refused with MigrationRequiredError'
+      - 'multi-client cutover: the migrator waits for every active client (fresh heartbeat) to ack the draining generation, or times out (QuiesceTimeoutError)'
+      - 'heartbeat + fence watcher start lazily only when a coordinatedCutover is registered; stopped on vault lock/close'
+      - 'in-vue useMigrationState() surfaces fenceState + schemaVersion as refs, seeded from vault.schemaFenceState() and updated on schema:fence-changed'
+    related: [persisted-json-schema, observable-write-queue]
+
 # ─── Storage adapters (phase 2) ──────────────────────────────────────
 
 adapters:

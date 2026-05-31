@@ -169,6 +169,20 @@ export { detectMimeType, detectMagic, isPreCompressed } from './blobs/mime-magic
 export { wrapBundleStore, createBundleStore } from './store/bundle-store.js'
 export type { WrappedBundleNoydbStore, WrapBundleStoreOptions } from './store/bundle-store.js'
 
+// Observable write-queue (#227)
+export type { WriteQueue } from './write-queue.js'
+
+// Schema-update strategies (#245)
+export type {
+  SchemaDelta,
+  FieldChange,
+  UpdateContext,
+  UpdateDecision,
+  SchemaUpdateStrategy,
+} from './schema-update/index.js'
+export { blindUpdate, additiveOnly, lockSchema, coordinatedCutover } from './schema-update/index.js'
+export type { FenceState, FenceDoc } from './schema-update/fence.js'
+
 // Sync policy
 export type { SyncPolicy, PushPolicy, PullPolicy, PushMode, PullMode, SyncSchedulerStatus } from './store/sync-policy.js'
 export { SyncScheduler, INDEXED_STORE_POLICY, BUNDLE_STORE_POLICY } from './store/sync-policy.js'
@@ -233,6 +247,12 @@ export {
   InvariantError,
   AmendmentForbiddenError,
   AttestationError,
+  SchemaUpdateError,
+  NonAdditiveSchemaChangeError,
+  SchemaLockedError,
+  SchemaFenceError,
+  MigrationRequiredError,
+  QuiesceTimeoutError,
 } from './errors.js'
 
 // Bundle format — `.noydb` container

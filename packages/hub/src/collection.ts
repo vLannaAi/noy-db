@@ -12,6 +12,9 @@ import type { GhostRecord, TierMode, CrossTierAccessEvent } from './types.js'
 import type { UnlockedKeyring } from './team/keyring.js'
 import { hasWritePermission } from './team/keyring.js'
 import type { NoydbEventEmitter } from './events.js'
+import type { WriteQueueTracker } from './write-queue.js'
+import type { SchemaUpdateGate } from './schema-update/gate.js'
+import type { SchemaFenceController } from './schema-update/fence-controller.js'
 import type { StandardSchemaV1 } from './schema.js'
 import { validateSchemaInput, validateSchemaOutput } from './schema.js'
 import type { LedgerStore } from './history/ledger/index.js'
@@ -127,6 +130,9 @@ export class Collection<T> {
   private readonly keyring: UnlockedKeyring
   private readonly encrypted: boolean
   private readonly emitter: NoydbEventEmitter
+  private readonly writeQueue: WriteQueueTracker | undefined
+  private readonly schemaUpdateGate: SchemaUpdateGate | undefined
+  private readonly schemaFence: SchemaFenceController | undefined
   private readonly getDEK: (collectionName: string) => Promise<CryptoKey>
   private readonly onDirty: OnDirtyCallback | undefined
   private readonly historyConfig: HistoryConfig
@@ -492,6 +498,17 @@ export class Collection<T> {
     keyring: UnlockedKeyring
     encrypted: boolean
     emitter: NoydbEventEmitter
+    /**
+     * Vault-level in-flight write tracker (#227). When present,
+     * `put`/`delete` run inside `writeQueue.track()` so `hub.writeQueue`
+     * reflects outstanding writes. Optional so direct Collection
+     * construction in tests still works untracked.
+     */
+    writeQueue?: WriteQueueTracker | undefined
+    /** #245 — per-collection schema-update gate; `put`/`delete` await it. */
+    schemaUpdateGate?: SchemaUpdateGate | undefined
+    /** #232 — vault-level fence controller; `put`/`delete` consult it. */
+    schemaFence?: SchemaFenceController | undefined
     getDEK: (collectionName: string) => Promise<CryptoKey>
     historyConfig?: HistoryConfig | undefined
     onDirty?: OnDirtyCallback | undefined
@@ -778,6 +795,9 @@ export class Collection<T> {
     this.keyring = opts.keyring
     this.encrypted = opts.encrypted
     this.emitter = opts.emitter
+    this.writeQueue = opts.writeQueue
+    this.schemaUpdateGate = opts.schemaUpdateGate
+    this.schemaFence = opts.schemaFence
     this.blobStrategy = opts.blobStrategy ?? NO_BLOBS
     this.aggregateStrategy = opts.aggregateStrategy ?? NO_AGGREGATE
     this.crdtStrategy = opts.crdtStrategy ?? NO_CRDT
@@ -1054,7 +1074,8 @@ export class Collection<T> {
   }
 
   /**
-   * Create or update a record.
+   * Create or update a record. Runs inside the hub's write-queue tracker
+   * (#227) so `hub.writeQueue.pending` reflects this write.
    *
    * @param id      Record identifier.
    * @param record  The record body (validated by the collection's schema
@@ -1065,6 +1086,20 @@ export class Collection<T> {
    *                `entries.filter(e => e.reason?.startsWith('import:'))`.
    */
   async put(id: string, record: T, options?: { readonly reason?: string }): Promise<void> {
+    // #245 — refuse the write if an update strategy rejected the schema
+    // change. Awaited OUTSIDE track() so a rejected write never counts
+    // toward writeQueue.depth.
+    await this.schemaUpdateGate?.assertWritable()
+    await this.schemaFence?.assertWritable(this.name) // #232
+    // TODO(#232-slice2): audit putManyAtomic / tx-execute / CRDT / blob
+    // write paths for tracking before drain relies on onFlush() as a
+    // complete quiesce barrier.
+    if (!this.writeQueue) return this.putInternal(id, record, options)
+    return this.writeQueue.track(() => this.putInternal(id, record, options))
+  }
+
+  /** @internal Untracked put body — call {@link put}, not this. */
+  private async putInternal(id: string, record: T, options?: { readonly reason?: string }): Promise<void> {
     if (!hasWritePermission(this.keyring, this.name)) {
       throw new ReadOnlyError()
     }
@@ -1605,8 +1640,50 @@ export class Collection<T> {
     }
   }
 
-  /** Delete a record by ID. */
+  /**
+   * Delete a record by ID. Runs inside the hub's write-queue tracker
+   * (#227) so `hub.writeQueue.pending` reflects this write.
+   */
   async delete(id: string): Promise<void> {
+    await this.schemaUpdateGate?.assertWritable() // #245
+    await this.schemaFence?.assertWritable(this.name) // #232
+    if (!this.writeQueue) return this.deleteInternal(id)
+    return this.writeQueue.track(() => this.deleteInternal(id))
+  }
+
+  /**
+   * @internal #232 — bulk-rewrite every record through a cutover transform.
+   * Raw adapter path (bypasses the write gate + guards — the transform is
+   * trusted and runs only during the `migrating` phase). Bumps each
+   * record's `_v` and appends a ledger `op:'migration'` entry.
+   */
+  async _applyCutoverTransform(
+    transform: (doc: Record<string, unknown>) => Record<string, unknown>,
+  ): Promise<number> {
+    const ids = await this.adapter.list(this.vault, this.name)
+    let count = 0
+    for (const id of ids) {
+      const env = await this.adapter.get(this.vault, this.name, id)
+      if (!env) continue
+      const record = (await this.decryptRecord(env, { skipValidation: true })) as unknown as Record<string, unknown>
+      const next = transform(record)
+      const nextVersion = (env._v ?? 0) + 1
+      const newEnv = await this.encryptRecord(next as unknown as T, nextVersion)
+      await this.adapter.put(this.vault, this.name, id, newEnv)
+      await this._invalidateCacheEntry(id) // refresh in-memory cache after the raw write
+      if (this.ledger) {
+        await this.ledger.append({
+          op: 'migration', collection: this.name, id, version: nextVersion,
+          actor: this.keyring.userId, payloadHash: '', reason: 'schema:coordinated-cutover',
+        }).catch(() => { /* ledger is best-effort here */ })
+      }
+      count++
+    }
+    return count
+  }
+
+  /** @internal Untracked delete body — call {@link delete}, not this. */
+  private async deleteInternal(id: string): Promise<void> {
     await this._doDelete(id, false)
   }
 
