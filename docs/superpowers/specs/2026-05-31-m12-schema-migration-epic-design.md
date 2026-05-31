@@ -32,7 +32,7 @@ These corrections to the original issue assumptions shape the whole design (veri
 | Guards & MVs | Exist; hook into write path before/after commit | `packages/hub/src/guards/`, `materialized-views/` |
 | Reactive layer | `@noy-db/in-vue` delegates to Vue refs; hub emits `change` events | `packages/in-vue/src/` |
 | `with*()` factories | `withGuard`, `withDerivation`, `withMaterializedView`, `withOverlayedView` | various |
-| `withSchemaUpdate()` / `withBilingualFields()` | **Do not exist** — new in this epic | — |
+| `SchemaUpdateStrategy` family (`coordinatedCutover`/`additiveOnly`/…) / `withBilingualFields()` | **Do not exist** — new in this epic | — |
 
 **Two assumptions in the issues were wrong and are corrected here:**
 - There is **no new presence/heartbeat layer to build** — `by-peer` Web Locks election + `Collection.presence()` cover liveness and leader election.
@@ -51,29 +51,77 @@ Resolved during brainstorming; do not revert without a new spec:
 | Election (orig OQ#1) | **Reuse `by-peer` Web Locks** | No new leader mechanism, no `at-*` host dependency |
 | Fence-state storage (orig OQ#4) | **Reuse encrypted `_meta/policy` machinery** | No plaintext subsystem; fence doc holds no PII anyway |
 | Quiesce timeout (orig OQ#3) | **Configurable per-migration, vault default 60 s** | Unquiesced-past-timeout clients drop from the active set (presence marks them stale); migration proceeds |
-| Subsystem name | **`update`** — factory `withSchemaUpdate()`, import `@noy-db/hub/update`, registration key `schemaUpdates` | Framed as "schema update" for app authors, not DB-migration jargon |
-| Safe default when subsystem absent | **Core detects a non-additive change and refuses it** (`NonAdditiveSchemaChangeError`) | Fail-loud instead of silent corruption; additive changes still pass |
-| Detection baseline | **Reuses `persisted-json-schema` (opt-in per collection)** | The refusal only fires where `persistJsonSchema: true`; no new persistence cost |
+| Subsystem name | **`update`** — import `@noy-db/hub/update`, per-collection `schemaUpdate: [...]` | Framed as "schema update" for app authors, not DB-migration jargon |
+| Evolution model | **Open, pluggable update *strategies* — NOT a fixed tier ladder** | Coordinated cutover is one strategy among many; new strategies need no core change |
+| Strategy composition | **Stackable, ordered per collection; first non-`allow` decision wins** (middleware) | `allow` = fall through; `reject`/`cutover` = terminal & short-circuit |
+| Detection baseline | **Reuses `persisted-json-schema` (opt-in per collection)** | Strategies only fire where `persistJsonSchema: true`; no new persistence cost |
 
 Trust model: all clients run our code (known-client deployment). A malicious/buggy client *could* bypass the cooperative fence; in this deployment that is a non-threat. The hardening path (an `at-*` sealing host refusing to unseal write credentials while the fence is up) is documented for untrusted-client scenarios but explicitly out of scope for this epic.
 
-### 3a. Tree-shake + safe-by-default model
+### 3a. Open update-strategy model (mechanism, not policy)
 
-All coordinated-cutover code lives in a **tree-shakeable `update` subsystem** (the `with*()` → strategy-handle → `_init*()` convention used by guards/history/MVs). What stays in the **always-on core** is only the cheap part: a **schema-diff classifier** that decides whether a change is additive, plus the refusal. Detection is cheap and must be always-paid (it's the guard that protects you when the heavy subsystem is absent); resolution is expensive and opt-in.
+Schema evolution is **not** a closed 0/1/2 ladder. It is an **open family of pluggable update strategies**, exactly like guards / derivations / materialized-views: the hub core provides a *seam*, strategies provide *behavior*, and you bundle only the strategies you import. "Coordinated cutover" is one member of that family, not the whole subsystem.
 
-The classifier needs a stored baseline of the prior schema — supplied by the existing `persisted-json-schema` feature (canonical JSON Schema per collection under `_schemas/<col>`, already hash-compared on every `collection()` registration). That feature is **opt-in per collection**, which yields three tiers:
+**Always-on core provides only two cheap primitives:**
 
-| Tier | Config | Non-additive change behavior |
-|---|---|---|
-| **0 — blind** (status quo default) | no `persistJsonSchema` | undetected — silently allowed (no baseline to diff against) |
-| **1 — safe** | `persistJsonSchema: true`, no `update` subsystem | **detected → refused** with `NonAdditiveSchemaChangeError` pointing at `@noy-db/hub/update`; additive changes pass |
-| **2 — full** | `persistJsonSchema: true` + `withSchemaUpdate()` | non-additive allowed, routed through the coordinated cutover |
+1. **Detection** — at `collection()` registration, diff the new schema against the `persisted-json-schema` baseline (canonical JSON Schema under `_schemas/<col>`, already hash-compared on registration) to produce a `SchemaDelta` (`none` / `additive` / `non-additive`, plus field-level adds/removes/changes and `from`/`to` versions).
+2. **Dispatch** — feed that delta through the collection's ordered strategy list and act on the winning decision.
 
-**Known limitation (accepted):** Tier 0 is the default, so a breaking change on a collection without `persistJsonSchema: true` is still undetected. The safety net is opt-in, consistent with how schema persistence works today. Surfacing this in docs (and recommending `persistJsonSchema: true` for any collection that may evolve) is part of Slice 2's deliverable.
+```ts
+interface SchemaUpdateStrategy {
+  readonly name: string
+  onSchemaDelta(delta: SchemaDelta, ctx: UpdateContext): UpdateDecision | Promise<UpdateDecision>
+}
 
-## 4. #232 architecture (the destination)
+type UpdateDecision =
+  | { action: 'allow' }                                  // no objection — fall through to next strategy
+  | { action: 'reject'; error: Error }                   // terminal: refuse the schema change
+  | { action: 'cutover'; transform: TransformFn }        // terminal: run a coordinated drain-barrier
+  // open — new terminal actions can be added without breaking existing strategies
+```
 
-A cooperative, eager, 4-state drain barrier built entirely on existing machinery.
+**Bundled strategies (each tree-shakeable, importable on its own):**
+
+| Strategy | `onSchemaDelta` behavior |
+|---|---|
+| *(empty list / none)* | accept the change — blind, back-compat default |
+| `blindUpdate()` | always `allow` (explicit blind) |
+| `lockSchema({ fields? })` | `reject` any change (optionally only when listed `fields` change) |
+| `additiveOnly()` | `allow` additive; `reject` non-additive — the safety backstop |
+| `coordinatedCutover({ from, to, transform })` | `allow` unless the delta matches its `from→to`, then `cutover` |
+| *future:* `lazyUpcast()`, `minVersionGate()`, `dualWrite()`… | each a new plugin — **no core change** |
+| **custom** | implement `SchemaUpdateStrategy` |
+
+The heavy drain-barrier machinery (fence, drain, `by-peer` election, bulk transform, `SchemaFenceError`/`MigrationRequiredError`) lives **inside the `coordinatedCutover` strategy package** — it is no longer "the subsystem," just one plugin. Every other strategy is tiny.
+
+**Evaluation semantics (the core's contract — must be specified and tested):**
+
+- The per-collection list is evaluated **in order**, awaiting each (decisions may be async).
+- A strategy returning `{ action: 'allow' }` means "I have no objection" → continue to the next strategy.
+- The **first** strategy returning a non-`allow` decision (`reject` or `cutover`) **wins and short-circuits** — later strategies do not run.
+- If **all** strategies return `allow` (or the list is empty / `persistJsonSchema` is off) → the schema change is accepted.
+- **Order is the only precedence.** To make a freeze beat a cutover, put `lockSchema()` first. No implicit ranking between action types.
+
+This composition is what makes the open model powerful. Example — handle the known break, reject every *unknown* break:
+
+```ts
+vault.collection('invoices', {
+  persistJsonSchema: true,
+  schemaUpdate: [
+    lockSchema({ fields: ['id', 'createdAt'] }),     // never let keys change
+    coordinatedCutover({ from: 3, to: 4, transform }),// the break we have a transform for
+    additiveOnly(),                                   // backstop: any other break is refused
+  ],
+})
+```
+
+A non-additive change you *forgot* to write a `coordinatedCutover` for falls through to `additiveOnly()` and is **rejected loudly** — closing the "silent corruption" gap without a closed tier enum.
+
+**Known limitation (accepted):** detection needs the persisted baseline, so on a collection without `persistJsonSchema: true` the strategy list never fires and any change is accepted (blind). The safety is opt-in, consistent with how schema persistence works today. Recommending `persistJsonSchema: true` for evolving collections is a Slice 2 docs deliverable.
+
+## 4. The `coordinatedCutover` strategy (#232 architecture, the destination)
+
+This section specs the **`coordinatedCutover` update strategy** (§3a) — the heaviest member of the open strategy family and the headline of the epic. A cooperative, eager, 4-state drain barrier built entirely on existing machinery. It is one plugin behind the `{ action: 'cutover' }` decision; the core only knows the strategy interface, not this protocol.
 
 ### Fence document (encrypted, post-unlock only)
 
@@ -97,7 +145,7 @@ admin triggers v → v+1            ──▶ fenceState: 'draining'
     ack quiesced into _meta/schema-fence/clients/<id>
 all active clients quiesced (or timeout) ──▶ fenceState: 'migrating'
   by-peer Web Locks elects ONE client     ← existing election
-  elected client runs withSchemaUpdate() transform() over all records, in bulk
+  elected client runs the matched coordinatedCutover() transform() over all records, in bulk
   appends ledger op:'migration'           ← existing LedgerStore.append
 complete                          ──▶ fenceState: 'complete', currentSchemaVersion bumps
   clients reload → resume on new schema
@@ -106,22 +154,29 @@ complete                          ──▶ fenceState: 'complete', currentSchem
 
 ### Registration API
 
-```ts
-import { withSchemaUpdate } from '@noy-db/hub/update'
+`coordinatedCutover` is one **update strategy** (§3a), declared in a collection's ordered `schemaUpdate` list:
 
-withSchemaUpdate({
-  collection: 'invoices',
-  from: 3,
-  to:   4,
-  transform: (doc) => ({
-    ...doc,
-    amount: { gross: doc.totalAmount, currency: 'THB' },
-    totalAmount: undefined,
-  }),
+```ts
+import { coordinatedCutover, additiveOnly } from '@noy-db/hub/update'
+
+vault.collection('invoices', {
+  persistJsonSchema: true,
+  schemaUpdate: [
+    coordinatedCutover({
+      from: 3,
+      to:   4,
+      transform: (doc) => ({
+        ...doc,
+        amount: { gross: doc.totalAmount, currency: 'THB' },
+        totalAmount: undefined,
+      }),
+    }),
+    additiveOnly(), // backstop: any OTHER non-additive change is rejected
+  ],
 })
 ```
 
-Eager dispatch only: `transform` runs in bulk during the `migrating` phase. Passed to `createNoydb({ schemaUpdates: [...] })` following the existing `with*()` → strategy-handle → `_init*()` registry pattern. When this factory is **not** imported, the always-on classifier refuses the same non-additive change with `NonAdditiveSchemaChangeError` (Tier 1, §3a).
+Eager dispatch only: when the detected delta matches `from→to`, `coordinatedCutover` returns `{ action: 'cutover', transform }` and the elected client runs `transform` in bulk during the `migrating` phase. For any other delta it returns `allow` (falls through to the next strategy). Strategy handles follow the existing `with*()` → strategy-handle → `_init*()` registry convention.
 
 ### Error classes
 
@@ -129,11 +184,11 @@ A shared `SchemaUpdateError` base, with:
 
 | Class | Thrown when | Home |
 |---|---|---|
-| `NonAdditiveSchemaChangeError` | A non-additive schema change is detected but the `update` subsystem is not registered | always-on core |
-| `SchemaFenceError` | Write attempted while `fenceState ∈ {draining, migrating}` | `update` subsystem |
-| `MigrationRequiredError` | Write attempted by a client whose `schemaVersion < currentSchemaVersion` | `update` subsystem |
+| `NonAdditiveSchemaChangeError` | A strategy's `reject` decision fires on a non-additive delta (e.g. the `additiveOnly()` backstop) | `additiveOnly()` strategy |
+| `SchemaFenceError` | Write attempted while `fenceState ∈ {draining, migrating}` | `coordinatedCutover` strategy |
+| `MigrationRequiredError` | Write attempted by a client whose `schemaVersion < currentSchemaVersion` | `coordinatedCutover` strategy |
 
-(`SchemaVersionStaleError` from the original issue is **not** needed — eager-only eliminates mixed-version reads.)
+(`SchemaVersionStaleError` from the original issue is **not** needed — eager-only eliminates mixed-version reads. `lockSchema()` rejects with its own `SchemaLockedError`, also extending `SchemaUpdateError`.)
 
 ### Reused, not built
 
@@ -163,12 +218,15 @@ hub.writeQueue.onFlush(): Promise<void>    // resolves at depth 0; REJECTS if a 
 
 ### Slice 2 — #232 drain-barrier core
 
-The headline. Two homes (§3a):
+The headline. Three pieces (§3a), in increasing weight:
 
-- **Always-on core (small):** the schema-diff classifier (additive vs non-additive, diffing the new schema against the `persisted-json-schema` baseline) + the `NonAdditiveSchemaChangeError` refusal when no `update` subsystem is registered. This is the Tier-1 safe default and ships even when the cutover machinery is tree-shaken away.
-- **Tree-shakeable `update` subsystem (`@noy-db/hub/update`):** `withSchemaUpdate()` factory + registry, the `_meta/schema-fence` doc (encrypted), the 4-state protocol driven by `by-peer` election + `Collection.presence()`, the `onFlush()`-based quiesce, eager bulk transform, ledger `op:'migration'`, and the `SchemaFenceError`/`MigrationRequiredError` classes. Admin trigger API to start a cutover. No UI in this slice (CLI/programmatic trigger is fine for tests).
+- **Always-on core — detection + dispatch (small):** compute the `SchemaDelta` at registration (diffing against the `persisted-json-schema` baseline), the `SchemaUpdateStrategy` interface, and the ordered-list evaluator (`allow` falls through; first `reject`/`cutover` wins & short-circuits). Ships even when every strategy is tree-shaken away.
+- **Light strategies (`@noy-db/hub/update`):** `blindUpdate()`, `lockSchema()`, `additiveOnly()` — each tiny, returning `allow`/`reject` decisions. `additiveOnly()` owns `NonAdditiveSchemaChangeError`.
+- **`coordinatedCutover` strategy (heavy, same subpath):** the `_meta/schema-fence` doc (encrypted), the 4-state protocol driven by `by-peer` election + `Collection.presence()`, the `onFlush()`-based quiesce, eager bulk transform, ledger `op:'migration'`, and `SchemaFenceError`/`MigrationRequiredError`. Admin trigger API to start a cutover. No UI in this slice (CLI/programmatic trigger is fine for tests).
 
-Also a docs deliverable: surface the Tier-0 blind-default limitation and recommend `persistJsonSchema: true` for any evolving collection.
+Slice 2 may itself split: a thin first PR shipping core detection/dispatch + `additiveOnly()`/`lockSchema()`/`blindUpdate()` (immediately useful, low-risk), then the `coordinatedCutover` strategy as a second PR. Decide when writing the Slice 2 plan.
+
+Also a docs deliverable: surface the blind-default limitation (no strategy / no `persistJsonSchema` ⇒ changes accepted unchecked) and recommend `persistJsonSchema: true` + at least `additiveOnly()` for any evolving collection.
 
 ### Slice 3 — #233 reactive fence-state + Vue UI
 
@@ -197,12 +255,16 @@ Surfaces #232 to the app via `@noy-db/in-vue` (note: package is `in-vue`, not `@
 2. A write during `draining`/`migrating` throws `SchemaFenceError`; a write from a stale-schema client after completion throws `MigrationRequiredError`.
 3. `hub.writeQueue.onFlush()` is the quiesce primitive and is independently usable for `beforeunload`/lock guards.
 4. Zero new presence/heartbeat or plaintext-bypass subsystems — all coordination reuses `by-peer`, `Collection.presence()`, and encrypted `_meta`.
-5. Apps that never update schemas incur no bundle cost from the `update` subsystem.
-6. With `persistJsonSchema: true` and no `update` subsystem registered (Tier 1), a non-additive schema change is refused at registration with `NonAdditiveSchemaChangeError` pointing at `@noy-db/hub/update`; an additive change passes silently.
+5. Apps that import no update strategy incur no bundle cost from the `update` subsystem (the core detection/dispatch seam is the only always-on cost, and only does work when `persistJsonSchema` is on).
+6. With `persistJsonSchema: true` and `schemaUpdate: [additiveOnly()]`, a non-additive change is refused at registration with `NonAdditiveSchemaChangeError`; an additive change passes.
+7. Strategy lists evaluate in order: given `[coordinatedCutover({from:3,to:4,…}), additiveOnly()]`, a v3→v4 break triggers a cutover, an unrelated break is rejected by the backstop, and an additive change passes — and the first non-`allow` decision short-circuits the rest.
+8. A custom `SchemaUpdateStrategy` implemented outside the hub composes in the same list with no core change.
 
 ## 8. Open items deferred to slice plans (not epic blockers)
 
 - Exact admin-trigger API surface (method name, auth gate) — settle in Slice 2 plan.
 - `activePeers` reactivity cadence vs. heartbeat TTL — settle in Slice 3 plan.
-- Whether `withSchemaUpdate()` validates `from`/`to` contiguity across multiple registered updates — settle in Slice 2 plan.
+- Whether `coordinatedCutover()` validates `from`/`to` contiguity across multiple registered cutovers on one collection — settle in Slice 2 plan.
 - Exact additive-vs-non-additive classification rules (e.g. is widening a union additive? is adding an optional field with a default additive?) — settle in Slice 2 plan; the classifier's ruleset is the core's contract.
+- Whether a vault-level default strategy list exists (collections without their own `schemaUpdate` inherit it) and, if so, whether per-collection lists **replace** or **prepend** the default — settle in Slice 2 plan. Leaning replace (no merge) for simplest precedence.
+- Whether strategy `onSchemaDelta` may run at points other than `collection()` registration (e.g. on write) — for now, registration-time only.
