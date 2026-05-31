@@ -21,19 +21,31 @@ function gatedMemory(): {
   store: NoydbStore
   block: () => void
   release: () => void
+  whenEntered: (n: number) => Promise<void>
 } {
   const base = memory()
   let gate: Promise<void> = Promise.resolve()
   let open: () => void = () => {}
+  let entered = 0
+  const waiters: Array<{ n: number; resolve: () => void }> = []
+  const notify = () => {
+    for (let i = waiters.length - 1; i >= 0; i--) {
+      if (entered >= waiters[i]!.n) { waiters[i]!.resolve(); waiters.splice(i, 1) }
+    }
+  }
   return {
     store: {
       ...base,
       async put(...args: Parameters<NoydbStore['put']>) {
+        entered++
+        notify()
         await gate
         return base.put(...args)
       },
     },
     block() {
+      entered = 0 // count only writes since this block() (ignore setup writes)
+      waiters.length = 0
       gate = new Promise<void>((resolve) => {
         open = resolve
       })
@@ -41,6 +53,15 @@ function gatedMemory(): {
     release() {
       open()
       gate = Promise.resolve()
+    },
+    // Resolves once at least `n` record writes have entered the gated put.
+    // By the time a record put is entered, the write-queue `begin()` has
+    // already run — so `depth` is a reliable observation at that point.
+    whenEntered(n: number) {
+      return new Promise<void>((resolve) => {
+        if (entered >= n) resolve()
+        else waiters.push({ n, resolve })
+      })
     },
   }
 }
@@ -68,9 +89,9 @@ describe('hub.writeQueue (#227)', () => {
 
     gated.block()
     const writePromise = invoices.put('i1', { id: 'i1', amount: 100 })
-    // Let the put reach the gated adapter call.
-    await Promise.resolve()
-    await Promise.resolve()
+    // Wait until the record write has entered the gated adapter — by then
+    // the write-queue begin() has run (deterministic, no microtask guessing).
+    await gated.whenEntered(1)
     expect(db.writeQueue.pending).toBe(true)
     expect(db.writeQueue.depth).toBe(1)
 
@@ -107,7 +128,7 @@ describe('hub.writeQueue (#227)', () => {
 
     gated.block()
     const writePromise = invoices.put('i1', { id: 'i1', amount: 100 })
-    await Promise.resolve()
+    await gated.whenEntered(1)
 
     let flushed = false
     const flush = db.writeQueue.onFlush().then(() => { flushed = true })
@@ -129,7 +150,7 @@ describe('hub.writeQueue (#227)', () => {
     gated.block()
     const p1 = invoices.put('i1', { id: 'i1', amount: 1 })
     const p2 = payments.put('p1', { id: 'p1', amount: 2 })
-    await Promise.resolve()
+    await gated.whenEntered(2)
     expect(db.writeQueue.depth).toBe(2)
 
     gated.release()

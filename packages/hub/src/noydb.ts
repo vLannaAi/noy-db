@@ -430,6 +430,8 @@ export class Noydb {
     await comp._initDerivations(this.options.derivationStrategies ?? [])
     await comp._initMaterializedViews(this.options.materializedViewStrategies ?? [])
     await comp._initOverlayedViews(this.options.overlayedViewStrategies ?? [])
+    // #232 — snapshot the schema-fence generation once per opened vault.
+    await comp.schemaFence.init()
     this.vaultCache.set(name, comp)
     return comp
   }
