@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
+import { withHistory } from '../src/history/index.js'
 import { memory } from '../../to-memory/src/index.js'
 import type { TabChannel } from '../src/tab-coordination.js'
 
@@ -30,10 +31,10 @@ const SECRET = 'tab-prop-pass-1234'
  * cross-read fails with TamperedError). See persistence.test.ts:41.
  */
 async function twoTabs(store = memory()) {
-  const db1 = await createNoydb({ store, user: 'alice', secret: SECRET })
+  const db1 = await createNoydb({ store, user: 'alice', secret: SECRET, historyStrategy: withHistory() })
   const v1 = await db1.openVault('books'); const c1 = v1.collection<Inv>('invoices')
   await c1.put('seed', { id: 'seed', amount: 0 }) // mint + persist the invoices DEK
-  const db2 = await createNoydb({ store, user: 'alice', secret: SECRET })
+  const db2 = await createNoydb({ store, user: 'alice', secret: SECRET, historyStrategy: withHistory() })
   const v2 = await db2.openVault('books'); const c2 = v2.collection<Inv>('invoices')
   return { store, db1, db2, v1, v2, c1, c2 }
 }
@@ -96,5 +97,27 @@ describe('end-to-end cross-tab propagation (#228b)', () => {
     const db3 = await createNoydb({ store: memory(), user: 'bob', secret: SECRET })
     expect(() => db3.enableTabCoordination()).not.toThrow()
     db1.close(); db2.close(); db3.close()
+  })
+})
+
+describe('capture + converge primitive (#228c)', () => {
+  it('_captureAndConverge yields local (clobbered), remote (store), base (ancestor)', async () => {
+    const { db1, db2, v2, c1, c2 } = await twoTabs() // db1 seeded { seed, amount:0 } @v1
+    await c2.get('seed')              // db2 caches seed @v1
+    await c1.put('seed', { id: 'seed', amount: 99 }) // db1 overwrites in shared store @v2
+
+    const cap = await v2._captureAndConverge('invoices', 'seed', 'put', 1)
+    expect(cap).not.toBeNull()
+    expect((cap!.local as { amount: number }).amount).toBe(0)   // db2's pre-converge cache
+    expect((cap!.remote as { amount: number }).amount).toBe(99) // store after converge
+    expect((cap!.base as { amount: number }).amount).toBe(0)    // ancestor @v1 from history
+    db1.close(); db2.close()
+  })
+
+  it('_captureAndConverge returns null for an unloaded collection', async () => {
+    const db = await createNoydb({ store: memory(), user: 'alice', secret: SECRET })
+    const v = await db.openVault('books')
+    expect(await v._captureAndConverge('not-loaded', 'x', 'put', 0)).toBeNull()
+    db.close()
   })
 })

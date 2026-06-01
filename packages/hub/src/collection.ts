@@ -2809,6 +2809,12 @@ export class Collection<T> {
     this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action })
   }
 
+  /** @internal #228c — the current in-memory record without a store read (for conflict capture). */
+  _peekCached(id: string): T | null {
+    const entry = this.lazy && this.lru ? this.lru.get(id) : this.cache.get(id)
+    return entry ? entry.record : null
+  }
+
   private async ensureHydrated(): Promise<void> {
     if (this.hydrated) return
 
