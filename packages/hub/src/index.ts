@@ -182,7 +182,7 @@ export type { SchemaIntrospection } from './introspection/types.js'
 export type { DryRunResult, AffectedDocument, GuardViolation } from './tx/dry-run.js'
 
 // Multi-tab coordination (#228)
-export type { TabRole, TabPresence, TabCoordinationOptions } from './tab-coordination.js'
+export type { TabRole, TabPresence, TabCoordinationOptions, TabLockManager, TabChannel } from './tab-coordination.js'
 
 // Schema-update strategies (#245)
 export type {

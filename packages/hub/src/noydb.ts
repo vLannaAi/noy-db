@@ -1206,7 +1206,7 @@ export class Noydb {
       ...(lockManager ? { lockManager } : {}),
       ...(channel ? { channel } : {}),
       // We own the channel only when we created the default; never close a caller-injected one.
-      closeChannelOnDispose: opts.channel === undefined,
+      closeChannelOnDispose: opts.channel === undefined && channel !== undefined,
     })
     this.tabCoordinator = c
     c.start()

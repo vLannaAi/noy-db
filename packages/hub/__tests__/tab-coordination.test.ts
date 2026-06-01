@@ -80,9 +80,12 @@ describe('TabCoordinator', () => {
     await flush()
     const primary = tabs.find((c) => c.role === 'primary')!
     const secondary = tabs.find((c) => c.role === 'secondary')!
+    const roleChanges: string[] = []
+    secondary.onTabRoleChange((r) => roleChanges.push(r))
     primary.dispose()
     await flush()
     expect(secondary.role).toBe('primary')
+    expect(roleChanges).toContain('primary') // criterion 1: role-change fired on re-election
   })
 
   it('presence: a tab sees the others; stale tabs drop out', async () => {
