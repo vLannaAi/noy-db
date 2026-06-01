@@ -848,6 +848,24 @@ export interface Conflict {
   readonly resolve?: (winner: EncryptedEnvelope | null) => void
 }
 
+/**
+ * #228c — a same-device cross-tab write conflict: another tab overwrote a
+ * document this tab had written, having diverged from an older base. Records
+ * are decrypted (cross-tab handlers reconcile in plaintext). `base` is the
+ * common ancestor from history, or null when history is unavailable.
+ */
+export interface WriteConflict {
+  readonly vault: string
+  readonly collection: string
+  readonly docId: string
+  readonly local: unknown
+  readonly remote: unknown
+  readonly base: unknown
+  readonly localVersion: number
+  readonly remoteVersion: number
+  readonly baseVersion: number
+}
+
 export type ConflictStrategy =
   | 'local-wins'
   | 'remote-wins'
@@ -971,6 +989,7 @@ export interface NoydbEventMap {
   'sync:push': PushResult
   'sync:pull': PullResult
   'sync:conflict': Conflict
+  'write:conflict': WriteConflict
   'sync:online': void
   'sync:offline': void
   'sync:backup-error': { vault: string; target: string; error: Error }

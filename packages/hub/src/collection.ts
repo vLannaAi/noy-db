@@ -1124,11 +1124,25 @@ export class Collection<T> {
     return this.writeHooks !== undefined && this.writeHooks.hasHandlers && !this.writeHooks.suppressed
   }
 
-  /** @internal #230 — decrypt the current record for a hook's `before`, or null. */
+  /**
+   * @internal #230/#228c — resolve the prior record for a hook's `before` and
+   * its version. Critically, this uses the SAME basis `putInternal` writes from
+   * (the in-memory cache in eager mode; lru-then-adapter in lazy) — NOT a fresh
+   * store read — so `baseVersion`/`version` match the version actually written.
+   * A separate store read would diverge once another tab has advanced the shared
+   * store past this tab's cache, breaking #228c conflict detection.
+   */
   async #priorForHook(id: string): Promise<{ record: unknown; version: number }> {
-    const env = await this.adapter.get(this.vault, this.name, id)
-    if (!env) return { record: null, version: 0 }
-    return { record: (await this.decryptRecord(env, { skipValidation: true })) as unknown, version: env._v }
+    if (this.lazy && this.lru) {
+      const cached = this.lru.get(id)
+      if (cached) return { record: cached.record, version: cached.version }
+      const env = await this.adapter.get(this.vault, this.name, id)
+      if (!env) return { record: null, version: 0 }
+      return { record: (await this.decryptRecord(env, { skipValidation: true })) as unknown, version: env._v }
+    }
+    await this.ensureHydrated()
+    const cached = this.cache.get(id)
+    return cached ? { record: cached.record, version: cached.version } : { record: null, version: 0 }
   }
 
   #txIdForHook(): string {

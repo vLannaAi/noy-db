@@ -21,6 +21,24 @@ function makeBus(n: number): TabChannel[] {
 }
 const settle = async () => { await new Promise((r) => setTimeout(r, 0)); await new Promise((r) => setTimeout(r, 0)) }
 
+/** A bus that QUEUES sends until deliver() — lets both tabs write before any delivery. */
+function makeManualBus(n: number): { chans: TabChannel[]; deliver: () => void } {
+  const listeners: Array<((p: string) => void) | null> = []
+  const queue: Array<{ from: number; payload: string }> = []
+  const chans: TabChannel[] = []
+  for (let i = 0; i < n; i++) {
+    const idx = i
+    chans.push({
+      isOpen: true,
+      send(payload) { queue.push({ from: idx, payload }) },
+      on(event, l) { if (event === 'message') { listeners[idx] = l as (p: string) => void; return () => { listeners[idx] = null } } return () => {} },
+      close() { listeners[idx] = null },
+    })
+  }
+  const deliver = () => { const q = queue.splice(0); for (const { from, payload } of q) for (let j = 0; j < listeners.length; j++) if (j !== from && listeners[j]) listeners[j]!(payload) }
+  return { chans, deliver }
+}
+
 interface Inv extends Record<string, unknown> { id: string; amount: number }
 const SECRET = 'tab-prop-pass-1234'
 
@@ -135,6 +153,55 @@ describe('capture + converge primitive (#228c)', () => {
     const cap = await v2._captureAndConverge('invoices', 'lz', 'put', 1)
     expect((cap!.local as { amount: number }).amount).toBe(1)   // pre-converge LRU value
     expect((cap!.remote as { amount: number }).amount).toBe(42) // read from store, NOT a null evicted LRU
+    db1.close(); db2.close()
+  })
+})
+
+describe('cross-tab conflict detection (#228c)', () => {
+  it('concurrent writes: both tabs emit WriteConflict; caches converge', async () => {
+    const { db1, db2, c1, c2 } = await twoTabs() // seed 'seed' @v1 in db1
+    const { chans: [wA, wB], deliver } = makeManualBus(2)
+    db1.enableTabCoordination({ writeChannel: wA!, tabId: 'A' })
+    db2.enableTabCoordination({ writeChannel: wB!, tabId: 'B' })
+    await c1.get('seed'); await c2.get('seed') // hydrate both
+
+    const seen1: import('../src/types.js').WriteConflict[] = []
+    const seen2: import('../src/types.js').WriteConflict[] = []
+    db1.onWriteConflict((cf) => seen1.push(cf))
+    db2.onWriteConflict((cf) => seen2.push(cf))
+
+    // Concurrent: both write 'seed' from base v1 before any signal is delivered.
+    await c1.put('seed', { id: 'seed', amount: 10 }) // db1 → store
+    await c2.put('seed', { id: 'seed', amount: 20 }) // db2 → store (wins LWW)
+    deliver()
+    await settle()
+
+    expect(seen1).toHaveLength(1)
+    expect(seen2).toHaveLength(1)
+    expect((seen1[0]!.local as { amount: number }).amount).toBe(10)  // db1 (loser) clobbered write
+    expect((seen1[0]!.remote as { amount: number }).amount).toBe(20) // store's winner
+    expect((seen1[0]!.base as { amount: number }).amount).toBe(0)    // ancestor (seed)
+    expect(seen1[0]!.baseVersion).toBe(1)
+    expect((await c1.get('seed'))!.amount).toBe(20)                  // db1 converged
+    expect((await c2.get('seed'))!.amount).toBe(20)
+    db1.close(); db2.close()
+  })
+
+  it('a write the other tab has already seen fires no conflict', async () => {
+    const { db1, db2, c1, c2 } = await twoTabs()
+    const { chans: [wA, wB], deliver } = makeManualBus(2)
+    db1.enableTabCoordination({ writeChannel: wA!, tabId: 'A' })
+    db2.enableTabCoordination({ writeChannel: wB!, tabId: 'B' })
+    await c2.get('seed')
+    let conflicts = 0
+    db2.onWriteConflict(() => { conflicts++ })
+
+    await c1.put('seed', { id: 'seed', amount: 5 }) // db2 never wrote 'seed'
+    deliver()
+    await settle()
+
+    expect(conflicts).toBe(0)
+    expect((await c2.get('seed'))!.amount).toBe(5) // applied, no conflict
     db1.close(); db2.close()
   })
 })
