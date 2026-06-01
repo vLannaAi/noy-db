@@ -698,19 +698,12 @@ export class Vault {
         defaultLocale: this.locale,
         onRegisterConflictResolver: this.onRegisterConflictResolver,
         onAccess: (op, id) => this._logConsent(op, collectionName, id),
-        // Guard / derivation sources are only wired when the
-        // corresponding registry has been initialised. Vaults without
-        // guards/derivations skip this entirely so `Collection.put`'s
-        // `if (this.guardSource)` / `if (this.derivationSource)`
-        // branches no-op without ever touching the subsystem code.
-        ...(this.guardRegistry !== null
-          ? {
-              guardSource: {
-                registry: () => this.guardRegistry as GuardRegistry,
-                readOnlyVault: () => this._ensureReadOnlyFacade(),
-              },
-            }
-          : {}),
+        // Derivation source is only wired when the corresponding registry
+        // has been initialised. Guard source was removed in Track A slice 3b
+        // — guards now run via the gate bus in Noydb.#registerGuardGate.
+        // Vaults without derivations skip this so `Collection.put`'s
+        // `if (this.derivationSource)` branch no-ops without touching the
+        // derivation subsystem code.
         ...(this.derivationRegistry !== null
           ? {
               derivationSource: {
@@ -1739,10 +1732,9 @@ export class Vault {
   }
 
   /**
-   * @internal — Collection.put calls into this. Returns `null` for
-   * vaults that never registered any guard strategy. Callers MUST
-   * gate on null (the existing `if (this.guardSource)` branches in
-   * `Collection` already do this transitively).
+   * @internal — The gate handler in Noydb.#registerGuardGate calls into
+   * this. Returns `null` for vaults that never registered any guard
+   * strategy. Callers MUST gate on null.
    */
   _getGuardRegistry(): GuardRegistry | null {
     return this.guardRegistry
@@ -1993,23 +1985,20 @@ export class Vault {
   /**
    * @internal — exposed for `runTransaction({ amendment: true })` so
    * the amendment invariant runner can pass the SAME read-only vault
-   * facade that the per-record `Collection.put` guard hook uses
-   * (`guardSource.readOnlyVault()` above). Eagerly instantiated by
-   * `_initGuards()` so this accessor stays synchronous; returns
-   * `null` for vaults that never registered any guard (amendments
-   * require at least one guard, so the caller should never see null).
+   * facade that the gate handler in Noydb.#registerGuardGate uses.
+   * Eagerly instantiated by `_initGuards()` so this accessor stays
+   * synchronous; returns `null` for vaults that never registered any
+   * guard (amendments require at least one guard, so the caller should
+   * never see null).
    */
   _getReadOnlyFacade(): ReadOnlyVaultFacade | null {
     return this.readOnlyFacade
   }
 
   /**
-   * Internal lazy-allocator for the read-only facade. Used by the
-   * per-collection `guardSource.readOnlyVault` callback when guards
-   * ARE configured but `_initGuards()` raced with the first guard
-   * invocation (theoretically impossible — `Noydb.openVault` awaits
-   * `_initGuards` before returning — but we keep the defensive lazy
-   * path so the closure's contract stays "always returns a facade").
+   * Internal lazy-allocator for the read-only facade. Used as a
+   * defensive fallback; in practice `_initGuards()` eagerly
+   * instantiates this, so the lazy path is a no-op.
    */
   private _ensureReadOnlyFacade(): ReadOnlyVaultFacade {
     if (this.readOnlyFacade !== null) return this.readOnlyFacade

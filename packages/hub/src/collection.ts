@@ -39,12 +39,7 @@ import { NO_SYNC, type SyncStrategy } from './team/sync-strategy.js'
 import type { BlobSet } from './blobs/blob-set.js'
 import { NO_BLOBS, type BlobStrategy } from './blobs/strategy.js'
 import { NO_AGGREGATE, type AggregateStrategy } from './aggregate/strategy.js'
-import type { GuardRegistry } from './guards/registry.js'
 import type { ReadOnlyVaultFacade } from './guards/types.js'
-// Type-only — runtime class loaded via dynamic import in the
-// frozen-field branch of `put()` / amendment paths. Keeps the guard
-// executor chunk out of the floor bundle.
-import type { GuardExecutor as GuardExecutorType } from './guards/executor.js'
 import type { DerivationRegistry } from './derivations/registry.js'
 import type { TxContext, ExecutedOp } from './tx/transaction.js'
 import { revertExecuted } from './tx/transaction.js'
@@ -361,30 +356,9 @@ export class Collection<T> {
     | undefined
 
   /**
-   * Optional back-reference to the owning vault's guard registry + a
-   * read-only vault facade. When present, `Collection.put` and
-   * `Collection.delete` consult the registry for guards declared
-   * against this collection and run their `check` + `frozenFields`
-   * before the adapter write. Absent in unit tests that construct
-   * a Collection directly; production code always sets it via
-   * `Vault.collection()`.
-   *
-   * Typed structurally rather than as `Vault` to avoid a circular
-   * import (mirrors the `refEnforcer` / `joinResolver` pattern).
-   */
-  private readonly guardSource:
-    | {
-        registry(): GuardRegistry
-        readOnlyVault(): ReadOnlyVaultFacade
-      }
-    | undefined
-
-  /**
    * Vault-internal hook for derivation dispatch. When set,
    * `Collection.put` consults the registry after the source-write
    * commits and writes derived outputs through `getCollection(name).put`.
-   * Same structural-interface pattern as `guardSource` to avoid a
-   * circular Vault import.
    */
   private readonly derivationSource:
     | {
@@ -718,21 +692,11 @@ export class Collection<T> {
      */
     onCrossTierAccess?: ((event: CrossTierAccessEvent) => void) | undefined
     /**
-     * Optional back-reference to the owning vault's guard registry +
-     * read-only facade. When present, put/delete consult registered
-     * guards for this collection. Same structural-interface pattern
-     * as `refEnforcer` to avoid a circular Vault import.
-     */
-    guardSource?: {
-      registry(): GuardRegistry
-      readOnlyVault(): ReadOnlyVaultFacade
-    } | undefined
     /**
      * Optional back-reference to the owning vault's derivation
      * registry + collection accessor. When present, successful
      * `put()` dispatches registered derivation strategies for the
-     * source collection. Same structural-interface pattern as
-     * `guardSource` to avoid a circular Vault import.
+     * source collection.
      */
     derivationSource?: {
       registry(): DerivationRegistry
@@ -812,7 +776,6 @@ export class Collection<T> {
     this.crdtMode = opts.crdt
     this.syncAdapter = opts.syncAdapter
     this.onAccess = opts.onAccess
-    this.guardSource = opts.guardSource
     this.derivationSource = opts.derivationSource
     this.materializedViewSource = opts.materializedViewSource
 
@@ -1173,53 +1136,6 @@ export class Collection<T> {
         userId: this.keyring.userId,
         role: this.keyring.role,
       })
-    }
-
-    // Guard hook (record lock + field freeze). Runs BEFORE the
-    // period guard so a guard-blocked write fails before any
-    // schema work, i18n translation, history, or ledger churn.
-    // Inside an active amendment we skip the synchronous check
-    // and frozen-field diff — those run at commit time on the
-    // collected change-set instead.
-    if (this.guardSource) {
-      const registry = this.guardSource.registry()
-      const guards = registry.guardsFor(this.name)
-      if (guards.length > 0) {
-        const existingEnv = await this.adapter.get(this.vault, this.name, id)
-        let existingRecord: Record<string, unknown> | null = null
-        if (existingEnv) {
-          try {
-            existingRecord = (await this.decryptRecord(existingEnv, { skipValidation: true })) as unknown as Record<string, unknown>
-          } catch {
-            existingRecord = null
-          }
-        }
-        const incomingRecord = record as unknown as Record<string, unknown>
-        const ctx = {
-          existing: existingRecord,
-          vault: this.guardSource.readOnlyVault(),
-          userId: this.keyring.userId,
-          role: this.keyring.role,
-        }
-        if (registry.isAmendmentActive()) {
-          const vBefore = existingEnv?._v ?? 0
-          // `put` deterministically bumps version by 1 — see the
-          // `version = existing.version + 1` line further down in this
-          // method. Computing vAfter here keeps the audit math local
-          // to the call site that decides it.
-          registry.collectChange(this.name, id, existingRecord, incomingRecord, vBefore, vBefore + 1)
-        } else {
-          await registry.runChecks(this.name, incomingRecord, ctx)
-          // Dynamic-import the executor only when at least one guard
-          // is registered AND a non-amendment write fires. Consumers
-          // who never call `withGuard()` never reach this branch and
-          // never pull `GuardExecutor` into their bundle.
-          const { GuardExecutor } = (await import('./guards/executor.js')) as { GuardExecutor: typeof GuardExecutorType }
-          for (const g of guards) {
-            await GuardExecutor.checkFrozenFields(g, id, existingRecord, incomingRecord)
-          }
-        }
-      }
     }
 
     // Schema validation — runs BEFORE encryption so invalid records are
@@ -1831,72 +1747,6 @@ export class Collection<T> {
           userId: this.keyring.userId,
           role: this.keyring.role,
         })
-      }
-    }
-
-    // Guard hook for deletes. Symmetric to put(): consult the
-    // registry, decrypt the prior record (if any), then either
-    // collect the {before, null} change pair into an active
-    // amendment or run the guards' `onDelete` callback. Frozen-field
-    // diffing is skipped (it's a put concept). Delete-of-absent is
-    // a no-op — no guard is consulted because there's nothing to
-    // protect, matching the idempotent-delete contract.
-    //
-    // For `internal === true` (system housekeeping — derivation
-    // tombstones, MV refresh): `onDelete` is bypassed, but the
-    // amendment change-collection still runs if a window is open.
-    // This means an `amendment.invariant` paired with `onDelete` for
-    // "TRULY unconditional" rules sees the system delete and can
-    // reject it — closing the gap where a derivation
-    // tombstone fired during an admin amendment would otherwise
-    // silently bypass both hooks.
-    if (this.guardSource) {
-      const registry = this.guardSource.registry()
-      const guards = registry.guardsFor(this.name)
-      if (guards.length > 0) {
-        const existingEnv = await this.adapter.get(this.vault, this.name, id)
-        if (existingEnv) {
-          let existingRecord: Record<string, unknown> | null = null
-          try {
-            existingRecord = (await this.decryptRecord(existingEnv, { skipValidation: true })) as unknown as Record<string, unknown>
-          } catch {
-            existingRecord = null
-          }
-          if (registry.isAmendmentActive()) {
-            // For deletes, the record version is the version that was
-            // visible at delete time; we record vBefore = that version
-            // and vAfter = same (the ledger entry's `op` discriminator
-            // is `delete`, not `put`, so the consumer treats the
-            // tombstone shape correctly). Fires for BOTH user and
-            // system-internal deletes.
-            const vBefore = existingEnv._v
-            registry.collectChange(
-              this.name,
-              id,
-              existingRecord,
-              null as unknown as Record<string, unknown>,
-              vBefore,
-              vBefore,
-            )
-          } else if (!internal) {
-            // Dedicated delete-time hook. `check` is put-only;
-            // `onDelete(existing, ctx)` receives the currently-persisted
-            // record and decides whether the deletion is permitted.
-            // Skipped for internal deletes — housekeeping must not trip
-            // user invariants in normal-mode operation.
-            const ctx = {
-              existing: existingRecord,
-              vault: this.guardSource.readOnlyVault(),
-              userId: this.keyring.userId,
-              role: this.keyring.role,
-            }
-            await registry.runOnDelete(
-              this.name,
-              existingRecord ?? {},
-              ctx,
-            )
-          }
-        }
       }
     }
 

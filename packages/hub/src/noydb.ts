@@ -237,8 +237,61 @@ export class Noydb {
     if (options.sessionPolicy) {
       this.sessionStrategy.validateSessionPolicy(options.sessionPolicy)
     }
+    this.#registerGuardGate()
     this.#registerPeriodGate()
     this.resetSessionTimer()
+  }
+
+  // Track A — guards migration. Registers record-lock / field-freeze / onDelete
+  // / amendment-collect as gate-bus handlers (only when guards are opted in, so
+  // the write path is zero-cost otherwise). Resolves the live vault's
+  // GuardRegistry per dispatch. Registered BEFORE the period gate so guard
+  // checks run first. The amendment branch is a side-effect (collectChange),
+  // NOT a throw — and runs even for internal deletes (an amendment invariant
+  // must see system housekeeping tombstones); onDelete/checks run only for
+  // user (non-internal) operations.
+  #registerGuardGate(): void {
+    if (this.options.guardStrategies === undefined) return
+    this.subsystemBus.registerGate('beforePut', async (e) => {
+      const v = this.vaultCache.get(e.vault)
+      if (!v) return
+      const registry = v._getGuardRegistry()
+      if (!registry) return
+      const guards = registry.guardsFor(e.collection)
+      if (guards.length === 0) return
+      const existing = (e.existing ?? null) as Record<string, unknown> | null
+      const incoming = e.incoming as Record<string, unknown>
+      if (registry.isAmendmentActive()) {
+        registry.collectChange(e.collection, e.docId, existing, incoming, e.existingVersion, e.existingVersion + 1)
+        return
+      }
+      const facade = v._getReadOnlyFacade()
+      if (!facade) return
+      const ctx = { existing, vault: facade, userId: e.userId, role: e.role }
+      await registry.runChecks(e.collection, incoming, ctx)
+      const { GuardExecutor } = await import('./guards/executor.js') as { GuardExecutor: typeof import('./guards/executor.js').GuardExecutor }
+      for (const g of guards) {
+        await GuardExecutor.checkFrozenFields(g, e.docId, existing, incoming)
+      }
+    })
+    this.subsystemBus.registerGate('beforeDelete', async (e) => {
+      const v = this.vaultCache.get(e.vault)
+      if (!v) return
+      const registry = v._getGuardRegistry()
+      if (!registry) return
+      const guards = registry.guardsFor(e.collection)
+      if (guards.length === 0) return
+      const existing = (e.existing ?? null) as Record<string, unknown> | null
+      if (registry.isAmendmentActive()) {
+        registry.collectChange(e.collection, e.docId, existing, null as unknown as Record<string, unknown>, e.existingVersion, e.existingVersion)
+        return
+      }
+      if (e.internal) return
+      const facade = v._getReadOnlyFacade()
+      if (!facade) return
+      const ctx = { existing, vault: facade, userId: e.userId, role: e.role }
+      await registry.runOnDelete(e.collection, existing ?? {}, ctx)
+    })
   }
 
   /**
