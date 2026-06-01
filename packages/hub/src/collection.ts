@@ -1809,9 +1809,11 @@ export class Collection<T> {
       throw new ReadOnlyError()
     }
 
-    // Gate bus (Track A) — symmetric to putInternal. Skipped for internal
-    // (system housekeeping) deletes, matching the guard/period bypass below.
-    if (!internal && this.subsystemBus?.hasGateHandlers('beforeDelete')) {
+    // Gate bus (Track A) — fires for ALL deletes (carrying `internal`), so a
+    // gate handler can collect amendment changes on system-internal deletes
+    // while branching off `onDelete`/period checks for them. Delete-of-absent
+    // (no envelope) does not fire.
+    if (this.subsystemBus?.hasGateHandlers('beforeDelete')) {
       const existingEnv = await this.adapter.get(this.vault, this.name, id)
       if (existingEnv) {
         let existingRecord: unknown = null
@@ -1825,6 +1827,7 @@ export class Collection<T> {
           existing: existingRecord,
           existingVersion: existingEnv._v,
           existingTs: existingEnv._ts,
+          internal,
           userId: this.keyring.userId,
           role: this.keyring.role,
         })

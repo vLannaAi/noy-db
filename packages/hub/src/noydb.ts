@@ -268,6 +268,7 @@ export class Noydb {
       await v._assertTsWritable(existing, e.incoming as Record<string, unknown>)
     })
     this.subsystemBus.registerGate('beforeDelete', async (e) => {
+      if (e.internal) return
       const v = this.vaultCache.get(e.vault)
       if (!v) return
       await v._assertTsWritable(
