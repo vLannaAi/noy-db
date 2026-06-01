@@ -3,25 +3,24 @@ import type {
   Vault,
   WriteEvent,
   AccessibleVault,
-  FieldDescriptor,
+  CollectionDescriptor,
+  CollectionStats,
 } from '@noy-db/hub'
 
 /** Top-level accessible-vault entry (plain projection of the hub's AccessibleVault). */
 export type VaultInfo = AccessibleVault // { id: string; role: Role }
 
-/** One collection in a snapshot — a flattened projection of the hub's CollectionDescriptor. */
+/**
+ * One collection in a snapshot — a flattened projection of the hub's
+ * CollectionDescriptor. Field/index/ref/stats shapes are derived directly from
+ * the hub types so they never drift.
+ */
 export interface InspectorCollection {
   readonly name: string
-  readonly fields: Record<string, FieldDescriptor>
-  readonly indexes: ReadonlyArray<{ readonly fields: ReadonlyArray<string>; readonly unique?: boolean }>
-  readonly refs: Record<string, { readonly target: string; readonly mode: 'strict' | 'warn' | 'cascade' }>
-  readonly stats?: {
-    readonly records: number
-    readonly bytes: number
-    readonly bytesAvg: number
-    readonly oldest: string
-    readonly newest: string
-  }
+  readonly fields: CollectionDescriptor['fields']
+  readonly indexes: CollectionDescriptor['indexes']
+  readonly refs: CollectionDescriptor['refs']
+  readonly stats?: CollectionStats
 }
 
 /** Structure + stats for one open vault. */

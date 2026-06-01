@@ -87,3 +87,51 @@ describe('inspector — records', () => {
     expect(page.rows).toHaveLength(2)
   })
 })
+
+describe('inspector — subscribe + pendingWrites', () => {
+  it('subscribe fires on put (create) and unsubscribe stops it', async () => {
+    const { db } = await seeded()
+    const insp = createInspector(db)
+    const seen: Array<{ op: string; collection: string; docId: string }> = []
+    const off = insp.subscribe((e) => { seen.push({ op: e.op, collection: e.collection, docId: e.docId }) })
+
+    const v = await db.openVault('v1')
+    await v.collection<Note>('notes').put('c', { id: 'c', title: 'C', body: 'third' })
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).toEqual({ op: 'create', collection: 'notes', docId: 'c' })
+
+    off()
+    await v.collection<Note>('notes').put('d', { id: 'd', title: 'D', body: 'fourth' })
+    expect(seen).toHaveLength(1) // no further events after unsubscribe
+  })
+
+  it('subscribe fires on delete with after:null', async () => {
+    const { db } = await seeded()
+    const insp = createInspector(db)
+    const seen: Array<{ op: string; after: unknown }> = []
+    insp.subscribe((e) => { seen.push({ op: e.op, after: e.after }) })
+    const v = await db.openVault('v1')
+    await v.collection<Note>('notes').delete('a')
+    expect(seen).toEqual([{ op: 'delete', after: null }])
+  })
+
+  it('pendingWrites reflects the write queue', async () => {
+    const { db } = await seeded()
+    const insp = createInspector(db)
+    const pw = insp.pendingWrites()
+    expect(pw.pending).toBe(false)
+    expect(typeof pw.depth).toBe('number')
+  })
+
+  it('read-only: inspecting does not mutate the store', async () => {
+    const { db } = await seeded()
+    const insp = createInspector(db)
+    const v = await db.openVault('v1')
+    await insp.listVaults()
+    await insp.snapshot(v)
+    await insp.records(v, 'notes')
+    insp.pendingWrites()
+    const after = await insp.records(v, 'notes')
+    expect(after.total).toBe(2) // unchanged
+  })
+})
