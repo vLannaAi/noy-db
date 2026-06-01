@@ -1,0 +1,66 @@
+import { describe, it, expect } from 'vitest'
+import { createNoydb, ConflictError } from '@noy-db/hub'
+import type { Noydb, NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub'
+import { createInspector } from '../src/index.js'
+
+function memoryStore(): NoydbStore {
+  const data = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
+  const coll = (v: string, c: string) => {
+    let vm = data.get(v); if (!vm) { vm = new Map(); data.set(v, vm) }
+    let cm = vm.get(c); if (!cm) { cm = new Map(); vm.set(c, cm) }
+    return cm
+  }
+  return {
+    name: 'memory',
+    async get(v, c, id) { return data.get(v)?.get(c)?.get(id) ?? null },
+    async put(v, c, id, env, ev) {
+      const m = coll(v, c); const ex = m.get(id)
+      if (ev !== undefined && ex && ex._v !== ev) throw new ConflictError(ex._v)
+      m.set(id, env)
+    },
+    async delete(v, c, id) { data.get(v)?.get(c)?.delete(id) },
+    async list(v, c) { return [...(data.get(v)?.get(c)?.keys() ?? [])] },
+    async listVaults() { return [...data.keys()] },
+    async loadAll(v) {
+      const vm = data.get(v); const snap: VaultSnapshot = {}
+      if (vm) for (const [cn, cm] of vm) {
+        const r: Record<string, EncryptedEnvelope> = {}
+        for (const [id, e] of cm) r[id] = e
+        snap[cn] = r
+      }
+      return snap
+    },
+    async saveAll() {},
+  }
+}
+
+interface Note { id: string; title: string; body: string }
+
+async function seeded(): Promise<{ db: Noydb }> {
+  const db = await createNoydb({ store: memoryStore(), user: 'owner', secret: 'pw' })
+  const v = await db.openVault('v1')
+  const notes = v.collection<Note>('notes')
+  await notes.put('a', { id: 'a', title: 'A', body: 'first' })
+  await notes.put('b', { id: 'b', title: 'B', body: 'second' })
+  return { db }
+}
+
+describe('inspector — listVaults + snapshot', () => {
+  it('listVaults returns accessible vaults', async () => {
+    const { db } = await seeded()
+    const insp = createInspector(db)
+    const vaults = await insp.listVaults()
+    expect(vaults.some((x) => x.id === 'v1')).toBe(true)
+  })
+
+  it('snapshot returns the collection with stats', async () => {
+    const { db } = await seeded()
+    const insp = createInspector(db)
+    const v = await db.openVault('v1')
+    const snap = await insp.snapshot(v)
+    expect(snap.vault).toBe('v1')
+    const notes = snap.collections.find((c) => c.name === 'notes')
+    expect(notes).toBeTruthy()
+    expect(notes!.stats?.records).toBe(2)
+  })
+})
