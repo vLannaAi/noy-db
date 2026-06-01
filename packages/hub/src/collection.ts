@@ -1610,19 +1610,29 @@ export class Collection<T> {
   async delete(id: string): Promise<void> {
     await this.schemaUpdateGate?.assertWritable()
     await this.schemaFence?.assertWritable(this.name)
+    // #230 user write-hooks AND the Track A observe bus both need the
+    // WriteEvent. Build it if EITHER consumer is active so the bus is not
+    // coupled to write-hooks being present. Mirrors the put() path.
+    const hooksActive = this.#hooksActive()
+    const busAfterDelete = (this.subsystemBus?.hasHandlers('afterDelete') ?? false)
+      && !(this.subsystemBus?.dispatching ?? false)
     let event: WriteEvent | undefined
-    if (this.#hooksActive()) {
+    if (hooksActive || busAfterDelete) {
       const prior = await this.#priorForHook(id)
       event = {
         op: 'delete', vault: this.vault, collection: this.name, docId: id, before: prior.record, after: null,
         userId: this.keyring.userId, timestamp: Date.now(), txId: this.#txIdForHook(),
         baseVersion: prior.version, version: prior.version + 1,
       }
-      await this.writeHooks!.runBefore(event)
+      if (hooksActive) await this.writeHooks!.runBefore(event)
     }
     if (this.writeQueue) await this.writeQueue.track(() => this.deleteInternal(id))
     else await this.deleteInternal(id)
-    if (event) await this.writeHooks!.runAfter(event)
+    if (event) {
+      // Ordering: user afterWrite hooks run before observe-bus dispatch.
+      if (hooksActive) await this.writeHooks!.runAfter(event)
+      if (busAfterDelete) await this.subsystemBus!.dispatch('afterDelete', event)
+    }
   }
 
   /**
