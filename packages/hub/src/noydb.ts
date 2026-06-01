@@ -246,6 +246,17 @@ export class Noydb {
    * periodsStrategy is configured.  Handlers resolve the live Vault from
    * vaultCache so they always use the up-to-date period cache.
    */
+  // Track A — periods migration. Registers the closed-period write guard as a
+  // gate-bus handler (only when periods is opted in, so the write path is
+  // zero-cost otherwise). Each handler resolves the LIVE vault from the cache
+  // per dispatch and delegates to its `_assertTsWritable`, which owns all
+  // period logic. Resolving the live vault makes eviction/re-creation
+  // transparent. Semantics note: if a write reaches the gate through a retained
+  // collection handle whose vault has been evicted from `vaultCache` (e.g. a
+  // post-revocation write on a stale handle), the period check is skipped — the
+  // guard binds to the live vault, not a captured instance. Periods is a
+  // write-integrity guard, not a security boundary, and a re-open reloads the
+  // period cache; the trade-off is intentional.
   #registerPeriodGate(): void {
     if (this.options.periodsStrategy === undefined) return
     this.subsystemBus.registerGate('beforePut', async (e) => {
