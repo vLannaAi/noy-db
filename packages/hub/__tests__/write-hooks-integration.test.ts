@@ -97,4 +97,18 @@ describe('write lifecycle hooks (#230)', () => {
     expect(ids[0]).toBe(ids[1])     // same transaction → same txId
     expect(ids[2]).not.toBe(ids[0]) // standalone write → different txId
   })
+
+  it('WriteEvent carries baseVersion and version (#228c)', async () => {
+    const db = await setup()
+    const v = await db.openVault('demo')
+    const c = v.collection<Inv>('invoices')
+    const events: WriteEvent[] = []
+    db.onAfterWrite((e) => { events.push(e) })
+    await c.put('i1', { id: 'i1', amount: 1 }) // create
+    await c.put('i1', { id: 'i1', amount: 2 }) // update
+    expect(events[0]!.baseVersion).toBe(0)
+    expect(events[0]!.version).toBe(1)
+    expect(events[1]!.baseVersion).toBe(1)
+    expect(events[1]!.version).toBe(2)
+  })
 })
