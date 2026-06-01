@@ -1172,6 +1172,33 @@ export class Collection<T> {
       throw new ReadOnlyError()
     }
 
+    // Gate bus (Track A) — write-gating subsystems can abort here, before any
+    // guard/period/schema/i18n/history work, at the same altitude guards run.
+    // A throwing gate handler propagates and aborts the write. Zero-cost when
+    // no gate handler is registered. The existing guard/period blocks below are
+    // NOT yet migrated onto this seam — that is a later slice.
+    if (this.subsystemBus?.hasGateHandlers('beforePut')) {
+      const existingEnv = await this.adapter.get(this.vault, this.name, id)
+      let existingRecord: unknown = null
+      if (existingEnv) {
+        try {
+          existingRecord = await this.decryptRecord(existingEnv, { skipValidation: true })
+        } catch {
+          existingRecord = null
+        }
+      }
+      await this.subsystemBus.dispatchGate('beforePut', {
+        op: existingEnv ? 'update' : 'create',
+        vault: this.vault, collection: this.name, docId: id,
+        incoming: record,
+        existing: existingRecord,
+        existingVersion: existingEnv?._v ?? 0,
+        existingTs: existingEnv?._ts,
+        userId: this.keyring.userId,
+        role: this.keyring.role,
+      })
+    }
+
     // Guard hook (record lock + field freeze). Runs BEFORE the
     // period guard so a guard-blocked write fails before any
     // schema work, i18n translation, history, or ledger churn.
@@ -1829,6 +1856,28 @@ export class Collection<T> {
   private async _doDelete(id: string, internal: boolean): Promise<void> {
     if (!hasWritePermission(this.keyring, this.name)) {
       throw new ReadOnlyError()
+    }
+
+    // Gate bus (Track A) — symmetric to putInternal. Skipped for internal
+    // (system housekeeping) deletes, matching the guard/period bypass below.
+    if (!internal && this.subsystemBus?.hasGateHandlers('beforeDelete')) {
+      const existingEnv = await this.adapter.get(this.vault, this.name, id)
+      if (existingEnv) {
+        let existingRecord: unknown = null
+        try {
+          existingRecord = await this.decryptRecord(existingEnv, { skipValidation: true })
+        } catch {
+          existingRecord = null
+        }
+        await this.subsystemBus.dispatchGate('beforeDelete', {
+          vault: this.vault, collection: this.name, docId: id,
+          existing: existingRecord,
+          existingVersion: existingEnv._v,
+          existingTs: existingEnv._ts,
+          userId: this.keyring.userId,
+          role: this.keyring.role,
+        })
+      }
     }
 
     // Guard hook for deletes. Symmetric to put(): consult the

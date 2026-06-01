@@ -40,8 +40,8 @@ export interface GatePutEvent {
   readonly existing: unknown
   /** Prior envelope version, or 0 when none. */
   readonly existingVersion: number
-  /** Prior envelope timestamp (`_ts`), or undefined when none — periods compares against this. */
-  readonly existingTs: number | undefined
+  /** Prior envelope timestamp (`_ts` ISO string), or undefined when none — periods compares against this. */
+  readonly existingTs: string | undefined
   readonly userId: string
   readonly role: Role
 }
@@ -53,7 +53,7 @@ export interface GateDeleteEvent {
   readonly docId: string
   readonly existing: unknown
   readonly existingVersion: number
-  readonly existingTs: number | undefined
+  readonly existingTs: string | undefined
   readonly userId: string
   readonly role: Role
 }
