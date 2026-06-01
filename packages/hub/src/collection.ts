@@ -1105,11 +1105,12 @@ export class Collection<T> {
     // the write hooks.
     let event: WriteEvent | undefined
     if (this.#hooksActive()) {
-      const before = await this.#priorRecordForHook(id)
+      const prior = await this.#priorForHook(id)
       event = {
-        op: before === null ? 'create' : 'update',
-        vault: this.vault, collection: this.name, docId: id, before, after: record,
+        op: prior.record === null ? 'create' : 'update',
+        vault: this.vault, collection: this.name, docId: id, before: prior.record, after: record,
         userId: this.keyring.userId, timestamp: Date.now(), txId: this.#txIdForHook(),
+        baseVersion: prior.version, version: prior.version + 1,
       }
       await this.writeHooks!.runBefore(event) // throw → aborts the write
     }
@@ -1123,11 +1124,25 @@ export class Collection<T> {
     return this.writeHooks !== undefined && this.writeHooks.hasHandlers && !this.writeHooks.suppressed
   }
 
-  /** @internal #230 — decrypt the current record for a hook's `before`, or null. */
-  async #priorRecordForHook(id: string): Promise<unknown> {
-    const env = await this.adapter.get(this.vault, this.name, id)
-    if (!env) return null
-    return (await this.decryptRecord(env, { skipValidation: true })) as unknown
+  /**
+   * @internal #230/#228c — resolve the prior record for a hook's `before` and
+   * its version. Critically, this uses the SAME basis `putInternal` writes from
+   * (the in-memory cache in eager mode; lru-then-adapter in lazy) — NOT a fresh
+   * store read — so `baseVersion`/`version` match the version actually written.
+   * A separate store read would diverge once another tab has advanced the shared
+   * store past this tab's cache, breaking #228c conflict detection.
+   */
+  async #priorForHook(id: string): Promise<{ record: unknown; version: number }> {
+    if (this.lazy && this.lru) {
+      const cached = this.lru.get(id)
+      if (cached) return { record: cached.record, version: cached.version }
+      const env = await this.adapter.get(this.vault, this.name, id)
+      if (!env) return { record: null, version: 0 }
+      return { record: (await this.decryptRecord(env, { skipValidation: true })) as unknown, version: env._v }
+    }
+    await this.ensureHydrated()
+    const cached = this.cache.get(id)
+    return cached ? { record: cached.record, version: cached.version } : { record: null, version: 0 }
   }
 
   #txIdForHook(): string {
@@ -1685,10 +1700,11 @@ export class Collection<T> {
     await this.schemaFence?.assertWritable(this.name) // #232
     let event: WriteEvent | undefined
     if (this.#hooksActive()) {
-      const before = await this.#priorRecordForHook(id)
+      const prior = await this.#priorForHook(id)
       event = {
-        op: 'delete', vault: this.vault, collection: this.name, docId: id, before, after: null,
+        op: 'delete', vault: this.vault, collection: this.name, docId: id, before: prior.record, after: null,
         userId: this.keyring.userId, timestamp: Date.now(), txId: this.#txIdForHook(),
+        baseVersion: prior.version, version: prior.version + 1,
       }
       await this.writeHooks!.runBefore(event)
     }
@@ -2805,6 +2821,12 @@ export class Collection<T> {
   async _applyRemoteChange(id: string, action: 'put' | 'delete'): Promise<void> {
     await this._invalidateCacheEntry(id)
     this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action })
+  }
+
+  /** @internal #228c — the current in-memory record without a store read (for conflict capture). */
+  _peekCached(id: string): T | null {
+    const entry = this.lazy && this.lru ? this.lru.get(id) : this.cache.get(id)
+    return entry ? entry.record : null
   }
 
   private async ensureHydrated(): Promise<void> {

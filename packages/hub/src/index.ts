@@ -183,6 +183,8 @@ export type { DryRunResult, AffectedDocument, GuardViolation } from './tx/dry-ru
 
 // Multi-tab coordination (#228)
 export type { TabRole, TabPresence, TabCoordinationOptions, TabLockManager, TabChannel } from './tab-coordination.js'
+// Cross-tab write conflict (#228c)
+export type { WriteConflict } from './types.js'
 
 // Schema-update strategies (#245)
 export type {

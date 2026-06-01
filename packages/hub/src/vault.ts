@@ -858,6 +858,32 @@ export class Vault {
     await coll._applyRemoteChange(docId, action)
   }
 
+  /**
+   * #228c — for a detected conflict: capture this tab's clobbered record,
+   * read the common ancestor from history, converge the cache to the store's
+   * authoritative value (the (b) re-read), and return all three for the
+   * WriteConflict payload. Returns null when the collection isn't loaded.
+   */
+  async _captureAndConverge(
+    collectionName: string,
+    docId: string,
+    action: 'put' | 'delete',
+    baseV: number,
+  ): Promise<{ local: unknown; remote: unknown; base: unknown } | null> {
+    const coll = this.collectionCache.get(collectionName)
+    if (!coll) return null
+    // `local` is the pre-converge cached record (the clobbered write) — peek only, no store read.
+    // Consumers must not mutate the returned records: in eager mode they alias live cache entries.
+    const local = coll._peekCached(docId)
+    let base: unknown = null
+    try { base = await coll.getVersion(docId, baseV) } catch { base = null }
+    await coll._applyRemoteChange(docId, action)
+    // `remote` is the post-converge authoritative value via the universal read path
+    // (cache in eager mode; a store read in lazy mode, where the LRU entry was just evicted).
+    const remote = await coll.get(docId)
+    return { local, remote, base }
+  }
+
   /** Recover a stuck cutover fence (#232) — reset to normal without bumping. */
   async abortSchemaCutover(): Promise<void> {
     await this.schemaFence.abort()

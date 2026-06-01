@@ -11,6 +11,8 @@ export interface WriteEvent {
   readonly docId: string
   readonly before: unknown // decrypted prior record; null on 'create'
   readonly after: unknown // the record written; null on 'delete'
+  readonly baseVersion: number // #228c — version the writer started from (0 on create)
+  readonly version: number // #228c — version the writer wrote (baseVersion + 1)
   readonly userId: string
   readonly timestamp: number
   readonly txId: string

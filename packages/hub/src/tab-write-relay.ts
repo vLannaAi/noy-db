@@ -15,6 +15,8 @@ export interface TabWriteMsg {
   readonly collection: string
   readonly docId: string
   readonly action: 'put' | 'delete'
+  readonly baseV: number
+  readonly v: number
 }
 
 export interface CrossTabWriteRelayOptions {
@@ -26,6 +28,8 @@ export interface CrossTabWriteRelayOptions {
   readonly subscribeAfterWrite: (handler: (e: WriteEvent) => void) => Unsubscribe
   /** Refresh a document's in-memory view from the shared store. */
   readonly applyRemoteWrite: (vault: string, collection: string, docId: string, action: 'put' | 'delete') => void | Promise<void>
+  /** Report a detected conflict (host captures + converges + emits). #228c. */
+  readonly reportConflict?: (vault: string, collection: string, docId: string, action: 'put' | 'delete', baseV: number, v: number, ownV: number) => void | Promise<void>
   /** Close the channel on dispose (only when the relay created it). Default false. */
   readonly closeChannelOnDispose?: boolean
 }
@@ -35,6 +39,8 @@ export class CrossTabWriteRelay {
   readonly #writerId: string
   readonly #subscribeAfterWrite: (handler: (e: WriteEvent) => void) => Unsubscribe
   readonly #applyRemoteWrite: (vault: string, collection: string, docId: string, action: 'put' | 'delete') => void | Promise<void>
+  readonly #reportConflict: CrossTabWriteRelayOptions['reportConflict']
+  readonly #ledger = new Map<string, number>()
   readonly #ownsChannel: boolean
   #unsubMsg: Unsubscribe | undefined
   #unsubWrite: Unsubscribe | undefined
@@ -46,6 +52,7 @@ export class CrossTabWriteRelay {
     this.#writerId = opts.writerId
     this.#subscribeAfterWrite = opts.subscribeAfterWrite
     this.#applyRemoteWrite = opts.applyRemoteWrite
+    this.#reportConflict = opts.reportConflict
     this.#ownsChannel = opts.closeChannelOnDispose ?? false
   }
 
@@ -66,8 +73,9 @@ export class CrossTabWriteRelay {
 
   #onLocalWrite(e: WriteEvent): void {
     if (this.#disposed || !this.#channel.isOpen) return
+    this.#ledger.set(ledgerKey(e.vault, e.collection, e.docId), e.version)
     const action: 'put' | 'delete' = e.op === 'delete' ? 'delete' : 'put'
-    const msg: TabWriteMsg = { kind: 'tab-write', writerId: this.#writerId, vault: e.vault, collection: e.collection, docId: e.docId, action }
+    const msg: TabWriteMsg = { kind: 'tab-write', writerId: this.#writerId, vault: e.vault, collection: e.collection, docId: e.docId, action, baseV: e.baseVersion, v: e.version }
     this.#channel.send(JSON.stringify(msg))
   }
 
@@ -76,10 +84,24 @@ export class CrossTabWriteRelay {
     let msg: unknown
     try { msg = JSON.parse(payload) } catch { return }
     if (!isTabWriteMsg(msg) || msg.writerId === this.#writerId) return
+    const key = ledgerKey(msg.vault, msg.collection, msg.docId)
+    const ownV = this.#ledger.get(key)
+    if (ownV !== undefined && msg.baseV < ownV && this.#reportConflict) {
+      void Promise.resolve(this.#reportConflict(msg.vault, msg.collection, msg.docId, msg.action, msg.baseV, msg.v, ownV)).catch((err) => {
+        console.warn(`[noy-db] cross-tab conflict report failed for ${msg.collection}/${msg.docId}: ` + (err instanceof Error ? err.message : String(err)))
+      })
+      return
+    }
+    if (ownV !== undefined && msg.baseV >= ownV) this.#ledger.set(key, msg.v) // remote incorporated our write → advance
     void Promise.resolve(this.#applyRemoteWrite(msg.vault, msg.collection, msg.docId, msg.action)).catch((err) => {
       console.warn(`[noy-db] cross-tab apply failed for ${msg.collection}/${msg.docId}: ` + (err instanceof Error ? err.message : String(err)))
     })
   }
+}
+
+function ledgerKey(vault: string, collection: string, docId: string): string {
+  // NUL separator: it cannot appear in a vault/collection/docId, so keys never collide.
+  return `${vault}\0${collection}\0${docId}`
 }
 
 function isTabWriteMsg(x: unknown): x is TabWriteMsg {
@@ -91,4 +113,6 @@ function isTabWriteMsg(x: unknown): x is TabWriteMsg {
     && typeof o['collection'] === 'string'
     && typeof o['docId'] === 'string'
     && (o['action'] === 'put' || o['action'] === 'delete')
+    && typeof o['baseV'] === 'number'
+    && typeof o['v'] === 'number'
 }

@@ -19,6 +19,7 @@ import type {
   QueryAcrossResult,
   ReAuthOperation,
   TranslatorAuditEntry,
+  WriteConflict,
 } from './types.js'
 import { ValidationError, NoAccessError, InvalidKeyError, KeyringCorruptError, StoreCapabilityError, PermissionDeniedError } from './errors.js'
 import {
@@ -1194,6 +1195,12 @@ export class Noydb {
     return this.writeHooks.onAfterWrite(handler)
   }
 
+  /** Subscribe to cross-tab write conflicts (#228c). Returns an unsubscribe. */
+  onWriteConflict(fn: (c: WriteConflict) => void): Unsubscribe {
+    this.on('write:conflict', fn)
+    return () => this.off('write:conflict', fn)
+  }
+
   /**
    * Enable same-device multi-tab coordination (#228): primary/secondary
    * election + presence. Browser-only — a graceful no-op (role 'unknown')
@@ -1221,6 +1228,7 @@ export class Noydb {
           writerId: c.tabId,
           subscribeAfterWrite: (h) => this.onAfterWrite(h),
           applyRemoteWrite: (vault, collection, docId, action) => this.#applyRemoteWrite(vault, collection, docId, action),
+          reportConflict: (vault, collection, docId, action, baseV, v, ownV) => this.#reportWriteConflict(vault, collection, docId, action, baseV, v, ownV),
           // Own the channel only when we created the default (mirrors the presence channel).
           closeChannelOnDispose: opts.writeChannel === undefined && writeChannel !== undefined,
         })
@@ -1235,6 +1243,19 @@ export class Noydb {
     const v = this.vaultCache.get(vaultName)
     if (!v) return Promise.resolve()
     return v._applyRemoteWrite(collectionName, docId, action)
+  }
+
+  async #reportWriteConflict(vaultName: string, collectionName: string, docId: string, action: 'put' | 'delete', baseV: number, v: number, ownV: number): Promise<void> {
+    const vault = this.vaultCache.get(vaultName)
+    if (!vault) return
+    const cap = await vault._captureAndConverge(collectionName, docId, action, baseV)
+    if (!cap) return
+    const conflict: WriteConflict = {
+      vault: vaultName, collection: collectionName, docId,
+      local: cap.local, remote: cap.remote, base: cap.base,
+      localVersion: ownV, remoteVersion: v, baseVersion: baseV,
+    }
+    this.emitter.emit('write:conflict', conflict)
   }
 
   private disableTabCoordination(): void {
