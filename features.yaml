@@ -914,6 +914,25 @@ features:
       - 'opt-in via db.enableTabCoordination({ propagateWrites }) (default true); graceful no-op outside browsers'
     related: [tab-coordination, write-lifecycle-hooks]
 
+  - id: cross-tab-conflict-detection
+    name: Cross-tab write conflict detection
+    cluster: core
+    spec: docs/superpowers/specs/2026-06-01-228c-conflict-detection-design.md
+    subsystem_doc: docs/superpowers/specs/2026-06-01-228c-conflict-detection-design.md
+    package: '@noy-db/hub'
+    factory: null
+    status: preview
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'concurrent same-doc writes are detected: each tab emits a WriteConflict (decrypted local/remote/base + versions) when a remote write diverged from a base older than its own write'
+      - 'the WriteEvent baseVersion/version are sourced from the write basis (cache), matching the version actually written — not a separate store read'
+      - 'detection converges the cache to the store but never auto-resolves; a tab that never wrote the doc never reports a conflict'
+      - 'opt-in via db.onWriteConflict / db.enableTabCoordination; base is null when history is unavailable (default NO_HISTORY)'
+    related: [cross-tab-write-propagation, write-lifecycle-hooks]
+
 # ─── Storage adapters (phase 2) ──────────────────────────────────────
 
 adapters:
