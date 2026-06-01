@@ -13,7 +13,7 @@ function putEv(over: Partial<GatePutEvent> = {}): GatePutEvent {
 function deleteEv(over: Partial<GateDeleteEvent> = {}): GateDeleteEvent {
   return {
     vault: 'v', collection: 'c', docId: 'd',
-    existing: { x: 1 }, existingVersion: 1, existingTs: undefined,
+    existing: { x: 1 }, existingVersion: 1, existingTs: undefined, internal: false,
     userId: 'u', role: 'owner', ...over,
   }
 }

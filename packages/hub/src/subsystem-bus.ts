@@ -51,6 +51,8 @@ export interface GateDeleteEvent {
   readonly vault: string
   readonly collection: string
   readonly docId: string
+  /** True for system-internal (housekeeping) deletes — handlers branch on this. */
+  readonly internal: boolean
   readonly existing: unknown
   readonly existingVersion: number
   readonly existingTs: string | undefined
