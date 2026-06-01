@@ -28,6 +28,7 @@ type AnyHandler = (event: unknown) => void | Promise<void>
 
 export class SubsystemBus {
   readonly #handlers = new Map<LifecyclePoint, AnyHandler[]>()
+  #dispatching = false
 
   /** Register a handler for an observe point. Returns an unsubscribe fn. */
   register<P extends LifecyclePoint>(point: P, handler: BusHandler<P>): Unsubscribe {
@@ -48,22 +49,32 @@ export class SubsystemBus {
     return a !== undefined && a.length > 0
   }
 
+  /** True while handlers are running — lets the write path skip nested firing, mirroring WriteHookRegistry.#suppressed. */
+  get dispatching(): boolean { return this.#dispatching }
+
   /**
    * Dispatch in registration order, awaited. Per-handler errors are warned, not
-   * thrown — an observe handler must never abort a completed write.
+   * thrown — an observe handler must never abort a completed write. A
+   * re-entrancy guard suppresses nested firing so a handler that itself writes
+   * cannot loop (same rationale as WriteHookRegistry.#suppressed).
    */
   async dispatch<P extends LifecyclePoint>(point: P, event: LifecycleEventMap[P]): Promise<void> {
     const a = this.#handlers.get(point)
-    if (!a || a.length === 0) return
-    for (const h of a.slice()) {
-      try {
-        await h(event)
-      } catch (err) {
-        console.warn(
-          `[noy-db] subsystem observe handler failed at ${point} for ${event.collection}/${event.docId}: ` +
-          (err instanceof Error ? err.message : String(err)),
-        )
+    if (!a || a.length === 0 || this.#dispatching) return
+    this.#dispatching = true
+    try {
+      for (const h of a.slice()) {
+        try {
+          await h(event)
+        } catch (err) {
+          console.warn(
+            `[noy-db] subsystem observe handler failed at ${point}: ` +
+            (err instanceof Error ? err.message : String(err)),
+          )
+        }
       }
+    } finally {
+      this.#dispatching = false
     }
   }
 }
