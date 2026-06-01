@@ -403,3 +403,31 @@ describe('defineNoydbStore — greenfield path', () => {
     expect(direct[0]?.id).toBe('a')
   })
 })
+
+describe('attestation option forwarding', () => {
+  it('forwards `attestation` to the Collection so vault.issueAttestation works', async () => {
+    setActivePinia(createPinia())
+    const db = await makeNoydb()
+    setActiveNoydb(db)
+    const useStore = defineNoydbStore<Invoice>('att-invoices', {
+      vault: 'books',
+      collection: 'invoices',
+      attestation: {
+        fields: [
+          { path: 'amount', normalize: 'cents' },
+          { path: 'client', normalize: 'trim' },
+        ],
+      },
+    })
+    const store = useStore()
+    await store.$ready
+    await store.add('i1', { id: 'i1', amount: 100, status: 'open', client: 'ACME' })
+
+    // Without the forward the collection carries no attestation schema and this throws.
+    const vault = await db.openVault('books')
+    const att = await vault.issueAttestation('invoices', 'i1')
+    expect(att.docId).toBeTruthy()
+    expect(att.qr).toBeTruthy()
+    expect(att.keyId).toBeTruthy()
+  })
+})
