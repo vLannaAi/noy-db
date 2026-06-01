@@ -31,7 +31,7 @@ function fakeAfterWrite() {
 }
 
 function ev(partial: Partial<WriteEvent>): WriteEvent {
-  return { op: 'update', vault: 'books', collection: 'invoices', docId: 'i1', before: null, after: { id: 'i1' }, userId: 'u', timestamp: 0, txId: 't', ...partial }
+  return { op: 'update', vault: 'books', collection: 'invoices', docId: 'i1', before: null, after: { id: 'i1' }, userId: 'u', timestamp: 0, txId: 't', baseVersion: 3, version: 4, ...partial }
 }
 
 describe('CrossTabWriteRelay', () => {
@@ -44,7 +44,7 @@ describe('CrossTabWriteRelay', () => {
     relayA.start()
     srcA.fire(ev({ op: 'create', docId: 'i9' }))
     await flush()
-    expect(received).toEqual({ kind: 'tab-write', writerId: 'A', vault: 'books', collection: 'invoices', docId: 'i9', action: 'put' })
+    expect(received).toEqual({ kind: 'tab-write', writerId: 'A', vault: 'books', collection: 'invoices', docId: 'i9', action: 'put', baseV: 3, v: 4 })
     relayA.dispose()
   })
 
@@ -87,5 +87,61 @@ describe('CrossTabWriteRelay', () => {
     srcA.fire(ev({ docId: 'i1' }))
     await flush()
     expect(count).toBe(0)
+  })
+
+  it('reports a conflict when a remote write predates this tab\'s own write', async () => {
+    const [chA, chB] = makeBus(2)
+    const srcA = fakeAfterWrite(); const srcB = fakeAfterWrite()
+    const applied: string[] = []; const conflicts: Array<[string, number, number, number]> = []
+    const relayA = new CrossTabWriteRelay({ channel: chA!, writerId: 'A', subscribeAfterWrite: srcA.subscribe, applyRemoteWrite: () => {} })
+    const relayB = new CrossTabWriteRelay({
+      channel: chB!, writerId: 'B', subscribeAfterWrite: srcB.subscribe,
+      applyRemoteWrite: (_v, _c, d) => { applied.push(d) },
+      reportConflict: (_v, _c, d, _a, baseV, v, ownV) => { conflicts.push([d, baseV, v, ownV]) },
+    })
+    relayA.start(); relayB.start()
+    srcB.fire(ev({ docId: 'i1', baseVersion: 3, version: 4 })) // B writes i1 @v4 → ledger[i1]=4
+    srcA.fire(ev({ docId: 'i1', baseVersion: 3, version: 4 })) // A wrote i1 from base 3 too
+    await flush()
+    expect(conflicts).toEqual([['i1', 3, 4, 4]]) // baseV 3 < ownV 4 → conflict
+    expect(applied).toEqual([])                  // conflict path does NOT also apply
+    relayA.dispose(); relayB.dispose()
+  })
+
+  it('no conflict when the remote incorporated our write (baseV >= ownV)', async () => {
+    const [chA, chB] = makeBus(2)
+    const srcA = fakeAfterWrite(); const srcB = fakeAfterWrite()
+    const applied: string[] = []; let conflictCount = 0
+    const relayA = new CrossTabWriteRelay({ channel: chA!, writerId: 'A', subscribeAfterWrite: srcA.subscribe, applyRemoteWrite: () => {} })
+    const relayB = new CrossTabWriteRelay({
+      channel: chB!, writerId: 'B', subscribeAfterWrite: srcB.subscribe,
+      applyRemoteWrite: (_v, _c, d) => { applied.push(d) },
+      reportConflict: () => { conflictCount++ },
+    })
+    relayA.start(); relayB.start()
+    srcB.fire(ev({ docId: 'i1', baseVersion: 3, version: 4 }))   // ledger[i1]=4
+    srcA.fire(ev({ docId: 'i1', baseVersion: 4, version: 5 }))   // A built on our v4
+    await flush()
+    expect(conflictCount).toBe(0)
+    expect(applied).toEqual(['i1'])
+    relayA.dispose(); relayB.dispose()
+  })
+
+  it('no conflict for a doc this tab never wrote', async () => {
+    const [chA, chB] = makeBus(2)
+    const srcA = fakeAfterWrite(); const srcB = fakeAfterWrite()
+    const applied: string[] = []; let conflictCount = 0
+    const relayA = new CrossTabWriteRelay({ channel: chA!, writerId: 'A', subscribeAfterWrite: srcA.subscribe, applyRemoteWrite: () => {} })
+    const relayB = new CrossTabWriteRelay({
+      channel: chB!, writerId: 'B', subscribeAfterWrite: srcB.subscribe,
+      applyRemoteWrite: (_v, _c, d) => { applied.push(d) },
+      reportConflict: () => { conflictCount++ },
+    })
+    relayA.start(); relayB.start()
+    srcA.fire(ev({ docId: 'i2', baseVersion: 3, version: 4 }))   // B never wrote i2
+    await flush()
+    expect(conflictCount).toBe(0)
+    expect(applied).toEqual(['i2'])
+    relayA.dispose(); relayB.dispose()
   })
 })
