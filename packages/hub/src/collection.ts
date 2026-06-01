@@ -361,25 +361,6 @@ export class Collection<T> {
     | undefined
 
   /**
-   * accounting-period write guard. Called BEFORE any
-   * adapter write with:
-   *   - `existing` — the prior envelope's `_ts` and decrypted record
-   *     (or `null` if no prior envelope exists)
-   *   - `incoming` — the record being written (or `null` for delete)
-   *
-   * Throws `PeriodClosedError` if either side falls inside a closed
-   * period. Installed by Vault; no-op when no period has been closed.
-   * Async so the Vault can lazy-load the period list from the
-   * adapter on first use.
-   */
-  private readonly periodGuard:
-    | ((
-        existing: { ts: string | null; record: Record<string, unknown> | null } | null,
-        incoming: Record<string, unknown> | null,
-      ) => Promise<void>)
-    | undefined
-
-  /**
    * Optional back-reference to the owning vault's guard registry + a
    * read-only vault facade. When present, `Collection.put` and
    * `Collection.delete` consult the registry for guards declared
@@ -736,10 +717,6 @@ export class Collection<T> {
      * to the ledger.
      */
     onCrossTierAccess?: ((event: CrossTierAccessEvent) => void) | undefined
-    periodGuard?: (
-      existing: { ts: string | null; record: Record<string, unknown> | null } | null,
-      incoming: Record<string, unknown> | null,
-    ) => Promise<void>
     /**
      * Optional back-reference to the owning vault's guard registry +
      * read-only facade. When present, put/delete consult registered
@@ -835,7 +812,6 @@ export class Collection<T> {
     this.crdtMode = opts.crdt
     this.syncAdapter = opts.syncAdapter
     this.onAccess = opts.onAccess
-    this.periodGuard = opts.periodGuard
     this.guardSource = opts.guardSource
     this.derivationSource = opts.derivationSource
     this.materializedViewSource = opts.materializedViewSource
@@ -1244,30 +1220,6 @@ export class Collection<T> {
           }
         }
       }
-    }
-
-    // accounting-period guard. Runs BEFORE any other
-    // work so a closed-period write fails fast and leaves no partial
-    // trace (no schema work, no i18n translation, no history). Reads
-    // the existing envelope + decrypts the prior record so
-    // business-date comparison against the closed period's
-    // `dateField` can use the stored value (late entries don't slip
-    // through a write-time check). For first-time inserts the prior
-    // is null.
-    if (this.periodGuard !== undefined) {
-      const existingEnv = await this.adapter.get(this.vault, this.name, id)
-      let priorRecord: Record<string, unknown> | null = null
-      if (existingEnv) {
-        try {
-          priorRecord = (await this.decryptRecord(existingEnv, { skipValidation: true })) as unknown as Record<string, unknown>
-        } catch {
-          priorRecord = null
-        }
-      }
-      await this.periodGuard(
-        existingEnv ? { ts: existingEnv._ts, record: priorRecord } : null,
-        record as unknown as Record<string, unknown>,
-      )
     }
 
     // Schema validation — runs BEFORE encryption so invalid records are
@@ -1795,8 +1747,7 @@ export class Collection<T> {
 
   /**
    * @internal — system-internal delete that bypasses user-facing
-   * delete hooks (`onDelete`, accounting-period guard, FK ref
-   * enforcer). Used by derivation tombstones and MV refresh
+   * delete hooks (`onDelete`, FK ref enforcer). Used by derivation tombstones and MV refresh
    * (Dim 14 v2) — system housekeeping shouldn't trip user invariants
    * registered against the output collection. The ledger entry and
    * history snapshot still fire so backup integrity and time-travel
@@ -1944,24 +1895,6 @@ export class Collection<T> {
           }
         }
       }
-    }
-
-    // accounting-period guard (same contract as put;
-    // incoming is null because this is a delete).
-    if (!internal && this.periodGuard !== undefined) {
-      const existingEnv = await this.adapter.get(this.vault, this.name, id)
-      let priorRecord: Record<string, unknown> | null = null
-      if (existingEnv) {
-        try {
-          priorRecord = (await this.decryptRecord(existingEnv, { skipValidation: true })) as unknown as Record<string, unknown>
-        } catch {
-          priorRecord = null
-        }
-      }
-      await this.periodGuard(
-        existingEnv ? { ts: existingEnv._ts, record: priorRecord } : null,
-        null,
-      )
     }
 
     // Foreign-key ref enforcement on delete. Runs BEFORE

@@ -313,8 +313,7 @@ export class Vault {
    * Cache of closed/opened accounting periods.
    * Populated on first `closePeriod` / `openPeriod` / `listPeriods` /
    * per-collection write call. Kept in memory as an ordered list (by
-   * `closedAt`) so the `periodGuard` hook runs synchronously against
-   * each collection's put/delete path.
+   * `closedAt`) so period checks run fast when the gate bus fires.
    *
    * Sentinel `null` means "not yet loaded" — the first consumer
    * triggers a one-time `loadPeriods()` pass. Every subsequent
@@ -699,7 +698,6 @@ export class Vault {
         defaultLocale: this.locale,
         onRegisterConflictResolver: this.onRegisterConflictResolver,
         onAccess: (op, id) => this._logConsent(op, collectionName, id),
-        periodGuard: (existing, incoming) => this._assertTsWritable(existing, incoming),
         // Guard / derivation sources are only wired when the
         // corresponding registry has been initialised. Vaults without
         // guards/derivations skip this entirely so `Collection.put`'s
@@ -2551,7 +2549,7 @@ export class Vault {
     return all.find((p) => p.name === name) ?? null
   }
 
-  /** @internal — periodGuard callback installed on every Collection. */
+  /** @internal — called by the gate bus before put/delete. */
   async _assertTsWritable(
     existing: { ts: string | null; record: Record<string, unknown> | null } | null,
     incoming: Record<string, unknown> | null,
