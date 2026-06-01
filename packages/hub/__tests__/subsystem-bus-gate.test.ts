@@ -1,11 +1,19 @@
 import { describe, it, expect } from 'vitest'
 import { SubsystemBus } from '../src/subsystem-bus.js'
-import type { GatePutEvent } from '../src/subsystem-bus.js'
+import type { GatePutEvent, GateDeleteEvent } from '../src/subsystem-bus.js'
 
 function putEv(over: Partial<GatePutEvent> = {}): GatePutEvent {
   return {
     op: 'create', vault: 'v', collection: 'c', docId: 'd',
     incoming: { x: 1 }, existing: null, existingVersion: 0, existingTs: undefined,
+    userId: 'u', role: 'owner', ...over,
+  }
+}
+
+function deleteEv(over: Partial<GateDeleteEvent> = {}): GateDeleteEvent {
+  return {
+    vault: 'v', collection: 'c', docId: 'd',
+    existing: { x: 1 }, existingVersion: 1, existingTs: undefined,
     userId: 'u', role: 'owner', ...over,
   }
 }
@@ -58,5 +66,25 @@ describe('SubsystemBus (gate)', () => {
     bus.registerGate('beforePut', () => { throw new Error('gate') })
     expect(bus.hasHandlers('afterPut')).toBe(false)
     expect(bus.hasGateHandlers('beforePut')).toBe(true)
+  })
+
+  it('tolerates gate handler unsubscribe during dispatch (snapshot semantics)', async () => {
+    const bus = new SubsystemBus()
+    const ran: string[] = []
+    let off = () => {}
+    off = bus.registerGate('beforePut', () => { off(); ran.push('first') })
+    bus.registerGate('beforePut', () => { ran.push('second') })
+    await bus.dispatchGate('beforePut', putEv())
+    expect(ran).toEqual(['first', 'second'])
+  })
+
+  it('beforeDelete: a throwing handler propagates and aborts (gate policy)', async () => {
+    const bus = new SubsystemBus()
+    const ran: string[] = []
+    bus.registerGate('beforeDelete', () => { ran.push('first') })
+    bus.registerGate('beforeDelete', () => { throw new Error('locked') })
+    bus.registerGate('beforeDelete', () => { ran.push('third') })
+    await expect(bus.dispatchGate('beforeDelete', deleteEv())).rejects.toThrow('locked')
+    expect(ran).toEqual(['first'])
   })
 })
