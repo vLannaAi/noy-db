@@ -182,6 +182,8 @@ describe('cross-tab conflict detection (#228c)', () => {
     expect((seen1[0]!.remote as { amount: number }).amount).toBe(20) // store's winner
     expect((seen1[0]!.base as { amount: number }).amount).toBe(0)    // ancestor (seed)
     expect(seen1[0]!.baseVersion).toBe(1)
+    expect(seen1[0]!.localVersion).toBe(2)                           // db1's own-write version (ownV)
+    expect(seen1[0]!.remoteVersion).toBe(2)                          // incoming v — collides under LWW
     expect((await c1.get('seed'))!.amount).toBe(20)                  // db1 converged
     expect((await c2.get('seed'))!.amount).toBe(20)
     db1.close(); db2.close()

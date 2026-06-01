@@ -58,7 +58,7 @@ interface WriteConflict {
   readonly docId: string
   readonly local: unknown        // the record THIS tab wrote (clobbered) — captured pre-converge
   readonly remote: unknown       // the record now authoritative in the store (the other tab's)
-  readonly base: unknown | null  // common ancestor at baseV (from history); null if unavailable
+  readonly base: unknown  // common ancestor at baseV (from history); `null` at runtime if unavailable (typed `unknown`: `unknown | null` trips no-redundant-type-constituents)
   readonly localVersion: number  // this tab's own-write version (ownV)
   readonly remoteVersion: number // the incoming write's v
   readonly baseVersion: number   // the incoming write's baseV
