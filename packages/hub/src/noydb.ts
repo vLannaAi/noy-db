@@ -237,7 +237,33 @@ export class Noydb {
     if (options.sessionPolicy) {
       this.sessionStrategy.validateSessionPolicy(options.sessionPolicy)
     }
+    this.#registerPeriodGate()
     this.resetSessionTimer()
+  }
+
+  /**
+   * Register closed-period write guards on the subsystem bus when a
+   * periodsStrategy is configured.  Handlers resolve the live Vault from
+   * vaultCache so they always use the up-to-date period cache.
+   */
+  #registerPeriodGate(): void {
+    if (this.options.periodsStrategy === undefined) return
+    this.subsystemBus.registerGate('beforePut', async (e) => {
+      const v = this.vaultCache.get(e.vault)
+      if (!v) return
+      const existing = e.op === 'create'
+        ? null
+        : { ts: e.existingTs ?? null, record: (e.existing ?? null) as Record<string, unknown> | null }
+      await v._assertTsWritable(existing, e.incoming as Record<string, unknown>)
+    })
+    this.subsystemBus.registerGate('beforeDelete', async (e) => {
+      const v = this.vaultCache.get(e.vault)
+      if (!v) return
+      await v._assertTsWritable(
+        { ts: e.existingTs ?? null, record: (e.existing ?? null) as Record<string, unknown> | null },
+        null,
+      )
+    })
   }
 
   private resetSessionTimer(): void {
