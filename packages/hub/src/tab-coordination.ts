@@ -186,6 +186,11 @@ export function defaultLockManager(): TabLockManager | undefined {
 
 /** Browser default channel: an inline BroadcastChannel wrapper, or undefined. */
 export function defaultChannel(name = 'noydb:tabs'): TabChannel | undefined {
+  // Gate on `window` — a real browser signal. Modern Node exposes a global
+  // BroadcastChannel (worker_threads), so presence of the constructor alone is
+  // NOT a browser signal; without this gate we'd start a heartbeat in Node.
+  // Symmetric with defaultLockManager()'s navigator gate.
+  if (typeof (globalThis as { window?: unknown }).window === 'undefined') return undefined
   const Bc = (globalThis as { BroadcastChannel?: typeof BroadcastChannel }).BroadcastChannel
   if (!Bc) return undefined
   const bc = new Bc(name)
