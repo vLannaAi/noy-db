@@ -1111,11 +1111,11 @@ export class Collection<T> {
       throw new ReadOnlyError()
     }
 
-    // Gate bus (Track A) — write-gating subsystems can abort here, before any
-    // guard/period/schema/i18n/history work, at the same altitude guards run.
-    // A throwing gate handler propagates and aborts the write. Zero-cost when
-    // no gate handler is registered. The existing guard/period blocks below are
-    // NOT yet migrated onto this seam — that is a later slice.
+    // Gate bus (Track A) — write-gating subsystems (guards: record-lock /
+    // field-freeze / amendment-collect; periods: closed-period guard) run here,
+    // before any schema/i18n/history work. A throwing gate handler propagates
+    // and aborts the write; the amendment branch collects without throwing.
+    // Zero-cost when no gate handler is registered.
     if (this.subsystemBus?.hasGateHandlers('beforePut')) {
       const existingEnv = await this.adapter.get(this.vault, this.name, id)
       let existingRecord: unknown = null
