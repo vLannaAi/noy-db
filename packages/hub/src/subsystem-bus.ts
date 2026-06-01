@@ -20,6 +20,7 @@ import type { Role } from './types.js'
 /** Typed map of OBSERVE lifecycle point → event payload. Extend by adding keys. */
 export interface LifecycleEventMap {
   afterPut: WriteEvent
+  afterDelete: WriteEvent
 }
 
 export type LifecyclePoint = keyof LifecycleEventMap

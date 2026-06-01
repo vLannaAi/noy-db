@@ -57,4 +57,32 @@ describe('SubsystemBus integration — afterPut fires from put()', () => {
     await docs.put('a', { id: 'a', n: 1 })
     expect(spy).not.toHaveBeenCalled()
   })
+
+  it('fires afterDelete on delete() with no write-hooks registered (proves decoupling)', async () => {
+    const db = await createNoydb({ store: memoryStore(), secret: 'pw', user: 'owner' })
+    const seen: WriteEvent[] = []
+    db._subsystemBus.register('afterDelete', (e) => { seen.push(e) })
+
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<{ id: string; n: number }>('docs')
+    await docs.put('a', { id: 'a', n: 1 })
+    await docs.delete('a')
+
+    expect(seen).toHaveLength(1)
+    expect(seen[0].op).toBe('delete')
+    expect(seen[0].collection).toBe('docs')
+    expect(seen[0].docId).toBe('a')
+    expect(seen[0].before).toEqual({ id: 'a', n: 1 })
+    expect(seen[0].after).toBeNull()
+  })
+
+  it('does not fire afterDelete when no afterDelete handler is registered (zero-cost)', async () => {
+    const db = await createNoydb({ store: memoryStore(), secret: 'pw', user: 'owner' })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<{ id: string; n: number }>('docs')
+    await docs.put('a', { id: 'a', n: 1 })
+    const spy = vi.spyOn(db._subsystemBus, 'dispatch')
+    await docs.delete('a')
+    expect(spy).not.toHaveBeenCalled()
+  })
 })
