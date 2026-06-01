@@ -66,7 +66,7 @@ interface WriteConflict {
 ```
 
 - **Surface:** `db.onWriteConflict(fn: (c: WriteConflict) => void): Unsubscribe`, plus a `write:conflict` entry in `NoydbEventMap` (so `db.on('write:conflict', …)` also works) — mirroring `onAfterWrite` / `onTabRoleChange`.
-- **`base`:** from `collection.getVersion(docId, baseV)` (per-doc history is on by default); `null` when history is disabled or that version was pruned.
+- **`base`:** from `collection.getVersion(docId, baseV)` — **best-effort**: the default history strategy is `NO_HISTORY` (its `getVersionEnvelope` throws), so `base` is `null` unless the app opted into `withHistory()`; it is also `null` when that version was pruned. `getVersion` failures are caught and degrade to `null`. `local`/`remote` and the versions are always present.
 
 ## Convergence + no auto-resolution
 
