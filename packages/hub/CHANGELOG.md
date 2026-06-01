@@ -1,5 +1,28 @@
 # Changelog — hub
 
+## 0.2.0-pre.3
+
+The **same-device multi-tab coordination** line ([#228](https://github.com/vLannaAi/noy-db/issues/228)). Additive over pre.2: one opt-in entry point, `db.enableTabCoordination()`, gives a vault open in multiple browser tabs primary/secondary election, live cross-tab write propagation, and concurrent-write conflict detection. Browser-only (Web Locks + BroadcastChannel, same-origin); a graceful no-op everywhere else.
+
+### Presence + tab roles ([#251](https://github.com/vLannaAi/noy-db/pull/251))
+
+- `db.enableTabCoordination(opts?)` elects one **primary** tab via an exclusive Web Lock; the rest are **secondary** and re-elect when the primary closes. A presence heartbeat over `BroadcastChannel` publishes active tabs.
+- New surface: `db.tabRole`, `db.activeTabs()`, `db.onTabRoleChange(fn)`, `db.onActiveTabsChange(fn)`. Idempotent enable; torn down on `close()`.
+
+### Cross-tab write propagation ([#252](https://github.com/vLannaAi/noy-db/pull/252))
+
+- A write committed in one tab refreshes that document in every other tab that has the collection loaded — no reload. **Ciphertext-blind:** only `{ vault, collection, docId, action }` cross the channel; receivers re-read the shared encrypted store and decrypt locally.
+- Role-agnostic; applied remote writes never re-persist or re-fire write hooks (no loop). Opt out with `enableTabCoordination({ propagateWrites: false })`.
+
+### Cross-tab write conflict detection ([#253](https://github.com/vLannaAi/noy-db/pull/253))
+
+- Concurrent same-document writes are detected via a per-document own-write version ledger. `db.onWriteConflict(fn)` (and the `write:conflict` event) emit a `WriteConflict { vault, collection, docId, local, remote, base, localVersion, remoteVersion, baseVersion }` — decrypted records; `base` is the common ancestor from history, or `null` when history is unavailable.
+- The hub converges the cache to the store's authoritative value but **never auto-resolves** — reconciliation is left to the application.
+
+### Write hooks
+
+- `WriteEvent` now carries `vault`, `baseVersion`, and `version` (the version fields are sourced from the write basis, matching the version actually written). Backward-compatible additions for `onBeforeWrite` / `onAfterWrite` consumers.
+
 ## 0.2.0-pre.2
 
 The **transferable bundles + document attestation** line. Additive over pre.1: a new vault-coupled attestation subsystem, the transferable-partition bundle ceremony, and recipient-target sealing — plus a signer-hardening fix.

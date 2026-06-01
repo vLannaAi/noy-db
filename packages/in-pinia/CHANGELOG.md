@@ -1,5 +1,11 @@
 # Changelog — in-pinia
 
+## 0.2.0-pre.3
+
+### Attestation field-schema forwarding ([#250](https://github.com/vLannaAi/noy-db/pull/250))
+
+- `defineNoydbStore` now forwards an optional `attestation` field schema to the underlying `Collection` (alongside `schema`), so `vault.issueAttestation(name, id)` works for Pinia-backed collections. Typed off the collection's own option — no new dependency. Stores without it behave exactly as before.
+
 ## 0.2.0-pre.2
 
 ### Patch Changes

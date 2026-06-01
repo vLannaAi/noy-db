@@ -1,5 +1,9 @@
 # @noy-db/attestation
 
+## 0.2.0-pre.3
+
+Version-only lockstep bump; no source changes since pre.2.
+
 ## 0.2.0-pre.2
 
 Initial release. A **pure, zero-runtime-dependency** core for offline document attestation — browser + Node WebCrypto only, hub-free so the verifier runs without the engine ([#235](https://github.com/vLannaAi/noy-db/issues/235)).
