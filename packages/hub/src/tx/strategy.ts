@@ -20,7 +20,7 @@ export interface TxStrategy {
     fn: (tx: TxContext) => Promise<T> | T,
     options?: AmendmentTxOptions,
   ): Promise<T>
-  runDryRun(db: Noydb, fn: (tx: TxContext) => Promise<unknown> | unknown): Promise<DryRunResult>
+  runDryRun(db: Noydb, fn: (tx: TxContext) => unknown): Promise<DryRunResult>
 }
 
 const NOT_ENABLED = new Error(

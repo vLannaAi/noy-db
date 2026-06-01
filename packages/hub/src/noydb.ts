@@ -998,7 +998,7 @@ export class Noydb {
    */
   transaction(
     options: { readonly dryRun: true },
-    fn: (tx: TxContext) => Promise<unknown> | unknown,
+    fn: (tx: TxContext) => unknown,
   ): Promise<DryRunResult>
   /**
    * Create a sync transaction for the given vault.

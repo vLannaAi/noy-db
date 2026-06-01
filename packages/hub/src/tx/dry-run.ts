@@ -15,8 +15,8 @@ export interface AffectedDocument {
   readonly op: 'create' | 'update' | 'delete'
   readonly collection: string
   readonly docId: string
-  readonly before: unknown | null
-  readonly after: unknown | null
+  readonly before: unknown // current committed record; null when creating
+  readonly after: unknown // staged record; null when deleting
 }
 
 export interface GuardViolation {
@@ -36,7 +36,7 @@ const keyOf = (op: StagedOp) => `${op.vaultName}${SEP}${op.collectionName}${SEP}
 
 export async function runDryRun(
   db: Noydb,
-  fn: (tx: TxContext) => Promise<unknown> | unknown,
+  fn: (tx: TxContext) => unknown,
 ): Promise<DryRunResult> {
   const ctx = new TxContext(db)
   await fn(ctx) // stage ops (reads see staged writes via TxCollection); nothing committed
