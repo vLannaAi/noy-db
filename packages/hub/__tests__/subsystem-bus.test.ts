@@ -65,4 +65,18 @@ describe('SubsystemBus (observe)', () => {
     // itself must not skip the second.
     expect(ran).toEqual(['first', 'second'])
   })
+
+  it('delivers all events for concurrent dispatches with async handlers (no drop)', async () => {
+    const bus = new SubsystemBus()
+    const seen: string[] = []
+    bus.register('afterPut', async (e) => {
+      await new Promise((r) => setTimeout(r, 5))
+      seen.push(e.docId)
+    })
+    await Promise.all([
+      bus.dispatch('afterPut', ev({ docId: 'a' })),
+      bus.dispatch('afterPut', ev({ docId: 'b' })),
+    ])
+    expect([...seen].sort()).toEqual(['a', 'b'])
+  })
 })

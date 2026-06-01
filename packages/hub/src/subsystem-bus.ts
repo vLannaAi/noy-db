@@ -28,7 +28,7 @@ type AnyHandler = (event: unknown) => void | Promise<void>
 
 export class SubsystemBus {
   readonly #handlers = new Map<LifecyclePoint, AnyHandler[]>()
-  #dispatching = false
+  #depth = 0
 
   /** Register a handler for an observe point. Returns an unsubscribe fn. */
   register<P extends LifecyclePoint>(point: P, handler: BusHandler<P>): Unsubscribe {
@@ -49,8 +49,18 @@ export class SubsystemBus {
     return a !== undefined && a.length > 0
   }
 
-  /** True while handlers are running — lets the write path skip nested firing, mirroring WriteHookRegistry.#suppressed. */
-  get dispatching(): boolean { return this.#dispatching }
+  /**
+   * True while one or more dispatches are in flight. Backed by a depth counter
+   * so that two concurrent async dispatches (`Promise.all([put('a'), put('b')])`
+   * each captured `busAfterPut=true` at their respective put() tops while depth
+   * was 0) both proceed independently — the counter stays > 0 until BOTH finish,
+   * so any nested write attempted by a handler still sees `dispatching === true`
+   * and is suppressed by the write-path gate in `collection.ts`
+   * (`busAfterPut = hasHandlers('afterPut') && !dispatching`). Re-entrancy
+   * suppression lives exclusively on that write-path gate; concurrent independent
+   * dispatches must not drop each other's events.
+   */
+  get dispatching(): boolean { return this.#depth > 0 }
 
   /**
    * Dispatch in registration order, awaited. Per-handler errors are warned, not
@@ -60,8 +70,8 @@ export class SubsystemBus {
    */
   async dispatch<P extends LifecyclePoint>(point: P, event: LifecycleEventMap[P]): Promise<void> {
     const a = this.#handlers.get(point)
-    if (!a || a.length === 0 || this.#dispatching) return
-    this.#dispatching = true
+    if (!a || a.length === 0) return
+    this.#depth++
     try {
       for (const h of a.slice()) {
         try {
@@ -74,7 +84,7 @@ export class SubsystemBus {
         }
       }
     } finally {
-      this.#dispatching = false
+      this.#depth--
     }
   }
 }
