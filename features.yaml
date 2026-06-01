@@ -895,6 +895,25 @@ features:
       - 'opt-in via db.enableTabCoordination(); graceful no-op (role unknown) outside browsers'
     related: [vault-and-collections]
 
+  - id: cross-tab-write-propagation
+    name: Cross-tab write propagation
+    cluster: core
+    spec: docs/superpowers/specs/2026-06-01-228b-cross-tab-write-propagation-design.md
+    subsystem_doc: docs/superpowers/specs/2026-06-01-228b-cross-tab-write-propagation-design.md
+    package: '@noy-db/hub'
+    factory: null
+    status: preview
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'a committed write in one tab refreshes that document in every other tab that has the collection loaded (cache + change event), no reload'
+      - 'only {vault, collection, docId, action} cross the channel — nothing decrypted; receivers re-read the shared encrypted store'
+      - 'applied remote writes never re-persist or re-fire write hooks, so they cannot loop'
+      - 'opt-in via db.enableTabCoordination({ propagateWrites }) (default true); graceful no-op outside browsers'
+    related: [tab-coordination, write-lifecycle-hooks]
+
 # ─── Storage adapters (phase 2) ──────────────────────────────────────
 
 adapters:
