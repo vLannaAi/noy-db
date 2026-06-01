@@ -78,6 +78,7 @@ import { Vault } from './vault.js'
 import { NoydbEventEmitter } from './events.js'
 import { WriteQueueTracker, type WriteQueue } from './write-queue.js'
 import { WriteHookRegistry, type WriteHook, type Unsubscribe } from './write-hooks.js'
+import { TabCoordinator, defaultLockManager, defaultChannel, type TabCoordinationOptions, type TabRole, type TabPresence } from './tab-coordination.js'
 import {
   loadKeyring,
   createOwnerKeyring,
@@ -190,6 +191,8 @@ export class Noydb {
   private readonly publicEnvelopeSchema: ResolvedPublicEnvelopeSchema | undefined
   private closed = false
   private sessionTimer: ReturnType<typeof setTimeout> | null = null
+  /** Same-device multi-tab coordinator (#228); created on `enableTabCoordination()`. */
+  private tabCoordinator: TabCoordinator | undefined
   /** Per-vault policy enforcers. */
   private readonly policyEnforcers = new Map<string, PolicyEnforcer>()
   private readonly txStrategy: TxStrategy
@@ -1188,6 +1191,38 @@ export class Noydb {
     return this.writeHooks.onAfterWrite(handler)
   }
 
+  /**
+   * Enable same-device multi-tab coordination (#228): primary/secondary
+   * election + presence. Browser-only — a graceful no-op (role 'unknown')
+   * when Web Locks / BroadcastChannel are unavailable and nothing is
+   * injected. Idempotent; returns a disposer.
+   */
+  enableTabCoordination(opts: TabCoordinationOptions = {}): { dispose: () => void } {
+    if (this.tabCoordinator) return { dispose: () => this.disableTabCoordination() }
+    const lockManager = opts.lockManager ?? defaultLockManager()
+    const channel = opts.channel ?? defaultChannel()
+    const c = new TabCoordinator({
+      ...opts,
+      ...(lockManager ? { lockManager } : {}),
+      ...(channel ? { channel } : {}),
+      // We own the channel only when we created the default; never close a caller-injected one.
+      closeChannelOnDispose: opts.channel === undefined && channel !== undefined,
+    })
+    this.tabCoordinator = c
+    c.start()
+    return { dispose: () => this.disableTabCoordination() }
+  }
+
+  private disableTabCoordination(): void {
+    this.tabCoordinator?.dispose()
+    this.tabCoordinator = undefined
+  }
+
+  get tabRole(): TabRole { return this.tabCoordinator?.role ?? 'unknown' }
+  activeTabs(): TabPresence[] { return this.tabCoordinator?.activeTabs() ?? [] }
+  onTabRoleChange(fn: (r: TabRole) => void): Unsubscribe { return this.tabCoordinator?.onTabRoleChange(fn) ?? (() => {}) }
+  onActiveTabsChange(fn: (t: TabPresence[]) => void): Unsubscribe { return this.tabCoordinator?.onActiveTabsChange(fn) ?? (() => {}) }
+
   /** @internal The write-hook registry, threaded into each Collection. */
   get _writeHooks(): WriteHookRegistry {
     return this.writeHooks
@@ -1257,6 +1292,7 @@ export class Noydb {
     }
     this.syncEngines.clear()
     for (const v of this.vaultCache.values()) v._stopFenceCoordination() // #232 — stop heartbeat/watcher timers
+    this.disableTabCoordination() // #228 — stop tab lock/heartbeat timers
     this.keyringCache.clear()
     this.vaultCache.clear()
     this.activeTier.clear()
