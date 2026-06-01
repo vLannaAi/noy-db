@@ -53,4 +53,16 @@ describe('SubsystemBus (observe)', () => {
     const bus = new SubsystemBus()
     await expect(bus.dispatch('afterPut', ev())).resolves.toBeUndefined()
   })
+
+  it('tolerates handler unsubscribe during dispatch (snapshot semantics)', async () => {
+    const bus = new SubsystemBus()
+    const ran: string[] = []
+    let off = () => {}
+    off = bus.register('afterPut', () => { off(); ran.push('first') })
+    bus.register('afterPut', () => { ran.push('second') })
+    await bus.dispatch('afterPut', ev())
+    // Both handlers were in the dispatch snapshot; the first unsubscribing
+    // itself must not skip the second.
+    expect(ran).toEqual(['first', 'second'])
+  })
 })
