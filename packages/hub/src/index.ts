@@ -178,6 +178,9 @@ export type { WriteEvent, WriteHook } from './write-hooks.js'
 // Runtime schema introspection (#229)
 export type { SchemaIntrospection } from './introspection/types.js'
 
+// Dry-run transactions (#231)
+export type { DryRunResult, AffectedDocument, GuardViolation } from './tx/dry-run.js'
+
 // Schema-update strategies (#245)
 export type {
   SchemaDelta,

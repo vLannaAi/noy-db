@@ -859,6 +859,24 @@ features:
       - 'schemaUpdate strategy names are captured at collection() registration time'
     related: [dump-schema-introspection, schema-update-strategies]
 
+  - id: dry-run-transactions
+    name: Dry-run transactions
+    cluster: core
+    spec: docs/superpowers/specs/2026-06-01-hub-coordination-epic-design.md
+    subsystem_doc: docs/superpowers/specs/2026-06-01-hub-coordination-epic-design.md
+    package: '@noy-db/hub'
+    factory: null
+    status: preview
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'db.transaction({ dryRun: true }) stages the body and returns the affected diff without committing (store unchanged)'
+      - 'guard violations are collected, not thrown; write hooks do not fire during a dry-run'
+      - 'MV/derivation cascade is not simulated in v1 (direct ops only)'
+    related: [transactions, guards]
+
 # ─── Storage adapters (phase 2) ──────────────────────────────────────
 
 adapters:
