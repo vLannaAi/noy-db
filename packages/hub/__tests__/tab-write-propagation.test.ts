@@ -120,4 +120,21 @@ describe('capture + converge primitive (#228c)', () => {
     expect(await v._captureAndConverge('not-loaded', 'x', 'put', 0)).toBeNull()
     db.close()
   })
+
+  it('remote is read from the store in lazy mode (LRU evicted on converge)', async () => {
+    const store = memory()
+    const db1 = await createNoydb({ store, user: 'alice', secret: SECRET, historyStrategy: withHistory() })
+    const c1 = (await db1.openVault('books')).collection<Inv>('invoices', { prefetch: false, cache: { maxRecords: 100 } })
+    await c1.put('lz', { id: 'lz', amount: 1 })
+    const db2 = await createNoydb({ store, user: 'alice', secret: SECRET, historyStrategy: withHistory() })
+    const v2 = await db2.openVault('books')
+    const c2 = v2.collection<Inv>('invoices', { prefetch: false, cache: { maxRecords: 100 } })
+    await c2.get('lz')                               // hydrate db2's LRU @v1
+    await c1.put('lz', { id: 'lz', amount: 42 })     // db1 overwrites in the shared store
+
+    const cap = await v2._captureAndConverge('invoices', 'lz', 'put', 1)
+    expect((cap!.local as { amount: number }).amount).toBe(1)   // pre-converge LRU value
+    expect((cap!.remote as { amount: number }).amount).toBe(42) // read from store, NOT a null evicted LRU
+    db1.close(); db2.close()
+  })
 })

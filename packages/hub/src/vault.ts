@@ -872,11 +872,15 @@ export class Vault {
   ): Promise<{ local: unknown; remote: unknown; base: unknown } | null> {
     const coll = this.collectionCache.get(collectionName)
     if (!coll) return null
+    // `local` is the pre-converge cached record (the clobbered write) — peek only, no store read.
+    // Consumers must not mutate the returned records: in eager mode they alias live cache entries.
     const local = coll._peekCached(docId)
     let base: unknown = null
     try { base = await coll.getVersion(docId, baseV) } catch { base = null }
     await coll._applyRemoteChange(docId, action)
-    const remote = coll._peekCached(docId)
+    // `remote` is the post-converge authoritative value via the universal read path
+    // (cache in eager mode; a store read in lazy mode, where the LRU entry was just evicted).
+    const remote = await coll.get(docId)
     return { local, remote, base }
   }
 
