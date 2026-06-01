@@ -1112,7 +1112,8 @@ export class Collection<T> {
     // WriteEvent. Build it if EITHER consumer is active so the bus is not
     // coupled to write-hooks being present.
     const hooksActive = this.#hooksActive()
-    const busAfterPut = this.subsystemBus?.hasHandlers('afterPut') ?? false
+    const busAfterPut = (this.subsystemBus?.hasHandlers('afterPut') ?? false)
+      && !(this.subsystemBus?.dispatching ?? false)
     let event: WriteEvent | undefined
     if (hooksActive || busAfterPut) {
       const prior = await this.#priorForHook(id)

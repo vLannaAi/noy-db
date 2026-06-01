@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { createNoydb, ConflictError } from '../src/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, WriteEvent } from '../src/index.js'
 
@@ -49,10 +49,12 @@ describe('SubsystemBus integration — afterPut fires from put()', () => {
     expect(seen[0].after).toEqual({ id: 'a', n: 1 })
   })
 
-  it('does not fire when no handler is registered (zero-cost path)', async () => {
+  it('does not dispatch when no handler is registered', async () => {
     const db = await createNoydb({ store: memoryStore(), secret: 'pw', user: 'owner' })
     const vault = await db.openVault('v1')
     const docs = vault.collection<{ id: string; n: number }>('docs')
-    await expect(docs.put('a', { id: 'a', n: 1 })).resolves.toBeUndefined()
+    const spy = vi.spyOn(db._subsystemBus, 'dispatch')
+    await docs.put('a', { id: 'a', n: 1 })
+    expect(spy).not.toHaveBeenCalled()
   })
 })
