@@ -1108,7 +1108,7 @@ export class Collection<T> {
       const before = await this.#priorRecordForHook(id)
       event = {
         op: before === null ? 'create' : 'update',
-        collection: this.name, docId: id, before, after: record,
+        vault: this.vault, collection: this.name, docId: id, before, after: record,
         userId: this.keyring.userId, timestamp: Date.now(), txId: this.#txIdForHook(),
       }
       await this.writeHooks!.runBefore(event) // throw → aborts the write
@@ -1687,7 +1687,7 @@ export class Collection<T> {
     if (this.#hooksActive()) {
       const before = await this.#priorRecordForHook(id)
       event = {
-        op: 'delete', collection: this.name, docId: id, before, after: null,
+        op: 'delete', vault: this.vault, collection: this.name, docId: id, before, after: null,
         userId: this.keyring.userId, timestamp: Date.now(), txId: this.#txIdForHook(),
       }
       await this.writeHooks!.runBefore(event)
