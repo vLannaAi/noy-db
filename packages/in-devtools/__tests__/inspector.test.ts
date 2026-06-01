@@ -64,3 +64,26 @@ describe('inspector — listVaults + snapshot', () => {
     expect(notes!.stats?.records).toBe(2)
   })
 })
+
+describe('inspector — records', () => {
+  it('returns a bounded page with an accurate total', async () => {
+    const { db } = await seeded()
+    const insp = createInspector(db)
+    const v = await db.openVault('v1')
+    const page = await insp.records(v, 'notes', { limit: 1, offset: 0 })
+    expect(page.total).toBe(2)
+    expect(page.rows).toHaveLength(1)
+    expect(page.limit).toBe(1)
+    expect(page.offset).toBe(0)
+  })
+
+  it('clamps limit to the hard ceiling and floors a bad offset to 0', async () => {
+    const { db } = await seeded()
+    const insp = createInspector(db)
+    const v = await db.openVault('v1')
+    const page = await insp.records(v, 'notes', { limit: 99999, offset: -5 })
+    expect(page.limit).toBe(500) // MAX_LIMIT
+    expect(page.offset).toBe(0)
+    expect(page.rows).toHaveLength(2)
+  })
+})
