@@ -104,6 +104,7 @@ import type { SyncTransaction } from './team/sync-transaction.js'
 import { NO_SYNC, type SyncStrategy } from './team/sync-strategy.js'
 import type { AmendmentTxOptions } from './tx/transaction.js'
 import { TxContext } from './tx/transaction.js'
+import type { DryRunResult } from './tx/dry-run.js'
 import { NO_TX, type TxStrategy } from './tx/strategy.js'
 import { INDEXED_STORE_POLICY } from './store/sync-policy.js'
 import type { PolicyEnforcer } from './session/session-policy.js'
@@ -990,6 +991,16 @@ export class Noydb {
     fn: (tx: TxContext) => Promise<T> | T,
   ): Promise<T>
   /**
+   * Dry-run a transaction (#231): run the body to stage ops, then return
+   * the directly-affected diff + collected guard violations WITHOUT
+   * committing (no adapter writes, no write hooks). MV/derivation cascade
+   * is not simulated. Requires `withTransactions()`.
+   */
+  transaction(
+    options: { readonly dryRun: true },
+    fn: (tx: TxContext) => Promise<unknown> | unknown,
+  ): Promise<DryRunResult>
+  /**
    * Create a sync transaction for the given vault.
    * The vault must already be open via `openVault()`.
    * Call `tx.put()` / `tx.delete()` to stage changes, then `tx.commit()`
@@ -997,13 +1008,22 @@ export class Noydb {
    */
   transaction(vault: string): SyncTransaction
   transaction<T>(
-    arg: string | AmendmentTxOptions | ((tx: TxContext) => Promise<T> | T),
+    arg: string | AmendmentTxOptions | { readonly dryRun: true } | ((tx: TxContext) => Promise<T> | T),
     maybeFn?: (tx: TxContext) => Promise<T> | T,
-  ): SyncTransaction | Promise<T> {
+  ): SyncTransaction | Promise<T> | Promise<DryRunResult> {
     if (typeof arg === 'function') {
       return this.txStrategy.runTransaction(this, arg)
     }
-    if (typeof arg === 'object' && arg !== null && arg.amendment === true) {
+    if (typeof arg === 'object' && arg !== null && (arg as { dryRun?: boolean }).dryRun === true) {
+      // Dry-run form (#231): stage + diff, no commit.
+      if (typeof maybeFn !== 'function') {
+        throw new ValidationError(
+          'db.transaction({ dryRun: true }, fn) requires the callback as the second argument.',
+        )
+      }
+      return this.txStrategy.runDryRun(this, maybeFn)
+    }
+    if (typeof arg === 'object' && arg !== null && (arg as { amendment?: boolean }).amendment === true) {
       // Two-arg amendment form. We forward `arg` as the options bag —
       // the executor handles reason validation + per-vault role check.
       if (typeof maybeFn !== 'function') {
@@ -1011,7 +1031,7 @@ export class Noydb {
           'db.transaction({ amendment: true }, fn) requires the callback as the second argument.',
         )
       }
-      return this.txStrategy.runTransaction(this, maybeFn, arg)
+      return this.txStrategy.runTransaction(this, maybeFn, arg as AmendmentTxOptions)
     }
     const vault = arg as string
     const comp = this.vaultCache.get(vault)
