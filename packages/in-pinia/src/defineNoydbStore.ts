@@ -94,6 +94,21 @@ export interface NoydbStoreOptions<T> {
    * `@noy-db/attestation` `AttestationFieldSchema`. Stores without it behave as before.
    */
   attestation?: NonNullable<Parameters<Vault['collection']>[1]>['attestation']
+  /**
+   * If true, the collection persists a JSON Schema baseline of `schema` so the
+   * schema-update protocol can detect drift on later opens. Forwarded as-is to
+   * the underlying `Collection`. Required for `schemaUpdate` to take effect.
+   */
+  persistJsonSchema?: NonNullable<Parameters<Vault['collection']>[1]>['persistJsonSchema']
+  /**
+   * Ordered schema-update strategies (e.g. `coordinatedCutover`, `additiveOnly`,
+   * `lockSchema`) applied when a stored baseline differs from the current
+   * `schema`. Forwarded as-is to the underlying `Collection`. Requires
+   * `persistJsonSchema: true` (drift detection needs the persisted baseline).
+   * Lets a `defineNoydbStore`-defined collection opt into migration tracking
+   * declaratively, without a pre-registration `vault.collection(...)` call.
+   */
+  schemaUpdate?: NonNullable<Parameters<Vault['collection']>[1]>['schemaUpdate']
 }
 
 /**
@@ -156,6 +171,8 @@ export function defineNoydbStore<T>(
       const collOpts: Parameters<typeof cachedCompartment.collection<T>>[1] = {}
       if (options.schema !== undefined) collOpts.schema = options.schema
       if (options.attestation !== undefined) collOpts.attestation = options.attestation
+      if (options.persistJsonSchema !== undefined) collOpts.persistJsonSchema = options.persistJsonSchema
+      if (options.schemaUpdate !== undefined) collOpts.schemaUpdate = options.schemaUpdate
       cachedCollection = cachedCompartment.collection<T>(collectionName, collOpts)
       return cachedCollection
     }
