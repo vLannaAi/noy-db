@@ -26,14 +26,14 @@ export function withDerivation<
     throw new ValidationError('withDerivation: derive must be a function')
   }
 
-  // #200 slice 1 — validate array-shape outputs.
+  // Validate array-shape outputs.
   const lifecycleMode = typeof spec.lifecycle === 'string' ? spec.lifecycle : spec.lifecycle.mode
   for (const [outputKey, outputSpec] of Object.entries(spec.outputs)) {
     if (outputSpec.shape === 'array') {
       if (lifecycleMode !== 'eager') {
         throw new ValidationError(
           `withDerivation: shape 'array' supports lifecycle 'eager' only in this release `
-          + `(#200 slice 1). Output "${outputKey}" declared lifecycle '${lifecycleMode}'. `
+          + `Output "${outputKey}" declared lifecycle '${lifecycleMode}'. `
           + 'Switch to `lifecycle: "eager"` or use shape: "record".',
         )
       }

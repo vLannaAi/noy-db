@@ -1,5 +1,5 @@
 /**
- * Multi-tab coordination (#228a): primary/secondary election (Web Locks)
+ * Multi-tab coordination: primary/secondary election (Web Locks)
  * + presence heartbeat (BroadcastChannel). Browser-only; opt-in; no-op
  * when the APIs are absent. The lock/channel interfaces are hub-local
  * (structurally compatible with @noy-db/by-peer + @noy-db/by-tabs, but
@@ -39,13 +39,13 @@ export interface TabCoordinationOptions {
    */
   readonly closeChannelOnDispose?: boolean
   /**
-   * Also propagate committed writes to other tabs (#228b). Default true:
+   * Also propagate committed writes to other tabs. Default true:
    * when tab coordination is enabled and a channel is available, a write in
    * one tab refreshes that document in every other tab. Set false to opt out.
    */
   readonly propagateWrites?: boolean
   /**
-   * Channel for write propagation (#228b) — distinct from the presence
+   * Channel for write propagation — distinct from the presence
    * channel. Default: an inline BroadcastChannel on `noydb:tab-writes`.
    */
   readonly writeChannel?: TabChannel

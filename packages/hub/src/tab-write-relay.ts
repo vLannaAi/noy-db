@@ -1,7 +1,7 @@
 /**
- * Cross-tab write propagation (#228b). A role-agnostic relay: it broadcasts
+ * Cross-tab write propagation. A role-agnostic relay: it broadcasts
  * a ciphertext-blind signal ({vault, collection, docId, action}) for every
- * locally-committed write (via onAfterWrite, #230), and on receiving a peer
+ * locally-committed write (via onAfterWrite), and on receiving a peer
  * tab's signal it asks the host to refresh that document's in-memory view by
  * re-reading the shared encrypted store. Nothing decrypted crosses the wire.
  */
@@ -28,7 +28,7 @@ export interface CrossTabWriteRelayOptions {
   readonly subscribeAfterWrite: (handler: (e: WriteEvent) => void) => Unsubscribe
   /** Refresh a document's in-memory view from the shared store. */
   readonly applyRemoteWrite: (vault: string, collection: string, docId: string, action: 'put' | 'delete') => void | Promise<void>
-  /** Report a detected conflict (host captures + converges + emits). #228c. */
+  /** Report a detected conflict (host captures + converges + emits). */
   readonly reportConflict?: (vault: string, collection: string, docId: string, action: 'put' | 'delete', baseV: number, v: number, ownV: number) => void | Promise<void>
   /** Close the channel on dispose (only when the relay created it). Default false. */
   readonly closeChannelOnDispose?: boolean

@@ -1,5 +1,5 @@
 /**
- * **Wrap-DEKs primitive (#44)** — a single canonical shape for the
+ * **Wrap-DEKs primitive** — a single canonical shape for the
  * pattern of "serialize a DEK set, encrypt it under a credential-derived
  * AES-GCM key." Used by:
  *
@@ -17,7 +17,7 @@
  * `PIN_PBKDF2_ITERATIONS` and the threat-model rationale in its
  * module docstring.
  *
- * Before #44, the same crypto lived in two places: `mintPaperRecoveryEntry`
+ * Previously, the same crypto lived in two places: `mintPaperRecoveryEntry`
  * (in `team/recovery.ts`) and `enrollPasswordAuthenticator` (in
  * `@noy-db/on-password`). Both functions did identical work — PBKDF2
  * the credential, AES-GCM-encrypt the JSON-serialized DEK set — but
@@ -53,7 +53,7 @@ const subtle = globalThis.crypto.subtle
  * Composition: `PaperRecoveryEntry extends WrappedDeksBlob` plus
  * `{ codeId, enrolledAt }`. `KeyringAuthenticatorWrappingDEKs`
  * carries the same three fields with `salt` stored in `meta` for
- * slot-format back-compat (#44 defers moving it to top-level).
+ * slot-format back-compat (defers moving it to top-level).
  */
 export interface WrappedDeksBlob {
   /** Base64 PBKDF2 salt for the credential-derived wrapping key. */

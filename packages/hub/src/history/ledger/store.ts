@@ -104,8 +104,8 @@ export interface AppendInput {
    */
   amendment?: LedgerEntry['amendment']
   /**
-   * Optional human-readable tag describing why this mutation happened
-   * (#1). Threaded from `collection.put(_, _, { reason })`.
+   * Optional human-readable tag describing why this mutation happened.
+   * Threaded from `collection.put(_, _, { reason })`.
    * Carried verbatim onto the resulting ledger entry's `reason` field;
    * omitted from canonical JSON when undefined.
    */

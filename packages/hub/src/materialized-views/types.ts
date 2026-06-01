@@ -109,7 +109,7 @@ export interface MaterializedViewStrategy<TRow extends Record<string, unknown>> 
    */
   query?: (db: MVQueryContext) => Query<TRow>
   /**
-   * UNION-form sources (#165): an explicit list of sibling collections
+   * UNION-form sources: an explicit list of sibling collections
    * that contribute rows to a single MV. Each arm's `map` projects a
    * source row into the MV's unified row shape; the mapped streams are
    * concatenated, then {@link groupBy} + {@link aggregate} run on the
@@ -125,7 +125,7 @@ export interface MaterializedViewStrategy<TRow extends Record<string, unknown>> 
    */
   unionSources?: ReadonlyArray<UnionSource<TRow>>
   /**
-   * Group-key field(s) for UNION mode (#165). Applied to the
+   * Group-key field(s) for UNION mode. Applied to the
    * concatenated mapped-row stream from {@link unionSources} before
    * {@link aggregate} runs. Accepts a single field name or a tuple of
    * field names for multi-key grouping (same shape as
@@ -137,7 +137,7 @@ export interface MaterializedViewStrategy<TRow extends Record<string, unknown>> 
    */
   groupBy?: string | ReadonlyArray<string>
   /**
-   * Aggregation spec for UNION mode (#165). Applied per-group after
+   * Aggregation spec for UNION mode. Applied per-group after
    * {@link groupBy} buckets the concatenated mapped-row stream from
    * {@link unionSources}. Same shape as the `AggregateSpec` passed to
    * `Query.aggregate()`.
@@ -148,11 +148,11 @@ export interface MaterializedViewStrategy<TRow extends Record<string, unknown>> 
   /**
    * Pure function from a materialized row → stable id used in the
    * output collection. Required — explicit always beats default-with-pitfalls
-   * (see niwat-review of #149 round 1 for the slash-collision rationale).
+   * (explicit always beats default-with-pitfalls; see the slash-collision rationale).
    */
   rowKey: (row: TRow) => string
   /**
-   * Explicit source collections (#152). Required when `query()` returns
+   * Explicit source collections. Required when `query()` returns
    * an `Aggregation` or `GroupedAggregation` rather than a `Query<T>`
    * — the dependency analyzer can't introspect through `groupBy().aggregate()`
    * back to the source. Optional for plain `Query<T>` results — the
@@ -162,7 +162,7 @@ export interface MaterializedViewStrategy<TRow extends Record<string, unknown>> 
    */
   sources?: ReadonlyArray<string>
   /**
-   * Declared deterministic predicates (#153). Each entry pairs a
+   * Declared deterministic predicates. Each entry pairs a
    * consumer-stable `hash` with a function. The `query()` callback's
    * Query<T> can invoke them via `.wherePredicate(name, ctx?)`. The
    * predicate's `hash` + a canonical-JSON hash of `ctx` both fold
@@ -199,8 +199,8 @@ export interface MaterializedViewStrategy<TRow extends Record<string, unknown>> 
    *
    * - `'delete'` (default) — tombstone the prior MV row via
    *   `Collection._internalDelete` (system housekeeping bypasses user
-   *   `onDelete` guards on the output collection — see PR #148's
-   *   composition fix).
+   *   `onDelete` guards on the output collection — the housekeeping
+   *   bypass composition fix).
    * - `'keep'` — leave the prior MV row in place. Useful when zero
    *   is a meaningful state.
    */
@@ -208,7 +208,7 @@ export interface MaterializedViewStrategy<TRow extends Record<string, unknown>> 
   /**
    * `true` re-throws on any row-write failure → composes with
    * `withTransactions` to roll back the source-write atomically via
-   * `revertExecuted` (#133). Default `false` (failed rows are
+   * `revertExecuted`. Default `false` (failed rows are
    * isolated; other rows commit).
    */
   strict?: boolean

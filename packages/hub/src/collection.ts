@@ -43,14 +43,14 @@ import type { GuardRegistry } from './guards/registry.js'
 import type { ReadOnlyVaultFacade } from './guards/types.js'
 // Type-only — runtime class loaded via dynamic import in the
 // frozen-field branch of `put()` / amendment paths. Keeps the guard
-// executor chunk out of the floor bundle (#130).
+// executor chunk out of the floor bundle.
 import type { GuardExecutor as GuardExecutorType } from './guards/executor.js'
 import type { DerivationRegistry } from './derivations/registry.js'
 import type { TxContext, ExecutedOp } from './tx/transaction.js'
 import { revertExecuted } from './tx/transaction.js'
 // Type-only — runtime class loaded via dynamic import in
 // `dispatchDerivations` when an eager-mode strategy fires. Keeps the
-// derivation executor chunk out of the floor bundle (#130).
+// derivation executor chunk out of the floor bundle.
 import type { DerivationExecutor as DerivationExecutorType } from './derivations/executor.js'
 import type {
   loadFanoutSidecar as LoadFanoutSidecarType,
@@ -417,7 +417,7 @@ export class Collection<T> {
          * `_activeTxContext` for the duration of its Phase 2 loop so
          * recursive derived-output writes register their pre-write
          * envelopes on `ctx._executed` and roll back alongside the
-         * bulk-put source ops (#133).
+         * bulk-put source ops.
          */
         createTxContext(): TxContext
         /** Publish a TxContext for the duration of a bulk-atomic loop. */
@@ -428,7 +428,7 @@ export class Collection<T> {
     | undefined
 
   /**
-   * Vault-internal hook for materialized-view dispatch (#143/#150).
+   * Vault-internal hook for materialized-view dispatch.
    * Parallel to `derivationSource` — when set, `Collection.put` fires
    * `MaterializedViewRegistry.onSourceWrite` after the source-write
    * commits + after `dispatchDerivations` has run.
@@ -504,21 +504,21 @@ export class Collection<T> {
     encrypted: boolean
     emitter: NoydbEventEmitter
     /**
-     * Vault-level in-flight write tracker (#227). When present,
+     * Vault-level in-flight write tracker. When present,
      * `put`/`delete` run inside `writeQueue.track()` so `hub.writeQueue`
      * reflects outstanding writes. Optional so direct Collection
      * construction in tests still works untracked.
      */
     writeQueue?: WriteQueueTracker | undefined
-    /** #245 — per-collection schema-update gate; `put`/`delete` await it. */
+    /** Per-collection schema-update gate; `put`/`delete` await it. */
     schemaUpdateGate?: SchemaUpdateGate | undefined
-    /** #232 — vault-level fence controller; `put`/`delete` consult it. */
+    /** Vault-level fence controller; `put`/`delete` consult it. */
     schemaFence?: SchemaFenceController | undefined
-    /** #230 — hub-level write-hook registry; fired around put/delete. */
+    /** Hub-level write-hook registry; fired around put/delete. */
     writeHooks?: WriteHookRegistry | undefined
-    /** Track A — the observe bus, threaded from Noydb. */
+    /** The observe bus, threaded from Noydb. */
     subsystemBus?: SubsystemBus | undefined
-    /** #230 — active transaction id supplier (null outside a transaction). */
+    /** Active transaction id supplier (null outside a transaction). */
     activeTxId?: (() => string | null) | undefined
     getDEK: (collectionName: string) => Promise<CryptoKey>
     historyConfig?: HistoryConfig | undefined
@@ -762,7 +762,7 @@ export class Collection<T> {
       getCollection(name: string): Collection<Record<string, unknown>>
       /**
        * Read-only vault facade handed to `derive(source, ctx)` so a
-       * derivation can fetch sibling records (#147). Same shape and
+       * derivation can fetch sibling records. Same shape and
        * instance the guards subsystem uses for `check(incoming, ctx)`.
        */
       getReadOnlyFacade(): ReadOnlyVaultFacade
@@ -771,13 +771,13 @@ export class Collection<T> {
        * transaction context, or `null` when no transaction is running.
        * `dispatchDerivations` consults this so a recursive derived-output
        * write can register its pre-write envelope onto `ctx._executed`
-       * and roll back alongside the source op on mid-batch failure (#133).
+       * and roll back alongside the source op on mid-batch failure.
        */
       getActiveTxContext(): TxContext | null
       /**
        * Construct a transient TxContext bound to the owning Noydb. Used
        * by `Collection.putManyAtomic` to publish an active context for
-       * its Phase 2 loop (#133).
+       * its Phase 2 loop.
        */
       createTxContext(): TxContext
       /** Publish a TxContext for the duration of a bulk-atomic loop. */
@@ -786,7 +786,7 @@ export class Collection<T> {
       clearActiveTxContext(ctx: TxContext): void
     } | undefined
     /**
-     * Vault-internal hook for materialized-view dispatch (#143/#150).
+     * Vault-internal hook for materialized-view dispatch.
      * Parallel to `derivationSource`. When set, `Collection.put` fires
      * registered MV `onSourceWrite` after the standard derivation
      * dispatch.
@@ -1006,7 +1006,7 @@ export class Collection<T> {
       }
     }
 
-    // Lazy-MV resolve-on-read (#151). When the collection being read
+    // Lazy-MV resolve-on-read. When the collection being read
     // is the output of a registered lazy MV that has at least one
     // pending stale flag, run the executor before returning. No-op
     // when nothing is pending.
@@ -1089,26 +1089,26 @@ export class Collection<T> {
 
   /**
    * Create or update a record. Runs inside the hub's write-queue tracker
-   * (#227) so `hub.writeQueue.pending` reflects this write.
+   * so `hub.writeQueue.pending` reflects this write.
    *
    * @param id      Record identifier.
    * @param record  The record body (validated by the collection's schema
    *                if one was attached at `vault.collection(...)` time).
    * @param options Optional metadata for audit + import workflows.
    *                `reason` is stamped onto the resulting ledger entry
-   *                (see #1) so audit consumers can filter via
+   *                so audit consumers can filter via
    *                `entries.filter(e => e.reason?.startsWith('import:'))`.
    */
   async put(id: string, record: T, options?: { readonly reason?: string }): Promise<void> {
-    // #245 — refuse the write if an update strategy rejected the schema
+    // Refuse the write if an update strategy rejected the schema
     // change. Awaited OUTSIDE track() so a rejected write never counts
     // toward writeQueue.depth.
     await this.schemaUpdateGate?.assertWritable()
-    await this.schemaFence?.assertWritable(this.name) // #232
-    // TODO(#232-slice2 / #230-followup): putManyAtomic / tx-execute / CRDT /
+    await this.schemaFence?.assertWritable(this.name)
+    // TODO: putManyAtomic / tx-execute / CRDT /
     // blob write paths are not yet tracked by writeQueue nor fired through
     // the write hooks.
-    // #230 user write-hooks AND the Track A observe bus both need the
+    // User write-hooks AND the observe bus both need the
     // WriteEvent. Build it if EITHER consumer is active so the bus is not
     // coupled to write-hooks being present.
     const hooksActive = this.#hooksActive()
@@ -1136,18 +1136,18 @@ export class Collection<T> {
     }
   }
 
-  /** @internal #230 — true when hooks should fire for this write (handlers exist, not re-entrant). */
+  /** @internal — true when hooks should fire for this write (handlers exist, not re-entrant). */
   #hooksActive(): boolean {
     return this.writeHooks !== undefined && this.writeHooks.hasHandlers && !this.writeHooks.suppressed
   }
 
   /**
-   * @internal #230/#228c — resolve the prior record for a hook's `before` and
+   * @internal — resolve the prior record for a hook's `before` and
    * its version. Critically, this uses the SAME basis `putInternal` writes from
    * (the in-memory cache in eager mode; lru-then-adapter in lazy) — NOT a fresh
    * store read — so `baseVersion`/`version` match the version actually written.
    * A separate store read would diverge once another tab has advanced the shared
-   * store past this tab's cache, breaking #228c conflict detection.
+   * store past this tab's cache, breaking cross-tab conflict detection.
    */
   async #priorForHook(id: string): Promise<{ record: unknown; version: number }> {
     if (this.lazy && this.lru) {
@@ -1210,7 +1210,7 @@ export class Collection<T> {
           // Dynamic-import the executor only when at least one guard
           // is registered AND a non-amendment write fires. Consumers
           // who never call `withGuard()` never reach this branch and
-          // never pull `GuardExecutor` into their bundle (#130).
+          // never pull `GuardExecutor` into their bundle.
           const { GuardExecutor } = (await import('./guards/executor.js')) as { GuardExecutor: typeof GuardExecutorType }
           for (const g of guards) {
             await GuardExecutor.checkFrozenFields(g, id, existingRecord, incomingRecord)
@@ -1523,7 +1523,7 @@ export class Collection<T> {
    * Fire registered MV strategies whose dependency set includes this
    * collection. Eager-mode MVs re-materialize inline via
    * `MaterializedViewExecutor.refresh`; lazy / manual modes are
-   * no-ops in the foundation (subtask #150) — wired in #151.
+   * no-ops in the foundation; wired in the lazy-mode implementation.
    *
    * Skips entirely when the record being written is itself an
    * MV-emitted row (carries `_materializedFrom`) — defensive guard
@@ -1541,7 +1541,7 @@ export class Collection<T> {
     if (mvs.length === 0) return
     // Dynamic-import the executor only on first eager-MV dispatch —
     // keeps the MV executor chunk out of the floor bundle (mirrors the
-    // #130 dynamic-import pattern v1 uses for derivations). Lazy mode
+    // dynamic-import pattern used for derivations). Lazy mode
     // uses the pure-helper `markMVStale` which lives in `stale.js` and
     // is also dynamic-imported (only when at least one lazy MV depends
     // on this source).
@@ -1591,7 +1591,7 @@ export class Collection<T> {
     // dispatch. Lazy-mode dispatches use `markStale` (a pure helper)
     // which doesn't reach into the executor at all. Keeps the
     // derivation executor chunk out of the floor bundle for any
-    // consumer that doesn't fire an eager derivation (#130).
+    // consumer that doesn't fire an eager derivation.
     let DerivationExecutor: typeof DerivationExecutorType | null = null
     for (const { spec, strategyHash } of strategies) {
       const mode = typeof spec.lifecycle === 'string' ? spec.lifecycle : spec.lifecycle.mode
@@ -1614,7 +1614,7 @@ export class Collection<T> {
           const outSpec = spec.outputs[key]
           if (!outSpec) continue
           const outputCollection = this.derivationSource.getCollection(outSpec.collection)
-          // #133 — if we're inside a multi-record transaction, register
+          // If we're inside a multi-record transaction, register
           // derived writes as side-effect ops on the active ctx
           // BEFORE they fire. `revertExecuted` walks `_executed` in
           // reverse on rollback, so capturing the pre-write envelope
@@ -1623,7 +1623,7 @@ export class Collection<T> {
           // the context is null and tracking is skipped.
           const txCtx = this.derivationSource.getActiveTxContext()
 
-          // ── Array-shape branch (#200) ──────────────────────────
+          // ── Array-shape branch ─────────────────────────────────
           if (out.kind === 'array') {
             // Load the prior key set from the fanout sidecar.
             const { loadFanoutSidecar, saveFanoutSidecar } = await import('./derivations/fanout-sidecar.js')
@@ -1677,14 +1677,14 @@ export class Collection<T> {
 
           // ── Record-shape branch (existing v1 behavior) ─────────
           if (out.skipped === true) {
-            // #144: optional output returned null. Delete the
+            // Optional output returned null. Delete the
             // previously-emitted output at this id, if any. Routed
             // through `_internalDelete` so a user-registered
-            // `onDelete` (#145) on the output collection does NOT
+            // `onDelete` on the output collection does NOT
             // fire — this is a system-internal tombstone, not a
             // user-initiated delete. The txCtx hookup captures the
-            // prior envelope inside `_internalDelete` for #133-style
-            // rollback symmetry; delete-of-absent is a silent no-op.
+            // prior envelope inside `_internalDelete` for rollback
+            // symmetry; delete-of-absent is a silent no-op.
             await outputCollection._internalDelete(id, txCtx)
             continue
           }
@@ -1710,11 +1710,11 @@ export class Collection<T> {
 
   /**
    * Delete a record by ID. Runs inside the hub's write-queue tracker
-   * (#227) so `hub.writeQueue.pending` reflects this write.
+   * so `hub.writeQueue.pending` reflects this write.
    */
   async delete(id: string): Promise<void> {
-    await this.schemaUpdateGate?.assertWritable() // #245
-    await this.schemaFence?.assertWritable(this.name) // #232
+    await this.schemaUpdateGate?.assertWritable()
+    await this.schemaFence?.assertWritable(this.name)
     let event: WriteEvent | undefined
     if (this.#hooksActive()) {
       const prior = await this.#priorForHook(id)
@@ -1731,7 +1731,7 @@ export class Collection<T> {
   }
 
   /**
-   * @internal #232 — bulk-rewrite every record through a cutover transform.
+   * @internal — bulk-rewrite every record through a cutover transform.
    * Raw adapter path (bypasses the write gate + guards — the transform is
    * trusted and runs only during the `migrating` phase). Bumps each
    * record's `_v` and appends a ledger `op:'migration'` entry.
@@ -1769,7 +1769,7 @@ export class Collection<T> {
   /**
    * @internal — system-internal delete that bypasses user-facing
    * delete hooks (`onDelete`, accounting-period guard, FK ref
-   * enforcer). Used by derivation tombstones (#144) and MV refresh
+   * enforcer). Used by derivation tombstones and MV refresh
    * (Dim 14 v2) — system housekeeping shouldn't trip user invariants
    * registered against the output collection. The ledger entry and
    * history snapshot still fire so backup integrity and time-travel
@@ -1781,7 +1781,7 @@ export class Collection<T> {
    *
    * When a `txCtx` is supplied, the prior envelope is captured and
    * pushed onto `txCtx._executed` BEFORE the delete fires — mirrors
-   * the #133 rollback hardening for puts. Callers outside a
+   * the rollback hardening for puts. Callers outside a
    * multi-record transaction pass `null` and skip the tracking.
    *
    * Amendment composition: if `_internalDelete` runs while a vault's
@@ -1844,7 +1844,7 @@ export class Collection<T> {
     // amendment change-collection still runs if a window is open.
     // This means an `amendment.invariant` paired with `onDelete` for
     // "TRULY unconditional" rules sees the system delete and can
-    // reject it — closing the niwat-review gap where a derivation
+    // reject it — closing the gap where a derivation
     // tombstone fired during an admin amendment would otherwise
     // silently bypass both hooks.
     if (this.guardSource) {
@@ -1865,7 +1865,7 @@ export class Collection<T> {
             // and vAfter = same (the ledger entry's `op` discriminator
             // is `delete`, not `put`, so the consumer treats the
             // tombstone shape correctly). Fires for BOTH user and
-            // system-internal deletes (#145 follow-up).
+            // system-internal deletes.
             const vBefore = existingEnv._v
             registry.collectChange(
               this.name,
@@ -1876,7 +1876,7 @@ export class Collection<T> {
               vBefore,
             )
           } else if (!internal) {
-            // Dedicated delete-time hook (#145). `check` is put-only;
+            // Dedicated delete-time hook. `check` is put-only;
             // `onDelete(existing, ctx)` receives the currently-persisted
             // record and decides whether the deletion is permitted.
             // Skipped for internal deletes — housekeeping must not trip
@@ -2001,7 +2001,7 @@ export class Collection<T> {
 
     await this.onAccess?.('delete', id)
 
-    // Symmetric to put (#181): user-initiated deletes must fire MV
+    // Symmetric to put: user-initiated deletes must fire MV
     // refresh so `onEmpty: 'delete'` MVs tombstone their now-orphan
     // output rows. Gated on `!internal` to prevent recursion — the
     // MV executor's own tombstoning round-trips through
@@ -2011,7 +2011,7 @@ export class Collection<T> {
     // Record-shape derivations intentionally NOT dispatched on delete:
     // their derived-output id equals the source id, so the user can
     // delete the output directly with `outputCollection.delete(id)` if
-    // they want. Array-shape derivations (#200) DO cascade on delete
+    // they want. Array-shape derivations DO cascade on delete
     // because their derived ids are opaque (from the `key(out)`
     // extractor) — without cascade the rows become unfindable orphans.
     if (!internal) {
@@ -2022,7 +2022,7 @@ export class Collection<T> {
 
   /**
    * Cascade deletes of array-shape derived rows when a source row is
-   * deleted (#200). Reads each registered strategy's fanout sidecar
+   * deleted. Reads each registered strategy's fanout sidecar
    * for this source id, deletes every listed derived row, then
    * deletes the sidecar itself.
    *
@@ -2071,8 +2071,8 @@ export class Collection<T> {
   }
 
   /**
-   * Mirror of {@link dispatchMaterializedViews} for the delete path
-   * (#181). No record content is available (it's gone), so the
+   * Mirror of {@link dispatchMaterializedViews} for the delete path.
+   * No record content is available (it's gone), so the
    * `_materializedFrom` skip used by the put-side dispatch doesn't
    * apply here — instead, the recursion guard is the `internal` gate
    * at the `_doDelete` call site above.
@@ -2125,7 +2125,7 @@ export class Collection<T> {
         `Use collection.scan({ pageSize }) to iterate over the full collection.`,
       )
     }
-    // Lazy-MV resolve-on-read (#157 review): if this collection is the
+    // Lazy-MV resolve-on-read: if this collection is the
     // output of a registered lazy MV with a pending stale flag, run
     // the executor before returning so callers see fresh data. No-op
     // when nothing is pending — keeps the read path negligible.
@@ -2219,7 +2219,7 @@ export class Collection<T> {
     }
     // Phase 2 — execute; revert on failure.
     //
-    // #133 — when a derivation registry is wired, publish a transient
+    // When a derivation registry is wired, publish a transient
     // TxContext for the duration of this loop so `dispatchDerivations`
     // can register recursive derived-output writes onto `ctx._executed`.
     // The shared `revertExecuted` helper then unwinds the combined list
@@ -2328,7 +2328,7 @@ export class Collection<T> {
    * the filtered records directly (the API). Prefer the chainable
    * form for new code.
    *
-   * **Lazy-MV gap (#157):** `query()` is synchronous and does NOT
+   * **Lazy-MV gap:** `query()` is synchronous and does NOT
    * trigger lazy materialized-view resolve-on-read. If this
    * collection is a lazy MV's output and the MV is currently stale,
    * `query().toArray()` returns the pre-stale snapshot. To force a
@@ -2729,7 +2729,7 @@ export class Collection<T> {
    *   .aggregate({ total: sum('amount'), n: count() })
    * ```
    *
-   * **Lazy-MV gap (#157):** `scan()` is synchronous-build and does
+   * **Lazy-MV gap:** `scan()` is synchronous-build and does
    * NOT trigger lazy materialized-view resolve-on-read. For lazy
    * MVs, call `list()` (which DOES resolve) or `vault.refreshView(name)`
    * before scanning. Same shape as the `query()` limitation.
@@ -2830,7 +2830,7 @@ export class Collection<T> {
   }
 
   /**
-   * #228b — apply a peer tab's committed write to THIS tab's in-memory view:
+   * Apply a peer tab's committed write to THIS tab's in-memory view:
    * re-read the (already-persisted) envelope from the shared store + refresh
    * cache/indexes, then emit a `change` event so reactive consumers re-render.
    * Never writes to the store and never fires write hooks, so it cannot loop.
@@ -2840,7 +2840,7 @@ export class Collection<T> {
     this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action })
   }
 
-  /** @internal #228c — the current in-memory record without a store read (for conflict capture). */
+  /** @internal — the current in-memory record without a store read (for conflict capture). */
   _peekCached(id: string): T | null {
     const entry = this.lazy && this.lru ? this.lru.get(id) : this.cache.get(id)
     return entry ? entry.record : null

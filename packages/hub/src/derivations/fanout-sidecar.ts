@@ -1,5 +1,5 @@
 /**
- * Per-source-row fanout sidecar for `shape: 'array'` derivations (#200).
+ * Per-source-row fanout sidecar for `shape: 'array'` derivations.
  *
  * Each `(sourceCollection, sourceId, outputKey)` triple gets its own
  * envelope at:

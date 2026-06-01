@@ -313,7 +313,7 @@ export class PersistedCollectionIndex {
 
   /**
    * Sorted iteration — return every entry on `field` as an
-   * `OrderedEntry[]`, sorted by the ORIGINAL TYPED value (#275: no more
+   * `OrderedEntry[]`, sorted by the ORIGINAL TYPED value (no more
    * `'10' < '2'` surprises on numeric fields). Consumers paginate with
    * a numeric offset. `OrderedEntry.value` is the typed value.
    */

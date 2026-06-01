@@ -4,7 +4,7 @@ import type { OverlayedViewStrategy, OverlayedViewStrategyHandle } from './types
 /**
  * Register a read-shadow overlay: bind an MV-owned base collection to
  * a user-writable overlay so consumers can express operator-editable
- * lifecycles as one declarative block (#154, MV v2 spec § Composition
+ * lifecycles as one declarative block (MV v2 spec § Composition
  * with operator-editable lifecycle).
  *
  * See docs/superpowers/specs/2026-05-20-dim14-mv-v2-design.md.

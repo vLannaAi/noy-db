@@ -1,6 +1,6 @@
 /**
  * Tier-1 change flows — `rotatePassphrase` (user remembers old) and
- * `recoverPassphrase` (user supplies a recovery proof). Issue #10.
+ * `recoverPassphrase` (user supplies a recovery proof).
  *
  * The two flows share the post-verification half — fresh salt, fresh
  * KEK, rewrap every DEK — and differ only in how they re-derive the
@@ -100,10 +100,9 @@ export interface RotatePassphraseInput {
    * Map of slot id → re-enrolment ceremony. Slots whose id appears
    * here are PRESERVED across rotation (the ceremony re-derives the
    * method-specific wrapping under the new keyring); slots whose id
-   * is absent are DROPPED (the pre-#29 behavior).
+   * is absent are DROPPED (the pre-slot-ceremony behavior).
    *
-   * Without this map, `rotatePassphrase` retains the pre-pre.8
-   * behavior of wiping every tier-2 slot. Consumers building a
+   * Without this map, `rotatePassphrase` wipes every tier-2 slot. Consumers building a
    * "rotate without losing my biometric" flow supply ceremonies for
    * each slot they want to keep.
    *
@@ -111,7 +110,7 @@ export interface RotatePassphraseInput {
    * state. Callers wrap individual ceremonies in try/catch + return
    * a sentinel if they want graceful degradation per slot.
    *
-   * Added in pre.8 (#29).
+   * Added when slot-ceremony rewrapping landed.
    */
   readonly slotCeremonies?: { readonly [slotId: string]: SlotRewrapCeremony }
 }
@@ -121,10 +120,10 @@ export interface RotatePassphraseInput {
  * under a freshly-derived KEK from `newPassphrase`, and persist.
  *
  * Tier-2 authenticator slots are dropped UNLESS the caller supplies
- * a `slotCeremonies` map (#29) — each ceremony re-derives its
+ * a `slotCeremonies` map — each ceremony re-derives its
  * method-specific wrapping under the new keyring, and hub persists
  * the rewrapped slots atomically with the rotation. Slots whose id
- * isn't in the map are still dropped (pre-pre.8 behavior).
+ * isn't in the map are still dropped.
  *
  * @throws `InvalidKeyError` if `oldPassphrase` does not unwrap the keyring.
  * @throws `WeakPassphraseError` if `newPassphrase` fails the strength rule.
@@ -165,15 +164,15 @@ export async function rotatePassphrase(
     wrappedDeks[coll] = await wrapKey(dek, newKek)
   }
 
-  // Slot rewrap (#29). Without slotCeremonies, we drop every existing
-  // slot — the pre-pre.8 behavior. With a ceremony map, slots whose
-  // id appears in the map are preserved; the rest are dropped.
+  // Slot rewrap. Without slotCeremonies, we drop every existing
+  // slot. With a ceremony map, slots whose id appears in the map
+  // are preserved; the rest are dropped.
   const oldSlots = file.authenticators ?? []
   const newSlots: KeyringAuthenticator[] = []
   if (input.slotCeremonies && oldSlots.length > 0) {
     for (const oldSlot of oldSlots) {
       const ceremony = input.slotCeremonies[oldSlot.id]
-      if (!ceremony) continue // drop — same as pre-#29 behavior
+      if (!ceremony) continue // drop — not in slotCeremonies map
 
       const result = await ceremony({ newKek, newDeks: deks, oldSlot })
 
@@ -269,7 +268,7 @@ export async function rotatePassphrase(
 /**
  * Caller payload for {@link recoverPassphrase}.
  *
- * As of #196 slice 1, `paper` and `shamir` are wired end-to-end.
+ * `paper` and `shamir` are wired end-to-end.
  * The remaining two profiles (`multi-channel`, `admin-mediated`)
  * stay outside the union and throw
  * {@link RecoveryProfileNotImplementedError} at the runtime guard
@@ -294,7 +293,7 @@ export interface RecoverPassphraseInput {
    * After a successful paper-recovery, replace ALL remaining recovery
    * entries with freshly-minted ones. Defaults to `true` (defensive).
    *
-   * Rationale (issue #36): the user just demonstrated they had access
+   * Rationale: the user just demonstrated they had access
    * to AT LEAST one code. The remaining codes from the same printed
    * sheet may also be compromised — photographed, leaked via a
    * screen-share slip, or in the hands of whoever stole the sheet.
@@ -346,7 +345,7 @@ export interface RecoverPassphraseResult {
 }
 
 /**
- * Input for {@link Noydb.rotateRecovery} (#121) — deliberate
+ * Input for {@link Noydb.rotateRecovery} — deliberate
  * recovery-credential regeneration when the user knows their
  * passphrase but wants a fresh sheet (paper) or fresh shares
  * (shamir). Symmetric to {@link RotatePassphraseInput}.
@@ -402,7 +401,7 @@ export interface EnrollRecoveryResult {
 
 /**
  * Input shape for {@link Noydb.enrollRecovery} and
- * {@link Noydb.openVaultAndEnrollRecovery} (#195). Discriminated
+ * {@link Noydb.openVaultAndEnrollRecovery}. Discriminated
  * union over recovery profiles.
  *
  * - `paper`: caller pre-mints entries (typically via
@@ -428,9 +427,8 @@ export type RecoveryEnrollmentInput =
     }
 
 /**
- * Reset the user's passphrase using a recovery proof. v0.1.0-pre.5
- * supports the `'paper'` profile via `@noy-db/on-recovery` entries
- * persisted in `_meta/recovery-paper`. The other three profiles throw
+ * Reset the user's passphrase using a recovery proof.
+ * Supports `'paper'` and `'shamir'` profiles. The other profiles throw
  * {@link RecoveryProfileNotImplementedError}.
  *
  * On success, the used recovery entry is burned (deleted from the
@@ -447,8 +445,8 @@ export async function recoverPassphrase(
     assertStrongPassphrase(input.newPassphrase, input.passphrasePolicy)
   }
 
-  // Runtime defense-in-depth: the type narrows to 'paper' | 'shamir'
-  // (#86 + #196), but a consumer bypassing TS via
+  // Runtime defense-in-depth: the type narrows to 'paper' | 'shamir',
+  // but a consumer bypassing TS via
   // `as unknown as RecoveryProof` should still hit a clear error
   // rather than silently fall into a handler with a malformed payload.
   const profile = (input.recoveryProof as { profile: string }).profile
@@ -526,7 +524,7 @@ async function recoverViaPaperCode(
   }
 
   // Burn first, then rewrite the keyring. The two writes are not
-  // atomic — if the second fails (#84), the safer ordering is:
+  // atomic — if the second fails, the safer ordering is:
   //
   //   1. Code burned, keyring untouched: user keeps their old passphrase
   //      and loses one recovery code (recoverable: contact admin / use

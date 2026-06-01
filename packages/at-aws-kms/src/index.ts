@@ -1,6 +1,6 @@
 /**
  * **@noy-db/at-aws-kms** — AWS KMS sealing key provider for noy-db
- * managed-passphrase mode (#188).
+ * managed-passphrase mode.
  *
  * An `at-*` provider that seals and unseals the hub-generated random
  * passphrase via AWS KMS Encrypt / Decrypt. Every seal and unseal is an

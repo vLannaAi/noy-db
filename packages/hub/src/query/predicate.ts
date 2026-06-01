@@ -43,7 +43,7 @@ export interface FilterClause {
 }
 
 /**
- * A declared deterministic predicate reference (#153). The query
+ * A declared deterministic predicate reference. The query
  * builder produces this via `.wherePredicate(name, ctx?)` when a
  * Query has been augmented with a predicates map (typically by the
  * materialized-view registry — see MV v2 spec § Function-based

@@ -4,7 +4,7 @@ import type { OverlayedViewStrategy } from './types.js'
 
 /**
  * Virtual-collection proxy returned by `vault.collection(overlayName)`
- * when `overlayName` is a registered `withOverlayedView` (#154).
+ * when `overlayName` is a registered `withOverlayedView`.
  *
  * Implements the core `Collection<T>`-shaped read/write surface with
  * merge-on-read semantics:
@@ -15,7 +15,7 @@ import type { OverlayedViewStrategy } from './types.js'
  *   - `delete(id)`: removes the overlay row only; base stays
  *
  * Reactive APIs (`live`, `subscribe`, `query().live()`) are out of
- * scope for #154 and surface as "not yet implemented" — wired in a
+ * scope for this release and surface as "not yet implemented" — wired in a
  * future sub-issue.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -153,7 +153,7 @@ export class OverlayedCollection<T extends Record<string, unknown> = any> {
   // error pointing at the relevant issue — so consumers don't hit a
   // cryptic `undefined is not a function` runtime crash.
   //
-  // Closes niwat-review of PR #160.
+  // Throw-stubs so consumers get actionable errors rather than cryptic crashes.
 
   /** @throws — chainable Query<T> over a virtual collection is deferred. */
   query(): never {

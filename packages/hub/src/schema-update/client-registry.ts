@@ -1,5 +1,5 @@
 /**
- * Schema-cutover client registry (#232 sub-slice 3b). Each client keeps a
+ * Schema-cutover client registry. Each client keeps a
  * heartbeat doc at `_meta/schema-fence:client:<clientId>` carrying its
  * liveness (`lastSeen`) and the fence generation it has quiesced for
  * (`quiescedAtVersion`). Plaintext envelope, like the fence doc.

@@ -1,5 +1,5 @@
 /**
- * Per-vault tier-3 (PIN / quick-resume) state — issue #11.
+ * Per-vault tier-3 (PIN / quick-resume) state.
  *
  * The hub holds a `PinResumeState`-shaped record in memory, keyed by
  * vault. `enrollUnlock` populates it; `unlockViaPin` consumes it via

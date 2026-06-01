@@ -60,7 +60,6 @@ export interface PassphrasePolicy {
    * double-space). For non-space-delimited word semantics, use
    * {@link customValidator} instead.
    *
-   * Added in pre.8 (#31).
    */
   readonly pattern?: RegExp
   /**
@@ -78,7 +77,6 @@ export interface PassphrasePolicy {
    * {@link assertStrongPassphrase} dispatches on — `ok: true` accepts;
    * `ok: false` throws `WeakPassphraseError` with the supplied reason.
    *
-   * Added in pre.8 (#31).
    */
   readonly customValidator?: (phrase: string) => PassphraseValidationResult
 }

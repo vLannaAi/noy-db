@@ -823,7 +823,7 @@ export class SchemaValidationError extends NoydbError {
   }
 }
 
-/** Base for schema-evolution strategy rejections (#245). */
+/** Base for schema-evolution strategy rejections. */
 export class SchemaUpdateError extends NoydbError {
   constructor(code: string, message: string) {
     super(code, message)
@@ -1017,7 +1017,7 @@ export class BundleIntegrityError extends NoydbError {
 }
 
 /**
- * Thrown by `readNoydbBundle` (#197) when the bundle carries
+ * Thrown by `readNoydbBundle` when the bundle carries
  * sealed per-user passphrases but no supplied `SealingKeyProvider`
  * has a `.id` (= `pid`) matching the sealed entry's `pid`.
  *
@@ -1277,7 +1277,7 @@ export class BackupCorruptedError extends NoydbError {
 }
 
 /**
- * Thrown by partition-extraction primitives (#198 epic) when the
+ * Thrown by partition-extraction primitives when the
  * transitive-closure walk fails — e.g. the FK graph is deeper than
  * `maxDepth`, signalling a runaway or unexpectedly cyclic graph.
  */
@@ -1289,7 +1289,7 @@ export class PartitionExtractionError extends NoydbError {
 }
 
 /**
- * Thrown by `adoptPartition` (#207) when the transfer seal can't be
+ * Thrown by `adoptPartition` when the transfer seal can't be
  * opened — a wrong/short transfer key (AES-GCM auth-tag failure) or a
  * malformed sealed payload.
  */
@@ -1302,8 +1302,8 @@ export class TransferSealError extends NoydbError {
 
 /**
  * Thrown when an adoption-lifecycle precondition fails — re-adopting a
- * partition already consumed in this store (#207), or owner-creation on a
- * vault that isn't in the adopted-unowned state (#208).
+ * partition already consumed in this store, or owner-creation on a
+ * vault that isn't in the adopted-unowned state.
  */
 export class AdoptionStateError extends NoydbError {
   constructor(message: string) {
@@ -1575,7 +1575,7 @@ export class DerivationOutputShapeError extends NoydbError {
 }
 
 /**
- * Thrown by array-shape derivations (#200) when the `derive` function
+ * Thrown by array-shape derivations when the `derive` function
  * returns more rows than the output's `maxFanout` cap. The cap exists
  * to keep dispatch cost bounded — without it a single source-row
  * update could fan out to thousands of derived rows, dominating the
@@ -1681,7 +1681,7 @@ export class MaterializedViewTooLargeError extends NoydbError {
  * normalized.
  *
  * Today the trigger cases are all about the `query` / `unionSources`
- * dichotomy introduced by #165:
+ * dichotomy:
  *   - both `query` and `unionSources` were set (mutually exclusive),
  *   - neither `query` nor `unionSources` was set,
  *   - `unionSources` has fewer than 2 arms,

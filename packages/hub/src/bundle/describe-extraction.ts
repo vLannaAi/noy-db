@@ -1,5 +1,5 @@
 /**
- * Partition-extraction dry-run (#202). Read-only preview of what an
+ * Partition-extraction dry-run. Read-only preview of what an
  * `extractPartition` would move: record counts, byte totals, and the
  * timestamp span per collection — computed from raw encrypted
  * envelopes WITHOUT decrypting them. Writes nothing, mutates nothing.

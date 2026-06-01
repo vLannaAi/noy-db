@@ -30,7 +30,7 @@ export {
 } from './keyring.js'
 export type { BundleRecipient, ListUsersOptions } from './keyring.js'
 
-// ─── Tier-2 authenticator slots (#11) ───────────────────
+// ─── Tier-2 authenticator slots ─────────────────────────
 export {
   enrollAuthenticator,
   removeAuthenticator,
@@ -44,7 +44,7 @@ export type {
   UpdateAuthenticatorOptions,
 } from './authenticators.js'
 
-// ─── Tier-1 change flows (#10, #29, #36) ────────────────
+// ─── Tier-1 change flows ─────────────────────────────────
 export {
   rotatePassphrase,
   recoverPassphrase,
@@ -58,11 +58,11 @@ export type {
   SlotRewrapCeremony,
 } from './rotate-recover.js'
 
-// ─── Atomic peer-recovery (#33, #34) ────────────────────
+// ─── Atomic peer-recovery ────────────────────────────────
 export { recoverUser } from './peer-recover.js'
 export type { RecoverUserOptions } from './peer-recover.js'
 
-// ─── Paper recovery primitives (#28, #39) ───────────────
+// ─── Paper recovery primitives ───────────────────────────
 export {
   mintPaperRecoveryEntry,
   unwrapDeksFromPaperEntry,
@@ -72,7 +72,7 @@ export {
 } from './recovery.js'
 export type { PaperRecoveryEntry } from './recovery.js'
 
-// ─── Shared wrap-DEKs primitive (#26 Path C, #44) ───────
+// ─── Shared wrap-DEKs primitive ──────────────────────────
 export {
   mintWrappedDeksBlob,
   unwrapDeksFromBlob,

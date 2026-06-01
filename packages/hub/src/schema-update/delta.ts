@@ -1,5 +1,5 @@
 /**
- * Classify the difference between two derived JSON Schemas (#245).
+ * Classify the difference between two derived JSON Schemas.
  *
  * v1 ruleset — top-level object properties + required-ness:
  *   - additive  ⇔ only new OPTIONAL properties (no removals, no changed

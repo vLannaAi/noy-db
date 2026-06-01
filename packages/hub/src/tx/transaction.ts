@@ -81,7 +81,7 @@ export interface StagedOp {
   expectedVersion?: number
   /**
    * Optional human-readable tag forwarded to the resulting ledger
-   * entry's `reason` field (#1). Set by callers via
+   * entry's `reason` field. Set by callers via
    * `tx.vault(v).collection(c).put(id, record, { reason })`.
    */
   reason?: string
@@ -116,7 +116,7 @@ export interface AmendmentTxOptions {
  * facade; its `put`/`delete`/`get` calls stage ops against the tx.
  */
 export class TxContext {
-  /** Stable id for this transaction; shared by all writes it performs (#230). */
+  /** Stable id for this transaction; shared by all writes it performs. */
   readonly txId: string = generateULID()
   /** @internal */
   readonly _ops: StagedOp[] = []
@@ -126,7 +126,7 @@ export class TxContext {
    * restore prior state via `revertExecuted`. Side-effect writes (e.g.
    * recursive derivation outputs fired inside `Collection.put`) are
    * appended here in execution order so they roll back alongside the
-   * main staged ops (#133).
+   * main staged ops.
    */
   readonly _executed: ExecutedOp[] = []
   /** @internal */
@@ -282,7 +282,7 @@ export class TxCollection<T> {
  * in `noydb.ts`. `Collection.putManyAtomic` runs its own Phase 2 loop
  * but shares the `_activeTxContext` mechanism (and the `revertExecuted`
  * helper) so nested side-effect derivation writes get registered for
- * revert alongside the bulk-put source ops (#133).
+ * revert alongside the bulk-put source ops.
  */
 export async function runTransaction<T>(
   db: Noydb,
@@ -360,7 +360,7 @@ export async function runTransaction<T>(
   // duration of Phase 2 so recursive writes triggered inside
   // `Collection.put` (today: eager derivation outputs) can register
   // their own envelopes onto `ctx._executed` and roll back alongside
-  // the main staged ops (#133). The `finally` clears it before the
+  // the main staged ops. The `finally` clears it before the
   // amendment commit phase runs.
   db._setActiveTxContext(ctx)
   try {
@@ -411,7 +411,7 @@ export async function runTransaction<T>(
   if (ctx._amendment) {
     // Lazy-load GuardExecutor at the dispatch site — keeps the floor
     // bundle free of the guards subsystem when amendments aren't used.
-    // Mirrors the deferred-load pattern from #130 elsewhere in this PR.
+    // Mirrors the deferred-load pattern from elsewhere in this module.
     const { GuardExecutor } = (await import('../guards/executor.js')) as {
       GuardExecutor: typeof GuardExecutorModule
     }

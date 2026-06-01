@@ -1,5 +1,5 @@
 /**
- * Authentication introspection — issue #13.
+ * Authentication introspection.
  *
  * Three surfaces over the configured tier model and the actual
  * per-user enrollment state:

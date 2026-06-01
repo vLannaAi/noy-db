@@ -1,7 +1,7 @@
 /**
- * Recovery profile persistence + dispatch — issue #10.
+ * Recovery profile persistence + dispatch.
  *
- * v0.1.0-pre.5 wires the **paper** profile end-to-end through
+ * Wires the **paper** profile end-to-end through
  * `@noy-db/on-recovery`. The other three profiles (Shamir,
  * multi-channel, admin-mediated) ship the API surface and throw
  * {@link RecoveryProfileNotImplementedError} during use; per-profile
@@ -46,7 +46,7 @@ import type { ShamirRecoveryProvider } from './shamir-recovery-provider.js'
  * PBKDF2-derived key), and it sidesteps the non-extractable-KEK
  * constraint cleanly.
  *
- * Type-level composition (#44): `PaperRecoveryEntry extends
+ * Type-level composition: `PaperRecoveryEntry extends
  * WrappedDeksBlob` — the three crypto fields (`salt`, `iv`,
  * `wrappedDeks`) come from the shared primitive; `codeId` and
  * `enrolledAt` are paper-recovery's own metadata. Wire format
@@ -125,15 +125,15 @@ export async function hasRecoveryEnrolled(
 }
 
 /**
- * Whether at least one **strong** recovery profile is enrolled (#195).
+ * Whether at least one **strong** recovery profile is enrolled.
  *
  * "Strong" excludes paper-alone — under managed-passphrase mode the
  * user has no memorized passphrase, so a stolen/lost paper sheet
  * would be a single point of total loss. Strong profiles today:
  *
  *   - `shamir` (k-of-n threshold; survives loss of up to n-k shares)
- *   - `multi-channel` (when shipped — #196 follow-up slice)
- *   - `admin-mediated` (when shipped — #196 follow-up slice)
+ *   - `multi-channel` (when shipped — follow-up slice)
+ *   - `admin-mediated` (when shipped — follow-up slice)
  *
  * Managed mode requires this check to pass before `openVault` returns.
  */
@@ -146,7 +146,7 @@ export async function hasStrongRecoveryEnrolled(
   // When multi-channel / admin-mediated land, extend this check.
 }
 
-// ─── Shamir recovery (#196 slice 1) ──────────────────────────────────────
+// ─── Shamir recovery ─────────────────────────────────────────────────────
 
 /**
  * One Shamir-recovery entry as persisted in `_meta/recovery-shamir`.
@@ -320,7 +320,7 @@ function bytesToBase64(b: Uint8Array): string {
  * {@link savePaperRecoveryEntries}). The recovery flow unwraps the
  * DEK set, then mints a fresh KEK from the user's new passphrase.
  *
- * Thin wrapper over {@link mintWrappedDeksBlob} (#44) — the crypto
+ * Thin wrapper over {@link mintWrappedDeksBlob} — the crypto
  * lives in the shared primitive; this function just adds paper-
  * recovery's own metadata (`codeId`, `enrolledAt`).
  *
@@ -347,7 +347,7 @@ export async function mintPaperRecoveryEntry(
  * Decrypt a recovery entry to recover the raw DEK set. Used by the
  * `recoverPassphrase` flow after the user's code has been parsed.
  *
- * Thin wrapper over {@link unwrapDeksFromBlob} (#44).
+ * Thin wrapper over {@link unwrapDeksFromBlob}.
  *
  * @throws when the code does not match the entry (AES-GCM auth tag fail).
  */
@@ -359,6 +359,6 @@ export async function unwrapDeksFromPaperEntry(
 }
 
 // Legacy crypto helpers (deriveRecoveryWrappingKey, bytesToBase64,
-// base64ToBytes) were inlined here pre-#44. They now live in the
+// base64ToBytes) were previously inlined here. They now live in the
 // canonical wrap-DEKs primitive at `./wrapped-deks.ts` and are
 // reached via `mintWrappedDeksBlob` / `unwrapDeksFromBlob`.

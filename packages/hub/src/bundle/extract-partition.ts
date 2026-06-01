@@ -1,5 +1,5 @@
 /**
- * Partition extraction (#203 + #206). Walks the FK closure, re-encrypts
+ * Partition extraction. Walks the FK closure, re-encrypts
  * the selected records under fresh per-collection DEKs, seals those DEKs
  * under a one-time transfer key, and serializes an unowned
  * `extracted-partition` bundle.
@@ -65,7 +65,7 @@ export async function reKeyClosure(
 
 /**
  * Re-key the persisted JSON Schemas (`_schemas/<collection>`) for the
- * closure collections under the destination DEKs (#204). Returns a
+ * closure collections under the destination DEKs. Returns a
  * `{ collection: envelope }` map for the carried collections that actually
  * have a schema; collections without one are omitted.
  */
@@ -100,7 +100,7 @@ export interface ReKeyLedgerResult {
 }
 
 /**
- * Build the carried `_ledger` chain for an extracted partition (#205, slice 1).
+ * Build the carried `_ledger` chain for an extracted partition.
  * Filters source entries to the closure, RE-CHAINS them (fresh index + prevHash),
  * and re-encrypts under `ledgerDek`. The `payloadHash` is recomputed against the
  * re-keyed envelope ONLY for the latest `put` per (collection,id) — the entry
@@ -223,8 +223,8 @@ export interface ExtractPartitionResult {
 }
 
 /**
- * Extract a re-keyed, transfer-sealed partition (#203 + #206). Owner-only
- * (#198 invariant 5): producing a standalone re-keyed vault is an
+ * Extract a re-keyed, transfer-sealed partition. Owner-only
+ * (invariant 5): producing a standalone re-keyed vault is an
  * ownership operation. Non-destructive on the source.
  */
 export async function extractPartition(
@@ -252,8 +252,8 @@ export async function extractPartition(
   const { closure } = await walkClosure(vault, opts)
   const { collections, deks } = await reKeyClosure(vault, closure)
 
-  // carryLedger (#205): mint a fresh _ledger DEK, build the carried chain, and
-  // SEAL the ledger DEK alongside the data DEKs so #208 wraps it into the
+  // carryLedger: mint a fresh _ledger DEK, build the carried chain, and
+  // SEAL the ledger DEK alongside the data DEKs so owner-creation wraps it into the
   // recipient keyring (lets them decrypt + verify the chain). Must run BEFORE
   // sealDeks.
   let ledgerHead: { hash: string; index: number; ts: string } | undefined
@@ -273,7 +273,7 @@ export async function extractPartition(
     }
   }
 
-  // Build _internal (schemas #204 + ledger #205). reKeySchemas reads data-
+  // Build _internal (schemas + ledger). reKeySchemas reads data-
   // collection DEKs only, so it is unaffected by the _ledger DEK added above.
   const internalSchemas = opts.carrySchemas ? await reKeySchemas(vault, closure, deks) : {}
   const internal: Record<string, Record<string, EncryptedEnvelope>> = {}
@@ -283,7 +283,7 @@ export async function extractPartition(
 
   const { seal, transferKey } = await sealDeks(deks)
 
-  // Source-side audit (#226 / spec §4.2 / invariant 4): record that a partition
+  // Source-side audit (spec §4.2 / invariant 4): record that a partition
   // was handed over. Non-destructive — an audit append, no record touched.
   // No-op when the source vault has no history strategy. append() fills
   // index/prevHash/ts and (since actor is '') the ledger's configured actor.

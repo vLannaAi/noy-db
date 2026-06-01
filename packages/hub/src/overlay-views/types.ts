@@ -1,5 +1,5 @@
 /**
- * Read-shadow overlay primitive (#154, MV v2 spec § Composition with
+ * Read-shadow overlay primitive (MV v2 spec § Composition with
  * operator-editable lifecycle). Binds an MV's read-only base output
  * to a separate user-writable overlay collection; reads merge via a
  * single shadow predicate, writes route to the overlay.

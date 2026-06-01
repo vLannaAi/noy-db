@@ -41,7 +41,7 @@ export type {
 
 export { generateULID, isULID } from './ulid.js'
 
-// ─── Partition extraction (#198 epic) ───────────────────
+// ─── Partition extraction ────────────────────────────────
 export { walkClosure } from './walk-closure.js'
 export type { WalkClosureOptions, ClosureResult } from './walk-closure.js'
 export { describeExtraction } from './describe-extraction.js'
