@@ -677,6 +677,7 @@ export class Vault {
         emitter: this.emitter,
         writeQueue: this.noydb._writeQueueTracker,
         writeHooks: this.noydb._writeHooks,
+        subsystemBus: this.noydb._subsystemBus,
         activeTxId: () => this.noydb._activeTxContextOrNull?.txId ?? null,
         schemaUpdateGate,
         schemaFence: this.schemaFence,
