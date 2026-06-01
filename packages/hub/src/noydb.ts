@@ -79,6 +79,7 @@ import { NoydbEventEmitter } from './events.js'
 import { WriteQueueTracker, type WriteQueue } from './write-queue.js'
 import { WriteHookRegistry, type WriteHook, type Unsubscribe } from './write-hooks.js'
 import { TabCoordinator, defaultLockManager, defaultChannel, type TabCoordinationOptions, type TabRole, type TabPresence } from './tab-coordination.js'
+import { CrossTabWriteRelay } from './tab-write-relay.js'
 import {
   loadKeyring,
   createOwnerKeyring,
@@ -193,6 +194,8 @@ export class Noydb {
   private sessionTimer: ReturnType<typeof setTimeout> | null = null
   /** Same-device multi-tab coordinator (#228); created on `enableTabCoordination()`. */
   private tabCoordinator: TabCoordinator | undefined
+  /** Cross-tab write relay (#228b); created on `enableTabCoordination()`. */
+  private writeRelay: CrossTabWriteRelay | undefined
   /** Per-vault policy enforcers. */
   private readonly policyEnforcers = new Map<string, PolicyEnforcer>()
   private readonly txStrategy: TxStrategy
@@ -1210,12 +1213,35 @@ export class Noydb {
     })
     this.tabCoordinator = c
     c.start()
+    if (opts.propagateWrites !== false) {
+      const writeChannel = opts.writeChannel ?? defaultChannel('noydb:tab-writes')
+      if (writeChannel) {
+        const relay = new CrossTabWriteRelay({
+          channel: writeChannel,
+          writerId: c.tabId,
+          subscribeAfterWrite: (h) => this.onAfterWrite(h),
+          applyRemoteWrite: (vault, collection, docId, action) => this.#applyRemoteWrite(vault, collection, docId, action),
+          // Own the channel only when we created the default (mirrors the presence channel).
+          closeChannelOnDispose: opts.writeChannel === undefined && writeChannel !== undefined,
+        })
+        this.writeRelay = relay
+        relay.start()
+      }
+    }
     return { dispose: () => this.disableTabCoordination() }
+  }
+
+  #applyRemoteWrite(vaultName: string, collectionName: string, docId: string, action: 'put' | 'delete'): Promise<void> {
+    const v = this.vaultCache.get(vaultName)
+    if (!v) return Promise.resolve()
+    return v._applyRemoteWrite(collectionName, docId, action)
   }
 
   private disableTabCoordination(): void {
     this.tabCoordinator?.dispose()
     this.tabCoordinator = undefined
+    this.writeRelay?.dispose()
+    this.writeRelay = undefined
   }
 
   get tabRole(): TabRole { return this.tabCoordinator?.role ?? 'unknown' }

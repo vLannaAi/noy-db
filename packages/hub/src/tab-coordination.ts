@@ -38,6 +38,17 @@ export interface TabCoordinationOptions {
    * channel it didn't create. Default: false.
    */
   readonly closeChannelOnDispose?: boolean
+  /**
+   * Also propagate committed writes to other tabs (#228b). Default true:
+   * when tab coordination is enabled and a channel is available, a write in
+   * one tab refreshes that document in every other tab. Set false to opt out.
+   */
+  readonly propagateWrites?: boolean
+  /**
+   * Channel for write propagation (#228b) — distinct from the presence
+   * channel. Default: an inline BroadcastChannel on `noydb:tab-writes`.
+   */
+  readonly writeChannel?: TabChannel
 }
 
 interface PresenceMsg { readonly kind: 'tab-presence'; readonly tabId: string; readonly lastSeen: number; readonly role: TabRole }
