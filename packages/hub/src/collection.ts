@@ -1108,8 +1108,13 @@ export class Collection<T> {
     // TODO(#232-slice2 / #230-followup): putManyAtomic / tx-execute / CRDT /
     // blob write paths are not yet tracked by writeQueue nor fired through
     // the write hooks.
+    // #230 user write-hooks AND the Track A observe bus both need the
+    // WriteEvent. Build it if EITHER consumer is active so the bus is not
+    // coupled to write-hooks being present.
+    const hooksActive = this.#hooksActive()
+    const busAfterPut = this.subsystemBus?.hasHandlers('afterPut') ?? false
     let event: WriteEvent | undefined
-    if (this.#hooksActive()) {
+    if (hooksActive || busAfterPut) {
       const prior = await this.#priorForHook(id)
       event = {
         op: prior.record === null ? 'create' : 'update',
@@ -1117,11 +1122,17 @@ export class Collection<T> {
         userId: this.keyring.userId, timestamp: Date.now(), txId: this.#txIdForHook(),
         baseVersion: prior.version, version: prior.version + 1,
       }
-      await this.writeHooks!.runBefore(event) // throw → aborts the write
+      if (hooksActive) await this.writeHooks!.runBefore(event) // throw → aborts the write
     }
     if (this.writeQueue) await this.writeQueue.track(() => this.putInternal(id, record, options))
     else await this.putInternal(id, record, options)
-    if (event) await this.writeHooks!.runAfter(event)
+    if (event) {
+      // Ordering: user afterWrite hooks run BEFORE observe-bus dispatch in
+      // slice 1. Revisit when internal observe subsystems (e.g. MV-refresh
+      // notification) need to settle before user hooks observe state.
+      if (hooksActive) await this.writeHooks!.runAfter(event)
+      if (busAfterPut) await this.subsystemBus!.dispatch('afterPut', event)
+    }
   }
 
   /** @internal #230 — true when hooks should fire for this write (handlers exist, not re-entrant). */
