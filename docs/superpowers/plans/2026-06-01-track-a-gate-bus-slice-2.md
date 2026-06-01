@@ -12,7 +12,7 @@
 
 **Tech Stack:** TypeScript (ESM, `.js` specifiers), Vitest, pnpm. Package `packages/hub`. Hub stays portable (no Node-only imports; `pnpm check:architecture`).
 
-**Not in this slice:** no subsystem migrated; no removal of the existing guard/period blocks; no public export of the bus; no `afterDelete` observe point (separate follow-on). The depth-based re-entrancy field added in slice 1 is reused; gate dispatch shares it.
+**Not in this slice:** no subsystem migrated; no removal of the existing guard/period blocks; no public export of the bus; no `afterDelete` observe point (separate follow-on). The depth-based re-entrancy field added in slice 1 is the *observe* guard only; gate dispatch deliberately does NOT touch it (gate handlers are read-only validators). A runtime gate re-entrancy guard is deferred to the migration slice — see follow-on (a).
 
 ---
 
