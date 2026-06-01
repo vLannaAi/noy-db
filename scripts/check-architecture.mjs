@@ -407,6 +407,9 @@ function checkKernelSurface() {
       fail('kernel-surface', `${rel} not found — update KERNEL_SURFACE_BUDGET if the file moved or was renamed.`, file)
       continue
     }
+    // NB: split('\n').length = (newline count) + 1, so this reads one MORE
+    // than `wc -l` on trailing-newline files. Ceilings are calibrated against
+    // this metric — keep using it when ratcheting so the numbers stay aligned.
     const lines = readFileSync(file, 'utf8').split('\n').length
     if (lines > ceiling) {
       fail(
