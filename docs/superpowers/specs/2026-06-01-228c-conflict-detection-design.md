@@ -45,6 +45,8 @@ Let `ownV = ledger.get(key)`.
 
 Under LWW both concurrent writers detect the conflict (each sees the other's `baseV` below its own write) and each emits — acceptable: both apps learn of it; reconciliation is idempotent.
 
+**Known limitation (3+ tabs).** With three tabs the single-counter ledger can surface a *false* conflict: if B's write is incorporated by A (B advances its ledger to A's `v`), a third tab C that also diverged from the older base can then trip B's `baseV < ownV` check even though B's own write was already seen. Precise 3-way detection needs per-writer version vectors, which is out of scope here — this slice targets the 2-tab success criteria. The false positive is safe (it only over-notifies; the app reconciles idempotently and the cache still converges), and is documented rather than solved.
+
 ## `WriteConflict` payload + surface
 
 A new cross-tab type — distinct from sync's `Conflict` (which carries *encrypted envelopes*); cross-tab app handlers want decrypted records to reconcile:

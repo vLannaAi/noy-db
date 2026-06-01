@@ -100,7 +100,8 @@ export class CrossTabWriteRelay {
 }
 
 function ledgerKey(vault: string, collection: string, docId: string): string {
-  return `${vault} ${collection} ${docId}`
+  // NUL separator: it cannot appear in a vault/collection/docId, so keys never collide.
+  return `${vault}\0${collection}\0${docId}`
 }
 
 function isTabWriteMsg(x: unknown): x is TabWriteMsg {
