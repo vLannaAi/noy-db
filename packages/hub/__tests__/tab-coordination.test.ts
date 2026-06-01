@@ -121,4 +121,56 @@ describe('TabCoordinator', () => {
     expect(c.activeTabs()).toEqual([])
     c.dispose()
   })
+
+  it('disposing a tab does not broadcast a phantom heartbeat', async () => {
+    const locks = mockLocks()
+    const bus = makeBus(2)
+    let t = 1000
+    const [a, b] = bus.map((ch, i) => mkCoordinator(locks, ch, `tab${i}`, () => t))
+    a!.start(); b!.start()
+    await flush()
+    a!._beat(); b!._beat()
+    await flush()
+    b!.dispose()
+    await flush()
+    // No phantom 'unknown' refresh into a's view of tab1.
+    const after = a!.activeTabs().find((p) => p.tabId === 'tab1')
+    expect(after?.role).not.toBe('unknown')
+  })
+
+  it('goes inert (role unknown) when the channel closes', async () => {
+    const locks = mockLocks()
+    let closeListener: (() => void) | undefined
+    const channel: TabChannel = {
+      isOpen: true,
+      send() {},
+      on(event, l) {
+        if (event === 'close') { closeListener = l as () => void; return () => { closeListener = undefined } }
+        return () => {}
+      },
+      close() {},
+    }
+    let t = 1000
+    const c = new TabCoordinator({ lockManager: locks, channel, tabId: 't0', heartbeatMs: 1_000_000, staleMs: 500, now: () => t })
+    c.start()
+    await flush()
+    expect(c.role).toBe('primary')
+    closeListener?.()
+    expect(c.role).toBe('unknown')
+    c.dispose()
+  })
+
+  it('emits onActiveTabsChange when a peer appears', async () => {
+    const locks = mockLocks()
+    const bus = makeBus(2)
+    let t = 1000
+    const [a, b] = bus.map((ch, i) => mkCoordinator(locks, ch, `tab${i}`, () => t))
+    const seen: number[] = []
+    a!.onActiveTabsChange((tabs) => seen.push(tabs.length))
+    a!.start(); b!.start()
+    await flush()
+    b!._beat()
+    await flush()
+    expect(seen.some((n) => n >= 2)).toBe(true)
+  })
 })

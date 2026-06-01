@@ -50,8 +50,11 @@ export class TabCoordinator {
   #ac: AbortController | undefined
   #releaseLock: (() => void) | undefined
   #unsub: Unsubscribe | undefined
+  #closeUnsub: Unsubscribe | undefined
   #timer: ReturnType<typeof setInterval> | undefined
+  #started = false
   #disposed = false
+  #lastTabsSig = ''
 
   constructor(opts: TabCoordinationOptions = {}) {
     this.tabId = opts.tabId ?? `tab-${Math.trunc((opts.now ?? (() => 0))())}-${cheapRand()}`
@@ -64,11 +67,13 @@ export class TabCoordinator {
   }
 
   start(): void {
-    if (this.#disposed) return
+    if (this.#disposed || this.#started) return
+    this.#started = true
     if (this.#channel) {
       this.#unsub = this.#channel.on('message', (p) => this.#onMessage(p))
+      this.#closeUnsub = this.#channel.on('close', () => this.#onChannelClose())
       this.#beat()
-      this.#timer = setInterval(() => this.#beat(), this.#heartbeatMs)
+      this.#timer = setInterval(() => this.#tick(), this.#heartbeatMs)
       const t = this.#timer as unknown as { unref?: () => void }
       if (typeof t.unref === 'function') t.unref()
     }
@@ -100,18 +105,31 @@ export class TabCoordinator {
     this.#disposed = true
     this.#releaseLock?.()
     this.#ac?.abort()
-    if (this.#timer) clearInterval(this.#timer)
+    if (this.#timer) { clearInterval(this.#timer); this.#timer = undefined }
     this.#unsub?.()
+    this.#closeUnsub?.()
     this.#setRole('unknown')
   }
 
   /** @internal test seam — broadcast one heartbeat now. */
   _beat(): void { this.#beat() }
 
+  #tick(): void {
+    this.#prune()
+    this.#emitTabs()
+    this.#beat()
+  }
+
   #beat(): void {
+    if (this.#disposed) return
     if (!this.#channel || !this.#channel.isOpen) return
     const msg: PresenceMsg = { kind: 'tab-presence', tabId: this.tabId, lastSeen: this.#now(), role: this.role }
     this.#channel.send(JSON.stringify(msg))
+  }
+
+  #onChannelClose(): void {
+    if (this.#timer) { clearInterval(this.#timer); this.#timer = undefined }
+    this.#setRole('unknown')
   }
 
   #onMessage(payload: string): void {
@@ -119,7 +137,13 @@ export class TabCoordinator {
     try { msg = JSON.parse(payload) } catch { return }
     if (!isPresenceMsg(msg) || msg.tabId === this.tabId) return
     this.#peers.set(msg.tabId, { tabId: msg.tabId, lastSeen: msg.lastSeen, role: msg.role })
+    this.#prune()
     this.#emitTabs()
+  }
+
+  #prune(): void {
+    const cutoff = this.#now() - this.#staleMs
+    for (const [id, p] of this.#peers) if (p.lastSeen < cutoff) this.#peers.delete(id)
   }
 
   #setRole(role: TabRole): void {
@@ -127,10 +151,14 @@ export class TabCoordinator {
     this.role = role
     for (const h of this.#roleHandlers) h(role)
     this.#beat() // announce promptly
+    this.#emitTabs()
   }
 
   #emitTabs(): void {
     const tabs = this.activeTabs()
+    const sig = tabs.map((t) => `${t.tabId}:${t.role}`).join('|')
+    if (sig === this.#lastTabsSig) return
+    this.#lastTabsSig = sig
     for (const h of this.#tabsHandlers) h(tabs)
   }
 }
@@ -138,7 +166,10 @@ export class TabCoordinator {
 function isPresenceMsg(x: unknown): x is PresenceMsg {
   if (x === null || typeof x !== 'object') return false
   const o = x as Record<string, unknown>
-  return o['kind'] === 'tab-presence' && typeof o['tabId'] === 'string' && typeof o['lastSeen'] === 'number'
+  return o['kind'] === 'tab-presence'
+    && typeof o['tabId'] === 'string'
+    && typeof o['lastSeen'] === 'number'
+    && (o['role'] === 'primary' || o['role'] === 'secondary' || o['role'] === 'unknown')
 }
 
 function cheapRand(): string {
