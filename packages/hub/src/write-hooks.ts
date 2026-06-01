@@ -6,6 +6,7 @@
  */
 export interface WriteEvent {
   readonly op: 'create' | 'update' | 'delete'
+  readonly vault: string
   readonly collection: string
   readonly docId: string
   readonly before: unknown // decrypted prior record; null on 'create'

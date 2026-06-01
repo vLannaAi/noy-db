@@ -28,6 +28,18 @@ describe('write lifecycle hooks (#230)', () => {
     expect(events[0]!.userId).toBe('alice')
   })
 
+  it('WriteEvent carries the vault name (#228b)', async () => {
+    const db = await setup()
+    const v = await db.openVault('demo')
+    const c = v.collection<Inv>('invoices')
+    const events: WriteEvent[] = []
+    db.onAfterWrite((e) => { events.push(e) })
+    await c.put('i1', { id: 'i1', amount: 1 })
+    expect(events).toHaveLength(1)
+    expect(events[0]!.vault).toBe('demo')
+    expect(events[0]!.collection).toBe('invoices')
+  })
+
   it('a throwing onBeforeWrite aborts the write', async () => {
     const db = await setup()
     const v = await db.openVault('demo')

@@ -1108,7 +1108,7 @@ export class Collection<T> {
       const before = await this.#priorRecordForHook(id)
       event = {
         op: before === null ? 'create' : 'update',
-        collection: this.name, docId: id, before, after: record,
+        vault: this.vault, collection: this.name, docId: id, before, after: record,
         userId: this.keyring.userId, timestamp: Date.now(), txId: this.#txIdForHook(),
       }
       await this.writeHooks!.runBefore(event) // throw → aborts the write
@@ -1687,7 +1687,7 @@ export class Collection<T> {
     if (this.#hooksActive()) {
       const before = await this.#priorRecordForHook(id)
       event = {
-        op: 'delete', collection: this.name, docId: id, before, after: null,
+        op: 'delete', vault: this.vault, collection: this.name, docId: id, before, after: null,
         userId: this.keyring.userId, timestamp: Date.now(), txId: this.#txIdForHook(),
       }
       await this.writeHooks!.runBefore(event)
@@ -2794,6 +2794,17 @@ export class Collection<T> {
     const record = await this.decryptRecord(envelope)
     this.cache.set(id, { record, version: envelope._v })
     this.indexes?.upsert(id, record, previous ? previous.record : null)
+  }
+
+  /**
+   * #228b — apply a peer tab's committed write to THIS tab's in-memory view:
+   * re-read the (already-persisted) envelope from the shared store + refresh
+   * cache/indexes, then emit a `change` event so reactive consumers re-render.
+   * Never writes to the store and never fires write hooks, so it cannot loop.
+   */
+  async _applyRemoteChange(id: string, action: 'put' | 'delete'): Promise<void> {
+    await this._invalidateCacheEntry(id)
+    this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action })
   }
 
   private async ensureHydrated(): Promise<void> {
