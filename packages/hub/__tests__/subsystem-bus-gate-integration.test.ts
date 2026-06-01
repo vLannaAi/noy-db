@@ -77,4 +77,20 @@ describe('SubsystemBus gate integration — beforePut/beforeDelete', () => {
     await expect(docs.put('a', { id: 'a', n: 1 })).resolves.toBeUndefined()
     await expect(docs.delete('a')).resolves.toBeUndefined()
   })
+
+  it('beforeDelete does NOT fire for internal (system housekeeping) deletes', async () => {
+    const db = await createNoydb({ store: memoryStore(), secret: 'pw', user: 'owner' })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<{ id: string; n: number }>('docs')
+    await docs.put('a', { id: 'a', n: 1 })
+    let fired = false
+    db._subsystemBus.registerGate('beforeDelete', () => {
+      fired = true
+      throw new Error('gate should not fire for internal deletes')
+    })
+    // Internal/housekeeping delete must bypass the gate (matching guard/period bypass).
+    await docs._internalDelete('a')
+    expect(fired).toBe(false)
+    expect(await docs.get('a')).toBeNull() // the internal delete still succeeded
+  })
 })
