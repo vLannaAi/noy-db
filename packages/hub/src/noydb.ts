@@ -79,6 +79,7 @@ import { Vault } from './vault.js'
 import { NoydbEventEmitter } from './events.js'
 import { WriteQueueTracker, type WriteQueue } from './write-queue.js'
 import { WriteHookRegistry, type WriteHook, type Unsubscribe } from './write-hooks.js'
+import { SubsystemBus } from './subsystem-bus.js'
 import { TabCoordinator, defaultLockManager, defaultChannel, type TabCoordinationOptions, type TabRole, type TabPresence } from './tab-coordination.js'
 import { CrossTabWriteRelay } from './tab-write-relay.js'
 import {
@@ -160,6 +161,7 @@ export class Noydb {
   private readonly emitter = new NoydbEventEmitter()
   private readonly writeQueueTracker = new WriteQueueTracker()
   private readonly writeHooks = new WriteHookRegistry()
+  private readonly subsystemBus = new SubsystemBus()
   private readonly clientId = generateULID()
   private readonly vaultCache = new Map<string, Vault>()
   private readonly keyringCache = new Map<string, UnlockedKeyring>()
@@ -1273,6 +1275,11 @@ export class Noydb {
   /** @internal The write-hook registry, threaded into each Collection. */
   get _writeHooks(): WriteHookRegistry {
     return this.writeHooks
+  }
+
+  /** @internal Track A — the observe bus, threaded into every Collection. */
+  get _subsystemBus(): SubsystemBus {
+    return this.subsystemBus
   }
 
   /** @internal Stable per-instance id for schema-cutover coordination (#232). */

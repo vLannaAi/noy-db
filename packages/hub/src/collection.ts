@@ -14,6 +14,7 @@ import { hasWritePermission } from './team/keyring.js'
 import type { NoydbEventEmitter } from './events.js'
 import type { WriteQueueTracker } from './write-queue.js'
 import type { WriteHookRegistry, WriteEvent } from './write-hooks.js'
+import type { SubsystemBus } from './subsystem-bus.js'
 import type { SchemaUpdateGate } from './schema-update/gate.js'
 import type { SchemaFenceController } from './schema-update/fence-controller.js'
 import type { StandardSchemaV1 } from './schema.js'
@@ -135,6 +136,7 @@ export class Collection<T> {
   private readonly schemaUpdateGate: SchemaUpdateGate | undefined
   private readonly schemaFence: SchemaFenceController | undefined
   private readonly writeHooks: WriteHookRegistry | undefined
+  private readonly subsystemBus: SubsystemBus | undefined
   private readonly activeTxId: (() => string | null) | undefined
   private readonly getDEK: (collectionName: string) => Promise<CryptoKey>
   private readonly onDirty: OnDirtyCallback | undefined
@@ -514,6 +516,8 @@ export class Collection<T> {
     schemaFence?: SchemaFenceController | undefined
     /** #230 — hub-level write-hook registry; fired around put/delete. */
     writeHooks?: WriteHookRegistry | undefined
+    /** Track A — the observe bus, threaded from Noydb. */
+    subsystemBus?: SubsystemBus | undefined
     /** #230 — active transaction id supplier (null outside a transaction). */
     activeTxId?: (() => string | null) | undefined
     getDEK: (collectionName: string) => Promise<CryptoKey>
@@ -806,6 +810,7 @@ export class Collection<T> {
     this.schemaUpdateGate = opts.schemaUpdateGate
     this.schemaFence = opts.schemaFence
     this.writeHooks = opts.writeHooks
+    this.subsystemBus = opts.subsystemBus
     this.activeTxId = opts.activeTxId
     this.blobStrategy = opts.blobStrategy ?? NO_BLOBS
     this.aggregateStrategy = opts.aggregateStrategy ?? NO_AGGREGATE
