@@ -975,6 +975,9 @@ importers:
       '@noy-db/in-ai':
         specifier: workspace:*
         version: link:../packages/in-ai
+      '@noy-db/in-devtools':
+        specifier: workspace:*
+        version: link:../packages/in-devtools
       '@noy-db/in-nextjs':
         specifier: workspace:*
         version: link:../packages/in-nextjs

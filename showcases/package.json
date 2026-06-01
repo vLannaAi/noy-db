@@ -24,6 +24,7 @@
     "@noy-db/by-tabs": "workspace:*",
     "@noy-db/hub": "workspace:*",
     "@noy-db/in-ai": "workspace:*",
+    "@noy-db/in-devtools": "workspace:*",
     "@noy-db/in-nextjs": "workspace:*",
     "@noy-db/in-pinia": "workspace:*",
     "@noy-db/in-react": "workspace:*",

@@ -1354,6 +1354,24 @@ frameworks:
       - 'Standard Schema v1 validator installed on the underlying collection'
     related: [in-vue]
 
+  - id: in-devtools
+    name: Read-only inspector core
+    package: '@noy-db/in-devtools'
+    framework: Framework-agnostic
+    status: preview
+    subsystem_doc: docs/packages/in-integrations.md
+    showcases:
+      - id: 90-in-devtools
+        path: showcases/src/90-in-devtools.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'createInspector(db) is a pure consumer of public hub APIs — no hub changes'
+      - 'Read-only: no method writes; records() is bounded by limit'
+      - 'Output is plain/serializable (no live hub handles leak out)'
+    related: [in-vue, in-pinia]
+
   - id: in-yjs
     name: Yjs Y.Doc interop
     package: '@noy-db/in-yjs'

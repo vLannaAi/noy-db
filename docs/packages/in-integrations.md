@@ -70,4 +70,29 @@ drive a reactive wrapper against. The `in-*` packages are 100–250 LOC each
 — inspect one to learn the pattern and write your own for anything we
 don't cover (Qwik, SolidJS, Astro, Alpine, …).
 
+### `in-devtools` — read-only inspector core
+
+`@noy-db/in-devtools` is framework-agnostic by design: `createInspector(db)`
+turns a live noy-db into plain, serializable read-only views that a CLI or a
+browser panel can render.
+
+```ts
+import { createInspector } from '@noy-db/in-devtools'
+
+const inspector = createInspector(db)
+await inspector.listVaults()                       // accessible vaults
+await inspector.snapshot(openVault)                // collections → schema + stats
+await inspector.records(openVault, 'invoices', { limit: 50 })  // paged decrypted rows
+const off = inspector.subscribe((e) => console.log(e.op, e.collection, e.docId))
+inspector.pendingWrites()                          // { pending, depth }
+```
+
+It is a pure consumer of public hub APIs (`listAccessibleVaults` / `dumpSchema`
+/ `query` / `onAfterWrite` / `writeQueue`) — no hub changes, read-only, and
+zero-knowledge-respecting (you pass open vault handles, it never holds
+passphrases, and it shows only what the already-unlocked session can decrypt).
+`listVaults()` needs a store that implements the optional `listVaults`
+capability; `records()` targets eager collections (lazy `prefetch:false`
+collections throw).
+
 [← Back to README](../../README.md)
