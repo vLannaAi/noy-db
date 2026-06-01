@@ -2796,6 +2796,17 @@ export class Collection<T> {
     this.indexes?.upsert(id, record, previous ? previous.record : null)
   }
 
+  /**
+   * #228b — apply a peer tab's committed write to THIS tab's in-memory view:
+   * re-read the (already-persisted) envelope from the shared store + refresh
+   * cache/indexes, then emit a `change` event so reactive consumers re-render.
+   * Never writes to the store and never fires write hooks, so it cannot loop.
+   */
+  async _applyRemoteChange(id: string, action: 'put' | 'delete'): Promise<void> {
+    await this._invalidateCacheEntry(id)
+    this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action })
+  }
+
   private async ensureHydrated(): Promise<void> {
     if (this.hydrated) return
 

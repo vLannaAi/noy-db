@@ -847,6 +847,17 @@ export class Vault {
     await coll._applyCutoverTransform(transform)
   }
 
+  /**
+   * #228b — refresh a loaded collection's view of one document from a peer
+   * tab's broadcast. No-op when the collection isn't loaded in this tab
+   * (it will read fresh on next open). Mirrors #runCutoverTransform's guard.
+   */
+  async _applyRemoteWrite(collectionName: string, docId: string, action: 'put' | 'delete'): Promise<void> {
+    const coll = this.collectionCache.get(collectionName)
+    if (!coll) return
+    await coll._applyRemoteChange(docId, action)
+  }
+
   /** Recover a stuck cutover fence (#232) — reset to normal without bumping. */
   async abortSchemaCutover(): Promise<void> {
     await this.schemaFence.abort()
