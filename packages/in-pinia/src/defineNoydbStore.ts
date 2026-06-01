@@ -87,6 +87,13 @@ export interface NoydbStoreOptions<T> {
    * perf cost, backwards compatible with usage).
    */
   schema?: StandardSchemaV1<unknown, T>
+  /**
+   * Optional per-field attestation schema. When set, it's installed on the
+   * underlying `Collection` (alongside `schema`) so `vault.issueAttestation(name, id)`
+   * can commit the declared fields against the firm's signing key — see
+   * `@noy-db/attestation` `AttestationFieldSchema`. Stores without it behave as before.
+   */
+  attestation?: NonNullable<Parameters<Vault['collection']>[1]>['attestation']
 }
 
 /**
@@ -148,6 +155,7 @@ export function defineNoydbStore<T>(
       // old `options.schema.parse(record)` call in add() could not do).
       const collOpts: Parameters<typeof cachedCompartment.collection<T>>[1] = {}
       if (options.schema !== undefined) collOpts.schema = options.schema
+      if (options.attestation !== undefined) collOpts.attestation = options.attestation
       cachedCollection = cachedCompartment.collection<T>(collectionName, collOpts)
       return cachedCollection
     }
