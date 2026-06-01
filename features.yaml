@@ -877,6 +877,24 @@ features:
       - 'MV/derivation cascade is not simulated in v1 (direct ops only)'
     related: [transactions, guards]
 
+  - id: tab-coordination
+    name: Multi-tab coordination (presence + roles)
+    cluster: core
+    spec: docs/superpowers/specs/2026-06-01-228-tab-coordination-design.md
+    subsystem_doc: docs/superpowers/specs/2026-06-01-228-tab-coordination-design.md
+    package: '@noy-db/hub'
+    factory: null
+    status: preview
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'exactly one primary tab via an exclusive Web Lock; others secondary; re-elects on primary dispose'
+      - 'presence heartbeat lists active tabs; stale tabs (no heartbeat within staleMs) drop out'
+      - 'opt-in via db.enableTabCoordination(); graceful no-op (role unknown) outside browsers'
+    related: [vault-and-collections]
+
 # ─── Storage adapters (phase 2) ──────────────────────────────────────
 
 adapters:
