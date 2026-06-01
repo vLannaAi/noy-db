@@ -64,7 +64,7 @@ function canRevoke(callerRole: Role, targetRole: Role): boolean {
 
 /**
  * Whether `callerRole` can mutate a keyring whose role is (or becomes)
- * `targetRole`. Used by `updateKeyringIdentity` (#54).
+ * `targetRole`. Used by `updateKeyringIdentity`.
  *
  * Mirrors `canGrant`'s hierarchy: admins manage admin/operator/viewer/
  * client laterally; admins cannot create or destroy `owner`-shaped
@@ -97,7 +97,7 @@ export interface UnlockedKeyring {
    *   - Unencrypted mode (no KEK exists)
    *   - Tier-3 PIN quick-resume (`@noy-db/on-pin`)
    *   - Wrap-DEKs tier-2 unlock (`@noy-db/on-password`'s
-   *     `verifyPasswordSlot` after #26 Path C)
+   *     `verifyPasswordSlot`)
    *   - Session-state restore (`session/session.ts`)
    *   - Dev-unlock fixture (`session/dev-unlock.ts`)
    *
@@ -106,9 +106,8 @@ export interface UnlockedKeyring {
    * null-check and throw a clear error if absent — re-authenticate
    * at tier 1 first to recover the KEK.
    *
-   * Tightened from `CryptoKey` to `CryptoKey | null` in pre.8 (#41).
-   * The runtime contract has always allowed null; the type now
-   * matches reality.
+   * Tightened from `CryptoKey` to `CryptoKey | null`; the runtime
+   * contract has always allowed null, the type now matches reality.
    */
   readonly kek: CryptoKey | null
   readonly salt: Uint8Array
@@ -129,7 +128,7 @@ export interface UnlockedKeyring {
   /**
    * Tier-2 authenticator slots — readonly snapshot loaded from the
    * keyring file. Mutations go through `enrollAuthenticator` /
-   * `removeAuthenticator` (issue #11), which write back via
+   * `removeAuthenticator`, which write back via
    * `persistKeyring`. Always defined; loads with an empty array for
    * keyrings written before the multi-slot extension landed.
    */
@@ -142,7 +141,7 @@ export interface UnlockedKeyring {
   readonly policy?: VaultPolicyOnDisk
 }
 
-// ─── Passphrase canary (#113) ──────────────────────────────────────────
+// ─── Passphrase canary ─────────────────────────────────────────────────
 //
 // The canary is a fixed 256-bit AES-GCM key (32 zero bytes), wrapped
 // under the keyring's KEK with AES-KW. Because AES-KW is deterministic
@@ -156,7 +155,7 @@ export interface UnlockedKeyring {
 // this distinguishes wrong-passphrase (canary fails AND every DEK fails)
 // from corruption (canary succeeds OR at least one DEK succeeds) —
 // closing the all-DEKs-corrupt and single-DEK ambiguities that the
-// pre-canary heuristic from #82 / #99 left open.
+// pre-canary heuristic left open.
 
 const CANARY_PLAINTEXT_BYTES = new Uint8Array(32)
 let canaryKeyPromise: Promise<CryptoKey> | null = null
@@ -226,9 +225,9 @@ export async function loadKeyring(
   // KEK is correct independent of any DEK byte — so subsequent DEK
   // unwrap failures are unambiguously corruption, not wrong-pass. A
   // canary failure with at least one DEK success indicates the KEK
-  // is correct but the canary itself is corrupt. (#113)
+  // is correct but the canary itself is corrupt.
   // `null` sentinel = legacy keyring without canary; falls back to the
-  // multi-DEK heuristic from #82 / #99.
+  // multi-DEK heuristic.
   const canaryOk: boolean | null = keyringFile.canary !== undefined
     ? await verifyKeyringCanary(keyringFile.canary, kek)
     : null
@@ -623,7 +622,7 @@ export async function revoke(
   }
 }
 
-// ─── Update User (#54) ─────────────────────────────────────────────────
+// ─── Update User ───────────────────────────────────────────────────────
 
 /**
  * Mutate `role`, `displayName`, and/or `permissions` on an existing
@@ -648,7 +647,6 @@ export async function revoke(
  * @throws `PermissionDeniedError` when the role hierarchy rejects.
  * @throws `ValidationError` when the diff is empty (nothing to update).
  *
- * @see #54
  */
 export async function updateKeyringIdentity(
   adapter: NoydbStore,
@@ -905,7 +903,7 @@ export async function changeSecret(
     // Tier-2 slots are NOT preserved through `changeSecret` —
     // each slot wraps the OLD KEK, so the new keyring has no
     // authenticator slots until the user re-enrolls. The higher-level
-    // `db.rotatePassphrase()` (#10) preserves slots by rewrapping the
+    // `db.rotatePassphrase()` preserves slots by rewrapping the
     // KEK reference, not the KEK itself.
     authenticators: [],
     ...(keyring.policy !== undefined && { policy: keyring.policy }),
@@ -1094,7 +1092,7 @@ export interface ListUsersOptions {
  * `userEnvelopeDek` is the vault's `_users` collection DEK
  * (`vault.getDEK('_users')`); used to decrypt every envelope.
  *
- * `callerRole` (#122) drives the directory-visibility checks:
+ * `callerRole` drives the directory-visibility checks:
  *
  *  - When the vault's `_meta/directory` document has `enabled: false`,
  *    only `owner` and `admin` callers may enumerate; anyone else gets
@@ -1104,7 +1102,7 @@ export interface ListUsersOptions {
  *    `{ includeHidden: true }` to see them; lower roles passing that
  *    option get `PermissionDeniedError`.
  *
- * Honest caveat (#122): these filters are a UX hint, not a security
+ * Honest caveat: these filters are a UX hint, not a security
  * boundary. The keyring file is still listed at `_keyring/*` and the
  * envelope ciphertext at `_users/*`. A caller with direct store access
  * — or a caller that calls this function with `callerRole: 'owner'`
@@ -1177,7 +1175,7 @@ export async function ensureCollectionDEK(
   // check (the Map is empty), both generate fresh DEKs, and the second
   // `set` overwrites the first — making any envelope encrypted with
   // the discarded DEK fail to decrypt later (TamperedError on read).
-  // Pre-existing race exposed by the multi-writer ledger work in #296.
+  // Pre-existing race exposed by the multi-writer ledger work.
   const inFlight = new Map<string, Promise<CryptoKey>>()
   return async (collectionName: string): Promise<CryptoKey> => {
     const existing = keyring.deks.get(collectionName)

@@ -1,5 +1,5 @@
 /**
- * Generic per-instance **observe** bus (Track A, slice 1). Observe-class
+ * Generic per-instance **observe** bus. Observe-class
  * subsystems (devtools inspector, audit, sync-dirty notification) register
  * handlers against named lifecycle points instead of the kernel naming each
  * subsystem. Mirrors the registry pattern of {@link WriteHookRegistry} but is

@@ -576,7 +576,7 @@ export async function unlockWebAuthn(
  * `SlotRewrapCeremony` for WebAuthn slots — used by hub's
  * `rotatePassphrase({ slotCeremonies: { [slotId]: webAuthnSlotRewrapCeremony } })`
  * to preserve a tier-2 WebAuthn enrollment across a tier-1 phrase
- * rotation without requiring re-enrollment of the credential (#56).
+ * rotation without requiring re-enrollment of the credential.
  *
  * The credential itself is unaffected by phrase rotation — the
  * wrapping key derived from PRF (or rawId fallback) is bound to the
@@ -599,8 +599,8 @@ export async function unlockWebAuthn(
  *      and `method: 'webauthn'` (hub validates these to prevent
  *      slot-type swap mid-rotation).
  *
- * Niwat (consumer) shipped a workaround at #44 — detect dropped slots
- * after rotate and offer "Re-enrol Touch ID" inline. This ceremony
+ * Previously a workaround was needed — detect dropped slots after
+ * rotate and offer "Re-enrol Touch ID" inline. This ceremony
  * eliminates that step.
  *
  * Out of scope: tier-3 PIN. PIN state lives in `QuickUnlockStore`
@@ -617,7 +617,7 @@ export async function unlockWebAuthn(
  *         payload fails to decrypt (credential changed / payload
  *         tampered).
  *
- * @see #56 #29 — the ceremony plumbing this fills in.
+ * @see passwordSlotRewrapCeremony — the password parallel.
  */
 export async function webAuthnSlotRewrapCeremony(
   ctx: SlotRewrapContext,

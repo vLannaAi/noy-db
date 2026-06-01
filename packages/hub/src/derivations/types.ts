@@ -43,7 +43,7 @@ export interface RecordOutputSpec {
    * `undefined`) for this output key. The executor interprets that as
    * "no output for this invocation": a previously-emitted output at
    * the same id is deleted (mirroring the empty-group / empty-aggregate
-   * semantics flagged in #142); a never-emitted output is a silent
+   * semantics for empty groups); a never-emitted output is a silent
    * no-op. When `false` (default), returning `null` throws
    * `DerivationOutputShapeError` — same as v1.
    */
@@ -51,7 +51,7 @@ export interface RecordOutputSpec {
 }
 
 /**
- * Array-shape output (#200) — one source row produces a variable-length
+ * Array-shape output — one source row produces a variable-length
  * list of output rows, each with its own id (from the `key` extractor).
  *
  * On every source-row change, the dispatcher diffs the previously

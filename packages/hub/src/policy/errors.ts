@@ -40,8 +40,7 @@ export class PolicyDeniedError extends NoydbError {
  * MUST have at least one recovery path enrolled before being
  * production-ready (paper, shamir, multi-channel, or admin-mediated).
  *
- * The error references issue #10 in its message so a developer hitting
- * it gets a one-line pointer to the design.
+ * The error message carries a pointer to the recovery design docs.
  */
 export class RecoveryNotEnrolledError extends NoydbError {
   constructor(
@@ -57,7 +56,7 @@ export class RecoveryNotEnrolledError extends NoydbError {
 
 /**
  * Raised by `openVault` when a managed-passphrase-mode vault has no
- * STRONG recovery profile enrolled (#195).
+ * STRONG recovery profile enrolled.
  *
  * Managed mode means the user never types a passphrase — the unlock
  * material lives in a `SealingKeyProvider` (`at-*` package). If that
@@ -97,9 +96,8 @@ export class ManagedRecoveryNotEnrolledError extends NoydbError {
  * `db.rotateRecovery` when the developer requests a recovery profile
  * not yet wired in this hub release.
  *
- * Implemented: `paper` (#10, pre.5) and `shamir` (#196 slice 1, pre.16).
- * Pending: `multi-channel` and `admin-mediated` (tracked under #196
- * follow-up slices).
+ * Implemented: `paper` and `shamir`.
+ * Pending: `multi-channel` and `admin-mediated` (follow-up slices).
  *
  * The carried `profile` and `tracking` fields let consumers steer the
  * UI ("multi-channel recovery is not yet wired up — open issue #N to follow").

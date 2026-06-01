@@ -74,8 +74,8 @@ import { NO_SYNC, type SyncStrategy } from './team/sync-strategy.js'
 // runtime classes are loaded on demand via `await import(...)` inside
 // `_initGuards` / `_initDerivations` (and the read-only-facade
 // accessor below) so consumers that never register a guard or
-// derivation strategy don't pay the chunk cost. See #130 for the
-// bundle regression this seam plugs.
+// derivation strategy don't pay the chunk cost. This seam prevents
+// the bundle regression that motivated the lazy-import pattern.
 import type { GuardRegistry } from './guards/registry.js'
 import type { GuardStrategyHandleAny } from './guards/types.js'
 import type { ReadOnlyVaultFacade } from './guards/read-only-facade.js'
@@ -166,23 +166,23 @@ export class Vault {
    * `null` for vaults that never register any guard strategy. The
    * runtime class is dynamic-imported on demand so consumers that
    * never use guards don't pull `GuardRegistry`/`GuardExecutor` into
-   * their bundle (#130).
+   * their bundle.
    */
   private guardRegistry: GuardRegistry | null = null
   /**
    * Per-vault derivation registry. Same lazy-load contract as
    * `guardRegistry` — `null` until `_initDerivations()` runs with at
-   * least one strategy handle. See #130 for the bundle motivation.
+   * least one strategy handle.
    */
   private derivationRegistry: DerivationRegistry | null = null
   /**
-   * Per-vault materialized-view registry (#143/#150). Same lazy-load
+   * Per-vault materialized-view registry. Same lazy-load
    * contract as `derivationRegistry` — `null` until
    * `_initMaterializedViews()` runs with at least one MV handle.
    */
   private materializedViewRegistry: MaterializedViewRegistry | null = null
   /**
-   * Per-vault overlay registry (#154). Same lazy-load contract as
+   * Per-vault overlay registry. Same lazy-load contract as
    * `materializedViewRegistry` — `null` until `_initOverlayedViews()`
    * runs with at least one handle.
    */
@@ -204,7 +204,7 @@ export class Vault {
    *   target this vault session's keyringId. There is no method to write
    *   another principal's envelope (own-only write rule, structural).
    * - Read-anyone: `get(keyringId)`, `list()` — read other principals'
-   *   envelopes, subject to the `view-team-profiles` policy gate (#22).
+   *   envelopes, subject to the `view-team-profiles` policy gate.
    * - Reactive: `subscribe(id, cb)`, `live(id)` — fire on local writes.
    *
    * @see docs/superpowers/specs/2026-05-05-user-envelope-design.md
@@ -225,12 +225,12 @@ export class Vault {
    */
   private readonly reloadKeyring: (() => Promise<UnlockedKeyring>) | undefined
   private readonly collectionCache = new Map<string, Collection<unknown>>()
-  /** #232 — vault-level schema cutover fence/controller. */
+  /** Vault-level schema cutover fence/controller. */
   readonly schemaFence: SchemaFenceController
-  /** #232 — per-client heartbeat/watcher; started lazily on cutover registration. */
+  /** Per-client heartbeat/watcher; started lazily on cutover registration. */
   #fenceWatcher: FenceWatcher | undefined
   #fenceCoordinationStarted = false
-  /** #229 — per-collection registered schema-update strategy names. */
+  /** Per-collection registered schema-update strategy names. */
   readonly #schemaUpdateNames = new Map<string, string[]>()
 
   /**
@@ -441,11 +441,10 @@ export class Vault {
     // `_initGuards()` / `_initDerivations()` from `Noydb.openVault()`.
     // The classes are dynamic-imported there so vaults that never
     // register a strategy don't pull the subsystem code into the
-    // floor bundle. See #130. The `opts.guardStrategies` argument is
+    // floor bundle. The `opts.guardStrategies` argument is
     // intentionally accepted but unused on the constructor — the sync
     // `vault()` fallback path in `noydb.ts` does NOT call `_initGuards`,
-    // matching the existing behaviour for `_initDerivations`. See #132
-    // for the follow-up that makes the fallback path async.
+    // matching the existing behaviour for `_initDerivations`.
     void opts.guardStrategies
     this.historyConfig = opts.historyConfig ?? { enabled: true }
     this.reloadKeyring = opts.reloadKeyring
@@ -463,7 +462,7 @@ export class Vault {
     // User envelope API — frozen writerKeyringId, dynamic DEK resolver
     // (so a post-load() keyring refresh transparently rotates the DEK
     // through the rebuilt this.getDEK), and a checkGate callback that
-    // delegates to Noydb's policy engine (#22 wires edit-own-profile +
+    // delegates to Noydb's policy engine (wires edit-own-profile +
     // view-team-profiles).
     this.user = new UserApi(
       this.adapter,
@@ -568,7 +567,7 @@ export class Vault {
      */
     persistJsonSchema?: boolean
     /**
-     * Ordered schema-update strategies (#245). On a detected schema
+     * Ordered schema-update strategies. On a detected schema
      * change, evaluated in order; the first non-`allow` decision wins.
      * A `reject` is enforced at the write path (`put`/`delete` throw).
      * Requires `persistJsonSchema: true` (detection needs the baseline).
@@ -577,12 +576,12 @@ export class Vault {
     /** — declare the per-field schema for document attestation (issue side). */
     attestation?: AttestationFieldSchema
   }): Collection<T> {
-    // Overlay intercept (#154). When the requested collection name
+    // Overlay intercept. When the requested collection name
     // matches a registered `withOverlayedView`, return the virtual
     // proxy that merges base + overlay on read and routes writes to
     // the overlay collection. The proxy implements the core
     // Collection<T> read/write surface (get, list, put, delete);
-    // reactive APIs (live, subscribe) are out of scope for #154.
+    // reactive APIs (live, subscribe) are out of scope.
     const overlayRegistry = this.overlayedViewRegistry
     if (overlayRegistry !== null && overlayRegistry.isOverlay(collectionName)) {
       const spec = overlayRegistry.byName(collectionName)
@@ -636,12 +635,12 @@ export class Vault {
         this.dictKeyFieldRegistry.set(collectionName, dictFieldMap)
       }
 
-      // #229 — capture registered schema-update strategy names for introspection.
+      // Capture registered schema-update strategy names for introspection.
       if ((options?.schemaUpdate?.length ?? 0) > 0) {
         this.#schemaUpdateNames.set(collectionName, (options!.schemaUpdate ?? []).map((s) => s.name))
       }
 
-      // #245 — schema-update gate. Built only when persistence + strategies
+      // Schema-update gate. Built only when persistence + strategies
       // are on. Detection runs in the same work pushed to the drain; the
       // gate caches the decision and the write path (put/delete) enforces it.
       let schemaUpdateGate: SchemaUpdateGate | undefined
@@ -783,7 +782,7 @@ export class Vault {
       // onto _pendingSchemaWrites so tests can drain before asserting;
       // production code ignores it (the writes are idempotent fingerprints).
       // When schemaUpdate strategies are present, persistence already ran
-      // inside the gate's work above (#245) — skip the un-gated path here.
+      // inside the gate's work above — skip the un-gated path here.
       if (
         options?.persistJsonSchema === true &&
         options.schema !== undefined &&
@@ -829,7 +828,7 @@ export class Vault {
   }
 
   /**
-   * Run a coordinated schema cutover (#232). Drains pending writes, waits
+   * Run a coordinated schema cutover. Drains pending writes, waits
    * for the active client set to quiesce (the ack-barrier), applies every
    * pending collection transform in bulk, bumps the vault schema generation,
    * and clears the fence. Returns the count of collections migrated.
@@ -849,9 +848,9 @@ export class Vault {
   }
 
   /**
-   * #228b — refresh a loaded collection's view of one document from a peer
+   * Refresh a loaded collection's view of one document from a peer
    * tab's broadcast. No-op when the collection isn't loaded in this tab
-   * (it will read fresh on next open). Mirrors #runCutoverTransform's guard.
+   * (it will read fresh on next open). Mirrors `#runCutoverTransform`'s guard.
    */
   async _applyRemoteWrite(collectionName: string, docId: string, action: 'put' | 'delete'): Promise<void> {
     const coll = this.collectionCache.get(collectionName)
@@ -860,9 +859,9 @@ export class Vault {
   }
 
   /**
-   * #228c — for a detected conflict: capture this tab's clobbered record,
+   * For a detected conflict: capture this tab's clobbered record,
    * read the common ancestor from history, converge the cache to the store's
-   * authoritative value (the (b) re-read), and return all three for the
+   * authoritative value (the re-read), and return all three for the
    * WriteConflict payload. Returns null when the collection isn't loaded.
    */
   async _captureAndConverge(
@@ -885,17 +884,17 @@ export class Vault {
     return { local, remote, base }
   }
 
-  /** Recover a stuck cutover fence (#232) — reset to normal without bumping. */
+  /** Recover a stuck cutover fence — reset to normal without bumping. */
   async abortSchemaCutover(): Promise<void> {
     await this.schemaFence.abort()
   }
 
-  /** Current schema-cutover fence state for this vault (#232/#233). Thin live read. */
+  /** Current schema-cutover fence state for this vault. Thin live read. */
   async schemaFenceState(): Promise<FenceDoc> {
     return loadFence(this.adapter, this.name)
   }
 
-  /** @internal Start the per-client heartbeat + fence watcher once a cutover is registered (#232). */
+  /** @internal Start the per-client heartbeat + fence watcher once a cutover is registered. */
   _ensureFenceCoordination(): void {
     if (this.#fenceCoordinationStarted) return
     this.#fenceCoordinationStarted = true
@@ -1723,7 +1722,7 @@ export class Vault {
    * Dynamic-imports `GuardRegistry` + `ReadOnlyVaultFacade` and seeds
    * the registry with the supplied strategy handles. No-op when the
    * handles array is empty — keeps the guard subsystem out of the
-   * floor bundle for consumers that don't use guards (#130).
+   * floor bundle for consumers that don't use guards.
    *
    * The read-only facade is eagerly instantiated here so the sync
    * accessor `_getReadOnlyFacade()` (called from the tx amendment
@@ -1757,7 +1756,7 @@ export class Vault {
    * derivation strategies (async because `strategyHash` computation
    * goes through `crypto.subtle.digest`). No-op when the handles
    * array is empty — keeps the derivation subsystem out of the floor
-   * bundle for consumers that don't use derivations (#130). Throws
+   * bundle for consumers that don't use derivations. Throws
    * `DerivationCycleError` if a cycle is detected after registration.
    */
   async _initDerivations(handles: ReadonlyArray<DerivationStrategyHandle>): Promise<void> {
@@ -1794,7 +1793,7 @@ export class Vault {
    * MV spec (which invokes its `query()` once for dependency
    * analysis), then runs the unified cycle detection across the MV +
    * derivation graphs. No-op when the handles array is empty — keeps
-   * the MV subsystem out of the floor bundle (mirrors v1 #130).
+   * the MV subsystem out of the floor bundle (mirrors the derivation lazy-import pattern).
    * Throws `MaterializedViewCycleError` if a cycle is detected.
    */
   async _initMaterializedViews(
@@ -1878,13 +1877,13 @@ export class Vault {
   }
 
   /**
-   * Manual re-materialize for a single registered MV (#151). Useful
+   * Manual re-materialize for a single registered MV. Useful
    * for `refresh: 'manual'` MVs (whose consumer drives refreshes
    * externally), for stale-bit recovery on vault re-open, and as the
    * explicit bulk-recompute escape hatch after a strategy change.
    *
-   * Returns `{ written, deleted, failed }`. `deleted` is always 0 in
-   * foundation + this sub-issue — tombstoning lands in #152.
+   * Returns `{ written, deleted, failed }`. `deleted` is always 0
+   * when tombstoning is not enabled.
    *
    * Throws if `name` is not a registered MV.
    */
@@ -1950,7 +1949,7 @@ export class Vault {
           if (!outSpec) continue
           const outputColl = this.collection(outSpec.collection)
 
-          // Array-shape branch (#200) — diff against the fanout sidecar.
+          // Array-shape branch — diff against the fanout sidecar.
           if (out.kind === 'array') {
             const { loadFanoutSidecar, saveFanoutSidecar } =
               await import('./derivations/fanout-sidecar.js')
@@ -1976,11 +1975,11 @@ export class Vault {
           }
 
           if (out.skipped === true) {
-            // #144: optional output skipped — delete any prior emission.
+            // Optional output skipped — delete any prior emission.
             // No txCtx hookup needed: `deriveAll` runs outside the
             // multi-record transaction window by design. Routed
             // through `_internalDelete` so the bulk recompute does not
-            // trip user `onDelete` (#145) on the output collection.
+            // trip user `onDelete` on the output collection.
             await outputColl._internalDelete(id)
             continue
           }
@@ -2651,7 +2650,7 @@ export class Vault {
   }
 
   /**
-   * Lightweight read of the vault's registered schema (#229): collections
+   * Lightweight read of the vault's registered schema: collections
    * (+ doc counts), guards, materialized views, schema-update strategies,
    * and the unlocked user's grants. Cheap — one `adapter.list` per
    * collection, no decryption. For a full snapshot + stats use dumpSchema().

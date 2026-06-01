@@ -1,4 +1,4 @@
-/** The coordinatedCutover update strategy (#232, single-step — no from/to). */
+/** The coordinatedCutover update strategy (single-step — no from/to). */
 import type { SchemaUpdateStrategy, SchemaDelta, TransformFn } from './types.js'
 
 export function coordinatedCutover(opts: { readonly transform: TransformFn }): SchemaUpdateStrategy {

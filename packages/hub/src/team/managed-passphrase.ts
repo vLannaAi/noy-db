@@ -1,5 +1,5 @@
 /**
- * Managed-passphrase mode — issue #14, rubber-hose-resistant vaults.
+ * Managed-passphrase mode — rubber-hose-resistant vaults.
  *
  * A vault mode where the passphrase is machine-generated and never
  * exposed to the user, sealed under a developer-provided
@@ -38,9 +38,9 @@
  *     Returns the plaintext passphrase string that the rest of the
  *     `createNoydb` keyring path consumes.
  *
- * Slice 1 of #14. Deferred to follow-ups:
+ * Deferred to follow-ups:
  *   - Block `rotate-passphrase` policy gate under managed mode.
- *   - Mandatory strong-recovery enforcement (depends on #10).
+ *   - Mandatory strong-recovery enforcement.
  *   - Recovery flow under managed mode (generates fresh sealed phrase).
  *
  * @see docs/subsystems/session-tiers.md → Managed-passphrase mode
@@ -334,12 +334,12 @@ export interface SealedPassphrase {
  *
  * v1 shape (this release): `{ v: 1, _noydb_sealed: 1, pid, payload }`.
  *
- * Legacy shape (pre.14, pre.15): `{ _noydb_sealed: 1, providerId, sealed }`
+ * Legacy shape (earlier releases): `{ _noydb_sealed: 1, providerId, sealed }`
  * — accepted on read for backwards compatibility; never produced on
  * write going forward.
  */
 export interface SealedEnvelope {
-  /** Envelope schema version. v1 is the shape shipped in pre.16. */
+  /** Envelope schema version. v1 is the current shape. */
   readonly v: 1
   /** Magic marker for forensics + legacy-shape detection. */
   readonly _noydb_sealed: 1
@@ -367,9 +367,9 @@ function base64ToBytes(b64: string): Uint8Array {
  * in-memory {@link SealedPassphrase} representation. Accepts both:
  *
  *   1. v1 wire format `{ v: 1, _noydb_sealed: 1, pid, payload }` —
- *      the shape produced from pre.16 onward.
+ *      the current shape.
  *   2. Legacy wire format `{ _noydb_sealed: 1, providerId, sealed }` —
- *      the shape produced in pre.14/pre.15. Read-only; never written
+ *      read-only; never written
  *      going forward.
  *
  * Returns `undefined` for any input that doesn't match either shape,
@@ -395,7 +395,7 @@ export function parseSealedEnvelope(raw: unknown): SealedPassphrase | undefined 
     }
   }
 
-  // Legacy shape — pre.14 / pre.15. Accept on read for compat.
+  // Legacy shape — earlier releases. Accept on read for compat.
   if (
     typeof r.providerId === 'string'
     && typeof r.sealed === 'string'

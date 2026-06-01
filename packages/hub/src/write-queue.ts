@@ -1,5 +1,5 @@
 /**
- * Observable write-queue (#227, M12 Slice 1).
+ * Observable write-queue.
  *
  * Tracks outstanding in-flight *logical* writes (a full Collection.put /
  * delete, including ledger + cache + derivation + MV dispatch — not just

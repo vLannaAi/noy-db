@@ -1,4 +1,4 @@
-/** Ordered strategy evaluation (#245): first non-`allow` decision wins. */
+/** Ordered strategy evaluation: first non-`allow` decision wins. */
 import type { SchemaDelta, SchemaUpdateStrategy, UpdateContext, UpdateDecision } from './types.js'
 
 export async function evaluateStrategies(

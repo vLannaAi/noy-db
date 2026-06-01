@@ -9,13 +9,13 @@
  * - **Different lifecycles** — the phrase rotates yearly; the password
  *   rotates per the developer's policy.
  * - **Different strength rules** — the phrase is validated against the
- *   phrase format (issue #7); the password is validated against a
+ *   phrase format; the password is validated against a
  *   length / regex rule the developer chooses.
  * - **Different storage** — the phrase derives the KEK; the password
  *   derives a wrapping key that wraps the SAME DEK SET in its own
  *   keyring slot (LUKS-like multi-slot, wrap-DEKs variant).
  *
- * ## Wrap-DEKs format (#26 Path C)
+ * ## Wrap-DEKs format (Path C)
  *
  * Slots produced by this package use the wrap-DEKs variant of
  * `KeyringAuthenticator` — they encrypt the serialized DEK set under
@@ -51,7 +51,7 @@ import {
 /**
  * PBKDF2 iteration count — matches the tier-1 phrase derivation.
  * Exported as a documented invariant; the actual derivation lives
- * in hub's canonical wrap-DEKs primitive (#44).
+ * in hub's canonical wrap-DEKs primitive.
  */
 export const PASSWORD_PBKDF2_ITERATIONS = 600_000
 
@@ -148,10 +148,10 @@ export async function enrollPasswordAuthenticator(
     )
   }
 
-  // Delegate the wrap-DEKs crypto to the canonical hub primitive (#44).
+  // Delegate the wrap-DEKs crypto to the canonical hub primitive.
   // The slot envelope still stores `salt` inside `meta` for backward
-  // compatibility with the pre-#44 slot format; the issue defers
-  // moving it to top-level for parity with PaperRecoveryEntry.
+  // compatibility with the legacy slot format; moving it to top-level
+  // for parity with PaperRecoveryEntry is deferred.
   const blob = await mintWrappedDeksBlob(keyring.deks, options.password)
 
   return {
@@ -176,7 +176,7 @@ export async function enrollPasswordAuthenticator(
  *
  * @throws {@link PasswordInvalidError} when the password is wrong or
  *   the slot is not a wrap-DEKs slot (e.g. a legacy wrap-KEK password
- *   slot from before pre.8 — those need re-enrollment).
+ *   legacy wrap-KEK slots — those need re-enrollment).
  */
 export async function unwrapDeksWithPassword(
   slot: KeyringAuthenticator,
@@ -196,10 +196,10 @@ export async function unwrapDeksWithPassword(
     )
   }
 
-  // Delegate to the canonical wrap-DEKs primitive (#44). The blob's
+  // Delegate to the canonical wrap-DEKs primitive. The blob's
   // three fields (salt / iv / wrappedDeks) are reconstructed from
   // the slot's split layout: salt lives in meta, iv + wrappedDeks
-  // at top level. Pre-#44, this code re-implemented the same crypto
+  // at top level. Previously, this code re-implemented the same crypto
   // inline.
   try {
     return await unwrapDeksFromBlob(
@@ -292,10 +292,10 @@ export interface VerifyPasswordSlotOptions {
 
 /**
  * `SlotRewrapCeremony` factory for password slots — the password parallel
- * to `webAuthnSlotRewrapCeremony` (#56). Used by hub's
+ * to `webAuthnSlotRewrapCeremony`. Used by hub's
  * `rotatePassphrase({ slotCeremonies: { [slotId]: passwordSlotRewrapCeremony(pwd) } })`
  * to preserve a tier-2 password enrollment across a tier-1 phrase
- * rotation without forcing the user to re-enroll the password (#96).
+ * rotation without forcing the user to re-enroll the password.
  *
  * Returns a closure capturing the password so the result matches
  * hub's `SlotRewrapCeremony` signature `(ctx) => Promise<EnrollAuthenticatorOptions>`
@@ -330,7 +330,7 @@ export interface VerifyPasswordSlotOptions {
  *      `id` + `method` + `wrapKind` to prevent slot-type swap mid-
  *      rotation.
  *
- * Pre-pre.8 wrap-KEK password slots (legacy) cannot be rewrapped via
+ * Legacy wrap-KEK password slots cannot be rewrapped via
  * this ceremony — they must be re-enrolled fresh via
  * {@link enrollPasswordAuthenticator}. The validation throws
  * {@link ValidationError} for those.
@@ -340,8 +340,7 @@ export interface VerifyPasswordSlotOptions {
  * @throws {PasswordTooWeakError} when the supplied password fails the
  *         strength rules carried in `oldSlot.meta` (minLength, pattern).
  *
- * @see #56 webAuthnSlotRewrapCeremony — the WebAuthn parallel.
- * @see #29 — the slotCeremonies plumbing this fills in.
+ * @see webAuthnSlotRewrapCeremony — the WebAuthn parallel.
  */
 export function passwordSlotRewrapCeremony(password: string): SlotRewrapCeremony {
   return async (ctx: SlotRewrapContext): Promise<EnrollAuthenticatorOptions> => {
@@ -385,5 +384,5 @@ export function passwordSlotRewrapCeremony(password: string): SlotRewrapCeremony
 }
 
 // All wrap-DEKs crypto helpers (PBKDF2 derivation, base64
-// codecs) moved to hub's `team/wrapped-deks.ts` in #44 — both this
-// package and `mintPaperRecoveryEntry` now share one implementation.
+// codecs) live in hub's `team/wrapped-deks.ts` — both this
+// package and `mintPaperRecoveryEntry` share one implementation.

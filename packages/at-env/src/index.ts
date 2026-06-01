@@ -1,6 +1,6 @@
 /**
  * **@noy-db/at-env** — env-var sealing key provider for noy-db
- * managed-passphrase mode (#14).
+ * managed-passphrase mode.
  *
  * The smallest production-shape provider in the `at-*` family. Reads a
  * 32-byte AES-256-GCM key from an environment variable (base64-encoded)

@@ -121,8 +121,8 @@ export interface GuardStrategy<T extends Record<string, unknown>> {
    * })
    * ```
    *
-   * Also skipped on system-internal deletes (derivation tombstones from
-   * #144, MV refresh from Dim 14 v2) — those use `_internalDelete`
+   * Also skipped on system-internal deletes (derivation tombstones,
+   * MV refresh from Dim 14 v2) — those use `_internalDelete`
    * which bypasses every user-facing delete hook. Housekeeping ops are
    * NOT user-initiated and should not trip user invariants.
    *

@@ -98,7 +98,7 @@ interface InternalSource {
  * error. See `query/join.ts` for the full design.
  */
 /**
- * Declared deterministic predicate (#153). Carries the consumer's
+ * Declared deterministic predicate. Carries the consumer's
  * stable `hash` (for function-body identity), the function itself,
  * and is keyed by name when registered on a `Query<T>` via
  * `_withPredicates()`.
@@ -150,7 +150,7 @@ export class Query<T> {
   /**
    * @internal — clone this Query with a declared-predicate map
    * attached. Used by the materialized-view registry to enable
-   * `.wherePredicate(name, ctx?)` for the MV's query callback (#153).
+   * `.wherePredicate(name, ctx?)` for the MV's query callback.
    * Consumers don't call this directly.
    */
   _withPredicates(predicates: ReadonlyMap<string, DeclaredPredicate>): Query<T> {
@@ -164,7 +164,7 @@ export class Query<T> {
   }
 
   /**
-   * Filter by a registered deterministic predicate (#153). Requires
+   * Filter by a registered deterministic predicate. Requires
    * the Query to have been augmented with a predicates map (typically
    * via the materialized-view registry — bare Queries constructed
    * outside an MV throw on `.wherePredicate()`).
@@ -939,10 +939,8 @@ function serializeClause(clause: Clause): unknown {
     // identity-carrying fields so distinct predicates still serialize
     // distinctly. `predicateHash` + `ctxHash` are the hash identity;
     // `name` is the named predicate reference. This matters because
-    // niwat-review of #159 caught that the previous fall-through
-    // (return clause) exposed the live fn and produced identical
-    // serializations for distinct predicates with different ctx
-    // values.
+    // A previous fall-through (return clause) exposed the live fn and produced
+    // identical serializations for distinct predicates with different ctx values.
     return {
       type: 'wherePredicate',
       name: clause.name,

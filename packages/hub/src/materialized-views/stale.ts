@@ -3,7 +3,7 @@ import type { TxContext } from '../tx/transaction.js'
 import type { MaterializedViewRegistry } from './registry.js'
 // Type-only — runtime class loaded via dynamic import in
 // `resolveStaleMVOnRead` only when a stale flag actually fires.
-// Keeps the executor chunk out of the floor bundle (mirrors v1 #130).
+// Keeps the executor chunk out of the floor bundle (mirrors v1 floor-bundle isolation).
 import type { MaterializedViewExecutor as MVExecutorType } from './executor.js'
 import type { MVQueryContext } from './types.js'
 
@@ -70,7 +70,7 @@ export function isMVStale(registry: MaterializedViewRegistry, mvName: string): b
  *
  * Dynamic-imports the executor only when a stale flag actually fires
  * (the floor-bundle isolation pattern v1 derivations established in
- * #130).
+ * floor-bundle isolation pattern).
  */
 export async function resolveStaleMVOnRead(
   accessor: MVStaleAccessor,

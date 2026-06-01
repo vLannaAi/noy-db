@@ -12,7 +12,7 @@ import { canonicalGroupKey } from '../aggregate/canonical-key.js'
  * Accessor shape passed in from the owning Vault. Mirrors v1's
  * `DerivationStaleAccessor` — provides the per-collection resolver
  * and the active TxContext so refresh writes/tombstones register on
- * `_executed` for #133-style rollback symmetry.
+ * `_executed` for rollback symmetry.
  */
 export interface MVExecutorAccessor {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -76,7 +76,7 @@ async function materializeQueryResult(
 }
 
 /**
- * Materialize a UNION-form MV (#165): read every arm's source
+ * Materialize a UNION-form MV: read every arm's source
  * collection, apply each arm's `map` to project rows into the unified
  * MV row shape, concatenate the mapped streams, then optionally run
  * `groupBy` + `aggregate` over the result.
@@ -142,22 +142,22 @@ async function materializeUnionResult<TRow extends Record<string, unknown>>(
  *
  * Stamps `_materializedFrom` onto every emitted row.
  *
- * **Tombstoning** (#152): when `spec.onEmpty: 'delete'` (default), rows
+ * **Tombstoning:** when `spec.onEmpty: 'delete'` (default), rows
  * that existed in a prior refresh but no longer appear in the new
  * materialized result are deleted via `Collection._internalDelete` —
- * the housekeeping bypass primitive added in PR #148 prevents user
+ * the housekeeping bypass primitive prevents user
  * `onDelete` guards on the output collection from firing on these
  * system-internal deletes. `onEmpty: 'keep'` opts out (rows from
  * prior refreshes linger even when the new result lacks them).
  *
- * **Cost ceiling** (#152): if the materialized row count exceeds
+ * **Cost ceiling:** if the materialized row count exceeds
  * `spec.maxRows` (default 100k), throws `MaterializedViewTooLargeError`
  * before any writes hit the store — so strict-mode rollback is
  * clean.
  *
- * **Strict mode** (#152): `spec.strict === true` re-throws on any
+ * **Strict mode:** `spec.strict === true` re-throws on any
  * row-write failure; the active TxContext registration means the
- * source-write rolls back atomically via `revertExecuted` (#133).
+ * source-write rolls back atomically via `revertExecuted`.
  *
  * @internal
  */
@@ -180,7 +180,7 @@ export const MaterializedViewExecutor = {
     const ctxForQuery: MVQueryContext = spec.predicates
       ? wrapDbWithPredicates(baseCtx, spec.predicates)
       : baseCtx
-    // UNION-form strategies (#165): read every arm, map to the unified
+    // UNION-form strategies: read every arm, map to the unified
     // row shape, concatenate, then optionally groupBy + aggregate. The
     // single-source `query()` path is untouched.
     let rows: ReadonlyArray<Record<string, unknown>>
@@ -246,8 +246,7 @@ export const MaterializedViewExecutor = {
     // 5. Tombstone rows that existed before but don't appear now.
     //    `onEmpty: 'keep'` skips this pass entirely. Uses
     //    `_internalDelete` so a user-registered `onDelete` on the
-    //    output collection does NOT fire on housekeeping (the #145
-    //    composition fix).
+    //    output collection does NOT fire on housekeeping (composition fix).
     let deleted = 0
     if (onEmpty === 'delete') {
       const priorIds = await listOutputIds(outputColl)

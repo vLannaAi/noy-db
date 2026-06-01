@@ -6,14 +6,14 @@ import type { MaterializedViewStrategy } from './types.js'
  * Walks a `Query<T>` plan and returns the set of source collection
  * names that any source-write should trigger a refresh on.
  *
- * Foundation sub-issue (#150) handles:
+ * Handles:
  *   - root collection (the one the query was built from)
  *   - FK join targets (`.join(field, { as })`)
  *
- * Deferred to later sub-issues:
+ * Deferred:
  *   - `.crossJoin()` — v3 cross-join spec (separate primitive)
- *   - `.wherePredicate(name)` — v2 predicate primitive, sub-issue #153
- *   - Overlay-name expansion to {base, overlay} — sub-issue #154
+ *   - `.wherePredicate(name)` — v2 predicate primitive
+ *   - Overlay-name expansion to {base, overlay}
  *
  * The set is materialized at MV registration time. The MV registry
  * uses it to (a) dispatch `onSourceWrite` only to MVs that actually
@@ -89,7 +89,7 @@ export function summarizeQueryPlan(query: Query<any>): string {
  * Canonical string description of a UNION MV's plan, used as input to
  * `computeQueryHash`.
  *
- * Asymmetry note (#165 niwat review):
+ * Asymmetry note:
  *   - Arm collection names are NOT sorted. Declaration order is
  *     semantically meaningful for the dedup-only UNION path —
  *     `materializeUnionResult` iterates `spec.unionSources` in

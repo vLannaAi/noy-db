@@ -1,4 +1,4 @@
-/** Bundled light update strategies (#245). */
+/** Bundled light update strategies. */
 import { NonAdditiveSchemaChangeError, SchemaLockedError } from '../errors.js'
 import type { SchemaUpdateStrategy, SchemaDelta } from './types.js'
 

@@ -84,7 +84,7 @@ export interface LedgerEntry {
    * below for the structured payload.
    *
    * `'lifecycle'` records a non-data audit event (e.g. partition
-   * handover, #226) — `collection`/`id` are empty and the event detail
+   * handover) — `collection`/`id` are empty and the event detail
    * lives in `reason` (e.g. `'partition-handed-over:<sealId>'`). Like
    * `amendment`, it carries no data envelope, so `verifyBackupIntegrity`
    * skips it in the data cross-check (it still participates in the
@@ -122,8 +122,8 @@ export interface LedgerEntry {
   readonly payloadHash: string
 
   /**
-   * Optional human-readable tag describing why this mutation happened
-   * (#1). Threaded through `collection.put(_, _, { reason })`. Common
+   * Optional human-readable tag describing why this mutation happened.
+   * Threaded through `collection.put(_, _, { reason })`. Common
    * values include `'import:csv'`, `'import:json'`, `'import:xlsx'` from
    * `as-*` ImportPlan.apply(), but consumers can use any string for
    * domain-specific audit filtering. Auto-strip via `canonicalJson` —

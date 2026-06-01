@@ -1,6 +1,6 @@
 /**
  * **@noy-db/at-azure-keyvault** — Azure Key Vault sealing key provider for noy-db
- * managed-passphrase mode (#190).
+ * managed-passphrase mode.
  *
  * An `at-*` provider that seals and unseals the hub-generated random
  * passphrase via Azure Key Vault Encrypt / Decrypt. Every seal and unseal is

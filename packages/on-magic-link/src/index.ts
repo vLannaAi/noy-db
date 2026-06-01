@@ -479,7 +479,7 @@ export async function readMagicLinkGrant(options: {
 export { MAGIC_LINK_GRANTS_COLLECTION, deriveMagicLinkContentKey }
 export type { MagicLinkGrantPayload }
 
-// ─── Invite + peer-recovery (#32) ─────────────────────────────────
+// ─── Invite + peer-recovery ────────────────────────────────────────
 // Parallel primitives in the same package, layered on top of db.grant
 // (invite mints a NEW user) and db.recoverUser (peer-recovery rewraps
 // an EXISTING user). Different threat model than delegation grants —

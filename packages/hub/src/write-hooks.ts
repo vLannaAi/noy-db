@@ -1,5 +1,5 @@
 /**
- * Hub-level write lifecycle hooks (#230). `onBeforeWrite` may abort (throw);
+ * Hub-level write lifecycle hooks. `onBeforeWrite` may abort (throw);
  * `onAfterWrite` is awaited and its errors are warned, not thrown. A
  * re-entrancy flag suppresses nested firing so a handler that writes can't
  * loop. Held on the Noydb instance, threaded into every Collection.
@@ -11,8 +11,8 @@ export interface WriteEvent {
   readonly docId: string
   readonly before: unknown // decrypted prior record; null on 'create'
   readonly after: unknown // the record written; null on 'delete'
-  readonly baseVersion: number // #228c — version the writer started from (0 on create)
-  readonly version: number // #228c — version the writer wrote (baseVersion + 1)
+  readonly baseVersion: number // version the writer started from (0 on create)
+  readonly version: number // version the writer wrote (baseVersion + 1)
   readonly userId: string
   readonly timestamp: number
   readonly txId: string

@@ -44,7 +44,7 @@ export class GuardRegistry {
     return this._byCollection.get(collection) ?? []
   }
 
-  /** Per-collection guard counts, for introspection (#229). */
+  /** Per-collection guard counts, for introspection. */
   summary(): { collection: string; count: number }[] {
     return [...this._byCollection.entries()].map(([collection, guards]) => ({
       collection,

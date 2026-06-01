@@ -1,5 +1,5 @@
 /**
- * Schema-fence document (#232). Vault-level generation counter + drain
+ * Schema-fence document. Vault-level generation counter + drain
  * state, stored at `_meta/schema-fence` using the plaintext-envelope
  * pattern of `_meta/policy` (no PII — a counter + a state enum).
  */

@@ -10,7 +10,7 @@ export interface UseMigrationStateReturn {
 }
 
 /**
- * Reactive schema-cutover state (#233). Seeds from the current fence on
+ * Reactive schema-cutover state. Seeds from the current fence on
  * mount, then updates on every `schema:fence-changed` event for `vaultName`
  * (or any vault when omitted). Pass `db` explicitly, or rely on the injected
  * instance (`NoydbPlugin`).

@@ -8,7 +8,7 @@
  *
  * Part of the `@noy-db/on-*` authentication family.
  *
- * ## Format (post pre.8, #38 Option A)
+ * ## Format (Option A)
  *
  * This package is now a **thin code-generator + parser layer over
  * the hub's `mintPaperRecoveryEntry` primitive**. Its job is exactly
@@ -23,8 +23,8 @@
  *
  * This delegation aligns recovery with the hub's wrap-DEKs primitive
  * (the same shape used by `@noy-db/on-pin` and now `@noy-db/on-password`
- * after #26 Path C). It eliminates the format mismatch that made the
- * pre.7 package unusable with `db.enrollRecovery` (#38).
+ * after the wrap-DEKs path change). It eliminates the format mismatch
+ * that made the previous package version unusable with `db.enrollRecovery`.
  *
  * ## Usage
  *
