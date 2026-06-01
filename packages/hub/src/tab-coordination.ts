@@ -31,6 +31,13 @@ export interface TabCoordinationOptions {
   readonly heartbeatMs?: number
   readonly staleMs?: number
   readonly now?: () => number
+  /**
+   * Close the channel on `dispose()`. Set this only for a channel the
+   * coordinator owns (e.g. the one `defaultChannel()` created); leave it
+   * false for a caller-injected channel so the coordinator never closes a
+   * channel it didn't create. Default: false.
+   */
+  readonly closeChannelOnDispose?: boolean
 }
 
 interface PresenceMsg { readonly kind: 'tab-presence'; readonly tabId: string; readonly lastSeen: number; readonly role: TabRole }
@@ -52,6 +59,7 @@ export class TabCoordinator {
   #unsub: Unsubscribe | undefined
   #closeUnsub: Unsubscribe | undefined
   #timer: ReturnType<typeof setInterval> | undefined
+  readonly #ownsChannel: boolean
   #started = false
   #disposed = false
   #lastTabsSig = ''
@@ -64,6 +72,7 @@ export class TabCoordinator {
     this.#heartbeatMs = opts.heartbeatMs ?? 2_000
     this.#staleMs = opts.staleMs ?? 6_000
     this.#now = opts.now ?? (() => Date.now())
+    this.#ownsChannel = opts.closeChannelOnDispose ?? false
   }
 
   start(): void {
@@ -108,6 +117,7 @@ export class TabCoordinator {
     if (this.#timer) { clearInterval(this.#timer); this.#timer = undefined }
     this.#unsub?.()
     this.#closeUnsub?.()
+    if (this.#ownsChannel) this.#channel?.close()
     this.#setRole('unknown')
   }
 

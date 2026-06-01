@@ -14,7 +14,6 @@ describe('db.enableTabCoordination (#228)', () => {
 
   it('with injected lock manager + channel, becomes primary', async () => {
     const db = await createNoydb({ store: memory(), user: 'a', secret: 'tab-pass-1234' })
-    let resolveCb: (() => void) | undefined
     const locks: TabLockManager = {
       async request(_n, _o, cb) { return cb(undefined) }, // acquire immediately
     }
@@ -22,7 +21,15 @@ describe('db.enableTabCoordination (#228)', () => {
     const handle = db.enableTabCoordination({ lockManager: locks, channel, tabId: 't1' })
     await new Promise((r) => setTimeout(r, 0))
     expect(db.tabRole).toBe('primary')
-    void resolveCb
     handle.dispose()
+  })
+
+  it('does not close a caller-injected channel on dispose', async () => {
+    const db = await createNoydb({ store: memory(), user: 'a', secret: 'tab-pass-1234' })
+    let closed = 0
+    const channel: TabChannel = { isOpen: true, send() {}, on() { return () => {} }, close() { closed++ } }
+    const handle = db.enableTabCoordination({ channel, tabId: 't1' })
+    handle.dispose()
+    expect(closed).toBe(0) // the coordinator must not close a channel it didn't create
   })
 })

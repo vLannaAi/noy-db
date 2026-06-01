@@ -173,4 +173,19 @@ describe('TabCoordinator', () => {
     await flush()
     expect(seen.some((n) => n >= 2)).toBe(true)
   })
+
+  it('closes the channel on dispose only when it owns it', async () => {
+    const locks = mockLocks()
+    let ownedClosed = 0
+    const ownedCh: TabChannel = { isOpen: true, send() {}, on() { return () => {} }, close() { ownedClosed++ } }
+    const owned = new TabCoordinator({ lockManager: locks, channel: ownedCh, tabId: 'o', closeChannelOnDispose: true, heartbeatMs: 1_000_000, staleMs: 500, now: () => 0 })
+    owned.start(); await flush(); owned.dispose()
+    expect(ownedClosed).toBe(1)
+
+    let injectedClosed = 0
+    const injectedCh: TabChannel = { isOpen: true, send() {}, on() { return () => {} }, close() { injectedClosed++ } }
+    const injected = new TabCoordinator({ lockManager: locks, channel: injectedCh, tabId: 'i', heartbeatMs: 1_000_000, staleMs: 500, now: () => 0 })
+    injected.start(); await flush(); injected.dispose()
+    expect(injectedClosed).toBe(0)
+  })
 })
