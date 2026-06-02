@@ -1,5 +1,9 @@
 # Changelog — hub
 
+## 0.2.0-pre.4
+
+Version-only lockstep bump; no source changes since pre.3.
+
 ## 0.2.0-pre.3
 
 The **same-device multi-tab coordination** line ([#228](https://github.com/vLannaAi/noy-db/issues/228)). Additive over pre.2: one opt-in entry point, `db.enableTabCoordination()`, gives a vault open in multiple browser tabs primary/secondary election, live cross-tab write propagation, and concurrent-write conflict detection. Browser-only (Web Locks + BroadcastChannel, same-origin); a graceful no-op everywhere else.
