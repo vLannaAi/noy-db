@@ -5,6 +5,7 @@ import { createNoydb } from '@noy-db/hub'
 import type { NoydbOptions } from '@noy-db/hub'
 import { App } from './App.js'
 import { loadOptionsFromFile, resolvePassphrase } from './load-options.js'
+import { promptMasked } from './prompt-passphrase.js'
 
 function fail(msg: string): never {
   process.stderr.write(`noydb-inspect: ${msg}\n`)
@@ -19,8 +20,11 @@ async function main(): Promise<void> {
   if (!vaultFlag) fail('missing --vault=<name>')
   const vaultName = vaultFlag.slice('--vault='.length)
 
-  const passphrase = resolvePassphrase(argv, process.env)
-  if (passphrase === undefined) fail('no passphrase — pass --passphrase=… or set NOYDB_PASSPHRASE (interactive prompt: B2.1 follow-up)')
+  let passphrase = resolvePassphrase(argv, process.env)
+  if (passphrase === undefined) {
+    if (!process.stdin.isTTY) fail('no passphrase — pass --passphrase=… or set NOYDB_PASSPHRASE')
+    passphrase = await promptMasked('Passphrase: ')
+  }
 
   let baseOptions: NoydbOptions
   try {
