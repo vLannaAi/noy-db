@@ -49,6 +49,23 @@ describe('write monitor (B2.3)', () => {
     expect(frame).toContain('degraded')
   })
 
+  it('flags a write whose conflict arrived BEFORE the write (sticky)', async () => {
+    const f = fakeInspector()
+    const initial = { vaults: await f.inspector.listVaults(), snapshot: await f.inspector.snapshot({} as never) }
+    const { lastFrame, stdin } = render(<App inspector={f.inspector} vault={{} as never} vaultName="books" initial={initial} />)
+    await new Promise((r) => setTimeout(r, 100))
+    stdin.write('w')
+    await new Promise((r) => setTimeout(r, 40))
+    // conflict arrives FIRST, then the write for the same collection/docId@baseVersion
+    f.emitConflict({ vault: 'books', collection: 'invoices', docId: 'inv9', local: {}, remote: {}, base: {}, localVersion: 3, remoteVersion: 3, baseVersion: 2 })
+    await new Promise((r) => setTimeout(r, 20))
+    f.emitWrite(W({ userId: 'carol', docId: 'inv9', baseVersion: 2, version: 3 }))
+    await new Promise((r) => setTimeout(r, 50))
+    const frame = lastFrame() ?? ''
+    expect(frame).toContain('carol')
+    expect(frame).toContain('CONFLICT')
+  })
+
   it("'w' opens the monitor and streams writes newest-first; conflicts highlight", async () => {
     const f = fakeInspector()
     const initial = { vaults: await f.inspector.listVaults(), snapshot: await f.inspector.snapshot({} as Vault) }

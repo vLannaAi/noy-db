@@ -36,6 +36,7 @@ export function App({ inspector, vault, vaultName, initial }: AppProps) {
 
   const [view, setView] = useState<View>('structure')
   const [feed, setFeed] = useState<ReadonlyArray<FeedRow>>([])
+  const conflictKeys = React.useRef<Set<string>>(new Set())
   const [started, setStarted] = useState(false)
   const [meter, setMeter] = useState<MeterSnapshot | null>(null)
   useEffect(() => {
@@ -61,6 +62,7 @@ export function App({ inspector, vault, vaultName, initial }: AppProps) {
     const offW = inspector.subscribe((e) => {
       setFeed((prev) => {
         const row = rowOf(e)
+        if (conflictKeys.current.has(row.baseKey)) row.conflict = true
         const overlap = prev.some((r) => r.baseKey === row.baseKey && r.user !== row.user)
         if (overlap) row.conflict = true
         const next = [row, ...prev.map((r) => (r.baseKey === row.baseKey && r.user !== row.user ? { ...r, conflict: true } : r))]
@@ -69,6 +71,7 @@ export function App({ inspector, vault, vaultName, initial }: AppProps) {
     })
     const offC = inspector.subscribeConflicts((c) => {
       const key = `${c.collection}/${c.docId}@${c.baseVersion}`
+      conflictKeys.current.add(key)
       setFeed((prev) => prev.map((r) => (r.baseKey === key ? { ...r, conflict: true } : r)))
     })
     return () => { offW(); offC() }
@@ -90,8 +93,8 @@ export function App({ inspector, vault, vaultName, initial }: AppProps) {
     }
     if (key.escape) { setDrilled(false); setTab('schema'); setOffset(0) }
     if (key.tab) { setTab((t) => (t === 'schema' ? 'records' : 'schema')); setOffset(0) }
-    if (tab === 'records' && page) {
-      if (input === 'n' && offset + PAGE < page.total) setOffset((o) => o + PAGE)
+    if (tab === 'records') {
+      if (input === 'n' && (!page || offset + PAGE < page.total)) setOffset((o) => o + PAGE)
       if (input === 'p' && offset - PAGE >= 0) setOffset((o) => o - PAGE)
     }
   })
