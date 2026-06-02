@@ -4,7 +4,7 @@ import type { TxContext } from '../tx/transaction.js'
 import type { DerivationRegistry } from './registry.js'
 // Type-only — runtime class loaded via dynamic import in
 // `resolveStaleOnRead` only when a stale flag actually fires. Keeps
-// the executor chunk out of the floor bundle (#130).
+// the executor chunk out of the floor bundle.
 import type { DerivationExecutor as DerivationExecutorType } from './executor.js'
 import type { DerivationStrategy } from './types.js'
 
@@ -21,16 +21,15 @@ export interface DerivationStaleAccessor {
   getCollection(name: string): Collection<any>
   /**
    * Read-only vault facade handed to `derive(source, ctx)` on the lazy
-   * resolve-on-read path. Same instance/shape as the eager path uses
-   * (#147).
+   * resolve-on-read path. Same instance/shape as the eager path uses.
    */
   getReadOnlyFacade(): ReadOnlyVaultFacade
   /**
    * Active multi-record TxContext or `null`. The lazy resolve-on-read
    * path uses this to register tombstone deletes on `_executed` so a
    * later rollback restores the prior emission. Mirrors the eager
-   * path's #133-style tracking; the lazy `put` was historically
-   * unregistered but #144's tombstone delete (a NEW write path)
+   * path's rollback tracking; the lazy `put` was historically
+   * unregistered but the tombstone delete (a NEW write path)
    * matches the eager registration for symmetry.
    */
   getActiveTxContext(): TxContext | null
@@ -98,7 +97,7 @@ export async function resolveStaleOnRead(
   // this function (gated on `derivationSource` in `Collection.get`);
   // vaults with strategies but no pending stale ids reach the
   // `pending.has(spec)` short-circuit below without ever touching
-  // the executor chunk. See #130.
+  // the executor chunk.
   let DerivationExecutor: typeof DerivationExecutorType | null = null
 
   for (const { spec, strategyHash } of producers) {
@@ -142,12 +141,12 @@ export async function resolveStaleOnRead(
       }
       if (out.kind === 'array') {
         // Defensive — array-shape requires `lifecycle: 'eager'`
-        // (validated at withDerivation registration, #200 slice 1).
+        // (validated at withDerivation registration).
         // Reaching the lazy-resolve path for array-shape would mean
         // a registration check was bypassed. Log and skip.
         console.warn(
           `[derivation] unexpected array-shape output "${key}" in lazy resolve path; `
-          + 'array-shape derivations require lifecycle: "eager" (#200 slice 1).',
+          + 'array-shape derivations require lifecycle: "eager".',
         )
         continue
       }
@@ -155,16 +154,15 @@ export async function resolveStaleOnRead(
       if (!outSpec) continue
       const outputColl = accessor.getCollection(outSpec.collection)
       if (out.skipped === true) {
-        // #144: optional output skipped on lazy resolve — delete any
+        // Optional output skipped on lazy resolve — delete any
         // prior emission so the read returns null (matches eager-path
         // tombstone semantics). Routed through `_internalDelete` so a
-        // user-registered `onDelete` (#145) on the output collection
+        // user-registered `onDelete` on the output collection
         // does NOT fire. The active TxContext (if any) is forwarded:
         // `resolveStaleOnRead` is reachable from `Collection.get()`
         // which can be called from inside a transaction, so the
         // tombstone must be observable to `revertExecuted` on
-        // rollback. Closes the #133-asymmetry surfaced in PR #148
-        // review.
+        // rollback.
         await outputColl._internalDelete(id, accessor.getActiveTxContext())
         continue
       }

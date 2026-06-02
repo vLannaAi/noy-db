@@ -169,24 +169,24 @@ export { detectMimeType, detectMagic, isPreCompressed } from './blobs/mime-magic
 export { wrapBundleStore, createBundleStore } from './store/bundle-store.js'
 export type { WrappedBundleNoydbStore, WrapBundleStoreOptions } from './store/bundle-store.js'
 
-// Observable write-queue (#227)
+// Observable write-queue
 export type { WriteQueue } from './write-queue.js'
 
-// Write lifecycle hooks (#230)
+// Write lifecycle hooks
 export type { WriteEvent, WriteHook } from './write-hooks.js'
 
-// Runtime schema introspection (#229)
+// Runtime schema introspection
 export type { SchemaIntrospection } from './introspection/types.js'
 
-// Dry-run transactions (#231)
+// Dry-run transactions
 export type { DryRunResult, AffectedDocument, GuardViolation } from './tx/dry-run.js'
 
-// Multi-tab coordination (#228)
+// Multi-tab coordination
 export type { TabRole, TabPresence, TabCoordinationOptions, TabLockManager, TabChannel } from './tab-coordination.js'
-// Cross-tab write conflict (#228c)
+// Cross-tab write conflict
 export type { WriteConflict } from './types.js'
 
-// Schema-update strategies (#245)
+// Schema-update strategies
 export type {
   SchemaDelta,
   FieldChange,
@@ -394,7 +394,7 @@ export type {
 // Keyring types
 export type { UnlockedKeyring } from './team/keyring.js'
 
-// Tier-2 authenticator slots — issue #11
+// Tier-2 authenticator slots
 export {
   enrollAuthenticator,
   removeAuthenticator,
@@ -407,11 +407,11 @@ export type {
   UpdateAuthenticatorOptions,
 } from './team/authenticators.js'
 
-// Tier-3 quick-unlock state — issue #11
+// Tier-3 quick-unlock state
 export { QuickUnlockStore } from './session/unlock-state.js'
 export type { QuickUnlockState } from './session/unlock-state.js'
 
-// Tier-1 change flows — issue #10
+// Tier-1 change flows
 export {
   rotatePassphrase as keyringRotatePassphrase,
   recoverPassphrase as keyringRecoverPassphrase,
@@ -468,7 +468,7 @@ export type {
 } from './meta/user-envelope/api.js'
 export { UserApi } from './meta/user-envelope/api.js'
 
-// Auth introspection — issue #13
+// Auth introspection
 export {
   describeAuthConfig,
   diagramAuthConfig,
@@ -476,9 +476,7 @@ export {
   describeAllUsersAuth,
 } from './auth-introspection/index.js'
 
-// Recovery storage — issue #10 (paper, pre.5), Shamir slice (#196, pre.16).
-// Paper mint/unwrap helpers added in pre.8 (#39); Shamir mint/unwrap
-// added in #196 slice 1.
+// Recovery storage — paper and Shamir profiles.
 export {
   loadPaperRecoveryEntries,
   savePaperRecoveryEntries,
@@ -498,7 +496,7 @@ export type {
   ShamirRecoveryDoc,
 } from './team/recovery.js'
 
-// Recovery dispatch types added in #196 slice 1 — discriminated
+// Recovery dispatch types — discriminated
 // unions for the polymorphic enroll/rotate paths. (RecoveryProof /
 // RecoverPassphraseInput / RecoverPassphraseResult are already
 // exported above.)
@@ -508,14 +506,14 @@ export type {
   RotateRecoveryResult,
 } from './team/rotate-recover.js'
 
-// Canonical wrap-DEKs primitive (#44) — shared crypto for tier-0
+// Canonical wrap-DEKs primitive — shared crypto for tier-0
 // (paper recovery), tier-2 wrap-DEKs (password), tier-3 (on-pin).
 // `mintPaperRecoveryEntry` and `enrollPasswordAuthenticator` both
 // delegate to these helpers.
 export { mintWrappedDeksBlob, unwrapDeksFromBlob } from './team/wrapped-deks.js'
 export type { WrappedDeksBlob } from './team/wrapped-deks.js'
 
-// Managed-passphrase mode (#14) — rubber-hose-resistant vaults where
+// Managed-passphrase mode — rubber-hose-resistant vaults where
 // hub generates the passphrase and seals it under a developer-provided
 // SealingKeyProvider. The interface lives here; concrete providers
 // (macOS Keychain, Windows Credential Manager, libsecret, AWS KMS)
@@ -531,7 +529,7 @@ export {
   SEALED_PASSPHRASE_RECORD_ID,
 } from './team/managed-passphrase.js'
 
-// Peer-recovery — issues #33 + #34 (atomic db.recoverUser primitive).
+// Peer-recovery — atomic db.recoverUser primitive.
 // The team/peer-recover module also runs through Noydb.recoverUser for
 // the policy-gated path; consumers can use the lower-level function
 // directly when they don't want hub-level gating (e.g. in tests).
@@ -546,13 +544,13 @@ export { hasImportCapability, evaluateImportCapability } from './team/keyring.js
 export type { BundleRecipient } from './team/keyring.js'
 export { buildRecipientKeyringFile } from './team/keyring.js'
 
-// Team enumeration — joined view of keyrings and their user envelopes
-// (#23). Useful for admin UIs that want to render team-member lists
+// Team enumeration — joined view of keyrings and their user envelopes.
+// Useful for admin UIs that want to render team-member lists
 // with profile data in a single pass.
 export { listUsers, listUsersWithEnvelopes } from './team/keyring.js'
 export type { ListUsersOptions } from './team/keyring.js'
 
-// Directory visibility (#122) — vault-level user-list toggle +
+// Directory visibility — vault-level user-list toggle +
 // per-user opt-out.
 export {
   readDirectoryConfig,

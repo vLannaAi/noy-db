@@ -1,5 +1,5 @@
 /**
- * Policy gate DSL types — issue #9.
+ * Policy gate DSL types.
  *
  * Sensitive operations (rotate the passphrase, enroll an authenticator,
  * export plaintext, grant a user, …) are gated by a typed policy
@@ -34,12 +34,10 @@ import type { PassphrasePolicy } from '../validation.js'
  * devices — policies can require ANY of them or insist on a count of 2
  * to force a mix.
  *
- * Added in pre.8 (#30): `webauthn-platform`, `password`, `pin` —
- * previously consumers with no off-device infrastructure (no TOTP,
- * no email-OTP, paper recovery not enrolled) had to disable the
- * factor requirement entirely on `rotate-passphrase`. Now they can
- * pin "any second factor I have wired" without losing the freshness
- * guarantee.
+ * `webauthn-platform`, `password`, `pin` — for consumers with no
+ * off-device infrastructure (no TOTP, no email-OTP, paper recovery not
+ * enrolled) who want to require "any second factor I have wired"
+ * without losing the freshness guarantee.
  */
 export type FactorKind =
   | 'totp'
@@ -99,7 +97,7 @@ export type BuiltInGateName =
   | 'remove-authenticator'
   /**
    * Authorize a deliberate paper-recovery-code regeneration —
-   * `db.rotateRecovery` (#121). Symmetric to `rotate-passphrase` for
+   * `db.rotateRecovery`. Symmetric to `rotate-passphrase` for
    * the case where the user remembers their passphrase but wants a
    * fresh sheet (lost the printout, suspect compromise of the off-site
    * copy). PERSONAL allows tier-1; STRICT requires an off-device
@@ -109,7 +107,7 @@ export type BuiltInGateName =
   | 'rotate-recovery'
   /**
    * Authorize a meta-only mutation on an existing authenticator slot —
-   * `db.updateAuthenticator` (#55). The slot's wrap material, id, and
+   * `db.updateAuthenticator`. The slot's wrap material, id, and
    * method are immutable through this gate; only the `meta` blob
    * (nicknames, method-specific labels) can change. Anti-slot-swap
    * guard is preserved structurally regardless of this gate's
@@ -122,12 +120,12 @@ export type BuiltInGateName =
   | 'export-bundle'
   | 'export-plaintext'
   | 'view-user-auth'
-  /** Authorize a write to one's own user envelope (#22). */
+  /** Authorize a write to one's own user envelope. */
   | 'edit-own-profile'
-  /** Authorize reading other principals' user envelopes (#22). */
+  /** Authorize reading other principals' user envelopes. */
   | 'view-team-profiles'
   /**
-   * Authorize an atomic peer-recovery — `db.recoverUser` (#33, #34).
+   * Authorize an atomic peer-recovery — `db.recoverUser`.
    * Distinct from `revoke-user` because peer-recovery is intentional
    * re-issuance of someone's keyring under a temp passphrase, NOT
    * removal. Allows owner→owner natively (matches the threat model:
@@ -137,7 +135,7 @@ export type BuiltInGateName =
    */
   | 'peer-recover-user'
   /**
-   * Authorize a post-grant identity mutation — `db.updateUser` (#54).
+   * Authorize a post-grant identity mutation — `db.updateUser`.
    * Covers `role`, `displayName`, `permissions` changes on an existing
    * keyring. Pure plaintext-header rewrite — no DEKs touched, no KEK
    * required. The role-elevation guard inside the implementation
@@ -152,7 +150,7 @@ export type GateName = BuiltInGateName | `app:${string}`
 /**
  * Top-level policy object. Persisted at `_meta/policy` once at vault
  * creation. The `passphrase` block configures the strength rules
- * applied at every passphrase ingress (issue #7); `gates` configures
+ * applied at every passphrase ingress; `gates` configures
  * the action-level requirements.
  */
 export interface VaultPolicy {
@@ -178,7 +176,7 @@ export interface FactorProof {
  * `db.recoverUser`, `db.enrollUnlock`, `db.describeUserAuth`,
  * `db.describeAllUsersAuth`.
  *
- * Pre-#89 this type was inlined at every call site as
+ * Previously this type was inlined at every call site as
  * `{ factors?: ReadonlyArray<FactorProof>; sharedDevice?: boolean }`
  * and parameter names alternated between `factors` and `presented`.
  * Now exported so consumers can name their helpers and so the param

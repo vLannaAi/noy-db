@@ -12,7 +12,7 @@ export interface RunResult {
  *
  * - `record` — the existing v1 shape: one value (or a "skipped"
  *   marker if the output was optional and `derive` returned null).
- * - `array` — the #200 shape: a list of `(key, value)` entries.
+ * - `array` — a list of `(key, value)` entries.
  *   The caller diffs these against the previously-emitted key set
  *   (loaded from the fanout sidecar) to compute deletes + upserts.
  */
@@ -26,7 +26,7 @@ export interface RecordOutputResult {
   value: Record<string, unknown>
   ok: true
   /**
-   * `true` when an optional output (#144) returned `null` /
+   * `true` when an optional output returned `null` /
    * `undefined`. The caller deletes any previously-emitted output at
    * the same id (mirrors "tombstone for derived data"); a never-emitted
    * output is a silent no-op. `ok: true` because skipping is a
@@ -102,7 +102,7 @@ export const DerivationExecutor = {
       if (!outSpec) continue
       const value = (derived as Record<string, unknown>)[key]
 
-      // ── Array-shape branch (#200 slice 1) ──────────────────────
+      // ── Array-shape branch ─────────────────────────────────────
       if (outSpec.shape === 'array') {
         if (value === undefined || value === null) {
           // Treat null/undefined as "empty array" — clears all prior
@@ -166,7 +166,7 @@ export const DerivationExecutor = {
       // ── Record-shape branch (existing v1 behavior) ─────────────
       if (value === undefined || value === null) {
         if (outSpec.optional === true) {
-          // #144: optional output explicitly skipped. Mark for caller
+          // Optional output explicitly skipped. Mark for caller
           // so any prior-emitted output at this id can be deleted.
           outputs[key] = { kind: 'record', value: {}, ok: true, skipped: true }
           continue

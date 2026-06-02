@@ -1,5 +1,5 @@
 /**
- * Vault-level schema-fence controller (#232).
+ * Vault-level schema-fence controller.
  *
  * Owns the open-time generation snapshot, the pending-cutover registry,
  * and the cutover orchestration. 3a: single-client (the caller is the

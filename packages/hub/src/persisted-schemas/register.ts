@@ -29,7 +29,7 @@ export interface PersistSchemaResult {
   readonly skipped: boolean
   /** The envelope that was either written or matched. */
   readonly envelope: PersistedSchemaEnvelope
-  /** The update-strategy decision, present when strategies ran (#245). */
+  /** The update-strategy decision, present when strategies ran. */
   readonly decision?: UpdateDecision
 }
 
@@ -64,7 +64,7 @@ export async function persistSchemaIfNeeded(opts: {
   }
 
   if (decision.action !== 'allow') {
-    // reject (or, in #232, cutover): do NOT overwrite the baseline — the
+    // reject (or cutover): do NOT overwrite the baseline — the
     // old schema stays the source of truth until the change is resolved.
     return { written: false, skipped: false, envelope: stored ?? fresh, decision }
   }

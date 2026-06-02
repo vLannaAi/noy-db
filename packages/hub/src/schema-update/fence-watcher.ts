@@ -1,7 +1,7 @@
 /**
- * Per-client schema-fence watcher (#232 sub-slice 3b). Polls the fence;
+ * Per-client schema-fence watcher. Polls the fence;
  * on `draining` it drains in-flight writes and acks; emits a same-instance
- * signal on every state transition (for #233's UI). Driven by an interval
+ * signal on every state transition (for UI). Driven by an interval
  * in production and by explicit `check()`/`beat()` in tests.
  */
 import type { NoydbStore } from '../types.js'

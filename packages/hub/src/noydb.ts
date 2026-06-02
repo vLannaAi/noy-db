@@ -79,6 +79,7 @@ import { Vault } from './vault.js'
 import { NoydbEventEmitter } from './events.js'
 import { WriteQueueTracker, type WriteQueue } from './write-queue.js'
 import { WriteHookRegistry, type WriteHook, type Unsubscribe } from './write-hooks.js'
+import { SubsystemBus } from './subsystem-bus.js'
 import { TabCoordinator, defaultLockManager, defaultChannel, type TabCoordinationOptions, type TabRole, type TabPresence } from './tab-coordination.js'
 import { CrossTabWriteRelay } from './tab-write-relay.js'
 import {
@@ -160,13 +161,14 @@ export class Noydb {
   private readonly emitter = new NoydbEventEmitter()
   private readonly writeQueueTracker = new WriteQueueTracker()
   private readonly writeHooks = new WriteHookRegistry()
+  private readonly subsystemBus = new SubsystemBus()
   private readonly clientId = generateULID()
   private readonly vaultCache = new Map<string, Vault>()
   private readonly keyringCache = new Map<string, UnlockedKeyring>()
   private readonly syncEngines = new Map<string, SyncEngine>()
   /**
    * Per-vault active session tier — defaults to `1` after a passphrase
-   * unlock; tier-2 / tier-3 unlocks (issue #11) downgrade it. Used by
+   * unlock; tier-2 / tier-3 unlocks downgrade it. Used by
    * {@link checkGate} to evaluate `gate.minTier`.
    */
   private readonly activeTier = new Map<string, ActiveTier>()
@@ -176,14 +178,14 @@ export class Noydb {
    */
   private readonly policyCache = new Map<string, VaultPolicy>()
   /**
-   * One-shot bypass for the managed-mode strong-recovery check (#195).
+   * One-shot bypass for the managed-mode strong-recovery check.
    * Set true by {@link openVaultAndEnrollRecovery} for the duration of
    * the bootstrap window so the keyring can be created before the
    * strong recovery is enrolled. Always cleared (try/finally).
    * @internal
    */
   private _skipNextManagedRecoveryCheck = false
-  /** Per-vault tier-3 (PIN / quick-resume) state — issue #11. */
+  /** Per-vault tier-3 (PIN / quick-resume) state. */
   private readonly quickUnlock = new QuickUnlockStore()
   /**
    * Resolved public-envelope schema. Lazily computed once from
@@ -193,9 +195,9 @@ export class Noydb {
   private readonly publicEnvelopeSchema: ResolvedPublicEnvelopeSchema | undefined
   private closed = false
   private sessionTimer: ReturnType<typeof setTimeout> | null = null
-  /** Same-device multi-tab coordinator (#228); created on `enableTabCoordination()`. */
+  /** Same-device multi-tab coordinator; created on `enableTabCoordination()`. */
   private tabCoordinator: TabCoordinator | undefined
-  /** Cross-tab write relay (#228b); created on `enableTabCoordination()`. */
+  /** Cross-tab write relay; created on `enableTabCoordination()`. */
   private writeRelay: CrossTabWriteRelay | undefined
   /** Per-vault policy enforcers. */
   private readonly policyEnforcers = new Map<string, PolicyEnforcer>()
@@ -208,8 +210,8 @@ export class Noydb {
    * the same function's `finally` block. Side-effect writes triggered
    * during a staged op's `Collection.put` (today: eager derivation
    * outputs) register their pre-write envelope on `_executed` here so
-   * a mid-batch failure rolls them back alongside the main staged ops
-   * (#133). `null` outside of Phase 2.
+   * a mid-batch failure rolls them back alongside the main staged ops.
+   * `null` outside of Phase 2.
    * @internal
    */
   private _activeTxContext: TxContext | null = null
@@ -235,7 +237,98 @@ export class Noydb {
     if (options.sessionPolicy) {
       this.sessionStrategy.validateSessionPolicy(options.sessionPolicy)
     }
+    this.#registerGuardGate()
+    this.#registerPeriodGate()
     this.resetSessionTimer()
+  }
+
+  // Track A — guards migration. Registers record-lock / field-freeze / onDelete
+  // / amendment-collect as gate-bus handlers (only when guards are opted in, so
+  // the write path is zero-cost otherwise). Resolves the live vault's
+  // GuardRegistry per dispatch. Registered BEFORE the period gate so guard
+  // checks run first. The amendment branch is a side-effect (collectChange),
+  // NOT a throw — and runs even for internal deletes (an amendment invariant
+  // must see system housekeeping tombstones); onDelete/checks run only for
+  // user (non-internal) operations.
+  #registerGuardGate(): void {
+    if (this.options.guardStrategies === undefined) return
+    this.subsystemBus.registerGate('beforePut', async (e) => {
+      const v = this.vaultCache.get(e.vault)
+      if (!v) return
+      const registry = v._getGuardRegistry()
+      if (!registry) return
+      const guards = registry.guardsFor(e.collection)
+      if (guards.length === 0) return
+      const existing = (e.existing ?? null) as Record<string, unknown> | null
+      const incoming = e.incoming as Record<string, unknown>
+      if (registry.isAmendmentActive()) {
+        registry.collectChange(e.collection, e.docId, existing, incoming, e.existingVersion, e.existingVersion + 1)
+        return
+      }
+      const facade = v._getReadOnlyFacade()
+      if (!facade) return
+      const ctx = { existing, vault: facade, userId: e.userId, role: e.role }
+      await registry.runChecks(e.collection, incoming, ctx)
+      const { GuardExecutor } = await import('./guards/executor.js')
+      for (const g of guards) {
+        await GuardExecutor.checkFrozenFields(g, e.docId, existing, incoming)
+      }
+    })
+    this.subsystemBus.registerGate('beforeDelete', async (e) => {
+      const v = this.vaultCache.get(e.vault)
+      if (!v) return
+      const registry = v._getGuardRegistry()
+      if (!registry) return
+      const guards = registry.guardsFor(e.collection)
+      if (guards.length === 0) return
+      const existing = (e.existing ?? null) as Record<string, unknown> | null
+      if (registry.isAmendmentActive()) {
+        registry.collectChange(e.collection, e.docId, existing, null as unknown as Record<string, unknown>, e.existingVersion, e.existingVersion)
+        return
+      }
+      if (e.internal) return
+      const facade = v._getReadOnlyFacade()
+      if (!facade) return
+      const ctx = { existing, vault: facade, userId: e.userId, role: e.role }
+      await registry.runOnDelete(e.collection, existing ?? {}, ctx)
+    })
+  }
+
+  /**
+   * Register closed-period write guards on the subsystem bus when a
+   * periodsStrategy is configured.  Handlers resolve the live Vault from
+   * vaultCache so they always use the up-to-date period cache.
+   */
+  // Track A — periods migration. Registers the closed-period write guard as a
+  // gate-bus handler (only when periods is opted in, so the write path is
+  // zero-cost otherwise). Each handler resolves the LIVE vault from the cache
+  // per dispatch and delegates to its `_assertTsWritable`, which owns all
+  // period logic. Resolving the live vault makes eviction/re-creation
+  // transparent. Semantics note: if a write reaches the gate through a retained
+  // collection handle whose vault has been evicted from `vaultCache` (e.g. a
+  // post-revocation write on a stale handle), the period check is skipped — the
+  // guard binds to the live vault, not a captured instance. Periods is a
+  // write-integrity guard, not a security boundary, and a re-open reloads the
+  // period cache; the trade-off is intentional.
+  #registerPeriodGate(): void {
+    if (this.options.periodsStrategy === undefined) return
+    this.subsystemBus.registerGate('beforePut', async (e) => {
+      const v = this.vaultCache.get(e.vault)
+      if (!v) return
+      const existing = e.op === 'create'
+        ? null
+        : { ts: e.existingTs ?? null, record: (e.existing ?? null) as Record<string, unknown> | null }
+      await v._assertTsWritable(existing, e.incoming as Record<string, unknown>)
+    })
+    this.subsystemBus.registerGate('beforeDelete', async (e) => {
+      if (e.internal) return
+      const v = this.vaultCache.get(e.vault)
+      if (!v) return
+      await v._assertTsWritable(
+        { ts: e.existingTs ?? null, record: (e.existing ?? null) as Record<string, unknown> | null },
+        null,
+      )
+    })
   }
 
   private resetSessionTimer(): void {
@@ -320,7 +413,7 @@ export class Noydb {
 
     const keyring = await this.getKeyringInternal(name)
     // Tier-1 unlock — passphrase / getKeyring callbacks both yield the
-    // most-privileged tier. Tier-2 / tier-3 unlocks (issue #11) install
+    // most-privileged tier. Tier-2 / tier-3 unlocks install
     // a lower tier here when they land.
     if (!this.activeTier.has(name)) {
       this.activeTier.set(name, 1)
@@ -436,12 +529,12 @@ export class Noydb {
     // Initialise the optional guard + derivation registries via
     // dynamic-import. Both calls are no-ops when the corresponding
     // strategies array is empty / unset, leaving the subsystem code
-    // out of the floor bundle for consumers that don't use it (#130).
+    // out of the floor bundle for consumers that don't use it.
     await comp._initGuards(this.options.guardStrategies ?? [])
     await comp._initDerivations(this.options.derivationStrategies ?? [])
     await comp._initMaterializedViews(this.options.materializedViewStrategies ?? [])
     await comp._initOverlayedViews(this.options.overlayedViewStrategies ?? [])
-    // #232 — snapshot the schema-fence generation once per opened vault.
+    // Snapshot the schema-fence generation once per opened vault.
     await comp.schemaFence.init()
     this.vaultCache.set(name, comp)
     return comp
@@ -590,8 +683,6 @@ export class Noydb {
    * @throws `NoAccessError` when no keyring exists for the target.
    * @throws `PermissionDeniedError` when the role hierarchy rejects.
    * @throws `ValidationError` when no field is provided.
-   *
-   * @see #54
    */
   async updateUser(
     vault: string,
@@ -998,7 +1089,7 @@ export class Noydb {
     fn: (tx: TxContext) => Promise<T> | T,
   ): Promise<T>
   /**
-   * Dry-run a transaction (#231): run the body to stage ops, then return
+   * Dry-run a transaction: run the body to stage ops, then return
    * the directly-affected diff + collected guard violations WITHOUT
    * committing (no adapter writes, no write hooks). MV/derivation cascade
    * is not simulated. Requires `withTransactions()`.
@@ -1022,7 +1113,7 @@ export class Noydb {
       return this.txStrategy.runTransaction(this, arg)
     }
     if (typeof arg === 'object' && arg !== null && (arg as { dryRun?: boolean }).dryRun === true) {
-      // Dry-run form (#231): stage + diff, no commit.
+      // Dry-run form: stage + diff, no commit.
       if (typeof maybeFn !== 'function') {
         throw new ValidationError(
           'db.transaction({ dryRun: true }, fn) requires the callback as the second argument.',
@@ -1067,7 +1158,7 @@ export class Noydb {
    * Phase 2. `Collection.dispatchDerivations` consults this so a
    * recursive derived-output write inside `Collection.put` can register
    * its envelope onto `ctx._executed` and roll back with the main
-   * staged ops on mid-batch failure (#133).
+   * staged ops on mid-batch failure.
    *
    * @internal
    */
@@ -1098,7 +1189,7 @@ export class Noydb {
    * `Collection.putManyAtomic` (via `derivationSource.createTxContext`)
    * to publish an active context for the duration of its bulk-atomic
    * Phase 2 loop, so recursive derivation-output writes register on
-   * `ctx._executed` and roll back together with the source ops (#133).
+   * `ctx._executed` and roll back together with the source ops.
    *
    * @internal
    */
@@ -1180,7 +1271,7 @@ export class Noydb {
   }
 
   /**
-   * Register a hook that runs before each write (#230). Awaited; a throw
+   * Register a hook that runs before each write. Awaited; a throw
    * aborts the write. Returns an unsubscribe function.
    */
   onBeforeWrite(handler: WriteHook): Unsubscribe {
@@ -1188,21 +1279,21 @@ export class Noydb {
   }
 
   /**
-   * Register a hook that runs after each committed write (#230). Awaited;
+   * Register a hook that runs after each committed write. Awaited;
    * a handler error is warned, never rolled back. Returns an unsubscribe fn.
    */
   onAfterWrite(handler: WriteHook): Unsubscribe {
     return this.writeHooks.onAfterWrite(handler)
   }
 
-  /** Subscribe to cross-tab write conflicts (#228c). Returns an unsubscribe. */
+  /** Subscribe to cross-tab write conflicts. Returns an unsubscribe. */
   onWriteConflict(fn: (c: WriteConflict) => void): Unsubscribe {
     this.on('write:conflict', fn)
     return () => this.off('write:conflict', fn)
   }
 
   /**
-   * Enable same-device multi-tab coordination (#228): primary/secondary
+   * Enable same-device multi-tab coordination: primary/secondary
    * election + presence. Browser-only — a graceful no-op (role 'unknown')
    * when Web Locks / BroadcastChannel are unavailable and nothing is
    * injected. Idempotent; returns a disposer.
@@ -1275,7 +1366,12 @@ export class Noydb {
     return this.writeHooks
   }
 
-  /** @internal Stable per-instance id for schema-cutover coordination (#232). */
+  /** @internal The observe bus, threaded into every Collection. */
+  get _subsystemBus(): SubsystemBus {
+    return this.subsystemBus
+  }
+
+  /** @internal Stable per-instance id for schema-cutover coordination. */
   get _clientId(): string {
     return this.clientId
   }
@@ -1296,10 +1392,6 @@ export class Noydb {
    * survives lock; nothing about it changes when DEKs are scrubbed).
    *
    * No-op when `vault` is not currently in cache (idempotent).
-   *
-   * Unblocks vLannaAi/niwat#33.
-   *
-   * @see #17
    */
   lockVault(vault: string): void {
     // Sync engine: stop autosync + drop the engine so the next openVault
@@ -1310,12 +1402,12 @@ export class Noydb {
     this.policyEnforcers.get(vault)?.destroy()
     this.policyEnforcers.delete(vault)
     // Live caches: scrub DEKs, vault instance, active tier.
-    this.vaultCache.get(vault)?._stopFenceCoordination() // #232 — stop heartbeat/watcher timers
+    this.vaultCache.get(vault)?._stopFenceCoordination() // stop heartbeat/watcher timers
     this.keyringCache.delete(vault)
     this.vaultCache.delete(vault)
     this.activeTier.delete(vault)
     // Intentionally NOT cleared:
-    //   - this.quickUnlock — preserves PIN resume (#17 contract).
+    //   - this.quickUnlock — preserves PIN resume.
     //   - this.policyCache — vault policy is on-disk data, survives lock.
     //   - this.sessionStrategy — no per-vault revoke; close() handles bulk.
   }
@@ -1338,8 +1430,8 @@ export class Noydb {
       engine.stopAutoSync()
     }
     this.syncEngines.clear()
-    for (const v of this.vaultCache.values()) v._stopFenceCoordination() // #232 — stop heartbeat/watcher timers
-    this.disableTabCoordination() // #228 — stop tab lock/heartbeat timers
+    for (const v of this.vaultCache.values()) v._stopFenceCoordination() // stop heartbeat/watcher timers
+    this.disableTabCoordination() // stop tab lock/heartbeat timers
     this.keyringCache.clear()
     this.vaultCache.clear()
     this.activeTier.clear()
@@ -1440,7 +1532,7 @@ export class Noydb {
   }
 
   /**
-   * Read the current vault-level user-directory toggle (#122). Returns
+   * Read the current vault-level user-directory toggle. Returns
    * the default-on shape (`{ enabled: true }`) when no `_meta/directory`
    * document has been persisted yet.
    *
@@ -1453,7 +1545,7 @@ export class Noydb {
   }
 
   /**
-   * Toggle the vault's user-directory listing on or off (#122).
+   * Toggle the vault's user-directory listing on or off.
    * Owner-only. When disabled, `listUsersWithEnvelopes()` throws
    * {@link import('./errors.js').DirectoryDisabledError} for callers
    * whose role is neither `owner` nor `admin`.
@@ -1530,7 +1622,7 @@ export class Noydb {
    *
    * Two enforcement modes:
    *
-   * 1. **Managed-mode mandatory strong-recovery (#195).** When
+   * 1. **Managed-mode mandatory strong-recovery.** When
    *    `passphraseMode === 'managed'`, the vault MUST have at least
    *    one **strong** recovery profile (Shamir today). Paper alone is
    *    rejected because under managed mode the user has no memorized
@@ -1569,7 +1661,7 @@ export class Noydb {
   }
 
   /**
-   * Internal accessor used by tier-2/tier-3 unlock paths (issue #11)
+   * Internal accessor used by tier-2/tier-3 unlock paths
    * to mark the active session tier.
    * @internal
    */
@@ -1577,7 +1669,7 @@ export class Noydb {
     this.activeTier.set(vault, tier)
   }
 
-  // ─── Tier-2 enroll / remove (issue #11) ────────────────────────
+  // ─── Tier-2 enroll / remove ─────────────────────────────────────
   /**
    * Add a tier-2 authenticator slot to the calling user's keyring.
    * Each slot independently wraps the SAME KEK under a method-specific
@@ -1617,7 +1709,7 @@ export class Noydb {
     this.keyringCache.set(vault, next)
   }
 
-  /** Read the slot list for a vault. Internal — `describeAuthConfig` (#13) consumes this. */
+  /** Read the slot list for a vault. Internal — `describeAuthConfig` consumes this. */
   async listAuthenticators(vault: string): Promise<ReadonlyArray<KeyringAuthenticator>> {
     const keyring = await this.getKeyringInternal(vault)
     return keyring.authenticators
@@ -1630,7 +1722,7 @@ export class Noydb {
    * are immutable through this method. Anti-slot-swap is structural,
    * not gate-driven.
    *
-   * `meta` patch semantics (#57-aligned):
+   * `meta` patch semantics (top-level merge):
    *   - Top-level merge — absent keys preserved
    *   - `null` value — delete that meta key
    *   - Other values — replace verbatim
@@ -1648,8 +1740,6 @@ export class Noydb {
    *
    * @throws `NoAccessError` when no slot with the given id exists.
    * @throws `ValidationError` when no patch field is provided.
-   *
-   * @see #55
    */
   async updateAuthenticator(
     vault: string,
@@ -1664,7 +1754,7 @@ export class Noydb {
   }
 
   /**
-   * Native WebAuthn enrollment using the **real** internal keyring (#16).
+   * Native WebAuthn enrollment using the **real** internal keyring.
    *
    * Why this exists: when a consumer is using `createNoydb({ secret })`,
    * they cannot reach the live `UnlockedKeyring` to feed it to
@@ -1707,8 +1797,6 @@ export class Noydb {
    * a server-side allowlist).
    *
    * Gated by `enroll-authenticator` like `enrollAuthenticator()` itself.
-   *
-   * @see #16
    */
   async enrollWebAuthn(
     vault: string,
@@ -1742,8 +1830,6 @@ export class Noydb {
    * deciding when a new device prompt should appear. Identity is
    * `id` + `enrolled_at`; the `meta.credentialId` (base64) is used by
    * `allowCredentials` at unlock time.
-   *
-   * @see #16
    */
   async listWebAuthnSlots(vault: string): Promise<ReadonlyArray<{
     id: string
@@ -1847,7 +1933,7 @@ export class Noydb {
     return fnReadPublicEnvelope(this.options.store, vault, opts)
   }
 
-  // ─── Auth introspection (issue #13) ────────────────────────────
+  // ─── Auth introspection ─────────────────────────────────────────
   /** English summary of the configured auth model. */
   async describeAuthConfig(vault: string): Promise<string> {
     return fnDescribeAuthConfig(this.options.store, vault)
@@ -1881,7 +1967,7 @@ export class Noydb {
     return fnDescribeAllUsersAuth(this.options.store, vault)
   }
 
-  // ─── Tier-1 change flows (issue #10) ───────────────────────────
+  // ─── Tier-1 change flows ────────────────────────────────────────
   /**
    * Rotate the user's passphrase (user remembers old). Validates the
    * new phrase against the configured `passphrase` policy, runs the
@@ -1889,8 +1975,7 @@ export class Noydb {
    *
    * Tier-2 authenticator slots are dropped — each slot wraps the old
    * KEK and would need its derivation key to be re-presented. Re-enrol
-   * via `db.enrollAuthenticator` after rotation. Tracked as a
-   * v0.1.0-pre.5 limitation.
+   * via `db.enrollAuthenticator` after rotation.
    *
    * @throws `WeakPassphraseError` on a weak new phrase.
    * @throws `PolicyDeniedError` when the gate denies (missing factor, …).
@@ -1901,7 +1986,7 @@ export class Noydb {
     input: RotatePassphraseInput,
     factors?: FactorProofBundle,
   ): Promise<void> {
-    // Managed-passphrase mode (#14): the user does NOT know the
+    // Managed-passphrase mode: the user does NOT know the
     // current passphrase (hub generated it and sealed it under the
     // provider). Manual rotation via this method is impossible by
     // construction — surface a clear error rather than fail mid-way
@@ -1928,8 +2013,8 @@ export class Noydb {
 
   /**
    * Reset the passphrase using a recovery proof (user forgot the old).
-   * v0.1.0-pre.5 supports the `'paper'` profile end-to-end; the
-   * other three profiles throw {@link RecoveryProfileNotImplementedError}.
+   * Currently supports the `'paper'` profile end-to-end; the
+   * other profiles throw {@link RecoveryProfileNotImplementedError}.
    *
    * Burns the used recovery entry on success.
    */
@@ -1945,7 +2030,7 @@ export class Noydb {
     // exactly one entry, so post-recovery `_meta/recovery-paper`
     // contains `entriesBeforeRecovery.length - 1` entries (the ones
     // the user did NOT just consume). Those are what we replace
-    // under the auto-rotation logic from #36.
+    // under the auto-rotation logic.
     const entriesBeforeRecovery = await loadPaperRecoveryEntries(this.options.store, vault)
 
     const next = await keyringRecoverPassphrase(this.options.shamirRecovery, this.options.store, vault, userId, input)
@@ -1964,7 +2049,7 @@ export class Noydb {
     //
     // If this step fails (store error mid-mint), we leave the existing
     // post-burn entries in place — the user falls back to the
-    // pre-#36 behavior (remaining N-1 codes still valid). Strictly
+    // fall back to prior behavior (remaining N-1 codes still valid). Strictly
     // safer than wiping then failing.
     const codeGen = input.codeGenerator ?? generateULID
     const newCodeCount = input.newCodeCount ?? remainingAfterBurn
@@ -1984,7 +2069,7 @@ export class Noydb {
   }
 
   /**
-   * Deliberate paper-recovery-code regeneration (#121). User knows their
+   * Deliberate paper-recovery-code regeneration. User knows their
    * passphrase but wants a fresh sheet — they lost the printout or
    * suspect compromise of the off-site copy.
    *
@@ -1994,7 +2079,7 @@ export class Noydb {
    *
    * Gated by the `rotate-recovery` policy gate:
    *   - PERSONAL_POLICY: `{ minTier: 1 }` — knowing the passphrase
-   *     suffices, matching the pre-#121 low-level flow's bar.
+   *     suffices, matching the lower-level flow's bar.
    *   - STRICT_POLICY: `{ minTier: 1, factors: [{ anyOf: ['totp',
    *     'email-otp', 'webauthn-roaming'] }] }` — rotation is an
    *     off-site-trust event; require an off-device factor so a
@@ -2138,7 +2223,7 @@ export class Noydb {
   }
 
   /**
-   * **Atomic create-and-enroll for managed-mode vaults (#195).**
+   * **Atomic create-and-enroll for managed-mode vaults.**
    *
    * Bootstraps a managed-mode vault and enrolls strong recovery in
    * a single ceremony. Under `passphraseMode: 'managed'`, every
@@ -2233,7 +2318,7 @@ export class Noydb {
   }
 
   /**
-   * **Recovery flow under managed-passphrase mode (#195).**
+   * **Recovery flow under managed-passphrase mode.**
    *
    * Replaces the sealed passphrase of a managed-mode vault with a
    * fresh 256-bit random, sealed under the configured
@@ -2250,7 +2335,7 @@ export class Noydb {
    *   5. Drop the keyring cache so the next operation re-derives.
    *
    * The vault's strong-recovery enrollment is preserved across
-   * recovery (Shamir entries are not burned on use — see #196).
+   * recovery (Shamir entries are not burned on use).
    *
    * @throws ValidationError if the Noydb instance is not in managed mode.
    */
@@ -2324,7 +2409,7 @@ export class Noydb {
 
   /**
    * Atomic peer-recovery — re-wraps an EXISTING user's keyring under
-   * a fresh temp passphrase in a single store write. Closes #34's
+   * a fresh temp passphrase in a single store write. Closes the
    * partial-failure window (the previous compose-from-primitives
    * pattern was `db.revoke + db.grant`, two writes — if the issuer
    * cancelled between them the target was locked out entirely).
@@ -2334,7 +2419,7 @@ export class Noydb {
    *   - Same `userId`, role, permissions, capabilities preserved.
    *   - DEKs unchanged → every other principal in the vault keeps
    *     access. No key rotation.
-   *   - Allows owner→owner natively (#33). The existing
+   *   - Allows owner→owner natively. The existing
    *     `db.revoke` retains its block — peer-recovery is a separate,
    *     intentionally-named operation.
    *   - Tier-2 slots dropped (they wrap the old KEK).
@@ -2363,7 +2448,6 @@ export class Noydb {
    * @throws `PrivilegeEscalationError` when the caller lacks a DEK
    *         the target previously had access to.
    *
-   * @see #33 #34 — the issues this method closes.
    */
   async recoverUser(
     vault: string,
@@ -2383,7 +2467,7 @@ export class Noydb {
   }
 
   /**
-   * Persist a recovery enrollment. v0.1.0-pre.5 accepts the `'paper'`
+   * Persist a recovery enrollment. Accepts the `'paper'`
    * profile.
    *
    * The hub wraps the user's DEK set (not the KEK) under a code-derived
@@ -2403,7 +2487,7 @@ export class Noydb {
    * showCodesToUser(codes)
    * ```
    *
-   * As of pre.8, `@noy-db/on-recovery`'s `generateRecoveryCodeSet`
+   * `@noy-db/on-recovery`'s `generateRecoveryCodeSet`
    * delegates to `mintPaperRecoveryEntry` internally — its output is
    * fed directly to this API. Pick whichever fits your code-gen layer:
    *
@@ -2453,7 +2537,7 @@ export class Noydb {
     )
   }
 
-  /** Read the persisted recovery entries (paper + Shamir). Used by `describeAuthConfig` (#13). */
+  /** Read the persisted recovery entries (paper + Shamir). Used by `describeAuthConfig`. */
   async listRecoveryEntries(
     vault: string,
   ): Promise<{
@@ -2465,7 +2549,7 @@ export class Noydb {
     return { paper, shamir }
   }
 
-  // ─── Tier-3 enroll / unlock (issue #11) ────────────────────────
+  // ─── Tier-3 enroll / unlock ─────────────────────────────────────
   /**
    * Register a tier-3 quick-unlock state for the vault. The state is
    * an opaque blob produced by `@noy-db/on-pin/enrollPin` (or any
@@ -2511,11 +2595,11 @@ export class Noydb {
   }
 
   /**
-   * Public accessor for the unlocked keyring of a vault — issue #28.
+   * Public accessor for the unlocked keyring of a vault.
    *
    * Returns a **defensive shallow copy** so consumers can read the DEK
    * map and authenticator list without the risk of mutating the hub's
-   * internal cache (#88). Internal hub code paths use a live reference
+   * internal cache. Internal hub code paths use a live reference
    * via `getKeyringInternal`; ceremonies and external consumers always
    * get a snapshot.
    *
@@ -2548,7 +2632,7 @@ export class Noydb {
     // reasonably mutate is freshly cloned. CryptoKey handles inside
     // `deks` are intentionally shared — they're opaque references that
     // both encrypt and decrypt go through. `salt` (Uint8Array) is left
-    // as-is: no realistic mutation path. (#88, extended in #114.)
+    // as-is: no realistic mutation path.
     return {
       ...live,
       deks: new Map(live.deks),
@@ -2591,7 +2675,7 @@ export class Noydb {
       return keyring
     }
 
-    // Managed-passphrase mode (#14) — resolve the effective secret
+    // Managed-passphrase mode — resolve the effective secret
     // before falling into the normal load/create path. The first call
     // mints + seals + persists; subsequent calls unseal what's there.
     // The returned string takes the place of `options.secret` for the
@@ -2670,7 +2754,7 @@ export async function createNoydb(options: NoydbOptions): Promise<Noydb> {
     throw new ValidationError('Provide either `secret` or `getKeyring`, not both')
   }
 
-  // Managed-passphrase mode (#14) — mutually exclusive with both
+  // Managed-passphrase mode — mutually exclusive with both
   // `secret` (the whole point is hub generates and seals; the user
   // doesn't supply one) and `getKeyring` (a custom unlock path that
   // bypasses the sealing flow entirely). Requires a SealingKeyProvider.

@@ -1,5 +1,5 @@
 /**
- * Atomic peer-recovery primitive — issues #33 + #34.
+ * Atomic peer-recovery primitive.
  *
  * `recoverUser` is a SEPARATE operation from `revoke + grant`. It
  * exists because peer-recovery has different semantics than account
@@ -28,7 +28,7 @@
  *
  * Caller must be at least as privileged as the target. The hub
  * `db.recoverUser` method gates this with the `peer-recover-user`
- * policy gate (#33's factor-proof requirement); the function below
+ * policy gate (the `peer-recover-user` factor-proof requirement); the function below
  * enforces only the role + anti-privilege-escalation invariants.
  *
  * @module
@@ -172,7 +172,7 @@ export async function recoverUser(
   // 6. Build the recovered keyring file. Identity preserved; wrapping
   //    refreshed; tier-2 slots dropped (they wrap the OLD KEK and
   //    can't survive a tier-1 phrase change — same precedent as
-  //    rotatePassphrase). Mint a fresh canary under newKek (#113); the
+  //    rotatePassphrase). Mint a fresh canary under newKek; the
   //    OLD canary on the spread `...target` would fail to verify against
   //    the new KEK and trip KeyringCorruptError on next load.
   const canary = await mintKeyringCanary(newKek)

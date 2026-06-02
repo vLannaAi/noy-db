@@ -1,6 +1,6 @@
 /**
  * **@noy-db/at-gcp-kms** — Google Cloud KMS sealing key provider for noy-db
- * managed-passphrase mode (#189).
+ * managed-passphrase mode.
  *
  * An `at-*` provider that seals and unseals the hub-generated random
  * passphrase via Google Cloud KMS Encrypt / Decrypt. Every seal and unseal is

@@ -12,7 +12,7 @@ import type { MaterializedViewStrategy, MaterializedViewStrategyHandle } from '.
  * Two registration modes:
  *   - **single-source** — declare `query: (db) => Query<TRow>`; the
  *     dependency analyzer derives source collections from the plan.
- *   - **UNION** (#165) — declare `unionSources: [{ collection, map }, ...]`
+ *   - **UNION** — declare `unionSources: [{ collection, map }, ...]`
  *     plus optional `groupBy` + `aggregate`; the executor reads each
  *     arm, maps to the unified row shape, concatenates, then groups
  *     and aggregates.

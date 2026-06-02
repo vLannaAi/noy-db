@@ -35,6 +35,13 @@
  *                       Closes #299 (vault.dump() needs withHistory)
  *                       and #300 (test-fixture strategy audit).
  *
+ *   6. kernel-surface — the always-on orchestration files
+ *                       (collection.ts / vault.ts / noydb.ts) must stay
+ *                       under a declared line ceiling. A ratchet: it locks
+ *                       in Track A's kernel shrink so subsystems register
+ *                       on the SubsystemBus instead of hard-coding into
+ *                       these files. See KERNEL_SURFACE_BUDGET.
+ *
  * Each check has its own per-package or per-file allow-list when a
  * legitimate exception exists.
  */
@@ -378,6 +385,42 @@ function scanFileForStrategyOptIn(file, content) {
   }
 }
 
+// ─── Check 6: kernel-surface ceiling ───────────────────────────────────
+
+// The always-on orchestration files (loaded by every `createNoydb`) must not
+// grow back as subsystems are added. Track A moved write-gating subsystems
+// (periods, guards) off these files onto the SubsystemBus; this ceiling locks
+// that in. Each value is a RATCHET: lower it when a slice shrinks the file;
+// raising it requires a conscious, reviewed bump. A subsystem that re-couples
+// itself into the kernel shows up here as a line-count regression — the fix is
+// to register on the bus, not to grow these files.
+const KERNEL_SURFACE_BUDGET = {
+  'packages/hub/src/collection.ts': 3950,
+  'packages/hub/src/vault.ts': 3640,
+  'packages/hub/src/noydb.ts': 2920,
+}
+
+function checkKernelSurface() {
+  for (const [rel, ceiling] of Object.entries(KERNEL_SURFACE_BUDGET)) {
+    const file = join(ROOT, rel)
+    if (!existsSync(file)) {
+      fail('kernel-surface', `${rel} not found — update KERNEL_SURFACE_BUDGET if the file moved or was renamed.`, file)
+      continue
+    }
+    // NB: split('\n').length = (newline count) + 1, so this reads one MORE
+    // than `wc -l` on trailing-newline files. Ceilings are calibrated against
+    // this metric — keep using it when ratcheting so the numbers stay aligned.
+    const lines = readFileSync(file, 'utf8').split('\n').length
+    if (lines > ceiling) {
+      fail(
+        'kernel-surface',
+        `${rel} is ${lines} lines, over its ${ceiling}-line kernel-surface ceiling (+${lines - ceiling}). The always-on kernel must stay lean — move new capability into a subsystem that registers on the SubsystemBus instead of growing this file. If the growth is genuinely core, raise the ceiling in scripts/check-architecture.mjs with justification.`,
+        file,
+      )
+    }
+  }
+}
+
 // ─── Run ───────────────────────────────────────────────────────────────
 
 const startTime = Date.now()
@@ -387,6 +430,7 @@ checkNoCryptoDeps()
 checkHubPortable()
 checkStoresCiphertextOnly()
 checkStrategyOptIns()
+checkKernelSurface()
 
 const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
 

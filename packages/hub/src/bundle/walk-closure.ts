@@ -1,5 +1,5 @@
 /**
- * Transitive-closure FK walker (#201). Computes the set of
+ * Transitive-closure FK walker. Computes the set of
  * (collection, id) tuples reachable from seed predicates, so a
  * partition extraction ships a referentially-complete subset.
  *

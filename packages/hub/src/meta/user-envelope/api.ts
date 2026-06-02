@@ -6,7 +6,7 @@
  *    own keyringId. **Own-only write rule** is structural — no method
  *    exists to write someone else's envelope.
  *  - Read-anyone: `get` / `list` — read other principals' envelopes
- *    (subject to `view-team-profiles` policy gate, wired in #22).
+ *    (subject to `view-team-profiles` policy gate).
  *  - Reactive: `subscribe` / `live` — in-process event emission on local
  *    writes. Cross-instance updates land via the team/sync engine and
  *    surface to subscribers when the sync diff replays through this API.
@@ -41,7 +41,7 @@ export type DeepPartial<T> = T extends object
 
 /**
  * Recursive partial with `null` allowed at every level — used by
- * `updateMe` (#57) to express deletion intent in addition to merge.
+ * `updateMe` to express deletion intent in addition to merge.
  *
  * Semantics inside `updateMe`:
  *   - `undefined` (or absent key) — skip; source value preserved
@@ -50,8 +50,8 @@ export type DeepPartial<T> = T extends object
  *     replace for primitives / arrays)
  *
  * Matches lodash `_.merge` behavior on `null` and Firestore's
- * `FieldValue.delete()` semantics. Loosened from `DeepPartial<T>` per
- * #57; consumers wanting the original "merge-only" surface can keep
+ * `FieldValue.delete()` semantics. Loosened from `DeepPartial<T>`.
+ * Consumers wanting the original "merge-only" surface can keep
  * importing `DeepPartial` and avoid passing `null`.
  */
 export type DeepPartialOrNull<T> = T extends object
@@ -136,7 +136,7 @@ export class UserApi {
    * the envelope on first call. Optimistic-concurrency safe — a stale
    * `_v` (parallel writer on another device) throws `ConflictError`.
    *
-   * Patch semantics (#57):
+   * Patch semantics:
    *   - `undefined` (or omitted key) — skip; existing value preserved
    *   - `null` — delete the field from the merged result
    *   - any other value — overwrite (deep-merge for plain objects,
@@ -200,7 +200,7 @@ export class UserApi {
     return written
   }
 
-  // ─── Visibility (#122) ───────────────────────────────────────────────
+  // ─── Visibility ──────────────────────────────────────────────────────
 
   /**
    * Read the current user's visibility flag from
@@ -378,7 +378,7 @@ export class UserApi {
 }
 
 /**
- * Recursive plain-object deep merge with delete intent (#57).
+ * Recursive plain-object deep merge with delete intent.
  *
  * Patch semantics:
  *   - `undefined` — skip the key; source value preserved
@@ -404,7 +404,7 @@ function deepMerge<T>(source: T, patch: DeepPartialOrNull<T>): T {
   for (const [key, patchVal] of Object.entries(patch as Record<string, unknown>)) {
     if (patchVal === undefined) {
       // Skip — preserve the source value at this key. Matches the
-      // pre-#57 behavior so callers who never used `null` see no diff.
+      // pre-existing behavior so callers who never used `null` see no diff.
       continue
     }
     if (patchVal === null) {

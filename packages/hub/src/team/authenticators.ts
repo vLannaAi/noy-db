@@ -1,5 +1,5 @@
 /**
- * Tier-2 authenticator slot management — issue #11.
+ * Tier-2 authenticator slot management.
  *
  * Each slot independently wraps the SAME KEK under a method-specific
  * derived key (LUKS pattern). Enrolling adds a slot; removing drops
@@ -97,15 +97,14 @@ export async function enrollAuthenticator(
 }
 
 /**
- * Caller payload for {@link updateAuthenticator} (#55). Mutates only
+ * Caller payload for {@link updateAuthenticator}. Mutates only
  * `meta` — the slot's id, method, and wrap material are immutable
  * through this primitive, preserving the anti-slot-swap guard.
  *
  * `meta` is **merged** at the top level: keys absent from the patch
  * are preserved, keys present overwrite. To clear a meta key, pass
- * `null` for that key explicitly. (Same semantics as #57's
- * `UserApi.updateMe`, scoped to this top-level merge — no recursion
- * into nested meta values.)
+ * `null` for that key explicitly. (Same top-level merge semantics as
+ * `UserApi.updateMe`, non-recursive — meta is a flat label bag.)
  */
 export interface UpdateAuthenticatorOptions {
   readonly meta?: Record<string, unknown>
@@ -128,7 +127,6 @@ export interface UpdateAuthenticatorOptions {
  * @throws `NoAccessError` when no slot with the given id exists.
  * @throws `ValidationError` when no patch field is provided.
  *
- * @see #55
  */
 export async function updateAuthenticator(
   store: NoydbStore,
@@ -152,9 +150,8 @@ export async function updateAuthenticator(
   }
   const existing = keyring.authenticators[idx]!
 
-  // Merge at the top level. Absent keys preserved (same as #57's
-  // updateMe semantics, but non-recursive — meta is a flat label
-  // bag in practice, no consumer nests it).
+  // Merge at the top level. Absent keys preserved (non-recursive —
+  // meta is a flat label bag in practice, no consumer nests it).
   const mergedMeta: Record<string, unknown> = { ...existing.meta }
   for (const [k, v] of Object.entries(options.meta)) {
     if (v === undefined) continue // skip

@@ -11,7 +11,7 @@
 import type { PersistedSchemaKind } from '../persisted-schemas/types.js'
 import type { Permission } from '../types.js'
 
-/** Flat snapshot of a vault's registered schema (#229). */
+/** Flat snapshot of a vault's registered schema. */
 export interface SchemaIntrospection {
   readonly collections: ReadonlyArray<{ name: string; docCount: number }>
   readonly guards: ReadonlyArray<{ collection: string; count: number }>

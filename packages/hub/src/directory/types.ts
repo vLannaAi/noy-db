@@ -1,5 +1,5 @@
 /**
- * Type surface for the user-list visibility subsystem (#122).
+ * Type surface for the user-list visibility subsystem.
  *
  * Two complementary flags:
  *  - {@link DirectoryConfig} — vault-level "is the directory listing

@@ -1,5 +1,5 @@
 /**
- * Dry-run transactions (#231). Runs the tx body to STAGE ops, then builds
+ * Dry-run transactions. Runs the tx body to STAGE ops, then builds
  * the directly-affected diff (before = current committed via collection.get,
  * after = staged record) and collects guard violations — without executing
  * phase 2. No adapter writes, no write-hooks, no commit. MV/derivation

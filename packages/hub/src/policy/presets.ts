@@ -39,9 +39,9 @@ export const PERSONAL_POLICY: VaultPolicy = Object.freeze({
       minTier: 1,
       enabled: true,
     },
-    // rotate-recovery (#121): deliberate paper-sheet regeneration
-    // when the user remembers their passphrase. PERSONAL matches the
-    // pre-#121 low-level flow's bar — knowing the passphrase is enough.
+    // rotate-recovery: deliberate paper-sheet regeneration
+    // when the user remembers their passphrase. PERSONAL allows tier-1 —
+    // knowing the passphrase is enough.
     'rotate-recovery': { minTier: 1 },
     'enroll-authenticator': { minTier: 1 },
     'remove-authenticator': { minTier: 1 },
@@ -75,7 +75,7 @@ export const PERSONAL_POLICY: VaultPolicy = Object.freeze({
       minTier: 1,
       enabled: false,
     },
-    // ─── User envelope gates (#22) ────────────────────────────────────
+    // ─── User envelope gates ──────────────────────────────────────────
     // edit-own-profile: tier 3 floor — any active session can edit their
     //   own profile/preferences. Tightening to require a TOTP for
     //   profile changes is a one-line override.
@@ -110,7 +110,7 @@ export const STRICT_POLICY: VaultPolicy = Object.freeze({
       minTier: 1,
       enabled: true,
     },
-    // rotate-recovery (#121): STRICT requires an off-device factor —
+    // rotate-recovery: STRICT requires an off-device factor —
     // rotating recovery is an off-site-trust event; a stolen unlocked
     // laptop must not be able to silently mint a new sheet for the
     // attacker. Matches the `peer-recover-user` STRICT default.
@@ -183,7 +183,7 @@ export const STRICT_POLICY: VaultPolicy = Object.freeze({
       minTier: 1,
       enabled: false,
     },
-    // ─── User envelope gates (#22) ────────────────────────────────────
+    // ─── User envelope gates ──────────────────────────────────────────
     // STRICT: profile edits require a TOTP/email-OTP factor (typical
     // shared-workstation hardening — your name/avatar shouldn't change
     // without a fresh second-factor proof).

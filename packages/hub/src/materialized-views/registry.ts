@@ -23,7 +23,7 @@ export interface RegisteredMV {
    * Top-level FieldClauses on the partition field, captured at
    * registration time. Used by the cycle detector to resolve
    * same-collection-as-source edges via the partition-discriminator
-   * check (#152). Empty when `spec.output?.partition` is undefined.
+   * check. Empty when `spec.output?.partition` is undefined.
    */
   readonly partitionClauses: readonly FieldClause[]
 }
@@ -58,7 +58,7 @@ export class MaterializedViewRegistry {
     db: MVQueryContext,
     options?: { knownCollections?: (name: string) => boolean },
   ): Promise<void> {
-    // Build a predicate-aware db wrapper (#153). If `spec.predicates` is
+    // Build a predicate-aware db wrapper. If `spec.predicates` is
     // declared, the wrapper intercepts `.collection().query()` and
     // attaches the predicates map to the resulting Query<T>. With no
     // predicates declared, the wrapper is the original db unchanged.
@@ -70,7 +70,7 @@ export class MaterializedViewRegistry {
     // expose the underlying Query, so the spec must declare `sources`
     // explicitly. `partitionClauses` are only populated for Query<T>
     // since same-collection-partition is a non-aggregate concern.
-    // UNION-form strategies (#165): dependencies and plan summary come
+    // UNION-form strategies: dependencies and plan summary come
     // straight off the strategy — no `query` callback to introspect.
     // The dependency-analyzer + summarizer are bypassed entirely; the
     // executor handles materialization via `materializeUnionResult`.
@@ -136,7 +136,7 @@ export class MaterializedViewRegistry {
     // the partition field so cycle detection can prove disjointness.
     // Only applicable to Query<T> shapes — aggregate MVs don't carry
     // a chainable plan to inspect (and same-collection aggregation
-    // doesn't make sense in the niwat use cases that motivated #152).
+    // doesn't make sense for same-collection aggregation).
     const partitionClauses: FieldClause[] = []
     const partitionField = spec.output?.partition?.field
     if (partitionField !== undefined && isQuery) {
@@ -359,14 +359,14 @@ function extractPredicateRefs(
 
 /**
  * Provability check for the same-collection partition-discriminator
- * (#152, spec § Same-collection-as-source MV). Returns `true` when
+ * (spec § Same-collection-as-source MV). Returns `true` when
  * the captured partition clauses on the MV's query provably exclude
  * the partition's value — meaning the input filter and the output
  * partition are disjoint and the same-collection edge isn't really a
  * cycle.
  *
- * Supported provability shapes (narrow on purpose — niwat's DERIV-
- * PP30-001 is the load-bearing case):
+ * Supported provability shapes (narrow on purpose — DERIV-PP30-001
+ * is the load-bearing case):
  *
  * - `.where(field, '==', X)` where X !== partition.value → disjoint
  * - `.where(field, '!=', partition.value)` → disjoint

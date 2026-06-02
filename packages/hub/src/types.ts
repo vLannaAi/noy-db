@@ -465,9 +465,9 @@ export interface ImportCapability {
 export type VaultPolicyOnDisk = Record<string, unknown>
 
 /**
- * Recovery profile enrolled at vault creation (issue #10).
+ * Recovery profile enrolled at vault creation.
  *
- * - `paper` — `on-recovery` codes (the only end-to-end profile in v0.1.0-pre.5).
+ * - `paper` — `on-recovery` codes (the standard end-to-end profile).
  * - `shamir` / `multi-channel` / `admin-mediated` — API surface ships;
  *   per-profile dispatch lands in follow-up issues. Calling
  *   `db.recoverPassphrase` against these throws
@@ -536,7 +536,7 @@ interface KeyringAuthenticatorBase {
  * extractable KEK from its own credential — WebAuthn (PRF-derived
  * wrapping key) and split-key OIDC.
  *
- * `wrapKind` is optional/absent on slots written before pre.8 — those
+ * `wrapKind` is optional/absent on older slots — those
  * legacy slots are treated as wrap-KEK by default at unlock time.
  */
 export interface KeyringAuthenticatorWrappingKEK extends KeyringAuthenticatorBase {
@@ -604,11 +604,11 @@ export interface KeyringFile {
   readonly granted_by: string
   /**
    * Passphrase canary — base64 AES-KW-wrapped form of a known constant
-   * 256-bit value, wrapped under the keyring's KEK (#113).
+   * 256-bit value, wrapped under the keyring's KEK.
    *
-   * Optional: pre-#113 keyrings load with no canary and fall back to
-   * the multi-DEK corruption heuristic from #82. Keyrings written after
-   * #113 carry one and let `loadKeyring` distinguish wrong-passphrase
+   * Optional: older keyrings load with no canary and fall back to
+   * the multi-DEK corruption heuristic. Newer keyrings
+   * carry one and let `loadKeyring` distinguish wrong-passphrase
    * from corruption even when ALL DEKs (including a single-DEK keyring's
    * sole DEK) are corrupted.
    *
@@ -849,7 +849,7 @@ export interface Conflict {
 }
 
 /**
- * #228c — a same-device cross-tab write conflict: another tab overwrote a
+ * A same-device cross-tab write conflict: another tab overwrote a
  * document this tab had written, having diverged from an older base. Records
  * are decrypted (cross-tab handlers reconcile in plaintext). `base` is the
  * common ancestor from history, or null when history is unavailable.
@@ -981,8 +981,8 @@ export interface NoydbEventMap {
   'change': ChangeEvent
   'error': Error
   /**
-   * Same-instance signal that this vault's schema-fence state changed
-   * (#232). For UI integration (#233). Cross-client coordination goes
+   * Same-instance signal that this vault's schema-fence state changed.
+   * For UI integration. Cross-client coordination goes
    * through the store, not this event.
    */
   'schema:fence-changed': { vault: string; currentSchemaVersion: number; fenceState: 'normal' | 'draining' | 'migrating' | 'complete' }
@@ -1074,7 +1074,7 @@ export interface GrantOptions {
 }
 
 /**
- * Caller payload for `db.updateUser` (#54). Mutate one or more
+ * Caller payload for `db.updateUser`. Mutate one or more
  * identity fields on an existing keyring without rotating any keys.
  *
  * `role`, `displayName`, and `permissions` live in the plaintext header
@@ -1088,7 +1088,7 @@ export interface GrantOptions {
  * `null` on `displayName` clears the field (stored as the empty string;
  * UI consumers typically render the empty case by falling back to the
  * user id). `undefined` / absent leaves the field untouched. Mirrors
- * the `null`-as-clear convention `UserApi.updateMe` uses (#57).
+ * the `null`-as-clear convention `UserApi.updateMe` uses.
  *
  * `permissions`, however, is a **full replacement** at the map level —
  * passing `{ invoices: 'rw' }` REPLACES the entire permissions map,
@@ -1102,8 +1102,6 @@ export interface GrantOptions {
  * do anything. Non-admin callers (operator/viewer/client) cannot call
  * `db.updateUser` at all — for self-displayName changes, use
  * `vault.user.updateMe` (the user-envelope API).
- *
- * @see #54
  */
 export interface UpdateUserOptions {
   readonly userId: string
@@ -1785,7 +1783,7 @@ export interface NoydbOptions {
    */
   readonly derivationStrategies?: ReadonlyArray<DerivationStrategyHandle>
   /**
-   * Optional materialized-view strategies (#143, foundation in #150).
+   * Optional materialized-view strategies.
    * Each handle returned by `withMaterializedView()` from
    * `@noy-db/hub/materialized-views`. The vault runs unified cycle
    * detection across the MV + derivation graphs at `openVault`; a
@@ -1793,7 +1791,7 @@ export interface NoydbOptions {
    */
   readonly materializedViewStrategies?: ReadonlyArray<MaterializedViewStrategyHandle>
   /**
-   * Optional overlay strategies (#154). Each handle returned by
+   * Optional overlay strategies. Each handle returned by
    * `withOverlayedView()` from `@noy-db/hub/overlay-views`. The vault
    * validates name uniqueness + base concreteness + overlay
    * availability at `openVault`; a clash throws one of the
@@ -1846,7 +1844,7 @@ export interface NoydbOptions {
    */
   readonly getKeyring?: (vault: string) => Promise<UnlockedKeyring>
   /**
-   * Passphrase mode (#14). Default `'standard'`.
+   * Passphrase mode. Default `'standard'`.
    *
    *   - `'standard'` — the legacy flow. `secret` supplies the
    *     plaintext passphrase, the user knows it, and the policy gate
@@ -1907,14 +1905,14 @@ export interface NoydbOptions {
   readonly sessionPolicy?: SessionPolicy
   /**
    * Validate passphrase strength against the phrase format
-   * (`@noy-db/hub` issue #7) on first-time keyring creation. When
+   * on first-time keyring creation. When
    * `true`, weak phrases throw {@link WeakPassphraseError} from
    * `createNoydb()` / `db.rotatePassphrase()`. Default: `false` for
-   * back-compat in v0.1.x; planned to flip to `true` at v1.0.
+   * back-compat; planned to flip to `true` in a future major release.
    */
   readonly validatePassphrase?: boolean
   /**
-   * Vault-level policy gate document (issue #9). When present, the hub
+   * Vault-level policy gate document. When present, the hub
    * persists the merged policy at `_meta/policy` on first-time vault
    * creation and gates sensitive operations (`db.rotatePassphrase`,
    * `db.export*`, …) against it. Omitted ⇒ the engine uses
@@ -1930,14 +1928,14 @@ export interface NoydbOptions {
    */
   readonly policy?: VaultPolicy
   /**
-   * Mandatory recovery profile enrollment (issue #10). Vaults with
+   * Mandatory recovery profile enrollment. Vaults with
    * `recover-passphrase` enabled MUST register at least one profile
    * before being production-ready, otherwise `createNoydb()` throws
    * {@link RecoveryNotEnrolledError}. Set
    * `policy.gates['recover-passphrase'].enabled = false` to
    * deliberately opt out of recovery (passphrase loss = data loss).
    *
-   * v0.1.0-pre.5 supports the `'paper'` profile end-to-end. Other
+   * The `'paper'` profile is supported end-to-end. Other
    * profiles ship the API shape and throw
    * {@link RecoveryProfileNotImplementedError} during use.
    */
@@ -1945,9 +1943,9 @@ export interface NoydbOptions {
   /**
    * When `true`, `createNoydb` rejects vaults with no recovery
    * entries persisted (per the spec's mandatory-enrollment
-   * requirement). Default `false` for v0.1.x back-compat; planned to
-   * flip to `true` at v1.0. Apps in regulated environments should
-   * turn this on now.
+   * requirement). Default `false` for back-compat; planned to
+   * flip to `true` in a future major release. Apps in regulated
+   * environments should turn this on now.
    */
   readonly requireRecovery?: boolean
   /**

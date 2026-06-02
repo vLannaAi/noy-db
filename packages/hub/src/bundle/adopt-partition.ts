@@ -1,9 +1,9 @@
 /**
- * Partition adoption (#207). Recipient side: verify an extracted bundle,
+ * Partition adoption. Recipient side: verify an extracted bundle,
  * validate the transfer key, import the re-keyed collections into a
  * destination store, and record an `_meta/adoption` marker. The bundle
- * stays UNOWNED after adoption — `createOwnerOnAdoptedPartition` (#208)
- * mints the owner; `#209` destroys the seal.
+ * stays UNOWNED after adoption — `createOwnerOnAdoptedPartition`
+ * mints the owner; the transfer seal is then destroyed.
  *
  * @module
  */
@@ -21,7 +21,7 @@ import type { TransferSealPayload } from './bundle.js'
 import { readNoydbBundleHeader, readNoydbBundle, parseExtractedPartitionBody } from './bundle.js'
 
 /**
- * Reverse of `sealDeks` (#206). Imports the transfer key, decrypts the
+ * Reverse of `sealDeks`. Imports the transfer key, decrypts the
  * sealed `{ collection: base64(rawDEK) }` map (layout iv(12)‖ct‖tag), and
  * re-imports each DEK as an AES-GCM key. Throws `TransferSealError` on a
  * wrong key (AES-GCM auth-tag failure) or malformed payload.
@@ -58,7 +58,7 @@ export async function unsealDeks(
   const deks = new Map<string, CryptoKey>()
   for (const [collection, b64] of Object.entries(dekMap)) {
     // Extractable: the recipient must be able to re-wrap these under their
-    // own KEK (AES-KW) at owner-creation (#208). Matches generateDEK.
+    // own KEK (AES-KW) at owner-creation. Matches generateDEK.
     const dek = await crypto.subtle.importKey('raw', base64ToBuffer(b64) as BufferSource, 'AES-GCM', true, ['encrypt', 'decrypt'])
     deks.set(collection, dek)
   }
@@ -96,7 +96,7 @@ export async function adoptPartition(
 
   // Validate the transfer key by unsealing in memory; throws
   // TransferSealError on mismatch. DEKs are discarded here — they stay
-  // sealed at rest (in _meta/adoption) until #208 wraps them under the
+  // sealed at rest (in _meta/adoption) until owner-creation wraps them under the
   // recipient's KEK.
   await unsealDeks(seal, transferKey)
 
@@ -138,7 +138,7 @@ export async function adoptPartition(
   const backup = JSON.parse(dump) as { collections: VaultSnapshot; _internal?: VaultSnapshot }
   await destinationStore.saveAll(vaultName, backup.collections)
 
-  // Import carried internal collections (e.g. _schemas from #204 carrySchemas).
+  // Import carried internal collections (e.g. _schemas from carrySchemas).
   // saveAll only writes data collections; _internal is written per-record.
   if (backup._internal) {
     for (const [collection, records] of Object.entries(backup._internal)) {
@@ -170,10 +170,10 @@ export interface CreateOwnerStandardOptions {
 }
 
 /**
- * Managed-mode owner (#208 follow-up): the passphrase is minted + sealed under
+ * Managed-mode owner: the passphrase is minted + sealed under
  * a `SealingKeyProvider` (e.g. an `at-*` OS keychain) so the partition
  * auto-unlocks on the recipient's device. Managed mode mandates a strong
- * (Shamir) recovery profile at creation (#195), which needs the
+ * (Shamir) recovery profile at creation, which needs the
  * `shamirRecovery` provider injected.
  */
 export interface CreateOwnerManagedOptions {
@@ -192,12 +192,12 @@ function isManaged(o: CreateOwnerOptions): o is CreateOwnerManagedOptions {
 }
 
 /**
- * Mint the first owner keyring on an adopted-but-unowned partition (#208),
- * then destroy the transfer seal (#209).
+ * Mint the first owner keyring on an adopted-but-unowned partition,
+ * then destroy the transfer seal.
  *
  * Standard mode: the recipient supplies a passphrase. Managed mode: the
  * passphrase is minted + sealed under a `SealingKeyProvider` and a strong
- * (Shamir) recovery profile is enrolled (#195) — orchestrated via the existing
+ * (Shamir) recovery profile is enrolled — orchestrated via the existing
  * `openVaultAndEnrollRecovery` ceremony.
  *
  * Either way, reuses `createOwnerKeyring` to derive the KEK + write the base
@@ -220,7 +220,7 @@ export async function createOwnerOnAdoptedPartition(
   const { userId, transferKey } = opts
 
   // Managed mode requires a strong (Shamir) recovery profile, validated BEFORE
-  // any disk write (#195) — same gate as createNoydb.
+  // any disk write — same gate as createNoydb.
   if (isManaged(opts) && !opts.recovery.some((r) => r.profile === 'shamir')) {
     throw new AdoptionStateError(
       'managed-mode adoption requires at least one strong (shamir) recovery profile in '
@@ -302,7 +302,7 @@ export async function createOwnerOnAdoptedPartition(
     await store.put(vaultName, '_keyring', userId, { ...env, _data: JSON.stringify(mergedFile) })
   }
 
-  // Stage B — (#226 destination) record the ownership transition on the carried
+  // Stage B — record the ownership transition on the carried
   // audit chain (carryLedger sealed the _ledger DEK). No-op without that DEK.
   // Idempotent: appended only if the closing `transfer-seal-consumed` entry is
   // absent, so a retry does not duplicate the pair.
@@ -329,8 +329,8 @@ export async function createOwnerOnAdoptedPartition(
     }
   }
 
-  // Stage C — Managed mode (#208 follow-up): enroll the mandatory strong recovery
-  //    (#195) by orchestrating the existing public ceremony. The partition is
+  // Stage C — Managed mode: enroll the mandatory strong recovery
+  //    by orchestrating the existing public ceremony. The partition is
   //    now a managed-mode vault on disk (sealed passphrase + keyring), so we
   //    open it as a normal client and let openVaultAndEnrollRecovery do the
   //    gate-bypass + enroll + re-assert. Dynamic import keeps the Noydb class
@@ -348,7 +348,7 @@ export async function createOwnerOnAdoptedPartition(
     await db.openVaultAndEnrollRecovery(vaultName, { recovery: opts.recovery })
   }
 
-  // Stage D — (#209) Destroy the transfer seal LAST — the commit point. Everything
+  // Stage D — Destroy the transfer seal LAST — the commit point. Everything
   //    above is either idempotent or resumable, so the seal is only consumed
   //    once the owner keyring (and, in managed mode, strong recovery) is
   //    durably in place. Retain sealId + consumedAt for audit.

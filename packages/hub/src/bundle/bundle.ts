@@ -57,7 +57,7 @@ import { pickLocale } from '../meta/public-envelope/storage.js'
 import type { PublicEnvelope } from '../meta/public-envelope/types.js'
 import type { SealingKeyProvider, RecipientSealer, RecipientHint } from '../team/managed-passphrase.js'
 
-// ─── #215 auto-credential types ───────────────────────────────────────────────
+// ─── Auto-credential types ────────────────────────────────────────────────────
 
 /**
  * The credential kinds that can be bundled for auto-unlock.
@@ -89,7 +89,7 @@ export interface AutoCredential {
  * - `compression: 'gzip'` — force gzip
  * - `compression: 'none'` — no compression (round-trip testing only)
  *
- * **Slice filtering** (added in ):
+ * **Slice filtering:**
  * - `collections` — allowlist of collection names to include. Internal
  *   collections (keyrings, ledger) and excluded user collections are
  *   dropped from the bundle. Records inside included collections are
@@ -152,7 +152,7 @@ export interface WriteNoydbBundleOptions {
    */
   readonly recipients?: readonly BundleRecipient[]
   /**
-   * Auto-unlock — unsealed per-user credentials (#215).
+   * Auto-unlock — unsealed per-user credentials.
    *
    * Generalises `autoPassphrases` to support any bundleable credential
    * kind (`passphrase` | `password` | `pin`).
@@ -174,7 +174,7 @@ export interface WriteNoydbBundleOptions {
   }
   /**
    * Auto-unlock — per-user credentials sealed under a
-   * {@link SealingKeyProvider} (#215).
+   * {@link SealingKeyProvider}.
    *
    * Generalises `sealedPassphrases` to support any bundleable
    * credential kind (`passphrase` | `password` | `pin`).
@@ -209,9 +209,9 @@ export interface WriteNoydbBundleOptions {
         readonly perUser: Record<string, { readonly credential: AutoCredential; readonly hint: RecipientHint }>
       }
   /**
-   * @deprecated Use `autoCredentials` instead (#215).
+   * @deprecated Use `autoCredentials` instead.
    *
-   * Auto-unlock — unsealed per-user passphrases (#197 slice 1).
+   * Auto-unlock — unsealed per-user passphrases.
    *
    * Public-by-design: anyone holding the bundle bytes can read these
    * plaintext credentials. Use for demo data, sample vaults,
@@ -229,10 +229,10 @@ export interface WriteNoydbBundleOptions {
     readonly perUser: Record<string, string>
   }
   /**
-   * @deprecated Use `sealedCredentials` instead (#215).
+   * @deprecated Use `sealedCredentials` instead.
    *
    * Auto-unlock — per-user passphrases sealed under a
-   * {@link SealingKeyProvider} (#197 slice 1, self-target only).
+   * {@link SealingKeyProvider} (self-target only).
    *
    * The hub seals each user's plaintext passphrase under `provider`
    * and embeds the resulting sealed envelopes in the bundle. The
@@ -265,7 +265,7 @@ export interface NoydbBundleReadResult {
   readonly header: NoydbBundleHeader
   readonly dumpJson: string
   /**
-   * Auto-unlock material (#197, widened in #215). Present only when
+   * Auto-unlock material. Present only when
    * the header's `autoUnlock` flag is set AND the body's wrapped
    * structure survived parsing. Values are typed credentials — either
    * delivered plain (`kind: 'unsealed'`) or unsealed at read time
@@ -295,7 +295,7 @@ export interface NoydbBundleReadResult {
  * metadata so the consumer can dispatch on credential type without
  * unsealing first.
  *
- * Back-compat: `kind` is absent in pre-0.2 bundles — readers must
+ * Back-compat: `kind` is absent in older bundles — readers must
  * default to `'passphrase'` when not present.
  */
 interface SealedAutoUnlockEntry {
@@ -315,9 +315,9 @@ interface SealedAutoUnlockEntry {
 /**
  * Discriminated wrapper carried in the bundle body when the header's
  * `autoUnlock` flag is set. Without the flag, the body is the raw
- * `vault.dump()` JSON string (the pre-#197 shape).
+ * `vault.dump()` JSON string.
  *
- * Back-compat: pre-0.2 bundles carry bare `string` values in the
+ * Back-compat: older bundles carry bare `string` values in the
  * unsealed `perUser` map. Readers must coerce those to
  * `{ kind: 'passphrase', value }`.
  */
@@ -330,9 +330,9 @@ interface AutoUnlockBody {
 }
 
 /**
- * Options accepted by {@link readNoydbBundle} for the #197
- * auto-unlock paths. Without these the reader behaves exactly as
- * pre-#197 (header parsed; body returned as `dumpJson`).
+ * Options accepted by {@link readNoydbBundle} for the
+ * auto-unlock paths. Without these the reader behaves exactly as before
+ * (header parsed; body returned as `dumpJson`).
  */
 export interface ReadNoydbBundleOptions {
   /**
@@ -355,7 +355,7 @@ export interface ReadNoydbBundleOptions {
   readonly attemptUnsealAcrossProviders?: boolean
 }
 
-// ─── #197/#215 auto-unlock helpers ────────────────────────────────────────────
+// ─── Auto-unlock helpers ──────────────────────────────────────────────────────
 
 /**
  * Internal normalized form of the auto-unlock options, computed once
@@ -441,7 +441,7 @@ function normalizeAutoUnlock(opts: WriteNoydbBundleOptions): NormalizedAutoUnloc
  * `writeNoydbBundle`) can pass the same object to `buildAutoUnlockWrapper`
  * without a second `normalizeAutoUnlock` call.
  *
- * Validation per spec (#197 + #215 §3):
+ * Validation per spec (§3):
  *   - (mutual exclusion already enforced by normalizeAutoUnlock)
  *   - unsealed path: `policy: 'public-by-design'` marker required
  *   - non-empty `perUser` maps
@@ -676,10 +676,10 @@ function parseAutoUnlockBody(bodyString: string): { dump: string; blob: AutoUnlo
 }
 
 /**
- * Transfer-seal payload (#206). The destination DEKs, exported to raw
+ * Transfer-seal payload. The destination DEKs, exported to raw
  * bytes and AES-256-GCM-sealed *as a set* under the one-time transfer
- * key. `adoptPartition` (#207) unseals this; `createOwnerOnAdoptedPartition`
- * (#208) re-wraps the raw DEKs under the recipient's KEK.
+ * key. `adoptPartition` unseals this; `createOwnerOnAdoptedPartition`
+ * re-wraps the raw DEKs under the recipient's KEK.
  */
 export interface TransferSealPayload {
   readonly v: 1
@@ -690,7 +690,7 @@ export interface TransferSealPayload {
 }
 
 /**
- * Body wrapper for an extracted, transfer-sealed partition (#203/#206).
+ * Body wrapper for an extracted, transfer-sealed partition.
  * Sibling to {@link AutoUnlockBody}; selected by `header.bundleKind ===
  * 'extracted-partition'`. The inner `dump` is a re-keyed projection with
  * an empty `keyrings` map.
@@ -745,8 +745,8 @@ export function parseExtractedPartitionBody(
 }
 
 /**
- * Coerce an unsealed perUser entry to `AutoCredential`. Pre-0.2 bundles
- * store bare strings; 0.2+ bundles store `{ kind, value }` objects.
+ * Coerce an unsealed perUser entry to `AutoCredential`. Older bundles
+ * store bare strings; newer bundles store `{ kind, value }` objects.
  */
 function coerceUnsealed(entry: AutoCredential | string): AutoCredential {
   if (typeof entry === 'string') return { kind: 'passphrase', value: entry }
@@ -1235,7 +1235,7 @@ export async function writeNoydbBundle(
     )
   }
 
-  // #197/#215 — auto-unlock: normalize once, validate + build from the
+  // Auto-unlock: normalize once, validate + build from the
   // same NormalizedAutoUnlock object so there's no double-normalize call.
   const normalizedAutoUnlock = normalizeAutoUnlock(opts)
   const autoUnlockMode = validateAutoUnlockOptions(opts, normalizedAutoUnlock)
@@ -1254,8 +1254,8 @@ export async function writeNoydbBundle(
   const plainFiltered = await applyPlaintextFilters(vault, rekeyed, opts)
   const filtered = applySliceFilters(plainFiltered, opts)
 
-  // If no auto-unlock requested, body remains the raw dump JSON
-  // (pre-#197 shape). Otherwise build the wrapped body containing the
+  // If no auto-unlock requested, body remains the raw dump JSON.
+  // Otherwise build the wrapped body containing the
   // dump + `_autoUnlock` blob and serialize.
   const bodyJsonStr = normalizedAutoUnlock === null
     ? filtered
@@ -1437,9 +1437,9 @@ export async function readNoydbBundle(
 
   const bodyString = new TextDecoder('utf-8', { fatal: true }).decode(dumpBytes)
 
-  // #197 — when the header signaled an auto-unlock, the body is a
+  // When the header signals auto-unlock, the body is a
   // JSON wrapper carrying the dump string + the auto-unlock blob.
-  // When absent, the body IS the raw dump JSON (pre-#197 shape).
+  // When absent, the body IS the raw dump JSON.
   if (header.autoUnlock === undefined) {
     return { header, dumpJson: bodyString }
   }

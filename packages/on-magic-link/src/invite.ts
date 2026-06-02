@@ -1,5 +1,5 @@
 /**
- * **Invite + peer-recovery primitives** — issue #32.
+ * **Invite + peer-recovery primitives.**
  *
  * Layered on top of `db.grant` (for invite, mints a NEW user) and
  * `db.recoverUser` (for peer-recovery, rewraps an EXISTING user under
@@ -22,8 +22,6 @@
  * - Validate the invite under HTTPS (caller's responsibility)
  * - Coordinate with a server-held secret (delegation grants do that;
  *   invite is server-blind by design)
- *
- * @see #32 #33 #34
  *
  * @module
  */
@@ -148,16 +146,12 @@ export interface AcceptInviteOptions {
    * `noydbOptions` flows to the post-rotation `createNoydb`, not the
    * rotation itself. Passing the same `PassphrasePolicy` here and
    * (via `noydbOptions.policy.passphrase`) keeps both gates aligned.
-   *
-   * Added in pre.9 (#53).
    */
   readonly passphrasePolicy?: PassphrasePolicy
   /**
    * Skip phrase strength validation for the recipient's `newPhrase`.
    * Forwarded to the inner rotation. Use sparingly — bypasses the
    * structural rules that protect against weak phrases.
-   *
-   * Added in pre.9 (#53).
    */
   readonly allowWeakPassphrase?: boolean
 }
@@ -331,7 +325,7 @@ export async function issuePeerRecovery(
 /**
  * Mark an outstanding invite as revoked. After this, `acceptInvite`
  * for the same token rejects with `InviteRevokedError` BEFORE opening
- * any session — closes #32's "revoked-link silent shadow keyring"
+ * any session — closes the "revoked-link silent shadow keyring"
  * defense (without the audit doc check, a revoked link could fall
  * through to `createNoydb`'s no-keyring auto-create path and create
  * a fresh empty vault).
@@ -387,7 +381,7 @@ export async function revokeInvite(
  * @throws {@link InviteRevokedError} when the issuer has revoked.
  * @throws {@link InviteAlreadyAcceptedError} on second call.
  * @throws {@link InviteAuditMissingError} when no audit doc — closes
- *         #32's revoked-link-shadow-keyring defense.
+ *         the revoked-link-shadow-keyring defense.
  */
 export async function acceptInvite(
   encoded: string,
@@ -414,7 +408,7 @@ export async function acceptInvite(
     throw new InviteAlreadyAcceptedError(payload.tokenId, audit.acceptedAt)
   }
 
-  // Atomic rotate inside acceptInvite (per #32 spec). We call the
+  // Atomic rotate inside acceptInvite. We call the
   // team-level `keyringRotatePassphrase` directly rather than going
   // through `db.rotatePassphrase`, which is gated by the
   // `rotate-passphrase` policy gate (PERSONAL_POLICY requires a
@@ -472,7 +466,7 @@ export function decodeInvitePayload(encoded: string): InvitePayload {
 function getStore(db: Noydb): NoydbStore {
   // The store is configured at createNoydb time but not exposed via a
   // public getter; reaching into options is the documented escape
-  // hatch (the same pattern niwat-app uses for direct store access).
+  // hatch (the same pattern used for direct store access).
   return (db as unknown as { options: { store: NoydbStore } }).options.store
 }
 

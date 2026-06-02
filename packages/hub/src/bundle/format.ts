@@ -130,7 +130,7 @@ export interface NoydbBundleHeader {
    */
   readonly publicEnvelope?: PublicEnvelope
   /**
-   * Auto-unlock material indicator (#197). When present, the bundle
+   * Auto-unlock material indicator. When present, the bundle
    * body wraps the dump JSON in a structure carrying per-user
    * passphrases — either plaintext (`'unsealed'`, public-by-design)
    * or sealed under a `SealingKeyProvider` (`'sealed'`, requires
@@ -142,17 +142,17 @@ export interface NoydbBundleHeader {
    * (sealed).
    *
    * Absent → the body is a raw `vault.dump()` JSON string (the
-   * pre-#197 shape; back-compatible).
+   * the legacy shape; back-compatible).
    */
   readonly autoUnlock?: 'unsealed' | 'sealed'
   /**
-   * Bundle's role in the source → destination lifecycle (#203).
+   * Bundle's role in the source → destination lifecycle.
    *   - omitted / 'snapshot' (default): backup/copy of an existing vault.
    *   - 'extracted-partition': re-keyed projection awaiting adoption.
    */
   readonly bundleKind?: 'snapshot' | 'extracted-partition'
   /**
-   * Transfer-seal INDICATOR (#206) — metadata only, no payload (the
+   * Transfer-seal INDICATOR — metadata only, no payload (the
    * sealed DEKs live in the body). Present iff
    * bundleKind === 'extracted-partition'.
    */

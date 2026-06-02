@@ -10,7 +10,7 @@
  * backward compatibility through.x.
  *
  * NOTE: magic-link helpers are expected to extract into a new
- * `@noy-db/on-magic-link` package per Fork · On #8. Until that lands,
+ * `@noy-db/on-magic-link` package. Until that lands,
  * they live here alongside session primitives.
  */
 

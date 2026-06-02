@@ -1,5 +1,5 @@
 /**
- * Per-collection write gate (#245). Holds the (async) update decision
+ * Per-collection write gate. Holds the (async) update decision
  * computed at registration; `Collection.put`/`delete` await it before
  * writing and throw the strategy's rejection error.
  *
@@ -23,6 +23,6 @@ export class SchemaUpdateGate {
     if (decision && decision.action === 'reject') {
       throw decision.error
     }
-    // 'cutover' write-gating is handled by #232's coordinatedCutover.
+    // 'cutover' write-gating is handled by coordinatedCutover.
   }
 }

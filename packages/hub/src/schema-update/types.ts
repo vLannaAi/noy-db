@@ -1,5 +1,5 @@
 /**
- * Schema-update strategy framework types (#245, M12 §3a).
+ * Schema-update strategy framework types (M12 §3a).
  *
  * The hub core detects a schema change (SchemaDelta) and dispatches it
  * through a collection's ordered strategy list. Strategies decide what
@@ -32,14 +32,14 @@ export interface UpdateContext {
   readonly collection: string
 }
 
-/** Bulk transform run by the coordinatedCutover strategy (#232). */
+/** Bulk transform run by the coordinatedCutover strategy. */
 export type TransformFn = (doc: Record<string, unknown>) => Record<string, unknown>
 
 /**
  * A strategy's verdict on a detected schema change.
  * - `allow`   — no objection; the dispatcher falls through to the next strategy.
  * - `reject`  — terminal: refuse the change; `error` is thrown at the write path.
- * - `cutover` — terminal: run a coordinated drain-barrier (handled by #232).
+ * - `cutover` — terminal: run a coordinated drain-barrier (handled by coordinatedCutover).
  * New terminal actions may be added without breaking existing strategies.
  */
 export type UpdateDecision =
