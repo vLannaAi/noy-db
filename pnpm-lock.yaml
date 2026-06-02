@@ -347,6 +347,9 @@ importers:
       '@noy-db/hub':
         specifier: workspace:*
         version: link:../hub
+      '@noy-db/to-meter':
+        specifier: workspace:*
+        version: link:../to-meter
 
   packages/in-devtools-tui:
     dependencies:

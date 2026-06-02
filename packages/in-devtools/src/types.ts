@@ -7,6 +7,12 @@ import type {
   CollectionDescriptor,
   CollectionStats,
 } from '@noy-db/hub'
+import type { MeterSnapshot } from '@noy-db/to-meter'
+
+/** Minimal structural view of a to-meter handle the inspector reads (no runtime dep). */
+export interface InspectorMeter {
+  snapshot(): MeterSnapshot
+}
 
 /** Top-level accessible-vault entry (plain projection of the hub's AccessibleVault). */
 export type VaultInfo = AccessibleVault // { id: string; role: Role }
@@ -58,6 +64,8 @@ export interface Inspector {
   subscribe(handler: (event: InspectorWriteEvent) => void): () => void
   subscribeConflicts(handler: (c: InspectorWriteConflict) => void): () => void
   pendingWrites(): PendingWrites
+  /** Aggregate store-op latency snapshot, or null when the store is not metered. */
+  meterSnapshot(): MeterSnapshot | null
 }
 
 /** @internal — the hub handle the inspector reads from. */
