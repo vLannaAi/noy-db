@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { setActivePinia, createPinia, storeToRefs } from 'pinia'
 import { effectScope } from 'vue'
-import { createNoydb, type Noydb, type NoydbStore, type EncryptedEnvelope, type VaultSnapshot, type StandardSchemaV1, ConflictError, Query } from '@noy-db/hub'
+import { createNoydb, additiveOnly, type Noydb, type NoydbStore, type EncryptedEnvelope, type VaultSnapshot, type StandardSchemaV1, ConflictError, Query } from '@noy-db/hub'
 import { defineNoydbStore, setActiveNoydb } from '../src/index.js'
 
 /** Inline memory adapter — same pattern as @noy-db/core integration tests. */
@@ -429,5 +429,51 @@ describe('attestation option forwarding', () => {
     expect(att.docId).toBeTruthy()
     expect(att.qr).toBeTruthy()
     expect(att.keyId).toBeTruthy()
+  })
+})
+
+describe('schema-update option forwarding (#255)', () => {
+  it('forwards `persistJsonSchema` and `schemaUpdate` to the underlying Collection', async () => {
+    setActivePinia(createPinia())
+    const db = await makeNoydb()
+    setActiveNoydb(db)
+
+    // `openVault` caches per name, so the store's internal `openVault('books')`
+    // resolves to this same instance. Spy on its prototype's `collection` to
+    // capture exactly the options the store forwards — this asserts the
+    // forwarding (the unit under test) without depending on persistJsonSchema's
+    // downstream baseline derivation.
+    const vault = await db.openVault('books')
+    const spy = vi.spyOn(Object.getPrototypeOf(vault) as { collection: unknown }, 'collection')
+
+    // Pass-through Standard Schema (in-pinia has no Zod dep); the store still
+    // installs it, but this test only checks the migration options forward.
+    const schema: StandardSchemaV1<unknown, Invoice> = {
+      '~standard': {
+        version: 1,
+        vendor: 'test',
+        validate: (value) => ({ value: value as Invoice }),
+      },
+    }
+
+    const useStore = defineNoydbStore<Invoice>('mig-invoices', {
+      vault: 'books',
+      collection: 'invoices',
+      schema,
+      persistJsonSchema: true,
+      schemaUpdate: [additiveOnly()],
+    })
+    const store = useStore()
+    // Swallow any downstream baseline-derivation outcome — the spy already
+    // captured the forwarded options at the synchronous collection() call.
+    await store.$ready.catch(() => {})
+
+    const call = spy.mock.calls.find((c) => c[0] === 'invoices')
+    expect(call, 'vault.collection("invoices", …) should have been called').toBeTruthy()
+    const opts = call![1] as { persistJsonSchema?: boolean; schemaUpdate?: readonly unknown[] }
+    expect(opts?.persistJsonSchema).toBe(true)
+    expect(opts?.schemaUpdate).toHaveLength(1)
+
+    spy.mockRestore()
   })
 })
