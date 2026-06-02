@@ -269,7 +269,7 @@ export class Noydb {
       if (!facade) return
       const ctx = { existing, vault: facade, userId: e.userId, role: e.role }
       await registry.runChecks(e.collection, incoming, ctx)
-      const { GuardExecutor } = await import('./guards/executor.js') as { GuardExecutor: typeof import('./guards/executor.js').GuardExecutor }
+      const { GuardExecutor } = await import('./guards/executor.js')
       for (const g of guards) {
         await GuardExecutor.checkFrozenFields(g, e.docId, existing, incoming)
       }
