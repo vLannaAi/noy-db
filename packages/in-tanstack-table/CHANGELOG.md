@@ -1,5 +1,9 @@
 # @noy-db/in-tanstack-table
 
+## 0.2.0-pre.5
+
+Version-only lockstep bump; no source changes since pre.4.
+
 ## 0.2.0-pre.4
 
 Version-only lockstep bump; no source changes since pre.3.
