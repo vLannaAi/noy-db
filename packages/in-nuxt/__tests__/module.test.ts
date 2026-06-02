@@ -14,11 +14,15 @@ const captured: {
   plugins: Array<{ src: string; mode?: string }>
   resolverBase: string | URL | null
   defineNuxtModuleArg: unknown
+  pages: Array<unknown>
+  hooks: Map<string, unknown[]>
 } = {
   imports: [],
   plugins: [],
   resolverBase: null,
   defineNuxtModuleArg: null,
+  pages: [],
+  hooks: new Map(),
 }
 
 vi.mock('@nuxt/kit', () => {
@@ -67,16 +71,30 @@ vi.mock('@nuxt/kit', () => {
         resolvePath: (path: string) => Promise.resolve(`RESOLVED:${path}`),
       }
     },
+
+    extendPages(fn: (pages: unknown[]) => void) {
+      const pages: unknown[] = []
+      fn(pages)
+      captured.pages.push(...pages)
+    },
+
+    addTemplate(_opts: unknown) { /* no-op for tests */ },
+
+    addServerHandler(_opts: unknown) { /* no-op for tests */ },
   }
 })
 
 // Helper to build a minimal mock Nuxt context the module can mutate.
-function makeNuxtMock(): { options: { runtimeConfig: { public: Record<string, unknown> } } } {
+function makeNuxtMock(dev = false): {
+  options: { dev: boolean; runtimeConfig: { public: Record<string, unknown> } }
+  hook: ReturnType<typeof vi.fn>
+} {
   return {
-    options: {
-      runtimeConfig: {
-        public: {},
-      },
+    options: { dev, runtimeConfig: { public: {} } },
+    hook(name: string, fn: unknown) {
+      const list = captured.hooks.get(name) ?? []
+      list.push(fn)
+      captured.hooks.set(name, list)
     },
   }
 }
@@ -86,6 +104,8 @@ beforeEach(() => {
   captured.imports = []
   captured.plugins = []
   captured.resolverBase = null
+  captured.pages = []
+  captured.hooks = new Map()
 })
 
 describe('@noy-db/nuxt — module factory', () => {
@@ -250,5 +270,60 @@ describe('@noy-db/nuxt — public API surface', () => {
     // weren't exported. The runtime assertion is just a sanity check.
     const pkg = await import('../src/index.js')
     expect(Object.keys(pkg)).toContain('default')
+  })
+})
+
+describe('@noy-db/nuxt — devtools tab registration', () => {
+  it('15. registers the devtools tab when dev:true and devtools not false', async () => {
+    const mod = (await import('../src/module.js')).default as unknown as
+      (options: Record<string, unknown>, nuxt: unknown) => Promise<void>
+    const nuxt = makeNuxtMock(true)
+    await mod({}, nuxt)
+
+    const handlers = captured.hooks.get('devtools:customTabs') as Array<(tabs: unknown[]) => void> | undefined
+    expect(handlers).toBeDefined()
+    expect(handlers!.length).toBeGreaterThanOrEqual(1)
+
+    const tabs: unknown[] = []
+    handlers![0]!(tabs)
+    expect(tabs).toHaveLength(1)
+    expect((tabs[0] as { name: string }).name).toBe('noy-db')
+  })
+
+  it('16. does NOT register devtools tab when dev:false', async () => {
+    const mod = (await import('../src/module.js')).default as unknown as
+      (options: Record<string, unknown>, nuxt: unknown) => Promise<void>
+    await mod({}, makeNuxtMock(false))
+
+    expect(captured.hooks.has('devtools:customTabs')).toBe(false)
+  })
+
+  it('17. does NOT register devtools tab when devtools:false', async () => {
+    const mod = (await import('../src/module.js')).default as unknown as
+      (options: Record<string, unknown>, nuxt: unknown) => Promise<void>
+    await mod({ devtools: false }, makeNuxtMock(true))
+
+    expect(captured.hooks.has('devtools:customTabs')).toBe(false)
+  })
+
+  it('18. registers a page at /_noydb-devtools when dev:true', async () => {
+    const mod = (await import('../src/module.js')).default as unknown as
+      (options: Record<string, unknown>, nuxt: unknown) => Promise<void>
+    await mod({}, makeNuxtMock(true))
+
+    const page = captured.pages.find(
+      (p) => (p as { path?: string }).path === '/_noydb-devtools'
+    )
+    expect(page).toBeDefined()
+    expect((page as { name: string }).name).toBe('noydb-devtools')
+    expect((page as { file: string }).file).toContain('DevtoolsPanel.vue')
+  })
+
+  it('19. does NOT register the page when dev:false', async () => {
+    const mod = (await import('../src/module.js')).default as unknown as
+      (options: Record<string, unknown>, nuxt: unknown) => Promise<void>
+    await mod({}, makeNuxtMock(false))
+
+    expect(captured.pages).toHaveLength(0)
   })
 })

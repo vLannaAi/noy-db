@@ -29,7 +29,7 @@
  *     users call setActiveNoydb from their own setup file)
  */
 
-import { defineNuxtModule, addImports, addPlugin, addServerHandler, createResolver } from '@nuxt/kit'
+import { defineNuxtModule, addImports, addPlugin, addServerHandler, createResolver, extendPages } from '@nuxt/kit'
 
 /**
  * Configuration shape for the `noydb:` key in `nuxt.config.ts`.
@@ -204,6 +204,40 @@ export default defineNuxtModule<ModuleOptions>({
         route: `${basePath}/**`,
         handler: resolver.resolve('./runtime/rest'),
       })
+    }
+
+    // ─── 6. DevTools tab (dev mode only) ────────────────────────
+    //
+    // Registers a virtual Nuxt page at /_noydb-devtools and exposes it
+    // as a tab in the Nuxt DevTools overlay. The page runs inside the
+    // user's full Vue app context — no iframe bridge, direct access to
+    // getActiveNoydb() and the inspector facade.
+    //
+    // Guarded on nuxt.options.dev: never ships to production builds.
+    // Users can opt out with `noydb: { devtools: false }`.
+    if (nuxt.options.dev && options.devtools !== false) {
+      const panelFile = resolver.resolve('./runtime/devtools/DevtoolsPanel.vue')
+
+      extendPages((pages) => {
+        pages.push({
+          name: 'noydb-devtools',
+          path: '/_noydb-devtools',
+          file: panelFile,
+        })
+      })
+
+      // `devtools:customTabs` is not in Nuxt's static HookKeys type but IS
+      // dispatched at runtime by @nuxt/devtools. Cast to bypass the type
+      // guard while keeping the hook strictly dev-only.
+      ;(nuxt as unknown as { hook(event: string, fn: (tabs: unknown[]) => void): void })
+        .hook('devtools:customTabs', (tabs: unknown[]) => {
+          tabs.push({
+            name: 'noy-db',
+            title: 'noy-db',
+            icon: 'i-carbon-data-base',
+            view: { type: 'iframe', src: '/_noydb-devtools' },
+          })
+        })
     }
   },
 })
