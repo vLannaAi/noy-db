@@ -21,7 +21,7 @@ const db = await createNoydb({
 
 When a subsystem is not opted into, its real implementation is replaced by a NO-OP stub (or a throwing stub on opt-in surfaces) and the heavy code is fully tree-shaken from the bundle.
 
-This document lists the always-on core and the 19 subsystems. It is the table of contents for the rest of the documentation.
+This document lists the always-on core and the 21 subsystems. It is the table of contents for the rest of the documentation.
 
 ---
 

@@ -1,7 +1,7 @@
 # Proposal: Kernel Shrink + Devtools Inspector
 
-> **Status:** Proposal (high-level, two tracks) — pre-design
-> **Date:** 2026-06-01
+> **Status:** Accepted. **Track A — shipped in `0.2.0-pre.5`** (PR #262; SubsystemBus + periods/guards migration + kernel-surface CI gate; reduced scope — the two subsystem splits + prior-read opt were deferred to #267, epic #264 closed). **Track B — pending** (devtools inspector #265, targeted `0.2.0-pre.6`; not yet started).
+> **Date:** 2026-06-01 (proposal) · updated 2026-06-02 (Track A landed)
 > **Author:** brainstorming session
 > **Scope:** Two independent efforts, each gets its own design → plan → implementation cycle after this proposal is accepted.
 
