@@ -191,6 +191,7 @@ describe('DevtoolsPanel — Monitor tab', () => {
   })
 
   it('shows latency bar when meterSnapshot returns a snapshot', async () => {
+    vi.useFakeTimers()
     const meterSnap = {
       status: 'ok', totalCalls: 10, casConflicts: 0, windowMs: 1000, collectedAt: 'x',
       byMethod: { put: { count: 10, errors: 0, p50: 8, p90: 20, p99: 35, max: 50, avg: 10 } },
@@ -202,12 +203,41 @@ describe('DevtoolsPanel — Monitor tab', () => {
     vi.mocked(fakeVault.openVault).mockResolvedValue({} as never)
     const wrapper = mount(DevtoolsPanel)
     await flushPromises()
+    // Open monitor tab — this starts the setInterval
     await wrapper.find('.noydb-nav__tab:last-of-type').trigger('click')
-    // Trigger meter interval manually (vitest doesn't advance timers here)
-    ;(wrapper.vm as { meter: { value: unknown } }).meter = { value: meterSnap }
+    await flushPromises()
+    // Advance past 1000ms so the interval fires
+    vi.advanceTimersByTime(1001)
     await wrapper.vm.$nextTick()
-    // The meter prop is reactive — check WriteMonitor receives it
-    // (latency bar is absent until meter poll fires; just verify no crash and monitor mounts)
-    expect(wrapper.find('.noydb-monitor').exists()).toBe(true)
+    // Latency bar should now be visible with p50 value from the snapshot
+    expect(wrapper.find('.noydb-monitor__latency').exists()).toBe(true)
+    expect(wrapper.text()).toContain('8ms')   // put p50 = 8
+    vi.useRealTimers()
+  })
+
+  it('marks both rows as conflict when two users write to the same base version', async () => {
+    const f = fakeInspector()
+    vi.mocked(getActiveNoydb).mockReturnValue(fakeVault)
+    vi.mocked(createInspector).mockReturnValue(f.inspector)
+    vi.mocked(fakeVault.openVault).mockResolvedValue({} as never)
+    const wrapper = mount(DevtoolsPanel)
+    await flushPromises()
+    await wrapper.find('.noydb-nav__tab:last-of-type').trigger('click')
+    await flushPromises()
+    // Alice writes at baseVersion 1
+    f.emit({
+      op: 'update', vault: 'myvault', collection: 'invoices', docId: 'inv42',
+      before: {}, after: {}, baseVersion: 1, version: 2,
+      userId: 'alice', timestamp: Date.now(), txId: 'tx-a',
+    } as InspectorWriteEvent)
+    // Bob writes at the same baseVersion 1 — inline conflict detected
+    f.emit({
+      op: 'update', vault: 'myvault', collection: 'invoices', docId: 'inv42',
+      before: {}, after: {}, baseVersion: 1, version: 2,
+      userId: 'bob', timestamp: Date.now(), txId: 'tx-b',
+    } as InspectorWriteEvent)
+    await flushPromises()
+    const conflictRows = wrapper.findAll('.noydb-monitor__row--conflict')
+    expect(conflictRows.length).toBe(2)
   })
 })
