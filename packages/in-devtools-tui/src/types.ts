@@ -13,3 +13,13 @@ export interface AppProps {
   /** Injected in tests so the app renders synchronously without async load races. */
   readonly initial?: { vaults: ReadonlyArray<VaultInfo>; snapshot: InspectorSnapshot }
 }
+
+export interface FeedRow {
+  readonly time: string        // HH:MM:SS
+  readonly user: string
+  readonly op: 'put' | 'del'
+  readonly target: string      // collection/docId
+  readonly versions: string    // "2→3" or "4→·"
+  readonly baseKey: string     // collection/docId@baseVersion (overlap detection)
+  conflict: boolean
+}
