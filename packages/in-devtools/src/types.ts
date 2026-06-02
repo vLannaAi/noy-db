@@ -2,6 +2,7 @@ import type {
   Noydb,
   Vault,
   WriteEvent,
+  WriteConflict,
   AccessibleVault,
   CollectionDescriptor,
   CollectionStats,
@@ -40,6 +41,9 @@ export interface RecordPage {
 /** Live write event surfaced to subscribers (the hub's public WriteEvent, unchanged — already plain). */
 export type InspectorWriteEvent = WriteEvent
 
+/** Write-conflict surfaced to conflict subscribers (the hub's public WriteConflict, unchanged — already plain). */
+export type InspectorWriteConflict = WriteConflict
+
 /** Pending-write state. */
 export interface PendingWrites {
   readonly pending: boolean
@@ -52,6 +56,7 @@ export interface Inspector {
   snapshot(vault: Vault): Promise<InspectorSnapshot>
   records(vault: Vault, collection: string, opts?: { limit?: number; offset?: number }): Promise<RecordPage>
   subscribe(handler: (event: InspectorWriteEvent) => void): () => void
+  subscribeConflicts(handler: (c: InspectorWriteConflict) => void): () => void
   pendingWrites(): PendingWrites
 }
 

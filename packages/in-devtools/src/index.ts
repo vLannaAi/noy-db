@@ -2,7 +2,7 @@ import type { Vault } from '@noy-db/hub'
 import type { Inspector, InspectorNoydb } from './types.js'
 import { listVaults, snapshot } from './snapshot.js'
 import { records } from './records.js'
-import { subscribe, pendingWrites } from './events.js'
+import { subscribe, subscribeConflicts, pendingWrites } from './events.js'
 
 export function createInspector(noydb: InspectorNoydb): Inspector {
   return {
@@ -10,6 +10,7 @@ export function createInspector(noydb: InspectorNoydb): Inspector {
     snapshot: (vault: Vault) => snapshot(vault),
     records: (vault, collection, opts) => records(vault, collection, opts),
     subscribe: (handler) => subscribe(noydb, handler),
+    subscribeConflicts: (handler) => subscribeConflicts(noydb, handler),
     pendingWrites: () => pendingWrites(noydb),
   }
 }
@@ -21,5 +22,6 @@ export type {
   InspectorCollection,
   RecordPage,
   InspectorWriteEvent,
+  InspectorWriteConflict,
   PendingWrites,
 } from './types.js'
