@@ -34,7 +34,7 @@ Both are **read-only** consumers of public hub APIs (inherited B1 constraint) �
 
 The Monitor needs two signals B1 does not yet expose. Both are read-only and public-API-only.
 
-1. **Conflicts.** Add `subscribeConflicts(handler: (c: InspectorWriteConflict) => void): () => void`, wrapping `db.onWriteConflict`. `InspectorWriteConflict` re-exports the hub `WriteConflict` shape (`vault`, `collection`, `docId`, `action`, `baseV`, `v`, `ownV`) unchanged — already plain/serializable.
+1. **Conflicts.** Add `subscribeConflicts(handler: (c: InspectorWriteConflict) => void): () => void`, wrapping `db.onWriteConflict`. `InspectorWriteConflict` re-exports the hub `WriteConflict` shape (`vault`, `collection`, `docId`, `local`, `remote`, `base`, `localVersion`, `remoteVersion`, `baseVersion`) unchanged — already plain/serializable.
 2. **Latency (optional).** Extend the factory to `createInspector(db, opts?: { meter?: MeterHandle })`. When a `MeterHandle` (from `@noy-db/to-meter`) is supplied, add `inspector.meterSnapshot(): MeterSnapshot | null`; without it, `meterSnapshot()` returns `null`. The inspector never wraps the store itself — the app owns metering; the inspector only reads the handle it is given.
 
 `subscribe` (WriteEvent) and `records` already exist from B1 and are unchanged. The `Inspector` interface gains `subscribeConflicts` and `meterSnapshot`; `createInspector`'s second arg is optional, so B1/B2.1 callers are unaffected.
