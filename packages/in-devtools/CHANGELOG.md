@@ -6,3 +6,5 @@ Initial release. A **framework-agnostic, read-only inspector core** for a live n
 
 - **`createInspector(db)`** exposes: `listVaults`, `snapshot` (vault → collections → schema/stats), `records` (paged), `subscribe` (live write feed), and `pendingWrites`.
 - Read-only and already-unlocked-only: it surfaces decrypted data solely within an open session and never writes through a non-public path.
+- `subscribeConflicts(handler)` — surface multi-user/multi-tab write-conflict overlaps.
+- `createInspector(db, { meter })` + `meterSnapshot()` — optional aggregate store-op latency (null when unmetered).

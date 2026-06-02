@@ -1355,7 +1355,7 @@ frameworks:
     related: [in-vue]
 
   - id: in-devtools
-    name: Read-only inspector core
+    name: Read-only inspector core — records browsing, live write monitor, conflict surfacing
     package: '@noy-db/in-devtools'
     framework: Framework-agnostic
     status: preview
@@ -1363,6 +1363,8 @@ frameworks:
     showcases:
       - id: 90-in-devtools
         path: showcases/src/90-in-devtools.showcase.test.ts
+      - id: 91-in-devtools-records-monitor
+        path: showcases/src/91-in-devtools-records-monitor.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
