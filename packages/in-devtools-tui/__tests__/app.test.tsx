@@ -28,8 +28,11 @@ function memoryStore(): NoydbStore {
 async function setup() {
   const db = await createNoydb({ store: memoryStore(), user: 'owner', secret: 'pw' })
   const vault = await db.openVault('books')
-  await vault.collection<{ id: string; n: number }>('notes').put('a', { id: 'a', n: 1 })
-  await vault.collection<{ id: string; n: number }>('tags').put('t', { id: 't', n: 9 })
+  const notes = vault.collection<{ id: string; n: number }>('notes')
+  await notes.put('a', { id: 'a', n: 1 })
+  await notes.put('b', { id: 'b', n: 2 })
+  const tags = vault.collection<{ id: string; n: number }>('tags')
+  await tags.put('t', { id: 't', n: 9 })
   const inspector = createInspector(db)
   const initial = { vaults: await inspector.listVaults(), snapshot: await inspector.snapshot(vault) }
   return { inspector, vault, initial }
@@ -45,14 +48,14 @@ describe('TUI App', () => {
     expect(frame).toContain('tags')
   })
 
-  it('down-arrow moves the collection selection; Enter shows its detail', async () => {
+  it('down-arrow moves the selection so Enter drills into the SECOND collection', async () => {
     const { inspector, vault, initial } = await setup()
     const { lastFrame, stdin } = render(<App inspector={inspector} vault={vault} vaultName="books" initial={initial} />)
-    // Wait for ink's useEffect listeners to be attached before writing stdin
-    await new Promise((r) => setTimeout(r, 100))
-    stdin.write('\x1B[B') // down arrow
-    stdin.write('\r')       // enter → drill into detail
+    await new Promise((r) => setTimeout(r, 100)) // let ink useInput effect attach
+    stdin.write('\x1B[B') // down arrow → select index 1 (tags)
+    stdin.write('\r')       // enter → drill
+    await new Promise((r) => setTimeout(r, 50))
     const frame = lastFrame() ?? ''
-    expect(frame).toMatch(/records?/i)
+    expect(frame).toContain('records: 1') // tags has 1 record (notes has 2) → proves movement to index 1
   })
 })

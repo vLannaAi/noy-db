@@ -18,7 +18,6 @@
   "devDependencies": {
     "@noy-db/hub": "workspace:*",
     "@noy-db/in-devtools": "workspace:*",
-    "@noy-db/to-memory": "workspace:*",
     "ink-testing-library": "^4.0.0",
     "@types/node": "^22.0.0",
     "@types/react": "^18.3.12"
