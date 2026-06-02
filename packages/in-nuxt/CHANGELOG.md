@@ -1,5 +1,9 @@
 # Changelog — in-nuxt
 
+## Unreleased (0.2.0-pre.6)
+
+- **Nuxt DevTools tab** — dev-mode inspector panel at `/_noydb-devtools`. Auto-discovered via `getActiveNoydb()`; shows vault structure (schema + stats), paged records (n/p), and live write monitor with conflict highlighting + optional store-latency readout (`to-meter`). Opt out with `noydb: { devtools: false }`.
+
 ## 0.2.0-pre.5
 
 Docs-only: pruned internal issue-tracker references from source comments (Track A comment-provenance prune). No code or public API change.

@@ -1374,6 +1374,22 @@ frameworks:
       - 'Output is plain/serializable (no live hub handles leak out)'
     related: [in-vue, in-pinia]
 
+  - id: in-devtools-nuxt
+    name: Nuxt DevTools tab — vault structure, records, write monitor
+    package: '@noy-db/in-nuxt'
+    framework: Nuxt
+    status: preview
+    subsystem_doc: docs/packages/in-integrations.md
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Dev-only: tab and page are never registered when nuxt.options.dev is false'
+      - 'Read-only: panel consumes in-devtools Inspector — no mutations'
+      - 'Auto-discovery: getActiveNoydb() — zero extra wiring for Pinia users'
+    related: [in-devtools, in-pinia]
+
   - id: in-yjs
     name: Yjs Y.Doc interop
     package: '@noy-db/in-yjs'
