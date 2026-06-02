@@ -1,5 +1,9 @@
 # Changelog — by-peer
 
+## 0.2.0-pre.4
+
+Version-only lockstep bump; no source changes since pre.3.
+
 ## 0.2.0-pre.3
 
 Version-only lockstep bump; no source changes since pre.2.

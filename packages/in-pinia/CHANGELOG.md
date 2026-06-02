@@ -1,5 +1,11 @@
 # Changelog — in-pinia
 
+## 0.2.0-pre.4
+
+### Schema-update forwarding ([#258](https://github.com/vLannaAi/noy-db/pull/258))
+
+- `defineNoydbStore` now forwards `persistJsonSchema` and `schemaUpdate` to the underlying `Collection` (alongside `schema`/`attestation`), so a store-defined collection can opt into the schema-cutover protocol declaratively — no pre-registration `vault.collection(...)` call. Typed off the collection's own options. Closes [#255](https://github.com/vLannaAi/noy-db/issues/255).
+
 ## 0.2.0-pre.3
 
 ### Attestation field-schema forwarding ([#250](https://github.com/vLannaAi/noy-db/pull/250))
