@@ -1,5 +1,9 @@
 # Changelog — in-pinia
 
+## 0.2.0-pre.5
+
+Version-only lockstep bump; no source changes since pre.4.
+
 ## 0.2.0-pre.4
 
 ### Schema-update forwarding ([#258](https://github.com/vLannaAi/noy-db/pull/258))

@@ -1,5 +1,14 @@
 # Changelog — hub
 
+## 0.2.0-pre.5
+
+### Track A — kernel shrink ([#262](https://github.com/vLannaAi/noy-db/pull/262))
+
+- Introduced **`SubsystemBus`**, an internal observe/gate bus that decouples the kernel from its subsystems. Gate points (`beforePut`/`beforeDelete`, throw-to-abort) and observe points — including a new `afterDelete` that completes observe-bus symmetry — now flow through the bus instead of bespoke per-subsystem wiring.
+- Migrated **periods** and **guards** enforcement onto the gate bus.
+- Added a **kernel-surface CI gate** (`check-architecture.mjs`) that locks in the reduced kernel surface so it can't silently re-grow.
+- Internal architecture shrink only — no public API change.
+
 ## 0.2.0-pre.4
 
 Version-only lockstep bump; no source changes since pre.3.
