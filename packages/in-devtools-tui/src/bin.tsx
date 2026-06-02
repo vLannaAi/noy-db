@@ -3,6 +3,7 @@ import { render } from 'ink'
 import { createInspector } from '@noy-db/in-devtools'
 import { createNoydb } from '@noy-db/hub'
 import type { NoydbOptions } from '@noy-db/hub'
+import { toMeter } from '@noy-db/to-meter'
 import { App } from './App.js'
 import { loadOptionsFromFile, resolvePassphrase } from './load-options.js'
 import { promptMasked } from './prompt-passphrase.js'
@@ -33,6 +34,13 @@ async function main(): Promise<void> {
     fail(`failed to load config "${configPath}": ${err instanceof Error ? err.message : String(err)}`)
   }
 
+  let meter
+  if (argv.includes('--meter') && baseOptions.store) {
+    const metered = toMeter(baseOptions.store)
+    baseOptions = { ...baseOptions, store: metered.store }
+    meter = metered.meter
+  }
+
   // Passphrase lives in NoydbOptions.secret — openVault(name) picks it up internally.
   const options: NoydbOptions = { ...baseOptions, secret: passphrase }
   const db = await createNoydb(options)
@@ -44,7 +52,7 @@ async function main(): Promise<void> {
     fail(`failed to open vault "${vaultName}": ${err instanceof Error ? err.message : String(err)}`)
   }
 
-  const inspector = createInspector(db)
+  const inspector = createInspector(db, meter ? { meter } : undefined)
   const initial = { vaults: await inspector.listVaults(), snapshot: await inspector.snapshot(vault) }
   const { waitUntilExit } = render(
     <App inspector={inspector} vault={vault} vaultName={vaultName} initial={initial} />,

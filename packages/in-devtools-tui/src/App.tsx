@@ -3,6 +3,7 @@ import { Box, Text, useApp, useInput } from 'ink'
 import type { AppProps, DetailTab, View, FeedRow } from './types.js'
 import type { RecordPage } from '@noy-db/in-devtools'
 import type { InspectorWriteEvent } from '@noy-db/in-devtools'
+import type { MeterSnapshot } from '@noy-db/to-meter'
 import { VaultList } from './panes/VaultList.js'
 import { CollectionList } from './panes/CollectionList.js'
 import { DetailPane } from './panes/DetailPane.js'
@@ -36,6 +37,14 @@ export function App({ inspector, vault, vaultName, initial }: AppProps) {
   const [view, setView] = useState<View>('structure')
   const [feed, setFeed] = useState<ReadonlyArray<FeedRow>>([])
   const [started, setStarted] = useState(false)
+  const [meter, setMeter] = useState<MeterSnapshot | null>(null)
+  useEffect(() => {
+    if (view !== 'monitor') return
+    const tick = () => setMeter(inspector.meterSnapshot())
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [view, inspector])
 
   useEffect(() => {
     if (!drilled || tab !== 'records' || !current) return
@@ -87,7 +96,7 @@ export function App({ inspector, vault, vaultName, initial }: AppProps) {
     }
   })
 
-  if (view === 'monitor') return <WriteMonitor vaultName={vaultName} rows={feed} />
+  if (view === 'monitor') return <WriteMonitor vaultName={vaultName} rows={feed} meter={meter} />
 
   return (
     <Box flexDirection="column">

@@ -4,6 +4,7 @@ import React from 'react'
 import { App } from '../src/App.js'
 import type { Inspector, InspectorWriteEvent, InspectorWriteConflict } from '@noy-db/in-devtools'
 import type { Vault } from '@noy-db/hub'
+import type { MeterSnapshot } from '@noy-db/to-meter'
 
 function fakeInspector() {
   let onWrite: ((e: InspectorWriteEvent) => void) | null = null
@@ -30,6 +31,24 @@ const W = (over: Partial<InspectorWriteEvent>): InspectorWriteEvent => ({
 })
 
 describe('write monitor (B2.3)', () => {
+  const meterSnap = {
+    status: 'degraded', totalCalls: 50, casConflicts: 0, windowMs: 1000, collectedAt: 'x',
+    byMethod: { put: { count: 43, errors: 0, p50: 11, p90: 60, p99: 92, max: 120, avg: 20 }, delete: { count: 5, errors: 0, p50: 4, p90: 7, p99: 9, max: 12, avg: 5 } },
+  } as unknown as MeterSnapshot
+
+  it('shows the latency readout when the store is metered, hidden when not', async () => {
+    const f = fakeInspector()
+    ;(f.inspector as { meterSnapshot: () => MeterSnapshot | null }).meterSnapshot = () => meterSnap
+    const initial = { vaults: await f.inspector.listVaults(), snapshot: await f.inspector.snapshot({} as never) }
+    const { lastFrame, stdin } = render(<App inspector={f.inspector} vault={{} as never} vaultName="books" initial={initial} />)
+    await new Promise((r) => setTimeout(r, 100))
+    stdin.write('w')
+    await new Promise((r) => setTimeout(r, 60))
+    const frame = lastFrame() ?? ''
+    expect(frame).toContain('put p50 11ms p99 92ms')
+    expect(frame).toContain('degraded')
+  })
+
   it("'w' opens the monitor and streams writes newest-first; conflicts highlight", async () => {
     const f = fakeInspector()
     const initial = { vaults: await f.inspector.listVaults(), snapshot: await f.inspector.snapshot({} as Vault) }
