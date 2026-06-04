@@ -17,15 +17,13 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
 import { withI18n } from '../src/i18n/index.js'
 import type { Noydb } from '../src/noydb.js'
-import { withI18n } from '../src/i18n/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError } from '../src/errors.js'
 import {
   MissingTranslationError,
   LocaleNotSpecifiedError,
 } from '../src/errors.js'
-import { i18nText } from '../src/i18n/core.js'
-import { resolveI18nText, validateI18nTextValue } from '../src/i18n/core.js'
+import { i18nText, applyI18nLocale, resolveI18nText, validateI18nTextValue } from '../src/i18n/core.js'
 
 // ─── Inline memory adapter ─────────────────────────────────────────────
 
@@ -409,5 +407,123 @@ describe('i18nText — Collection integration', () => {
     await expect(
       items.get('li-1', { locale: 'th' }),
     ).rejects.toThrow(LocaleNotSpecifiedError)
+  })
+})
+
+// ─── Nested i18n field paths (#273) ───────────────────────────────────
+
+describe('applyI18nLocale — nested paths (unit)', () => {
+  const desc = i18nText({ languages: ['en', 'th'], required: 'any' })
+
+  it('resolves a dot-notation path (address.lineOne)', () => {
+    const record = { address: { lineOne: { th: 'ถนนไทย', en: 'Thai Rd' } } }
+    const result = applyI18nLocale(
+      record as Record<string, unknown>,
+      { 'address.lineOne': desc },
+      'th',
+    )
+    expect((result.address as Record<string, unknown>).lineOne).toBe('ถนนไทย')
+  })
+
+  it('resolves a deeply nested dot-notation path (a.b.c)', () => {
+    const record = { a: { b: { c: { en: 'deep', th: 'ลึก' } } } }
+    const result = applyI18nLocale(
+      record as Record<string, unknown>,
+      { 'a.b.c': desc },
+      'en',
+    )
+    expect(((result.a as Record<string, unknown>).b as Record<string, unknown>).c).toBe('deep')
+  })
+
+  it('resolves an array-notation path (contacts[].title)', () => {
+    const record = {
+      contacts: [
+        { name: 'Alice', title: { th: 'นาง', en: 'Mrs.' } },
+        { name: 'Bob', title: { th: 'นาย', en: 'Mr.' } },
+      ],
+    }
+    const result = applyI18nLocale(
+      record as Record<string, unknown>,
+      { 'contacts[].title': desc },
+      'en',
+    )
+    const contacts = result.contacts as Array<Record<string, unknown>>
+    expect(contacts[0].title).toBe('Mrs.')
+    expect(contacts[1].title).toBe('Mr.')
+  })
+
+  it('leaves unrelated fields unchanged for dot-path record', () => {
+    const record = { address: { lineOne: { en: 'Main St', th: 'ถนนหลัก' }, lineTwo: 'Apt 1' } }
+    const result = applyI18nLocale(
+      record as Record<string, unknown>,
+      { 'address.lineOne': desc },
+      'en',
+    )
+    expect((result.address as Record<string, unknown>).lineTwo).toBe('Apt 1')
+  })
+})
+
+describe('i18nText — nested field paths (Collection integration)', () => {
+  let db: Noydb
+
+  beforeEach(async () => {
+    db = await createNoydb({
+      store: memory(),
+      user: 'alice',
+      i18nStrategy: withI18n(),
+      secret: 'test-passphrase-nested-i18n',
+    })
+  })
+
+  it('put and get resolves a dot-notation i18n field', async () => {
+    const vault = await db.openVault('v-nested-1')
+    type Doc = { id: string; address: { lineOne: Record<string, string> | string } }
+    const docs = vault.collection<Doc>('docs', {
+      i18nFields: {
+        'address.lineOne': i18nText({ languages: ['th', 'en'], required: ['th'] }),
+      },
+    })
+    await docs.put('d1', { id: 'd1', address: { lineOne: { th: 'ถนนไทย', en: 'Thai Rd' } } })
+    const row = await docs.get('d1', { locale: 'th' }) as { id: string; address: { lineOne: string } }
+    expect(row?.address.lineOne).toBe('ถนนไทย')
+  })
+
+  it('put validates a required dot-notation i18n field (enforceI18nOnPut)', async () => {
+    const vault = await db.openVault('v-nested-2')
+    type Doc = { id: string; address: { lineOne: Record<string, string> } }
+    const docs = vault.collection<Doc>('docs', {
+      i18nFields: {
+        'address.lineOne': i18nText({ languages: ['th', 'en'], required: ['th'] }),
+      },
+    })
+    await expect(
+      docs.put('d1', { id: 'd1', address: { lineOne: { en: 'Thai Rd' } } }),
+    ).rejects.toThrow(MissingTranslationError)
+  })
+
+  it('put and get resolves an array-path i18n field (contacts[].title)', async () => {
+    const vault = await db.openVault('v-nested-3')
+    type Doc = {
+      id: string
+      contacts: Array<{ name: string; title: Record<string, string> | string }>
+    }
+    const docs = vault.collection<Doc>('docs', {
+      i18nFields: {
+        'contacts[].title': i18nText({ languages: ['th', 'en'], required: 'any' }),
+      },
+    })
+    await docs.put('d1', {
+      id: 'd1',
+      contacts: [
+        { name: 'Alice', title: { th: 'นาง', en: 'Mrs.' } },
+        { name: 'Bob', title: { th: 'นาย', en: 'Mr.' } },
+      ],
+    })
+    const row = await docs.get('d1', { locale: 'en' }) as {
+      id: string
+      contacts: Array<{ name: string; title: string }>
+    }
+    expect(row?.contacts[0].title).toBe('Mrs.')
+    expect(row?.contacts[1].title).toBe('Mr.')
   })
 })
