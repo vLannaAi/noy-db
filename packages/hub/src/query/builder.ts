@@ -957,6 +957,16 @@ function serializeClause(clause: Clause): unknown {
       clauses: clause.clauses.map(serializeClause),
     }
   }
+  if (clause.type === 'crossJoin') {
+    return {
+      type: 'crossJoin',
+      target: clause.target,
+      as: clause.as,
+      on: clause.on ? '[function]' : undefined,
+      onPredicateName: clause.onPredicateName,
+      maxRows: clause.maxRows,
+    }
+  }
   return clause
 }
 
