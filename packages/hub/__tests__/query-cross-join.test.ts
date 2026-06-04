@@ -4,6 +4,7 @@ import { Query, executePlan, type QueryPlan, count } from '../src/query/index.js
 import { CrossJoinTooLargeError, CrossJoinSourceUnknownError } from '../src/errors.js'
 import type { QuerySource, JoinContext, JoinableSource } from '../src/query/index.js'
 import { withAggregate } from '../src/aggregate/index.js'
+import { analyzeDependencies, summarizeQueryPlan } from '../src/materialized-views/index.js'
 
 const AGG = withAggregate()
 
@@ -411,5 +412,72 @@ describe('Query.crossJoin() > live() subscriptions', () => {
     rightCallback?.()
     expect(notifications).toBeGreaterThan(0)
     live.stop()
+  })
+})
+
+describe('analyzeDependencies > cross-join targets as dependency sources', () => {
+  it('includes cross-join target collection in dependency set', () => {
+    const jc = mockJoinContext('periods', { workers: WORKERS })
+    const q = new Query(
+      staticSource(PERIODS),
+      { clauses: [], orderBy: [], limit: undefined, offset: 0, joins: [] },
+      jc,
+    ).crossJoin('workers', { as: 'worker' })
+    const deps = analyzeDependencies(q)
+    expect(deps.has('periods')).toBe(true)
+    expect(deps.has('workers')).toBe(true)
+  })
+
+  it('deduplicates multiple cross-joins to the same target', () => {
+    const jc = mockJoinContext('periods', { workers: WORKERS })
+    const q = new Query(
+      staticSource(PERIODS),
+      { clauses: [], orderBy: [], limit: undefined, offset: 0, joins: [] },
+      jc,
+    )
+      .crossJoin('workers', { as: 'w1' })
+      .crossJoin('workers', { as: 'w2' })
+    const deps = analyzeDependencies(q)
+    expect(deps.size).toBe(2) // periods + workers (deduped)
+  })
+})
+
+describe('summarizeQueryPlan > cross-join in queryHash', () => {
+  it('folds cross-join target and alias into the summary', () => {
+    const jc = mockJoinContext('periods', { workers: WORKERS })
+    const q1 = new Query(
+      staticSource(PERIODS),
+      { clauses: [], orderBy: [], limit: undefined, offset: 0, joins: [] },
+      jc,
+    ).crossJoin('workers', { as: 'worker' })
+    const q2 = new Query(
+      staticSource(PERIODS),
+      { clauses: [], orderBy: [], limit: undefined, offset: 0, joins: [] },
+      jc,
+    ).crossJoin('other', { as: 'worker' }) // different target
+    expect(summarizeQueryPlan(q1)).not.toBe(summarizeQueryPlan(q2))
+  })
+
+  it('folds onPredicateName into the summary when present', () => {
+    const predicates = new Map([['isActive', { hash: 'isActive-v1', fn: (_rec: unknown) => true }]])
+    const jc = mockJoinContext('periods', { workers: WORKERS })
+
+    // Need aggregateStrategy for _withPredicates to work in tests
+    // Actually _withPredicates only attaches a predicates map — it doesn't need aggregateStrategy
+    // Use the same pattern as query-predicate tests: get a Query with predicates via _withPredicates
+    const base = new Query(
+      staticSource(PERIODS),
+      { clauses: [], orderBy: [], limit: undefined, offset: 0, joins: [] },
+      jc,
+    )._withPredicates(predicates)
+
+    const qNamed = base.crossJoin('workers', { as: 'w', on: { predicate: 'isActive' } })
+    const qNoOn = new Query(
+      staticSource(PERIODS),
+      { clauses: [], orderBy: [], limit: undefined, offset: 0, joins: [] },
+      jc,
+    ).crossJoin('workers', { as: 'w' })
+
+    expect(summarizeQueryPlan(qNamed)).not.toBe(summarizeQueryPlan(qNoOn))
   })
 })

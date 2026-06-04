@@ -10,8 +10,10 @@ import type { MaterializedViewStrategy } from './types.js'
  *   - root collection (the one the query was built from)
  *   - FK join targets (`.join(field, { as })`)
  *
+ * Also handles:
+ *   - cross-join targets (`.crossJoin(target, { as })`) — v3
+ *
  * Deferred:
- *   - `.crossJoin()` — v3 cross-join spec (separate primitive)
  *   - `.wherePredicate(name)` — v2 predicate primitive
  *   - Overlay-name expansion to {base, overlay}
  *
@@ -33,6 +35,14 @@ export function analyzeDependencies(query: Query<any>): Set<string> {
   // FK join targets contribute additional sources.
   for (const leg of plan.joins) {
     deps.add(leg.target)
+  }
+
+  // Cross-join targets are also dependency sources — writes to either side
+  // must trigger MV refresh. Symmetric with FK-join target handling above.
+  for (const clause of plan.clauses) {
+    if (clause.type === 'crossJoin') {
+      deps.add(clause.target)
+    }
   }
 
   // Sub-plans inside OR clauses can carry nested joins. Walk them.
@@ -77,7 +87,19 @@ export function summarizeQueryPlan(query: Query<any>): string {
   const ctx = query._joinContext()
   return JSON.stringify({
     root: ctx?.leftCollection ?? null,
-    clauses: plan.clauses,
+    clauses: plan.clauses.map(c => {
+      if (c.type === 'crossJoin') {
+        return {
+          type: 'crossJoin',
+          target: c.target,
+          as: c.as,
+          // Inline on: callback: use sentinel — drift detection disabled for this MV
+          onPredicateName: c.onPredicateName ?? (c.on ? '[inline]' : null),
+          maxRows: c.maxRows ?? null,
+        }
+      }
+      return c
+    }),
     orderBy: plan.orderBy,
     limit: plan.limit ?? null,
     offset: plan.offset,
