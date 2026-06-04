@@ -3,6 +3,7 @@ import { NOYDB_FORMAT_VERSION } from './types.js'
 import type { CrdtMode, CrdtState, LwwMapState, RgaState } from './crdt/crdt.js'
 import { NO_CRDT, type CrdtStrategy } from './crdt/strategy.js'
 import type { I18nTextDescriptor } from './i18n/core.js'
+import { getAtPath, setAtPathInPlace } from './i18n/core.js'
 import type { DictKeyDescriptor } from './i18n/dictionary.js'
 import { NO_I18N, type I18nStrategy } from './i18n/strategy.js'
 import { encrypt, decrypt, encryptDeterministic } from './crypto.js'
@@ -1157,7 +1158,11 @@ export class Collection<T> {
       const obj = record as Record<string, unknown>
       for (const [field, descriptor] of Object.entries(this.i18nFields)) {
         if (!descriptor.options.autoTranslate) continue
-        const value = obj[field]
+        // getAtPath returns [] for array-wildcard paths — auto-translate on
+        // 'contacts[].field' style paths is not supported; skip silently.
+        const leafValues = getAtPath(obj, field)
+        if (leafValues.length !== 1) continue
+        const value = leafValues[0]
         if (!value || typeof value !== 'object' || Array.isArray(value)) continue
         const map = value as Record<string, string>
         // Determine which locales need translation. For 'all', translate all
@@ -1191,7 +1196,7 @@ export class Collection<T> {
             this.name,
           )
         }
-        ;(record as Record<string, unknown>)[field] = translated
+        setAtPathInPlace(obj, field, translated)
       }
     }
 

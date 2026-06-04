@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { setActivePinia, createPinia, storeToRefs } from 'pinia'
 import { effectScope } from 'vue'
-import { createNoydb, additiveOnly, type Noydb, type NoydbStore, type EncryptedEnvelope, type VaultSnapshot, type StandardSchemaV1, ConflictError, Query } from '@noy-db/hub'
+import { createNoydb, additiveOnly, i18nText, type Noydb, type NoydbStore, type EncryptedEnvelope, type VaultSnapshot, type StandardSchemaV1, ConflictError, Query } from '@noy-db/hub'
+import { withI18n } from '@noy-db/hub/i18n'
 import { defineNoydbStore, setActiveNoydb } from '../src/index.js'
 
 /** Inline memory adapter — same pattern as @noy-db/core integration tests. */
@@ -475,5 +476,62 @@ describe('schema-update option forwarding (#255)', () => {
     expect(opts?.schemaUpdate).toHaveLength(1)
 
     spy.mockRestore()
+  })
+})
+
+// ─── i18nFields / dictKeyFields forwarding (#274) ──────────────────────
+
+describe('defineNoydbStore — i18nFields / dictKeyFields forwarding', () => {
+  let db: Noydb
+
+  beforeEach(async () => {
+    setActivePinia(createPinia())
+    db = await createNoydb({
+      store: memory(),
+      user: 'owner',
+      i18nStrategy: withI18n(),
+      secret: 'pinia-i18n-test-passphrase',
+    })
+    setActiveNoydb(db)
+  })
+
+  it('forwards i18nFields to vault.collection', async () => {
+    const vault = await db.openVault('shop')
+    const spy = vi.spyOn(Object.getPrototypeOf(vault) as { collection: unknown }, 'collection')
+
+    const nameDesc = i18nText({ languages: ['en', 'th'], required: 'any' })
+    const useProducts = defineNoydbStore('products-i18n-fwd', {
+      vault: 'shop',
+      collection: 'products',
+      i18nFields: { name: nameDesc },
+    })
+    const store = useProducts()
+    await store.$ready.catch(() => {})
+
+    const call = spy.mock.calls.find((c) => c[0] === 'products')
+    expect(call, 'vault.collection("products", …) should have been called').toBeTruthy()
+    const opts = call![1] as { i18nFields?: Record<string, unknown> }
+    expect(opts?.i18nFields).toBeDefined()
+    expect(opts?.i18nFields?.name).toBe(nameDesc)
+
+    spy.mockRestore()
+  })
+
+  it('resolves i18n field on read when forwarded', async () => {
+    type Product = { id: string; name: Record<string, string> | string }
+    const nameDesc = i18nText({ languages: ['en', 'th'], required: 'any' })
+    const useProducts = defineNoydbStore<Product>('products-i18n-read', {
+      vault: 'shop2',
+      i18nFields: { name: nameDesc },
+    })
+    const store = useProducts()
+    await store.$ready
+
+    await store.add('p1', { id: 'p1', name: { en: 'Widget', th: 'วิดเจ็ต' } })
+
+    const vault = await db.openVault('shop2')
+    const col = vault.collection<Product>('products-i18n-read')
+    const row = await col.get('p1', { locale: 'th' }) as { id: string; name: string }
+    expect(row.name).toBe('วิดเจ็ต')
   })
 })

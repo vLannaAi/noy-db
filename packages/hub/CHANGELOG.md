@@ -1,5 +1,13 @@
 # Changelog — hub
 
+## 0.2.0-pre.6
+
+### Fix: nested i18nField paths not resolved on read ([#273](https://github.com/vLannaAi/noy-db/issues/273))
+
+- `applyI18nLocale` now traverses **dot-notation paths** (`address.lineOne`) and **array-wildcard paths** (`contacts[].title`) when resolving i18nText fields on read. Previously only top-level keys resolved; nested paths returned the raw `{ [locale]: string }` map.
+- `enforceI18nOnPut` (required-translation validation) updated to the same path-aware traversal so nested required fields are validated on `put()`, not silently skipped.
+- Auto-translate (`autoTranslate: true`) updated to traverse dot paths; array-wildcard paths are silently skipped (unsupported for auto-translate).
+
 ## 0.2.0-pre.5
 
 ### Track A — kernel shrink ([#262](https://github.com/vLannaAi/noy-db/pull/262))

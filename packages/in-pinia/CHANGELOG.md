@@ -1,5 +1,11 @@
 # Changelog — in-pinia
 
+## 0.2.0-pre.6
+
+### Fix: i18nFields / dictKeyFields not forwarded to collection ([#274](https://github.com/vLannaAi/noy-db/issues/274))
+
+- `NoydbStoreOptions` now accepts `i18nFields` and `dictKeyFields`, forwarded to the underlying `Collection` exactly like the existing `schemaUpdate`/`attestation` pass-through. Apps with i18n or dictionary collections no longer need a separate `vault.collection(name, { i18nFields })` pre-registration call before the store initialises.
+
 ## 0.2.0-pre.5
 
 Version-only lockstep bump; no source changes since pre.4.

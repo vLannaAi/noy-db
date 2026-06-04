@@ -253,18 +253,117 @@ export function resolveI18nText(
   )
 }
 
+// ─── Path helpers (nested i18nFields like 'address.lineOne') ──────────
+
 /**
- * Apply locale resolution to a single record, in-place over a copy.
+ * Return all leaf values at `path`, expanding `[].` array wildcards.
+ *
+ * - `'name'`              → `[obj.name]`
+ * - `'address.lineOne'`   → `[obj.address.lineOne]`
+ * - `'contacts[].title'`  → `[obj.contacts[0].title, obj.contacts[1].title, …]`
+ *
+ * Returns an empty array when the path does not resolve (missing key,
+ * wrong type, etc.). Used by `enforceI18nOnPut` to validate nested fields.
+ */
+export function getAtPath(obj: Record<string, unknown>, path: string): unknown[] {
+  const arrayIdx = path.indexOf('[].')
+  if (arrayIdx !== -1) {
+    const arrayKey = path.slice(0, arrayIdx)
+    const restPath = path.slice(arrayIdx + 3)
+    const arr = obj[arrayKey]
+    if (!Array.isArray(arr)) return []
+    return arr.flatMap(item => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return []
+      return getAtPath(item as Record<string, unknown>, restPath)
+    })
+  }
+  const dotIdx = path.indexOf('.')
+  if (dotIdx !== -1) {
+    const head = path.slice(0, dotIdx)
+    const rest = path.slice(dotIdx + 1)
+    const nested = obj[head]
+    if (!nested || typeof nested !== 'object' || Array.isArray(nested)) return []
+    return getAtPath(nested as Record<string, unknown>, rest)
+  }
+  const val = obj[path]
+  return val !== undefined ? [val] : []
+}
+
+/**
+ * Mutate `obj` in-place, setting `value` at the nested `path`.
+ * Supports dot notation (`'address.lineOne'`) but not array wildcards —
+ * auto-translate on `contacts[].title` style paths is not supported.
+ */
+export function setAtPathInPlace(
+  obj: Record<string, unknown>,
+  path: string,
+  value: unknown,
+): void {
+  const dotIdx = path.indexOf('.')
+  if (dotIdx !== -1) {
+    const head = path.slice(0, dotIdx)
+    const rest = path.slice(dotIdx + 1)
+    const nested = obj[head]
+    if (!nested || typeof nested !== 'object' || Array.isArray(nested)) return
+    setAtPathInPlace(nested as Record<string, unknown>, rest, value)
+    return
+  }
+  obj[path] = value
+}
+
+/** Recursively resolve i18nText at a single path within a record copy. */
+function applyAtPath(
+  obj: Record<string, unknown>,
+  path: string,
+  locale: string,
+  fallback: string | readonly string[] | undefined,
+): Record<string, unknown> {
+  const arrayIdx = path.indexOf('[].')
+  if (arrayIdx !== -1) {
+    const arrayKey = path.slice(0, arrayIdx)
+    const restPath = path.slice(arrayIdx + 3)
+    const arr = obj[arrayKey]
+    if (!Array.isArray(arr)) return obj
+    return {
+      ...obj,
+      [arrayKey]: arr.map(item => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) return item
+        return applyAtPath(item as Record<string, unknown>, restPath, locale, fallback)
+      }),
+    }
+  }
+  const dotIdx = path.indexOf('.')
+  if (dotIdx !== -1) {
+    const head = path.slice(0, dotIdx)
+    const rest = path.slice(dotIdx + 1)
+    const nested = obj[head]
+    if (!nested || typeof nested !== 'object' || Array.isArray(nested)) return obj
+    return {
+      ...obj,
+      [head]: applyAtPath(nested as Record<string, unknown>, rest, locale, fallback),
+    }
+  }
+  const raw = obj[path]
+  if (raw === undefined || raw === null) return obj
+  if (typeof raw !== 'object' || Array.isArray(raw)) return obj
+  return {
+    ...obj,
+    [path]: resolveI18nText(raw as Record<string, string>, locale, fallback, path),
+  }
+}
+
+/**
+ * Apply locale resolution to a single record, returning a new copy.
  *
  * For each field registered as an `i18nText` descriptor:
  * - If `locale === 'raw'`, the field value is left as the stored map.
  * - Otherwise, the field value is replaced with the resolved string.
  *
- * Records that are not plain objects (null, array, primitives) are
- * returned unchanged.
+ * Field paths support dot notation (`'address.lineOne'`) and array
+ * wildcards (`'contacts[].title'`). Top-level fields work as before.
  *
  * @param record      The decrypted record.
- * @param i18nFields  Map of field name → `I18nTextDescriptor`.
+ * @param i18nFields  Map of field path → `I18nTextDescriptor`.
  * @param locale      The requested locale (or `'raw'`).
  * @param fallback    Fallback chain (optional).
  */
@@ -277,19 +376,10 @@ export function applyI18nLocale(
   const fieldNames = Object.keys(i18nFields)
   if (fieldNames.length === 0) return record
 
-  const result = { ...record }
+  let result = record
 
   for (const field of fieldNames) {
-    const raw = result[field]
-    if (raw === undefined || raw === null) continue
-    if (typeof raw !== 'object' || Array.isArray(raw)) continue
-
-    result[field] = resolveI18nText(
-      raw as Record<string, string>,
-      locale,
-      fallback,
-      field,
-    )
+    result = applyAtPath(result, field, locale, fallback)
   }
 
   return result
