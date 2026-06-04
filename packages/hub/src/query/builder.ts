@@ -5,7 +5,7 @@
  * mutated. This makes plans safe to share, cache, and serialize.
  */
 
-import type { Clause, FieldClause, FilterClause, GroupClause, Operator, WherePredicateClause } from './predicate.js'
+import type { Clause, CrossJoinClause, FieldClause, FilterClause, GroupClause, Operator, WherePredicateClause } from './predicate.js'
 import { evaluateClause } from './predicate.js'
 import type { CollectionIndexes } from '../indexing/eager-indexes.js'
 import type { JoinContext, JoinLeg, JoinStrategy } from './join.js'
@@ -52,6 +52,9 @@ const EMPTY_PLAN: QueryPlan = {
   offset: 0,
   joins: [],
 }
+
+/** Default row ceiling for cross-join expansion. Matches JoinTooLargeError's ceiling. */
+export const DEFAULT_CROSS_JOIN_MAX_ROWS = 50_000
 
 /**
  * Source of records that a query executes against.
@@ -418,6 +421,102 @@ export class Query<T> {
     return new Query<T & Record<As, R | null>>(
       this.source as unknown as QuerySource<T & Record<As, R | null>>,
       { ...this.plan, joins: [...this.plan.joins, leg] },
+      this.joinContext,
+      this.aggregateStrategy,
+      this.predicates,
+    )
+  }
+
+  /**
+   * Cartesian-product cross-join against `target` collection. Each result row
+   * carries the original `T` fields plus `result[as]` populated from every
+   * right-side row (or the filtered subset when `on:` is supplied).
+   *
+   * **Order matters:** `.where().crossJoin()` filters BEFORE expanding (cheaper);
+   * `.crossJoin().where('alias.field', ...)` filters AFTER (required when the
+   * where clause references the aliased fields).
+   *
+   * **Cost ceiling:** `CrossJoinTooLargeError` fires before allocation when
+   * `leftRows × rightRows` (or the cumulative lateral count) exceeds the limit.
+   * Default: 50,000 rows. Override per-clause with `{ maxRows: N }`.
+   *
+   * **`on:` shapes:**
+   *   - `on: (left) => TTarget[]`              — subset form (most efficient)
+   *   - `on: (left) => (right) => boolean`     — predicate form
+   *   - `on: { predicate: 'name' }`            — MV-safe, hash-tracked form
+   *     (requires the Query to have been augmented via `_withPredicates`)
+   *
+   * Requires a JoinContext (constructed via `collection.query()`).
+   */
+  crossJoin<TTarget = unknown, As extends string = string>(
+    target: string,
+    opts: {
+      as: As
+      on?:
+        | ((left: T) => unknown[] | ((right: TTarget) => boolean))
+        | { readonly predicate: string }
+      maxRows?: number
+    },
+  ): Query<T & { [K in As]: TTarget }> {
+    if (!this.joinContext) {
+      throw new Error(
+        `Query.crossJoin("${target}"): requires a join context. ` +
+          `Use collection.query() to construct a cross-join-capable Query instead of ` +
+          `the Query constructor directly.`,
+      )
+    }
+
+    let onFn: CrossJoinClause['on']
+    let onPredicateName: string | undefined
+
+    if (opts.on !== undefined) {
+      if (typeof opts.on === 'function') {
+        onFn = opts.on as CrossJoinClause['on']
+        if (this.predicates) {
+          console.warn(
+            `Query.crossJoin("${target}", { on: callback }): inline on: callback inside a ` +
+              `withMaterializedView query() disables queryHash drift detection for this cross-join. ` +
+              `Use on: { predicate: '<name>' } to enable it.`,
+          )
+        }
+      } else {
+        const predName = (opts.on as { predicate: string }).predicate
+        if (!this.predicates) {
+          throw new Error(
+            `Query.crossJoin("${target}", { on: { predicate: "${predName}" } }): ` +
+              `the { predicate } form requires a predicates map. ` +
+              `Use this form inside a withMaterializedView query() callback that declares ` +
+              `predicates: { ${predName}: { hash, fn } }.`,
+          )
+        }
+        const decl = this.predicates.get(predName)
+        if (!decl) {
+          throw new Error(
+            `Query.crossJoin("${target}"): predicate "${predName}" not registered. ` +
+              `Available: ${[...this.predicates.keys()].join(', ') || '(none)'}.`,
+          )
+        }
+        const as = opts.as
+        const predicateFn = decl.fn
+        onFn = (_left: unknown): ((right: unknown) => boolean) =>
+          (right: unknown) =>
+            predicateFn({ ...(_left as Record<string, unknown>), [as]: right })
+        onPredicateName = predName
+      }
+    }
+
+    const clause: CrossJoinClause = {
+      type: 'crossJoin',
+      target,
+      as: opts.as,
+      ...(onFn !== undefined && { on: onFn }),
+      ...(onPredicateName !== undefined && { onPredicateName }),
+      ...(opts.maxRows !== undefined && { maxRows: opts.maxRows }),
+    }
+
+    return new Query<T & { [K in As]: TTarget }>(
+      this.source as unknown as QuerySource<T & { [K in As]: TTarget }>,
+      { ...this.plan, clauses: [...this.plan.clauses, clause] },
       this.joinContext,
       this.aggregateStrategy,
       this.predicates,

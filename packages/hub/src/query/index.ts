@@ -11,7 +11,7 @@
  * pull in the executor's runtime, since `Query` is the only entry point.
  */
 
-export { Query, executePlan } from './builder.js'
+export { Query, executePlan, DEFAULT_CROSS_JOIN_MAX_ROWS } from './builder.js'
 export type { QueryPlan, QuerySource, OrderBy } from './builder.js'
 export type { Operator, Clause, FieldClause, FilterClause, GroupClause, CrossJoinClause } from './predicate.js'
 export { evaluateClause, evaluateFieldClause, readPath } from './predicate.js'

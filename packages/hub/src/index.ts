@@ -845,6 +845,7 @@ export {
   CollectionIndexes,
   applyJoins,
   DEFAULT_JOIN_MAX_ROWS,
+  DEFAULT_CROSS_JOIN_MAX_ROWS,
   resetJoinWarnings,
   buildLiveQuery,
   count,
