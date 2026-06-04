@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { evaluateClause, type Clause, type CrossJoinClause } from '../src/query/predicate.js'
-import { Query, type QueryPlan } from '../src/query/index.js'
+import { Query, executePlan, type QueryPlan } from '../src/query/index.js'
 import { CrossJoinTooLargeError, CrossJoinSourceUnknownError } from '../src/errors.js'
 import type { QuerySource, JoinContext, JoinableSource } from '../src/query/index.js'
 
@@ -143,5 +143,192 @@ describe('Query.crossJoin() > builder', () => {
   it('throws when called on a Query with no joinContext', () => {
     const base = new Query(staticSource(PERIODS))
     expect(() => base.crossJoin('workers', { as: 'worker' })).toThrow('join context')
+  })
+})
+
+describe('Query.crossJoin() > full cartesian execution', () => {
+  it('produces leftRows × rightRows pairs', () => {
+    const jc = mockJoinContext('periods', { workers: WORKERS })
+    const result = new Query(
+      staticSource(PERIODS),
+      { clauses: [], orderBy: [], limit: undefined, offset: 0, joins: [] },
+      jc,
+    )
+      .crossJoin<(typeof WORKERS)[0], 'worker'>('workers', { as: 'worker' })
+      .toArray()
+    expect(result).toHaveLength(4) // 2 periods × 2 workers
+    expect(result[0]).toMatchObject({ id: 'p1', start: '2026-01', worker: { id: 'w1', name: 'Alice' } })
+    expect(result[1]).toMatchObject({ id: 'p1', worker: { id: 'w2', name: 'Bob' } })
+    expect(result[2]).toMatchObject({ id: 'p2', worker: { id: 'w1', name: 'Alice' } })
+    expect(result[3]).toMatchObject({ id: 'p2', worker: { id: 'w2', name: 'Bob' } })
+  })
+
+  it('where() before crossJoin filters the left side first', () => {
+    const jc = mockJoinContext('periods', { workers: WORKERS })
+    const result = new Query(
+      staticSource(PERIODS),
+      { clauses: [], orderBy: [], limit: undefined, offset: 0, joins: [] },
+      jc,
+    )
+      .where('id', '==', 'p1')
+      .crossJoin<(typeof WORKERS)[0], 'worker'>('workers', { as: 'worker' })
+      .toArray()
+    expect(result).toHaveLength(2) // 1 period × 2 workers
+    expect(result.every((r: any) => r.id === 'p1')).toBe(true)
+  })
+
+  it('where() after crossJoin filters on the alias', () => {
+    const jc = mockJoinContext('periods', { workers: WORKERS })
+    const result = new Query(
+      staticSource(PERIODS),
+      { clauses: [], orderBy: [], limit: undefined, offset: 0, joins: [] },
+      jc,
+    )
+      .crossJoin<(typeof WORKERS)[0], 'worker'>('workers', { as: 'worker' })
+      .where('worker.name', '==', 'Alice')
+      .toArray()
+    expect(result).toHaveLength(2) // 2 periods × Alice only
+    expect(result.every((r: any) => r.worker.name === 'Alice')).toBe(true)
+  })
+
+  it('throws CrossJoinSourceUnknownError when target collection is not in join context', () => {
+    const jc = mockJoinContext('periods', {}) // no workers source
+    const q = new Query(
+      staticSource(PERIODS),
+      { clauses: [], orderBy: [], limit: undefined, offset: 0, joins: [] },
+      jc,
+    ).crossJoin('workers', { as: 'worker' })
+    expect(() => q.toArray()).toThrow(CrossJoinSourceUnknownError)
+  })
+})
+
+describe('executePlan > throws on crossJoin clauses', () => {
+  it('executePlan() throws when plan contains crossJoin clauses', () => {
+    const plan: QueryPlan = {
+      clauses: [{ type: 'crossJoin', target: 'workers', as: 'worker' }],
+      orderBy: [],
+      limit: undefined,
+      offset: 0,
+      joins: [],
+    }
+    expect(() => executePlan([], plan)).toThrow('executePlan')
+  })
+})
+
+describe('Query.crossJoin() > cost ceiling', () => {
+  it('throws CrossJoinTooLargeError when product exceeds default limit', () => {
+    // 251 × 200 = 50,200 > 50,000
+    const leftRecords = Array.from({ length: 251 }, (_, i) => ({ id: `l${i}` }))
+    const rightRecords = Array.from({ length: 200 }, (_, i) => ({ id: `r${i}` }))
+    const jc = mockJoinContext('left', { right: rightRecords })
+    const q = new Query(
+      staticSource(leftRecords),
+      { clauses: [], orderBy: [], limit: undefined, offset: 0, joins: [] },
+      jc,
+    ).crossJoin('right', { as: 'r' })
+    expect(() => q.toArray()).toThrow(CrossJoinTooLargeError)
+  })
+
+  it('error carries correct expected and limit values', () => {
+    const left = Array.from({ length: 300 }, (_, i) => ({ id: `l${i}` }))
+    const right = Array.from({ length: 200 }, (_, i) => ({ id: `r${i}` }))
+    const jc = mockJoinContext('left', { right })
+    const q = new Query(
+      staticSource(left),
+      { clauses: [], orderBy: [], limit: undefined, offset: 0, joins: [] },
+      jc,
+    ).crossJoin('right', { as: 'r' })
+    let err: CrossJoinTooLargeError | undefined
+    try { q.toArray() } catch (e) { err = e as CrossJoinTooLargeError }
+    expect(err?.expected).toBe(60_000)
+    expect(err?.limit).toBe(50_000)
+  })
+
+  it('per-clause maxRows override raises the ceiling', () => {
+    const left = Array.from({ length: 300 }, (_, i) => ({ id: `l${i}` }))
+    const right = Array.from({ length: 200 }, (_, i) => ({ id: `r${i}` }))
+    const jc = mockJoinContext('left', { right })
+    const result = new Query(
+      staticSource(left),
+      { clauses: [], orderBy: [], limit: undefined, offset: 0, joins: [] },
+      jc,
+    )
+      .crossJoin('right', { as: 'r', maxRows: 100_000 })
+      .toArray()
+    expect(result).toHaveLength(60_000)
+  })
+})
+
+const PERIODS_LATERAL = [
+  { id: 'p1', start: '2026-01', end: '2026-03' },
+  { id: 'p2', start: '2026-04', end: '2026-06' },
+]
+const WORKERS_LATERAL = [
+  { id: 'w1', name: 'Alice', since: '2026-01', until: null as null | string },
+  { id: 'w2', name: 'Bob',   since: '2026-03', until: '2026-05' },
+  { id: 'w3', name: 'Carol', since: '2026-05', until: null as null | string },
+]
+
+describe('Query.crossJoin() > lateral on: subset form', () => {
+  it('on: (left) => TTarget[] supplies the exact right rows for each left row', () => {
+    const jc = mockJoinContext('periods', { workers: WORKERS_LATERAL })
+    const result = new Query(
+      staticSource(PERIODS_LATERAL),
+      { clauses: [], orderBy: [], limit: undefined, offset: 0, joins: [] },
+      jc,
+    )
+      .crossJoin<(typeof WORKERS_LATERAL)[0], 'worker'>('workers', {
+        as: 'worker',
+        on: (period: any) =>
+          (WORKERS_LATERAL as typeof WORKERS_LATERAL).filter(
+            (w) => w.since <= period.start && (w.until === null || w.until >= period.end),
+          ),
+      })
+      .toArray()
+    // p1 start='2026-01' end='2026-03': Alice (since 01, until null) ✓; Bob (since 03 <= 01? NO, 03 > 01) ✗; Carol ✗ → 1
+    // Wait — re-check: p1.start='2026-01', Bob.since='2026-03', '2026-03' <= '2026-01'? No. → p1: Alice only
+    // p2 start='2026-04' end='2026-06': Alice (since 01 <= 04, until null ✓); Bob (since 03 <= 04, until 05 < 06) ✗; Carol (since 05 > 04) ✗ → 1
+    // Hmm let me re-examine: p1 end='2026-03'. Alice until null → ✓. Bob since '2026-03' <= p1.start '2026-01'? No. Carol ✗.
+    // p2 end='2026-06'. Alice ✓. Bob since '2026-03' <= '2026-04' ✓, until '2026-05' >= '2026-06'? '2026-05' >= '2026-06'? No. ✗.
+    // Carol since '2026-05' <= '2026-04'? No. ✗. → p2: Alice only
+    // So result should be 2 rows (p1:Alice, p2:Alice)
+    expect(result).toHaveLength(2)
+    expect(result.map((r: any) => `${r.id}:${r.worker.name}`).sort()).toEqual(
+      ['p1:Alice', 'p2:Alice'],
+    )
+  })
+})
+
+describe('Query.crossJoin() > lateral on: predicate form', () => {
+  it('on: (left) => (right) => boolean filters each right row against the left row', () => {
+    const jc = mockJoinContext('periods', { workers: WORKERS_LATERAL })
+    const result = new Query(
+      staticSource(PERIODS_LATERAL),
+      { clauses: [], orderBy: [], limit: undefined, offset: 0, joins: [] },
+      jc,
+    )
+      .crossJoin<(typeof WORKERS_LATERAL)[0], 'worker'>('workers', {
+        as: 'worker',
+        on: (period: any) => (worker: any) =>
+          worker.since <= period.start && (worker.until === null || worker.until >= period.end),
+      })
+      .toArray()
+    expect(result).toHaveLength(2)
+    expect(result.map((r: any) => `${r.id}:${r.worker.name}`).sort()).toEqual(
+      ['p1:Alice', 'p2:Alice'],
+    )
+  })
+
+  it('lateral ceiling is cumulative (post-filter count across left rows)', () => {
+    // 2 left rows × 26 right rows each = 52 > 50 limit → throws
+    const left = [{ id: 'a' }, { id: 'b' }]
+    const right = Array.from({ length: 26 }, (_, i) => ({ id: `r${i}` }))
+    const jc = mockJoinContext('left', { right })
+    const q = new Query(
+      staticSource(left),
+      { clauses: [], orderBy: [], limit: undefined, offset: 0, joins: [] },
+      jc,
+    ).crossJoin('right', { as: 'r', maxRows: 50, on: (_: any) => right })
+    expect(() => q.toArray()).toThrow(CrossJoinTooLargeError)
   })
 })

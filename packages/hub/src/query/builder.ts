@@ -8,8 +8,9 @@
 import type { Clause, CrossJoinClause, FieldClause, FilterClause, GroupClause, Operator, WherePredicateClause } from './predicate.js'
 import { evaluateClause } from './predicate.js'
 import type { CollectionIndexes } from '../indexing/eager-indexes.js'
-import type { JoinContext, JoinLeg, JoinStrategy } from './join.js'
+import type { JoinableSource, JoinContext, JoinLeg, JoinStrategy } from './join.js'
 import { applyJoins } from './join.js'
+import { CrossJoinTooLargeError, CrossJoinSourceUnknownError } from '../errors.js'
 import type { LiveQuery, LiveUpstream } from './live.js'
 import { buildLiveQuery } from './live.js'
 import type { AggregateSpec, AggregateResult, AggregationUpstream, Aggregation } from '../aggregate/aggregation.js'
@@ -530,7 +531,7 @@ export class Query<T> {
    * for the ordering rationale.
    */
   toArray(): T[] {
-    const base = executePlanWithSource(this.source, this.plan)
+    const base = executePlanWithSource(this.source, this.plan, this.joinContext)
     if (this.plan.joins.length === 0) return base as T[]
     if (!this.joinContext) {
       // Unreachable in practice — .join() throws if joinContext is
@@ -849,15 +850,31 @@ export class Query<T> {
  * full scan otherwise. Mirrors `executePlan` for the public surface but
  * takes a `QuerySource` so it can consult `getIndexes()` and `lookupById()`.
  */
-function executePlanWithSource(source: InternalSource, plan: QueryPlan): unknown[] {
-  const { candidates, remainingClauses } = candidateRecords(source, plan.clauses)
-  // Only the clauses NOT consumed by the index need re-evaluation. This is
-  // the key optimization that makes indexed queries dominate linear scans:
-  // for a single-clause query against an indexed field, `remainingClauses`
-  // is empty and we skip the per-record predicate evaluation entirely.
-  let result = remainingClauses.length === 0
-    ? [...candidates]
-    : filterRecords(candidates, remainingClauses)
+function executePlanWithSource(
+  source: InternalSource,
+  plan: QueryPlan,
+  joinContext?: JoinContext,
+): unknown[] {
+  const hasCrossJoins = plan.clauses.some(c => c.type === 'crossJoin')
+
+  let result: unknown[]
+  if (hasCrossJoins) {
+    if (!joinContext) {
+      throw new Error(
+        `Query.toArray(): plan contains crossJoin clauses but no JoinContext is attached. ` +
+          `Use collection.query() instead of new Query() for cross-join support.`,
+      )
+    }
+    result = executeClausePipeline(source, plan.clauses, joinContext)
+  } else {
+    // Index-aware fast path: only the clauses NOT consumed by the index need
+    // re-evaluation. For a single-clause query against an indexed field,
+    // `remainingClauses` is empty and we skip per-record predicate evaluation.
+    const { candidates, remainingClauses } = candidateRecords(source, plan.clauses)
+    result =
+      remainingClauses.length === 0 ? [...candidates] : filterRecords(candidates, remainingClauses)
+  }
+
   if (plan.orderBy.length > 0) {
     result = sortRecords(result, plan.orderBy)
   }
@@ -951,6 +968,13 @@ function materializeIds(
  * cast the return type at the API surface (see `Query.toArray()`).
  */
 export function executePlan(records: readonly unknown[], plan: QueryPlan): unknown[] {
+  if (plan.clauses.some(c => c.type === 'crossJoin')) {
+    throw new Error(
+      `executePlan(): does not support crossJoin clauses. ` +
+        `executePlan is a stateless pure function — it cannot resolve cross-join right-side ` +
+        `collections. Use Query.toArray() (via collection.query()) instead.`,
+    )
+  }
   let result = filterRecords(records, plan.clauses)
   if (plan.orderBy.length > 0) {
     result = sortRecords(result, plan.orderBy)
@@ -978,6 +1002,102 @@ function filterRecords(records: readonly unknown[], clauses: readonly Clause[]):
     if (matches) out.push(r)
   }
   return out
+}
+
+/**
+ * Walk the clause list in declaration order, batching filter clauses and
+ * expanding on crossJoin clauses. Falls back to `candidateRecords + filterRecords`
+ * (index fast-path) when no crossJoin clauses are present.
+ *
+ * Precondition: `joinContext` must be non-null when any `CrossJoinClause` is in `clauses`.
+ */
+function executeClausePipeline(
+  source: InternalSource,
+  clauses: readonly Clause[],
+  joinContext: JoinContext,
+): unknown[] {
+  let rel: unknown[] = [...source.snapshot()]
+  let filterBatch: Clause[] = []
+
+  for (const clause of clauses) {
+    if (clause.type === 'crossJoin') {
+      if (filterBatch.length > 0) {
+        rel = filterRecords(rel, filterBatch)
+        filterBatch = []
+      }
+      const rightSource = joinContext.resolveSource(clause.target)
+      if (!rightSource) {
+        throw new CrossJoinSourceUnknownError(clause.target, joinContext.leftCollection)
+      }
+      rel = applyCrossJoin(rel, clause, rightSource)
+    } else {
+      filterBatch.push(clause)
+    }
+  }
+
+  if (filterBatch.length > 0) {
+    rel = filterRecords(rel, filterBatch)
+  }
+
+  return rel
+}
+
+/**
+ * Expand `leftRel` by cross-joining with `rightSource`. Enforces the cost ceiling
+ * BEFORE allocating the expanded relation (full cartesian) or cumulatively
+ * (lateral form). Throws `CrossJoinTooLargeError` on breach.
+ */
+function applyCrossJoin(
+  leftRel: unknown[],
+  clause: CrossJoinClause,
+  rightSource: JoinableSource,
+): unknown[] {
+  const rightRows = rightSource.snapshot()
+  const maxRows = clause.maxRows ?? DEFAULT_CROSS_JOIN_MAX_ROWS
+  const { as } = clause
+
+  if (!clause.on) {
+    const product = leftRel.length * rightRows.length
+    if (product > maxRows) {
+      throw new CrossJoinTooLargeError({ target: clause.target, expected: product, limit: maxRows })
+    }
+    const expanded: unknown[] = []
+    for (const left of leftRel) {
+      const leftObj = left as Record<string, unknown>
+      for (const right of rightRows) {
+        expanded.push({ ...leftObj, [as]: right })
+      }
+    }
+    return expanded
+  }
+
+  // Lateral — ceiling is cumulative (post-filter count)
+  const expanded: unknown[] = []
+  let cumulative = 0
+  for (const left of leftRel) {
+    const callbackResult = clause.on(left)
+    let filteredRight: readonly unknown[]
+    if (Array.isArray(callbackResult)) {
+      filteredRight = callbackResult as unknown[]
+    } else {
+      filteredRight = (rightRows as unknown[]).filter(
+        callbackResult as (r: unknown) => boolean,
+      )
+    }
+    cumulative += filteredRight.length
+    if (cumulative > maxRows) {
+      throw new CrossJoinTooLargeError({
+        target: clause.target,
+        expected: cumulative,
+        limit: maxRows,
+      })
+    }
+    const leftObj = left as Record<string, unknown>
+    for (const right of filteredRight) {
+      expanded.push({ ...leftObj, [as]: right })
+    }
+  }
+  return expanded
 }
 
 function sortRecords(records: unknown[], orderBy: readonly OrderBy[]): unknown[] {
