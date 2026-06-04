@@ -333,6 +333,7 @@ features:
       - 'Records store stable keys; dictionary stores per-locale labels'
       - 'resolveLabel(key, locale, fallback) walks the fallback chain'
       - 'No transliteration (locale-specific lossy mappings stay in userland)'
+      - 'i18nField paths support dot notation (address.lineOne) and array wildcards (contacts[].title)'
     related: [vault-and-collections]
 
   - id: aggregate
@@ -1352,6 +1353,7 @@ frameworks:
     invariants:
       - 'defineNoydbStore exposes items, count, add, update, remove'
       - 'Standard Schema v1 validator installed on the underlying collection'
+      - 'i18nFields and dictKeyFields options forwarded to the underlying collection (no pre-registration needed)'
     related: [in-vue]
 
   - id: in-devtools

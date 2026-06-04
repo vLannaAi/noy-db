@@ -68,6 +68,7 @@ import {
 import type { DictionaryHandle, DictionaryOptions, DictKeyDescriptor } from './i18n/dictionary.js'
 import { isDictCollectionName } from './i18n/dictionary.js'
 import type { I18nTextDescriptor } from './i18n/core.js'
+import { getAtPath } from './i18n/core.js'
 import { NO_I18N, type I18nStrategy } from './i18n/strategy.js'
 import { NO_SYNC, type SyncStrategy } from './team/sync-strategy.js'
 // Type-only imports for the guard + derivation subsystems. The
@@ -925,9 +926,11 @@ export class Vault {
 
     const obj = record as Record<string, unknown>
     for (const [field, descriptor] of Object.entries(i18nFields)) {
-      const value = obj[field]
-      if (value === undefined || value === null) continue
-      this.i18nStrategy.validateI18nTextValue(value, field, descriptor)
+      const values = getAtPath(obj, field)
+      for (const value of values) {
+        if (value === undefined || value === null) continue
+        this.i18nStrategy.validateI18nTextValue(value, field, descriptor)
+      }
     }
   }
 

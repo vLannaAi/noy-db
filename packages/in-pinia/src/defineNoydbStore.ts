@@ -33,6 +33,8 @@ import type {
   Collection,
   Query,
   StandardSchemaV1,
+  I18nTextDescriptor,
+  DictKeyDescriptor,
 } from '@noy-db/hub'
 import { resolveNoydb } from './context.js'
 
@@ -109,6 +111,18 @@ export interface NoydbStoreOptions<T> {
    * declaratively, without a pre-registration `vault.collection(...)` call.
    */
   schemaUpdate?: NonNullable<Parameters<Vault['collection']>[1]>['schemaUpdate']
+  /**
+   * Per-field `i18nText()` descriptors. Forwarded to the underlying
+   * `Collection` so locale resolution and required-translation validation
+   * run declaratively without a separate `vault.collection(name, { i18nFields })`
+   * pre-registration call.
+   */
+  i18nFields?: Record<string, I18nTextDescriptor>
+  /**
+   * Per-field `dictKey()` descriptors. Forwarded to the underlying
+   * `Collection` so dictionary label resolution runs declaratively.
+   */
+  dictKeyFields?: Record<string, DictKeyDescriptor>
 }
 
 /**
@@ -173,6 +187,8 @@ export function defineNoydbStore<T>(
       if (options.attestation !== undefined) collOpts.attestation = options.attestation
       if (options.persistJsonSchema !== undefined) collOpts.persistJsonSchema = options.persistJsonSchema
       if (options.schemaUpdate !== undefined) collOpts.schemaUpdate = options.schemaUpdate
+      if (options.i18nFields !== undefined) collOpts.i18nFields = options.i18nFields
+      if (options.dictKeyFields !== undefined) collOpts.dictKeyFields = options.dictKeyFields
       cachedCollection = cachedCompartment.collection<T>(collectionName, collOpts)
       return cachedCollection
     }
