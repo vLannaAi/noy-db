@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/as-xml",
-  "version": "0.2.0-pre.5",
+  "version": "0.2.0-pre.6",
   "description": "XML plaintext export for noy-db — decrypts records and formats as XML with RFC-compliant entity escaping. For legacy systems, banking batch imports, SOAP endpoints, and accounting software that requires XML. Gated by RFC #249 canExportPlaintext.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
