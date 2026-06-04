@@ -13,7 +13,7 @@
 
 export { Query, executePlan } from './builder.js'
 export type { QueryPlan, QuerySource, OrderBy } from './builder.js'
-export type { Operator, Clause, FieldClause, FilterClause, GroupClause } from './predicate.js'
+export type { Operator, Clause, FieldClause, FilterClause, GroupClause, CrossJoinClause } from './predicate.js'
 export { evaluateClause, evaluateFieldClause, readPath } from './predicate.js'
 // Indexing relocated to `../indexing/` as part of the capability-
 // subpath refactor. Re-export from the new home for backward compat
@@ -60,4 +60,6 @@ export {
   IndexWriteFailureError,
   JoinTooLargeError,
   DanglingReferenceError,
+  CrossJoinTooLargeError,
+  CrossJoinSourceUnknownError,
 } from '../errors.js'

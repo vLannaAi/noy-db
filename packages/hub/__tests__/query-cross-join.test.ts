@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { evaluateClause, type Clause, type CrossJoinClause } from '../src/query/predicate.js'
 import { Query, type QueryPlan } from '../src/query/index.js'
+import { CrossJoinTooLargeError, CrossJoinSourceUnknownError } from '../src/errors.js'
 
 describe('CrossJoinClause > evaluateClause throws on crossJoin type', () => {
   it('throws if a crossJoin clause is passed to evaluateClause', () => {
@@ -59,5 +60,29 @@ describe('CrossJoinClause > toPlan() serialization (serializeClause)', () => {
     expect(serialized.clauses[0].onPredicateName).toBe('isActive')
     expect(serialized.clauses[0].maxRows).toBe(100_000)
     expect(serialized.clauses[0].on).toBe('[function]')
+  })
+})
+
+describe('CrossJoinTooLargeError', () => {
+  it('is a NoydbError with correct name and fields', () => {
+    const e = new CrossJoinTooLargeError({ target: 'workers', expected: 60_000, limit: 50_000 })
+    expect(e).toBeInstanceOf(Error)
+    expect(e.name).toBe('CrossJoinTooLargeError')
+    expect(e.target).toBe('workers')
+    expect(e.expected).toBe(60_000)
+    expect(e.limit).toBe(50_000)
+    expect(e.message).toContain('workers')
+    expect(e.message).toContain('50000')
+  })
+})
+
+describe('CrossJoinSourceUnknownError', () => {
+  it('is a NoydbError with correct name and fields', () => {
+    const e = new CrossJoinSourceUnknownError('workers', 'periods')
+    expect(e.name).toBe('CrossJoinSourceUnknownError')
+    expect(e.target).toBe('workers')
+    expect(e.leftCollection).toBe('periods')
+    expect(e.message).toContain('workers')
+    expect(e.message).toContain('periods')
   })
 })

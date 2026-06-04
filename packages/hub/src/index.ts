@@ -239,6 +239,8 @@ export {
   BackupLedgerError,
   BackupCorruptedError,
   JoinTooLargeError,
+  CrossJoinTooLargeError,
+  CrossJoinSourceUnknownError,
   DanglingReferenceError,
   FilenameSanitizationError,
   PathEscapeError,
