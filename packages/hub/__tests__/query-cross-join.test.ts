@@ -1,8 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import { evaluateClause, type Clause, type CrossJoinClause } from '../src/query/predicate.js'
-import { Query, executePlan, type QueryPlan } from '../src/query/index.js'
+import { Query, executePlan, type QueryPlan, count } from '../src/query/index.js'
 import { CrossJoinTooLargeError, CrossJoinSourceUnknownError } from '../src/errors.js'
 import type { QuerySource, JoinContext, JoinableSource } from '../src/query/index.js'
+import { withAggregate } from '../src/aggregate/index.js'
+
+const AGG = withAggregate()
 
 function staticSource<T>(records: T[]): QuerySource<T> {
   return { snapshot: () => records }
@@ -330,5 +333,83 @@ describe('Query.crossJoin() > lateral on: predicate form', () => {
       jc,
     ).crossJoin('right', { as: 'r', maxRows: 50, on: (_: any) => right })
     expect(() => q.toArray()).toThrow(CrossJoinTooLargeError)
+  })
+})
+
+describe('Query.crossJoin() > count()', () => {
+  it('count() returns expanded relation size', () => {
+    const jc = mockJoinContext('periods', { workers: WORKERS })
+    const q = new Query(
+      staticSource(PERIODS),
+      { clauses: [], orderBy: [], limit: undefined, offset: 0, joins: [] },
+      jc,
+    ).crossJoin('workers', { as: 'worker' })
+    expect(q.count()).toBe(4) // 2 × 2
+  })
+})
+
+describe('Query.crossJoin() > groupBy().aggregate()', () => {
+  it('groupBy on a left-side field after cross-join groups the expanded relation', () => {
+    const jc = mockJoinContext('periods', { workers: WORKERS })
+    const result = new Query(
+      staticSource(PERIODS),
+      { clauses: [], orderBy: [], limit: undefined, offset: 0, joins: [] },
+      jc,
+      AGG,
+    )
+      .crossJoin('workers', { as: 'worker' })
+      .groupBy('id')
+      .aggregate({ workerCount: count() })
+      .run()
+    expect(result).toHaveLength(2)
+    expect(result.map((r: any) => r.workerCount)).toEqual([2, 2])
+  })
+
+  it('groupBy on alias field groups by right-side key', () => {
+    const jc = mockJoinContext('periods', { workers: WORKERS })
+    const result = new Query(
+      staticSource(PERIODS),
+      { clauses: [], orderBy: [], limit: undefined, offset: 0, joins: [] },
+      jc,
+      AGG,
+    )
+      .crossJoin<(typeof WORKERS)[0], 'worker'>('workers', { as: 'worker' })
+      .groupBy('worker.name')
+      .aggregate({ periodCount: count() })
+      .run()
+    expect(result).toHaveLength(2)
+    expect(result.map((r: any) => r.periodCount)).toEqual([2, 2])
+  })
+})
+
+describe('Query.crossJoin() > live() subscriptions', () => {
+  it('live() subscribes to right-side collection changes', () => {
+    let rightCallback: (() => void) | undefined
+    const rightSourceWithSub = {
+      snapshot: () => WORKERS as unknown[],
+      subscribe: (cb: () => void) => {
+        rightCallback = cb
+        return () => { rightCallback = undefined }
+      },
+    }
+    const jc: JoinContext = {
+      leftCollection: 'periods',
+      resolveRef: () => null,
+      resolveSource: (name: string) => name === 'workers' ? rightSourceWithSub : null,
+    }
+    const leftSource = {
+      snapshot: () => PERIODS as unknown[],
+      subscribe: (_cb: () => void) => { return () => {} },
+    }
+    const q = new Query(leftSource as any, { clauses: [], orderBy: [], limit: undefined, offset: 0, joins: [] }, jc)
+      .crossJoin('workers', { as: 'worker' })
+
+    let notifications = 0
+    const live = q.live()
+    live.subscribe(() => { notifications++ })
+
+    rightCallback?.()
+    expect(notifications).toBeGreaterThan(0)
+    live.stop()
   })
 })

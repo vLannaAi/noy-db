@@ -562,6 +562,14 @@ export class Query<T> {
    * intent is purely to count.
    */
   count(): number {
+    if (this.plan.clauses.some(c => c.type === 'crossJoin')) {
+      if (!this.joinContext) {
+        throw new Error(
+          `Query.count(): plan contains crossJoin clauses but no JoinContext is attached.`,
+        )
+      }
+      return executeClausePipeline(this.source, this.plan.clauses, this.joinContext).length
+    }
     // Use the same index-aware candidate machinery as toArray(); skip the
     // index-driving clause from re-evaluation. The length BEFORE limit/offset
     // is what `count()` documents.
@@ -620,7 +628,13 @@ export class Query<T> {
     // different operation; see docs for rationale.)
     const source = this.source
     const clauses = this.plan.clauses
+    const joinCtx = this.joinContext
+    const hasCrossJoins = clauses.some(c => c.type === 'crossJoin')
     const executeRecords = (): readonly unknown[] => {
+      if (hasCrossJoins) {
+        if (!joinCtx) throw new Error('Query.aggregate(): crossJoin requires a join context')
+        return executeClausePipeline(source, clauses, joinCtx)
+      }
       const { candidates, remainingClauses } = candidateRecords(source, clauses)
       return remainingClauses.length === 0
         ? candidates
@@ -699,7 +713,13 @@ export class Query<T> {
     // builder stays allocation-friendly for the hot path.
     const source = this.source
     const clauses = this.plan.clauses
+    const joinCtx = this.joinContext
+    const hasCrossJoins = clauses.some(c => c.type === 'crossJoin')
     const executeRecords = (): readonly unknown[] => {
+      if (hasCrossJoins) {
+        if (!joinCtx) throw new Error('Query.groupBy(): crossJoin requires a join context')
+        return executeClausePipeline(source, clauses, joinCtx)
+      }
       const { candidates, remainingClauses } = candidateRecords(source, clauses)
       return remainingClauses.length === 0
         ? candidates
@@ -821,6 +841,23 @@ export class Query<T> {
         if (subscribed.has(leg.target)) continue
         subscribed.add(leg.target)
         const rightSource = this.joinContext.resolveSource(leg.target)
+        if (rightSource?.subscribe) {
+          const rightSubscribe = rightSource.subscribe.bind(rightSource)
+          upstreams.push({
+            subscribe: (cb: () => void) => rightSubscribe(cb),
+          })
+        }
+      }
+    }
+
+    // Cross-join right-side change streams — symmetric with FK joins above.
+    if (this.joinContext) {
+      const subscribedCross = new Set<string>()
+      for (const clause of this.plan.clauses) {
+        if (clause.type !== 'crossJoin') continue
+        if (subscribedCross.has(clause.target)) continue
+        subscribedCross.add(clause.target)
+        const rightSource = this.joinContext.resolveSource(clause.target)
         if (rightSource?.subscribe) {
           const rightSubscribe = rightSource.subscribe.bind(rightSource)
           upstreams.push({
