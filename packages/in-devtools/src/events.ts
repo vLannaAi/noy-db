@@ -1,4 +1,4 @@
-import type { InspectorWriteEvent, PendingWrites, InspectorNoydb } from './types.js'
+import type { InspectorWriteEvent, InspectorWriteConflict, PendingWrites, InspectorNoydb } from './types.js'
 
 export function subscribe(
   noydb: InspectorNoydb,
@@ -10,4 +10,8 @@ export function subscribe(
 export function pendingWrites(noydb: InspectorNoydb): PendingWrites {
   const q = noydb.writeQueue
   return { pending: q.pending, depth: q.depth }
+}
+
+export function subscribeConflicts(noydb: InspectorNoydb, handler: (c: InspectorWriteConflict) => void): () => void {
+  return noydb.onWriteConflict(handler)
 }

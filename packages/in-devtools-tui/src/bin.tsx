@@ -3,8 +3,10 @@ import { render } from 'ink'
 import { createInspector } from '@noy-db/in-devtools'
 import { createNoydb } from '@noy-db/hub'
 import type { NoydbOptions } from '@noy-db/hub'
+import { toMeter } from '@noy-db/to-meter'
 import { App } from './App.js'
 import { loadOptionsFromFile, resolvePassphrase } from './load-options.js'
+import { promptMasked } from './prompt-passphrase.js'
 
 function fail(msg: string): never {
   process.stderr.write(`noydb-inspect: ${msg}\n`)
@@ -19,14 +21,24 @@ async function main(): Promise<void> {
   if (!vaultFlag) fail('missing --vault=<name>')
   const vaultName = vaultFlag.slice('--vault='.length)
 
-  const passphrase = resolvePassphrase(argv, process.env)
-  if (passphrase === undefined) fail('no passphrase — pass --passphrase=… or set NOYDB_PASSPHRASE (interactive prompt: B2.1 follow-up)')
+  let passphrase = resolvePassphrase(argv, process.env)
+  if (passphrase === undefined) {
+    if (!process.stdin.isTTY) fail('no passphrase — pass --passphrase=… or set NOYDB_PASSPHRASE')
+    passphrase = await promptMasked('Passphrase: ')
+  }
 
   let baseOptions: NoydbOptions
   try {
     baseOptions = (await loadOptionsFromFile(configPath)) as NoydbOptions
   } catch (err) {
     fail(`failed to load config "${configPath}": ${err instanceof Error ? err.message : String(err)}`)
+  }
+
+  let meter
+  if (argv.includes('--meter') && baseOptions.store) {
+    const metered = toMeter(baseOptions.store)
+    baseOptions = { ...baseOptions, store: metered.store }
+    meter = metered.meter
   }
 
   // Passphrase lives in NoydbOptions.secret — openVault(name) picks it up internally.
@@ -40,7 +52,7 @@ async function main(): Promise<void> {
     fail(`failed to open vault "${vaultName}": ${err instanceof Error ? err.message : String(err)}`)
   }
 
-  const inspector = createInspector(db)
+  const inspector = createInspector(db, meter ? { meter } : undefined)
   const initial = { vaults: await inspector.listVaults(), snapshot: await inspector.snapshot(vault) }
   const { waitUntilExit } = render(
     <App inspector={inspector} vault={vault} vaultName={vaultName} initial={initial} />,

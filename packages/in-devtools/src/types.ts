@@ -2,10 +2,17 @@ import type {
   Noydb,
   Vault,
   WriteEvent,
+  WriteConflict,
   AccessibleVault,
   CollectionDescriptor,
   CollectionStats,
 } from '@noy-db/hub'
+import type { MeterSnapshot } from '@noy-db/to-meter'
+
+/** Minimal structural view of a to-meter handle the inspector reads (no runtime dep). */
+export interface InspectorMeter {
+  snapshot(): MeterSnapshot
+}
 
 /** Top-level accessible-vault entry (plain projection of the hub's AccessibleVault). */
 export type VaultInfo = AccessibleVault // { id: string; role: Role }
@@ -40,6 +47,9 @@ export interface RecordPage {
 /** Live write event surfaced to subscribers (the hub's public WriteEvent, unchanged — already plain). */
 export type InspectorWriteEvent = WriteEvent
 
+/** Write-conflict surfaced to conflict subscribers (the hub's public WriteConflict, unchanged — already plain). */
+export type InspectorWriteConflict = WriteConflict
+
 /** Pending-write state. */
 export interface PendingWrites {
   readonly pending: boolean
@@ -52,7 +62,10 @@ export interface Inspector {
   snapshot(vault: Vault): Promise<InspectorSnapshot>
   records(vault: Vault, collection: string, opts?: { limit?: number; offset?: number }): Promise<RecordPage>
   subscribe(handler: (event: InspectorWriteEvent) => void): () => void
+  subscribeConflicts(handler: (c: InspectorWriteConflict) => void): () => void
   pendingWrites(): PendingWrites
+  /** Aggregate store-op latency snapshot, or null when the store is not metered. */
+  meterSnapshot(): MeterSnapshot | null
 }
 
 /** @internal — the hub handle the inspector reads from. */

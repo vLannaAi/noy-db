@@ -6,3 +6,6 @@ Initial release. A **terminal inspector** for noy-db built on ink/React ([#265](
 
 - **`noydb-inspect`** bin: loads config, resolves a passphrase, opens the vault, and renders keyboard-navigable **vaults → collections → schema/stats** panes over `@noy-db/in-devtools`.
 - Read-only, headless-friendly (no browser) — for server / CI / SSH inspection contexts.
+- Records pane (paged `inspector.records`, Tab to switch, n/p to page).
+- Write Monitor (`w`): live write feed with multi-user overlap/conflict highlighting + auto-light-up store-latency (`--meter`).
+- Masked interactive passphrase prompt.

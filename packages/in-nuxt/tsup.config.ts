@@ -1,4 +1,17 @@
 import { defineConfig } from 'tsup'
+import { copyFileSync, mkdirSync, readdirSync, statSync, existsSync } from 'node:fs'
+import { join } from 'node:path'
+
+function copyDir(src: string, dest: string): void {
+  if (!existsSync(src)) return
+  mkdirSync(dest, { recursive: true })
+  for (const item of readdirSync(src)) {
+    const s = join(src, item)
+    const d = join(dest, item)
+    if (statSync(s).isDirectory()) copyDir(s, d)
+    else copyFileSync(s, d)
+  }
+}
 
 export default defineConfig({
   // Two entry points:
@@ -29,9 +42,14 @@ export default defineConfig({
     'nuxt',
     'nuxt/app',
     '@noy-db/hub',
+    '@noy-db/in-devtools',
     '@noy-db/in-pinia',
     '@noy-db/in-rest',
     '@noy-db/in-vue',
     'h3',
+    'vue',
   ],
+  async onSuccess() {
+    copyDir('src/runtime/devtools', 'dist/runtime/devtools')
+  },
 })
