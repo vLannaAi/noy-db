@@ -37,8 +37,8 @@ Solved in user land, each of these becomes per-call-site boilerplate with weak, 
 - A field can declare an ordered `substitute` preference list (with `'any'` catch-all); a caller-supplied `fallback` overrides it per read.
 - The driving trace passes (see § Worked example): write `{ th }` under `required:'any'`; `get`/`join` substitute; `mv` throws; `derivation` sees `null`; `guard` is lenient.
 - A field can declare `script: 'auto'` (inferred per locale) or an explicit per-locale script set; values violating the allowed scripts are **rejected** by default at write, with `filter`/`warn` opt-outs.
-- Latin digits inside a Thai value pass; Latin *letters* inside the `en` slot's wrong-script value (Thai text) are rejected.
-- **dictKey parity:** the same `onMissing` + `substitute` policy governs `resolveLabel`; an array-of-keys field resolves to `[{ key, label }]` pair objects (key preserved through resolution); `groupBy`/`orderBy`/MV on a dictKey field bind to the **key** by default, with `{ by: 'label' }` as an explicit active-locale-scoped opt-in.
+- `auto` is **asymmetrically Latin-tolerant** (#283): a Thai address with embedded Latin (`'9/9 อาคาร TCM ถนนรัชดาภิเษก'`) passes the `th` slot, while Thai text in the `en` slot is still rejected. Latin digits pass everywhere (`Common`).
+- **dictKey parity:** the same `onMissing` + `substitute` policy governs `resolveLabel`; an array-of-keys field resolves to `[{ key, label }]` pair objects (key preserved through resolution); a **wildcard path** (`contacts[].title`, #282) adds a per-element sibling `<leaf>Label`; `groupBy`/`orderBy`/MV on a dictKey field bind to the **key** by default, with `{ by: 'label' }` as an explicit active-locale-scoped opt-in.
 - **No behavior change** for any existing `i18nText` or `dictKey` field that does not set a new option. Conformance tests for current i18n behavior stay green.
 - New code is fully inside the tree-shaken `withI18n()` strategy.
 
@@ -58,6 +58,7 @@ Solved in user land, each of these becomes per-call-site boilerplate with weak, 
 | `ScriptViolationError` distinct from `MissingTranslationError` / `LocaleNotSpecifiedError` | ✓ | Callers distinguish write-shape / read-hole / wrong-script |
 | **dictKey parity:** `onMissing` + `substitute` on `DictKeyOptions`, applied in `resolveLabel` | ✓ | Same policy engine, async caller; `'null'` is today's behavior (return `undefined`) |
 | **dictKey array-of-keys → `[{ key, label }]` pair objects**, element-wise policy | ✓ | Key preserved through resolution (defeats many-to-one label collapse) |
+| **dictKey wildcard-path** (`contacts[].title`) → per-element sibling `<leaf>Label` (#282) | ✓ | Closes asymmetry vs i18nText wildcards (#273); reuses `getAtPath`/`applyAtPath` |
 | **dictKey identity-vs-presentation binding:** `groupBy`/`orderBy`/MV bind to **key** by default; `{ by: 'label' }` opt-in | ✓ | Label-sort is active-locale-scoped (collation); key-bucketing is stable & locale-independent |
 | Subsystem doc + showcase | ✓ | Reader-facing; bilingual person-name + honorific (Mr./Ms.→คุณ) end-to-end |
 
@@ -176,21 +177,23 @@ type Script =
 
 - Validation runs **write-time**, in `Collection.put()` beside `validateI18nTextValue()`, via a new `validateI18nScript(value, field, descriptor)` in the `withI18n()` strategy.
 - Each provided locale slot's string is tested character-by-character (or via a compiled `RegExp` of allowed scripts) using `\p{Script=…}` with the `u` flag.
-- **`Common` is always in the allowed baseline** — digits `0-9`, whitespace, and common punctuation are `Script=Common`, so Latin digits inside a Thai value pass while Latin *letters* in the `en`-expected `th` content are rejected. (Thai digits `๐-๙` are `Script=Thai`; allowed in Thai slots.)
+- **`Common` is always in the allowed baseline** — digits `0-9`, whitespace, and common punctuation are `Script=Common`, so Latin digits pass in *every* slot regardless of script. (Thai digits `๐-๙` are `Script=Thai`; allowed in Thai slots.) Note `Common` covers only digits/punct/space — Latin *letters* are `Script=Latin`, governed by the per-locale set below, not the baseline.
 - `script: 'auto'` derives the allowed set per locale from a built-in table:
 
   | Locale | Inferred allowed (+ `Common`) |
   |---|---|
   | `en`, `fr`, `de`, … (Latin langs) | `Latin` |
-  | `th` | `Thai` |
-  | `ko` | `Hangul`, `Han` |
-  | `ja` | `Han`, `Hiragana`, `Katakana` |
-  | `ar` | `Arabic` |
-  | `ru`, `uk`, … | `Cyrillic` |
+  | `th` | `Thai`, **`Latin`** |
+  | `ko` | `Hangul`, `Han`, **`Latin`** |
+  | `ja` | `Han`, `Hiragana`, `Katakana`, **`Latin`** |
+  | `ar` | `Arabic`, **`Latin`** |
+  | `ru`, `uk`, … | `Cyrillic`, **`Latin`** |
   | any `*-Latn` (e.g. `th-Latn`, `ja-Latn` romaji, IPA-style) | `Latin` (subtag wins) |
-  | any `*-Cyrl` | `Cyrillic` (subtag wins) |
+  | any `*-Cyrl` | `Cyrillic`, `Latin` (subtag wins) |
 
-- `script: { en: ['Latin'], ja: ['Han','Hiragana','Katakana','Latin'] }` overrides per slot (e.g. a `ja` field that tolerates embedded Latin brand names).
+  **Asymmetric Latin tolerance (resolves #283).** Every *non-Latin*-script locale's `auto` set **includes `Latin`**, because proper names and addresses in those locales routinely embed Latin brand/building/technical names (`"9/9 อาคาร TCM ถนนรัชดาภิเษก"`, `"GT Tower ชั้น 15"`). *Latin*-script locales (`en`, …) do **not** get other scripts — so the common, real error (Thai text dumped into the `en` slot) is **still rejected**. The gate keeps its value (catch the en/th mixup) and drops its footgun (false-rejecting valid mixed-script identity fields). A field that must be *pure* primary-script tightens explicitly: `script: { th: ['Thai'] }`.
+
+- `script: { th: ['Thai'], en: ['Latin'] }` overrides per slot — here *tightening* `th` to forbid even embedded Latin (e.g. a strict code field), while a normal address field relies on `auto`'s Latin-tolerant default.
 - `onScriptViolation`:
   - `'reject'` (default) — throw `ScriptViolationError` naming the slot, expected scripts, and the offending characters; the write fails.
   - `'filter'` — strip disallowed characters before storing (resilient to messy paste; risk of silent loss — documented).
@@ -227,6 +230,21 @@ tagsResolved: [
 
 The pair-object shape is deliberate: **the stable `key` survives resolution**, which is what defeats the many-to-one collapse below.
 
+**Wildcard-path fields (resolves #282).** Distinct from an array-of-keys *value* is a **wildcard path over an array of objects**, each holding a *scalar* key — e.g. `dictKeyFields: { 'contacts[].title': dictKey('contactTitle', ['mr','ms']) }`, where `Entity.contacts: ClientContact[]`. Today this does **not** resolve: the label loop (`collection.ts:3031`) does `result[field]` (flat access) and skips non-string values, so `result['contacts[].title']` is `undefined` and no per-element label is added — even though i18nText array wildcards *do* resolve (`applyAtPath`, #273). Slice 3 closes this asymmetry:
+
+- The label populator walks `[].` wildcard paths (reusing the `getAtPath`/`applyAtPath` traversal from `i18n/core.ts`), resolving each array element's scalar key.
+- **Output shape:** each element gains a sibling virtual `<leaf>Label` (here `titleLabel`), paralleling both the scalar `<field>Label` convention and i18nText's in-place wildcard resolution — the element keeps its `title` key, so identity survives (same key-vs-label rule as below).
+
+```ts
+// 'contacts[].title', active locale 'th'
+contacts: [
+  { name: 'Somchai', title: 'mr', titleLabel: 'คุณ' },   // titleLabel added per element
+  { name: 'Jane',    title: 'ms', titleLabel: 'คุณ' },   // collapses for display; keys stay mr/ms
+]
+```
+
+This is the exact shape the niwat contact/worker honorifics need — the difference between delegating honorific resolution to noy-db vs. a user-land sync helper. The honorific showcase must exercise the honorific **nested on an array of contact objects**, not only a top-level field. (Per-element policy + collapse semantics are identical to the array-of-keys and many-to-one rules.)
+
 **Many-to-one label collapse (the `Mr.`/`Ms.` → `คุณ` case).** Distinct keys may share a label string in some locale (`mr → {en:'Mr.', th:'คุณ'}`, `ms → {en:'Ms.', th:'คุณ'}`). This is **not** a storage conflict — the keys stay distinct; only the *displayed label* coincides. It is a hazard solely when a resolved label is used as an **identity** (group / filter / dedup / reverse-lookup). The rule:
 
 - **Identity operations bind to the KEY.** `groupBy('title')`, `orderBy('title')`, MV bucketing, and join keys on a dictKey field operate on the stable key by default. `mr` and `ms` are always two buckets, locale-independent, deterministic, never missing. (A dictKey field is *safer* than i18nText for MV/groupBy precisely because it carries this key; i18nText has none — its value *is* the data — which is why i18nText MV-on-missing-locale throws.)
@@ -249,8 +267,10 @@ Field `firstName`: `languages:['th','en']`, `required:'any'`, `substitute:['en',
 | Step | Input / context | Outcome |
 |---|---|---|
 | Write | `{ th: 'สมชาย' }` (no `en`) | passes `required:'any'`; `th` is valid Thai script ✅ |
-| Write (bad script) | `{ en: 'สมชาย' }` | `ScriptViolationError` — `en` expects `Latin`, got `Thai` ✅ |
+| Write (bad script) | `{ en: 'สมชาย' }` | `ScriptViolationError` — `en` expects `Latin`, got `Thai` ✅ (the common error still caught) |
 | Write (digits) | `{ th: 'สมชาย 2024' }` | passes — Latin digits are `Common` ✅ |
+| Write (embedded Latin, #283) | address `th: '9/9 อาคาร TCM ถนนรัชดาภิเษก'` | passes — `auto` infers `th → [Thai, Latin, Common]`; Latin building names tolerated ✅ |
+| Write (pure-Thai override) | field with `script:{ th:['Thai'] }`, `th: 'อาคาร TCM'` | `ScriptViolationError` — explicit tightening forbids Latin in this field ✅ |
 | `get`, active `en` | `en` absent → `read:'substitute'` → chain `en,th,any` | returns `'สมชาย'` (Thai shown to en reader — acceptable for a name) ✅ |
 | `join` onto invoice, active `en` | `join:'substitute'` | `'สมชาย'` ✅ |
 | `mv` bucketed by `en` name | `en` absent → `mv:'throw'` | **`LocaleNotSpecifiedError`** — MV refresh fails loudly ✅ |
@@ -261,7 +281,7 @@ Field `firstName`: `languages:['th','en']`, `required:'any'`, `substitute:['en',
 
 1. **Resolution policy** — `onMissing` (per-layer) + `substitute`; thread a `Layer` tag through `resolveI18nText()` and every read path (read / join / mv / derivation / export / guard). Includes `LocaleNotSpecifiedError` reuse and the lenient-guard default. *(Slice 1)*
 2. **Script enforcement** — `script` + `onScriptViolation` + `ScriptViolationError` + BCP-47 inference table + `validateI18nScript()`. *(Slice 2, independent of Slice 1)*
-3. **dictKey parity** — `onMissing` + `substitute` on `DictKeyOptions` applied in `resolveLabel`; array-of-keys → `[{ key, label }]`; `groupBy`/`orderBy`/MV key-vs-label binding (`{ by }` option). *(Slice 3 — depends on Slice 1's policy engine; the query-binding part touches `query/groupby` + join planner)*
+3. **dictKey parity** — `onMissing` + `substitute` on `DictKeyOptions` applied in `resolveLabel`; array-of-keys → `[{ key, label }]`; **wildcard-path `contacts[].title` → per-element `<leaf>Label`** (#282, reuse `getAtPath`/`applyAtPath`); `groupBy`/`orderBy`/MV key-vs-label binding (`{ by }` option). *(Slice 3 — depends on Slice 1's policy engine; the query-binding part touches `query/groupby` + join planner)*
 4. **`densifyOnWrite` eager-fill** — deferred; optional follow-on. *(Slice 4)*
 
 Slice 3's policy half (resolveLabel) is small once Slice 1 lands; its query-binding half (key-vs-label `groupBy`/`orderBy`) is the larger, more cross-cutting piece and may sub-split.
@@ -270,7 +290,7 @@ Slice 3's policy half (resolveLabel) is small once Slice 1 lands; its query-bind
 
 - **`features.yaml`** — register the new capability nodes (spec ↔ artefact) or CI's "Spec coverage" job fails on dangling refs. Touch this in the implementation PR.
 - **Subsystem doc** — extend `docs/subsystems/` i18n section with the policy table + script model.
-- **Showcase** — add a bilingual showcase under `showcases/src/` exercising the full worked trace (write, substitute read, strict-MV throw, lenient guard, script reject) **plus** a dictKey honorific case (`Mr.`/`Ms.`→`คุณ`) proving key-bucketing stays distinct while label-sort collapses.
+- **Showcase** — add a bilingual showcase under `showcases/src/` exercising the full worked trace (write, substitute read, strict-MV throw, lenient guard, script reject, **Thai address with embedded Latin passing under `auto`** per #283) **plus** a dictKey honorific case (`Mr.`/`Ms.`→`คุณ`) **nested on an array of contact objects** (`contacts[].title`, #282) proving per-element label resolution and that key-bucketing stays distinct while label-sort collapses.
 - **Companion spec** — `@noy-db/in-pinia` reactive-binding spec is a *separate* brainstorm → spec → plan cycle (see intro). Not blocked by, but built on top of, this hub work. Open it after Slice 1 lands so the reactive selectors have a stable resolution API to wrap.
 - **Conformance** — new behavior tested on `to-memory` and `to-file`; existing i18n conformance must stay green to prove zero-breaking-change.
 - **Tree-shaking** — all new logic inside `withI18n()`; verify `NO_I18N` default bundle size is unchanged.
