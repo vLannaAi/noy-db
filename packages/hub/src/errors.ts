@@ -43,10 +43,12 @@
  *       │    └─ BackupCorruptedError   — envelope hash mismatch in dump
  *       ├─ Bundle errors
  *       │    └─ BundleIntegrityError   — .noydb body sha256 mismatch
- *       └─ Session errors
- *            ├─ SessionExpiredError
- *            ├─ SessionNotFoundError
- *            └─ SessionPolicyError
+ *       ├─ Session errors
+ *       │    ├─ SessionExpiredError
+ *       │    ├─ SessionNotFoundError
+ *       │    └─ SessionPolicyError
+ *       └─ Snapshot errors
+ *            └─ SnapshotNotFoundError  — snapshot key absent from snapshot store
  * ```
  *
  * ## Catching all NOYDB errors
@@ -1783,5 +1785,27 @@ export class OverlayIdMismatchError extends NoydbError {
     this.name = 'OverlayIdMismatchError'
     this.actual = actual
     this.expected = expected
+  }
+}
+
+// ─── Snapshot Errors ──────────────────────────────────────
+
+/**
+ * Thrown when a requested snapshot version does not exist in the
+ * snapshot store — either it was never created, was pruned by the
+ * retention policy, or was deleted manually.
+ *
+ * The `version` field carries the key that was looked up so callers
+ * can surface an actionable "snapshot X not found" message without
+ * parsing the error string.
+ */
+export class SnapshotNotFoundError extends NoydbError {
+  constructor(version: string) {
+    super(
+      'SNAPSHOT_NOT_FOUND',
+      `Snapshot not found: "${version}" does not exist in the snapshot store. ` +
+      `It may have been pruned by the retention policy or deleted manually.`,
+    )
+    this.name = 'SnapshotNotFoundError'
   }
 }
