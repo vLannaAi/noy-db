@@ -39,6 +39,7 @@ const ENTRIES = {
   'periods/index': 'src/periods/index.ts',
   'guards/index': 'src/guards/index.ts',
   'shadow/index': 'src/shadow/index.ts',
+  'snapshots/index': 'src/snapshots/index.ts',
   'tx/index': 'src/tx/index.ts',
   'derivations/index': 'src/derivations/index.ts',
   'materialized-views/index': 'src/materialized-views/index.ts',

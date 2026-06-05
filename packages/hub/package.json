@@ -176,6 +176,16 @@
         "default": "./dist/shadow/index.cjs"
       }
     },
+    "./snapshots": {
+      "import": {
+        "types": "./dist/snapshots/index.d.ts",
+        "default": "./dist/snapshots/index.js"
+      },
+      "require": {
+        "types": "./dist/snapshots/index.d.cts",
+        "default": "./dist/snapshots/index.cjs"
+      }
+    },
     "./tx": {
       "import": {
         "types": "./dist/tx/index.d.ts",

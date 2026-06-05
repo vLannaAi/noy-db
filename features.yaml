@@ -703,6 +703,29 @@ features:
       - 'extractPartition appends a partition-handed-over:<sealId> lifecycle entry to the source ledger (audit signal; no-op without history)'
     related: [bundle, persisted-json-schema, history, team]
 
+  - id: with-snapshots
+    name: Snapshot lifecycle (withSnapshots)
+    cluster: snapshot-and-portability
+    spec: docs/subsystems/snapshots.md
+    subsystem_doc: docs/subsystems/snapshots.md
+    package: '@noy-db/hub/snapshots'
+    factory: withSnapshots
+    status: preview
+    showcases:
+      - id: 93-with-snapshots
+        path: showcases/src/93-with-snapshots.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Whole-vault checkpoints via NoydbBundleStore — not a replacement for @noy-db/hub/history'
+      - 'ledgerHead integrity verified on restore via vault.load() → verifyBackupIntegrity()'
+      - 'Sidecar index blob (${vaultId}__index) holds SnapshotMeta[] for O(1) listing without blob downloads'
+      - 'Retention enforced eagerly via deleteBundle(); prune:false delegates to infra expiry'
+      - 'After restoreSnapshot(), collection handles are stale — re-obtain via db.vault().collection()'
+      - 'Auto-snapshot cadence deferred to v2; per-collection snapshots deferred to v2'
+    related: [bundle, history]
+
   - id: attestation
     name: Document attestation (signed-QR offline verification)
     cluster: time-and-audit

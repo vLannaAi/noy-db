@@ -106,6 +106,7 @@ import type { KeyringAuthenticator } from './types.js'
 import type { SyncEngine } from './team/sync.js'
 import type { SyncTransaction } from './team/sync-transaction.js'
 import { NO_SYNC, type SyncStrategy } from './team/sync-strategy.js'
+import { NO_SNAPSHOTS, type SnapshotStrategy, type SnapshotMeta } from './snapshots/strategy.js'
 import type { AmendmentTxOptions } from './tx/transaction.js'
 import { TxContext } from './tx/transaction.js'
 import type { DryRunResult } from './tx/dry-run.js'
@@ -204,6 +205,7 @@ export class Noydb {
   private readonly txStrategy: TxStrategy
   private readonly sessionStrategy: SessionStrategy
   private readonly syncStrategy: SyncStrategy
+  private readonly snapshotStrategy: SnapshotStrategy
   /**
    * Currently-running multi-record transaction, set by
    * `runTransaction` at the start of Phase 2 (commit) and cleared in
@@ -230,6 +232,7 @@ export class Noydb {
     this.txStrategy = options.txStrategy ?? NO_TX
     this.sessionStrategy = options.sessionStrategy ?? NO_SESSION
     this.syncStrategy = options.syncStrategy ?? NO_SYNC
+    this.snapshotStrategy = options.snapshotStrategy ?? NO_SNAPSHOTS
     this.publicEnvelopeSchema = resolvePublicEnvelopeSchema(options.publicEnvelope)
     // Validate sessionPolicy at construction time (developer error if invalid).
     // The strategy's stub throws with a pointer at the subpath if the
@@ -2742,6 +2745,48 @@ export class Noydb {
 
     this.keyringCache.set(vault, keyring)
     return keyring
+  }
+
+  /**
+   * Take an on-demand checkpoint of the given vault.
+   * Requires `snapshotStrategy: withSnapshots({ store })` in `createNoydb`.
+   * @throws ValidationError when the vault is not open
+   */
+  async snapshot(vault: string, opts?: { label?: string; note?: string }): Promise<SnapshotMeta> {
+    if (this.closed) throw new ValidationError('Instance is closed')
+    const v = this.vaultCache.get(vault)
+    if (!v) {
+      throw new ValidationError(
+        `Vault "${vault}" is not open. Call openVault() first.`,
+      )
+    }
+    return this.snapshotStrategy.snapshot(v, this.options.user, opts)
+  }
+
+  /**
+   * List all snapshots for the given vault, newest first.
+   * Reads only the sidecar index — does not download snapshot bytes.
+   */
+  async listSnapshots(vault: string): Promise<SnapshotMeta[]> {
+    if (this.closed) throw new ValidationError('Instance is closed')
+    return this.snapshotStrategy.listSnapshots(vault)
+  }
+
+  /**
+   * Restore the vault to a previously snapshotted state.
+   * Runs `verifyBackupIntegrity()` automatically on restore.
+   * @throws SnapshotNotFoundError when `version` doesn't exist in the store
+   * @throws ValidationError when the vault is not open
+   */
+  async restoreSnapshot(vault: string, version: string): Promise<void> {
+    if (this.closed) throw new ValidationError('Instance is closed')
+    const v = this.vaultCache.get(vault)
+    if (!v) {
+      throw new ValidationError(
+        `Vault "${vault}" is not open. Call openVault() first.`,
+      )
+    }
+    return this.snapshotStrategy.restoreSnapshot(v, version)
   }
 }
 

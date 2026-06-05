@@ -21,6 +21,20 @@ function makeBus(n: number): TabChannel[] {
 }
 const settle = async () => { await new Promise((r) => setTimeout(r, 0)); await new Promise((r) => setTimeout(r, 0)) }
 
+/**
+ * Poll until `cond` is true (or throw on timeout). The cross-tab conflict path
+ * does async store reads after a write signal is delivered, so a fixed number
+ * of `settle()` ticks is racy on slow/contended CI runners — wait for the
+ * observable outcome instead of guessing how many microtasks it takes.
+ */
+const waitFor = async (cond: () => boolean, timeoutMs = 2000) => {
+  const start = Date.now()
+  while (!cond()) {
+    if (Date.now() - start > timeoutMs) throw new Error('waitFor: condition not met within timeout')
+    await new Promise((r) => setTimeout(r, 5))
+  }
+}
+
 /** A bus that QUEUES sends until deliver() — lets both tabs write before any delivery. */
 function makeManualBus(n: number): { chans: TabChannel[]; deliver: () => void } {
   const listeners: Array<((p: string) => void) | null> = []
@@ -174,7 +188,7 @@ describe('cross-tab conflict detection (#228c)', () => {
     await c1.put('seed', { id: 'seed', amount: 10 }) // db1 → store
     await c2.put('seed', { id: 'seed', amount: 20 }) // db2 → store (wins LWW)
     deliver()
-    await settle()
+    await waitFor(() => seen1.length >= 1 && seen2.length >= 1)
 
     expect(seen1).toHaveLength(1)
     expect(seen2).toHaveLength(1)

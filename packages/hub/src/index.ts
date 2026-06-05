@@ -271,6 +271,10 @@ export {
   QuiesceTimeoutError,
 } from './errors.js'
 
+// ─── Snapshot errors ─────────────────────────────────────────────────────────
+export { SnapshotNotFoundError } from './errors.js'
+export type { SnapshotMeta, RetentionPolicy } from './snapshots/strategy.js'
+
 // Bundle format — `.noydb` container
 export {
   writeNoydbBundle,
