@@ -41,6 +41,7 @@
  */
 
 import { MissingTranslationError, LocaleNotSpecifiedError } from '../errors.js'
+import type { OnMissing, OnMissingPolicy } from './policy.js'
 
 // ─── i18nText descriptor ───────────────────────────────────────────────
 
@@ -72,6 +73,31 @@ export interface I18nTextOptions {
    * before `put()` if a translator is configured. Default: `false`.
    */
   readonly autoTranslate?: boolean
+  /**
+   * What to do when this field is resolved to a locale that is absent.
+   * A single policy, or a per-layer map (read/guard/join/mv/derivation/
+   * export). Default `'throw'` — today's behavior, zero breaking change.
+   * See {@link OnMissingPolicy}.
+   */
+  readonly onMissing?: OnMissingPolicy
+  /**
+   * Ordered preferred-substitute locales used when `onMissing` resolves
+   * to `'substitute'` and the target locale is absent. `'any'` as an
+   * element means "first non-empty value". A caller-supplied `fallback`
+   * at read time takes precedence over this declared list.
+   */
+  readonly substitute?: readonly string[]
+  /**
+   * Per-locale script enforcement (write-time). `'auto'` infers the
+   * allowed Unicode scripts per locale (asymmetric Latin tolerance); an
+   * object overrides per slot. Absent ⇒ no check. See `./script.ts`.
+   */
+  readonly script?: 'auto' | Partial<Record<string, readonly string[]>>
+  /**
+   * What to do when a slot's value contains characters outside its
+   * allowed script set. Default `'reject'`.
+   */
+  readonly onScriptViolation?: 'reject' | 'filter' | 'warn'
 }
 
 /**
@@ -210,12 +236,58 @@ export function validateI18nTextValue(
  * @param field    Field name used in `LocaleNotSpecifiedError` messages.
  * @returns The resolved string, OR the original map when `locale === 'raw'`.
  */
+/** Options for the policy-aware form of {@link resolveI18nText}. */
+export interface ResolveI18nOptions {
+  /** Effective policy for the resolution layer. Default `'throw'`. */
+  readonly policy?: OnMissing
+  /** Declared substitute chain; applied only under policy `'substitute'`. */
+  readonly substitute?: readonly string[]
+}
+
+/** Normalize a single-or-list fallback into an array. */
+function toChain(fallback: string | readonly string[] | undefined): readonly string[] {
+  return Array.isArray(fallback) ? fallback : fallback ? [fallback as string] : []
+}
+
+/** Walk a chain, returning the first non-empty value (or `'any'` match). */
+function pickFromChain(
+  value: Record<string, string>,
+  chain: readonly string[],
+): string | undefined {
+  for (const fb of chain) {
+    if (fb === 'any') {
+      const any = Object.values(value).find((v) => v !== '')
+      if (any !== undefined) return any
+    } else if (value[fb] !== undefined && value[fb] !== '') {
+      return value[fb]
+    }
+  }
+  return undefined
+}
+
+// Legacy 4-arg form: can only throw or return — never null. Keeps every
+// existing call site's type unchanged (default policy is 'throw').
 export function resolveI18nText(
   value: Record<string, string>,
   locale: string,
   fallback?: string | readonly string[],
   field?: string,
-): string | Record<string, string> {
+): string | Record<string, string>
+// Policy-aware form: may return null under 'null'/'substitute' policies.
+export function resolveI18nText(
+  value: Record<string, string>,
+  locale: string,
+  fallback: string | readonly string[] | undefined,
+  field: string | undefined,
+  opts: ResolveI18nOptions,
+): string | Record<string, string> | null
+export function resolveI18nText(
+  value: Record<string, string>,
+  locale: string,
+  fallback?: string | readonly string[],
+  field?: string,
+  opts?: ResolveI18nOptions,
+): string | Record<string, string> | null {
   if (locale === 'raw') {
     return value
   }
@@ -229,28 +301,30 @@ export function resolveI18nText(
     return value[locale]
   }
 
-  // Fallback chain
-  const chain: readonly string[] = Array.isArray(fallback)
-    ? fallback
-    : fallback
-      ? [fallback]
-      : []
+  const policy: OnMissing = opts?.policy ?? 'throw'
 
-  for (const fb of chain) {
-    if (fb === 'any') {
-      const any = Object.values(value).find((v) => v !== '')
-      if (any !== undefined) return any
-    } else if (value[fb] !== undefined && value[fb] !== '') {
-      return value[fb]
-    }
+  // Caller-supplied fallback ALWAYS applies first (backward compat +
+  // explicit read-time override), regardless of policy.
+  const callerChain = toChain(fallback)
+  const callerHit = pickFromChain(value, callerChain)
+  if (callerHit !== undefined) return callerHit
+
+  // Declared substitute applies ONLY under policy 'substitute'.
+  if (policy === 'substitute') {
+    const subHit = pickFromChain(value, toChain(opts?.substitute))
+    if (subHit !== undefined) return subHit
   }
 
-  throw new LocaleNotSpecifiedError(
-    field ?? '<unknown>',
-    `No translation available for locale "${locale}"` +
-      (chain.length > 0 ? ` or fallback chain [${chain.join(', ')}]` : '') +
-      '.',
-  )
+  // Exhausted.
+  if (policy === 'throw') {
+    throw new LocaleNotSpecifiedError(
+      field ?? '<unknown>',
+      `No translation available for locale "${locale}"` +
+        (callerChain.length > 0 ? ` or fallback chain [${callerChain.join(', ')}]` : '') +
+        '.',
+    )
+  }
+  return null
 }
 
 // ─── Path helpers (nested i18nFields like 'address.lineOne') ──────────
