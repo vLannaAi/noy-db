@@ -14,6 +14,12 @@
 export * from './core.js'
 export * from './dictionary.js'
 
+// ─── Resolution policy + script enforcement ────────────
+export { resolvePolicy } from './policy.js'
+export type { OnMissing, Layer, OnMissingPolicy } from './policy.js'
+export { inferScripts, enforceScript } from './script.js'
+export type { ScriptWarning } from './script.js'
+
 // ─── Strategy seam ─────────────────────────────────────
 export { withI18n } from './active.js'
 export type { I18nStrategy } from './strategy.js'
@@ -29,4 +35,5 @@ export {
   MissingTranslationError,
   LocaleNotSpecifiedError,
   TranslatorNotConfiguredError,
+  ScriptViolationError,
 } from '../errors.js'

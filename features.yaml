@@ -326,6 +326,8 @@ features:
     showcases:
       - id: 09-with-i18n
         path: showcases/src/09-with-i18n.showcase.test.ts
+      - id: 94-with-i18n-hardening
+        path: showcases/src/94-with-i18n-hardening.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
@@ -334,6 +336,11 @@ features:
       - 'resolveLabel(key, locale, fallback) walks the fallback chain'
       - 'No transliteration (locale-specific lossy mappings stay in userland)'
       - 'i18nField paths support dot notation (address.lineOne) and array wildcards (contacts[].title)'
+      - 'onMissing policy (substitute/null/throw) is per-layer; default throw preserves legacy behavior; only the read layer is wired (guard/mv/derivation/join/export are tracked follow-ups)'
+      - 'substitute: declared ordered preferred-locale chain; caller fallback overrides it per read'
+      - 'script enforcement is asymmetric-Latin: non-Latin locales also allow Latin (embedded brand/building names); Latin locales reject other scripts; Common/Inherited/Mark always allowed'
+      - 'onScriptViolation reject (default) | filter | warn; ScriptViolationError distinct from MissingTranslationError / LocaleNotSpecifiedError'
+      - 'dictKey array-of-keys resolves to [{key,label}] pair objects; wildcard-path contacts[].title adds per-element <leaf>Label; identity ops bind to the stable key'
     related: [vault-and-collections]
 
   - id: aggregate
