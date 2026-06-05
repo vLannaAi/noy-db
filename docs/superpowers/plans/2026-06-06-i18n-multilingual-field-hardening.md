@@ -120,7 +120,7 @@ expect(resolveI18nText(v, 'raw')).toEqual(v)
 ```
 
 - [ ] **Step 2:** Run → FAIL.
-- [ ] **Step 3: Implement.** Add to `I18nTextOptions`: `readonly onMissing?: OnMissing | Partial<Record<Layer, OnMissing>>; readonly substitute?: readonly string[]`. Rewrite `resolveI18nText` to the 5th optional-arg signature with the semantics above. Return type widens to `string | Record<string,string> | null`. Keep a private `pickFromChain(value, chain)` helper handling `'any'`.
+- [ ] **Step 3: Implement.** Add to `I18nTextOptions`: `readonly onMissing?: OnMissing | Partial<Record<Layer, OnMissing>>; readonly substitute?: readonly string[]`. Rewrite `resolveI18nText` to the 5th optional-arg signature with the semantics above. Return type widens to `string | Record<string,string> | null`. Keep a private `pickFromChain(value, chain)` helper handling `'any'`. **Null-widening (advisor):** the `| null` only occurs under new opt-in policies, but TS will flag existing callers — give `resolveI18nText` a function **overload** so the legacy 4-arg form keeps return type `string | Record<string,string>` (it can only throw or return, never null), and the 5-arg opts form returns `… | null`. Verify with `typecheck` at Step 4.
 - [ ] **Step 4:** Run → PASS; also run existing `__tests__/i18n.test.ts` → PASS (no regression).
 - [ ] **Step 5: Commit** `feat(hub/i18n): policy-aware resolveI18nText (substitute/null/throw)`
 
@@ -179,7 +179,7 @@ expect(() => validateI18nScript({ th:'อาคาร TCM' }, 'f', strict)).toTh
 - [ ] **Step 3: Implement** `src/i18n/script.ts`:
   - `LATIN_LOCALES` set + `inferScripts(locale)`: if locale or its `-Xxxx` subtag is Latin → `['Latin']`; Cyrl subtag → `['Cyrillic','Latin']`; else base-language table (`th→['Thai','Latin']`, `ja→['Han','Hiragana','Katakana','Latin']`, `ko→['Hangul','Han','Latin']`, `ar→['Arabic','Latin']`, `ru/uk→['Cyrillic','Latin']`, Latin-base langs `en/fr/de/es/it/pt/nl/...→['Latin']`). Always conceptually `+ Common` in the matcher.
   - `allowedFor(desc, locale)`: explicit `desc.options.script[locale]` if object; else `inferScripts(locale)`.
-  - matcher: build `new RegExp(\`^[\\p{Script=Common}\\s${scripts.map(s=>`\\p{Script=${s}}`).join('')}]*$\`, 'u')`. (Whitespace explicit for safety.)
+  - matcher: build `new RegExp(\`^[\\p{Script=Common}\\p{Script=Inherited}\\p{Mark}\\s${scripts.map(s=>`\\p{Script=${s}}`).join('')}]*$\`, 'u')`. **`Inherited`/`Mark` are always-on baseline alongside `Common`** — combining diacritics, joiners, Arabic harakat, Thai tone marks are `Script=Inherited`, NOT `Common`; omitting them false-rejects valid in-script text (advisor finding). Add tests: Thai tone-mark word `น้ำ` and an IPA-with-diacritics sample must PASS under their allowed scripts.
   - `validateI18nScript(value, field, desc)`: skip if `!desc.options.script`. For each locale slot string, test matcher; on violation honor `onScriptViolation`: `'reject'`(default)→throw `ScriptViolationError` (compute offending chars sample), `'filter'`→return a cleaned copy (strip disallowed), `'warn'`→return value + emit (return a `{ value, warnings }` tuple consumed by put). Provide both a throwing validate and a `applyScriptFilter` for the filter/warn paths.
   - Extend `I18nTextOptions`: `readonly script?: 'auto' | Partial<Record<string, readonly string[]>>; readonly onScriptViolation?: 'reject'|'filter'|'warn'`.
 - [ ] **Step 4:** PASS (verify `\p{Script=...}` works under the repo's TS/node target; tsconfig `target` ≥ ES2018 + `u` flag — confirm).
@@ -198,6 +198,14 @@ expect(() => validateI18nScript({ th:'อาคาร TCM' }, 'f', strict)).toTh
 ---
 
 ## Phase D — Per-layer threading (guard / derivation / mv / export)
+
+### Task D0 (GATE): spike whether MV/join resolution even has a call site
+
+**Advisor finding:** query resolution is NOT automatic — caller passes `{locale}` at the chain terminal. So inside an MV's `query(db).groupBy('firstName')`, `firstName` may still be the raw `{locale:string}` map, never resolved — meaning `mv:'throw'` has **no call site to fire from**, and tagging a facade `layer:'mv'` does nothing. Guard/derivation reads DO have call sites (`facade → get() → applyLocaleToRecord(defaultLocale)`); MV/join are the suspects.
+
+- [ ] **D0 spike:** write a throwaway test — an MV that `groupBy`s an i18nText field — and inspect whether the bucket key is a resolved string or the raw map. Also check the join expansion path. **Decision gate:**
+  - If resolution already runs in MV/join → D2/D3 are small (just thread the layer tag).
+  - If it does NOT → **do not invent resolution-injection under autonomy.** Land D1 (guard/derivation, real call sites) + A+B+C+E1–E3, and convert D2 (mv/export) and D3 (join) into documented follow-up tasks under milestone #17. A clean partial beats a forced aggregation-pipeline change.
 
 ### Task D1: layer-tagged `ReadOnlyVaultFacade`
 
