@@ -1,5 +1,23 @@
 # Changelog — hub
 
+## 0.2.0-pre.7
+
+### Feature: cross-join query primitive ([#277](https://github.com/vLannaAi/noy-db/pull/277))
+
+- Added **`.crossJoin(target, { as })`** to `Query<T>` — expresses cartesian-product relations between two vault collections, composing with `.where()`, `.wherePredicate()`, `.groupBy()`, and `.aggregate()`.
+- Supports a **lateral** form (`on:` callback) that filters or supplies the right-hand rows per left row.
+- Guarded by a **cost ceiling**: `CrossJoinTooLargeError` aborts before materializing a product larger than the configured limit; `CrossJoinSourceUnknownError` surfaces an unresolved target. Dim 11 v3.
+
+### Feature: vault snapshots — checkpoint/restore ([#279](https://github.com/vLannaAi/noy-db/pull/279))
+
+- Added opt-in **`withSnapshots()`** strategy (`@noy-db/hub/snapshots`) exposing `db.snapshot()`, `db.listSnapshots()`, and `db.restoreSnapshot()`.
+- Snapshots are full encrypted `.noydb` bundles backed by any `NoydbBundleStore`; a sidecar `${vaultId}__index` blob holds `SnapshotMeta[]` for listing without downloading snapshot blobs.
+- **Declarative retention** enforcement and **`ledgerHead` tamper-detection** on restore. Zero footprint when omitted (the `NO_SNAPSHOTS` stub throws on all methods).
+
+### Fix: de-flaked cross-tab conflict test (#228c)
+
+- `tab-write-propagation` conflict test now polls for emitted conflicts instead of waiting a fixed number of `settle()` ticks — removes a timing race that intermittently failed on contended CI runners. Test-only change.
+
 ## 0.2.0-pre.6
 
 ### Fix: nested i18nField paths not resolved on read ([#273](https://github.com/vLannaAi/noy-db/issues/273))
