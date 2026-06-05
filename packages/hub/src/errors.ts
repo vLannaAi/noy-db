@@ -1800,6 +1800,8 @@ export class OverlayIdMismatchError extends NoydbError {
  * parsing the error string.
  */
 export class SnapshotNotFoundError extends NoydbError {
+  readonly version: string
+
   constructor(version: string) {
     super(
       'SNAPSHOT_NOT_FOUND',
@@ -1807,5 +1809,6 @@ export class SnapshotNotFoundError extends NoydbError {
       `It may have been pruned by the retention policy or deleted manually.`,
     )
     this.name = 'SnapshotNotFoundError'
+    this.version = version
   }
 }

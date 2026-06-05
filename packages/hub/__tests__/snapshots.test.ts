@@ -22,6 +22,7 @@ describe('SnapshotNotFoundError', () => {
     const err = new SnapshotNotFoundError('vault1__snap_000001')
     expect(err.code).toBe('SNAPSHOT_NOT_FOUND')
     expect(err.message).toContain('vault1__snap_000001')
+    expect(err.version).toBe('vault1__snap_000001')
     expect(err).toBeInstanceOf(SnapshotNotFoundError)
   })
 })
