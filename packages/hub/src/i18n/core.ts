@@ -41,7 +41,8 @@
  */
 
 import { MissingTranslationError, LocaleNotSpecifiedError } from '../errors.js'
-import type { OnMissing, OnMissingPolicy } from './policy.js'
+import type { OnMissing, OnMissingPolicy, Layer } from './policy.js'
+import { resolvePolicy } from './policy.js'
 
 // ─── i18nText descriptor ───────────────────────────────────────────────
 
@@ -391,6 +392,7 @@ function applyAtPath(
   path: string,
   locale: string,
   fallback: string | readonly string[] | undefined,
+  opts: ResolveI18nOptions,
 ): Record<string, unknown> {
   const arrayIdx = path.indexOf('[].')
   if (arrayIdx !== -1) {
@@ -402,7 +404,7 @@ function applyAtPath(
       ...obj,
       [arrayKey]: arr.map(item => {
         if (!item || typeof item !== 'object' || Array.isArray(item)) return item
-        return applyAtPath(item as Record<string, unknown>, restPath, locale, fallback)
+        return applyAtPath(item as Record<string, unknown>, restPath, locale, fallback, opts)
       }),
     }
   }
@@ -414,7 +416,7 @@ function applyAtPath(
     if (!nested || typeof nested !== 'object' || Array.isArray(nested)) return obj
     return {
       ...obj,
-      [head]: applyAtPath(nested as Record<string, unknown>, rest, locale, fallback),
+      [head]: applyAtPath(nested as Record<string, unknown>, rest, locale, fallback, opts),
     }
   }
   const raw = obj[path]
@@ -422,7 +424,7 @@ function applyAtPath(
   if (typeof raw !== 'object' || Array.isArray(raw)) return obj
   return {
     ...obj,
-    [path]: resolveI18nText(raw as Record<string, string>, locale, fallback, path),
+    [path]: resolveI18nText(raw as Record<string, string>, locale, fallback, path, opts),
   }
 }
 
@@ -440,20 +442,30 @@ function applyAtPath(
  * @param i18nFields  Map of field path → `I18nTextDescriptor`.
  * @param locale      The requested locale (or `'raw'`).
  * @param fallback    Fallback chain (optional).
+ * @param layer       Resolution layer (default `'read'`). Each field's
+ *                    `onMissing` policy is resolved for this layer, so the
+ *                    same record resolves leniently on a get but strictly
+ *                    inside an mv/derivation.
  */
 export function applyI18nLocale(
   record: Record<string, unknown>,
   i18nFields: Record<string, I18nTextDescriptor>,
   locale: string,
   fallback?: string | readonly string[],
+  layer: Layer = 'read',
 ): Record<string, unknown> {
   const fieldNames = Object.keys(i18nFields)
   if (fieldNames.length === 0) return record
 
   let result = record
 
-  for (const field of fieldNames) {
-    result = applyAtPath(result, field, locale, fallback)
+  for (const [field, descriptor] of Object.entries(i18nFields)) {
+    const { onMissing, substitute } = descriptor.options
+    const opts: ResolveI18nOptions = {
+      policy: resolvePolicy(onMissing, layer),
+      ...(substitute !== undefined ? { substitute } : {}),
+    }
+    result = applyAtPath(result, field, locale, fallback, opts)
   }
 
   return result

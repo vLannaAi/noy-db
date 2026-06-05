@@ -31,6 +31,7 @@ import type { LedgerStore } from '../history/ledger/store.js'
 import type { UnlockedKeyring } from '../team/keyring.js'
 import type { NoydbEventEmitter } from '../events.js'
 import type { I18nTextDescriptor } from './core.js'
+import type { Layer } from './policy.js'
 import type { DictionaryHandle, DictionaryOptions } from './dictionary.js'
 
 /**
@@ -79,6 +80,7 @@ export interface I18nStrategy {
     fields: Record<string, I18nTextDescriptor>,
     locale: string,
     fallback?: string | readonly string[],
+    layer?: Layer,
   ): Record<string, unknown>
 
   /**
