@@ -21,7 +21,7 @@ const db = await createNoydb({
 
 When a subsystem is not opted into, its real implementation is replaced by a NO-OP stub (or a throwing stub on opt-in surfaces) and the heavy code is fully tree-shaken from the bundle.
 
-This document lists the always-on core and the 21 subsystems. It is the table of contents for the rest of the documentation.
+This document lists the always-on core and the 23 subsystems. It is the table of contents for the rest of the documentation.
 
 ---
 
@@ -43,7 +43,7 @@ Anything outside this floor is a subsystem.
 
 ---
 
-## The 21 subsystems
+## The 23 subsystems
 
 Each subsystem has its own subpath export under `@noy-db/hub/<name>`, a `with<Name>()` factory, and a doc page in `docs/subsystems/<name>.md`. The "LOC saved" column is the bundle weight a consumer avoids by **not** opting in.
 
@@ -55,6 +55,7 @@ Each subsystem has its own subpath export under `@noy-db/hub/<name>`, a `with<Na
 | 2 | `@noy-db/hub/joins` | Multi-FK eager joins (indexed nested-loop / hash strategy) | ~470 | `indexing`, `live` |
 | 3 | `@noy-db/hub/aggregate` | `count` / `sum` / `avg` / `min` / `max` + `groupBy` | 886 | `joins` |
 | 4 | `@noy-db/hub/live` | Reactive subscriptions (`.live()`, `.subscribe()`) | ~210 | `joins`, `crdt`, `sync` |
+| 22 | *(always-core)* | Cartesian + lateral cross-join — `.crossJoin(target, { as })` with 50K-row cost ceiling (Dim 11 v3) | — | `joins`, `aggregate` |
 
 ### Cluster B — Write & Mutate
 
@@ -95,6 +96,7 @@ The Dim 14 family. All three share the same encrypted-payload metadata envelope,
 |---|---|---|---:|---|
 | 12 | `@noy-db/hub/shadow` | Read-only `vault.frame()` views | 129 | `history` (time-machine) |
 | 13 | `@noy-db/hub/bundle` | `.noydb` encrypted container format (backup, transport) | 846 | `blobs`, `routing` |
+| 23 | `@noy-db/hub/snapshots` | Vault checkpoint/restore — `db.snapshot()` / `listSnapshots()` / `restoreSnapshot()` with declarative retention + `ledgerHead` tamper-detection | ~200 | `bundle`, `history` |
 
 ### Cluster G — Collaboration & Auth
 
@@ -113,7 +115,7 @@ The Dim 14 family. All three share the same encrypted-payload metadata envelope,
 |---|---|---|---:|---|
 | 17 | `@noy-db/hub/routing` | Multi-store routing + middleware + sync-policy + lazy-mode + LRU cache | ~1,985 | `indexing`, `bundle` |
 
-**Totals:** ~16,450 LOC across all 21 subsystems are tree-shake-able. A consumer using only the core ships ~6,500 LOC. A consumer opting into all 21 ships ~31,500 LOC.
+**Totals:** ~16,650 LOC across all 23 subsystems are tree-shake-able. A consumer using only the core ships ~6,500 LOC. A consumer opting into all 23 ships ~31,700 LOC.
 
 ---
 
