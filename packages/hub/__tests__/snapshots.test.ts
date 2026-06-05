@@ -268,3 +268,27 @@ describe('SnapshotEngine retention', () => {
     expect(index.snapshots).toHaveLength(2) // unchanged
   })
 })
+
+describe('SnapshotEngine.restoreSnapshot()', () => {
+  it('throws SnapshotNotFoundError for unknown version', async () => {
+    const store = makeMockStore()
+    const engine = new SnapshotEngine(store, {})
+    const vault = makeMockVault('v1')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await expect(engine.restoreSnapshot(vault as any, 'v1__snap_999999')).rejects.toThrow(SnapshotNotFoundError)
+  })
+
+  it('throws SnapshotNotFoundError with correct version field', async () => {
+    const store = makeMockStore()
+    const engine = new SnapshotEngine(store, {})
+    const vault = makeMockVault('v1')
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await engine.restoreSnapshot(vault as any, 'v1__snap_999999')
+      expect.fail('should have thrown')
+    } catch (e) {
+      expect(e).toBeInstanceOf(SnapshotNotFoundError)
+      expect((e as SnapshotNotFoundError).version).toBe('v1__snap_999999')
+    }
+  })
+})
