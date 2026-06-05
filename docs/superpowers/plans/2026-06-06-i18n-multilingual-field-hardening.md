@@ -203,9 +203,8 @@ expect(() => validateI18nScript({ th:'อาคาร TCM' }, 'f', strict)).toTh
 
 **Advisor finding:** query resolution is NOT automatic — caller passes `{locale}` at the chain terminal. So inside an MV's `query(db).groupBy('firstName')`, `firstName` may still be the raw `{locale:string}` map, never resolved — meaning `mv:'throw'` has **no call site to fire from**, and tagging a facade `layer:'mv'` does nothing. Guard/derivation reads DO have call sites (`facade → get() → applyLocaleToRecord(defaultLocale)`); MV/join are the suspects.
 
-- [ ] **D0 spike:** write a throwaway test — an MV that `groupBy`s an i18nText field — and inspect whether the bucket key is a resolved string or the raw map. Also check the join expansion path. **Decision gate:**
-  - If resolution already runs in MV/join → D2/D3 are small (just thread the layer tag).
-  - If it does NOT → **do not invent resolution-injection under autonomy.** Land D1 (guard/derivation, real call sites) + A+B+C+E1–E3, and convert D2 (mv/export) and D3 (join) into documented follow-up tasks under milestone #17. A clean partial beats a forced aggregation-pipeline change.
+- [x] **D0 spike — DONE (2026-06-06). VERDICT: MV/join read RAW, no resolution call site.** `materialized-views/executor.ts:106` reads source rows via `coll.query().toArray()` with **no locale**, so i18n fields are raw `{locale:string}` maps in the MV pipeline — `mv:'throw'` has nothing to fire from, and `groupAndReduce` would bucket on the raw map. Tagging a facade `layer:'mv'` would be inert.
+  - **Decision:** D1 (guard/derivation, real call sites) is IN. **D2 (mv/export) and D3 (join) are DEFERRED** as follow-ups under milestone #17 — they require a deliberate design to inject i18n resolution into the query/aggregate pipeline (touches `groupAndReduce`, every MV's `query().toArray()`), which is not safe to do unattended. Documented in the PR + handoff.
 
 ### Task D1: layer-tagged `ReadOnlyVaultFacade`
 
