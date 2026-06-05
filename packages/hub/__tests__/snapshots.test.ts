@@ -9,6 +9,7 @@ import type { NoydbBundleStore } from '../src/types.js'
 
 function makeMockStore(): NoydbBundleStore & { blobs: Map<string, Uint8Array> } {
   const blobs = new Map<string, Uint8Array>()
+  const versions = new Map<string, string>()
   let versionCounter = 0
   return {
     kind: 'bundle' as const,
@@ -17,15 +18,20 @@ function makeMockStore(): NoydbBundleStore & { blobs: Map<string, Uint8Array> } 
     async readBundle(vaultId: string) {
       const bytes = blobs.get(vaultId)
       if (!bytes) return null
-      return { bytes, version: `v${vaultId}` }
+      return { bytes, version: versions.get(vaultId)! }
     },
     async writeBundle(vaultId: string, bytes: Uint8Array, _expectedVersion: string | null) {
+      const version = `v${++versionCounter}`
       blobs.set(vaultId, bytes)
-      return { version: `v${++versionCounter}` }
+      versions.set(vaultId, version)
+      return { version }
     },
-    async deleteBundle(vaultId: string) { blobs.delete(vaultId) },
+    async deleteBundle(vaultId: string) {
+      blobs.delete(vaultId)
+      versions.delete(vaultId)
+    },
     async listBundles() {
-      return [...blobs.keys()].map(k => ({ vaultId: k, version: `v${k}`, size: blobs.get(k)!.length }))
+      return [...blobs.keys()].map(k => ({ vaultId: k, version: versions.get(k)!, size: blobs.get(k)!.length }))
     },
   }
 }
@@ -180,5 +186,85 @@ describe('SnapshotEngine.listSnapshots()', () => {
     expect(list).toHaveLength(2)
     expect(list[0].version).toBe(m2.version) // newest first
     expect(list[1].version).toBe(m1.version)
+  })
+})
+
+describe('SnapshotEngine retention', () => {
+  it('keepLast:2 — 3rd snapshot deletes the oldest', async () => {
+    const store = makeMockStore()
+    const engine = new SnapshotEngine(store, { keepLast: 2 })
+    const vault = makeMockVault('v1')
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const m1 = await engine.snapshot(vault as any, 'alice')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const m2 = await engine.snapshot(vault as any, 'alice')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const m3 = await engine.snapshot(vault as any, 'alice')
+
+    // m1 should be pruned (oldest of 3, keepLast=2 means keep m2+m3)
+    expect(store.blobs.has(m1.version)).toBe(false)
+    expect(store.blobs.has(m2.version)).toBe(true)
+    expect(store.blobs.has(m3.version)).toBe(true)
+
+    const list = await engine.listSnapshots('v1')
+    expect(list).toHaveLength(2)
+    expect(list[0].version).toBe(m3.version)
+    expect(list[1].version).toBe(m2.version)
+  })
+
+  it('prune:false — never deletes even when keepLast exceeded', async () => {
+    const store = makeMockStore()
+    const engine = new SnapshotEngine(store, { keepLast: 1, prune: false })
+    const vault = makeMockVault('v1')
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const m1 = await engine.snapshot(vault as any, 'alice')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const m2 = await engine.snapshot(vault as any, 'alice')
+
+    // prune:false — nothing deleted even though keepLast:1 is exceeded
+    expect(store.blobs.has(m1.version)).toBe(true)
+    expect(store.blobs.has(m2.version)).toBe(true)
+  })
+
+  it('applyRetention directly — keepLast removes oldest entries', () => {
+    const store = makeMockStore()
+    const engine = new SnapshotEngine(store, { keepLast: 2 })
+
+    const now = new Date().toISOString()
+    const index = {
+      snapshots: [
+        { version: 'v1__snap_000001', exportedAt: now, exportedBy: 'a', size: 1, integrity: 'verified' as const },
+        { version: 'v1__snap_000002', exportedAt: now, exportedBy: 'a', size: 1, integrity: 'verified' as const },
+        { version: 'v1__snap_000003', exportedAt: now, exportedBy: 'a', size: 1, integrity: 'verified' as const },
+      ],
+      nextCounter: 4,
+    }
+
+    const toDelete = engine.applyRetention(index)
+
+    expect(toDelete).toEqual(['v1__snap_000001'])
+    expect(index.snapshots).toHaveLength(2)
+    expect(index.snapshots[0].version).toBe('v1__snap_000002')
+    expect(index.snapshots[1].version).toBe('v1__snap_000003')
+  })
+
+  it('applyRetention directly — prune:false returns empty even with excess', () => {
+    const store = makeMockStore()
+    const engine = new SnapshotEngine(store, { keepLast: 1, prune: false })
+
+    const now = new Date().toISOString()
+    const index = {
+      snapshots: [
+        { version: 'v1__snap_000001', exportedAt: now, exportedBy: 'a', size: 1, integrity: 'verified' as const },
+        { version: 'v1__snap_000002', exportedAt: now, exportedBy: 'a', size: 1, integrity: 'verified' as const },
+      ],
+      nextCounter: 3,
+    }
+
+    const toDelete = engine.applyRetention(index)
+    expect(toDelete).toEqual([])
+    expect(index.snapshots).toHaveLength(2) // unchanged
   })
 })

@@ -45,6 +45,10 @@ export class SnapshotEngine {
     const { index, indexVersion } = await this.readIndex(vault.name)
     const key = this.snapKey(vault.name, index.nextCounter)
 
+    // Write blob first. If the subsequent index write fails, the next snapshot()
+    // call will re-derive the same key (counter not persisted) and overwrite this blob.
+    // This is an accepted v1 trade-off: failure window is narrow and requires a store
+    // error between the two writes. A retry produces a fresh snapshot at the same key.
     await this.store.writeBundle(key, bytes, null)
 
     const meta: SnapshotMeta = {
@@ -83,6 +87,13 @@ export class SnapshotEngine {
     await vault.load(dumpJson)
   }
 
+  /**
+   * Applies the configured retention policy to `index`, mutating `index.snapshots`
+   * in place and returning the blob keys that should be deleted from the store.
+   * Called by `snapshot()` before the index is written.
+   *
+   * @internal — public for direct testing only
+   */
   applyRetention(index: SnapshotIndex): string[] {
     const prune = this.retention.prune ?? true
     if (!prune) return []
