@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/on-shamir",
-  "version": "0.2.0-pre.6",
+  "version": "0.2.0-pre.7",
   "description": "k-of-n Shamir Secret Sharing of the vault KEK for multi-party unlock. Any K of N shares recombines the key; fewer than K leaks zero bits. Composable — each share can be protected by any other on-* method. Zero runtime dependencies.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",

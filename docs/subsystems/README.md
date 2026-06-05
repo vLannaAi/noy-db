@@ -10,6 +10,7 @@ See [SUBSYSTEMS.md](../../SUBSYSTEMS.md) for the catalog overview, dependency gr
 |---|---|
 | [indexing](./indexing.md) | Eager + lazy persisted indexes (equality + orderBy dispatch) |
 | [joins](./joins.md) | Multi-FK eager joins (indexed nested-loop / hash strategy) |
+| [cross-join](./cross-join.md) | Cartesian + lateral cross-join — `.crossJoin(target, { as })` with cost ceiling — Dim 11 v3 |
 | [aggregate](./aggregate.md) | `count` / `sum` / `avg` / `min` / `max` + `groupBy` |
 | [live](./live.md) | Reactive subscriptions (`.live()`, `.subscribe()`) |
 
@@ -51,6 +52,7 @@ See [SUBSYSTEMS.md](../../SUBSYSTEMS.md) for the catalog overview, dependency gr
 | [shadow](./shadow.md) | Read-only `vault.frame()` views |
 | [bundle](./bundle.md) | `.noydb` encrypted container format |
 | [transferable-partitions](./transferable-partitions.md) | Extract a re-keyed sub-portfolio into a new independently-owned vault (extract → adopt → own) |
+| [snapshots](./snapshots.md) | Vault checkpoint/restore — `db.snapshot()` / `listSnapshots()` / `restoreSnapshot()` with declarative retention + `ledgerHead` tamper-detection |
 
 ## Cluster G — Collaboration & Auth
 
