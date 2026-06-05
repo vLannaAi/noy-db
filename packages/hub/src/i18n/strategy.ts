@@ -32,6 +32,7 @@ import type { UnlockedKeyring } from '../team/keyring.js'
 import type { NoydbEventEmitter } from '../events.js'
 import type { I18nTextDescriptor } from './core.js'
 import type { Layer } from './policy.js'
+import type { ScriptWarning } from './script.js'
 import type { DictionaryHandle, DictionaryOptions } from './dictionary.js'
 
 /**
@@ -95,6 +96,18 @@ export interface I18nStrategy {
   ): void
 
   /**
+   * Enforce per-locale script constraints over an i18nText value map
+   * (write-time). Returns the (possibly filtered) value plus any
+   * non-fatal warnings. Returns the value unchanged when the field has
+   * no `script` option, or under `NO_I18N`.
+   */
+  enforceScript(
+    value: Record<string, unknown>,
+    field: string,
+    descriptor: I18nTextDescriptor,
+  ): { value: Record<string, unknown>; warnings: ScriptWarning[] }
+
+  /**
    * Construct a typed `DictionaryHandle` for the named dictionary.
    * Throws under `NO_I18N`.
    */
@@ -120,5 +133,6 @@ function notEnabled(op: string): Error {
 export const NO_I18N: I18nStrategy = {
   applyI18nLocale(record) { return record },
   validateI18nTextValue() { throw notEnabled('i18nText field validation') },
+  enforceScript(value) { return { value, warnings: [] } },
   buildDictionaryHandle() { throw notEnabled('vault.dictionary()') },
 }

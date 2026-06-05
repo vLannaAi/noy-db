@@ -1200,6 +1200,29 @@ export class Collection<T> {
       }
     }
 
+    // i18nText script enforcement — runs AFTER auto-translate (so
+    // generated values are checked too). Throws ScriptViolationError
+    // under the default 'reject'; 'filter' strips disallowed chars in
+    // place (getAtPath returns live leaf references, so the write-back
+    // covers nested and array-wildcard paths uniformly); 'warn' leaves
+    // the value unchanged.
+    if (this.i18nFields) {
+      const obj = record as Record<string, unknown>
+      for (const [field, descriptor] of Object.entries(this.i18nFields)) {
+        if (!descriptor.options.script) continue
+        for (const leaf of getAtPath(obj, field)) {
+          if (!leaf || typeof leaf !== 'object' || Array.isArray(leaf)) continue
+          const leafMap = leaf as Record<string, unknown>
+          const { value: cleaned } = this.i18nStrategy.enforceScript(
+            leafMap,
+            field,
+            descriptor,
+          )
+          if (cleaned !== leafMap) Object.assign(leafMap, cleaned)
+        }
+      }
+    }
+
     // i18nText validation — runs AFTER schema validation so
     // the record shape is trustworthy. Throws MissingTranslationError
     // when required translations are absent.

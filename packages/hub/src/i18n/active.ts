@@ -27,12 +27,14 @@
 
 import type { I18nStrategy, BuildDictionaryHandleOptions } from './strategy.js'
 import { applyI18nLocale, validateI18nTextValue } from './core.js'
+import { enforceScript } from './script.js'
 import { DictionaryHandle } from './dictionary.js'
 
 export function withI18n(): I18nStrategy {
   return {
     applyI18nLocale,
     validateI18nTextValue,
+    enforceScript,
     buildDictionaryHandle<Keys extends string = string>(
       opts: BuildDictionaryHandleOptions<Keys>,
     ): DictionaryHandle<Keys> {
