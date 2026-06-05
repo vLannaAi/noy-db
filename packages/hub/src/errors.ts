@@ -26,7 +26,9 @@
  *       │    ├─ ValidationError        — application-level guard failed
  *       │    └─ SchemaValidationError  — Standard Schema v1 rejection
  *       ├─ Query errors
- *       │    ├─ JoinTooLargeError      — join row ceiling exceeded
+ *       │    ├─ JoinTooLargeError           — join row ceiling exceeded
+ *       │    ├─ CrossJoinTooLargeError      — cross-join row ceiling exceeded
+ *       │    ├─ CrossJoinSourceUnknownError — target collection not in vault
  *       │    ├─ DanglingReferenceError — strict ref() points at nothing
  *       │    ├─ GroupCardinalityError  — groupBy bucket cap exceeded
  *       │    ├─ IndexRequiredError      — lazy-mode query touches unindexed field
@@ -1430,6 +1432,56 @@ export class JoinTooLargeError extends NoydbError {
     this.rightRows = opts.rightRows
     this.maxRows = opts.maxRows
     this.side = opts.side
+  }
+}
+
+/**
+ * Thrown by `.crossJoin()` when the cumulative cartesian product (or lateral
+ * filtered count) exceeds the configured ceiling. Check before allocating.
+ * Mirrors the pattern of `JoinTooLargeError` and the `.join()` row ceiling.
+ *
+ * @see CrossJoinClause.maxRows — per-clause override
+ * @see DEFAULT_CROSS_JOIN_MAX_ROWS — package default (50_000)
+ */
+export class CrossJoinTooLargeError extends NoydbError {
+  readonly target: string
+  readonly expected: number
+  readonly limit: number
+
+  constructor(opts: { target: string; expected: number; limit: number }) {
+    super(
+      'CROSS_JOIN_TOO_LARGE',
+      `crossJoin("${opts.target}"): would produce ${opts.expected} rows, ` +
+        `exceeding the limit of ${opts.limit}. ` +
+        `Narrow the left side with .where() first, or raise the ceiling ` +
+        `with crossJoin("${opts.target}", { ..., maxRows: ${opts.expected} }).`,
+    )
+    this.name = 'CrossJoinTooLargeError'
+    this.target = opts.target
+    this.expected = opts.expected
+    this.limit = opts.limit
+  }
+}
+
+/**
+ * Thrown at cross-join execution time when the target collection is not
+ * reachable from the current vault. The left collection is included in the
+ * message for context.
+ */
+export class CrossJoinSourceUnknownError extends NoydbError {
+  readonly target: string
+  readonly leftCollection: string
+
+  constructor(target: string, leftCollection: string) {
+    super(
+      'CROSS_JOIN_SOURCE_UNKNOWN',
+      `crossJoin("${target}"): collection "${target}" is not known in the vault ` +
+        `(cross-joining from "${leftCollection}"). ` +
+        `Make sure "${target}" is open in the same vault before executing this query.`,
+    )
+    this.name = 'CrossJoinSourceUnknownError'
+    this.target = target
+    this.leftCollection = leftCollection
   }
 }
 

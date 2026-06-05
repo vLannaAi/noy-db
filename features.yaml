@@ -398,6 +398,28 @@ features:
       - 'Always-core today; planned withJoins() extraction tracked separately'
     related: [query-basics, schema-and-refs]
 
+  - id: cross-join
+    name: Cartesian-product cross-join query primitive
+    cluster: read-and-query
+    spec: docs/superpowers/specs/2026-05-20-dim11-cross-join-v1-design.md
+    subsystem_doc: docs/subsystems/cross-join.md
+    package: '@noy-db/hub'
+    factory: null
+    status: stable
+    showcases:
+      - id: 92-with-cross-join
+        path: showcases/src/92-with-cross-join.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Same-vault only; both collections must be open in the same vault'
+      - 'Cost ceiling: CrossJoinTooLargeError at 50,000 rows (cumulative for lateral form)'
+      - 'Lateral form via on: (left) => TTarget[] | (right) => boolean'
+      - 'MV-safe named predicate form: on: { predicate: name } — queryHash-tracked'
+      - 'Composition: where/crossJoin/where/groupBy/aggregate all interleave correctly'
+    related: [joins, query-basics, aggregate]
+
   - id: live
     name: Reactive query primitive
     cluster: read-and-query

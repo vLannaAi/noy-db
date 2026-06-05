@@ -74,7 +74,32 @@ export interface GroupClause {
   readonly clauses: readonly Clause[]
 }
 
-export type Clause = FieldClause | FilterClause | WherePredicateClause | GroupClause
+/**
+ * Cartesian-product expansion clause. Appended to `QueryPlan.clauses`
+ * by `Query.crossJoin()`. Processed in declaration order by
+ * `executeClausePipeline` — NOT by `evaluateClause` (which is a
+ * per-record predicate and throws on this type).
+ */
+export interface CrossJoinClause {
+  readonly type: 'crossJoin'
+  /** Target collection name to cross-join against. */
+  readonly target: string
+  /** Alias under which the right-side record is exposed on each result row. */
+  readonly as: string
+  /**
+   * Lateral filter callback. `undefined` → full cartesian product.
+   * Two call shapes:
+   *   - Subset:    `(left) => TTarget[]`            — returns the right rows for this left row
+   *   - Predicate: `(left) => (right) => boolean`   — executor materializes then filters
+   */
+  readonly on?: (left: unknown) => unknown[] | ((right: unknown) => boolean)
+  /** When `on:` was supplied as `{ predicate: name }`, the name is stored here for queryHash. */
+  readonly onPredicateName?: string
+  /** Per-clause row ceiling override. `undefined` → `DEFAULT_CROSS_JOIN_MAX_ROWS`. */
+  readonly maxRows?: number
+}
+
+export type Clause = FieldClause | FilterClause | WherePredicateClause | GroupClause | CrossJoinClause
 
 /**
  * Read a possibly nested field path like "address.city" from a record.
@@ -163,6 +188,13 @@ export function evaluateClause(record: unknown, clause: Clause): boolean {
       return clause.fn(record)
     case 'wherePredicate':
       return clause.fn(record, clause.ctx)
+    case 'crossJoin':
+      throw new Error(
+        `evaluateClause: 'crossJoin' clauses are expansion primitives and are not ` +
+          `evaluated per-record. This is a query planner routing error — ` +
+          `crossJoin clauses must be extracted from the clause list before calling ` +
+          `evaluateClause or filterRecords.`,
+      )
     case 'group':
       if (clause.op === 'and') {
         for (const child of clause.clauses) {
