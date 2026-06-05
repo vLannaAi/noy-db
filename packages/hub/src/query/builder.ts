@@ -1115,7 +1115,7 @@ function applyCrossJoin(
     const callbackResult = clause.on(left)
     let filteredRight: readonly unknown[]
     if (Array.isArray(callbackResult)) {
-      filteredRight = callbackResult as unknown[]
+      filteredRight = callbackResult
     } else {
       filteredRight = (rightRows as unknown[]).filter(
         callbackResult as (r: unknown) => boolean,
