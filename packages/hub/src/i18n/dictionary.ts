@@ -38,6 +38,7 @@ import type { UnlockedKeyring } from '../team/keyring.js'
 import { encrypt, decrypt } from '../crypto.js'
 import { ensureCollectionDEK } from '../team/keyring.js'
 import type { LedgerStore } from '../history/ledger/store.js'
+import type { OnMissingPolicy } from './policy.js'
 import { envelopePayloadHash } from '../history/ledger/hash.js'
 import {
   PermissionDeniedError,
@@ -81,6 +82,16 @@ export interface DictKeyDescriptor<Keys extends string = string> {
   readonly name: string
   /** Declared valid keys. When set, `put()` rejects keys not in this set. */
   readonly keys: readonly Keys[] | undefined
+  /**
+   * What to do when a label is missing for the resolved locale. Mirrors
+   * `i18nText`'s `onMissing`. Default behavior (when unset) preserves the
+   * legacy contract: a missing label is omitted (scalar) or `null`
+   * (array element) — i.e. `'null'`. Set `'substitute'` to walk the
+   * declared `substitute` chain, or `'throw'` to raise.
+   */
+  readonly onMissing?: OnMissingPolicy
+  /** Ordered preferred-substitute locales for label resolution. */
+  readonly substitute?: readonly string[]
 }
 
 /**
@@ -103,8 +114,15 @@ export interface DictKeyDescriptor<Keys extends string = string> {
 export function dictKey<Keys extends string>(
   name: string,
   keys?: readonly Keys[],
+  opts?: { onMissing?: OnMissingPolicy; substitute?: readonly string[] },
 ): DictKeyDescriptor<Keys> {
-  return { _noydbDictKey: true, name, keys }
+  return {
+    _noydbDictKey: true,
+    name,
+    keys,
+    ...(opts?.onMissing !== undefined ? { onMissing: opts.onMissing } : {}),
+    ...(opts?.substitute !== undefined ? { substitute: opts.substitute } : {}),
+  }
 }
 
 /** Runtime predicate for detecting a DictKeyDescriptor. */

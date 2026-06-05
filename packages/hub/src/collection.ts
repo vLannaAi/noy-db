@@ -6,8 +6,9 @@ import type { I18nTextDescriptor } from './i18n/core.js'
 import { getAtPath, setAtPathInPlace } from './i18n/core.js'
 import type { DictKeyDescriptor } from './i18n/dictionary.js'
 import { NO_I18N, type I18nStrategy } from './i18n/strategy.js'
+import { resolvePolicy } from './i18n/policy.js'
 import { encrypt, decrypt, encryptDeterministic } from './crypto.js'
-import { ConflictError, ReadOnlyError, TranslatorNotConfiguredError, TierDemoteDeniedError } from './errors.js'
+import { ConflictError, ReadOnlyError, TranslatorNotConfiguredError, TierDemoteDeniedError, LocaleNotSpecifiedError } from './errors.js'
 import { dekKey, assertTierAccess } from './team/tiers.js'
 import type { GhostRecord, TierMode, CrossTierAccessEvent } from './types.js'
 import type { UnlockedKeyring } from './team/keyring.js'
@@ -3051,17 +3052,67 @@ export class Collection<T> {
     // 2. dictKey label resolution
     if (hasDict && this.dictKeyFields && this.dictLabelResolver && locale !== 'raw') {
       const withLabels = { ...result }
+      const resolver = this.dictLabelResolver
       for (const [field, desc] of Object.entries(this.dictKeyFields)) {
-        const key = result[field]
-        if (typeof key !== 'string') continue
-        const label = await this.dictLabelResolver(
-          desc.name,
-          key,
-          locale,
-          localeOpts?.fallback,
-        )
-        if (label !== undefined) {
-          withLabels[`${field}Label`] = label
+        // dictKey default policy is 'null' (omit/null on miss) — today's
+        // behavior — unless the field declares onMissing. 'substitute'
+        // walks the declared substitute chain (passed as the resolver's
+        // fallback); 'throw' raises LocaleNotSpecifiedError.
+        const policy = desc.onMissing ? resolvePolicy(desc.onMissing, 'read') : 'null'
+        const fallback =
+          policy === 'substitute'
+            ? (localeOpts?.fallback ?? desc.substitute)
+            : localeOpts?.fallback
+        // Resolve one key → label | null, honoring the policy.
+        const resolveKey = async (key: string): Promise<string | null> => {
+          const label = await resolver(desc.name, key, locale, fallback)
+          if (label === undefined) {
+            if (policy === 'throw') {
+              throw new LocaleNotSpecifiedError(
+                field,
+                `dictKey "${field}": no label for key "${key}" in locale "${locale}".`,
+              )
+            }
+            return null
+          }
+          return label
+        }
+
+        if (field.includes('[].')) {
+          // Wildcard path `arrayKey[].leaf` (#282): add a per-element
+          // sibling `<leaf>Label`. Single level + simple leaf.
+          const parts = field.split('[].')
+          const arrayKey = parts[0]!
+          const leaf = parts[1]
+          if (!leaf || leaf.includes('.')) continue
+          const arr = (withLabels as Record<string, unknown>)[arrayKey]
+          if (!Array.isArray(arr)) continue
+          const labelKey = `${leaf}Label`
+          ;(withLabels as Record<string, unknown>)[arrayKey] = await Promise.all(
+            arr.map(async (el) => {
+              if (!el || typeof el !== 'object' || Array.isArray(el)) return el
+              const k = (el as Record<string, unknown>)[leaf]
+              if (typeof k !== 'string') return el
+              return { ...(el as Record<string, unknown>), [labelKey]: await resolveKey(k) }
+            }),
+          )
+          continue
+        }
+
+        const val = result[field]
+        if (Array.isArray(val)) {
+          // Array-of-keys → [{ key, label }] pair objects (key preserved).
+          withLabels[`${field}Label`] = await Promise.all(
+            val.map(async (k) => ({
+              key: k,
+              label: typeof k === 'string' ? await resolveKey(k) : null,
+            })),
+          )
+        } else if (typeof val === 'string') {
+          const label = await resolveKey(val)
+          // Scalar under 'null'/default omits the label key (today's
+          // behavior); 'substitute' returns a value; 'throw' threw above.
+          if (label !== null) withLabels[`${field}Label`] = label
         }
       }
       result = withLabels
