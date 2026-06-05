@@ -34,6 +34,7 @@ import type { PeriodsStrategy } from './periods/strategy.js'
 import type { ShadowStrategy } from './shadow/strategy.js'
 import type { TxStrategy } from './tx/strategy.js'
 import type { HistoryStrategy } from './history/strategy.js'
+import type { SnapshotStrategy } from './snapshots/strategy.js'
 import type { I18nStrategy } from './i18n/strategy.js'
 import type { SessionStrategy } from './session/strategy.js'
 import type { SyncStrategy } from './team/sync-strategy.js'
@@ -1767,6 +1768,13 @@ export interface NoydbOptions {
    * @internal
    */
   readonly syncStrategy?: SyncStrategy
+  /**
+   * Tree-shake seam — optional snapshot-lifecycle subsystem. Pass
+   * `withSnapshots({ store })` from `@noy-db/hub/snapshots` to enable
+   * `db.snapshot()`, `db.listSnapshots()`, and `db.restoreSnapshot()`.
+   * When omitted, all three methods throw with a pointer at the subpath.
+   */
+  readonly snapshotStrategy?: SnapshotStrategy
   /**
    * Optional guard strategies — collection-level write guards. Each
    * handle is the output of `withGuard()` from `@noy-db/hub/guards`.

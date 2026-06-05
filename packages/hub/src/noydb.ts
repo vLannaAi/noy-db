@@ -106,6 +106,8 @@ import type { KeyringAuthenticator } from './types.js'
 import type { SyncEngine } from './team/sync.js'
 import type { SyncTransaction } from './team/sync-transaction.js'
 import { NO_SYNC, type SyncStrategy } from './team/sync-strategy.js'
+import { NO_SNAPSHOTS, type SnapshotStrategy } from './snapshots/strategy.js'
+import type { SnapshotMeta } from './snapshots/strategy.js'
 import type { AmendmentTxOptions } from './tx/transaction.js'
 import { TxContext } from './tx/transaction.js'
 import type { DryRunResult } from './tx/dry-run.js'
@@ -204,6 +206,7 @@ export class Noydb {
   private readonly txStrategy: TxStrategy
   private readonly sessionStrategy: SessionStrategy
   private readonly syncStrategy: SyncStrategy
+  private readonly snapshotStrategy: SnapshotStrategy
   /**
    * Currently-running multi-record transaction, set by
    * `runTransaction` at the start of Phase 2 (commit) and cleared in
@@ -230,6 +233,7 @@ export class Noydb {
     this.txStrategy = options.txStrategy ?? NO_TX
     this.sessionStrategy = options.sessionStrategy ?? NO_SESSION
     this.syncStrategy = options.syncStrategy ?? NO_SYNC
+    this.snapshotStrategy = options.snapshotStrategy ?? NO_SNAPSHOTS
     this.publicEnvelopeSchema = resolvePublicEnvelopeSchema(options.publicEnvelope)
     // Validate sessionPolicy at construction time (developer error if invalid).
     // The strategy's stub throws with a pointer at the subpath if the
@@ -2742,6 +2746,30 @@ export class Noydb {
 
     this.keyringCache.set(vault, keyring)
     return keyring
+  }
+
+  async snapshot(vaultId: string, opts?: { label?: string; note?: string }): Promise<SnapshotMeta> {
+    const vault = this.vaultCache.get(vaultId)
+    if (!vault) {
+      throw new ValidationError(
+        `Vault "${vaultId}" is not open. Call openVault() first.`,
+      )
+    }
+    return this.snapshotStrategy.snapshot(vault, this.options.user, opts)
+  }
+
+  async listSnapshots(vaultId: string): Promise<SnapshotMeta[]> {
+    return this.snapshotStrategy.listSnapshots(vaultId)
+  }
+
+  async restoreSnapshot(vaultId: string, version: string): Promise<void> {
+    const vault = this.vaultCache.get(vaultId)
+    if (!vault) {
+      throw new ValidationError(
+        `Vault "${vaultId}" is not open. Call openVault() first.`,
+      )
+    }
+    return this.snapshotStrategy.restoreSnapshot(vault, version)
   }
 }
 
