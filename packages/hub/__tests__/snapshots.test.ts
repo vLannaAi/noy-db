@@ -5,6 +5,7 @@ import { SnapshotNotFoundError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
 import { memory } from '../../to-memory/src/index.js'
 import { SnapshotEngine } from '../src/snapshots/engine.js'
+import { withSnapshots } from '../src/snapshots/active.js'
 import type { NoydbBundleStore } from '../src/types.js'
 
 function makeMockStore(): NoydbBundleStore & { blobs: Map<string, Uint8Array> } {
@@ -290,5 +291,35 @@ describe('SnapshotEngine.restoreSnapshot()', () => {
       expect(e).toBeInstanceOf(SnapshotNotFoundError)
       expect((e as SnapshotNotFoundError).version).toBe('v1__snap_999999')
     }
+  })
+})
+
+describe('withSnapshots() factory', () => {
+  it('returns a SnapshotStrategy with all 3 methods', () => {
+    const store = makeMockStore()
+    const strategy = withSnapshots({ store })
+    expect(typeof strategy.snapshot).toBe('function')
+    expect(typeof strategy.listSnapshots).toBe('function')
+    expect(typeof strategy.restoreSnapshot).toBe('function')
+  })
+
+  it('snapshot() delegates to SnapshotEngine', async () => {
+    const store = makeMockStore()
+    const strategy = withSnapshots({ store })
+    const vault = makeMockVault('v1')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const meta = await strategy.snapshot(vault as any, 'alice', { label: 'test' })
+    expect(meta.version).toBe('v1__snap_000001')
+    expect(meta.label).toBe('test')
+  })
+
+  it('listSnapshots() delegates to SnapshotEngine', async () => {
+    const store = makeMockStore()
+    const strategy = withSnapshots({ store, retention: { keepLast: 5 } })
+    const vault = makeMockVault('v1')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await strategy.snapshot(vault as any, 'alice')
+    const list = await strategy.listSnapshots('v1')
+    expect(list).toHaveLength(1)
   })
 })
