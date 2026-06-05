@@ -292,6 +292,14 @@ describe('SnapshotEngine.restoreSnapshot()', () => {
       expect((e as SnapshotNotFoundError).version).toBe('v1__snap_999999')
     }
   })
+
+  it('throws SnapshotNotFoundError for cross-vault version key', async () => {
+    const store = makeMockStore()
+    const engine = new SnapshotEngine(store, {})
+    const vault = makeMockVault('vault-a')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await expect(engine.restoreSnapshot(vault as any, 'vault-b__snap_000001')).rejects.toThrow(SnapshotNotFoundError)
+  })
 })
 
 describe('withSnapshots() factory', () => {

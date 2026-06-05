@@ -81,6 +81,7 @@ export class SnapshotEngine {
   }
 
   async restoreSnapshot(vault: Vault, version: string): Promise<void> {
+    if (!version.startsWith(`${vault.name}__`)) throw new SnapshotNotFoundError(version)
     const result = await this.store.readBundle(version)
     if (!result) throw new SnapshotNotFoundError(version)
     const { dumpJson } = await readNoydbBundle(result.bytes)

@@ -118,6 +118,7 @@ Retention is enforced eagerly after each `snapshot()` call. Both `keepLast` and 
 - Auto-snapshot cadence — deferred to v2. For now, call `db.snapshot()` on demand.
 - Per-collection snapshots — whole-vault only.
 - Conflict resolution on restore — in-place `vault.load()`. The app is responsible for checking unsaved state before calling `restoreSnapshot()`.
+- Multi-writer concurrency — `snapshot()` is safe for single-writer use (local-first, single tab). Two concurrent `snapshot()` calls on the same vault may derive the same blob key and silently produce a corrupted index entry. Multi-writer deployments (server workers, etc.) should serialize calls to `snapshot()` at the application layer.
 
 ---
 
