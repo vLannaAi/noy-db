@@ -322,4 +322,12 @@ describe('withSnapshots() factory', () => {
     const list = await strategy.listSnapshots('v1')
     expect(list).toHaveLength(1)
   })
+
+  it('restoreSnapshot() throws SnapshotNotFoundError for unknown version', async () => {
+    const store = makeMockStore()
+    const strategy = withSnapshots({ store })
+    const vault = makeMockVault('v1')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await expect(strategy.restoreSnapshot(vault as any, 'v1__snap_999999')).rejects.toThrow(SnapshotNotFoundError)
+  })
 })
