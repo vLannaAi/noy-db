@@ -51,4 +51,9 @@ describe('Noydb.snapshot / listSnapshots / restoreSnapshot without snapshotStrat
     const db = await createNoydb({ store: memory(), user: 'u1', secret: 'pass' })
     await expect(db.snapshot('not-open')).rejects.toThrow('not open')
   })
+
+  it('restoreSnapshot() throws ValidationError when vault not open', async () => {
+    const db = await createNoydb({ store: memory(), user: 'u1', secret: 'pass' })
+    await expect(db.restoreSnapshot('not-open', 'v1__snap_000001')).rejects.toThrow('not open')
+  })
 })
