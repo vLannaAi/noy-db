@@ -1,5 +1,18 @@
 # Changelog — in-pinia
 
+## 0.2.0-pre.8
+
+### Feature: reactive i18n binding ([#284](https://github.com/vLannaAi/noy-db/pull/284), resolves [#286](https://github.com/vLannaAi/noy-db/issues/286))
+
+Make locale reactive in a Pinia/Vue app over the hub i18n surface. **Non-breaking** — `defineNoydbStore` defaults to `i18n: 'raw'`.
+
+- **`useNoydbI18n`** — reactive active-locale store. `setLocale`/`bindTo` are **state-only** by default (vault sync opt-in via `setLocale(l, { syncVault })`); `bindTo(externalRef)` follows e.g. vue-i18n's `locale` one-way without touching the vault.
+- **`defineNoydbStore({ i18n })`** — `'raw'` (default, items keep `{locale}` maps) | `'follow'` (resolve to the global locale, re-read on flip) | `{ locale }` (pin).
+- **`useI18nField(mapOrGetter, opts?)`** — reactive `pickLang` (`string | null`, never throws).
+- **`useDictLabel`** is now exported and defaults its locale/fallback to `useNoydbI18n`.
+
+> `liveQuery` is not locale-aware yet — resolve its rows at the edge with `useI18nField`/`useDictLabel`.
+
 ## 0.2.0-pre.6
 
 ### Fix: i18nFields / dictKeyFields not forwarded to collection ([#274](https://github.com/vLannaAi/noy-db/issues/274))
