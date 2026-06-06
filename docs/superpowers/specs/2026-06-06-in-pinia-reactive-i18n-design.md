@@ -20,18 +20,18 @@
 
 - A single `useNoydbI18n().setLocale('th')` flips the language app-wide: every `i18n:'follow'` store re-reads resolved, every `useDictLabel`/`useI18nField` recomputes. Resolution works via in-pinia's explicit per-read `{locale}` — **no vault mutation required**. `setLocale(l, { syncVault: true })` additionally syncs the vault ambient locale for non-in-pinia imperative reads.
 - `useNoydbI18n` can `bindTo(externalRef)` (e.g. vue-i18n's `locale`) — one-way, **state-only** follow (never touches the vault), so a locale-less-vault consumer can adopt it cleanly (#286).
-- `defineNoydbStore` accepts `i18n: 'follow' | 'raw' | { locale, fallback? }`; **default is `'follow'`** (resolved to the global locale).
+- `defineNoydbStore` accepts `i18n: 'follow' | 'raw' | { locale, fallback? }`; **default is `'raw'`** (today's behavior — items stay `{th,en}` maps; zero breaking change). Display stores opt into `'follow'`.
 - A `i18n:'raw'` store yields `{th,en}` maps unchanged, feeding a bilingual per-cell toggle (Case 1) — the components own the toggle, the store owns the raw data.
 - `useDictLabel` is exported and defaults its locale to the shared `useNoydbI18n.locale`.
 - `useI18nField(mapOrGetter, opts?)` returns a reactive `Ref<string | null>` resolving one i18nText map, following the global locale unless overridden.
-- No breaking change for stores **without** i18n fields. Behavior change is limited to stores **with** `i18nFields`/`dictKeyFields` that don't set `i18n` (they now resolve instead of returning raw) — acceptable in the `0.2.0-pre` line and documented in MIGRATING.
+- **Zero breaking change** — the `'raw'` default means every existing store (with or without i18n fields) returns exactly what it does today. Resolution is strictly opt-in (`i18n:'follow'` or a composable). No silent break of map-consuming identity/export reads.
 
 ## SCOPE — in
 
 | Feature | In | Notes |
 |---|:---:|---|
 | `useNoydbI18n` Pinia store (`locale`, `fallback`, `setLocale`, `setFallback`, `bindTo`) | ✓ | state-only by default; `setLocale(l,{syncVault:true})` opt-in syncs `vault.setLocale`; `bindTo` never touches the vault (#286) |
-| `defineNoydbStore` `i18n` option (`'follow'` default / `'raw'` / `{locale,fallback?}`) | ✓ | `'follow'` watches the global locale and re-reads `c.list({locale,fallback})` |
+| `defineNoydbStore` `i18n` option (`'raw'` default / `'follow'` / `{locale,fallback?}`) | ✓ | `'raw'` = today's behavior (maps); `'follow'` watches the global locale and re-reads `c.list({locale,fallback})` |
 | Export `useDictLabel`; default its locale to `useNoydbI18n` | ✓ | otherwise unchanged; existing 9 tests stay green |
 | `useI18nField(mapOrGetter, opts?)` reactive resolver (the reactive `pickLang`) | ✓ | `resolveI18nText(..., {policy:'null'})`; sync recompute on locale/source change |
 | In-pinia i18n showcase | ✓ | global flip → re-resolve; `'raw'` store → bilingual toggle; field + dict label follow |
@@ -75,11 +75,11 @@ A `defineStore('noydb-i18n', ...)`:
 > **`bindTo` vault-side contract (#286):** `bindTo` is **state-only** — it mirrors the external ref into `useNoydbI18n.locale` and never fires `vault.setLocale`. A locale-less consumer can `bindTo(uiLocaleRef)` safely.
 
 ### `defineNoydbStore` locale wiring (`src/defineNoydbStore.ts`, modify)
-- Resolve the effective i18n mode: option `i18n` (default `'follow'`).
+- Resolve the effective i18n mode: option `i18n` (default `'raw'` — unchanged from today).
 - `mode === 'follow'`: `const i18n = useNoydbI18n()`; `refresh()` reads `c.list({ locale: i18n.locale, fallback: i18n.fallback })`; add `watch(() => i18n.locale, refresh)` (and `i18n.fallback`). `liveQuery` unchanged (raw).
-- `mode === 'raw'`: reads `c.list({ locale: 'raw' })`; no locale watch.
+- `mode === 'raw'` (**default**): reads `c.list({ locale: 'raw' })` — items stay `{th,en}` maps; no locale watch. Identical to today's `c.list()` behavior, so upgrading changes nothing until a store opts into `'follow'`.
 - `mode === { locale, fallback? }`: reads with the fixed/own-ref locale; if `locale` is a ref, watch it.
-- Stores **without** any i18n/dictKey fields behave identically regardless (nothing to resolve), so the only observable change is for i18n-bearing stores — call this out in MIGRATING.
+- Because the default is `'raw'`, the upgrade is **non-breaking**: every existing store keeps returning maps; resolution only happens where a store explicitly sets `i18n:'follow'`.
 
 ### `useDictLabel` (`src/useDictLabel.ts`, modify + export)
 - Default `options.locale` to `useNoydbI18n().locale` (was `ref('en')`); default `options.fallback` to `useNoydbI18n().fallback`. All else unchanged. Add to `src/index.ts`.
@@ -102,13 +102,13 @@ A `computed` that reads the (optionally getter-wrapped, reactive) map and return
 
 Two adoption hazards for a consumer that runs a **locale-less vault** and reads raw `{th,en}` maps out of stores (e.g. niwat). Both are guidance, not capability gaps — the `'raw'` mode + `useI18nField` already cover the case.
 
-**Hazard 1 — the `'follow'` default is for DISPLAY-ONLY stores.** Because `'follow'` re-reads *resolved strings*, any store whose **map** feeds a non-display read breaks on upgrade (`store.byId(id).name` becomes `"…"`, so `.name.th` is `undefined`). MIGRATING must state the rule explicitly with examples:
-> A `defineNoydbStore` is `'follow'` (resolved) by default. Set **`i18n:'raw'`** on any store whose maps feed:
+**Hazard 1 — RESOLVED BY THE `'raw'` DEFAULT (#286).** The default is `'raw'`, so the upgrade is non-breaking: stores keep returning `{th,en}` maps, and map-consuming identity/export reads (the compliance-sensitive ones) are never silently resolved. The guidance is therefore the safe inverse — *opt in* for display:
+> `defineNoydbStore` returns raw `{th,en}` maps by default (unchanged). Set **`i18n:'follow'`** only on **display-only** stores — those whose values are rendered, not read as maps. Leave the default `'raw'` for any store whose maps feed:
 > - identity / view-model joins or derivation helpers reading `.th` (`entity.name.th`)
-> - export / filing projections (`worker.address.lineOne.th` → a tax filing) — **compliance-sensitive; do not let these silently resolve**
+> - export / filing projections (`worker.address.lineOne.th` → a tax filing)
 > - a per-cell bilingual toggle bound to the map (`:value="entity.name"`)
 >
-> `'follow'` is only for stores whose values are consumed purely for display.
+> When in doubt, leave it `'raw'` and resolve at the edge with `useI18nField` / `useDictLabel`.
 
 **Hazard 2 — keep the vault locale-less; don't use `setLocale`'s vault sync.** A locale-less-vault consumer (so guards / MVs / strategies / exports read raw `.name.th`) must **not** set an ambient vault locale. MIGRATING note:
 > If you deliberately keep the vault locale-less, drive resolution with the reactive `useNoydbI18n.locale` (which in-pinia passes per-read) and `bindTo(uiLocaleRef)` — both **state-only**. Do **not** call `setLocale(l, { syncVault: true })`; the default `setLocale(l)` and `bindTo` never touch the vault, so your raw identity/guard/MV/export reads stay raw (latent today, load-bearing once #285 wires those layers).
@@ -123,12 +123,12 @@ Vitest + happy-dom (existing). Per-unit tests with `ref()`/`effectScope()` (no c
 
 ## Integration & non-code obligations
 - **`features.yaml`** — register the new exports/showcase under the in-pinia framework entry (CI "Spec coverage").
-- **MIGRATING.md** — the default-`'follow'` behavior change for i18n-bearing stores **and** the two locale-less/map-consumer hazards spelled out in § MIGRATING guidance above (Hazard 1: map-feeding stores → `i18n:'raw'`; Hazard 2: keep the vault locale-less, avoid `syncVault`). Resolves #286.
+- **MIGRATING.md** — the upgrade is non-breaking (default `'raw'`); document the opt-in: `i18n:'follow'` for display-only stores, plus the two locale-less notes from § MIGRATING guidance (Hazard 1: leave map-feeding stores `'raw'`; Hazard 2: keep the vault locale-less, avoid `syncVault`). Resolves #286.
 - **Release** — this is the last item before the lockstep `0.2.0-pre.8` bump (manual release PR; main protected).
 
 ## Build sequence (slices)
 1. `useNoydbI18n` store + tests. *(no consumers yet — safe)*
 2. `useI18nField` + tests. *(pure, depends on #1)*
 3. Export `useDictLabel` + default it to the shared locale + test. *(small)*
-4. `defineNoydbStore` `i18n` option + locale watch/re-read + tests. *(the behavior-changing slice)*
+4. `defineNoydbStore` `i18n` option (default `'raw'` = today's behavior) + `'follow'` locale watch/re-read + tests. *(additive; default path unchanged)*
 5. Showcase + `features.yaml` + MIGRATING note + full verification.
