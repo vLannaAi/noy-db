@@ -18,7 +18,7 @@
 
 ## Success criteria (acceptance)
 
-- A single `useNoydbI18n().setLocale('th')` flips the language app-wide: every `i18n:'follow'` store re-reads resolved, every `useDictLabel`/`useI18nField` recomputes. Resolution works via in-pinia's explicit per-read `{locale}` — **no vault mutation required**. `setLocale(l, { syncVault: true })` additionally syncs the vault ambient locale for non-in-pinia imperative reads.
+- A single `useNoydbI18n().setLocale('th')` flips the language app-wide: every `i18n:'follow'` store re-reads resolved, every `useDictLabel`/`useI18nField` recomputes. Resolution works via in-pinia's explicit per-read `{locale}` — **no vault mutation required**. `setLocale(l, { syncVault: vault })` additionally syncs the given vault's ambient locale for non-in-pinia imperative reads.
 - `useNoydbI18n` can `bindTo(externalRef)` (e.g. vue-i18n's `locale`) — one-way, **state-only** follow (never touches the vault), so a locale-less-vault consumer can adopt it cleanly (#286).
 - `defineNoydbStore` accepts `i18n: 'follow' | 'raw' | { locale, fallback? }`; **default is `'raw'`** (today's behavior — items stay `{th,en}` maps; zero breaking change). Display stores opt into `'follow'`.
 - A `i18n:'raw'` store yields `{th,en}` maps unchanged, feeding a bilingual per-cell toggle (Case 1) — the components own the toggle, the store owns the raw data.
@@ -30,7 +30,7 @@
 
 | Feature | In | Notes |
 |---|:---:|---|
-| `useNoydbI18n` Pinia store (`locale`, `fallback`, `setLocale`, `setFallback`, `bindTo`) | ✓ | state-only by default; `setLocale(l,{syncVault:true})` opt-in syncs `vault.setLocale`; `bindTo` never touches the vault (#286) |
+| `useNoydbI18n` Pinia store (`locale`, `fallback`, `setLocale`, `setFallback`, `bindTo`) | ✓ | state-only by default; `setLocale(l,{syncVault:vault})` opt-in syncs the given vault(s); `bindTo` never touches the vault (#286) |
 | `defineNoydbStore` `i18n` option (`'raw'` default / `'follow'` / `{locale,fallback?}`) | ✓ | `'raw'` = today's behavior (maps); `'follow'` watches the global locale and re-reads `c.list({locale,fallback})` |
 | Export `useDictLabel`; default its locale to `useNoydbI18n` | ✓ | otherwise unchanged; existing 9 tests stay green |
 | `useI18nField(mapOrGetter, opts?)` reactive resolver (the reactive `pickLang`) | ✓ | `resolveI18nText(..., {policy:'null'})`; sync recompute on locale/source change |
@@ -68,7 +68,7 @@
 ### `useNoydbI18n` (`src/useNoydbI18n.ts`, new)
 A `defineStore('noydb-i18n', ...)`:
 - **state** `locale: string` (default `'en'`), `fallback: string[]` (default `['en','any']`).
-- **`setLocale(l, opts?: { syncVault?: boolean })`** — sets the reactive `locale` state. **State-only by default** (`syncVault: false`). in-pinia readers pass `{locale}` explicitly on every read, so the reactive state alone drives all in-pinia resolution; the vault's ambient locale is never required. Only when `syncVault: true` does it resolve the active Noydb and call `vault.setLocale(l)` — for apps that *also* do imperative (non-in-pinia) hub reads and want those to follow. **Locale-less-vault consumers (guards/MV/export read raw) leave `syncVault` off** so the vault stays locale-less (resolves Hazard 2 / #286).
+- **`setLocale(l, opts?: { syncVault?: Vault | Vault[] })`** — sets the reactive `locale` state. **State-only by default** (omit `syncVault`). in-pinia readers pass `{locale}` explicitly on every read, so the reactive state alone drives all in-pinia resolution; the vault's ambient locale is never required. Passing `syncVault: vault` (or an array) additionally calls `vault.setLocale(l)` on those vault(s) — for apps that *also* do imperative (non-in-pinia) hub reads and want those to follow. (Implementation note: `syncVault` takes explicit vault(s) rather than a boolean because the Noydb instance exposes no synchronous open-vaults accessor.) **Locale-less-vault consumers (guards/MV/export read raw) omit `syncVault`** so the vault stays locale-less (resolves Hazard 2 / #286).
 - **`setFallback(chain)`** — sets the default fallback chain used by `'follow'` stores + composables.
 - **`bindTo(ref, { immediate=true })`** — `watch`es an external `Ref<string>` (e.g. vue-i18n's `locale`) and mirrors it into `locale` **state-only** (one-way; never touches the vault, regardless of any `syncVault` use elsewhere). This is the clean path for a locale-less deployment: `bindTo(uiLocaleRef)` gives reactive display resolution while the vault stays untouched. Returns the stop handle.
 
@@ -96,7 +96,7 @@ A `computed` that reads the (optionally getter-wrapped, reactive) map and return
 ## Error handling
 - `useI18nField` uses `{policy:'null'}` → never throws; returns `null` for an absent locale with no fallback hit.
 - `useDictLabel` keeps its `onMissing: 'key'|'empty'|'placeholder'` render policy.
-- `setLocale` is state-only by default; under `{syncVault:true}` the `vault.setLocale` calls are best-effort across open vaults; if no instance is bound yet they no-op (the reactive state still updates; stores read it on next refresh).
+- `setLocale` is state-only by default; under `{syncVault: vault}` it calls `vault.setLocale(l)` on the explicit vault(s) passed (the reactive state updates regardless).
 
 ## MIGRATING guidance (locale-less / map-consuming consumers — #286)
 
@@ -111,11 +111,11 @@ Two adoption hazards for a consumer that runs a **locale-less vault** and reads 
 > When in doubt, leave it `'raw'` and resolve at the edge with `useI18nField` / `useDictLabel`.
 
 **Hazard 2 — keep the vault locale-less; don't use `setLocale`'s vault sync.** A locale-less-vault consumer (so guards / MVs / strategies / exports read raw `.name.th`) must **not** set an ambient vault locale. MIGRATING note:
-> If you deliberately keep the vault locale-less, drive resolution with the reactive `useNoydbI18n.locale` (which in-pinia passes per-read) and `bindTo(uiLocaleRef)` — both **state-only**. Do **not** call `setLocale(l, { syncVault: true })`; the default `setLocale(l)` and `bindTo` never touch the vault, so your raw identity/guard/MV/export reads stay raw (latent today, load-bearing once #285 wires those layers).
+> If you deliberately keep the vault locale-less, drive resolution with the reactive `useNoydbI18n.locale` (which in-pinia passes per-read) and `bindTo(uiLocaleRef)` — both **state-only**. Do **not** pass `setLocale`'s `syncVault`; the default `setLocale(l)` and `bindTo` never touch the vault, so your raw identity/guard/MV/export reads stay raw (latent today, load-bearing once #285 wires those layers).
 
 ## Testing
 Vitest + happy-dom (existing). Per-unit tests with `ref()`/`effectScope()` (no component mount, matching the package):
-- `useNoydbI18n`: `setLocale(l)` updates state and does **not** call `vault.setLocale`; `setLocale(l,{syncVault:true})` does; `bindTo` follows an external ref **and never touches the vault** (assert `vault.setLocale` not called).
+- `useNoydbI18n`: `setLocale(l)` updates state and does **not** call `vault.setLocale`; `setLocale(l,{syncVault:vault})` calls it on the given vault(s); `bindTo` follows an external ref **and never touches the vault** (assert `vault.setLocale` not called).
 - `defineNoydbStore`: `i18n:'follow'` store re-reads resolved on `setLocale`; `i18n:'raw'` keeps maps; `{locale}` pin ignores global; non-i18n store unchanged.
 - `useDictLabel`: existing 9 tests stay green; new test for "defaults to global locale".
 - `useI18nField`: resolves to global locale; recomputes on flip; `null` on miss; per-call override.

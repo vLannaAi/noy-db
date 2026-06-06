@@ -18,6 +18,10 @@ maps exactly as before. Resolution is strictly opt-in:
   **state-only** by default — they never call `vault.setLocale`. Keep it
   that way (don't pass `setLocale`'s `syncVault`) so guard/MV/export reads
   stay raw. (#286)
+- **`liveQuery` is not locale-aware yet.** On a `'follow'` store,
+  `store.items` are resolved but `store.liveQuery(...).items` still carry
+  raw `{ [locale]: string }` maps — resolve those rows at the edge with
+  `useI18nField` / `useDictLabel`. (Tracked follow-up.)
 
 ### Shamir recovery
 
