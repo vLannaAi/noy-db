@@ -3,7 +3,9 @@ import { setActivePinia, createPinia, storeToRefs } from 'pinia'
 import { effectScope } from 'vue'
 import { createNoydb, additiveOnly, i18nText, type Noydb, type NoydbStore, type EncryptedEnvelope, type VaultSnapshot, type StandardSchemaV1, ConflictError, Query } from '@noy-db/hub'
 import { withI18n } from '@noy-db/hub/i18n'
-import { defineNoydbStore, setActiveNoydb } from '../src/index.js'
+import { defineNoydbStore, setActiveNoydb, useNoydbI18n } from '../src/index.js'
+
+const tick = (ms = 0): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 /** Inline memory adapter — same pattern as @noy-db/core integration tests. */
 function memory(): NoydbStore {
@@ -533,5 +535,50 @@ describe('defineNoydbStore — i18nFields / dictKeyFields forwarding', () => {
     const col = vault.collection<Product>('products-i18n-read')
     const row = await col.get('p1', { locale: 'th' }) as { id: string; name: string }
     expect(row.name).toBe('วิดเจ็ต')
+  })
+
+  it("default i18n mode ('raw') keeps the {th,en} map (non-breaking)", async () => {
+    type P = { id: string; name: Record<string, string> | string }
+    const useP = defineNoydbStore<P>('p-raw', {
+      vault: 'rawv',
+      i18nFields: { name: i18nText({ languages: ['th', 'en'], required: 'any' }) },
+    })
+    const store = useP()
+    await store.$ready
+    await store.add('p1', { id: 'p1', name: { th: 'สมชาย', en: 'Somchai' } })
+    expect(store.items.find((x) => x.id === 'p1')?.name).toEqual({ th: 'สมชาย', en: 'Somchai' })
+  })
+
+  it("i18n:'follow' resolves to the global locale and re-reads on flip", async () => {
+    const i18n = useNoydbI18n()
+    i18n.setLocale('en')
+    type P = { id: string; name: Record<string, string> | string }
+    const useP = defineNoydbStore<P>('p-follow', {
+      vault: 'followv',
+      i18n: 'follow',
+      i18nFields: { name: i18nText({ languages: ['th', 'en'], required: 'any' }) },
+    })
+    const store = useP()
+    await store.$ready
+    await store.add('p1', { id: 'p1', name: { th: 'สมชาย', en: 'Somchai' } })
+    expect(store.items.find((x) => x.id === 'p1')?.name).toBe('Somchai')
+    i18n.setLocale('th')
+    for (let n = 0; n < 50 && store.items.find((x) => x.id === 'p1')?.name !== 'สมชาย'; n++) await tick(10)
+    expect(store.items.find((x) => x.id === 'p1')?.name).toBe('สมชาย')
+  })
+
+  it("i18n:{locale:'th'} pins regardless of the global locale", async () => {
+    const i18n = useNoydbI18n()
+    i18n.setLocale('en')
+    type P = { id: string; name: Record<string, string> | string }
+    const useP = defineNoydbStore<P>('p-pin', {
+      vault: 'pinv',
+      i18n: { locale: 'th' },
+      i18nFields: { name: i18nText({ languages: ['th', 'en'], required: 'any' }) },
+    })
+    const store = useP()
+    await store.$ready
+    await store.add('p1', { id: 'p1', name: { th: 'สมชาย', en: 'Somchai' } })
+    expect(store.items.find((x) => x.id === 'p1')?.name).toBe('สมชาย')
   })
 })
