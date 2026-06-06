@@ -21,8 +21,10 @@ import {
   computed,
   getCurrentScope,
   onScopeDispose,
+  isRef,
   ref,
   shallowRef,
+  watch,
   type Ref,
   type ShallowRef,
   type ComputedRef,
@@ -37,6 +39,18 @@ import type {
   DictKeyDescriptor,
 } from '@noy-db/hub'
 import { resolveNoydb } from './context.js'
+import { useNoydbI18n } from './useNoydbI18n.js'
+
+/**
+ * i18n resolution mode for a store's reads.
+ * - `'raw'` (default) — items keep `{ [locale]: string }` maps (today's behavior).
+ * - `'follow'` — resolve to the global `useNoydbI18n` locale; re-read on flip.
+ * - `{ locale, fallback? }` — pin to a fixed locale or own ref.
+ */
+export type NoydbStoreI18nMode =
+  | 'raw'
+  | 'follow'
+  | { locale: string | Ref<string>; fallback?: string | readonly string[] }
 
 /**
  * Reactive handle returned by `store.liveQuery(fn)`. Mirrors a hub
@@ -123,6 +137,15 @@ export interface NoydbStoreOptions<T> {
    * `Collection` so dictionary label resolution runs declaratively.
    */
   dictKeyFields?: Record<string, DictKeyDescriptor>
+  /**
+   * How the store resolves i18nText/dictKey fields on read.
+   * Default `'raw'` — items keep `{ [locale]: string }` maps (today's
+   * behavior; zero breaking change). `'follow'` resolves to the global
+   * `useNoydbI18n` locale and re-reads when it changes. `{ locale }`
+   * pins to a fixed locale or own ref. Set `'raw'` for stores whose maps
+   * feed identity/export reads or a per-cell bilingual toggle.
+   */
+  i18n?: NoydbStoreI18nMode
 }
 
 /**
@@ -170,6 +193,23 @@ export function defineNoydbStore<T>(
     const items: Ref<T[]> = shallowRef<T[]>([])
     const count = computed(() => items.value.length)
 
+    // i18n resolution mode. Default 'raw' (today's behavior): reads pass
+    // { locale: 'raw' }, items keep their maps. 'follow' resolves to the
+    // global useNoydbI18n locale and re-reads on flip; { locale } pins.
+    const i18nMode: NoydbStoreI18nMode = options.i18n ?? 'raw'
+    const i18nStore = i18nMode === 'follow' ? useNoydbI18n() : null
+    function localeOpts(): { locale: string; fallback?: string | readonly string[] } {
+      if (i18nMode === 'raw') return { locale: 'raw' }
+      if (i18nMode === 'follow') {
+        return { locale: i18nStore!.locale, fallback: i18nStore!.fallback }
+      }
+      const l = i18nMode.locale
+      return {
+        locale: typeof l === 'string' ? l : l.value,
+        ...(i18nMode.fallback !== undefined ? { fallback: i18nMode.fallback } : {}),
+      }
+    }
+
     // Lazy collection handle — created on first hydrate.
     let cachedCompartment: Vault | null = null
     let cachedCollection: Collection<T> | null = null
@@ -195,7 +235,7 @@ export function defineNoydbStore<T>(
 
     async function refresh(): Promise<void> {
       const c = await getCollection()
-      const list = await c.list()
+      const list = await c.list(localeOpts())
       items.value = list
     }
 
@@ -221,7 +261,7 @@ export function defineNoydbStore<T>(
       // Re-list to pick up the new record. Cheaper alternative would be to
       // splice into items.value directly, but list() ensures consistency
       // with the underlying cache.
-      items.value = await c.list()
+      items.value = await c.list(localeOpts())
     }
 
     async function update(id: string, record: T): Promise<void> {
@@ -232,7 +272,7 @@ export function defineNoydbStore<T>(
     async function remove(id: string): Promise<void> {
       const c = await getCollection()
       await c.delete(id)
-      items.value = await c.list()
+      items.value = await c.list(localeOpts())
     }
 
     function query(): Query<T> {
@@ -292,6 +332,18 @@ export function defineNoydbStore<T>(
     const $ready: Promise<void> = prefetch
       ? refresh()
       : Promise.resolve()
+
+    // Re-read with the new locale when it changes. 'follow' tracks the
+    // global store; a { locale: ref } pin tracks its own ref. 'raw' and
+    // a fixed-string locale never change, so no watch.
+    if (i18nMode === 'follow') {
+      watch(
+        () => [i18nStore!.locale, i18nStore!.fallback] as const,
+        () => { void refresh() },
+      )
+    } else if (typeof i18nMode === 'object' && isRef(i18nMode.locale)) {
+      watch(i18nMode.locale, () => { void refresh() })
+    }
 
     return {
       items,

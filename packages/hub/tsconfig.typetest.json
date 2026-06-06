@@ -1,0 +1,6 @@
+{
+  "//": "Type-level tests (*.test-d.ts), validated by `pnpm typecheck`. rootDir is '.' so __tests__ can sit alongside src without a rootDir violation.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "rootDir": ".", "noEmit": true, "types": ["node"] },
+  "include": ["src", "__tests__/**/*.test-d.ts"]
+}

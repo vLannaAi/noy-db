@@ -41,6 +41,49 @@
  */
 
 import { MissingTranslationError, LocaleNotSpecifiedError } from '../errors.js'
+import type { OnMissing, OnMissingPolicy, Layer } from './policy.js'
+import { resolvePolicy } from './policy.js'
+
+// ─── I18nMap type helper ───────────────────────────────────────────────
+
+/** Flatten an intersection into a single object literal for nicer hovers. */
+type Prettify<T> = { [K in keyof T]: T[K] } & {}
+
+/**
+ * The stored shape of a multilingual field, inferred from its `required`
+ * mode — so the compiler forces you to handle an absent optional locale
+ * (`string | undefined`) instead of silently yielding `undefined`.
+ *
+ * Mirrors `i18nText({ languages, required })`:
+ * - `'all'` (default) — every locale required: `{ th: string; en: string }`
+ * - `'any'`           — every locale optional: `{ th?: string; en?: string }`
+ *   (the "at least one present" guarantee is runtime-only — not expressible
+ *   in TypeScript — so each key is optional)
+ * - `readonly L[]`    — listed locales required, the rest optional:
+ *   `I18nMap<'th'|'en', ['th']>` → `{ th: string; en?: string }`
+ *
+ * @example
+ * ```ts
+ * type Lang = 'th' | 'en'
+ * interface Contact {
+ *   name: I18nMap<Lang, 'any'>      // { th?: string; en?: string }
+ *   legalName: I18nMap<Lang, ['th']> // { th: string; en?: string }
+ *   slug: I18nMap<Lang>             // { th: string; en: string }
+ * }
+ * ```
+ *
+ * @public
+ */
+export type I18nMap<
+  Langs extends string,
+  Required extends 'all' | 'any' | readonly Langs[] = 'all',
+> = Required extends 'all'
+  ? Record<Langs, string>
+  : Required extends 'any'
+    ? Partial<Record<Langs, string>>
+    : Required extends readonly (infer R extends Langs)[]
+      ? Prettify<Record<R, string> & Partial<Record<Exclude<Langs, R>, string>>>
+      : never
 
 // ─── i18nText descriptor ───────────────────────────────────────────────
 
@@ -72,6 +115,38 @@ export interface I18nTextOptions {
    * before `put()` if a translator is configured. Default: `false`.
    */
   readonly autoTranslate?: boolean
+  /**
+   * What to do when this field is resolved to a locale that is absent.
+   * A single policy, or a per-layer map (read/guard/join/mv/derivation/
+   * export). Default `'throw'` — today's behavior, zero breaking change.
+   * See {@link OnMissingPolicy}.
+   *
+   * NOTE (current wiring): the `read` layer (`get`/`list`) is enforced.
+   * Guard, derivation, mv, join and export reads currently resolve
+   * through the same read path and so observe the `read`/scalar policy;
+   * dedicated per-layer enforcement for those contexts is a tracked
+   * follow-up (mv/join additionally require resolution to be injected
+   * into the query/aggregate pipeline, which today reads raw maps).
+   */
+  readonly onMissing?: OnMissingPolicy
+  /**
+   * Ordered preferred-substitute locales used when `onMissing` resolves
+   * to `'substitute'` and the target locale is absent. `'any'` as an
+   * element means "first non-empty value". A caller-supplied `fallback`
+   * at read time takes precedence over this declared list.
+   */
+  readonly substitute?: readonly string[]
+  /**
+   * Per-locale script enforcement (write-time). `'auto'` infers the
+   * allowed Unicode scripts per locale (asymmetric Latin tolerance); an
+   * object overrides per slot. Absent ⇒ no check. See `./script.ts`.
+   */
+  readonly script?: 'auto' | Partial<Record<string, readonly string[]>>
+  /**
+   * What to do when a slot's value contains characters outside its
+   * allowed script set. Default `'reject'`.
+   */
+  readonly onScriptViolation?: 'reject' | 'filter' | 'warn'
 }
 
 /**
@@ -210,12 +285,58 @@ export function validateI18nTextValue(
  * @param field    Field name used in `LocaleNotSpecifiedError` messages.
  * @returns The resolved string, OR the original map when `locale === 'raw'`.
  */
+/** Options for the policy-aware form of {@link resolveI18nText}. */
+export interface ResolveI18nOptions {
+  /** Effective policy for the resolution layer. Default `'throw'`. */
+  readonly policy?: OnMissing
+  /** Declared substitute chain; applied only under policy `'substitute'`. */
+  readonly substitute?: readonly string[]
+}
+
+/** Normalize a single-or-list fallback into an array. */
+function toChain(fallback: string | readonly string[] | undefined): readonly string[] {
+  return Array.isArray(fallback) ? fallback : fallback ? [fallback as string] : []
+}
+
+/** Walk a chain, returning the first non-empty value (or `'any'` match). */
+function pickFromChain(
+  value: Record<string, string>,
+  chain: readonly string[],
+): string | undefined {
+  for (const fb of chain) {
+    if (fb === 'any') {
+      const any = Object.values(value).find((v) => v !== '')
+      if (any !== undefined) return any
+    } else if (value[fb] !== undefined && value[fb] !== '') {
+      return value[fb]
+    }
+  }
+  return undefined
+}
+
+// Legacy 4-arg form: can only throw or return — never null. Keeps every
+// existing call site's type unchanged (default policy is 'throw').
 export function resolveI18nText(
   value: Record<string, string>,
   locale: string,
   fallback?: string | readonly string[],
   field?: string,
-): string | Record<string, string> {
+): string | Record<string, string>
+// Policy-aware form: may return null under 'null'/'substitute' policies.
+export function resolveI18nText(
+  value: Record<string, string>,
+  locale: string,
+  fallback: string | readonly string[] | undefined,
+  field: string | undefined,
+  opts: ResolveI18nOptions,
+): string | Record<string, string> | null
+export function resolveI18nText(
+  value: Record<string, string>,
+  locale: string,
+  fallback?: string | readonly string[],
+  field?: string,
+  opts?: ResolveI18nOptions,
+): string | Record<string, string> | null {
   if (locale === 'raw') {
     return value
   }
@@ -229,28 +350,30 @@ export function resolveI18nText(
     return value[locale]
   }
 
-  // Fallback chain
-  const chain: readonly string[] = Array.isArray(fallback)
-    ? fallback
-    : fallback
-      ? [fallback]
-      : []
+  const policy: OnMissing = opts?.policy ?? 'throw'
 
-  for (const fb of chain) {
-    if (fb === 'any') {
-      const any = Object.values(value).find((v) => v !== '')
-      if (any !== undefined) return any
-    } else if (value[fb] !== undefined && value[fb] !== '') {
-      return value[fb]
-    }
+  // Caller-supplied fallback ALWAYS applies first (backward compat +
+  // explicit read-time override), regardless of policy.
+  const callerChain = toChain(fallback)
+  const callerHit = pickFromChain(value, callerChain)
+  if (callerHit !== undefined) return callerHit
+
+  // Declared substitute applies ONLY under policy 'substitute'.
+  if (policy === 'substitute') {
+    const subHit = pickFromChain(value, toChain(opts?.substitute))
+    if (subHit !== undefined) return subHit
   }
 
-  throw new LocaleNotSpecifiedError(
-    field ?? '<unknown>',
-    `No translation available for locale "${locale}"` +
-      (chain.length > 0 ? ` or fallback chain [${chain.join(', ')}]` : '') +
-      '.',
-  )
+  // Exhausted.
+  if (policy === 'throw') {
+    throw new LocaleNotSpecifiedError(
+      field ?? '<unknown>',
+      `No translation available for locale "${locale}"` +
+        (callerChain.length > 0 ? ` or fallback chain [${callerChain.join(', ')}]` : '') +
+        '.',
+    )
+  }
+  return null
 }
 
 // ─── Path helpers (nested i18nFields like 'address.lineOne') ──────────
@@ -317,6 +440,7 @@ function applyAtPath(
   path: string,
   locale: string,
   fallback: string | readonly string[] | undefined,
+  opts: ResolveI18nOptions,
 ): Record<string, unknown> {
   const arrayIdx = path.indexOf('[].')
   if (arrayIdx !== -1) {
@@ -328,7 +452,7 @@ function applyAtPath(
       ...obj,
       [arrayKey]: arr.map(item => {
         if (!item || typeof item !== 'object' || Array.isArray(item)) return item
-        return applyAtPath(item as Record<string, unknown>, restPath, locale, fallback)
+        return applyAtPath(item as Record<string, unknown>, restPath, locale, fallback, opts)
       }),
     }
   }
@@ -340,7 +464,7 @@ function applyAtPath(
     if (!nested || typeof nested !== 'object' || Array.isArray(nested)) return obj
     return {
       ...obj,
-      [head]: applyAtPath(nested as Record<string, unknown>, rest, locale, fallback),
+      [head]: applyAtPath(nested as Record<string, unknown>, rest, locale, fallback, opts),
     }
   }
   const raw = obj[path]
@@ -348,7 +472,7 @@ function applyAtPath(
   if (typeof raw !== 'object' || Array.isArray(raw)) return obj
   return {
     ...obj,
-    [path]: resolveI18nText(raw as Record<string, string>, locale, fallback, path),
+    [path]: resolveI18nText(raw as Record<string, string>, locale, fallback, path, opts),
   }
 }
 
@@ -366,20 +490,30 @@ function applyAtPath(
  * @param i18nFields  Map of field path → `I18nTextDescriptor`.
  * @param locale      The requested locale (or `'raw'`).
  * @param fallback    Fallback chain (optional).
+ * @param layer       Resolution layer (default `'read'`). Each field's
+ *                    `onMissing` policy is resolved for this layer, so the
+ *                    same record resolves leniently on a get but strictly
+ *                    inside an mv/derivation.
  */
 export function applyI18nLocale(
   record: Record<string, unknown>,
   i18nFields: Record<string, I18nTextDescriptor>,
   locale: string,
   fallback?: string | readonly string[],
+  layer: Layer = 'read',
 ): Record<string, unknown> {
   const fieldNames = Object.keys(i18nFields)
   if (fieldNames.length === 0) return record
 
   let result = record
 
-  for (const field of fieldNames) {
-    result = applyAtPath(result, field, locale, fallback)
+  for (const [field, descriptor] of Object.entries(i18nFields)) {
+    const { onMissing, substitute } = descriptor.options
+    const opts: ResolveI18nOptions = {
+      policy: resolvePolicy(onMissing, layer),
+      ...(substitute !== undefined ? { substitute } : {}),
+    }
+    result = applyAtPath(result, field, locale, fallback, opts)
   }
 
   return result

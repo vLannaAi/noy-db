@@ -21,6 +21,12 @@ export type {
   NoydbLiveQuery,
 } from './defineNoydbStore.js'
 export { setActiveNoydb, getActiveNoydb, resolveNoydb } from './context.js'
+export { useNoydbI18n } from './useNoydbI18n.js'
+export type { LocaleSyncable, SetLocaleOptions } from './useNoydbI18n.js'
+export { useI18nField } from './useI18nField.js'
+export type { UseI18nFieldOptions } from './useI18nField.js'
+export { useDictLabel } from './useDictLabel.js'
+export type { UseDictLabelOptions } from './useDictLabel.js'
 export { createNoydbPiniaPlugin } from './plugin.js'
 export type { StoreNoydbOptions, NoydbPiniaPluginOptions } from './plugin.js'
 export {

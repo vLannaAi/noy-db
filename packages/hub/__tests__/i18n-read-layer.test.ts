@@ -1,0 +1,123 @@
+/**
+ * Read-layer policy: get/list honor a field's onMissing/substitute.
+ *
+ * The driving example — a person's firstName stored in one language,
+ * read under an active locale that's absent — substitutes per the
+ * declared chain, while a default (no onMissing) field still throws.
+ */
+import { describe, it, expect, beforeEach } from 'vitest'
+import { createNoydb } from '../src/noydb.js'
+import { withI18n } from '../src/i18n/index.js'
+import { i18nText } from '../src/i18n/core.js'
+import { ConflictError } from '../src/errors.js'
+import type { Noydb } from '../src/noydb.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
+
+function memory(): NoydbStore {
+  const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
+  function getCollection(c: string, col: string) {
+    let comp = store.get(c)
+    if (!comp) { comp = new Map(); store.set(c, comp) }
+    let coll = comp.get(col)
+    if (!coll) { coll = new Map(); comp.set(col, coll) }
+    return coll
+  }
+  return {
+    name: 'memory',
+    async get(c, col, id) { return store.get(c)?.get(col)?.get(id) ?? null },
+    async put(c, col, id, env, ev) {
+      const coll = getCollection(c, col)
+      const ex = coll.get(id)
+      if (ev !== undefined && ex && ex._v !== ev) throw new ConflictError(ex._v)
+      coll.set(id, env)
+    },
+    async delete(c, col, id) { store.get(c)?.get(col)?.delete(id) },
+    async list(c, col) { const coll = store.get(c)?.get(col); return coll ? [...coll.keys()] : [] },
+    async loadAll(c) {
+      const comp = store.get(c); const s: VaultSnapshot = {}
+      if (comp) for (const [n, coll] of comp) {
+        if (!n.startsWith('_')) {
+          const r: Record<string, EncryptedEnvelope> = {}
+          for (const [id, e] of coll) r[id] = e
+          s[n] = r
+        }
+      }
+      return s
+    },
+    async saveAll(c, data) {
+      const comp = new Map<string, Map<string, EncryptedEnvelope>>()
+      for (const [name, records] of Object.entries(data)) {
+        const coll = new Map<string, EncryptedEnvelope>()
+        for (const [id, env] of Object.entries(records)) coll.set(id, env)
+        comp.set(name, coll)
+      }
+      const existing = store.get(c)
+      if (existing) {
+        for (const [name, coll] of existing) {
+          if (name.startsWith('_')) comp.set(name, coll)
+        }
+      }
+      store.set(c, comp)
+    },
+  }
+}
+
+interface Person { id: string; firstName: Record<string, string> }
+
+async function freshDb(): Promise<Noydb> {
+  return createNoydb({
+    store: memory(),
+    user: 'alice',
+    secret: 'test-passphrase-read-layer',
+    i18nStrategy: withI18n(),
+  })
+}
+
+describe('read-layer onMissing/substitute', () => {
+  let db: Noydb
+  beforeEach(async () => { db = await freshDb() })
+
+  it("substitutes on get when active locale absent (read:'substitute')", async () => {
+    const vault = await db.openVault('v', { locale: 'en' })
+    const people = vault.collection<Person>('people', {
+      i18nFields: {
+        firstName: i18nText({
+          languages: ['th', 'en'],
+          required: 'any',
+          substitute: ['en', 'th', 'any'],
+          onMissing: { read: 'substitute' },
+        }),
+      },
+    })
+    await people.put('p1', { id: 'p1', firstName: { th: 'สมชาย' } })
+    const p = await people.get('p1')
+    expect(p?.firstName).toBe('สมชาย')
+  })
+
+  it("returns null on get under read:'null'", async () => {
+    const vault = await db.openVault('v2', { locale: 'en' })
+    const people = vault.collection<Person>('people', {
+      i18nFields: {
+        firstName: i18nText({
+          languages: ['th', 'en'],
+          required: 'any',
+          onMissing: { read: 'null' },
+        }),
+      },
+    })
+    await people.put('p1', { id: 'p1', firstName: { th: 'สมชาย' } })
+    const p = await people.get('p1')
+    expect(p?.firstName).toBeNull()
+  })
+
+  it('default (no onMissing) field still throws on missing locale', async () => {
+    const vault = await db.openVault('v3', { locale: 'en' })
+    const people = vault.collection<Person>('people', {
+      i18nFields: {
+        firstName: i18nText({ languages: ['th', 'en'], required: 'any' }),
+      },
+    })
+    await people.put('p1', { id: 'p1', firstName: { th: 'สมชาย' } })
+    await expect(people.get('p1')).rejects.toThrow(/locale/i)
+  })
+})

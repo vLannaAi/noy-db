@@ -688,7 +688,13 @@ export {
   resolveI18nText,
   applyI18nLocale,
 } from './i18n/core.js'
-export type { I18nTextOptions, I18nTextDescriptor } from './i18n/core.js'
+export type { I18nTextOptions, I18nTextDescriptor, ResolveI18nOptions, I18nMap } from './i18n/core.js'
+
+// i18n — resolution policy + script enforcement
+export { resolvePolicy } from './i18n/policy.js'
+export type { OnMissing, Layer, OnMissingPolicy } from './i18n/policy.js'
+export { inferScripts, enforceScript } from './i18n/script.js'
+export type { ScriptWarning } from './i18n/script.js'
 
 // i18n errors
 export {
@@ -698,6 +704,7 @@ export {
   MissingTranslationError,
   LocaleNotSpecifiedError,
   TranslatorNotConfiguredError,
+  ScriptViolationError,
 } from './errors.js'
 
 // Locale read options + translator audit log

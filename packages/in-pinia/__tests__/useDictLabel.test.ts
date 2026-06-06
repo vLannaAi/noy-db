@@ -1,11 +1,13 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { ref } from 'vue'
+import { setActivePinia, createPinia } from 'pinia'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub'
 import { ConflictError, createNoydb } from '@noy-db/hub'
 import { withI18n } from '@noy-db/hub/i18n'
 import type { Noydb, Vault } from '@noy-db/hub'
 import { setActiveNoydb } from '../src/context.js'
 import { useDictLabel } from '../src/useDictLabel.js'
+import { useNoydbI18n } from '../src/useNoydbI18n.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -150,5 +152,18 @@ describe('useDictLabel', () => {
     const draft = label('draft')
     for (let i = 0; i < 50 && draft.value !== 'Draft'; i++) await tick(10)
     expect(draft.value).toBe('Draft')
+  })
+
+  it('defaults its locale to the shared useNoydbI18n and follows a global flip', async () => {
+    setActivePinia(createPinia())
+    const i18n = useNoydbI18n()
+    const { vault } = await setup()
+    const label = useDictLabel('invoiceStatus', { vault }) // no locale → follows global
+    const paid = label('paid')
+    for (let n = 0; n < 50 && paid.value !== 'Paid'; n++) await tick(10)
+    expect(paid.value).toBe('Paid') // global default 'en'
+    i18n.setLocale('th')
+    for (let n = 0; n < 50 && paid.value !== 'ชำระแล้ว'; n++) await tick(10)
+    expect(paid.value).toBe('ชำระแล้ว') // recomputed on global flip
   })
 })

@@ -39,9 +39,10 @@
  * @module
  */
 
-import { ref, shallowRef, watch, type Ref } from 'vue'
+import { ref, shallowRef, toRef, watch, type Ref } from 'vue'
 import type { Vault } from '@noy-db/hub'
 import { resolveNoydb } from './context.js'
+import { useNoydbI18n } from './useNoydbI18n.js'
 
 export interface UseDictLabelOptions {
   /**
@@ -94,8 +95,26 @@ export function useDictLabel(
   const vault = resolveVault(options.vault)
   const handle = vault.dictionary(dictionaryName)
 
-  const localeRef = normaliseLocale(options.locale)
-  const fallback = options.fallback ?? (['en', 'any'] as const)
+  // When the caller omits locale/fallback, follow the shared useNoydbI18n
+  // store (so a global setLocale re-resolves all labels). Guarded: if no
+  // Pinia is active (e.g. standalone use), fall back to literal defaults
+  // — keeps the composable usable outside an app context.
+  let storeLocale: Ref<string> | null = null
+  let storeFallback: readonly string[] | null = null
+  if (options.locale === undefined || options.fallback === undefined) {
+    try {
+      const i18n = useNoydbI18n()
+      storeLocale = toRef(i18n, 'locale')
+      storeFallback = i18n.fallback
+    } catch {
+      /* no active Pinia — use literal defaults below */
+    }
+  }
+  const localeRef =
+    options.locale !== undefined
+      ? normaliseLocale(options.locale)
+      : (storeLocale ?? ref('en'))
+  const fallback = options.fallback ?? storeFallback ?? (['en', 'any'] as const)
   const onMissingMode = options.onMissing ?? 'key'
   const missing = (key: string): string =>
     onMissingMode === 'empty'

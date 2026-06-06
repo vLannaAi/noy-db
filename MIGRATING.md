@@ -1,5 +1,30 @@
 ## 0.1 → 0.2
 
+### `@noy-db/in-pinia` reactive i18n (non-breaking, opt-in)
+
+`@noy-db/in-pinia` now ships a reactive locale layer: `useNoydbI18n`
+(active-locale store), `useI18nField` (reactive `pickLang`), and an
+exported `useDictLabel`. **Non-breaking** — `defineNoydbStore` defaults to
+`i18n: 'raw'`, so existing stores keep returning `{ [locale]: string }`
+maps exactly as before. Resolution is strictly opt-in:
+
+- **Display-only stores:** add `i18n: 'follow'` to resolve items to the
+  global locale and re-render on `useNoydbI18n().setLocale(...)`.
+- **Leave `'raw'` (the default)** for any store whose maps feed identity
+  reads (joins/derivations reading `.th`), export/filing projections, or a
+  per-cell bilingual toggle bound to the map. Resolve those at the edge
+  with `useI18nField` / `useDictLabel`.
+- **Locale-less vaults:** `setLocale` and `bindTo(uiLocaleRef)` are
+  **state-only** by default — they never call `vault.setLocale`. Keep it
+  that way (don't pass `setLocale`'s `syncVault`) so guard/MV/export reads
+  stay raw. (#286)
+- **`liveQuery` is not locale-aware yet.** On a `'follow'` store,
+  `store.items` are resolved but `store.liveQuery(...).items` still carry
+  raw `{ [locale]: string }` maps — resolve those rows at the edge with
+  `useI18nField` / `useDictLabel`. (Tracked follow-up.)
+
+### Shamir recovery
+
 **Breaking:** `@noy-db/hub` no longer re-exports the Shamir share codecs, and
 Shamir recovery now requires an injected provider.
 

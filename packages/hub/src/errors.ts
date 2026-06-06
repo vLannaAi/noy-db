@@ -1207,6 +1207,46 @@ export class LocaleNotSpecifiedError extends NoydbError {
   }
 }
 
+/**
+ * Thrown at write time when an `i18nText` slot's value contains
+ * characters outside the script set allowed for that locale, and the
+ * field's `onScriptViolation` policy is `'reject'` (the default).
+ *
+ * Distinct from {@link MissingTranslationError} (write-shape) and
+ * {@link LocaleNotSpecifiedError} (read-hole) so callers can tell a
+ * wrong-script value from a missing one.
+ */
+export class ScriptViolationError extends NoydbError {
+  /** The field whose value violated its script constraint. */
+  readonly field: string
+  /** The locale slot (e.g. `'en'`) that was checked. */
+  readonly locale: string
+  /** The Unicode scripts allowed for this slot. */
+  readonly expected: readonly string[]
+  /** A short sample of the offending characters, for diagnostics. */
+  readonly sample: string
+
+  constructor(
+    field: string,
+    locale: string,
+    expected: readonly string[],
+    sample: string,
+    message?: string,
+  ) {
+    super(
+      'SCRIPT_VIOLATION',
+      message ??
+        `Field "${field}" slot "${locale}" expects script(s) [${expected.join(', ')}] ` +
+        `but contains disallowed character(s): "${sample}".`,
+    )
+    this.name = 'ScriptViolationError'
+    this.field = field
+    this.locale = locale
+    this.expected = expected
+    this.sample = sample
+  }
+}
+
 // ─── Translator Errors ─────────────────────────────────────
 
 /**
