@@ -1399,6 +1399,8 @@ frameworks:
     showcases:
       - id: 38-in-pinia
         path: showcases/src/38-in-pinia.showcase.test.ts
+      - id: 95-in-pinia-i18n
+        path: showcases/src/95-in-pinia-i18n.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
@@ -1406,6 +1408,9 @@ frameworks:
       - 'defineNoydbStore exposes items, count, add, update, remove'
       - 'Standard Schema v1 validator installed on the underlying collection'
       - 'i18nFields and dictKeyFields options forwarded to the underlying collection (no pre-registration needed)'
+      - 'useNoydbI18n is the reactive active-locale; setLocale is state-only by default (vault.setLocale opt-in via syncVault); bindTo follows an external ref state-only and never touches a vault'
+      - 'defineNoydbStore i18n option defaults to raw (today behavior; non-breaking); follow re-reads c.list({locale}) on locale change; {locale} pins'
+      - 'useI18nField is a reactive pickLang (resolveI18nText policy:null → string|null); useDictLabel defaults its locale/fallback to useNoydbI18n and follows a global flip'
     related: [in-vue]
 
   - id: in-devtools

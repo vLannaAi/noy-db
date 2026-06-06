@@ -38,7 +38,7 @@ export function useI18nField(
     const locale = opts.locale !== undefined ? unref(opts.locale) : i18n.locale
     const fallback = opts.fallback ?? i18n.fallback
     const out = resolveI18nText(
-      map as Record<string, string>,
+      map,
       locale,
       fallback,
       undefined,
