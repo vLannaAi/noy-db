@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/on-recovery",
-  "version": "0.2.0-pre.7",
+  "version": "0.2.0-pre.8",
   "description": "One-time printable recovery codes for noy-db — last-resort vault unlock when the passphrase, passkey, and OIDC provider are all unavailable. Base32 + checksum codes, PBKDF2-derived wrapping keys, burn-on-use. Part of the @noy-db/on-* authentication family.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",

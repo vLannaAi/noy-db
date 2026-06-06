@@ -1,5 +1,16 @@
 # Changelog — hub
 
+## 0.2.0-pre.8
+
+### Feature: i18n multilingual-field hardening ([#284](https://github.com/vLannaAi/noy-db/pull/284))
+
+Opt-in extensions to `i18nText`/`dictKey` — every existing field behaves exactly as before (zero breaking change).
+
+- **Per-layer `onMissing` policy** (`'substitute' | 'null' | 'throw'`, scalar or per-layer map) + declared **`substitute`** preference chain on `i18nText`. Default `'throw'` preserves today's behavior; the `read` layer (`get`/`list`) is wired (guard/mv/derivation/join/export tracked in [#285](https://github.com/vLannaAi/noy-db/issues/285)).
+- **Per-locale script enforcement** (`script: 'auto' | {locale: Script[]}`, `onScriptViolation: 'reject'|'filter'|'warn'`) with **asymmetric Latin tolerance** — non-Latin locales also allow Latin (embedded brand/building names), Latin locales reject other scripts; `Common`/`Inherited`/`Mark` always allowed. New `ScriptViolationError`. ([#283](https://github.com/vLannaAi/noy-db/issues/283))
+- **dictKey parity**: `onMissing`/`substitute` on labels; array-of-keys → `[{key,label}]` pair objects; **wildcard-path `contacts[].title`** → per-element `<leaf>Label`. ([#282](https://github.com/vLannaAi/noy-db/issues/282))
+- **`I18nMap<Langs, Required>`** type helper — infers `Partial` vs full map shape from the `required` mode so absent optional locales are `string | undefined` at compile time.
+
 ## 0.2.0-pre.7
 
 ### Feature: cross-join query primitive ([#277](https://github.com/vLannaAi/noy-db/pull/277))
