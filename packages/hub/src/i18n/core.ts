@@ -44,6 +44,47 @@ import { MissingTranslationError, LocaleNotSpecifiedError } from '../errors.js'
 import type { OnMissing, OnMissingPolicy, Layer } from './policy.js'
 import { resolvePolicy } from './policy.js'
 
+// ─── I18nMap type helper ───────────────────────────────────────────────
+
+/** Flatten an intersection into a single object literal for nicer hovers. */
+type Prettify<T> = { [K in keyof T]: T[K] } & {}
+
+/**
+ * The stored shape of a multilingual field, inferred from its `required`
+ * mode — so the compiler forces you to handle an absent optional locale
+ * (`string | undefined`) instead of silently yielding `undefined`.
+ *
+ * Mirrors `i18nText({ languages, required })`:
+ * - `'all'` (default) — every locale required: `{ th: string; en: string }`
+ * - `'any'`           — every locale optional: `{ th?: string; en?: string }`
+ *   (the "at least one present" guarantee is runtime-only — not expressible
+ *   in TypeScript — so each key is optional)
+ * - `readonly L[]`    — listed locales required, the rest optional:
+ *   `I18nMap<'th'|'en', ['th']>` → `{ th: string; en?: string }`
+ *
+ * @example
+ * ```ts
+ * type Lang = 'th' | 'en'
+ * interface Contact {
+ *   name: I18nMap<Lang, 'any'>      // { th?: string; en?: string }
+ *   legalName: I18nMap<Lang, ['th']> // { th: string; en?: string }
+ *   slug: I18nMap<Lang>             // { th: string; en: string }
+ * }
+ * ```
+ *
+ * @public
+ */
+export type I18nMap<
+  Langs extends string,
+  Required extends 'all' | 'any' | readonly Langs[] = 'all',
+> = Required extends 'all'
+  ? Record<Langs, string>
+  : Required extends 'any'
+    ? Partial<Record<Langs, string>>
+    : Required extends readonly (infer R extends Langs)[]
+      ? Prettify<Record<R, string> & Partial<Record<Exclude<Langs, R>, string>>>
+      : never
+
 // ─── i18nText descriptor ───────────────────────────────────────────────
 
 /**

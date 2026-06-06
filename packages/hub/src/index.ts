@@ -688,7 +688,7 @@ export {
   resolveI18nText,
   applyI18nLocale,
 } from './i18n/core.js'
-export type { I18nTextOptions, I18nTextDescriptor, ResolveI18nOptions } from './i18n/core.js'
+export type { I18nTextOptions, I18nTextDescriptor, ResolveI18nOptions, I18nMap } from './i18n/core.js'
 
 // i18n — resolution policy + script enforcement
 export { resolvePolicy } from './i18n/policy.js'
