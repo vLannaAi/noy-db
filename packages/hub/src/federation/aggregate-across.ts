@@ -17,6 +17,7 @@ import type {
   CrossVaultLiveQuery,
 } from './types.js'
 import { CrossVaultLive } from './cross-vault-live.js'
+import type { ChangeEvent } from '../types.js'
 
 /** A source that can fan out records across shards. Satisfied by ShardedQuery. */
 export interface FanoutRecordSource<R> {
@@ -25,8 +26,8 @@ export interface FanoutRecordSource<R> {
 
 /** Live-binding hooks (change subscription + relevance) threaded from ShardedQuery. */
 export interface LiveBinding {
-  subscribeToChanges: (handler: (e: any) => void) => () => void
-  isRelevant: (e: any) => boolean
+  subscribeToChanges: (handler: (e: ChangeEvent) => void) => () => void
+  isRelevant: (e: ChangeEvent) => boolean
 }
 
 /**
