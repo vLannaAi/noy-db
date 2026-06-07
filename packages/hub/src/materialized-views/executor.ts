@@ -105,7 +105,11 @@ async function materializeUnionResult<TRow extends Record<string, unknown>>(
     const coll = db.collection<Record<string, unknown>>(arm.collection)
     const sourceRows = coll.query().toArray()
     for (const r of sourceRows) {
-      unified.push(arm.map(r))
+      const mapped = arm.map(r)
+      // null / undefined means "omit this source row" — skip without
+      // pushing so groupBy/aggregate never see a null entry (#297).
+      if (mapped == null) continue
+      unified.push(mapped)
     }
   }
 

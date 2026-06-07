@@ -76,8 +76,14 @@ export interface UnionSource<TRow extends Record<string, unknown>> {
    * Called once per source row at materialization time. Each arm's
    * mapped output is concatenated into a single stream before
    * `groupBy` + `aggregate` run.
+   *
+   * Returning `null` or `undefined` **omits** the source row from the
+   * materialized output entirely — the row is not pushed into the
+   * unified stream and never reaches `groupBy` / `aggregate`. This
+   * removes the need for sentinel rows (e.g. `{ amount: 0 }`) whose
+   * sole purpose is to be aggregated away (#297).
    */
-  readonly map: (sourceRow: Record<string, unknown>) => TRow
+  readonly map: (sourceRow: Record<string, unknown>) => TRow | null | undefined
 }
 
 /**

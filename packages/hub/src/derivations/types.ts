@@ -124,6 +124,17 @@ export interface DerivationStrategy<
    * sibling records via `ctx.vault.collection<T>(name).get(id)` /
    * `.list()` / `.query()`. The vault accessor is read-only; there is
    * no path to a writer from `ctx`.
+   *
+   * **Per-output omission (runtime-supported):** returning `null` or
+   * `undefined` for an individual output key is handled at runtime via
+   * the `optional: true` flag on the output's `RecordOutputSpec` —
+   * the executor deletes any previously-emitted output at that id, or
+   * silently no-ops if none exists. For `shape: 'array'` outputs, null
+   * / undefined is treated as an empty array (clears all prior rows for
+   * that source). The *top-level* return must always be a `TOutputs`
+   * object; returning `null` for the whole result is not supported.
+   * (#297 — MV `unionSources` map drop-row is the analogous feature for
+   * materialized views.)
    */
   derive: (source: TSource, ctx: DerivationContext) => Promise<TOutputs> | TOutputs
   /**
