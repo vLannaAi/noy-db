@@ -1002,7 +1002,9 @@ features:
     factory: null
     status: preview
     experimental: true
-    showcases: []
+    showcases:
+      - id: 98-vault-group-federation
+        path: showcases/src/98-vault-group-federation.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
