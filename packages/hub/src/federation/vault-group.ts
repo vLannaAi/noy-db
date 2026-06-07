@@ -1,0 +1,172 @@
+/**
+ * @category capability
+ * Multi-vault partition federation — VaultGroup transparent shard
+ * routing. Spec:
+ * docs/superpowers/specs/2026-06-07-mvf-vaultgroup-routing-mvp-design.md.
+ */
+import type { Noydb } from '../noydb.js'
+import type { Vault } from '../vault.js'
+import type { Collection } from '../collection.js'
+import { ShardProvisioningError, UnknownShardError } from '../errors.js'
+import type {
+  ShardingConfig,
+  VaultRegistryRow,
+  VaultTemplate,
+  FanoutQueryOptions,
+  FanoutResult,
+  SkippedVault,
+  WhereClause,
+} from './types.js'
+
+export class VaultGroup<T> {
+  constructor(
+    /** @internal */ readonly db: Noydb,
+    /** @internal */ readonly name: string,
+    /** @internal */ readonly registry: Collection<VaultRegistryRow>,
+    /** @internal */ readonly sharding: ShardingConfig<T>,
+    /** @internal */ readonly template: VaultTemplate,
+  ) {}
+
+  /** Deterministic vault name for a partition key, namespaced by the group. */
+  shardVaultId(partitionKey: string): string {
+    return `${this.name}--${partitionKey}`
+  }
+
+  /** All registry rows (hydrates the registry collection first). */
+  async allRows(): Promise<VaultRegistryRow[]> {
+    await this.registry.list()
+    return this.registry.query().toArray()
+  }
+
+  /** Open an existing shard and apply the template. */
+  async openShard(partitionKey: string): Promise<Vault> {
+    const vault = await this.db.openVault(this.shardVaultId(partitionKey))
+    this.template.configure(vault)
+    return vault
+  }
+
+  /**
+   * Idempotently provision a shard for `partitionKey`. Returns the
+   * configured vault handle.
+   *
+   * - row + vault present → no-op, return handle
+   * - row present, vault gone → ShardProvisioningError
+   * - row absent (vault present or not) → open-or-create, configure, write row
+   */
+  async createShard(partitionKey: string): Promise<Vault> {
+    const vaultId = this.shardVaultId(partitionKey)
+    const row = await this.registry.get(partitionKey)
+    const provisioned = await this.db._shardVaultProvisioned(vaultId)
+
+    if (row && !provisioned) throw new ShardProvisioningError(vaultId, partitionKey)
+    if (row && provisioned) return this.openShard(partitionKey)
+
+    // Row absent → create (or reconcile a provisioned-but-unregistered vault).
+    const vault = await this.db.openVault(vaultId)
+    this.template.configure(vault)
+    await this.registry.put(partitionKey, {
+      vaultId,
+      partitionKey,
+      templateName: this.sharding.vaultTemplate,
+      schemaVersion: this.template.version,
+      createdAt: Date.now(),
+    })
+    return vault
+  }
+
+  /**
+   * Drill down to a single shard's full Collection API. Throws if the shard is unknown.
+   * Also throws ShardProvisioningError if the registry row exists but the vault has been deleted
+   * (registry/store divergence).
+   */
+  async shard(partitionKey: string): Promise<Vault> {
+    const vaultId = this.shardVaultId(partitionKey)
+    const row = await this.registry.get(partitionKey)
+    if (!row) throw new UnknownShardError(partitionKey, this.name)
+    const provisioned = await this.db._shardVaultProvisioned(vaultId)
+    if (!provisioned) throw new ShardProvisioningError(vaultId, partitionKey)
+    return this.openShard(partitionKey)
+  }
+
+  /** A sharded view over one logical collection across all shards. */
+  collection<R = T>(collectionName: string): ShardedCollection<T, R> {
+    return new ShardedCollection<T, R>(this, collectionName)
+  }
+}
+
+export class ShardedCollection<T, R = T> {
+  constructor(
+    private readonly group: VaultGroup<T>,
+    private readonly collectionName: string,
+  ) {}
+
+  /** Route a write to the shard owning `keyOf(record)`. */
+  async put(id: string, record: T): Promise<void> {
+    const key = this.group.sharding.keyOf(record)
+    const row = await this.group.registry.get(key)
+    let vault: Vault
+    if (!row) {
+      if (this.group.sharding.autoCreate === false) {
+        throw new UnknownShardError(key, this.group.name)
+      }
+      vault = await this.group.createShard(key)
+    } else {
+      vault = await this.group.openShard(key)
+    }
+    await vault.collection<T>(this.collectionName).put(id, record)
+  }
+
+  /** Begin a cross-shard fan-out query. */
+  query(): ShardedQuery<T, R> {
+    return new ShardedQuery<T, R>(this.group, this.collectionName, [])
+  }
+}
+
+export class ShardedQuery<T, R = T> {
+  constructor(
+    private readonly group: VaultGroup<T>,
+    private readonly collectionName: string,
+    private readonly clauses: readonly WhereClause[],
+  ) {}
+
+  where(field: string, op: WhereClause['op'], value: unknown): ShardedQuery<T, R> {
+    return new ShardedQuery<T, R>(this.group, this.collectionName, [
+      ...this.clauses,
+      { field, op, value },
+    ])
+  }
+
+  /** Fan out across eligible shards and merge results. */
+  async toArray(options: FanoutQueryOptions = {}): Promise<FanoutResult<R>> {
+    const rows = await this.group.allRows()
+    const skipped: SkippedVault[] = []
+    const eligible: VaultRegistryRow[] = []
+    for (const row of rows) {
+      if (options.minVersion !== undefined && row.schemaVersion < options.minVersion) {
+        skipped.push({ vaultId: row.vaultId, reason: 'schema-drift' })
+      } else {
+        eligible.push(row)
+      }
+    }
+
+    const across = await this.group.db.queryAcross<R[]>(
+      eligible.map((r) => r.vaultId),
+      async (vault) => {
+        this.group.template.configure(vault)
+        const coll = vault.collection<R>(this.collectionName)
+        await coll.list() // hydrate the in-memory cache before the sync query
+        let q = coll.query()
+        for (const c of this.clauses) q = q.where(c.field, c.op, c.value)
+        return q.toArray()
+      },
+      { concurrency: options.concurrency ?? 1 },
+    )
+
+    const results: R[] = []
+    for (const r of across) {
+      if (r.error) skipped.push({ vaultId: r.vault, reason: 'error', error: r.error })
+      else for (const item of r.result) results.push(item)
+    }
+    return { results, skippedVaults: skipped }
+  }
+}
