@@ -9,6 +9,7 @@ import type { Vault } from '../vault.js'
 import type { Collection } from '../collection.js'
 import { ShardProvisioningError, UnknownShardError, ValidationError } from '../errors.js'
 import { classifyShardSkip } from './classify-skip.js'
+import { CrossVaultLive } from './cross-vault-live.js'
 import type {
   ShardingConfig,
   VaultRegistryRow,
@@ -17,6 +18,8 @@ import type {
   FanoutResult,
   SkippedVault,
   WhereClause,
+  LiveQueryOptions,
+  CrossVaultLiveQuery,
 } from './types.js'
 
 /** Reserved separator between group name and partition key in a shard vault id. */
@@ -216,5 +219,29 @@ export class ShardedQuery<T, R = T> {
   async toArray(options: FanoutQueryOptions = {}): Promise<FanoutResult<R>> {
     const { records, skippedVaults } = await this.fanoutRecords(options)
     return { results: records, skippedVaults }
+  }
+
+  /** Returns a reactive cross-shard live query — a facade over CrossVaultLive. */
+  live(options: LiveQueryOptions = {}): CrossVaultLiveQuery<R> {
+    const group = this.group
+    const collectionName = this.collectionName
+    const core = new CrossVaultLive<{ records: R[]; skipped: SkippedVault[] }>({
+      subscribeToChanges: (h) => { group.db.on('change', h); return () => group.db.off('change', h) },
+      isRelevant: (e) => e.collection === collectionName && e.vault.startsWith(`${group.name}--`),
+      compute: async () => {
+        const { records, skippedVaults } = await this.fanoutRecords(options)
+        return { records, skipped: skippedVaults }
+      },
+      initialSnapshot: { records: [], skipped: [] },
+      ...(options.debounceMs !== undefined ? { debounceMs: options.debounceMs } : {}),
+    })
+    return {
+      get value() { return core.snapshot.records as readonly R[] },
+      get skippedVaults() { return core.snapshot.skipped as readonly SkippedVault[] },
+      get error() { return core.error },
+      ready: core.ready,
+      subscribe: (cb) => core.subscribe(cb),
+      stop: () => core.stop(),
+    }
   }
 }
