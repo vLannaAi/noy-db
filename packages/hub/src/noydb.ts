@@ -404,7 +404,7 @@ export class Noydb {
    */
   async openVault(
     name: string,
-    opts?: { locale?: string },
+    opts?: { locale?: string; create?: boolean },
   ): Promise<Vault> {
     if (this.closed) throw new ValidationError('Instance is closed')
     this.touchPolicy(name)
@@ -418,7 +418,7 @@ export class Noydb {
       return comp
     }
 
-    const keyring = await this.getKeyringInternal(name)
+    const keyring = await this.getKeyringInternal(name, { create: opts?.create !== false })
     // Tier-1 unlock — passphrase / getKeyring callbacks both yield the
     // most-privileged tier. Tier-2 / tier-3 unlocks install
     // a lower tier here when they land.
@@ -954,7 +954,7 @@ export class Noydb {
       const vaultId = vaultIds[idx]!
       const task = (async () => {
         try {
-          const comp = await this.openVault(vaultId)
+          const comp = await this.openVault(vaultId, { create: options.create !== false })
           const result = await fn(comp)
           results[idx] = { vault: vaultId, result }
         } catch (err) {
@@ -2667,7 +2667,10 @@ export class Noydb {
    * accesses see them. Not exposed publicly — callers outside hub
    * should use {@link getKeyring}, which returns a defensive copy.
    */
-  private async getKeyringInternal(vault: string): Promise<UnlockedKeyring> {
+  private async getKeyringInternal(
+    vault: string,
+    opts: { create: boolean } = { create: true },
+  ): Promise<UnlockedKeyring> {
     if (this.options.encrypt === false) {
       return createPlaintextKeyring(this.options.user)
     }
@@ -2682,6 +2685,34 @@ export class Noydb {
       const keyring = await this.options.getKeyring(vault)
       this.keyringCache.set(vault, keyring)
       return keyring
+    }
+
+    // Pre-gate (#313): decide create-vs-fail BEFORE any vault write.
+    // resolveManagedSecret (below) persists _meta/sealed-passphrase on
+    // first open — a gate placed after it would write an artifact before
+    // failing. One capability-free store.list; membership = caller has a
+    // keyring row. Three outcomes:
+    //   - caller IS a member → fall through (existing keyring loaded normally)
+    //   - caller NOT a member, create:false → fail immediately (strict open-existing)
+    //   - caller NOT a member, other keyrings present → fail closed (no self-provision)
+    //   - caller NOT a member, no keyrings at all → genuinely-new vault → fall through
+    // Note: encrypt:false returned a plaintext keyring above, so we are always on the
+    // encrypted path here — the outer encrypt check is intentionally omitted.
+    const keyringUsers = await this.options.store.list(vault, '_keyring')
+    if (!keyringUsers.includes(this.options.user)) {
+      if (opts.create === false) {
+        throw new NoAccessError(
+          `Vault "${vault}" not opened: create disabled and no keyring for "${this.options.user}".`,
+        )
+      }
+      if (keyringUsers.length > 0) {
+        throw new NoAccessError(
+          `No keyring for user "${this.options.user}" in vault "${vault}" `
+          + `(held by other principals) — refusing to self-provision.`,
+        )
+      }
+      // else: genuinely-new vault (no _keyring/* at all) → fall through to the
+      // normal loadKeyring → NoAccessError → createOwnerKeyring path.
     }
 
     // Managed-passphrase mode — resolve the effective secret

@@ -1191,6 +1191,14 @@ export interface QueryAcrossOptions {
    * adapters where the disk I/O serializes anyway.
    */
   readonly concurrency?: number
+  /**
+   * Open shards non-creatingly — a missing grant throws instead of
+   * self-provisioning. Default: `true` (create iff the vault has no
+   * `_keyring/*`). Pass `false` for strict open-existing semantics
+   * (e.g. federation read fan-out where shards are pre-provisioned
+   * and an absent grant should fail closed).
+   */
+  readonly create?: boolean
 }
 
 /**
