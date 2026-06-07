@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/in-devtools-tui",
-  "version": "0.2.0-pre.10",
+  "version": "0.2.0-pre.11",
   "description": "Interactive terminal inspector for a live noy-db (ink TUI over @noy-db/in-devtools).",
   "license": "MIT",
   "type": "module",
