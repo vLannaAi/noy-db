@@ -36,6 +36,51 @@ const { results, skippedVaults } = await firm.collection('invoices')
 const acme = await firm.shard('acme')
 ```
 
+## Key-custody model
+
+VaultGroup operations run as the **calling identity**, which may hold grants to
+only a subset of the shards. The fan-out returns the **openable subset**; a shard
+the caller has no grant to is a `'no-grant'` skip — expected under scoped access,
+not a fault.
+
+### Skip reasons
+
+| reason | meaning |
+|---|---|
+| `'schema-drift'` | shard `schemaVersion` below the `minVersion` guard |
+| `'no-grant'` | caller holds no keyring envelope for this shard (`NoAccessError`) |
+| `'error'` | store fault, corruption, or wrong credential (`InvalidKeyError`, `KeyringCorruptError`, etc.) |
+
+Only `NoAccessError` maps to `'no-grant'`; all other errors map to `'error'` so
+that credential/corruption failures are never hidden as routine scoped-access
+skips.
+
+### Non-creating opens
+
+All federation opens (`openShard`, `queryAcross` fan-out) are **non-creating**
+(`create: false`). A missing grant therefore fails cleanly with `NoAccessError`
+and never self-provisions a keyring entry. The **only creating path** is
+`createShard`, which is called exclusively by the owning operator identity.
+
+### Registry vault access
+
+Opening a VaultGroup requires a grant to the **registry/StateManagement vault**
+(`state` in the typical setup). Without it the caller cannot read the
+`vault-registry` collection that drives shard discovery.
+
+### Partition key design
+
+`keyOf` must return an **opaque partition key** (e.g. an internal UUID or a
+short code). Registry rows are stored plaintext-visible to every member of the
+registry vault — do not key by sensitive identifiers such as tax IDs or full
+legal names.
+
+### Out of scope (this MVP)
+
+Per-identity roster scoping (limiting which registry rows a grantee can see) is
+deferred. The current model exposes the full registry to all registry-vault
+grantees; access control is at the shard level.
+
 ## Guarantees & limits
 
 - The operator `Noydb` instance owns its shards (`createShard` provisions them).
