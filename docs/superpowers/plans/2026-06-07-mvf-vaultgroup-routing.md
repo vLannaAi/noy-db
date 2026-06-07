@@ -561,10 +561,10 @@ export type {
 
 - [ ] **Step 5: Wire `Noydb` (noydb.ts)**
 
-Add the import near the other internal imports at the top of `packages/hub/src/noydb.ts`:
+Add **type-only** imports near the other internal imports at the top of `packages/hub/src/noydb.ts`. The `VaultGroup` *value* is loaded lazily inside `openVaultGroup` (below) so the federation module stays out of the static core graph — this is what keeps the core bundle within the `check-bundle.mjs` ceiling. (`queryAcross` lives in core, but the federation classes are a preview opt-in and should not inflate the always-loaded path.)
 
 ```ts
-import { VaultGroup } from './federation/vault-group.js'
+import type { VaultGroup } from './federation/vault-group.js'
 import type { VaultTemplate, VaultGroupOptions } from './federation/types.js'
 import { VaultTemplateNotFoundError } from './errors.js'
 ```
@@ -596,6 +596,9 @@ Add these three methods to the `Noydb` class (place them just after `queryAcross
     if (this.closed) throw new ValidationError('Instance is closed')
     const template = this.vaultTemplates.get(opts.sharding.vaultTemplate)
     if (!template) throw new VaultTemplateNotFoundError(opts.sharding.vaultTemplate)
+    // Lazy-load so the federation module is a separate chunk, not part
+    // of the always-loaded core graph (keeps the core bundle ceiling).
+    const { VaultGroup } = await import('./federation/vault-group.js')
     return new VaultGroup<T>(this, name, opts.registry, opts.sharding, template)
   }
 
@@ -742,6 +745,54 @@ describe('VaultGroup — fan-out read', () => {
       { vaultId: 'firm-clients--acme', reason: 'schema-drift' },
     ])
   })
+
+  it('a per-shard read failure lands in skippedVaults with reason "error" (fan-out not aborted)', async () => {
+    // Write with one db, then read with a FRESH db (empty caches) so the
+    // fan-out actually re-hydrates from the store and re-hits list(). The
+    // injected failure targets only the invoices collection of one shard;
+    // keyring load (collection '_keyring') is unaffected, so the shard
+    // opens and the failure surfaces inside the fan-out callback.
+    const base = memory()
+    let failBigco = false
+    const adapter: NoydbStore = {
+      ...base,
+      async list(c, col) {
+        if (failBigco && c === 'firm-clients--bigco' && col === 'invoices') {
+          throw new Error('injected list failure')
+        }
+        return base.list(c, col)
+      },
+    }
+    const tmpl = (vault: Vault) => { vault.collection<Invoice>('invoices') }
+
+    // --- write side ---
+    const wdb = await createNoydb({ store: adapter, user: 'operator', secret: 'op-pass' })
+    wdb.withVaultTemplate('client-template', { version: 1, configure: tmpl })
+    const wState = await wdb.openVault('state')
+    const wFirm = await wdb.openVaultGroup<Invoice>('firm-clients', {
+      registry: wState.collection<VaultRegistryRow>('vault-registry'),
+      sharding: { keyOf: (r) => r.clientId, vaultTemplate: 'client-template' },
+    })
+    await wFirm.collection('invoices').put('a-1', { clientId: 'acme', amount: 100, status: 'overdue' })
+    await wFirm.collection('invoices').put('b-1', { clientId: 'bigco', amount: 300, status: 'overdue' })
+
+    // --- read side: fresh db, caches empty ---
+    failBigco = true
+    const rdb = await createNoydb({ store: adapter, user: 'operator', secret: 'op-pass' })
+    rdb.withVaultTemplate('client-template', { version: 1, configure: tmpl })
+    const rState = await rdb.openVault('state')
+    const rFirm = await rdb.openVaultGroup<Invoice>('firm-clients', {
+      registry: rState.collection<VaultRegistryRow>('vault-registry'),
+      sharding: { keyOf: (r) => r.clientId, vaultTemplate: 'client-template' },
+    })
+
+    const out = await rFirm.collection('invoices').query().where('status', '==', 'overdue').toArray()
+    expect(out.results.map((r) => r.amount)).toEqual([100]) // bigco failed, acme survived
+    expect(out.skippedVaults).toHaveLength(1)
+    expect(out.skippedVaults[0]!.vaultId).toBe('firm-clients--bigco')
+    expect(out.skippedVaults[0]!.reason).toBe('error')
+    expect(out.skippedVaults[0]!.error).toBeInstanceOf(Error)
+  })
 })
 ```
 
@@ -867,10 +918,10 @@ const acme = await firm.shard('acme')
 
 - [ ] **Step 2: Add the SUBSYSTEMS.md catalog row**
 
-In `SUBSYSTEMS.md`, change the catalog heading `## The 23 subsystems` to `## The 24 subsystems`, and add this row under the appropriate cluster table (Cluster — write/mutate or a federation cluster; place it after row 23):
+In `SUBSYSTEMS.md`, change the catalog heading `## The 23 subsystems` to `## The 24 subsystems`, and add this row at the end of the last cluster table. Mirror row 22's italic-parenthetical marker style (`*(always-core)*`); since this is a preview core API (not a `with*()` subpath), use `*(preview)*`:
 
 ```markdown
-| 24 | `@noy-db/hub` (core) | Multi-vault partition federation — `db.openVaultGroup()` transparent shard routing + `vault-registry` source-of-truth + `minVersion` fan-out guard (MVP) | — | `queryAcross`, `permissions` |
+| 24 | *(preview)* | Multi-vault partition federation — `db.openVaultGroup()` transparent shard routing + `vault-registry` source-of-truth + `minVersion` fan-out guard (MVP, milestone 16) | — | `queryAcross`, `permissions` |
 ```
 
 - [ ] **Step 3: Add the features.yaml entry**
@@ -918,15 +969,17 @@ git commit -m "docs(federation): vault-group subsystem doc + features.yaml regis
 
 ## Task 8: Final verification
 
-- [ ] **Step 1: Full hub suite + typecheck + feature validation**
+- [ ] **Step 1: Full hub suite + typecheck + feature validation + bundle ceiling**
 
 Run:
 ```bash
 pnpm --filter @noy-db/hub exec tsc --noEmit
 pnpm --filter @noy-db/hub test
 node scripts/validate-features.mjs
+pnpm --filter @noy-db/hub build
+pnpm --filter @noy-db/hub bundle-check
 ```
-Expected: all PASS.
+Expected: all PASS. `bundle-check` must stay within the 5% tolerance vs `bundle-manifest.json` — the dynamic `import()` in `openVaultGroup` (Task 3, Step 5) is what keeps the federation module out of the core entry chunk. If `bundle-check` fails with a core-chunk growth, confirm the import is `import type` at module top (value loaded only via `await import()` inside the method); do **not** simply run `BUNDLE_BASELINE_UPDATE=1` to paper over a real core-graph regression.
 
 - [ ] **Step 2: Confirm the join.ts invariant is untouched**
 
@@ -944,7 +997,7 @@ git commit -m "chore(federation): formatting/lint fixups" || echo "nothing to co
 
 ## Self-Review notes (for the implementer)
 
-- **Spec coverage:** withVaultTemplate (T3), createShard idempotency 4-case matrix (T3), VaultGroup/openVaultGroup (T3), write routing + autoCreate (T4), fan-out + skippedVaults + minVersion guard (T5), shard() drill-down (T3 helper + T4 usage), registry-as-source-of-truth (harness uses a real `vault-registry` collection), errors (T2). Deferred items are explicitly documented, not implemented.
+- **Spec coverage:** withVaultTemplate (T3), createShard idempotency 4-case matrix (T3), VaultGroup/openVaultGroup (T3), write routing + autoCreate (T4), fan-out merge + minVersion schema-drift guard + per-shard `reason:'error'` branch (T5), shard() drill-down (T3 helper + T4 usage), registry-as-source-of-truth (harness uses a real `vault-registry` collection), errors (T2), bundle ceiling held via lazy import (T3 Step 5 + T8). Deferred items are explicitly documented, not implemented.
 - **`shard()` drill-down** is exercised indirectly by the write-routing tests (`h.firm.shard('acme')`). If you want an explicit unit, add an `it('shard() throws UnknownShardError for an unknown key')` asserting `rejects.toBeInstanceOf(UnknownShardError)`.
 - **Type consistency:** `VaultRegistryRow` fields (`vaultId`, `partitionKey`, `templateName`, `schemaVersion`, `createdAt`) are identical in types.ts, the createShard writer, the test rows, and the guard reader. `ShardedCollection.query()` → `ShardedQuery` → `toArray(FanoutQueryOptions)` → `FanoutResult`.
 - **Encrypted-vault assumption:** `_shardVaultProvisioned` keys off the `_keyring` row, which only exists for encrypted vaults. The MVP assumes the DEK/grant model (encrypt !== false). Document if a plaintext path is ever needed (out of scope).
