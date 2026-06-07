@@ -74,6 +74,15 @@ function trackingMemory() {
         writes.push(`${c}/${col}/${id}`)
         return base.put(c, col, id, env, ev)
       },
+      async saveAll(c: string, data: Record<string, Record<string, EncryptedEnvelope>>) {
+        for (const [col, recs] of Object.entries(data))
+          for (const id of Object.keys(recs)) writes.push(`${c}/${col}/${id}`)
+        return base.saveAll(c, data)
+      },
+      async delete(c: string, col: string, id: string) {
+        writes.push(`${c}/${col}/${id}:delete`)
+        return base.delete(c, col, id)
+      },
     } as NoydbStore,
     writesSince(mark: number) { return writes.slice(mark) },
     mark() { return writes.length },
@@ -132,6 +141,16 @@ describe('openVault no-self-provision (#313)', () => {
     const db = await createNoydb({ store: adapter, user: 'alice', secret: 'alice-pass' })
     await expect(db.openVault('fresh', { create: false })).rejects.toBeInstanceOf(NoAccessError)
     expect(await adapter.get('fresh', '_keyring', 'alice')).toBeNull()
+  })
+
+  it('create:false on a populated vault succeeds for a granted member', async () => {
+    const { adapter } = trackingMemory()
+    const alice = await createNoydb({ store: adapter, user: 'alice', secret: 'alice-pass' })
+    await (await alice.openVault('client-1')).collection<{ n: number }>('c').put('r1', { n: 1 })
+    await alice.grant('client-1', { userId: 'bob', displayName: 'Bob', role: 'viewer', passphrase: 'bob-pass', allowWeakPassphrase: true })
+    const bob = await createNoydb({ store: adapter, user: 'bob', secret: 'bob-pass' })
+    const bv = await bob.openVault('client-1', { create: false })
+    expect(await bv.collection<{ n: number }>('c').get('r1')).toEqual({ n: 1 })
   })
 
   it('a granted member opens fine and can read records', async () => {
