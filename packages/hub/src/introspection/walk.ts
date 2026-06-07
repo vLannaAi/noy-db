@@ -260,14 +260,23 @@ function describeOverlays(registry: unknown): Record<string, OverlayViewDescript
 
 function describeDerivations(registry: unknown): Record<string, DerivationDescriptor> {
   if (!registry || typeof registry !== 'object') return {}
-  const specs = listFromRegistry(registry as Record<string, unknown>)
+  const items = listFromRegistry(registry as Record<string, unknown>)
   const out: Record<string, DerivationDescriptor> = {}
-  for (const spec of specs) {
-    const s = spec as { name?: string; source?: string; outputs?: ReadonlyArray<string> }
-    if (!s.name) continue
-    out[s.name] = {
-      source: s.source ?? '',
-      outputs: s.outputs ?? [],
+  for (const item of items) {
+    // `all()` on DerivationRegistry returns RegisteredStrategy objects:
+    // { spec: DerivationStrategy, strategyHash }. Read `spec` and fall
+    // back to the item itself for forward-compat with other registries.
+    const reg = item as { spec?: { source?: string; outputs?: Record<string, { collection: string }> }; source?: string; outputs?: Record<string, { collection: string }> }
+    const s = reg.spec ?? reg
+    if (!s.source) continue
+    const outputCollections = s.outputs
+      ? Object.values(s.outputs).map((o) => (o as { collection: string }).collection)
+      : []
+    // Key by source — stable, human-readable identifier. If multiple
+    // strategies share the same source, the last one wins (known limitation).
+    out[s.source] = {
+      source: s.source,
+      outputs: outputCollections,
     }
   }
   return out
