@@ -1,5 +1,11 @@
 # Changelog — to-aws-s3
 
+## Unreleased
+
+### Feature: s3Bundle bundle-mode adapter ([#272](https://github.com/vLannaAi/noy-db/issues/272))
+
+- `s3Bundle()` implements the `NoydbBundleStore` contract (whole-vault `.noydb` blobs) — a snapshot/bundle destination distinct from the per-record `s3()` adapter. OCC via S3 conditional writes (`IfMatch`/ETag) → `BundleVersionConflictError`; `listBundles()` derives metadata from one `ListObjectsV2` (no per-object GET). Requires `@aws-sdk/client-s3` ≥ 3.696.
+
 ## 0.2.0-pre.5
 
 Version-only lockstep bump; no source changes since pre.4.

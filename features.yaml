@@ -721,6 +721,8 @@ features:
     showcases:
       - id: 93-with-snapshots
         path: showcases/src/93-with-snapshots.showcase.test.ts
+      - id: 96-snapshots-auto-cadence
+        path: showcases/src/96-snapshots-auto-cadence.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
@@ -730,7 +732,10 @@ features:
       - 'Sidecar index blob (${vaultId}__index) holds SnapshotMeta[] for O(1) listing without blob downloads'
       - 'Retention enforced eagerly via deleteBundle(); prune:false delegates to infra expiry'
       - 'After restoreSnapshot(), collection handles are stale — re-obtain via db.vault().collection()'
-      - 'Auto-snapshot cadence deferred to v2; per-collection snapshots deferred to v2'
+      - 'Automatic snapshots (snapshotPolicy mode debounce/interval) write a single rolling <vault>__auto key, separate from the immutable on-demand pool'
+      - 'The rolling auto-snapshot is exempt from retention (keepLast/maxAgeDays never prune it) and is preserved across on-demand snapshot() writes'
+      - 'snapshotPolicy defaults to manual — no timers unless explicitly enabled; the cadence scheduler is torn down by db.close()'
+      - 's3Bundle() in @noy-db/to-aws-s3 implements NoydbBundleStore (OCC via S3 IfMatch/ETag) as a snapshot destination; per-collection snapshots deferred to v2'
     related: [bundle, history]
 
   - id: attestation

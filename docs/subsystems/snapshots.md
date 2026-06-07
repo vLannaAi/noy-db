@@ -122,6 +122,59 @@ Retention is enforced eagerly after each `snapshot()` call. Both `keepLast` and 
 
 ---
 
+## Automatic cadence
+
+`withSnapshots({ snapshotPolicy })` enables automatic whole-vault snapshots driven
+by vault writes. Automatic snapshots overwrite a single rolling key
+(`<vault>__auto`) and are **exempt from retention** — the timer can never evict
+your labeled on-demand checkpoints, and on-demand `snapshot()` calls preserve the
+rolling slot.
+
+```ts
+const db = await createNoydb({
+  store,
+  snapshotStrategy: withSnapshots({
+    store: snapshotStore,
+    snapshotPolicy: { mode: 'debounce', debounceMs: 60_000, minIntervalMs: 300_000 },
+    retention: { keepLast: 10 }, // applies to on-demand checkpoints only
+  }),
+})
+```
+
+| `mode` | Trigger |
+|---|---|
+| `'manual'` (default) | No timers — `db.snapshot()` only. |
+| `'debounce'` | `debounceMs` of write-idle, with a `minIntervalMs` floor. |
+| `'interval'` | Fixed `intervalMs` timer. |
+
+`onUnload` (default true for non-manual) flushes a pending auto-snapshot on
+tab-hide / process exit. The auto snapshot appears first in `listSnapshots()`
+(flagged `auto: true`) and restores like any other
+(`db.restoreSnapshot(vault, '<vault>__auto')`). The cadence is wired off the
+db's `onAfterWrite` hook; an OCC conflict during an auto-snapshot is logged and
+retried on the next cycle, never thrown. The scheduler is torn down by
+`db.close()`.
+
+## S3 bundle store
+
+`@noy-db/to-aws-s3` ships `s3Bundle()` — a `NoydbBundleStore` for whole-vault
+`.noydb` blobs (distinct from the per-record `s3()` adapter), suitable as a
+snapshot destination.
+
+```ts
+import { s3Bundle } from '@noy-db/to-aws-s3'
+
+const snapshotStore = s3Bundle({ bucket: 'my-backups', prefix: 'noydb', region: 'us-east-1' })
+const db = await createNoydb({ store, snapshotStrategy: withSnapshots({ store: snapshotStore }) })
+```
+
+Key scheme is `{prefix}/{vaultId}.noydb`; the version token is the object ETag.
+OCC uses S3 conditional writes (`IfMatch` on the ETag); a lost race throws
+`BundleVersionConflictError`. `listBundles()` derives metadata from a single
+`ListObjectsV2` (no per-object GET). Requires `@aws-sdk/client-s3` ≥ 3.696.
+
+---
+
 ## Error Reference
 
 | Error class | Code | Thrown when |
@@ -129,3 +182,4 @@ Retention is enforced eagerly after each `snapshot()` call. Both `keepLast` and 
 | `SnapshotNotFoundError` | `SNAPSHOT_NOT_FOUND` | `version` not in snapshot store (pruned or invalid) |
 | `BackupCorruptedError` | `BACKUP_CORRUPTED` | Envelope hash mismatch on restore (tamper detected) |
 | `BackupLedgerError` | `BACKUP_LEDGER` | Hash-chain mismatch on restore (tamper detected) |
+| `BundleVersionConflictError` | `BUNDLE_VERSION_CONFLICT` | Snapshot/index write lost an OCC race (e.g. S3 `IfMatch` 412) |
