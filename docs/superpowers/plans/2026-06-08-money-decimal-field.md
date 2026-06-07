@@ -185,7 +185,7 @@ export function decodeMoneyFields<T extends Record<string,unknown>>(record: T, m
 ```
 - [ ] **Step 1: Failing test** covering: fixed write `123.45`→`'12345'`; multi write `{amount:123.45,currency:'EUR'}`→`{amount:'12345',currency:'EUR'}`; bare-amount accepted in multi only when allow-list length 1; null passthrough; precision throw → `MoneyPrecisionError`; read fixed `'12345'`→`total:'123.45'`, `totalFormatted` (locale `'de-DE'` → contains `123,45`), `totalNumber:123.45`; read of >2^53 keeps `total` exact-string and documents `totalNumber` lossy (assert string exact, number defined).
 - [ ] **Step 2:** Run → FAIL.
-- [ ] **Step 3: Implement.** Write uses `parseToScaledInt` + descriptor `rounding`/`scaleFor`; map `{ok:false}` to `MoneyPrecisionError`/non-finite throw. Read uses `formatScaledInt`; `<f>Formatted` via `new Intl.NumberFormat(locale ?? 'en-US', { style:'currency', currency }).format(Number(decimalString))` (format is display-only; exactness lives in the string); `<f>Number = Number(decimalString)`.
+- [ ] **Step 3: Implement.** Write uses `parseToScaledInt` + descriptor `rounding`/`scaleFor`; map `{ok:false}` to `MoneyPrecisionError`/non-finite throw. **Number-input precision hazard:** `String(0.1+0.2)` → `'0.30000000000000004'`; document that the **string write path is the exact one**, and add a test asserting a float artifact past `scale` precision-rejects (no rounding) rather than silently mis-storing. Read uses `formatScaledInt`; `<f>Formatted` via `new Intl.NumberFormat(locale ?? 'en-US', { style:'currency', currency, minimumFractionDigits: scale, maximumFractionDigits: scale }).format(decimalString)` — **pass the decimal STRING, never `Number(...)`** (Intl.format accepts string/BigInt at full precision; `Number()` would re-corrupt past 2^53 and is the exact bug this feature kills). `<f>Number = Number(decimalString)` (the one explicitly-lossy convenience).
 - [ ] **Step 4:** Run → PASS.
 - [ ] **Step 5: Commit** `feat(money): write/read normalization helpers`.
 
@@ -205,13 +205,21 @@ export function decodeMoneyFields<T extends Record<string,unknown>>(record: T, m
 
 **Files:** Create `packages/hub/src/money/money-reducer.ts`; Modify `packages/hub/src/collection.ts` (~2303), `packages/hub/src/query.ts`; Test `packages/hub/__tests__/money/aggregate.test.ts`
 
-Design: aggregates run over **raw** records (money = scaled-int string). `wrapMoneyReducers(spec, moneyFields)` inspects each reducer's `.op`/`.field`; when `field ∈ moneyFields` and `op ∈ {sum,min,max}`, replaces it with a money reducer whose state is per-currency `Map<string,bigint>` and whose `finalize` returns either a single exact string (fixed mode / single currency present) or a `Record<currency,string>` map (multi). `sum(field,{convertTo,fx})` converts via `fx` to one exact string.
+Design: aggregates run over **raw** records — **CONFIRMED**: `source.snapshot()` is `[...cache.values()].map(e=>e.record)` (collection.ts:2270), never `applyLocaleToRecord`'d, so money arrives as the scaled-int string. `wrapMoneyReducers(spec, moneyFields)` inspects each reducer's `.op`/`.field`; when `field ∈ moneyFields` and `op ∈ {sum,min,max}`, replaces it with a money reducer whose state is per-currency `Map<string,bigint>` and whose `finalize` returns either a single exact string (fixed mode / single currency present) or a `Record<currency,string>` map (multi). `sum(field,{convertTo,fx})` converts via `fx` to one exact string.
+
+**`remove()` is REQUIRED, not optional.** The Reducer protocol's `remove()` is what enables incremental maintenance under `buildLiveAggregation` and materialized views. The pilot's `saleRollups` is exactly money→`sum`→MV with put/delete maintenance (the #305 scenario), so a money reducer without `remove()` would break live/MV aggregation — parity with the generic `sum/min/max` (which all implement `remove`) is mandatory:
+- `sum.remove`: subtract the per-currency BigInt.
+- `min/max.remove`: per-currency multiset, mirroring the generic `pushValue`/`removeValue` (reducers.ts:226/255) but keyed by currency.
+
+**Silent-100×-error guard.** If a money field ever reaches the *generic* `sum`, `readNumber('12345')` returns `12345` — a silent 100× error, the worst failure class for an accounting DB. `wrapMoneyReducers` must be the single source of truth, and the generic field-reducers should assert/throw if handed a value that parses to a money-shaped object or a field known to be money (defensive: a dev-mode guard in `readNumber` when the raw value is an `{amount,currency}` object).
 
 - [ ] **Step 1: Failing test**
 ```ts
 // fixed-mode exact sum incl >2^53; per-currency map for multi; FX convert; min/max
 // e.g. put lines total 0.1,0.2,0.3 → sum '0.60' exact
 // multi EUR+USD → sum { EUR:'...', USD:'...' }; with {convertTo:'EUR', fx:{ 'USD->EUR':0.9 }} → single string
+// remove(): a live/MV aggregate over a money sum stays correct after a source delete
+//           (put a,b,c summing 0.60 → delete b → sum recomputes exactly; mirrors saleRollups)
 ```
 - [ ] **Step 2:** Run → FAIL.
 - [ ] **Step 3: Implement.** Verify (in-test) that `Query`'s record source is raw, pre-`applyLocaleToRecord`; if not, route aggregate over raw records. Pass `moneyFields` into `Query` at collection.ts:2303 and into the aggregate execution; call `wrapMoneyReducers` before `reduceRecords`/groupby. Money reducer parses stored integer strings to BigInt, accumulates per currency, finalizes with `formatScaledInt`. FX: for each currency subtotal, look up `fx['${cur}->${convertTo}']` (throw if missing), multiply (decimal-safe via scaled-int), sum.
@@ -254,4 +262,6 @@ Design: aggregates run over **raw** records (money = scaled-int string). `wrapMo
 - **Spec coverage:** §1 API→T3; §2 write→T2/T4/T5; §3 read→T4/T5; §4 aggregates(per-currency+FX+>2^53)→T2/T6/T9; §5 boundaries(zod-loose, i18n order, introspection)→T5/T7; §6 testing→every task + T9; ISO-4217 scale→T1/T3. No gaps.
 - **Type consistency:** `MoneyDescriptor.scaleFor/currencyOf/allows`, `parseToScaledInt`/`formatScaledInt`, `quantizeMoneyFields`/`decodeMoneyFields`, `wrapMoneyReducers` referenced consistently across T2–T6.
 - **Placeholder scan:** none — algorithms and test cases are concrete.
-- **Risk note (verify during T6):** confirm the aggregate record source is raw (pre-locale). If aggregation runs post-`applyLocaleToRecord`, the money reducer must parse the decimal-string form instead — handled by reading `scaleFor` and parsing accordingly; the test in T6 Step 3 asserts which form arrives.
+- **Risk note (RESOLVED):** aggregate source is raw — `source.snapshot()` = `[...cache.values()].map(e=>e.record)` (collection.ts:2270), never locale-applied; `applyLocaleToRecord` runs only on `get()`/`list()` returns (collection.ts:999, 2041). Money reducer parses scaled-int strings. Decode's primary-field transform (`'12345'`→`'123.45'`) therefore never touches internal storage round-trips (history/ledger/re-encrypt).
+- **`remove()` parity (T6):** money `sum/min/max` implement `remove()` for live/MV maintenance — required for the pilot's `saleRollups` money MV. See Task 6.
+- **Deferred — multi-mode equality indexing:** equality/`unique` indexes on a *multi-mode* `{amount,currency}` field need a canonical composite key; fixed-mode scaled-int strings index as-is. #293 (unique) just shipped, so a multi-mode money `unique` index could behave unexpectedly — explicitly deferred; document "index a derived scalar, not the money object" until a follow-up.
