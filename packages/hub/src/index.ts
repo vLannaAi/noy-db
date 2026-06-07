@@ -275,6 +275,19 @@ export {
 export { SnapshotNotFoundError } from './errors.js'
 export type { SnapshotMeta, RetentionPolicy } from './snapshots/strategy.js'
 
+// Federation — VaultGroup / sharded collections
+export { VaultGroup, ShardedCollection, ShardedQuery } from './federation/index.js'
+export type {
+  VaultTemplate,
+  VaultRegistryRow,
+  ShardingConfig,
+  VaultGroupOptions,
+  FanoutQueryOptions,
+  FanoutResult,
+  SkippedVault,
+} from './federation/index.js'
+export { UnknownShardError, ShardProvisioningError, VaultTemplateNotFoundError } from './errors.js'
+
 // Bundle format — `.noydb` container
 export {
   writeNoydbBundle,
