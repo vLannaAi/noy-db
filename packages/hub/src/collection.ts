@@ -32,8 +32,8 @@ import type { PersistedCollectionIndex, PersistedIndexDef } from './indexing/per
 import { LazyQuery } from './indexing/lazy-builder.js'
 import type { LazyQuerySource } from './indexing/lazy-builder.js'
 import { NO_INDEXING, type IndexStrategy, type IndexState } from './indexing/strategy.js'
-import { IndexWriteFailureError, UnsupportedIndexOptionError } from './errors.js'
-import { UniqueConstraintSet } from './indexing/unique-constraints.js'
+import { IndexWriteFailureError } from './errors.js'
+import { buildUniqueConstraintSet, type UniqueConstraintSet } from './indexing/unique-constraints.js'
 import type { RefDescriptor } from './refs.js'
 import { Lru, parseBytes, estimateRecordBytes, type LruStats } from './cache/index.js'
 import { generateULID } from './bundle/ulid.js'
@@ -913,49 +913,14 @@ export class Collection<T> {
       lazy: this.lazy,
     })
 
-    // Unique-constraint enforcement — independent of the indexing strategy.
-    // Collect all IndexDef entries that carry `unique: true` (object form only;
-    // plain strings and readonly-string-array shorthands do not have unique).
-    const uniqueDefs: (readonly string[])[] = []
-    for (const def of opts.indexes ?? []) {
-      if (
-        def !== null &&
-        typeof def === 'object' &&
-        !Array.isArray(def) &&
-        (def as { unique?: boolean }).unique === true
-      ) {
-        const fields = (def as { fields: readonly string[] }).fields
-        if (this.lazy) {
-          // Lazy mode: unique indexes are not yet supported — fail loud at
-          // registration rather than silently ignoring.
-          throw new UnsupportedIndexOptionError(
-            'unique',
-            `unique indexes are not yet supported in lazy mode (prefetch:false) — use the default eager mode. Collection "${this.name}".`,
-          )
-        }
-        uniqueDefs.push(fields)
-      }
-    }
-    // CRDT mode: unique indexes are incompatible — the CRDT put() path
-    // short-circuits the uniqueness check, so enforcement would silently
-    // never fire. Fail loud at registration.
-    if (this.crdtMode && uniqueDefs.length > 0) {
-      throw new UnsupportedIndexOptionError(
-        'unique',
-        `unique indexes are not supported on CRDT collections (crdt mode is incompatible with eager unique enforcement). Collection "${this.name}".`,
-      )
-    }
-    // Tiered collections: unique indexes are incompatible — tier writes
-    // (putAtTier, elevate, demote) call adapter.put directly and bypass
-    // uniqueConstraints.check()/upsert() entirely, so enforcement would
-    // silently never fire on those paths. Fail loud at registration.
-    if (this.tiers && uniqueDefs.length > 0) {
-      throw new UnsupportedIndexOptionError(
-        'unique',
-        `unique indexes are not supported on tiered collections (tier writes use a separate path that bypasses unique enforcement). Collection "${this.name}".`,
-      )
-    }
-    this.uniqueConstraints = uniqueDefs.length > 0 ? new UniqueConstraintSet(this.name, uniqueDefs) : null
+    // Unique-constraint enforcement (eager mode only). Declaring `unique` on
+    // a lazy/CRDT/tiered collection throws UnsupportedIndexOptionError here —
+    // see buildUniqueConstraintSet (kept out of this kernel file).
+    this.uniqueConstraints = buildUniqueConstraintSet(this.name, opts.indexes, {
+      lazy: this.lazy,
+      crdt: this.crdtMode != null,
+      tiered: this.tiers != null,
+    })
   }
 
   /**

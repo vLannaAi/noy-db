@@ -17,7 +17,8 @@
 
 import { readPath } from '../query/predicate.js'
 import { canonicalGroupKey } from '../aggregate/canonical-key.js'
-import { UniqueConstraintError } from '../errors.js'
+import { UniqueConstraintError, UnsupportedIndexOptionError } from '../errors.js'
+import type { IndexDef } from './eager-indexes.js'
 
 interface Constraint {
   readonly fields: readonly string[]
@@ -111,4 +112,54 @@ export class UniqueConstraintSet {
       this.upsert(id, record)
     }
   }
+}
+
+/**
+ * Build the `UniqueConstraintSet` for a collection from its `IndexDef[]`,
+ * or return `null` when no `unique: true` index is declared.
+ *
+ * Unique enforcement is **eager-mode only**. If any `unique` index is
+ * declared on a lazy (`prefetch:false`), CRDT, or tiered collection, this
+ * throws `UnsupportedIndexOptionError` at registration rather than letting
+ * those write paths (which bypass `check()`/`upsert()`) silently skip
+ * enforcement. Kept out of the Collection constructor to keep that
+ * always-on kernel file lean (kernel-surface invariant).
+ */
+export function buildUniqueConstraintSet(
+  collectionName: string,
+  indexes: readonly IndexDef[] | undefined,
+  mode: { readonly lazy: boolean; readonly crdt: boolean; readonly tiered: boolean },
+): UniqueConstraintSet | null {
+  const uniqueDefs: (readonly string[])[] = []
+  for (const def of indexes ?? []) {
+    if (
+      def !== null &&
+      typeof def === 'object' &&
+      !Array.isArray(def) &&
+      (def as { unique?: boolean }).unique === true
+    ) {
+      uniqueDefs.push((def as { fields: readonly string[] }).fields)
+    }
+  }
+  if (uniqueDefs.length === 0) return null
+
+  if (mode.lazy) {
+    throw new UnsupportedIndexOptionError(
+      'unique',
+      `unique indexes are not yet supported in lazy mode (prefetch:false) — use the default eager mode. Collection "${collectionName}".`,
+    )
+  }
+  if (mode.crdt) {
+    throw new UnsupportedIndexOptionError(
+      'unique',
+      `unique indexes are not supported on CRDT collections (crdt mode is incompatible with eager unique enforcement). Collection "${collectionName}".`,
+    )
+  }
+  if (mode.tiered) {
+    throw new UnsupportedIndexOptionError(
+      'unique',
+      `unique indexes are not supported on tiered collections (tier writes use a separate path that bypasses unique enforcement). Collection "${collectionName}".`,
+    )
+  }
+  return new UniqueConstraintSet(collectionName, uniqueDefs)
 }
