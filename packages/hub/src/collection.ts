@@ -945,6 +945,16 @@ export class Collection<T> {
         `unique indexes are not supported on CRDT collections (crdt mode is incompatible with eager unique enforcement). Collection "${this.name}".`,
       )
     }
+    // Tiered collections: unique indexes are incompatible — tier writes
+    // (putAtTier, elevate, demote) call adapter.put directly and bypass
+    // uniqueConstraints.check()/upsert() entirely, so enforcement would
+    // silently never fire on those paths. Fail loud at registration.
+    if (this.tiers && uniqueDefs.length > 0) {
+      throw new UnsupportedIndexOptionError(
+        'unique',
+        `unique indexes are not supported on tiered collections (tier writes use a separate path that bypasses unique enforcement). Collection "${this.name}".`,
+      )
+    }
     this.uniqueConstraints = uniqueDefs.length > 0 ? new UniqueConstraintSet(this.name, uniqueDefs) : null
   }
 
@@ -1390,6 +1400,13 @@ export class Collection<T> {
 
     const version = existing ? existing.version + 1 : 1
 
+    // Unique-constraint pre-flight — BEFORE history-save so a violation
+    // never writes a history snapshot or fires 'history:save'. Runs after
+    // ensureHydrated() (eager path above) so the constraint map already
+    // reflects records from prior sessions. No-op when no unique indexes
+    // are declared.
+    this.uniqueConstraints?.check(id, record)
+
     // Save history snapshot of the PREVIOUS version before overwriting
     if (existing && this.historyConfig.enabled !== false) {
       const historyEnvelope = await this.encryptRecord(existing.record, existing.version)
@@ -1409,12 +1426,6 @@ export class Collection<T> {
         })
       }
     }
-
-    // Unique-constraint pre-flight — BEFORE the store write so a
-    // violation never reaches the adapter. Throws UniqueConstraintError
-    // if a different record already holds the same constrained value.
-    // No-op when no unique indexes are declared.
-    this.uniqueConstraints?.check(id, record)
 
     const envelope = await this.encryptRecord(record, version)
     await this.adapter.put(this.vault, this.name, id, envelope)

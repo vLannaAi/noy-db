@@ -151,6 +151,8 @@ describe('update no-false-positive', () => {
 
     await col.put('a', { taxId: 'TX-001' })
     await expect(col.put('a', { taxId: 'TX-002' })).resolves.toBeUndefined()
+    // the freed old value must be claimable by a different record
+    await expect(col.put('b', { taxId: 'TX-001' })).resolves.toBeUndefined()
   })
 })
 
@@ -330,6 +332,19 @@ describe('CRDT mode fail-loud', () => {
     expect(() =>
       vault.collection<{ taxId: string }>('crdt-unique', {
         crdt: 'lww-map',
+        indexes: [{ fields: ['taxId'], unique: true }],
+      }),
+    ).toThrow(UnsupportedIndexOptionError)
+  })
+})
+
+// ── 13. Tiered collection + unique guard (C1) ─────────────────────────────────
+describe('tiered collection fail-loud', () => {
+  it('throws UnsupportedIndexOptionError at registration when unique index declared on a tiered collection', async () => {
+    const vault = await openVault()
+    expect(() =>
+      vault.collection<{ taxId: string }>('tiered-unique', {
+        tiers: [0, 1],
         indexes: [{ fields: ['taxId'], unique: true }],
       }),
     ).toThrow(UnsupportedIndexOptionError)

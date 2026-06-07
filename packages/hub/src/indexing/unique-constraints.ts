@@ -96,6 +96,14 @@ export class UniqueConstraintSet {
   /**
    * Rebuild all constraint maps from a full snapshot.
    * Called after hydration (ensureHydrated / hydrateFromSnapshot).
+   *
+   * **Last-writer-wins**: this method does NOT validate pre-existing data
+   * for duplicates. If the store already contains two records sharing a
+   * constrained value (written before the unique index was declared), the
+   * last one processed wins the map slot and the duplicate is silently
+   * displaced — no error is thrown, and the earlier holder is evicted from
+   * the map. Callers retrofitting a unique index onto populated data should
+   * run a one-time uniqueness scan before relying on enforcement.
    */
   build(entries: Iterable<readonly [string, unknown]>): void {
     for (const c of this.constraints) c.map.clear()
