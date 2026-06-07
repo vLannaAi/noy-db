@@ -272,9 +272,14 @@ function describeDerivations(registry: unknown): Record<string, DerivationDescri
     const outputCollections = s.outputs
       ? Object.values(s.outputs).map((o) => (o as { collection: string }).collection)
       : []
-    // Key by source — stable, human-readable identifier. If multiple
-    // strategies share the same source, the last one wins (known limitation).
-    out[s.source] = {
+    // Key by sorted output-collection names so co-sourced derivations don't
+    // collide. A single-output derivation keys as just that collection name
+    // (e.g. 'billSummary'); multi-output keys as sorted join (e.g. 'a+b').
+    // Falls back to source when no outputs are declared (defensive).
+    const key = outputCollections.length > 0
+      ? [...outputCollections].sort().join('+')
+      : s.source
+    out[key] = {
       source: s.source,
       outputs: outputCollections,
     }

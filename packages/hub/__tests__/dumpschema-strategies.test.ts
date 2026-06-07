@@ -141,6 +141,67 @@ describe('dumpSchema() — overlay views (Gap 2)', () => {
   })
 })
 
+// ─── Regression: co-sourced derivations (two derivations, same source) ──────
+
+interface Bill extends Record<string, unknown> {
+  id: string
+  amount: number
+  status: string
+}
+
+interface BillSummary extends Record<string, unknown> {
+  id: string
+  total: number
+}
+
+interface BillDerivedStatus extends Record<string, unknown> {
+  id: string
+  derived: string
+}
+
+describe('dumpSchema() — co-sourced derivations (#295 regression)', () => {
+  it('two derivations sharing the same source both appear in snap.derivations', async () => {
+    const summaryHandle = withDerivation({
+      source: 'bills',
+      deterministic: true,
+      outputs: { summary: { shape: 'record', collection: 'billSummary' } },
+      derive: (s: Bill) => ({ summary: { id: s.id, total: s.amount } }),
+      lifecycle: 'eager',
+    })
+
+    const statusHandle = withDerivation({
+      source: 'bills',
+      deterministic: true,
+      outputs: { derivedStatus: { shape: 'record', collection: 'billDerivedStatus' } },
+      derive: (s: Bill) => ({ derivedStatus: { id: s.id, derived: `${s.status}-derived` } }),
+      lifecycle: 'eager',
+    })
+
+    const db = await createNoydb({
+      store: memory(),
+      user: 'alice',
+      secret: 'dumpschema-cosourced-passphrase-2026',
+      derivationStrategies: [summaryHandle, statusHandle],
+    })
+    const vault = await db.openVault('acme')
+
+    // Fire a write so both derivations run (confirms no engine rejection at runtime)
+    await vault.collection<Bill>('bills').put('b1', { id: 'b1', amount: 500, status: 'open' })
+
+    const snap = await vault.dumpSchema()
+
+    // Both derivations must appear — they must NOT collide on the 'bills' key
+    expect(Object.keys(snap.derivations)).toHaveLength(2)
+    // Each entry should be findable by its output collection name
+    expect(snap.derivations['billSummary']).toBeDefined()
+    expect(snap.derivations['billSummary']!.source).toBe('bills')
+    expect(snap.derivations['billSummary']!.outputs).toContain('billSummary')
+    expect(snap.derivations['billDerivedStatus']).toBeDefined()
+    expect(snap.derivations['billDerivedStatus']!.source).toBe('bills')
+    expect(snap.derivations['billDerivedStatus']!.outputs).toContain('billDerivedStatus')
+  })
+})
+
 // ─── Gap 3: MV aggregate rendering ──────────────────────────────────────────
 
 describe('dumpSchema() — MV aggregate ops (Gap 3)', () => {
