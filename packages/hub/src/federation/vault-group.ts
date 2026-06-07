@@ -123,6 +123,28 @@ export class VaultGroup<T> {
   collection<R = T>(collectionName: string): ShardedCollection<T, R> {
     return new ShardedCollection<T, R>(this, collectionName)
   }
+
+  /** @internal — eligible (openable-candidate) rows + drift/divergence skips. */
+  async resolveEligible(options: { minVersion?: number } = {}): Promise<{
+    eligible: VaultRegistryRow[]
+    skipped: SkippedVault[]
+  }> {
+    const rows = await this.allRows()
+    const skipped: SkippedVault[] = []
+    const versionOk: VaultRegistryRow[] = []
+    for (const row of rows) {
+      if (options.minVersion !== undefined && row.schemaVersion < options.minVersion) {
+        skipped.push({ vaultId: row.vaultId, reason: 'schema-drift' })
+      } else versionOk.push(row)
+    }
+    const provisioned = await Promise.all(versionOk.map((r) => this.db._shardVaultProvisioned(r.vaultId)))
+    const eligible: VaultRegistryRow[] = []
+    versionOk.forEach((row, i) => {
+      if (provisioned[i]) eligible.push(row)
+      else skipped.push({ vaultId: row.vaultId, reason: 'error', error: new ShardProvisioningError(row.vaultId, row.partitionKey) })
+    })
+    return { eligible, skipped }
+  }
 }
 
 export class ShardedCollection<T, R = T> {
@@ -167,40 +189,11 @@ export class ShardedQuery<T, R = T> {
     ])
   }
 
-  /** Fan out across eligible shards and merge results. */
-  async toArray(options: FanoutQueryOptions = {}): Promise<FanoutResult<R>> {
-    const rows = await this.group.allRows()
-    const skipped: SkippedVault[] = []
-    const eligible: VaultRegistryRow[] = []
-    for (const row of rows) {
-      if (options.minVersion !== undefined && row.schemaVersion < options.minVersion) {
-        skipped.push({ vaultId: row.vaultId, reason: 'schema-drift' })
-      } else {
-        eligible.push(row)
-      }
-    }
-
-    // Guard against registry/store divergence: a row whose vault is not
-    // provisioned must NOT be recreated by queryAcross's open-on-read.
-    // Surface it as an error-skip instead (mirrors shard()/createShard).
-    const provisioned = await Promise.all(
-      eligible.map((row) => this.group.db._shardVaultProvisioned(row.vaultId)),
-    )
-    const safeEligible: VaultRegistryRow[] = []
-    eligible.forEach((row, i) => {
-      if (provisioned[i]) {
-        safeEligible.push(row)
-      } else {
-        skipped.push({
-          vaultId: row.vaultId,
-          reason: 'error',
-          error: new ShardProvisioningError(row.vaultId, row.partitionKey),
-        })
-      }
-    })
-
+  /** @internal — fan out the where-filtered records across eligible shards. */
+  async fanoutRecords(options: FanoutQueryOptions = {}): Promise<{ records: R[]; skippedVaults: SkippedVault[] }> {
+    const { eligible, skipped } = await this.group.resolveEligible(options)
     const across = await this.group.db.queryAcross<R[]>(
-      safeEligible.map((r) => r.vaultId),
+      eligible.map((r) => r.vaultId),
       async (vault) => {
         this.group.template.configure(vault)
         const coll = vault.collection<R>(this.collectionName)
@@ -211,12 +204,17 @@ export class ShardedQuery<T, R = T> {
       },
       { concurrency: options.concurrency ?? 1, create: false },
     )
-
     const results: R[] = []
     for (const r of across) {
       if (r.error) skipped.push({ vaultId: r.vault, reason: classifyShardSkip(r.error), error: r.error })
       else for (const item of r.result) results.push(item)
     }
-    return { results, skippedVaults: skipped }
+    return { records: results, skippedVaults: skipped }
+  }
+
+  /** Fan out across eligible shards and merge results. */
+  async toArray(options: FanoutQueryOptions = {}): Promise<FanoutResult<R>> {
+    const { records, skippedVaults } = await this.fanoutRecords(options)
+    return { results: records, skippedVaults }
   }
 }
