@@ -2304,6 +2304,7 @@ export class Collection<T> {
       // back to a linear scan otherwise.
       getIndexes: () => this.getIndexes(),
       lookupById: (id: string) => this.cache.get(id)?.record,
+      ...(this.moneyFields ? { moneyFields: this.moneyFields } : {}),
     }
     // Build a JoinContext if the vault passed a join resolver.
     // Without one, .join() on the resulting Query will throw with an

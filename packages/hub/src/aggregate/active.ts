@@ -40,11 +40,11 @@ export function withAggregate(): AggregateStrategy {
     aggregate(executeRecords, spec, upstreams) {
       return new Aggregation(executeRecords, spec as unknown as AggregateSpec, upstreams) as unknown as Aggregation<AggregateResult<typeof spec>>
     },
-    groupBy(executeRecords, field, upstreams, dictLabelResolver) {
-      return new GroupedQuery(executeRecords, field, upstreams, dictLabelResolver)
+    groupBy(executeRecords, field, upstreams, dictLabelResolver, moneyFields) {
+      return new GroupedQuery(executeRecords, field, upstreams, dictLabelResolver, moneyFields)
     },
-    groupByN(executeRecords, fields, upstreams) {
-      return new GroupedQueryN(executeRecords, fields, upstreams)
+    groupByN(executeRecords, fields, upstreams, moneyFields) {
+      return new GroupedQueryN(executeRecords, fields, upstreams, undefined, moneyFields)
     },
     async scanAggregate(iter, spec) {
       const collected: unknown[] = []

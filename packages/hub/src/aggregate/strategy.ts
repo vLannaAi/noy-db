@@ -20,6 +20,7 @@ import type {
   AggregationUpstream,
 } from './aggregation.js'
 import type { GroupedQuery, GroupedQueryN } from './groupby.js'
+import type { MoneyDescriptor } from '../money/descriptor.js'
 
 /**
  * Seam interface. `@internal` — will promote to public only when the
@@ -53,6 +54,7 @@ export interface AggregateStrategy {
       locale: string,
       fallback?: string | readonly string[],
     ) => Promise<string | undefined>,
+    moneyFields?: Record<string, MoneyDescriptor>,
   ): GroupedQuery<T, F>
 
   /**
@@ -65,6 +67,7 @@ export interface AggregateStrategy {
     executeRecords: () => readonly unknown[],
     fields: F,
     upstreams: readonly AggregationUpstream[],
+    moneyFields?: Record<string, MoneyDescriptor>,
   ): GroupedQueryN<T, F>
 
   /**
