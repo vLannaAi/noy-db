@@ -157,3 +157,101 @@ describe('VaultGroup — write routing', () => {
     ).rejects.toBeInstanceOf(UnknownShardError)
   })
 })
+
+describe('VaultGroup — fan-out read', () => {
+  it('merges matching records across shards', async () => {
+    const h = await harness()
+    const inv = h.firm.collection('invoices')
+    await inv.put('a-1', { clientId: 'acme', amount: 100, status: 'overdue' })
+    await inv.put('a-2', { clientId: 'acme', amount: 200, status: 'open' })
+    await inv.put('b-1', { clientId: 'bigco', amount: 300, status: 'overdue' })
+
+    const out = await h.firm.collection('invoices').query().where('status', '==', 'overdue').toArray()
+    expect(out.skippedVaults).toEqual([])
+    expect(out.results.map((r) => r.amount).sort((x, y) => x - y)).toEqual([100, 300])
+  })
+
+  it('minVersion guard moves behind-version shards into skippedVaults (not results)', async () => {
+    const adapter = memory()
+    const db = await createNoydb({ store: adapter, user: 'operator', secret: 'op-pass' })
+
+    // Register template v1, create shard A at v1.
+    db.withVaultTemplate('client-template', {
+      version: 1,
+      configure(vault: Vault) { vault.collection<Invoice>('invoices') },
+    })
+    const stateVault = await db.openVault('state')
+    const registry = stateVault.collection<VaultRegistryRow>('vault-registry')
+    let firm = await db.openVaultGroup<Invoice>('firm-clients', {
+      registry, sharding: { keyOf: (r) => r.clientId, vaultTemplate: 'client-template' },
+    })
+    await firm.collection('invoices').put('a-1', { clientId: 'acme', amount: 100, status: 'overdue' })
+
+    // Re-register the template at v2 and create shard B at v2.
+    db.withVaultTemplate('client-template', {
+      version: 2,
+      configure(vault: Vault) { vault.collection<Invoice>('invoices') },
+    })
+    firm = await db.openVaultGroup<Invoice>('firm-clients', {
+      registry, sharding: { keyOf: (r) => r.clientId, vaultTemplate: 'client-template' },
+    })
+    await firm.collection('invoices').put('b-1', { clientId: 'bigco', amount: 300, status: 'overdue' })
+
+    const out = await firm.collection('invoices').query()
+      .where('status', '==', 'overdue')
+      .toArray({ minVersion: 2 })
+
+    expect(out.results.map((r) => r.amount)).toEqual([300]) // only the v2 shard
+    expect(out.skippedVaults).toEqual([
+      { vaultId: 'firm-clients--acme', reason: 'schema-drift' },
+    ])
+  })
+
+  it('a per-shard read failure lands in skippedVaults with reason "error" (fan-out not aborted)', async () => {
+    // Write with one db, then read with a FRESH db (empty caches) so the
+    // fan-out actually re-hydrates from the store and re-hits list(). The
+    // injected failure targets only the invoices collection of one shard;
+    // keyring load (collection '_keyring') is unaffected, so the shard
+    // opens and the failure surfaces inside the fan-out callback.
+    const base = memory()
+    let failBigco = false
+    const adapter: NoydbStore = {
+      ...base,
+      async list(c, col) {
+        if (failBigco && c === 'firm-clients--bigco' && col === 'invoices') {
+          throw new Error('injected list failure')
+        }
+        return base.list(c, col)
+      },
+    }
+    const tmpl = (vault: Vault) => { vault.collection<Invoice>('invoices') }
+
+    // --- write side ---
+    const wdb = await createNoydb({ store: adapter, user: 'operator', secret: 'op-pass' })
+    wdb.withVaultTemplate('client-template', { version: 1, configure: tmpl })
+    const wState = await wdb.openVault('state')
+    const wFirm = await wdb.openVaultGroup<Invoice>('firm-clients', {
+      registry: wState.collection<VaultRegistryRow>('vault-registry'),
+      sharding: { keyOf: (r) => r.clientId, vaultTemplate: 'client-template' },
+    })
+    await wFirm.collection('invoices').put('a-1', { clientId: 'acme', amount: 100, status: 'overdue' })
+    await wFirm.collection('invoices').put('b-1', { clientId: 'bigco', amount: 300, status: 'overdue' })
+
+    // --- read side: fresh db, caches empty ---
+    failBigco = true
+    const rdb = await createNoydb({ store: adapter, user: 'operator', secret: 'op-pass' })
+    rdb.withVaultTemplate('client-template', { version: 1, configure: tmpl })
+    const rState = await rdb.openVault('state')
+    const rFirm = await rdb.openVaultGroup<Invoice>('firm-clients', {
+      registry: rState.collection<VaultRegistryRow>('vault-registry'),
+      sharding: { keyOf: (r) => r.clientId, vaultTemplate: 'client-template' },
+    })
+
+    const out = await rFirm.collection('invoices').query().where('status', '==', 'overdue').toArray()
+    expect(out.results.map((r) => r.amount)).toEqual([100]) // bigco failed, acme survived
+    expect(out.skippedVaults).toHaveLength(1)
+    expect(out.skippedVaults[0]!.vaultId).toBe('firm-clients--bigco')
+    expect(out.skippedVaults[0]!.reason).toBe('error')
+    expect(out.skippedVaults[0]!.error).toBeInstanceOf(Error)
+  })
+})
