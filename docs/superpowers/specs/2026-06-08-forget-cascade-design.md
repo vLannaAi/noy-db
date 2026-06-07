@@ -69,3 +69,13 @@ const result = await vault.forget('buyer-123')
 - [ ] predicate/subject-scoped CEK shred (record bodies + history unrecoverable)
 - [ ] ledger hash-chain still verifies after a shred
 - [ ] portable expression of "all records of subject X" (the encrypted subject index)
+
+## Coupled work — #306 record-scoped sealed slices
+
+#306 ("tighten server-side `at-*` decryption to one record") rides on the **same per-record CEK** introduced here, so the two should be built together.
+
+Today, sealing operates on **per-collection DEKs** (`{ collection: rawDEK }` maps — see `bundle/extract-partition.ts`), so granting an `at-*` host (e.g. `at-aws-kms`) access to one record means sealing the **whole collection's** key. **Permission-level** record narrowing already exists — `@noy-db/on-magic-link`'s `MagicLinkGrantSpec` carries `collection?` + `record?`, and `db.grant` restricts which records a viewer may read — but that is an *authorization* restriction; the grantee still holds the collection DEK and could decrypt other records if it bypassed the permission layer.
+
+#306's actual ask is **crypto-level** least-privilege: *"host denied any record outside the grant"* + *"CloudTrail-observable scope"*. That requires sealing **only the granted record's CEK** to the host — impossible until per-record CEKs exist. So #306 = "seal a single CEK (not the collection DEK) to an `at-*` recipient," layered on step 1 above (recipient-target sealing already exists; the change is sealing a CEK instead of a collection DEK).
+
+**Recommendation:** track #304 and #306 as one security epic. Build order: per-record CEK (step 1) → `withForgetCascade` (#304) → record-scoped CEK sealing to `at-*` hosts (#306).
