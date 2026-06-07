@@ -144,3 +144,41 @@ describe('ShardedQuery.aggregate() one-shot', () => {
     expect(overdue?.total).toBe(400)
   })
 })
+
+// ─── Task 11: reactive aggregate (.live()) ────────────────────────────────────
+
+describe('ShardedQuery.aggregate().live()', () => {
+  it('updates the scalar aggregate on write, then stop() halts updates', async () => {
+    const h = await harness()
+    await h.firm.collection('invoices').put('a1', { clientId: 'acme', amount: 100, status: 'open' })
+    const la = h.firm.collection('invoices').query().aggregate({ total: sum('amount') }).live()
+    await la.ready
+    expect(la.value?.total).toBe(100)
+
+    await h.firm.collection('invoices').put('b1', { clientId: 'beta', amount: 50, status: 'open' })
+    await waitFor(() => la.value?.total === 150)
+    la.stop()
+
+    // After stop, writes do not update the aggregate
+    await h.firm.collection('invoices').put('b2', { clientId: 'beta', amount: 999, status: 'open' })
+    await new Promise<void>((r) => setTimeout(r, 30))
+    expect(la.value?.total).toBe(150)
+  })
+
+  it('groupBy().aggregate().live() updates grouped rows on write', async () => {
+    const h = await harness()
+    await h.firm.collection('invoices').put('a1', { clientId: 'acme', amount: 100, status: 'overdue' })
+    const lg = h.firm.collection('invoices').query()
+      .groupBy('status').aggregate({ total: sum('amount') }).live()
+    await lg.ready
+    const overdueRow = lg.value.find((r) => r.status === 'overdue')
+    expect(overdueRow?.total).toBe(100)
+
+    await h.firm.collection('invoices').put('b1', { clientId: 'beta', amount: 200, status: 'overdue' })
+    await waitFor(() => {
+      const row = lg.value.find((r) => r.status === 'overdue')
+      return row !== undefined && row.total === 300
+    })
+    lg.stop()
+  })
+})
