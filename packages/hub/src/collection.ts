@@ -2738,12 +2738,16 @@ export class Collection<T> {
     const envelope = await this.adapter.get(this.vault, this.name, id)
     if (!envelope) {
       this.cache.delete(id)
-      if (previous) this.indexes?.remove(id, previous.record)
+      if (previous) {
+        this.indexes?.remove(id, previous.record)
+        this.uniqueConstraints?.remove(id, previous.record)
+      }
       return
     }
     const record = await this.decryptRecord(envelope)
     this.cache.set(id, { record, version: envelope._v })
     this.indexes?.upsert(id, record, previous ? previous.record : null)
+    this.uniqueConstraints?.upsert(id, record, previous?.record)
   }
 
   /**

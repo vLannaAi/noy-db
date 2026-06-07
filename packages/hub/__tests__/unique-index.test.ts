@@ -248,7 +248,30 @@ describe('lazy mode fail-loud', () => {
   })
 })
 
-// ── 9. Unique index still queryable ─────────────────────────────────────────
+// ── 9. putManyAtomic rollback: no ghost entries ──────────────────────────────
+describe('putManyAtomic rollback ghost-record regression', () => {
+  it('allows a fresh insert of a value after an atomic batch rolled it back', async () => {
+    const vault = await openVault()
+    const col = vault.collection<{ taxId: string }>('employees', {
+      indexes: [{ fields: ['taxId'], unique: true }],
+    })
+
+    // Phase 1: atomic batch — entry 'b' collides with 'a' → whole batch fails
+    // but 'a' was already written to store (putManyAtomic writes then reverts)
+    await expect(
+      col.putMany([
+        ['a', { taxId: 'TX-001' }],
+        ['b', { taxId: 'TX-001' }],
+      ], { atomic: true }),
+    ).rejects.toThrow(UniqueConstraintError)
+
+    // After rollback both 'a' and 'b' should be absent.
+    // TX-001 must be claimable again — no ghost entry in the unique map.
+    await expect(col.put('c', { taxId: 'TX-001' })).resolves.toBeUndefined()
+  })
+})
+
+// ── 10. Unique index still queryable ─────────────────────────────────────────
 describe('unique index queryable', () => {
   it('a unique index serves where == queries', async () => {
     const vault = await openVault()
