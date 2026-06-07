@@ -130,6 +130,26 @@ features:
       - 'money-aware sum/min/max in BigInt — fixed → single string, multi → per-currency map, sum convertTo+fx → one exact figure; remove() supports live/MV maintenance'
     related: [schema-and-refs, query-basics]
 
+  - id: computed-fields
+    name: computed scalar fields (schema-owned derived values)
+    cluster: core
+    spec: docs/superpowers/specs/2026-06-08-computed-scalar-fields-design.md
+    subsystem_doc: docs/superpowers/specs/2026-06-08-computed-scalar-fields-design.md
+    package: '@noy-db/hub'
+    factory: null
+    status: preview
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'computed: { field: (rec) => value } evaluated FIRST on put, before schema validation'
+      - 'evaluated in declaration order — a later computed field reads earlier ones'
+      - 'materialized on the record (stored, not recomputed on read) → queryable + aggregate(sum())-able'
+      - 'computed overwrites any user-supplied value of the same name; a throwing fn → ComputedFieldError'
+      - 'composes with money(): a computed money field is quantized after eval and sums exactly'
+    related: [schema-and-refs, money-field]
+
   - id: persisted-json-schema
     name: Persisted JSON Schema (opt-in)
     cluster: core

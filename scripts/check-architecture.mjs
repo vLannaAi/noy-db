@@ -395,12 +395,13 @@ function scanFileForStrategyOptIn(file, content) {
 // itself into the kernel shows up here as a line-count regression — the fix is
 // to register on the bus, not to grow these files.
 const KERNEL_SURFACE_BUDGET = {
-  // Bumped 3950→3985 for the money() write/read hooks (#300): quantize-on-put
-  // + decode-on-read are inline transforms in the put/get hot paths, the same
-  // kernel-resident placement as the i18nText/dictKey hooks — they cannot move
-  // onto the SubsystemBus. The heavy logic lives in src/money/; only the thin
-  // call-sites are here.
-  'packages/hub/src/collection.ts': 3985,
+  // Bumped 3950→3985 for money() (#300), then →4010 for computed() (#302).
+  // Both are Cluster-A write-pipeline hooks: quantize-on-put / decode-on-read
+  // and computed-eval-on-put are inline transforms in the put/get hot paths,
+  // the same kernel-resident placement as the i18nText/dictKey hooks — they
+  // cannot move onto the SubsystemBus. The heavy logic lives in src/money/ and
+  // src/computed/; only the thin call-sites are here.
+  'packages/hub/src/collection.ts': 4010,
   'packages/hub/src/vault.ts': 3640,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy

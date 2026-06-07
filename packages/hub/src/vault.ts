@@ -70,6 +70,7 @@ import { isDictCollectionName } from './i18n/dictionary.js'
 import type { I18nTextDescriptor } from './i18n/core.js'
 import { getAtPath } from './i18n/core.js'
 import type { MoneyDescriptor } from './money/descriptor.js'
+import type { ComputedFields } from './computed/index.js'
 import { NO_I18N, type I18nStrategy } from './i18n/strategy.js'
 import { NO_SYNC, type SyncStrategy } from './team/sync-strategy.js'
 // Type-only imports for the guard + derivation subsystems. The
@@ -534,6 +535,8 @@ export class Vault {
     dictKeyFields?: Record<string, DictKeyDescriptor>
     /** — declare money() fields for currency-safe decimal storage/formatting. */
     moneyFields?: Record<string, MoneyDescriptor>
+    /** — declare computed scalar fields, evaluated on write (schema-owned). */
+    computed?: ComputedFields<T>
     /** — per-collection conflict resolution policy. */
     conflictPolicy?: ConflictPolicy<T>
     /** — CRDT mode for collaborative editing without conflicts. */
@@ -611,6 +614,12 @@ export class Vault {
       // this declaration. Reconcile money descriptors onto it so writes
       // quantize and money-aware aggregation applies. First-wins.
       coll._applyMoneyFields(options.moneyFields)
+    }
+    if (coll && options?.computed) {
+      // Same MV-pre-creation reconcile as money: a collection used as an
+      // MV source is auto-created (without options) before this
+      // declaration; attach computed fields so writes materialize them.
+      coll._applyComputed(options.computed as ComputedFields)
     }
     if (!coll) {
       // Register ref declarations (if any) with the vault-level
@@ -760,6 +769,7 @@ export class Vault {
       if (this.syncAdapter !== undefined) collOpts.syncAdapter = this.syncAdapter
       if (options?.i18nFields !== undefined) collOpts.i18nFields = options.i18nFields
       if (options?.moneyFields !== undefined) collOpts.moneyFields = options.moneyFields
+      if (options?.computed !== undefined) collOpts.computed = options.computed as ComputedFields
       if (options?.dictKeyFields !== undefined) {
         // Build the label resolver callback for this collection
         collOpts.dictLabelResolver = async (dictName, key, locale, fallback) => {

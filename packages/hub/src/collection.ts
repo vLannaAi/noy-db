@@ -7,6 +7,8 @@ import { getAtPath, setAtPathInPlace } from './i18n/core.js'
 import type { DictKeyDescriptor } from './i18n/dictionary.js'
 import type { MoneyDescriptor } from './money/descriptor.js'
 import { quantizeMoneyFields, decodeMoneyFields } from './money/normalize.js'
+import type { ComputedFields } from './computed/index.js'
+import { evalComputedFields } from './computed/index.js'
 import { NO_I18N, type I18nStrategy } from './i18n/strategy.js'
 import { resolvePolicy } from './i18n/policy.js'
 import { encrypt, decrypt, encryptDeterministic } from './crypto.js'
@@ -294,6 +296,12 @@ export class Collection<T> {
    * can attach descriptors to a collection MV-analysis pre-created.
    */
   private moneyFields: Record<string, MoneyDescriptor> | undefined
+
+  /**
+   * Computed scalar fields, evaluated first on every `put()`. Mutable for
+   * the same MV-pre-creation reconcile as {@link moneyFields}.
+   */
+  private computed: ComputedFields | undefined
 
   /**
    * Async callback provided by the Vault that resolves a dict key
@@ -605,6 +613,7 @@ export class Collection<T> {
     /** — dictKey field descriptors for label resolution on reads. */
     dictKeyFields?: Record<string, DictKeyDescriptor> | undefined
     moneyFields?: Record<string, MoneyDescriptor> | undefined
+    computed?: ComputedFields | undefined
     /**
      * async callback that resolves a dict key to its label
      * for a given locale. Provided by the Vault.
@@ -791,6 +800,7 @@ export class Collection<T> {
     this.i18nFields = opts.i18nFields
     this.dictKeyFields = opts.dictKeyFields
     this.moneyFields = opts.moneyFields
+    this.computed = opts.computed
     this.dictLabelResolver = opts.dictLabelResolver
     this.i18nPutValidator = opts.i18nPutValidator
     this.autoTranslateHook = opts.autoTranslateHook
@@ -958,6 +968,11 @@ export class Collection<T> {
    */
   _applyMoneyFields(moneyFields: Record<string, MoneyDescriptor>): void {
     if (this.moneyFields === undefined) this.moneyFields = moneyFields
+  }
+
+  /** @internal — attach computed fields post-construction. See {@link _applyMoneyFields}. */
+  _applyComputed(computed: ComputedFields): void {
+    if (this.computed === undefined) this.computed = computed
   }
 
   /**
@@ -1177,6 +1192,13 @@ export class Collection<T> {
         userId: this.keyring.userId,
         role: this.keyring.role,
       })
+    }
+
+    // Computed scalar fields — evaluated FIRST so the user need not supply
+    // them and the schema validates the computed result. Throws
+    // ComputedFieldError if a function throws.
+    if (this.computed !== undefined) {
+      record = evalComputedFields(record as Record<string, unknown>, this.computed, id) as T
     }
 
     // Schema validation — runs BEFORE encryption so invalid records are

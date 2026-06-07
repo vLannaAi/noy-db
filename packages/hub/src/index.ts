@@ -732,6 +732,10 @@ export type {
   FxRates,
 } from './money/index.js'
 
+// computed — schema-owned computed scalar fields (#302)
+export { evalComputedFields, ComputedFieldError } from './computed/index.js'
+export type { ComputedFields, ComputedFn } from './computed/index.js'
+
 // i18n — resolution policy + script enforcement
 export { resolvePolicy } from './i18n/policy.js'
 export type { OnMissing, Layer, OnMissingPolicy } from './i18n/policy.js'
