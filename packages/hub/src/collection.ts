@@ -292,8 +292,14 @@ export class Collection<T> {
    * `moneyFields` collection option. Used by `put()` to quantize decimal
    * input to a scaled-integer string, and by `get()`/`list()` to decode
    * back to an exact decimal plus `<field>Formatted`/`<field>Number`.
+   *
+   * Mutable so descriptors can be attached after construction — a
+   * collection referenced as a materialized-view source is created
+   * (without options) by MV dependency analysis during `openVault`,
+   * before the user's `collection(name, { moneyFields })` declaration.
+   * {@link _applyMoneyFields} reconciles that ordering. First-wins.
    */
-  private readonly moneyFields: Record<string, MoneyDescriptor> | undefined
+  private moneyFields: Record<string, MoneyDescriptor> | undefined
 
   /**
    * Async callback provided by the Vault that resolves a dict key
@@ -948,6 +954,21 @@ export class Collection<T> {
    */
   getSchema(): StandardSchemaV1<unknown, T> | undefined {
     return this.schema
+  }
+
+  /**
+   * @internal — attach money field descriptors to an already-constructed
+   * collection. Needed because a collection referenced as a
+   * materialized-view source is auto-created (without options) by MV
+   * dependency analysis during `openVault`, before the user's
+   * `collection(name, { moneyFields })` declaration runs. First
+   * declaration wins; a no-op once money fields are set. Not part of the
+   * public API.
+   */
+  _applyMoneyFields(moneyFields: Record<string, MoneyDescriptor>): void {
+    if (this.moneyFields === undefined) {
+      this.moneyFields = moneyFields
+    }
   }
 
   /**

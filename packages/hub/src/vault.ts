@@ -605,6 +605,13 @@ export class Vault {
     }
 
     let coll = this.collectionCache.get(collectionName)
+    if (coll && options?.moneyFields) {
+      // The collection may have been auto-created (without options) by
+      // materialized-view dependency analysis during openVault, before
+      // this declaration. Reconcile money descriptors onto it so writes
+      // quantize and money-aware aggregation applies. First-wins.
+      coll._applyMoneyFields(options.moneyFields)
+    }
     if (!coll) {
       // Register ref declarations (if any) with the vault-level
       // registry BEFORE constructing the Collection. This way the

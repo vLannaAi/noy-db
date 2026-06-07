@@ -133,7 +133,7 @@ describe('money aggregation — exact', () => {
     ).toThrow(/fx/)
   })
 
-  it('remove(): a grouped/live-style recompute stays exact after a source delete', async () => {
+  it('batch recompute stays exact after a source delete (see mv-and-live for the MV/live paths)', async () => {
     const vault = await vaultWith(money({ currency: 'EUR', scale: 2 }))
     const lines = vault.collection<Line>('lines')
     await lines.put('a', { id: 'a', total: '0.10' })
