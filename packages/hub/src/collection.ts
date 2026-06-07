@@ -289,15 +289,9 @@ export class Collection<T> {
 
   /**
    * Money field descriptors keyed by field path. Declared via the
-   * `moneyFields` collection option. Used by `put()` to quantize decimal
-   * input to a scaled-integer string, and by `get()`/`list()` to decode
-   * back to an exact decimal plus `<field>Formatted`/`<field>Number`.
-   *
-   * Mutable so descriptors can be attached after construction — a
-   * collection referenced as a materialized-view source is created
-   * (without options) by MV dependency analysis during `openVault`,
-   * before the user's `collection(name, { moneyFields })` declaration.
-   * {@link _applyMoneyFields} reconciles that ordering. First-wins.
+   * `moneyFields` collection option: `put()` quantizes to a scaled-int
+   * string, `get()`/`list()` decode back. Mutable so {@link _applyMoneyFields}
+   * can attach descriptors to a collection MV-analysis pre-created.
    */
   private moneyFields: Record<string, MoneyDescriptor> | undefined
 
@@ -957,18 +951,13 @@ export class Collection<T> {
   }
 
   /**
-   * @internal — attach money field descriptors to an already-constructed
-   * collection. Needed because a collection referenced as a
-   * materialized-view source is auto-created (without options) by MV
-   * dependency analysis during `openVault`, before the user's
-   * `collection(name, { moneyFields })` declaration runs. First
-   * declaration wins; a no-op once money fields are set. Not part of the
-   * public API.
+   * @internal — attach money descriptors post-construction. MV dependency
+   * analysis auto-creates a source collection (without options) during
+   * `openVault`, before the user's `collection(name, { moneyFields })`
+   * declaration; this reconciles that ordering. First-wins. Not public.
    */
   _applyMoneyFields(moneyFields: Record<string, MoneyDescriptor>): void {
-    if (this.moneyFields === undefined) {
-      this.moneyFields = moneyFields
-    }
+    if (this.moneyFields === undefined) this.moneyFields = moneyFields
   }
 
   /**
@@ -1201,11 +1190,8 @@ export class Collection<T> {
       record = await validateSchemaInput(this.schema, record, `put(${id})`)
     }
 
-    // Quantize money fields to their canonical stored form (scaled-int
-    // digit string, or { amount, currency } in multi mode). Runs AFTER
-    // schema validation — the zod schema validates the loose input shape;
-    // the descriptor owns precision/scale/currency. Throws
-    // MoneyPrecisionError / MoneyCurrencyError on bad input.
+    // Quantize money fields to their stored form (scaled-int string).
+    // After schema validation — descriptor owns precision/scale/currency.
     if (this.moneyFields) {
       record = quantizeMoneyFields(record as Record<string, unknown>, this.moneyFields) as T
     }
@@ -3134,16 +3120,10 @@ export class Collection<T> {
 
     let result = record as unknown as Record<string, unknown>
 
-    // Money decode runs regardless of locale: the primary field is always
-    // turned from its stored scaled-integer string into an exact decimal
-    // string. The `<field>Formatted`/`<field>Number` virtuals are added
-    // unless `locale === 'raw'` (handled inside decodeMoneyFields).
+    // Money decode runs regardless of locale (stored int → decimal string);
+    // virtuals are gated on `locale !== 'raw'` inside decodeMoneyFields.
     if (hasMoney && this.moneyFields) {
-      result = decodeMoneyFields(
-        result,
-        this.moneyFields,
-        typeof locale === 'string' ? locale : undefined,
-      )
+      result = decodeMoneyFields(result, this.moneyFields, typeof locale === 'string' ? locale : undefined)
     }
 
     // i18nText / dictKey resolution require an active locale.
