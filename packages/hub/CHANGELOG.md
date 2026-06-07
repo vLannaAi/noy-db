@@ -1,5 +1,13 @@
 # Changelog — hub
 
+## 0.2.0-pre.11
+
+### Security: `openVault` no longer self-provisions into another principal's vault ([#313](https://github.com/vLannaAi/noy-db/issues/313))
+
+- Opening a vault you hold **no grant** to that is **already held by other principals** now fails closed with `NoAccessError` and writes **nothing** — previously it silently minted a fresh owner keyring (new DEKs) into that vault and then read zero records. Genuinely-new vaults (no `_keyring/*`) still open-or-create exactly as before.
+- New opt-in **`openVault({ create: false })`** (and `queryAcross({ create: false })`) forces strict open-existing: a missing grant throws `NoAccessError` instead of creating.
+- The gate sits **before** managed-passphrase secret resolution, so managed (KMS-sealed) mode also writes nothing on the fail-closed path. The `getKeyring` callback path and `onInvalidKey: 'reset'` are unchanged.
+
 ## 0.2.0-pre.10
 
 Adopter-reported correctness + introspection batch.

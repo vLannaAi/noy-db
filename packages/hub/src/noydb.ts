@@ -85,6 +85,7 @@ import { CrossTabWriteRelay } from './tab-write-relay.js'
 import {
   loadKeyring,
   createOwnerKeyring,
+  assertKeyringOpenAllowed,
   grant as keyringGrant,
   revoke as keyringRevoke,
   rotateKeys as keyringRotate,
@@ -404,7 +405,7 @@ export class Noydb {
    */
   async openVault(
     name: string,
-    opts?: { locale?: string },
+    opts?: { locale?: string; create?: boolean },
   ): Promise<Vault> {
     if (this.closed) throw new ValidationError('Instance is closed')
     this.touchPolicy(name)
@@ -418,7 +419,7 @@ export class Noydb {
       return comp
     }
 
-    const keyring = await this.getKeyringInternal(name)
+    const keyring = await this.getKeyringInternal(name, { create: opts?.create !== false })
     // Tier-1 unlock — passphrase / getKeyring callbacks both yield the
     // most-privileged tier. Tier-2 / tier-3 unlocks install
     // a lower tier here when they land.
@@ -954,7 +955,7 @@ export class Noydb {
       const vaultId = vaultIds[idx]!
       const task = (async () => {
         try {
-          const comp = await this.openVault(vaultId)
+          const comp = await this.openVault(vaultId, { create: options.create !== false })
           const result = await fn(comp)
           results[idx] = { vault: vaultId, result }
         } catch (err) {
@@ -2667,7 +2668,10 @@ export class Noydb {
    * accesses see them. Not exposed publicly — callers outside hub
    * should use {@link getKeyring}, which returns a defensive copy.
    */
-  private async getKeyringInternal(vault: string): Promise<UnlockedKeyring> {
+  private async getKeyringInternal(
+    vault: string,
+    opts: { create: boolean } = { create: true },
+  ): Promise<UnlockedKeyring> {
     if (this.options.encrypt === false) {
       return createPlaintextKeyring(this.options.user)
     }
@@ -2683,6 +2687,13 @@ export class Noydb {
       this.keyringCache.set(vault, keyring)
       return keyring
     }
+
+    // Pre-gate (#313): refuse to self-provision into a vault held by other
+    // principals; create-on-open only for a genuinely-new vault. Runs BEFORE
+    // resolveManagedSecret (which persists on first open) so a fail-closed open
+    // writes nothing. encrypt:false returned a plaintext keyring above, so we're
+    // always on the encrypted path here. Logic lives in team/keyring.ts.
+    await assertKeyringOpenAllowed(this.options.store, vault, this.options.user, opts.create)
 
     // Managed-passphrase mode — resolve the effective secret
     // before falling into the normal load/create path. The first call
