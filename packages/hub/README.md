@@ -255,6 +255,42 @@ await db.transaction({ amendment: true, reason: 'correct issued total' }, async 
 - `appendOnly: true` is shorthand for `after: () => true` — immutable from creation.
 - The admin/owner `amendment` path is the only way through, and every amendment is appended to the audit ledger.
 
+## Retention, legal-hold & archival
+
+For retention-bound data (e.g. 10-year fiscal records), two facilities share one rule — **a legal hold blocks eviction**.
+
+**Blob retention** (`vault.compact()`) gains a hold and a period-bound floor:
+
+```ts
+vault.collection('invoices', {
+  blobFields: {
+    pdf: {
+      retainDays: 3650,                              // base TTL
+      legalHold:  (r) => r.underLitigation === true, // never evict while held
+      retainUntil:(r) => r.fiscalYearEnd,            // floor: keep until period obligation ends
+    },
+  },
+})
+const { evicted, held } = await vault.compact() // held = retained-by-hold count
+```
+
+**Record archival** (`withArchive`) relocates sealed records to a cold store — envelope-level, no re-encryption — and restores on demand:
+
+```ts
+import { createNoydb, withArchive } from '@noy-db/hub'
+
+const db = await createNoydb({ store: primary, archiveStrategy: withArchive({ store: coldStore }) })
+vault.collection('invoices', {
+  archive: { archiveWhen: (r) => r.fiscalYear <= thisYear - 1, legalHold: (r) => r.underHold },
+})
+
+await vault.archive()                       // → { archived, held, scanned }
+await vault.listArchived('invoices')        // → [{ collection, id }, …]
+await vault.restore('invoices', 'inv-2020') // relocate back to primary (decryptable)
+```
+
+Archival uses low-level relocation, so it **bypasses guards** (issued/immutable records over a sealed period can still be archived) and doesn't recompute finalized aggregates. Archived records read `null` from the primary store until restored; a `legalHold` predicate blocks archival entirely.
+
 ## Status
 
 **Pre-release** (`0.1.0-pre.1`). API may change before `1.0`. Install from the `next` dist-tag:

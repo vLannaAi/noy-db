@@ -42,6 +42,9 @@ import type { NoydbEventEmitter } from './events.js'
 import { BackupLedgerError, BackupCorruptedError } from './errors.js'
 import type { StandardSchemaV1 } from './schema.js'
 import type { BlobStrategy } from './blobs/strategy.js'
+import type { ArchiveStrategy } from './archive/index.js'
+import type { ArchivePolicy, ArchiveContext, ArchiveResult, ArchiveRunOptions } from './archive/index.js'
+import { runArchive, runRestore, runListArchived } from './archive/index.js'
 import type { IndexStrategy } from './indexing/strategy.js'
 import type { AggregateStrategy } from './aggregate/strategy.js'
 import type { CrdtStrategy } from './crdt/strategy.js'
@@ -155,6 +158,12 @@ export class Vault {
    * call throws with a pointer at `@noy-db/hub/blobs`.
    */
   private readonly blobStrategy: BlobStrategy | undefined
+
+  /** Cold-storage archival strategy (the archive target store). */
+  private readonly archiveStrategy: ArchiveStrategy | undefined
+
+  /** Per-collection record archival policies. Indexed by collection name. */
+  private readonly archiveRegistry = new Map<string, ArchivePolicy>()
   private readonly indexStrategy: IndexStrategy | undefined
   private readonly aggregateStrategy: AggregateStrategy | undefined
   private readonly crdtStrategy: CrdtStrategy | undefined
@@ -402,6 +411,7 @@ export class Vault {
      * at `@noy-db/hub/blobs`.
      */
     blobStrategy?: BlobStrategy | undefined
+    archiveStrategy?: ArchiveStrategy | undefined
     indexStrategy?: IndexStrategy | undefined
     aggregateStrategy?: AggregateStrategy | undefined
     crdtStrategy?: CrdtStrategy | undefined
@@ -430,6 +440,7 @@ export class Vault {
     this.onRegisterConflictResolver = opts.onRegisterConflictResolver
     this.syncAdapter = opts.syncAdapter
     this.blobStrategy = opts.blobStrategy
+    this.archiveStrategy = opts.archiveStrategy
     this.indexStrategy = opts.indexStrategy
     this.aggregateStrategy = opts.aggregateStrategy
     this.crdtStrategy = opts.crdtStrategy
@@ -555,6 +566,8 @@ export class Vault {
      * when `vault.compact()` runs.
      */
     blobFields?: BlobFieldsConfig<T>
+    /** — declarative record archival policy: `{ archiveWhen, legalHold? }`. Evaluated when `vault.archive()` runs. */
+    archive?: ArchivePolicy<T>
     /** — declared tiers for this collection. */
     tiers?: readonly number[]
     /**  — how lower-tier reads see above-tier records. */
@@ -638,6 +651,11 @@ export class Vault {
       // register blobFields retention/TTL policy
       if (options?.blobFields) {
         this.blobFieldsRegistry.set(collectionName, options.blobFields as BlobFieldsConfig<unknown>)
+      }
+
+      // register record archival policy
+      if (options?.archive) {
+        this.archiveRegistry.set(collectionName, options.archive as ArchivePolicy)
       }
 
       // register the per-collection attestation field-schema
@@ -1315,6 +1333,53 @@ export class Vault {
         await coll.blob(id).delete(slotName)
       },
     }, options)
+  }
+
+  /**
+   * Sweep records eligible by their collection's `archive` policy into the
+   * cold archive store. Relocation is envelope-level (no re-encryption) and
+   * bypasses guards + materialized-view dispatch, so issued/immutable
+   * records over a sealed period can be archived without recomputing
+   * finalized aggregates. A `legalHold` predicate blocks archival.
+   * Requires `archiveStrategy: withArchive({ store })` in `createNoydb`.
+   */
+  async archive(options: ArchiveRunOptions = {}): Promise<ArchiveResult> {
+    return runArchive(this._archiveContext(), options)
+  }
+
+  /** Relocate one archived record back to the primary store. Returns false if it was not archived. */
+  async restore(collection: string, id: string): Promise<boolean> {
+    return runRestore(this._archiveContext(), collection, id)
+  }
+
+  /** List archived record ids for a collection (or all collections with an archive policy). */
+  async listArchived(collection?: string): Promise<Array<{ collection: string; id: string }>> {
+    return runListArchived(this._archiveContext(), collection)
+  }
+
+  private _archiveContext(): ArchiveContext {
+    const strategy = this.archiveStrategy
+    if (!strategy) {
+      throw new Error(
+        'vault.archive/restore/listArchived require `archiveStrategy: withArchive({ store })` in createNoydb',
+      )
+    }
+    const archiveStore = strategy.store
+    return {
+      vaultId: this.name,
+      archiveStore,
+      collectionsWithPolicy: () => [...this.archiveRegistry.keys()],
+      getPolicy: (c) => this.archiveRegistry.get(c) ?? null,
+      listRecordIds: (c) => this.adapter.list(this.name, c),
+      getRecord: async (c, id) =>
+        (await this.collection(c).get(id, { locale: 'raw' })) as Record<string, unknown> | null,
+      getEnvelope: (c, id) => this.adapter.get(this.name, c, id),
+      removeFromPrimary: (c, id) => this.collection(c)._internalDelete(id),
+      restoreToPrimary: async (c, id, env) => {
+        await this.adapter.put(this.name, c, id, env)
+        await this.collection(c)._invalidateCacheEntry(id)
+      },
+    }
   }
 
   exportBlobs(options: ExportBlobsOptions = {}): ExportBlobsHandle {

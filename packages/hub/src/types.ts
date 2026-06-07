@@ -26,6 +26,7 @@
 import type { StandardSchemaV1 } from './schema.js'
 import type { SyncPolicy } from './store/sync-policy.js'
 import type { BlobStrategy } from './blobs/strategy.js'
+import type { ArchiveStrategy } from './archive/index.js'
 import type { IndexStrategy } from './indexing/strategy.js'
 import type { AggregateStrategy } from './aggregate/strategy.js'
 import type { CrdtStrategy } from './crdt/strategy.js'
@@ -1654,6 +1655,12 @@ export interface NoydbOptions {
    * @internal
    */
   readonly blobStrategy?: BlobStrategy
+  /**
+   * Cold-storage archival target. `withArchive({ store })` designates a
+   * second store that holds archived record envelopes. Enables
+   * `vault.archive()` / `vault.restore()` / `vault.listArchived()`.
+   */
+  readonly archiveStrategy?: ArchiveStrategy
   /**
    * tree-shake seam — optional indexing strategy. Pass
    * `withIndexing()` from `@noy-db/hub/indexing` to enable eager-mode
