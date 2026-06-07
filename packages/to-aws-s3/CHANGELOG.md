@@ -1,6 +1,6 @@
 # Changelog — to-aws-s3
 
-## Unreleased
+## 0.2.0-pre.9
 
 ### Feature: s3Bundle bundle-mode adapter ([#272](https://github.com/vLannaAi/noy-db/issues/272))
 

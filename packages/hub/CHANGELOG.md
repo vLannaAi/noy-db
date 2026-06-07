@@ -1,6 +1,6 @@
 # Changelog — hub
 
-## Unreleased
+## 0.2.0-pre.9
 
 ### Feature: automatic snapshot cadence ([#272](https://github.com/vLannaAi/noy-db/issues/272))
 
