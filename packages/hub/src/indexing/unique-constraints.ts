@@ -1,0 +1,106 @@
+/**
+ * In-memory unique-constraint enforcement for eager-mode collections.
+ *
+ * Each `UniqueConstraintSet` holds one or more constraints, each covering
+ * an ordered tuple of field names. On every `put()` the caller invokes
+ * `check()` BEFORE the store write; on success it calls `upsert()` to
+ * update the maps. `remove()` is called on `delete()`.
+ *
+ * Null-distinct semantics: if ANY constrained field is `null` or
+ * `undefined` in the record, that record is exempt from the constraint —
+ * `keyFor` returns `null` and the record is silently skipped.
+ * This matches standard SQL NULL-distinct behavior.
+ *
+ * Only used in eager mode (`prefetch !== false`). Lazy-mode collections
+ * throw at registration instead (see Collection constructor).
+ */
+
+import { readPath } from '../query/predicate.js'
+import { canonicalGroupKey } from '../aggregate/canonical-key.js'
+import { UniqueConstraintError } from '../errors.js'
+
+interface Constraint {
+  readonly fields: readonly string[]
+  /** canonicalKey → id of the record holding that key */
+  readonly map: Map<string, string>
+}
+
+export class UniqueConstraintSet {
+  private readonly constraints: Constraint[]
+
+  constructor(
+    private readonly collectionName: string,
+    uniqueDefs: readonly (readonly string[])[],
+  ) {
+    this.constraints = uniqueDefs.map(fields => ({ fields, map: new Map() }))
+  }
+
+  get size(): number {
+    return this.constraints.length
+  }
+
+  /**
+   * Compute the canonical key for a record under a given constraint.
+   * Returns `null` if any constrained field is `null` or `undefined`
+   * (the record is exempt — no constraint is checked).
+   */
+  private keyFor(fields: readonly string[], record: unknown): string | null {
+    const row: Record<string, unknown> = {}
+    for (const f of fields) {
+      const v = readPath(record, f)
+      if (v === null || v === undefined) return null
+      row[f] = v
+    }
+    return canonicalGroupKey(fields, row)
+  }
+
+  /**
+   * Throw `UniqueConstraintError` if writing `id` with `record` would
+   * collide with a DIFFERENT existing record. Call BEFORE the store write.
+   */
+  check(id: string, record: unknown): void {
+    for (const c of this.constraints) {
+      const key = this.keyFor(c.fields, record)
+      if (key === null) continue
+      const holder = c.map.get(key)
+      if (holder !== undefined && holder !== id) {
+        throw new UniqueConstraintError(this.collectionName, id, c.fields, holder)
+      }
+    }
+  }
+
+  /**
+   * Update the constraint maps after a successful write.
+   * Pass `previous` when updating an existing record (so the old key
+   * is removed first). Pass `null` or `undefined` for a fresh insert.
+   */
+  upsert(id: string, record: unknown, previous?: unknown): void {
+    if (previous != null) this.remove(id, previous)
+    for (const c of this.constraints) {
+      const key = this.keyFor(c.fields, record)
+      if (key !== null) c.map.set(key, id)
+    }
+  }
+
+  /**
+   * Remove a record from all constraint maps.
+   * Called by `Collection.delete()`.
+   */
+  remove(id: string, record: unknown): void {
+    for (const c of this.constraints) {
+      const key = this.keyFor(c.fields, record)
+      if (key !== null && c.map.get(key) === id) c.map.delete(key)
+    }
+  }
+
+  /**
+   * Rebuild all constraint maps from a full snapshot.
+   * Called after hydration (ensureHydrated / hydrateFromSnapshot).
+   */
+  build(entries: Iterable<readonly [string, unknown]>): void {
+    for (const c of this.constraints) c.map.clear()
+    for (const [id, record] of entries) {
+      this.upsert(id, record)
+    }
+  }
+}

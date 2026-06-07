@@ -958,6 +958,41 @@ export class IndexRequiredError extends NoydbError {
 }
 
 /**
+ * Thrown by `Collection.put()` when writing a record would violate a
+ * unique-index constraint — the same field value (or composite field
+ * tuple) is already held by a *different* record id in the collection.
+ *
+ * Properties:
+ * - `collection` — name of the collection the write was targeting
+ * - `recordId` — the id of the record being written (the would-be violator)
+ * - `fields` — the constrained field(s), e.g. `['taxId']` or `['workerId','employerEntityId']`
+ * - `conflictingId` — the id of the record already holding the value
+ *
+ * Null-distinct semantics: if any constrained field is `null`/`undefined`,
+ * the row is exempt (the constraint does not fire). This matches standard
+ * SQL NULL-distinct behavior.
+ */
+export class UniqueConstraintError extends NoydbError {
+  readonly collection: string
+  readonly recordId: string
+  readonly fields: readonly string[]
+  readonly conflictingId: string
+
+  constructor(collection: string, recordId: string, fields: readonly string[], conflictingId: string) {
+    super(
+      'UNIQUE_CONSTRAINT',
+      `Unique constraint on ${collection}.[${fields.join(', ')}] violated: ` +
+        `record "${recordId}" duplicates a value already held by "${conflictingId}".`,
+    )
+    this.name = 'UniqueConstraintError'
+    this.collection = collection
+    this.recordId = recordId
+    this.fields = fields
+    this.conflictingId = conflictingId
+  }
+}
+
+/**
  * Thrown (or surfaced via the `index:write-partial` event) when one or more
  * per-indexed-field side-car writes fail after the main record write has
  * already succeeded.
