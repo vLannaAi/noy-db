@@ -450,9 +450,13 @@ describe('Noydb auto-cadence wiring', () => {
     const v = await db.openVault('cad2')
     const c = v.collection<{ id: string; n: number }>('items')
     await c.put('a', { id: 'a', n: 1 })
-    await new Promise(r => setTimeout(r, 60))
-    const list = await db.listSnapshots('cad2')
-    const auto = list.find(s => s.auto)
+    // Poll for the debounced auto-snapshot to land — robust under load where a
+    // fixed sleep can race the timer.
+    let auto: { version: string } | undefined
+    for (let i = 0; i < 50 && !auto; i++) {
+      await new Promise(r => setTimeout(r, 20))
+      auto = (await db.listSnapshots('cad2')).find(s => s.auto)
+    }
     expect(auto).toBeDefined()
     expect(auto!.version).toBe('cad2__auto')
     db.close()
