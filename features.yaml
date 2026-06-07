@@ -723,6 +723,8 @@ features:
         path: showcases/src/93-with-snapshots.showcase.test.ts
       - id: 96-snapshots-auto-cadence
         path: showcases/src/96-snapshots-auto-cadence.showcase.test.ts
+      - id: 97-snapshots-s3-bundle
+        path: showcases/src/97-snapshots-s3-bundle.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
