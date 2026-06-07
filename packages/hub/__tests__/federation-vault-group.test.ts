@@ -306,3 +306,40 @@ describe('classifyShardSkip', () => {
     expect(classifyShardSkip(new Error('store boom'))).toBe('error')
   })
 })
+
+describe('VaultGroup — key-custody-neutral fan-out', () => {
+  it('non-granted shard → no-grant skip on fan-out; clean throw on drill-down/put; zero self-provision', async () => {
+    const adapter = memory()
+    const op = await createNoydb({ store: adapter, user: 'operator', secret: 'op-pass' })
+    op.withVaultTemplate('t', { version: 1, configure: (v: Vault) => { v.collection<Invoice>('invoices') } })
+    const opState = await op.openVault('state')
+    const opFirm = await op.openVaultGroup<Invoice>('firm', {
+      registry: opState.collection<VaultRegistryRow>('vault-registry'),
+      sharding: { keyOf: (r) => r.clientId, vaultTemplate: 't' },
+    })
+    await opFirm.collection('invoices').put('a1', { clientId: 'acme', amount: 100, status: 'overdue' })
+    await opFirm.collection('invoices').put('b1', { clientId: 'beta', amount: 200, status: 'overdue' })
+    await op.grant('firm--acme', { userId: 'advisor', displayName: 'Adv', role: 'viewer', passphrase: 'adv-pass' })
+    await op.grant('state', { userId: 'advisor', displayName: 'Adv', role: 'viewer', passphrase: 'adv-pass' })
+
+    const adv = await createNoydb({ store: adapter, user: 'advisor', secret: 'adv-pass' })
+    adv.withVaultTemplate('t', { version: 1, configure: (v: Vault) => { v.collection<Invoice>('invoices') } })
+    const advState = await adv.openVault('state')
+    const advFirm = await adv.openVaultGroup<Invoice>('firm', {
+      registry: advState.collection<VaultRegistryRow>('vault-registry'),
+      sharding: { keyOf: (r) => r.clientId, vaultTemplate: 't' },
+    })
+
+    const out = await advFirm.collection('invoices').query().where('status', '==', 'overdue').toArray()
+    expect(out.results.map((r) => r.amount)).toEqual([100])             // acme only (granted)
+    expect(out.skippedVaults.find((s) => s.vaultId === 'firm--beta')?.reason).toBe('no-grant')
+    expect(await adapter.get('firm--beta', '_keyring', 'advisor')).toBeNull()  // no self-provision
+
+    await expect(advFirm.shard('beta')).rejects.toBeInstanceOf(NoAccessError)
+    expect(await adapter.get('firm--beta', '_keyring', 'advisor')).toBeNull()
+    await expect(
+      advFirm.collection('invoices').put('x', { clientId: 'beta', amount: 9, status: 'open' }),
+    ).rejects.toBeInstanceOf(NoAccessError)
+    expect(await adapter.get('firm--beta', '_keyring', 'advisor')).toBeNull()
+  })
+})

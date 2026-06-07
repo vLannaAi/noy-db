@@ -8,6 +8,7 @@ import type { Noydb } from '../noydb.js'
 import type { Vault } from '../vault.js'
 import type { Collection } from '../collection.js'
 import { ShardProvisioningError, UnknownShardError, ValidationError } from '../errors.js'
+import { classifyShardSkip } from './classify-skip.js'
 import type {
   ShardingConfig,
   VaultRegistryRow,
@@ -70,7 +71,7 @@ export class VaultGroup<T> {
 
   /** Open an existing shard and apply the template. */
   async openShard(partitionKey: string): Promise<Vault> {
-    const vault = await this.db.openVault(this.shardVaultId(partitionKey))
+    const vault = await this.db.openVault(this.shardVaultId(partitionKey), { create: false })
     this.template.configure(vault)
     return vault
   }
@@ -208,12 +209,12 @@ export class ShardedQuery<T, R = T> {
         for (const c of this.clauses) q = q.where(c.field, c.op, c.value)
         return q.toArray()
       },
-      { concurrency: options.concurrency ?? 1 },
+      { concurrency: options.concurrency ?? 1, create: false },
     )
 
     const results: R[] = []
     for (const r of across) {
-      if (r.error) skipped.push({ vaultId: r.vault, reason: 'error', error: r.error })
+      if (r.error) skipped.push({ vaultId: r.vault, reason: classifyShardSkip(r.error), error: r.error })
       else for (const item of r.result) results.push(item)
     }
     return { results, skippedVaults: skipped }
