@@ -123,3 +123,37 @@ describe('VaultGroup — template + createShard', () => {
     await expect(h.firm.createShard('ghost')).rejects.toBeInstanceOf(ShardProvisioningError)
   })
 })
+
+describe('VaultGroup — write routing', () => {
+  it('put auto-creates the shard and routes the write (autoCreate default on)', async () => {
+    const h = await harness()
+    await h.firm.collection('invoices').put('inv-1', { clientId: 'acme', amount: 1200, status: 'open' })
+
+    // The shard exists and holds the record.
+    const acme = await h.firm.shard('acme')
+    const rec = await acme.collection<Invoice>('invoices').get('inv-1')
+    expect(rec).toEqual({ clientId: 'acme', amount: 1200, status: 'open' })
+
+    // A registry row was created.
+    expect(await h.registry.get('acme')).not.toBeNull()
+  })
+
+  it('put routes records with different partition keys to different shards', async () => {
+    const h = await harness()
+    await h.firm.collection('invoices').put('inv-a', { clientId: 'acme', amount: 100, status: 'open' })
+    await h.firm.collection('invoices').put('inv-b', { clientId: 'bigco', amount: 200, status: 'open' })
+
+    const acme = await h.firm.shard('acme')
+    const bigco = await h.firm.shard('bigco')
+    expect(await acme.collection<Invoice>('invoices').get('inv-b')).toBeNull()
+    expect(await bigco.collection<Invoice>('invoices').get('inv-a')).toBeNull()
+    expect(await bigco.collection<Invoice>('invoices').get('inv-b')).not.toBeNull()
+  })
+
+  it('put throws UnknownShardError when autoCreate is off and the shard is unknown', async () => {
+    const h = await harness({ autoCreate: false })
+    await expect(
+      h.firm.collection('invoices').put('inv-1', { clientId: 'acme', amount: 1, status: 'open' }),
+    ).rejects.toBeInstanceOf(UnknownShardError)
+  })
+})
