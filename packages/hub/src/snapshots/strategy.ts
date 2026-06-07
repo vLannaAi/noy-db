@@ -1,3 +1,5 @@
+import type { SnapshotPolicy } from './policy.js'
+
 export interface SnapshotMeta {
   readonly version: string
   readonly label?: string
@@ -12,6 +14,8 @@ export interface SnapshotMeta {
    * lacking a ledgerHead; not produced by the current engine.
    */
   readonly integrity: 'verified' | 'legacy-unverifiable'
+  /** `true` for the rolling auto-snapshot; absent on on-demand checkpoints. */
+  readonly auto?: true
 }
 
 export interface RetentionPolicy {
@@ -24,6 +28,8 @@ export interface RetentionPolicy {
 export interface SnapshotIndex {
   snapshots: SnapshotMeta[]
   nextCounter: number
+  /** Single rolling auto-snapshot slot, separate from the immutable `snapshots` pool. */
+  auto?: SnapshotMeta
 }
 
 /** @internal */
@@ -31,6 +37,10 @@ export interface SnapshotStrategy {
   snapshot(vault: unknown, by: string, opts?: { label?: string; note?: string }): Promise<SnapshotMeta>
   listSnapshots(vaultId: string): Promise<SnapshotMeta[]>
   restoreSnapshot(vault: unknown, version: string): Promise<void>
+  /** Rolling auto-snapshot to the fixed `<vault>__auto` key. */
+  autoSnapshot(vault: unknown, by: string, opts?: { label?: string; note?: string }): Promise<SnapshotMeta>
+  /** Configured cadence policy. Undefined or `mode:'manual'` ⇒ no scheduler is wired. */
+  readonly policy?: SnapshotPolicy
 }
 
 const NOT_ENABLED = new Error(
@@ -44,4 +54,5 @@ export const NO_SNAPSHOTS: SnapshotStrategy = {
   async snapshot() { throw NOT_ENABLED },
   async listSnapshots() { throw NOT_ENABLED },
   async restoreSnapshot() { throw NOT_ENABLED },
+  async autoSnapshot() { throw NOT_ENABLED },
 }

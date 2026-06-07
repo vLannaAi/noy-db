@@ -18,6 +18,10 @@ export class SnapshotEngine {
     return `${vaultName}__snap_${n.toString().padStart(6, '0')}`
   }
 
+  private autoKey(vaultName: string): string {
+    return `${vaultName}__auto`
+  }
+
   private async readIndex(
     vaultName: string,
   ): Promise<{ index: SnapshotIndex; indexVersion: string | null }> {
@@ -64,6 +68,8 @@ export class SnapshotEngine {
     const newIndex: SnapshotIndex = {
       snapshots: [...index.snapshots, meta],
       nextCounter: index.nextCounter + 1,
+      // Preserve the rolling auto slot — on-demand snapshots never touch it.
+      ...(index.auto ? { auto: index.auto } : {}),
     }
     const toDelete = this.applyRetention(newIndex)
     await this.writeIndex(vault.name, newIndex, indexVersion)
@@ -75,9 +81,43 @@ export class SnapshotEngine {
     return meta
   }
 
+  /**
+   * Rolling auto-snapshot. Overwrites the single fixed `<vault>__auto` key and
+   * stores its meta in `index.auto`, separate from the immutable `snapshots`
+   * pool — retention never prunes it. Used by the cadence scheduler.
+   */
+  async autoSnapshot(
+    vault: Vault,
+    by: string,
+    opts?: { label?: string; note?: string },
+  ): Promise<SnapshotMeta> {
+    const bytes = await writeNoydbBundle(vault, {})
+    const { index, indexVersion } = await this.readIndex(vault.name)
+    const key = this.autoKey(vault.name)
+
+    // Unconditional overwrite of the rolling slot.
+    await this.store.writeBundle(key, bytes, null)
+
+    const meta: SnapshotMeta = {
+      version: key,
+      label: opts?.label ?? 'auto',
+      ...(opts?.note !== undefined ? { note: opts.note } : {}),
+      exportedAt: new Date().toISOString(),
+      exportedBy: by,
+      size: bytes.length,
+      integrity: 'verified',
+      auto: true,
+    }
+
+    index.auto = meta
+    await this.writeIndex(vault.name, index, indexVersion)
+    return meta
+  }
+
   async listSnapshots(vaultId: string): Promise<SnapshotMeta[]> {
     const { index } = await this.readIndex(vaultId)
-    return [...index.snapshots].reverse()
+    const immutable = [...index.snapshots].reverse()
+    return index.auto ? [index.auto, ...immutable] : immutable
   }
 
   async restoreSnapshot(vault: Vault, version: string): Promise<void> {

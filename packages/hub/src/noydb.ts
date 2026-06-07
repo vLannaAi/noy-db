@@ -107,6 +107,7 @@ import type { SyncEngine } from './team/sync.js'
 import type { SyncTransaction } from './team/sync-transaction.js'
 import { NO_SYNC, type SyncStrategy } from './team/sync-strategy.js'
 import { NO_SNAPSHOTS, type SnapshotStrategy, type SnapshotMeta } from './snapshots/strategy.js'
+import { SnapshotScheduler } from './snapshots/scheduler.js'
 import type { AmendmentTxOptions } from './tx/transaction.js'
 import { TxContext } from './tx/transaction.js'
 import type { DryRunResult } from './tx/dry-run.js'
@@ -206,6 +207,8 @@ export class Noydb {
   private readonly sessionStrategy: SessionStrategy
   private readonly syncStrategy: SyncStrategy
   private readonly snapshotStrategy: SnapshotStrategy
+  private snapshotScheduler: SnapshotScheduler | null = null
+  private readonly dirtySnapshotVaults = new Set<string>()
   /**
    * Currently-running multi-record transaction, set by
    * `runTransaction` at the start of Phase 2 (commit) and cleared in
@@ -233,6 +236,7 @@ export class Noydb {
     this.sessionStrategy = options.sessionStrategy ?? NO_SESSION
     this.syncStrategy = options.syncStrategy ?? NO_SYNC
     this.snapshotStrategy = options.snapshotStrategy ?? NO_SNAPSHOTS
+    this.initSnapshotCadence()
     this.publicEnvelopeSchema = resolvePublicEnvelopeSchema(options.publicEnvelope)
     // Validate sessionPolicy at construction time (developer error if invalid).
     // The strategy's stub throws with a pointer at the subpath if the
@@ -1417,6 +1421,8 @@ export class Noydb {
 
   close(): void {
     this.closed = true
+    this.snapshotScheduler?.stop()
+    this.snapshotScheduler = null
     if (this.sessionTimer) {
       clearTimeout(this.sessionTimer)
       this.sessionTimer = null
@@ -2761,6 +2767,44 @@ export class Noydb {
       )
     }
     return this.snapshotStrategy.snapshot(v, this.options.user, opts)
+  }
+
+  /**
+   * Wire the automatic-snapshot cadence when a non-manual `snapshotPolicy` is
+   * configured. Subscribes to `onAfterWrite` to mark the written vault dirty and
+   * nudge the scheduler; the scheduler fires `autoSnapshot()` per dirty vault.
+   * No-op for `mode:'manual'` or no policy.
+   */
+  private initSnapshotCadence(): void {
+    const policy = this.snapshotStrategy.policy
+    if (!policy || !policy.mode || policy.mode === 'manual') return
+
+    const scheduler = new SnapshotScheduler(policy, {
+      fire: async () => {
+        const names = [...this.dirtySnapshotVaults]
+        this.dirtySnapshotVaults.clear()
+        for (const name of names) {
+          const v = this.vaultCache.get(name)
+          if (!v) continue
+          try {
+            await this.snapshotStrategy.autoSnapshot(v, this.options.user)
+          } catch (err) {
+            console.warn(
+              `[noy-db] auto-snapshot failed for vault "${name}": ` +
+              (err instanceof Error ? err.message : String(err)),
+            )
+          }
+        }
+      },
+      pendingCount: () => this.dirtySnapshotVaults.size,
+    })
+
+    this.onAfterWrite((event) => {
+      this.dirtySnapshotVaults.add(event.vault)
+      scheduler.notifyChange()
+    })
+    scheduler.start()
+    this.snapshotScheduler = scheduler
   }
 
   /**

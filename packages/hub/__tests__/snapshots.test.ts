@@ -339,3 +339,136 @@ describe('withSnapshots() factory', () => {
     await expect(strategy.restoreSnapshot(vault as any, 'v1__snap_999999')).rejects.toThrow(SnapshotNotFoundError)
   })
 })
+
+describe('NO_SNAPSHOTS stub — autoSnapshot', () => {
+  it('autoSnapshot() throws NOT_ENABLED', async () => {
+    await expect(NO_SNAPSHOTS.autoSnapshot({}, 'user', {})).rejects.toThrow('withSnapshots')
+  })
+})
+
+describe('SnapshotEngine.autoSnapshot — rolling key', () => {
+  it('writes a single fixed key and overwrites it on repeat', async () => {
+    const store = makeMockStore()
+    const engine = new SnapshotEngine(store, {})
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const vault = makeMockVault('v1') as any
+
+    const m1 = await engine.autoSnapshot(vault, 'user')
+    const m2 = await engine.autoSnapshot(vault, 'user')
+
+    expect(m1.version).toBe('v1__auto')
+    expect(m2.version).toBe('v1__auto')
+    expect(m1.auto).toBe(true)
+    expect(m1.label).toBe('auto')
+    expect([...store.blobs.keys()].sort()).toEqual(['v1__auto', 'v1__index'])
+  })
+
+  it('lists the auto snapshot first, ahead of the immutable pool', async () => {
+    const store = makeMockStore()
+    const engine = new SnapshotEngine(store, {})
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const vault = makeMockVault('v1') as any
+
+    await engine.snapshot(vault, 'user', { label: 'manual-1' })
+    await engine.autoSnapshot(vault, 'user')
+
+    const list = await engine.listSnapshots('v1')
+    expect(list[0]!.version).toBe('v1__auto')
+    expect(list[1]!.label).toBe('manual-1')
+  })
+
+  it('is exempt from retention — auto survives keepLast:1 churn', async () => {
+    const store = makeMockStore()
+    const engine = new SnapshotEngine(store, { keepLast: 1 })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const vault = makeMockVault('v1') as any
+
+    await engine.autoSnapshot(vault, 'user')
+    await engine.snapshot(vault, 'user', { label: 'm1' })
+    await engine.snapshot(vault, 'user', { label: 'm2' })
+
+    const list = await engine.listSnapshots('v1')
+    expect(list.some(s => s.version === 'v1__auto')).toBe(true)
+    expect(list.filter(s => !s.auto).length).toBe(1)
+    expect(list.find(s => !s.auto)!.label).toBe('m2')
+  })
+
+  it('restores the auto snapshot by its key', async () => {
+    const store = makeMockStore()
+    const engine = new SnapshotEngine(store, {})
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const vault = makeMockVault('v1') as any
+    await engine.autoSnapshot(vault, 'user')
+    await expect(engine.restoreSnapshot(vault, 'v1__auto')).resolves.toBeUndefined()
+  })
+})
+
+describe('withSnapshots — policy passthrough', () => {
+  it('exposes the configured snapshotPolicy on the strategy', () => {
+    const store = makeMockStore()
+    const strat = withSnapshots({ store, snapshotPolicy: { mode: 'debounce', debounceMs: 5000 } })
+    expect(strat.policy?.mode).toBe('debounce')
+    expect(strat.policy?.debounceMs).toBe(5000)
+  })
+
+  it('omits policy when none is configured (manual default)', () => {
+    const store = makeMockStore()
+    const strat = withSnapshots({ store })
+    expect(strat.policy).toBeUndefined()
+  })
+
+  it('delegates autoSnapshot to the engine', async () => {
+    const store = makeMockStore()
+    const strat = withSnapshots({ store })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const vault = makeMockVault('vp') as any
+    const meta = await strat.autoSnapshot(vault, 'user')
+    expect(meta.version).toBe('vp__auto')
+    expect(meta.auto).toBe(true)
+  })
+})
+
+describe('Noydb auto-cadence wiring', () => {
+  it('manual default wires no auto-snapshot on writes', async () => {
+    const store = makeMockStore()
+    const db = await createNoydb({ store: memory(), user: 'u', secret: 'pw', snapshotStrategy: withSnapshots({ store }) })
+    const v = await db.openVault('cad1')
+    const c = v.collection<{ id: string; n: number }>('items')
+    await c.put('a', { id: 'a', n: 1 })
+    await new Promise(r => setTimeout(r, 20))
+    const list = await db.listSnapshots('cad1')
+    expect(list.find(s => s.auto)).toBeUndefined()
+    db.close()
+  })
+
+  it('debounce policy auto-snapshots after a write and is restorable', async () => {
+    const store = makeMockStore()
+    const db = await createNoydb({
+      store: memory(), user: 'u', secret: 'pw',
+      snapshotStrategy: withSnapshots({ store, snapshotPolicy: { mode: 'debounce', debounceMs: 10, onUnload: false } }),
+    })
+    const v = await db.openVault('cad2')
+    const c = v.collection<{ id: string; n: number }>('items')
+    await c.put('a', { id: 'a', n: 1 })
+    await new Promise(r => setTimeout(r, 60))
+    const list = await db.listSnapshots('cad2')
+    const auto = list.find(s => s.auto)
+    expect(auto).toBeDefined()
+    expect(auto!.version).toBe('cad2__auto')
+    db.close()
+  })
+
+  it('close() stops the scheduler (no auto-snapshot after close)', async () => {
+    const store = makeMockStore()
+    const db = await createNoydb({
+      store: memory(), user: 'u', secret: 'pw',
+      snapshotStrategy: withSnapshots({ store, snapshotPolicy: { mode: 'debounce', debounceMs: 50, onUnload: false } }),
+    })
+    const v = await db.openVault('cad3')
+    const c = v.collection<{ id: string; n: number }>('items')
+    await c.put('a', { id: 'a', n: 1 })
+    db.close()
+    await new Promise(r => setTimeout(r, 80))
+    expect(store.blobs.has('cad3__auto')).toBe(false)
+  })
+})
