@@ -65,6 +65,8 @@ jobs:
         run: pnpm render:diagrams
       - name: Validate features registry
         run: pnpm validate:features
+      - name: Check storage-capability matrix is in sync
+        run: pnpm render:storage-matrix -- --check
 
   # ── Lint + typecheck ─────────────────────────────────────────────────
   quality:

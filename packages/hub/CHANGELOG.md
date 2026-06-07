@@ -1,5 +1,12 @@
 # Changelog — hub
 
+## Unreleased
+
+### Feature: automatic snapshot cadence ([#272](https://github.com/vLannaAi/noy-db/issues/272))
+
+- `withSnapshots({ snapshotPolicy })` — opt-in automatic whole-vault snapshots on a `debounce`/`interval` cadence (default `manual`). Auto-snapshots write a single rolling `<vault>__auto` key, decoupled from the immutable on-demand pool and **exempt from retention** so the timer never evicts labeled checkpoints (and on-demand `snapshot()` preserves the rolling slot). Driven off `onAfterWrite`; flushes on tab-hide/exit; torn down by `db.close()`.
+- `SnapshotMeta.auto` flags the rolling snapshot; it lists first and restores like any checkpoint.
+
 ## 0.2.0-pre.8
 
 ### Feature: i18n multilingual-field hardening ([#284](https://github.com/vLannaAi/noy-db/pull/284))

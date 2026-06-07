@@ -28,6 +28,7 @@
     "check:architecture": "node scripts/check-architecture.mjs",
     "validate:features": "node scripts/validate-features.mjs",
     "render:diagrams": "node scripts/render-diagrams.mjs",
+    "render:storage-matrix": "node scripts/render-storage-matrix.mjs",
     "release": "pnpm run build && changeset publish --tag latest",
     "release:version": "node scripts/release.mjs",
     "changeset": "changeset",

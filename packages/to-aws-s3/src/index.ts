@@ -253,3 +253,6 @@ export function s3(options: S3Options): NoydbStore {
     },
   }
 }
+
+export { s3Bundle } from './bundle.js'
+export type { S3BundleOptions } from './bundle.js'

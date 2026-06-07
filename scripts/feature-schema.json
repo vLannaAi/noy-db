@@ -97,13 +97,23 @@
         { "$ref": "#/$defs/baseEntry" },
         {
           "additionalProperties": false,
-          "required": ["cas_atomic", "use_case"],
+          "required": ["cas_atomic", "use_case", "capabilities"],
           "properties": {
             "id": true, "name": true, "package": true, "status": true, "experimental": true,
             "showcases": true, "recipes": true, "playground_pages": true,
             "diagrams": true, "invariants": true, "related": true,
             "cas_atomic": { "type": "boolean" },
             "use_case":   { "type": "string", "minLength": 1 },
+            "capabilities": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["record", "vault"],
+              "description": "Store shapes the adapter exposes. `record` = per-record KV (NoydbStore: get/put/list). `vault` = whole-vault bundle (NoydbBundleStore: readBundle/writeBundle/listBundles). At least one must be true.",
+              "properties": {
+                "record": { "type": "boolean" },
+                "vault":  { "type": "boolean" }
+              }
+            },
             "subsystem_doc": { "type": "string", "pattern": "^docs/.+\\.md$" }
           }
         }

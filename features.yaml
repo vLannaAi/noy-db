@@ -721,6 +721,10 @@ features:
     showcases:
       - id: 93-with-snapshots
         path: showcases/src/93-with-snapshots.showcase.test.ts
+      - id: 96-snapshots-auto-cadence
+        path: showcases/src/96-snapshots-auto-cadence.showcase.test.ts
+      - id: 97-snapshots-s3-bundle
+        path: showcases/src/97-snapshots-s3-bundle.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
@@ -730,7 +734,10 @@ features:
       - 'Sidecar index blob (${vaultId}__index) holds SnapshotMeta[] for O(1) listing without blob downloads'
       - 'Retention enforced eagerly via deleteBundle(); prune:false delegates to infra expiry'
       - 'After restoreSnapshot(), collection handles are stale — re-obtain via db.vault().collection()'
-      - 'Auto-snapshot cadence deferred to v2; per-collection snapshots deferred to v2'
+      - 'Automatic snapshots (snapshotPolicy mode debounce/interval) write a single rolling <vault>__auto key, separate from the immutable on-demand pool'
+      - 'The rolling auto-snapshot is exempt from retention (keepLast/maxAgeDays never prune it) and is preserved across on-demand snapshot() writes'
+      - 'snapshotPolicy defaults to manual — no timers unless explicitly enabled; the cadence scheduler is torn down by db.close()'
+      - 's3Bundle() in @noy-db/to-aws-s3 implements NoydbBundleStore (OCC via S3 IfMatch/ETag) as a snapshot destination; per-collection snapshots deferred to v2'
     related: [bundle, history]
 
   - id: attestation
@@ -994,6 +1001,9 @@ adapters:
     package: '@noy-db/to-memory'
     cas_atomic: true
     use_case: testing
+    capabilities:
+      record: true
+      vault: false
     status: stable
     showcases:
       - id: 01-storage-memory
@@ -1011,6 +1021,9 @@ adapters:
     package: '@noy-db/to-file'
     cas_atomic: false
     use_case: usb-or-local-disk
+    capabilities:
+      record: true
+      vault: false
     status: stable
     showcases:
       - id: 02-storage-file
@@ -1029,6 +1042,9 @@ adapters:
     package: '@noy-db/to-browser-idb'
     cas_atomic: true
     use_case: pwa-offline-first
+    capabilities:
+      record: true
+      vault: false
     status: stable
     showcases:
       - id: 03-storage-browser-idb
@@ -1047,6 +1063,9 @@ adapters:
     package: '@noy-db/to-aws-dynamo'
     cas_atomic: true
     use_case: cloud-serverless
+    capabilities:
+      record: true
+      vault: false
     status: stable
     showcases:
       - id: 04-storage-cloud
@@ -1065,6 +1084,9 @@ adapters:
     package: '@noy-db/to-aws-s3'
     cas_atomic: false
     use_case: cloud-blob-storage
+    capabilities:
+      record: true
+      vault: true
     status: stable
     showcases:
       - id: 57-storage-aws-s3
@@ -1084,6 +1106,9 @@ adapters:
     package: '@noy-db/to-browser-local'
     cas_atomic: true
     use_case: simple-pwa-cache
+    capabilities:
+      record: true
+      vault: false
     status: stable
     showcases:
       - id: 53-storage-browser-local
@@ -1102,6 +1127,9 @@ adapters:
     package: '@noy-db/to-cloudflare-r2'
     cas_atomic: false
     use_case: edge-blob-storage
+    capabilities:
+      record: true
+      vault: false
     status: stable
     showcases:
       - id: 60-storage-cloudflare-r2
@@ -1121,6 +1149,9 @@ adapters:
     package: '@noy-db/to-cloudflare-d1'
     cas_atomic: true
     use_case: edge-serverless
+    capabilities:
+      record: true
+      vault: false
     status: stable
     showcases:
       - id: 61-storage-cloudflare-d1
@@ -1139,6 +1170,9 @@ adapters:
     package: '@noy-db/to-supabase'
     cas_atomic: true
     use_case: hosted-postgres
+    capabilities:
+      record: true
+      vault: false
     status: stable
     showcases:
       - id: 64-storage-supabase
@@ -1158,6 +1192,9 @@ adapters:
     package: '@noy-db/to-postgres'
     cas_atomic: true
     use_case: self-hosted-sql
+    capabilities:
+      record: true
+      vault: false
     status: stable
     showcases:
       - id: 58-storage-postgres
@@ -1177,6 +1214,9 @@ adapters:
     package: '@noy-db/to-mysql'
     cas_atomic: true
     use_case: self-hosted-sql
+    capabilities:
+      record: true
+      vault: false
     status: stable
     showcases:
       - id: 73-storage-mysql
@@ -1195,6 +1235,9 @@ adapters:
     package: '@noy-db/to-sqlite'
     cas_atomic: true
     use_case: embedded-sql
+    capabilities:
+      record: true
+      vault: false
     status: stable
     showcases:
       - id: 54-storage-sqlite
@@ -1213,6 +1256,9 @@ adapters:
     package: '@noy-db/to-turso'
     cas_atomic: true
     use_case: hosted-edge-sqlite
+    capabilities:
+      record: true
+      vault: false
     status: stable
     showcases:
       - id: 67-storage-turso
@@ -1232,6 +1278,9 @@ adapters:
     package: '@noy-db/to-webdav'
     cas_atomic: false
     use_case: byo-cloud
+    capabilities:
+      record: true
+      vault: false
     status: stable
     showcases:
       - id: 68-storage-webdav
@@ -1251,6 +1300,9 @@ adapters:
     package: '@noy-db/to-ssh'
     cas_atomic: false
     use_case: remote-disk
+    capabilities:
+      record: true
+      vault: false
     status: stable
     showcases:
       - id: 74-storage-ssh
@@ -1269,6 +1321,9 @@ adapters:
     package: '@noy-db/to-smb'
     cas_atomic: false
     use_case: enterprise-fileshare
+    capabilities:
+      record: true
+      vault: false
     status: stable
     showcases:
       - id: 75-storage-smb
@@ -1287,6 +1342,9 @@ adapters:
     package: '@noy-db/to-nfs'
     cas_atomic: false
     use_case: enterprise-fileshare
+    capabilities:
+      record: true
+      vault: false
     status: stable
     showcases:
       - id: 76-storage-nfs
@@ -1305,6 +1363,9 @@ adapters:
     package: '@noy-db/to-icloud'
     cas_atomic: false
     use_case: apple-ecosystem-sync
+    capabilities:
+      record: false
+      vault: true
     status: stable
     showcases: []
     recipes: []
@@ -1320,6 +1381,9 @@ adapters:
     package: '@noy-db/to-drive'
     cas_atomic: false
     use_case: cloud-bundle-storage
+    capabilities:
+      record: false
+      vault: true
     status: stable
     showcases: []
     recipes: []
@@ -1335,6 +1399,9 @@ adapters:
     package: '@noy-db/to-probe'
     cas_atomic: false
     use_case: diagnostics
+    capabilities:
+      record: true
+      vault: false
     status: stable
     showcases:
       - id: 56-storage-probe
@@ -1354,6 +1421,9 @@ adapters:
     package: '@noy-db/to-meter'
     cas_atomic: false
     use_case: observability
+    capabilities:
+      record: true
+      vault: false
     status: stable
     showcases:
       - id: 55-storage-meter
