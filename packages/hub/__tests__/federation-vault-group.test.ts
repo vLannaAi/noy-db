@@ -4,7 +4,8 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
-import { ConflictError, ShardProvisioningError, VaultTemplateNotFoundError, UnknownShardError, ValidationError } from '../src/errors.js'
+import { ConflictError, ShardProvisioningError, VaultTemplateNotFoundError, UnknownShardError, ValidationError, NoAccessError, InvalidKeyError, KeyringCorruptError } from '../src/errors.js'
+import { classifyShardSkip } from '../src/federation/classify-skip.js'
 import { createNoydb } from '../src/noydb.js'
 import type { Noydb } from '../src/noydb.js'
 import type { Vault } from '../src/vault.js'
@@ -294,5 +295,14 @@ describe('VaultGroup — partition key validation', () => {
   it('accepts ordinary hyphenated keys (e.g. UUID-like)', async () => {
     const h = await harness()
     await expect(h.firm.createShard('acme-corp-2026')).resolves.toBeDefined()
+  })
+})
+
+describe('classifyShardSkip', () => {
+  it('NoAccessError → no-grant; corruption/credential/other → error', () => {
+    expect(classifyShardSkip(new NoAccessError('x'))).toBe('no-grant')
+    expect(classifyShardSkip(new InvalidKeyError())).toBe('error')
+    expect(classifyShardSkip(new KeyringCorruptError({ failedCollections: ['c'], intactCount: 0 }))).toBe('error')
+    expect(classifyShardSkip(new Error('store boom'))).toBe('error')
   })
 })

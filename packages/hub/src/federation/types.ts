@@ -57,7 +57,7 @@ export interface FanoutQueryOptions {
 /** A shard excluded from a fan-out result, with the reason. */
 export interface SkippedVault {
   readonly vaultId: string
-  readonly reason: 'schema-drift' | 'error'
+  readonly reason: 'schema-drift' | 'error' | 'no-grant'
   readonly error?: Error
 }
 
