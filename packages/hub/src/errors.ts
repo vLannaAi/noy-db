@@ -731,6 +731,42 @@ export class LedgerContentionError extends NoydbError {
 }
 
 /**
+ * Thrown by `vault.sequence(name).next()` after exhausting its CAS retry
+ * budget under contention. The counter is intact; the caller may retry.
+ */
+export class SequenceContentionError extends NoydbError {
+  readonly sequence: string
+  readonly attempts: number
+
+  constructor(sequence: string, attempts: number) {
+    super(
+      'SEQUENCE_CONTENTION',
+      `vault.sequence("${sequence}").next(): failed to allocate after ${attempts} optimistic-CAS retries`,
+    )
+    this.name = 'SequenceContentionError'
+    this.sequence = sequence
+    this.attempts = attempts
+  }
+}
+
+/**
+ * Thrown by `vault.sequence(name).next()` when the backing store is not
+ * CAS-capable (`capabilities.casAtomic !== true`). Gap-free numbering
+ * requires single-authority serialization, which an offline / non-CAS
+ * store cannot provide — this is a deliberate online-only wall.
+ */
+export class SequenceOfflineError extends NoydbError {
+  constructor() {
+    super(
+      'SEQUENCE_OFFLINE',
+      'vault.sequence().next() requires an online CAS-capable store ' +
+        '(capabilities.casAtomic). Gap-free numbering cannot be serialized offline.',
+    )
+    this.name = 'SequenceOfflineError'
+  }
+}
+
+/**
  * Thrown when a bundle push is rejected because the remote has been updated
  * since the local bundle was last pulled.
  *

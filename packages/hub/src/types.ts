@@ -217,6 +217,13 @@ export interface NoydbStore {
    */
   name?: string
 
+  /**
+   * Optional declared store capabilities (CAS atomicity, native tx, blob
+   * size limits, auth). Consumers that require a capability — e.g.
+   * `vault.sequence().next()` needs `casAtomic` — read it here.
+   */
+  capabilities?: StoreCapabilities
+
   /** Get a single record. Returns null if not found. */
   get(vault: string, collection: string, id: string): Promise<EncryptedEnvelope | null>
 

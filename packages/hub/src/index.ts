@@ -247,6 +247,8 @@ export {
   ElevationExpiredError,
   AlreadyElevatedError,
   LedgerContentionError,
+  SequenceContentionError,
+  SequenceOfflineError,
   BundleIntegrityError,
   BundleSealMismatchError,
   BundleVersionConflictError,
@@ -284,6 +286,10 @@ export type {
   ArchiveResult,
   ArchiveRunOptions,
 } from './archive/index.js'
+
+// ─── Atomic sequence (#303) ─────────────────────────────────────────────────────
+export { SequenceStore } from './sequence/index.js'
+export type { SequenceHandle } from './sequence/index.js'
 
 // Federation — VaultGroup / sharded collections.
 // Type-only: these classes are never constructed by consumers — they are
