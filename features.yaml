@@ -1005,6 +1005,8 @@ features:
     showcases:
       - id: 98-vault-group-federation
         path: showcases/src/98-vault-group-federation.showcase.test.ts
+      - id: 99-vault-group-live-aggregate
+        path: showcases/src/99-vault-group-live-aggregate.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
