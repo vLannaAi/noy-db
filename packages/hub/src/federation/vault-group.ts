@@ -10,6 +10,9 @@ import type { Collection } from '../collection.js'
 import { ShardProvisioningError, UnknownShardError, ValidationError } from '../errors.js'
 import { classifyShardSkip } from './classify-skip.js'
 import { CrossVaultLive } from './cross-vault-live.js'
+import { CrossVaultAggregation, CrossVaultGroupedAggregation } from './aggregate-across.js'
+import type { FanoutRecordSource, LiveBinding } from './aggregate-across.js'
+import type { AggregateSpec } from '../aggregate/aggregation.js'
 import type {
   ShardingConfig,
   VaultRegistryRow,
@@ -221,13 +224,21 @@ export class ShardedQuery<T, R = T> {
     return { results: records, skippedVaults }
   }
 
-  /** Returns a reactive cross-shard live query — a facade over CrossVaultLive. */
-  live(options: LiveQueryOptions = {}): CrossVaultLiveQuery<R> {
+  /** @internal — build the change-subscription + relevance binding for this query's group+collection. */
+  liveBinding(): LiveBinding {
     const group = this.group
     const collectionName = this.collectionName
-    const core = new CrossVaultLive<{ records: R[]; skipped: SkippedVault[] }>({
+    return {
       subscribeToChanges: (h) => { group.db.on('change', h); return () => group.db.off('change', h) },
       isRelevant: (e) => e.collection === collectionName && e.vault.startsWith(`${group.name}--`),
+    }
+  }
+
+  /** Returns a reactive cross-shard live query — a facade over CrossVaultLive. */
+  live(options: LiveQueryOptions = {}): CrossVaultLiveQuery<R> {
+    const bind = this.liveBinding()
+    const core = new CrossVaultLive<{ records: R[]; skipped: SkippedVault[] }>({
+      ...bind,
       compute: async () => {
         const { records, skippedVaults } = await this.fanoutRecords(options)
         return { records, skipped: skippedVaults }
@@ -243,5 +254,32 @@ export class ShardedQuery<T, R = T> {
       subscribe: (cb) => core.subscribe(cb),
       stop: () => core.stop(),
     }
+  }
+
+  /** One-shot distributed aggregate — central reduce over all shard records. */
+  aggregate<Spec extends AggregateSpec>(spec: Spec): CrossVaultAggregation<R, Spec> {
+    return new CrossVaultAggregation<R, Spec>(this, spec, this.liveBinding())
+  }
+
+  /** Begin a grouped cross-shard aggregate. */
+  groupBy<F extends string>(field: F): ShardedGroupedQuery<T, R, F> {
+    return new ShardedGroupedQuery<T, R, F>(this, field)
+  }
+}
+
+/** Grouped cross-shard query — intermediate after `.groupBy(field)`, terminates with `.aggregate(spec)`. */
+export class ShardedGroupedQuery<T, R, F extends string> {
+  constructor(
+    private readonly query: ShardedQuery<T, R>,
+    private readonly field: F,
+  ) {}
+
+  aggregate<Spec extends AggregateSpec>(spec: Spec): CrossVaultGroupedAggregation<R, F, Spec> {
+    return new CrossVaultGroupedAggregation<R, F, Spec>(
+      { fanoutRecords: (o) => this.query.fanoutRecords(o) } satisfies FanoutRecordSource<R>,
+      this.field,
+      spec,
+      this.query.liveBinding(),
+    )
   }
 }

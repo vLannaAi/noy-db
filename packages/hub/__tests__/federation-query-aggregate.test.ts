@@ -9,6 +9,7 @@ import { ConflictError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
 import type { Vault } from '../src/vault.js'
 import type { VaultRegistryRow } from '../src/federation/index.js'
+import { sum, count, avg } from '../src/aggregate/reducers.js'
 
 // ─── Shared in-memory adapter (copied from federation-vault-group.test.ts) ───
 
@@ -111,5 +112,35 @@ describe('ShardedQuery.live()', () => {
     await h.firm.collection('invoices').put('a3', { clientId: 'acme', amount: 300, status: 'overdue' })
     await new Promise<void>((r) => setTimeout(r, 30))
     expect(lq.value.length).toBe(3) // no update after stop
+  })
+})
+
+// ─── Task 10: one-shot aggregate ─────────────────────────────────────────────
+
+describe('ShardedQuery.aggregate() one-shot', () => {
+  it('aggregate across shards: sum/count/avg correct (avg = central reduce, not avg-of-avgs)', async () => {
+    const h = await harness()
+    const inv = h.firm.collection('invoices')
+    await inv.put('a1', { clientId: 'acme', amount: 100, status: 'open' })
+    await inv.put('a2', { clientId: 'acme', amount: 200, status: 'open' })
+    await inv.put('b1', { clientId: 'beta', amount: 300, status: 'open' })
+    const { result, skippedVaults } = await h.firm.collection('invoices').query()
+      .aggregate({ total: sum('amount'), n: count(), mean: avg('amount') }).run()
+    expect(skippedVaults).toEqual([])
+    expect(result.total).toBe(600)
+    expect(result.n).toBe(3)
+    expect(result.mean).toBe(200) // NOT (150+300)/2 = 225 — central reduce, not avg-of-avgs
+  })
+
+  it('groupBy(status).aggregate sums per status across shards', async () => {
+    const h = await harness()
+    const inv = h.firm.collection('invoices')
+    await inv.put('a1', { clientId: 'acme', amount: 100, status: 'overdue' })
+    await inv.put('b1', { clientId: 'beta', amount: 300, status: 'overdue' })
+    await inv.put('b2', { clientId: 'beta', amount: 50, status: 'open' })
+    const { results } = await h.firm.collection('invoices').query()
+      .groupBy('status').aggregate({ total: sum('amount') }).run()
+    const overdue = results.find((r) => r.status === 'overdue')
+    expect(overdue?.total).toBe(400)
   })
 })
