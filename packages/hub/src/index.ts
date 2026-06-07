@@ -764,7 +764,7 @@ export { TierNotGrantedError, TierDemoteDeniedError, DelegationTargetMissingErro
 // lazy-mode index errors
 export { IndexRequiredError, IndexWriteFailureError } from './errors.js'
 // unique-index enforcement error
-export { UniqueConstraintError } from './errors.js'
+export { UniqueConstraintError, UnsupportedIndexOptionError } from './errors.js'
 export { dekKey, effectiveClearance, assertTierAccess } from './team/tiers.js'
 export type { DelegationToken, IssueDelegationOptions } from './team/delegation.js'
 export { DELEGATIONS_COLLECTION, issueDelegation, loadActiveDelegations, revokeDelegation } from './team/delegation.js'

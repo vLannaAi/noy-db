@@ -19,7 +19,7 @@ import { createNoydb } from '../src/noydb.js'
 import { withIndexing } from '../src/indexing/index.js'
 import type { Noydb } from '../src/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
-import { ConflictError, UniqueConstraintError } from '../src/errors.js'
+import { ConflictError, UniqueConstraintError, UnsupportedIndexOptionError } from '../src/errors.js'
 
 // ── inline memory adapter ────────────────────────────────────────────────────
 function memory(): NoydbStore {
@@ -236,7 +236,7 @@ describe('putMany intra-batch duplicate', () => {
 
 // ── 8. Lazy fail-loud ────────────────────────────────────────────────────────
 describe('lazy mode fail-loud', () => {
-  it('throws at collection registration when unique index declared with prefetch:false', async () => {
+  it('throws UnsupportedIndexOptionError at collection registration when unique index declared with prefetch:false', async () => {
     const vault = await openVault()
     expect(() =>
       vault.collection<{ k: string }>('lazy-unique', {
@@ -244,7 +244,7 @@ describe('lazy mode fail-loud', () => {
         cache: { maxRecords: 100 },
         indexes: [{ fields: ['k'], unique: true }],
       }),
-    ).toThrow(/unique indexes.*lazy mode|lazy mode.*unique/i)
+    ).toThrow(UnsupportedIndexOptionError)
   })
 })
 
@@ -285,5 +285,53 @@ describe('unique index queryable', () => {
     const results = await col.query().where('taxId', '==', 'TX-001').toArray()
     expect(results).toHaveLength(1)
     expect(results[0]).toMatchObject({ taxId: 'TX-001', name: 'Alice' })
+  })
+})
+
+// ── 11. Hydration/rebuild regression — two-session path ──────────────────────
+describe('hydration rebuild (two-session path)', () => {
+  it('enforces unique constraint against records written in a prior session', async () => {
+    // One shared store so both instances see the same persisted data.
+    const sharedStore = memory()
+
+    // Session 1: write a record.
+    const db1 = await createNoydb({
+      store: sharedStore,
+      indexStrategy: withIndexing(),
+      secret: 'unique-index-test-pass',
+    })
+    const vault1 = await db1.openVault('shared-v')
+    const col1 = vault1.collection<{ taxId: string }>('employees', {
+      indexes: [{ fields: ['taxId'], unique: true }],
+    })
+    await col1.put('a', { taxId: 'TX-001' })
+
+    // Session 2: open the same vault + same collection on the same store.
+    // The unique-constraint map must be rebuilt from the hydrated cache so
+    // that 'b' with the same taxId is rejected.
+    const db2 = await createNoydb({
+      store: sharedStore,
+      indexStrategy: withIndexing(),
+      secret: 'unique-index-test-pass',
+    })
+    const vault2 = await db2.openVault('shared-v')
+    const col2 = vault2.collection<{ taxId: string }>('employees', {
+      indexes: [{ fields: ['taxId'], unique: true }],
+    })
+
+    await expect(col2.put('b', { taxId: 'TX-001' })).rejects.toThrow(UniqueConstraintError)
+  })
+})
+
+// ── 12. CRDT + unique guard ───────────────────────────────────────────────────
+describe('CRDT mode fail-loud', () => {
+  it('throws UnsupportedIndexOptionError at registration when unique index declared on a CRDT collection', async () => {
+    const vault = await openVault()
+    expect(() =>
+      vault.collection<{ taxId: string }>('crdt-unique', {
+        crdt: 'lww-map',
+        indexes: [{ fields: ['taxId'], unique: true }],
+      }),
+    ).toThrow(UnsupportedIndexOptionError)
   })
 })

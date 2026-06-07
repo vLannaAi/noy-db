@@ -32,7 +32,7 @@ import type { PersistedCollectionIndex, PersistedIndexDef } from './indexing/per
 import { LazyQuery } from './indexing/lazy-builder.js'
 import type { LazyQuerySource } from './indexing/lazy-builder.js'
 import { NO_INDEXING, type IndexStrategy, type IndexState } from './indexing/strategy.js'
-import { IndexWriteFailureError } from './errors.js'
+import { IndexWriteFailureError, UnsupportedIndexOptionError } from './errors.js'
 import { UniqueConstraintSet } from './indexing/unique-constraints.js'
 import type { RefDescriptor } from './refs.js'
 import { Lru, parseBytes, estimateRecordBytes, type LruStats } from './cache/index.js'
@@ -928,13 +928,22 @@ export class Collection<T> {
         if (this.lazy) {
           // Lazy mode: unique indexes are not yet supported — fail loud at
           // registration rather than silently ignoring.
-          throw new Error(
-            `Collection "${this.name}": unique indexes are not yet supported in lazy mode (prefetch: false). ` +
-              `Use the default eager mode (prefetch: true, the default) for unique-index enforcement.`,
+          throw new UnsupportedIndexOptionError(
+            'unique',
+            `unique indexes are not yet supported in lazy mode (prefetch:false) — use the default eager mode. Collection "${this.name}".`,
           )
         }
         uniqueDefs.push(fields)
       }
+    }
+    // CRDT mode: unique indexes are incompatible — the CRDT put() path
+    // short-circuits the uniqueness check, so enforcement would silently
+    // never fire. Fail loud at registration.
+    if (this.crdtMode && uniqueDefs.length > 0) {
+      throw new UnsupportedIndexOptionError(
+        'unique',
+        `unique indexes are not supported on CRDT collections (crdt mode is incompatible with eager unique enforcement). Collection "${this.name}".`,
+      )
     }
     this.uniqueConstraints = uniqueDefs.length > 0 ? new UniqueConstraintSet(this.name, uniqueDefs) : null
   }

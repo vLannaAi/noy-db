@@ -26,13 +26,15 @@
  *       │    ├─ ValidationError        — application-level guard failed
  *       │    └─ SchemaValidationError  — Standard Schema v1 rejection
  *       ├─ Query errors
- *       │    ├─ JoinTooLargeError           — join row ceiling exceeded
- *       │    ├─ CrossJoinTooLargeError      — cross-join row ceiling exceeded
- *       │    ├─ CrossJoinSourceUnknownError — target collection not in vault
- *       │    ├─ DanglingReferenceError — strict ref() points at nothing
- *       │    ├─ GroupCardinalityError  — groupBy bucket cap exceeded
- *       │    ├─ IndexRequiredError      — lazy-mode query touches unindexed field
- *       │    └─ IndexWriteFailureError       — index side-car put/delete failed post-main
+ *       │    ├─ JoinTooLargeError                — join row ceiling exceeded
+ *       │    ├─ CrossJoinTooLargeError            — cross-join row ceiling exceeded
+ *       │    ├─ CrossJoinSourceUnknownError       — target collection not in vault
+ *       │    ├─ DanglingReferenceError            — strict ref() points at nothing
+ *       │    ├─ GroupCardinalityError             — groupBy bucket cap exceeded
+ *       │    ├─ IndexRequiredError                — lazy-mode query touches unindexed field
+ *       │    ├─ IndexWriteFailureError            — index side-car put/delete failed post-main
+ *       │    ├─ UniqueConstraintError             — duplicate value on unique index
+ *       │    └─ UnsupportedIndexOptionError       — unique+lazy or unique+crdt at registration
  *       ├─ i18n / Dictionary errors
  *       │    ├─ ReservedCollectionNameError
  *       │    ├─ DictKeyMissingError
@@ -989,6 +991,34 @@ export class UniqueConstraintError extends NoydbError {
     this.recordId = recordId
     this.fields = fields
     this.conflictingId = conflictingId
+  }
+}
+
+/**
+ * Thrown at collection registration when an index option is declared that
+ * is incompatible with the collection's operating mode.
+ *
+ * Currently covers two cases:
+ * - `unique: true` on a lazy-mode (`prefetch: false`) collection — lazy mode
+ *   does not pre-load all records, so an in-memory uniqueness map cannot be
+ *   maintained reliably.
+ * - `unique: true` on a CRDT collection (`crdt: 'lww-map' | 'rga' | 'yjs'`) —
+ *   CRDT put() short-circuits the unique-constraint check, so enforcement would
+ *   silently not fire.
+ *
+ * Both cases are caught eagerly at `vault.collection()` time so the developer
+ * sees the incompatibility immediately rather than shipping silently-ignored
+ * constraints.
+ *
+ * The `option` field names the incompatible option (`'unique'`) so catch blocks
+ * can pattern-match without inspecting the error message.
+ */
+export class UnsupportedIndexOptionError extends NoydbError {
+  readonly option: string
+  constructor(option: string, message: string) {
+    super('UNSUPPORTED_INDEX_OPTION', message)
+    this.name = 'UnsupportedIndexOptionError'
+    this.option = option
   }
 }
 
