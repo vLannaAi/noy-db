@@ -7,7 +7,7 @@
 import type { Noydb } from '../noydb.js'
 import type { Vault } from '../vault.js'
 import type { Collection } from '../collection.js'
-import { ShardProvisioningError, UnknownShardError } from '../errors.js'
+import { ShardProvisioningError, UnknownShardError, ValidationError } from '../errors.js'
 import type {
   ShardingConfig,
   VaultRegistryRow,
@@ -18,6 +18,29 @@ import type {
   WhereClause,
 } from './types.js'
 
+/** Reserved separator between group name and partition key in a shard vault id. */
+const SHARD_SEPARATOR = '--'
+/** Store-safe partition-key charset (single hyphens OK; '--' is the reserved separator). */
+const SAFE_PARTITION_KEY = /^[A-Za-z0-9._-]+$/
+
+function assertSafePartitionKey(partitionKey: string): void {
+  if (partitionKey.length === 0) {
+    throw new ValidationError('partitionKey must be a non-empty string')
+  }
+  if (!SAFE_PARTITION_KEY.test(partitionKey)) {
+    throw new ValidationError(
+      `partitionKey "${partitionKey}" contains characters outside [A-Za-z0-9._-]. ` +
+        `Map your records to a store-safe key in sharding.keyOf.`,
+    )
+  }
+  if (partitionKey.includes(SHARD_SEPARATOR)) {
+    throw new ValidationError(
+      `partitionKey "${partitionKey}" must not contain "--" — it is reserved as the ` +
+        `shard vault-id separator and would risk shard-id collisions.`,
+    )
+  }
+}
+
 export class VaultGroup<T> {
   constructor(
     /** @internal */ readonly db: Noydb,
@@ -25,11 +48,18 @@ export class VaultGroup<T> {
     /** @internal */ readonly registry: Collection<VaultRegistryRow>,
     /** @internal */ readonly sharding: ShardingConfig<T>,
     /** @internal */ readonly template: VaultTemplate,
-  ) {}
+  ) {
+    if (name.includes(SHARD_SEPARATOR)) {
+      throw new ValidationError(
+        `VaultGroup name "${name}" must not contain "--" (reserved shard vault-id separator).`,
+      )
+    }
+  }
 
   /** Deterministic vault name for a partition key, namespaced by the group. */
   shardVaultId(partitionKey: string): string {
-    return `${this.name}--${partitionKey}`
+    assertSafePartitionKey(partitionKey)
+    return `${this.name}${SHARD_SEPARATOR}${partitionKey}`
   }
 
   /** All registry rows (hydrates the registry collection first). */
@@ -149,8 +179,27 @@ export class ShardedQuery<T, R = T> {
       }
     }
 
+    // Guard against registry/store divergence: a row whose vault is not
+    // provisioned must NOT be recreated by queryAcross's open-on-read.
+    // Surface it as an error-skip instead (mirrors shard()/createShard).
+    const provisioned = await Promise.all(
+      eligible.map((row) => this.group.db._shardVaultProvisioned(row.vaultId)),
+    )
+    const safeEligible: VaultRegistryRow[] = []
+    eligible.forEach((row, i) => {
+      if (provisioned[i]) {
+        safeEligible.push(row)
+      } else {
+        skipped.push({
+          vaultId: row.vaultId,
+          reason: 'error',
+          error: new ShardProvisioningError(row.vaultId, row.partitionKey),
+        })
+      }
+    })
+
     const across = await this.group.db.queryAcross<R[]>(
-      eligible.map((r) => r.vaultId),
+      safeEligible.map((r) => r.vaultId),
       async (vault) => {
         this.group.template.configure(vault)
         const coll = vault.collection<R>(this.collectionName)

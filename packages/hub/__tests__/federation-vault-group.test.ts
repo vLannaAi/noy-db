@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
-import { ConflictError, ShardProvisioningError, VaultTemplateNotFoundError, UnknownShardError } from '../src/errors.js'
+import { ConflictError, ShardProvisioningError, VaultTemplateNotFoundError, UnknownShardError, ValidationError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
 import type { Noydb } from '../src/noydb.js'
 import type { Vault } from '../src/vault.js'
@@ -207,6 +207,25 @@ describe('VaultGroup — fan-out read', () => {
     ])
   })
 
+  it('a registry row whose vault is unprovisioned surfaces as skippedVaults reason "error" (no silent recreate)', async () => {
+    const h = await harness()
+    // Real provisioned shard with data.
+    await h.firm.collection('invoices').put('a-1', { clientId: 'acme', amount: 100, status: 'overdue' })
+    // Divergent registry row: points at a vault that was never provisioned.
+    await h.registry.put('ghost', {
+      vaultId: 'firm-clients--ghost', partitionKey: 'ghost',
+      templateName: 'client-template', schemaVersion: 1, createdAt: 1,
+    })
+
+    const out = await h.firm.collection('invoices').query().where('status', '==', 'overdue').toArray()
+
+    expect(out.results.map((r) => r.amount)).toEqual([100]) // acme only
+    const ghost = out.skippedVaults.find((s) => s.vaultId === 'firm-clients--ghost')
+    expect(ghost).toBeDefined()
+    expect(ghost!.reason).toBe('error')
+    expect(ghost!.error).toBeInstanceOf(ShardProvisioningError)
+  })
+
   it('a per-shard read failure lands in skippedVaults with reason "error" (fan-out not aborted)', async () => {
     // Write with one db, then read with a FRESH db (empty caches) so the
     // fan-out actually re-hydrates from the store and re-hits list(). The
@@ -253,5 +272,27 @@ describe('VaultGroup — fan-out read', () => {
     expect(out.skippedVaults[0]!.vaultId).toBe('firm-clients--bigco')
     expect(out.skippedVaults[0]!.reason).toBe('error')
     expect(out.skippedVaults[0]!.error).toBeInstanceOf(Error)
+  })
+})
+
+describe('VaultGroup — partition key validation', () => {
+  it('rejects a partitionKey containing the "--" separator', async () => {
+    const h = await harness()
+    await expect(h.firm.createShard('a--b')).rejects.toBeInstanceOf(ValidationError)
+  })
+
+  it('rejects a partitionKey with store-unsafe characters', async () => {
+    const h = await harness()
+    await expect(h.firm.createShard('a/b')).rejects.toBeInstanceOf(ValidationError)
+  })
+
+  it('rejects an empty partitionKey', async () => {
+    const h = await harness()
+    await expect(h.firm.createShard('')).rejects.toBeInstanceOf(ValidationError)
+  })
+
+  it('accepts ordinary hyphenated keys (e.g. UUID-like)', async () => {
+    const h = await harness()
+    await expect(h.firm.createShard('acme-corp-2026')).resolves.toBeDefined()
   })
 })
