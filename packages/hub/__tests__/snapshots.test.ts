@@ -462,6 +462,31 @@ describe('Noydb auto-cadence wiring', () => {
     db.close()
   })
 
+  it('retries on the next interval tick when an auto-snapshot fails', async () => {
+    let calls = 0
+    // Custom strategy: autoSnapshot always throws — the vault must stay pending
+    // and be retried on each interval tick.
+    const failingStrategy = {
+      async snapshot() { throw new Error('unused') },
+      async listSnapshots() { return [] },
+      async restoreSnapshot() { /* unused */ },
+      async autoSnapshot() { calls++; throw new Error('boom') },
+      policy: { mode: 'interval' as const, intervalMs: 15, onUnload: false },
+    }
+    const db = await createNoydb({
+      store: memory(), user: 'u', secret: 'pw',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      snapshotStrategy: failingStrategy as any,
+    })
+    const v = await db.openVault('cad4')
+    const c = v.collection<{ id: string; n: number }>('items')
+    await c.put('a', { id: 'a', n: 1 })
+    // Poll until we've seen at least two attempts (proof of retry after failure).
+    for (let i = 0; i < 50 && calls < 2; i++) await new Promise(r => setTimeout(r, 15))
+    expect(calls).toBeGreaterThanOrEqual(2)
+    db.close()
+  })
+
   it('close() stops the scheduler (no auto-snapshot after close)', async () => {
     const store = makeMockStore()
     const db = await createNoydb({

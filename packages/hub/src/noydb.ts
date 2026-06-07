@@ -2789,6 +2789,10 @@ export class Noydb {
           try {
             await this.snapshotStrategy.autoSnapshot(v, this.options.user)
           } catch (err) {
+            // Keep the vault pending so a later cadence tick (interval) or the
+            // next write (debounce) retries; a failed auto-snapshot is logged,
+            // never thrown (it runs inside the after-write hook contract).
+            this.dirtySnapshotVaults.add(name)
             console.warn(
               `[noy-db] auto-snapshot failed for vault "${name}": ` +
               (err instanceof Error ? err.message : String(err)),

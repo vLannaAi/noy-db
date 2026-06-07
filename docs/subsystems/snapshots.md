@@ -151,8 +151,9 @@ const db = await createNoydb({
 tab-hide / process exit. The auto snapshot appears first in `listSnapshots()`
 (flagged `auto: true`) and restores like any other
 (`db.restoreSnapshot(vault, '<vault>__auto')`). The cadence is wired off the
-db's `onAfterWrite` hook; an OCC conflict during an auto-snapshot is logged and
-retried on the next cycle, never thrown. The scheduler is torn down by
+db's `onAfterWrite` hook; an OCC conflict (or any error) during an auto-snapshot
+is logged, never thrown, and leaves the vault pending so the next cadence tick
+(interval) or next write (debounce) retries. The scheduler is torn down by
 `db.close()`.
 
 ## S3 bundle store
