@@ -61,6 +61,13 @@ export interface Reducer<R, S = R> {
   /** Collapse the internal state into the user-visible result. */
   finalize(state: S): R
   /**
+   * Combine two independent partial states into one (then `finalize` once).
+   * Optional. MUST be associative + commutative with `init()` as identity.
+   * Never merge finalized results — only states. Enables parallel /
+   * hierarchical aggregation (e.g. cross-shard or advisor→firm rollup).
+   */
+  merge?(a: S, b: S): S
+  /**
    * Identifying operation tag stamped by each built-in factory.
    * Used by `summariseAggregateOp` in the introspection walker to
    * render human-readable aggregate descriptors in `dumpSchema()`.
@@ -113,6 +120,7 @@ export function count(opts?: ReducerOptions<number>): Reducer<number> {
     step: (state) => state + 1,
     remove: (state) => state - 1,
     finalize: (state) => state,
+    merge: (a, b) => a + b,
   }
 }
 
@@ -135,6 +143,7 @@ export function sum(
     step: (state, record) => state + readNumber(record, field),
     remove: (state, record) => state - readNumber(record, field),
     finalize: (state) => state,
+    merge: (a, b) => a + b,
   }
 }
 
@@ -171,6 +180,7 @@ export function avg(
       count: state.count - 1,
     }),
     finalize: (state) => (state.count === 0 ? null : state.sum / state.count),
+    merge: (a, b) => ({ sum: a.sum + b.sum, count: a.count + b.count }),
   }
 }
 
@@ -234,6 +244,7 @@ export function min(
       }
       return out
     },
+    merge: (a, b) => ({ values: [...a.values, ...b.values] }),
   }
 }
 
@@ -263,6 +274,7 @@ export function max(
       }
       return out
     },
+    merge: (a, b) => ({ values: [...a.values, ...b.values] }),
   }
 }
 
