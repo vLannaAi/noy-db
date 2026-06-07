@@ -23,7 +23,7 @@ interface MoneyValueObject {
 }
 
 function isMoneyValueObject(v: unknown): v is MoneyValueObject {
-  return typeof v === 'object' && v !== null && 'currency' in (v as object)
+  return typeof v === 'object' && v !== null && 'currency' in v
 }
 
 /** Parse one decimal input to a stored digit string at `scale`. */
@@ -117,12 +117,15 @@ export function decodeMoneyFields<T extends Record<string, unknown>>(
     let currency: string
     let scaledIntString: string
     if (desc.mode === 'fixed') {
+      if (typeof stored !== 'string' && typeof stored !== 'number') continue
       currency = desc.fixedCurrency!
       scaledIntString = String(stored)
     } else {
       if (!isMoneyValueObject(stored)) continue // defensive: malformed stored value
-      currency = String(stored.currency)
-      scaledIntString = String(stored.amount)
+      const amount = stored.amount
+      if (typeof stored.currency !== 'string' || (typeof amount !== 'string' && typeof amount !== 'number')) continue
+      currency = stored.currency
+      scaledIntString = String(amount)
     }
 
     const scale = desc.scaleFor(currency)

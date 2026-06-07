@@ -36,20 +36,31 @@ interface ReadMoney {
   value: bigint
 }
 
+function toScaledInt(v: unknown): bigint | null {
+  if (typeof v === 'string' || typeof v === 'number' || typeof v === 'bigint') {
+    try {
+      return BigInt(v)
+    } catch {
+      return null
+    }
+  }
+  return null
+}
+
 /** Read the raw stored money value (scaled integer) from a record. */
 function readMoney(record: unknown, field: string, desc: MoneyDescriptor): ReadMoney | null {
   const raw = readPath(record, field)
   if (raw === null || raw === undefined) return null
-  try {
-    if (desc.mode === 'fixed') {
-      return { currency: desc.fixedCurrency!, value: BigInt(String(raw)) }
-    }
-    if (typeof raw !== 'object') return null // malformed multi value
-    const o = raw as { amount: unknown; currency: unknown }
-    return { currency: String(o.currency), value: BigInt(String(o.amount)) }
-  } catch {
-    return null
+  if (desc.mode === 'fixed') {
+    const value = toScaledInt(raw)
+    return value === null ? null : { currency: desc.fixedCurrency!, value }
   }
+  // multi mode: stored as { amount, currency }
+  if (typeof raw !== 'object') return null
+  const o = raw as { amount?: unknown; currency?: unknown }
+  if (typeof o.currency !== 'string') return null
+  const value = toScaledInt(o.amount)
+  return value === null ? null : { currency: o.currency, value }
 }
 
 /** Resolve the scale to use for a target currency (may be outside the allow-list). */
