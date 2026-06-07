@@ -714,6 +714,23 @@ export {
 } from './i18n/core.js'
 export type { I18nTextOptions, I18nTextDescriptor, ResolveI18nOptions, I18nMap } from './i18n/core.js'
 
+// money — currency-safe decimal field descriptor
+export {
+  money,
+  isMoneyDescriptor,
+  MoneyPrecisionError,
+  MoneyCurrencyError,
+  scaleForCurrency,
+} from './money/index.js'
+export type {
+  MoneyDescriptor,
+  MoneyOptions,
+  MoneyOptionsFixed,
+  MoneyOptionsMulti,
+  RoundingMode,
+  FxRates,
+} from './money/index.js'
+
 // i18n — resolution policy + script enforcement
 export { resolvePolicy } from './i18n/policy.js'
 export type { OnMissing, Layer, OnMissingPolicy } from './i18n/policy.js'

@@ -93,14 +93,15 @@ The acceptance criterion — `aggregate(sum())` is exact.
 - **Schema:** the zod schema declares the field loosely (`z.union([z.number(), z.string()])`, or an `{amount,currency}` object in multi mode); the descriptor owns canonical form, scale, currency, and rounding. Schema validates shape first, descriptor quantizes second.
 - **i18n ordering:** `<field>Formatted` is computed in `applyLocaleToRecord` alongside `<field>Label`, using the same locale resolution; no new ordering rules.
 - **FX source:** `fx` is a caller-supplied rate map / lookup (`{ from, to } → rate`), passed per aggregate call — noy-db neither stores nor sources rates in v1 (a persisted FX-rate companion field remains a separate follow-up).
-- **Introspection / devtools:** money fields surface in the introspection walker (`introspection/fields.ts`) as a `money` field kind with `{ mode, currency|currencies, scale }`.
+- **Introspection / devtools:** *deferred.* The introspection walker is schema-derived (`vault._introspectState()`) and currently surfaces **no** field-descriptor metadata — `i18nText` and `dictKey` are not introspected either. Surfacing money alone would be asymmetric; descriptor introspection (money + i18n + dictKey, uniformly) is its own follow-up.
 
 ### Deferred (separate issues, not v1)
 
+- **Descriptor introspection** (money/i18n/dictKey surfaced in `dumpSchema`) — none are today; do them together.
 - **Persisted** FX-rate companion field / historical-rate storage (per-call `fx` is supported; storing rates is not).
 - Exact `avg()` over money.
 - Money consumed by computed fields — picked up by **#302**.
-- Index semantics beyond equality on the scaled integer.
+- Index semantics beyond equality on the scaled integer. Equality/`unique` on a *multi-mode* `{amount,currency}` value needs a canonical composite key (fixed-mode scaled-int strings index as-is); index a derived scalar until a follow-up.
 
 ## 6. Testing
 
