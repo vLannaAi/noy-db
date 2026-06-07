@@ -5,6 +5,8 @@ import { NO_CRDT, type CrdtStrategy } from './crdt/strategy.js'
 import type { I18nTextDescriptor } from './i18n/core.js'
 import { getAtPath, setAtPathInPlace } from './i18n/core.js'
 import type { DictKeyDescriptor } from './i18n/dictionary.js'
+import type { MoneyDescriptor } from './money/descriptor.js'
+import { quantizeMoneyFields, decodeMoneyFields } from './money/normalize.js'
 import { NO_I18N, type I18nStrategy } from './i18n/strategy.js'
 import { resolvePolicy } from './i18n/policy.js'
 import { encrypt, decrypt, encryptDeterministic } from './crypto.js'
@@ -284,6 +286,14 @@ export class Collection<T> {
    * fields when a locale is requested.
    */
   private readonly dictKeyFields: Record<string, DictKeyDescriptor> | undefined
+
+  /**
+   * Money field descriptors keyed by field path. Declared via the
+   * `moneyFields` collection option. Used by `put()` to quantize decimal
+   * input to a scaled-integer string, and by `get()`/`list()` to decode
+   * back to an exact decimal plus `<field>Formatted`/`<field>Number`.
+   */
+  private readonly moneyFields: Record<string, MoneyDescriptor> | undefined
 
   /**
    * Async callback provided by the Vault that resolves a dict key
@@ -594,6 +604,7 @@ export class Collection<T> {
     i18nFields?: Record<string, I18nTextDescriptor> | undefined
     /** — dictKey field descriptors for label resolution on reads. */
     dictKeyFields?: Record<string, DictKeyDescriptor> | undefined
+    moneyFields?: Record<string, MoneyDescriptor> | undefined
     /**
      * async callback that resolves a dict key to its label
      * for a given locale. Provided by the Vault.
@@ -779,6 +790,7 @@ export class Collection<T> {
     this.joinResolver = opts.joinResolver
     this.i18nFields = opts.i18nFields
     this.dictKeyFields = opts.dictKeyFields
+    this.moneyFields = opts.moneyFields
     this.dictLabelResolver = opts.dictLabelResolver
     this.i18nPutValidator = opts.i18nPutValidator
     this.autoTranslateHook = opts.autoTranslateHook
@@ -1166,6 +1178,15 @@ export class Collection<T> {
     // encrypt path.
     if (this.schema !== undefined) {
       record = await validateSchemaInput(this.schema, record, `put(${id})`)
+    }
+
+    // Quantize money fields to their canonical stored form (scaled-int
+    // digit string, or { amount, currency } in multi mode). Runs AFTER
+    // schema validation — the zod schema validates the loose input shape;
+    // the descriptor owns precision/scale/currency. Throws
+    // MoneyPrecisionError / MoneyCurrencyError on bad input.
+    if (this.moneyFields) {
+      record = quantizeMoneyFields(record as Record<string, unknown>, this.moneyFields) as T
     }
 
     // Auto-translate missing i18nText translations.
@@ -3084,12 +3105,27 @@ export class Collection<T> {
   ): Promise<T> {
     const hasI18n = this.i18nFields && Object.keys(this.i18nFields).length > 0
     const hasDict = this.dictKeyFields && Object.keys(this.dictKeyFields).length > 0
-    if (!hasI18n && !hasDict) return record
+    const hasMoney = this.moneyFields && Object.keys(this.moneyFields).length > 0
+    if (!hasI18n && !hasDict && !hasMoney) return record
 
     const locale = localeOpts?.locale ?? this.defaultLocale
-    if (!locale) return record
 
     let result = record as unknown as Record<string, unknown>
+
+    // Money decode runs regardless of locale: the primary field is always
+    // turned from its stored scaled-integer string into an exact decimal
+    // string. The `<field>Formatted`/`<field>Number` virtuals are added
+    // unless `locale === 'raw'` (handled inside decodeMoneyFields).
+    if (hasMoney && this.moneyFields) {
+      result = decodeMoneyFields(
+        result,
+        this.moneyFields,
+        typeof locale === 'string' ? locale : undefined,
+      )
+    }
+
+    // i18nText / dictKey resolution require an active locale.
+    if (!locale) return result as T
 
     // 1. i18nText resolution
     if (hasI18n && this.i18nFields) {

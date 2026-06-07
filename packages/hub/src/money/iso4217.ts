@@ -30,7 +30,6 @@ const MINOR_UNITS: Readonly<Record<string, number>> = {
  * scale).
  */
 export function scaleForCurrency(code: string): number | null {
-  return Object.prototype.hasOwnProperty.call(MINOR_UNITS, code)
-    ? MINOR_UNITS[code]
-    : null
+  const v = MINOR_UNITS[code]
+  return v === undefined ? null : v
 }

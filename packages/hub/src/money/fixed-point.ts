@@ -33,9 +33,9 @@ function expandExponent(s: string): string {
   const m = /^([+-]?)(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/.exec(s)
   if (!m) return s
   const sign = m[1] === '-' ? '-' : ''
-  const intp = m[2]
+  const intp = m[2]!
   const frac = m[3] ?? ''
-  const exp = Number(m[4])
+  const exp = Number(m[4]!)
   const digits = intp + frac
   const pointPos = intp.length + exp
   let body: string

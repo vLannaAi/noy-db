@@ -83,12 +83,17 @@ export function quantizeMoneyFields<T extends Record<string, unknown>>(
 }
 
 function formatCurrency(decimal: string, currency: string, scale: number, locale: string): string {
-  return new Intl.NumberFormat(locale, {
+  const fmt = new Intl.NumberFormat(locale, {
     style: 'currency',
     currency,
     minimumFractionDigits: scale,
     maximumFractionDigits: scale,
-  }).format(decimal) // string arg → full precision, exact past 2^53
+  })
+  // V8's Intl.format accepts a decimal STRING and formats it at full
+  // precision (exact past 2^53). The TS lib types only declare
+  // number|bigint, so cast — a number arg here would re-introduce the
+  // float drift this whole feature exists to eliminate.
+  return (fmt.format as unknown as (value: string) => string)(decimal)
 }
 
 /**
