@@ -993,6 +993,26 @@ features:
       - 'opt-in via db.onWriteConflict / db.enableTabCoordination; base is null when history is unavailable (default NO_HISTORY)'
     related: [cross-tab-write-propagation, write-lifecycle-hooks]
 
+  - id: vault-group-federation
+    name: Multi-vault partition federation (VaultGroup)
+    cluster: core
+    spec: docs/subsystems/vault-group.md#overview
+    subsystem_doc: docs/subsystems/vault-group.md
+    package: '@noy-db/hub'
+    factory: null
+    status: preview
+    experimental: true
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'vault-registry is the single source of truth for shard discovery'
+      - 'createShard is idempotent; row-without-vault raises ShardProvisioningError'
+      - 'minVersion guard pre-filters shards by registry schemaVersion (no silent shape-mixing)'
+      - 'join.ts partitionScope seam is untouched (crossShardJoin deferred)'
+    related: [permissions, transferable-partition]
+
 # ─── Storage adapters (phase 2) ──────────────────────────────────────
 
 adapters:

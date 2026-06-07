@@ -21,7 +21,7 @@ const db = await createNoydb({
 
 When a subsystem is not opted into, its real implementation is replaced by a NO-OP stub (or a throwing stub on opt-in surfaces) and the heavy code is fully tree-shaken from the bundle.
 
-This document lists the always-on core and the 23 subsystems. It is the table of contents for the rest of the documentation.
+This document lists the always-on core and the 24 subsystems. It is the table of contents for the rest of the documentation.
 
 ---
 
@@ -43,7 +43,7 @@ Anything outside this floor is a subsystem.
 
 ---
 
-## The 23 subsystems
+## The 24 subsystems
 
 Each subsystem has its own subpath export under `@noy-db/hub/<name>`, a `with<Name>()` factory, and a doc page in `docs/subsystems/<name>.md`. The "LOC saved" column is the bundle weight a consumer avoids by **not** opting in.
 
@@ -114,8 +114,9 @@ The Dim 14 family. All three share the same encrypted-payload metadata envelope,
 | # | Subpath | Headline | LOC saved | Pairs with |
 |---|---|---|---:|---|
 | 17 | `@noy-db/hub/routing` | Multi-store routing + middleware + sync-policy + lazy-mode + LRU cache | ~1,985 | `indexing`, `bundle` |
+| 24 | *(preview)* | Multi-vault partition federation — `db.openVaultGroup()` transparent shard routing + `vault-registry` source-of-truth + `minVersion` fan-out guard (MVP, milestone 16) | — | `queryAcross`, `permissions` |
 
-**Totals:** ~16,650 LOC across all 23 subsystems are tree-shake-able. A consumer using only the core ships ~6,500 LOC. A consumer opting into all 23 ships ~31,700 LOC.
+**Totals:** ~16,650 LOC across all 24 subsystems are tree-shake-able. A consumer using only the core ships ~6,500 LOC. A consumer opting into all 24 ships ~31,700 LOC.
 
 ---
 
