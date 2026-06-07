@@ -753,6 +753,9 @@ export {
 } from './session/dev-unlock.js'
 export type { DevUnlockOptions } from './session/dev-unlock.js'
 
+// Discriminated-union narrowing helper
+export { isDiscriminant } from './util/discriminant.js'
+
 // Crypto utilities (buffer encoding helpers + binary encrypt/hash)
 export { bufferToBase64, base64ToBuffer, encryptBytes, decryptBytes } from './crypto.js'
 export { encryptDeterministic, decryptDeterministic } from './crypto.js'
