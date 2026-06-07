@@ -21,7 +21,7 @@ import type {
   TranslatorAuditEntry,
   WriteConflict,
 } from './types.js'
-import { ValidationError, NoAccessError, InvalidKeyError, KeyringCorruptError, StoreCapabilityError, PermissionDeniedError } from './errors.js'
+import { ValidationError, NoAccessError, InvalidKeyError, KeyringCorruptError, StoreCapabilityError, PermissionDeniedError, VaultTemplateNotFoundError } from './errors.js'
 import {
   readDirectoryConfig,
   persistDirectoryConfig,
@@ -127,6 +127,8 @@ import {
   type GateName,
   type VaultPolicy,
 } from './policy/index.js'
+import type { VaultGroup } from './federation/vault-group.js'
+import type { VaultTemplate, VaultGroupOptions } from './federation/types.js'
 
 /**
  * Privilege rank used by `listAccessibleVaults({ minRole })` to
@@ -204,6 +206,7 @@ export class Noydb {
   private writeRelay: CrossTabWriteRelay | undefined
   /** Per-vault policy enforcers. */
   private readonly policyEnforcers = new Map<string, PolicyEnforcer>()
+  private readonly vaultTemplates = new Map<string, VaultTemplate>()
   private readonly txStrategy: TxStrategy
   private readonly sessionStrategy: SessionStrategy
   private readonly syncStrategy: SyncStrategy
@@ -991,6 +994,37 @@ export class Noydb {
     }
 
     return results
+  }
+
+  /**
+   * Register a shard schema blueprint. `createShard` / `openVaultGroup`
+   * stamp shards from the named template. See the MVF design spec.
+   */
+  withVaultTemplate(name: string, template: VaultTemplate): void {
+    this.vaultTemplates.set(name, template)
+  }
+
+  /**
+   * Open a VaultGroup — transparent routing over per-partition shard
+   * vaults, with shard discovery backed by the supplied `vault-registry`
+   * collection.
+   */
+  async openVaultGroup<T>(name: string, opts: VaultGroupOptions<T>): Promise<VaultGroup<T>> {
+    if (this.closed) throw new ValidationError('Instance is closed')
+    const template = this.vaultTemplates.get(opts.sharding.vaultTemplate)
+    if (!template) throw new VaultTemplateNotFoundError(opts.sharding.vaultTemplate)
+    // Lazy-load so the federation module is a separate chunk, not part
+    // of the always-loaded core graph (keeps the core bundle ceiling).
+    const { VaultGroup } = await import('./federation/vault-group.js')
+    return new VaultGroup<T>(this, name, opts.registry, opts.sharding, template)
+  }
+
+  /**
+   * @internal — true when an encrypted shard vault is provisioned
+   * (its keyring exists in the store).
+   */
+  async _shardVaultProvisioned(vaultId: string): Promise<boolean> {
+    return (await this.options.store.list(vaultId, '_keyring')).length > 0
   }
 
   /**

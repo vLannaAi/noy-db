@@ -397,7 +397,15 @@ function scanFileForStrategyOptIn(file, content) {
 const KERNEL_SURFACE_BUDGET = {
   'packages/hub/src/collection.ts': 3950,
   'packages/hub/src/vault.ts': 3640,
-  'packages/hub/src/noydb.ts': 2920,
+  // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
+  // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
+  // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
+  // and the multi-vault federation entry points (`withVaultTemplate` /
+  // `openVaultGroup` / `_shardVaultProvisioned` — public `db.*` API; the
+  // VaultGroup *implementation* lives in the lazy `federation/` chunk via a
+  // dynamic import, NOT here). The extractable parts are already off this file;
+  // what remains is irreducible core API + auth surface.
+  'packages/hub/src/noydb.ts': 2960,
 }
 
 function checkKernelSurface() {

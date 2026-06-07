@@ -275,6 +275,25 @@ export {
 export { SnapshotNotFoundError } from './errors.js'
 export type { SnapshotMeta, RetentionPolicy } from './snapshots/strategy.js'
 
+// Federation — VaultGroup / sharded collections.
+// Type-only: these classes are never constructed by consumers — they are
+// returned by `db.openVaultGroup()` / `.collection()` / `.query()`. Exporting
+// them as types (not values) removes the only static runtime edge from the
+// package entry to the federation chunk, so federation stays purely behind the
+// dynamic `import()` in `openVaultGroup` — reliably excluded (ESM, CJS, and
+// non-tree-shaking consumers alike) until a group is actually opened.
+export type { VaultGroup, ShardedCollection, ShardedQuery } from './federation/index.js'
+export type {
+  VaultTemplate,
+  VaultRegistryRow,
+  ShardingConfig,
+  VaultGroupOptions,
+  FanoutQueryOptions,
+  FanoutResult,
+  SkippedVault,
+} from './federation/index.js'
+export { UnknownShardError, ShardProvisioningError, VaultTemplateNotFoundError } from './errors.js'
+
 // Bundle format — `.noydb` container
 export {
   writeNoydbBundle,

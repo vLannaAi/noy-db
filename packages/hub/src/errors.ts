@@ -1969,3 +1969,61 @@ export class SnapshotNotFoundError extends NoydbError {
     this.version = version
   }
 }
+
+// ─── Federation (multi-vault partition) Errors ──────────────────────────
+
+/**
+ * Thrown when a write targets a partition key that has no shard and
+ * `sharding.autoCreate` is disabled.
+ */
+export class UnknownShardError extends NoydbError {
+  readonly partitionKey: string
+
+  constructor(partitionKey: string, groupName: string) {
+    super(
+      'SHARD_UNKNOWN',
+      `No shard for partition key "${partitionKey}" in vault group "${groupName}" ` +
+        `and autoCreate is disabled. Call group.createShard(${JSON.stringify(partitionKey)}) ` +
+        `first, or enable sharding.autoCreate.`,
+    )
+    this.name = 'UnknownShardError'
+    this.partitionKey = partitionKey
+  }
+}
+
+/**
+ * Thrown by `createShard` when the registry has a row for a partition
+ * but the corresponding vault is not provisioned in the store —
+ * a registry/store divergence. Refusing to recreate avoids masking
+ * data loss.
+ */
+export class ShardProvisioningError extends NoydbError {
+  readonly vaultId: string
+
+  constructor(vaultId: string, partitionKey: string) {
+    super(
+      'SHARD_PROVISIONING',
+      `Registry has a row for partition "${partitionKey}" (vault "${vaultId}") but that ` +
+        `vault is not provisioned in the store. Refusing to recreate it — the registry and ` +
+        `store have diverged. Investigate before retrying.`,
+    )
+    this.name = 'ShardProvisioningError'
+    this.vaultId = vaultId
+  }
+}
+
+/** Thrown when a VaultGroup references a template name that was never registered. */
+export class VaultTemplateNotFoundError extends NoydbError {
+  readonly templateName: string
+
+  constructor(templateName: string) {
+    super(
+      'VAULT_TEMPLATE_NOT_FOUND',
+      `No vault template registered under "${templateName}". Register it with ` +
+        `db.withVaultTemplate(${JSON.stringify(templateName)}, { version, configure }) ` +
+        `before opening the vault group.`,
+    )
+    this.name = 'VaultTemplateNotFoundError'
+    this.templateName = templateName
+  }
+}
