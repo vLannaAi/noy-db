@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
-import { ConflictError } from '../src/errors.js'
+import { ConflictError, NoAccessError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
 import type { Vault } from '../src/vault.js'
 import type { VaultRegistryRow } from '../src/federation/index.js'
@@ -180,5 +180,48 @@ describe('ShardedQuery.aggregate().live()', () => {
       return row !== undefined && row.total === 300
     })
     lg.stop()
+  })
+})
+
+// ─── Review follow-up 5: no-grant assertion on the live/aggregate surface ─────
+
+describe('ShardedQuery.live() — no-grant scoped access', () => {
+  it('live() skips non-granted shard as no-grant + only shows granted shard rows after ready', async () => {
+    // Operator creates two shards (firm-clients--acme and firm-clients--beta),
+    // then grants advisor access to only one shard + the state registry vault.
+    const adapter = memory()
+    const op = await createNoydb({ store: adapter, user: 'operator', secret: 'op-pass' })
+    op.withVaultTemplate('client-template', { version: 1, configure: (v: Vault) => { v.collection<Invoice>('invoices') } })
+    const opState = await op.openVault('state')
+    const opFirm = await op.openVaultGroup<Invoice>('firm-clients', {
+      registry: opState.collection<VaultRegistryRow>('vault-registry'),
+      sharding: { keyOf: (r) => r.clientId, vaultTemplate: 'client-template' },
+    })
+    await opFirm.collection('invoices').put('a1', { clientId: 'acme', amount: 100, status: 'overdue' })
+    await opFirm.collection('invoices').put('b1', { clientId: 'beta', amount: 200, status: 'overdue' })
+    // Grant advisor only to firm-clients--acme and the state registry vault
+    await op.grant('firm-clients--acme', { userId: 'advisor', displayName: 'Adv', role: 'viewer', passphrase: 'adv-pass' })
+    await op.grant('state', { userId: 'advisor', displayName: 'Adv', role: 'viewer', passphrase: 'adv-pass' })
+
+    // Advisor opens the same group
+    const adv = await createNoydb({ store: adapter, user: 'advisor', secret: 'adv-pass' })
+    adv.withVaultTemplate('client-template', { version: 1, configure: (v: Vault) => { v.collection<Invoice>('invoices') } })
+    const advState = await adv.openVault('state')
+    const advFirm = await adv.openVaultGroup<Invoice>('firm-clients', {
+      registry: advState.collection<VaultRegistryRow>('vault-registry'),
+      sharding: { keyOf: (r) => r.clientId, vaultTemplate: 'client-template' },
+    })
+
+    const lq = advFirm.collection('invoices').query().where('status', '==', 'overdue').live()
+    await lq.ready
+
+    // Only acme (granted) rows appear; beta (non-granted) is in skippedVaults with reason 'no-grant'
+    expect(lq.value.map((r) => r.amount)).toEqual([100])
+    const skip = lq.skippedVaults.find((s) => s.vaultId === 'firm-clients--beta')
+    expect(skip?.reason).toBe('no-grant')
+    // Advisor must NOT have self-provisioned a keyring into the non-granted shard
+    expect(await adapter.get('firm-clients--beta', '_keyring', 'advisor')).toBeNull()
+
+    lq.stop()
   })
 })

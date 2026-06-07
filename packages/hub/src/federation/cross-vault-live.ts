@@ -65,6 +65,7 @@ export class CrossVaultLive<S> {
     const run = () => { this.scheduled = false; void this.runCompute() }
     const ms = this.opts.debounceMs ?? 0
     if (ms > 0) this.timer = setTimeout(run, ms)
+    // queueMicrotask is non-cancellable; the `if (this.stopped) return` guard at the top of runCompute makes a post-stop fire a no-op.
     else queueMicrotask(run)
   }
 
