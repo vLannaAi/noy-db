@@ -1,4 +1,5 @@
-export { VaultGroup, ShardedCollection, ShardedQuery } from './vault-group.js'
+export { VaultGroup, ShardedCollection, ShardedQuery, ShardedGroupedQuery } from './vault-group.js'
+export { CrossVaultAggregation, CrossVaultGroupedAggregation } from './aggregate-across.js'
 export type {
   VaultTemplate,
   VaultRegistryRow,
@@ -7,4 +8,8 @@ export type {
   FanoutQueryOptions,
   FanoutResult,
   SkippedVault,
+  CrossVaultLiveQuery,
+  CrossVaultLiveAggregation,
+  LiveQueryOptions,
+  GroupedRow,
 } from './types.js'
