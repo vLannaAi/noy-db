@@ -85,6 +85,7 @@ import { CrossTabWriteRelay } from './tab-write-relay.js'
 import {
   loadKeyring,
   createOwnerKeyring,
+  assertKeyringOpenAllowed,
   grant as keyringGrant,
   revoke as keyringRevoke,
   rotateKeys as keyringRotate,
@@ -2687,33 +2688,12 @@ export class Noydb {
       return keyring
     }
 
-    // Pre-gate (#313): decide create-vs-fail BEFORE any vault write.
-    // resolveManagedSecret (below) persists _meta/sealed-passphrase on
-    // first open — a gate placed after it would write an artifact before
-    // failing. One capability-free store.list; membership = caller has a
-    // keyring row. Three outcomes:
-    //   - caller IS a member → fall through (existing keyring loaded normally)
-    //   - caller NOT a member, create:false → fail immediately (strict open-existing)
-    //   - caller NOT a member, other keyrings present → fail closed (no self-provision)
-    //   - caller NOT a member, no keyrings at all → genuinely-new vault → fall through
-    // Note: encrypt:false returned a plaintext keyring above, so we are always on the
-    // encrypted path here — the outer encrypt check is intentionally omitted.
-    const keyringUsers = await this.options.store.list(vault, '_keyring')
-    if (!keyringUsers.includes(this.options.user)) {
-      if (opts.create === false) {
-        throw new NoAccessError(
-          `Vault "${vault}" not opened: create disabled and no keyring for "${this.options.user}".`,
-        )
-      }
-      if (keyringUsers.length > 0) {
-        throw new NoAccessError(
-          `No keyring for user "${this.options.user}" in vault "${vault}" `
-          + `(held by other principals) — refusing to self-provision.`,
-        )
-      }
-      // else: genuinely-new vault (no _keyring/* at all) → fall through to the
-      // normal loadKeyring → NoAccessError → createOwnerKeyring path.
-    }
+    // Pre-gate (#313): refuse to self-provision into a vault held by other
+    // principals; create-on-open only for a genuinely-new vault. Runs BEFORE
+    // resolveManagedSecret (which persists on first open) so a fail-closed open
+    // writes nothing. encrypt:false returned a plaintext keyring above, so we're
+    // always on the encrypted path here. Logic lives in team/keyring.ts.
+    await assertKeyringOpenAllowed(this.options.store, vault, this.options.user, opts.create)
 
     // Managed-passphrase mode — resolve the effective secret
     // before falling into the normal load/create path. The first call

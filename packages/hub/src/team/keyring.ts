@@ -290,6 +290,36 @@ export async function loadKeyring(
 }
 
 /**
+ * Open-policy pre-gate (#313): decide create-vs-fail-closed **before** any
+ * vault write. `openVault` must not self-provision an owner keyring into a
+ * vault held by other principals; create-on-open is allowed only for a
+ * genuinely-new vault (no `_keyring/*` at all). Capability-free — one
+ * `store.list`. Returns when the open may proceed (the caller is a member, or
+ * the vault is genuinely-new and `create` is allowed, in which case the caller
+ * falls through to the normal `createOwnerKeyring` path); throws `NoAccessError`
+ * otherwise. Placed before managed-passphrase secret resolution (which persists
+ * on first open), so a fail-closed open writes nothing.
+ */
+export async function assertKeyringOpenAllowed(
+  store: NoydbStore,
+  vault: string,
+  userId: string,
+  create: boolean,
+): Promise<void> {
+  const keyringUsers = await store.list(vault, '_keyring')
+  if (keyringUsers.includes(userId)) return // caller is a member → load existing
+  if (!create) {
+    throw new NoAccessError(`Vault "${vault}" not opened: create disabled and no keyring for "${userId}".`)
+  }
+  if (keyringUsers.length > 0) {
+    throw new NoAccessError(
+      `No keyring for user "${userId}" in vault "${vault}" (held by other principals) — refusing to self-provision.`,
+    )
+  }
+  // empty → genuinely-new vault → caller proceeds to the create path
+}
+
+/**
  * Create the initial owner keyring for a new vault.
  *
  * Pass `{ validate: true }` (or a `PassphrasePolicy`) to gate creation
