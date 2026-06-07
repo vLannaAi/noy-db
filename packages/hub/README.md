@@ -226,6 +226,35 @@ const line = await lines.get('a')   // → { …, netAmount: 30, taxAmount: 6.6,
 - A computed field **overwrites** any user-supplied value of the same name (the field is schema-owned); a throwing function rejects the write with `ComputedFieldError`.
 - **Composes with `money()`** — declare a computed field as a money field too and it's quantized after evaluation, so `sum()` over it is exact.
 
+## Immutable collections (WORM)
+
+`immutableGuard` makes a collection write-once after a condition holds — issued invoices/DDTs that must never change. It's declarative sugar over `guards`: it generates the block-on-`check`/`onDelete` + ledgered admin-`amendment` strategy, so it reuses the whole guard machinery (and composes with `periods`/`history`).
+
+```ts
+import { createNoydb, immutableGuard } from '@noy-db/hub'
+
+await createNoydb({
+  store, user, secret,
+  guardStrategies: [
+    immutableGuard({ collection: 'invoices', after: (r) => r.status === 'issued' }),
+  ],
+})
+
+await invoices.put('a', { id: 'a', status: 'draft',  total: 100 }) // ok
+await invoices.put('a', { id: 'a', status: 'issued', total: 100 }) // ok — the transition write
+await invoices.put('a', { id: 'a', status: 'issued', total: 999 }) // ✗ RecordLockedError
+await invoices.delete('a')                                          // ✗ RecordLockedError
+
+// the sanctioned, ledgered override:
+await db.transaction({ amendment: true, reason: 'correct issued total' }, async (tx) => {
+  tx.vault('books').collection('invoices').put('a', { id: 'a', status: 'issued', total: 110 })
+})
+```
+
+- `after(record)` is evaluated on the **existing** record, so inserts and the write that *first* makes a record immutable are allowed; everything after is blocked.
+- `appendOnly: true` is shorthand for `after: () => true` — immutable from creation.
+- The admin/owner `amendment` path is the only way through, and every amendment is appended to the audit ledger.
+
 ## Status
 
 **Pre-release** (`0.1.0-pre.1`). API may change before `1.0`. Install from the `next` dist-tag:

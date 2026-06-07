@@ -618,6 +618,8 @@ export type { TxOp } from './types.js'
 
 // Guards (record lock + field freeze + amendment invariant) — see docs/superpowers/specs/2026-05-18-guards-design.md
 export { withGuard } from './guards/index.js'
+export { immutableGuard } from './guards/index.js'
+export type { ImmutableGuardConfig } from './guards/index.js'
 export type {
   GuardStrategy,
   GuardStrategyHandle,

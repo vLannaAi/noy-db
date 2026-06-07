@@ -705,6 +705,25 @@ features:
       - 'every successful amendment appends a LedgerEntry with op: amendment'
     related: [transactions, periods]
 
+  - id: immutable-guard
+    name: immutableGuard — declarative WORM / append-only
+    cluster: time-and-audit
+    spec: docs/superpowers/specs/2026-06-08-immutable-guard-design.md
+    subsystem_doc: docs/superpowers/specs/2026-06-08-immutable-guard-design.md
+    package: '@noy-db/hub/guards'
+    factory: null
+    status: preview
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'immutableGuard({ collection, after }) generates a withGuard spec — no new write-path code'
+      - 'after(record) is evaluated on the EXISTING record: inserts + the transition write are allowed; subsequent updates/deletes throw RecordLockedError'
+      - 'appendOnly: true == after: () => true (immutable from creation)'
+      - 'amendment override (admin|owner) skips check/onDelete and is ledgered, via the standard guard amendment path'
+    related: [guards, transactions]
+
   - id: bundle
     name: '.noydb container format'
     cluster: snapshot-and-portability
