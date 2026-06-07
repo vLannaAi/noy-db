@@ -33,6 +33,7 @@ import { LazyQuery } from './indexing/lazy-builder.js'
 import type { LazyQuerySource } from './indexing/lazy-builder.js'
 import { NO_INDEXING, type IndexStrategy, type IndexState } from './indexing/strategy.js'
 import { IndexWriteFailureError } from './errors.js'
+import { buildUniqueConstraintSet, type UniqueConstraintSet } from './indexing/unique-constraints.js'
 import type { RefDescriptor } from './refs.js'
 import { Lru, parseBytes, estimateRecordBytes, type LruStats } from './cache/index.js'
 import { generateULID } from './bundle/ulid.js'
@@ -189,6 +190,13 @@ export class Collection<T> {
    * caller site.
    */
   private readonly indexState: IndexState
+
+  /**
+   * In-memory unique-constraint enforcement for eager mode.
+   * `null` when no `unique:true` indexes are declared on this collection,
+   * or when the collection is in lazy mode (which throws at registration).
+   */
+  private readonly uniqueConstraints: UniqueConstraintSet | null
 
   /**
    * True once `_idx/*` side-cars have been bulk-loaded into
@@ -904,6 +912,15 @@ export class Collection<T> {
       defs: opts.indexes ?? [],
       lazy: this.lazy,
     })
+
+    // Unique-constraint enforcement (eager mode only). Declaring `unique` on
+    // a lazy/CRDT/tiered collection throws UnsupportedIndexOptionError here —
+    // see buildUniqueConstraintSet (kept out of this kernel file).
+    this.uniqueConstraints = buildUniqueConstraintSet(this.name, opts.indexes, {
+      lazy: this.lazy,
+      crdt: this.crdtMode != null,
+      tiered: this.tiers != null,
+    })
   }
 
   /**
@@ -1348,6 +1365,13 @@ export class Collection<T> {
 
     const version = existing ? existing.version + 1 : 1
 
+    // Unique-constraint pre-flight — BEFORE history-save so a violation
+    // never writes a history snapshot or fires 'history:save'. Runs after
+    // ensureHydrated() (eager path above) so the constraint map already
+    // reflects records from prior sessions. No-op when no unique indexes
+    // are declared.
+    this.uniqueConstraints?.check(id, record)
+
     // Save history snapshot of the PREVIOUS version before overwriting
     if (existing && this.historyConfig.enabled !== false) {
       const historyEnvelope = await this.encryptRecord(existing.record, existing.version)
@@ -1421,6 +1445,8 @@ export class Collection<T> {
       // declared. Pass the previous record (if any) so old buckets are
       // cleaned up before the new value is added.
       this.indexes?.upsert(id, record, existing ? existing.record : null)
+      // Update unique-constraint maps to reflect the successful write.
+      this.uniqueConstraints?.upsert(id, record, existing?.record)
     }
 
     await this.onDirty?.(this.name, id, 'put', version)
@@ -1861,6 +1887,8 @@ export class Collection<T> {
       // or the record wasn't previously indexed.
       if (existing) {
         this.indexes?.remove(id, existing.record)
+        // Remove from unique-constraint maps so the deleted value is freed.
+        this.uniqueConstraints?.remove(id, existing.record)
       }
     }
 
@@ -2695,12 +2723,16 @@ export class Collection<T> {
     const envelope = await this.adapter.get(this.vault, this.name, id)
     if (!envelope) {
       this.cache.delete(id)
-      if (previous) this.indexes?.remove(id, previous.record)
+      if (previous) {
+        this.indexes?.remove(id, previous.record)
+        this.uniqueConstraints?.remove(id, previous.record)
+      }
       return
     }
     const record = await this.decryptRecord(envelope)
     this.cache.set(id, { record, version: envelope._v })
     this.indexes?.upsert(id, record, previous ? previous.record : null)
+    this.uniqueConstraints?.upsert(id, record, previous?.record)
   }
 
   /**
@@ -2733,6 +2765,7 @@ export class Collection<T> {
     }
     this.hydrated = true
     this.rebuildEagerIndexesFromCache()
+    this.rebuildUniqueConstraintsFromCache()
   }
 
   /** Hydrate from a pre-loaded snapshot (used by Vault). */
@@ -2743,6 +2776,7 @@ export class Collection<T> {
     }
     this.hydrated = true
     this.rebuildEagerIndexesFromCache()
+    this.rebuildUniqueConstraintsFromCache()
   }
 
   /**
@@ -2763,6 +2797,19 @@ export class Collection<T> {
       snapshot.push({ id, record: entry.record })
     }
     eager.build(snapshot)
+  }
+
+  /**
+   * Rebuild unique-constraint maps from the current in-memory cache.
+   * Called after any bulk hydration alongside `rebuildEagerIndexesFromCache`.
+   */
+  private rebuildUniqueConstraintsFromCache(): void {
+    if (!this.uniqueConstraints) return
+    this.uniqueConstraints.build(
+      (function* (cache: Map<string, { record: T }>) {
+        for (const [id, entry] of cache) yield [id, entry.record] as const
+      })(this.cache),
+    )
   }
 
   /**

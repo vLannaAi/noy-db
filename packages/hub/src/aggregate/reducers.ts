@@ -60,6 +60,18 @@ export interface Reducer<R, S = R> {
   remove?(state: S, record: unknown): S
   /** Collapse the internal state into the user-visible result. */
   finalize(state: S): R
+  /**
+   * Identifying operation tag stamped by each built-in factory.
+   * Used by `summariseAggregateOp` in the introspection walker to
+   * render human-readable aggregate descriptors in `dumpSchema()`.
+   * Optional so third-party custom reducers are unaffected.
+   */
+  readonly op?: 'count' | 'sum' | 'avg' | 'min' | 'max'
+  /**
+   * Field name for field-based reducers (`sum`, `avg`, `min`, `max`).
+   * Absent on `count` which aggregates over record count, not a field.
+   */
+  readonly field?: string
 }
 
 /**
@@ -96,6 +108,7 @@ export function count(opts?: ReducerOptions<number>): Reducer<number> {
   const _seed = opts?.seed
   void _seed
   return {
+    op: 'count',
     init: () => 0,
     step: (state) => state + 1,
     remove: (state) => state - 1,
@@ -116,6 +129,8 @@ export function sum(
   const _seed = opts?.seed
   void _seed
   return {
+    op: 'sum',
+    field,
     init: () => 0,
     step: (state, record) => state + readNumber(record, field),
     remove: (state, record) => state - readNumber(record, field),
@@ -144,6 +159,8 @@ export function avg(
   const _seed = opts?.seed
   void _seed
   return {
+    op: 'avg',
+    field,
     init: () => ({ sum: 0, count: 0 }),
     step: (state, record) => ({
       sum: state.sum + readNumber(record, field),
@@ -203,6 +220,8 @@ export function min(
   const _seed = opts?.seed
   void _seed
   return {
+    op: 'min',
+    field,
     init: () => ({ values: [] }),
     step: (state, record) => pushValue(state, readNumber(record, field)),
     remove: (state, record) => removeValue(state, readNumber(record, field)),
@@ -230,6 +249,8 @@ export function max(
   const _seed = opts?.seed
   void _seed
   return {
+    op: 'max',
+    field,
     init: () => ({ values: [] }),
     step: (state, record) => pushValue(state, readNumber(record, field)),
     remove: (state, record) => removeValue(state, readNumber(record, field)),

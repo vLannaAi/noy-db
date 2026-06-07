@@ -76,6 +76,17 @@ export class OverlayedViewRegistry {
   }
 
   /**
+   * All registered overlay strategies as a flat array.
+   * Each strategy carries `name`, `base`, and `overlay` fields that
+   * `describeOverlays()` in the introspection walker reads directly.
+   *
+   * Used by `dumpSchema()` to populate the `overlayViews` map.
+   */
+  all(): ReadonlyArray<OverlayedViewStrategy> {
+    return [...this._byName.values()]
+  }
+
+  /**
    * Resolve the `rowKey` function for an overlay's base MV. Returns
    * `undefined` if the base isn't an MV (raw source collection) or
    * if the MV registry isn't supplied. Used by the virtual-collection

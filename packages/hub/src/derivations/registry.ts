@@ -48,6 +48,24 @@ export class DerivationRegistry {
   }
 
   /**
+   * All registered strategies as a flat, deduplicated array.
+   * Each strategy is indexed once per source (not once per output key),
+   * so iterating `_bySource.values()` naturally yields each strategy
+   * exactly once per source — deduplication is handled by flattening
+   * the per-source arrays and collecting into a Set by identity.
+   *
+   * Used by `dumpSchema()` / `describeDerivations()` in the introspection
+   * walker to populate the derivations map.
+   */
+  all(): ReadonlyArray<RegisteredStrategy> {
+    const seen = new Set<RegisteredStrategy>()
+    for (const strategies of this._bySource.values()) {
+      for (const s of strategies) seen.add(s)
+    }
+    return [...seen]
+  }
+
+  /**
    * Cycle detection over the source → output → … graph. Call after all
    * `register()` calls complete (i.e. at vault open). Throws
    * `DerivationCycleError` on the first cycle found.

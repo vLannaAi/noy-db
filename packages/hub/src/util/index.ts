@@ -15,3 +15,4 @@ export type {
   FilenameProfile,
   SanitizeFilenameOptions,
 } from './sanitize-filename.js'
+export { isDiscriminant } from './discriminant.js'

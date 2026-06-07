@@ -1,5 +1,30 @@
 # Changelog — hub
 
+## 0.2.0-pre.10
+
+Adopter-reported correctness + introspection batch.
+
+### Fix: unique indexes are now enforced ([#293](https://github.com/vLannaAi/noy-db/issues/293))
+
+- `{ fields: [...], unique: true }` on a collection index is **enforced at write time** — single-field **and** composite. A duplicate of an existing non-null value is rejected with the new **`UniqueConstraintError`** (carrying `collection` / `recordId` / `fields` / `conflictingId`). Previously `unique: true` was silently dropped — the input `IndexDef` didn't even carry the flag — a data-integrity footgun.
+- **Null-tolerant** (SQL NULL-distinct): the constraint applies only when every constrained field is non-null; duplicate `null`/`undefined` values coexist.
+- Enforcement covers `put` / `putMany` / `delete`, the atomic-rollback path, and the hydration rebuild (uniqueness holds against records written in a prior session).
+- **Eager mode only.** Declaring `unique` on a lazy (`prefetch:false`), CRDT, or tiered collection now **fails loud** at registration with the new **`UnsupportedIndexOptionError`** (those write paths bypass the check, so silent acceptance is refused).
+
+### Fix: `dumpSchema()` completeness ([#294](https://github.com/vLannaAi/noy-db/issues/294), [#295](https://github.com/vLannaAi/noy-db/issues/295))
+
+- Surfaces fields for **`z.discriminatedUnion`** schemas — the union of member fields (required only when required in *all* members), with the discriminator's literal set. Previously returned `fields: {}`. ([#294](https://github.com/vLannaAi/noy-db/issues/294))
+- Populates the **`derivations`** and **`overlayViews`** maps (both registries gained an `all()`); derivations are keyed by **output collection**, so multiple derivations sharing one source no longer collide. ([#295](https://github.com/vLannaAi/noy-db/issues/295))
+- Materialized-view `aggregate` ops now render as **`sum(field)`** / **`count`** instead of `"[object Object]"` (reducers carry `op`/`field` metadata). ([#295](https://github.com/vLannaAi/noy-db/issues/295))
+
+### Feature: omit rows from a materialized view ([#297](https://github.com/vLannaAi/noy-db/issues/297))
+
+- A `unionSources` `map` callback may return **`null`/`undefined`** to omit a source record from the view — no more sentinel rows. (Derivation `derive` omission was already supported at runtime via `optional` outputs.)
+
+### Feature: discriminated-union narrowing helper ([#296](https://github.com/vLannaAi/noy-db/issues/296))
+
+- New **`isDiscriminant(record, key, value)`** type-guard narrows a `Collection<Union>` read by its discriminant without `as unknown as` casts. See `docs/core/06-query-basics.md`.
+
 ## 0.2.0-pre.9
 
 ### Feature: automatic snapshot cadence ([#272](https://github.com/vLannaAi/noy-db/issues/272))

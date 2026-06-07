@@ -31,7 +31,10 @@ import { readPath } from '../query/predicate.js'
  * Additive variants (unique constraints, partial indexes) will land as
  * further union members without breaking existing declarations.
  */
-export type IndexDef = string | { readonly fields: readonly string[] } | readonly string[]
+export type IndexDef =
+  | string
+  | { readonly fields: readonly string[]; readonly unique?: boolean }
+  | readonly string[]
 
 /**
  * Internal representation of a built hash index.

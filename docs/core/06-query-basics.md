@@ -64,6 +64,57 @@ Reactive queries are documented under [docs/subsystems/live.md](../subsystems/li
 - **No SQL**: the store never sees plaintext, so the store can't run your query. Filtering happens in core after decryption.
 - **Cross-collection**: use `query().join(...)` (see [joins](../subsystems/joins.md)) or `db.queryAcross()` for federated cases.
 
+## Discriminated-union collections
+
+When `T` is a discriminated union — e.g. `Collection<Receipt>` where
+`Receipt = IV | RE | DP | RD` — hub threads `T` correctly through `get` /
+`query` / `scan`. The narrowing step is the application's responsibility.
+
+**In plain `.ts` files** a comparison is enough:
+
+```ts
+const receipts = await vault.collection<Receipt>('receipts').query().toArray()
+
+for (const r of receipts) {
+  if (r.kind === 'IV') {
+    // r: IV — invoiceNo, amount accessible, no cast needed
+    console.log(r.invoiceNo)
+  }
+}
+```
+
+**In vue-tsc / template contexts** the inline comparison is sometimes not
+sufficient. Use the exported `isDiscriminant` helper, which is a proper
+type-guard function and works reliably everywhere:
+
+```ts
+import { isDiscriminant } from '@noy-db/hub'
+
+const receipts = await vault.collection<Receipt>('receipts').query().toArray()
+
+// Filter — result type is IV[], member-specific fields accessible without cast:
+const ivs = receipts.filter(r => isDiscriminant(r, 'kind', 'IV'))
+console.log(ivs[0].invoiceNo)   // string — no cast
+
+// Branch:
+for (const r of receipts) {
+  if (isDiscriminant(r, 'kind', 'IV')) {
+    console.log(r.invoiceNo)    // r: IV here
+  }
+}
+```
+
+The discriminant key is a parameter — use any field name (`'kind'`, `'type'`,
+`'tag'`, etc.):
+
+```ts
+const aOnly = docs.filter(d => isDiscriminant(d, 'type', 'A'))
+```
+
+> **Note on type aliases.** For best results, define the union as a type alias:
+> `type Receipt = IV | RE | DP | RD`. Using a plain `interface` may limit
+> TypeScript's ability to distribute the `Extract` predicate correctly.
+
 ## See also
 
 - [docs/subsystems/indexing.md](../subsystems/indexing.md) — fast-path equality / orderBy

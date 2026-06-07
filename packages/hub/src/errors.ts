@@ -26,13 +26,15 @@
  *       │    ├─ ValidationError        — application-level guard failed
  *       │    └─ SchemaValidationError  — Standard Schema v1 rejection
  *       ├─ Query errors
- *       │    ├─ JoinTooLargeError           — join row ceiling exceeded
- *       │    ├─ CrossJoinTooLargeError      — cross-join row ceiling exceeded
- *       │    ├─ CrossJoinSourceUnknownError — target collection not in vault
- *       │    ├─ DanglingReferenceError — strict ref() points at nothing
- *       │    ├─ GroupCardinalityError  — groupBy bucket cap exceeded
- *       │    ├─ IndexRequiredError      — lazy-mode query touches unindexed field
- *       │    └─ IndexWriteFailureError       — index side-car put/delete failed post-main
+ *       │    ├─ JoinTooLargeError                — join row ceiling exceeded
+ *       │    ├─ CrossJoinTooLargeError            — cross-join row ceiling exceeded
+ *       │    ├─ CrossJoinSourceUnknownError       — target collection not in vault
+ *       │    ├─ DanglingReferenceError            — strict ref() points at nothing
+ *       │    ├─ GroupCardinalityError             — groupBy bucket cap exceeded
+ *       │    ├─ IndexRequiredError                — lazy-mode query touches unindexed field
+ *       │    ├─ IndexWriteFailureError            — index side-car put/delete failed post-main
+ *       │    ├─ UniqueConstraintError             — duplicate value on unique index
+ *       │    └─ UnsupportedIndexOptionError       — unique+lazy or unique+crdt at registration
  *       ├─ i18n / Dictionary errors
  *       │    ├─ ReservedCollectionNameError
  *       │    ├─ DictKeyMissingError
@@ -954,6 +956,69 @@ export class IndexRequiredError extends NoydbError {
     this.collection = args.collection
     this.touchedFields = [...args.touchedFields]
     this.missingFields = [...args.missingFields]
+  }
+}
+
+/**
+ * Thrown by `Collection.put()` when writing a record would violate a
+ * unique-index constraint — the same field value (or composite field
+ * tuple) is already held by a *different* record id in the collection.
+ *
+ * Properties:
+ * - `collection` — name of the collection the write was targeting
+ * - `recordId` — the id of the record being written (the would-be violator)
+ * - `fields` — the constrained field(s), e.g. `['taxId']` or `['workerId','employerEntityId']`
+ * - `conflictingId` — the id of the record already holding the value
+ *
+ * Null-distinct semantics: if any constrained field is `null`/`undefined`,
+ * the row is exempt (the constraint does not fire). This matches standard
+ * SQL NULL-distinct behavior.
+ */
+export class UniqueConstraintError extends NoydbError {
+  readonly collection: string
+  readonly recordId: string
+  readonly fields: readonly string[]
+  readonly conflictingId: string
+
+  constructor(collection: string, recordId: string, fields: readonly string[], conflictingId: string) {
+    super(
+      'UNIQUE_CONSTRAINT',
+      `Unique constraint on ${collection}.[${fields.join(', ')}] violated: ` +
+        `record "${recordId}" duplicates a value already held by "${conflictingId}".`,
+    )
+    this.name = 'UniqueConstraintError'
+    this.collection = collection
+    this.recordId = recordId
+    this.fields = fields
+    this.conflictingId = conflictingId
+  }
+}
+
+/**
+ * Thrown at collection registration when an index option is declared that
+ * is incompatible with the collection's operating mode.
+ *
+ * Currently covers two cases:
+ * - `unique: true` on a lazy-mode (`prefetch: false`) collection — lazy mode
+ *   does not pre-load all records, so an in-memory uniqueness map cannot be
+ *   maintained reliably.
+ * - `unique: true` on a CRDT collection (`crdt: 'lww-map' | 'rga' | 'yjs'`) —
+ *   CRDT put() short-circuits the unique-constraint check, so enforcement would
+ *   silently not fire.
+ *
+ * Both cases are caught eagerly at `vault.collection()` time so the developer
+ * sees the incompatibility immediately rather than shipping silently-ignored
+ * constraints.
+ *
+ * The `option` field names the incompatible option (`'unique'`) so catch blocks
+ * can pattern-match without inspecting the error message.
+ */
+export class UnsupportedIndexOptionError extends NoydbError {
+  readonly option: string
+  constructor(option: string, message: string) {
+    super('UNSUPPORTED_INDEX_OPTION', message)
+    this.name = 'UnsupportedIndexOptionError'
+    this.option = option
   }
 }
 

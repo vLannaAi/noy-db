@@ -753,6 +753,9 @@ export {
 } from './session/dev-unlock.js'
 export type { DevUnlockOptions } from './session/dev-unlock.js'
 
+// Discriminated-union narrowing helper
+export { isDiscriminant } from './util/discriminant.js'
+
 // Crypto utilities (buffer encoding helpers + binary encrypt/hash)
 export { bufferToBase64, base64ToBuffer, encryptBytes, decryptBytes } from './crypto.js'
 export { encryptDeterministic, decryptDeterministic } from './crypto.js'
@@ -763,6 +766,8 @@ export { TierNotGrantedError, TierDemoteDeniedError, DelegationTargetMissingErro
 
 // lazy-mode index errors
 export { IndexRequiredError, IndexWriteFailureError } from './errors.js'
+// unique-index enforcement error
+export { UniqueConstraintError, UnsupportedIndexOptionError } from './errors.js'
 export { dekKey, effectiveClearance, assertTierAccess } from './team/tiers.js'
 export type { DelegationToken, IssueDelegationOptions } from './team/delegation.js'
 export { DELEGATIONS_COLLECTION, issueDelegation, loadActiveDelegations, revokeDelegation } from './team/delegation.js'
