@@ -129,3 +129,23 @@ describe('StateManagementVault', () => {
     expect(row?.fingerprint).toMatch(/^[0-9a-f]{64}$/)
   })
 })
+
+describe('group-qualified registry ids', () => {
+  it('keys registry rows by `${group}--${partitionKey}` so two groups do not collide', async () => {
+    const db = await createNoydb({ store: memory(), user: 'op', encrypt: false })
+    db.withVaultTemplate('t', { version: 1, configure: (v) => { v.collection('items') } })
+    const sv = await StateManagementVault.open(db)
+    const groupA = await db.openVaultGroup<{ pk: string }>('groupA', {
+      registry: sv.registry,
+      sharding: { keyOf: (r) => r.pk, vaultTemplate: 't' },
+    })
+    const groupB = await db.openVaultGroup<{ pk: string }>('groupB', {
+      registry: sv.registry,
+      sharding: { keyOf: (r) => r.pk, vaultTemplate: 't' },
+    })
+    await groupA.createShard('shared')
+    await groupB.createShard('shared')
+    expect((await sv.registry.get('groupA--shared'))?.group).toBe('groupA')
+    expect((await sv.registry.get('groupB--shared'))?.group).toBe('groupB')
+  })
+})

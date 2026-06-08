@@ -69,6 +69,16 @@ export class VaultGroup<T> {
     return `${this.name}${SHARD_SEPARATOR}${partitionKey}`
   }
 
+  /**
+   * @internal — group-qualified registry record key (avoids cross-group key
+   * collisions). Identical to the shard vault id by design — the registry row
+   * for a shard is keyed by that shard's vault id — so it delegates to
+   * `shardVaultId`, reusing its partition-key validation.
+   */
+  registryId(partitionKey: string): string {
+    return this.shardVaultId(partitionKey)
+  }
+
   /** All registry rows (hydrates the registry collection first). */
   async allRows(): Promise<VaultRegistryRow[]> {
     await this.registry.list()
@@ -92,7 +102,7 @@ export class VaultGroup<T> {
    */
   async createShard(partitionKey: string): Promise<Vault> {
     const vaultId = this.shardVaultId(partitionKey)
-    const row = await this.registry.get(partitionKey)
+    const row = await this.registry.get(this.registryId(partitionKey))
     const provisioned = await this.db._shardVaultProvisioned(vaultId)
 
     if (row && !provisioned) throw new ShardProvisioningError(vaultId, partitionKey)
@@ -101,7 +111,7 @@ export class VaultGroup<T> {
     // Row absent → create (or reconcile a provisioned-but-unregistered vault).
     const vault = await this.db.openVault(vaultId)
     this.template.configure(vault)
-    await this.registry.put(partitionKey, {
+    await this.registry.put(this.registryId(partitionKey), {
       vaultId,
       partitionKey,
       templateName: this.sharding.vaultTemplate,
@@ -119,7 +129,7 @@ export class VaultGroup<T> {
    */
   async shard(partitionKey: string): Promise<Vault> {
     const vaultId = this.shardVaultId(partitionKey)
-    const row = await this.registry.get(partitionKey)
+    const row = await this.registry.get(this.registryId(partitionKey))
     if (!row) throw new UnknownShardError(partitionKey, this.name)
     const provisioned = await this.db._shardVaultProvisioned(vaultId)
     if (!provisioned) throw new ShardProvisioningError(vaultId, partitionKey)
@@ -163,7 +173,7 @@ export class ShardedCollection<T, R = T> {
   /** Route a write to the shard owning `keyOf(record)`. */
   async put(id: string, record: T): Promise<void> {
     const key = this.group.sharding.keyOf(record)
-    const row = await this.group.registry.get(key)
+    const row = await this.group.registry.get(this.group.registryId(key))
     let vault: Vault
     if (!row) {
       if (this.group.sharding.autoCreate === false) {
