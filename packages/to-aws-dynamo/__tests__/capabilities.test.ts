@@ -8,11 +8,10 @@ import { dynamo } from '../src/index.js'
 // fiscal numbering. Construction is offline (the client is lazy), so this
 // needs no real AWS access.
 describe('dynamo() capabilities (#321)', () => {
-  it('advertises casAtomic:true and the DynamoDB blob-chunk limit', () => {
+  it('advertises casAtomic:true (ConditionExpression CAS) with an iam auth descriptor', () => {
     const caps = dynamo({ table: 't', region: 'eu-west-1' }).capabilities
     expect(caps).toBeDefined()
     expect(caps?.casAtomic).toBe(true)
     expect(caps?.auth.kind).toBe('iam')
-    expect(caps?.maxBlobBytes).toBe(256 * 1024)
   })
 })

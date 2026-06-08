@@ -561,14 +561,20 @@ export class Query<T> {
 
   /**
    * Decode this source's money fields on read (stored scaled-int → canonical
-   * decimal), matching `Collection.get()`. No-op when the source declares no
-   * money fields. Locale is undefined here (the query layer carries no locale
-   * context); the canonical decimal is locale-independent.
+   * decimal), so `query().toArray()` agrees with `get()`/`sum()` on the value.
+   * No-op when the source declares no money fields.
+   *
+   * The query layer carries no locale context, so we decode with `'raw'` —
+   * canonical decimal, WITHOUT fabricating locale-formatted `<field>Formatted`
+   * / `<field>Number` virtuals. Producing a guessed-locale string here would
+   * just reintroduce #322's "two read paths disagree" failure on the virtual
+   * field (e.g. it-IT via `get()` vs en-US here). Consumers who need formatted
+   * money read through `get()`/`list()` with a locale.
    */
   private decodeMoney(records: readonly unknown[]): unknown[] {
     const moneyFields = this.source.moneyFields
     if (!moneyFields || Object.keys(moneyFields).length === 0) return records as unknown[]
-    return records.map(r => decodeMoneyFields(r as Record<string, unknown>, moneyFields, undefined))
+    return records.map(r => decodeMoneyFields(r as Record<string, unknown>, moneyFields, 'raw'))
   }
 
   /** Return the first matching record, or null. Joins are applied. */

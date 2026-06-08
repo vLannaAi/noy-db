@@ -2752,6 +2752,7 @@ export class Collection<T> {
       [],
       [],
       joinContext,
+      this.moneyFields,
     )
   }
 

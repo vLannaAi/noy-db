@@ -41,12 +41,13 @@ function memory(): NoydbStore {
 
 interface Sale extends Record<string, unknown> { id: string; total: number | string }
 
-async function salesVault() {
+async function salesVault(defaultLocale?: string) {
   const db = await createNoydb({ store: memory(), user: 'op', secret: 'pilot3-money-parity-2026-exact', aggregateStrategy: withAggregate() })
   const v = await db.openVault('books')
   v.collection<Sale>('sales', {
     schema: z.object({ id: z.string(), total: z.union([z.number(), z.string()]) }),
     moneyFields: { total: money({ currency: 'EUR', scale: 2 }) },
+    ...(defaultLocale ? { defaultLocale } : {}),
   })
   return v
 }
@@ -64,10 +65,43 @@ describe('money read parity — get() vs list() vs query().toArray() (#322)', ()
     expect(viaGet!.total).toBe('122.00')
     expect(viaList!.total).toBe('122.00')   // was '12200' (raw cents) — the bug
     expect(viaQuery!.total).toBe('122.00')  // was '12200' (raw cents) — the bug
-    // all three paths return identical records (canonical decimal + the same
-    // derived virtuals), so a consumer never sees two representations.
+    // get() and list() are both collection-level reads with locale context →
+    // identical records (canonical decimal + the same derived virtuals).
     expect(viaList).toEqual(viaGet)
-    expect(viaQuery).toEqual(viaGet)
+    // query().toArray() is locale-less → it agrees on the canonical decimal
+    // VALUE but does not fabricate locale-formatted virtuals (see below).
+    expect(viaQuery!.total).toBe(viaGet!.total)
+  })
+
+  it('canonical value parity holds even with a collection defaultLocale (virtuals are not faked on the locale-less query path)', async () => {
+    const v = await salesVault('it-IT')
+    const sales = v.collection<Sale>('sales')
+    await sales.put('s1', { id: 's1', total: 122 })
+
+    const viaGet = (await sales.get('s1')) as Record<string, unknown>
+    const viaQuery = sales.query().toArray()[0] as Record<string, unknown>
+
+    // The canonical decimal agrees regardless of locale — the #322 invariant.
+    expect(viaGet.total).toBe('122.00')
+    expect(viaQuery.total).toBe('122.00')
+    // get() formats virtuals with the collection's it-IT locale; the locale-less
+    // query path deliberately omits them rather than guessing a wrong locale
+    // (which would reintroduce #322 on the virtual field).
+    expect(viaGet.totalFormatted).toBeDefined()
+    expect(viaQuery.totalFormatted).toBeUndefined()
+  })
+
+  it('scan() streams the canonical decimal, not raw cents (#322)', async () => {
+    const v = await salesVault()
+    const sales = v.collection<Sale>('sales')
+    await sales.put('s1', { id: 's1', total: 122 })
+    await sales.put('s2', { id: 's2', total: 5 })
+
+    const seen: string[] = []
+    for await (const rec of sales.scan({ pageSize: 10 })) {
+      seen.push(String(rec.total))
+    }
+    expect(seen.sort()).toEqual(['122.00', '5.00'])
   })
 
   it('aggregate sum already agreed with get() and still does', async () => {

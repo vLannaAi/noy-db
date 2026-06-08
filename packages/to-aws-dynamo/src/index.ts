@@ -146,12 +146,12 @@ export function dynamo(options: DynamoOptions): NoydbStore {
 
     // #321 — DynamoDB's conditional PutItem (`ConditionExpression` on `_v`)
     // is an atomic compare-and-swap, so it can back `vault.sequence()`.
-    // `maxBlobBytes` reflects the 400 KB item limit (minus envelope
-    // overhead) so blobs chunk instead of overflowing a single item.
+    // (`maxBlobBytes` — the 400 KB item-limit chunking hint — is intentionally
+    // left for the broader capabilities audit, where blob behavior can be
+    // verified against real DynamoDB; it would change chunking, not sequencing.)
     capabilities: {
       casAtomic: true,
       auth: { kind: 'iam', required: true, flow: 'static' },
-      maxBlobBytes: 256 * 1024,
     },
 
     async get(vault, collection, id) {

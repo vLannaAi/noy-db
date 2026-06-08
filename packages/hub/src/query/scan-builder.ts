@@ -66,6 +66,8 @@ import type {
 } from '../aggregate/aggregation.js'
 import type { JoinContext, JoinLeg, JoinableSource } from './join.js'
 import { DanglingReferenceError } from '../errors.js'
+import type { MoneyDescriptor } from '../money/descriptor.js'
+import { decodeMoneyFields } from '../money/normalize.js'
 
 /**
  * Page provider — the Collection-shaped hook the builder calls to
@@ -117,6 +119,14 @@ export class ScanBuilder<T> implements AsyncIterable<T> {
    * context throws with an actionable error.
    */
   private readonly joinContext: JoinContext | undefined
+  /**
+   * Money field descriptors for the backing collection. When present, yielded
+   * records are decoded (stored scaled-int → canonical decimal) so `scan()`
+   * agrees with `get()`/`list()`/`query().toArray()` — #322. Decoded with
+   * `'raw'` (canonical decimal, no locale-formatted virtuals) since the scan
+   * stream carries no locale context, mirroring `Query.toArray()`.
+   */
+  private readonly moneyFields: Record<string, MoneyDescriptor> | undefined
 
   constructor(
     pageProvider: ScanPageProvider<T>,
@@ -124,12 +134,23 @@ export class ScanBuilder<T> implements AsyncIterable<T> {
     clauses: readonly Clause[] = [],
     joins: readonly JoinLeg[] = [],
     joinContext?: JoinContext,
+    moneyFields?: Record<string, MoneyDescriptor>,
   ) {
     this.pageProvider = pageProvider
     this.pageSize = pageSize
     this.clauses = clauses
     this.joins = joins
     this.joinContext = joinContext
+    this.moneyFields = moneyFields
+  }
+
+  /**
+   * Decode this scan's money fields on a record (stored scaled-int → canonical
+   * decimal). No-op when no money fields are declared. See {@link moneyFields}.
+   */
+  private decodeMoney(record: T): T {
+    if (!this.moneyFields || Object.keys(this.moneyFields).length === 0) return record
+    return decodeMoneyFields(record as Record<string, unknown>, this.moneyFields, 'raw') as T
   }
 
   /**
@@ -153,6 +174,7 @@ export class ScanBuilder<T> implements AsyncIterable<T> {
       [...this.clauses, clause],
       this.joins,
       this.joinContext,
+      this.moneyFields,
     )
   }
 
@@ -173,6 +195,7 @@ export class ScanBuilder<T> implements AsyncIterable<T> {
       [...this.clauses, clause],
       this.joins,
       this.joinContext,
+      this.moneyFields,
     )
   }
 
@@ -295,6 +318,7 @@ export class ScanBuilder<T> implements AsyncIterable<T> {
       this.clauses,
       [...this.joins, leg],
       this.joinContext,
+      this.moneyFields,
     )
   }
 
@@ -322,15 +346,19 @@ export class ScanBuilder<T> implements AsyncIterable<T> {
     let page = await this.pageProvider.listPage({ limit: this.pageSize })
     while (true) {
       for (const record of page.items) {
+        // Filter on the raw stored record (same order as Query.toArray:
+        // clauses first), then decode money to the canonical decimal before
+        // yielding so scan() never leaks the internal scaled-int — #322.
         if (!this.recordMatches(record)) continue
+        const decoded = this.decodeMoney(record)
         if (joinResolvers === null) {
-          yield record
+          yield decoded
         } else {
           // Apply every join leg in declaration order. Each
           // leg attaches a field — the result of one leg becomes
           // the input to the next. Multi-FK chaining is
           // supported by construction.
-          let attached: unknown = record
+          let attached: unknown = decoded
           for (const resolver of joinResolvers) {
             attached = this.applyOneJoinStreaming(attached, resolver)
           }
