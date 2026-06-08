@@ -2,6 +2,47 @@ import { describe, it, expect } from 'vitest'
 import { captureBlueprint, fingerprintBlueprint } from '../src/federation/schema-manifest.js'
 import type { Vault } from '../src/vault.js'
 import { ReservedVaultNameError } from '../src/errors.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
+import { ConflictError } from '../src/errors.js'
+import { createNoydb } from '../src/noydb.js'
+import { StateManagementVault } from '../src/federation/state-vault.js'
+
+function memory(): NoydbStore {
+  const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
+  function gc(c: string, col: string) {
+    let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
+    let coll = comp.get(col); if (!coll) { coll = new Map(); comp.set(col, coll) }
+    return coll
+  }
+  return {
+    name: 'memory',
+    async get(c, col, id) { return store.get(c)?.get(col)?.get(id) ?? null },
+    async put(c, col, id, env, ev) {
+      const coll = gc(c, col); const ex = coll.get(id)
+      if (ev !== undefined && ex && ex._v !== ev) throw new ConflictError(ex._v)
+      coll.set(id, env)
+    },
+    async delete(c, col, id) { store.get(c)?.get(col)?.delete(id) },
+    async list(c, col) { const coll = store.get(c)?.get(col); return coll ? [...coll.keys()] : [] },
+    async loadAll(c) {
+      const comp = store.get(c); const s: VaultSnapshot = {}
+      if (comp) for (const [n, coll] of comp) {
+        if (!n.startsWith('_')) {
+          const r: Record<string, EncryptedEnvelope> = {}
+          for (const [id, e] of coll) r[id] = e
+          s[n] = r
+        }
+      }
+      return s
+    },
+    async saveAll(c, data) {
+      for (const [n, recs] of Object.entries(data)) {
+        const coll = gc(c, n)
+        for (const [id, e] of Object.entries(recs)) coll.set(id, e)
+      }
+    },
+  }
+}
 
 describe('captureBlueprint', () => {
   it('records declared collections + indexes deterministically', () => {
@@ -55,5 +96,36 @@ describe('ReservedVaultNameError', () => {
     expect(e).toBeInstanceOf(Error)
     expect(e.name).toBe('ReservedVaultNameError')
     expect(e.message).toContain('__noydb_state__')
+  })
+})
+
+describe('StateManagementVault', () => {
+  it('configures registry/manifest/event accessors idempotently', async () => {
+    const db = await createNoydb({ store: memory(), user: 'op', encrypt: false })
+    const sv = await StateManagementVault.open(db)
+    const sv2 = await StateManagementVault.open(db) // idempotent
+    await sv.registry.put('g--p1', {
+      vaultId: 'g--p1', partitionKey: 'p1', templateName: 't', schemaVersion: 1, createdAt: 1, group: 'g',
+    })
+    expect((await sv2.registry.get('g--p1'))?.partitionKey).toBe('p1')
+  })
+
+  it('appendEvent writes append-only events with unique ids', async () => {
+    const db = await createNoydb({ store: memory(), user: 'op', encrypt: false })
+    const sv = await StateManagementVault.open(db)
+    await sv.appendEvent({ type: 'group-opened', group: 'g' })
+    await sv.appendEvent({ type: 'group-opened', group: 'g' })
+    const events = await sv.queryEvents().toArray()
+    expect(events.length).toBe(2)
+    expect(events[0].id).not.toBe(events[1].id)
+  })
+
+  it('recordManifest stores a fingerprinted row keyed by template:version', async () => {
+    const db = await createNoydb({ store: memory(), user: 'op', encrypt: false })
+    const sv = await StateManagementVault.open(db)
+    await sv.recordManifest('client', { version: 1, configure: (v) => { v.collection('invoices') } })
+    const row = await sv.schemaManifest.get('client:1')
+    expect(row?.collections).toEqual(['invoices'])
+    expect(row?.fingerprint).toMatch(/^[0-9a-f]{64}$/)
   })
 })
