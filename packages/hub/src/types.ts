@@ -1831,6 +1831,12 @@ export interface NoydbOptions {
    */
   readonly guardStrategies?: ReadonlyArray<GuardStrategyHandleAny>
   /**
+   * Deferred-numbering series declared via `withDeferredNumbering(...)`.
+   * `vault.sequence(series).next({ for })` then assigns gap-free serials at a
+   * numbering pass (`vault.runNumberingPass(series)`) instead of via CAS.
+   */
+  readonly numbering?: ReadonlyArray<import('./numbering/descriptor.js').DeferredNumberingConfig>
+  /**
    * Optional derivation strategies — source-to-output projections that
    * fire on `collection.put()`. Each handle is the output of
    * `withDerivation()` from `@noy-db/hub/derivations`. The vault

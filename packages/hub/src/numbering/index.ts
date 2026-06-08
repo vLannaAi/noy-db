@@ -96,6 +96,12 @@ export class DeferredNumberingStore {
     return `${series}::${recordId}`
   }
 
+  /** Current last-assigned serial for a series (0 if none). */
+  async peek(series: string): Promise<number> {
+    const { value } = await this.readJson<NumberingHead>(NUMBERING_HEAD_COLLECTION, series)
+    return value?.lastSerial ?? 0
+  }
+
   /**
    * Enqueue a record for numbering: stamp it with the current store clock and
    * durably write a pending entry. The returned Promise resolves once the

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { withDeferredNumbering } from '../../src/numbering/descriptor.js'
 import { NumberingUncertaintyError, ConflictError } from '../../src/errors.js'
 import { DeferredNumberingStore } from '../../src/numbering/index.js'
+import { createNoydb } from '../../src/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/types.js'
 
 // In-memory store with a monotonic clock — the engine's full backend under test.
@@ -153,5 +154,30 @@ describe('deferred numbering — correctness properties', () => {
     delete (noClock as { getStoreTime?: unknown }).getStoreTime
     const { eng } = engine(noClock)
     await expect(eng.runPass('invoices')).rejects.toBeInstanceOf(NumberingUncertaintyError)
+  })
+})
+
+describe('vault deferred-numbering integration', () => {
+  it('next({ for }) on a deferred series resolves at runNumberingPass', async () => {
+    const db = await createNoydb({
+      store: clockStore(), user: 'op', encrypt: false,
+      numbering: [withDeferredNumbering({ series: 'invoices', collection: 'sales', field: 'fiscalNumber' })],
+    })
+    const v = await db.openVault('v')
+    const sales = v.collection<{ id: string; amount: number; fiscalNumber?: number }>('sales')
+    await sales.put('r1', { id: 'r1', amount: 100 })
+
+    const pending = v.sequence('invoices').next({ for: 'r1' }) // Promise<number>, resolves at the pass
+    await new Promise(r => setTimeout(r, 0))                    // let the enqueue write land first
+    await v.runNumberingPass('invoices')
+    await expect(pending).resolves.toBe(1)
+    expect((await sales.get('r1'))!.fiscalNumber).toBe(1)
+  })
+
+  it('next() without a deferred config still uses the CAS counter', async () => {
+    const db = await createNoydb({ store: clockStore(), user: 'op', encrypt: false })
+    const v = await db.openVault('v')
+    expect(await v.sequence('plain').next()).toBe(1)
+    expect(await v.sequence('plain').next()).toBe(2)
   })
 })
