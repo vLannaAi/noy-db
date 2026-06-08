@@ -56,6 +56,15 @@ export function memory(): NoydbStore {
   return {
     name: 'memory',
 
+    // #321 — memory's synchronous Map ops make the expectedVersion check +
+    // write atomic, so it can back `vault.sequence()`. Without this the
+    // JSDoc's `casAtomic: true` promise was undefined at runtime and
+    // `sequence().next()` threw SequenceOfflineError.
+    capabilities: {
+      casAtomic: true,
+      auth: { kind: 'none', required: false, flow: 'static' },
+    },
+
     async get(vault, collection, id) {
       return store.get(vault)?.get(collection)?.get(id) ?? null
     },

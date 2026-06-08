@@ -401,8 +401,15 @@ const KERNEL_SURFACE_BUDGET = {
   // the same kernel-resident placement as the i18nText/dictKey hooks — they
   // cannot move onto the SubsystemBus. The heavy logic lives in src/money/ and
   // src/computed/; only the thin call-sites are here.
-  'packages/hub/src/collection.ts': 4010,
-  'packages/hub/src/vault.ts': 3640,
+  // Bumped 4010→4030 (2026-06-08): #322 read-path money parity — list()'s
+  // no-locale decode + the `hasReadTransforms` gate are thin decode-on-read
+  // call-sites in the get/list hot path (heavy logic in src/money/), same
+  // kernel-resident class as the money()/computed() hooks above.
+  'packages/hub/src/collection.ts': 4030,
+  // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
+  // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
+  // engine itself lives in src/numbering/; only the thin vault call-sites are here.
+  'packages/hub/src/vault.ts': 3700,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
@@ -411,7 +418,12 @@ const KERNEL_SURFACE_BUDGET = {
   // VaultGroup *implementation* lives in the lazy `federation/` chunk via a
   // dynamic import, NOT here). The extractable parts are already off this file;
   // what remains is irreducible core API + auth surface.
-  'packages/hub/src/noydb.ts': 2960,
+  // Bumped 2960→2995 (2026-06-08): federation control-plane entry points
+  // (`openVaultGroup` auto-wire + `openStateManagementVault` factory, #271 L3)
+  // and deferred-numbering option threading — public `db.*` API surface; the
+  // VaultGroup / StateManagementVault / numbering implementations live in lazy
+  // or sibling modules, only the thin entry points are here.
+  'packages/hub/src/noydb.ts': 2995,
 }
 
 function checkKernelSurface() {
