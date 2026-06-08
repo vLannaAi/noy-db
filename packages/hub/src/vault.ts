@@ -46,6 +46,8 @@ import type { ArchiveStrategy } from './archive/index.js'
 import type { ArchivePolicy, ArchiveContext, ArchiveResult, ArchiveRunOptions } from './archive/index.js'
 import { runArchive, runRestore, runListArchived } from './archive/index.js'
 import { SequenceStore, type SequenceHandle, SEQUENCE_COLLECTION } from './sequence/index.js'
+import { DeferredNumberingStore, type Assignment } from './numbering/index.js'
+import type { DeferredNumberingConfig } from './numbering/descriptor.js'
 import type { IndexStrategy } from './indexing/strategy.js'
 import type { AggregateStrategy } from './aggregate/strategy.js'
 import type { CrdtStrategy } from './crdt/strategy.js'
@@ -276,6 +278,10 @@ export class Vault {
 
   /** Lazily-built atomic-sequence store. See {@link sequence}. */
   private sequenceStore: SequenceStore | null = null
+  /** Lazily-built deferred-numbering engine. See {@link runNumberingPass}. */
+  private deferredNumbering: DeferredNumberingStore | null = null
+  /** Registered deferred-numbering series, keyed by series name. */
+  private readonly numberingConfigs: Map<string, DeferredNumberingConfig>
 
   /**
    * Background writes for persisted-schema envelopes (#schema-dump v0
@@ -426,9 +432,11 @@ export class Vault {
     i18nStrategy?: I18nStrategy | undefined
     syncStrategy?: SyncStrategy | undefined
     guardStrategies?: ReadonlyArray<GuardStrategyHandleAny> | undefined
+    numberingConfigs?: ReadonlyArray<DeferredNumberingConfig> | undefined
   }) {
     this.adapter = opts.adapter
     this.name = opts.name
+    this.numberingConfigs = new Map((opts.numberingConfigs ?? []).map((c) => [c.series, c]))
     this.noydb = opts.noydb
     this.keyring = opts.keyring
     this.encrypted = opts.encrypted
@@ -1334,6 +1342,20 @@ export class Vault {
    * ```
    */
   sequence(name: string): SequenceHandle {
+    // Deferred-numbering series route to the pass-based engine; `next({ for })`
+    // resolves at `runNumberingPass`. All other names use the CAS counter.
+    if (this.numberingConfigs.has(name)) {
+      const eng = this.deferred()
+      return {
+        next: async (opts) => {
+          if (!opts?.for) {
+            throw new ValidationError(`sequence("${name}") is a deferred-numbering series; call next({ for: recordId }).`)
+          }
+          return (await eng.enqueue(name, opts.for)).assigned
+        },
+        peek: () => eng.peek(name),
+      }
+    }
     if (!this.sequenceStore) {
       this.sequenceStore = new SequenceStore({
         adapter: this.adapter,
@@ -1344,6 +1366,40 @@ export class Vault {
       })
     }
     return this.sequenceStore.handle(name)
+  }
+
+  /** @internal — lazily build the deferred-numbering engine with a cache-coherent stamp. */
+  private deferred(): DeferredNumberingStore {
+    if (!this.deferredNumbering) {
+      this.deferredNumbering = new DeferredNumberingStore({
+        adapter: this.adapter,
+        vault: this.name,
+        encrypted: this.encrypted,
+        getDEK: this.getDEK,
+        actor: this.keyring.userId,
+        configs: this.numberingConfigs,
+        // Stamp THROUGH the Collection layer so cache/indexes/MVs stay coherent —
+        // `this.collection(name)` returns the shared cached instance, so a
+        // subsequent user `collection.get(id)` sees the assigned serial.
+        stamp: async (collection, recordId, field, serial) => {
+          const coll = this.collection<Record<string, unknown>>(collection)
+          const rec = await coll.get(recordId)
+          if (!rec) return false
+          await coll.put(recordId, { ...rec, [field]: serial })
+          return true
+        },
+      })
+    }
+    return this.deferredNumbering
+  }
+
+  /**
+   * Run a deferred-numbering pass for `series`: assign gap-free serials to all
+   * records whose store-commit-time interval has settled, in store-time order.
+   * Returns the assignments made. See {@link sequence} / `withDeferredNumbering`.
+   */
+  async runNumberingPass(series: string): Promise<Assignment[]> {
+    return this.deferred().runPass(series)
   }
 
   async compact(options: CompactRunOptions = {}): Promise<CompactionResult> {

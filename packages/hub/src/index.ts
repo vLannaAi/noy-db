@@ -289,7 +289,14 @@ export type {
 
 // ─── Atomic sequence (#303) ─────────────────────────────────────────────────────
 export { SequenceStore } from './sequence/index.js'
-export type { SequenceHandle } from './sequence/index.js'
+export type { SequenceHandle, NextOptions } from './sequence/index.js'
+
+// Deferred numbering — store-clock-ordered serials for non-CAS stores.
+export { withDeferredNumbering } from './numbering/descriptor.js'
+export type { DeferredNumberingConfig } from './numbering/descriptor.js'
+export type { Assignment as NumberingAssignment } from './numbering/index.js'
+export { NumberingUncertaintyError } from './errors.js'
+export type { StoreTime } from './types.js'
 
 // Federation — VaultGroup / sharded collections.
 // Type-only: these classes are never constructed by consumers — they are

@@ -35,9 +35,15 @@ import { ConflictError } from '@noy-db/hub'
  * No persistence — data is lost when the process exits.
  * Intended for testing and development.
  */
-export function memory(): NoydbStore {
+export function memory(opts: { clockUncertainty?: number } = {}): NoydbStore {
   // vault -> collection -> id -> envelope
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
+
+  // Monotonic store clock — a single-process counter is perfectly ordered.
+  // `clockUncertainty` (ε) widens the returned interval to exercise the
+  // commit-wait path in deferred numbering; default 0 (exact).
+  const epsilon = opts.clockUncertainty ?? 0
+  let clock = 0
 
   function getCollection(vault: string, collection: string): Map<string, EncryptedEnvelope> {
     let comp = store.get(vault)
@@ -62,7 +68,15 @@ export function memory(): NoydbStore {
     // `sequence().next()` threw SequenceOfflineError.
     capabilities: {
       casAtomic: true,
+      serverWriteTime: true,
       auth: { kind: 'none', required: false, flow: 'static' },
+    },
+
+    // #322-sibling — authoritative store clock for deferred numbering. A
+    // single-process counter is perfectly monotonic; ε widens the interval.
+    async getStoreTime() {
+      const now = ++clock
+      return { earliest: now - epsilon, latest: now + epsilon }
     },
 
     async get(vault, collection, id) {

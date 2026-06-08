@@ -766,6 +766,20 @@ export class SequenceOfflineError extends NoydbError {
   }
 }
 
+/** Thrown by a deferred-numbering pass when the store clock is unavailable or its uncertainty cannot be resolved. */
+export class NumberingUncertaintyError extends NoydbError {
+  readonly series: string
+  constructor(series: string) {
+    super(
+      'NUMBERING_UNCERTAINTY',
+      `Deferred numbering for series "${series}" cannot run: the store does not expose getStoreTime() ` +
+        `(capabilities.serverWriteTime). Use a CAS sequence or a store with serverWriteTime.`,
+    )
+    this.name = 'NumberingUncertaintyError'
+    this.series = series
+  }
+}
+
 /**
  * Thrown when a bundle push is rejected because the remote has been updated
  * since the local bundle was last pulled.
