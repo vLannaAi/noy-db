@@ -24,6 +24,7 @@
  */
 
 import type { StandardSchemaV1 } from './schema.js'
+import type { DeferredNumberingConfig } from './numbering/descriptor.js'
 import type { SyncPolicy } from './store/sync-policy.js'
 import type { BlobStrategy } from './blobs/strategy.js'
 import type { ArchiveStrategy } from './archive/index.js'
@@ -1835,7 +1836,7 @@ export interface NoydbOptions {
    * `vault.sequence(series).next({ for })` then assigns gap-free serials at a
    * numbering pass (`vault.runNumberingPass(series)`) instead of via CAS.
    */
-  readonly numbering?: ReadonlyArray<import('./numbering/descriptor.js').DeferredNumberingConfig>
+  readonly numbering?: ReadonlyArray<DeferredNumberingConfig>
   /**
    * Optional derivation strategies — source-to-output projections that
    * fire on `collection.put()`. Each handle is the output of
