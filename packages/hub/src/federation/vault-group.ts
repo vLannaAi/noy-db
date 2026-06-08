@@ -7,7 +7,9 @@
 import type { Noydb } from '../noydb.js'
 import type { Vault } from '../vault.js'
 import type { Collection } from '../collection.js'
-import { ShardProvisioningError, UnknownShardError, ValidationError } from '../errors.js'
+import type { StateManagementVault } from './state-vault.js'
+import { ReservedVaultNameError, ShardProvisioningError, UnknownShardError, ValidationError } from '../errors.js'
+import { STATE_VAULT_NAME } from './constants.js'
 import { classifyShardSkip } from './classify-skip.js'
 import { CrossVaultLive } from './cross-vault-live.js'
 import { CrossVaultAggregation, CrossVaultGroupedAggregation } from './aggregate-across.js'
@@ -33,6 +35,9 @@ const SAFE_PARTITION_KEY = /^[A-Za-z0-9._-]+$/
 function assertSafePartitionKey(partitionKey: string): void {
   if (partitionKey.length === 0) {
     throw new ValidationError('partitionKey must be a non-empty string')
+  }
+  if (partitionKey === STATE_VAULT_NAME) {
+    throw new ReservedVaultNameError(partitionKey)
   }
   if (!SAFE_PARTITION_KEY.test(partitionKey)) {
     throw new ValidationError(
@@ -63,16 +68,42 @@ export class VaultGroup<T> {
     }
   }
 
+  /** @internal — set when the group is managed (no explicit registry). */
+  private stateVault: StateManagementVault | undefined
+
+  /** @internal */
+  _attachStateVault(sv: StateManagementVault): void {
+    this.stateVault = sv
+  }
+
   /** Deterministic vault name for a partition key, namespaced by the group. */
   shardVaultId(partitionKey: string): string {
     assertSafePartitionKey(partitionKey)
     return `${this.name}${SHARD_SEPARATOR}${partitionKey}`
   }
 
-  /** All registry rows (hydrates the registry collection first). */
+  /**
+   * @internal — group-qualified registry record key (avoids cross-group key
+   * collisions). Identical to the shard vault id by design — the registry row
+   * for a shard is keyed by that shard's vault id — so it delegates to
+   * `shardVaultId`, reusing its partition-key validation.
+   */
+  registryId(partitionKey: string): string {
+    return this.shardVaultId(partitionKey)
+  }
+
+  /**
+   * Registry rows for THIS group (hydrates the registry collection first).
+   * The registry may be shared across groups (the auto-wired StateManagement
+   * vault holds one `vaultRegistry` for the whole instance), so rows are
+   * filtered by `group` — without this, a group's fan-out reads would leak
+   * across into other groups' shards. Mirrors the `${group}--` scoping that
+   * `liveBinding().isRelevant` already applies to the reactive path.
+   */
   async allRows(): Promise<VaultRegistryRow[]> {
     await this.registry.list()
-    return this.registry.query().toArray()
+    const rows = this.registry.query().toArray() // toArray() is synchronous
+    return rows.filter((r) => r.group === this.name)
   }
 
   /** Open an existing shard and apply the template. */
@@ -92,7 +123,7 @@ export class VaultGroup<T> {
    */
   async createShard(partitionKey: string): Promise<Vault> {
     const vaultId = this.shardVaultId(partitionKey)
-    const row = await this.registry.get(partitionKey)
+    const row = await this.registry.get(this.registryId(partitionKey))
     const provisioned = await this.db._shardVaultProvisioned(vaultId)
 
     if (row && !provisioned) throw new ShardProvisioningError(vaultId, partitionKey)
@@ -101,13 +132,27 @@ export class VaultGroup<T> {
     // Row absent → create (or reconcile a provisioned-but-unregistered vault).
     const vault = await this.db.openVault(vaultId)
     this.template.configure(vault)
-    await this.registry.put(partitionKey, {
+    await this.registry.put(this.registryId(partitionKey), {
       vaultId,
       partitionKey,
       templateName: this.sharding.vaultTemplate,
       schemaVersion: this.template.version,
       createdAt: Date.now(),
+      group: this.name,
     })
+    if (this.stateVault) {
+      try {
+        await this.stateVault.appendEvent({
+          type: 'shard-created',
+          group: this.name,
+          vaultId,
+          templateName: this.sharding.vaultTemplate,
+          version: this.template.version,
+        })
+      } catch {
+        /* best-effort: event logging never fails the shard write */
+      }
+    }
     return vault
   }
 
@@ -118,7 +163,7 @@ export class VaultGroup<T> {
    */
   async shard(partitionKey: string): Promise<Vault> {
     const vaultId = this.shardVaultId(partitionKey)
-    const row = await this.registry.get(partitionKey)
+    const row = await this.registry.get(this.registryId(partitionKey))
     if (!row) throw new UnknownShardError(partitionKey, this.name)
     const provisioned = await this.db._shardVaultProvisioned(vaultId)
     if (!provisioned) throw new ShardProvisioningError(vaultId, partitionKey)
@@ -162,7 +207,7 @@ export class ShardedCollection<T, R = T> {
   /** Route a write to the shard owning `keyOf(record)`. */
   async put(id: string, record: T): Promise<void> {
     const key = this.group.sharding.keyOf(record)
-    const row = await this.group.registry.get(key)
+    const row = await this.group.registry.get(this.group.registryId(key))
     let vault: Vault
     if (!row) {
       if (this.group.sharding.autoCreate === false) {

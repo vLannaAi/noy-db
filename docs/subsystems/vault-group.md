@@ -92,3 +92,12 @@ grantees; access control is at the shard level.
 - **Out of scope (this MVP):** cross-shard joins, push-model cross-vault
   derivations (Insight Vault), reactive `queryAcrossLive`, `aggregateAcross`,
   and the fleet schema-migration runner. See the spec's deferred-items list.
+
+## Control plane — StateManagement Vault
+
+`openVaultGroup(name)` (no explicit `registry`) auto-opens the reserved
+`__noydb_state__` vault, accessible via `db.openStateManagementVault()`. It owns
+the `vaultRegistry` (authoritative, group-qualified shard list), a per-version
+`schemaManifest` (serializable blueprint + deterministic fingerprint, with
+`detectDrift()`), and an append-only `deploymentEvents` log. See the design spec:
+`docs/superpowers/specs/2026-06-08-statemanagement-vault-design.md`.

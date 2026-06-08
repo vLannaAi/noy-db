@@ -90,7 +90,7 @@ describe('VaultGroup — template + createShard', () => {
 
   it('createShard writes a registry row with the template version', async () => {
     await h.firm.createShard('acme')
-    const row = await h.registry.get('acme')
+    const row = await h.registry.get('firm-clients--acme')
     expect(row).not.toBeNull()
     expect(row!.vaultId).toBe('firm-clients--acme')
     expect(row!.partitionKey).toBe('acme')
@@ -108,18 +108,18 @@ describe('VaultGroup — template + createShard', () => {
   it('createShard reconciles a provisioned-but-unregistered vault (row missing, vault exists)', async () => {
     // Provision the shard vault directly, leaving the registry empty.
     await h.db.openVault('firm-clients--acme')
-    const before = await h.registry.get('acme')
+    const before = await h.registry.get('firm-clients--acme')
     expect(before).toBeNull()
     await h.firm.createShard('acme') // reconcile
-    const after = await h.registry.get('acme')
+    const after = await h.registry.get('firm-clients--acme')
     expect(after).not.toBeNull()
   })
 
   it('createShard throws ShardProvisioningError when the row exists but the vault is gone', async () => {
     // Write a registry row pointing at a vault that was never provisioned.
-    await h.registry.put('ghost', {
+    await h.registry.put('firm-clients--ghost', {
       vaultId: 'firm-clients--ghost', partitionKey: 'ghost',
-      templateName: 'client-template', schemaVersion: 1, createdAt: 1,
+      templateName: 'client-template', schemaVersion: 1, createdAt: 1, group: 'firm-clients',
     })
     await expect(h.firm.createShard('ghost')).rejects.toBeInstanceOf(ShardProvisioningError)
   })
@@ -136,7 +136,7 @@ describe('VaultGroup — write routing', () => {
     expect(rec).toEqual({ clientId: 'acme', amount: 1200, status: 'open' })
 
     // A registry row was created.
-    expect(await h.registry.get('acme')).not.toBeNull()
+    expect(await h.registry.get('firm-clients--acme')).not.toBeNull()
   })
 
   it('put routes records with different partition keys to different shards', async () => {
@@ -213,9 +213,9 @@ describe('VaultGroup — fan-out read', () => {
     // Real provisioned shard with data.
     await h.firm.collection('invoices').put('a-1', { clientId: 'acme', amount: 100, status: 'overdue' })
     // Divergent registry row: points at a vault that was never provisioned.
-    await h.registry.put('ghost', {
+    await h.registry.put('firm-clients--ghost', {
       vaultId: 'firm-clients--ghost', partitionKey: 'ghost',
-      templateName: 'client-template', schemaVersion: 1, createdAt: 1,
+      templateName: 'client-template', schemaVersion: 1, createdAt: 1, group: 'firm-clients',
     })
 
     const out = await h.firm.collection('invoices').query().where('status', '==', 'overdue').toArray()

@@ -29,7 +29,7 @@
       "additionalProperties": false,
       "required": ["id", "path"],
       "properties": {
-        "id":   { "type": "string", "pattern": "^([0-9]{2}-[a-z0-9-]+|recipe-[a-z0-9-]+)$" },
+        "id":   { "type": "string", "pattern": "^([0-9]{2,}-[a-z0-9-]+|recipe-[a-z0-9-]+)$" },
         "path": { "type": "string", "pattern": "^showcases/src/.+\\.test\\.tsx?$" }
       }
     },
