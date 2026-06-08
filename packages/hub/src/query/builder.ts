@@ -18,6 +18,7 @@ import type { GroupedQuery, GroupedQueryN } from '../aggregate/groupby.js'
 import { NO_AGGREGATE, type AggregateStrategy } from '../aggregate/strategy.js'
 import type { MoneyDescriptor } from '../money/descriptor.js'
 import { wrapMoneyReducers } from '../money/money-reducer.js'
+import { decodeMoneyFields } from '../money/normalize.js'
 
 export interface OrderBy {
   readonly field: string
@@ -539,7 +540,11 @@ export class Query<T> {
    * for the ordering rationale.
    */
   toArray(): T[] {
-    const base = executePlanWithSource(this.source, this.plan, this.joinContext)
+    // #322 — decode money fields (stored scaled-int → canonical decimal) so
+    // query().toArray() matches get()/sum(), which already return decimal.
+    // Decode the left/base records before joins (right-side aliased fields
+    // belong to other collections and are out of this source's money scope).
+    const base = this.decodeMoney(executePlanWithSource(this.source, this.plan, this.joinContext))
     if (this.plan.joins.length === 0) return base as T[]
     if (!this.joinContext) {
       // Unreachable in practice — .join() throws if joinContext is
@@ -552,6 +557,18 @@ export class Query<T> {
       )
     }
     return applyJoins(base, this.plan.joins, this.joinContext) as T[]
+  }
+
+  /**
+   * Decode this source's money fields on read (stored scaled-int → canonical
+   * decimal), matching `Collection.get()`. No-op when the source declares no
+   * money fields. Locale is undefined here (the query layer carries no locale
+   * context); the canonical decimal is locale-independent.
+   */
+  private decodeMoney(records: readonly unknown[]): unknown[] {
+    const moneyFields = this.source.moneyFields
+    if (!moneyFields || Object.keys(moneyFields).length === 0) return records as unknown[]
+    return records.map(r => decodeMoneyFields(r as Record<string, unknown>, moneyFields, undefined))
   }
 
   /** Return the first matching record, or null. Joins are applied. */
