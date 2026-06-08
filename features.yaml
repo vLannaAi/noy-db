@@ -249,6 +249,25 @@ features:
       - 'jittered backoff; SequenceContentionError after the retry budget so callers can retry/queue'
     related: [stores-contract, query-basics]
 
+  - id: deferred-numbering
+    name: Deferred deterministic numbering (non-CAS gap-free serials)
+    cluster: core
+    spec: docs/superpowers/specs/2026-06-08-sealed-numbering-and-store-clock-design.md
+    subsystem_doc: docs/superpowers/specs/2026-06-08-sealed-numbering-and-store-clock-design.md
+    package: '@noy-db/hub'
+    factory: withDeferredNumbering
+    status: preview
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'withDeferredNumbering({series,collection,field}) assigns gap-free serials at vault.runNumberingPass() by sorting settled records on (store-commit-time, recordId)'
+      - 'getStoreTime() is a bounded-uncertainty interval; an entry is numbered only once storeLatest <= now.earliest (commit-wait), so already-issued serials never shift (append-only)'
+      - 'requires store capabilities.serverWriteTime; runPass throws NumberingUncertaintyError when the store exposes no clock'
+      - 'vault.sequence(series).next({for}) returns Promise<number> resolving at the next pass; the record field is the durable source of truth'
+    related: [atomic-sequence, stores-contract]
+
   # ─── Subsystems behind with*() factories ───────────────────────────
 
   - id: team

@@ -24,6 +24,7 @@
  */
 
 import type { StandardSchemaV1 } from './schema.js'
+import type { DeferredNumberingConfig } from './numbering/descriptor.js'
 import type { SyncPolicy } from './store/sync-policy.js'
 import type { BlobStrategy } from './blobs/strategy.js'
 import type { ArchiveStrategy } from './archive/index.js'
@@ -250,6 +251,13 @@ export interface NoydbStore {
 
   /** Optional connectivity check for sync engine. */
   ping?(): Promise<boolean>
+
+  /**
+   * The store's authoritative time as a bounded-uncertainty interval.
+   * Present iff `capabilities.serverWriteTime` is true. Monotonic
+   * non-decreasing across calls on a single store.
+   */
+  getStoreTime?(): Promise<StoreTime>
 
   /**
    * Optional: list record IDs in a collection that have `_ts` after `since`.
@@ -1619,6 +1627,18 @@ export interface StoreAuth {
   flow: 'static' | 'oauth' | 'kerberos' | 'implicit'
 }
 
+/**
+ * The store's authoritative clock as a bounded-uncertainty interval
+ * (Spanner TrueTime model). True time is provably within [earliest, latest];
+ * `latest - earliest` is the clock-uncertainty bound ε. Used by deferred
+ * numbering to order records by store-commit-time and to commit-wait. Never
+ * the client wall clock.
+ */
+export interface StoreTime {
+  readonly earliest: number
+  readonly latest: number
+}
+
 export interface StoreCapabilities {
   /**
    * true — the store's expectedVersion check and write are atomic at the
@@ -1627,6 +1647,13 @@ export interface StoreCapabilities {
    * false — check and write are separate operations with a race window.
    */
   casAtomic: boolean
+  /**
+   * true — the store exposes an authoritative {@link NoydbStore.getStoreTime}
+   * clock and records are ordered by store-commit-time. Required for
+   * `withDeferredNumbering`. Absent/false — the store cannot back deferred
+   * numbering (use CAS `sequence().next()` or per-series).
+   */
+  serverWriteTime?: boolean
   auth: StoreAuth
   /**
    * true — the store implements {@link NoydbStore.tx} and commits
@@ -1804,6 +1831,12 @@ export interface NoydbOptions {
    * in registration order on `collection.put()`.
    */
   readonly guardStrategies?: ReadonlyArray<GuardStrategyHandleAny>
+  /**
+   * Deferred-numbering series declared via `withDeferredNumbering(...)`.
+   * `vault.sequence(series).next({ for })` then assigns gap-free serials at a
+   * numbering pass (`vault.runNumberingPass(series)`) instead of via CAS.
+   */
+  readonly numbering?: ReadonlyArray<DeferredNumberingConfig>
   /**
    * Optional derivation strategies — source-to-output projections that
    * fire on `collection.put()`. Each handle is the output of

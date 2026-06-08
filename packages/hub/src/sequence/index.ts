@@ -35,9 +35,17 @@ interface SequenceState {
   value: number
 }
 
+/** Options for `SequenceHandle.next`. Deferred-numbering series use `for`; the CAS counter ignores all of these. */
+export interface NextOptions {
+  /** Deferred mode: the record id to number. Ignored by the CAS counter. */
+  readonly for?: string
+  /** Deferred mode: reject after this many ms if still unsealed (reserved; not yet enforced in this slice). */
+  readonly timeoutMs?: number
+}
+
 export interface SequenceHandle {
-  /** Atomically allocate and return the next value (1, 2, 3, …). */
-  next(): Promise<number>
+  /** Atomically allocate and return the next value (1, 2, 3, …). Deferred series resolve at the next pass. */
+  next(opts?: NextOptions): Promise<number>
   /** Read the current value without allocating. Returns 0 if never used. */
   peek(): Promise<number>
 }

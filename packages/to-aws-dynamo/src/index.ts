@@ -144,6 +144,16 @@ export function dynamo(options: DynamoOptions): NoydbStore {
   return {
     name: 'dynamo',
 
+    // #321 — DynamoDB's conditional PutItem (`ConditionExpression` on `_v`)
+    // is an atomic compare-and-swap, so it can back `vault.sequence()`.
+    // (`maxBlobBytes` — the 400 KB item-limit chunking hint — is intentionally
+    // left for the broader capabilities audit, where blob behavior can be
+    // verified against real DynamoDB; it would change chunking, not sequencing.)
+    capabilities: {
+      casAtomic: true,
+      auth: { kind: 'iam', required: true, flow: 'static' },
+    },
+
     async get(vault, collection, id) {
       const client = await getClient()
       const { GetCommand } = await import('@aws-sdk/lib-dynamodb') as { GetCommand: new (input: GetCommandInput) => unknown }

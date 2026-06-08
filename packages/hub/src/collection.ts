@@ -2091,8 +2091,25 @@ export class Collection<T> {
     }
     await this.ensureHydrated()
     const records = [...this.cache.values()].map(e => e.record)
-    if (!locale) return records
+    // #322 — money decode (stored scaled-int → canonical decimal) must run
+    // even with no locale, so list() matches get(). applyLocaleToRecord
+    // decodes money regardless of locale and only resolves i18n/dict virtuals
+    // when a locale is active. Keep the no-transform fast path.
+    if (!this.hasReadTransforms()) return records
     return Promise.all(records.map(r => this.applyLocaleToRecord(r, locale)))
+  }
+
+  /**
+   * @internal — whether any read-side record transform is registered
+   * (money decode, i18nText resolution, dictKey labels). Gates the
+   * no-transform fast path in {@link list}.
+   */
+  private hasReadTransforms(): boolean {
+    return (
+      (this.moneyFields !== undefined && Object.keys(this.moneyFields).length > 0) ||
+      (this.i18nFields !== undefined && Object.keys(this.i18nFields).length > 0) ||
+      (this.dictKeyFields !== undefined && Object.keys(this.dictKeyFields).length > 0)
+    )
   }
 
   // ─── Bulk operations ─────────────────────────────────────
@@ -2735,6 +2752,7 @@ export class Collection<T> {
       [],
       [],
       joinContext,
+      this.moneyFields,
     )
   }
 
