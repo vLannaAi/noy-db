@@ -82,7 +82,7 @@ interface DeploymentEvent {              // NEW — append-only (accessor-enforc
   vaultId?: string
   templateName?: string
   version?: number
-  actor?: string                          // from the unlocked keyring identity, if available
+  actor?: string                          // from the unlocked keyring identity — DEFERRED: not populated in v1 (optional field, wired in a later slice)
 }
 ```
 
@@ -91,8 +91,10 @@ interface DeploymentEvent {              // NEW — append-only (accessor-enforc
 The fingerprint must be deterministic across processes, so it can only hash serializable bytes.
 
 1. At `withVaultTemplate(name, template)` registration (where `template: VaultTemplate = { version, configure }`, `types.ts:20`), run `template.configure` once against a throwaway **probe vault** (in-memory, unencrypted; never persisted).
-2. Introspect what `configure` produced: collection names + their `IndexDef[]` + persisted JSON Schema **only where the template called `collection(..., { persistSchema: true })`**.
-3. Canonicalize (sort collections, sort index keys, stable JSON) → `sha256` → `fingerprint`.
+2. `Collection.name` and `Collection.indexes` are private, so the blueprint is captured by a **recording proxy** around the probe vault that intercepts `collection(name, opts)` calls — recording `{ name, indexes: opts?.indexes ?? [], persistJsonSchema: !!opts?.persistJsonSchema }` — and delegates to the real vault method so any other `configure` calls still execute. This captures exactly what the template *declares*, deterministically.
+3. Canonicalize (sort collections by name, sort index defs by key, stable JSON) → `sha256` → `fingerprint`.
+
+**v1 fingerprint surface:** collection names + index defs + the `persistJsonSchema` boolean flag per collection. Hashing the JSON-Schema *body* (via `zod-to-json-schema`) is a deferred refinement — the flag captures "schema persistence was declared" without the serialization complexity. This keeps v1 fully deterministic and is consistent with the determinism boundary below.
 
 ```
 configure(probeVault) ──▶ { collections, indexes, jsonSchema? }
@@ -101,12 +103,13 @@ configure(probeVault) ──▶ { collections, indexes, jsonSchema? }
 
 **Determinism boundary (explicit).** Raw Zod/StandardSchema validators and computed-field closures are **out of the fingerprint** — they cannot be hashed deterministically across processes (the codebase already treats persisted JSON Schema as opt-in, `vault.ts:581`). Consequence: **validator/computed-field changes within the same declared `version` are not drift-detected.** Bumping `version` is the contract for "the shape changed." This is documented as a known limitation, not a bug.
 
-**Drift detection.** A shard claims `schemaVersion: N`; recompute the blueprint from its actual configured collections/indexes and compare to the version-`N` manifest fingerprint. Mismatch on the serializable surface ⇒ drift, surfaced via the existing `SkippedVault{ reason: 'schema-drift' }` (`types.ts:62`) and as a queryable manifest check.
+**Drift detection.** Compare the fingerprint of a `template`'s current declared shape to the stored manifest for `(templateName, version)`; mismatch on the serializable surface ⇒ drift. Because shards carry no schema state independent of their template (every shard is configured by re-running `template.configure`), what this actually catches is **"a template's shape changed without bumping `version`"** — not independent per-shard drift. That is the useful, realizable semantics here; true shard-level introspection would require reading each shard's persisted schema and is out of scope for this slice (and for the migration-runner slice to revisit). A missing manifest is treated as drift. Surfaced via `detectDrift()` and composable with the existing `SkippedVault{ reason: 'schema-drift' }` path (`types.ts:62`).
 
 ## Auto-wire, key source & backward-compat
 
 - **Reserved name:** `__noydb_state__`. Validated unreachable as a shard id — the `__…__` prefix is reserved and rejected for user vault + partition keys (extends `assertSafePartitionKey`, `vault-group.ts:33`).
 - **Key source:** `StateManagementVault` is opened with `this.openVault('__noydb_state__')` → `getKeyringInternal` → the **same instance-level credential resolver** (passphrase / getKeyring callback) that unlocks every other vault. No new key concept; if the instance can open shards, it can open the state vault.
+- **Bundle isolation:** the `StateManagementVault` class (and `schema-manifest.ts`) must stay in the dynamically-`import()`-ed federation chunk, not the eager core graph (`noydb.ts:1019` already `import()`s `VaultGroup` for this reason). The reserved-name constant `STATE_VAULT_NAME` therefore lives in a **zero-dependency core leaf** (`federation/constants.ts`, no imports) so `noydb.ts` can reference it statically without pulling `state-vault.js`/`schema-manifest.js` into core. The constant is imported *by* `state-vault.ts`, never the reverse.
 - **API change (backward-compatible):** `VaultGroupOptions.registry` becomes **optional**.
   - omitted → auto-open `__noydb_state__`, use its `registry` accessor.
   - provided → use the caller's collection verbatim (existing tests keep passing; manifest/events accessors are unavailable on that opted-out path).

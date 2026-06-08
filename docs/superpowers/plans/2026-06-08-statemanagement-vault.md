@@ -26,10 +26,27 @@
 
 ---
 
-## Task 1: Add new federation types
+## Task 1: Add new federation types + reserved-name constant
 
 **Files:**
+- Create: `packages/hub/src/federation/constants.ts`
 - Modify: `packages/hub/src/federation/types.ts`
+
+- [ ] **Step 0: Create the zero-dependency reserved-name constant (bundle-isolation leaf)**
+
+Create `packages/hub/src/federation/constants.ts` with NO imports — so `noydb.ts` can reference it statically without pulling `state-vault.js`/`schema-manifest.js` into the eager core chunk:
+
+```ts
+/**
+ * @category capability
+ * Zero-dependency federation constants. Kept import-free so the core
+ * graph can reference reserved names without pulling the (dynamically
+ * imported) federation chunk. See the StateManagement Vault design spec.
+ */
+
+/** Reserved fleet-wide control-plane vault name. */
+export const STATE_VAULT_NAME = '__noydb_state__'
+```
 
 - [ ] **Step 1: Add the `group` field and new interfaces**
 
@@ -100,8 +117,8 @@ Expected: PASS (no usages yet; types compile).
 - [ ] **Step 3: Commit**
 
 ```bash
-git add packages/hub/src/federation/types.ts
-git commit -m "feat(federation): add group field + StateManagement control-plane types"
+git add packages/hub/src/federation/constants.ts packages/hub/src/federation/types.ts
+git commit -m "feat(federation): add group field + StateManagement control-plane types + reserved-name constant"
 ```
 
 ---
@@ -390,13 +407,16 @@ import type { Noydb } from '../noydb.js'
 import type { Collection } from '../collection.js'
 import type { VaultRegistryRow, SchemaManifestRow, DeploymentEvent, VaultTemplate } from './types.js'
 import { captureBlueprint, fingerprintBlueprint } from './schema-manifest.js'
+import { STATE_VAULT_NAME } from './constants.js'
 
-/** Reserved fleet-wide control-plane vault name. */
-export const STATE_VAULT_NAME = '__noydb_state__'
+// Re-export so consumers can `import { STATE_VAULT_NAME } from '@noy-db/hub'`.
+export { STATE_VAULT_NAME } from './constants.js'
 
-const REGISTRY = 'vault-registry'
-const MANIFEST = 'schema-manifest'
-const EVENTS = 'deployment-events'
+// Physical collection names — single-token (camelCase) to stay clear of any
+// collection-name charset restrictions; the existing suite uses single-word names.
+const REGISTRY = 'vaultRegistry'
+const MANIFEST = 'schemaManifest'
+const EVENTS = 'deploymentEvents'
 
 export class StateManagementVault {
   private constructor(
@@ -656,10 +676,10 @@ Add the imports at the top of `noydb.ts` (with the other `./errors.js` and feder
 
 ```ts
 import { ReservedVaultNameError } from './errors.js'
-import { STATE_VAULT_NAME } from './federation/state-vault.js'
+import { STATE_VAULT_NAME } from './federation/constants.js'
 ```
 
-Note: `STATE_VAULT_NAME` is a plain string constant (safe to import eagerly; it does not pull the federation chunk's heavy graph — but if bundle-size CI flags it, inline the literal `'__noydb_state__'` here and keep the constant for the class).
+Critical: import `STATE_VAULT_NAME` from `./federation/constants.js` (the zero-dependency leaf), **NOT** from `./federation/state-vault.js`. A static import of `state-vault.js` would pull it and `schema-manifest.js` into the eager core chunk, defeating the dynamic-`import()` isolation at `noydb.ts:1019`. The `StateManagementVault` class itself is only ever `import()`-ed dynamically (as in the body above).
 
 - [ ] **Step 3c: Let `VaultGroup` hold the state vault and record on `createShard`**
 
@@ -749,7 +769,7 @@ In `packages/hub/src/federation/vault-group.ts`, add the import and a check. At 
 
 ```ts
 import { ShardProvisioningError, UnknownShardError, ValidationError, ReservedVaultNameError } from '../errors.js'
-import { STATE_VAULT_NAME } from './state-vault.js'
+import { STATE_VAULT_NAME } from './constants.js'
 ```
 
 In `assertSafePartitionKey`, after the empty-string check, add:
@@ -860,7 +880,7 @@ describe('deployment-events optional WORM hardening', () => {
     const db = createNoydb({
       store: memory(),
       encrypt: false,
-      guardStrategies: [immutableGuard({ collection: 'deployment-events', appendOnly: true })],
+      guardStrategies: [immutableGuard({ collection: 'deploymentEvents', appendOnly: true })],
     })
     const sv = await StateManagementVault.open(db)
     await sv.appendEvent({ type: 'group-opened', group: 'g' })
@@ -1078,6 +1098,6 @@ Expected: all green; no new lint errors in the touched files.
 
 - [ ] **Confirm bundle-chunk isolation unchanged**
 
-The federation module is dynamically `import()`-ed in `openVaultGroup`; the only new eager import in `noydb.ts` is the `STATE_VAULT_NAME` string constant + `ReservedVaultNameError`. If `bundle-check` (known to drift on main per project notes) flags a real new leak of the federation chunk into core, inline the `'__noydb_state__'` literal in `noydb.ts` instead of importing the constant. Verify by checking the core entry does not statically pull `state-vault.js`.
+The federation module is dynamically `import()`-ed in `openVaultGroup`; the only new eager imports in `noydb.ts` are the zero-dependency `STATE_VAULT_NAME` constant (from `federation/constants.js`) + `ReservedVaultNameError` (from `errors.js`). Neither pulls `state-vault.js` or `schema-manifest.js` into core. `bundle-check` is known to drift on main per project notes — judge by the leak canary below, not the headline gz number.
 
-Run: `rg -n "state-vault" packages/hub/dist/index.js 2>/dev/null | head` (after a build) — expect no static reference in the core chunk.
+Run (after a build): `rg -n "captureBlueprint|StateManagementVault|schema-manifest" packages/hub/dist/index.js 2>/dev/null | head` — expect NO static reference to the control-plane class/helpers in the core chunk (they should appear only in the dynamically-imported federation chunk). A hit here means the static-import isolation regressed — recheck that `noydb.ts` imports `STATE_VAULT_NAME` from `./federation/constants.js`, not `./federation/state-vault.js`.
