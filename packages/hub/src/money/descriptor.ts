@@ -84,6 +84,20 @@ export class MoneyCurrencyError extends Error {
   }
 }
 
+/** Raised when an aggregate operation is not supported on a money field. */
+export class MoneyUnsupportedError extends Error {
+  constructor(
+    public readonly field: string,
+    message?: string,
+  ) {
+    super(
+      message ??
+        `money: operation is not supported on field "${field}" — use sum() and count() and divide at the boundary`,
+    )
+    this.name = 'MoneyUnsupportedError'
+  }
+}
+
 function isMultiOptions(o: MoneyOptions): o is MoneyOptionsMulti {
   return 'currencies' in o
 }

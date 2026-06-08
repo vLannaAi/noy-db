@@ -5,7 +5,7 @@
  * @see ./descriptor for the public `money()` factory.
  */
 
-export { money, isMoneyDescriptor, MoneyPrecisionError, MoneyCurrencyError } from './descriptor.js'
+export { money, isMoneyDescriptor, MoneyPrecisionError, MoneyCurrencyError, MoneyUnsupportedError } from './descriptor.js'
 export type {
   MoneyDescriptor,
   MoneyOptions,

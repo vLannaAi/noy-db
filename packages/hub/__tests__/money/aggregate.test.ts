@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
 import { createNoydb } from '../../src/index.js'
 import { withAggregate } from '../../src/aggregate/index.js'
-import { sum, min, max, count } from '../../src/aggregate/reducers.js'
-import { money } from '../../src/money/descriptor.js'
+import { sum, min, max, count, avg } from '../../src/aggregate/reducers.js'
+import { money, MoneyUnsupportedError } from '../../src/money/descriptor.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
 
 function memory(): NoydbStore {
@@ -148,6 +148,16 @@ describe('money aggregation — exact', () => {
     r = await lines.query().aggregate({ total: sum('total'), n: count() }).run() as Record<string, unknown>
     expect(r.total).toBe('0.40') // exact recompute, not stale
     expect(r.n).toBe(2)
+  })
+
+  it('avg() over a money field throws MoneyUnsupportedError instead of silently returning 0', async () => {
+    const vault = await vaultWith(money({ currency: 'EUR', scale: 2 }))
+    const lines = vault.collection<Line>('lines')
+    await lines.put('a', { id: 'a', total: '10.00' })
+    await lines.put('b', { id: 'b', total: '20.00' })
+    expect(
+      () => lines.query().aggregate({ mean: avg('total') }).run(),
+    ).toThrow(MoneyUnsupportedError)
   })
 
   it('grouped sum over a money field is exact per bucket', async () => {

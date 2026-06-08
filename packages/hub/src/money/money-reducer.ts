@@ -25,6 +25,7 @@
 import { readPath } from '../query/predicate.js'
 import { formatScaledInt } from './fixed-point.js'
 import { scaleForCurrency } from './iso4217.js'
+import { MoneyUnsupportedError } from './descriptor.js'
 import type { MoneyDescriptor } from './descriptor.js'
 import type { Reducer } from '../aggregate/reducers.js'
 import type { AggregateSpec } from '../aggregate/aggregation.js'
@@ -234,6 +235,12 @@ export function wrapMoneyReducers(
   for (const [key, reducer] of Object.entries(spec)) {
     const field = reducer.field
     const desc = field ? moneyFields[field] : undefined
+    if (desc && reducer.op === 'avg') {
+      throw new MoneyUnsupportedError(
+        field!,
+        `avg() is not supported on money field "${field}" in v1 — use sum() and count() and divide at the boundary.`,
+      )
+    }
     if (desc && (reducer.op === 'sum' || reducer.op === 'min' || reducer.op === 'max')) {
       changed = true
       out[key] =

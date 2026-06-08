@@ -720,6 +720,7 @@ export {
   isMoneyDescriptor,
   MoneyPrecisionError,
   MoneyCurrencyError,
+  MoneyUnsupportedError,
   scaleForCurrency,
 } from './money/index.js'
 export type {
