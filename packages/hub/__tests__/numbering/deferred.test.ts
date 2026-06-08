@@ -129,3 +129,29 @@ describe('DeferredNumberingStore.runPass', () => {
     expect(stamped.has('gone')).toBe(false)
   })
 })
+
+describe('deferred numbering — correctness properties', () => {
+  it('a record enqueued after a pass cannot renumber already-issued records (append-only)', async () => {
+    const store = clockStore()
+    const { eng, stamped } = engine(store)
+    await eng.enqueue('invoices', 'r1')
+    await eng.runPass('invoices')            // r1 = 1, head watermark advanced
+    await eng.enqueue('invoices', 'r2')      // LATER store time → can only append
+    expect(await eng.runPass('invoices')).toEqual([{ recordId: 'r2', serial: 2 }])
+    expect(stamped.get('r1')).toBe(1)        // r1 never re-stamped
+  })
+
+  it('an entry whose interval has not settled is held for a later pass (commit-wait)', async () => {
+    const store = clockStore(100) // ε = 100 → storeLatest far ahead of now.earliest
+    const { eng } = engine(store)
+    await eng.enqueue('invoices', 'r1')
+    expect(await eng.runPass('invoices')).toEqual([]) // held, not numbered
+  })
+
+  it('throws NumberingUncertaintyError when the store has no clock', async () => {
+    const noClock = clockStore()
+    delete (noClock as { getStoreTime?: unknown }).getStoreTime
+    const { eng } = engine(noClock)
+    await expect(eng.runPass('invoices')).rejects.toBeInstanceOf(NumberingUncertaintyError)
+  })
+})
