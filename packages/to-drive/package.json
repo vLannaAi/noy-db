@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/to-drive",
-  "version": "0.2.0-pre.12",
+  "version": "0.2.0-pre.13",
   "description": "Google Drive bundle store for noy-db. Stores the whole vault as a single .noydb file in Drive's hidden appDataFolder; opaque ULID filenames never leak compartment names. Driver-agnostic — bring your own OAuth token.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
