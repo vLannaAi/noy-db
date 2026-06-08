@@ -118,4 +118,68 @@ export class DeferredNumberingStore {
     const assigned = new Promise<number>((resolve, reject) => { this.waiters.set(id, { resolve, reject }) })
     return { assigned }
   }
+
+  private async listPending(series: string): Promise<Array<{ id: string; entry: PendingEntry }>> {
+    const ids = await this.adapter.list(this.vault, NUMBERING_PENDING_COLLECTION)
+    const prefix = `${series}::`
+    const out: Array<{ id: string; entry: PendingEntry }> = []
+    for (const id of ids) {
+      if (!id.startsWith(prefix)) continue
+      const { value } = await this.readJson<PendingEntry>(NUMBERING_PENDING_COLLECTION, id)
+      if (value) out.push({ id, entry: value })
+    }
+    return out
+  }
+
+  /**
+   * Run a numbering pass for `series`: select entries provably settled
+   * (`storeLatest ≤ now.earliest` — commit-wait), order by
+   * `(storeEarliest, recordId)`, assign serials after the head, stamp each
+   * record's field, advance the head with one CAS, and consume the entries.
+   * Idempotent/convergent: a losing concurrent pass returns `[]` and the next
+   * pass reconciles. Resolves any in-process enqueue() `assigned` Promises.
+   */
+  async runPass(series: string): Promise<Assignment[]> {
+    const cfg = this.configs.get(series)
+    if (!cfg) throw new NumberingUncertaintyError(series)
+    if (typeof this.adapter.getStoreTime !== 'function') throw new NumberingUncertaintyError(series)
+
+    const now = await this.adapter.getStoreTime()
+    const settled = (await this.listPending(series))
+      .filter(p => p.entry.storeLatest <= now.earliest) // commit-wait
+      .sort((a, b) =>
+        a.entry.storeEarliest - b.entry.storeEarliest ||
+        (a.entry.recordId < b.entry.recordId ? -1 : a.entry.recordId > b.entry.recordId ? 1 : 0),
+      )
+    if (settled.length === 0) return []
+
+    const { env: headEnv, value: head } = await this.readJson<NumberingHead>(NUMBERING_HEAD_COLLECTION, series)
+    let serial = head?.lastSerial ?? 0
+    const assignments: Assignment[] = []
+
+    // Stamp each user record THROUGH the Collection layer (cache-coherent).
+    for (const { entry } of settled) {
+      serial += 1
+      const ok = await this.stamp(entry.collection, entry.recordId, entry.field, serial)
+      if (!ok) { serial -= 1; continue } // record gone — skip, do not burn a number
+      assignments.push({ recordId: entry.recordId, serial })
+    }
+
+    // Advance the head with one CAS. On conflict another pass ran; bail — the
+    // next pass reconciles (idempotent: consumed entries won't reappear).
+    try {
+      await this.writeJson(NUMBERING_HEAD_COLLECTION, series, { series, lastSerial: serial, watermark: now.earliest }, headEnv?._v ?? 0)
+    } catch (err) {
+      if (err instanceof ConflictError) return []
+      throw err
+    }
+
+    // Consume pending entries + resolve in-process waiters.
+    for (const { id, entry } of settled) {
+      await this.adapter.delete(this.vault, NUMBERING_PENDING_COLLECTION, id)
+      const a = assignments.find(x => x.recordId === entry.recordId)
+      if (a) { this.waiters.get(id)?.resolve(a.serial); this.waiters.delete(id) }
+    }
+    return assignments
+  }
 }

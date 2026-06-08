@@ -89,3 +89,43 @@ describe('DeferredNumberingStore.enqueue', () => {
     expect(entry.storeLatest).toBeGreaterThanOrEqual(entry.storeEarliest)
   })
 })
+
+describe('DeferredNumberingStore.runPass', () => {
+  it('assigns gap-free serials in store-time order and stamps the records', async () => {
+    const store = clockStore()
+    const { eng, stamped } = engine(store)
+    for (const id of ['r1', 'r2', 'r3']) await eng.enqueue('invoices', id)
+
+    const assignments = await eng.runPass('invoices')
+    expect(assignments.map(a => a.serial)).toEqual([1, 2, 3])
+    expect(assignments.map(a => a.recordId)).toEqual(['r1', 'r2', 'r3']) // store-time order
+    expect(stamped.get('r2')).toBe(2)
+    expect(await store.get('v', '_numbering_pending', 'invoices::r2')).toBeNull() // consumed
+  })
+
+  it('a second pass continues numbering after the head (gap-free across passes)', async () => {
+    const store = clockStore()
+    const { eng } = engine(store)
+    await eng.enqueue('invoices', 'a')
+    await eng.runPass('invoices') // a = 1
+    await eng.enqueue('invoices', 'b')
+    expect(await eng.runPass('invoices')).toEqual([{ recordId: 'b', serial: 2 }])
+  })
+
+  it('resolves the enqueue assigned Promise with the serial', async () => {
+    const store = clockStore()
+    const { eng } = engine(store)
+    const { assigned } = await eng.enqueue('invoices', 'r1')
+    await eng.runPass('invoices')
+    await expect(assigned).resolves.toBe(1)
+  })
+
+  it('skips a record that is gone without burning a serial', async () => {
+    const store = clockStore()
+    const { eng, stamped } = engine(store, new Set(['gone']))
+    await eng.enqueue('invoices', 'gone') // store-time 1 — sorts first
+    await eng.enqueue('invoices', 'r1')   // store-time 2
+    expect(await eng.runPass('invoices')).toEqual([{ recordId: 'r1', serial: 1 }])
+    expect(stamped.has('gone')).toBe(false)
+  })
+})
