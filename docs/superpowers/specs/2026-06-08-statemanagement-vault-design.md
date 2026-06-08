@@ -37,10 +37,12 @@ Noydb instance (one credential resolver)
        (opened via this.openVault(), same keyring path as every vault)
        ├── registry          Collection<VaultRegistryRow>    (authoritative shard list)
        ├── schemaManifest     Collection<SchemaManifestRow>   (per-version blueprint + fingerprint)
-       └── deploymentEvents   Collection<DeploymentEvent>     (WORM, appendOnly via immutableGuard)
+       └── deploymentEvents   Collection<DeploymentEvent>     (append-only; accessor-enforced, optional immutableGuard)
 ```
 
 **One reserved state vault per `Noydb` instance, not per group.** The state vault is fleet-wide (`__noydb_state__`). Its registry rows are discriminated by a new `group` field so a single control plane can serve multiple `VaultGroup`s. This matches the epic's "StateManagement Vault" framing as a single control plane and lets it outlive any one group.
+
+**Registry record-id qualification (collision fix).** Today `createShard` keys the registry by bare `partitionKey` (`registry.put(partitionKey, …)`, `vault-group.ts:104`). With a single shared registry collection across multiple groups, two groups using the same partition key would collide on the same record id. The registry record id is therefore **group-qualified**: `\`${group}--${partitionKey}\`` (the `--` separator is already reserved and rejected inside both group names and partition keys, so the composite is unambiguous). The shipped `VaultGroup` methods that call `registry.get(partitionKey)` / `registry.put(partitionKey, …)` (`createShard`, `shard`, `ShardedCollection.put`) change to a private `registryId(partitionKey)` helper. When a caller passes an explicit `registry`, the same qualification applies (the `group` is `this.name`).
 
 ## Components
 
@@ -72,7 +74,7 @@ interface SchemaManifestRow {            // NEW — keyed by (templateName, vers
   recordedAt: number
 }
 
-interface DeploymentEvent {              // NEW — WORM
+interface DeploymentEvent {              // NEW — append-only (accessor-enforced)
   id: string
   ts: number
   type: 'shard-created' | 'manifest-recorded' | 'group-opened'
@@ -110,9 +112,12 @@ configure(probeVault) ──▶ { collections, indexes, jsonSchema? }
   - provided → use the caller's collection verbatim (existing tests keep passing; manifest/events accessors are unavailable on that opted-out path).
 - **Idempotent bootstrap:** opening the state vault configures the three collections if absent; safe to call repeatedly (mirrors `createShard`'s row+vault idempotency, `vault-group.ts:85`).
 
-## Deployment events (WORM) & retention
+## Deployment events (append-only) & retention
 
-- `deploymentEvents` is configured append-only via `immutableGuard({ collection: 'deployment-events', appendOnly: true })` — reuses #301; no new WORM machinery.
+**Mechanism note.** `immutableGuard` is an *instance-level* `guardStrategies` config fixed at `createNoydb()` time and applied vault-wide by collection name (`noydb.ts:#registerGuardGate` / `_initGuards`); there is **no runtime per-vault guard registration**. So `StateManagementVault` cannot auto-apply a WORM guard to its own `deployment-events` collection from inside the abstraction. Append-only is therefore enforced at the **accessor level**:
+
+- `StateManagementVault` exposes `deploymentEvents` mutation only through an `appendEvent(event)` method that `put`s a fresh unique-id record; it never exposes update/delete. The raw collection is not surfaced.
+- **Optional hardening:** a consumer who wants cryptographically-enforced WORM can add `immutableGuard({ collection: 'deployment-events', appendOnly: true })` to their own `createNoydb({ guardStrategies })`; because the state vault is opened by the same instance, the guard then applies. This is documented as opt-in, not required.
 - Events written at: shard creation, manifest recording, group open.
 - **Best-effort and non-fatal:** a failed event append logs but does not fail the underlying op (the registry write is the authoritative action; the event is observability).
 - **Retention is out of scope** for this slice (epic open question — unbounded growth depends on the dim11 compaction primitive). Documented as a deferred follow-up; at pilot scale the log is small.
@@ -130,7 +135,7 @@ configure(probeVault) ──▶ { collections, indexes, jsonSchema? }
 - **Unit:** accessor idempotency; reserved-name rejection; fingerprint determinism (same `configure` ⇒ same hash across two probe runs; collection/index change ⇒ different hash; validator-only change ⇒ **same** hash, asserting the documented boundary).
 - **Integration:** `openVaultGroup(name)` with no `registry` auto-opens `__noydb_state__`; `createShard` writes a registry row + `shard-created` event + ensures a manifest row; drift test (shard shape ≠ claimed version ⇒ `schema-drift` skip).
 - **Backward-compat:** existing `federation-*.test.ts` passing an explicit `registry` still pass untouched.
-- **WORM:** an attempted update/delete on `deployment-events` rejects.
+- **Append-only:** `StateManagementVault` exposes no update/delete for events (only `appendEvent`); a test asserts the accessor surface is append-only, and a separate test confirms that when a consumer adds the optional `immutableGuard`, mutation rejects with `RecordLockedError`.
 
 ## features.yaml
 
