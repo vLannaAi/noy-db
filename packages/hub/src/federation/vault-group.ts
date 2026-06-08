@@ -107,6 +107,7 @@ export class VaultGroup<T> {
       templateName: this.sharding.vaultTemplate,
       schemaVersion: this.template.version,
       createdAt: Date.now(),
+      group: this.name,
     })
     return vault
   }

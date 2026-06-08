@@ -119,7 +119,7 @@ describe('VaultGroup — template + createShard', () => {
     // Write a registry row pointing at a vault that was never provisioned.
     await h.registry.put('ghost', {
       vaultId: 'firm-clients--ghost', partitionKey: 'ghost',
-      templateName: 'client-template', schemaVersion: 1, createdAt: 1,
+      templateName: 'client-template', schemaVersion: 1, createdAt: 1, group: 'firm-clients',
     })
     await expect(h.firm.createShard('ghost')).rejects.toBeInstanceOf(ShardProvisioningError)
   })
@@ -215,7 +215,7 @@ describe('VaultGroup — fan-out read', () => {
     // Divergent registry row: points at a vault that was never provisioned.
     await h.registry.put('ghost', {
       vaultId: 'firm-clients--ghost', partitionKey: 'ghost',
-      templateName: 'client-template', schemaVersion: 1, createdAt: 1,
+      templateName: 'client-template', schemaVersion: 1, createdAt: 1, group: 'firm-clients',
     })
 
     const out = await h.firm.collection('invoices').query().where('status', '==', 'overdue').toArray()
