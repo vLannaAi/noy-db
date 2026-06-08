@@ -292,6 +292,11 @@ export type {
   FanoutResult,
   SkippedVault,
 } from './federation/index.js'
+export type {
+  CrossVaultAggregation, CrossVaultGroupedAggregation, ShardedGroupedQuery,
+  CrossVaultLiveQuery, CrossVaultLiveAggregation, LiveQueryOptions,
+  GroupedRow as CrossVaultGroupedRow,
+} from './federation/index.js'
 export { UnknownShardError, ShardProvisioningError, VaultTemplateNotFoundError } from './errors.js'
 
 // Bundle format — `.noydb` container

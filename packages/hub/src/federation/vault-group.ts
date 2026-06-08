@@ -9,6 +9,10 @@ import type { Vault } from '../vault.js'
 import type { Collection } from '../collection.js'
 import { ShardProvisioningError, UnknownShardError, ValidationError } from '../errors.js'
 import { classifyShardSkip } from './classify-skip.js'
+import { CrossVaultLive } from './cross-vault-live.js'
+import { CrossVaultAggregation, CrossVaultGroupedAggregation } from './aggregate-across.js'
+import type { FanoutRecordSource, LiveBinding } from './aggregate-across.js'
+import type { AggregateSpec } from '../aggregate/aggregation.js'
 import type {
   ShardingConfig,
   VaultRegistryRow,
@@ -17,6 +21,8 @@ import type {
   FanoutResult,
   SkippedVault,
   WhereClause,
+  LiveQueryOptions,
+  CrossVaultLiveQuery,
 } from './types.js'
 
 /** Reserved separator between group name and partition key in a shard vault id. */
@@ -123,6 +129,28 @@ export class VaultGroup<T> {
   collection<R = T>(collectionName: string): ShardedCollection<T, R> {
     return new ShardedCollection<T, R>(this, collectionName)
   }
+
+  /** @internal — eligible (openable-candidate) rows + drift/divergence skips. */
+  async resolveEligible(options: { minVersion?: number } = {}): Promise<{
+    eligible: VaultRegistryRow[]
+    skipped: SkippedVault[]
+  }> {
+    const rows = await this.allRows()
+    const skipped: SkippedVault[] = []
+    const versionOk: VaultRegistryRow[] = []
+    for (const row of rows) {
+      if (options.minVersion !== undefined && row.schemaVersion < options.minVersion) {
+        skipped.push({ vaultId: row.vaultId, reason: 'schema-drift' })
+      } else versionOk.push(row)
+    }
+    const provisioned = await Promise.all(versionOk.map((r) => this.db._shardVaultProvisioned(r.vaultId)))
+    const eligible: VaultRegistryRow[] = []
+    versionOk.forEach((row, i) => {
+      if (provisioned[i]) eligible.push(row)
+      else skipped.push({ vaultId: row.vaultId, reason: 'error', error: new ShardProvisioningError(row.vaultId, row.partitionKey) })
+    })
+    return { eligible, skipped }
+  }
 }
 
 export class ShardedCollection<T, R = T> {
@@ -167,40 +195,11 @@ export class ShardedQuery<T, R = T> {
     ])
   }
 
-  /** Fan out across eligible shards and merge results. */
-  async toArray(options: FanoutQueryOptions = {}): Promise<FanoutResult<R>> {
-    const rows = await this.group.allRows()
-    const skipped: SkippedVault[] = []
-    const eligible: VaultRegistryRow[] = []
-    for (const row of rows) {
-      if (options.minVersion !== undefined && row.schemaVersion < options.minVersion) {
-        skipped.push({ vaultId: row.vaultId, reason: 'schema-drift' })
-      } else {
-        eligible.push(row)
-      }
-    }
-
-    // Guard against registry/store divergence: a row whose vault is not
-    // provisioned must NOT be recreated by queryAcross's open-on-read.
-    // Surface it as an error-skip instead (mirrors shard()/createShard).
-    const provisioned = await Promise.all(
-      eligible.map((row) => this.group.db._shardVaultProvisioned(row.vaultId)),
-    )
-    const safeEligible: VaultRegistryRow[] = []
-    eligible.forEach((row, i) => {
-      if (provisioned[i]) {
-        safeEligible.push(row)
-      } else {
-        skipped.push({
-          vaultId: row.vaultId,
-          reason: 'error',
-          error: new ShardProvisioningError(row.vaultId, row.partitionKey),
-        })
-      }
-    })
-
+  /** @internal — fan out the where-filtered records across eligible shards. */
+  async fanoutRecords(options: FanoutQueryOptions = {}): Promise<{ records: R[]; skippedVaults: SkippedVault[] }> {
+    const { eligible, skipped } = await this.group.resolveEligible(options)
     const across = await this.group.db.queryAcross<R[]>(
-      safeEligible.map((r) => r.vaultId),
+      eligible.map((r) => r.vaultId),
       async (vault) => {
         this.group.template.configure(vault)
         const coll = vault.collection<R>(this.collectionName)
@@ -211,12 +210,76 @@ export class ShardedQuery<T, R = T> {
       },
       { concurrency: options.concurrency ?? 1, create: false },
     )
-
     const results: R[] = []
     for (const r of across) {
       if (r.error) skipped.push({ vaultId: r.vault, reason: classifyShardSkip(r.error), error: r.error })
       else for (const item of r.result) results.push(item)
     }
-    return { results, skippedVaults: skipped }
+    return { records: results, skippedVaults: skipped }
+  }
+
+  /** Fan out across eligible shards and merge results. */
+  async toArray(options: FanoutQueryOptions = {}): Promise<FanoutResult<R>> {
+    const { records, skippedVaults } = await this.fanoutRecords(options)
+    return { results: records, skippedVaults }
+  }
+
+  /** @internal — build the change-subscription + relevance binding for this query's group+collection. */
+  liveBinding(): LiveBinding {
+    const group = this.group
+    const collectionName = this.collectionName
+    return {
+      subscribeToChanges: (h) => { group.db.on('change', h); return () => group.db.off('change', h) },
+      isRelevant: (e) => e.collection === collectionName && e.vault.startsWith(`${group.name}--`),
+    }
+  }
+
+  /** Returns a reactive cross-shard live query — a facade over CrossVaultLive. */
+  live(options: LiveQueryOptions = {}): CrossVaultLiveQuery<R> {
+    const bind = this.liveBinding()
+    const core = new CrossVaultLive<{ records: R[]; skipped: SkippedVault[] }>({
+      ...bind,
+      compute: async () => {
+        const { records, skippedVaults } = await this.fanoutRecords(options)
+        return { records, skipped: skippedVaults }
+      },
+      initialSnapshot: { records: [], skipped: [] },
+      ...(options.debounceMs !== undefined ? { debounceMs: options.debounceMs } : {}),
+    })
+    return {
+      get value() { return core.snapshot.records as readonly R[] },
+      get skippedVaults() { return core.snapshot.skipped as readonly SkippedVault[] },
+      get error() { return core.error },
+      ready: core.ready,
+      subscribe: (cb) => core.subscribe(cb),
+      stop: () => core.stop(),
+    }
+  }
+
+  /** One-shot distributed aggregate — central reduce over all shard records. */
+  aggregate<Spec extends AggregateSpec>(spec: Spec): CrossVaultAggregation<R, Spec> {
+    return new CrossVaultAggregation<R, Spec>(this, spec, this.liveBinding())
+  }
+
+  /** Begin a grouped cross-shard aggregate. */
+  groupBy<F extends string>(field: F): ShardedGroupedQuery<T, R, F> {
+    return new ShardedGroupedQuery<T, R, F>(this, field)
+  }
+}
+
+/** Grouped cross-shard query — intermediate after `.groupBy(field)`, terminates with `.aggregate(spec)`. */
+export class ShardedGroupedQuery<T, R, F extends string> {
+  constructor(
+    private readonly query: ShardedQuery<T, R>,
+    private readonly field: F,
+  ) {}
+
+  aggregate<Spec extends AggregateSpec>(spec: Spec): CrossVaultGroupedAggregation<R, F, Spec> {
+    return new CrossVaultGroupedAggregation<R, F, Spec>(
+      { fanoutRecords: (o) => this.query.fanoutRecords(o) } satisfies FanoutRecordSource<R>,
+      this.field,
+      spec,
+      this.query.liveBinding(),
+    )
   }
 }
