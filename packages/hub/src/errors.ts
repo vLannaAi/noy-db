@@ -443,6 +443,29 @@ export class PrivilegeEscalationError extends NoydbError {
 }
 
 /**
+ * Thrown when a reserved internal vault name (e.g. `__noydb_state__`) is used
+ * as a group name or partition key.
+ *
+ * Internal vault names are prefixed or surrounded with double-underscores to
+ * avoid collisions with user-defined vault names. Attempting to use one as a
+ * group name or partition key bypasses the naming policy and is rejected
+ * eagerly so the mis-configuration is surfaced immediately.
+ */
+export class ReservedVaultNameError extends NoydbError {
+  /** The rejected vault name. */
+  readonly vaultName: string
+
+  constructor(vaultName: string) {
+    super(
+      'RESERVED_VAULT_NAME',
+      `"${vaultName}" is a reserved internal vault name and cannot be used as a group name or partition key`,
+    )
+    this.name = 'ReservedVaultNameError'
+    this.vaultName = vaultName
+  }
+}
+
+/**
  * Thrown by `Collection.put` / `.delete` when the target record's
  * envelope `_ts` falls within a closed accounting period.
  *

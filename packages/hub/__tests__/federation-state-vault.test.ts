@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { captureBlueprint, fingerprintBlueprint } from '../src/federation/schema-manifest.js'
 import type { Vault } from '../src/vault.js'
+import { ReservedVaultNameError } from '../src/errors.js'
 
 describe('captureBlueprint', () => {
   it('records declared collections + indexes deterministically', () => {
@@ -45,5 +46,14 @@ describe('captureBlueprint', () => {
     const fa = await fingerprintBlueprint(captureBlueprint(a))
     const fb = await fingerprintBlueprint(captureBlueprint(b))
     expect(fa).toBe(fb)
+  })
+})
+
+describe('ReservedVaultNameError', () => {
+  it('carries the offending name', () => {
+    const e = new ReservedVaultNameError('__noydb_state__')
+    expect(e).toBeInstanceOf(Error)
+    expect(e.name).toBe('ReservedVaultNameError')
+    expect(e.message).toContain('__noydb_state__')
   })
 })
