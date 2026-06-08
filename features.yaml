@@ -353,7 +353,29 @@ features:
       - 'AES-256-GCM chunks (256 KB default) with AAD-bound metadata'
       - 'HMAC-keyed eTag for content-addressed dedup'
       - 'collection.blob(id) returns a BlobSet handle; opt-in via withBlobs()'
-    related: [vault-and-collections]
+      - 'blobFields retention: retainDays / evictWhen evict via vault.compact() with audit'
+      - 'legalHold(record) blocks eviction (fail-closed); retainUntil(record) is a period-bound retention floor; CompactionResult.held counts retained slots (#311)'
+    related: [vault-and-collections, record-archival]
+
+  - id: record-archival
+    name: Record cold-storage archival + restore + legal-hold
+    cluster: data-shape
+    spec: docs/superpowers/specs/2026-06-08-retention-archival-design.md
+    subsystem_doc: docs/superpowers/specs/2026-06-08-retention-archival-design.md
+    package: '@noy-db/hub'
+    factory: withArchive
+    status: preview
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'withArchive({ store }) designates a cold NoydbStore; per-collection archive: { archiveWhen, legalHold? }'
+      - 'archival = envelope relocation (no re-encryption); the cold store IS the archived-set index'
+      - 'relocation via _internalDelete bypasses guards (issued/immutable records archivable) and MV dispatch (finalized aggregates do not recompute)'
+      - 'vault.archive() sweep (dryRun/maxArchives), vault.restore(c,id) relocates back + decryptable, vault.listArchived()'
+      - 'legalHold blocks archival (fail-closed); archived records read null from primary until restored'
+    related: [blobs, periods]
 
   - id: i18n
     name: Multi-locale dictionaries

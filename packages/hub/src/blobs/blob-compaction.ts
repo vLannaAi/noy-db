@@ -48,6 +48,23 @@ export interface BlobFieldPolicy<T = unknown> {
    * disable predicate-based eviction.
    */
   readonly evictWhen?: (record: T) => boolean
+  /**
+   * **Legal hold.** When this predicate returns `true`, the slot is
+   * never evicted — `retainDays`/`evictWhen` are overridden. Use for a
+   * litigation / audit hold on a fiscal document: the blob stays until
+   * the predicate returns `false` (the hold is released). Fail-closed:
+   * if the predicate throws, the slot is treated as held.
+   */
+  readonly legalHold?: (record: T) => boolean
+  /**
+   * **Period-bound retention.** Returns the date (Date / ISO string /
+   * epoch ms) until which the slot must be retained — typically derived
+   * from the record's fiscal period (e.g. period end + 10 years). While
+   * `now < retainUntil`, the slot is never evicted, regardless of
+   * `retainDays`. Return `null`/`undefined` to impose no floor.
+   * Fail-closed: a throwing function holds the slot.
+   */
+  readonly retainUntil?: (record: T) => Date | string | number | null | undefined
 }
 
 export type BlobFieldsConfig<T = unknown> = Record<string, BlobFieldPolicy<T>>
@@ -78,6 +95,11 @@ export interface CompactionResult {
   readonly collections: number
   /** Number of audit entries written. Equal to `evicted`. */
   readonly auditEntries: number
+  /**
+   * Number of slots that would have evicted (TTL/predicate triggered)
+   * but were retained by a `legalHold` or `retainUntil` floor.
+   */
+  readonly held: number
   /** Per-collection breakdown for diagnostics. */
   readonly byCollection: Record<string, { records: number; evicted: number }>
 }
@@ -137,6 +159,7 @@ export async function runCompaction(
   let evicted = 0
   let records = 0
   let auditEntries = 0
+  let held = 0
   let collectionsWithPolicy = 0
 
   outer: for (const collectionName of allCollections) {
@@ -166,6 +189,13 @@ export async function runCompaction(
         const reason = evaluatePolicy(policy, record, slot, now)
         if (!reason) continue
 
+        // Retention floor: a legal hold or period-bound retainUntil
+        // blocks an otherwise-due eviction. Counted, never evicted.
+        if (isHeld(policy, record, now)) {
+          held += 1
+          continue
+        }
+
         if (!dryRun) {
           await ctx.deleteSlot(collectionName, recordId, slot.name)
           await writeAuditEntry(ctx, {
@@ -191,8 +221,37 @@ export async function runCompaction(
     records,
     collections: collectionsWithPolicy,
     auditEntries,
+    held,
     byCollection,
   }
+}
+
+/**
+ * Whether a retention floor (legal hold or period-bound `retainUntil`)
+ * currently blocks eviction of this record's slots. Fail-closed: a
+ * throwing predicate holds the slot.
+ */
+function isHeld<T>(policy: BlobFieldPolicy<T>, record: T, now: Date): boolean {
+  if (policy.legalHold) {
+    try {
+      if (policy.legalHold(record)) return true
+    } catch {
+      return true
+    }
+  }
+  if (policy.retainUntil) {
+    try {
+      const until = policy.retainUntil(record)
+      if (until !== null && until !== undefined) {
+        const t = until instanceof Date ? until.getTime() : typeof until === 'number' ? until : Date.parse(String(until))
+        if (!Number.isFinite(t)) return true   // fail-closed: unparseable retainUntil holds the slot
+        if (t > now.getTime()) return true
+      }
+    } catch {
+      return true
+    }
+  }
+  return false
 }
 
 function evaluatePolicy<T>(

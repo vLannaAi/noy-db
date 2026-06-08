@@ -275,6 +275,16 @@ export {
 export { SnapshotNotFoundError } from './errors.js'
 export type { SnapshotMeta, RetentionPolicy } from './snapshots/strategy.js'
 
+// ─── Record cold-storage archival (#307) ───────────────────────────────────────
+export { withArchive } from './archive/index.js'
+export type {
+  ArchiveStrategy,
+  WithArchiveOptions,
+  ArchivePolicy,
+  ArchiveResult,
+  ArchiveRunOptions,
+} from './archive/index.js'
+
 // Federation — VaultGroup / sharded collections.
 // Type-only: these classes are never constructed by consumers — they are
 // returned by `db.openVaultGroup()` / `.collection()` / `.query()`. Exporting
