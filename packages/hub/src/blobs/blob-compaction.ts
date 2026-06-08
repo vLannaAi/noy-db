@@ -244,7 +244,8 @@ function isHeld<T>(policy: BlobFieldPolicy<T>, record: T, now: Date): boolean {
       const until = policy.retainUntil(record)
       if (until !== null && until !== undefined) {
         const t = until instanceof Date ? until.getTime() : typeof until === 'number' ? until : Date.parse(String(until))
-        if (Number.isFinite(t) && t > now.getTime()) return true
+        if (!Number.isFinite(t)) return true   // fail-closed: unparseable retainUntil holds the slot
+        if (t > now.getTime()) return true
       }
     } catch {
       return true

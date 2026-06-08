@@ -117,4 +117,35 @@ describe('#311 blob retainUntil (period-bound floor)', () => {
     expect(r.evicted).toBe(1)
     expect(await inv.blob('a').list()).toHaveLength(0)
   })
+
+  it('fail-closed: an unparseable retainUntil string holds the slot (not evicted)', async () => {
+    // '31/12/2036' is not ISO-8601 — Date.parse returns NaN in V8.
+    // now is far-future so even if it somehow parsed it would be in the past → evictable.
+    // Only a genuine NaN (fail-closed) keeps it held.
+    const vault = await setup()
+    const inv = vault.collection<Invoice>('invoices', {
+      blobFields: { pdf: { evictWhen: () => true, retainUntil: () => '31/12/2036' } },
+    })
+    await inv.put('a', { id: 'a', status: 'x' })
+    await inv.blob('a').put('pdf', bytes('A'))
+
+    const r = await vault.compact({ now: new Date('2099-01-01T00:00:00Z') })
+    expect(r.held).toBe(1)
+    expect(r.evicted).toBe(0)
+    expect(await inv.blob('a').list()).toHaveLength(1)
+  })
+
+  it('fail-closed: a throwing retainUntil holds the slot', async () => {
+    const vault = await setup()
+    const inv = vault.collection<Invoice>('invoices', {
+      blobFields: { pdf: { evictWhen: () => true, retainUntil: () => { throw new Error('storage unavailable') } } },
+    })
+    await inv.put('a', { id: 'a', status: 'x' })
+    await inv.blob('a').put('pdf', bytes('A'))
+
+    const r = await vault.compact()
+    expect(r.evicted).toBe(0)
+    expect(r.held).toBe(1)
+    expect(await inv.blob('a').list()).toHaveLength(1)
+  })
 })
