@@ -151,6 +151,27 @@ describe('group-qualified registry ids', () => {
     expect((await sv.registry.get('groupA--shared'))?.group).toBe('groupA')
     expect((await sv.registry.get('groupB--shared'))?.group).toBe('groupB')
   })
+
+  it('scopes fan-out reads to the group — no cross-group leak via a shared auto-wired registry', async () => {
+    // Encrypted mode: fan-out reads gate shards on _shardVaultProvisioned (a
+    // keyring check), which only holds for encrypted vaults.
+    const db = await createNoydb({ store: memory(), user: 'op', secret: 'op-pass' })
+    db.withVaultTemplate('t', { version: 1, configure: (v) => { v.collection('items') } })
+    // Both groups auto-wire to the same instance-wide StateManagement registry.
+    const groupA = await db.openVaultGroup<{ pk: string; tag: string }>('groupA', {
+      sharding: { keyOf: (r) => r.pk, vaultTemplate: 't' },
+    })
+    const groupB = await db.openVaultGroup<{ pk: string; tag: string }>('groupB', {
+      sharding: { keyOf: (r) => r.pk, vaultTemplate: 't' },
+    })
+    await groupA.collection('items').put('a1', { pk: 'pa', tag: 'A' })
+    await groupB.collection('items').put('b1', { pk: 'pb', tag: 'B' })
+
+    const aOut = await groupA.collection<{ pk: string; tag: string }>('items').query().toArray()
+    expect(aOut.results.map((r) => r.tag)).toEqual(['A'])
+    const bOut = await groupB.collection<{ pk: string; tag: string }>('items').query().toArray()
+    expect(bOut.results.map((r) => r.tag)).toEqual(['B'])
+  })
 })
 
 describe('openVaultGroup auto-wiring', () => {
@@ -168,6 +189,7 @@ describe('openVaultGroup auto-wiring', () => {
     const events = await sv.queryEvents().toArray()
     expect(events.some((e) => e.type === 'shard-created' && e.vaultId === 'firm--acme')).toBe(true)
     expect(events.some((e) => e.type === 'group-opened' && e.group === 'firm')).toBe(true)
+    expect(events.some((e) => e.type === 'manifest-recorded' && e.templateName === 'client' && e.version === 2)).toBe(true)
   })
 
   it('still honors an explicitly-passed registry (backward-compat)', async () => {

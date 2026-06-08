@@ -91,10 +91,18 @@ export class VaultGroup<T> {
     return this.shardVaultId(partitionKey)
   }
 
-  /** All registry rows (hydrates the registry collection first). */
+  /**
+   * Registry rows for THIS group (hydrates the registry collection first).
+   * The registry may be shared across groups (the auto-wired StateManagement
+   * vault holds one `vaultRegistry` for the whole instance), so rows are
+   * filtered by `group` — without this, a group's fan-out reads would leak
+   * across into other groups' shards. Mirrors the `${group}--` scoping that
+   * `liveBinding().isRelevant` already applies to the reactive path.
+   */
   async allRows(): Promise<VaultRegistryRow[]> {
     await this.registry.list()
-    return this.registry.query().toArray()
+    const rows = await this.registry.query().toArray()
+    return rows.filter((r) => r.group === this.name)
   }
 
   /** Open an existing shard and apply the template. */

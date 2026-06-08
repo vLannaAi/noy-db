@@ -1032,8 +1032,15 @@ export class Noydb {
       group._attachStateVault(stateVault)
       // recordManifest persists control-plane state → hard-fail on error.
       await stateVault.recordManifest(opts.sharding.vaultTemplate, template)
-      // group-opened is an incidental event → best-effort, never fails the open.
+      // manifest-recorded + group-opened are incidental audit events →
+      // best-effort, never fail the open.
       try {
+        await stateVault.appendEvent({
+          type: 'manifest-recorded',
+          group: name,
+          templateName: opts.sharding.vaultTemplate,
+          version: template.version,
+        })
         await stateVault.appendEvent({ type: 'group-opened', group: name })
       } catch {
         /* best-effort: event logging never fails openVaultGroup */
