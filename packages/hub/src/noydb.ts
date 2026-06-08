@@ -282,7 +282,7 @@ export class Noydb {
       await registry.runChecks(e.collection, incoming, ctx)
       const { GuardExecutor } = await import('./guards/executor.js')
       for (const g of guards) {
-        await GuardExecutor.checkFrozenFields(g, e.docId, existing, incoming)
+        await GuardExecutor.checkFrozenFields(g, e.docId, existing, incoming, e.computedFieldNames)
       }
     })
     this.subsystemBus.registerGate('beforeDelete', async (e) => {

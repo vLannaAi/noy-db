@@ -51,8 +51,10 @@
  *       │    ├─ SessionExpiredError
  *       │    ├─ SessionNotFoundError
  *       │    └─ SessionPolicyError
- *       └─ Snapshot errors
- *            └─ SnapshotNotFoundError  — snapshot key absent from snapshot store
+ *       ├─ Snapshot errors
+ *       │    └─ SnapshotNotFoundError  — snapshot key absent from snapshot store
+ *       └─ Computed field errors
+ *            └─ ComputedFieldError     — computed function threw during a write
  * ```
  *
  * ## Catching all NOYDB errors

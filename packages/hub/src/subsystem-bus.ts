@@ -45,6 +45,14 @@ export interface GatePutEvent {
   readonly existingTs: string | undefined
   readonly userId: string
   readonly role: Role
+  /**
+   * Names of fields whose values are schema-owned computed fields for this
+   * collection. Gate handlers (e.g. `frozenFields`) must skip these: the
+   * incoming record is the raw user input (computed fields not yet evaluated),
+   * so comparing `existing[computedField]` vs `incoming[computedField]`
+   * would always see a change even when the computed result is unchanged.
+   */
+  readonly computedFieldNames?: ReadonlySet<string>
 }
 
 /** Payload for a `beforeDelete` gate. Like {@link GatePutEvent} without `incoming`. */

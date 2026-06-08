@@ -618,6 +618,8 @@ export type { TxOp } from './types.js'
 
 // Guards (record lock + field freeze + amendment invariant) — see docs/superpowers/specs/2026-05-18-guards-design.md
 export { withGuard } from './guards/index.js'
+export { immutableGuard } from './guards/index.js'
+export type { ImmutableGuardConfig } from './guards/index.js'
 export type {
   GuardStrategy,
   GuardStrategyHandle,
@@ -731,6 +733,10 @@ export type {
   RoundingMode,
   FxRates,
 } from './money/index.js'
+
+// computed — schema-owned computed scalar fields (#302)
+export { evalComputedFields, ComputedFieldError } from './computed/index.js'
+export type { ComputedFields, ComputedFn } from './computed/index.js'
 
 // i18n — resolution policy + script enforcement
 export { resolvePolicy } from './i18n/policy.js'

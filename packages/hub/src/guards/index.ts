@@ -1,4 +1,6 @@
 export { withGuard } from './with-guard.js'
+export { immutableGuard } from './immutable-guard.js'
+export type { ImmutableGuardConfig } from './immutable-guard.js'
 export { GuardRegistry } from './registry.js'
 export { GuardExecutor } from './executor.js'
 export { ReadOnlyVaultFacade } from './read-only-facade.js'

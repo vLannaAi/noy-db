@@ -202,6 +202,59 @@ invoices.query().aggregate({ total: sum('total') }).run() // → '0.60', never 0
 - **Multi-currency:** opt in with `money({ currencies: 'any' | ['EUR','USD'] })` — currency travels per record as `{ amount, currency }`; `sum` returns an exact per-currency map (`{ EUR: '15.50', USD: '3.00' }`), or one figure with `sum('total', { convertTo: 'EUR', fx })`.
 - Money `sum`/`min`/`max` implement incremental `remove()`, so they stay exact under live aggregation and materialized-view maintenance.
 
+## Computed fields
+
+`computed` declares schema-owned scalar fields derived on write — keeping the arithmetic next to the schema instead of scattered across handlers. Each function is pure and synchronous; they run **first** in the write pipeline (before schema validation), in declaration order, so a later field can read an earlier one. The result is **materialized** on the record — stored, queryable, and `aggregate(sum())`-able like any field.
+
+```ts
+vault.collection('lines', {
+  schema: z.object({
+    id: z.string(), unitPrice: z.number(), qty: z.number(),
+    netAmount: z.number().optional(), taxAmount: z.number().optional(), total: z.number().optional(),
+  }),
+  computed: {
+    netAmount: (r) => r.unitPrice * r.qty,
+    taxAmount: (r) => r.netAmount * 0.22,   // reads the field computed above
+    total:     (r) => r.netAmount + r.taxAmount,
+  },
+})
+
+await lines.put('a', { id: 'a', unitPrice: 10, qty: 3 })  // computed fields not supplied
+const line = await lines.get('a')   // → { …, netAmount: 30, taxAmount: 6.6, total: 36.6 }
+```
+
+- A computed field **overwrites** any user-supplied value of the same name (the field is schema-owned); a throwing function rejects the write with `ComputedFieldError`.
+- **Composes with `money()`** — declare a computed field as a money field too and it's quantized after evaluation, so `sum()` over it is exact.
+
+## Immutable collections (WORM)
+
+`immutableGuard` makes a collection write-once after a condition holds — issued invoices/DDTs that must never change. It's declarative sugar over `guards`: it generates the block-on-`check`/`onDelete` + ledgered admin-`amendment` strategy, so it reuses the whole guard machinery (and composes with `periods`/`history`).
+
+```ts
+import { createNoydb, immutableGuard } from '@noy-db/hub'
+
+await createNoydb({
+  store, user, secret,
+  guardStrategies: [
+    immutableGuard({ collection: 'invoices', after: (r) => r.status === 'issued' }),
+  ],
+})
+
+await invoices.put('a', { id: 'a', status: 'draft',  total: 100 }) // ok
+await invoices.put('a', { id: 'a', status: 'issued', total: 100 }) // ok — the transition write
+await invoices.put('a', { id: 'a', status: 'issued', total: 999 }) // ✗ RecordLockedError
+await invoices.delete('a')                                          // ✗ RecordLockedError
+
+// the sanctioned, ledgered override:
+await db.transaction({ amendment: true, reason: 'correct issued total' }, async (tx) => {
+  tx.vault('books').collection('invoices').put('a', { id: 'a', status: 'issued', total: 110 })
+})
+```
+
+- `after(record)` is evaluated on the **existing** record, so inserts and the write that *first* makes a record immutable are allowed; everything after is blocked.
+- `appendOnly: true` is shorthand for `after: () => true` — immutable from creation.
+- The admin/owner `amendment` path is the only way through, and every amendment is appended to the audit ledger.
+
 ## Status
 
 **Pre-release** (`0.1.0-pre.1`). API may change before `1.0`. Install from the `next` dist-tag:
