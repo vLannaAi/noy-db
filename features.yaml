@@ -1107,6 +1107,8 @@ features:
         path: showcases/src/98-vault-group-federation.showcase.test.ts
       - id: 99-vault-group-live-aggregate
         path: showcases/src/99-vault-group-live-aggregate.showcase.test.ts
+      - id: 100-state-management-vault
+        path: showcases/src/100-state-management-vault.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
