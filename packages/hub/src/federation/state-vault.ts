@@ -85,4 +85,18 @@ export class StateManagementVault {
     })
     return fingerprint
   }
+
+  /**
+   * True when `template`'s current declared shape does not match the recorded
+   * manifest for `(templateName, template.version)`. Because shards carry no
+   * schema state independent of their template, this catches "a template's
+   * shape changed without bumping `version`" — not independent per-shard drift.
+   * A missing manifest is treated as drift (nothing to verify against).
+   */
+  async detectDrift(templateName: string, template: VaultTemplate): Promise<boolean> {
+    const row = await this.schemaManifest.get(`${templateName}:${template.version}`)
+    if (!row) return true
+    const current = await fingerprintBlueprint(captureBlueprint(template.configure))
+    return current !== row.fingerprint
+  }
 }

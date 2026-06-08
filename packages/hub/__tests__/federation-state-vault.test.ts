@@ -196,3 +196,22 @@ describe('reserved-name rejection', () => {
     await expect(group.createShard('__noydb_state__')).rejects.toBeInstanceOf(ReservedVaultNameError)
   })
 })
+
+describe('manifest drift detection', () => {
+  it('detects when a configure shape no longer matches a recorded manifest version', async () => {
+    const db = await createNoydb({ store: memory(), user: 'op', encrypt: false })
+    const sv = await StateManagementVault.open(db)
+    await sv.recordManifest('client', { version: 1, configure: (v) => { v.collection('invoices') } })
+    // Same declared version, different shape → drift.
+    const drift = await sv.detectDrift('client', { version: 1, configure: (v) => { v.collection('invoices'); v.collection('extra') } })
+    expect(drift).toBe(true)
+    const ok = await sv.detectDrift('client', { version: 1, configure: (v) => { v.collection('invoices') } })
+    expect(ok).toBe(false)
+  })
+
+  it('treats a missing manifest as drift', async () => {
+    const db = await createNoydb({ store: memory(), user: 'op', encrypt: false })
+    const sv = await StateManagementVault.open(db)
+    expect(await sv.detectDrift('client', { version: 9, configure: (v) => { v.collection('x') } })).toBe(true)
+  })
+})
