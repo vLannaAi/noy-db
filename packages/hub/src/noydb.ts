@@ -23,6 +23,7 @@ import type {
 } from './types.js'
 import { ValidationError, NoAccessError, InvalidKeyError, KeyringCorruptError, StoreCapabilityError, PermissionDeniedError, VaultTemplateNotFoundError, ReservedVaultNameError } from './errors.js'
 import { STATE_VAULT_NAME } from './federation/constants.js'
+import type { StateManagementVault } from './federation/state-vault.js'
 import {
   readDirectoryConfig,
   persistDirectoryConfig,
@@ -1039,6 +1040,17 @@ export class Noydb {
       }
     }
     return group
+  }
+
+  /**
+   * Open the reserved StateManagement control-plane vault (registry +
+   * schema-manifest + deployment-events). Lazy-loaded so the federation
+   * chunk stays out of the core graph until used.
+   */
+  async openStateManagementVault(): Promise<StateManagementVault> {
+    if (this.closed) throw new ValidationError('Instance is closed')
+    const { StateManagementVault } = await import('./federation/state-vault.js')
+    return StateManagementVault.open(this)
   }
 
   /**

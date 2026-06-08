@@ -238,3 +238,12 @@ describe('deployment-events optional WORM hardening', () => {
     ).rejects.toBeInstanceOf(RecordLockedError)
   })
 })
+
+describe('db.openStateManagementVault factory', () => {
+  it('returns a usable control-plane handle (lazy-loaded)', async () => {
+    const db = await createNoydb({ store: memory(), user: 'op', encrypt: false })
+    const sv = await db.openStateManagementVault()
+    await sv.appendEvent({ type: 'group-opened', group: 'x' })
+    expect((await sv.queryEvents().toArray()).length).toBe(1)
+  })
+})

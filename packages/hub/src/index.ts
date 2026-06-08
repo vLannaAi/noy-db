@@ -298,7 +298,7 @@ export type { SequenceHandle } from './sequence/index.js'
 // package entry to the federation chunk, so federation stays purely behind the
 // dynamic `import()` in `openVaultGroup` — reliably excluded (ESM, CJS, and
 // non-tree-shaking consumers alike) until a group is actually opened.
-export type { VaultGroup, ShardedCollection, ShardedQuery } from './federation/index.js'
+export type { VaultGroup, ShardedCollection, ShardedQuery, StateManagementVault } from './federation/index.js'
 export type {
   VaultTemplate,
   VaultRegistryRow,
@@ -313,7 +313,9 @@ export type {
   CrossVaultLiveQuery, CrossVaultLiveAggregation, LiveQueryOptions,
   GroupedRow as CrossVaultGroupedRow,
 } from './federation/index.js'
-export { UnknownShardError, ShardProvisioningError, VaultTemplateNotFoundError } from './errors.js'
+export type { SchemaManifestRow, DeploymentEvent, CapturedBlueprint } from './federation/index.js'
+export { STATE_VAULT_NAME } from './federation/constants.js'
+export { UnknownShardError, ShardProvisioningError, VaultTemplateNotFoundError, ReservedVaultNameError } from './errors.js'
 
 // Bundle format — `.noydb` container
 export {
