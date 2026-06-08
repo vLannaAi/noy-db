@@ -6,6 +6,9 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.
 import { ConflictError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
 import { StateManagementVault } from '../src/federation/state-vault.js'
+import { immutableGuard } from '../src/guards/index.js'
+import { RecordLockedError } from '../src/errors.js'
+import { STATE_VAULT_NAME } from '../src/federation/state-vault.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -213,5 +216,25 @@ describe('manifest drift detection', () => {
     const db = await createNoydb({ store: memory(), user: 'op', encrypt: false })
     const sv = await StateManagementVault.open(db)
     expect(await sv.detectDrift('client', { version: 9, configure: (v) => { v.collection('x') } })).toBe(true)
+  })
+})
+
+describe('deployment-events optional WORM hardening', () => {
+  it('rejects mutation of an event when the consumer adds immutableGuard', async () => {
+    const db = await createNoydb({
+      store: memory(),
+      user: 'op',
+      encrypt: false,
+      guardStrategies: [immutableGuard({ collection: 'deploymentEvents', appendOnly: true })],
+    })
+    const sv = await StateManagementVault.open(db)
+    await sv.appendEvent({ type: 'group-opened', group: 'g' })
+    const [ev] = await sv.queryEvents().toArray()
+    // The events collection is private on StateManagementVault; a consumer
+    // bypassing appendEvent via direct vault access still hits the WORM guard.
+    const stateVault = await db.openVault(STATE_VAULT_NAME)
+    await expect(
+      stateVault.collection('deploymentEvents').put(ev.id, { ...ev, group: 'tampered' }),
+    ).rejects.toBeInstanceOf(RecordLockedError)
   })
 })
