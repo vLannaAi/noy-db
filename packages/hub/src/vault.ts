@@ -45,7 +45,7 @@ import type { BlobStrategy } from './blobs/strategy.js'
 import type { ArchiveStrategy } from './archive/index.js'
 import type { ArchivePolicy, ArchiveContext, ArchiveResult, ArchiveRunOptions } from './archive/index.js'
 import { runArchive, runRestore, runListArchived } from './archive/index.js'
-import { SequenceStore, type SequenceHandle } from './sequence/index.js'
+import { SequenceStore, type SequenceHandle, SEQUENCE_COLLECTION } from './sequence/index.js'
 import type { IndexStrategy } from './indexing/strategy.js'
 import type { AggregateStrategy } from './aggregate/strategy.js'
 import type { CrdtStrategy } from './crdt/strategy.js'
@@ -530,8 +530,9 @@ export class Vault {
    *. `put()` validates keys against the declared set; reads
    *   with `{ locale }` add `<field>Label` virtual fields.
    *
-   * Throws `ReservedCollectionNameError` for names starting with `_dict_`.
-   * Use `vault.dictionary(name)` to access dictionary collections.
+   * Throws `ReservedCollectionNameError` for names starting with `_dict_` or
+   * equal to `_sequences`. Use `vault.dictionary(name)` for dict collections
+   * and `vault.sequence(name)` for sequence counters.
    *
    * Lazy mode + indexes is rejected at construction time — see the
    * Collection constructor for the rationale.
@@ -621,6 +622,10 @@ export class Vault {
     }
     // Guard: reject reserved _dict_* names
     if (isDictCollectionName(collectionName)) {
+      throw new ReservedCollectionNameError(collectionName)
+    }
+    // Guard: reject the internal _sequences collection — use vault.sequence() instead.
+    if (collectionName === SEQUENCE_COLLECTION) {
       throw new ReservedCollectionNameError(collectionName)
     }
 
@@ -2949,7 +2954,7 @@ export class Vault {
     // empty ledger and `verifyBackupIntegrity()` would have nothing
     // to compare against.
     const internalSnapshot: VaultSnapshot = {}
-    for (const internalName of [LEDGER_COLLECTION, LEDGER_DELTAS_COLLECTION, SCHEMAS_COLLECTION]) {
+    for (const internalName of [LEDGER_COLLECTION, LEDGER_DELTAS_COLLECTION, SCHEMAS_COLLECTION, SEQUENCE_COLLECTION]) {
       const ids = await this.adapter.list(this.name, internalName)
       if (ids.length === 0) continue
       const records: Record<string, EncryptedEnvelope> = {}

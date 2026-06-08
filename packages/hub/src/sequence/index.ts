@@ -24,7 +24,7 @@ import { NOYDB_FORMAT_VERSION } from '../types.js'
 import { encrypt, decrypt } from '../crypto.js'
 import { ConflictError, SequenceContentionError, SequenceOfflineError } from '../errors.js'
 
-const SEQUENCE_COLLECTION = '_sequences'
+export const SEQUENCE_COLLECTION = '_sequences'
 // A sequence is a single hot CAS row — higher contention than a ledger
 // append. A larger budget + jittered backoff absorbs moderate concurrency;
 // a genuine burst beyond this surfaces SequenceContentionError so the
