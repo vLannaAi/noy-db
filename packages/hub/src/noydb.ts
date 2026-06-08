@@ -21,7 +21,8 @@ import type {
   TranslatorAuditEntry,
   WriteConflict,
 } from './types.js'
-import { ValidationError, NoAccessError, InvalidKeyError, KeyringCorruptError, StoreCapabilityError, PermissionDeniedError, VaultTemplateNotFoundError } from './errors.js'
+import { ValidationError, NoAccessError, InvalidKeyError, KeyringCorruptError, StoreCapabilityError, PermissionDeniedError, VaultTemplateNotFoundError, ReservedVaultNameError } from './errors.js'
+import { STATE_VAULT_NAME } from './federation/constants.js'
 import {
   readDirectoryConfig,
   persistDirectoryConfig,
@@ -1014,12 +1015,30 @@ export class Noydb {
    */
   async openVaultGroup<T>(name: string, opts: VaultGroupOptions<T>): Promise<VaultGroup<T>> {
     if (this.closed) throw new ValidationError('Instance is closed')
+    if (name === STATE_VAULT_NAME) throw new ReservedVaultNameError(name)
     const template = this.vaultTemplates.get(opts.sharding.vaultTemplate)
     if (!template) throw new VaultTemplateNotFoundError(opts.sharding.vaultTemplate)
-    // Lazy-load so the federation module is a separate chunk, not part
-    // of the always-loaded core graph (keeps the core bundle ceiling).
+    // Lazy-load so the federation module stays a separate chunk, not part
+    // of the always-loaded core graph (keeps the core bundle ceiling). Both
+    // imports below MUST remain dynamic for the same reason.
     const { VaultGroup } = await import('./federation/vault-group.js')
-    return new VaultGroup<T>(this, name, opts.registry, opts.sharding, template)
+    const { StateManagementVault } = await import('./federation/state-vault.js')
+    // Managed control plane when no explicit registry is supplied.
+    const stateVault = opts.registry ? undefined : await StateManagementVault.open(this)
+    const registry = opts.registry ?? stateVault!.registry
+    const group = new VaultGroup<T>(this, name, registry, opts.sharding, template)
+    if (stateVault) {
+      group._attachStateVault(stateVault)
+      // recordManifest persists control-plane state → hard-fail on error.
+      await stateVault.recordManifest(opts.sharding.vaultTemplate, template)
+      // group-opened is an incidental event → best-effort, never fails the open.
+      try {
+        await stateVault.appendEvent({ type: 'group-opened', group: name })
+      } catch {
+        /* best-effort: event logging never fails openVaultGroup */
+      }
+    }
+    return group
   }
 
   /**

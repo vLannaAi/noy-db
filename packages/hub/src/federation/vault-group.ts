@@ -63,6 +63,14 @@ export class VaultGroup<T> {
     }
   }
 
+  /** @internal — set when the group is managed (no explicit registry). */
+  private stateVault: import('./state-vault.js').StateManagementVault | undefined
+
+  /** @internal */
+  _attachStateVault(sv: import('./state-vault.js').StateManagementVault): void {
+    this.stateVault = sv
+  }
+
   /** Deterministic vault name for a partition key, namespaced by the group. */
   shardVaultId(partitionKey: string): string {
     assertSafePartitionKey(partitionKey)
@@ -119,6 +127,19 @@ export class VaultGroup<T> {
       createdAt: Date.now(),
       group: this.name,
     })
+    if (this.stateVault) {
+      try {
+        await this.stateVault.appendEvent({
+          type: 'shard-created',
+          group: this.name,
+          vaultId,
+          templateName: this.sharding.vaultTemplate,
+          version: this.template.version,
+        })
+      } catch {
+        /* best-effort: event logging never fails the shard write */
+      }
+    }
     return vault
   }
 

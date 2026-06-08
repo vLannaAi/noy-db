@@ -46,8 +46,12 @@ export interface ShardingConfig<T> {
 
 /** Options for `Noydb.openVaultGroup`. */
 export interface VaultGroupOptions<T> {
-  /** The `vault-registry` collection (source of truth for shard discovery). */
-  readonly registry: Collection<VaultRegistryRow>
+  /**
+   * The `vault-registry` collection (source of truth for shard discovery).
+   * Optional: when omitted, the reserved StateManagement vault's registry
+   * is auto-opened and used.
+   */
+  readonly registry?: Collection<VaultRegistryRow>
   readonly sharding: ShardingConfig<T>
 }
 

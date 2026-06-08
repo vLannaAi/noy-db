@@ -149,3 +149,33 @@ describe('group-qualified registry ids', () => {
     expect((await sv.registry.get('groupB--shared'))?.group).toBe('groupB')
   })
 })
+
+describe('openVaultGroup auto-wiring', () => {
+  it('auto-opens the state vault when registry is omitted, recording row + manifest + event', async () => {
+    const db = await createNoydb({ store: memory(), user: 'op', encrypt: false })
+    db.withVaultTemplate('client', { version: 2, configure: (v) => { v.collection('invoices') } })
+    const group = await db.openVaultGroup<{ pk: string }>('firm', {
+      sharding: { keyOf: (r) => r.pk, vaultTemplate: 'client' },
+    })
+    await group.createShard('acme')
+
+    const sv = await StateManagementVault.open(db)
+    expect((await sv.registry.get('firm--acme'))?.group).toBe('firm')
+    expect((await sv.schemaManifest.get('client:2'))?.collections).toEqual(['invoices'])
+    const events = await sv.queryEvents().toArray()
+    expect(events.some((e) => e.type === 'shard-created' && e.vaultId === 'firm--acme')).toBe(true)
+    expect(events.some((e) => e.type === 'group-opened' && e.group === 'firm')).toBe(true)
+  })
+
+  it('still honors an explicitly-passed registry (backward-compat)', async () => {
+    const db = await createNoydb({ store: memory(), user: 'op', encrypt: false })
+    db.withVaultTemplate('t', { version: 1, configure: (v) => { v.collection('items') } })
+    const sv = await StateManagementVault.open(db)
+    const group = await db.openVaultGroup<{ pk: string }>('g', {
+      registry: sv.registry,
+      sharding: { keyOf: (r) => r.pk, vaultTemplate: 't' },
+    })
+    await group.createShard('p1')
+    expect((await sv.registry.get('g--p1'))?.partitionKey).toBe('p1')
+  })
+})
