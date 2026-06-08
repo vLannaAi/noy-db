@@ -291,6 +291,19 @@ await vault.restore('invoices', 'inv-2020') // relocate back to primary (decrypt
 
 Archival uses low-level relocation, so it **bypasses guards** (issued/immutable records over a sealed period can still be archived) and doesn't recompute finalized aggregates. Archived records read `null` from the primary store until restored; a `legalHold` predicate blocks archival entirely.
 
+## Atomic sequences
+
+`vault.sequence(name)` gives gap-free, exactly-once numbering — the primitive fiscal/ERP/ticketing apps need for invoice or DDT numbers — backed by an optimistic compare-and-swap counter.
+
+```ts
+const n = await vault.sequence('invoice-2026').next()   // 1, then 2, 3, … no gaps, no duplicates
+const cur = await vault.sequence('invoice-2026').peek()  // read current value without allocating
+```
+
+- **Independent per name** — `sequence('invoice-2026')` and `sequence('ddt-2026')` are separate counters.
+- **Concurrency-safe** — concurrent `next()` calls retry on CAS contention (jittered backoff); a genuine burst beyond the retry budget surfaces `SequenceContentionError` so the caller can retry or queue.
+- **Online-only — by design.** Gap-free numbering needs single-authority serialization, which an offline writer can't provide. `next()` throws `SequenceOfflineError` unless the store advertises `capabilities.casAtomic`. This is the honest wall: assign each `next()` value to its record in the same operation (a discarded value is a gap in *usage*, not in the sequence).
+
 ## Status
 
 **Pre-release** (`0.1.0-pre.1`). API may change before `1.0`. Install from the `next` dist-tag:

@@ -230,6 +230,25 @@ features:
       - 'Index-aware execution: indexed fast-path then fallback scan'
     related: [vault-and-collections]
 
+  - id: atomic-sequence
+    name: Atomic gap-free sequence (online-only numbering)
+    cluster: core
+    spec: SUBSYSTEMS.md#the-minimalist-core
+    subsystem_doc: docs/core/06-query-basics.md
+    package: '@noy-db/hub'
+    factory: null
+    status: preview
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'vault.sequence(name).next() allocates 1,2,3,… gap-free + exactly-once via optimistic-CAS on _sequences/<name>'
+      - 'independent per-name sequences; peek() reads without allocating'
+      - 'online-only: next() throws SequenceOfflineError unless store capabilities.casAtomic'
+      - 'jittered backoff; SequenceContentionError after the retry budget so callers can retry/queue'
+    related: [stores-contract, query-basics]
+
   # ─── Subsystems behind with*() factories ───────────────────────────
 
   - id: team
