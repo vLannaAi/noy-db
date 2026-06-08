@@ -1,5 +1,37 @@
 # Changelog — hub
 
+## 0.2.0-pre.12
+
+Multi-vault federation (epic [#271](https://github.com/vLannaAi/noy-db/issues/271)) + fiscal-grade field, lifecycle & numbering primitives (m17 clusters A–D).
+
+### Feature: multi-vault federation — `VaultGroup` ([#271](https://github.com/vLannaAi/noy-db/issues/271))
+
+- **`db.openVaultGroup(...)`** routes a logical collection transparently across many physical vaults (shards). `ShardedCollection` / `ShardedQuery` fan out reads with skipped-shard reporting (`SkippedVault`, including a `'no-grant'` reason for shards you can't decrypt). ([#292](https://github.com/vLannaAi/noy-db/issues/292))
+- **Cross-vault live + distributed aggregate** — `ShardedQuery.live()` / `.aggregate()` / `.groupBy().aggregate()` give reactive snapshots and a single **central reduce** over the union of all shards, so `avg`/`mean` are exact (never avg-of-avgs). Federation ships as a **lazy chunk** (dynamic import; type-only entry exports), so it stays out of the core bundle until used. ([#319](https://github.com/vLannaAi/noy-db/issues/319))
+- **Key-custody-neutral fan-out** — `queryAcross` no longer assumes a single custody model; shards you lack a grant to are skipped, not failed. New optional **`Reducer.merge(a, b)`** combines partial results computed in parallel across shards. ([#312](https://github.com/vLannaAi/noy-db/issues/312))
+
+### Feature: `money()` — currency-safe decimal field ([#300](https://github.com/vLannaAi/noy-db/issues/300))
+
+- Schema-layer descriptor (sibling of `i18nText()` / `dictKey()`) for exact decimal money, stored as a scaled-integer **digit string** — exact past `Number.MAX_SAFE_INTEGER`. ISO-4217 default scales; 7 rounding modes (excess precision rejected by default). Multi-currency mode carries the currency per record. `sum` / `min` / `max` run in **BigInt** with incremental `remove()` (exact under live aggregation / MV maintenance); `avg` over a money field throws **`MoneyUnsupportedError`** rather than returning a lossy figure.
+- Money errors (`MoneyPrecisionError` / `MoneyCurrencyError` / `MoneyUnsupportedError`) now extend **`NoydbError`** (codes `MONEY_PRECISION` / `MONEY_CURRENCY` / `MONEY_UNSUPPORTED`), so they're caught by the documented `catch (e) { if (e instanceof NoydbError) }` convention.
+
+### Feature: computed scalar fields ([#302](https://github.com/vLannaAi/noy-db/issues/302))
+
+- **`computed: { … }`** declares schema-owned scalar fields derived on write — pure and synchronous, run **first** in the write pipeline in declaration order (a later field can read an earlier one). The result is **materialized**: stored, queryable, and `aggregate(sum())`-able. A computed field overwrites any user-supplied value of the same name; a throwing function rejects the write with **`ComputedFieldError`** (extends `NoydbError`). Composes with `money()`, and `immutableGuard`-frozen fields are skipped so computed values may still be recomputed.
+
+### Feature: immutable collections / WORM ([#301](https://github.com/vLannaAi/noy-db/issues/301))
+
+- **`immutableGuard({ collection, after })`** — declarative write-once-after-condition sugar over the existing `guards` machinery (block-on-`check`/`onDelete` + ledgered admin `amendment`). `after(record)` is evaluated on the existing record, so inserts and the transition write are allowed; everything after is blocked with `RecordLockedError`. `appendOnly: true` = immutable from creation. The audited `amendment` transaction is the only override.
+
+### Feature: blob retention, legal-hold & record archival ([#311](https://github.com/vLannaAi/noy-db/issues/311), [#307](https://github.com/vLannaAi/noy-db/issues/307))
+
+- Blob `vault.compact()` gains **`legalHold`** (never evict while held) and **`retainUntil`** (period-bound retention floor); an unparseable `retainUntil` **fails closed** (record retained). ([#311](https://github.com/vLannaAi/noy-db/issues/311))
+- **`withArchive`** relocates sealed records to a cold store at the envelope level (no re-encryption): `vault.archive()` / `vault.listArchived()` / `vault.restore()`. Archival bypasses guards and a `legalHold` predicate blocks it entirely; archived records read `null` from the primary store until restored. ([#307](https://github.com/vLannaAi/noy-db/issues/307))
+
+### Feature: atomic gap-free sequences ([#303](https://github.com/vLannaAi/noy-db/issues/303))
+
+- **`vault.sequence(name).next()`** — gap-free, exactly-once numbering (invoice / DDT numbers) over an optimistic compare-and-swap counter; `peek()` reads the current value without allocating. Independent per name and concurrency-safe (jittered CAS retry; `SequenceContentionError` past the retry budget). **Online-only by design** — `next()` throws `SequenceOfflineError` unless the store advertises `capabilities.casAtomic`. Counters survive `dump()` / `load()` backup round-trips (`_sequences` is preserved in backups). Ships with a forget-cascade design spec ([#304](https://github.com/vLannaAi/noy-db/issues/304)).
+
 ## 0.2.0-pre.11
 
 ### Security: `openVault` no longer self-provisions into another principal's vault ([#313](https://github.com/vLannaAi/noy-db/issues/313))
