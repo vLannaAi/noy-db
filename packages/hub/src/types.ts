@@ -252,6 +252,13 @@ export interface NoydbStore {
   ping?(): Promise<boolean>
 
   /**
+   * The store's authoritative time as a bounded-uncertainty interval.
+   * Present iff `capabilities.serverWriteTime` is true. Monotonic
+   * non-decreasing across calls on a single store.
+   */
+  getStoreTime?(): Promise<StoreTime>
+
+  /**
    * Optional: list record IDs in a collection that have `_ts` after `since`.
    * Used by partial sync (`pull({ modifiedSince })`). Stores that omit this
    * fall back to a full `loadAll` + client-side timestamp filter.
@@ -1619,6 +1626,18 @@ export interface StoreAuth {
   flow: 'static' | 'oauth' | 'kerberos' | 'implicit'
 }
 
+/**
+ * The store's authoritative clock as a bounded-uncertainty interval
+ * (Spanner TrueTime model). True time is provably within [earliest, latest];
+ * `latest - earliest` is the clock-uncertainty bound ε. Used by deferred
+ * numbering to order records by store-commit-time and to commit-wait. Never
+ * the client wall clock.
+ */
+export interface StoreTime {
+  readonly earliest: number
+  readonly latest: number
+}
+
 export interface StoreCapabilities {
   /**
    * true — the store's expectedVersion check and write are atomic at the
@@ -1627,6 +1646,13 @@ export interface StoreCapabilities {
    * false — check and write are separate operations with a race window.
    */
   casAtomic: boolean
+  /**
+   * true — the store exposes an authoritative {@link NoydbStore.getStoreTime}
+   * clock and records are ordered by store-commit-time. Required for
+   * `withDeferredNumbering`. Absent/false — the store cannot back deferred
+   * numbering (use CAS `sequence().next()` or per-series).
+   */
+  serverWriteTime?: boolean
   auth: StoreAuth
   /**
    * true — the store implements {@link NoydbStore.tx} and commits
