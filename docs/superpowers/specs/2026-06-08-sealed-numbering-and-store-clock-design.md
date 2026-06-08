@@ -38,6 +38,28 @@ A 5-angle research pass (23 sources, 25 claims, 3-vote adversarial verification)
 
 These are complementary, not competing: `next()` coordinates **on write** (one CAS per number); sealed numbering coordinates **on seal** (one CAS per *batch*), trading write-time contention for a settling delay.
 
+### Unified async API surface
+
+Both primitives expose the **same call shape — `next(): Promise<number>`** — so callers and UIs don't branch on store type: `await` it, show a loader, render the number when it resolves. What differs is *latency* and *binding*:
+
+```ts
+// CAS: resolves in ms with a fresh number the caller places.
+const n = await vault.sequence('invoices').next()
+
+// Sealed: resolves when the next seal assigns THIS record its serial
+// (after the settling window). `for` binds the eventual number to a record,
+// because sealed numbering orders + stamps records by store-commit-time.
+const n = await vault.sequence('invoices').next({ for: recordId, timeoutMs })
+```
+
+Semantics that keep the shared signature honest:
+
+- **Resolves at the next *scheduled* seal — it does not trigger one.** Forcing a seal per call would destroy batching and can't satisfy commit-wait (the settling window must elapse). The Promise is a subscription: "resolve when my record is sealed."
+- **The record's `fiscalNumber` field is the source of truth; the Promise is a live convenience over it.** A crash between `next()` and the seal loses the in-memory Promise but **not** the durable pending record — it still gets numbered at the next seal. Robust UIs re-read the field on reload; the Promise is the fast path, not the system of record. (In-process: a pending-promise registry; cross-instance: poll the record / series head.)
+- **Resolution order = store-commit-time order, not call order.** Two operators calling `next()` concurrently get serials in the order their records committed to the store.
+- **Fail-closed stays pending, doesn't reject.** Under clock uncertainty the seal waits, so the Promise stays unresolved; an optional `timeoutMs` rejects with a "numbering delayed" signal so the UI can surface that state instead of spinning.
+- **Discoverability caveat (leaky abstraction):** the same `await invoice.next()` is ~1 ms on a CAS store and up to `settleWindowMs` on a sealed deployment. This latency gap must be documented at the call site so a developer isn't surprised that a "get the next number" call can block for minutes on a file-share backend.
+
 ## The store-clock abstraction
 
 ```ts
