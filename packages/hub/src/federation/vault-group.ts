@@ -7,6 +7,7 @@
 import type { Noydb } from '../noydb.js'
 import type { Vault } from '../vault.js'
 import type { Collection } from '../collection.js'
+import type { StateManagementVault } from './state-vault.js'
 import { ReservedVaultNameError, ShardProvisioningError, UnknownShardError, ValidationError } from '../errors.js'
 import { STATE_VAULT_NAME } from './constants.js'
 import { classifyShardSkip } from './classify-skip.js'
@@ -68,10 +69,10 @@ export class VaultGroup<T> {
   }
 
   /** @internal — set when the group is managed (no explicit registry). */
-  private stateVault: import('./state-vault.js').StateManagementVault | undefined
+  private stateVault: StateManagementVault | undefined
 
   /** @internal */
-  _attachStateVault(sv: import('./state-vault.js').StateManagementVault): void {
+  _attachStateVault(sv: StateManagementVault): void {
     this.stateVault = sv
   }
 
@@ -101,7 +102,7 @@ export class VaultGroup<T> {
    */
   async allRows(): Promise<VaultRegistryRow[]> {
     await this.registry.list()
-    const rows = await this.registry.query().toArray()
+    const rows = this.registry.query().toArray() // toArray() is synchronous
     return rows.filter((r) => r.group === this.name)
   }
 
