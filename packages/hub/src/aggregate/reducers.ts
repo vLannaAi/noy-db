@@ -79,6 +79,16 @@ export interface Reducer<R, S = R> {
    * Absent on `count` which aggregates over record count, not a field.
    */
   readonly field?: string
+  /**
+   * Money-only: target currency for `sum` over a multi-currency money
+   * field. Consumed by `wrapMoneyReducers` to convert per-currency
+   * subtotals to one figure. Ignored for non-money fields.
+   */
+  readonly convertTo?: string
+  /**
+   * Money-only: FX rate map (`'USD->EUR' → rate`) used with `convertTo`.
+   */
+  readonly fx?: Record<string, number | string>
 }
 
 /**
@@ -98,6 +108,13 @@ export interface Reducer<R, S = R> {
 export interface ReducerOptions<TSeed = unknown> {
   /**  constraint #2 — seed is plumbed through but unused in. */
   readonly seed?: TSeed
+  /**
+   * Money-only (honored by `sum` over a multi-currency money field):
+   * convert per-currency subtotals to this currency for a single figure.
+   */
+  readonly convertTo?: string
+  /** Money-only: FX rate map (`'USD->EUR' → rate`) used with `convertTo`. */
+  readonly fx?: Record<string, number | string>
 }
 
 // ---------------------------------------------------------------------------
@@ -139,6 +156,10 @@ export function sum(
   return {
     op: 'sum',
     field,
+    // Money-only metadata, read by `wrapMoneyReducers`. No effect on a
+    // generic numeric sum.
+    ...(opts?.convertTo !== undefined ? { convertTo: opts.convertTo } : {}),
+    ...(opts?.fx !== undefined ? { fx: opts.fx } : {}),
     init: () => 0,
     step: (state, record) => state + readNumber(record, field),
     remove: (state, record) => state - readNumber(record, field),
@@ -291,5 +312,20 @@ export function max(
  */
 function readNumber(record: unknown, field: string): number {
   const value = readPath(record, field)
+  // Defensive: a `{ amount, currency }` value means a multi-currency
+  // money field reached a generic numeric reducer instead of being
+  // rewritten by `wrapMoneyReducers` — that would silently produce a
+  // wrong total. Surface it loudly rather than coercing to 0.
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    'amount' in value &&
+    'currency' in value
+  ) {
+    throw new Error(
+      `aggregate: field "${field}" holds a money value but was not money-aware — ` +
+        `declare it in the collection's moneyFields so sum/min/max stay exact`,
+    )
+  }
   return typeof value === 'number' && Number.isFinite(value) ? value : 0
 }

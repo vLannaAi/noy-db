@@ -5,6 +5,8 @@ import { NO_CRDT, type CrdtStrategy } from './crdt/strategy.js'
 import type { I18nTextDescriptor } from './i18n/core.js'
 import { getAtPath, setAtPathInPlace } from './i18n/core.js'
 import type { DictKeyDescriptor } from './i18n/dictionary.js'
+import type { MoneyDescriptor } from './money/descriptor.js'
+import { quantizeMoneyFields, decodeMoneyFields } from './money/normalize.js'
 import { NO_I18N, type I18nStrategy } from './i18n/strategy.js'
 import { resolvePolicy } from './i18n/policy.js'
 import { encrypt, decrypt, encryptDeterministic } from './crypto.js'
@@ -284,6 +286,14 @@ export class Collection<T> {
    * fields when a locale is requested.
    */
   private readonly dictKeyFields: Record<string, DictKeyDescriptor> | undefined
+
+  /**
+   * Money field descriptors keyed by field path. Declared via the
+   * `moneyFields` collection option: `put()` quantizes to a scaled-int
+   * string, `get()`/`list()` decode back. Mutable so {@link _applyMoneyFields}
+   * can attach descriptors to a collection MV-analysis pre-created.
+   */
+  private moneyFields: Record<string, MoneyDescriptor> | undefined
 
   /**
    * Async callback provided by the Vault that resolves a dict key
@@ -594,6 +604,7 @@ export class Collection<T> {
     i18nFields?: Record<string, I18nTextDescriptor> | undefined
     /** — dictKey field descriptors for label resolution on reads. */
     dictKeyFields?: Record<string, DictKeyDescriptor> | undefined
+    moneyFields?: Record<string, MoneyDescriptor> | undefined
     /**
      * async callback that resolves a dict key to its label
      * for a given locale. Provided by the Vault.
@@ -779,6 +790,7 @@ export class Collection<T> {
     this.joinResolver = opts.joinResolver
     this.i18nFields = opts.i18nFields
     this.dictKeyFields = opts.dictKeyFields
+    this.moneyFields = opts.moneyFields
     this.dictLabelResolver = opts.dictLabelResolver
     this.i18nPutValidator = opts.i18nPutValidator
     this.autoTranslateHook = opts.autoTranslateHook
@@ -936,6 +948,16 @@ export class Collection<T> {
    */
   getSchema(): StandardSchemaV1<unknown, T> | undefined {
     return this.schema
+  }
+
+  /**
+   * @internal — attach money descriptors post-construction. MV dependency
+   * analysis auto-creates a source collection (without options) during
+   * `openVault`, before the user's `collection(name, { moneyFields })`
+   * declaration; this reconciles that ordering. First-wins. Not public.
+   */
+  _applyMoneyFields(moneyFields: Record<string, MoneyDescriptor>): void {
+    if (this.moneyFields === undefined) this.moneyFields = moneyFields
   }
 
   /**
@@ -1166,6 +1188,12 @@ export class Collection<T> {
     // encrypt path.
     if (this.schema !== undefined) {
       record = await validateSchemaInput(this.schema, record, `put(${id})`)
+    }
+
+    // Quantize money fields to their stored form (scaled-int string).
+    // After schema validation — descriptor owns precision/scale/currency.
+    if (this.moneyFields) {
+      record = quantizeMoneyFields(record as Record<string, unknown>, this.moneyFields) as T
     }
 
     // Auto-translate missing i18nText translations.
@@ -2283,6 +2311,7 @@ export class Collection<T> {
       // back to a linear scan otherwise.
       getIndexes: () => this.getIndexes(),
       lookupById: (id: string) => this.cache.get(id)?.record,
+      ...(this.moneyFields ? { moneyFields: this.moneyFields } : {}),
     }
     // Build a JoinContext if the vault passed a join resolver.
     // Without one, .join() on the resulting Query will throw with an
@@ -3084,12 +3113,21 @@ export class Collection<T> {
   ): Promise<T> {
     const hasI18n = this.i18nFields && Object.keys(this.i18nFields).length > 0
     const hasDict = this.dictKeyFields && Object.keys(this.dictKeyFields).length > 0
-    if (!hasI18n && !hasDict) return record
+    const hasMoney = this.moneyFields && Object.keys(this.moneyFields).length > 0
+    if (!hasI18n && !hasDict && !hasMoney) return record
 
     const locale = localeOpts?.locale ?? this.defaultLocale
-    if (!locale) return record
 
     let result = record as unknown as Record<string, unknown>
+
+    // Money decode runs regardless of locale (stored int → decimal string);
+    // virtuals are gated on `locale !== 'raw'` inside decodeMoneyFields.
+    if (hasMoney && this.moneyFields) {
+      result = decodeMoneyFields(result, this.moneyFields, typeof locale === 'string' ? locale : undefined)
+    }
+
+    // i18nText / dictKey resolution require an active locale.
+    if (!locale) return result as T
 
     // 1. i18nText resolution
     if (hasI18n && this.i18nFields) {

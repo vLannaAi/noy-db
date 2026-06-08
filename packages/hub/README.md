@@ -178,6 +178,30 @@ Core has zero `node:` imports — it runs unchanged in browsers, Node, Bun, Deno
 
 CSV, XML, xlsx, and the rest of the plaintext tier — plus encrypted `.noydb` bundles under the `as-noydb` encrypted tier — all live in the [`@noy-db/as-*`](https://www.npmjs.com/search?q=%40noy-db%2Fas-) family. Every invocation is gated by the two-tier authorization model (`canExportPlaintext` default off, `canExportBundle` default on for owner/admin) and lands in the audit ledger.
 
+## Money fields
+
+`money()` is a schema-layer field descriptor (a sibling of `i18nText()` / `dictKey()`) for currency-safe, exact decimal values. Money is stored as a scaled integer encoded as a **digit string**, so it is exact for any magnitude — past `Number.MAX_SAFE_INTEGER` included (a JSON number would silently truncate at 2^53).
+
+```ts
+vault.collection('invoices', {
+  schema: z.object({ id: z.string(), total: z.union([z.number(), z.string()]) }),
+  moneyFields: { total: money({ currency: 'EUR', scale: 2 }) }, // scale optional — ISO-4217 default
+})
+
+await invoices.put('a', { id: 'a', total: '123.45' })          // stored as '12345'
+const inv = await invoices.get('a', { locale: 'de-DE' })
+// inv.total           → '123.45'   (exact decimal string)
+// inv.totalFormatted  → '123,45 €' (Intl, full precision)
+// inv.totalNumber     → 123.45     (convenience JS number; lossy past 2^53)
+
+// Exact aggregation — sum/min/max run in BigInt, no float drift:
+invoices.query().aggregate({ total: sum('total') }).run() // → '0.60', never 0.6000000000000001
+```
+
+- **Rounding:** excess precision is **rejected** by default; opt in per field with `money({ ..., rounding: 'half-even' })` (`half-up` / `half-even` / `half-down` / `up` / `down` / `ceil` / `floor`).
+- **Multi-currency:** opt in with `money({ currencies: 'any' | ['EUR','USD'] })` — currency travels per record as `{ amount, currency }`; `sum` returns an exact per-currency map (`{ EUR: '15.50', USD: '3.00' }`), or one figure with `sum('total', { convertTo: 'EUR', fx })`.
+- Money `sum`/`min`/`max` implement incremental `remove()`, so they stay exact under live aggregation and materialized-view maintenance.
+
 ## Status
 
 **Pre-release** (`0.1.0-pre.1`). API may change before `1.0`. Install from the `next` dist-tag:

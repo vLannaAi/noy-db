@@ -110,6 +110,26 @@ features:
       - 'Validation runs before encryption (write) and after decryption (read)'
     related: [vault-and-collections]
 
+  - id: money-field
+    name: money() currency-safe decimal field descriptor
+    cluster: core
+    spec: docs/superpowers/specs/2026-06-08-money-decimal-field-design.md
+    subsystem_doc: docs/superpowers/specs/2026-06-08-money-decimal-field-design.md
+    package: '@noy-db/hub'
+    factory: null
+    status: preview
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'scaled-integer storage as digit strings — exact past Number.MAX_SAFE_INTEGER (a JSON number truncates at 2^53)'
+      - 'reject excess precision by default; opt-in rounding modes (half-up/half-even/half-down/up/down/ceil/floor)'
+      - 'fixed single-currency, or opt-in per-record multi-currency (currencies: any | [...]) with ISO-4217 scale resolution'
+      - 'read shape: exact decimal string + <field>Formatted (Intl, full precision) + <field>Number (documented-lossy convenience)'
+      - 'money-aware sum/min/max in BigInt — fixed → single string, multi → per-currency map, sum convertTo+fx → one exact figure; remove() supports live/MV maintenance'
+    related: [schema-and-refs, query-basics]
+
   - id: persisted-json-schema
     name: Persisted JSON Schema (opt-in)
     cluster: core

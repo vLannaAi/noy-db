@@ -69,6 +69,7 @@ import type { DictionaryHandle, DictionaryOptions, DictKeyDescriptor } from './i
 import { isDictCollectionName } from './i18n/dictionary.js'
 import type { I18nTextDescriptor } from './i18n/core.js'
 import { getAtPath } from './i18n/core.js'
+import type { MoneyDescriptor } from './money/descriptor.js'
 import { NO_I18N, type I18nStrategy } from './i18n/strategy.js'
 import { NO_SYNC, type SyncStrategy } from './team/sync-strategy.js'
 // Type-only imports for the guard + derivation subsystems. The
@@ -531,6 +532,8 @@ export class Vault {
     i18nFields?: Record<string, I18nTextDescriptor>
     /** — declare dictKey fields for label resolution on reads. */
     dictKeyFields?: Record<string, DictKeyDescriptor>
+    /** — declare money() fields for currency-safe decimal storage/formatting. */
+    moneyFields?: Record<string, MoneyDescriptor>
     /** — per-collection conflict resolution policy. */
     conflictPolicy?: ConflictPolicy<T>
     /** — CRDT mode for collaborative editing without conflicts. */
@@ -602,6 +605,13 @@ export class Vault {
     }
 
     let coll = this.collectionCache.get(collectionName)
+    if (coll && options?.moneyFields) {
+      // The collection may have been auto-created (without options) by
+      // materialized-view dependency analysis during openVault, before
+      // this declaration. Reconcile money descriptors onto it so writes
+      // quantize and money-aware aggregation applies. First-wins.
+      coll._applyMoneyFields(options.moneyFields)
+    }
     if (!coll) {
       // Register ref declarations (if any) with the vault-level
       // registry BEFORE constructing the Collection. This way the
@@ -749,6 +759,7 @@ export class Vault {
       collOpts.onCrossTierAccess = (event) => this.emitCrossTier(event)
       if (this.syncAdapter !== undefined) collOpts.syncAdapter = this.syncAdapter
       if (options?.i18nFields !== undefined) collOpts.i18nFields = options.i18nFields
+      if (options?.moneyFields !== undefined) collOpts.moneyFields = options.moneyFields
       if (options?.dictKeyFields !== undefined) {
         // Build the label resolver callback for this collection
         collOpts.dictLabelResolver = async (dictName, key, locale, fallback) => {

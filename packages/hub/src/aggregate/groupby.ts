@@ -69,6 +69,8 @@ import type {
 import { buildLiveAggregation } from './aggregation.js'
 import { canonicalGroupKey } from './canonical-key.js'
 import { GroupCardinalityError } from '../errors.js'
+import type { MoneyDescriptor } from '../money/descriptor.js'
+import { wrapMoneyReducers } from '../money/money-reducer.js'
 
 /**
  * Cardinality thresholds for `.groupBy()`. The warn threshold gives
@@ -172,9 +174,20 @@ abstract class GroupedQueryBase {
       locale: string,
       fallback?: string | readonly string[],
     ) => Promise<string | undefined>,
+    /**
+     * Money field descriptors for the backing collection — used to
+     * rewrite `sum`/`min`/`max` over money fields into exact BigInt
+     * reducers when `.aggregate(spec)` is terminated.
+     */
+    protected readonly moneyFields?: Record<string, MoneyDescriptor>,
   ) {
     this.fields =
       typeof fieldOrFields === 'string' ? [fieldOrFields] : [...fieldOrFields]
+  }
+
+  /** Apply money-aware reducer rewriting when money fields are declared. */
+  protected wrapSpec<Spec extends AggregateSpec>(spec: Spec): Spec {
+    return this.moneyFields ? (wrapMoneyReducers(spec, this.moneyFields) as Spec) : spec
   }
 }
 
@@ -204,7 +217,7 @@ export class GroupedQuery<T, F extends string> extends GroupedQueryBase {
     return new GroupedAggregation<GroupedRow<F, AggregateResult<Spec>>>(
       this.executeRecords,
       this.fields,
-      spec,
+      this.wrapSpec(spec),
       this.upstreams,
       this.dictLabelResolver,
     )
@@ -224,7 +237,7 @@ export class GroupedQueryN<T, F extends readonly string[]> extends GroupedQueryB
     return new GroupedAggregation<GroupedRowN<F, AggregateResult<Spec>>>(
       this.executeRecords,
       this.fields,
-      spec,
+      this.wrapSpec(spec),
       this.upstreams,
       this.dictLabelResolver,
     )

@@ -16,6 +16,8 @@ import { buildLiveQuery } from './live.js'
 import type { AggregateSpec, AggregateResult, AggregationUpstream, Aggregation } from '../aggregate/aggregation.js'
 import type { GroupedQuery, GroupedQueryN } from '../aggregate/groupby.js'
 import { NO_AGGREGATE, type AggregateStrategy } from '../aggregate/strategy.js'
+import type { MoneyDescriptor } from '../money/descriptor.js'
+import { wrapMoneyReducers } from '../money/money-reducer.js'
 
 export interface OrderBy {
   readonly field: string
@@ -77,6 +79,11 @@ export interface QuerySource<T> {
   getIndexes?(): CollectionIndexes | null
   /** O(1) record lookup by id, used to materialize index hits. */
   lookupById?(id: string): T | undefined
+  /**
+   * Money field descriptors for the backing collection, used to rewrite
+   * `sum`/`min`/`max` over money fields into exact BigInt reducers.
+   */
+  moneyFields?: Record<string, MoneyDescriptor>
 }
 
 interface InternalSource {
@@ -84,6 +91,7 @@ interface InternalSource {
   subscribe?(cb: () => void): () => void
   getIndexes?(): CollectionIndexes | null
   lookupById?(id: string): unknown
+  moneyFields?: Record<string, MoneyDescriptor>
 }
 
 /**
@@ -621,6 +629,12 @@ export class Query<T> {
   aggregate<Spec extends AggregateSpec>(
     spec: Spec,
   ): Aggregation<AggregateResult<Spec>> {
+    // Rewrite sum/min/max over money fields into exact BigInt reducers
+    // before the strategy runs (covers static run() and live/MV paths).
+    const moneyFields = this.source.moneyFields
+    if (moneyFields) {
+      spec = wrapMoneyReducers(spec, moneyFields) as Spec
+    }
     // Closure over the current query. Produces the record set that
     // the aggregation reduces — same pipeline as `count()`, skipping
     // limit/offset because aggregation is over the full match set,
@@ -742,12 +756,14 @@ export class Query<T> {
         field,
         upstreams,
         dictLabelResolver,
+        this.source.moneyFields,
       )
     }
     return this.aggregateStrategy.groupByN<T, readonly string[]>(
       executeRecords,
       fields,
       upstreams,
+      this.source.moneyFields,
     )
   }
 
