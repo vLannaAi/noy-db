@@ -179,3 +179,20 @@ describe('openVaultGroup auto-wiring', () => {
     expect((await sv.registry.get('g--p1'))?.partitionKey).toBe('p1')
   })
 })
+
+describe('reserved-name rejection', () => {
+  it('rejects the reserved state-vault name as a group name', async () => {
+    const db = await createNoydb({ store: memory(), user: 'op', encrypt: false })
+    db.withVaultTemplate('t', { version: 1, configure: (v) => { v.collection('items') } })
+    await expect(
+      db.openVaultGroup('__noydb_state__', { sharding: { keyOf: (r: { pk: string }) => r.pk, vaultTemplate: 't' } }),
+    ).rejects.toBeInstanceOf(ReservedVaultNameError)
+  })
+
+  it('rejects the reserved name as a partition key', async () => {
+    const db = await createNoydb({ store: memory(), user: 'op', encrypt: false })
+    db.withVaultTemplate('t', { version: 1, configure: (v) => { v.collection('items') } })
+    const group = await db.openVaultGroup<{ pk: string }>('g', { sharding: { keyOf: (r) => r.pk, vaultTemplate: 't' } })
+    await expect(group.createShard('__noydb_state__')).rejects.toBeInstanceOf(ReservedVaultNameError)
+  })
+})

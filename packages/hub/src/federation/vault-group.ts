@@ -7,7 +7,8 @@
 import type { Noydb } from '../noydb.js'
 import type { Vault } from '../vault.js'
 import type { Collection } from '../collection.js'
-import { ShardProvisioningError, UnknownShardError, ValidationError } from '../errors.js'
+import { ReservedVaultNameError, ShardProvisioningError, UnknownShardError, ValidationError } from '../errors.js'
+import { STATE_VAULT_NAME } from './constants.js'
 import { classifyShardSkip } from './classify-skip.js'
 import { CrossVaultLive } from './cross-vault-live.js'
 import { CrossVaultAggregation, CrossVaultGroupedAggregation } from './aggregate-across.js'
@@ -33,6 +34,9 @@ const SAFE_PARTITION_KEY = /^[A-Za-z0-9._-]+$/
 function assertSafePartitionKey(partitionKey: string): void {
   if (partitionKey.length === 0) {
     throw new ValidationError('partitionKey must be a non-empty string')
+  }
+  if (partitionKey === STATE_VAULT_NAME) {
+    throw new ReservedVaultNameError(partitionKey)
   }
   if (!SAFE_PARTITION_KEY.test(partitionKey)) {
     throw new ValidationError(
