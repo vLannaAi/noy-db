@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { money, isMoneyDescriptor, MoneyCurrencyError } from '../../src/money/descriptor.js'
+import {
+  money,
+  isMoneyDescriptor,
+  MoneyCurrencyError,
+  MoneyPrecisionError,
+  MoneyUnsupportedError,
+} from '../../src/money/descriptor.js'
+import { NoydbError } from '../../src/errors.js'
 
 describe('money()', () => {
   it('fixed mode resolves scale from ISO-4217 when omitted', () => {
@@ -63,5 +70,22 @@ describe('money()', () => {
     expect(isMoneyDescriptor(money({ currency: 'EUR' }))).toBe(true)
     expect(isMoneyDescriptor({})).toBe(false)
     expect(isMoneyDescriptor(null)).toBe(false)
+  })
+
+  it('money errors extend NoydbError with stable codes (catch-all convention)', () => {
+    const precision = new MoneyPrecisionError('amount', '1.999', 2)
+    const currency = new MoneyCurrencyError('USD', 'not-allowed', 'amount')
+    const unsupported = new MoneyUnsupportedError('amount')
+    for (const e of [precision, currency, unsupported]) {
+      expect(e).toBeInstanceOf(NoydbError)
+      expect(e).toBeInstanceOf(Error)
+    }
+    expect(precision.code).toBe('MONEY_PRECISION')
+    expect(currency.code).toBe('MONEY_CURRENCY')
+    expect(unsupported.code).toBe('MONEY_UNSUPPORTED')
+    // class-name and public fields preserved
+    expect(precision.name).toBe('MoneyPrecisionError')
+    expect(currency.currency).toBe('USD')
+    expect(unsupported.field).toBe('amount')
   })
 })

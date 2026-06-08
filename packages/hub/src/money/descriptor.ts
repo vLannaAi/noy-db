@@ -16,6 +16,7 @@
 
 import type { RoundingMode } from './fixed-point.js'
 import { scaleForCurrency } from './iso4217.js'
+import { NoydbError } from '../errors.js'
 
 export interface MoneyOptionsFixed {
   currency: string
@@ -53,13 +54,14 @@ export interface MoneyDescriptor {
 }
 
 /** Raised when a written value carries more precision than `scale` allows. */
-export class MoneyPrecisionError extends Error {
+export class MoneyPrecisionError extends NoydbError {
   constructor(
     public readonly field: string,
     public readonly value: unknown,
     public readonly scale: number,
   ) {
     super(
+      'MONEY_PRECISION',
       `money: value ${JSON.stringify(value)} for field "${field}" exceeds scale ${scale} ` +
         `and no rounding mode is configured`,
     )
@@ -68,13 +70,14 @@ export class MoneyPrecisionError extends Error {
 }
 
 /** Raised when a currency is disallowed or has no resolvable scale. */
-export class MoneyCurrencyError extends Error {
+export class MoneyCurrencyError extends NoydbError {
   constructor(
     public readonly currency: string,
     public readonly reason: 'not-allowed' | 'unknown-scale',
     public readonly field?: string,
   ) {
     super(
+      'MONEY_CURRENCY',
       reason === 'not-allowed'
         ? `money: currency "${currency}" is not allowed${field ? ` for field "${field}"` : ''}`
         : `money: no scale known for currency "${currency}"${field ? ` (field "${field}")` : ''} — ` +
@@ -85,12 +88,13 @@ export class MoneyCurrencyError extends Error {
 }
 
 /** Raised when an aggregate operation is not supported on a money field. */
-export class MoneyUnsupportedError extends Error {
+export class MoneyUnsupportedError extends NoydbError {
   constructor(
     public readonly field: string,
     message?: string,
   ) {
     super(
+      'MONEY_UNSUPPORTED',
       message ??
         `money: operation is not supported on field "${field}" — use sum() and count() and divide at the boundary`,
     )
