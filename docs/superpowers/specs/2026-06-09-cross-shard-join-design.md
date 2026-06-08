@@ -39,14 +39,13 @@ A consequence worth stating: because all code lives in `federation/` (already a 
 ```ts
 .crossShardJoin(field: string, opts: {
   as: string                 // alias key under which the joined record attaches
-  mode?: RefMode             // dangling-ref behavior; defaults to the ref()'s declared mode
   maxRows?: number           // per-shard row ceiling override (default DEFAULT_JOIN_MAX_ROWS)
   strategy?: JoinStrategy     // 'hash' | 'nested' planner override (passthrough)
 }): ShardedQuery<T, R>
 ```
 
 - `field` MUST be a `ref()`-declared field on the left collection in the shared template schema. If not declared, the per-shard `.join()` throws its existing actionable error; we surface that as the shard's skip reason (see Failure semantics) — except for a declaration error, which is deterministic across all shards and is therefore re-raised as a single `CrossShardJoinError` rather than N identical skips (see below).
-- Right collection name is resolved from the `ref()` descriptor — never passed explicitly (it lives in the same shard).
+- Right collection name and the dangling-ref `RefMode` are both resolved from the `ref()` descriptor — never passed explicitly. `Query.join()`'s option bag is `{ as, strategy?, maxRows? }` (no `mode` override), so `crossShardJoin` deliberately omits `mode` too; the declared ref mode governs dangling refs per shard. This keeps the intra-vault executor unchanged.
 - Returns a new `ShardedQuery` carrying an appended co-partitioned leg (immutable builder, like `.where()`).
 
 ### Broadcast dimension join
@@ -84,12 +83,19 @@ async (vault) => {
   this.group.template.configure(vault)
   const coll = vault.collection<R>(this.collectionName)
   await coll.list()
+  // Hydrate each co-partitioned join target — resolveSource reads the
+  // in-memory cache, so an unopened right collection would join to an
+  // empty snapshot (every row → null). This is the one subtlety vs the
+  // intra-vault path, where the caller has usually already opened both.
+  for (const leg of this.coPartitionedLegs) {
+    const desc = vault.resolveRef(this.collectionName, leg.field)
+    if (desc) await vault.collection(desc.target).list()
+  }
   let q = coll.query()
   for (const c of this.clauses) q = q.where(c.field, c.op, c.value)
   for (const leg of this.coPartitionedLegs) {
     q = q.join(leg.field, {
       as: leg.as,
-      ...(leg.mode ? { mode: leg.mode } : {}),
       ...(leg.maxRows !== undefined ? { maxRows: leg.maxRows } : {}),
       ...(leg.strategy ? { strategy: leg.strategy } : {}),
     })
@@ -98,7 +104,7 @@ async (vault) => {
 }
 ```
 
-Order matters and is already correct: the existing executor applies `where` → `orderBy` → `limit` → joins. We add `where` then `join`, matching that order.
+Order matters and is already correct: the existing executor applies `where` → `orderBy` → `limit` → joins. We add `where` then `join`, matching that order. The right-side hydration (`vault.resolveRef` → `vault.collection(target).list()`) must run *before* the join, since `Vault.resolveSource` reads the in-memory cache only.
 
 `toArray()` (existing) changes by applying broadcast legs centrally **after** the fan-out union:
 
@@ -112,7 +118,7 @@ async toArray(options = {}): Promise<FanoutResult<Enriched>> {
 
 `applyBroadcastLegs(rows, legs)` (new, in `cross-shard-join.ts`):
 
-- For each leg: `await leg.from.list?.()` (hydrate if hydratable), `const snap = leg.from.snapshot()`, build `Map<string, unknown>` keyed by `readPath(record, leg.on ?? 'id')` coerced via the same `coerceRefKey` narrowing `join.ts` uses (string/number → string; else skip).
+- For each leg: `await leg.from.list?.()` (hydrate if hydratable), `const snap = leg.from.snapshot()`, build `Map<string, unknown>` keyed by `readPath(record, leg.on ?? 'id')` coerced via a local `coerceKey` helper. `coerceKey` mirrors `join.ts`'s private `coerceRefKey` (string → string; number/bigint → `String(v)`; else `null`) — re-implemented locally rather than exported from `join.ts`, to keep `join.ts` literally untouched. `readPath` IS imported from `query/predicate.js` (already exported).
 - For each row: `key = coerceRefKey(readPath(row, leg.field))`; `match = key === null ? null : (map.get(key) ?? null)`; attach `{ ...row, [leg.as]: match }`. On `null` match with `mode: 'warn'` (default), emit a one-shot warning keyed by `field→as` (dedup `Set`, mirroring `warnOnceDangling`).
 - Builds each leg's map once; broadcasts to all rows. Loads the `from` snapshot exactly once per `toArray()`.
 
@@ -159,8 +165,8 @@ New `CrossShardJoinError extends NoydbError` in `packages/hub/src/errors.ts`, tw
 | `packages/hub/src/federation/vault-group.ts` | `ShardedQuery` gains `coPartitionedLegs` / `broadcastLegs` fields + constructor params, `crossShardJoin()` / `broadcastJoin()` methods; `fanoutRecords` threads co-partitioned legs into the closure; `toArray` applies broadcast legs; `live` / `aggregate` / `groupBy` guards. |
 | `packages/hub/src/errors.ts` | New `CrossShardJoinError`. |
 | `packages/hub/src/federation/index.ts` | Export the public option types (`CrossShardJoinOptions`, `BroadcastJoinOptions`, `BroadcastSource`) — they appear in the `ShardedQuery` method signatures, so they are public surface. |
-| `packages/hub/__tests__/federation/cross-shard-join.test.ts` | **New.** Behavior + failure-mode coverage. |
-| `features.yaml` | Add `cross-shard-join` entry under the federation feature; showcase optional. |
+| `packages/hub/__tests__/federation-cross-shard-join.test.ts` | **New.** Behavior + failure-mode coverage. |
+| `features.yaml` | The `vault-group-federation` feature already exists. **Update** its invariants: replace the line `'join.ts partitionScope seam is untouched (crossShardJoin deferred)'` with one stating crossShardJoin shipped *and still leaves join.ts untouched*. No new feature entry; showcase optional (the feature already carries showcases 98–100). |
 
 `join.ts` is **not** in this table — intentionally.
 
