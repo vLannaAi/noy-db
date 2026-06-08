@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/to-icloud",
-  "version": "0.2.0-pre.11",
+  "version": "0.2.0-pre.12",
   "description": "iCloud Drive bundle store for noy-db — macOS-aware persistence that detects eviction stubs (.icloud) and conflict files automatically. Treats each vault as a single .noydb bundle, safe for the Apple ecosystem.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
