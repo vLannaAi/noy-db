@@ -16,18 +16,21 @@
  * is out of scope here — see the validation subsystem (#299).
  */
 
+import { NoydbError } from '../errors.js'
+
 export type ComputedFn<T = Record<string, unknown>> = (record: T) => unknown
 
 export type ComputedFields<T = Record<string, unknown>> = Record<string, ComputedFn<T>>
 
 /** Raised when a computed function throws during a write. */
-export class ComputedFieldError extends Error {
+export class ComputedFieldError extends NoydbError {
   constructor(
     public readonly field: string,
     public readonly id: string,
     public readonly cause: unknown,
   ) {
     super(
+      'COMPUTED_FIELD',
       `computed field "${field}" threw for record "${id}": ` +
         (cause instanceof Error ? cause.message : String(cause)),
     )

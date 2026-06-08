@@ -20,7 +20,7 @@ import { hasWritePermission } from './team/keyring.js'
 import type { NoydbEventEmitter } from './events.js'
 import type { WriteQueueTracker } from './write-queue.js'
 import type { WriteHookRegistry, WriteEvent } from './write-hooks.js'
-import type { SubsystemBus } from './subsystem-bus.js'
+import type { SubsystemBus, GatePutEvent } from './subsystem-bus.js'
 import type { SchemaUpdateGate } from './schema-update/gate.js'
 import type { SchemaFenceController } from './schema-update/fence-controller.js'
 import type { StandardSchemaV1 } from './schema.js'
@@ -1182,7 +1182,7 @@ export class Collection<T> {
           existingRecord = null
         }
       }
-      await this.subsystemBus.dispatchGate('beforePut', {
+      const gateEvent: GatePutEvent = {
         op: existingEnv ? 'update' : 'create',
         vault: this.vault, collection: this.name, docId: id,
         incoming: record,
@@ -1191,7 +1191,11 @@ export class Collection<T> {
         existingTs: existingEnv?._ts,
         userId: this.keyring.userId,
         role: this.keyring.role,
-      })
+        ...(this.computed !== undefined
+          ? { computedFieldNames: new Set(Object.keys(this.computed)) }
+          : {}),
+      }
+      await this.subsystemBus.dispatchGate('beforePut', gateEvent)
     }
 
     // Computed scalar fields — evaluated FIRST so the user need not supply

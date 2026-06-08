@@ -12,12 +12,19 @@ export const GuardExecutor = {
    * Compare existing vs incoming for each `frozenFields.fields` entry
    * when `frozenFields.when(existing)` is true. Throws
    * `FieldFrozenError` listing every changed frozen field.
+   *
+   * @param skipFields — field names that are schema-owned computed fields.
+   *   These are excluded from the comparison because `incoming` carries the
+   *   raw user input (computed fields not yet evaluated), so comparing
+   *   `existing[field]` vs `incoming[field]` would always look like a
+   *   change even when the computed result is unchanged.
    */
   async checkFrozenFields<T extends Record<string, unknown>>(
     guard: GuardStrategy<T>,
     id: string,
     existing: T | null,
     incoming: T,
+    skipFields?: ReadonlySet<string>,
   ): Promise<void> {
     const ff = guard.frozenFields
     if (!ff) return
@@ -26,6 +33,9 @@ export const GuardExecutor = {
 
     const changed: string[] = []
     for (const f of ff.fields) {
+      // Skip computed fields — they are re-evaluated after this gate and
+      // their raw-input value is not comparable to the prior computed value.
+      if (skipFields?.has(String(f))) continue
       // Strict equality first, then deep-equality fallback for objects.
       if (existing[f] !== incoming[f]) {
         if (!deepEqual(existing[f], incoming[f])) changed.push(String(f))
