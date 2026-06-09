@@ -1135,7 +1135,7 @@ features:
       - 'vault-registry is the single source of truth for shard discovery'
       - 'createShard is idempotent; row-without-vault raises ShardProvisioningError'
       - 'minVersion guard pre-filters shards by registry schemaVersion (no silent shape-mixing)'
-      - 'join.ts partitionScope seam is untouched (crossShardJoin deferred)'
+      - 'crossShardJoin is co-partitioned fan-out + central broadcast enrichment; join.ts and its partitionScope seam stay untouched'
     related: [permissions, transferable-partition]
 
 # ─── Storage adapters (phase 2) ──────────────────────────────────────

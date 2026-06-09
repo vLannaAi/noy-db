@@ -319,7 +319,7 @@ export class ShardedQuery<T, R = T> {
             ...(leg.strategy ? { strategy: leg.strategy } : {}),
           })
         }
-        return q.toArray() as R[]
+        return q.toArray()
       },
       { concurrency: options.concurrency ?? 1, create: false },
     )
