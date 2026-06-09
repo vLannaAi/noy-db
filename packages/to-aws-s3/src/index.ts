@@ -16,9 +16,6 @@
  *
  * ## Limitations
  *
- * - **`casAtomic: false`** — S3 has no server-side conditional write on
- *   arbitrary metadata. Concurrent puts may result in last-write-wins.
- *   Use DynamoDB for records that need conflict-safe writes.
  * - **`loadAll()` is O(N) requests** — listing + fetching every object in a
  *   vault. Suitable for vaults up to ~10K records; beyond that, prefer
  *   DynamoDB for indexed stores and S3 only for append-heavy blob storage.
@@ -39,6 +36,7 @@ import {
   S3Client,
   GetObjectCommand,
   PutObjectCommand,
+  HeadObjectCommand,
   DeleteObjectCommand,
   ListObjectsV2Command,
   HeadBucketCommand,
@@ -53,8 +51,10 @@ import {
  * vaults, use DynamoDB or pair with `routeStore` age-tiering so S3 only
  * holds archived records.
  *
- * Note: S3 does not support atomic CAS (`casAtomic: false`). Last-write-wins
- * on concurrent puts.
+ * S3 supports conditional writes (`IfMatch` / `IfNoneMatch` on `PutObject`),
+ * enabling atomic CAS (`casAtomic: true`). Server clock is read via a sentinel
+ * object's `LastModified` timestamp — store-authoritative, not client wall clock.
+ * ε defaults to 5 000 ms (S3 is NTP-synced; observed skew bound).
  */
 export interface S3Options {
   /** S3 bucket name. */
@@ -69,14 +69,24 @@ export interface S3Options {
    * to share a client across adapters or supply custom middleware.
    */
   client?: S3Client
+  /** Clock uncertainty bound for serverWriteTime (ms). Default: 5000. */
+  clockUncertaintyMs?: number
 }
 
 /**
  * Create an S3 adapter.
  * Key scheme: `{prefix}/{vault}/{collection}/{id}.json`
  */
+function isPreconditionFailed(err: unknown): boolean {
+  if (!(err instanceof Error)) return false
+  if (err.name === 'PreconditionFailed') return true
+  const meta = (err as { $metadata?: { httpStatusCode?: number } }).$metadata
+  return meta?.httpStatusCode === 412
+}
+
 export function s3(options: S3Options): NoydbStore {
   const { bucket, prefix = '' } = options
+  const clockUncertaintyMs = options.clockUncertaintyMs ?? 5_000
 
   const client = options.client ?? new S3Client({
     ...(options.region ? { region: options.region } : {}),
@@ -96,8 +106,32 @@ export function s3(options: S3Options): NoydbStore {
     return prefix ? `${prefix}/${vault}/` : `${vault}/`
   }
 
+  // Sentinel key used solely to sample the store's server clock.
+  const clockKey = prefix ? `${prefix}/_noydb-clock` : '_noydb-clock'
+
   return {
     name: 's3',
+    capabilities: {
+      casAtomic: true,
+      serverWriteTime: true,
+      auth: { kind: 'iam', required: true, flow: 'static' },
+    },
+
+    async getStoreTime() {
+      // Write a sentinel object so S3 assigns a server-authoritative LastModified.
+      await client.send(new PutObjectCommand({
+        Bucket: bucket,
+        Key: clockKey,
+        Body: '',
+        ContentType: 'text/plain',
+      }))
+      const head = await client.send(new HeadObjectCommand({
+        Bucket: bucket,
+        Key: clockKey,
+      }))
+      const serverMs = head.LastModified!.getTime()
+      return { earliest: serverMs - clockUncertaintyMs, latest: serverMs + clockUncertaintyMs }
+    },
 
     async get(vault, collection, id) {
       try {
@@ -118,16 +152,84 @@ export function s3(options: S3Options): NoydbStore {
     },
 
     async put(vault, collection, id, envelope, expectedVersion) {
+      const key = objectKey(vault, collection, id)
+
       if (expectedVersion !== undefined) {
-        const existing = await this.get(vault, collection, id)
-        if (existing && existing._v !== expectedVersion) {
-          throw new ConflictError(existing._v, `Version conflict: expected ${expectedVersion}, found ${existing._v}`)
+        if (expectedVersion === 0) {
+          // Create-only — IfNoneMatch: '*' is atomic at S3's write layer.
+          try {
+            await client.send(new PutObjectCommand({
+              Bucket: bucket,
+              Key: key,
+              Body: JSON.stringify(envelope),
+              ContentType: 'application/json',
+              IfNoneMatch: '*',
+            }))
+          } catch (err: unknown) {
+            if (isPreconditionFailed(err)) {
+              try {
+                const r = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }))
+                const b = await r.Body!.transformToString()
+                const cur = JSON.parse(b) as EncryptedEnvelope
+                throw new ConflictError(cur._v, 'Concurrent create: object already exists')
+              } catch (inner: unknown) {
+                if (inner instanceof ConflictError) throw inner
+              }
+              throw new ConflictError(0, 'Concurrent create: object already exists')
+            }
+            throw err
+          }
+          return
         }
+
+        // Update — GetObject captures ETag + verifies _v, then PutObject with
+        // IfMatch: etag ensures no concurrent writer slipped in between.
+        let currentETag: string
+        try {
+          const result = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }))
+          const body = await result.Body!.transformToString()
+          const current = JSON.parse(body) as EncryptedEnvelope
+          if (current._v !== expectedVersion) {
+            throw new ConflictError(current._v, `Version conflict: expected ${expectedVersion}, found ${current._v}`)
+          }
+          currentETag = result.ETag ?? ''
+        } catch (err: unknown) {
+          if (err instanceof ConflictError) throw err
+          if (err instanceof Error && (err.name === 'NoSuchKey' || err.name === 'NotFound')) {
+            throw new ConflictError(0, `Object not found, expected version ${expectedVersion}`)
+          }
+          throw err
+        }
+
+        try {
+          await client.send(new PutObjectCommand({
+            Bucket: bucket,
+            Key: key,
+            Body: JSON.stringify(envelope),
+            ContentType: 'application/json',
+            IfMatch: currentETag,
+          }))
+        } catch (err: unknown) {
+          if (isPreconditionFailed(err)) {
+            try {
+              const r = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }))
+              const b = await r.Body!.transformToString()
+              const latest = JSON.parse(b) as EncryptedEnvelope
+              throw new ConflictError(latest._v, 'Concurrent write detected')
+            } catch (inner: unknown) {
+              if (inner instanceof ConflictError) throw inner
+            }
+            throw new ConflictError(0, 'Concurrent write detected')
+          }
+          throw err
+        }
+        return
       }
 
+      // Unconditional PUT.
       await client.send(new PutObjectCommand({
         Bucket: bucket,
-        Key: objectKey(vault, collection, id),
+        Key: key,
         Body: JSON.stringify(envelope),
         ContentType: 'application/json',
       }))

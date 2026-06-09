@@ -15,6 +15,31 @@ function mockLibsql(): LibsqlClient & { rowMap: Map<string, Row> } {
     const normalized = sql.replace(/\s+/g, ' ').trim().toUpperCase()
     if (normalized.startsWith('CREATE TABLE') || normalized.startsWith('CREATE INDEX')) return { rows: [] }
     if (normalized === 'SELECT 1') return { rows: [{ '1': 1 }] }
+    if (normalized.startsWith('INSERT OR IGNORE INTO')) {
+      // Create-only CAS path (expectedVersion === 0). RETURNING id is empty
+      // when the row already exists (the INSERT is ignored).
+      const [vault, collection, id, v, ts, iv, data, by, tier, elevated_by, det] = args as [
+        string, string, string, number, string, string, string, string | null, number | null, string | null, string | null,
+      ]
+      const k = key(vault, collection, id)
+      if (rowMap.has(k)) return { rows: [] }
+      rowMap.set(k, { vault, collection, id, v, ts, iv, data, by, tier, elevated_by, det })
+      return { rows: [{ id }] }
+    }
+    if (normalized.startsWith('UPDATE')) {
+      // Update-only CAS path. args = [v, ts, iv, data, by, tier, elevated_by,
+      // det, vault, collection, id, expectedVersion]. RETURNING id is empty
+      // when no row matches (missing, or v !== expectedVersion).
+      const [v, ts, iv, data, by, tier, elevated_by, det, vault, collection, id, expectedV] = args as [
+        number, string, string, string, string | null, number | null, string | null, string | null,
+        string, string, string, number,
+      ]
+      const k = key(vault, collection, id)
+      const existing = rowMap.get(k)
+      if (!existing || existing.v !== expectedV) return { rows: [] }
+      rowMap.set(k, { vault, collection, id, v, ts, iv, data, by, tier, elevated_by, det })
+      return { rows: [{ id }] }
+    }
     if (normalized.startsWith('INSERT INTO')) {
       const [vault, collection, id, v, ts, iv, data, by, tier, elevated_by, det] = args as [
         string, string, string, number, string, string, string, string | null, number | null, string | null, string | null,

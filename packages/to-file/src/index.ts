@@ -28,6 +28,7 @@
  * | Capability | Value |
  * |---|---|
  * | `casAtomic` | `false` — no atomic compare-and-swap at the FS layer |
+ * | `serverWriteTime` | `true` — local filesystem clock; solo-writer only |
  * | `listVaults` | ✓ — enumerates subdirectories |
  * | `listPage` | ✓ — cursor-based pagination over sorted filenames |
  * | `ping` | ✓ — `stat(dir)` |
@@ -69,6 +70,8 @@ export interface JsonFileOptions {
   dir: string
   /** Pretty-print JSON files. Default: true. */
   pretty?: boolean
+  /** Clock uncertainty bound (ms). Default: 0. */
+  clockUncertaintyMs?: number
 }
 
 /**
@@ -110,6 +113,17 @@ export function jsonFile(options: JsonFileOptions): NoydbStore {
 
   return {
     name: 'file',
+    capabilities: {
+      casAtomic: false,
+      serverWriteTime: true,
+      auth: { kind: 'filesystem', required: false, flow: 'static' },
+    },
+
+    async getStoreTime() {
+      const now = Date.now()
+      const ε = options.clockUncertaintyMs ?? 0
+      return { earliest: now - ε, latest: now + ε }
+    },
 
     async get(vault, collection, id) {
       const path = recordPath(vault, collection, id)

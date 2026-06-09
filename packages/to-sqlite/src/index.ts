@@ -151,6 +151,11 @@ export function sqlite(options: SqliteStoreOptions): NoydbStore {
 
   const store: NoydbStore = {
     name: 'sqlite',
+    capabilities: {
+      casAtomic: true,
+      txAtomic: true,
+      auth: { kind: 'none', required: false, flow: 'static' },
+    },
 
     async get(vault, collection, id) {
       const row = db

@@ -150,6 +150,10 @@ export function webdav(options: WebDAVStoreOptions): NoydbStore {
 
   const store: NoydbStore = {
     name: 'webdav',
+    capabilities: {
+      casAtomic: false,
+      auth: { kind: 'api-key', required: false, flow: 'static' },
+    },
 
     async get(vault, collection, id) {
       const res = await fetchImpl(urlFor(vault, collection, id), {

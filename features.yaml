@@ -1135,7 +1135,7 @@ features:
       - 'vault-registry is the single source of truth for shard discovery'
       - 'createShard is idempotent; row-without-vault raises ShardProvisioningError'
       - 'minVersion guard pre-filters shards by registry schemaVersion (no silent shape-mixing)'
-      - 'join.ts partitionScope seam is untouched (crossShardJoin deferred)'
+      - 'crossShardJoin is co-partitioned fan-out + central broadcast enrichment; join.ts and its partitionScope seam stay untouched'
     related: [permissions, transferable-partition]
 
 # ─── Storage adapters (phase 2) ──────────────────────────────────────
@@ -1178,6 +1178,7 @@ adapters:
     diagrams: []
     invariants:
       - 'casAtomic: false (no atomic compare-and-swap at the FS layer)'
+      - 'serverWriteTime: true (local filesystem clock; solo-writer only; ε = 0 ms default)'
       - 'File layout: {dir}/{vault}/{collection}/{id}.json'
       - 'Each file is one EncryptedEnvelope, optionally pretty-printed'
     related: [stores-contract]
@@ -1227,7 +1228,7 @@ adapters:
   - id: to-aws-s3
     name: S3 object store
     package: '@noy-db/to-aws-s3'
-    cas_atomic: false
+    cas_atomic: true
     use_case: cloud-blob-storage
     capabilities:
       record: true
@@ -1240,16 +1241,16 @@ adapters:
     playground_pages: []
     diagrams: []
     invariants:
-      - 'casAtomic: false (no native CAS; advisory locks via If-Match)'
+      - 'casAtomic: true (IfNoneMatch: * for creates; IfMatch: etag for updates — atomic at S3 write layer)'
+      - 'serverWriteTime: true (object LastModified via sentinel; store-authoritative; ε default 5 000 ms)'
       - 'Each envelope stored as one object keyed by full path'
-      - 'Best paired with a casAtomic primary (Dynamo) via routeStore for record metadata'
       - 'Bodies are AES-GCM ciphertext — bucket reads do NOT leak plaintext (keyspace structure is visible by design)'
     related: [stores-contract, to-aws-dynamo]
 
   - id: to-browser-local
     name: localStorage store (browser)
     package: '@noy-db/to-browser-local'
-    cas_atomic: true
+    cas_atomic: false
     use_case: simple-pwa-cache
     capabilities:
       record: true
@@ -1262,7 +1263,8 @@ adapters:
     playground_pages: []
     diagrams: []
     invariants:
-      - 'casAtomic: true (synchronous localStorage transactions)'
+      - 'casAtomic: false (single-tab: synchronous and atomic; cross-tab: no serialization)'
+      - 'serverWriteTime: true (browser clock; same-tab only; ε = 0 ms default)'
       - 'Capacity-limited (5-10 MB); use to-browser-idb for larger vaults'
       - 'obfuscate mode hides vault / collection / id from the keyspace (not encryption — _data stays AES-GCM)'
     related: [stores-contract, to-browser-idb]
@@ -1270,7 +1272,7 @@ adapters:
   - id: to-cloudflare-r2
     name: Cloudflare R2 object store
     package: '@noy-db/to-cloudflare-r2'
-    cas_atomic: false
+    cas_atomic: true
     use_case: edge-blob-storage
     capabilities:
       record: true
@@ -1284,7 +1286,8 @@ adapters:
     diagrams: []
     invariants:
       - 'S3-compatible API; zero egress fees'
-      - 'casAtomic: false (no native CAS; advisory locks via If-Match)'
+      - 'casAtomic: true (inherits to-aws-s3 IfMatch/IfNoneMatch conditional CAS — R2 supports both)'
+      - 'serverWriteTime: true (object LastModified via to-aws-s3 sentinel; ε default 5 000 ms)'
       - 'Delegates to to-aws-s3 internally — endpoint = https://<accountId>.r2.cloudflarestorage.com, region = "auto"'
       - 'Bodies are AES-GCM ciphertext — Cloudflare staff with full bucket access cannot read plaintext'
     related: [stores-contract, to-cloudflare-d1, to-aws-s3]
@@ -1412,7 +1415,8 @@ adapters:
     playground_pages: []
     diagrams: []
     invariants:
-      - 'casAtomic: true (libSQL transactions)'
+      - 'casAtomic: true (atomic UPDATE … WHERE v=? RETURNING — serialized at libSQL writer; no read-check-write race)'
+      - 'serverWriteTime: true (SELECT unixepoch("now","subsec") — server-authoritative; ε default 1 000 ms)'
       - 'Replicated SQLite across regions; ideal for edge runtimes'
       - 'Duck-typed against @libsql/client — same client surface works in Workers, Node, and Bun'
       - 'Even a Turso DB administrator sees only AES-GCM ciphertext in the envelope column'

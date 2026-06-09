@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/on-threat",
-  "version": "0.2.0-pre.13",
+  "version": "0.2.0-pre.14",
   "description": "Threat-response primitives for noy-db — multi-attempt lockout, duress-passphrase data destruction, duress-passphrase honeypot decoy. Pure stateful helpers; the caller coordinates keyring + audit-ledger integration. Part of the @noy-db/on-* authentication family.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",

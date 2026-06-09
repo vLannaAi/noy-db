@@ -120,6 +120,10 @@ export function ssh(options: SshStoreOptions): NoydbStore {
 
   const store: NoydbStore = {
     name,
+    capabilities: {
+      casAtomic: false,
+      auth: { kind: 'api-key', required: true, flow: 'static' },
+    },
 
     async get(vault, collection, id) {
       const bytes = await sftp.readFile(recordPath(vault, collection, id))

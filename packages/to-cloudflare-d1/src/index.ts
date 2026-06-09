@@ -155,6 +155,11 @@ export function d1(options: D1StoreOptions): NoydbStore {
 
   const store: NoydbStore = {
     name: 'cloudflare-d1',
+    capabilities: {
+      casAtomic: true,
+      txAtomic: true,
+      auth: { kind: 'api-key', required: true, flow: 'static' },
+    },
 
     async get(vault, collection, id) {
       await ensureSchema()

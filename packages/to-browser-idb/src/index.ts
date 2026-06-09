@@ -179,6 +179,11 @@ function createIndexedDBAdapter(prefix: string, obfuscate: boolean, obfKey: stri
   return {
     name: 'browser:indexedDB',
 
+    capabilities: {
+      casAtomic: true,
+      auth: { kind: 'browser-origin' as const, required: false, flow: 'implicit' as const },
+    },
+
     async get(vault, collection, id) {
       const { store } = await tx('readonly')
       const raw = await idbRequest(store.get(key(vault, collection, id)))

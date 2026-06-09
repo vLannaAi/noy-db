@@ -108,6 +108,10 @@ export function smb(options: SmbStoreOptions): NoydbStore {
 
   const store: NoydbStore = {
     name,
+    capabilities: {
+      casAtomic: false,
+      auth: { kind: 'api-key', required: false, flow: 'static' },
+    },
 
     async get(vault, collection, id) {
       const bytes = await client.readFile(recordPath(vault, collection, id))
