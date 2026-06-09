@@ -35,13 +35,13 @@ describe('@noy-db/to-cloudflare-r2', () => {
     expect(() => r2({ accountId: 'acc', bucket: 'b' })).toThrow(/accessKeyId.*secretAccessKey/)
   })
 
-  it('accepts a pre-built client and exposes store.name = "s3"', () => {
+  it('accepts a pre-built client and exposes store.name = "cloudflare-r2"', () => {
     const { client } = mockClient({})
     const store = r2({ bucket: 'b', client })
-    // When client is injected, the returned store is the raw s3() factory
-    // output — keeps the "s3" name so routeStore diagnostics stay
-    // unchanged.
-    expect(store.name).toBe('s3')
+    // Both construction paths (pre-built client and credentials) now wrap
+    // s3() with r2's own identity + capabilities block, so the store always
+    // reports name "cloudflare-r2" — no longer leaking the underlying "s3".
+    expect(store.name).toBe('cloudflare-r2')
   })
 
   it('name is "cloudflare-r2" when constructed with credentials', () => {
