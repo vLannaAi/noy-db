@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/to-supabase",
-  "version": "0.2.0-pre.13",
+  "version": "0.2.0-pre.14",
   "description": "Supabase adapter for noy-db — Postgres + Storage combo. Routes records to @noy-db/to-postgres via the Supabase Postgres pool and optional blob routing via Supabase Storage.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
