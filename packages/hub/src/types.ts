@@ -1495,48 +1495,6 @@ export interface BlobObject {
   readonly storeHint?: 'default' | 'blobs'
 }
 
-// ─── Attachment types ─────────────────────────────────────────
-
-/** Single attachment metadata entry stored inside a record's attachment envelope. */
-export interface AttachmentEntry {
-  /** Content-addressed identifier (HMAC-SHA-256 of plaintext). */
-  readonly eTag: string
-  /** User-visible filename for the slot. */
-  readonly filename: string
-  /** Original uncompressed size in bytes. */
-  readonly size: number
-  /** MIME type, if provided or auto-detected at upload time. */
-  readonly mimeType?: string
-  /** ISO timestamp of the upload. */
-  readonly uploadedAt: string
-  /** User ID of the uploader, if available. */
-  readonly uploadedBy?: string
-}
-
-/** Attachment entry annotated with its slot name, as returned by `AttachmentHandle.list()`. */
-export type AttachmentInfo = AttachmentEntry & { readonly name: string }
-
-/** Options for `AttachmentHandle.put()`. */
-export interface AttachmentPutOptions {
-  /** Compress the attachment with gzip before encryption. Default: `true`. */
-  compress?: boolean
-  /** Chunk size in bytes. Default: `DEFAULT_CHUNK_SIZE` (256 KB). */
-  chunkSize?: number
-  /** MIME type to store with the attachment. Auto-detected from magic bytes if omitted. */
-  mimeType?: string
-  /** User ID to record as the uploader. Falls back to the active user's ID. */
-  uploadedBy?: string
-}
-
-/** Options for `AttachmentHandle.response()`. */
-export interface AttachmentResponseOptions {
-  /**
-   * Set `Content-Disposition: inline` so the browser renders the file
-   * instead of downloading it. Default: `false` (attachment disposition).
-   */
-  inline?: boolean
-}
-
 /**
  * Slot record — mutable metadata linking a named slot on a record
  * to a `BlobObject` via its eTag.
