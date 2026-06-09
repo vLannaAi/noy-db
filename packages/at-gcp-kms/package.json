@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/at-gcp-kms",
-  "version": "0.2.0-pre.13",
+  "version": "0.2.0-pre.14",
   "description": "Google Cloud KMS sealing key provider for noy-db managed-passphrase mode.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
