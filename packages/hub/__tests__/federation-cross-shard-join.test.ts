@@ -226,3 +226,58 @@ describe('broadcastJoin (dimension)', () => {
     expect((row.fx as { symbol: string }).symbol).toBe('$')
   })
 })
+
+describe('crossShardJoin failure semantics', () => {
+  it('throws a single CrossShardJoinError when the join field has no ref()', async () => {
+    const { firm } = await harness()
+    const acme = await firm.createShard('acme')
+    await acme.collection<Customer>('customers').put('c1', { id: 'c1', name: 'A' })
+    await firm.collection('invoices').put('i1', { id: 'i1', clientId: 'acme', customerId: 'c1', amount: 1, status: 'open' })
+    await expect(
+      firm.collection('invoices').query().crossShardJoin('amount', { as: 'x' }).toArray(),
+    ).rejects.toBeInstanceOf(CrossShardJoinError)
+  })
+
+  it('attaches null for a dangling ref in warn mode (per-shard RefMode)', async () => {
+    const adapter = memory()
+    const db = await createNoydb({ store: adapter, user: 'operator', secret: 'op-pass' })
+    db.withVaultTemplate('warn-template', {
+      version: 1,
+      configure(vault: Vault) {
+        vault.collection<Customer>('customers')
+        vault.collection<Invoice>('invoices', { refs: { customerId: ref('customers', 'warn') } })
+      },
+    })
+    const sv = await db.openVault('state')
+    const registry = sv.collection<VaultRegistryRow>('vault-registry')
+    const firm = await db.openVaultGroup<Invoice>('warn-firm', {
+      registry,
+      sharding: { keyOf: (r) => r.clientId, vaultTemplate: 'warn-template' },
+    })
+    await firm.collection('invoices').put('i1', { id: 'i1', clientId: 'acme', customerId: 'ghost', amount: 1, status: 'open' })
+
+    const res = await firm.collection('invoices').query()
+      .crossShardJoin('customerId', { as: 'customer' })
+      .toArray()
+    expect(res.results).toHaveLength(1)
+    expect((res.results[0] as Record<string, unknown>).customer).toBeNull()
+  })
+})
+
+describe('broadcastJoin miss', () => {
+  it('attaches null on a miss without throwing', async () => {
+    resetBroadcastWarnings()
+    const { db, firm } = await harness()
+    const dims = await db.openVault('dimensions')
+    const currencies = dims.collection<{ id: string }>('currencies')
+    await currencies.put('usd', { id: 'usd' })
+    const acme = await firm.createShard('acme')
+    await acme.collection<Customer>('customers').put('c1', { id: 'c1', name: 'A' })
+    await firm.collection('invoices').put('i1', { id: 'i1', clientId: 'acme', customerId: 'c1', amount: 1, status: 'paid', currencyCode: 'gbp' })
+
+    const res = await firm.collection('invoices').query()
+      .broadcastJoin('currencyCode', { as: 'fx', from: currencies, mode: 'cascade' })
+      .toArray()
+    expect((res.results[0] as Record<string, unknown>).fx).toBeNull()
+  })
+})
