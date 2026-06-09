@@ -14,11 +14,11 @@ vault-only stores (concurrency there is per-bundle OCC, not per-record CAS).
 | Adapter | record | vault | casAtomic | Use case | Status |
 |---|:--:|:--:|:--:|---|---|
 | `to-aws-dynamo` | ✅ | ❌ | ✅ | cloud-serverless | stable |
-| `to-aws-s3` | ✅ | ✅ | ❌ | cloud-blob-storage | stable |
+| `to-aws-s3` | ✅ | ✅ | ✅ | cloud-blob-storage | stable |
 | `to-browser-idb` | ✅ | ❌ | ✅ | pwa-offline-first | stable |
-| `to-browser-local` | ✅ | ❌ | ✅ | simple-pwa-cache | stable |
+| `to-browser-local` | ✅ | ❌ | ❌ | simple-pwa-cache | stable |
 | `to-cloudflare-d1` | ✅ | ❌ | ✅ | edge-serverless | stable |
-| `to-cloudflare-r2` | ✅ | ❌ | ❌ | edge-blob-storage | stable |
+| `to-cloudflare-r2` | ✅ | ❌ | ✅ | edge-blob-storage | stable |
 | `to-drive` | ❌ | ✅ | n/a | cloud-bundle-storage | stable |
 | `to-file` | ✅ | ❌ | ❌ | usb-or-local-disk | stable |
 | `to-icloud` | ❌ | ✅ | n/a | apple-ecosystem-sync | stable |
