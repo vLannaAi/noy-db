@@ -281,3 +281,28 @@ describe('broadcastJoin miss', () => {
     expect((res.results[0] as Record<string, unknown>).fx).toBeNull()
   })
 })
+
+describe('deferred surfaces throw when join legs are present', () => {
+  it('live() throws CrossShardJoinError with a co-partitioned leg', async () => {
+    const { firm } = await harness()
+    expect(() =>
+      firm.collection('invoices').query().crossShardJoin('customerId', { as: 'c' }).live(),
+    ).toThrow(CrossShardJoinError)
+  })
+
+  it('aggregate() throws CrossShardJoinError with a broadcast leg', async () => {
+    const { db, firm } = await harness()
+    const dims = await db.openVault('dimensions')
+    const cur = dims.collection<{ id: string }>('currencies')
+    expect(() =>
+      firm.collection('invoices').query().broadcastJoin('currencyCode', { as: 'fx', from: cur }).aggregate({ total: 'count' } as never),
+    ).toThrow(CrossShardJoinError)
+  })
+
+  it('groupBy() throws CrossShardJoinError with a join leg', async () => {
+    const { firm } = await harness()
+    expect(() =>
+      firm.collection('invoices').query().crossShardJoin('customerId', { as: 'c' }).groupBy('status'),
+    ).toThrow(CrossShardJoinError)
+  })
+})
