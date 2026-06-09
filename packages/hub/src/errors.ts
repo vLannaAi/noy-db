@@ -2087,6 +2087,19 @@ export class ShardProvisioningError extends NoydbError {
   }
 }
 
+/**
+ * Thrown by `ShardedQuery.crossShardJoin` / `broadcastJoin` for
+ * deterministic, query-shaping errors: an undeclared join ref (which
+ * would fail identically on every shard), or calling a deferred
+ * reactive/aggregate surface on a query that already carries join legs.
+ */
+export class CrossShardJoinError extends NoydbError {
+  constructor(message: string) {
+    super('CROSS_SHARD_JOIN', message)
+    this.name = 'CrossShardJoinError'
+  }
+}
+
 /** Thrown when a VaultGroup references a template name that was never registered. */
 export class VaultTemplateNotFoundError extends NoydbError {
   readonly templateName: string
