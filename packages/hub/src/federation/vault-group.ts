@@ -8,9 +8,11 @@ import type { Noydb } from '../noydb.js'
 import type { Vault } from '../vault.js'
 import type { Collection } from '../collection.js'
 import type { StateManagementVault } from './state-vault.js'
-import { ReservedVaultNameError, ShardProvisioningError, UnknownShardError, ValidationError } from '../errors.js'
+import { CrossShardJoinError, ReservedVaultNameError, ShardProvisioningError, UnknownShardError, ValidationError } from '../errors.js'
 import { STATE_VAULT_NAME } from './constants.js'
 import { classifyShardSkip } from './classify-skip.js'
+import { applyBroadcastLegs } from './cross-shard-join.js'
+import type { CoPartitionedLeg, BroadcastLeg, CrossShardJoinOptions, BroadcastJoinOptions } from './cross-shard-join.js'
 import { CrossVaultLive } from './cross-vault-live.js'
 import { CrossVaultAggregation, CrossVaultGroupedAggregation } from './aggregate-across.js'
 import type { FanoutRecordSource, LiveBinding } from './aggregate-across.js'
@@ -231,27 +233,93 @@ export class ShardedQuery<T, R = T> {
     private readonly group: VaultGroup<T>,
     private readonly collectionName: string,
     private readonly clauses: readonly WhereClause[],
+    private readonly coPartitionedLegs: readonly CoPartitionedLeg[] = [],
+    private readonly broadcastLegs: readonly BroadcastLeg[] = [],
   ) {}
 
   where(field: string, op: WhereClause['op'], value: unknown): ShardedQuery<T, R> {
-    return new ShardedQuery<T, R>(this.group, this.collectionName, [
-      ...this.clauses,
-      { field, op, value },
-    ])
+    return new ShardedQuery<T, R>(
+      this.group,
+      this.collectionName,
+      [...this.clauses, { field, op, value }],
+      this.coPartitionedLegs,
+      this.broadcastLegs,
+    )
+  }
+
+  /** Co-partitioned join: each shard joins its own same-vault right collection (resolved via ref()), then union. */
+  crossShardJoin(field: string, opts: CrossShardJoinOptions): ShardedQuery<T, R> {
+    const leg: CoPartitionedLeg = { field, as: opts.as, maxRows: opts.maxRows, strategy: opts.strategy }
+    return new ShardedQuery<T, R>(
+      this.group,
+      this.collectionName,
+      this.clauses,
+      [...this.coPartitionedLegs, leg],
+      this.broadcastLegs,
+    )
+  }
+
+  /** Broadcast dimension join: enrich every merged row from a single shared collection. */
+  broadcastJoin(field: string, opts: BroadcastJoinOptions): ShardedQuery<T, R> {
+    const leg: BroadcastLeg = {
+      field,
+      as: opts.as,
+      from: opts.from,
+      on: opts.on ?? 'id',
+      mode: opts.mode ?? 'warn',
+    }
+    return new ShardedQuery<T, R>(
+      this.group,
+      this.collectionName,
+      this.clauses,
+      this.coPartitionedLegs,
+      [...this.broadcastLegs, leg],
+    )
   }
 
   /** @internal — fan out the where-filtered records across eligible shards. */
   async fanoutRecords(options: FanoutQueryOptions = {}): Promise<{ records: R[]; skippedVaults: SkippedVault[] }> {
     const { eligible, skipped } = await this.group.resolveEligible(options)
+    // Deterministic pre-check: an undeclared co-partitioned join ref fails
+    // identically on every shard, so surface it as ONE CrossShardJoinError
+    // rather than N identical skips. Probe the first eligible shard.
+    const probeRow = eligible[0]
+    if (this.coPartitionedLegs.length > 0 && probeRow) {
+      const probe = await this.group.openShard(probeRow.partitionKey)
+      this.group.template.configure(probe)
+      for (const leg of this.coPartitionedLegs) {
+        if (!probe.resolveRef(this.collectionName, leg.field)) {
+          throw new CrossShardJoinError(
+            `crossShardJoin("${leg.field}"): no ref() declared for "${leg.field}" on ` +
+              `collection "${this.collectionName}" in template "${this.group.sharding.vaultTemplate}". ` +
+              `Add refs: { ${leg.field}: ref('<target>') } to the template's collection options.`,
+          )
+        }
+      }
+    }
     const across = await this.group.db.queryAcross<R[]>(
       eligible.map((r) => r.vaultId),
       async (vault) => {
         this.group.template.configure(vault)
         const coll = vault.collection<R>(this.collectionName)
         await coll.list() // hydrate the in-memory cache before the sync query
+        // Hydrate each co-partitioned join target — resolveSource reads the
+        // in-memory cache, so an unopened right collection would join to an
+        // empty snapshot (every row → null).
+        for (const leg of this.coPartitionedLegs) {
+          const desc = vault.resolveRef(this.collectionName, leg.field)
+          if (desc) await vault.collection(desc.target).list()
+        }
         let q = coll.query()
         for (const c of this.clauses) q = q.where(c.field, c.op, c.value)
-        return q.toArray()
+        for (const leg of this.coPartitionedLegs) {
+          q = q.join(leg.field, {
+            as: leg.as,
+            ...(leg.maxRows !== undefined ? { maxRows: leg.maxRows } : {}),
+            ...(leg.strategy ? { strategy: leg.strategy } : {}),
+          })
+        }
+        return q.toArray() as R[]
       },
       { concurrency: options.concurrency ?? 1, create: false },
     )
@@ -263,10 +331,11 @@ export class ShardedQuery<T, R = T> {
     return { records: results, skippedVaults: skipped }
   }
 
-  /** Fan out across eligible shards and merge results. */
+  /** Fan out across eligible shards, merge, then apply any broadcast dimension legs. */
   async toArray(options: FanoutQueryOptions = {}): Promise<FanoutResult<R>> {
     const { records, skippedVaults } = await this.fanoutRecords(options)
-    return { results: records, skippedVaults }
+    const results = (await applyBroadcastLegs(records, this.broadcastLegs)) as R[]
+    return { results, skippedVaults }
   }
 
   /** @internal — build the change-subscription + relevance binding for this query's group+collection. */

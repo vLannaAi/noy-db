@@ -24,12 +24,12 @@ export interface CrossShardJoinOptions {
 
 /**
  * Minimal structural shape of a broadcast dimension source. A
- * `Collection` satisfies this: `snapshot()` reads its in-memory cache,
- * `list()` hydrates it. `list` is optional so plain test sources work.
+ * `Collection` satisfies this natively: `list()` hydrates and returns
+ * the decoded records. Kept as a one-method interface so plain test
+ * sources are trivial to construct.
  */
 export interface BroadcastSource {
-  snapshot(): readonly unknown[]
-  list?(): Promise<unknown>
+  list(): Promise<readonly unknown[]>
 }
 
 /** Public options for `ShardedQuery.broadcastJoin`. */
@@ -102,12 +102,11 @@ export async function applyBroadcastLegs(
 ): Promise<unknown[]> {
   if (legs.length === 0) return [...rows]
 
-  // Build one index per leg (snapshot once).
+  // Build one index per leg (list() once per source).
   const indexes: { leg: BroadcastLeg; map: Map<string, unknown> }[] = []
   for (const leg of legs) {
-    if (leg.from.list) await leg.from.list()
     const map = new Map<string, unknown>()
-    for (const rec of leg.from.snapshot()) {
+    for (const rec of await leg.from.list()) {
       const k = coerceKey(readPath(rec, leg.on))
       if (k !== null && !map.has(k)) map.set(k, rec)
     }
