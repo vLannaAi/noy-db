@@ -24,7 +24,8 @@
  *
  * | Capability | Value |
  * |---|---|
- * | `casAtomic` | `true` — synchronous single-threaded JS |
+ * | `casAtomic` | `false` — single-tab only; cross-tab writes share storage with no serialization |
+ * | `serverWriteTime` | `true` — browser clock; same-tab only |
  * | `listPage` | ✓ — cursor-based pagination |
  * | `ping` | ✓ — round-trips a sentinel key |
  *
@@ -47,6 +48,8 @@ export interface BrowserLocalOptions {
   prefix?: string
   /** Obfuscate storage keys so collection/record names are not readable. Default: false. */
   obfuscate?: boolean
+  /** Clock uncertainty bound (ms). Default: 0. */
+  clockUncertaintyMs?: number
 }
 
 /**
@@ -56,15 +59,16 @@ export interface BrowserLocalOptions {
  * Key scheme (obfuscated): `{prefix}:{hash}:{hash}:{hash}`
  *
  * StoreCapabilities:
- *   casAtomic: true  — localStorage ops are synchronous and inherently atomic
+ *   casAtomic: false — single-tab: synchronous and inherently atomic; cross-tab: no serialization
  *   auth: { kind: 'browser-origin', flow: 'implicit', required: false }
  */
 export function browserLocalStore(options: BrowserLocalOptions = {}): NoydbStore {
   const prefix = options.prefix ?? 'noydb'
   const obfuscate = options.obfuscate ?? false
   const obfKey = obfuscate ? makeObfKey(prefix) : ''
+  const clockEpsilon = options.clockUncertaintyMs ?? 0
 
-  return createLocalStorageAdapter(prefix, obfuscate, obfKey)
+  return createLocalStorageAdapter(prefix, obfuscate, obfKey, clockEpsilon)
 }
 
 // ─── Key Obfuscation ───────────────────────────────────────────────────
@@ -176,7 +180,7 @@ function unwrapValue(raw: string, obfuscate: boolean, obfKey: string): { envelop
 
 // ─── localStorage Backend ──────────────────────────────────────────────
 
-function createLocalStorageAdapter(prefix: string, obfuscate: boolean, obfKey: string): NoydbStore {
+function createLocalStorageAdapter(prefix: string, obfuscate: boolean, obfKey: string, clockEpsilon: number): NoydbStore {
   function key(vault: string, collection: string, id: string): string {
     return `${prefix}:${hashComponent(vault, obfuscate)}:${hashComponent(collection, obfuscate)}:${hashComponent(id, obfuscate)}`
   }
@@ -191,6 +195,16 @@ function createLocalStorageAdapter(prefix: string, obfuscate: boolean, obfKey: s
 
   return {
     name: 'browser:localStorage',
+    capabilities: {
+      casAtomic: false,
+      serverWriteTime: true,
+      auth: { kind: 'browser-origin', required: false, flow: 'implicit' },
+    },
+
+    async getStoreTime() {
+      const now = Date.now()
+      return { earliest: now - clockEpsilon, latest: now + clockEpsilon }
+    },
 
     async get(vault, collection, id) {
       const data = localStorage.getItem(key(vault, collection, id))

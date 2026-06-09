@@ -108,6 +108,11 @@ export function postgres(options: PostgresStoreOptions): NoydbStore {
 
   const store: NoydbStore = {
     name: 'postgres',
+    capabilities: {
+      casAtomic: true,
+      txAtomic: true,
+      auth: { kind: 'api-key', required: true, flow: 'static' },
+    },
 
     async get(vault, collection, id) {
       await ensureSchema()

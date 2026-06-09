@@ -162,6 +162,10 @@ export function nfs(options: NfsStoreOptions): NoydbStore & { diagnostics(): Pro
 
   return {
     name: 'nfs',
+    capabilities: {
+      casAtomic: false,
+      auth: { kind: 'filesystem', required: false, flow: 'static' },
+    },
     async get(vault, collection, id) {
       return withDiagnostics(() => base.get(vault, collection, id))
     },

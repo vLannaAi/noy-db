@@ -60,5 +60,13 @@ export interface SupabaseStoreOptions extends Omit<PostgresStoreOptions, 'client
  */
 export function supabase(options: SupabaseStoreOptions): NoydbStore {
   const base = postgres(options)
-  return { ...base, name: 'supabase' }
+  return {
+    ...base,
+    name: 'supabase',
+    capabilities: {
+      casAtomic: true,
+      txAtomic: true,
+      auth: { kind: 'api-key', required: true, flow: 'static' },
+    },
+  }
 }

@@ -42,10 +42,13 @@ export interface TursoStoreOptions {
   readonly client: LibsqlClient
   readonly tableName?: string
   readonly autoMigrate?: boolean
+  /** Clock uncertainty bound for serverWriteTime (ms). Default: 1000. */
+  readonly clockUncertaintyMs?: number
 }
 
 export function turso(options: TursoStoreOptions): NoydbStore {
   const { client, tableName = 'noydb_envelopes', autoMigrate = true } = options
+  const clockUncertaintyMs = options.clockUncertaintyMs ?? 1_000
   let schemaReady: Promise<void> | null = null
 
   async function ensureSchema(): Promise<void> {
@@ -103,16 +106,64 @@ export function turso(options: TursoStoreOptions): NoydbStore {
     expectedVersion?: number,
   ): Promise<void> {
     await ensureSchema()
+
+    const envelopeArgs = [
+      vault, collection, id,
+      envelope._v, envelope._ts, envelope._iv, envelope._data,
+      envelope._by ?? null,
+      envelope._tier ?? null,
+      envelope._elevatedBy ?? null,
+      envelope._det ? JSON.stringify(envelope._det) : null,
+    ] as const
+
     if (expectedVersion !== undefined) {
-      const result = await client.execute({
-        sql: `SELECT v FROM ${tableName} WHERE vault = ? AND collection = ? AND id = ?`,
-        args: [vault, collection, id],
-      })
-      const existing = result.rows[0] as { v: number } | undefined
-      if (existing && existing.v !== expectedVersion) {
-        throw new ConflictError(existing.v, `Version conflict: expected ${expectedVersion}, found ${existing.v}`)
+      if (expectedVersion === 0) {
+        // Create-only: INSERT OR IGNORE — atomic at SQLite's serialized write layer.
+        // RETURNING is empty if the row already existed → ConflictError.
+        const result = await client.execute({
+          sql: `INSERT OR IGNORE INTO ${tableName}
+                  (vault, collection, id, v, ts, iv, data, by, tier, elevated_by, det)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+          args: envelopeArgs,
+        })
+        if (result.rows.length === 0) {
+          const check = await client.execute({
+            sql: `SELECT v FROM ${tableName} WHERE vault = ? AND collection = ? AND id = ?`,
+            args: [vault, collection, id],
+          })
+          const currentV = (check.rows[0] as { v: number } | undefined)?.v ?? 0
+          throw new ConflictError(currentV, 'Concurrent create: record already exists')
+        }
+        return
       }
+      // Update-only: single atomic UPDATE WHERE v=? — second concurrent writer
+      // sees 0 RETURNING rows after the first writer commits.
+      const result = await client.execute({
+        sql: `UPDATE ${tableName}
+              SET v = ?, ts = ?, iv = ?, data = ?, by = ?, tier = ?, elevated_by = ?, det = ?
+              WHERE vault = ? AND collection = ? AND id = ? AND v = ?
+              RETURNING id`,
+        args: [
+          envelope._v, envelope._ts, envelope._iv, envelope._data,
+          envelope._by ?? null,
+          envelope._tier ?? null,
+          envelope._elevatedBy ?? null,
+          envelope._det ? JSON.stringify(envelope._det) : null,
+          vault, collection, id, expectedVersion,
+        ],
+      })
+      if (result.rows.length === 0) {
+        const check = await client.execute({
+          sql: `SELECT v FROM ${tableName} WHERE vault = ? AND collection = ? AND id = ?`,
+          args: [vault, collection, id],
+        })
+        const currentV = (check.rows[0] as { v: number } | undefined)?.v ?? 0
+        throw new ConflictError(currentV, `Version conflict: expected ${expectedVersion}`)
+      }
+      return
     }
+
+    // Unconditional upsert — no version guard.
     await client.execute({
       sql:
         `INSERT INTO ${tableName} (vault, collection, id, v, ts, iv, data, by, tier, elevated_by, det)
@@ -120,19 +171,24 @@ export function turso(options: TursoStoreOptions): NoydbStore {
          ON CONFLICT(vault, collection, id) DO UPDATE SET
            v = excluded.v, ts = excluded.ts, iv = excluded.iv, data = excluded.data,
            by = excluded.by, tier = excluded.tier, elevated_by = excluded.elevated_by, det = excluded.det`,
-      args: [
-        vault, collection, id,
-        envelope._v, envelope._ts, envelope._iv, envelope._data,
-        envelope._by ?? null,
-        envelope._tier ?? null,
-        envelope._elevatedBy ?? null,
-        envelope._det ? JSON.stringify(envelope._det) : null,
-      ],
+      args: envelopeArgs,
     })
   }
 
   const store: NoydbStore = {
     name: 'turso',
+    capabilities: {
+      casAtomic: true,
+      serverWriteTime: true,
+      auth: { kind: 'api-key', required: true, flow: 'static' },
+    },
+
+    async getStoreTime() {
+      const result = await client.execute("SELECT unixepoch('now','subsec') AS t")
+      const seconds = parseFloat(result.rows[0]!.t as string)
+      const ms = Math.round(seconds * 1_000)
+      return { earliest: ms - clockUncertaintyMs, latest: ms + clockUncertaintyMs }
+    },
 
     async get(vault, collection, id) {
       await ensureSchema()

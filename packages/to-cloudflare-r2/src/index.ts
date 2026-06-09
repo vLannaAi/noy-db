@@ -3,8 +3,9 @@
  *
  * R2 is S3-API-compatible, so this package is a thin factory that
  * configures `@noy-db/to-aws-s3` to point at the R2 endpoint and
- * pass the R2-specific access key signature. Every capability,
- * behavior, and pagination detail of `s3()` applies verbatim.
+ * pass the R2-specific access key signature. Inherits all capabilities
+ * from `s3()` — `casAtomic: true`, `serverWriteTime: true`, server-clock
+ * sampling via `LastModified`, and `IfMatch`/`IfNoneMatch` conditional CAS.
  *
  * ## Why R2 for noy-db?
  *
@@ -64,6 +65,8 @@ export interface R2Options {
   readonly client?: S3Client
   /** Override the endpoint. Default derived from `accountId`. */
   readonly endpoint?: string
+  /** Clock uncertainty bound for serverWriteTime (ms). Forwarded to s3(). Default: 5000. */
+  clockUncertaintyMs?: number
 }
 
 const R2_REGION = 'auto'
@@ -88,8 +91,17 @@ export function r2(options: R2Options): NoydbStore {
       bucket: options.bucket,
       ...(options.prefix !== undefined && { prefix: options.prefix }),
       client: options.client,
+      ...(options.clockUncertaintyMs !== undefined && { clockUncertaintyMs: options.clockUncertaintyMs }),
     }
-    return s3(opts)
+    return {
+      ...s3(opts),
+      name: 'cloudflare-r2',
+      capabilities: {
+        casAtomic: true,
+        serverWriteTime: true,
+        auth: { kind: 'api-key', required: true, flow: 'static' },
+      },
+    }
   }
 
   if (!options.accountId) {
@@ -114,6 +126,15 @@ export function r2(options: R2Options): NoydbStore {
     bucket: options.bucket,
     ...(options.prefix !== undefined && { prefix: options.prefix }),
     client: built,
+    ...(options.clockUncertaintyMs !== undefined && { clockUncertaintyMs: options.clockUncertaintyMs }),
   }
-  return { ...s3(opts), name: 'cloudflare-r2' }
+  return {
+    ...s3(opts),
+    name: 'cloudflare-r2',
+    capabilities: {
+      casAtomic: true,
+      serverWriteTime: true,
+      auth: { kind: 'api-key', required: true, flow: 'static' },
+    },
+  }
 }
