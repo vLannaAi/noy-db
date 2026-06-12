@@ -42,6 +42,52 @@ function quantizeAmount(
   return r.value.toString()
 }
 
+/**
+ * Canonicalize a STORED-form record's money fields for a gate event
+ * (#332). Gate handlers (guard `check` / `frozenFields` / `onDelete`,
+ * period guard, amendment invariants) are user-facing callbacks: they
+ * must see the same decoded canonical decimal that `get()` returns —
+ * the scaled-int storage form never escapes. Decoded with `'raw'`
+ * (no `<field>Formatted`/`<field>Number` virtuals): gates carry no
+ * locale, and fabricating one would re-create #322's two-read-paths
+ * skew inside guard comparisons.
+ */
+export function canonicalizeGateExisting(
+  record: unknown,
+  moneyFields: Record<string, MoneyDescriptor> | undefined,
+): unknown {
+  if (record === null || record === undefined) return record
+  if (!moneyFields || Object.keys(moneyFields).length === 0) return record
+  return decodeMoneyFields(record as Record<string, unknown>, moneyFields, 'raw')
+}
+
+/**
+ * Canonicalize an INCOMING record's money fields for a gate event
+ * (#332). `incoming` is raw user input (pre-quantize): a money field
+ * may hold a number (`10000`), a major-unit string (`'10000.00'`), or
+ * a spread of an already-decoded read. Quantize→decode folds all
+ * three to the canonical decimal string, so freeze-style guards
+ * comparing `incoming[f]` vs `existing[f]` see equal values for an
+ * unchanged field. Best-effort: input that fails to quantize passes
+ * through unchanged — the write path quantizes again right after the
+ * gates and surfaces the real `MoneyPrecisionError`/`TypeError`.
+ */
+export function canonicalizeGateIncoming(
+  record: unknown,
+  moneyFields: Record<string, MoneyDescriptor> | undefined,
+): unknown {
+  if (!moneyFields || Object.keys(moneyFields).length === 0) return record
+  try {
+    return decodeMoneyFields(
+      quantizeMoneyFields(record as Record<string, unknown>, moneyFields),
+      moneyFields,
+      'raw',
+    )
+  } catch {
+    return record
+  }
+}
+
 /** Quantize ONE field value (any nesting level) to its stored form. */
 function quantizeValue(field: string, raw: unknown, desc: MoneyDescriptor): unknown {
   if (desc.mode === 'fixed') {

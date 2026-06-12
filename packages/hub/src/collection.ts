@@ -6,7 +6,7 @@ import type { I18nTextDescriptor } from './i18n/core.js'
 import { getAtPath, setAtPathInPlace } from './i18n/core.js'
 import type { DictKeyDescriptor } from './i18n/dictionary.js'
 import type { MoneyDescriptor } from './money/descriptor.js'
-import { quantizeMoneyFields, decodeMoneyFields } from './money/normalize.js'
+import { quantizeMoneyFields, decodeMoneyFields, canonicalizeGateExisting, canonicalizeGateIncoming } from './money/normalize.js'
 import { validateMoneyFieldPaths } from './money/paths.js'
 import type { ComputedFields } from './computed/index.js'
 import { evalComputedFields } from './computed/index.js'
@@ -800,8 +800,6 @@ export class Collection<T> {
     this.joinResolver = opts.joinResolver
     this.i18nFields = opts.i18nFields
     this.dictKeyFields = opts.dictKeyFields
-    // Path syntax validated NOW (#334) — a typo'd nested declaration
-    // must throw at setup, not silently skip quantization per write.
     if (opts.moneyFields) validateMoneyFieldPaths(opts.moneyFields)
     this.moneyFields = opts.moneyFields
     this.computed = opts.computed
@@ -971,10 +969,9 @@ export class Collection<T> {
    * declaration; this reconciles that ordering. First-wins. Not public.
    */
   _applyMoneyFields(moneyFields: Record<string, MoneyDescriptor>): void {
-    if (this.moneyFields === undefined) {
-      validateMoneyFieldPaths(moneyFields)
-      this.moneyFields = moneyFields
-    }
+    if (this.moneyFields !== undefined) return
+    validateMoneyFieldPaths(moneyFields)
+    this.moneyFields = moneyFields
   }
 
   /** @internal — attach computed fields post-construction. See {@link _applyMoneyFields}. */
@@ -1168,46 +1165,6 @@ export class Collection<T> {
     return this.activeTxId?.() ?? generateULID()
   }
 
-  /**
-   * Canonicalize a STORED-form record's money fields for a gate event
-   * (#332). Gate handlers (guard `check` / `frozenFields` / `onDelete`,
-   * period guard, amendment invariants) are user-facing callbacks: they
-   * must see the same decoded canonical decimal that `get()` returns —
-   * the scaled-int storage form never escapes. Decoded with `'raw'`
-   * (no `<field>Formatted`/`<field>Number` virtuals): gates carry no
-   * locale, and fabricating one would re-create #322's two-read-paths
-   * skew inside guard comparisons.
-   */
-  #canonGateExisting(record: unknown): unknown {
-    if (record === null || record === undefined) return record
-    if (!this.moneyFields || Object.keys(this.moneyFields).length === 0) return record
-    return decodeMoneyFields(record as Record<string, unknown>, this.moneyFields, 'raw')
-  }
-
-  /**
-   * Canonicalize an INCOMING record's money fields for a gate event
-   * (#332). `incoming` is raw user input (pre-quantize): a money field
-   * may hold a number (`10000`), a major-unit string (`'10000.00'`), or
-   * a spread of an already-decoded read. Quantize→decode folds all
-   * three to the canonical decimal string, so freeze-style guards
-   * comparing `incoming[f]` vs `existing[f]` see equal values for an
-   * unchanged field. Best-effort: input that fails to quantize passes
-   * through unchanged — the write path quantizes again right after the
-   * gates and surfaces the real `MoneyPrecisionError`/`TypeError`.
-   */
-  #canonGateIncoming(record: T): unknown {
-    if (!this.moneyFields || Object.keys(this.moneyFields).length === 0) return record
-    try {
-      return decodeMoneyFields(
-        quantizeMoneyFields(record as Record<string, unknown>, this.moneyFields),
-        this.moneyFields,
-        'raw',
-      )
-    } catch {
-      return record
-    }
-  }
-
   /** @internal Untracked put body — call {@link put}, not this. */
   private async putInternal(id: string, record: T, options?: { readonly reason?: string }): Promise<void> {
     if (!hasWritePermission(this.keyring, this.name)) {
@@ -1232,8 +1189,8 @@ export class Collection<T> {
       const gateEvent: GatePutEvent = {
         op: existingEnv ? 'update' : 'create',
         vault: this.vault, collection: this.name, docId: id,
-        incoming: this.#canonGateIncoming(record),
-        existing: this.#canonGateExisting(existingRecord),
+        incoming: canonicalizeGateIncoming(record, this.moneyFields),
+        existing: canonicalizeGateExisting(existingRecord, this.moneyFields),
         existingVersion: existingEnv?._v ?? 0,
         existingTs: existingEnv?._ts,
         userId: this.keyring.userId,
@@ -1906,7 +1863,7 @@ export class Collection<T> {
         }
         await this.subsystemBus.dispatchGate('beforeDelete', {
           vault: this.vault, collection: this.name, docId: id,
-          existing: this.#canonGateExisting(existingRecord),
+          existing: canonicalizeGateExisting(existingRecord, this.moneyFields),
           existingVersion: existingEnv._v,
           existingTs: existingEnv._ts,
           internal,
