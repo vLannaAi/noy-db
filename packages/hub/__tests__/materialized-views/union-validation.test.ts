@@ -35,17 +35,28 @@ describe('withMaterializedView UNION validation (#165)', () => {
     ).toThrow(MaterializedViewConfigError)
   })
 
-  it('rejects unionSources with fewer than 2 arms', () => {
+  it('accepts a single-arm union — computed-bucket-key aggregates over one collection (#331)', () => {
     expect(() =>
       withMaterializedView({
-        name: 'bad-one-arm',
+        name: 'one-arm',
         unionSources: [
           { collection: 'a', map: (r) => r as Record<string, unknown> },
         ],
         rowKey: () => 'k',
         refresh: 'eager',
       }),
-    ).toThrow(/at least 2/)
+    ).not.toThrow()
+  })
+
+  it('rejects an EMPTY unionSources array', () => {
+    expect(() =>
+      withMaterializedView({
+        name: 'bad-zero-arms',
+        unionSources: [],
+        rowKey: () => 'k',
+        refresh: 'eager',
+      }),
+    ).toThrow(/at least 1/)
   })
 
   it('rejects unionSources with duplicate collection names', () => {

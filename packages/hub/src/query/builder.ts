@@ -6,7 +6,7 @@
  */
 
 import type { Clause, CrossJoinClause, FieldClause, FilterClause, GroupClause, Operator, WherePredicateClause } from './predicate.js'
-import { evaluateClause } from './predicate.js'
+import { evaluateClause, hasFnClause } from './predicate.js'
 import type { CollectionIndexes } from '../indexing/eager-indexes.js'
 import type { JoinableSource, JoinContext, JoinLeg, JoinStrategy } from './join.js'
 import { applyJoins } from './join.js'
@@ -19,6 +19,7 @@ import { NO_AGGREGATE, type AggregateStrategy } from '../aggregate/strategy.js'
 import type { MoneyDescriptor } from '../money/descriptor.js'
 import { wrapMoneyReducers } from '../money/money-reducer.js'
 import { decodeMoneyFields } from '../money/normalize.js'
+import { moneyFieldClause } from '../money/where.js'
 
 export interface OrderBy {
   readonly field: string
@@ -220,9 +221,20 @@ export class Query<T> {
     )
   }
 
-  /** Add a field comparison. Multiple where() calls are AND-combined. */
+  /**
+   * Add a field comparison. Multiple where() calls are AND-combined.
+   *
+   * A declared money field compares in MAJOR units (#336): the operand
+   * (`10000`, `'10000.00'`, or `{ amount, currency }` in multi mode) is
+   * quantized into stored scaled-int space at build time and evaluated
+   * BigInt-exact per record. A malformed operand or a string operator
+   * (`contains`/`startsWith`) throws here, at the call site.
+   */
   where(field: string, op: Operator, value: unknown): Query<T> {
-    const clause: FieldClause = { type: 'field', field, op, value }
+    const desc = this.source.moneyFields?.[field]
+    const clause: FieldClause = desc
+      ? moneyFieldClause(field, op, value, desc)
+      : { type: 'field', field, op, value }
     return new Query<T>(
       this.source as QuerySource<T>,
       { ...this.plan, clauses: [...this.plan.clauses, clause] },
@@ -606,7 +618,7 @@ export class Query<T> {
     // is what `count()` documents.
     const { candidates, remainingClauses } = candidateRecords(this.source, this.plan.clauses)
     if (remainingClauses.length === 0) return candidates.length
-    return filterRecords(candidates, remainingClauses).length
+    return filterRecords(candidates, remainingClauses, fnViewDecoder(this.source)).length
   }
 
   /**
@@ -675,7 +687,7 @@ export class Query<T> {
       const { candidates, remainingClauses } = candidateRecords(source, clauses)
       return remainingClauses.length === 0
         ? candidates
-        : filterRecords(candidates, remainingClauses)
+        : filterRecords(candidates, remainingClauses, fnViewDecoder(source))
     }
 
     // Upstream for live mode — only the left source subscribes.
@@ -760,7 +772,7 @@ export class Query<T> {
       const { candidates, remainingClauses } = candidateRecords(source, clauses)
       return remainingClauses.length === 0
         ? candidates
-        : filterRecords(candidates, remainingClauses)
+        : filterRecords(candidates, remainingClauses, fnViewDecoder(source))
     }
 
     const upstreams: AggregationUpstream[] = []
@@ -948,7 +960,9 @@ function executePlanWithSource(
     // `remainingClauses` is empty and we skip per-record predicate evaluation.
     const { candidates, remainingClauses } = candidateRecords(source, plan.clauses)
     result =
-      remainingClauses.length === 0 ? [...candidates] : filterRecords(candidates, remainingClauses)
+      remainingClauses.length === 0
+        ? [...candidates]
+        : filterRecords(candidates, remainingClauses, fnViewDecoder(source))
   }
 
   if (plan.orderBy.length > 0) {
@@ -996,6 +1010,12 @@ function candidateRecords(source: InternalSource, clauses: readonly Clause[]): C
     const clause = clauses[i]!
     if (clause.type !== 'field') continue
     if (!indexes.has(clause.field)) continue
+    // Multi-currency money operands are { amount, currency } objects —
+    // the index stringifies object keys to a no-match sentinel, so a
+    // lookup would return an authoritative-empty set and silently drop
+    // every record. Fixed-mode money is fine: `value` was rewritten to
+    // the stored digit string at build time (#336).
+    if (clause.money?.mode === 'multi') continue
 
     let ids: ReadonlySet<string> | null = null
     if (clause.op === '==') {
@@ -1064,13 +1084,33 @@ export function executePlan(records: readonly unknown[], plan: QueryPlan): unkno
   return result
 }
 
-function filterRecords(records: readonly unknown[], clauses: readonly Clause[]): unknown[] {
+/**
+ * Build the per-record DECODED view factory for user-callback clauses
+ * (`filter` / `wherePredicate`) — those callbacks must see the canonical
+ * money shape, never the stored scaled-int (#335). Field clauses are NOT
+ * affected: their operands were quantized into raw stored space at build
+ * time (#336). Returns undefined when the source declares no money.
+ */
+function fnViewDecoder(source: InternalSource): ((r: unknown) => unknown) | undefined {
+  const mf = source.moneyFields
+  if (!mf || Object.keys(mf).length === 0) return undefined
+  return r => decodeMoneyFields(r as Record<string, unknown>, mf, 'raw')
+}
+
+function filterRecords(
+  records: readonly unknown[],
+  clauses: readonly Clause[],
+  decodeForFns?: (r: unknown) => unknown,
+): unknown[] {
   if (clauses.length === 0) return [...records]
+  // Decode once per record, and only when a callback clause will consume it.
+  const needsFnView = decodeForFns !== undefined && hasFnClause(clauses)
   const out: unknown[] = []
   for (const r of records) {
+    const fnView = needsFnView ? decodeForFns(r) : undefined
     let matches = true
     for (const clause of clauses) {
-      if (!evaluateClause(r, clause)) {
+      if (!evaluateClause(r, clause, fnView)) {
         matches = false
         break
       }
@@ -1094,11 +1134,12 @@ function executeClausePipeline(
 ): unknown[] {
   let rel: unknown[] = [...source.snapshot()]
   let filterBatch: Clause[] = []
+  const decodeForFns = fnViewDecoder(source)
 
   for (const clause of clauses) {
     if (clause.type === 'crossJoin') {
       if (filterBatch.length > 0) {
-        rel = filterRecords(rel, filterBatch)
+        rel = filterRecords(rel, filterBatch, decodeForFns)
         filterBatch = []
       }
       const rightSource = joinContext.resolveSource(clause.target)
@@ -1112,7 +1153,7 @@ function executeClausePipeline(
   }
 
   if (filterBatch.length > 0) {
-    rel = filterRecords(rel, filterBatch)
+    rel = filterRecords(rel, filterBatch, decodeForFns)
   }
 
   return rel

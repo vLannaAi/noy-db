@@ -154,6 +154,50 @@ export function parseToScaledInt(
 }
 
 /**
+ * Number of fractional digits in the canonical decimal rendering of
+ * `input` (`'123.45'` → 2, `100` → 0, `'1e-7'` → 7), or `null` when the
+ * input is non-finite / not a decimal. Used to infer the working scale
+ * of arithmetic helpers from their canonical-string inputs.
+ */
+export function decimalScaleOf(input: number | string): number | null {
+  const s = toCanonicalDecimalString(input)
+  if (s === null) return null
+  const dot = s.indexOf('.')
+  return dot === -1 ? 0 : s.length - dot - 1
+}
+
+/**
+ * Re-scale a scaled `BigInt` from `fromScale` to `toScale`. Scaling up
+ * is exact (append zeros); scaling down rounds the discarded tail per
+ * `rounding`. The rounding decision reuses the same kernel as
+ * {@link parseToScaledInt}, so `rescaleScaledInt(parse('1.005', 3), 3, 2)`
+ * and `parse('1.005', 2, mode)` agree for every mode.
+ */
+export function rescaleScaledInt(
+  value: bigint,
+  fromScale: number,
+  toScale: number,
+  rounding: RoundingMode = 'half-up',
+): bigint {
+  if (toScale >= fromScale) return value * 10n ** BigInt(toScale - fromScale)
+  const drop = fromScale - toScale
+  const negative = value < 0n
+  const absStr = (negative ? -value : value).toString().padStart(drop + 1, '0')
+  const keptStr = absStr.slice(0, absStr.length - drop)
+  const tail = absStr.slice(absStr.length - drop)
+  let magnitude = BigInt(keptStr)
+  if (!/^0+$/.test(tail)) {
+    const lastKeptDigit = Number(keptStr[keptStr.length - 1])
+    const firstDiscarded = Number(tail[0])
+    const hasMoreNonZeroAfterFirst = /[1-9]/.test(tail.slice(1))
+    if (shouldRoundUp(negative, lastKeptDigit, firstDiscarded, hasMoreNonZeroAfterFirst, rounding)) {
+      magnitude += 1n
+    }
+  }
+  return negative && magnitude !== 0n ? -magnitude : magnitude
+}
+
+/**
  * Render a scaled `BigInt` back to its canonical decimal string at the
  * given scale. `(12345n, 2)` → `'123.45'`; `(5n, 0)` → `'5'`;
  * `(-1n, 2)` → `'-0.01'`. Exact for any magnitude.

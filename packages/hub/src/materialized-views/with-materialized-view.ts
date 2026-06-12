@@ -46,9 +46,13 @@ export function withMaterializedView<TRow extends Record<string, unknown>>(
   }
   // UNION-form invariants.
   if (spec.unionSources) {
-    if (spec.unionSources.length < 2) {
+    // A single arm is a deliberate shape (#331): map→group→aggregate over
+    // ONE collection with a COMPUTED bucket key (e.g. month sliced from a
+    // date field) — something the query form's stored-field groupBy cannot
+    // express. The executor and dependency analyzer are arm-count-agnostic.
+    if (spec.unionSources.length < 1) {
       throw new MaterializedViewConfigError(
-        'unionSources requires at least 2 source collections',
+        'unionSources requires at least 1 source collection',
       )
     }
     const seen = new Set<string>()
