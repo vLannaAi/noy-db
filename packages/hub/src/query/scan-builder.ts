@@ -68,6 +68,7 @@ import type { JoinContext, JoinLeg, JoinableSource } from './join.js'
 import { DanglingReferenceError } from '../errors.js'
 import type { MoneyDescriptor } from '../money/descriptor.js'
 import { decodeMoneyFields } from '../money/normalize.js'
+import { moneyFieldClause } from '../money/where.js'
 
 /**
  * Page provider — the Collection-shaped hook the builder calls to
@@ -167,7 +168,12 @@ export class ScanBuilder<T> implements AsyncIterable<T> {
    * evaluates clauses per record in O(1) per clause.
    */
   where(field: string, op: Operator, value: unknown): ScanBuilder<T> {
-    const clause: FieldClause = { type: 'field', field, op, value }
+    // Money fields compare in major units, BigInt-exact in scaled space —
+    // same build-time operand rewrite as Query.where() (#336).
+    const desc = this.moneyFields?.[field]
+    const clause: FieldClause = desc
+      ? moneyFieldClause(field, op, value, desc)
+      : { type: 'field', field, op, value }
     return new ScanBuilder<T>(
       this.pageProvider,
       this.pageSize,

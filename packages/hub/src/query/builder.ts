@@ -19,6 +19,7 @@ import { NO_AGGREGATE, type AggregateStrategy } from '../aggregate/strategy.js'
 import type { MoneyDescriptor } from '../money/descriptor.js'
 import { wrapMoneyReducers } from '../money/money-reducer.js'
 import { decodeMoneyFields } from '../money/normalize.js'
+import { moneyFieldClause } from '../money/where.js'
 
 export interface OrderBy {
   readonly field: string
@@ -220,9 +221,20 @@ export class Query<T> {
     )
   }
 
-  /** Add a field comparison. Multiple where() calls are AND-combined. */
+  /**
+   * Add a field comparison. Multiple where() calls are AND-combined.
+   *
+   * A declared money field compares in MAJOR units (#336): the operand
+   * (`10000`, `'10000.00'`, or `{ amount, currency }` in multi mode) is
+   * quantized into stored scaled-int space at build time and evaluated
+   * BigInt-exact per record. A malformed operand or a string operator
+   * (`contains`/`startsWith`) throws here, at the call site.
+   */
   where(field: string, op: Operator, value: unknown): Query<T> {
-    const clause: FieldClause = { type: 'field', field, op, value }
+    const desc = this.source.moneyFields?.[field]
+    const clause: FieldClause = desc
+      ? moneyFieldClause(field, op, value, desc)
+      : { type: 'field', field, op, value }
     return new Query<T>(
       this.source as QuerySource<T>,
       { ...this.plan, clauses: [...this.plan.clauses, clause] },
@@ -996,6 +1008,12 @@ function candidateRecords(source: InternalSource, clauses: readonly Clause[]): C
     const clause = clauses[i]!
     if (clause.type !== 'field') continue
     if (!indexes.has(clause.field)) continue
+    // Multi-currency money operands are { amount, currency } objects —
+    // the index stringifies object keys to a no-match sentinel, so a
+    // lookup would return an authoritative-empty set and silently drop
+    // every record. Fixed-mode money is fine: `value` was rewritten to
+    // the stored digit string at build time (#336).
+    if (clause.money?.mode === 'multi') continue
 
     let ids: ReadonlySet<string> | null = null
     if (clause.op === '==') {

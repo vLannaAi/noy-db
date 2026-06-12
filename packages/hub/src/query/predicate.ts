@@ -2,8 +2,11 @@
  * Operator implementations for the query DSL.
  *
  * All predicates run client-side, AFTER decryption — they never see ciphertext.
- * This file is dependency-free and tree-shakeable.
+ * The only dependency is the money clause evaluator (#336) — still
+ * tree-shakeable through it.
  */
+
+import { evaluateMoneyClause, type MoneyWhereOperand } from '../money/where.js'
 
 /** Comparison operators supported by the where() builder. */
 export type Operator =
@@ -27,6 +30,14 @@ export interface FieldClause {
   readonly field: string
   readonly op: Operator
   readonly value: unknown
+  /**
+   * Present when `field` is a declared money field (#336): the operand
+   * quantized into stored scaled-int space at query BUILD time, so the
+   * per-record comparison is BigInt-exact against the raw stored value.
+   * Built by `moneyFieldClause` — `Query.where()` attaches it when the
+   * source declares the field in `moneyFields`.
+   */
+  readonly money?: MoneyWhereOperand
 }
 
 /**
@@ -127,6 +138,12 @@ export function readPath(record: unknown, path: string): unknown {
 export function evaluateFieldClause(record: unknown, clause: FieldClause): boolean {
   const actual = readPath(record, clause.field)
   const { op, value } = clause
+
+  // Money fields compare BigInt-exact in scaled-integer space (#336) —
+  // the stored form is a digit string, so the generic paths below would
+  // either reject (string vs number is not comparable) or compare
+  // lexicographically. The operand was quantized at build time.
+  if (clause.money) return evaluateMoneyClause(actual, op, clause.money)
 
   switch (op) {
     case '==':
