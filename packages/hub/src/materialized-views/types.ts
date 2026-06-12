@@ -123,7 +123,12 @@ export interface MaterializedViewStrategy<TRow extends Record<string, unknown>> 
    *
    * Mutually exclusive with {@link query}. Registration throws
    * `MaterializedViewConfigError` if both are set, if `unionSources`
-   * has fewer than 2 arms, or if two arms name the same `collection`.
+   * is empty, or if two arms name the same `collection`.
+   *
+   * A SINGLE arm is valid (#331): it expresses map→group→aggregate
+   * over one collection with a COMPUTED bucket key (e.g. a month
+   * sliced from a date field). The query form's `.groupBy()` accepts
+   * stored field names only, so a derived key needs the arm's `map`.
    *
    * UNION mode replaces the dependency-analyzer path: the source
    * collections come directly from `unionSources[].collection`, and
