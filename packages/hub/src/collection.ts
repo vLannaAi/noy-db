@@ -1161,6 +1161,46 @@ export class Collection<T> {
     return this.activeTxId?.() ?? generateULID()
   }
 
+  /**
+   * Canonicalize a STORED-form record's money fields for a gate event
+   * (#332). Gate handlers (guard `check` / `frozenFields` / `onDelete`,
+   * period guard, amendment invariants) are user-facing callbacks: they
+   * must see the same decoded canonical decimal that `get()` returns —
+   * the scaled-int storage form never escapes. Decoded with `'raw'`
+   * (no `<field>Formatted`/`<field>Number` virtuals): gates carry no
+   * locale, and fabricating one would re-create #322's two-read-paths
+   * skew inside guard comparisons.
+   */
+  #canonGateExisting(record: unknown): unknown {
+    if (record === null || record === undefined) return record
+    if (!this.moneyFields || Object.keys(this.moneyFields).length === 0) return record
+    return decodeMoneyFields(record as Record<string, unknown>, this.moneyFields, 'raw')
+  }
+
+  /**
+   * Canonicalize an INCOMING record's money fields for a gate event
+   * (#332). `incoming` is raw user input (pre-quantize): a money field
+   * may hold a number (`10000`), a major-unit string (`'10000.00'`), or
+   * a spread of an already-decoded read. Quantize→decode folds all
+   * three to the canonical decimal string, so freeze-style guards
+   * comparing `incoming[f]` vs `existing[f]` see equal values for an
+   * unchanged field. Best-effort: input that fails to quantize passes
+   * through unchanged — the write path quantizes again right after the
+   * gates and surfaces the real `MoneyPrecisionError`/`TypeError`.
+   */
+  #canonGateIncoming(record: T): unknown {
+    if (!this.moneyFields || Object.keys(this.moneyFields).length === 0) return record
+    try {
+      return decodeMoneyFields(
+        quantizeMoneyFields(record as Record<string, unknown>, this.moneyFields),
+        this.moneyFields,
+        'raw',
+      )
+    } catch {
+      return record
+    }
+  }
+
   /** @internal Untracked put body — call {@link put}, not this. */
   private async putInternal(id: string, record: T, options?: { readonly reason?: string }): Promise<void> {
     if (!hasWritePermission(this.keyring, this.name)) {
@@ -1185,8 +1225,8 @@ export class Collection<T> {
       const gateEvent: GatePutEvent = {
         op: existingEnv ? 'update' : 'create',
         vault: this.vault, collection: this.name, docId: id,
-        incoming: record,
-        existing: existingRecord,
+        incoming: this.#canonGateIncoming(record),
+        existing: this.#canonGateExisting(existingRecord),
         existingVersion: existingEnv?._v ?? 0,
         existingTs: existingEnv?._ts,
         userId: this.keyring.userId,
@@ -1859,7 +1899,7 @@ export class Collection<T> {
         }
         await this.subsystemBus.dispatchGate('beforeDelete', {
           vault: this.vault, collection: this.name, docId: id,
-          existing: existingRecord,
+          existing: this.#canonGateExisting(existingRecord),
           existingVersion: existingEnv._v,
           existingTs: existingEnv._ts,
           internal,
