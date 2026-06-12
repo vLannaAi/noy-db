@@ -15,3 +15,5 @@ export type {
 export type { RoundingMode } from './fixed-point.js'
 export { scaleForCurrency } from './iso4217.js'
 export type { FxRates } from './money-reducer.js'
+export { mulRate, allocate } from './arith.js'
+export type { MulRateOptions, AllocateOptions } from './arith.js'

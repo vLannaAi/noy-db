@@ -749,6 +749,8 @@ export {
   MoneyCurrencyError,
   MoneyUnsupportedError,
   scaleForCurrency,
+  mulRate,
+  allocate,
 } from './money/index.js'
 export type {
   MoneyDescriptor,
@@ -757,6 +759,8 @@ export type {
   MoneyOptionsMulti,
   RoundingMode,
   FxRates,
+  MulRateOptions,
+  AllocateOptions,
 } from './money/index.js'
 
 // computed — schema-owned computed scalar fields (#302)
