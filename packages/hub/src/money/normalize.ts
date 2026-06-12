@@ -43,16 +43,17 @@ function quantizeAmount(
 }
 
 /**
- * Canonicalize a STORED-form record's money fields for a gate event
- * (#332). Gate handlers (guard `check` / `frozenFields` / `onDelete`,
- * period guard, amendment invariants) are user-facing callbacks: they
- * must see the same decoded canonical decimal that `get()` returns —
- * the scaled-int storage form never escapes. Decoded with `'raw'`
- * (no `<field>Formatted`/`<field>Number` virtuals): gates carry no
- * locale, and fabricating one would re-create #322's two-read-paths
- * skew inside guard comparisons.
+ * Canonicalize a STORED-form record's money fields for an internal
+ * callback boundary (#332/#335). Gate handlers (guard `check` /
+ * `frozenFields` / `onDelete`, period guard, amendment invariants) and
+ * derivation `derive(source, ctx)` callbacks are user-facing: they must
+ * see the same decoded canonical decimal that `get()` returns — the
+ * scaled-int storage form never escapes. Decoded with `'raw'` (no
+ * `<field>Formatted`/`<field>Number` virtuals): these boundaries carry
+ * no locale, and fabricating one would re-create #322's two-read-paths
+ * skew inside comparisons.
  */
-export function canonicalizeGateExisting(
+export function canonicalizeStoredMoney(
   record: unknown,
   moneyFields: Record<string, MoneyDescriptor> | undefined,
 ): unknown {
@@ -62,17 +63,19 @@ export function canonicalizeGateExisting(
 }
 
 /**
- * Canonicalize an INCOMING record's money fields for a gate event
- * (#332). `incoming` is raw user input (pre-quantize): a money field
- * may hold a number (`10000`), a major-unit string (`'10000.00'`), or
- * a spread of an already-decoded read. Quantize→decode folds all
- * three to the canonical decimal string, so freeze-style guards
- * comparing `incoming[f]` vs `existing[f]` see equal values for an
- * unchanged field. Best-effort: input that fails to quantize passes
- * through unchanged — the write path quantizes again right after the
- * gates and surfaces the real `MoneyPrecisionError`/`TypeError`.
+ * Canonicalize an INCOMING record's money fields at the top of the
+ * write pipeline (#332/#335). Raw user input (pre-quantize) may hold a
+ * number (`10000`), a major-unit string (`'10000.00'`), or a spread of
+ * an already-decoded read. Quantize→decode folds all three to the
+ * canonical decimal string, so gate handlers, computed-field
+ * callbacks, and schema validation all see the `get()` shape — and
+ * freeze-style guards comparing `incoming[f]` vs `existing[f]` see
+ * equal values for an unchanged field. Best-effort: input that fails
+ * to quantize passes through unchanged — the write path quantizes
+ * again after validation and surfaces the real
+ * `MoneyPrecisionError`/`TypeError`.
  */
-export function canonicalizeGateIncoming(
+export function canonicalizeIncomingMoney(
   record: unknown,
   moneyFields: Record<string, MoneyDescriptor> | undefined,
 ): unknown {

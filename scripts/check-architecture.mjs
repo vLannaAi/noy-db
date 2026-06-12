@@ -405,7 +405,12 @@ const KERNEL_SURFACE_BUDGET = {
   // no-locale decode + the `hasReadTransforms` gate are thin decode-on-read
   // call-sites in the get/list hot path (heavy logic in src/money/), same
   // kernel-resident class as the money()/computed() hooks above.
-  'packages/hub/src/collection.ts': 4030,
+  // Bumped 4030→4040 (2026-06-12): #335 one-canonical-money-encoding —
+  // canonicalizeIncomingMoney at the top of putInternal (gates/computed/
+  // schema all see the get() shape) + canonicalizeStoredMoney at the gate
+  // and derivation dispatch boundaries. Thin call-sites in the write hot
+  // path; the canonicalization logic lives in src/money/normalize.ts.
+  'packages/hub/src/collection.ts': 4040,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.

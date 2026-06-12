@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
-import { createNoydb, withGuard, withMaterializedView, money, sum } from '../../src/index.js'
+import { createNoydb, withGuard, withMaterializedView, withDerivation, withOverlayedView, money, sum } from '../../src/index.js'
 import { withAggregate } from '../../src/aggregate/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
 
@@ -48,7 +48,7 @@ interface Cert extends Record<string, unknown> {
 const CANONICAL = '10000.00'
 
 describe('money encoding conformance — every extension point sees the same canonical value (#335)', () => {
-  it('sweeps get / list / query / filter / scan / guards / MV map', async () => {
+  it('sweeps get / list / query / filter / scan / guards / MV map / computed / derivation', async () => {
     const observed: Record<string, unknown> = {}
 
     const guard = withGuard<Cert>({
@@ -81,11 +81,23 @@ describe('money encoding conformance — every extension point sees the same can
       refresh: 'eager',
     })
 
+    const derivation = withDerivation<Cert, { receipt: Record<string, unknown> }>({
+      source: 'certs',
+      deterministic: true,
+      outputs: { receipt: { shape: 'record', collection: 'cert-receipts' } },
+      derive: (s) => {
+        observed['derivation.source'] = s.totalPaid
+        return { receipt: { certId: s.id, amount: s.totalPaid } }
+      },
+      lifecycle: 'eager',
+    })
+
     const db = await createNoydb({
       store: memory(), user: 'alice',
       secret: 'money-conformance-passphrase-2026',
       guardStrategies: [guard],
       materializedViewStrategies: [mv],
+      derivationStrategies: [derivation],
       aggregateStrategy: withAggregate(),
     })
     const vault = await db.openVault('books')
@@ -93,8 +105,15 @@ describe('money encoding conformance — every extension point sees the same can
       schema: z.object({
         id: z.string(), entity: z.string(),
         totalPaid: z.union([z.number(), z.string()]), sentAt: z.string().nullable(),
+        note: z.string().optional(),
       }),
       moneyFields: { totalPaid: money({ currency: 'THB', scale: 2 }) },
+      computed: {
+        note: (r) => {
+          observed['computed'] = (r as Cert).totalPaid
+          return 'computed-ran'
+        },
+      },
     })
 
     await col.put('c1', { id: 'c1', entity: 'e1', totalPaid: 10000, sentAt: null })
@@ -134,7 +153,46 @@ describe('money encoding conformance — every extension point sees the same can
       'guard.existing': CANONICAL,
       'guard.onDelete': CANONICAL,
       'mv.map': CANONICAL, // decoded since pre.13 (#322)
+      'computed': CANONICAL, // canonicalized at pipeline top (#335)
+      'derivation.source': CANONICAL, // decoded at dispatch boundary (#335)
     })
+  })
+
+  it('overlay virtual collection reads return canonical money (base and overlay rows)', async () => {
+    const overlay = withOverlayedView({
+      name: 'certs-v',
+      base: 'certs',
+      overlay: 'certs-overlay',
+      shadowField: 'dataStatus',
+      shadowValue: 'override',
+    })
+    const db = await createNoydb({
+      store: memory(), user: 'alice',
+      secret: 'money-conformance-overlay-passphrase-2026',
+      overlayedViewStrategies: [overlay],
+    })
+    const vault = await db.openVault('books')
+    const moneyOpts = {
+      schema: z.object({
+        id: z.string(), entity: z.string(),
+        totalPaid: z.union([z.number(), z.string()]),
+        sentAt: z.string().nullable(), dataStatus: z.string().optional(),
+      }),
+      moneyFields: { totalPaid: money({ currency: 'THB', scale: 2 }) },
+    }
+    const base = vault.collection<Cert>('certs', moneyOpts)
+    vault.collection<Cert>('certs-overlay', moneyOpts)
+
+    await base.put('c1', { id: 'c1', entity: 'e1', totalPaid: 10000, sentAt: null })
+    const virtual = vault.collection<Cert>('certs-v')
+    expect(((await virtual.get('c1')) as Cert).totalPaid).toBe(CANONICAL)
+
+    // Shadowed read: the overlay row wins and is decoded too.
+    const overlayCol = vault.collection<Cert>('certs-overlay')
+    await overlayCol.put('c1', { id: 'c1', entity: 'e1', totalPaid: 20000, sentAt: null, dataStatus: 'override' })
+    expect(((await virtual.get('c1')) as Cert).totalPaid).toBe('20000.00')
+    const listed = (await virtual.list()) as Cert[]
+    expect(listed[0]!.totalPaid).toBe('20000.00')
   })
 
   it('where() + filter() compose: field clause in scaled space, callback sees decoded', async () => {

@@ -6,7 +6,7 @@ import type { I18nTextDescriptor } from './i18n/core.js'
 import { getAtPath, setAtPathInPlace } from './i18n/core.js'
 import type { DictKeyDescriptor } from './i18n/dictionary.js'
 import type { MoneyDescriptor } from './money/descriptor.js'
-import { quantizeMoneyFields, decodeMoneyFields, canonicalizeGateExisting, canonicalizeGateIncoming } from './money/normalize.js'
+import { quantizeMoneyFields, decodeMoneyFields, canonicalizeStoredMoney, canonicalizeIncomingMoney } from './money/normalize.js'
 import { validateMoneyFieldPaths } from './money/paths.js'
 import type { ComputedFields } from './computed/index.js'
 import { evalComputedFields } from './computed/index.js'
@@ -1171,6 +1171,12 @@ export class Collection<T> {
       throw new ReadOnlyError()
     }
 
+    // One canonical money encoding from the FIRST pipeline stage (#335):
+    // gates, computed fields, and schema validation all see the decoded
+    // `get()` shape. Best-effort — bad input passes through and the
+    // quantize stage below throws the real error.
+    record = canonicalizeIncomingMoney(record, this.moneyFields) as T
+
     // Gate bus (Track A) — write-gating subsystems (guards: record-lock /
     // field-freeze / amendment-collect; periods: closed-period guard) run here,
     // before any schema/i18n/history work. A throwing gate handler propagates
@@ -1189,8 +1195,8 @@ export class Collection<T> {
       const gateEvent: GatePutEvent = {
         op: existingEnv ? 'update' : 'create',
         vault: this.vault, collection: this.name, docId: id,
-        incoming: canonicalizeGateIncoming(record, this.moneyFields),
-        existing: canonicalizeGateExisting(existingRecord, this.moneyFields),
+        incoming: record,
+        existing: canonicalizeStoredMoney(existingRecord, this.moneyFields),
         existingVersion: existingEnv?._v ?? 0,
         existingTs: existingEnv?._ts,
         userId: this.keyring.userId,
@@ -1590,7 +1596,9 @@ export class Collection<T> {
    */
   private async dispatchDerivations(id: string, record: T, version: number): Promise<void> {
     if (this.derivationSource === undefined) return
-    const incoming = record as unknown as Record<string, unknown>
+    // `record` is the stored form here (post-quantize) — decode so
+    // derive(source, ctx) sees the canonical money shape (#335).
+    const incoming = canonicalizeStoredMoney(record, this.moneyFields) as Record<string, unknown>
     if (incoming && typeof incoming === 'object' && '_derivedFrom' in incoming) return
     const registry = this.derivationSource.registry()
     const strategies = registry.strategiesForSource(this.name)
@@ -1863,7 +1871,7 @@ export class Collection<T> {
         }
         await this.subsystemBus.dispatchGate('beforeDelete', {
           vault: this.vault, collection: this.name, docId: id,
-          existing: canonicalizeGateExisting(existingRecord, this.moneyFields),
+          existing: canonicalizeStoredMoney(existingRecord, this.moneyFields),
           existingVersion: existingEnv._v,
           existingTs: existingEnv._ts,
           internal,
