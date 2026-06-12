@@ -6,7 +6,7 @@
  */
 
 import type { Clause, CrossJoinClause, FieldClause, FilterClause, GroupClause, Operator, WherePredicateClause } from './predicate.js'
-import { evaluateClause } from './predicate.js'
+import { evaluateClause, hasFnClause } from './predicate.js'
 import type { CollectionIndexes } from '../indexing/eager-indexes.js'
 import type { JoinableSource, JoinContext, JoinLeg, JoinStrategy } from './join.js'
 import { applyJoins } from './join.js'
@@ -618,7 +618,7 @@ export class Query<T> {
     // is what `count()` documents.
     const { candidates, remainingClauses } = candidateRecords(this.source, this.plan.clauses)
     if (remainingClauses.length === 0) return candidates.length
-    return filterRecords(candidates, remainingClauses).length
+    return filterRecords(candidates, remainingClauses, fnViewDecoder(this.source)).length
   }
 
   /**
@@ -687,7 +687,7 @@ export class Query<T> {
       const { candidates, remainingClauses } = candidateRecords(source, clauses)
       return remainingClauses.length === 0
         ? candidates
-        : filterRecords(candidates, remainingClauses)
+        : filterRecords(candidates, remainingClauses, fnViewDecoder(source))
     }
 
     // Upstream for live mode — only the left source subscribes.
@@ -772,7 +772,7 @@ export class Query<T> {
       const { candidates, remainingClauses } = candidateRecords(source, clauses)
       return remainingClauses.length === 0
         ? candidates
-        : filterRecords(candidates, remainingClauses)
+        : filterRecords(candidates, remainingClauses, fnViewDecoder(source))
     }
 
     const upstreams: AggregationUpstream[] = []
@@ -960,7 +960,9 @@ function executePlanWithSource(
     // `remainingClauses` is empty and we skip per-record predicate evaluation.
     const { candidates, remainingClauses } = candidateRecords(source, plan.clauses)
     result =
-      remainingClauses.length === 0 ? [...candidates] : filterRecords(candidates, remainingClauses)
+      remainingClauses.length === 0
+        ? [...candidates]
+        : filterRecords(candidates, remainingClauses, fnViewDecoder(source))
   }
 
   if (plan.orderBy.length > 0) {
@@ -1082,13 +1084,33 @@ export function executePlan(records: readonly unknown[], plan: QueryPlan): unkno
   return result
 }
 
-function filterRecords(records: readonly unknown[], clauses: readonly Clause[]): unknown[] {
+/**
+ * Build the per-record DECODED view factory for user-callback clauses
+ * (`filter` / `wherePredicate`) — those callbacks must see the canonical
+ * money shape, never the stored scaled-int (#335). Field clauses are NOT
+ * affected: their operands were quantized into raw stored space at build
+ * time (#336). Returns undefined when the source declares no money.
+ */
+function fnViewDecoder(source: InternalSource): ((r: unknown) => unknown) | undefined {
+  const mf = source.moneyFields
+  if (!mf || Object.keys(mf).length === 0) return undefined
+  return r => decodeMoneyFields(r as Record<string, unknown>, mf, 'raw')
+}
+
+function filterRecords(
+  records: readonly unknown[],
+  clauses: readonly Clause[],
+  decodeForFns?: (r: unknown) => unknown,
+): unknown[] {
   if (clauses.length === 0) return [...records]
+  // Decode once per record, and only when a callback clause will consume it.
+  const needsFnView = decodeForFns !== undefined && hasFnClause(clauses)
   const out: unknown[] = []
   for (const r of records) {
+    const fnView = needsFnView ? decodeForFns(r) : undefined
     let matches = true
     for (const clause of clauses) {
-      if (!evaluateClause(r, clause)) {
+      if (!evaluateClause(r, clause, fnView)) {
         matches = false
         break
       }
@@ -1112,11 +1134,12 @@ function executeClausePipeline(
 ): unknown[] {
   let rel: unknown[] = [...source.snapshot()]
   let filterBatch: Clause[] = []
+  const decodeForFns = fnViewDecoder(source)
 
   for (const clause of clauses) {
     if (clause.type === 'crossJoin') {
       if (filterBatch.length > 0) {
-        rel = filterRecords(rel, filterBatch)
+        rel = filterRecords(rel, filterBatch, decodeForFns)
         filterBatch = []
       }
       const rightSource = joinContext.resolveSource(clause.target)
@@ -1130,7 +1153,7 @@ function executeClausePipeline(
   }
 
   if (filterBatch.length > 0) {
-    rel = filterRecords(rel, filterBatch)
+    rel = filterRecords(rel, filterBatch, decodeForFns)
   }
 
   return rel

@@ -196,15 +196,21 @@ function isComparable(a: unknown, b: unknown): boolean {
  * Evaluate any clause (field / filter / group) against a record.
  * The recursion depth is bounded by the user's query expression — no risk of
  * blowing the stack on a 50K-record collection.
+ *
+ * `fnRecord`, when provided, is the view handed to USER CALLBACK clauses
+ * (`filter` / `wherePredicate`) instead of `record` — the executor passes
+ * the money-decoded view there (#335) so user code never sees the stored
+ * scaled-int form, while field clauses keep evaluating against the raw
+ * record (their money operands are pre-quantized to that space, #336).
  */
-export function evaluateClause(record: unknown, clause: Clause): boolean {
+export function evaluateClause(record: unknown, clause: Clause, fnRecord?: unknown): boolean {
   switch (clause.type) {
     case 'field':
       return evaluateFieldClause(record, clause)
     case 'filter':
-      return clause.fn(record)
+      return clause.fn(fnRecord !== undefined ? fnRecord : record)
     case 'wherePredicate':
-      return clause.fn(record, clause.ctx)
+      return clause.fn(fnRecord !== undefined ? fnRecord : record, clause.ctx)
     case 'crossJoin':
       throw new Error(
         `evaluateClause: 'crossJoin' clauses are expansion primitives and are not ` +
@@ -215,14 +221,27 @@ export function evaluateClause(record: unknown, clause: Clause): boolean {
     case 'group':
       if (clause.op === 'and') {
         for (const child of clause.clauses) {
-          if (!evaluateClause(record, child)) return false
+          if (!evaluateClause(record, child, fnRecord)) return false
         }
         return true
       } else {
         for (const child of clause.clauses) {
-          if (evaluateClause(record, child)) return true
+          if (evaluateClause(record, child, fnRecord)) return true
         }
         return false
       }
   }
+}
+
+/**
+ * Does the clause list contain any user-callback clause (filter /
+ * wherePredicate), at any group nesting depth? Used by executors to
+ * decide whether the per-record decoded view needs materializing.
+ */
+export function hasFnClause(clauses: readonly Clause[]): boolean {
+  for (const c of clauses) {
+    if (c.type === 'filter' || c.type === 'wherePredicate') return true
+    if (c.type === 'group' && hasFnClause(c.clauses)) return true
+  }
+  return false
 }

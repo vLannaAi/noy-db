@@ -59,7 +59,7 @@
  */
 
 import type { Clause, FieldClause, Operator } from './predicate.js'
-import { evaluateClause, readPath } from './predicate.js'
+import { evaluateClause, hasFnClause, readPath } from './predicate.js'
 import type {
   AggregateSpec,
   AggregateResult,
@@ -615,8 +615,16 @@ export class ScanBuilder<T> implements AsyncIterable<T> {
    */
   private recordMatches(record: T): boolean {
     if (this.clauses.length === 0) return true
+    // User-callback clauses (filter) see the DECODED money view (#335);
+    // field clauses keep the raw record — their operands are pre-quantized
+    // into stored space (#336). Decoded at most once per record, only
+    // when a callback clause exists.
+    const fnView =
+      this.moneyFields && Object.keys(this.moneyFields).length > 0 && hasFnClause(this.clauses)
+        ? this.decodeMoney(record)
+        : undefined
     for (const clause of this.clauses) {
-      if (!evaluateClause(record, clause)) return false
+      if (!evaluateClause(record, clause, fnView)) return false
     }
     return true
   }
