@@ -751,6 +751,9 @@ export {
   scaleForCurrency,
   mulRate,
   allocate,
+  asMoney,
+  isMoneyString,
+  moneyNumber,
 } from './money/index.js'
 export type {
   MoneyDescriptor,
@@ -761,6 +764,7 @@ export type {
   FxRates,
   MulRateOptions,
   AllocateOptions,
+  MoneyString,
 } from './money/index.js'
 
 // computed — schema-owned computed scalar fields (#302)
