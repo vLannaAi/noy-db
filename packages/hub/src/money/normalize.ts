@@ -16,6 +16,7 @@
 
 import { parseToScaledInt, formatScaledInt } from './fixed-point.js'
 import { MoneyPrecisionError, type MoneyDescriptor } from './descriptor.js'
+import { isSimpleMoneyPath, parseMoneyPath, transformAtMoneyPath } from './paths.js'
 
 interface MoneyValueObject {
   amount: unknown
@@ -41,43 +42,55 @@ function quantizeAmount(
   return r.value.toString()
 }
 
+/** Quantize ONE field value (any nesting level) to its stored form. */
+function quantizeValue(field: string, raw: unknown, desc: MoneyDescriptor): unknown {
+  if (desc.mode === 'fixed') {
+    const currency = desc.fixedCurrency!
+    return quantizeAmount(field, raw as number | string, desc.scaleFor(currency), desc.rounding)
+  }
+  // multi mode
+  let amount: number | string
+  let currency: string
+  if (isMoneyValueObject(raw)) {
+    currency = String(raw.currency)
+    amount = raw.amount as number | string
+  } else {
+    const sole = desc.soleCurrency()
+    if (sole === undefined) {
+      throw new TypeError(
+        `money: field "${field}" is multi-currency — write { amount, currency }, not a bare amount`,
+      )
+    }
+    currency = sole
+    amount = raw as number | string
+  }
+  const scale = desc.scaleFor(currency) // throws MoneyCurrencyError if disallowed
+  return { amount: quantizeAmount(field, amount, scale, desc.rounding), currency }
+}
+
 /**
  * Convert money fields in `record` from user input to their canonical
- * stored form. Returns a shallow clone.
+ * stored form. Returns a shallow clone (deep along declared nested
+ * paths — #334). A nested path whose declared shape disagrees with the
+ * data throws: writing through would store an un-quantized amount.
  */
 export function quantizeMoneyFields<T extends Record<string, unknown>>(
   record: T,
   moneyFields: Record<string, MoneyDescriptor>,
 ): T {
-  const out: Record<string, unknown> = { ...record }
-  for (const [field, desc] of Object.entries(moneyFields)) {
-    const raw = out[field]
-    if (raw === null || raw === undefined) continue
-
-    if (desc.mode === 'fixed') {
-      const currency = desc.fixedCurrency!
-      out[field] = quantizeAmount(field, raw as number | string, desc.scaleFor(currency), desc.rounding)
+  let out: Record<string, unknown> = { ...record }
+  for (const [path, desc] of Object.entries(moneyFields)) {
+    if (isSimpleMoneyPath(path)) {
+      const raw = out[path]
+      if (raw === null || raw === undefined) continue
+      out[path] = quantizeValue(path, raw, desc)
       continue
     }
-
-    // multi mode
-    let amount: number | string
-    let currency: string
-    if (isMoneyValueObject(raw)) {
-      currency = String(raw.currency)
-      amount = raw.amount as number | string
-    } else {
-      const sole = desc.soleCurrency()
-      if (sole === undefined) {
-        throw new TypeError(
-          `money: field "${field}" is multi-currency — write { amount, currency }, not a bare amount`,
-        )
-      }
-      currency = sole
-      amount = raw as number | string
-    }
-    const scale = desc.scaleFor(currency) // throws MoneyCurrencyError if disallowed
-    out[field] = { amount: quantizeAmount(field, amount, scale, desc.rounding), currency }
+    out = transformAtMoneyPath(out, path, parseMoneyPath(path), 0, (container, key) => {
+      const raw = (container as Record<string | number, unknown>)[key]
+      if (raw === null || raw === undefined) return
+      ;(container as Record<string | number, unknown>)[key] = quantizeValue(path, raw, desc)
+    }, /* lenient */ false) as Record<string, unknown>
   }
   return out as T
 }
@@ -97,46 +110,84 @@ function formatCurrency(decimal: string, currency: string, scale: number, locale
 }
 
 /**
+ * Decode ONE stored field value to its read shape, or `null` when the
+ * stored value is malformed (defensive — never brick a read).
+ */
+function decodeValue(
+  stored: unknown,
+  desc: MoneyDescriptor,
+): { decoded: unknown; decimal: string; currency: string; scale: number } | null {
+  let currency: string
+  let scaledIntString: string
+  if (desc.mode === 'fixed') {
+    if (typeof stored !== 'string' && typeof stored !== 'number') return null
+    currency = desc.fixedCurrency!
+    scaledIntString = String(stored)
+  } else {
+    if (!isMoneyValueObject(stored)) return null // defensive: malformed stored value
+    const amount = stored.amount
+    if (typeof stored.currency !== 'string' || (typeof amount !== 'string' && typeof amount !== 'number')) return null
+    currency = stored.currency
+    scaledIntString = String(amount)
+  }
+  const scale = desc.scaleFor(currency)
+  let decimal: string
+  try {
+    decimal = formatScaledInt(BigInt(scaledIntString), scale)
+  } catch {
+    return null // defensive: non-integer stored value
+  }
+  return {
+    decoded: desc.mode === 'fixed' ? decimal : { amount: decimal, currency },
+    decimal,
+    currency,
+    scale,
+  }
+}
+
+/**
  * Convert money fields in `record` from stored form to the read shape:
  * an exact decimal string, plus `<field>Formatted` / `<field>Number`
- * virtuals when `locale !== 'raw'`. Returns a shallow clone.
+ * virtuals when `locale !== 'raw'`. Returns a shallow clone (deep along
+ * declared nested paths — #334; virtuals land as siblings inside the
+ * nested container, e.g. each `lineItems[]` element gains
+ * `amountFormatted`, except for values held directly in arrays where a
+ * scalar has no sibling slot). The decode walk is LENIENT: stored data
+ * predating a declaration change must stay readable.
  */
 export function decodeMoneyFields<T extends Record<string, unknown>>(
   record: T,
   moneyFields: Record<string, MoneyDescriptor>,
   locale: string | undefined,
 ): T {
-  const out: Record<string, unknown> = { ...record }
+  let out: Record<string, unknown> = { ...record }
   const format = locale !== 'raw'
   const fmtLocale = typeof locale === 'string' && locale !== 'raw' ? locale : 'en-US'
 
-  for (const [field, desc] of Object.entries(moneyFields)) {
-    const stored = out[field]
-    if (stored === null || stored === undefined) continue
-
-    let currency: string
-    let scaledIntString: string
-    if (desc.mode === 'fixed') {
-      if (typeof stored !== 'string' && typeof stored !== 'number') continue
-      currency = desc.fixedCurrency!
-      scaledIntString = String(stored)
-    } else {
-      if (!isMoneyValueObject(stored)) continue // defensive: malformed stored value
-      const amount = stored.amount
-      if (typeof stored.currency !== 'string' || (typeof amount !== 'string' && typeof amount !== 'number')) continue
-      currency = stored.currency
-      scaledIntString = String(amount)
+  for (const [path, desc] of Object.entries(moneyFields)) {
+    if (isSimpleMoneyPath(path)) {
+      const stored = out[path]
+      if (stored === null || stored === undefined) continue
+      const r = decodeValue(stored, desc)
+      if (r === null) continue
+      out[path] = r.decoded
+      if (format) {
+        out[`${path}Formatted`] = formatCurrency(r.decimal, r.currency, r.scale, fmtLocale)
+        out[`${path}Number`] = Number(r.decimal)
+      }
+      continue
     }
-
-    const scale = desc.scaleFor(currency)
-    const decimal = formatScaledInt(BigInt(scaledIntString), scale)
-
-    out[field] = desc.mode === 'fixed' ? decimal : { amount: decimal, currency }
-
-    if (format) {
-      out[`${field}Formatted`] = formatCurrency(decimal, currency, scale, fmtLocale)
-      out[`${field}Number`] = Number(decimal)
-    }
+    out = transformAtMoneyPath(out, path, parseMoneyPath(path), 0, (container, key) => {
+      const stored = (container as Record<string | number, unknown>)[key]
+      if (stored === null || stored === undefined) return
+      const r = decodeValue(stored, desc)
+      if (r === null) return
+      ;(container as Record<string | number, unknown>)[key] = r.decoded
+      if (format && typeof key === 'string' && !Array.isArray(container)) {
+        container[`${key}Formatted`] = formatCurrency(r.decimal, r.currency, r.scale, fmtLocale)
+        container[`${key}Number`] = Number(r.decimal)
+      }
+    }, /* lenient */ true) as Record<string, unknown>
   }
   return out as T
 }

@@ -7,6 +7,7 @@ import { getAtPath, setAtPathInPlace } from './i18n/core.js'
 import type { DictKeyDescriptor } from './i18n/dictionary.js'
 import type { MoneyDescriptor } from './money/descriptor.js'
 import { quantizeMoneyFields, decodeMoneyFields } from './money/normalize.js'
+import { validateMoneyFieldPaths } from './money/paths.js'
 import type { ComputedFields } from './computed/index.js'
 import { evalComputedFields } from './computed/index.js'
 import { NO_I18N, type I18nStrategy } from './i18n/strategy.js'
@@ -799,6 +800,9 @@ export class Collection<T> {
     this.joinResolver = opts.joinResolver
     this.i18nFields = opts.i18nFields
     this.dictKeyFields = opts.dictKeyFields
+    // Path syntax validated NOW (#334) — a typo'd nested declaration
+    // must throw at setup, not silently skip quantization per write.
+    if (opts.moneyFields) validateMoneyFieldPaths(opts.moneyFields)
     this.moneyFields = opts.moneyFields
     this.computed = opts.computed
     this.dictLabelResolver = opts.dictLabelResolver
@@ -967,7 +971,10 @@ export class Collection<T> {
    * declaration; this reconciles that ordering. First-wins. Not public.
    */
   _applyMoneyFields(moneyFields: Record<string, MoneyDescriptor>): void {
-    if (this.moneyFields === undefined) this.moneyFields = moneyFields
+    if (this.moneyFields === undefined) {
+      validateMoneyFieldPaths(moneyFields)
+      this.moneyFields = moneyFields
+    }
   }
 
   /** @internal — attach computed fields post-construction. See {@link _applyMoneyFields}. */
