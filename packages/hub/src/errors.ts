@@ -41,6 +41,9 @@
  *       │    ├─ DictKeyInUseError
  *       │    ├─ MissingTranslationError
  *       │    ├─ LocaleNotSpecifiedError
+ *       │    ├─ ScriptViolationError
+ *       │    ├─ StaticDictReadonlyError
+ *       │    ├─ UnknownDictCodeError
  *       │    └─ TranslatorNotConfiguredError
  *       ├─ Backup errors
  *       │    ├─ BackupLedgerError      — hash-chain verification failed
@@ -1384,6 +1387,64 @@ export class ScriptViolationError extends NoydbError {
     this.locale = locale
     this.expected = expected
     this.sample = sample
+  }
+}
+
+/**
+ * Thrown when a mutation (`put`/`putAll`/`rename`/`delete`) is attempted
+ * against a dictionary name that is backed by a `staticDict()` descriptor.
+ *
+ * A static dict's labels are code constants with no per-vault storage and no
+ * mutation surface — a label change is a code deploy, not a runtime write.
+ * Distinct from the other dictionary errors so callers can tell a
+ * "this dict is read-only by construction" refusal from a missing-key or
+ * key-in-use failure. (#291)
+ */
+export class StaticDictReadonlyError extends NoydbError {
+  /** The static dictionary name that was the target of the mutation. */
+  readonly dictionaryName: string
+
+  constructor(dictionaryName: string) {
+    super(
+      'STATIC_DICT_READONLY',
+      `Dictionary "${dictionaryName}" is a staticDict — its labels are code ` +
+        `constants with no mutation surface. put/putAll/rename/delete are not ` +
+        `supported; change the label in the staticDict() table and redeploy.`,
+    )
+    this.name = 'StaticDictReadonlyError'
+    this.dictionaryName = dictionaryName
+  }
+}
+
+/**
+ * Thrown at put-time when a record stores a code for a `staticDict()` field
+ * that is not in the descriptor's declared `keys` (a typo or a stale code).
+ *
+ * Codes are closed by construction, so an unknown code is treated as a bug by
+ * default. Opt out per descriptor with `{ validateCodes: false }`.
+ *
+ * Distinct from {@link LocaleNotSpecifiedError} (a read-hole) — this is a
+ * write-shape error. (#291)
+ */
+export class UnknownDictCodeError extends NoydbError {
+  /** The static dictionary name. */
+  readonly dictionaryName: string
+  /** The field that carried the unknown code. */
+  readonly field: string
+  /** The offending code value. */
+  readonly code: string
+
+  constructor(dictionaryName: string, field: string, code: string) {
+    super(
+      'UNKNOWN_DICT_CODE',
+      `Field "${field}": code "${code}" is not a known key of staticDict ` +
+        `"${dictionaryName}". Use a declared code, or pass ` +
+        `{ validateCodes: false } on the descriptor to allow open codes.`,
+    )
+    this.name = 'UnknownDictCodeError'
+    this.dictionaryName = dictionaryName
+    this.field = field
+    this.code = code
   }
 }
 

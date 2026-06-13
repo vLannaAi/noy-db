@@ -134,6 +134,114 @@ export function isDictKeyDescriptor(x: unknown): x is DictKeyDescriptor {
   )
 }
 
+// ─── StaticDict descriptor (code-provided dictionary) ──────────────────
+
+/**
+ * Descriptor returned by `staticDict()`. A sibling to {@link DictKeyDescriptor}
+ * for **closed, defined-in-code, identical-across-vaults** enums (honorific,
+ * civil-status, gender, religion, ContactTitle, status…).
+ *
+ * Unlike `dictKey`, the labels are supplied **at registration in code** and
+ * resolved through the *same* label machinery, but with **no `_dict_*`
+ * per-vault encrypted copy** and **no `rename()`**. The record stores only
+ * the **code**; a static dict has no mutation surface.
+ *
+ * **Hybrid resolution.** Because a static dict is pure code with no
+ * vault-locale dependency, it can — via a configured `displayLocale` — emit a
+ * `<field>Label` even under a **locale-less read** (the property a locale-less
+ * consumer needs and `dictKey` cannot provide). When a locale *is* active it
+ * behaves exactly like `dictKey` (honoring `onMissing`/`substitute`).
+ *
+ * ```ts
+ * const workers = vault.collection<Worker>('workers', {
+ *   dictKeyFields: {
+ *     civilStatus: staticDict('civilStatus', {
+ *       adultMale:   { th: 'นาย',    en: 'Mr'  },
+ *       adultFemale: { th: 'นาง',    en: 'Mrs' },
+ *     }, { displayLocale: 'th' }),
+ *   },
+ * })
+ * ```
+ */
+export interface StaticDictDescriptor<Keys extends string = string> {
+  readonly _noydbStaticDict: true
+  /** Which dictionary this field references (the registry name). */
+  readonly name: string
+  /** The in-code label table: key → { locale → label }. */
+  readonly table: Readonly<Record<Keys, Readonly<Record<string, string>>>>
+  /** Declared valid keys — derived from `Object.keys(table)`. */
+  readonly keys: readonly Keys[]
+  /**
+   * Locale used to emit `<field>Label` under a **locale-less** read — the
+   * hybrid hinge. When unset, a static dict behaves like `dictKey` under a
+   * locale-less read (no label); a locale-less consumer almost always wants
+   * it set.
+   */
+  readonly displayLocale?: string
+  /** Same `onMissing` policy engine as `dictKey`. Default `'null'`. */
+  readonly onMissing?: OnMissingPolicy
+  /** Ordered preferred-substitute locales for label resolution. */
+  readonly substitute?: readonly string[]
+  /**
+   * Validate the stored code against `keys` on every `put()`. Default `true`
+   * — codes are closed by construction, so an unknown code is a bug. Set
+   * `false` to allow open codes (skips the `UnknownDictCodeError` guard).
+   */
+  readonly validateCodes?: boolean
+}
+
+/**
+ * Create a `StaticDictDescriptor` for a code-provided enum field — a sibling
+ * to {@link dictKey} for closed, code-defined, identical-across-vaults enums.
+ *
+ * The labels live in `table` (no `_dict_*` collection, no `rename()`); the
+ * record stores only the stable code. Pass `displayLocale` so `<field>Label`
+ * resolves even under a locale-less read.
+ *
+ * @param name   The dictionary name (used for the readonly-guard registry and
+ *               the query label seam — never creates a `_dict_<name>` key).
+ * @param table  `{ key: { locale: label } }` map.
+ * @param opts   `displayLocale` (locale-less label), `onMissing`, `substitute`.
+ *
+ * @example
+ * ```ts
+ * staticDict('civilStatus', {
+ *   adultMale:   { th: 'นาย',    en: 'Mr'  },
+ *   adultFemale: { th: 'นาง',    en: 'Mrs' },
+ * }, { displayLocale: 'th' })
+ * ```
+ */
+export function staticDict<const T extends Record<string, Record<string, string>>>(
+  name: string,
+  table: T,
+  opts?: {
+    displayLocale?: string
+    onMissing?: OnMissingPolicy
+    substitute?: readonly string[]
+    validateCodes?: boolean
+  },
+): StaticDictDescriptor<Extract<keyof T, string>> {
+  return {
+    _noydbStaticDict: true,
+    name,
+    table: table as Readonly<Record<Extract<keyof T, string>, Readonly<Record<string, string>>>>,
+    keys: Object.keys(table) as Extract<keyof T, string>[],
+    ...(opts?.displayLocale !== undefined ? { displayLocale: opts.displayLocale } : {}),
+    ...(opts?.onMissing !== undefined ? { onMissing: opts.onMissing } : {}),
+    ...(opts?.substitute !== undefined ? { substitute: opts.substitute } : {}),
+    ...(opts?.validateCodes !== undefined ? { validateCodes: opts.validateCodes } : {}),
+  }
+}
+
+/** Runtime predicate for detecting a StaticDictDescriptor. */
+export function isStaticDictDescriptor(x: unknown): x is StaticDictDescriptor {
+  return (
+    typeof x === 'object' &&
+    x !== null &&
+    (x as { _noydbStaticDict?: unknown })._noydbStaticDict === true
+  )
+}
+
 // ─── Dictionary entry shape ────────────────────────────────────────────
 
 /**

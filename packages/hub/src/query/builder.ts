@@ -1358,6 +1358,10 @@ function buildDictLabelResolver(
   const dictSource = joinCtx.resolveDictSource(field)
   if (!dictSource) return undefined
   const snapshot = dictSource.snapshot()
+  // A staticDict-backed source carries a `displayLocale` (#291); use it as the
+  // locale default when the query is locale-less, so `{ by: 'label' }` still
+  // resolves under a locale-less read. Plain _dict_* sources omit it.
+  const displayLocale = dictSource.displayLocale
   const dictMap = new Map<string, Record<string, string>>()
   for (const entry of snapshot) {
     const k = (entry as Record<string, unknown>)['key']
@@ -1371,9 +1375,11 @@ function buildDictLabelResolver(
     locale: string,
     fallback?: string | readonly string[],
   ): Promise<string | undefined> => {
+    const effLocale = locale || displayLocale
+    if (!effLocale) return undefined
     const labels = dictMap.get(key)
     if (!labels) return undefined
-    if (labels[locale] !== undefined) return labels[locale]
+    if (labels[effLocale] !== undefined) return labels[effLocale]
     const chain = Array.isArray(fallback)
       ? (fallback as readonly string[])
       : fallback

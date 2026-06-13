@@ -36,4 +36,6 @@ export {
   LocaleNotSpecifiedError,
   TranslatorNotConfiguredError,
   ScriptViolationError,
+  StaticDictReadonlyError,
+  UnknownDictCodeError,
 } from '../errors.js'

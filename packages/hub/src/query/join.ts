@@ -121,6 +121,13 @@ export interface JoinableSource {
   snapshot(): readonly unknown[]
   lookupById?(id: string): unknown
   /**
+   * Default locale a label-resolving query falls back to when the query
+   * itself is locale-less. Set by a `staticDict()`-backed source from its
+   * `displayLocale` so `{ by: 'label' }` resolves under a locale-less read
+   * (#291). Plain `_dict_*`-backed sources omit it.
+   */
+  readonly displayLocale?: string
+  /**
    * Subscribe to mutations on this source. The callback fires
    * AFTER the underlying record set has been updated. Returns an
    * unsubscribe function. Optional — sources without this method
