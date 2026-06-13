@@ -115,6 +115,8 @@ import type { AmendmentTxOptions } from './tx/transaction.js'
 import { TxContext } from './tx/transaction.js'
 import type { DryRunResult } from './tx/dry-run.js'
 import { NO_TX, type TxStrategy } from './tx/strategy.js'
+import { NO_FORGET, type ForgetStrategy } from './forget/strategy.js'
+import { readDottedPath, coerceSubjectId } from './forget/subject-index.js'
 import { INDEXED_STORE_POLICY } from './store/sync-policy.js'
 import type { PolicyEnforcer } from './session/session-policy.js'
 import { NO_SESSION, type SessionStrategy } from './session/strategy.js'
@@ -210,6 +212,7 @@ export class Noydb {
   private readonly policyEnforcers = new Map<string, PolicyEnforcer>()
   private readonly vaultTemplates = new Map<string, VaultTemplate>()
   private readonly txStrategy: TxStrategy
+  private readonly forgetStrategy: ForgetStrategy
   private readonly sessionStrategy: SessionStrategy
   private readonly syncStrategy: SyncStrategy
   private readonly snapshotStrategy: SnapshotStrategy
@@ -239,6 +242,7 @@ export class Noydb {
   constructor(options: NoydbOptions) {
     this.options = options
     this.txStrategy = options.txStrategy ?? NO_TX
+    this.forgetStrategy = options.forgetStrategy ?? NO_FORGET
     this.sessionStrategy = options.sessionStrategy ?? NO_SESSION
     this.syncStrategy = options.syncStrategy ?? NO_SYNC
     this.snapshotStrategy = options.snapshotStrategy ?? NO_SNAPSHOTS
@@ -252,7 +256,70 @@ export class Noydb {
     }
     this.#registerGuardGate()
     this.#registerPeriodGate()
+    this.#registerForgetHooks()
     this.resetSessionTimer()
+  }
+
+  /** @internal — resolved forget strategy (NO_FORGET when not configured). */
+  get _forgetStrategy(): ForgetStrategy {
+    return this.forgetStrategy
+  }
+
+  // #304 — GDPR subject-index maintenance. When `withForgetCascade` declares
+  // any subject fields, keep the encrypted `_subject_index` in lock-step with
+  // writes so `vault.forget(subjectId)` can find every record for a subject.
+  //
+  // Two consumers are required because they cover disjoint events:
+  //   - onAfterWrite fires on create/update (NOT delete) — add the new ref;
+  //     on an update that changed the subject value, drop the stale ref.
+  //   - the subsystemBus `afterDelete` observer fires on delete (onAfterWrite
+  //     does NOT) — drop the ref so a deleted record never lingers in the
+  //     index (RISK #2). Without it, forget() would try to shred a ghost.
+  #registerForgetHooks(): void {
+    const subjects = this.forgetStrategy.subjects
+    if (Object.keys(subjects).length === 0) return
+
+    const subjectFieldFor = (collection: string): string | undefined => subjects[collection]
+
+    this.writeHooks.onAfterWrite(async (event) => {
+      const field = subjectFieldFor(event.collection)
+      if (field === undefined) return
+      const vault = this.vaultCache.get(event.vault)
+      if (!vault) return
+      // Add the ref for the new subject value.
+      if (event.after !== null && typeof event.after === 'object') {
+        const subjectValue = readDottedPath(event.after as Record<string, unknown>, field)
+        if (subjectValue !== undefined && subjectValue !== null) {
+          await vault._addSubjectRef(coerceSubjectId(subjectValue), { collection: event.collection, id: event.docId })
+        }
+      }
+      // On update, if the subject value changed, drop the stale ref.
+      if (event.op === 'update' && event.before !== null && typeof event.before === 'object') {
+        const beforeValue = readDottedPath(event.before as Record<string, unknown>, field)
+        const afterValue =
+          event.after !== null && typeof event.after === 'object'
+            ? readDottedPath(event.after as Record<string, unknown>, field)
+            : undefined
+        const beforeId = beforeValue === undefined || beforeValue === null ? undefined : coerceSubjectId(beforeValue)
+        const afterId = afterValue === undefined || afterValue === null ? undefined : coerceSubjectId(afterValue)
+        if (beforeId !== undefined && beforeId !== afterId) {
+          await vault._removeSubjectRef(beforeId, { collection: event.collection, id: event.docId })
+        }
+      }
+    })
+
+    this.subsystemBus.register('afterDelete', async (event) => {
+      const field = subjectFieldFor(event.collection)
+      if (field === undefined) return
+      const vault = this.vaultCache.get(event.vault)
+      if (!vault) return
+      if (event.before !== null && typeof event.before === 'object') {
+        const subjectValue = readDottedPath(event.before as Record<string, unknown>, field)
+        if (subjectValue !== undefined && subjectValue !== null) {
+          await vault._removeSubjectRef(coerceSubjectId(subjectValue), { collection: event.collection, id: event.docId })
+        }
+      }
+    })
   }
 
   // Track A — guards migration. Registers record-lock / field-freeze / onDelete
@@ -511,6 +578,7 @@ export class Noydb {
       ...(this.options.syncStrategy !== undefined ? { syncStrategy: this.options.syncStrategy } : {}),
       ...(this.options.guardStrategies !== undefined ? { guardStrategies: this.options.guardStrategies } : {}),
       ...(this.options.numbering !== undefined ? { numberingConfigs: this.options.numbering } : {}),
+      forgetStrategy: this.forgetStrategy,
       locale: opts?.locale,
       // Thread the translator hook so Collection.put() can invoke it
       plaintextTranslator: this.options.plaintextTranslator
@@ -584,6 +652,7 @@ export class Noydb {
       ...(this.options.syncStrategy !== undefined ? { syncStrategy: this.options.syncStrategy } : {}),
       ...(this.options.guardStrategies !== undefined ? { guardStrategies: this.options.guardStrategies } : {}),
       ...(this.options.numbering !== undefined ? { numberingConfigs: this.options.numbering } : {}),
+      forgetStrategy: this.forgetStrategy,
       })
       this.vaultCache.set(name, comp)
       return comp

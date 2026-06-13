@@ -1,0 +1,108 @@
+/**
+ * `withForgetCascade` — declaration surface for GDPR right-to-erasure via
+ * per-record CEK crypto-shred (#304, step 2 of the CEK security epic).
+ *
+ * This file holds only the *declaration* shape and the disabled sentinel.
+ * The actual erasure machinery lives in:
+ *   - `subject-index.ts` — the encrypted `_subject_index` reserved collection
+ *   - `vault.ts` `forget()` — the per-record tombstone + ledger flow
+ *   - `collection.ts` `_writeTombstone` — the envelope rewrite
+ *
+ * A `ForgetStrategy` declares which collections carry erasable subject data
+ * and the (dotted-path) field on each record that names the data subject.
+ * Declaring a collection here ALSO forces `perRecordKeys: true` for it (a
+ * shred can only erase a record whose body is keyed off a per-record CEK),
+ * so adopters opt into the CEK foundation transitively.
+ *
+ * @module
+ */
+import type { LedgerEntry } from '../history/ledger/entry.js'
+
+/**
+ * User-supplied declaration passed to {@link withForgetCascade}. Maps a
+ * collection name to the record field (dotted path supported, e.g.
+ * `'billing.buyerId'`) that identifies the data subject for erasure.
+ *
+ * ```ts
+ * withForgetCascade({ subjects: { invoices: 'buyerId', contacts: 'id' } })
+ * ```
+ */
+export interface SubjectDeclaration {
+  readonly subjects: Record<string, string>
+}
+
+/**
+ * Resolved forget strategy threaded through Noydb → every Vault. Carries
+ * the same `subjects` map the user declared. `NO_FORGET` (empty map) is the
+ * off-by-default sentinel; `vault.forget()` throws
+ * `ForgetStrategyNotConfiguredError` when the map is empty.
+ */
+export interface ForgetStrategy {
+  /** Collection → subject-field (dotted path). Empty under `NO_FORGET`. */
+  readonly subjects: Readonly<Record<string, string>>
+}
+
+/**
+ * Disabled sentinel — no collections declare a subject field. `vault.forget()`
+ * refuses with `ForgetStrategyNotConfiguredError`; no write hooks register; no
+ * collection is forced into `perRecordKeys`. Non-adopters pay nothing.
+ */
+export const NO_FORGET: ForgetStrategy = { subjects: {} }
+
+/**
+ * Declare GDPR crypto-shred for one or more collections.
+ *
+ * Each declared collection is forced to `perRecordKeys: true` (a shred can
+ * only guarantee erasure of a record whose body is keyed off a per-record
+ * CEK). On write, Noydb extracts `record[subjectField]` and maintains an
+ * encrypted `_subject_index` mapping `subject → [{collection, id}]`, so
+ * `vault.forget(subjectId)` can find every record for a subject and rewrite
+ * each to a tombstone (body + history permanently undecryptable) while the
+ * collection DEK and every other record stay intact.
+ *
+ * @example
+ * ```ts
+ * createNoydb({
+ *   secret, user,
+ *   forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } }),
+ * })
+ * const result = await vault.forget('buyer-123')
+ * // → { subject, recordsShredded, historyVersionsShredded, collections, … }
+ * ```
+ */
+export function withForgetCascade(opts: SubjectDeclaration): ForgetStrategy {
+  return { subjects: { ...opts.subjects } }
+}
+
+/**
+ * The outcome of a `vault.forget(subjectId)` call.
+ *
+ * `unmigratedRecords` lists `collection:id` pairs that were tombstoned but
+ * whose body had NOT been migrated to a per-record CEK at shred time (legacy
+ * body still under the shared collection DEK). Those records are tombstoned
+ * (live envelope + history stripped) but their pre-shred ciphertext, if it
+ * leaked into a backup before migration, remains decryptable under the
+ * collection DEK — so erasure-completeness is NOT guaranteed for them. Run
+ * the per-record-CEK migration pass, then re-forget, to close the gap.
+ *
+ * `blobResidueCollections` lists collections where a shredded record still
+ * has blob attachments — blob content is keyed off a separate vault-wide
+ * `_blob` DEK and is OUT OF SCOPE for record-CEK shred (foundation decision
+ * #5). The caller must erase those blobs through a future blob-shred slice.
+ */
+export interface ForgetResult {
+  /** The subject id passed to `forget()`. Echoed for caller convenience. */
+  readonly subject: string
+  /** Count of live records rewritten to a tombstone. */
+  readonly recordsShredded: number
+  /** Count of `_history` envelopes tombstoned across all shredded records. */
+  readonly historyVersionsShredded: number
+  /** Distinct collections that had at least one record shredded. */
+  readonly collections: readonly string[]
+  /** `collection:id` pairs shredded while still un-migrated (see type docs). */
+  readonly unmigratedRecords: readonly string[]
+  /** Collections where a shredded record still has un-erased blob attachments. */
+  readonly blobResidueCollections: readonly string[]
+  /** The single `op:'forget'` ledger entry appended for this erasure. */
+  readonly ledgerEntry: LedgerEntry
+}

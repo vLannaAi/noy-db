@@ -58,6 +58,8 @@
  *       │    └─ SnapshotNotFoundError  — snapshot key absent from snapshot store
  *       └─ Computed field errors
  *            └─ ComputedFieldError     — computed function threw during a write
+ *       └─ Erasure errors
+ *            └─ ForgetStrategyNotConfiguredError — vault.forget() with no withForgetCascade
  * ```
  *
  * ## Catching all NOYDB errors
@@ -2174,5 +2176,27 @@ export class VaultTemplateNotFoundError extends NoydbError {
     )
     this.name = 'VaultTemplateNotFoundError'
     this.templateName = templateName
+  }
+}
+
+// ─── Erasure Errors ────────────────────────────────────────────────────
+
+/**
+ * Thrown when `vault.forget(subjectId)` is called on a vault whose
+ * `createNoydb({ forgetStrategy })` declared no subject fields (the
+ * default `NO_FORGET`). GDPR crypto-shred needs a declared subject →
+ * record index to know which records belong to a data subject; without
+ * one there is nothing to erase and a silent no-op would be a dangerous
+ * false "erased" signal. Configure with
+ * `forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } })`.
+ */
+export class ForgetStrategyNotConfiguredError extends NoydbError {
+  constructor(
+    message = 'vault.forget() requires a forget strategy. Pass ' +
+      '`forgetStrategy: withForgetCascade({ subjects: { <collection>: <subjectField> } })` ' +
+      'from "@noy-db/hub/forget" to createNoydb().',
+  ) {
+    super('FORGET_NOT_CONFIGURED', message)
+    this.name = 'ForgetStrategyNotConfiguredError'
   }
 }

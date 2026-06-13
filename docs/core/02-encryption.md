@@ -55,6 +55,53 @@ By default one per-collection DEK encrypts every record body. Opt a collection i
 
 This is the foundation (step 1) for per-record erasure (`forget()` / shred, #304) and record-scoped sealing (#306), which build on top in their own slices. See `docs/superpowers/specs/2026-06-13-per-record-cek-foundation-design.md`.
 
+## GDPR crypto-shred — `withForgetCascade` / `vault.forget()` (#304)
+
+Built on per-record CEKs. Declare which collections carry erasable subject
+data and the field naming the data subject:
+
+```ts
+import { withForgetCascade } from '@noy-db/hub/forget'
+
+createNoydb({
+  secret, user,
+  historyStrategy: withHistory(),                       // ledger for the proof
+  forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } }),
+})
+
+const result = await db.vault('main').forget('buyer-123')
+// → { subject, recordsShredded, historyVersionsShredded, collections,
+//     unmigratedRecords, blobResidueCollections, ledgerEntry }
+```
+
+- **Shred = tombstone, not a CEK-only delete.** Each matching record's LIVE
+  envelope is rewritten to `{ _noydb, _v, _ts, _by, _iv:'', _data:'' }`
+  (dropping `_iv`/`_data`/`_cek`/`_det`) and EVERY `_history` version of the
+  record is tombstoned the same way. The body and all prior versions become
+  permanently undecryptable; the collection DEK and every other record are
+  untouched.
+- **Declared collections are forced to `perRecordKeys: true`** — a shred can
+  only guarantee erasure of a body keyed off a per-record CEK.
+- **Encrypted, portable subject index.** A reserved `_subject_index`
+  collection (own DEK) maps `sha256Hex(subjectId) → [{collection,id}]`, so the
+  store never sees which records share a subject. Maintained on write
+  (onAfterWrite for create/update, an `afterDelete` observer for delete) and
+  rebuildable from canonical records with `vault.rebuildSubjectIndex()` (the
+  recovery path for the single-writer read-modify-write race — no CAS in v1).
+- **Ledger proof without plaintext.** One `op:'forget'` entry is appended with
+  empty collection/id, version 0, and `payloadHash = sha256Hex(subjectId)`.
+  The hash-chain still `verify()`s — the ledger proves a subject existed and
+  was erased on a date without retaining the subject id or any content.
+- **Completeness gaps are surfaced, never silently claimed.** `forget()`
+  reports `unmigratedRecords` (a legacy body still under the shared collection
+  DEK — tombstoned, but pre-shred ciphertext leaked to a backup before
+  migration stays decryptable; migrate then re-forget) and
+  `blobResidueCollections` (blob attachments are keyed off the separate
+  `_blob` DEK and are out of scope for record-CEK shred). `forget()` is
+  idempotent: a second call shreds nothing.
+
+See `docs/superpowers/specs/2026-06-08-forget-cascade-design.md`.
+
 ## Plaintext mode
 
 `createNoydb({ encrypt: false })` skips the crypto path entirely. Records are stored as raw JSON in `_data`. Use only for testing / debugging — no privacy guarantees.

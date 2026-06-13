@@ -36,6 +36,7 @@ import type { PeriodsStrategy } from './periods/strategy.js'
 import type { ShadowStrategy } from './shadow/strategy.js'
 import type { TxStrategy } from './tx/strategy.js'
 import type { HistoryStrategy } from './history/strategy.js'
+import type { ForgetStrategy } from './forget/strategy.js'
 import type { SnapshotStrategy } from './snapshots/strategy.js'
 import type { I18nStrategy } from './i18n/strategy.js'
 import type { SessionStrategy } from './session/strategy.js'
@@ -1759,6 +1760,19 @@ export interface NoydbOptions {
    * @internal
    */
   readonly historyStrategy?: HistoryStrategy
+  /**
+   * GDPR right-to-erasure (#304). Pass `withForgetCascade({ subjects })`
+   * from `@noy-db/hub/forget` to declare which collections carry erasable
+   * subject data and the record field naming the data subject. Enables
+   * `vault.forget(subjectId)` crypto-shred (rewrite-to-tombstone of the live
+   * record + every history version → body permanently undecryptable, single
+   * `op:'forget'` ledger entry, chain still verifies). Each declared
+   * collection is forced to `perRecordKeys: true`. When omitted (the
+   * `NO_FORGET` default), `vault.forget()` throws
+   * `ForgetStrategyNotConfiguredError` and no subject-index write hooks run.
+   * Requires `historyStrategy` (the ledger) for the erasure-proof entry.
+   */
+  readonly forgetStrategy?: ForgetStrategy
   /**
    * tree-shake seam — optional i18n strategy. Pass `withI18n()`
    * from `@noy-db/hub/i18n` to enable `i18nText`/`dictKey` field

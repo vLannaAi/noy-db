@@ -3,7 +3,7 @@ import { defineConfig } from 'tsup'
 /**
  * Build config — spec.
  *
- * The hub ships 17 subpath entries plus the main barrel. Every entry
+ * The hub ships 23 subpath entries plus the main barrel. Every entry
  * is its own bundle; tsup compiles them independently. With
  * `splitting: false`, shared modules (e.g. `errors.ts`) get inlined
  * into every entry, producing one class definition per entry. That
@@ -29,6 +29,7 @@ const ENTRIES = {
   'team/index': 'src/team/index.ts',
   'session/index': 'src/session/index.ts',
   'history/index': 'src/history/index.ts',
+  'forget/index': 'src/forget/index.ts',
   'query/index': 'src/query/index.ts',
   'blobs/index': 'src/blobs/index.ts',
   'indexing/index': 'src/indexing/index.ts',

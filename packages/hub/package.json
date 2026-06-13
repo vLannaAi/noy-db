@@ -76,6 +76,16 @@
         "default": "./dist/history/index.cjs"
       }
     },
+    "./forget": {
+      "import": {
+        "types": "./dist/forget/index.d.ts",
+        "default": "./dist/forget/index.js"
+      },
+      "require": {
+        "types": "./dist/forget/index.d.cts",
+        "default": "./dist/forget/index.cjs"
+      }
+    },
     "./query": {
       "import": {
         "types": "./dist/query/index.d.ts",
