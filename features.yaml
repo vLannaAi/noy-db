@@ -1060,6 +1060,24 @@ features:
       - 'schemaUpdate strategy names are captured at collection() registration time'
     related: [dump-schema-introspection, schema-update-strategies]
 
+  - id: tx-commit-invariants
+    name: Commit-time changeset invariants (ordinary transactions)
+    cluster: write-and-mutate
+    spec: docs/superpowers/specs/2026-06-13-tx-commit-invariants-design.md
+    subsystem_doc: docs/subsystems/transactions.md
+    package: '@noy-db/hub/tx'
+    factory: withTransactions
+    status: preview
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'withTransactions({ invariants: [{ scope, check }] }) fires set-level invariants at commit for ordinary db.transaction() (and amendments), no role gate — generalizes amendment.invariant (#342)'
+      - 'check(changes, ctx) receives ReadonlyArray<GuardChange> for the scope (collection): before = plaintext prior (null on insert), after = written record (null on delete); plaintext before captured in Phase 1 before Phase 2 overwrites'
+      - 'a throw reverts the whole tx via revertExecuted and surfaces as InvariantError; an untouched scope is skipped'
+    related: [transactions, guards, dry-run-transactions]
+
   - id: dry-run-transactions
     name: Dry-run transactions
     cluster: core

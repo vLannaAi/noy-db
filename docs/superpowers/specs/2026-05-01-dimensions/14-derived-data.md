@@ -94,6 +94,14 @@ withMaterializedView({
 - `expungable: boolean` — backend supports cheap delete-and-regenerate semantics
 - `transformations?: string[]` — for CDN-class backends, declares supported on-the-fly transforms (resize, format-convert, etc.)
 
+## Shipped
+
+- **v1 / v2** — `withDerivation` + union-form materialized views + overlays (prior releases).
+- **✅ Shipped 0.2.0-pre.16** (niwat-AU-series increment on top of Dim 14 v1/v2; source: integration-audit AU series epic #341 + first-class-money milestone 19 #333, both CLOSED + adopter-validated):
+  - `withDerivation({ sources: [...] })` — declared sibling sources, re-fire on sibling writes (#344).
+  - Union-form MV exact money aggregation via strategy `moneyFields` (#350) + union-arm `join` leg (#347).
+  - Overlay field-level-merge `mergeMode` (#348).
+
 ## Hard tradeoffs
 
 **1. Determinism vs persistence.**

@@ -89,6 +89,7 @@ For usage inside `withMaterializedView` queries, see [`derivations.md` § Multi-
 
 - **`groupBy` cardinality**: warns at 10,000 groups, throws `GroupCardinalityError` at 100,000. Sharp ceiling on purpose — beyond this you want streaming `scan().aggregate()` or an external OLAP system
 - Reducers are pure functions; custom reducers ship via the same `Reducer<In, Out>` shape
+- **Exact money `sum`/`min`/`max`**: union-form materialized views opt into exact BigInt money aggregation via the strategy's `moneyFields` map (#350) — see [`derivations.md` § UNION sources](./derivations.md#union-sources--withmaterializedview-reading-from-multiple-collections)
 
 ## See also
 

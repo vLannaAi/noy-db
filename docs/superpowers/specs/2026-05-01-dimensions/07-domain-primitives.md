@@ -45,6 +45,14 @@ A composable layer of declarative invariants the application opts into via `with
 
 **`withDoubleEntry({ debit, credit, balance })`** — TigerBeetle-shaped double-entry accounting primitive. Every transaction must split into matching debit/credit pairs against named accounts; account balances maintained as derived state; the invariant *sum(debits) == sum(credits)* is enforced atomically per transaction. Composes with `withCoupledTransactions` (the general case) and with Dim 12 (event-sourced ledger). Specifically targets accounting / finance / regulated-domain apps that are the largest single SME segment in the mission.
 
+## Shipped
+
+- **✅ Shipped 0.2.0-pre.16** — domain-correctness primitives from the niwat integration-audit AU series (epic #341, CLOSED + adopter-validated; alongside first-class-money milestone 19 #333):
+  - Commit-time changeset invariants for ordinary transactions: `withTransactions({ invariants: [{ scope, check }] })` (#342) — set-level invariant law, generalizes amendment.invariant.
+  - `immutableGuard` `amendmentInvariant` knob (#349).
+  - Cascade-delete transaction-atomicity (#346).
+  - Partitioned + seedable `vault.sequence` (`{ partition }` per-partition counters, `seedTo(n)` set-if-greater) (#345) — the `withSerialSequence` story above, now partition-aware and bundle/CSV-import-safe.
+
 ## Non-goals & tradeoffs
 
 - **Full ORM relations.** This is not a relational layer; collections remain independent. Cross-collection invariants are expressed as predicates, not foreign keys.
