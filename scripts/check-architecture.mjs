@@ -445,10 +445,12 @@ const KERNEL_SURFACE_BUDGET = {
   // Lowered 4460→4445 (2026-06-13): record-keys subsystem extraction slice 1.
   // The pure tombstone predicate + envelope builder and the CEK-wrap surface
   // moved to src/record-keys/ (isTombstone now takes `encrypted` explicitly;
-  // _writeTombstone calls buildTombstone). A ratchet on the foundation slice —
-  // the coupled CEK orchestration (resolveRecordCek, tier/bundle re-wrap) moves
-  // in a later slice behind a deps interface.
-  'packages/hub/src/collection.ts': 4445,
+  // _writeTombstone calls buildTombstone).
+  // Lowered 4445→4385 (2026-06-13): record-keys extraction slice 2. The CEK
+  // write-path lifecycle moved to src/record-keys/lifecycle.ts behind a deps
+  // interface — resolveRecordCek is now a thin delegate to resolveStableCek,
+  // and the elevate/demote tier re-wrap if/else collapsed into rewrapBodyToDek.
+  'packages/hub/src/collection.ts': 4385,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
@@ -481,7 +483,12 @@ const KERNEL_SURFACE_BUDGET = {
   // cache eviction + prefix-delete of all sealed envelopes). The wire/binding
   // types + the host-side `openSealedRecord` (which holds no DEK) live in
   // src/sealed-record/ (the @noy-db/hub/sealed-record subpath).
-  'packages/hub/src/vault.ts': 4280,
+  // Lowered 4280→4195 (2026-06-13): record-keys extraction slice 2. The grantor
+  // sealing orchestration (sealRecordToHost / revokeSealedRecord /
+  // rotateRecordCek) moved to src/record-keys/sealing.ts behind a SealingContext
+  // deps interface; vault retains thin delegating methods + a sealingContext()
+  // builder. The host-side opener stays DEK-free in src/sealed-record/.
+  'packages/hub/src/vault.ts': 4195,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
