@@ -9,7 +9,7 @@
 import type { Vault } from '../vault.js'
 import type { EncryptedEnvelope } from '../types.js'
 import { NOYDB_BACKUP_VERSION } from '../types.js'
-import { decrypt, encrypt, generateDEK, bufferToBase64 } from '../crypto.js'
+import { decrypt, encrypt, generateDEK, bufferToBase64, unwrapCek, wrapCek } from '../crypto.js'
 import { PartitionExtractionError } from '../errors.js'
 import { walkClosure, type WalkClosureOptions } from './walk-closure.js'
 import { generateULID } from './ulid.js'
@@ -53,6 +53,22 @@ export async function reKeyClosure(
     for (const id of ids) {
       const env = await adapter.get(vaultName, collectionName, id)
       if (!env) continue
+      if (env._cek !== undefined) {
+        // Per-record CEK: a naive `{ ...env }` spread would carry a
+        // SOURCE-DEK-wrapped CEK into a bundle re-keyed under a different
+        // destination DEK — silently undecryptable for the recipient.
+        // Re-wrap: unwrap the CEK under the source DEK, re-encrypt the body
+        // under the SAME CEK (decision 2 — CEK reused on re-key, preserving
+        // the history-chain identity), then wrap the CEK under the fresh
+        // destination DEK. The recipient gains access transitively once they
+        // re-wrap the collection DEK under their KEK on adopt.
+        const cek = await unwrapCek(env._cek, srcDek)
+        const plaintext = await decrypt(env._iv, env._data, cek)
+        const { iv, data } = await encrypt(plaintext, cek)
+        const wrapped = await wrapCek(cek, destDek)
+        out[id] = { ...env, _iv: iv, _data: data, _cek: wrapped }
+        continue
+      }
       const plaintext = await decrypt(env._iv, env._data, srcDek)
       const { iv, data } = await encrypt(plaintext, destDek)
       out[id] = { ...env, _iv: iv, _data: data }

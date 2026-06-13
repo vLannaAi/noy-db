@@ -132,6 +132,27 @@ export interface EncryptedEnvelope {
    * side channel.
    */
   readonly _det?: Record<string, string>
+  /**
+   * Per-record content-encryption key (CEK), base64 AES-KW-wrapped under
+   * the collection (or tier) DEK. Present only on records written by a
+   * collection opened with `perRecordKeys: true`. When present, the body
+   * (`_iv`/`_data`) is encrypted under the unwrapped CEK rather than the
+   * collection DEK directly.
+   *
+   * Presence is the format discriminant: `_cek` absent → legacy body
+   * keyed off the collection DEK (read unchanged); `_cek` present →
+   * unwrap under the collection DEK, then decrypt the body under the CEK.
+   *
+   * The CEK is stable across every version of a record (insert mints it;
+   * updates and history snapshots reuse it), so all `_history` envelopes
+   * for a record carry the same `_cek`. This is the foundation for
+   * per-record erasure (#304) and record-scoped sealing (#306).
+   *
+   * `_det` slots are deliberately NOT keyed off the CEK — they remain
+   * keyed to the collection DEK so blind-equality search keeps working
+   * across records.
+   */
+  readonly _cek?: string
 }
 
 /**

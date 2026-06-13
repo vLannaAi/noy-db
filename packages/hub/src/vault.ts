@@ -628,6 +628,14 @@ export class Vault {
     /** — explicit ack that deterministic encryption leaks equality. */
     acknowledgeDeterministicRisk?: boolean
     /**
+     * — per-record content-encryption keys. When `true`, every record
+     * body is encrypted under a fresh per-record CEK wrapped under the
+     * collection DEK (`_cek`), stable across versions. Foundation for
+     * per-record erasure (#304) / record-scoped sealing (#306). Off by
+     * default; non-adopting collections take the legacy path unchanged.
+     */
+    perRecordKeys?: boolean
+    /**
      * declarative blob retention / TTL policy per slot
      * name. Values are `{ retainDays?, evictWhen? }`. Evaluated only
      * when `vault.compact()` runs.
@@ -867,6 +875,9 @@ export class Vault {
       }
       if (options?.acknowledgeDeterministicRisk !== undefined) {
         collOpts.acknowledgeDeterministicRisk = options.acknowledgeDeterministicRisk
+      }
+      if (options?.perRecordKeys !== undefined) {
+        collOpts.perRecordKeys = options.perRecordKeys
       }
       if (options?.tiers !== undefined) collOpts.tiers = options.tiers
       if (options?.tierMode !== undefined) collOpts.tierMode = options.tierMode

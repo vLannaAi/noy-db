@@ -420,7 +420,15 @@ const KERNEL_SURFACE_BUDGET = {
   // branch in applyLocaleToRecord. This is the one read choke point the
   // hybrid resolution contract must extend; the resolver/registries live in
   // the tree-shaken withI18n() strategy + vault, not here.
-  'packages/hub/src/collection.ts': 4085,
+  // Bumped 4085→4320 (2026-06-13): per-record CEK foundation (step 1 of the
+  // erasure/sealing epic — #304/#306 gate). The CEK encrypt/decrypt branch is
+  // a core write/read choke point: resolveRecordCek + isTombstone helpers, the
+  // `_cek`-aware encryptJsonString/decryptJsonString/decryptRecord, the stable
+  // CEK threaded through put/CRDT-put/delete-history/migration/dump and the two
+  // conflict resolvers, plus the tier elevate/demote/getAtTier CEK re-wrap.
+  // This is the per-record-key layer the kernel owns; forget()/shred (#304)
+  // and record-scoped sealing (#306) build on top in their own subsystems.
+  'packages/hub/src/collection.ts': 4320,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
@@ -434,7 +442,11 @@ const KERNEL_SURFACE_BUDGET = {
   // applyLocale + resolveDictSource, and the resolveLabelFromMap helper. These
   // are the config-time registry + the two label-resolution seams the hybrid
   // contract requires to live on the vault; no per-vault _dict_* storage added.
-  'packages/hub/src/vault.ts': 3905,
+  // Bumped 3905→3925 (2026-06-13): per-record CEK foundation — the
+  // `perRecordKeys` collection option (doc + threading into collOpts),
+  // mirroring the deterministicFields wiring. Config-time only; the CEK
+  // crypto lives in collection.ts / crypto.ts.
+  'packages/hub/src/vault.ts': 3925,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
