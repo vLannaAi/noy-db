@@ -104,6 +104,24 @@ features:
       - 'Host denial — A cannot decrypt B: a CEK sealed for record A presented against record B''s envelope is rejected with SealedRecordMismatchError before any decrypt; only a `perRecordKeys` record has a sealable `_cek` (legacy / non-perRecordKeys → RecordCekNotFoundError, its body stays under the never-exposed collection DEK)'
     related: [encryption, forget-cascade]
 
+  - id: per-blob-cek
+    name: Per-blob content CEK — crypto-shred of blob attachments (forget)
+    cluster: subsystem
+    spec: docs/superpowers/specs/2026-06-13-per-blob-cek-design.md
+    subsystem_doc: docs/core/02-encryption.md
+    package: '@noy-db/hub'
+    factory: null
+    status: planned
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Dedup-preserving envelope encryption: a blob on a `perRecordKeys` collection mints a per-eTag content CEK, AES-KW-wrapped under the `_blob` DEK and stored on the `BlobObject._cek`; the chunks are encrypted ONCE under that content CEK so cross-record dedup still holds (`eTag = HMAC(_blobDEK, plaintext)` is unchanged — the dedup address — and a re-uploader unwraps the same content CEK and increments refCount without re-encrypting)'
+      - 'Crypto-shred at refCount 0: the BlobObject is the sole recoverable copy of the wrapped content CEK, so deleting it (when the last referencer is erased) makes the chunks permanently undecryptable even if the chunk bytes linger — a key-delete shred, not a bulk-byte delete. While refCount > 1 the content legitimately persists for its other owner (shared content is not per-subject erasable under dedup)'
+      - 'Backward-compatible discriminant: `_cek` absent → legacy blob, chunks decrypt directly under the `_blob` DEK (read unchanged); off by default — non-`perRecordKeys` collections keep the byte-identical shared-`_blob`-DEK path'
+    related: [encryption, forget-cascade, record-scoped-cek-sealing]
+
   - id: stores-contract
     name: 6-method NoydbStore contract
     cluster: core

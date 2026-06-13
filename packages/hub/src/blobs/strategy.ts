@@ -30,6 +30,13 @@ export interface BlobStrategyOpenArgs {
   readonly getDEK: (collectionName: string) => Promise<CryptoKey>
   readonly encrypted: boolean
   readonly userId: string
+  /**
+   * Collection opts into per-record keys (`perRecordKeys`), so its blobs are
+   * erasable: new uploads mint a per-blob content CEK (crypto-shreddable at
+   * `refCount → 0`). Off → legacy shared-`_blob`-DEK chunks. See the per-blob
+   * CEK design spec.
+   */
+  readonly erasableBlobs?: boolean
 }
 
 /**
