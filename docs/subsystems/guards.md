@@ -125,6 +125,29 @@ The thrown `RecordLockedError` inside `invariant` is wrapped in
 `InvariantError` by `GuardExecutor.runInvariant` (the message survives);
 the staged delete rolls back, the record stays.
 
+### `immutableGuard` and `amendmentInvariant` (#349)
+
+`immutableGuard` packages the append-only pattern above into one helper.
+By default its amendment override is the existing empty-allow (so admins
+can amend freely) — backward compatible. Pass the optional
+`amendmentInvariant` to keep a rule inviolable **even inside an amendment
+tx**; it has the same signature as `GuardStrategy.amendment.invariant`.
+
+```ts
+immutableGuard<Receipt>({
+  collection: 'receipts',
+  amendmentInvariant: (changes) => {
+    for (const c of changes) {
+      if (c.before !== null && c.after === null) {
+        throw new RecordLockedError('receipts', '', 'amendment cannot delete')
+      }
+    }
+  },
+})
+```
+
+Omitting `amendmentInvariant` leaves the empty-allow override in place.
+
 ### Amendment flow
 
 ```
