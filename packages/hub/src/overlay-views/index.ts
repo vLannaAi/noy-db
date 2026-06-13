@@ -4,6 +4,8 @@ export { OverlayedCollection } from './virtual-collection.js'
 export type {
   OverlayedViewStrategy,
   OverlayedViewStrategyHandle,
+  OverlayFieldMergeRule,
+  OverlayFieldMergeMode,
 } from './types.js'
 
 // Re-export errors for the subpath barrel.

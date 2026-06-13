@@ -8,7 +8,9 @@ import type { OverlayedViewStrategy } from './types.js'
  *
  * Implements the core `Collection<T>`-shaped read/write surface with
  * merge-on-read semantics:
- *   - `get(id)`: overlay row wins iff `overlay[shadowField] === shadowValue`
+ *   - `get(id)`: overlay row wins iff `overlay[shadowField] === shadowValue`;
+ *     when `spec.mergeMode` is set, an intermediate status may instead pull
+ *     a declared subset of fields from the overlay over the base (#348)
  *   - `list()` / `.query()`: union of ids, per-id merge applied
  *   - `put(record)` / `put(id, record)`: routes to overlay; id derived
  *     via the base MV's `rowKey` (validated on the two-arg form)
@@ -48,25 +50,14 @@ export class OverlayedCollection<T extends Record<string, unknown> = any> {
   /** Get the merged row by id. */
   async get(id: string): Promise<T | null> {
     const overlayRow = await this.overlayCollection.get(id)
-    if (overlayRow !== null && this.shadowPredicateApplies(overlayRow)) {
-      return overlayRow
-    }
     const baseRow = await this.baseCollection.get(id)
-    if (baseRow !== null) return baseRow
-    // No base row — but if an overlay row exists with the shadow
-    // predicate true, we returned it above. If overlay exists but
-    // predicate is false, return null (overlay exists but doesn't
-    // qualify, and there's no base to fall back to) — per spec
-    // operations table row "overlay exists, predicate false, no base".
-    return null
+    return this.mergeRows(overlayRow, baseRow)
   }
 
   /** List union of base + overlay ids, applying the merge per row. */
   async list(): Promise<T[]> {
     const baseRows = await this.baseCollection.list()
     const overlayRows = await this.overlayCollection.list()
-    // Build id → merged row, base-first then overlay applies shadow rule.
-    const merged = new Map<string, T>()
     const idOf = (row: T): string => {
       // Best-effort: use baseRowKey if available, else assume the row
       // has a `.id` field (common pattern). The spec requires every
@@ -76,24 +67,25 @@ export class OverlayedCollection<T extends Record<string, unknown> = any> {
       const idField = (row as Record<string, unknown>).id
       return typeof idField === 'string' ? idField : ''
     }
+    // Key base + overlay rows by id, then union the id sets and run the
+    // same per-id merge `get()` uses. Nulls (overlay-only rows that
+    // don't qualify and have no base) are filtered out.
+    const baseById = new Map<string, T>()
+    const overlayById = new Map<string, T>()
     for (const row of baseRows) {
       const id = idOf(row)
-      if (id) merged.set(id, row)
+      if (id) baseById.set(id, row)
     }
     for (const row of overlayRows) {
       const id = idOf(row)
-      if (!id) continue
-      if (this.shadowPredicateApplies(row)) {
-        merged.set(id, row) // overlay shadow wins
-      } else if (!merged.has(id)) {
-        // Overlay-only + predicate false + no base → don't surface
-        // (matches spec operations table)
-        continue
-      }
-      // else: overlay exists but predicate is false and base is
-      // present → keep the base row already in `merged`
+      if (id) overlayById.set(id, row)
     }
-    return [...merged.values()]
+    const out: T[] = []
+    for (const id of new Set([...baseById.keys(), ...overlayById.keys()])) {
+      const merged = this.mergeRows(overlayById.get(id) ?? null, baseById.get(id) ?? null)
+      if (merged !== null) out.push(merged)
+    }
+    return out
   }
 
   /**
@@ -139,9 +131,45 @@ export class OverlayedCollection<T extends Record<string, unknown> = any> {
     await this.overlayCollection.delete(id)
   }
 
-  /** True when `overlay[shadowField] === shadowValue`. */
-  private shadowPredicateApplies(row: T): boolean {
-    return (row as Record<string, unknown>)[this.spec.shadowField] === this.spec.shadowValue
+  /**
+   * Merge a single id's overlay + base rows into the visible row.
+   *
+   * Priority (first match wins):
+   *  1. Binary shadow win — overlay present AND
+   *     `overlay[shadowField] === shadowValue` → return the overlay row
+   *     entirely. This stays FIRST so the original binary behaviour is
+   *     unchanged whether or not `mergeMode` is configured.
+   *  2. Field-level merge — overlay present, `mergeMode` configured,
+   *     and a rule whose `whenStatus` equals `overlay[shadowField]`.
+   *     The matched rule pulls its `overlayFields` (those present on
+   *     the overlay row) on top of the base row. With no base row, the
+   *     overlay row is returned as-is.
+   *  3. Fallback — return the base row (possibly `null`). An
+   *     overlay-only row that qualifies under neither (1) nor (2) and
+   *     has no base is therefore NOT surfaced.
+   */
+  private mergeRows(overlayRow: T | null, baseRow: T | null): T | null {
+    const shadowField = this.spec.shadowField
+    if (
+      overlayRow !== null &&
+      (overlayRow as Record<string, unknown>)[shadowField] === this.spec.shadowValue
+    ) {
+      return overlayRow
+    }
+    if (overlayRow !== null && this.spec.mergeMode) {
+      const status = (overlayRow as Record<string, unknown>)[shadowField]
+      const rule = this.spec.mergeMode.rules.find((r) => r.whenStatus === status)
+      if (rule) {
+        if (baseRow === null) return overlayRow
+        const overlaySrc = overlayRow as Record<string, unknown>
+        const picked: Record<string, unknown> = {}
+        for (const field of rule.overlayFields) {
+          if (field in overlaySrc) picked[field] = overlaySrc[field]
+        }
+        return { ...(baseRow as Record<string, unknown>), ...picked } as T
+      }
+    }
+    return baseRow
   }
 
   // ─── Throw-stubs for the unimplemented Collection<T> surface ───────

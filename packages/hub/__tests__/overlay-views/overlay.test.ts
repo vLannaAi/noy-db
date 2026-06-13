@@ -385,4 +385,222 @@ describe('withOverlayedView read-shadow primitive (#154)', () => {
       })()).rejects.toBeInstanceOf(OverlayCollectionUnavailableError)
     })
   })
+
+  describe('field-level merge mode (mergeMode)', () => {
+    interface MergeRow extends Record<string, unknown> {
+      clientId: string
+      amount: number
+      note?: string
+      reviewer?: string
+      dataStatus?: 'acquired' | 'approved' | 'flagged' | 'override'
+    }
+
+    // Base MV + overlay with a field-merge mergeMode. `approved` pulls
+    // amount + note (plus the shadowField) from the overlay; `flagged`
+    // pulls only the reviewer + shadowField. `override` keeps the binary
+    // full-win path. Anything else falls through to base.
+    async function setupMerge() {
+      const baseMV = withMaterializedView<MergeRow>({
+        name: 'pnd1-aggregate',
+        query: (db) => db.collection<MergeRow>('compensations').query(),
+        rowKey: (r) => r.clientId,
+        refresh: 'eager',
+      })
+      const overlay = withOverlayedView({
+        name: 'pnd1',
+        base: 'pnd1-aggregate',
+        overlay: 'pnd1-overlay',
+        shadowField: 'dataStatus',
+        shadowValue: 'override',
+        mergeMode: {
+          kind: 'field-merge',
+          rules: [
+            { whenStatus: 'approved', overlayFields: ['dataStatus', 'amount', 'note'] },
+            { whenStatus: 'flagged', overlayFields: ['dataStatus', 'reviewer'] },
+          ],
+        },
+      })
+      const db = await createNoydb({
+        store: memory(),
+        user: 'alice',
+        secret: 'overlay-field-merge-passphrase-2026',
+        materializedViewStrategies: [baseMV],
+        overlayedViewStrategies: [overlay],
+      })
+      const vault = await db.openVault('demo')
+      return { vault }
+    }
+
+    it('whenStatus=approved → overlayFields come from overlay, rest from base', async () => {
+      const { vault } = await setupMerge()
+      await vault.collection<MergeRow>('compensations').put('acme', {
+        clientId: 'acme', amount: 100, note: 'base-note', reviewer: 'base-rev',
+      })
+      await vault.collection<MergeRow>('pnd1-overlay').put('acme', {
+        clientId: 'acme', amount: 250, note: 'overlay-note', reviewer: 'overlay-rev', dataStatus: 'approved',
+      })
+
+      const row = await vault.collection<MergeRow>('pnd1').get('acme')
+      // approved pulls amount + note + dataStatus from overlay…
+      expect(row?.amount).toBe(250)
+      expect(row?.note).toBe('overlay-note')
+      expect(row?.dataStatus).toBe('approved')
+      // …but reviewer is NOT in the rule → stays the base value.
+      expect(row?.reviewer).toBe('base-rev')
+    })
+
+    it('overlay status with no matching rule → base wins entirely', async () => {
+      const { vault } = await setupMerge()
+      await vault.collection<MergeRow>('compensations').put('acme', {
+        clientId: 'acme', amount: 100, note: 'base-note',
+      })
+      await vault.collection<MergeRow>('pnd1-overlay').put('acme', {
+        clientId: 'acme', amount: 999, note: 'overlay-note', dataStatus: 'acquired',
+      })
+
+      const row = await vault.collection<MergeRow>('pnd1').get('acme')
+      expect(row?.amount).toBe(100)
+      expect(row?.note).toBe('base-note')
+      // No rule matched 'acquired' and it isn't the shadowValue → base.
+      expect(row?.dataStatus).toBeUndefined()
+    })
+
+    it('shadowField===shadowValue (override) → overlay wins entirely (binary path, mergeMode ignored)', async () => {
+      const { vault } = await setupMerge()
+      await vault.collection<MergeRow>('compensations').put('acme', {
+        clientId: 'acme', amount: 100, note: 'base-note', reviewer: 'base-rev',
+      })
+      await vault.collection<MergeRow>('pnd1-overlay').put('acme', {
+        clientId: 'acme', amount: 777, note: 'overlay-note', reviewer: 'overlay-rev', dataStatus: 'override',
+      })
+
+      const row = await vault.collection<MergeRow>('pnd1').get('acme')
+      // Full overlay win — every field from overlay, even reviewer.
+      expect(row?.amount).toBe(777)
+      expect(row?.note).toBe('overlay-note')
+      expect(row?.reviewer).toBe('overlay-rev')
+      expect(row?.dataStatus).toBe('override')
+    })
+
+    it('overlay-only + matching rule (no base) → overlay row returned as-is', async () => {
+      const { vault } = await setupMerge()
+      await vault.collection<MergeRow>('pnd1-overlay').put('acme', {
+        clientId: 'acme', amount: 250, note: 'overlay-note', dataStatus: 'approved',
+      })
+
+      const row = await vault.collection<MergeRow>('pnd1').get('acme')
+      expect(row?.amount).toBe(250)
+      expect(row?.note).toBe('overlay-note')
+      expect(row?.dataStatus).toBe('approved')
+    })
+
+    it('list() applies field-merge per row', async () => {
+      const { vault } = await setupMerge()
+      await vault.collection<MergeRow>('compensations').put('acme', {
+        clientId: 'acme', amount: 100, note: 'base-acme', reviewer: 'base-rev',
+      })
+      await vault.collection<MergeRow>('compensations').put('beta', {
+        clientId: 'beta', amount: 200, note: 'base-beta',
+      })
+      // acme: approved → field-merge amount+note. beta: untouched → base.
+      await vault.collection<MergeRow>('pnd1-overlay').put('acme', {
+        clientId: 'acme', amount: 250, note: 'overlay-acme', reviewer: 'overlay-rev', dataStatus: 'approved',
+      })
+
+      const rows = await vault.collection<MergeRow>('pnd1').list()
+      expect(rows).toHaveLength(2)
+      const acme = rows.find((r) => r.clientId === 'acme')
+      const beta = rows.find((r) => r.clientId === 'beta')
+      expect(acme?.amount).toBe(250)       // overlay (rule)
+      expect(acme?.note).toBe('overlay-acme')
+      expect(acme?.reviewer).toBe('base-rev') // not in rule → base
+      expect(beta?.amount).toBe(200)       // base only
+      expect(beta?.note).toBe('base-beta')
+    })
+
+    it('rules evaluated in declaration order — first matching whenStatus wins', async () => {
+      // Two rules match the same status; the first declared one must win.
+      const baseMV = withMaterializedView<MergeRow>({
+        name: 'mv1',
+        query: (db) => db.collection<MergeRow>('src').query(),
+        rowKey: (r) => r.clientId,
+        refresh: 'eager',
+      })
+      const overlay = withOverlayedView({
+        name: 'v',
+        base: 'mv1',
+        overlay: 'ov',
+        shadowField: 'dataStatus',
+        shadowValue: 'override',
+        mergeMode: {
+          kind: 'field-merge',
+          rules: [
+            // First rule for 'flagged' pulls only reviewer.
+            { whenStatus: 'flagged', overlayFields: ['dataStatus', 'reviewer'] },
+            // Shadowed second rule for 'flagged' would also pull amount —
+            // must be ignored because the first match wins.
+            { whenStatus: 'flagged', overlayFields: ['dataStatus', 'reviewer', 'amount'] },
+          ],
+        },
+      })
+      const db = await createNoydb({
+        store: memory(),
+        user: 'alice',
+        secret: 'overlay-rule-order-passphrase-2026',
+        materializedViewStrategies: [baseMV],
+        overlayedViewStrategies: [overlay],
+      })
+      const vault = await db.openVault('demo')
+      await vault.collection<MergeRow>('src').put('acme', {
+        clientId: 'acme', amount: 100, reviewer: 'base-rev',
+      })
+      await vault.collection<MergeRow>('ov').put('acme', {
+        clientId: 'acme', amount: 999, reviewer: 'overlay-rev', dataStatus: 'flagged',
+      })
+
+      const row = await vault.collection<MergeRow>('v').get('acme')
+      expect(row?.reviewer).toBe('overlay-rev') // first rule pulled reviewer
+      expect(row?.amount).toBe(100)             // first rule did NOT pull amount → base
+      expect(row?.dataStatus).toBe('flagged')
+    })
+
+    it('backward-compat: a strategy with NO mergeMode behaves exactly as the binary primitive', async () => {
+      const baseMV = withMaterializedView<MergeRow>({
+        name: 'mv1',
+        query: (db) => db.collection<MergeRow>('src').query(),
+        rowKey: (r) => r.clientId,
+        refresh: 'eager',
+      })
+      const overlay = withOverlayedView({
+        name: 'v',
+        base: 'mv1',
+        overlay: 'ov',
+        shadowField: 'dataStatus',
+        shadowValue: 'override',
+        // no mergeMode
+      })
+      const db = await createNoydb({
+        store: memory(),
+        user: 'alice',
+        secret: 'overlay-no-mergemode-passphrase-2026',
+        materializedViewStrategies: [baseMV],
+        overlayedViewStrategies: [overlay],
+      })
+      const vault = await db.openVault('demo')
+      await vault.collection<MergeRow>('src').put('acme', { clientId: 'acme', amount: 100, note: 'base' })
+      // Non-override status → overlay shadowed out entirely, base wins.
+      await vault.collection<MergeRow>('ov').put('acme', {
+        clientId: 'acme', amount: 999, note: 'overlay', dataStatus: 'approved',
+      })
+      expect((await vault.collection<MergeRow>('v').get('acme'))?.amount).toBe(100)
+      expect((await vault.collection<MergeRow>('v').get('acme'))?.note).toBe('base')
+
+      // override status → full overlay win, exactly as before.
+      await vault.collection<MergeRow>('ov').put('acme', {
+        clientId: 'acme', amount: 999, note: 'overlay', dataStatus: 'override',
+      })
+      expect((await vault.collection<MergeRow>('v').get('acme'))?.amount).toBe(999)
+      expect((await vault.collection<MergeRow>('v').get('acme'))?.note).toBe('overlay')
+    })
+  })
 })

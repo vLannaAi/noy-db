@@ -24,6 +24,7 @@ import type { Noydb } from '../src/noydb.js'
 import { withHistory } from '../src/history/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError } from '../src/errors.js'
+import { withTransactions } from '../src/tx/index.js'
 import {
   ref,
   RefIntegrityError,
@@ -405,6 +406,120 @@ describe('cascade mode.', () => {
 
     expect(await a.get('a-1')).toBeNull()
     expect(await b.get('b-1')).toBeNull()
+  })
+
+  // ─── cascade atomicity inside db.transaction() (AU+030 / #346) ──────
+  //
+  // Cascaded child deletes must register on the active TxContext so a
+  // later mid-commit failure rolls the children back alongside the
+  // parent. We force a mid-Phase-2 failure (AFTER the parent delete +
+  // cascade has executed) by staging a strict-ref put to a missing
+  // target as a *later* op — `Collection.put` throws RefIntegrityError
+  // during execute, triggering the transaction's best-effort revert.
+
+  it('rolls back cascaded children when a tx fails after the parent delete', async () => {
+    const txDb = await createNoydb({
+      store: memory(),
+      user: 'alice', historyStrategy: withHistory(),
+      secret: 'test-passphrase-1234',
+      txStrategy: withTransactions(),
+    })
+    const company = await txDb.openVault('demo-co')
+    const clients = company.collection<Client>('clients')
+    const invoices = company.collection<Invoice>('invoices', {
+      refs: { clientId: ref('clients', 'cascade') },
+    })
+    // A strict-ref collection we use to poison the transaction: a put
+    // with a missing target throws RefIntegrityError during execute.
+    interface Receipt { id: string; clientId: string | null }
+    company.collection<Receipt>('receipts', {
+      refs: { clientId: ref('clients', 'strict') },
+    })
+
+    await clients.put('c-1', { id: 'c-1', name: 'Acme' })
+    await invoices.put('inv-1', { id: 'inv-1', client: 'Acme', clientId: 'c-1', amount: 100 })
+    await invoices.put('inv-2', { id: 'inv-2', client: 'Acme', clientId: 'c-1', amount: 200 })
+
+    await expect(
+      txDb.transaction(async (tx) => {
+        // Stage the parent delete FIRST — cascades inv-1 + inv-2 during execute.
+        tx.vault('demo-co').collection<Client>('clients').delete('c-1')
+        // Then stage a poison op that fails mid-commit (strict ref to a
+        // now-deleted client) — after the cascade already happened.
+        tx.vault('demo-co').collection<Receipt>('receipts').put('r-1', { id: 'r-1', clientId: 'c-1' })
+      }),
+    ).rejects.toThrow(RefIntegrityError)
+
+    // Parent restored…
+    expect(await clients.get('c-1')).toBeTruthy()
+    // …and every cascaded child restored too.
+    expect(await invoices.get('inv-1')).toBeTruthy()
+    expect(await invoices.get('inv-2')).toBeTruthy()
+    // …and the poison put left no trace.
+    expect(await company.collection<Receipt>('receipts').get('r-1')).toBeNull()
+  })
+
+  it('rolls back a multi-level cascade (grandparent→parent→child) on tx abort', async () => {
+    const txDb = await createNoydb({
+      store: memory(),
+      user: 'alice', historyStrategy: withHistory(),
+      secret: 'test-passphrase-1234',
+      txStrategy: withTransactions(),
+    })
+    const company = await txDb.openVault('demo-co')
+    // grandparent ← parent ← child, all cascade.
+    interface GP { id: string; name: string }
+    interface P { id: string; gpId: string | null }
+    interface C { id: string; pId: string | null }
+    const gps = company.collection<GP>('gps')
+    const parents = company.collection<P>('parents', { refs: { gpId: ref('gps', 'cascade') } })
+    const children = company.collection<C>('children', { refs: { pId: ref('parents', 'cascade') } })
+    // Poison collection to force a mid-commit failure post-cascade.
+    interface Receipt { id: string; gpId: string | null }
+    company.collection<Receipt>('receipts', { refs: { gpId: ref('gps', 'strict') } })
+
+    await gps.put('gp-1', { id: 'gp-1', name: 'Root' })
+    await parents.put('p-1', { id: 'p-1', gpId: 'gp-1' })
+    await parents.put('p-2', { id: 'p-2', gpId: 'gp-1' })
+    await children.put('ch-1', { id: 'ch-1', pId: 'p-1' })
+    await children.put('ch-2', { id: 'ch-2', pId: 'p-2' })
+
+    await expect(
+      txDb.transaction(async (tx) => {
+        // Deleting the grandparent cascades through parents to children.
+        tx.vault('demo-co').collection<GP>('gps').delete('gp-1')
+        // Poison op fails after the whole cascade tree has executed.
+        tx.vault('demo-co').collection<Receipt>('receipts').put('r-1', { id: 'r-1', gpId: 'gp-1' })
+      }),
+    ).rejects.toThrow(RefIntegrityError)
+
+    // Every level of the cascade tree restored.
+    expect(await gps.get('gp-1')).toBeTruthy()
+    expect(await parents.get('p-1')).toBeTruthy()
+    expect(await parents.get('p-2')).toBeTruthy()
+    expect(await children.get('ch-1')).toBeTruthy()
+    expect(await children.get('ch-2')).toBeTruthy()
+  })
+
+  it('regression: cascade OUTSIDE a transaction still deletes children + parent', async () => {
+    // No txStrategy — the plain cascade path must be unchanged.
+    const company = await db.openVault('demo-co')
+    const clients = company.collection<Client>('clients')
+    const invoices = company.collection<Invoice>('invoices', {
+      refs: { clientId: ref('clients', 'cascade') },
+    })
+
+    await clients.put('c-1', { id: 'c-1', name: 'Acme' })
+    await invoices.put('inv-1', { id: 'inv-1', client: 'Acme', clientId: 'c-1', amount: 100 })
+    await invoices.put('inv-2', { id: 'inv-2', client: 'Acme', clientId: 'c-1', amount: 200 })
+    await invoices.put('inv-3', { id: 'inv-3', client: 'Other', clientId: 'other', amount: 50 })
+
+    await clients.delete('c-1')
+
+    expect(await clients.get('c-1')).toBeNull()
+    expect(await invoices.get('inv-1')).toBeNull()
+    expect(await invoices.get('inv-2')).toBeNull()
+    expect(await invoices.get('inv-3')).toBeTruthy()
   })
 })
 

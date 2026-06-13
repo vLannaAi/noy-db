@@ -46,6 +46,52 @@ export interface OverlayedViewStrategy {
    */
   shadowField: string
   shadowValue: unknown
+  /**
+   * Optional field-level merge mode (AU+032 / #348). When present, a
+   * row whose `shadowField` does NOT equal `shadowValue` is no longer
+   * forced all-base: the rules below let an intermediate status pull a
+   * declared subset of fields from the overlay while every other field
+   * still comes from the base row.
+   *
+   * Absent `mergeMode` preserves the original binary behaviour
+   * exactly — overlay wins entirely iff `shadowField === shadowValue`,
+   * otherwise base wins.
+   */
+  mergeMode?: OverlayFieldMergeMode
+}
+
+/**
+ * One field-level merge rule. When the overlay row's `shadowField`
+ * equals `whenStatus`, the merged row takes `overlayFields` from the
+ * overlay and every other field from the base row.
+ *
+ * Always include `shadowField` in `overlayFields` so the status value
+ * itself propagates to the merged read (otherwise the merged row would
+ * carry the base's status, which is usually `undefined`).
+ */
+export interface OverlayFieldMergeRule {
+  /** The `overlay[shadowField]` value this rule matches. */
+  readonly whenStatus: unknown
+  /**
+   * Field names pulled from the overlay row when this rule matches.
+   * Fields absent on the overlay row are skipped (base value kept).
+   */
+  readonly overlayFields: readonly string[]
+}
+
+/**
+ * Field-level merge configuration. `rules` are evaluated in
+ * declaration order and the FIRST rule whose `whenStatus` matches the
+ * overlay's `shadowField` wins; later rules are not consulted.
+ *
+ * The binary shadow check (`shadowField === shadowValue` → overlay
+ * wins entirely) is always the implicit, highest-priority rule applied
+ * BEFORE any `rules` entry, so adding `mergeMode` never changes the
+ * full-override path.
+ */
+export interface OverlayFieldMergeMode {
+  readonly kind: 'field-merge'
+  readonly rules: readonly OverlayFieldMergeRule[]
 }
 
 /** Returned by `withOverlayedView()` and consumed by `createNoydb`. */
