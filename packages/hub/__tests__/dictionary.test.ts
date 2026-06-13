@@ -23,8 +23,11 @@ import {
   ReservedCollectionNameError,
   DictKeyMissingError,
   PermissionDeniedError,
+  StaticDictReadonlyError,
+  UnknownDictCodeError,
 } from '../src/errors.js'
-import { dictKey } from '../src/i18n/dictionary.js'
+import { dictKey, staticDict } from '../src/i18n/dictionary.js'
+import { withAggregate, count } from '../src/aggregate/index.js'
 
 // ─── Inline memory adapter ─────────────────────────────────────────────
 
@@ -470,5 +473,131 @@ describe('dictKey ACL — write permissions', () => {
 
     // Should not throw
     await expect(opDict.put('paid', { en: 'Paid' })).resolves.toBeUndefined()
+  })
+})
+
+// ─── staticDict (code-provided dictionary, #291) ────────────────────────
+
+const CIVIL_STATUS = {
+  adultMale:   { th: 'นาย',   en: 'Mr'  },
+  adultFemale: { th: 'นาง',   en: 'Mrs' },
+  youngFemale: { th: 'นางสาว', en: 'Ms' },
+} as const
+
+interface Worker { id: string; civilStatus: string }
+
+describe('staticDict — code-provided dictionary (#291)', () => {
+  it('resolves <field>Label locale-less via displayLocale', async () => {
+    const db = await createNoydb({
+      store: memory(), user: 'alice', i18nStrategy: withI18n(),
+      secret: 'test-passphrase-static-1',
+    })
+    // No locale on the vault — the hybrid hinge.
+    const vault = await db.openVault('co1')
+    const workers = vault.collection<Worker>('workers', {
+      dictKeyFields: { civilStatus: staticDict('civilStatus', CIVIL_STATUS, { displayLocale: 'th' }) },
+    })
+    await workers.put('w1', { id: 'w1', civilStatus: 'adultMale' })
+
+    const r = await workers.get('w1') as Worker & { civilStatusLabel?: string }
+    expect(r?.civilStatus).toBe('adultMale')      // record still stores the code
+    expect(r?.civilStatusLabel).toBe('นาย')       // resolved via displayLocale
+  })
+
+  it('WITHOUT displayLocale does NOT resolve locale-less (dictKey parity)', async () => {
+    const db = await createNoydb({
+      store: memory(), user: 'alice', i18nStrategy: withI18n(),
+      secret: 'test-passphrase-static-2',
+    })
+    const vault = await db.openVault('co1')
+    const workers = vault.collection<Worker>('workers', {
+      dictKeyFields: { civilStatus: staticDict('civilStatus', CIVIL_STATUS) },
+    })
+    await workers.put('w1', { id: 'w1', civilStatus: 'adultMale' })
+
+    const r = await workers.get('w1') as Worker & { civilStatusLabel?: string }
+    expect(r?.civilStatusLabel).toBeUndefined()   // no displayLocale → no label
+    // …but resolves once a locale is supplied per-call.
+    const en = await workers.get('w1', { locale: 'en' }) as Worker & { civilStatusLabel?: string }
+    expect(en?.civilStatusLabel).toBe('Mr')
+  })
+
+  it('locale-active read resolves via the in-code table', async () => {
+    const db = await createNoydb({
+      store: memory(), user: 'alice', i18nStrategy: withI18n(),
+      secret: 'test-passphrase-static-3',
+    })
+    const vault = await db.openVault('co1', { locale: 'en' })
+    const workers = vault.collection<Worker>('workers', {
+      dictKeyFields: { civilStatus: staticDict('civilStatus', CIVIL_STATUS, { displayLocale: 'th' }) },
+    })
+    await workers.put('w1', { id: 'w1', civilStatus: 'adultFemale' })
+
+    const r = await workers.get('w1') as Worker & { civilStatusLabel?: string }
+    expect(r?.civilStatusLabel).toBe('Mrs')        // active locale wins over displayLocale
+  })
+
+  it('vault.dictionary(staticName) throws StaticDictReadonlyError', async () => {
+    const db = await createNoydb({
+      store: memory(), user: 'alice', i18nStrategy: withI18n(),
+      secret: 'test-passphrase-static-4',
+    })
+    const vault = await db.openVault('co1')
+    vault.collection<Worker>('workers', {
+      dictKeyFields: { civilStatus: staticDict('civilStatus', CIVIL_STATUS, { displayLocale: 'th' }) },
+    })
+    expect(() => vault.dictionary('civilStatus')).toThrow(StaticDictReadonlyError)
+  })
+
+  it('put() with an unknown code throws UnknownDictCodeError', async () => {
+    const db = await createNoydb({
+      store: memory(), user: 'alice', i18nStrategy: withI18n(),
+      secret: 'test-passphrase-static-5',
+    })
+    const vault = await db.openVault('co1')
+    const workers = vault.collection<Worker>('workers', {
+      dictKeyFields: { civilStatus: staticDict('civilStatus', CIVIL_STATUS, { displayLocale: 'th' }) },
+    })
+    await expect(
+      workers.put('w1', { id: 'w1', civilStatus: 'notAKey' }),
+    ).rejects.toThrow(UnknownDictCodeError)
+  })
+
+  it('validateCodes:false allows an open code', async () => {
+    const db = await createNoydb({
+      store: memory(), user: 'alice', i18nStrategy: withI18n(),
+      secret: 'test-passphrase-static-6',
+    })
+    const vault = await db.openVault('co1')
+    const workers = vault.collection<Worker>('workers', {
+      dictKeyFields: {
+        civilStatus: staticDict('civilStatus', CIVIL_STATUS, { displayLocale: 'th', validateCodes: false }),
+      },
+    })
+    await expect(
+      workers.put('w1', { id: 'w1', civilStatus: 'openCode' }),
+    ).resolves.not.toThrow()
+    const r = await workers.get('w1') as Worker
+    expect(r?.civilStatus).toBe('openCode')
+  })
+
+  it('groupBy(field) buckets by the stable code', async () => {
+    const db = await createNoydb({
+      store: memory(), user: 'alice',
+      i18nStrategy: withI18n(), aggregateStrategy: withAggregate(),
+      secret: 'test-passphrase-static-7',
+    })
+    const vault = await db.openVault('co1')
+    const workers = vault.collection<Worker>('workers', {
+      dictKeyFields: { civilStatus: staticDict('civilStatus', CIVIL_STATUS, { displayLocale: 'th' }) },
+    })
+    await workers.put('w1', { id: 'w1', civilStatus: 'adultMale' })
+    await workers.put('w2', { id: 'w2', civilStatus: 'adultMale' })
+    await workers.put('w3', { id: 'w3', civilStatus: 'adultFemale' })
+
+    const rows = workers.query().groupBy('civilStatus').aggregate({ n: count() }).run() as Array<{ civilStatus: string; n: number }>
+    const byCode = Object.fromEntries(rows.map((r) => [r.civilStatus, r.n]))
+    expect(byCode['adultMale']).toBe(2)
+    expect(byCode['adultFemale']).toBe(1)
   })
 })

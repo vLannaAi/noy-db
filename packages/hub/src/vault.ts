@@ -71,8 +71,8 @@ import {
   type RefDescriptor,
   type RefViolation,
 } from './refs.js'
-import type { DictionaryHandle, DictionaryOptions, DictKeyDescriptor } from './i18n/dictionary.js'
-import { isDictCollectionName } from './i18n/dictionary.js'
+import type { DictionaryHandle, DictionaryOptions, DictKeyDescriptor, StaticDictDescriptor } from './i18n/dictionary.js'
+import { isDictCollectionName, isStaticDictDescriptor } from './i18n/dictionary.js'
 import type { I18nTextDescriptor } from './i18n/core.js'
 import { getAtPath } from './i18n/core.js'
 import type { MoneyDescriptor } from './money/descriptor.js'
@@ -92,7 +92,7 @@ import type { DerivationRegistry } from './derivations/registry.js'
 import type { DerivationStrategyHandle } from './derivations/types.js'
 import type { LocaleReadOptions, ConflictPolicy } from './types.js'
 import type { CrdtMode } from './crdt/crdt.js'
-import { ReservedCollectionNameError } from './errors.js'
+import { ReservedCollectionNameError, StaticDictReadonlyError, UnknownDictCodeError } from './errors.js'
 import {
   PERIODS_COLLECTION,
   type PeriodRecord,
@@ -127,6 +127,33 @@ import type { RevokeContext } from './attestation/revoke.js'
 import type { DumpSchemaOptions, VaultSchemaSnapshot, SchemaIntrospection } from './introspection/types.js'
 import { dumpVaultSchema, type VaultIntrospectState } from './introspection/walk.js'
 import { USER_ENVELOPE_COLLECTION } from './meta/user-envelope/types.js'
+
+/**
+ * Resolve a label from an in-memory `{ locale → label }` map, walking the
+ * same fallback chain semantics as `DictionaryHandle.resolveLabel` (#291).
+ * Used by the staticDict read-path resolver, which has no `_dict_*` handle.
+ */
+function resolveLabelFromMap(
+  labels: Readonly<Record<string, string>>,
+  locale: string,
+  fallback?: string | readonly string[],
+): string | undefined {
+  if (labels[locale] !== undefined) return labels[locale]
+  const chain = Array.isArray(fallback)
+    ? (fallback as readonly string[])
+    : fallback
+      ? [fallback as string]
+      : []
+  for (const fb of chain) {
+    if (fb === 'any') {
+      const any = Object.values(labels)[0]
+      if (any !== undefined) return any
+    } else if (labels[fb] !== undefined) {
+      return labels[fb]
+    }
+  }
+  return undefined
+}
 
 /** A vault (tenant namespace) containing collections. */
 export class Vault {
@@ -358,6 +385,33 @@ export class Vault {
   >()
 
   /**
+   * Names of dictionaries backed by a `staticDict()` descriptor (#291).
+   * A static dict skips the `dictKeyFieldRegistry` rename machinery, but the
+   * vault must still *know* a name is static so `vault.dictionary(name)` can
+   * refuse mutation (`StaticDictReadonlyError`). Populated at `collection()`
+   * config time whenever a `StaticDictDescriptor` is seen.
+   */
+  private readonly staticDictNames = new Set<string>()
+
+  /**
+   * Static-dict descriptors keyed by dictionary name (#291). Backs the
+   * read-path label resolver (resolve from the in-memory table) and the
+   * query-seam `resolveDictSource` snapshot. Last writer wins when the same
+   * name is registered by multiple collections (identical-across-vaults by
+   * construction, so the tables match).
+   */
+  private readonly staticByName = new Map<string, StaticDictDescriptor>()
+
+  /**
+   * Per-collection map of field name → StaticDictDescriptor (#291). Used by
+   * `enforceStaticDictOnPut` to validate stored codes against `desc.keys`.
+   */
+  private readonly staticDescriptorByField = new Map<
+    string, // collection name
+    Record<string, StaticDictDescriptor>
+  >()
+
+  /**
    * Registry of i18nText fields declared across all collections. Keyed
    * by collection name → field name → I18nTextDescriptor. Used by
    * `applyI18nLocale` on reads and by `validateI18nTextValue` on puts.
@@ -555,8 +609,8 @@ export class Vault {
     refs?: Record<string, RefDescriptor>
     /** — declare i18nText fields for locale-aware reads. */
     i18nFields?: Record<string, I18nTextDescriptor>
-    /** — declare dictKey fields for label resolution on reads. */
-    dictKeyFields?: Record<string, DictKeyDescriptor>
+    /** — declare dictKey / staticDict fields for label resolution on reads. */
+    dictKeyFields?: Record<string, DictKeyDescriptor | StaticDictDescriptor>
     /** — declare money() fields for currency-safe decimal storage/formatting. */
     moneyFields?: Record<string, MoneyDescriptor>
     /** — declare computed scalar fields, evaluated on write (schema-owned). */
@@ -680,13 +734,29 @@ export class Vault {
         this.attestationRegistry.set(collectionName, options.attestation)
       }
 
-      // Register dictKey fields: store field → dictionary name mapping
+      // Register dictKey / staticDict fields. Plain dictKey fields go into
+      // the rename-tracking registry; staticDict fields (#291) skip it (no
+      // per-vault pointer rewrite) and instead populate the static
+      // registries that back the read-path resolver, the readonly guard, and
+      // put-time code validation.
       if (options?.dictKeyFields) {
         const dictFieldMap: Record<string, string> = {}
+        const staticFieldMap: Record<string, StaticDictDescriptor> = {}
         for (const [field, desc] of Object.entries(options.dictKeyFields)) {
-          dictFieldMap[field] = desc.name
+          if (isStaticDictDescriptor(desc)) {
+            staticFieldMap[field] = desc
+            this.staticDictNames.add(desc.name)
+            this.staticByName.set(desc.name, desc)
+          } else {
+            dictFieldMap[field] = desc.name
+          }
         }
-        this.dictKeyFieldRegistry.set(collectionName, dictFieldMap)
+        if (Object.keys(dictFieldMap).length > 0) {
+          this.dictKeyFieldRegistry.set(collectionName, dictFieldMap)
+        }
+        if (Object.keys(staticFieldMap).length > 0) {
+          this.staticDescriptorByField.set(collectionName, staticFieldMap)
+        }
       }
 
       // Capture registered schema-update strategy names for introspection.
@@ -806,17 +876,30 @@ export class Vault {
       if (options?.moneyFields !== undefined) collOpts.moneyFields = options.moneyFields
       if (options?.computed !== undefined) collOpts.computed = options.computed as ComputedFields
       if (options?.dictKeyFields !== undefined) {
-        // Build the label resolver callback for this collection
+        // Build the label resolver callback for this collection. A static
+        // dict (#291) resolves from its in-memory table — no dictionary()
+        // lookup, no _dict_* read — while a plain dictKey resolves through
+        // the encrypted _dict_* handle as before.
         collOpts.dictLabelResolver = async (dictName, key, locale, fallback) => {
+          const stat = this.staticByName.get(dictName)
+          if (stat) {
+            const labels = stat.table[key]
+            return labels ? resolveLabelFromMap(labels, locale, fallback) : undefined
+          }
           const handle = this.dictionary(dictName)
           return handle.resolveLabel(key, locale, fallback)
         }
         collOpts.dictKeyFields = options.dictKeyFields
       }
-      // i18n validation on put — enforced via the compartment's put hook
-      if (options?.i18nFields !== undefined || options?.dictKeyFields !== undefined) {
+      // i18n / staticDict validation on put — enforced via the compartment's
+      // put hook. staticDict adds put-time code validation (#291).
+      if (
+        options?.i18nFields !== undefined ||
+        options?.dictKeyFields !== undefined
+      ) {
         collOpts.i18nPutValidator = (record: unknown) => {
           this.enforceI18nOnPut(collectionName, record)
+          this.enforceStaticDictOnPut(collectionName, record)
         }
       }
       // Wire the translator for autoTranslate: true fields
@@ -991,6 +1074,36 @@ export class Vault {
   }
 
   /**
+   * Validate staticDict codes on a `put()` (#291). For each `staticDict()`
+   * field, every stored code must be a declared key of the descriptor's
+   * table, else `UnknownDictCodeError`. Opt out per descriptor with
+   * `{ validateCodes: false }`. Supports scalar, dotted, and `[].`-wildcard
+   * field paths via `getAtPath` (same path support as i18n validation).
+   */
+  enforceStaticDictOnPut(collectionName: string, record: unknown): void {
+    const staticFields = this.staticDescriptorByField.get(collectionName)
+    if (!staticFields || Object.keys(staticFields).length === 0) return
+    if (!record || typeof record !== 'object') return
+
+    const obj = record as Record<string, unknown>
+    for (const [field, desc] of Object.entries(staticFields)) {
+      if (desc.validateCodes === false) continue
+      const known = new Set<string>(desc.keys)
+      const values = getAtPath(obj, field)
+      for (const value of values) {
+        if (value === undefined || value === null) continue
+        const codes = Array.isArray(value) ? value : [value]
+        for (const code of codes) {
+          if (typeof code !== 'string') continue
+          if (!known.has(code)) {
+            throw new UnknownDictCodeError(desc.name, field, code)
+          }
+        }
+      }
+    }
+  }
+
+  /**
    * Apply locale resolution to a record for the given collection.
    *
    * Called by Collection after decryption when locale options are present.
@@ -1002,25 +1115,58 @@ export class Vault {
     localeOpts: LocaleReadOptions,
   ): Promise<Record<string, unknown>> {
     const locale = localeOpts.locale ?? this.locale
-    if (!locale) return record
+    const staticFields = this.staticDescriptorByField.get(collectionName)
+    // A static dict with `displayLocale` resolves even under a locale-less
+    // read (#291). The early-return relaxes only for that case; an i18nText-
+    // only / plain-dictKey collection still returns the raw record when no
+    // locale is active (today's invariant).
+    const hasStaticDisplay =
+      staticFields !== undefined &&
+      Object.values(staticFields).some((d) => d.displayLocale !== undefined)
+    if (!locale && !hasStaticDisplay) return record
 
     let result = record
 
-    // 1. i18nText resolution
-    const i18nFields = this.i18nFieldRegistry.get(collectionName)
-    if (i18nFields && Object.keys(i18nFields).length > 0) {
-      result = this.i18nStrategy.applyI18nLocale(result, i18nFields, locale, localeOpts.fallback)
+    // 1. i18nText resolution — requires an active locale.
+    if (locale) {
+      const i18nFields = this.i18nFieldRegistry.get(collectionName)
+      if (i18nFields && Object.keys(i18nFields).length > 0) {
+        result = this.i18nStrategy.applyI18nLocale(result, i18nFields, locale, localeOpts.fallback)
+      }
     }
 
-    // 2. dictKey label resolution — add <field>Label virtual fields
+    // 2. dictKey label resolution — add <field>Label virtual fields (encrypted
+    // _dict_* handle). Skipped on `raw`. Static fields are NOT in this
+    // registry (they skip rename tracking), so this never calls
+    // this.dictionary(staticName).
     const dictFields = this.dictKeyFieldRegistry.get(collectionName)
-    if (dictFields && Object.keys(dictFields).length > 0 && locale !== 'raw') {
+    if (locale && dictFields && Object.keys(dictFields).length > 0 && locale !== 'raw') {
       const withLabels = { ...result }
       for (const [field, dictName] of Object.entries(dictFields)) {
         const key = result[field]
         if (typeof key !== 'string') continue
         const handle = this.dictionary(dictName)
         const label = await handle.resolveLabel(key, locale, localeOpts.fallback)
+        if (label !== undefined) {
+          withLabels[`${field}Label`] = label
+        }
+      }
+      result = withLabels
+    }
+
+    // 3. staticDict label resolution — resolve from the in-memory table; uses
+    // the field's displayLocale when no locale is active (#291). No
+    // dictionary() lookup, so no StaticDictReadonlyError from this path.
+    if (staticFields && Object.keys(staticFields).length > 0 && locale !== 'raw') {
+      const withLabels = { ...result }
+      for (const [field, desc] of Object.entries(staticFields)) {
+        const effLocale = locale ?? desc.displayLocale
+        if (!effLocale) continue
+        const key = result[field]
+        if (typeof key !== 'string') continue
+        const labels = desc.table[key]
+        if (!labels) continue
+        const label = resolveLabelFromMap(labels, effLocale, localeOpts.fallback ?? desc.substitute)
         if (label !== undefined) {
           withLabels[`${field}Label`] = label
         }
@@ -1053,6 +1199,12 @@ export class Vault {
     name: string,
     options: DictionaryOptions = {},
   ): DictionaryHandle<Keys> {
+    // A staticDict (#291) has no _dict_* collection and no mutation surface —
+    // its labels are code constants. Refuse the handle so put/putAll/rename/
+    // delete can never be attempted against a static name.
+    if (this.staticDictNames.has(name)) {
+      throw new StaticDictReadonlyError(name)
+    }
     let handle = this.dictionaryCache.get(name)
     if (!handle) {
       handle = this.i18nStrategy.buildDictionaryHandle<Keys>({
@@ -1127,6 +1279,30 @@ export class Vault {
    * Returns `null` when `field` is not a dictKey in `leftCollection`.
    */
   resolveDictSource(leftCollection: string, field: string): JoinableSource | null {
+    // staticDict (#291): a code-table-backed source — snapshot() materialises
+    // the in-memory table into [{ key, labels, ...labels }] rows, mirroring
+    // DictionaryHandle.snapshotEntries(). Carries `displayLocale` so a
+    // locale-less { by: 'label' } query has a default locale to resolve at.
+    const staticFields = this.staticDescriptorByField.get(leftCollection)
+    if (staticFields && field in staticFields) {
+      const desc = staticFields[field]!
+      const rows: readonly Record<string, unknown>[] = Object.entries(desc.table).map(
+        ([key, labels]) => ({ key, labels, ...(labels as Record<string, string>) }),
+      )
+      const source: JoinableSource = {
+        snapshot(): readonly unknown[] {
+          return rows
+        },
+        lookupById(id: string): unknown {
+          return rows.find((e) => e['key'] === id)
+        },
+      }
+      if (desc.displayLocale !== undefined) {
+        ;(source as { displayLocale?: string }).displayLocale = desc.displayLocale
+      }
+      return source
+    }
+
     const dictFields = this.dictKeyFieldRegistry.get(leftCollection)
     if (!dictFields || !(field in dictFields)) return null
     const dictName = dictFields[field]

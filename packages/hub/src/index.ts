@@ -725,6 +725,8 @@ export type { LruOptions, LruStats } from './cache/index.js'
 export {
   dictKey,
   isDictKeyDescriptor,
+  staticDict,
+  isStaticDictDescriptor,
   isDictCollectionName,
   dictCollectionName,
   DictionaryHandle,
@@ -732,6 +734,7 @@ export {
 } from './i18n/dictionary.js'
 export type {
   DictKeyDescriptor,
+  StaticDictDescriptor,
   DictEntry,
   DictionaryOptions,
 } from './i18n/dictionary.js'
@@ -791,6 +794,8 @@ export {
   LocaleNotSpecifiedError,
   TranslatorNotConfiguredError,
   ScriptViolationError,
+  StaticDictReadonlyError,
+  UnknownDictCodeError,
 } from './errors.js'
 
 // Locale read options + translator audit log

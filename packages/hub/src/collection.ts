@@ -4,7 +4,8 @@ import type { CrdtMode, CrdtState, LwwMapState, RgaState } from './crdt/crdt.js'
 import { NO_CRDT, type CrdtStrategy } from './crdt/strategy.js'
 import type { I18nTextDescriptor } from './i18n/core.js'
 import { getAtPath, setAtPathInPlace } from './i18n/core.js'
-import type { DictKeyDescriptor } from './i18n/dictionary.js'
+import type { DictKeyDescriptor, StaticDictDescriptor } from './i18n/dictionary.js'
+import { isStaticDictDescriptor } from './i18n/dictionary.js'
 import type { MoneyDescriptor } from './money/descriptor.js'
 import { quantizeMoneyFields, decodeMoneyFields, canonicalizeStoredMoney, canonicalizeIncomingMoney } from './money/normalize.js'
 import { validateMoneyFieldPaths } from './money/paths.js'
@@ -288,7 +289,7 @@ export class Collection<T> {
    * `dictKey()`. Used by `get()`/`list()` to add `<field>Label` virtual
    * fields when a locale is requested.
    */
-  private readonly dictKeyFields: Record<string, DictKeyDescriptor> | undefined
+  private readonly dictKeyFields: Record<string, DictKeyDescriptor | StaticDictDescriptor> | undefined
 
   /**
    * Money field descriptors keyed by field path. Declared via the
@@ -612,7 +613,7 @@ export class Collection<T> {
     /** — i18nText field descriptors for locale-aware reads. */
     i18nFields?: Record<string, I18nTextDescriptor> | undefined
     /** — dictKey field descriptors for label resolution on reads. */
-    dictKeyFields?: Record<string, DictKeyDescriptor> | undefined
+    dictKeyFields?: Record<string, DictKeyDescriptor | StaticDictDescriptor> | undefined
     moneyFields?: Record<string, MoneyDescriptor> | undefined
     computed?: ComputedFields | undefined
     /**
@@ -3196,15 +3197,29 @@ export class Collection<T> {
       result = decodeMoneyFields(result, this.moneyFields, typeof locale === 'string' ? locale : undefined)
     }
 
-    // i18nText / dictKey resolution require an active locale.
-    if (!locale) return result as T
+    // i18nText / dictKey resolution require an active locale — EXCEPT a
+    // static dict declaring a `displayLocale`, which resolves its
+    // `<field>Label` even under a locale-less read (the #291 hybrid hinge).
+    // The first early-return (above, `!hasI18n && !hasDict && !hasMoney`) is
+    // UNCHANGED; only this second return relaxes, and ONLY for static-display
+    // fields — folding `hasI18n` in here would let an i18nText-only
+    // collection fall through to applyI18nLocale(…, undefined) on a
+    // locale-less read, breaking the raw-{th,en}-map invariant.
+    const hasStaticDisplay =
+      hasDict &&
+      this.dictKeyFields !== undefined &&
+      Object.values(this.dictKeyFields).some(
+        (d) => isStaticDictDescriptor(d) && d.displayLocale !== undefined,
+      )
+    if (!locale && !hasStaticDisplay) return result as T
 
-    // 1. i18nText resolution
-    if (hasI18n && this.i18nFields) {
+    // 1. i18nText resolution — guarded on `locale`, because the relaxed gate
+    // above can now be entered with `locale === undefined` (static-display).
+    if (locale && hasI18n && this.i18nFields) {
       result = this.i18nStrategy.applyI18nLocale(result, this.i18nFields, locale, localeOpts?.fallback)
     }
 
-    // 2. dictKey label resolution
+    // 2. dictKey / staticDict label resolution
     if (hasDict && this.dictKeyFields && this.dictLabelResolver && locale !== 'raw') {
       const withLabels = { ...result }
       const resolver = this.dictLabelResolver
@@ -3218,14 +3233,31 @@ export class Collection<T> {
           policy === 'substitute'
             ? (localeOpts?.fallback ?? desc.substitute)
             : localeOpts?.fallback
-        // Resolve one key → label | null, honoring the policy.
+        // Per-field effective locale: a static dict falls back to its
+        // `displayLocale` when no locale is active (the #291 hybrid hinge);
+        // a plain dictKey with no displayLocale gets `undefined` → its
+        // <field>Label is omitted on a locale-less read (today's behavior).
+        const effLocale =
+          locale ??
+          (isStaticDictDescriptor(desc) ? desc.displayLocale : undefined)
+        // Resolve one key → label | null, honoring the policy. With no
+        // effective locale there is nothing to resolve against.
         const resolveKey = async (key: string): Promise<string | null> => {
-          const label = await resolver(desc.name, key, locale, fallback)
+          if (!effLocale) {
+            if (policy === 'throw') {
+              throw new LocaleNotSpecifiedError(
+                field,
+                `dictKey "${field}": no locale active to resolve key "${key}".`,
+              )
+            }
+            return null
+          }
+          const label = await resolver(desc.name, key, effLocale, fallback)
           if (label === undefined) {
             if (policy === 'throw') {
               throw new LocaleNotSpecifiedError(
                 field,
-                `dictKey "${field}": no label for key "${key}" in locale "${locale}".`,
+                `dictKey "${field}": no label for key "${key}" in locale "${effLocale}".`,
               )
             }
             return null
