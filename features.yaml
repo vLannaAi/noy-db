@@ -108,6 +108,7 @@ features:
     invariants:
       - 'Standard Schema v1 — Zod, Valibot, ArkType, Effect Schema compatible'
       - 'Validation runs before encryption (write) and after decryption (read)'
+      - 'cascade-delete (ref mode "cascade") is transaction-atomic (#346): cascaded child deletes register on the active TxContext (_executed) and roll back with the parent on mid-batch failure; outside a tx, children + parent delete in place as before'
     related: [vault-and-collections]
 
   - id: money-field
@@ -252,6 +253,8 @@ features:
       - 'independent per-name sequences; peek() reads without allocating'
       - 'online-only: next() throws SequenceOfflineError unless store capabilities.casAtomic'
       - 'jittered backoff; SequenceContentionError after the retry budget so callers can retry/queue'
+      - 'partitioned counters (#345): vault.sequence(series, { partition: [...] }) keys an independent counter per partition; storage key = series + null-byte separator + URI-encoded "/"-joined parts, provably disjoint from plain series keys (null byte rejected in a series name)'
+      - 'seedTo(n) (#345): set-if-greater on the handle — advances to at least n, never rewinds; idempotent + CAS-safe under concurrent next()/seedTo(); fixes bundle/CSV-import counter restart-at-0; online-only (SequenceOfflineError on non-CAS; ValidationError on a deferred series)'
     related: [stores-contract, query-basics]
 
   - id: deferred-numbering
@@ -665,6 +668,9 @@ features:
     invariants:
       - 'runTransaction(db, fn) buffers writes; rollback on throw'
       - 'casAtomic stores: genuine atomicity. casAtomic:false: ordered-with-rollback'
+      - 'commit-time changeset invariants (#342): withTransactions({ invariants: [{ scope, check(changes, ctx) }] }) — set-level invariants fire at commit for ordinary db.transaction() (and amendments), no role gate; generalizes amendment.invariant'
+      - 'invariant changes = ReadonlyArray<GuardChange> for the scope (collection): before = plaintext prior (null on insert), after = written record (null on delete); plaintext before captured in Phase 1 before Phase 2 overwrites'
+      - 'a throw in check() reverts the whole tx via revertExecuted and surfaces as InvariantError; an untouched scope is skipped'
     related: [vault-and-collections]
 
   - id: derivations
@@ -687,6 +693,7 @@ features:
       - '_derivedFrom lives in encrypted payload, not unencrypted envelope'
       - 'strict: true rolls back source write on output failure inside withTransactions'
       - 'cycle detection at vault open — refuses cyclic graphs'
+      - 'declared sibling sources (#344): withDerivation({ source, sources: [...] }) re-fires the derivation on writes to any declared sibling, using the PRIMARY source record at the SAME id (silent no-op if no primary record exists there); siblings are indexed in _bySource, participate in cycle detection, and fold into the strategy hash; sources[] entries must be non-empty and != source'
     related: [guards, transactions]
 
   - id: materialized-views
@@ -725,6 +732,8 @@ features:
       - 'query callback may use multi-key groupBy(...fields); rowKey composites the grouped fields into a stable id'
       - 'UNION mode (unionSources): reads from ≥1 sibling collection; per-source map projects to MV row shape; groupBy + aggregate run on concatenated stream'
       - 'single-arm union (#331): map→group→aggregate over ONE collection with a COMPUTED bucket key (e.g. month sliced from a date) — the query form groupBy takes stored field names only; empty unionSources still throws'
+      - 'UNION money aggregation (#350): spec.moneyFields (keyed by the mapped/aggregated field) rewrites sum/min/max over those fields into exact BigInt reducers, matching the query-form path; arm map() emits DECODED canonical decimal strings, and the money reducer now parses both stored-int and decimal forms; moneyFields without aggregate throws MaterializedViewConfigError; folded into queryHash'
+      - 'UNION arm join (#347): each UnionSource may declare join[] (field/as) to attach right-side records under an alias before map() runs (same ref()-driven resolution as query-form .join()); right-side collections must be listed in sources[] for refresh tracking, else MaterializedViewConfigError; join legs fold into queryHash'
     related: [derivations, overlay-views, transactions, guards]
 
   - id: overlay-views
@@ -742,7 +751,8 @@ features:
     playground_pages: []
     diagrams: []
     invariants:
-      - 'reads merge base + overlay via single-field shadow predicate; no callback / field-level merge'
+      - 'reads merge base + overlay via single-field shadow predicate; overlay wins entirely iff overlay[shadowField] === shadowValue (binary default — unchanged when mergeMode absent)'
+      - 'field-level merge (#348, mergeMode.kind === "field-merge"): rules evaluated in declaration order, first matching whenStatus wins; the matched rule pulls its overlayFields (those present on the overlay row) over the base row, all other fields from base; the binary shadowValue check is always the implicit highest-priority rule applied first; an overlay-only row matching neither shadowValue nor any rule with no base is not surfaced'
       - 'writes through virtual collection route to overlay collection (base untouched)'
       - 'base must be concrete (real source or MV output); not another overlay'
       - 'overlay collection must be vault-known and not an MV output'
@@ -788,6 +798,7 @@ features:
       - 'after(record) is evaluated on the EXISTING record: inserts + the transition write are allowed; subsequent updates/deletes throw RecordLockedError'
       - 'appendOnly: true == after: () => true (immutable from creation)'
       - 'amendment override (admin|owner) skips check/onDelete and is ledgered, via the standard guard amendment path'
+      - 'amendmentInvariant (#349): optional; when supplied, wires a real constraining invariant (matching GuardStrategy.amendment.invariant) into the amendment path so a constraint stays inviolable even under amendment; default omitted = empty-allow override (backward compatible)'
     related: [guards, transactions]
 
   - id: bundle
