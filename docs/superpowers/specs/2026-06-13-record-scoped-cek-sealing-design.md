@@ -33,12 +33,14 @@ A record now has its own CEK, AES-KW-wrapped under the collection DEK on `_cek` 
 
 ### Delivery vehicle: a new `_meta/sealed-cek/<collection>/<id>/<pid>` envelope
 The explorer confirmed **no lightweight sealed-key delivery type exists**; the options are a full bundle (heavyweight; mutually exclusive with extracted-partition), the extract-partition transferKey path (a separate flagged design), or a new thin envelope. **Recommend the thin envelope**, mirroring `_meta/sealed-passphrase`'s `SealedEnvelope{v,_noydb_sealed,pid,payload}`:
-- One store record per (collection, record, host pid): `_meta/sealed-cek/<collection>/<id>/<pid>` → `{ v:1, pid, alg, payload: base64(sealedCek), expiresAt, encryptionContext:{collection,id} }`.
+- One store record per (collection, record, host pid): `_meta/sealed-cek/<collection>/<id>/<pid>` → `{ v:1, pid, alg, payload: base64(seal({ collection, id, cek, expiresAt })), collection, id, expiresAt }`. The sealed `payload` wraps a **bound struct** (not bare CEK bytes) — see the binding note below; the plaintext `collection`/`id`/`expiresAt` are routing/expiry metadata for the host.
 - The host reads its sealed-CEK records (it's authorized to that `_meta` path), unseals, decrypts the referenced record(s). No bundle write.
 - A new `vault.sealRecordToHost(collection, id, hostHint, { expiresAt })` grantor API + `vault.revokeSealedRecord(...)`.
 
-### CloudTrail / audit observability
-`at-aws-kms` already produces a CloudTrail entry per `kms:Decrypt` — but **without scope**. Add AWS KMS **`EncryptionContext: { 'noydb-collection': collection, 'noydb-record-id': id }`** to the seal+unseal (it's AEAD AAD — must match on both ends, which also **cryptographically binds the sealed CEK to that record identity**: a host can't replay a sealed CEK against a different record). This makes every unseal a record-scoped CloudTrail event. Record-level audit is therefore **KMS-host-only**; in-process/`MemoryRecipientSealer` and non-KMS hosts get no equivalent trail (document the boundary).
+### Record-binding + CloudTrail / audit observability
+**Record-binding is done IN the sealed payload, not via KMS encryption context.** A true recipient-target sealer uses an **asymmetric** KMS key (the host's private key never leaves KMS), and per the AWS KMS docs **encryption context is NOT supported with asymmetric (or HMAC) KMS keys** — so the `EncryptionContext{collection,id}` AAD-binding idea does not apply here. Instead the grantor **seals a bound struct `{ collection, id, cek, expiresAt }`** (not bare CEK bytes); on unseal the host checks the embedded `collection`/`id` match the record it's about to decrypt and rejects a mismatch → **replay-proof at the host/app layer** (a sealed CEK can't be reused against a different record).
+
+**CloudTrail:** `at-aws-kms` produces a CloudTrail entry per asymmetric `kms:Decrypt` (key ARN, principal, time) — but at **key+principal granularity, not record-level** (no encryption context to carry `{collection,id}`). Record-level audit therefore relies on the **host logging the in-payload `{collection,id}`** it processed. In-process/`MemoryRecipientSealer` and non-KMS hosts get no cloud trail at all (documented boundary). *(A symmetric-KMS variant could use real `EncryptionContext` for KMS-layer record-binding + audit — but loses the per-recipient asymmetry, requires the grantor to hold Encrypt permission on the host's symmetric key, and isn't "recipient-target." Tradeoff noted as an open decision.)*
 
 ## Hard problems — confronted honestly
 
@@ -63,7 +65,7 @@ The thin `_meta/sealed-cek` envelope is revocable (store delete stops *future* u
 | `at-aws-kms` (+ GCP/Azure) implement `RecipientSealer` via asymmetric KMS (`alg:'kms-encrypt'`) | ✓ (slice 1, prerequisite) | without it, only `MemoryRecipientSealer` works |
 | Grantor `vault.sealRecordToHost(collection,id,hostHint,{expiresAt})` — unwrap raw CEK client-side, seal to host | ✓ | reuses `sealForRecipient`; raw-CEK-only, never the DEK |
 | `_meta/sealed-cek/<collection>/<id>/<pid>` thin envelope + host-side unseal+decrypt path | ✓ | mirrors `_meta/sealed-passphrase` |
-| KMS `EncryptionContext{collection,id}` → record-scoped CloudTrail + replay-binding | ✓ (KMS hosts) | non-KMS hosts: documented no-audit boundary |
+| In-payload `{collection,id}` binding → host rejects replay against a different record; asymmetric KMS `Decrypt` is CloudTrail-logged (key+principal) | ✓ | encryption context unavailable on asymmetric keys; non-KMS hosts: no cloud trail |
 | `vault.revokeSealedRecord(...)` (delete sealed env) + `vault.rotateRecordCek(...)` (true revocation) | ✓ | rotation is the only hard revoke |
 | Time-bound `expiresAt` enforced by host | ✓ | bounds the already-unsealed-CEK window |
 | Query-scoped (seal all CEKs matching a predicate) | ✗ defer | v1 is single-record; query-scope = loop over matches later |
@@ -72,7 +74,7 @@ The thin `_meta/sealed-cek` envelope is revocable (store delete stops *future* u
 ## Acceptance (for the build)
 - A host with a sealed CEK for `sales/inv-1` decrypts `inv-1` and **fails** to decrypt `sales/inv-2` (no key) — the host-denial test.
 - The host never receives a collection DEK (assert the sealed payload is a 32-byte CEK, not a DEK).
-- KMS unseal emits a CloudTrail event carrying `{collection,id}` EncryptionContext; a replay against a different record id fails (AAD mismatch).
+- The host rejects a sealed CEK whose embedded `{collection,id}` doesn't match the record it's decrypting (replay-proof); the asymmetric KMS `Decrypt` is CloudTrail-logged (key+principal+time).
 - `revokeSealedRecord` stops future unseals; `rotateRecordCek` makes a previously-unsealed CEK stop decrypting the (re-encrypted) record.
 - Expired sealed CEK is rejected by the host path.
 
@@ -84,6 +86,6 @@ The thin `_meta/sealed-cek` envelope is revocable (store delete stops *future* u
 
 ## Sizing
 - Slice 1 — `at-aws-kms` RecipientSealer (asymmetric KMS + `RecipientHint.alg:'kms-encrypt'`): **M** (prerequisite; partly specced in the recipient-target §12).
-- Slice 2 — grantor seal API + raw-CEK-unwrap + `_meta/sealed-cek` envelope + host unseal/decrypt path + EncryptionContext binding: **M–L**.
+- Slice 2 — grantor seal API + raw-CEK-unwrap + `_meta/sealed-cek` envelope + host unseal/decrypt path + in-payload `{collection,id}` binding: **M–L**.
 - Slice 3 — `revokeSealedRecord` + `rotateRecordCek` (true revocation) + expiry enforcement: **M** (rotation interacts with history).
 So #306 ≈ **M + M–L + M**, gated on slice 1 landing first.
