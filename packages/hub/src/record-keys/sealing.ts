@@ -1,0 +1,169 @@
+/**
+ * Record-scoped CEK sealing — grantor side (#306 slices 2-3).
+ *
+ * The **grantor** holds the collection DEK and seals ONE record's CEK to an
+ * `at-*` host so that host — and only that host — can decrypt exactly that
+ * record, with no access to the vault DEK and no ability to read any other
+ * record. This is the counterpart to the host-side `openSealedRecord`
+ * (`@noy-db/hub/sealed-record`), which holds no DEK.
+ *
+ * These functions are the orchestration behind `vault.sealRecordToHost` /
+ * `vault.revokeSealedRecord` / `vault.rotateRecordCek`, lifted off `Vault`
+ * behind a narrow {@link SealingContext} so the kernel file delegates. They
+ * live in `record-keys/` (the vault-side CEK policy layer), NOT in
+ * `sealed-record/`, so the host-side subpath stays DEK-free — they import only
+ * the wire *types* from there.
+ */
+import { encrypt, decrypt, generateDEK, wrapCek, unwrapCek, bufferToBase64 } from '../crypto.js'
+import { NOYDB_FORMAT_VERSION, type EncryptedEnvelope, type NoydbStore } from '../types.js'
+import { RecordCekNotFoundError, ValidationError } from '../errors.js'
+import type { RecipientSealer } from '../team/managed-passphrase.js'
+import type { SealedCekBinding, SealedCekDeliveryEnvelope } from '../sealed-record/types.js'
+
+const subtle = globalThis.crypto.subtle
+
+/** The `_sealed_cek` delivery namespace (one envelope per `collection/id/pid`). */
+const SEALED_CEK_NS = '_sealed_cek'
+
+/** What the grantor functions need from their `Vault`. */
+export interface SealingContext {
+  readonly adapter: NoydbStore
+  /** Vault id (the adapter's first coordinate). */
+  readonly vault: string
+  /** Resolve the DEK a record's CEK is wrapped under. */
+  getDEK(collection: string): Promise<CryptoKey>
+  /** Actor id stamped on `_by` (empty string → omit). */
+  readonly actor: string
+  /** Evict the per-record CEK cache + decrypted-record cache after a rotation. */
+  invalidateRecordCaches(collection: string, id: string): Promise<void>
+}
+
+/**
+ * Seal a record's CEK to a host. See `vault.sealRecordToHost` for the contract.
+ * Returns `{ pid, envelopeKey }`.
+ */
+export async function sealRecordToHost(
+  ctx: SealingContext,
+  collection: string,
+  id: string,
+  hostSealer: RecipientSealer,
+  opts: { expiresAt: string },
+): Promise<{ pid: string; envelopeKey: string }> {
+  // Guard separators: the `_sealed_cek` id is `collection/id/pid`, so a `/` in
+  // any component would make the prefix-delete in rotateRecordCek() (which
+  // matches `${collection}/${id}/`) ambiguous and could over- or under-match.
+  if (collection.includes('/')) throw new ValidationError(`sealRecordToHost: collection "${collection}" must not contain "/"`)
+  if (id.includes('/')) throw new ValidationError(`sealRecordToHost: id "${id}" must not contain "/"`)
+
+  const live = await ctx.adapter.get(ctx.vault, collection, id)
+  if (!live || live._cek === undefined) {
+    throw new RecordCekNotFoundError(collection, id)
+  }
+
+  const dek = await ctx.getDEK(collection)
+  const cek = await unwrapCek(live._cek, dek)
+  const rawCek = await subtle.exportKey('raw', cek)
+  const cekB64 = bufferToBase64(rawCek)
+
+  const hint = await hostSealer.publishRecipientHint()
+  if (hint.pid.includes('/')) throw new ValidationError(`sealRecordToHost: recipient pid "${hint.pid}" must not contain "/"`)
+
+  const binding: SealedCekBinding = {
+    collection,
+    id,
+    cek: cekB64,
+    expiresAt: opts.expiresAt,
+  }
+  const sealed = await hostSealer.sealForRecipient(
+    new TextEncoder().encode(JSON.stringify(binding)),
+    hint,
+  )
+
+  const delivery: SealedCekDeliveryEnvelope = {
+    v: 1,
+    _noydb_sealed_cek: 1,
+    pid: hint.pid,
+    payload: bufferToBase64(sealed),
+    expiresAt: opts.expiresAt,
+  }
+
+  const envelopeKey = `${collection}/${id}/${hint.pid}`
+  const prior = await ctx.adapter.get(ctx.vault, SEALED_CEK_NS, envelopeKey)
+  const env: EncryptedEnvelope = {
+    _noydb: NOYDB_FORMAT_VERSION,
+    _v: (prior?._v ?? 0) + 1,
+    _ts: new Date().toISOString(),
+    // AES-GCM bypassed — the sealing layer is the security boundary, exactly
+    // like the managed-passphrase `_meta/sealed-passphrase` envelope.
+    _iv: '',
+    _data: JSON.stringify(delivery),
+    ...(ctx.actor ? { _by: ctx.actor } : {}),
+  }
+  await ctx.adapter.put(ctx.vault, SEALED_CEK_NS, envelopeKey, env)
+
+  return { pid: hint.pid, envelopeKey }
+}
+
+/**
+ * Soft-revoke one sealed-CEK delivery envelope (delete it from the store). A
+ * host that already fetched the envelope keeps whatever it cached; for a hard
+ * revocation use {@link rotateRecordCek}.
+ */
+export async function revokeSealedRecord(
+  ctx: SealingContext,
+  collection: string,
+  id: string,
+  pid: string,
+): Promise<void> {
+  await ctx.adapter.delete(ctx.vault, SEALED_CEK_NS, `${collection}/${id}/${pid}`)
+}
+
+/**
+ * HARD-rotate a record's CEK: re-encrypt the live body under a fresh CEK, evict
+ * caches, and delete EVERY sealed-CEK delivery envelope for the record. See
+ * `vault.rotateRecordCek` for why this bypasses `Collection.put` (no guards, no
+ * history bump — a key rotation must not re-encrypt prior history under the new
+ * CEK).
+ */
+export async function rotateRecordCek(
+  ctx: SealingContext,
+  collection: string,
+  id: string,
+): Promise<void> {
+  const live = await ctx.adapter.get(ctx.vault, collection, id)
+  if (!live || live._cek === undefined) {
+    throw new RecordCekNotFoundError(collection, id)
+  }
+
+  const dek = await ctx.getDEK(collection)
+  const oldCek = await unwrapCek(live._cek, dek)
+  const json = await decrypt(live._iv, live._data, oldCek)
+
+  const newCek = await generateDEK()
+  const { iv, data } = await encrypt(json, newCek)
+
+  const env: EncryptedEnvelope = {
+    _noydb: NOYDB_FORMAT_VERSION,
+    _v: live._v + 1,
+    _ts: new Date().toISOString(),
+    _iv: iv,
+    _data: data,
+    _cek: await wrapCek(newCek, dek),
+    ...(ctx.actor ? { _by: ctx.actor } : {}),
+    ...(live._tier !== undefined ? { _tier: live._tier } : {}),
+    ...(live._det !== undefined ? { _det: live._det } : {}),
+  }
+  await ctx.adapter.put(ctx.vault, collection, id, env)
+
+  // Evict BOTH caches synchronously so no read returns the stale old-CEK record.
+  await ctx.invalidateRecordCaches(collection, id)
+
+  // Delete every sealed-CEK delivery envelope for this record — all pids.
+  const prefix = `${collection}/${id}/`
+  const keys = await ctx.adapter.list(ctx.vault, SEALED_CEK_NS)
+  for (const key of keys) {
+    if (key.startsWith(prefix)) {
+      await ctx.adapter.delete(ctx.vault, SEALED_CEK_NS, key)
+    }
+  }
+}

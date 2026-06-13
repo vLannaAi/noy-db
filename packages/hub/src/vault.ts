@@ -108,11 +108,14 @@ import {
   type ClosePeriodOptions,
   type OpenPeriodOptions,
 } from './periods/index.js'
-import { encrypt, decrypt, generateDEK, bufferToBase64 } from './crypto.js'
-import { unwrapCek, wrapCek } from './record-keys/index.js'
-import { RecordCekNotFoundError } from './errors.js'
+import { encrypt, decrypt } from './crypto.js'
+import {
+  sealRecordToHost as sealRecordToHostImpl,
+  revokeSealedRecord as revokeSealedRecordImpl,
+  rotateRecordCek as rotateRecordCekImpl,
+  type SealingContext,
+} from './record-keys/index.js'
 import type { RecipientSealer } from './team/managed-passphrase.js'
-import type { SealedCekDeliveryEnvelope, SealedCekBinding } from './sealed-record/types.js'
 import {
   createExportBlobsHandle,
   EXPORT_AUDIT_COLLECTION,
@@ -2321,59 +2324,7 @@ export class Vault {
     hostSealer: RecipientSealer,
     opts: { expiresAt: string },
   ): Promise<{ pid: string; envelopeKey: string }> {
-    // Guard separators: the `_sealed_cek` id is `collection/id/pid`, so a `/`
-    // in any component would make the prefix-delete in rotateRecordCek() (which
-    // matches `${collection}/${id}/`) ambiguous and could over- or under-match.
-    if (collection.includes('/')) throw new ValidationError(`sealRecordToHost: collection "${collection}" must not contain "/"`)
-    if (id.includes('/')) throw new ValidationError(`sealRecordToHost: id "${id}" must not contain "/"`)
-
-    const live = await this.adapter.get(this.name, collection, id)
-    if (!live || live._cek === undefined) {
-      throw new RecordCekNotFoundError(collection, id)
-    }
-
-    const dek = await this.getDEK(collection)
-    const cek = await unwrapCek(live._cek, dek)
-    const rawCek = await crypto.subtle.exportKey('raw', cek)
-    const cekB64 = bufferToBase64(rawCek)
-
-    const hint = await hostSealer.publishRecipientHint()
-    if (hint.pid.includes('/')) throw new ValidationError(`sealRecordToHost: recipient pid "${hint.pid}" must not contain "/"`)
-
-    const binding: SealedCekBinding = {
-      collection,
-      id,
-      cek: cekB64,
-      expiresAt: opts.expiresAt,
-    }
-    const sealed = await hostSealer.sealForRecipient(
-      new TextEncoder().encode(JSON.stringify(binding)),
-      hint,
-    )
-
-    const delivery: SealedCekDeliveryEnvelope = {
-      v: 1,
-      _noydb_sealed_cek: 1,
-      pid: hint.pid,
-      payload: bufferToBase64(sealed),
-      expiresAt: opts.expiresAt,
-    }
-
-    const envelopeKey = `${collection}/${id}/${hint.pid}`
-    const prior = await this.adapter.get(this.name, '_sealed_cek', envelopeKey)
-    const env: EncryptedEnvelope = {
-      _noydb: NOYDB_FORMAT_VERSION,
-      _v: (prior?._v ?? 0) + 1,
-      _ts: new Date().toISOString(),
-      // AES-GCM bypassed — the sealing layer is the security boundary, exactly
-      // like the managed-passphrase `_meta/sealed-passphrase` envelope.
-      _iv: '',
-      _data: JSON.stringify(delivery),
-      ...(this.keyring.userId ? { _by: this.keyring.userId } : {}),
-    }
-    await this.adapter.put(this.name, '_sealed_cek', envelopeKey, env)
-
-    return { pid: hint.pid, envelopeKey }
+    return sealRecordToHostImpl(this.sealingContext(), collection, id, hostSealer, opts)
   }
 
   /**
@@ -2384,7 +2335,7 @@ export class Vault {
    * use {@link rotateRecordCek}.
    */
   async revokeSealedRecord(collection: string, id: string, pid: string): Promise<void> {
-    await this.adapter.delete(this.name, '_sealed_cek', `${collection}/${id}/${pid}`)
+    return revokeSealedRecordImpl(this.sealingContext(), collection, id, pid)
   }
 
   /**
@@ -2405,45 +2356,25 @@ export class Vault {
    * @throws {@link RecordCekNotFoundError} if the record is missing or has no `_cek`.
    */
   async rotateRecordCek(collection: string, id: string): Promise<void> {
-    const live = await this.adapter.get(this.name, collection, id)
-    if (!live || live._cek === undefined) {
-      throw new RecordCekNotFoundError(collection, id)
-    }
+    return rotateRecordCekImpl(this.sealingContext(), collection, id)
+  }
 
-    const dek = await this.getDEK(collection)
-    const oldCek = await unwrapCek(live._cek, dek)
-    const json = await decrypt(live._iv, live._data, oldCek)
-
-    const newCek = await generateDEK()
-    const { iv, data } = await encrypt(json, newCek)
-
-    const env: EncryptedEnvelope = {
-      _noydb: NOYDB_FORMAT_VERSION,
-      _v: live._v + 1,
-      _ts: new Date().toISOString(),
-      _iv: iv,
-      _data: data,
-      _cek: await wrapCek(newCek, dek),
-      ...(this.keyring.userId ? { _by: this.keyring.userId } : {}),
-      ...(live._tier !== undefined ? { _tier: live._tier } : {}),
-      ...(live._det !== undefined ? { _det: live._det } : {}),
-    }
-    await this.adapter.put(this.name, collection, id, env)
-
-    // Evict BOTH caches synchronously so no read returns the stale old-CEK
-    // record: the per-record CEK cache (would unwrap to the old CEK) and the
-    // decrypted-record cache (holds the old plaintext + version).
-    const coll = this.collection<Record<string, unknown>>(collection)
-    coll._invalidateCekCacheEntry(id)
-    await coll._invalidateCacheEntry(id)
-
-    // Delete every sealed-CEK delivery envelope for this record — all pids.
-    const prefix = `${collection}/${id}/`
-    const keys = await this.adapter.list(this.name, '_sealed_cek')
-    for (const key of keys) {
-      if (key.startsWith(prefix)) {
-        await this.adapter.delete(this.name, '_sealed_cek', key)
-      }
+  /**
+   * Build the {@link SealingContext} the record-keys grantor functions need:
+   * the vault-bound adapter, DEK resolver, actor, and the dual-cache eviction
+   * `rotateRecordCek` performs (per-record CEK cache + decrypted-record cache).
+   */
+  private sealingContext(): SealingContext {
+    return {
+      adapter: this.adapter,
+      vault: this.name,
+      getDEK: (collection) => this.getDEK(collection),
+      actor: this.keyring.userId,
+      invalidateRecordCaches: async (collection, id) => {
+        const coll = this.collection<Record<string, unknown>>(collection)
+        coll._invalidateCekCacheEntry(id)
+        await coll._invalidateCacheEntry(id)
+      },
     }
   }
 
