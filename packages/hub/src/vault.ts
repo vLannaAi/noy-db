@@ -108,7 +108,8 @@ import {
   type ClosePeriodOptions,
   type OpenPeriodOptions,
 } from './periods/index.js'
-import { encrypt, decrypt, unwrapCek, wrapCek, generateDEK, bufferToBase64 } from './crypto.js'
+import { encrypt, decrypt, generateDEK, bufferToBase64 } from './crypto.js'
+import { unwrapCek, wrapCek } from './record-keys/index.js'
 import { RecordCekNotFoundError } from './errors.js'
 import type { RecipientSealer } from './team/managed-passphrase.js'
 import type { SealedCekDeliveryEnvelope, SealedCekBinding } from './sealed-record/types.js'

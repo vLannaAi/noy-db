@@ -13,7 +13,8 @@ import type { ComputedFields } from './computed/index.js'
 import { evalComputedFields } from './computed/index.js'
 import { NO_I18N, type I18nStrategy } from './i18n/strategy.js'
 import { resolvePolicy } from './i18n/policy.js'
-import { encrypt, decrypt, encryptDeterministic, generateDEK, wrapCek, unwrapCek } from './crypto.js'
+import { encrypt, decrypt, encryptDeterministic, generateDEK } from './crypto.js'
+import { wrapCek, unwrapCek, isTombstone, buildTombstone } from './record-keys/index.js'
 import { ConflictError, ReadOnlyError, TranslatorNotConfiguredError, TierDemoteDeniedError, LocaleNotSpecifiedError } from './errors.js'
 import { dekKey, assertTierAccess } from './team/tiers.js'
 import type { GhostRecord, TierMode, CrossTierAccessEvent } from './types.js'
@@ -1073,7 +1074,7 @@ export class Collection<T> {
         if (!envelope) return null
         // Tombstone tolerance (decision 5): a shredded record carries no
         // body / CEK. Reads return null rather than throwing TamperedError.
-        if (this.isTombstone(envelope)) return null
+        if (isTombstone(envelope, this.encrypted)) return null
         record = await this.decryptRecord(envelope, { id })
         if (record === null) return null
         this.lru.set(id, { record, version: envelope._v }, estimateRecordBytes(record))
@@ -1857,7 +1858,7 @@ export class Collection<T> {
     let count = 0
     for (const id of ids) {
       const env = await this.adapter.get(this.vault, this.name, id)
-      if (!env || this.isTombstone(env)) continue
+      if (!env || isTombstone(env, this.encrypted)) continue
       const decoded = await this.decryptRecord(env, { skipValidation: true, id })
       if (decoded === null) continue // defensive: shredded between list and get
       const record = decoded as unknown as Record<string, unknown>
@@ -2131,17 +2132,9 @@ export class Collection<T> {
 
   async _writeTombstone(id: string, actor: string): Promise<{ previousVersion: number } | null> {
     const live = await this.adapter.get(this.vault, this.name, id)
-    if (!live || this.isTombstone(live)) return null
+    if (!live || isTombstone(live, this.encrypted)) return null
 
-    const tombstone: EncryptedEnvelope = {
-      _noydb: NOYDB_FORMAT_VERSION,
-      _v: live._v,
-      _ts: new Date().toISOString(),
-      _iv: '',
-      _data: '',
-      ...(actor ? { _by: actor } : {}),
-    }
-    await this.adapter.put(this.vault, this.name, id, tombstone)
+    await this.adapter.put(this.vault, this.name, id, buildTombstone(live._v, actor))
 
     // Invalidate every in-memory view of this record so subsequent reads see
     // the tombstone (→ null), not a stale decrypted value.
@@ -3036,7 +3029,7 @@ export class Collection<T> {
     const ids = await this.adapter.list(this.vault, this.name)
     for (const id of ids) {
       const envelope = await this.adapter.get(this.vault, this.name, id)
-      if (envelope && !this.isTombstone(envelope)) {
+      if (envelope && !isTombstone(envelope, this.encrypted)) {
         const record = await this.decryptRecord(envelope, { id })
         if (record === null) continue
         this.cache.set(id, { record, version: envelope._v })
@@ -3050,7 +3043,7 @@ export class Collection<T> {
   /** Hydrate from a pre-loaded snapshot (used by Vault). */
   async hydrateFromSnapshot(records: Record<string, EncryptedEnvelope>): Promise<void> {
     for (const [id, envelope] of Object.entries(records)) {
-      if (this.isTombstone(envelope)) continue
+      if (isTombstone(envelope, this.encrypted)) continue
       const record = await this.decryptRecord(envelope, { id })
       if (record === null) continue
       this.cache.set(id, { record, version: envelope._v })
@@ -3776,11 +3769,6 @@ export class Collection<T> {
    * `TamperedError` (decision 5). A plaintext (`!this.encrypted`)
    * collection legitimately has an empty `_iv`, so it is never a tombstone.
    */
-  private isTombstone(envelope: EncryptedEnvelope): boolean {
-    if (!this.encrypted) return false
-    return !envelope._data && envelope._cek === undefined
-  }
-
   /**
    * Resolve the stable CEK for a record on the WRITE path.
    *
@@ -4309,7 +4297,7 @@ export class Collection<T> {
     // treats it as "absent / skip", matching how get()/list already drop
     // tombstones. Legacy plaintext collections (`!this.encrypted`) legitimately
     // have empty `_iv`/`_data`, so `isTombstone` is false for them — preserved.
-    if (this.isTombstone(envelope)) return null
+    if (isTombstone(envelope, this.encrypted)) return null
     if (!this.encrypted) return envelope._data
     const dek = await this.getDEK(this.name)
     if (envelope._cek !== undefined) {
