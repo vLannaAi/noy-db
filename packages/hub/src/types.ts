@@ -2092,6 +2092,16 @@ export interface HistoryConfig {
   readonly enabled?: boolean
   /** Maximum history entries per record. Oldest pruned on overflow. Default: unlimited. */
   readonly maxVersions?: number
+  /**
+   * Participate in the vault-wide hash-chained tamper ledger. Default:
+   * `true` (every write of this collection appends a ledger entry when
+   * `withHistory()` is active). Set `false` to exclude this collection's
+   * writes from the chain — its puts/deletes leave no ledger entry,
+   * confining tamper-evidence to the collections where it carries weight.
+   * Independent of `enabled`, which gates per-record snapshots. Has no
+   * effect when `withHistory()` is not active (there is no ledger). See #361.
+   */
+  readonly ledger?: boolean
 }
 
 /** Options for querying history. */

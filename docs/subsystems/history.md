@@ -30,11 +30,39 @@ const db = await createNoydb({
 })
 ```
 
-Per-collection retention via `historyConfig`:
+Vault-wide retention via the `history` config:
 
 ```ts
-vault.openVault('firm', { historyConfig: { maxVersions: 50 } })
+createNoydb({ ..., history: { maxVersions: 50 } })
 ```
+
+### Per-collection scoping (#361)
+
+By default `withHistory()` is all-or-nothing: every collection gets per-record
+snapshots **and** appends to the vault-wide tamper ledger. Pass a per-collection
+`historyConfig` to `vault.collection()` to override the vault-wide config for that
+collection only (wholesale, not merged):
+
+```ts
+// Filed legal records — full audit (snapshots + tamper ledger). This is the default.
+const receipts = vault.collection('receipts')
+
+// High-churn operational collection — no snapshots, no ledger entries.
+const scratch = vault.collection('scratch', {
+  historyConfig: { enabled: false, ledger: false },
+})
+```
+
+- `enabled: false` — suppress per-record snapshots for this collection.
+- `ledger: false` — exclude this collection's writes from the hash-chained
+  tamper ledger. Its puts/deletes leave **no** ledger entry; the chain stays
+  valid (`vault.ledger().verify()` still passes) — it simply never receives
+  those entries. Independent of `enabled`. No effect when `withHistory()` is
+  not active (there is no ledger).
+
+This lets you confine snapshots + tamper-evidence to the few collections where
+they carry legal weight, without paying snapshot + ledger-entry-per-write across
+operational / derived collections vault-wide.
 
 ## API
 

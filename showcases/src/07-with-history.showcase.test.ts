@@ -74,4 +74,41 @@ describe('Showcase 07 — withHistory()', () => {
     expect(() => vault.ledger()).toThrow(/history/)
     db.close()
   })
+
+  // ── Per-collection scoping (#361) ────────────────────────────────────
+  // History is all-or-nothing vault-wide by default. When tamper-evidence
+  // only matters on a few collections (e.g. filed legal records), confine
+  // snapshots + ledger to those, and let high-churn operational collections
+  // opt out — no per-record snapshot, no ledger entry per write.
+  it('confines snapshots + tamper-ledger to the collections that need them', async () => {
+    const db = await createNoydb({
+      store: memory(),
+      user: 'alice',
+      secret: 'with-history-passphrase-2026',
+      historyStrategy: withHistory(),
+    })
+    const vault = await db.openVault('firm')
+
+    // Filed receipts: full audit (default — snapshots + ledger).
+    const receipts = vault.collection<Note>('receipts')
+    // Scratchpad: no snapshots, no ledger entries.
+    const scratch = vault.collection<Note>('scratch', {
+      historyConfig: { enabled: false, ledger: false },
+    })
+
+    await receipts.put('r1', { id: 'r1', text: 'v1' })
+    await receipts.put('r1', { id: 'r1', text: 'v2' })
+    await scratch.put('s1', { id: 's1', text: 'draft' })
+    await scratch.put('s1', { id: 's1', text: 'draft 2' })
+
+    // Only the receipts collection appears on the tamper chain…
+    const entries = await vault.ledger().entries()
+    expect(entries).toHaveLength(2)
+    expect(entries.every((e) => e.collection === 'receipts')).toBe(true)
+
+    // …and the chain still verifies end-to-end.
+    const result = await vault.ledger().verify()
+    expect(result.ok).toBe(true)
+    db.close()
+  })
 })

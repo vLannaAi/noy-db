@@ -692,6 +692,17 @@ export class Vault {
     schemaUpdate?: readonly SchemaUpdateStrategy[]
     /** — declare the per-field schema for document attestation (issue side). */
     attestation?: AttestationFieldSchema
+    /**
+     * Per-collection history & tamper-ledger scoping. Overrides the
+     * vault-wide `history` config for THIS collection only (wholesale, not
+     * merged). `enabled: false` suppresses per-record snapshots for this
+     * collection; `ledger: false` excludes its writes from the vault-wide
+     * hash-chained tamper ledger. Lets you confine version snapshots +
+     * tamper-evidence to the few collections where they carry legal weight,
+     * without paying snapshot + ledger-entry-per-write across operational /
+     * derived collections. Defaults to the vault-wide `history` config. See #361.
+     */
+    historyConfig?: HistoryConfig
   }): Collection<T> {
     // Overlay intercept. When the requested collection name
     // matches a registered `withOverlayedView`, return the virtual
@@ -822,6 +833,11 @@ export class Vault {
         schemaUpdateGate = new SchemaUpdateGate(work)
       }
 
+      // Per-collection history/ledger scoping (#361). A per-call
+      // `historyConfig` overrides the vault-wide config wholesale for this
+      // collection; `ledger: false` excludes it from the tamper chain.
+      const effectiveHistoryConfig = options?.historyConfig ?? this.historyConfig
+
       const collOpts: ConstructorParameters<typeof Collection<T>>[0] = {
         adapter: this.adapter,
         vault: this.name,
@@ -837,7 +853,7 @@ export class Vault {
         schemaFence: this.schemaFence,
         getDEK: this.getDEK,
         onDirty: this.onDirty,
-        historyConfig: this.historyConfig,
+        historyConfig: effectiveHistoryConfig,
         // thread the vault-wide blob strategy into every
         // collection. `undefined` is intentionally preserved so the
         // Collection constructor uses its NO_BLOBS default.
@@ -848,7 +864,11 @@ export class Vault {
         historyStrategy: this.historyStrategy,
         i18nStrategy: this.i18nStrategy,
         syncStrategy: this.syncStrategy,
-        ledger: this.getLedgerOrNull() ?? undefined,
+        // Per-collection ledger opt-out (#361): when this collection sets
+        // `historyConfig.ledger: false`, withhold the ledger reference so all
+        // four `if (this.ledger)` append sites in Collection no-op. The chain
+        // stays valid — it simply never receives this collection's entries.
+        ledger: effectiveHistoryConfig.ledger === false ? undefined : (this.getLedgerOrNull() ?? undefined),
         refEnforcer: this,
         joinResolver: this,
         defaultLocale: this.locale,
