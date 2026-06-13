@@ -48,6 +48,35 @@ const result = await db.transaction(async (tx) => {
 
 Body throw → no writes. `ConflictError` from a staged `expectedVersion` → no writes (pre-flight CAS).
 
+### Commit-time invariants (#342)
+
+`withTransactions({ invariants: [...] })` declares set-level invariants
+that run at commit over the change-set of an ORDINARY `db.transaction()`
+(and amendments). No role gate — this generalizes `amendment.invariant`
+to plain transactions.
+
+```ts
+txStrategy: withTransactions({
+  invariants: [{
+    scope: 'lines',  // collection name
+    check: (changes, ctx) => {
+      const total = (s: 'before' | 'after') =>
+        changes.reduce((t, c) => t + (c[s]?.amount ?? 0), 0)
+      if (total('before') !== total('after')) {
+        throw new InvariantError('lines total must be preserved')
+      }
+    },
+  }],
+})
+```
+
+`scope` is the collection name; `check(changes, ctx)` receives a
+`ReadonlyArray<GuardChange>` for that scope — `before` is the plaintext
+prior record (`null` on insert), `after` is the written record (`null`
+on delete). A throw reverts the whole transaction with `InvariantError`.
+The plaintext `before` is captured in Phase 1 before Phase 2 overwrites,
+so invariants see the true prior state.
+
 ## Behavior when NOT opted in
 
 - `db.transaction(fn)` throws with a pointer to `@noy-db/hub/tx`
@@ -58,6 +87,7 @@ Body throw → no writes. `ConflictError` from a staged `expectedVersion` → no
 - **history** — every committed op fires a ledger entry per op after commit
 - **sync** — staged ops still flow through dirty tracking
 - **crdt** — staged ops on CRDT collections merge through the strategy
+- **refs** — cascade-delete (ref mode `'cascade'`) is now transaction-atomic (#346): cascaded child deletes roll back with the parent on a mid-batch failure
 
 ## Edge cases & limits
 

@@ -90,6 +90,28 @@ fingerprint sibling-record content).
 Available on both lifecycles: the eager dispatch and the lazy
 resolve-on-read paths both pass the same facade.
 
+### Declared sibling sources (#344)
+
+`sources: ['a', 'b']` declares sibling collections whose writes re-fire
+this derivation. A write to any declared sibling re-runs `derive`
+against the PRIMARY `source` record at the SAME id (a silent no-op if no
+primary record exists there). Siblings participate in cycle detection.
+
+```ts
+withDerivation<Allocation, { receipt: Receipt }>({
+  source: 'allocations',
+  sources: ['payments', 'bills'],  // sibling writes re-derive at the same id
+  deterministic: true,
+  outputs: { receipt: { shape: 'record', collection: 'receipts' } },
+  derive: async (alloc, ctx) => ({ /* … */ }),
+  lifecycle: 'eager',
+})
+```
+
+This retires the hand-rolled "poke a sibling" pattern (writing a no-op
+back to the source to force a re-derive when a referenced record
+changed).
+
 ### Optional outputs (#144)
 
 Declare an output as `optional: true` to let `derive` return `null` for
@@ -386,6 +408,44 @@ registry's dependency reverse-index.
 composite key — e.g. `groupBy: ['clientId', 'period']` over taxReceipts ∪
 creditNotes produces one row per (client, period) tuple.
 
+**Exact money aggregation — `moneyFields` (#350).** Add a `moneyFields`
+map on the union-form strategy to make `sum`/`min`/`max` over the
+declared (mapped/aggregated) money fields exact BigInt, matching the
+query-form path. Without it, union-MV money sums drift in float. Each
+arm's `map()` should emit the raw decoded money value for those fields.
+
+```ts
+withMaterializedView<{ period: string; vat: MoneyString }>({
+  name: 'monthlyVat',
+  unionSources: [
+    { collection: 'taxReceipts', map: r => ({ period: r.issuedAt.slice(0, 7), vat:  r.vatAmount }) },
+    { collection: 'creditNotes', map: r => ({ period: r.issuedAt.slice(0, 7), vat: -r.vatAmount }) },
+  ],
+  moneyFields: { vat: true },   // exact BigInt sum/min/max
+  groupBy: 'period',
+  aggregate: { vat: sum('vat') },
+  rowKey: row => row.period,
+  refresh: 'eager',
+})
+```
+
+**Per-arm `join` (#347).** Each `unionSources` arm may declare
+`join: [{ field, as }]` to attach a right-side record under an alias
+before `map()` runs — the same `ref()`-driven resolution as query-form
+`.join()`. The right-side collections must be listed in `sources[]` so
+their writes trigger refresh.
+
+```ts
+unionSources: [
+  {
+    collection: 'taxReceipts',
+    join: [{ field: 'clientId', as: 'client' }],  // resolves via ref()
+    map: r => ({ period: r.issuedAt.slice(0, 7), vat: r.vatAmount, clientName: r.client.name }),
+  },
+  // …
+],
+sources: ['clients'],  // right-side collections, for refresh tracking
+
 **Known gap (pre.14 hangover):** `Collection.delete` does NOT yet trigger
 eager MV refresh — only `put` does. UNION (and single-source) MVs with
 `onEmpty: 'delete'` re-tombstone on the next `put` to any source, or via
@@ -527,8 +587,36 @@ const pnd1 = withOverlayedView({
 
 Read semantics: `vault.collection('pnd1').get(id)` returns the overlay
 row **iff** `overlay[shadowField] === shadowValue`, otherwise the base
-row. No callback merge, no priority lattice, no field-level merge — v2
-stays explicitly narrow.
+row. The binary `shadowValue` full-override path is the default when no
+`mergeMode` is declared.
+
+### Field-level merge (#348)
+
+Pass `mergeMode: { kind: 'field-merge', rules: [...] }` to merge
+per-field instead of swapping the whole row. Rules are evaluated in
+declaration order; the **first** rule whose `whenStatus` matches the
+overlay row's shadow field wins. The matched rule pulls its
+`overlayFields` from the overlay over the base row — every other field
+comes from base.
+
+```ts
+withOverlayedView({
+  name: 'pnd1',
+  base: 'pnd1-aggregate',
+  overlay: 'pnd1-overlay',
+  shadowField: 'dataStatus',
+  mergeMode: {
+    kind: 'field-merge',
+    rules: [
+      { whenStatus: 'amount-corrected', overlayFields: ['taxAmount'] },
+      { whenStatus: 'reclassified',     overlayFields: ['clientId', 'category'] },
+    ],
+  },
+})
+```
+
+When `mergeMode` is absent the binary `shadowValue` full-override path
+is unchanged.
 
 Write semantics: `.put(id, record)` on the virtual collection routes
 to the overlay collection. The `id` argument must agree with the

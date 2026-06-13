@@ -2,7 +2,7 @@
 
 This directory holds the **brainstorm → spec → plan** design docs produced by the superpowers workflow: `specs/` contains the design-of-record for each feature/epic, and `plans/` contains the matching task-by-task implementation plans (all named `YYYY-MM-DD-*.md`). These files are referenced by path in **27 source files** (showcases, tests, `features.yaml`, hub sources), so they are **NOT moved or renamed** — this index is the consolidation that makes them navigable.
 
-The index below groups the 49 specs and 57 plans by **epic / feature area** rather than chronologically. Status is derived from the per-version release-history in the project memory, not from each doc's own (often stale) `Status:` header.
+The index below groups the 50 specs and 57 plans by **epic / feature area** rather than chronologically. Status is derived from the per-version release-history in the project memory, not from each doc's own (often stale) `Status:` header.
 
 **Status legend:** `shipped vX.Y.Z-pre.N` = landed + released · `design-only` = spec landed, feature deliberately not built · `epic` = umbrella/foundation doc spanning many PRs (per-slice status in its rows) · `unknown` = could not determine.
 
@@ -20,7 +20,7 @@ The index below groups the 49 specs and 57 plans by **epic / feature area** rath
 
 | Topic | Spec | Plan(s) | Status |
 |---|---|---|---|
-| Derivations v1 (`withDerivation`) | [specs/2026-05-01-dim14-derivation-v1-design.md](specs/2026-05-01-dim14-derivation-v1-design.md) | [plans/2026-05-01-dim14-derivation-v1.md](plans/2026-05-01-dim14-derivation-v1.md), [plans/2026-05-18-derivation.md](plans/2026-05-18-derivation.md) | shipped v0.1.0-pre.11 |
+| Derivations v1 (`withDerivation`) | [specs/2026-05-01-dim14-derivation-v1-design.md](specs/2026-05-01-dim14-derivation-v1-design.md) | [plans/2026-05-01-dim14-derivation-v1.md](plans/2026-05-01-dim14-derivation-v1.md), [plans/2026-05-18-derivation.md](plans/2026-05-18-derivation.md) | shipped v0.1.0-pre.11; + declared sibling `sources[]` (#344 / AU+028) v0.2.0-pre.16 |
 | Guards (`withGuard` — lock / freeze / amendment) | [specs/2026-05-18-guards-design.md](specs/2026-05-18-guards-design.md) | [plans/2026-05-18-guards.md](plans/2026-05-18-guards.md) | shipped v0.1.0-pre.11 |
 | Variable-N derivations (`shape: 'array'`) | [specs/2026-05-23-variable-n-derivations.md](specs/2026-05-23-variable-n-derivations.md) | — | shipped v0.1.0-pre.16 |
 | Tier-2 auth showcases (on-webauthn / on-password) | — | [plans/2026-05-18-tier-2-auth-showcases.md](plans/2026-05-18-tier-2-auth-showcases.md) | shipped v0.1.0-pre.11 (showcases 71/72) |
@@ -29,8 +29,8 @@ The index below groups the 49 specs and 57 plans by **epic / feature area** rath
 
 | Topic | Spec | Plan(s) | Status |
 |---|---|---|---|
-| Materialized views v2 (`withMaterializedView`) | [specs/2026-05-20-dim14-mv-v2-design.md](specs/2026-05-20-dim14-mv-v2-design.md) | — | shipped v0.1.0-pre.14 |
-| Multi-key groupBy + UNION MV (+ GuardStrategyHandle variance) | [specs/2026-05-22-dim14-mv-multikey-and-union-design.md](specs/2026-05-22-dim14-mv-multikey-and-union-design.md) | [plans/2026-05-22-dim14-mv-multikey-and-union.md](plans/2026-05-22-dim14-mv-multikey-and-union.md) | shipped v0.1.0-pre.15 |
+| Materialized views v2 (`withMaterializedView`) | [specs/2026-05-20-dim14-mv-v2-design.md](specs/2026-05-20-dim14-mv-v2-design.md) | — | shipped v0.1.0-pre.14; + overlay field-merge `mergeMode` (#348 / AU+032) v0.2.0-pre.16 |
+| Multi-key groupBy + UNION MV (+ GuardStrategyHandle variance) | [specs/2026-05-22-dim14-mv-multikey-and-union-design.md](specs/2026-05-22-dim14-mv-multikey-and-union-design.md) | [plans/2026-05-22-dim14-mv-multikey-and-union.md](plans/2026-05-22-dim14-mv-multikey-and-union.md) | shipped v0.1.0-pre.15; + exact union-MV money `moneyFields` (#350) & arm `join` leg (#347 / AU+031) v0.2.0-pre.16 |
 | Cross-join query primitive (Dim 11) | [specs/2026-05-20-dim11-cross-join-v1-design.md](specs/2026-05-20-dim11-cross-join-v1-design.md) | [plans/2026-06-05-dim11-cross-join.md](plans/2026-06-05-dim11-cross-join.md) | shipped v0.2.0-pre.7 |
 
 ## Schema dump / introspection
@@ -100,6 +100,7 @@ The index below groups the 49 specs and 57 plans by **epic / feature area** rath
 |---|---|---|---|
 | Hub coordination epic (#228 + #231) | [specs/2026-06-01-hub-coordination-epic-design.md](specs/2026-06-01-hub-coordination-epic-design.md) | — | epic → shipped v0.2.0-pre.3 |
 | Dry-run transactions (#231) | (above epic) | [plans/2026-06-01-231-dry-run-transactions.md](plans/2026-06-01-231-dry-run-transactions.md) | shipped v0.2.0-pre.3 |
+| Commit-time tx changeset invariants (`withTransactions({ invariants })`, #342 / AU+026) | [specs/2026-06-13-tx-commit-invariants-design.md](specs/2026-06-13-tx-commit-invariants-design.md) | — | shipped v0.2.0-pre.16 |
 | Multi-tab coordination — decomposition + (a) presence/roles | [specs/2026-06-01-228-tab-coordination-design.md](specs/2026-06-01-228-tab-coordination-design.md) | [plans/2026-06-01-228a-tab-presence-roles.md](plans/2026-06-01-228a-tab-presence-roles.md) | shipped v0.2.0-pre.3 |
 | (b) Cross-tab write propagation | [specs/2026-06-01-228b-cross-tab-write-propagation-design.md](specs/2026-06-01-228b-cross-tab-write-propagation-design.md) | [plans/2026-06-01-228b-cross-tab-write-propagation.md](plans/2026-06-01-228b-cross-tab-write-propagation.md) | shipped v0.2.0-pre.3 |
 | (c) Cross-tab conflict detection | [specs/2026-06-01-228c-conflict-detection-design.md](specs/2026-06-01-228c-conflict-detection-design.md) | [plans/2026-06-01-228c-conflict-detection.md](plans/2026-06-01-228c-conflict-detection.md) | shipped v0.2.0-pre.3 (flake fixed pre.7) |
@@ -157,7 +158,7 @@ The index below groups the 49 specs and 57 plans by **epic / feature area** rath
 |---|---|---|---|
 | `money()` currency-safe decimal field (#300) | [specs/2026-06-08-money-decimal-field-design.md](specs/2026-06-08-money-decimal-field-design.md) | [plans/2026-06-08-money-decimal-field.md](plans/2026-06-08-money-decimal-field.md) | shipped v0.2.0-pre.12 |
 | Computed scalar fields (#302) | [specs/2026-06-08-computed-scalar-fields-design.md](specs/2026-06-08-computed-scalar-fields-design.md) | — | shipped v0.2.0-pre.12 |
-| `immutableGuard` WORM (#301) | [specs/2026-06-08-immutable-guard-design.md](specs/2026-06-08-immutable-guard-design.md) | — | shipped v0.2.0-pre.12 |
+| `immutableGuard` WORM (#301) | [specs/2026-06-08-immutable-guard-design.md](specs/2026-06-08-immutable-guard-design.md) | — | shipped v0.2.0-pre.12; + `amendmentInvariant` knob (#349 / AU+033) v0.2.0-pre.16 |
 | Retention + legal-hold (blobs #311 / record archival #307) | [specs/2026-06-08-retention-archival-design.md](specs/2026-06-08-retention-archival-design.md) | — | shipped v0.2.0-pre.12 |
 | Deferred deterministic numbering + store clock (#325) | [specs/2026-06-08-sealed-numbering-and-store-clock-design.md](specs/2026-06-08-sealed-numbering-and-store-clock-design.md) | [plans/2026-06-08-deferred-numbering.md](plans/2026-06-08-deferred-numbering.md) | shipped v0.2.0-pre.13 |
 | `withForgetCascade` — DEK crypto-shred (#304) | [specs/2026-06-08-forget-cascade-design.md](specs/2026-06-08-forget-cascade-design.md) | — | design-only (#304 open, not built) |
