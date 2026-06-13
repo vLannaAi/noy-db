@@ -259,11 +259,23 @@ export function groupAndReduce<R>(
   records: readonly unknown[],
   fieldOrFields: string | readonly string[],
   spec: AggregateSpec,
+  moneyFields?: Record<string, MoneyDescriptor>,
 ): R[] {
   const fields: readonly string[] =
     typeof fieldOrFields === 'string' ? [fieldOrFields] : fieldOrFields
   if (fields.length === 0) {
     throw new Error('.groupBy() requires at least one field')
+  }
+
+  // Money-aware aggregation: when the caller declares money descriptors
+  // for output/intermediate fields, rewrite any `sum`/`min`/`max` over
+  // them into exact BigInt reducers before bucketing. Omitted → spec
+  // passes through unchanged (backward compatible). The chainable
+  // `GroupedQuery` path already wraps upstream via `wrapSpec`; this
+  // covers direct `groupAndReduce` callers (UNION-form MVs) that have
+  // no Query wrapper to do it.
+  if (moneyFields) {
+    spec = wrapMoneyReducers(spec, moneyFields)
   }
 
   // Bucket value is { keyValues, records } so the output row can stamp

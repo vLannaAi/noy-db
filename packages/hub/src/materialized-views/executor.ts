@@ -103,7 +103,20 @@ async function materializeUnionResult<TRow extends Record<string, unknown>>(
   const unified: TRow[] = []
   for (const arm of spec.unionSources!) {
     const coll = db.collection<Record<string, unknown>>(arm.collection)
-    const sourceRows = coll.query().toArray()
+    // Optional per-arm FK joins: chain `.join(field, { as, ... })` for
+    // each declared leg before terminating. The aliased right-side
+    // record lands at `sourceRow[leg.as]`, where the arm's `map` reads
+    // it. Cast to `any` because the chained join widens the row type but
+    // the executor treats every row as `Record<string, unknown>` — same
+    // pattern the query-form join path uses.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let q: any = coll.query()
+    if (arm.join?.length) {
+      for (const leg of arm.join) {
+        q = q.join(leg.field, { as: leg.as, maxRows: leg.maxRows, strategy: leg.strategy })
+      }
+    }
+    const sourceRows = q.toArray() as ReadonlyArray<Record<string, unknown>>
     for (const r of sourceRows) {
       const mapped = arm.map(r)
       // null / undefined means "omit this source row" — skip without
@@ -133,7 +146,7 @@ async function materializeUnionResult<TRow extends Record<string, unknown>>(
   // groupBy + aggregate — delegate to the shared pipeline used by
   // `Query.groupBy().aggregate()`. Result rows carry each grouped
   // field in declaration order followed by the spec's reducer outputs.
-  return groupAndReduce<Record<string, unknown>>(unified, groupFields, spec.aggregate)
+  return groupAndReduce<Record<string, unknown>>(unified, groupFields, spec.aggregate, spec.moneyFields)
 }
 
 /**

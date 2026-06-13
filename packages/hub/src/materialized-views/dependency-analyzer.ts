@@ -135,7 +135,16 @@ export function summarizeUnionPlan<T extends Record<string, unknown>>(
   spec: MaterializedViewStrategy<T>,
 ): string {
   const arms = (spec.unionSources ?? [])
-    .map(s => s.collection)
+    .map(s => {
+      // Fold each arm's join legs into the summary so adding or
+      // reordering joins (which changes the materialized rows) bumps
+      // queryHash. Leg order is declaration-significant (legs chain), so
+      // it is NOT sorted — same rationale as arm declaration order.
+      const joins = s.join?.length
+        ? `[${s.join.map(j => `${j.field}→${j.as}`).join(';')}]`
+        : ''
+      return `${s.collection}${joins}`
+    })
     .join(',')
   const groupBy: string = Array.isArray(spec.groupBy)
     ? [...spec.groupBy].sort().join(',')
@@ -143,5 +152,10 @@ export function summarizeUnionPlan<T extends Record<string, unknown>>(
       ? spec.groupBy
       : ''
   const aggKeys = spec.aggregate ? Object.keys(spec.aggregate).sort().join(',') : ''
-  return `union(${arms})|groupBy(${groupBy})|aggregate(${aggKeys})`
+  // `moneyFields` changes reducer semantics (float → exact BigInt), so
+  // declaring / removing / re-keying it must bump queryHash. Keys are
+  // sorted — they're independent of each other (one descriptor per
+  // output field), same rationale as aggregate keys.
+  const moneyKeys = spec.moneyFields ? Object.keys(spec.moneyFields).sort().join(',') : ''
+  return `union(${arms})|groupBy(${groupBy})|aggregate(${aggKeys})|money(${moneyKeys})`
 }

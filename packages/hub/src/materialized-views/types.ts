@@ -1,6 +1,8 @@
 import type { Query } from '../query/builder.js'
 import type { Collection } from '../collection.js'
 import type { AggregateSpec } from '../aggregate/aggregation.js'
+import type { JoinStrategy } from '../query/join.js'
+import type { MoneyDescriptor } from '../money/descriptor.js'
 
 /**
  * Minimal vault-shaped accessor passed to the MV `query()` callback.
@@ -82,8 +84,40 @@ export interface UnionSource<TRow extends Record<string, unknown>> {
    * unified stream and never reaches `groupBy` / `aggregate`. This
    * removes the need for sentinel rows (e.g. `{ amount: 0 }`) whose
    * sole purpose is to be aggregated away (#297).
+   *
+   * When this arm declares {@link join}, the aliased right-side
+   * record(s) are attached to the source row under each leg's `as`
+   * BEFORE `map` runs, so `map` can read `sourceRow[leg.as]`.
    */
   readonly map: (sourceRow: Record<string, unknown>) => TRow | null | undefined
+  /**
+   * Optional FK joins to apply to this arm's rows before {@link map}.
+   * Each leg resolves a `ref()`-declared foreign key on the arm's
+   * source collection into an attached right-side record under
+   * `as` — the same machinery as the query-form `Query.join()`.
+   *
+   * The right-side collections must be listed in the strategy's
+   * {@link MaterializedViewStrategy.sources} so writes to them trigger
+   * MV refresh — registration throws `MaterializedViewConfigError`
+   * otherwise (the union dependency set comes from arm `collection`s
+   * alone, which would not include join targets).
+   */
+  readonly join?: ReadonlyArray<UnionArmJoin>
+}
+
+/**
+ * One FK join leg on a UNION arm. Mirrors the option shape of the
+ * query-form `Query.join(field, { as, maxRows?, strategy? })`.
+ */
+export interface UnionArmJoin {
+  /** FK field on the arm's source collection (must have a `ref()` declared). */
+  readonly field: string
+  /** Alias under which the resolved right-side record attaches on the source row. */
+  readonly as: string
+  /** Per-side row ceiling override. `undefined` → the join default. */
+  readonly maxRows?: number
+  /** Planner strategy override. `undefined` → auto-select. */
+  readonly strategy?: JoinStrategy
 }
 
 /**
@@ -156,6 +190,25 @@ export interface MaterializedViewStrategy<TRow extends Record<string, unknown>> 
    * UNION-mode only. Ignored if {@link query} is set.
    */
   aggregate?: AggregateSpec
+  /**
+   * Money descriptors for the UNION-mode aggregate, keyed by the
+   * OUTPUT/intermediate field name as it appears in the mapped row and
+   * in {@link aggregate} (NOT the source collection's field name). When
+   * declared, any `sum` / `min` / `max` over a keyed field is rewritten
+   * into an exact per-currency BigInt reducer — without this, money
+   * aggregation in UNION mode silently runs in float (since the
+   * concatenated mapped stream is a plain array with no collection
+   * money context to inherit).
+   *
+   * UNION-mode only — the query form inherits its money descriptors
+   * from the source collection automatically. The descriptor's
+   * currency/scale must match what the arms' `map()` emits for that
+   * field (each arm maps into the same unified shape, so one descriptor
+   * per output field covers all arms). Meaningless without
+   * {@link aggregate}; registration throws `MaterializedViewConfigError`
+   * if declared alone.
+   */
+  moneyFields?: Record<string, MoneyDescriptor>
   /**
    * Pure function from a materialized row → stable id used in the
    * output collection. Required — explicit always beats default-with-pitfalls

@@ -23,7 +23,7 @@
  */
 
 import { readPath } from '../query/predicate.js'
-import { formatScaledInt } from './fixed-point.js'
+import { formatScaledInt, parseToScaledInt } from './fixed-point.js'
 import { scaleForCurrency } from './iso4217.js'
 import { MoneyUnsupportedError } from './descriptor.js'
 import type { MoneyDescriptor } from './descriptor.js'
@@ -37,13 +37,39 @@ interface ReadMoney {
   value: bigint
 }
 
-function toScaledInt(v: unknown): bigint | null {
-  if (typeof v === 'string' || typeof v === 'number' || typeof v === 'bigint') {
-    try {
-      return BigInt(v)
-    } catch {
-      return null
+/**
+ * Coerce an arbitrary money-field value into its scaled `BigInt` at the
+ * given `scale`. Handles the two shapes a money field can arrive in by
+ * the time it reaches a reducer:
+ *
+ *   - **stored form** — a bare scaled-integer string (`'12345'`) or a
+ *     `bigint`. No decimal point, so `BigInt(v)` is the fast path.
+ *   - **decoded form** — a canonical decimal string (`'123.45'`), which
+ *     is what `query().toArray()` / `decodeMoneyFields` produce (UNION
+ *     arms map over decoded rows). `BigInt('123.45')` throws, so these
+ *     route through `parseToScaledInt(v, scale)`.
+ *
+ * A `number` is treated as a decimal magnitude (parsed at `scale`).
+ * Anything unparseable → `null`.
+ */
+function toScaledIntFromAny(v: unknown, scale: number): bigint | null {
+  if (typeof v === 'bigint') return v
+  if (typeof v === 'number') {
+    const r = parseToScaledInt(v, scale)
+    return r.ok ? r.value : null
+  }
+  if (typeof v === 'string') {
+    if (!v.includes('.')) {
+      // Stored scaled-integer form (e.g. '12345') — no decimal point.
+      try {
+        return BigInt(v)
+      } catch {
+        return null
+      }
     }
+    // Decoded canonical-decimal form (e.g. '123.45').
+    const r = parseToScaledInt(v, scale)
+    return r.ok ? r.value : null
   }
   return null
 }
@@ -53,14 +79,16 @@ function readMoney(record: unknown, field: string, desc: MoneyDescriptor): ReadM
   const raw = readPath(record, field)
   if (raw === null || raw === undefined) return null
   if (desc.mode === 'fixed') {
-    const value = toScaledInt(raw)
-    return value === null ? null : { currency: desc.fixedCurrency!, value }
+    const cur = desc.fixedCurrency!
+    const value = toScaledIntFromAny(raw, desc.scaleFor(cur))
+    return value === null ? null : { currency: cur, value }
   }
   // multi mode: stored as { amount, currency }
   if (typeof raw !== 'object') return null
   const o = raw as { amount?: unknown; currency?: unknown }
   if (typeof o.currency !== 'string') return null
-  const value = toScaledInt(o.amount)
+  const scale = desc.allows(o.currency) ? desc.scaleFor(o.currency) : 0
+  const value = toScaledIntFromAny(o.amount, scale)
   return value === null ? null : { currency: o.currency, value }
 }
 
