@@ -27,7 +27,7 @@
  */
 
 import { withGuard } from './with-guard.js'
-import type { GuardStrategy, GuardStrategyHandle, GuardContext } from './types.js'
+import type { GuardStrategy, GuardStrategyHandle, GuardContext, GuardChange } from './types.js'
 import { RecordLockedError, ValidationError } from '../errors.js'
 
 export interface ImmutableGuardConfig<T extends Record<string, unknown>> {
@@ -44,6 +44,24 @@ export interface ImmutableGuardConfig<T extends Record<string, unknown>> {
   appendOnly?: boolean
   /** Roles permitted to override via an amendment transaction. Default `['admin', 'owner']`. */
   amendmentRoles?: ReadonlyArray<'admin' | 'owner'>
+  /**
+   * Optional set-level invariant run over the amendment change-set after
+   * the writes execute. Signature matches `GuardStrategy.amendment.invariant`
+   * exactly: it receives every {before, after} pair touching this
+   * collection in the amendment plus the guard context; throwing reverts
+   * the whole amendment and surfaces as `InvariantError`.
+   *
+   * Use this to keep a constraint inviolable EVEN under amendment — e.g.
+   * forbid deleting an issued document by re-throwing on any
+   * `before !== null && after === null` change, or assert a cross-record
+   * sum is preserved. When omitted the amendment is unconditionally
+   * allowed (the amendment itself is the sanctioned, ledgered override) —
+   * this is the backward-compatible default.
+   */
+  amendmentInvariant?: (
+    changes: ReadonlyArray<GuardChange<T>>,
+    ctx: GuardContext<T>,
+  ) => Promise<void> | void
 }
 
 function recordId(record: Record<string, unknown> | null): string {
@@ -58,7 +76,7 @@ function recordId(record: Record<string, unknown> | null): string {
 export function immutableGuard<T extends Record<string, unknown>>(
   config: ImmutableGuardConfig<T>,
 ): GuardStrategyHandle<T> {
-  const { collection, after, appendOnly, amendmentRoles } = config
+  const { collection, after, appendOnly, amendmentRoles, amendmentInvariant } = config
   if (appendOnly && after !== undefined) {
     throw new ValidationError('immutableGuard: `after` and `appendOnly` are mutually exclusive')
   }
@@ -86,13 +104,17 @@ export function immutableGuard<T extends Record<string, unknown>>(
       }
     },
     // The authorized override: inside an amendment transaction the
-    // check/onDelete are skipped and the change is ledgered. No extra
-    // invariant — the amendment itself is the sanctioned exception.
+    // check/onDelete are skipped and the change is ledgered. By default
+    // there is no extra invariant — the amendment itself is the
+    // sanctioned exception. Callers may supply `amendmentInvariant` to
+    // keep a constraint inviolable even under amendment (e.g. forbid
+    // deletes, or preserve a cross-record sum); a throw reverts the
+    // amendment and surfaces as `InvariantError`.
     amendment: {
       roles: amendmentRoles ?? ['admin', 'owner'],
-      invariant: () => {
+      invariant: amendmentInvariant ?? (() => {
         /* allow — the amendment is the override, and is ledgered */
-      },
+      }),
     },
   }
 

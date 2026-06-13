@@ -36,6 +36,28 @@ Generates a `withGuard` spec:
 
 `appendOnly: true` ⇒ `isImmutable = () => true`: a record is immutable from creation, so any post-insert update or delete is blocked.
 
+## `amendmentInvariant` — keep a constraint inviolable under amendment (#349)
+
+By default the generated `amendment.invariant` is an empty allow — the amendment IS the sanctioned, ledgered override. Some collections need a constraint that holds *even under amendment* (e.g. an issued document may be corrected but never deleted, or a cross-record sum must stay balanced through a repair). Rather than dropping back to a hand-rolled `withGuard`, `immutableGuard` now accepts an optional `amendmentInvariant`:
+
+```ts
+immutableGuard<Invoice>({
+  collection: 'invoices',
+  after: (r) => r.status === 'issued',
+  amendmentInvariant: (changes, ctx) => {
+    for (const c of changes) {
+      if (c.before !== null && c.after === null) {
+        throw new InvariantError('issued invoices cannot be deleted, even by amendment')
+      }
+    }
+  },
+})
+```
+
+- **Signature** matches `GuardStrategy.amendment.invariant` exactly: `(changes: ReadonlyArray<GuardChange<T>>, ctx: GuardContext<T>) => Promise<void> | void`.
+- **Wiring** — `invariant: amendmentInvariant ?? (() => { /* allow */ })`. **Omitting it preserves the prior empty-allow behavior** (backward-compatible, additive).
+- **Errors** — a throw is wrapped by the guard executor into `InvariantError` and reverts the whole amendment (the standard amendment-invariant rollback path); no other call site changes.
+
 ## Composition
 
 - **periods / history:** unchanged — `immutableGuard` is an ordinary guard, so it composes with the period-close gate and history exactly as a hand-written guard would.
