@@ -1,0 +1,34 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "workspaces": {
+    ".": {
+      "entry": ["scripts/*.mjs"]
+    },
+    "packages/create-noy-db": {
+      "ignore": ["templates/**"]
+    },
+    "packages/hub": {
+      "entry": ["src/index.ts", "scripts/*.mjs", "__tests__/**/*.test-d.ts"]
+    },
+    "showcases": {
+      "entry": [
+        "src/**/*.showcase.test.ts",
+        "src/**/*.workers.test.ts",
+        "src/**/*.test.tsx",
+        "src/_*.ts"
+      ]
+    },
+    "recipes/*": {
+      "entry": ["src/index.ts", "src/app.ts", "infra/app.ts", "scripts/*.mjs"]
+    },
+    "playground": {
+      "entry": ["src/index.ts", "demo.mjs"]
+    },
+    "playground/cli": {
+      "entry": ["src/index.ts", "demo.mjs"]
+    },
+    "playground/nuxt": {
+      "entry": ["app/**/*.vue", "nuxt.config.ts"]
+    }
+  }
+}
