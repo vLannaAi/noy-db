@@ -122,13 +122,16 @@ the content CEK; else legacy direct-`_blob`-DEK decrypt. One extra AES-KW unwrap
    content CEK, else the `_blob` DEK); (3) promote `_cekPending` → `_cek` (atomic flip). Until migrated,
    an erasable collection's legacy blobs are reported as residue, not shreddable. Adopting the cascade
    on existing data also needs `vault.rebuildSubjectIndex()` so pre-adoption records are discoverable.
-4. **Compaction / GC** (`blob-compaction.ts`, `route-store.ts BlobLifecyclePolicy`) — eviction already
-   decrements refCount via `deleteSlot`. The refCount-0 path now *additionally* deletes the BlobObject
-   eagerly (crypto-shred) rather than waiting for `orphanRetentionDays`. `legalHold`/`retainUntil`
-   override shred just as they override eviction.
-5. **export-blobs / bundles** (`export-blobs.ts`, `bundle/`) — exporting a content-CEK blob must carry
-   (or re-wrap) the content CEK so the recipient can decrypt, analogous to the record-CEK
-   `reKeyClosure` rule. Needs explicit coverage.
+4. **Compaction / GC** (`blob-compaction.ts`, `route-store.ts BlobLifecyclePolicy`) — eviction
+   decrements refCount via `deleteSlot` → `BlobSet.delete()`. A single reclaim choke point
+   (`releaseRef`) backs every reference-drop path (slot delete/overwrite, published-version delete,
+   `forget()` shred): at refCount 0, **erasable** blobs (`_cek`) are crypto-shredded EAGERLY (GDPR
+   erasure must not wait on `orphanRetentionDays`), while **legacy** blobs keep deferred GC / orphan
+   retention. So compaction eviction of an erasable blob to refCount 0 crypto-shreds it automatically.
+5. **export-blobs / bundles** — `export-blobs.ts` exports **plaintext** via `BlobSet.get()`, which is
+   content-CEK-aware through `resolveChunkKey` (slice 1) → no change needed; the recipient re-imports
+   fresh. Partition **bundles** (`bundle/walk-closure.ts`, `extract-partition.ts`) do NOT include the
+   `_blob_*` storage collections, so blob chunks are out of the partition closure — nothing to re-wrap.
 
 ## Opt-in (D2 — tie to `perRecordKeys`)
 
