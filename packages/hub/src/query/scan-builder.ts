@@ -59,7 +59,7 @@
  */
 
 import type { Clause, FieldClause, Operator } from './predicate.js'
-import { evaluateClause, readPath } from './predicate.js'
+import { evaluateClause, hasFnClause, readPath } from './predicate.js'
 import type {
   AggregateSpec,
   AggregateResult,
@@ -68,6 +68,7 @@ import type { JoinContext, JoinLeg, JoinableSource } from './join.js'
 import { DanglingReferenceError } from '../errors.js'
 import type { MoneyDescriptor } from '../money/descriptor.js'
 import { decodeMoneyFields } from '../money/normalize.js'
+import { moneyFieldClause } from '../money/where.js'
 
 /**
  * Page provider — the Collection-shaped hook the builder calls to
@@ -167,7 +168,12 @@ export class ScanBuilder<T> implements AsyncIterable<T> {
    * evaluates clauses per record in O(1) per clause.
    */
   where(field: string, op: Operator, value: unknown): ScanBuilder<T> {
-    const clause: FieldClause = { type: 'field', field, op, value }
+    // Money fields compare in major units, BigInt-exact in scaled space —
+    // same build-time operand rewrite as Query.where() (#336).
+    const desc = this.moneyFields?.[field]
+    const clause: FieldClause = desc
+      ? moneyFieldClause(field, op, value, desc)
+      : { type: 'field', field, op, value }
     return new ScanBuilder<T>(
       this.pageProvider,
       this.pageSize,
@@ -609,8 +615,16 @@ export class ScanBuilder<T> implements AsyncIterable<T> {
    */
   private recordMatches(record: T): boolean {
     if (this.clauses.length === 0) return true
+    // User-callback clauses (filter) see the DECODED money view (#335);
+    // field clauses keep the raw record — their operands are pre-quantized
+    // into stored space (#336). Decoded at most once per record, only
+    // when a callback clause exists.
+    const fnView =
+      this.moneyFields && Object.keys(this.moneyFields).length > 0 && hasFnClause(this.clauses)
+        ? this.decodeMoney(record)
+        : undefined
     for (const clause of this.clauses) {
-      if (!evaluateClause(record, clause)) return false
+      if (!evaluateClause(record, clause, fnView)) return false
     }
     return true
   }
