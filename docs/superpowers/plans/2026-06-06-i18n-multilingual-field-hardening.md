@@ -206,15 +206,15 @@ expect(() => validateI18nScript({ th:'อาคาร TCM' }, 'f', strict)).toTh
 - [x] **D0 spike — DONE (2026-06-06). VERDICT: MV/join read RAW, no resolution call site.** `materialized-views/executor.ts:106` reads source rows via `coll.query().toArray()` with **no locale**, so i18n fields are raw `{locale:string}` maps in the MV pipeline — `mv:'throw'` has nothing to fire from, and `groupAndReduce` would bucket on the raw map. Tagging a facade `layer:'mv'` would be inert.
   - **Decision:** D1 (guard/derivation, real call sites) is IN. **D2 (mv/export) and D3 (join) are DEFERRED** as follow-ups under milestone #17 — they require a deliberate design to inject i18n resolution into the query/aggregate pipeline (touches `groupAndReduce`, every MV's `query().toArray()`), which is not safe to do unattended. Documented in the PR + handoff.
 
-### Task D1: layer-tagged `ReadOnlyVaultFacade`
+### Task D1: layer-tagged `ReadOnlyVaultFacade` — ✅ DONE (2026-06-14)
 
-**Files:** Modify `src/guards/read-only-facade.ts`, `src/guards/types.ts`, `src/vault.ts`; Test `__tests__/i18n-layers.test.ts`
+**Files:** Modified `src/guards/read-only-facade.ts`, `src/vault.ts`, `src/types.ts` (`LocaleReadOptions._layer`), `src/collection.ts` (`applyLocaleToRecord` threads layer into `applyI18nLocale` + dictKey `resolvePolicy`); Test `__tests__/i18n-layers.test.ts`.
 
-- [ ] **Step 1: Failing tests:** a field `onMissing:{read:'substitute', mv:'throw', derivation:'null', guard:'substitute'}`, stored `{th:..}` only; a derivation reading `firstName` (en active) sees `null`; an MV bucketing on the en value throws on refresh; a guard reading it substitutes.
-- [ ] **Step 2:** FAIL.
-- [ ] **Step 3: Implement.** Give `ReadOnlyVaultFacade` a `readonly layer: Layer` ctor arg (default `'read'`). Its `collection().get/list/query` inject `layer` into the resolution path (extend `LocaleReadOptions` with optional `_layer`, OR have the facade pass a layer-bearing option that `applyLocaleToRecord` reads). In `vault.ts`, construct distinct facades: guard-seeding → `layer:'guard'`, derivation-seeding → `layer:'derivation'`. (Keep the cached default-`read` facade for general use.)
-- [ ] **Step 4:** PASS.
-- [ ] **Step 5: Commit** `feat(hub/i18n): layer-tagged read facades (guard/derivation)`
+- [x] **Step 1: Failing tests:** field `onMissing:{read:'throw', guard:'substitute', derivation:'null'}`, stored `{th:..}` only, `en` active; guard read substitutes, derivation read sees `null`, ordinary `get()` throws, guard layerDefault applies when no guard key declared.
+- [x] **Step 2:** FAIL.
+- [x] **Step 3: Implement.** `ReadOnlyVaultFacade` gained a `layer: Layer` ctor arg (default `'read'`); `collection().get/list` inject `{ _layer }` into `LocaleReadOptions`; `applyLocaleToRecord` reads `_layer` and threads it into `applyI18nLocale` (5th arg) + dictKey `resolvePolicy`. `vault.ts` constructs distinct facades — `_initGuards` → `'guard'`, `_initDerivations` → `'derivation'`; `_getReadOnlyFacade()` returns the guard facade (guard gate + tx amendment + dry-run), `_ensureReadOnlyFacade()` returns the derivation facade. `query()` left untagged (raw-map pipeline; see D2/D3).
+- [x] **Step 4:** PASS (4 tests).
+- [x] **Step 5: Commit** `feat(hub/i18n): layer-tagged read facades (guard/derivation)`
 
 ### Task D2: MV refresh + export layers
 

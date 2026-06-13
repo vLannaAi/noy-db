@@ -247,13 +247,17 @@ export class Vault {
    */
   private overlayedViewRegistry: OverlayedViewRegistry | null = null
   /**
-   * Cached read-only facade handed to guard callbacks via `ctx.vault`,
-   * and to derivation callbacks via `derive(source, ctx)`. Allocated
-   * eagerly inside `_initGuards()` and/or `_initDerivations()` so read
+   * Cached read-only facades handed to guard callbacks via `ctx.vault`
+   * and to derivation callbacks via `derive(source, ctx)`. Split by
+   * resolution layer (#285): the guard facade reads at `layer:'guard'`,
+   * the derivation facade at `layer:'derivation'`, so i18nText / dictKey
+   * fields resolve under that layer's `onMissing` policy. Allocated
+   * eagerly inside `_initGuards()` / `_initDerivations()` so read
    * accessors stay synchronous (callers in `tx/transaction.ts` rely on
-   * that). Stays `null` for vaults with neither subsystem configured.
+   * that). Each stays `null` for vaults without that subsystem.
    */
-  private readOnlyFacade: ReadOnlyVaultFacade | null = null
+  private guardFacade: ReadOnlyVaultFacade | null = null
+  private derivationFacade: ReadOnlyVaultFacade | null = null
   private getDEK: (collectionName: string) => Promise<CryptoKey>
 
   /**
@@ -2415,7 +2419,7 @@ export class Vault {
     const registry = new GuardRegistry()
     for (const h of handles) registry.register(h.spec)
     this.guardRegistry = registry
-    this.readOnlyFacade = new ReadOnlyVaultFacade(this)
+    this.guardFacade = new ReadOnlyVaultFacade(this, 'guard')
   }
 
   /**
@@ -2448,11 +2452,12 @@ export class Vault {
     }
     registry.validate()
     this.derivationRegistry = registry
-    // Share the facade with guards: if `_initGuards` ran first the slot
-    // is already populated. Otherwise allocate so `derive(source, ctx)`
-    // has a vault accessor without re-importing the class per call.
-    if (this.readOnlyFacade === null) {
-      this.readOnlyFacade = new ReadOnlyVaultFacade(this)
+    // Derivation reads resolve at `layer:'derivation'` (#285) — a distinct
+    // facade from the guard one, so `derive(source, ctx)` gets the
+    // derivation `onMissing` policy (e.g. `'null'` → branch explicitly)
+    // rather than the lenient guard default.
+    if (this.derivationFacade === null) {
+      this.derivationFacade = new ReadOnlyVaultFacade(this, 'derivation')
     }
   }
 
@@ -2603,11 +2608,11 @@ export class Vault {
 
     const sourceColl = this.collection<Record<string, unknown>>(sourceCollection)
     const records = await sourceColl.list()
-    // `_initDerivations` populates `readOnlyFacade` — assert non-null
-    // for the closure-captured ctx. Falls back to a fresh facade on the
-    // sync-fallback path (Noydb.vault() without await) for the same
-    // defensive reason `_ensureReadOnlyFacade` exists.
-    const ctx = { vault: this.readOnlyFacade ?? new (await import('./guards/read-only-facade.js')).ReadOnlyVaultFacade(this) }
+    // `_initDerivations` populates `derivationFacade` — assert non-null
+    // for the closure-captured ctx. Falls back to a fresh `derivation`-layer
+    // facade on the sync-fallback path (Noydb.vault() without await) for the
+    // same defensive reason `_ensureReadOnlyFacade` exists.
+    const ctx = { vault: this.derivationFacade ?? new (await import('./guards/read-only-facade.js')).ReadOnlyVaultFacade(this, 'derivation') }
     let derived = 0
     let failed = 0
     for (const record of records) {
@@ -2679,24 +2684,25 @@ export class Vault {
    * never see null).
    */
   _getReadOnlyFacade(): ReadOnlyVaultFacade | null {
-    return this.readOnlyFacade
+    return this.guardFacade
   }
 
   /**
-   * Internal lazy-allocator for the read-only facade. Used as a
-   * defensive fallback; in practice `_initGuards()` eagerly
-   * instantiates this, so the lazy path is a no-op.
+   * Internal lazy-allocator for the derivation read-only facade
+   * (`layer:'derivation'`). Used as a defensive fallback; in practice
+   * `_initDerivations()` eagerly instantiates this, so the lazy path is
+   * a no-op.
    */
   private _ensureReadOnlyFacade(): ReadOnlyVaultFacade {
-    if (this.readOnlyFacade !== null) return this.readOnlyFacade
+    if (this.derivationFacade !== null) return this.derivationFacade
     // Synchronous fall-back: dynamic import isn't available here,
-    // but `_initGuards` always sets the facade before any
-    // guard-hook can fire. Reaching this branch means a Vault was
-    // constructed without `_initGuards` being awaited — e.g. via
+    // but `_initDerivations` always sets the facade before any
+    // derivation can fire. Reaching this branch means a Vault was
+    // constructed without `_initDerivations` being awaited — e.g. via
     // the sync `Noydb.vault()` fallback path. Throw with a
     // pointer rather than silently building an invalid context.
     throw new Error(
-      'Vault: guard hook fired before _initGuards() completed. ' +
+      'Vault: derivation hook fired before _initDerivations() completed. ' +
       'This typically means the vault was opened via the sync ' +
       'fallback path (Noydb.vault(name)) without first calling ' +
       'await db.openVault(name). See issue #132.',

@@ -38,6 +38,7 @@ import type { TxStrategy } from './tx/strategy.js'
 import type { HistoryStrategy } from './history/strategy.js'
 import type { ForgetStrategy } from './forget/strategy.js'
 import type { SnapshotStrategy } from './snapshots/strategy.js'
+import type { Layer } from './i18n/policy.js'
 import type { I18nStrategy } from './i18n/strategy.js'
 import type { SessionStrategy } from './session/strategy.js'
 import type { SyncStrategy } from './team/sync-strategy.js'
@@ -1353,6 +1354,15 @@ export interface LocaleReadOptions {
    * element to fall back to any present translation.
    */
   readonly fallback?: string | readonly string[]
+  /**
+   * @internal — the resolution layer this read belongs to (`'read'` by
+   * default). Threaded by layer-tagged read facades (guard / derivation)
+   * so `applyI18nLocale` and dictKey `resolvePolicy` select that layer's
+   * `onMissing` policy instead of the `'read'` policy. Not part of the
+   * public read API — callers select policy via the field's `onMissing`
+   * map, not by setting this. See #285.
+   */
+  readonly _layer?: Layer
 }
 
 // ─── plaintextTranslator hook ──────────────────────────────

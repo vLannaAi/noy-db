@@ -512,7 +512,7 @@ features:
       - 'resolveLabel(key, locale, fallback) walks the fallback chain'
       - 'No transliteration (locale-specific lossy mappings stay in userland)'
       - 'i18nField paths support dot notation (address.lineOne) and array wildcards (contacts[].title)'
-      - 'onMissing policy (substitute/null/throw) is per-layer; default throw preserves legacy behavior; only the read layer is wired (guard/mv/derivation/join/export are tracked follow-ups)'
+      - 'onMissing policy (substitute/null/throw) is per-layer; default throw preserves legacy behavior; read+guard+derivation layers wired (guard/derivation ctx.vault reads resolve under their own policy, guard defaults to substitute); mv/join/export still tracked follow-ups (#285 D2/D3 — query pipeline reads raw maps)'
       - 'substitute: declared ordered preferred-locale chain; caller fallback overrides it per read'
       - 'script enforcement is asymmetric-Latin: non-Latin locales also allow Latin (embedded brand/building names); Latin locales reject other scripts; Common/Inherited/Mark always allowed'
       - 'onScriptViolation reject (default) | filter | warn; ScriptViolationError distinct from MissingTranslationError / LocaleNotSpecifiedError'
