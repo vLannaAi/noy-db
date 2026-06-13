@@ -24,3 +24,10 @@
  */
 export { wrapCek, unwrapCek } from '../crypto.js'
 export { isTombstone, buildTombstone } from './tombstone.js'
+export { resolveStableCek, rewrapBodyToDek, type StableCekDeps, type RewrappedBody } from './lifecycle.js'
+export {
+  sealRecordToHost,
+  revokeSealedRecord,
+  rotateRecordCek,
+  type SealingContext,
+} from './sealing.js'

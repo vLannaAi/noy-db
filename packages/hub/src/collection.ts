@@ -13,8 +13,15 @@ import type { ComputedFields } from './computed/index.js'
 import { evalComputedFields } from './computed/index.js'
 import { NO_I18N, type I18nStrategy } from './i18n/strategy.js'
 import { resolvePolicy } from './i18n/policy.js'
-import { encrypt, decrypt, encryptDeterministic, generateDEK } from './crypto.js'
-import { wrapCek, unwrapCek, isTombstone, buildTombstone } from './record-keys/index.js'
+import { encrypt, decrypt, encryptDeterministic } from './crypto.js'
+import {
+  wrapCek,
+  unwrapCek,
+  isTombstone,
+  buildTombstone,
+  resolveStableCek,
+  rewrapBodyToDek,
+} from './record-keys/index.js'
 import { ConflictError, ReadOnlyError, TranslatorNotConfiguredError, TierDemoteDeniedError, LocaleNotSpecifiedError } from './errors.js'
 import { dekKey, assertTierAccess } from './team/tiers.js'
 import type { GhostRecord, TierMode, CrossTierAccessEvent } from './types.js'
@@ -3762,42 +3769,19 @@ export class Collection<T> {
   }
 
   /**
-   * True when this record envelope is a shred tombstone: an encrypted
-   * record that carries no body and no wrapped CEK. Tombstone *creation*
-   * is step 2 (#304); step 1's read path only has to tolerate one — a
-   * `get()` on a tombstone returns `null` instead of throwing
-   * `TamperedError` (decision 5). A plaintext (`!this.encrypted`)
-   * collection legitimately has an empty `_iv`, so it is never a tombstone.
+   * Resolve the stable CEK for a record on the WRITE path — see
+   * {@link resolveStableCek}. Thin delegate that supplies the collection's
+   * CEK cache, live-envelope reader, and DEK resolver.
    */
-  /**
-   * Resolve the stable CEK for a record on the WRITE path.
-   *
-   * - Cache hit → reuse (updates and history snapshots share the record's
-   *   CEK so a single CEK delete kills the whole version chain).
-   * - Live envelope carries `_cek` → unwrap it under the collection DEK,
-   *   cache, reuse.
-   * - Otherwise (genuine insert, or a legacy record being migrated) → mint
-   *   a fresh CEK and cache it.
-   *
-   * `wrapDek` is the DEK the CEK should be (re-)wrappable under — the
-   * collection DEK on the normal path. The returned CEK is the AES-GCM body
-   * key; the caller wraps it for storage on `_cek`.
-   */
-  private async resolveRecordCek(id: string): Promise<CryptoKey> {
-    const cached = this.cekCache?.get(id)
-    if (cached) return cached
-
-    const live = await this.adapter.get(this.vault, this.name, id)
-    if (live?._cek !== undefined) {
-      const dek = await this.getDEK(this.name)
-      const cek = await unwrapCek(live._cek, dek)
-      this.cekCache?.set(id, cek, 1)
-      return cek
-    }
-
-    const fresh = await generateDEK()
-    this.cekCache?.set(id, fresh, 1)
-    return fresh
+  private resolveRecordCek(id: string): Promise<CryptoKey> {
+    return resolveStableCek(
+      {
+        cache: this.cekCache,
+        getLive: (rid) => this.adapter.get(this.vault, this.name, rid),
+        getDEK: () => this.getDEK(this.name),
+      },
+      id,
+    )
   }
 
   /**
@@ -4140,43 +4124,22 @@ export class Collection<T> {
     const fromDek = await this.getDEK(fromKey)
     const toDek = await this.getDEK(toKey)
 
-    // Per-record CEK composes with tiers: unwrap the CEK under the SOURCE
-    // tier DEK, re-encrypt the body under the SAME CEK, then re-wrap the
-    // CEK under the TARGET tier DEK. The body key is unchanged (history
+    // Per-record CEK composes with tiers: the body key is unchanged (history
     // chain identity preserved); only the wrapping key moves with the tier.
     // Legacy (no `_cek`) records take the direct-DEK path unchanged.
     const now = new Date().toISOString()
-    let next: EncryptedEnvelope
-    if (envelope._cek !== undefined) {
-      const cek = await unwrapCek(envelope._cek, fromDek)
-      const plaintext = await decrypt(envelope._iv, envelope._data, cek)
-      const { iv, data } = await encrypt(plaintext, cek)
-      const rewrapped = await wrapCek(cek, toDek)
-      this.cekCache?.set(id, cek, 1)
-      next = {
-        _noydb: NOYDB_FORMAT_VERSION,
-        _v: envelope._v + 1,
-        _ts: now,
-        _iv: iv,
-        _data: data,
-        _by: this.keyring.userId,
-        _tier: toTier,
-        _elevatedBy: this.keyring.userId,
-        _cek: rewrapped,
-      }
-    } else {
-      const plaintext = await decrypt(envelope._iv, envelope._data, fromDek)
-      const { iv, data } = await encrypt(plaintext, toDek)
-      next = {
-        _noydb: NOYDB_FORMAT_VERSION,
-        _v: envelope._v + 1,
-        _ts: now,
-        _iv: iv,
-        _data: data,
-        _by: this.keyring.userId,
-        _tier: toTier,
-        _elevatedBy: this.keyring.userId,
-      }
+    const body = await rewrapBodyToDek(envelope, fromDek, toDek)
+    if (body.cek) this.cekCache?.set(id, body.cek, 1)
+    const next: EncryptedEnvelope = {
+      _noydb: NOYDB_FORMAT_VERSION,
+      _v: envelope._v + 1,
+      _ts: now,
+      _iv: body._iv,
+      _data: body._data,
+      _by: this.keyring.userId,
+      _tier: toTier,
+      _elevatedBy: this.keyring.userId,
+      ...(body._cek !== undefined ? { _cek: body._cek } : {}),
     }
     await this.adapter.put(this.vault, this.name, id, next)
 
@@ -4221,35 +4184,17 @@ export class Collection<T> {
     // CEK re-wrap on demote — same body key, moved from the source tier
     // DEK to the target tier DEK. Legacy records take the direct-DEK path.
     const now = new Date().toISOString()
-    let next: EncryptedEnvelope
-    if (envelope._cek !== undefined) {
-      const cek = await unwrapCek(envelope._cek, fromDek)
-      const plaintext = await decrypt(envelope._iv, envelope._data, cek)
-      const { iv, data } = await encrypt(plaintext, cek)
-      const rewrapped = await wrapCek(cek, toDek)
-      this.cekCache?.set(id, cek, 1)
-      next = {
-        _noydb: NOYDB_FORMAT_VERSION,
-        _v: envelope._v + 1,
-        _ts: now,
-        _iv: iv,
-        _data: data,
-        _by: this.keyring.userId,
-        ...(toTier > 0 && { _tier: toTier }),
-        _cek: rewrapped,
-      }
-    } else {
-      const plaintext = await decrypt(envelope._iv, envelope._data, fromDek)
-      const { iv, data } = await encrypt(plaintext, toDek)
-      next = {
-        _noydb: NOYDB_FORMAT_VERSION,
-        _v: envelope._v + 1,
-        _ts: now,
-        _iv: iv,
-        _data: data,
-        _by: this.keyring.userId,
-        ...(toTier > 0 && { _tier: toTier }),
-      }
+    const body = await rewrapBodyToDek(envelope, fromDek, toDek)
+    if (body.cek) this.cekCache?.set(id, body.cek, 1)
+    const next: EncryptedEnvelope = {
+      _noydb: NOYDB_FORMAT_VERSION,
+      _v: envelope._v + 1,
+      _ts: now,
+      _iv: body._iv,
+      _data: body._data,
+      _by: this.keyring.userId,
+      ...(toTier > 0 && { _tier: toTier }),
+      ...(body._cek !== undefined ? { _cek: body._cek } : {}),
     }
     await this.adapter.put(this.vault, this.name, id, next)
 
