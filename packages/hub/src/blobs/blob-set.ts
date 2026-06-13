@@ -314,7 +314,7 @@ export class BlobSet {
   /**
    * CAS retry loop for refCount changes on a BlobObject.
    */
-  private async casUpdateRefCount(eTag: string, delta: number): Promise<void> {
+  private async casUpdateRefCount(eTag: string, delta: number): Promise<number> {
     for (let attempt = 0; attempt < MAX_CAS_RETRIES; attempt++) {
       const result = await this.loadBlobObject(eTag)
       if (!result) throw new NotFoundError(`BlobObject ${eTag} not found`)
@@ -322,12 +322,73 @@ export class BlobSet {
       const updated: BlobObject = { ...blob, refCount: blob.refCount + delta }
       try {
         await this.writeBlobObject(updated, version)
-        return
+        return updated.refCount
       } catch (err) {
         if (err instanceof ConflictError && attempt < MAX_CAS_RETRIES - 1) continue
         throw err
       }
     }
+    throw new ConflictError(-1) // exhausted retries
+  }
+
+  /**
+   * Crypto-shred this record's blob attachments (#365 slice 2) — called by
+   * `vault.forget()`.
+   *
+   * For each distinct eTag the record references (a record may attach the same
+   * content under several slot names → several refCount holds): decrement the
+   * blob's refCount by that many. When it reaches 0:
+   *  - **erasable blob** (`_cek` present) → delete the `BlobObject` (the SOLE
+   *    recoverable copy of the wrapped content CEK → chunks permanently
+   *    undecryptable) and reclaim the chunk bytes. This is the crypto-shred.
+   *  - **legacy blob** (no `_cek`) → chunks are under the shared `_blob` DEK and
+   *    stay decryptable until byte-deleted; we delete the orphaned chunks +
+   *    index but report it as residue, not a cryptographic erasure.
+   * When refCount stays > 0 the content legitimately persists for its other
+   * owner — reported as `retainedShared` (or `residue` if legacy).
+   *
+   * Finally drops the record's slot map, severing the subject's link.
+   */
+  async shredAllForRecord(): Promise<{
+    shredded: string[]
+    retainedShared: string[]
+    residue: string[]
+  }> {
+    const { slots } = await this.loadSlots()
+    const slotNames = Object.keys(slots)
+    const shredded: string[] = []
+    const retainedShared: string[] = []
+    const residue: string[] = []
+    if (slotNames.length === 0) return { shredded, retainedShared, residue }
+
+    // Reference count from THIS record per eTag.
+    const holds = new Map<string, number>()
+    for (const name of slotNames) {
+      const eTag = slots[name]!.eTag
+      holds.set(eTag, (holds.get(eTag) ?? 0) + 1)
+    }
+
+    for (const [eTag, n] of holds) {
+      const loaded = await this.loadBlobObject(eTag)
+      if (!loaded) continue // already gone
+      const erasable = loaded.blob._cek !== undefined
+      const remaining = await this.casUpdateRefCount(eTag, -n)
+      if (remaining > 0) {
+        ;(erasable ? retainedShared : residue).push(eTag)
+        continue
+      }
+      // refCount hit 0 — reclaim. For erasable blobs the index delete IS the
+      // crypto-shred (the wrapped CEK is gone); chunk delete reclaims storage.
+      await this.store.delete(this.vault, BLOB_INDEX_COLLECTION, eTag)
+      for (let i = 0; i < loaded.blob.chunkCount; i++) {
+        await this.store.delete(this.vault, BLOB_CHUNKS_COLLECTION, `${eTag}_${i}`)
+      }
+      ;(erasable ? shredded : residue).push(eTag)
+    }
+
+    // Sever the subject's link: drop the record's slot map.
+    await this.store.delete(this.vault, this.slotsCollection, this.recordId)
+    return { shredded, retainedShared, residue }
   }
 
   // ─── Chunk I/O (with AAD binding) ─────────────────────────────────

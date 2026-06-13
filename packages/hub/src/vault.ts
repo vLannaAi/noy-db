@@ -2209,6 +2209,9 @@ export class Vault {
     const collections = new Set<string>()
     const unmigratedRecords: string[] = []
     const blobResidueCollections = new Set<string>()
+    let blobsShredded = 0
+    let blobsRetainedShared = 0
+    const blobsEnabled = this.blobStrategy !== undefined
     const actor = this.keyring.userId
 
     for (const ref of refs) {
@@ -2237,15 +2240,25 @@ export class Vault {
         this.adapter, this.name, ref.collection, ref.id, actor,
       )
 
-      // Blob residue: a shredded record may still have blob attachments,
-      // tracked in `_blob_slots_{collection}` keyed by record id. Those are
-      // keyed off the separate `_blob` DEK and out of scope for record-CEK
-      // shred (foundation decision #5) — surface them loudly.
-      try {
-        const slotIds = await this.adapter.list(this.name, `_blob_slots_${ref.collection}`)
-        if (slotIds.includes(ref.id)) blobResidueCollections.add(ref.collection)
-      } catch {
-        // No blob-slots collection for this collection — nothing to report.
+      // Blob attachments (#365): crypto-shred the record's erasable blobs.
+      // An erasable blob's chunks are under a per-blob content CEK whose only
+      // copy is the BlobObject's wrapped `_cek`; deleting it at refCount 0
+      // shreds the content. Legacy blobs (no `_cek`) or a session without the
+      // blob subsystem cannot be shredded → reported as residue.
+      if (blobsEnabled) {
+        const r = await this.collection<Record<string, unknown>>(ref.collection)
+          .blob(ref.id)
+          .shredAllForRecord()
+        blobsShredded += r.shredded.length
+        blobsRetainedShared += r.retainedShared.length
+        if (r.residue.length > 0) blobResidueCollections.add(ref.collection)
+      } else {
+        try {
+          const slotIds = await this.adapter.list(this.name, `_blob_slots_${ref.collection}`)
+          if (slotIds.includes(ref.id)) blobResidueCollections.add(ref.collection)
+        } catch {
+          // No blob-slots collection for this collection — nothing to report.
+        }
       }
 
       // Drop the (now-shredded) ref from the subject index.
@@ -2275,6 +2288,8 @@ export class Vault {
         historyVersionsShredded,
         collections: [...collections],
         unmigratedCount: unmigratedRecords.length,
+        blobsShredded,
+        blobsRetainedShared,
         blobResidueCollections: [...blobResidueCollections],
       }),
     })
@@ -2285,6 +2300,8 @@ export class Vault {
       historyVersionsShredded,
       collections: [...collections],
       unmigratedRecords,
+      blobsShredded,
+      blobsRetainedShared,
       blobResidueCollections: [...blobResidueCollections],
       ledgerEntry,
     }
