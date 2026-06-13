@@ -442,7 +442,13 @@ const KERNEL_SURFACE_BUDGET = {
   // so no read returns the stale old-CEK record (the cekCache lives on Collection).
   // The seal/revoke/rotate orchestration + the host-side opener live in vault.ts /
   // src/sealed-record/.
-  'packages/hub/src/collection.ts': 4460,
+  // Lowered 4460→4445 (2026-06-13): record-keys subsystem extraction slice 1.
+  // The pure tombstone predicate + envelope builder and the CEK-wrap surface
+  // moved to src/record-keys/ (isTombstone now takes `encrypted` explicitly;
+  // _writeTombstone calls buildTombstone). A ratchet on the foundation slice —
+  // the coupled CEK orchestration (resolveRecordCek, tier/bundle re-wrap) moves
+  // in a later slice behind a deps interface.
+  'packages/hub/src/collection.ts': 4445,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
