@@ -56,6 +56,11 @@ features:
       - 'AES-KW (RFC 3394) for wrapping DEKs with KEK'
       - 'KEK never persisted (in-memory only during session)'
       - 'Zero crypto dependencies — only Web Crypto API (architecture invariant: no-crypto-deps)'
+      - 'Per-record CEK (opt-in `perRecordKeys: true`): a fresh AES-256-GCM content-encryption key per record, AES-KW-wrapped under the collection DEK and stored on the envelope `_cek`; body encrypts under the CEK while `_det` deterministic slots stay keyed to the collection DEK'
+      - 'CEK is stable across versions: insert mints it, updates and history snapshots reuse the same CEK, so every `_history` envelope for a record carries that record `_cek` (foundation for per-record erasure #304 / record-scoped sealing #306)'
+      - 'Legacy dual-read: `_cek` presence is the format discriminant, not the flag — a collection without `perRecordKeys` is byte-identical to the legacy path and a mixed vault (and recipients that never set the flag) read both kinds'
+      - 'Tiers compose: elevate/demote re-wrap the same CEK from the source tier DEK to the target tier DEK (body key unchanged); bundle/extract re-key (`reKeyClosure`) re-wraps each `_cek` under the destination DEK so adopted records stay decryptable'
+      - 'Tombstone tolerance: a `get()` on an envelope with no `_data`/`_cek` returns null rather than throwing TamperedError (shred tombstone creation is step 2 / #304)'
     related: [vault-and-collections, permissions]
 
   - id: stores-contract

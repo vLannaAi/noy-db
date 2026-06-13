@@ -13,7 +13,7 @@ import type { ComputedFields } from './computed/index.js'
 import { evalComputedFields } from './computed/index.js'
 import { NO_I18N, type I18nStrategy } from './i18n/strategy.js'
 import { resolvePolicy } from './i18n/policy.js'
-import { encrypt, decrypt, encryptDeterministic } from './crypto.js'
+import { encrypt, decrypt, encryptDeterministic, generateDEK, wrapCek, unwrapCek } from './crypto.js'
 import { ConflictError, ReadOnlyError, TranslatorNotConfiguredError, TierDemoteDeniedError, LocaleNotSpecifiedError } from './errors.js'
 import { dekKey, assertTierAccess } from './team/tiers.js'
 import type { GhostRecord, TierMode, CrossTierAccessEvent } from './types.js'
@@ -334,6 +334,27 @@ export class Collection<T> {
    * is inactive for this collection; a frozen `Set` otherwise.
    */
   private readonly deterministicFields: ReadonlySet<string> | null
+
+  /**
+   * Per-record CEK opt-in (`perRecordKeys: true`). When set, writes mint /
+   * reuse a per-record content-encryption key and stamp `_cek` on the
+   * envelope (see {@link EncryptedEnvelope._cek}). OFF by default — a
+   * non-adopting collection takes the byte-identical legacy path. The READ
+   * path does not consult this flag: `_cek` presence on the envelope is the
+   * format discriminant, so a mixed vault (and a recipient that never set the
+   * flag) still decrypts CEK records.
+   */
+  private readonly perRecordCek: boolean
+
+  /**
+   * Session-scoped `(id) → CEK` cache for this collection. Lets updates
+   * reuse a record's stable CEK and lets repeated reads skip the AES-KW
+   * unwrap. Bounded by LRU; never persisted. Dropped when the owning
+   * collection instance is discarded — `vault.load()` clears the
+   * collectionCache, so a keyring refresh drops every CEK alongside the
+   * DEK cache. `null` unless `perRecordCek` is set.
+   */
+  private readonly cekCache: Lru<string, CryptoKey> | null
 
   /**
    * declared tiers for this collection. `null` when
@@ -706,6 +727,15 @@ export class Collection<T> {
      */
     acknowledgeDeterministicRisk?: boolean | undefined
     /**
+     * Per-record content-encryption keys. When `true`, every record body
+     * (and every history version of it) is encrypted under a fresh
+     * per-record CEK, AES-KW-wrapped under the collection DEK and stored
+     * on the envelope's `_cek`. Off by default. Foundation for per-record
+     * erasure (#304) and record-scoped sealing (#306). `_det` slots stay
+     * keyed to the collection DEK regardless.
+     */
+    perRecordKeys?: boolean | undefined
+    /**
      * declared tiers this collection supports. An
      * undefined or empty list disables the hierarchical-tier surface
      * on this collection (`putAtTier`, `getAtTier`, `elevate`, `demote`
@@ -834,21 +864,27 @@ export class Collection<T> {
       this.deterministicFields = null
     }
 
+    // per-record CEK wiring. The cache is bounded by record count; CEKs
+    // are tiny CryptoKey handles, so a generous entry budget is cheap.
+    this.perRecordCek = opts.perRecordKeys === true
+    this.cekCache = this.perRecordCek ? new Lru<string, CryptoKey>({ maxRecords: 4096 }) : null
+
     // register CRDT conflict resolver with SyncEngine
     if (opts.crdt && opts.onRegisterConflictResolver) {
       const crdtMode = opts.crdt
-      const crdtResolver: CollectionConflictResolver = async (_id, local, remote) => {
+      const crdtResolver: CollectionConflictResolver = async (id, local, remote) => {
         if (crdtMode === 'yjs') {
           // Core cannot merge Yjs without the yjs package — take the higher version
           return local._v >= remote._v ? local : remote
         }
-        const localJson = await this.decryptJsonString(local)
-        const remoteJson = await this.decryptJsonString(remote)
+        const localJson = await this.decryptJsonString(local, id)
+        const remoteJson = await this.decryptJsonString(remote, id)
         const localState = JSON.parse(localJson) as CrdtState
         const remoteState = JSON.parse(remoteJson) as CrdtState
         const merged = this.crdtStrategy.mergeCrdtStates(localState, remoteState)
         const mergedVersion = Math.max(local._v, remote._v) + 1
-        return this.encryptJsonString(JSON.stringify(merged), mergedVersion)
+        const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
+        return this.encryptJsonString(JSON.stringify(merged), mergedVersion, cek)
       }
       opts.onRegisterConflictResolver(this.name, crdtResolver)
     }
@@ -894,12 +930,13 @@ export class Collection<T> {
       } else {
         // Custom merge fn: decrypt both → merge → re-encrypt
         const mergeFn = policy as (local: T, remote: T) => T
-        resolver = async (_id, local, remote) => {
-          const localRecord = await this.decryptRecord(local, { skipValidation: true })
-          const remoteRecord = await this.decryptRecord(remote, { skipValidation: true })
+        resolver = async (id, local, remote) => {
+          const localRecord = await this.decryptRecord(local, { skipValidation: true, id })
+          const remoteRecord = await this.decryptRecord(remote, { skipValidation: true, id })
           const merged = mergeFn(localRecord, remoteRecord)
           const mergedVersion = Math.max(local._v, remote._v) + 1
-          return this.encryptRecord(merged, mergedVersion)
+          const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
+          return this.encryptRecord(merged, mergedVersion, cek)
         }
       }
 
@@ -1026,7 +1063,10 @@ export class Collection<T> {
         // Cache miss: hit the adapter, decrypt, populate the LRU.
         const envelope = await this.adapter.get(this.vault, this.name, id)
         if (!envelope) return null
-        record = await this.decryptRecord(envelope)
+        // Tombstone tolerance (decision 5): a shredded record carries no
+        // body / CEK. Reads return null rather than throwing TamperedError.
+        if (this.isTombstone(envelope)) return null
+        record = await this.decryptRecord(envelope, { id })
         this.lru.set(id, { record, version: envelope._v }, estimateRecordBytes(record))
       }
     } else {
@@ -1360,7 +1400,10 @@ export class Collection<T> {
       }
 
       const version = existingVersion + 1
-      const envelope = await this.encryptJsonString(JSON.stringify(crdtState), version)
+      // Stable per-record CEK shared by the new CRDT body and its history
+      // snapshot (undefined on non-CEK collections → legacy path).
+      const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
+      const envelope = await this.encryptJsonString(JSON.stringify(crdtState), version, cek)
       await this.adapter.put(this.vault, this.name, id, envelope)
 
       // Resolve snapshot for cache and history
@@ -1370,7 +1413,7 @@ export class Collection<T> {
         : undefined
 
       if (existingResolved && this.historyConfig.enabled !== false) {
-        const histEnvelope = await this.encryptRecord(existingResolved.record, existingResolved.version)
+        const histEnvelope = await this.encryptRecord(existingResolved.record, existingResolved.version, cek)
         await this.historyStrategy.saveHistory(this.adapter, this.vault, this.name, id, histEnvelope)
         this.emitter.emit('history:save', { vault: this.vault, collection: this.name, id, version: existingResolved.version })
         if (this.historyConfig.maxVersions) {
@@ -1437,9 +1480,17 @@ export class Collection<T> {
     // are declared.
     this.uniqueConstraints?.check(id, record)
 
+    // Per-record CEK: resolve the record's stable CEK ONCE (insert mints,
+    // update reuses the live envelope's CEK), then encrypt BOTH the history
+    // snapshot of the prior version AND the new body under it — so every
+    // version of a record carries the same `_cek` and dies together on a
+    // future shred. `undefined` on a legacy / non-CEK collection → the
+    // byte-identical legacy write path.
+    const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
+
     // Save history snapshot of the PREVIOUS version before overwriting
     if (existing && this.historyConfig.enabled !== false) {
-      const historyEnvelope = await this.encryptRecord(existing.record, existing.version)
+      const historyEnvelope = await this.encryptRecord(existing.record, existing.version, cek)
       await this.historyStrategy.saveHistory(this.adapter, this.vault, this.name, id, historyEnvelope)
 
       this.emitter.emit('history:save', {
@@ -1457,7 +1508,7 @@ export class Collection<T> {
       }
     }
 
-    const envelope = await this.encryptRecord(record, version)
+    const envelope = await this.encryptRecord(record, version, cek)
     await this.adapter.put(this.vault, this.name, id, envelope)
 
     // Ledger append — AFTER the adapter write succeeds so a failed
@@ -1784,11 +1835,20 @@ export class Collection<T> {
     let count = 0
     for (const id of ids) {
       const env = await this.adapter.get(this.vault, this.name, id)
-      if (!env) continue
-      const record = (await this.decryptRecord(env, { skipValidation: true })) as unknown as Record<string, unknown>
+      if (!env || this.isTombstone(env)) continue
+      const record = (await this.decryptRecord(env, { skipValidation: true, id })) as unknown as Record<string, unknown>
       const next = transform(record)
       const nextVersion = (env._v ?? 0) + 1
-      const newEnv = await this.encryptRecord(next as unknown as T, nextVersion)
+      // Migration pass: on a `perRecordKeys` collection, a legacy (no-`_cek`)
+      // record gets a freshly minted CEK here (legacy → CEK re-encrypt), while
+      // an already-CEK record reuses its stable CEK. This is the
+      // erasure-completeness pass — once migrated, the record body is keyed
+      // off a per-record CEK and a future shred can erase it. Until then it
+      // stays directly under the collection DEK. `forget()`/shred (step 2,
+      // #304) reports un-migrated records explicitly rather than claiming
+      // erasure.
+      const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
+      const newEnv = await this.encryptRecord(next as unknown as T, nextVersion, cek)
       await this.adapter.put(this.vault, this.name, id, newEnv)
       await this._invalidateCacheEntry(id) // refresh in-memory cache after the raw write
       if (this.ledger) {
@@ -1923,9 +1983,12 @@ export class Collection<T> {
       existing = this.cache.get(id)
     }
 
-    // Save history snapshot before deleting
+    // Save history snapshot before deleting. On a CEK collection the
+    // snapshot reuses the record's stable CEK so the displaced version
+    // stays in the same key chain as the rest of its history.
     if (existing && this.historyConfig.enabled !== false) {
-      const historyEnvelope = await this.encryptRecord(existing.record, existing.version)
+      const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
+      const historyEnvelope = await this.encryptRecord(existing.record, existing.version, cek)
       await this.historyStrategy.saveHistory(this.adapter, this.vault, this.name, id, historyEnvelope)
     }
 
@@ -2858,8 +2921,8 @@ export class Collection<T> {
     const ids = await this.adapter.list(this.vault, this.name)
     for (const id of ids) {
       const envelope = await this.adapter.get(this.vault, this.name, id)
-      if (envelope) {
-        const record = await this.decryptRecord(envelope)
+      if (envelope && !this.isTombstone(envelope)) {
+        const record = await this.decryptRecord(envelope, { id })
         this.cache.set(id, { record, version: envelope._v })
       }
     }
@@ -2871,7 +2934,8 @@ export class Collection<T> {
   /** Hydrate from a pre-loaded snapshot (used by Vault). */
   async hydrateFromSnapshot(records: Record<string, EncryptedEnvelope>): Promise<void> {
     for (const [id, envelope] of Object.entries(records)) {
-      const record = await this.decryptRecord(envelope)
+      if (this.isTombstone(envelope)) continue
+      const record = await this.decryptRecord(envelope, { id })
       this.cache.set(id, { record, version: envelope._v })
     }
     this.hydrated = true
@@ -3159,7 +3223,11 @@ export class Collection<T> {
     await this.ensureHydrated()
     const result: Record<string, EncryptedEnvelope> = {}
     for (const [id, entry] of this.cache) {
-      result[id] = await this.encryptRecord(entry.record, entry.version)
+      // Reuse the record's stable CEK on a `perRecordKeys` collection so the
+      // dumped envelope matches the stored format and stays in the same key
+      // chain. `undefined` → legacy path.
+      const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
+      result[id] = await this.encryptRecord(entry.record, entry.version, cek)
     }
     return result
   }
@@ -3571,7 +3639,64 @@ export class Collection<T> {
     return new LazyQuery<T>(source)
   }
 
-  private async encryptJsonString(json: string, version: number): Promise<EncryptedEnvelope> {
+  /**
+   * True when this record envelope is a shred tombstone: an encrypted
+   * record that carries no body and no wrapped CEK. Tombstone *creation*
+   * is step 2 (#304); step 1's read path only has to tolerate one — a
+   * `get()` on a tombstone returns `null` instead of throwing
+   * `TamperedError` (decision 5). A plaintext (`!this.encrypted`)
+   * collection legitimately has an empty `_iv`, so it is never a tombstone.
+   */
+  private isTombstone(envelope: EncryptedEnvelope): boolean {
+    if (!this.encrypted) return false
+    return !envelope._data && envelope._cek === undefined
+  }
+
+  /**
+   * Resolve the stable CEK for a record on the WRITE path.
+   *
+   * - Cache hit → reuse (updates and history snapshots share the record's
+   *   CEK so a single CEK delete kills the whole version chain).
+   * - Live envelope carries `_cek` → unwrap it under the collection DEK,
+   *   cache, reuse.
+   * - Otherwise (genuine insert, or a legacy record being migrated) → mint
+   *   a fresh CEK and cache it.
+   *
+   * `wrapDek` is the DEK the CEK should be (re-)wrappable under — the
+   * collection DEK on the normal path. The returned CEK is the AES-GCM body
+   * key; the caller wraps it for storage on `_cek`.
+   */
+  private async resolveRecordCek(id: string): Promise<CryptoKey> {
+    const cached = this.cekCache?.get(id)
+    if (cached) return cached
+
+    const live = await this.adapter.get(this.vault, this.name, id)
+    if (live?._cek !== undefined) {
+      const dek = await this.getDEK(this.name)
+      const cek = await unwrapCek(live._cek, dek)
+      this.cekCache?.set(id, cek, 1)
+      return cek
+    }
+
+    const fresh = await generateDEK()
+    this.cekCache?.set(id, fresh, 1)
+    return fresh
+  }
+
+  /**
+   * Encrypt a JSON body into an envelope.
+   *
+   * When `cek` is supplied (per-record CEK collections), the body is
+   * encrypted under the CEK and the CEK is AES-KW-wrapped under the
+   * collection DEK and stamped on `_cek`. When `cek` is omitted, the legacy
+   * path encrypts the body directly under the collection DEK — byte-identical
+   * to pre-CEK behaviour, so non-adopting collections pay nothing.
+   */
+  private async encryptJsonString(
+    json: string,
+    version: number,
+    cek?: CryptoKey,
+  ): Promise<EncryptedEnvelope> {
     const by = this.keyring.userId
 
     if (!this.encrypted) {
@@ -3586,6 +3711,21 @@ export class Collection<T> {
     }
 
     const dek = await this.getDEK(this.name)
+
+    if (cek !== undefined) {
+      const { iv, data } = await encrypt(json, cek)
+      const wrapped = await wrapCek(cek, dek)
+      return {
+        _noydb: NOYDB_FORMAT_VERSION,
+        _v: version,
+        _ts: new Date().toISOString(),
+        _iv: iv,
+        _data: data,
+        _by: by,
+        _cek: wrapped,
+      }
+    }
+
     const { iv, data } = await encrypt(json, dek)
 
     return {
@@ -3598,8 +3738,12 @@ export class Collection<T> {
     }
   }
 
-  private async encryptRecord(record: T, version: number): Promise<EncryptedEnvelope> {
-    const base = await this.encryptJsonString(JSON.stringify(record), version)
+  private async encryptRecord(
+    record: T,
+    version: number,
+    cek?: CryptoKey,
+  ): Promise<EncryptedEnvelope> {
+    const base = await this.encryptJsonString(JSON.stringify(record), version, cek)
     if (!this.deterministicFields || !this.encrypted) return base
 
     // compute deterministic-ciphertext slots for every
@@ -3803,7 +3947,18 @@ export class Collection<T> {
     }
 
     const dek = await this.getDEK(key)
-    const plaintext = await decrypt(envelope._iv, envelope._data, dek)
+    // A tiered record may carry a per-record CEK (e.g. a CEK record
+    // elevated via `elevate()`): the CEK is wrapped under the TIER DEK, so
+    // unwrap under the tier DEK then decrypt the body under the CEK. Legacy
+    // tiered records decrypt directly under the tier DEK.
+    let plaintext: string
+    if (envelope._cek !== undefined) {
+      const cek = await unwrapCek(envelope._cek, dek)
+      this.cekCache?.set(id, cek, 1)
+      plaintext = await decrypt(envelope._iv, envelope._data, cek)
+    } else {
+      plaintext = await decrypt(envelope._iv, envelope._data, dek)
+    }
     const record = JSON.parse(plaintext) as T
 
     this.emitCrossTierEvent({
@@ -3867,18 +4022,43 @@ export class Collection<T> {
     const fromDek = await this.getDEK(fromKey)
     const toDek = await this.getDEK(toKey)
 
-    const plaintext = await decrypt(envelope._iv, envelope._data, fromDek)
-    const { iv, data } = await encrypt(plaintext, toDek)
+    // Per-record CEK composes with tiers: unwrap the CEK under the SOURCE
+    // tier DEK, re-encrypt the body under the SAME CEK, then re-wrap the
+    // CEK under the TARGET tier DEK. The body key is unchanged (history
+    // chain identity preserved); only the wrapping key moves with the tier.
+    // Legacy (no `_cek`) records take the direct-DEK path unchanged.
     const now = new Date().toISOString()
-    const next: EncryptedEnvelope = {
-      _noydb: NOYDB_FORMAT_VERSION,
-      _v: envelope._v + 1,
-      _ts: now,
-      _iv: iv,
-      _data: data,
-      _by: this.keyring.userId,
-      _tier: toTier,
-      _elevatedBy: this.keyring.userId,
+    let next: EncryptedEnvelope
+    if (envelope._cek !== undefined) {
+      const cek = await unwrapCek(envelope._cek, fromDek)
+      const plaintext = await decrypt(envelope._iv, envelope._data, cek)
+      const { iv, data } = await encrypt(plaintext, cek)
+      const rewrapped = await wrapCek(cek, toDek)
+      this.cekCache?.set(id, cek, 1)
+      next = {
+        _noydb: NOYDB_FORMAT_VERSION,
+        _v: envelope._v + 1,
+        _ts: now,
+        _iv: iv,
+        _data: data,
+        _by: this.keyring.userId,
+        _tier: toTier,
+        _elevatedBy: this.keyring.userId,
+        _cek: rewrapped,
+      }
+    } else {
+      const plaintext = await decrypt(envelope._iv, envelope._data, fromDek)
+      const { iv, data } = await encrypt(plaintext, toDek)
+      next = {
+        _noydb: NOYDB_FORMAT_VERSION,
+        _v: envelope._v + 1,
+        _ts: now,
+        _iv: iv,
+        _data: data,
+        _by: this.keyring.userId,
+        _tier: toTier,
+        _elevatedBy: this.keyring.userId,
+      }
     }
     await this.adapter.put(this.vault, this.name, id, next)
 
@@ -3920,17 +4100,38 @@ export class Collection<T> {
     const fromDek = await this.getDEK(dekKey(this.name, fromTier))
     const toDek = await this.getDEK(dekKey(this.name, toTier))
 
-    const plaintext = await decrypt(envelope._iv, envelope._data, fromDek)
-    const { iv, data } = await encrypt(plaintext, toDek)
+    // CEK re-wrap on demote — same body key, moved from the source tier
+    // DEK to the target tier DEK. Legacy records take the direct-DEK path.
     const now = new Date().toISOString()
-    const next: EncryptedEnvelope = {
-      _noydb: NOYDB_FORMAT_VERSION,
-      _v: envelope._v + 1,
-      _ts: now,
-      _iv: iv,
-      _data: data,
-      _by: this.keyring.userId,
-      ...(toTier > 0 && { _tier: toTier }),
+    let next: EncryptedEnvelope
+    if (envelope._cek !== undefined) {
+      const cek = await unwrapCek(envelope._cek, fromDek)
+      const plaintext = await decrypt(envelope._iv, envelope._data, cek)
+      const { iv, data } = await encrypt(plaintext, cek)
+      const rewrapped = await wrapCek(cek, toDek)
+      this.cekCache?.set(id, cek, 1)
+      next = {
+        _noydb: NOYDB_FORMAT_VERSION,
+        _v: envelope._v + 1,
+        _ts: now,
+        _iv: iv,
+        _data: data,
+        _by: this.keyring.userId,
+        ...(toTier > 0 && { _tier: toTier }),
+        _cek: rewrapped,
+      }
+    } else {
+      const plaintext = await decrypt(envelope._iv, envelope._data, fromDek)
+      const { iv, data } = await encrypt(plaintext, toDek)
+      next = {
+        _noydb: NOYDB_FORMAT_VERSION,
+        _v: envelope._v + 1,
+        _ts: now,
+        _iv: iv,
+        _data: data,
+        _by: this.keyring.userId,
+        ...(toTier > 0 && { _tier: toTier }),
+      }
     }
     await this.adapter.put(this.vault, this.name, id, next)
 
@@ -3957,10 +4158,29 @@ export class Collection<T> {
     }
   }
 
-  /** Low-level: decrypt an envelope and return the raw JSON string. */
-  private async decryptJsonString(envelope: EncryptedEnvelope): Promise<string> {
+  /**
+   * Low-level: decrypt an envelope and return the raw JSON string.
+   *
+   * `_cek` presence is the format discriminant (NOT `this.perRecordCek`),
+   * so a mixed vault — and a recipient that never opted into
+   * `perRecordKeys` — decrypts both legacy and CEK records:
+   *  - `_cek` present → unwrap the CEK under the collection DEK, decrypt the
+   *    body under the CEK (cache the unwrapped CEK so repeated reads skip it).
+   *  - `_cek` absent → legacy path, body decrypts directly under the
+   *    collection DEK.
+   *
+   * The optional `id` lets reads populate the CEK cache; it is omitted by
+   * callers (history, conflict merge) that have only the envelope.
+   */
+  private async decryptJsonString(envelope: EncryptedEnvelope, id?: string): Promise<string> {
     if (!this.encrypted) return envelope._data
     const dek = await this.getDEK(this.name)
+    if (envelope._cek !== undefined) {
+      const cached = id !== undefined ? this.cekCache?.get(id) : undefined
+      const cek = cached ?? (await unwrapCek(envelope._cek, dek))
+      if (cached === undefined && id !== undefined) this.cekCache?.set(id, cek, 1)
+      return decrypt(envelope._iv, envelope._data, cek)
+    }
     return decrypt(envelope._iv, envelope._data, dek)
   }
 
@@ -3981,9 +4201,9 @@ export class Collection<T> {
    */
   private async decryptRecord(
     envelope: EncryptedEnvelope,
-    opts: { skipValidation?: boolean } = {},
+    opts: { skipValidation?: boolean; id?: string } = {},
   ): Promise<T> {
-    const json = await this.decryptJsonString(envelope)
+    const json = await this.decryptJsonString(envelope, opts.id)
     let parsed: unknown = JSON.parse(json)
 
     // CRDT resolution: if this collection is in CRDT mode, the

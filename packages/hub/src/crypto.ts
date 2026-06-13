@@ -113,6 +113,70 @@ export async function unwrapKey(
   }
 }
 
+// ─── Per-record CEK wrapping ───────────────────────────────────────────
+
+/**
+ * Derive a **dedicated** AES-KW wrapping key from a collection/tier DEK via
+ * HKDF-SHA256, used to wrap/unwrap a per-record CEK.
+ *
+ * The collection/tier DEKs are AES-256-**GCM** keys (usages
+ * `encrypt`/`decrypt`) and cannot themselves act as an AES-KW KEK. We do NOT
+ * re-import the raw DEK bytes directly as an AES-KW key — that would reuse one
+ * key across two primitives (AES-GCM for `_det`/presence, AES-KW for CEK
+ * wrapping), violating key separation. Instead we HKDF-derive a domain-
+ * separated KW key (salt `noydb-cek-wrap`), exactly as `derivePresenceKey`
+ * derives a separate presence key. The derivation is deterministic, so
+ * wrapping the same CEK under the same DEK always yields identical ciphertext
+ * — which is what lets an update reuse a record's stable CEK and produce a
+ * byte-identical `_cek`. The KW key is independent of the DEK's GCM key.
+ *
+ * The DEK must be extractable (it is — `generateDEK`/`unwrapKey` mint
+ * extractable keys).
+ */
+async function asKwKey(dek: CryptoKey): Promise<CryptoKey> {
+  const rawDek = await subtle.exportKey('raw', dek)
+  const hkdfKey = await subtle.importKey('raw', rawDek, 'HKDF', false, ['deriveBits'])
+  const salt = new TextEncoder().encode('noydb-cek-wrap')
+  const info = new TextEncoder().encode('v1')
+  const bits = await subtle.deriveBits(
+    { name: 'HKDF', hash: 'SHA-256', salt, info },
+    hkdfKey,
+    KEY_BITS,
+  )
+  return subtle.importKey('raw', bits, 'AES-KW', false, ['wrapKey', 'unwrapKey'])
+}
+
+/**
+ * AES-KW-wrap a per-record CEK under a collection/tier DEK. Returns base64.
+ * Deterministic over `(cek, dek)`.
+ */
+export async function wrapCek(cek: CryptoKey, dek: CryptoKey): Promise<string> {
+  const kw = await asKwKey(dek)
+  const wrapped = await subtle.wrapKey('raw', cek, kw, 'AES-KW')
+  return bufferToBase64(wrapped)
+}
+
+/**
+ * Unwrap a per-record CEK from base64 under a collection/tier DEK. Throws
+ * `InvalidKeyError` if the wrapped bytes do not authenticate under the DEK.
+ */
+export async function unwrapCek(wrappedBase64: string, dek: CryptoKey): Promise<CryptoKey> {
+  const kw = await asKwKey(dek)
+  try {
+    return await subtle.unwrapKey(
+      'raw',
+      base64ToBuffer(wrappedBase64) as BufferSource,
+      kw,
+      'AES-KW',
+      { name: 'AES-GCM', length: KEY_BITS },
+      true,
+      ['encrypt', 'decrypt'],
+    )
+  } catch {
+    throw new InvalidKeyError()
+  }
+}
+
 // ─── Encrypt / Decrypt ─────────────────────────────────────────────────
 
 export interface EncryptResult {
