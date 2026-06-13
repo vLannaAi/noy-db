@@ -111,7 +111,7 @@ features:
     subsystem_doc: docs/core/02-encryption.md
     package: '@noy-db/hub'
     factory: null
-    status: planned
+    status: preview
     showcases: []
     recipes: []
     playground_pages: []

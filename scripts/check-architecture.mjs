@@ -488,7 +488,13 @@ const KERNEL_SURFACE_BUDGET = {
   // rotateRecordCek) moved to src/record-keys/sealing.ts behind a SealingContext
   // deps interface; vault retains thin delegating methods + a sealingContext()
   // builder. The host-side opener stays DEK-free in src/sealed-record/.
-  'packages/hub/src/vault.ts': 4195,
+  // Bumped 4195→4210 (2026-06-13): #365 slice 2 — forget() now crypto-shreds a
+  // shredded record's erasable blobs inline (BlobSet.shredAllForRecord per ref)
+  // and reports blobsShredded / blobsRetainedShared. This is core erasure
+  // orchestration — it must sequence with the per-record tombstone + the single
+  // op:'forget' ledger entry, so it cannot move onto the bus. The blob refCount/
+  // crypto-shred mechanics live in src/blobs/blob-set.ts.
+  'packages/hub/src/vault.ts': 4210,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),

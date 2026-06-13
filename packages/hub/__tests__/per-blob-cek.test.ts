@@ -14,6 +14,8 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.
 import { ConflictError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
 import { withBlobs } from '../src/blobs/index.js'
+import { withHistory } from '../src/history/index.js'
+import { withForgetCascade } from '../src/forget/index.js'
 import { BLOB_INDEX_COLLECTION, BLOB_CHUNKS_COLLECTION } from '../src/blobs/blob-set.js'
 
 function makeStore(): NoydbStore {
@@ -130,6 +132,64 @@ describe('per-blob CEK (slice 1: content-CEK write/read path)', () => {
     await store.delete(VAULT, BLOB_INDEX_COLLECTION, eTag)
 
     expect(await slot.get('f.bin')).toBeNull()
+    db.close()
+  })
+})
+
+describe('per-blob CEK (slice 2: forget() crypto-shred)', () => {
+  let store: NoydbStore
+  beforeEach(() => { store = makeStore() })
+
+  type Inv = { id: string; buyerId: string }
+  const setup = () => createNoydb({
+    store, user: 'a', secret: SECRET,
+    blobStrategy: withBlobs(),
+    historyStrategy: withHistory(),
+    forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } }),
+  })
+
+  it('forget() crypto-shreds a subject-exclusive blob (refCount 0) and reports it', async () => {
+    const db = await setup()
+    const vault = await db.openVault(VAULT)
+    const invoices = vault.collection<Inv>('invoices') // forced perRecordKeys by cascade
+    await invoices.put('i-1', { id: 'i-1', buyerId: 'buyer-1' })
+    await invoices.blob('i-1').put('contract.pdf', bytes('buyer-1 personal data'))
+    const eTag = (await invoices.blob('i-1').blobInfo('contract.pdf'))!.eTag
+
+    const result = await vault.forget('buyer-1')
+
+    expect(result.blobsShredded).toBe(1)
+    expect(result.blobsRetainedShared).toBe(0)
+    expect(result.blobResidueCollections).toEqual([]) // gap closed
+    // BlobObject + chunks gone; slot map severed.
+    expect(await store.get(VAULT, BLOB_INDEX_COLLECTION, eTag)).toBeNull()
+    expect(await store.list(VAULT, BLOB_CHUNKS_COLLECTION)).toEqual([])
+    db.close()
+  })
+
+  it('forget() retains a blob still shared by another subject, shreds it when the last owner is forgotten', async () => {
+    const db = await setup()
+    const vault = await db.openVault(VAULT)
+    const invoices = vault.collection<Inv>('invoices')
+    await invoices.put('i-1', { id: 'i-1', buyerId: 'buyer-1' })
+    await invoices.put('i-2', { id: 'i-2', buyerId: 'buyer-2' })
+    const shared = bytes('identical shared attachment')
+    await invoices.blob('i-1').put('f.pdf', shared)
+    await invoices.blob('i-2').put('f.pdf', shared)
+    const eTag = (await invoices.blob('i-1').blobInfo('f.pdf'))!.eTag
+
+    // Forget buyer-1: content is still buyer-2's → retained, not shredded.
+    const r1 = await vault.forget('buyer-1')
+    expect(r1.blobsRetainedShared).toBe(1)
+    expect(r1.blobsShredded).toBe(0)
+    expect(await store.get(VAULT, BLOB_INDEX_COLLECTION, eTag)).not.toBeNull()
+    expect(new TextDecoder().decode((await invoices.blob('i-2').get('f.pdf'))!))
+      .toBe('identical shared attachment') // buyer-2 still reads it
+
+    // Forget buyer-2 (last owner) → crypto-shred.
+    const r2 = await vault.forget('buyer-2')
+    expect(r2.blobsShredded).toBe(1)
+    expect(await store.get(VAULT, BLOB_INDEX_COLLECTION, eTag)).toBeNull()
     db.close()
   })
 })

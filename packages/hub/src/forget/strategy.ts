@@ -85,10 +85,15 @@ export function withForgetCascade(opts: SubjectDeclaration): ForgetStrategy {
  * collection DEK — so erasure-completeness is NOT guaranteed for them. Run
  * the per-record-CEK migration pass, then re-forget, to close the gap.
  *
- * `blobResidueCollections` lists collections where a shredded record still
- * has blob attachments — blob content is keyed off a separate vault-wide
- * `_blob` DEK and is OUT OF SCOPE for record-CEK shred (foundation decision
- * #5). The caller must erase those blobs through a future blob-shred slice.
+ * Blob attachments (#365): a shredded record's **erasable** blobs (on a
+ * `perRecordKeys` collection) are crypto-shredded inline — `blobsShredded`
+ * counts those taken to refCount 0 (BlobObject deleted → chunks permanently
+ * undecryptable), `blobsRetainedShared` counts those still referenced by
+ * another record (shared content legitimately persists for its other owner).
+ * `blobResidueCollections` now lists only collections with blobs that could
+ * NOT be crypto-shredded: **legacy** blobs (no per-blob `_cek`, chunks under
+ * the shared `_blob` DEK — migrate them), or a session without the blob
+ * subsystem loaded. An all-erasable subject yields an empty residue list.
  */
 export interface ForgetResult {
   /** The subject id passed to `forget()`. Echoed for caller convenience. */
@@ -101,7 +106,11 @@ export interface ForgetResult {
   readonly collections: readonly string[]
   /** `collection:id` pairs shredded while still un-migrated (see type docs). */
   readonly unmigratedRecords: readonly string[]
-  /** Collections where a shredded record still has un-erased blob attachments. */
+  /** Count of erasable blobs crypto-shredded (refCount → 0, BlobObject deleted). */
+  readonly blobsShredded: number
+  /** Count of erasable blobs retained because still referenced elsewhere (shared). */
+  readonly blobsRetainedShared: number
+  /** Collections with blobs that could NOT be crypto-shredded — legacy (no `_cek`) or blobs disabled (see type docs). */
   readonly blobResidueCollections: readonly string[]
   /** The single `op:'forget'` ledger entry appended for this erasure. */
   readonly ledgerEntry: LedgerEntry
