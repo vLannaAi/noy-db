@@ -120,4 +120,20 @@ describe('read-layer onMissing/substitute', () => {
     await people.put('p1', { id: 'p1', firstName: { th: 'สมชาย' } })
     await expect(people.get('p1')).rejects.toThrow(/locale/i)
   })
+
+  // #291 regression guard: the staticDict locale-gate edit must NOT change the
+  // locale-less behavior of an i18nText-only collection. With no active locale,
+  // a bare get() must still return the raw { th, en } map untouched — folding
+  // hasI18n into the relaxed gate would break this.
+  it('i18nText-only collection on a locale-less vault returns the raw map (gate regression)', async () => {
+    const vault = await db.openVault('v4')   // NO locale
+    const people = vault.collection<Person>('people', {
+      i18nFields: {
+        firstName: i18nText({ languages: ['th', 'en'], required: 'any' }),
+      },
+    })
+    await people.put('p1', { id: 'p1', firstName: { th: 'สมชาย', en: 'Somchai' } })
+    const p = await people.get('p1')
+    expect(p?.firstName).toEqual({ th: 'สมชาย', en: 'Somchai' })  // raw map, unresolved
+  })
 })

@@ -436,6 +436,8 @@ features:
         path: showcases/src/09-with-i18n.showcase.test.ts
       - id: 94-with-i18n-hardening
         path: showcases/src/94-with-i18n-hardening.showcase.test.ts
+      - id: 100-with-static-dict
+        path: showcases/src/100-with-static-dict.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
@@ -449,6 +451,9 @@ features:
       - 'script enforcement is asymmetric-Latin: non-Latin locales also allow Latin (embedded brand/building names); Latin locales reject other scripts; Common/Inherited/Mark always allowed'
       - 'onScriptViolation reject (default) | filter | warn; ScriptViolationError distinct from MissingTranslationError / LocaleNotSpecifiedError'
       - 'dictKey array-of-keys resolves to [{key,label}] pair objects; wildcard-path contacts[].title adds per-element <leaf>Label; identity ops bind to the stable key'
+      - 'staticDict(name, table, {displayLocale}) resolves labels from an in-code table — no _dict_* collection, no rename()'
+      - 'static dicts resolve under a locale-less read via displayLocale; plain dictKey does not (locale gate preserved)'
+      - 'static dict names are read-only: put/rename/delete throw StaticDictReadonlyError'
     related: [vault-and-collections]
 
   - id: aggregate
