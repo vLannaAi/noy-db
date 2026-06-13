@@ -89,8 +89,18 @@ export interface LedgerEntry {
    * `amendment`, it carries no data envelope, so `verifyBackupIntegrity`
    * skips it in the data cross-check (it still participates in the
    * tamper-evident chain).
+   *
+   * `'forget'` is the single summary entry written by `vault.forget()`
+   * (#304 GDPR crypto-shred). `collection`/`id` are empty and `version`
+   * is 0 — a forget is not scoped to one record. `payloadHash` carries
+   * `sha256Hex(subjectId)` so the ledger PROVES "subject X existed and
+   * was erased on date D" without retaining the subject id or any
+   * plaintext; `reason` holds a JSON summary of the shred counts. Like
+   * `amendment`/`lifecycle` it carries no data envelope and is skipped
+   * by the reconstruct walker (it still participates in the chain, so
+   * `verify()` passes after a shred).
    */
-  readonly op: 'put' | 'delete' | 'amendment' | 'lifecycle' | 'migration'
+  readonly op: 'put' | 'delete' | 'amendment' | 'lifecycle' | 'migration' | 'forget'
 
   /** The collection the mutation targeted. */
   readonly collection: string

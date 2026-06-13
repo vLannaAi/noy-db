@@ -222,7 +222,9 @@ export class CollectionInstant<T = unknown> {
       // carry no (collection, id) tuple of their own and would never match
       // the filter above. The narrow here is a type guard, not a runtime
       // skip.
-      if (e.op === 'amendment' || e.op === 'lifecycle') continue
+      // `forget` is a subject-erasure summary with empty (collection, id) —
+      // never matches the filter above; the narrow is a type guard.
+      if (e.op === 'amendment' || e.op === 'lifecycle' || e.op === 'forget') continue
       // `migration` is a record rewrite (cutover) — resolve it like a put.
       latest = { op: e.op === 'migration' ? 'put' : e.op, version: e.version }
     }

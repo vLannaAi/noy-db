@@ -323,6 +323,7 @@ export type {
 export type { SchemaManifestRow, DeploymentEvent, CapturedBlueprint } from './federation/index.js'
 export { STATE_VAULT_NAME } from './federation/constants.js'
 export { UnknownShardError, ShardProvisioningError, VaultTemplateNotFoundError, ReservedVaultNameError } from './errors.js'
+export { ForgetStrategyNotConfiguredError } from './errors.js'
 
 // Bundle format — `.noydb` container
 export {

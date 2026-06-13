@@ -879,6 +879,10 @@ export class Collection<T> {
         }
         const localJson = await this.decryptJsonString(local, id)
         const remoteJson = await this.decryptJsonString(remote, id)
+        // Tombstone (shredded) on either side: the live envelope is the
+        // authoritative merge result — a shred must win and stay shredded.
+        if (localJson === null) return local
+        if (remoteJson === null) return remote
         const localState = JSON.parse(localJson) as CrdtState
         const remoteState = JSON.parse(remoteJson) as CrdtState
         const merged = this.crdtStrategy.mergeCrdtStates(localState, remoteState)
@@ -933,6 +937,10 @@ export class Collection<T> {
         resolver = async (id, local, remote) => {
           const localRecord = await this.decryptRecord(local, { skipValidation: true, id })
           const remoteRecord = await this.decryptRecord(remote, { skipValidation: true, id })
+          // Tombstone on either side wins — a shredded record must not be
+          // resurrected by a merge against a still-live peer.
+          if (localRecord === null) return local
+          if (remoteRecord === null) return remote
           const merged = mergeFn(localRecord, remoteRecord)
           const mergedVersion = Math.max(local._v, remote._v) + 1
           const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
@@ -1067,6 +1075,7 @@ export class Collection<T> {
         // body / CEK. Reads return null rather than throwing TamperedError.
         if (this.isTombstone(envelope)) return null
         record = await this.decryptRecord(envelope, { id })
+        if (record === null) return null
         this.lru.set(id, { record, version: envelope._v }, estimateRecordBytes(record))
       }
     } else {
@@ -1097,6 +1106,7 @@ export class Collection<T> {
     const envelope = await this.adapter.get(this.vault, this.name, id)
     if (!envelope) return null
     const json = await this.decryptJsonString(envelope)
+    if (json === null) return null // shredded (tombstone)
     return JSON.parse(json) as CrdtState
   }
 
@@ -1195,7 +1205,7 @@ export class Collection<T> {
       if (cached) return { record: cached.record, version: cached.version }
       const env = await this.adapter.get(this.vault, this.name, id)
       if (!env) return { record: null, version: 0 }
-      return { record: (await this.decryptRecord(env, { skipValidation: true })) as unknown, version: env._v }
+      return { record: (await this.decryptRecord(env, { skipValidation: true })) as unknown ?? null, version: env._v }
     }
     await this.ensureHydrated()
     const cached = this.cache.get(id)
@@ -1377,9 +1387,11 @@ export class Collection<T> {
         let existingState: LwwMapState | undefined
         if (existingEnvelope) {
           const prevJson = await this.decryptJsonString(existingEnvelope)
-          const prevParsed = JSON.parse(prevJson) as unknown
-          if (prevParsed !== null && typeof prevParsed === 'object' && '_crdt' in prevParsed) {
-            existingState = prevParsed as LwwMapState
+          if (prevJson !== null) {
+            const prevParsed = JSON.parse(prevJson) as unknown
+            if (prevParsed !== null && typeof prevParsed === 'object' && '_crdt' in prevParsed) {
+              existingState = prevParsed as LwwMapState
+            }
           }
         }
         crdtState = this.crdtStrategy.buildLwwMapState(record as Record<string, unknown>, existingState, now)
@@ -1387,9 +1399,11 @@ export class Collection<T> {
         let existingState: RgaState | undefined
         if (existingEnvelope) {
           const prevJson = await this.decryptJsonString(existingEnvelope)
-          const prevParsed = JSON.parse(prevJson) as unknown
-          if (prevParsed !== null && typeof prevParsed === 'object' && '_crdt' in prevParsed) {
-            existingState = prevParsed as RgaState
+          if (prevJson !== null) {
+            const prevParsed = JSON.parse(prevJson) as unknown
+            if (prevParsed !== null && typeof prevParsed === 'object' && '_crdt' in prevParsed) {
+              existingState = prevParsed as RgaState
+            }
           }
         }
         const arr = Array.isArray(record) ? record : [record]
@@ -1408,8 +1422,13 @@ export class Collection<T> {
 
       // Resolve snapshot for cache and history
       const resolvedRecord = this.crdtStrategy.resolveCrdtSnapshot(crdtState) as T
-      const existingResolved = existingEnvelope
-        ? { record: await this.decryptRecord(existingEnvelope, { skipValidation: true }), version: existingVersion }
+      // A tombstone (shredded) prior envelope yields a null record → treat as
+      // "no previous version" so we don't snapshot/diff an erased value.
+      const existingResolvedRecord = existingEnvelope
+        ? await this.decryptRecord(existingEnvelope, { skipValidation: true })
+        : null
+      const existingResolved = existingResolvedRecord !== null
+        ? { record: existingResolvedRecord, version: existingVersion }
         : undefined
 
       if (existingResolved && this.historyConfig.enabled !== false) {
@@ -1463,7 +1482,10 @@ export class Collection<T> {
         const previousEnvelope = await this.adapter.get(this.vault, this.name, id)
         if (previousEnvelope) {
           const previousRecord = await this.decryptRecord(previousEnvelope)
-          existing = { record: previousRecord, version: previousEnvelope._v }
+          // Tombstone (shredded) prior → treat as no previous version.
+          if (previousRecord !== null) {
+            existing = { record: previousRecord, version: previousEnvelope._v }
+          }
         }
       }
     } else {
@@ -1836,7 +1858,9 @@ export class Collection<T> {
     for (const id of ids) {
       const env = await this.adapter.get(this.vault, this.name, id)
       if (!env || this.isTombstone(env)) continue
-      const record = (await this.decryptRecord(env, { skipValidation: true, id })) as unknown as Record<string, unknown>
+      const decoded = await this.decryptRecord(env, { skipValidation: true, id })
+      if (decoded === null) continue // defensive: shredded between list and get
+      const record = decoded as unknown as Record<string, unknown>
       const next = transform(record)
       const nextVersion = (env._v ?? 0) + 1
       // Migration pass: on a `perRecordKeys` collection, a legacy (no-`_cek`)
@@ -1976,7 +2000,10 @@ export class Collection<T> {
         const previousEnvelope = await this.adapter.get(this.vault, this.name, id)
         if (previousEnvelope) {
           const previousRecord = await this.decryptRecord(previousEnvelope)
-          existing = { record: previousRecord, version: previousEnvelope._v }
+          // Tombstone (shredded) prior → no record to snapshot on delete.
+          if (previousRecord !== null) {
+            existing = { record: previousRecord, version: previousEnvelope._v }
+          }
         }
       }
     } else {
@@ -2064,6 +2091,65 @@ export class Collection<T> {
       await this.dispatchMaterializedViewsOnDelete(id)
       await this.dispatchArrayDerivationsOnDelete(id)
     }
+  }
+
+  /**
+   * @internal — GDPR crypto-shred a LIVE record to a tombstone (#304).
+   *
+   * Rewrites the on-disk envelope to `{ _noydb, _v, _ts, _by, _iv:'', _data:'' }`,
+   * dropping `_iv`/`_data`/`_cek`/`_det`. The wrapped per-record CEK is gone, so
+   * the body — and (via {@link tombstoneHistory}) every history version under
+   * the same CEK — is permanently undecryptable; the collection DEK and every
+   * other record are untouched. `_det` is stripped too, so `findByDet` no
+   * longer matches the shredded record (avoiding a post-shred TamperedError).
+   *
+   * Unlike `delete()`/`_internalDelete`, this:
+   *   - does NOT fire onDelete guards / MV / derivation dispatch (a shred is an
+   *     erasure, not a domain delete — re-running those would be wrong),
+   *   - does NOT append a per-record ledger entry (`vault.forget()` appends a
+   *     single `op:'forget'` summary for the whole subject),
+   *   - keeps the record KEY present (it's an overwrite, not an adapter delete)
+   *     so the version counter + "record existed" survive for audit.
+   *
+   * Idempotent: returns `null` when the record is absent or already a tombstone.
+   * Otherwise returns `{ previousVersion }`. Invalidates the eager cache, the
+   * lazy LRU, and the per-record CEK cache for this id.
+   */
+  /**
+   * @internal — decrypt an envelope to a plain record for subject-index
+   * rebuild (#304). Returns `null` for a tombstone or unreadable envelope.
+   * Skips schema validation — the rebuild only reads the subject field.
+   */
+  async _decodeEnvelope(envelope: EncryptedEnvelope, id: string): Promise<Record<string, unknown> | null> {
+    try {
+      const rec = await this.decryptRecord(envelope, { skipValidation: true, id })
+      return rec === null ? null : (rec as unknown as Record<string, unknown>)
+    } catch {
+      return null
+    }
+  }
+
+  async _writeTombstone(id: string, actor: string): Promise<{ previousVersion: number } | null> {
+    const live = await this.adapter.get(this.vault, this.name, id)
+    if (!live || this.isTombstone(live)) return null
+
+    const tombstone: EncryptedEnvelope = {
+      _noydb: NOYDB_FORMAT_VERSION,
+      _v: live._v,
+      _ts: new Date().toISOString(),
+      _iv: '',
+      _data: '',
+      ...(actor ? { _by: actor } : {}),
+    }
+    await this.adapter.put(this.vault, this.name, id, tombstone)
+
+    // Invalidate every in-memory view of this record so subsequent reads see
+    // the tombstone (→ null), not a stale decrypted value.
+    this.cache.delete(id)
+    this.lru?.remove(id)
+    this.cekCache?.remove(id)
+
+    return { previousVersion: live._v }
   }
 
   /**
@@ -2600,6 +2686,10 @@ export class Collection<T> {
     for (const env of envelopes) {
       // History reads skip schema validation — see getVersion() docs.
       const record = await this.decryptRecord(env, { skipValidation: true })
+      // Shredded (tombstoned) history version: the body is permanently gone,
+      // so there is nothing to return — skip it. The version still counted in
+      // the audit ledger; history() just can't surface its erased content.
+      if (record === null) continue
       entries.push({
         version: env._v,
         timestamp: env._ts,
@@ -2757,6 +2847,7 @@ export class Collection<T> {
       const envelope = await this.adapter.get(this.vault, this.name, id)
       if (envelope) {
         const record = await this.decryptRecord(envelope)
+        if (record === null) continue // shredded (tombstone) — skip
         items.push(record)
         // Same lazy-mode skip as the native path: don't pollute the LRU
         // with sequential scan results.
@@ -2853,6 +2944,7 @@ export class Collection<T> {
     const out: Array<{ id: string; record: T; version: number }> = []
     for (const { id, envelope } of items) {
       const record = await this.decryptRecord(envelope)
+      if (record === null) continue // shredded (tombstone) — skip the page row
       out.push({ id, record, version: envelope._v })
     }
     return out
@@ -2893,6 +2985,16 @@ export class Collection<T> {
       return
     }
     const record = await this.decryptRecord(envelope)
+    if (record === null) {
+      // The on-disk envelope is now a tombstone (shredded). Treat exactly
+      // like a deleted record: drop the cache entry and its index rows.
+      this.cache.delete(id)
+      if (previous) {
+        this.indexes?.remove(id, previous.record)
+        this.uniqueConstraints?.remove(id, previous.record)
+      }
+      return
+    }
     this.cache.set(id, { record, version: envelope._v })
     this.indexes?.upsert(id, record, previous ? previous.record : null)
     this.uniqueConstraints?.upsert(id, record, previous?.record)
@@ -2923,6 +3025,7 @@ export class Collection<T> {
       const envelope = await this.adapter.get(this.vault, this.name, id)
       if (envelope && !this.isTombstone(envelope)) {
         const record = await this.decryptRecord(envelope, { id })
+        if (record === null) continue
         this.cache.set(id, { record, version: envelope._v })
       }
     }
@@ -2936,6 +3039,7 @@ export class Collection<T> {
     for (const [id, envelope] of Object.entries(records)) {
       if (this.isTombstone(envelope)) continue
       const record = await this.decryptRecord(envelope, { id })
+      if (record === null) continue
       this.cache.set(id, { record, version: envelope._v })
     }
     this.hydrated = true
@@ -3036,6 +3140,7 @@ export class Collection<T> {
       const envelope = await this.adapter.get(this.vault, this.name, recordId)
       if (!envelope) continue
       const record = await this.decryptRecord(envelope, { skipValidation: true })
+      if (record === null) continue // shredded (tombstone) — no side-car to build
       await this.maintainPersistedIndexesOnPut(recordId, record, null, envelope._v)
     }
 
@@ -3098,8 +3203,14 @@ export class Collection<T> {
       const env = await this.adapter.get(this.vault, this.name, id)
       if (!env) continue
       try {
-        const body = JSON.parse(await this.decryptJsonString(env)) as { value: unknown }
-        sidecar.set(decoded.recordId, body.value)
+        const sidecarJson = await this.decryptJsonString(env)
+        if (sidecarJson === null) {
+          // Tombstone side-car (shredded) — treat as stale so it's rewritten.
+          sidecar.set(decoded.recordId, undefined)
+        } else {
+          const body = JSON.parse(sidecarJson) as { value: unknown }
+          sidecar.set(decoded.recordId, body.value)
+        }
       } catch {
         // Unreadable — treat as stale so it gets rewritten.
         sidecar.set(decoded.recordId, undefined)
@@ -3116,6 +3227,10 @@ export class Collection<T> {
       const env = await this.adapter.get(this.vault, this.name, id)
       if (!env) continue
       const record = await this.decryptRecord(env, { skipValidation: true })
+      // Shredded (tombstone) canonical record: treat like a vanished record —
+      // leave its `id` in `sidecarIds` so any lingering side-car is marked
+      // stale (and deleted) by the leftover loop below.
+      if (record === null) continue
       const live = readPersistedValue(record as unknown as Record<string, unknown>, field)
       const stored = sidecar.get(id)
       const hasSidecar = sidecarIds.has(id)
@@ -3510,6 +3625,7 @@ export class Collection<T> {
       if (!envelope) continue
       try {
         const json = await this.decryptJsonString(envelope)
+        if (json === null) continue // tombstone side-car — skip
         const body = JSON.parse(json) as { value: unknown; recordId: string }
         if (typeof body.recordId !== 'string') continue
         const rows = byField.get(decoded.field) ?? []
@@ -3829,7 +3945,8 @@ export class Collection<T> {
       const env = await this.adapter.get(this.vault, this.name, id)
       if (!env || !env._det) continue
       if (env._det[field] === target) {
-        matches.push(await this.decryptRecord(env))
+        const rec = await this.decryptRecord(env)
+        if (rec !== null) matches.push(rec) // skip tombstone (defensive)
       }
     }
     return matches
@@ -4172,7 +4289,14 @@ export class Collection<T> {
    * The optional `id` lets reads populate the CEK cache; it is omitted by
    * callers (history, conflict merge) that have only the envelope.
    */
-  private async decryptJsonString(envelope: EncryptedEnvelope, id?: string): Promise<string> {
+  private async decryptJsonString(envelope: EncryptedEnvelope, id?: string): Promise<string | null> {
+    // RISK #1 (forget cascade): a shred tombstone carries `_data: ''` and no
+    // `_cek`. Decrypting it would call `decrypt('', '', dek)` → AES-GCM
+    // OperationError → TamperedError. Return null so every read callsite
+    // treats it as "absent / skip", matching how get()/list already drop
+    // tombstones. Legacy plaintext collections (`!this.encrypted`) legitimately
+    // have empty `_iv`/`_data`, so `isTombstone` is false for them — preserved.
+    if (this.isTombstone(envelope)) return null
     if (!this.encrypted) return envelope._data
     const dek = await this.getDEK(this.name)
     if (envelope._cek !== undefined) {
@@ -4202,8 +4326,11 @@ export class Collection<T> {
   private async decryptRecord(
     envelope: EncryptedEnvelope,
     opts: { skipValidation?: boolean; id?: string } = {},
-  ): Promise<T> {
+  ): Promise<T | null> {
     const json = await this.decryptJsonString(envelope, opts.id)
+    // Tombstone (shredded record) → null, propagated from decryptJsonString.
+    // Callers skip null exactly as they already skip a tombstone envelope.
+    if (json === null) return null
     let parsed: unknown = JSON.parse(json)
 
     // CRDT resolution: if this collection is in CRDT mode, the

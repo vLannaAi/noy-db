@@ -1,4 +1,5 @@
 import type { NoydbStore, EncryptedEnvelope, HistoryOptions, PruneOptions } from '../types.js'
+import { NOYDB_FORMAT_VERSION } from '../types.js'
 
 /**
  * History storage convention:
@@ -160,4 +161,50 @@ export async function clearHistory(
   }
 
   return toDelete.length
+}
+
+/**
+ * Crypto-shred every `_history` version of a record (#304). Each non-tombstone
+ * history envelope is OVERWRITTEN in place with a tombstone
+ * `{ _noydb, _v, _ts: now, _by: actor, _iv: '', _data: '' }` — dropping
+ * `_iv`/`_data`/`_cek`/`_det`, so the prior ciphertext (and the wrapped CEK
+ * that could decrypt it) is gone everywhere this store reaches. The version
+ * counter (`_v`) is preserved so the audit trail still shows "N versions
+ * existed and were erased."
+ *
+ * Overwrite — NOT delete — so the history key itself survives as proof the
+ * version existed. Already-tombstoned versions (re-run / idempotent forget)
+ * are left untouched and not counted.
+ *
+ * Returns the number of history versions newly tombstoned.
+ */
+export async function tombstoneHistory(
+  adapter: NoydbStore,
+  vault: string,
+  collection: string,
+  recordId: string,
+  actor: string,
+): Promise<number> {
+  const allIds = await adapter.list(vault, HISTORY_COLLECTION)
+  const matchingIds = allIds.filter(id => matchesPrefix(id, collection, recordId))
+
+  const now = new Date().toISOString()
+  let count = 0
+  for (const id of matchingIds) {
+    const env = await adapter.get(vault, HISTORY_COLLECTION, id)
+    if (!env) continue
+    // Already a tombstone (no body and no wrapped CEK)? Skip — idempotent.
+    if (!env._data && env._cek === undefined) continue
+    const tombstone: EncryptedEnvelope = {
+      _noydb: NOYDB_FORMAT_VERSION,
+      _v: env._v,
+      _ts: now,
+      _iv: '',
+      _data: '',
+      ...(actor ? { _by: actor } : {}),
+    }
+    await adapter.put(vault, HISTORY_COLLECTION, id, tombstone)
+    count++
+  }
+  return count
 }
