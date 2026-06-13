@@ -63,6 +63,27 @@ features:
       - 'Tombstone tolerance: a `get()` on an envelope with no `_data`/`_cek` returns null rather than throwing TamperedError (shred tombstone creation is step 2 / #304)'
     related: [vault-and-collections, permissions]
 
+  - id: forget-cascade
+    name: GDPR crypto-shred (withForgetCascade / vault.forget)
+    cluster: subsystem
+    spec: docs/superpowers/specs/2026-06-08-forget-cascade-design.md
+    subsystem_doc: docs/core/02-encryption.md
+    package: '@noy-db/hub/forget'
+    factory: withForgetCascade
+    status: preview
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Per-record erasure builds on per-record CEK (#304 step 2): each declared collection is forced to `perRecordKeys: true` so a shred can erase one subject without touching the collection DEK or any other record'
+      - 'Shred = TOMBSTONE, not a CEK-only delete: `vault.forget(subjectId)` rewrites the live envelope to `{_noydb,_v,_ts,_by,_iv:"",_data:""}` (drops `_iv`/`_data`/`_cek`/`_det`) AND tombstones every `_history` envelope for the record → body + all versions permanently undecryptable; version counter preserved for audit'
+      - 'Encrypted portable subject index: a reserved `_subject_index` collection (own DEK) maps `sha256Hex(subjectId) → [{collection,id}]` so subject equivalence is never visible to the store; maintained on write via onAfterWrite (create/update) + an afterDelete observer (delete), rebuildable from canonical records via `vault.rebuildSubjectIndex()`'
+      - 'Ledger proof without plaintext: forget appends ONE `op:"forget"` entry with empty collection/id, version 0, and `payloadHash = sha256Hex(subjectId)`; the hash-chain still `verify()`s after a shred, proving "subject existed and was erased" without retaining the subject id'
+      - 'Read-path tombstone tolerance: every decrypt callsite (get, list, scan, history, CRDT reconcile/merge, findByDet, persisted-index reconcile) treats a tombstone as null/skip instead of throwing TamperedError'
+      - 'Completeness gaps surfaced, never silently claimed: `forget()` reports `unmigratedRecords` (legacy body still under the collection DEK) and `blobResidueCollections` (blob attachments keyed off the separate `_blob` DEK, out of scope for record-CEK shred); idempotent (a second forget shreds nothing)'
+    related: [encryption, history]
+
   - id: stores-contract
     name: 6-method NoydbStore contract
     cluster: core

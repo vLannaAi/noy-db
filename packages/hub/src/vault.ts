@@ -60,6 +60,15 @@ import { LEDGER_COLLECTION, LEDGER_DELTAS_COLLECTION } from './history/ledger/co
 import { sha256Hex } from './history/ledger/entry.js'
 import type { VaultInstant } from './history/time-machine.js'
 import { NO_HISTORY, type HistoryStrategy } from './history/strategy.js'
+import { NO_FORGET, type ForgetStrategy, type ForgetResult } from './forget/strategy.js'
+import {
+  addSubjectRef,
+  removeSubjectRef,
+  lookupSubject,
+  rebuildSubjectIndex as rebuildSubjectIndexImpl,
+  type SubjectRef,
+} from './forget/subject-index.js'
+import { ForgetStrategyNotConfiguredError } from './errors.js'
 import type { VaultFrame } from './shadow/vault-frame.js'
 import { NO_SHADOW, type ShadowStrategy } from './shadow/strategy.js'
 import type { ConsentContext, ConsentAuditEntry, ConsentAuditFilter, ConsentOp } from './consent/consent.js'
@@ -201,6 +210,7 @@ export class Vault {
   private readonly periodsStrategy: PeriodsStrategy
   private readonly shadowStrategy: ShadowStrategy
   private readonly historyStrategy: HistoryStrategy
+  private readonly forgetStrategy: ForgetStrategy
   private readonly i18nStrategy: I18nStrategy
   private readonly syncStrategy: SyncStrategy
   /**
@@ -487,6 +497,7 @@ export class Vault {
     syncStrategy?: SyncStrategy | undefined
     guardStrategies?: ReadonlyArray<GuardStrategyHandleAny> | undefined
     numberingConfigs?: ReadonlyArray<DeferredNumberingConfig> | undefined
+    forgetStrategy?: ForgetStrategy | undefined
   }) {
     this.adapter = opts.adapter
     this.name = opts.name
@@ -514,6 +525,7 @@ export class Vault {
     this.periodsStrategy = opts.periodsStrategy ?? NO_PERIODS
     this.shadowStrategy = opts.shadowStrategy ?? NO_SHADOW
     this.historyStrategy = opts.historyStrategy ?? NO_HISTORY
+    this.forgetStrategy = opts.forgetStrategy ?? NO_FORGET
     this.i18nStrategy = opts.i18nStrategy ?? NO_I18N
     this.syncStrategy = opts.syncStrategy ?? NO_SYNC
     // Guard + derivation registries are initialised lazily via
@@ -878,6 +890,20 @@ export class Vault {
       }
       if (options?.perRecordKeys !== undefined) {
         collOpts.perRecordKeys = options.perRecordKeys
+      }
+      // #304 — a collection declared in `withForgetCascade({ subjects })` MUST
+      // use per-record CEKs: crypto-shred can only guarantee erasure of a body
+      // keyed off a per-record CEK. Force it on (and warn if the caller
+      // explicitly set it false — that would silently defeat erasure).
+      if (this.forgetStrategy.subjects[collectionName] !== undefined) {
+        if (options?.perRecordKeys === false) {
+          console.warn(
+            `[noy-db] Collection "${collectionName}" is declared in withForgetCascade ` +
+            `but opened with perRecordKeys: false. Forcing perRecordKeys: true — ` +
+            `GDPR crypto-shred requires per-record CEKs.`,
+          )
+        }
+        collOpts.perRecordKeys = true
       }
       if (options?.tiers !== undefined) collOpts.tiers = options.tiers
       if (options?.tierMode !== undefined) collOpts.tierMode = options.tierMode
@@ -2106,6 +2132,155 @@ export class Vault {
       })
     }
     return this.ledgerStore
+  }
+
+  // ─── GDPR right-to-erasure (#304) ────────────────────────────────
+
+  /** @internal — add a subject→record ref to the encrypted subject index. */
+  async _addSubjectRef(subjectId: string, ref: SubjectRef): Promise<void> {
+    await addSubjectRef(this.adapter, this.name, this.getDEK, this.encrypted, subjectId, ref)
+  }
+
+  /** @internal — drop a subject→record ref from the encrypted subject index. */
+  async _removeSubjectRef(subjectId: string, ref: SubjectRef): Promise<void> {
+    await removeSubjectRef(this.adapter, this.name, this.getDEK, this.encrypted, subjectId, ref)
+  }
+
+  /**
+   * Rebuild the encrypted subject index from canonical records. The recovery
+   * path for the documented read-modify-write race (RISK #3). Returns the
+   * number of distinct subjects re-indexed.
+   */
+  async rebuildSubjectIndex(): Promise<number> {
+    if (Object.keys(this.forgetStrategy.subjects).length === 0) {
+      throw new ForgetStrategyNotConfiguredError()
+    }
+    return rebuildSubjectIndexImpl(
+      this.adapter,
+      this.name,
+      this.getDEK,
+      this.encrypted,
+      this.forgetStrategy.subjects,
+      async (collectionName, id, env) => {
+        const coll = this.collection<Record<string, unknown>>(collectionName)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return (coll as any)._decodeEnvelope(env, id) as Promise<Record<string, unknown> | null>
+      },
+    )
+  }
+
+  /**
+   * GDPR crypto-shred of a data subject (#304). Consults the encrypted subject
+   * index and, per matching record:
+   *   - rewrites the LIVE envelope to a tombstone (drops `_iv`/`_data`/`_cek`/`_det`),
+   *   - tombstones every `_history` version of the record,
+   * so the body and all prior versions become permanently undecryptable while
+   * the collection DEK and every OTHER record stay intact. Then appends ONE
+   * `op:'forget'` ledger entry whose `payloadHash` is `sha256Hex(subjectId)` —
+   * the chain still `verify()`s, PROVING the subject existed and was erased
+   * without retaining any plaintext.
+   *
+   * Reports — but does not silently swallow — two completeness gaps:
+   *   - `unmigratedRecords`: a record whose body was NOT yet migrated to a
+   *     per-record CEK (legacy body still under the shared collection DEK). It
+   *     is still tombstoned, but its pre-shred ciphertext (if leaked to a
+   *     backup before migration) stays decryptable. Migrate, then re-forget.
+   *   - `blobResidueCollections`: a shredded record still has blob attachments,
+   *     which are keyed off a separate `_blob` DEK and are out of scope here.
+   *
+   * @throws ForgetStrategyNotConfiguredError when no `withForgetCascade` was set.
+   */
+  async forget(subjectId: string): Promise<ForgetResult> {
+    if (Object.keys(this.forgetStrategy.subjects).length === 0) {
+      throw new ForgetStrategyNotConfiguredError()
+    }
+
+    const refs = await lookupSubject(this.adapter, this.name, this.getDEK, this.encrypted, subjectId)
+
+    let recordsShredded = 0
+    let historyVersionsShredded = 0
+    const collections = new Set<string>()
+    const unmigratedRecords: string[] = []
+    const blobResidueCollections = new Set<string>()
+    const actor = this.keyring.userId
+
+    for (const ref of refs) {
+      const coll = this.collection<Record<string, unknown>>(ref.collection)
+      const perRecordKeys = this.forgetStrategy.subjects[ref.collection] !== undefined
+
+      // Detect an un-migrated record BEFORE shredding: a perRecordKeys
+      // collection whose live envelope still carries a body but no `_cek`
+      // means the body is keyed off the shared collection DEK (legacy /
+      // not-yet-migrated), so a shred cannot guarantee erasure of pre-shred
+      // ciphertext. We still tombstone it, but report the gap.
+      const live = await this.adapter.get(this.name, ref.collection, ref.id)
+      if (perRecordKeys && live && live._data && live._cek === undefined) {
+        unmigratedRecords.push(`${ref.collection}:${ref.id}`)
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const shred = await (coll as any)._writeTombstone(ref.id, actor) as { previousVersion: number } | null
+      if (shred !== null) {
+        recordsShredded++
+        collections.add(ref.collection)
+      }
+
+      // Tombstone every history version (idempotent — already-shredded skip).
+      historyVersionsShredded += await this.historyStrategy.tombstoneHistory(
+        this.adapter, this.name, ref.collection, ref.id, actor,
+      )
+
+      // Blob residue: a shredded record may still have blob attachments,
+      // tracked in `_blob_slots_{collection}` keyed by record id. Those are
+      // keyed off the separate `_blob` DEK and out of scope for record-CEK
+      // shred (foundation decision #5) — surface them loudly.
+      try {
+        const slotIds = await this.adapter.list(this.name, `_blob_slots_${ref.collection}`)
+        if (slotIds.includes(ref.id)) blobResidueCollections.add(ref.collection)
+      } catch {
+        // No blob-slots collection for this collection — nothing to report.
+      }
+
+      // Drop the (now-shredded) ref from the subject index.
+      await this._removeSubjectRef(subjectId, ref)
+    }
+
+    // ONE summary ledger entry for the whole subject. payloadHash =
+    // sha256Hex(subjectId) so the ledger proves erasure without the subject.
+    const subjectHash = await sha256Hex(subjectId)
+    const ledger = this.getLedgerOrNull()
+    if (!ledger) {
+      throw new Error(
+        'vault.forget() requires the history strategy for the erasure-proof ' +
+        'ledger entry. Pass `historyStrategy: withHistory()` from ' +
+        '"@noy-db/hub/history" to createNoydb().',
+      )
+    }
+    const ledgerEntry = await ledger.append({
+      op: 'forget',
+      collection: '',
+      id: '',
+      version: 0,
+      actor,
+      payloadHash: subjectHash,
+      reason: JSON.stringify({
+        recordsShredded,
+        historyVersionsShredded,
+        collections: [...collections],
+        unmigratedCount: unmigratedRecords.length,
+        blobResidueCollections: [...blobResidueCollections],
+      }),
+    })
+
+    return {
+      subject: subjectId,
+      recordsShredded,
+      historyVersionsShredded,
+      collections: [...collections],
+      unmigratedRecords,
+      blobResidueCollections: [...blobResidueCollections],
+      ledgerEntry,
+    }
   }
 
   /**

@@ -121,6 +121,19 @@ export interface HistoryStrategy {
   ): Promise<number>
 
   /**
+   * Crypto-shred (overwrite-to-tombstone) every `_history` version of a
+   * record for GDPR erasure (#304). Returns the number of versions newly
+   * tombstoned, or `0` under `NO_HISTORY` (no history = nothing to shred).
+   */
+  tombstoneHistory(
+    adapter: NoydbStore,
+    vault: string,
+    collection: string,
+    recordId: string,
+    actor: string,
+  ): Promise<number>
+
+  /**
    * Compute the SHA-256 hash of an envelope's encrypted payload, used
    * by `LedgerStore.append` to track tamper-evidence. Returns the
    * empty string under `NO_HISTORY` (the call site is gated by
@@ -184,6 +197,7 @@ export const NO_HISTORY: HistoryStrategy = {
   async getVersionEnvelope() { throw notEnabled('collection.getVersion()') },
   async pruneHistory() { return 0 },
   async clearHistory() { return 0 },
+  async tombstoneHistory() { return 0 },
   async envelopePayloadHash() { return '' },
   computePatch() { return [] },
   diff() { throw notEnabled('collection.diff()') },

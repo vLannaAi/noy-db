@@ -428,7 +428,15 @@ const KERNEL_SURFACE_BUDGET = {
   // conflict resolvers, plus the tier elevate/demote/getAtTier CEK re-wrap.
   // This is the per-record-key layer the kernel owns; forget()/shred (#304)
   // and record-scoped sealing (#306) build on top in their own subsystems.
-  'packages/hub/src/collection.ts': 4320,
+  // Bumped 4320→4440 (#304, forget cascade step 2): the tombstone read-path
+  // hardening (RISK #1) touches every decrypt choke point — decryptJsonString
+  // / decryptRecord now return null on a tombstone and ~15 callsites (get,
+  // list/scan/listPage, history, CRDT reconcile + custom-merge, findByDet /
+  // queryByDet, _invalidateCacheEntry, persisted-index rebuild/reconcile,
+  // ensure/hydrate) skip null — plus the new `_writeTombstone` + `_decodeEnvelope`
+  // shred primitives. These are core read/write-path edits the kernel owns; the
+  // forget() orchestration + subject index live in vault.ts / src/forget/.
+  'packages/hub/src/collection.ts': 4440,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
@@ -446,7 +454,14 @@ const KERNEL_SURFACE_BUDGET = {
   // `perRecordKeys` collection option (doc + threading into collOpts),
   // mirroring the deterministicFields wiring. Config-time only; the CEK
   // crypto lives in collection.ts / crypto.ts.
-  'packages/hub/src/vault.ts': 3925,
+  // Bumped 3925→4100 (#304, forget cascade step 2): `vault.forget()` is a
+  // genuinely-core write-path orchestrator — it must drive `_writeTombstone` +
+  // `tombstoneHistory` per record, detect un-migrated / blob residue, and
+  // append the single `op:'forget'` ledger entry inline with the keyring/DEK.
+  // Adds forget() + rebuildSubjectIndex() + the _addSubjectRef/_removeSubjectRef
+  // hooks + the perRecordKeys-forcing in collection(); the subject-index crypto
+  // and the strategy declaration live in src/forget/ (the @noy-db/hub/forget subpath).
+  'packages/hub/src/vault.ts': 4100,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
@@ -460,7 +475,14 @@ const KERNEL_SURFACE_BUDGET = {
   // and deferred-numbering option threading — public `db.*` API surface; the
   // VaultGroup / StateManagementVault / numbering implementations live in lazy
   // or sibling modules, only the thin entry points are here.
-  'packages/hub/src/noydb.ts': 2995,
+  // Bumped 2995→3070 (#304, forget cascade step 2): the subject-index lifecycle
+  // hooks must register at the hub instance level — `#registerForgetHooks`
+  // wires an onAfterWrite handler (create/update subject-ref maintenance) AND
+  // an `afterDelete` subsystemBus observer (RISK #2: onAfterWrite does not fire
+  // on delete, so the bus observer keeps the index from going stale), plus the
+  // forgetStrategy field + forwarding to every Vault. The index crypto + the
+  // erasure flow live in src/forget/ and vault.ts.
+  'packages/hub/src/noydb.ts': 3070,
 }
 
 function checkKernelSurface() {
