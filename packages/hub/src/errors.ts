@@ -60,6 +60,10 @@
  *            └─ ComputedFieldError     — computed function threw during a write
  *       └─ Erasure errors
  *            └─ ForgetStrategyNotConfiguredError — vault.forget() with no withForgetCascade
+ *       └─ Sealed-record errors (record-scoped CEK sealing, #306)
+ *            ├─ SealedRecordExpiredError  — sealed CEK binding past expiresAt
+ *            ├─ SealedRecordMismatchError — CEK sealed for record A used on record B
+ *            └─ RecordCekNotFoundError    — record missing or no per-record `_cek`
  * ```
  *
  * ## Catching all NOYDB errors
@@ -2198,5 +2202,81 @@ export class ForgetStrategyNotConfiguredError extends NoydbError {
   ) {
     super('FORGET_NOT_CONFIGURED', message)
     this.name = 'ForgetStrategyNotConfiguredError'
+  }
+}
+
+// ─── Sealed-record (record-scoped CEK sealing, #306) Errors ─────────────
+
+/**
+ * Thrown by `openSealedRecord()` when the sealed CEK's binding has passed its
+ * `expiresAt`. Surfaced on two checks: a cheap fast-path check on the delivery
+ * envelope's clear-text `expiresAt`, and the AUTHORITATIVE check on the
+ * `expiresAt` inside the sealed binding (the latter cannot be forged by editing
+ * the delivery envelope). Distinct from {@link KeyringExpiredError} (bundle-slot
+ * expiry) so a host can tell "this single-record grant lapsed" from a keyring-
+ * level expiry.
+ */
+export class SealedRecordExpiredError extends NoydbError {
+  readonly expiresAt: string
+  constructor(expiresAt: string) {
+    super(
+      'SEALED_RECORD_EXPIRED',
+      `Sealed record CEK expired at ${expiresAt}. The grantor must re-seal the ` +
+        `record with a later expiresAt.`,
+    )
+    this.name = 'SealedRecordExpiredError'
+    this.expiresAt = expiresAt
+  }
+}
+
+/**
+ * Thrown by `openSealedRecord()` when the sealed binding's
+ * `{collection, id}` does not match the record envelope the host is trying to
+ * decrypt. This is the host-denial boundary: a CEK sealed for record A cannot
+ * be replayed against record B's envelope. (A CEK sealed for a PRE-rotation
+ * version of a record, applied to the POST-rotation live envelope, is a
+ * different failure — the binding still matches `{collection, id}` so it gets
+ * past this check, and the AES-GCM auth-tag failure surfaces as
+ * {@link TamperedError} instead.)
+ */
+export class SealedRecordMismatchError extends NoydbError {
+  readonly expected: { collection: string; id: string }
+  readonly actual: { collection: string; id: string }
+  constructor(
+    expected: { collection: string; id: string },
+    actual: { collection: string; id: string },
+  ) {
+    super(
+      'SEALED_RECORD_MISMATCH',
+      `Sealed CEK binding is for ${actual.collection}/${actual.id} but was ` +
+        `presented against ${expected.collection}/${expected.id}. A CEK sealed ` +
+        `for one record cannot decrypt another.`,
+    )
+    this.name = 'SealedRecordMismatchError'
+    this.expected = expected
+    this.actual = actual
+  }
+}
+
+/**
+ * Thrown by `vault.sealRecordToHost()` / `vault.rotateRecordCek()` when the
+ * target record has no live envelope, or its live envelope carries no `_cek`
+ * (a legacy / non-`perRecordKeys` collection has nothing record-scoped to
+ * seal — its body is keyed off the shared collection DEK, which sealing
+ * deliberately never exposes).
+ */
+export class RecordCekNotFoundError extends NoydbError {
+  readonly collection: string
+  readonly id: string
+  constructor(collection: string, id: string) {
+    super(
+      'RECORD_CEK_NOT_FOUND',
+      `No per-record CEK for ${collection}/${id}. The record is missing, or its ` +
+        `collection was not opened with { perRecordKeys: true } — only per-record-key ` +
+        `records carry a sealable CEK.`,
+    )
+    this.name = 'RecordCekNotFoundError'
+    this.collection = collection
+    this.id = id
   }
 }

@@ -84,6 +84,26 @@ features:
       - 'Completeness gaps surfaced, never silently claimed: `forget()` reports `unmigratedRecords` (legacy body still under the collection DEK) and `blobResidueCollections` (blob attachments keyed off the separate `_blob` DEK, out of scope for record-CEK shred); idempotent (a second forget shreds nothing)'
     related: [encryption, history]
 
+  - id: record-scoped-cek-sealing
+    name: Record-scoped CEK sealing to an at-* host (vault.sealRecordToHost)
+    cluster: subsystem
+    spec: docs/superpowers/specs/2026-06-13-record-scoped-cek-sealing-design.md
+    subsystem_doc: docs/core/02-encryption.md
+    package: '@noy-db/hub'
+    factory: null
+    status: preview
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Binding-in-payload is the security boundary: `vault.sealRecordToHost(collection, id, hostSealer, { expiresAt })` seals a `SealedCekBinding {collection,id,cek,expiresAt}` for the host; the host re-verifies `{collection,id}` and `expiresAt` from INSIDE the sealed payload, so a tampered thin `_sealed_cek/<collection>/<id>/<pid>` delivery envelope cannot redirect a CEK to another record or extend a grant'
+      - 'expiresAt is REQUIRED and authoritative: the delivery envelope carries a clear-text `expiresAt` for a fast-path reject, but `openSealedRecord()` re-checks the `expiresAt` sealed in the binding (the copy that cannot be forged) → SealedRecordExpiredError; there is NO KMS encryption context, the binding carries all authenticated context'
+      - 'rotateRecordCek is the hard revocation: re-keys the live record under a fresh CEK and deletes every `_sealed_cek/<collection>/<id>/*` envelope; a host holding a PRE-rotation sealed CEK can still read PRE-rotation history versions (they keep their old `_cek`) but the POST-rotation live envelope fails the AES-GCM auth tag → TamperedError (that asymmetry IS the revocation). Both the per-record CEK cache and the decrypted-record cache are evicted synchronously so no read returns the stale old-CEK record'
+      - 'Host holds no vault DEK: `openSealedRecord(sealedEnv, recordEnv, recipientSealer, expectedCollection, expectedId)` reconstructs exactly the one bound record from the sealed CEK + the encrypted body + the host unsealer alone — no collection/tier DEK, no keyring'
+      - 'Host denial — A cannot decrypt B: a CEK sealed for record A presented against record B''s envelope is rejected with SealedRecordMismatchError before any decrypt; only a `perRecordKeys` record has a sealable `_cek` (legacy / non-perRecordKeys → RecordCekNotFoundError, its body stays under the never-exposed collection DEK)'
+    related: [encryption, forget-cascade]
+
   - id: stores-contract
     name: 6-method NoydbStore contract
     cluster: core
