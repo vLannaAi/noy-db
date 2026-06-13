@@ -86,6 +86,16 @@
         "default": "./dist/forget/index.cjs"
       }
     },
+    "./sealed-record": {
+      "import": {
+        "types": "./dist/sealed-record/index.d.ts",
+        "default": "./dist/sealed-record/index.js"
+      },
+      "require": {
+        "types": "./dist/sealed-record/index.d.cts",
+        "default": "./dist/sealed-record/index.cjs"
+      }
+    },
     "./query": {
       "import": {
         "types": "./dist/query/index.d.ts",

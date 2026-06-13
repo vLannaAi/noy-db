@@ -2968,6 +2968,19 @@ export class Collection<T> {
    * the cache entry (record still present) or deletes it (record was
    * gone before the tx and the revert deleted it again).
    */
+  /**
+   * @internal — evict ONLY the per-record CEK cache entry for `id`. Used by
+   * `vault.rotateRecordCek()`: after a hard CEK rotation the cached unwrapped
+   * CEK is stale (it would decrypt the pre-rotation body and fail GCM auth on
+   * the post-rotation body). Eviction must be synchronous with the live-envelope
+   * rewrite so no concurrent read observes the old CEK. Paired with
+   * {@link _invalidateCacheEntry} (which refreshes the decrypted-record cache).
+   * No-op when the collection is not `perRecordKeys`.
+   */
+  _invalidateCekCacheEntry(id: string): void {
+    this.cekCache?.remove(id)
+  }
+
   async _invalidateCacheEntry(id: string): Promise<void> {
     if (this.lazy && this.lru) {
       this.lru.remove(id)

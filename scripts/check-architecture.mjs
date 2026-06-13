@@ -436,7 +436,13 @@ const KERNEL_SURFACE_BUDGET = {
   // ensure/hydrate) skip null — plus the new `_writeTombstone` + `_decodeEnvelope`
   // shred primitives. These are core read/write-path edits the kernel owns; the
   // forget() orchestration + subject index live in vault.ts / src/forget/.
-  'packages/hub/src/collection.ts': 4440,
+  // Bumped 4440→4460 (#306, record-scoped CEK sealing slices 2-3): the
+  // `_invalidateCekCacheEntry(id)` core hook the kernel owns — `vault.rotateRecordCek`
+  // must evict the per-record CEK cache synchronously with the live-envelope re-key
+  // so no read returns the stale old-CEK record (the cekCache lives on Collection).
+  // The seal/revoke/rotate orchestration + the host-side opener live in vault.ts /
+  // src/sealed-record/.
+  'packages/hub/src/collection.ts': 4460,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
@@ -461,7 +467,15 @@ const KERNEL_SURFACE_BUDGET = {
   // Adds forget() + rebuildSubjectIndex() + the _addSubjectRef/_removeSubjectRef
   // hooks + the perRecordKeys-forcing in collection(); the subject-index crypto
   // and the strategy declaration live in src/forget/ (the @noy-db/hub/forget subpath).
-  'packages/hub/src/vault.ts': 4100,
+  // Bumped 4100→4280 (#306, record-scoped CEK sealing slices 2-3): the grantor
+  // side is genuinely core — it needs the collection DEK to `sealRecordToHost`
+  // (unwrap `_cek`, seal a `{collection,id,cek,expiresAt}` binding to a host
+  // RecipientSealer, write the `_sealed_cek/<collection>/<id>/<pid>` delivery
+  // envelope), `revokeSealedRecord`, and `rotateRecordCek` (hard re-key + dual
+  // cache eviction + prefix-delete of all sealed envelopes). The wire/binding
+  // types + the host-side `openSealedRecord` (which holds no DEK) live in
+  // src/sealed-record/ (the @noy-db/hub/sealed-record subpath).
+  'packages/hub/src/vault.ts': 4280,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),

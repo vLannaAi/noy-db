@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { awsKmsSealingProvider } from '../src/index.js'
+import { awsKmsSealingProvider, awsKmsRecipientSealer } from '../src/index.js'
 
 function fakeKmsClient() {
   return {
@@ -98,5 +98,129 @@ describe.skipIf(!RUN_REAL)('awsKmsSealingProvider (real KMS)', () => {
     const p = awsKmsSealingProvider({ keyId: process.env.NOYDB_TEST_AWS_KMS_KEY_ID! })
     const phrase = new TextEncoder().encode('real-key-test')
     expect(await p.unseal(await p.seal(phrase))).toEqual(phrase)
+  })
+})
+
+// ─── awsKmsRecipientSealer (asymmetric RSA KMS key) ────────────────────────
+
+/**
+ * Fake KMS client backed by a real local RSA-2048 keypair. Answers
+ * `GetPublicKey` with the keypair's DER SPKI and `Decrypt` (RSAES_OAEP_SHA_256)
+ * by doing a local WebCrypto RSA-OAEP-SHA256 decrypt of the CiphertextBlob —
+ * exactly what real KMS does for an asymmetric ENCRYPT_DECRYPT key.
+ */
+async function fakeAsymmetricKmsClient(opts?: { keyUsage?: string; keySpec?: string }) {
+  const keypair = await crypto.subtle.generateKey(
+    { name: 'RSA-OAEP', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+    true, ['encrypt', 'decrypt'],
+  )
+  const spki = new Uint8Array(await crypto.subtle.exportKey('spki', keypair.publicKey))
+  const send = vi.fn(async (cmd: any) => {
+    const name = cmd.constructor.name
+    if (name === 'GetPublicKeyCommand') {
+      return {
+        KeyUsage: opts?.keyUsage ?? 'ENCRYPT_DECRYPT',
+        KeySpec: opts?.keySpec ?? 'RSA_2048',
+        PublicKey: spki,
+      }
+    }
+    if (name === 'DecryptCommand') {
+      expect(cmd.input.EncryptionAlgorithm).toBe('RSAES_OAEP_SHA_256')
+      const wrapped: Uint8Array = cmd.input.CiphertextBlob
+      const cek = new Uint8Array(await crypto.subtle.decrypt({ name: 'RSA-OAEP' }, keypair.privateKey, wrapped as BufferSource))
+      return { Plaintext: cek }
+    }
+    throw new Error('unexpected command ' + name)
+  })
+  return { client: { send }, send, keypair, spki }
+}
+
+describe('awsKmsRecipientSealer', () => {
+  it('round-trips: publishRecipientHint → sealForRecipient → unseal (seal makes NO KMS call)', async () => {
+    const { client, send } = await fakeAsymmetricKmsClient()
+    const sealer = awsKmsRecipientSealer({ keyId: 'arn:aws:kms:us-east-1:1:key/rsa', client: client as any })
+    expect(sealer.id).toBe('aws-kms-recipient:arn:aws:kms:us-east-1:1:key/rsa')
+
+    const hint = await sealer.publishRecipientHint()
+    expect(hint.v).toBe(1)
+    expect(hint.alg).toBe('rsa-oaep-sha256')
+    expect(hint.pid).toBe(sealer.id)
+    expect(hint.material['publicKeyPem']).toMatch(/^-----BEGIN PUBLIC KEY-----/)
+
+    const callsAfterPublish = send.mock.calls.length // 1 (GetPublicKey)
+    const plaintext = new TextEncoder().encode('seal-me-to-kms')
+    const sealed = await sealer.sealForRecipient(plaintext, hint)
+    // No KMS call on the seal path.
+    expect(send.mock.calls.length).toBe(callsAfterPublish)
+
+    const opened = await sealer.unseal(sealed)
+    expect(opened).toEqual(plaintext)
+    // unseal issued exactly one DecryptCommand.
+    expect(send.mock.calls.some(([c]: any[]) => c.constructor.name === 'DecryptCommand')).toBe(true)
+  })
+
+  it('cross-sealer: MemoryRecipientSealer-sealed blob (to the KMS hint key) unseals via the KMS path', async () => {
+    const { MemoryRecipientSealer } = await import('@noy-db/hub')
+    const { client } = await fakeAsymmetricKmsClient()
+    const sealer = awsKmsRecipientSealer({ keyId: 'k-rsa', client: client as any })
+    const hint = await sealer.publishRecipientHint()
+
+    const memSender = new MemoryRecipientSealer({ id: 'mem-sender' })
+    const plaintext = new TextEncoder().encode('wire-format-identity')
+    const sealed = await memSender.sealForRecipient(plaintext, hint)
+
+    expect(await sealer.unseal(sealed)).toEqual(plaintext)
+  })
+
+  it('cross-sealer: at-aws-kms-sealed blob (to a Memory recipient key) unseals via MemoryRecipientSealer', async () => {
+    const { MemoryRecipientSealer } = await import('@noy-db/hub')
+    const { client } = await fakeAsymmetricKmsClient()
+    const sealer = awsKmsRecipientSealer({ keyId: 'k-rsa', client: client as any })
+
+    const memRecipient = new MemoryRecipientSealer({ id: 'mem-recipient' })
+    const memHint = await memRecipient.publishRecipientHint()
+    const plaintext = new TextEncoder().encode('reverse-interop')
+    const sealed = await sealer.sealForRecipient(plaintext, memHint)
+
+    expect(await memRecipient.unseal(sealed)).toEqual(plaintext)
+  })
+
+  it('sealForRecipient throws on a wrong hint.alg', async () => {
+    const { client } = await fakeAsymmetricKmsClient()
+    const sealer = awsKmsRecipientSealer({ keyId: 'k', client: client as any })
+    const hint = await sealer.publishRecipientHint()
+    await expect(sealer.sealForRecipient(new Uint8Array([1]), { ...hint, alg: 'aes-gcm' as any }))
+      .rejects.toThrow(/unsupported hint.alg/)
+  })
+
+  it('sealForRecipient throws on a wrong hint.v', async () => {
+    const { client } = await fakeAsymmetricKmsClient()
+    const sealer = awsKmsRecipientSealer({ keyId: 'k', client: client as any })
+    const hint = await sealer.publishRecipientHint()
+    await expect(sealer.sealForRecipient(new Uint8Array([1]), { ...hint, v: 2 as any }))
+      .rejects.toThrow(/unsupported hint.v/)
+  })
+
+  it('publishRecipientHint throws when the key is not ENCRYPT_DECRYPT', async () => {
+    const { client } = await fakeAsymmetricKmsClient({ keyUsage: 'SIGN_VERIFY' })
+    const sealer = awsKmsRecipientSealer({ keyId: 'k-sign', client: client as any })
+    await expect(sealer.publishRecipientHint()).rejects.toThrow(/ENCRYPT_DECRYPT/)
+  })
+
+  it('publishRecipientHint throws when the key is not an RSA key spec', async () => {
+    const { client } = await fakeAsymmetricKmsClient({ keySpec: 'ECC_NIST_P256' })
+    const sealer = awsKmsRecipientSealer({ keyId: 'k-ecc', client: client as any })
+    await expect(sealer.publishRecipientHint()).rejects.toThrow(/RSA key/)
+  })
+})
+
+const RUN_REAL_RSA = !!process.env.NOYDB_TEST_KMS_RSA_KEY_ID
+describe.skipIf(!RUN_REAL_RSA)('awsKmsRecipientSealer (real KMS asymmetric RSA key)', () => {
+  it('real GetPublicKey + local seal + real Decrypt round-trip', async () => {
+    const sealer = awsKmsRecipientSealer({ keyId: process.env.NOYDB_TEST_KMS_RSA_KEY_ID! })
+    const hint = await sealer.publishRecipientHint()
+    const plaintext = new TextEncoder().encode('real-rsa-recipient-test')
+    const sealed = await sealer.sealForRecipient(plaintext, hint)
+    expect(await sealer.unseal(sealed)).toEqual(plaintext)
   })
 })
