@@ -263,3 +263,59 @@ describe('per-blob CEK (slice 3: migration of legacy blobs)', () => {
     db2.close()
   })
 })
+
+describe('per-blob CEK (slice 4: eager shred on delete / compaction path)', () => {
+  let store: NoydbStore
+  beforeEach(() => { store = makeStore() })
+
+  it('delete() crypto-shreds an erasable blob at refCount 0 (covers compaction eviction)', async () => {
+    const db = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs() })
+    const vault = await db.openVault(VAULT)
+    const docs = vault.collection<{ id: string }>('docs', { perRecordKeys: true })
+    await docs.put('d-1', { id: 'd-1' })
+    await docs.blob('d-1').put('f.bin', bytes('erasable, single ref'))
+    const eTag = (await docs.blob('d-1').blobInfo('f.bin'))!.eTag
+
+    await docs.blob('d-1').delete('f.bin')
+
+    // BlobObject + chunks gone — the wrapped content CEK is unrecoverable.
+    expect(await store.get(VAULT, BLOB_INDEX_COLLECTION, eTag)).toBeNull()
+    expect(await store.list(VAULT, BLOB_CHUNKS_COLLECTION)).toEqual([])
+    db.close()
+  })
+
+  it('delete() retains a shared erasable blob (refCount > 0) — other owner still reads it', async () => {
+    const db = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs() })
+    const vault = await db.openVault(VAULT)
+    const docs = vault.collection<{ id: string }>('docs', { perRecordKeys: true })
+    await docs.put('d-1', { id: 'd-1' })
+    await docs.put('d-2', { id: 'd-2' })
+    const shared = bytes('shared erasable content')
+    await docs.blob('d-1').put('f.bin', shared)
+    await docs.blob('d-2').put('f.bin', shared)
+    const eTag = (await docs.blob('d-1').blobInfo('f.bin'))!.eTag
+
+    await docs.blob('d-1').delete('f.bin')
+
+    expect(await store.get(VAULT, BLOB_INDEX_COLLECTION, eTag)).not.toBeNull()
+    expect(new TextDecoder().decode((await docs.blob('d-2').get('f.bin'))!)).toBe('shared erasable content')
+    db.close()
+  })
+
+  it('delete() does NOT eager-delete a legacy blob — defers to GC / orphan retention', async () => {
+    const db = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs() })
+    const vault = await db.openVault(VAULT)
+    const docs = vault.collection<{ id: string }>('docs') // legacy: no _cek
+    await docs.put('d-1', { id: 'd-1' })
+    await docs.blob('d-1').put('f.bin', bytes('legacy attachment'))
+    const eTag = (await docs.blob('d-1').blobInfo('f.bin'))!.eTag
+
+    await docs.blob('d-1').delete('f.bin')
+
+    // refCount 0, but a legacy blob is left for deferred GC (retention preserved).
+    const idx = await store.get(VAULT, BLOB_INDEX_COLLECTION, eTag)
+    expect(idx).not.toBeNull()
+    expect(await store.list(VAULT, BLOB_CHUNKS_COLLECTION)).not.toEqual([])
+    db.close()
+  })
+})

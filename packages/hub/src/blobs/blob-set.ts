@@ -332,6 +332,43 @@ export class BlobSet {
   }
 
   /**
+   * Release `n` references to a blob and reclaim it at refCount 0 (#365 slice 4).
+   *
+   * The single reclaim choke point for every reference-drop path — slot
+   * delete/overwrite, published-version delete, and `forget()` shred — so the
+   * refCount-0 policy is uniform:
+   *  - **erasable blob** (`_cek` present) → delete the `BlobObject` (the SOLE
+   *    copy of the wrapped content CEK → chunks permanently undecryptable) and
+   *    reclaim the chunks. The crypto-shred is EAGER on every path: GDPR erasure
+   *    must not wait on orphan retention.
+   *  - **legacy blob** (no `_cek`) → reclaimed only when `reclaimLegacy` (the
+   *    `forget()` erasure path); otherwise left for deferred GC so the existing
+   *    `BlobLifecyclePolicy.orphanRetentionDays` semantics are preserved.
+   *
+   * @returns `'shredded'` (erasable, refCount 0, chunks dead) · `'retainedShared'`
+   *   (erasable, still referenced) · `'residue'` (legacy — not a crypto-shred).
+   */
+  private async releaseRef(
+    eTag: string,
+    n: number,
+    reclaimLegacy: boolean,
+  ): Promise<'shredded' | 'retainedShared' | 'residue'> {
+    const loaded = await this.loadBlobObject(eTag)
+    if (!loaded) return 'shredded' // already gone
+    const erasable = loaded.blob._cek !== undefined
+    const remaining = await this.casUpdateRefCount(eTag, -n)
+    if (remaining > 0) return erasable ? 'retainedShared' : 'residue'
+
+    if (erasable || reclaimLegacy) {
+      await this.store.delete(this.vault, BLOB_INDEX_COLLECTION, eTag)
+      for (let i = 0; i < loaded.blob.chunkCount; i++) {
+        await this.store.delete(this.vault, BLOB_CHUNKS_COLLECTION, `${eTag}_${i}`)
+      }
+    }
+    return erasable ? 'shredded' : 'residue'
+  }
+
+  /**
    * Crypto-shred this record's blob attachments (#365 slice 2) — called by
    * `vault.forget()`.
    *
@@ -369,21 +406,12 @@ export class BlobSet {
     }
 
     for (const [eTag, n] of holds) {
-      const loaded = await this.loadBlobObject(eTag)
-      if (!loaded) continue // already gone
-      const erasable = loaded.blob._cek !== undefined
-      const remaining = await this.casUpdateRefCount(eTag, -n)
-      if (remaining > 0) {
-        ;(erasable ? retainedShared : residue).push(eTag)
-        continue
-      }
-      // refCount hit 0 — reclaim. For erasable blobs the index delete IS the
-      // crypto-shred (the wrapped CEK is gone); chunk delete reclaims storage.
-      await this.store.delete(this.vault, BLOB_INDEX_COLLECTION, eTag)
-      for (let i = 0; i < loaded.blob.chunkCount; i++) {
-        await this.store.delete(this.vault, BLOB_CHUNKS_COLLECTION, `${eTag}_${i}`)
-      }
-      ;(erasable ? shredded : residue).push(eTag)
+      // Forget erasure reclaims legacy orphans too (the record is being erased),
+      // so reclaimLegacy = true — but only erasable blobs count as a crypto-shred.
+      const outcome = await this.releaseRef(eTag, n, true)
+      if (outcome === 'shredded') shredded.push(eTag)
+      else if (outcome === 'retainedShared') retainedShared.push(eTag)
+      else residue.push(eTag)
     }
 
     // Sever the subject's link: drop the record's slot map.
@@ -713,12 +741,13 @@ export class BlobSet {
       return slots
     })
 
-    // Decrement old eTag refCount outside the CAS loop
+    // Release the old eTag outside the CAS loop. An erasable blob dropping to
+    // refCount 0 here is crypto-shredded eagerly; a legacy one defers to GC.
     if (this._deferredRefDecrement) {
       const oldETag = this._deferredRefDecrement
       this._deferredRefDecrement = undefined
-      await this.casUpdateRefCount(oldETag, -1).catch(() => {
-        // Best-effort — blobGC will reconcile
+      await this.releaseRef(oldETag, 1, false).catch(() => {
+        // Best-effort — a missed decrement is reconciled by a later pass.
       })
     }
   }
@@ -755,18 +784,21 @@ export class BlobSet {
    * Decrements refCount on the blob. Chunks are GC'd by `vault.blobGC()`.
    */
   async delete(slotName: string): Promise<void> {
-    let eTagToDecrement: string | undefined
+    let eTagToRelease: string | undefined
 
     await this.casUpdateSlots((slots) => {
       if (!(slotName in slots)) return null
-      eTagToDecrement = slots[slotName]!.eTag
+      eTagToRelease = slots[slotName]!.eTag
       delete slots[slotName]
       return slots
     })
 
-    if (eTagToDecrement) {
-      await this.casUpdateRefCount(eTagToDecrement, -1).catch(() => {
-        // Best-effort — blobGC will reconcile
+    if (eTagToRelease) {
+      // Erasable blobs are crypto-shredded at refCount 0 (this also covers
+      // compaction eviction, which routes through delete()); legacy blobs keep
+      // deferred-GC / orphan-retention semantics.
+      await this.releaseRef(eTagToRelease, 1, false).catch(() => {
+        // Best-effort — a missed decrement is reconciled by a later pass.
       })
     }
   }
@@ -873,9 +905,10 @@ export class BlobSet {
     // Increment refCount for the new version's eTag
     await this.casUpdateRefCount(slot.eTag, +1)
 
-    // If overwriting an existing version with a different eTag, decrement the old one
+    // If overwriting an existing version with a different eTag, release the old
+    // one (crypto-shred at refCount 0 when erasable).
     if (existing && existing.eTag !== slot.eTag) {
-      await this.casUpdateRefCount(existing.eTag, -1).catch(() => {})
+      await this.releaseRef(existing.eTag, 1, false).catch(() => {})
     }
   }
 
@@ -926,7 +959,7 @@ export class BlobSet {
     if (!record) return
 
     await this.deleteVersionRecord(slotName, label)
-    await this.casUpdateRefCount(record.eTag, -1).catch(() => {})
+    await this.releaseRef(record.eTag, 1, false).catch(() => {})
   }
 
   /**
