@@ -194,6 +194,7 @@
             "showcases": true, "recipes": true, "playground_pages": true,
             "diagrams": true, "invariants": true, "related": true,
             "backend":       { "enum": ["env", "macos-keychain", "aws-kms", "gcp-kms", "azure-keyvault", "wincred", "libsecret", "webauthn-prf"] },
+            "capabilities":  { "type": "object", "additionalProperties": false, "properties": { "recipientSealer": { "type": "boolean" } } },
             "subsystem_doc": { "type": "string", "pattern": "^docs/.+\\.md$" }
           }
         }

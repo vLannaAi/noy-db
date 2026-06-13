@@ -202,6 +202,90 @@ export interface RecipientSealer {
 }
 
 /**
+ * Shared RSA-OAEP-SHA256 + AES-GCM seal in the canonical recipient-target
+ * TLV wire format. Mints a fresh 32-byte CEK, AES-GCM-encrypts `plaintext`
+ * under it, RSA-OAEP-SHA256-wraps the CEK to `publicKeyPem`, and packs:
+ *
+ *   byte  0       : version (0x01)
+ *   bytes 1..256  : RSA-OAEP-wrapped CEK (fixed 256 bytes at RSA-2048)
+ *   bytes 257..268: AES-GCM IV (12 bytes)
+ *   bytes 269..   : AES-GCM ciphertext ‖ 16-byte tag
+ *
+ * This is the single source of truth for the wire format — both
+ * {@link MemoryRecipientSealer} and external sealers (e.g. `@noy-db/at-aws-kms`'s
+ * asymmetric-KMS recipient sealer) call it so a blob sealed by one unseals
+ * by the other. WebCrypto RSA-OAEP/SHA-256 here is wire-compatible with
+ * AWS KMS `RSAES_OAEP_SHA_256` (both RSAES-OAEP, SHA-256 hash, MGF1-SHA256,
+ * empty label).
+ *
+ * @public — re-exported from the hub barrel for external sealer packages.
+ */
+export async function sealRsaOaepTlv(plaintext: Uint8Array, publicKeyPem: string): Promise<Uint8Array> {
+  // Parse PEM → SPKI bytes.
+  const b64 = publicKeyPem.replace(/-----BEGIN PUBLIC KEY-----/, '').replace(/-----END PUBLIC KEY-----/, '').replace(/\s+/g, '')
+  const spki = base64ToBytes(b64)
+  const recipientPub = await crypto.subtle.importKey(
+    'spki', spki as BufferSource,
+    { name: 'RSA-OAEP', hash: 'SHA-256' },
+    false, ['encrypt'],
+  )
+  // Mint fresh CEK + IV, AES-GCM encrypt plaintext.
+  const cekBytes = crypto.getRandomValues(new Uint8Array(32))
+  const cek = await crypto.subtle.importKey('raw', cekBytes as BufferSource, 'AES-GCM', false, ['encrypt'])
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv as BufferSource }, cek, plaintext as BufferSource))
+  // RSA-OAEP-wrap the CEK bytes.
+  const wrapped = new Uint8Array(await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, recipientPub, cekBytes as BufferSource))
+  cekBytes.fill(0)
+  if (wrapped.length !== 256) {
+    throw new Error(`sealRsaOaepTlv: expected 256-byte RSA-OAEP wrap, got ${wrapped.length}`)
+  }
+  // TLV layout.
+  const out = new Uint8Array(1 + 256 + 12 + ct.length)
+  out[0] = 0x01
+  out.set(wrapped, 1)
+  out.set(iv, 1 + 256)
+  out.set(ct, 1 + 256 + 12)
+  return out
+}
+
+/**
+ * Parse a {@link sealRsaOaepTlv} blob into its three segments without
+ * decrypting. The `wrapped` CEK is RSA-OAEP-SHA256 ciphertext over a
+ * 32-byte CEK — the unwrap step is pluggable: {@link MemoryRecipientSealer}
+ * decrypts it with a local RSA private key; `@noy-db/at-aws-kms` hands it to
+ * KMS `Decrypt`. After unwrapping, pass the CEK + `iv` + `ct` to
+ * {@link aesGcmOpen}.
+ *
+ * @public — re-exported from the hub barrel for external sealer packages.
+ */
+export function parseRsaOaepTlv(bytes: Uint8Array): { wrapped: Uint8Array; iv: Uint8Array; ct: Uint8Array } {
+  if (bytes.length < 1 + 256 + 12 + 16) {
+    throw new Error('parseRsaOaepTlv: sealed input too short')
+  }
+  if (bytes[0] !== 0x01) {
+    throw new Error(`parseRsaOaepTlv: unknown TLV version ${bytes[0]}`)
+  }
+  return {
+    wrapped: bytes.subarray(1, 1 + 256),
+    iv: bytes.subarray(1 + 256, 1 + 256 + 12),
+    ct: bytes.subarray(1 + 256 + 12),
+  }
+}
+
+/**
+ * AES-GCM-decrypt the `ct` segment of a {@link parseRsaOaepTlv} result under
+ * the unwrapped 32-byte CEK and its `iv`. Throws on a bad tag (tamper) — the
+ * same authenticated-decryption guarantee the TLV relies on.
+ *
+ * @public — re-exported from the hub barrel for external sealer packages.
+ */
+export async function aesGcmOpen(cekBytes: Uint8Array, iv: Uint8Array, ct: Uint8Array): Promise<Uint8Array> {
+  const cek = await crypto.subtle.importKey('raw', cekBytes as BufferSource, 'AES-GCM', false, ['decrypt'])
+  return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv as BufferSource }, cek, ct as BufferSource))
+}
+
+/**
  * Reference implementation of `RecipientSealer` + `SealingKeyProvider`.
  * Uses WebCrypto RSA-OAEP-SHA256 (2048-bit) to wrap a fresh 32-byte
  * AES-GCM CEK, AES-GCM-encrypts plaintext under it, and packs the
@@ -257,32 +341,7 @@ export class MemoryRecipientSealer implements SealingKeyProvider, RecipientSeale
     if (typeof pem !== 'string') {
       throw new Error('MemoryRecipientSealer.sealForRecipient: hint.material.publicKeyPem missing or not a string')
     }
-    // Parse PEM → SPKI bytes.
-    const b64 = pem.replace(/-----BEGIN PUBLIC KEY-----/, '').replace(/-----END PUBLIC KEY-----/, '').replace(/\s+/g, '')
-    const spki = base64ToBytes(b64)
-    const recipientPub = await crypto.subtle.importKey(
-      'spki', spki as BufferSource,
-      { name: 'RSA-OAEP', hash: 'SHA-256' },
-      false, ['encrypt'],
-    )
-    // Mint fresh CEK + IV, AES-GCM encrypt plaintext.
-    const cekBytes = crypto.getRandomValues(new Uint8Array(32))
-    const cek = await crypto.subtle.importKey('raw', cekBytes as BufferSource, 'AES-GCM', false, ['encrypt'])
-    const iv = crypto.getRandomValues(new Uint8Array(12))
-    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv as BufferSource }, cek, plaintext as BufferSource))
-    // RSA-OAEP-wrap the CEK bytes.
-    const wrapped = new Uint8Array(await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, recipientPub, cekBytes as BufferSource))
-    cekBytes.fill(0)
-    if (wrapped.length !== 256) {
-      throw new Error(`MemoryRecipientSealer.sealForRecipient: expected 256-byte RSA-OAEP wrap, got ${wrapped.length}`)
-    }
-    // TLV layout.
-    const out = new Uint8Array(1 + 256 + 12 + ct.length)
-    out[0] = 0x01
-    out.set(wrapped, 1)
-    out.set(iv, 1 + 256)
-    out.set(ct, 1 + 256 + 12)
-    return out
+    return sealRsaOaepTlv(plaintext, pem)
   }
 
   async seal(plaintext: Uint8Array): Promise<Uint8Array> {
@@ -291,19 +350,12 @@ export class MemoryRecipientSealer implements SealingKeyProvider, RecipientSeale
   }
 
   async unseal(bytes: Uint8Array): Promise<Uint8Array> {
-    if (bytes.length < 1 + 256 + 12 + 16) {
-      throw new Error('MemoryRecipientSealer.unseal: sealed input too short')
-    }
-    if (bytes[0] !== 0x01) {
-      throw new Error(`MemoryRecipientSealer.unseal: unknown TLV version ${bytes[0]}`)
-    }
-    const wrapped = bytes.subarray(1, 1 + 256)
-    const iv = bytes.subarray(1 + 256, 1 + 256 + 12)
-    const ct = bytes.subarray(1 + 256 + 12)
+    const { wrapped, iv, ct } = parseRsaOaepTlv(bytes)
     const { privateKey } = await this.keypair
+    // Local RSA-OAEP-SHA256 unwrap of the CEK — the pluggable step external
+    // sealers replace with KMS Decrypt.
     const cekBytes = new Uint8Array(await crypto.subtle.decrypt({ name: 'RSA-OAEP' }, privateKey, wrapped as BufferSource))
-    const cek = await crypto.subtle.importKey('raw', cekBytes as BufferSource, 'AES-GCM', false, ['decrypt'])
-    const pt = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv as BufferSource }, cek, ct as BufferSource))
+    const pt = await aesGcmOpen(cekBytes, iv, ct)
     cekBytes.fill(0)
     return pt
   }

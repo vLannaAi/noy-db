@@ -19,3 +19,13 @@
 All implement hub's `SealingKeyProvider` (`seal`/`unseal`). Pair with `createNoydb({ passphraseMode: 'managed', sealingKey, shamirRecovery })`. See each package's README for setup.
 
 > **Azure note:** Key Vault RSA decrypt is version-bound — pin a versioned key id; auto-rotation on a versionless key orphans previously-sealed vaults.
+
+### Recipient-target sealing (`at-aws-kms`)
+
+Beyond self-sealing the managed passphrase, `@noy-db/at-aws-kms` can act as a **recipient target** via `awsKmsRecipientSealer({ keyId })`, implementing hub's `RecipientSealer`. Back it with an **asymmetric RSA** KMS key (`KeyUsage: ENCRYPT_DECRYPT`, `KeySpec` one of `RSA_2048` / `RSA_3072` / `RSA_4096`):
+
+- `publishRecipientHint()` calls KMS `GetPublicKey` and returns the public key as PEM — a grantor uses this hint to seal bytes to the host.
+- `sealForRecipient(plaintext, hint)` seals **locally** (no KMS call) in the canonical RSA-OAEP-SHA256 TLV, identical to hub's `MemoryRecipientSealer` wire format.
+- `unseal(sealed)` runs KMS `Decrypt` with `EncryptionAlgorithm: RSAES_OAEP_SHA_256` to unwrap the content-encryption key — **the private key never leaves KMS**.
+
+KMS asymmetric keys don't support an encryption context, so none is used. WebCrypto `RSA-OAEP`/SHA-256 and KMS `RSAES_OAEP_SHA_256` are wire-compatible, so a blob sealed by `MemoryRecipientSealer` (or any sealer using the shared `sealRsaOaepTlv` helper) unseals through the KMS path and vice-versa. This is the cloud-verified building block for record-scoped sealing (issue #306).

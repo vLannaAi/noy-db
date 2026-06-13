@@ -579,6 +579,9 @@ export type { ShamirRecoveryProvider } from './team/shamir-recovery-provider.js'
 export {
   MemorySealingKeyProvider,
   MemoryRecipientSealer,
+  sealRsaOaepTlv,
+  parseRsaOaepTlv,
+  aesGcmOpen,
   loadSealedPassphrase,
   saveSealedPassphrase,
   parseSealedEnvelope,

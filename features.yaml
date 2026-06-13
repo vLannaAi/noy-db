@@ -2356,8 +2356,11 @@ sealers:
     status: stable
     subsystem_doc: docs/packages/at-hosts.md
     showcases: []
+    capabilities:
+      recipientSealer: true
     invariants:
       - 'Seals and unseals via AWS KMS Encrypt/Decrypt API; key material never leaves KMS; IAM policy is the sole access gate'
+      - 'awsKmsRecipientSealer (RecipientSealer): an asymmetric RSA KMS key (ENCRYPT_DECRYPT, RSA_2048/3072/4096) acts as a recipient target — publishRecipientHint returns the KMS public key as PEM (via GetPublicKey DER SPKI→PEM), grantors seal LOCALLY in the canonical RSA-OAEP-SHA256 TLV (no KMS call), and unseal runs KMS Decrypt with EncryptionAlgorithm RSAES_OAEP_SHA_256; private key never leaves KMS, no encryption context (unsupported on asymmetric keys). Wire-compatible with hub MemoryRecipientSealer via shared sealRsaOaepTlv/parseRsaOaepTlv/aesGcmOpen helpers'
     related: [auth-landscape, session-tiers]
 
   - id: at-gcp-kms
