@@ -3343,6 +3343,7 @@ export class Collection<T> {
       getDEK: this.getDEK,
       encrypted: this.encrypted,
       userId: this.keyring.userId,
+      erasableBlobs: this.perRecordCek,
     })
   }
 

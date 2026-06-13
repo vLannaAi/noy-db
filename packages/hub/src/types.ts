@@ -1509,6 +1509,16 @@ export interface BlobObject {
   /** Live reference count — slots + published versions pointing to this blob. */
   readonly refCount: number
   /**
+   * Base64 AES-KW-wrapped per-blob **content CEK** (wrapped under the `_blob`
+   * DEK). Present on erasable-collection blobs (`perRecordKeys`): the chunks
+   * are encrypted under this content CEK rather than directly under the `_blob`
+   * DEK, so deleting this BlobObject at `refCount → 0` crypto-shreds the chunks
+   * (they become permanently undecryptable). Absent → legacy blob, chunks
+   * decrypt directly under the `_blob` DEK (read unchanged). See
+   * docs/superpowers/specs/2026-06-13-per-blob-cek-design.md.
+   */
+  readonly _cek?: string
+  /**
    * Hint indicating which store holds the chunk data.
    * Used by `routeStore` size-tiered routing: `'default'` for small blobs
    * stored inline (e.g. DynamoDB), `'blobs'` for large blobs in the overflow

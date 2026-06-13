@@ -17,7 +17,9 @@ import {
   decryptBytesWithAAD,
   bufferToBase64,
   base64ToBuffer,
+  generateDEK,
 } from '../crypto.js'
+import { wrapCek, unwrapCek } from '../record-keys/index.js'
 import { ConflictError, NotFoundError } from '../errors.js'
 import { detectMagic, isPreCompressed } from './mime-magic.js'
 
@@ -140,6 +142,7 @@ export class BlobSet {
   private readonly encrypted: boolean
   private readonly userId: string | undefined
   private readonly maxBlobBytes: number | undefined
+  private readonly erasableBlobs: boolean
 
   constructor(opts: {
     store: NoydbStore
@@ -150,6 +153,7 @@ export class BlobSet {
     encrypted: boolean
     userId?: string
     maxBlobBytes?: number
+    erasableBlobs?: boolean
   }) {
     this.store = opts.store
     this.vault = opts.vault
@@ -159,6 +163,22 @@ export class BlobSet {
     this.encrypted = opts.encrypted
     this.userId = opts.userId
     this.maxBlobBytes = opts.maxBlobBytes
+    this.erasableBlobs = opts.erasableBlobs === true
+  }
+
+  /**
+   * Resolve the key the blob's CHUNKS are encrypted under.
+   *
+   * - `_cek` present (erasable blob) → unwrap the per-blob content CEK under
+   *   the `_blob` DEK. Deleting the BlobObject (at `refCount → 0`) makes this
+   *   key unrecoverable → the chunks are crypto-shredded.
+   * - `_cek` absent (legacy) → the `_blob` DEK encrypts chunks directly.
+   * - unencrypted vault → `null` (chunks stored as plaintext base64).
+   */
+  private async resolveChunkKey(blob: Pick<BlobObject, '_cek'>): Promise<CryptoKey | null> {
+    if (!this.encrypted) return null
+    const blobDEK = await this.getDEK(BLOB_COLLECTION)
+    return blob._cek !== undefined ? await unwrapCek(blob._cek, blobDEK) : blobDEK
   }
 
   /** The internal collection that holds slot metadata for this collection's blobs. */
@@ -410,11 +430,13 @@ export class BlobSet {
   // ─── Fetch all chunks for a blob ──────────────────────────────────
 
   private async fetchAllChunks(blob: BlobObject): Promise<Uint8Array> {
-    const blobDEK = this.encrypted ? await this.getDEK(BLOB_COLLECTION) : null
+    // Chunks are keyed under the per-blob content CEK (erasable) or directly
+    // under the `_blob` DEK (legacy) — resolveChunkKey discriminates on `_cek`.
+    const chunkKey = await this.resolveChunkKey(blob)
     const chunks: Uint8Array[] = []
 
     for (let i = 0; i < blob.chunkCount; i++) {
-      const chunk = await this.readChunk(blob.eTag, i, blob.chunkCount, blobDEK)
+      const chunk = await this.readChunk(blob.eTag, i, blob.chunkCount, chunkKey)
       if (!chunk) {
         throw new NotFoundError(
           `Blob chunk ${i}/${blob.chunkCount} missing for eTag "${blob.eTag}" on record "${this.recordId}"`,
@@ -469,7 +491,9 @@ export class BlobSet {
     const existingBlob = await this.loadBlobObject(eTag)
 
     if (existingBlob) {
-      // eTag already exists — just increment refCount (CAS retry)
+      // eTag already exists — just increment refCount (CAS retry). Dedup is
+      // preserved across the content-CEK split: the chunks (and the BlobObject's
+      // `_cek`, if any) are reused as-is; a new referencer never re-encrypts.
       await this.casUpdateRefCount(eTag, +1)
     } else {
       // Step 4 — compress
@@ -480,13 +504,26 @@ export class BlobSet {
       const chunkSize = this.effectiveChunkSize(opts)
       const chunkCount = Math.max(1, Math.ceil(compressed.byteLength / chunkSize))
 
+      // Erasable collection (`perRecordKeys`): mint a fresh per-blob content
+      // CEK and encrypt the chunks under it instead of the shared `_blob` DEK,
+      // so the BlobObject's wrapped `_cek` is the sole recoverable copy → a
+      // refCount-0 delete crypto-shreds the chunks. `eTag` (the dedup address)
+      // is still keyed off the `_blob` DEK, unchanged.
+      let chunkKey = blobDEK
+      let wrappedCek: string | undefined
+      if (blobDEK && this.erasableBlobs) {
+        const contentCek = await generateDEK()
+        wrappedCek = await wrapCek(contentCek, blobDEK)
+        chunkKey = contentCek
+      }
+
       // Step 5 — write chunks FIRST with AAD binding (safe failure order)
       for (let i = 0; i < chunkCount; i++) {
         const start = i * chunkSize
         await this.writeChunk(
           eTag, i, chunkCount,
           compressed.subarray(start, start + chunkSize),
-          blobDEK,
+          chunkKey,
         )
       }
 
@@ -501,6 +538,7 @@ export class BlobSet {
         ...(mimeType !== undefined ? { mimeType } : {}),
         createdAt: new Date().toISOString(),
         refCount: 1,
+        ...(wrappedCek !== undefined ? { _cek: wrappedCek } : {}),
       })
     }
 
