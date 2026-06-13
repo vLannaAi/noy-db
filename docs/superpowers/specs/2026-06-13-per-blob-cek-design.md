@@ -113,9 +113,15 @@ the content CEK; else legacy direct-`_blob`-DEK decrypt. One extra AES-KW unwrap
    the `_blob` DEK). An erasable collection referencing a pre-existing **legacy** blob cannot shred it
    until migrated — reported in `blobResidueCollections`. Document this boundary; do not silently claim
    erasure.
-3. **Migration** — `_cek`-absent = legacy. A `migrateBlobs` pass (built on the chunk read/write paths)
-   re-encrypts legacy chunks under a fresh content CEK and stamps `_cek`. Until migrated, an erasable
-   collection's legacy blobs are residue, not shreddable.
+3. **Migration** — `_cek`-absent = legacy. `BlobSet.migrate()` (explicit maintenance pass, mirrors the
+   record-CEK posture) re-encrypts a record's legacy chunks **in place** under a fresh content CEK and
+   stamps `_cek`, preserving the eTag/chunkCount/chunkSize/compression. Crash-safe + idempotent via a
+   transient **`_cekPending`** field: (1) persist the wrapped content CEK in `_cekPending` (readers
+   ignore it → blob stays readable under the `_blob` DEK, and the key survives a crash → no data loss);
+   (2) re-encrypt each chunk under the content CEK (a resume reads an already-migrated chunk under the
+   content CEK, else the `_blob` DEK); (3) promote `_cekPending` → `_cek` (atomic flip). Until migrated,
+   an erasable collection's legacy blobs are reported as residue, not shreddable. Adopting the cascade
+   on existing data also needs `vault.rebuildSubjectIndex()` so pre-adoption records are discoverable.
 4. **Compaction / GC** (`blob-compaction.ts`, `route-store.ts BlobLifecyclePolicy`) — eviction already
    decrements refCount via `deleteSlot`. The refCount-0 path now *additionally* deletes the BlobObject
    eagerly (crypto-shred) rather than waiting for `orphanRetentionDays`. `legalHold`/`retainUntil`

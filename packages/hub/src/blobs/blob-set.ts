@@ -391,6 +391,97 @@ export class BlobSet {
     return { shredded, retainedShared, residue }
   }
 
+  /** CAS retry loop for an arbitrary BlobObject mutation. */
+  private async casUpdateBlobObject(
+    eTag: string,
+    mutate: (blob: BlobObject) => BlobObject,
+  ): Promise<void> {
+    for (let attempt = 0; attempt < MAX_CAS_RETRIES; attempt++) {
+      const result = await this.loadBlobObject(eTag)
+      if (!result) throw new NotFoundError(`BlobObject ${eTag} not found`)
+      try {
+        await this.writeBlobObject(mutate(result.blob), result.version)
+        return
+      } catch (err) {
+        if (err instanceof ConflictError && attempt < MAX_CAS_RETRIES - 1) continue
+        throw err
+      }
+    }
+    throw new ConflictError(-1) // exhausted retries
+  }
+
+  /**
+   * Migrate this record's LEGACY blobs (no `_cek`, chunks under the shared
+   * `_blob` DEK) to per-blob content CEKs so they become crypto-shreddable
+   * (#365 slice 3). Returns the eTags migrated vs. already-erasable.
+   *
+   * **Explicit maintenance pass** (mirrors the record-CEK migration posture):
+   * re-encrypts the existing compressed chunks IN PLACE under a fresh content
+   * CEK — preserving the eTag, chunkCount, chunkSize, and compression — then
+   * flips the `_cek` discriminant. Crash-safe + idempotent via `_cekPending`:
+   *   1. persist the wrapped content CEK in `_cekPending` (readers ignore it →
+   *      the blob stays readable under the `_blob` DEK; the key survives a crash);
+   *   2. re-encrypt each chunk under the content CEK (a resume reads an
+   *      already-migrated chunk under the content CEK, else under the `_blob` DEK);
+   *   3. promote `_cekPending` → `_cek` (atomic flip). Reads now use the CEK.
+   * A re-run after a crash resumes from whichever phase was reached.
+   *
+   * Dedup-safe: migrating a shared blob (refCount > 1) re-keys it for every
+   * referencer at once; a non-erasable collection still reads it (it unwraps
+   * `_cek` under the `_blob` DEK it holds).
+   */
+  async migrate(): Promise<{ migrated: string[]; alreadyErasable: string[] }> {
+    const migrated: string[] = []
+    const alreadyErasable: string[] = []
+    if (!this.encrypted) return { migrated, alreadyErasable }
+
+    const blobDEK = await this.getDEK(BLOB_COLLECTION)
+    const { slots } = await this.loadSlots()
+    const eTags = new Set(Object.values(slots).map((s) => s.eTag))
+
+    for (const eTag of eTags) {
+      const loaded = await this.loadBlobObject(eTag)
+      if (!loaded) continue
+      const blob = loaded.blob
+      if (blob._cek !== undefined) { alreadyErasable.push(eTag); continue }
+
+      // Phase 1 — persist the content CEK (resume reuses an existing pending one).
+      let contentCek: CryptoKey
+      if (blob._cekPending !== undefined) {
+        contentCek = await unwrapCek(blob._cekPending, blobDEK)
+      } else {
+        contentCek = await generateDEK()
+        const wrapped = await wrapCek(contentCek, blobDEK)
+        await this.casUpdateBlobObject(eTag, (b) => ({ ...b, _cekPending: wrapped }))
+      }
+
+      // Phase 2 — re-encrypt each chunk under the content CEK, in place.
+      for (let i = 0; i < blob.chunkCount; i++) {
+        let raw: Uint8Array | null
+        try {
+          raw = await this.readChunk(eTag, i, blob.chunkCount, blobDEK)
+        } catch {
+          // Already re-encrypted under the content CEK (crash resume).
+          raw = await this.readChunk(eTag, i, blob.chunkCount, contentCek)
+        }
+        if (!raw) {
+          throw new NotFoundError(
+            `Blob chunk ${i}/${blob.chunkCount} missing for eTag "${eTag}" during migration`,
+          )
+        }
+        await this.writeChunk(eTag, i, blob.chunkCount, raw, contentCek)
+      }
+
+      // Phase 3 — promote _cekPending → _cek (atomic flip).
+      await this.casUpdateBlobObject(eTag, (b) => {
+        const { _cekPending, ...rest } = b
+        return _cekPending === undefined ? b : { ...rest, _cek: _cekPending }
+      })
+      migrated.push(eTag)
+    }
+    return { migrated, alreadyErasable }
+  }
+
   // ─── Chunk I/O (with AAD binding) ─────────────────────────────────
 
   private async writeChunk(

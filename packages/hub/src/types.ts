@@ -1519,6 +1519,15 @@ export interface BlobObject {
    */
   readonly _cek?: string
   /**
+   * Transient migration marker (#365 slice 3). Present only while a legacy
+   * blob is being migrated to a content CEK: it holds the wrapped content CEK
+   * BEFORE the chunks have been re-encrypted under it. Readers **ignore**
+   * `_cekPending` (they key off `_cek`), so the blob stays readable under the
+   * `_blob` DEK during migration AND the content CEK survives a crash → a
+   * re-run resumes and promotes `_cekPending` → `_cek`. Never set on a settled blob.
+   */
+  readonly _cekPending?: string
+  /**
    * Hint indicating which store holds the chunk data.
    * Used by `routeStore` size-tiered routing: `'default'` for small blobs
    * stored inline (e.g. DynamoDB), `'blobs'` for large blobs in the overflow

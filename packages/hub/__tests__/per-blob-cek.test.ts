@@ -193,3 +193,73 @@ describe('per-blob CEK (slice 2: forget() crypto-shred)', () => {
     db.close()
   })
 })
+
+describe('per-blob CEK (slice 3: migration of legacy blobs)', () => {
+  let store: NoydbStore
+  beforeEach(() => { store = makeStore() })
+
+  it('migrate() re-keys a legacy blob to a content CEK, preserving readability', async () => {
+    const db = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs() })
+    const vault = await db.openVault(VAULT)
+    const docs = vault.collection<{ id: string }>('docs') // legacy: no perRecordKeys
+    await docs.put('d-1', { id: 'd-1' })
+    await docs.blob('d-1').put('f.bin', bytes('legacy attachment bytes'))
+    expect((await docs.blob('d-1').blobInfo('f.bin'))!._cek).toBeUndefined()
+
+    const r = await docs.blob('d-1').migrate()
+    expect(r.migrated).toHaveLength(1)
+    // Now erasable, and still decrypts to the same bytes.
+    expect((await docs.blob('d-1').blobInfo('f.bin'))!._cek).toBeDefined()
+    expect(new TextDecoder().decode((await docs.blob('d-1').get('f.bin'))!)).toBe('legacy attachment bytes')
+    db.close()
+  })
+
+  it('migrate() is idempotent — a second pass reports already-erasable, no change', async () => {
+    const db = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs() })
+    const vault = await db.openVault(VAULT)
+    const docs = vault.collection<{ id: string }>('docs')
+    await docs.put('d-1', { id: 'd-1' })
+    await docs.blob('d-1').put('f.bin', bytes('x'))
+
+    await docs.blob('d-1').migrate()
+    const cek1 = (await docs.blob('d-1').blobInfo('f.bin'))!._cek
+    const r2 = await docs.blob('d-1').migrate()
+    expect(r2.migrated).toEqual([])
+    expect(r2.alreadyErasable).toHaveLength(1)
+    expect((await docs.blob('d-1').blobInfo('f.bin'))!._cek).toBe(cek1) // unchanged
+    db.close()
+  })
+
+  it('a migrated legacy blob becomes crypto-shreddable by forget() (cross-session adoption)', async () => {
+    // Session 1: plain collection, legacy blob (no _cek).
+    const db1 = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs() })
+    const v1 = await db1.openVault(VAULT)
+    const c1 = v1.collection<{ id: string; sub: string }>('docs')
+    await c1.put('d-1', { id: 'd-1', sub: 'subj-1' })
+    await c1.blob('d-1').put('f.bin', bytes('pre-adoption data'))
+    db1.close()
+
+    // Session 2: same store, now with forget cascade (forces perRecordKeys).
+    const db2 = await createNoydb({
+      store, user: 'a', secret: SECRET, blobStrategy: withBlobs(),
+      historyStrategy: withHistory(),
+      forgetStrategy: withForgetCascade({ subjects: { docs: 'sub' } }),
+    })
+    const v2 = await db2.openVault(VAULT)
+    const c2 = v2.collection<{ id: string; sub: string }>('docs')
+    const eTag = (await c2.blob('d-1').blobInfo('f.bin'))!.eTag
+
+    // Adopting the cascade on existing data: rebuild the subject index so the
+    // pre-adoption record is discoverable by forget().
+    await v2.rebuildSubjectIndex()
+
+    // After migration the legacy blob is crypto-shreddable (before, it would be
+    // reported as residue).
+    await c2.blob('d-1').migrate()
+    const result = await v2.forget('subj-1')
+    expect(result.blobsShredded).toBe(1)
+    expect(result.blobResidueCollections).toEqual([])
+    expect(await store.get(VAULT, BLOB_INDEX_COLLECTION, eTag)).toBeNull()
+    db2.close()
+  })
+})
