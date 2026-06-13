@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { createNoydb, RecordLockedError, ValidationError } from '../../src/index.js'
+import { createNoydb, RecordLockedError, ValidationError, InvariantError } from '../../src/index.js'
 import { immutableGuard } from '../../src/guards/immutable-guard.js'
 import { withTransactions } from '../../src/tx/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
@@ -86,6 +86,49 @@ describe('immutableGuard — after: predicate (WORM-after-issue)', () => {
     await inv.put('a', { id: 'a', status: 'issued', total: 50 })
 
     // normal update blocked, amendment allowed
+    await db.transaction({ amendment: true, reason: 'correct issued total' }, async (tx) => {
+      tx.vault('books').collection<Invoice>('invoices').put('a', { id: 'a', status: 'issued', total: 55 })
+    })
+    expect((await inv.get('a'))?.total).toBe(55)
+  })
+})
+
+describe('immutableGuard — amendmentInvariant', () => {
+  it('a supplied invariant that throws on a frozen-field change rejects + rolls back the amendment', async () => {
+    // Keep `total` inviolable even under amendment: re-throw whenever an
+    // existing record's total changes. (`before !== null` skips the seed.)
+    const { db, vault } = await vaultWith(
+      immutableGuard<Invoice>({
+        collection: 'invoices',
+        after: (r) => r.status === 'issued',
+        amendmentInvariant: (changes) => {
+          for (const c of changes) {
+            if (c.before !== null && c.after !== null && c.before.total !== c.after.total) {
+              throw new InvariantError('total is frozen even under amendment')
+            }
+          }
+        },
+      }),
+    )
+    const inv = vault.collection<Invoice>('invoices')
+    await inv.put('a', { id: 'a', status: 'issued', total: 50 })
+
+    // Amendment attempting to change the frozen total is reverted.
+    await expect(
+      db.transaction({ amendment: true, reason: 'tamper total' }, async (tx) => {
+        tx.vault('books').collection<Invoice>('invoices').put('a', { id: 'a', status: 'issued', total: 55 })
+      }),
+    ).rejects.toBeInstanceOf(InvariantError)
+    expect((await inv.get('a'))?.total).toBe(50) // reverted
+  })
+
+  it('default (no amendmentInvariant) still allows any amendment — backward compat', async () => {
+    const { db, vault } = await vaultWith(
+      immutableGuard<Invoice>({ collection: 'invoices', after: (r) => r.status === 'issued' }),
+    )
+    const inv = vault.collection<Invoice>('invoices')
+    await inv.put('a', { id: 'a', status: 'issued', total: 50 })
+
     await db.transaction({ amendment: true, reason: 'correct issued total' }, async (tx) => {
       tx.vault('books').collection<Invoice>('invoices').put('a', { id: 'a', status: 'issued', total: 55 })
     })

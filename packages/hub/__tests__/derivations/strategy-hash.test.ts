@@ -29,6 +29,29 @@ describe('computeStrategyHash', () => {
     expect(a).not.toBe(b)
   })
 
+  it('changes when declared sibling sources change (#344)', async () => {
+    const fn = (s: { x: number }) => ({ out: { y: s.x } })
+    const none = await computeStrategyHash('src', ['out'], fn)
+    const withOne = await computeStrategyHash('src', ['out'], fn, ['sib'])
+    const withTwo = await computeStrategyHash('src', ['out'], fn, ['sib', 'sib2'])
+    expect(withOne).not.toBe(none)
+    expect(withTwo).not.toBe(withOne)
+  })
+
+  it('is order-insensitive over declared sibling sources (#344)', async () => {
+    const fn = (s: { x: number }) => ({ out: { y: s.x } })
+    const a = await computeStrategyHash('src', ['out'], fn, ['a', 'b'])
+    const b = await computeStrategyHash('src', ['out'], fn, ['b', 'a'])
+    expect(a).toBe(b)
+  })
+
+  it('empty sources array is identical to omitting sources (#344)', async () => {
+    const fn = (s: { x: number }) => ({ out: { y: s.x } })
+    const omitted = await computeStrategyHash('src', ['out'], fn)
+    const empty = await computeStrategyHash('src', ['out'], fn, [])
+    expect(empty).toBe(omitted)
+  })
+
   it('returns a hex string', async () => {
     const h = await computeStrategyHash('s', ['o'], () => ({ o: {} } as any))
     expect(h).toMatch(/^[0-9a-f]+$/)

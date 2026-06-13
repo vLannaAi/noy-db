@@ -85,6 +85,27 @@ export function withMaterializedView<TRow extends Record<string, unknown>>(
         + `use groupBy to declare the bucketing keys, or remove aggregate for a pure dedup MV`,
       )
     }
+    // `moneyFields` only has meaning when there's an aggregate to
+    // money-rewrite — it keys reducer outputs, so declaring it without
+    // `aggregate` is a no-op config mistake.
+    if (spec.moneyFields && !spec.aggregate) {
+      throw new MaterializedViewConfigError(
+        `withMaterializedView "${spec.name}": moneyFields requires aggregate — `
+        + `moneyFields rewrites sum/min/max reducers over money output fields, `
+        + `so it is meaningless without an aggregate spec`,
+      )
+    }
+    // Per-arm joins resolve right-side collections that the union
+    // dependency set (built from arm `collection`s alone) does NOT
+    // include. The consumer must list those right-side collections in
+    // `sources` so writes to them trigger MV refresh.
+    if (spec.unionSources.some(s => s.join && s.join.length > 0) && (!spec.sources || spec.sources.length === 0)) {
+      throw new MaterializedViewConfigError(
+        `withMaterializedView "${spec.name}": a unionSources arm declares join(s) but `
+        + `no \`sources\` are listed — declare sources: [...] with the right-side `
+        + `(join-target) collection names so writes to them trigger MV refresh`,
+      )
+    }
     if (spec.predicates) {
       throw new MaterializedViewConfigError(
         `withMaterializedView "${spec.name}": predicates are not supported on UNION strategies — `

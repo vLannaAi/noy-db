@@ -45,7 +45,7 @@ import type { BlobStrategy } from './blobs/strategy.js'
 import type { ArchiveStrategy } from './archive/index.js'
 import type { ArchivePolicy, ArchiveContext, ArchiveResult, ArchiveRunOptions } from './archive/index.js'
 import { runArchive, runRestore, runListArchived } from './archive/index.js'
-import { SequenceStore, type SequenceHandle, SEQUENCE_COLLECTION } from './sequence/index.js'
+import { SequenceStore, type SequenceHandle, type SequenceOptions, resolveSequenceKey, SEQUENCE_COLLECTION } from './sequence/index.js'
 import { DeferredNumberingStore, type Assignment } from './numbering/index.js'
 import type { DeferredNumberingConfig } from './numbering/descriptor.js'
 import type { IndexStrategy } from './indexing/strategy.js'
@@ -1341,19 +1341,30 @@ export class Vault {
    * const cur = await vault.sequence('invoice-2026').peek()  // current value, no allocation
    * ```
    */
-  sequence(name: string): SequenceHandle {
+  sequence(series: string, opts?: SequenceOptions): SequenceHandle {
+    // A null byte is the structural partition separator in
+    // resolveSequenceKey; a series name carrying one could forge a
+    // partitioned key, so reject it (#345).
+    if (series.includes('\x00')) {
+      throw new ValidationError(`sequence("${series}"): series name must not contain a null byte (\\x00).`)
+    }
     // Deferred-numbering series route to the pass-based engine; `next({ for })`
-    // resolves at `runNumberingPass`. All other names use the CAS counter.
-    if (this.numberingConfigs.has(name)) {
+    // resolves at `runNumberingPass`. They are keyed by series only and have
+    // no CAS counter, so seedTo (CAS-only) is unavailable. All other names
+    // use the CAS counter.
+    if (this.numberingConfigs.has(series)) {
       const eng = this.deferred()
       return {
-        next: async (opts) => {
-          if (!opts?.for) {
-            throw new ValidationError(`sequence("${name}") is a deferred-numbering series; call next({ for: recordId }).`)
+        next: async (nextOpts) => {
+          if (!nextOpts?.for) {
+            throw new ValidationError(`sequence("${series}") is a deferred-numbering series; call next({ for: recordId }).`)
           }
-          return (await eng.enqueue(name, opts.for)).assigned
+          return (await eng.enqueue(series, nextOpts.for)).assigned
         },
-        peek: () => eng.peek(name),
+        peek: () => eng.peek(series),
+        seedTo: () => {
+          throw new ValidationError(`sequence("${series}") is a deferred-numbering series; seedTo is CAS-only.`)
+        },
       }
     }
     if (!this.sequenceStore) {
@@ -1365,7 +1376,7 @@ export class Vault {
         actor: this.keyring.userId,
       })
     }
-    return this.sequenceStore.handle(name)
+    return this.sequenceStore.handle(resolveSequenceKey(series, opts))
   }
 
   /** @internal — lazily build the deferred-numbering engine with a cache-coherent stamp. */
@@ -1724,9 +1735,29 @@ export class Vault {
           })
         }
         if (rule.mode === 'cascade') {
+          // Atomicity (#346): if a transaction is active, register each
+          // child's prior envelope on it BEFORE the delete so a later
+          // mid-batch failure rolls the cascade back alongside the
+          // parent. Mirrors how derivation outputs self-register on the
+          // active ctx. Outside a tx the context is null and we skip it.
+          const txCtx = this.noydb._activeTxContextOrNull
           for (const match of matches) {
             const matchId = (match['id'] as string | undefined) ?? null
             if (matchId === null) continue
+            if (txCtx !== null) {
+              const prior = await this.adapter.get(this.name, rule.collection, matchId)
+              if (prior !== null) {
+                txCtx._executed.push({
+                  op: {
+                    type: 'delete',
+                    vaultName: this.name,
+                    collectionName: rule.collection,
+                    id: matchId,
+                  },
+                  priorEnvelope: prior,
+                })
+              }
+            }
             // Recursive delete — the cycle breaker above catches
             // infinite loops.
             await fromCollection.delete(matchId)

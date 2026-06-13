@@ -410,11 +410,19 @@ const KERNEL_SURFACE_BUDGET = {
   // schema all see the get() shape) + canonicalizeStoredMoney at the gate
   // and derivation dispatch boundaries. Thin call-sites in the write hot
   // path; the canonicalization logic lives in src/money/normalize.ts.
-  'packages/hub/src/collection.ts': 4040,
+  // Bumped 4040→4060 (2026-06-13): #344 sibling-source derivations —
+  // dispatchDerivations re-reads the PRIMARY source record at the same id
+  // when a write arrives via a declared sibling (spec.source !== this.name).
+  // Thin branch in the write hot path; the registry/index logic lives in
+  // src/derivations/.
+  'packages/hub/src/collection.ts': 4060,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
-  'packages/hub/src/vault.ts': 3700,
+  // Bumped 3700→3735 (2026-06-13): #345 sequence partition/seedTo routing in
+  // `sequence()` (engine in src/sequence/) + #346 cascade-delete atomicity —
+  // child deletes register on the active TxContext inside enforceRefsOnDelete.
+  'packages/hub/src/vault.ts': 3735,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),

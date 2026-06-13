@@ -11,6 +11,7 @@ export type {
   MaterializedViewOutput,
   MaterializedFromMeta,
   UnionSource,
+  UnionArmJoin,
 } from './types.js'
 export type { RegisteredMV } from './registry.js'
 export type { MVExecutorAccessor, RefreshResult } from './executor.js'

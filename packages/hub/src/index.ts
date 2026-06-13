@@ -288,8 +288,8 @@ export type {
 } from './archive/index.js'
 
 // ─── Atomic sequence (#303) ─────────────────────────────────────────────────────
-export { SequenceStore } from './sequence/index.js'
-export type { SequenceHandle, NextOptions } from './sequence/index.js'
+export { SequenceStore, resolveSequenceKey } from './sequence/index.js'
+export type { SequenceHandle, NextOptions, SequenceOptions } from './sequence/index.js'
 
 // Deferred numbering — store-clock-ordered serials for non-CAS stores.
 export { withDeferredNumbering } from './numbering/descriptor.js'
@@ -640,6 +640,8 @@ export { SyncTransaction } from './team/sync-transaction.js'
 // Multi-record transactions
 export { TxContext, TxVault, TxCollection, runTransaction } from './tx/transaction.js'
 export type { TxOp } from './types.js'
+export type { TransactionInvariant } from './tx/invariants.js'
+export type { TransactionStrategyOptions } from './tx/active.js'
 
 // Guards (record lock + field freeze + amendment invariant) — see docs/superpowers/specs/2026-05-18-guards-design.md
 export { withGuard } from './guards/index.js'
@@ -678,6 +680,7 @@ export type {
   MaterializedViewOutput,
   MaterializedFromMeta,
   UnionSource,
+  UnionArmJoin,
 } from './materialized-views/index.js'
 export {
   MaterializedViewCycleError,
@@ -691,6 +694,8 @@ export { withOverlayedView } from './overlay-views/index.js'
 export type {
   OverlayedViewStrategy,
   OverlayedViewStrategyHandle,
+  OverlayFieldMergeRule,
+  OverlayFieldMergeMode,
 } from './overlay-views/index.js'
 export {
   OverlayBaseIsVirtualError,

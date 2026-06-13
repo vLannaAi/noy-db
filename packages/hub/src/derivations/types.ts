@@ -108,6 +108,32 @@ export interface DerivationStrategy<
 > {
   /** Source collection name. */
   source: string
+  /**
+   * Additional collections whose writes ALSO re-fire this derivation
+   * (issue #344). By default only writes to the single declared
+   * `source` re-trigger a derivation; a `derive` that reads sibling
+   * collections via `ctx.vault` therefore goes stale when those
+   * siblings change. Declare those sibling collections here to wire
+   * them as extra triggers.
+   *
+   * **SAME-ID assumption (load-bearing):** when a write lands on one of
+   * these declared collections, the derivation re-fires with the
+   * PRIMARY `source` record read at the SAME id as the written record
+   * — NOT the written sibling record itself. If no primary `source`
+   * record exists at that id, the re-fire is a silent no-op (no throw,
+   * no output mutation). Model your collections so the sibling and the
+   * primary share an id (the common money/accounting case: an
+   * `allocations` row and its `payments`/`bills` keyed by the same id),
+   * or trigger off a collection you control the id-space of.
+   *
+   * Declared collections participate in cycle detection and are indexed
+   * in the registry's `_bySource` exactly like `source`, so a sibling
+   * that is also a derivation output forms a detectable cycle.
+   *
+   * Each entry must be a non-empty string and must not equal `source`
+   * (validated at `withDerivation()` construction time).
+   */
+  sources?: ReadonlyArray<string>
   /** v1: only deterministic derivations supported. */
   deterministic: true
   /**

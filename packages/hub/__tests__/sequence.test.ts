@@ -2,7 +2,7 @@
  * #303 — atomic, gap-free sequence primitive.
  */
 import { describe, it, expect } from 'vitest'
-import { createNoydb, ConflictError, SequenceOfflineError, SequenceContentionError, ReservedCollectionNameError } from '../src/index.js'
+import { createNoydb, ConflictError, SequenceOfflineError, SequenceContentionError, ReservedCollectionNameError, ValidationError } from '../src/index.js'
 import { withHistory } from '../src/history/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/index.js'
 
@@ -189,5 +189,140 @@ describe('#303 vault.sequence', () => {
   it('collection("_sequences") throws ReservedCollectionNameError', async () => {
     const v = await vault(memory())
     expect(() => v.collection('_sequences')).toThrow(ReservedCollectionNameError)
+  })
+})
+
+describe('#345 vault.sequence — partition + seedTo', () => {
+  // ── Partitioning ──────────────────────────────────────────────────────────────
+  it('a partitioned sequence is independent from the unpartitioned series', async () => {
+    const v = await vault(memory())
+    expect(await v.sequence('invoice').next()).toBe(1)
+    expect(await v.sequence('invoice').next()).toBe(2)
+    // Partitioned counter starts fresh — disjoint key.
+    expect(await v.sequence('invoice', { partition: [2026] }).next()).toBe(1)
+    expect(await v.sequence('invoice', { partition: [2026] }).next()).toBe(2)
+    // Unpartitioned counter is untouched by the partitioned allocations.
+    expect(await v.sequence('invoice').next()).toBe(3)
+  })
+
+  it('two partition values are independent of each other', async () => {
+    const v = await vault(memory())
+    expect(await v.sequence('invoice', { partition: ['EU'] }).next()).toBe(1)
+    expect(await v.sequence('invoice', { partition: ['US'] }).next()).toBe(1)
+    expect(await v.sequence('invoice', { partition: ['EU'] }).next()).toBe(2)
+    expect(await v.sequence('invoice', { partition: ['US'] }).next()).toBe(2)
+    expect(await v.sequence('invoice', { partition: ['EU'] }).next()).toBe(3)
+  })
+
+  it('two partition components compose into one independent counter', async () => {
+    const v = await vault(memory())
+    const eu2026 = () => v.sequence('invoice', { partition: [2026, 'EU'] })
+    const us2026 = () => v.sequence('invoice', { partition: [2026, 'US'] })
+    expect(await eu2026().next()).toBe(1)
+    expect(await eu2026().next()).toBe(2)
+    expect(await us2026().next()).toBe(1)
+    // Distinct second component ⇒ distinct counter.
+    expect(await eu2026().next()).toBe(3)
+  })
+
+  it('a numeric partition component coerces to the same key as its string form', async () => {
+    const v = await vault(memory())
+    expect(await v.sequence('invoice', { partition: [2026] }).next()).toBe(1)
+    // String '2026' must resolve to the SAME counter as numeric 2026.
+    expect(await v.sequence('invoice', { partition: ['2026'] }).next()).toBe(2)
+    expect(await v.sequence('invoice', { partition: [2026] }).next()).toBe(3)
+  })
+
+  it("a '/'-containing value is URI-encoded distinct from a 2-element partition", async () => {
+    const v = await vault(memory())
+    // Single component 'a/b' encodes to 'a%2Fb'; a 2-element ['a','b'] joins to 'a/b'.
+    // The two keys must NOT collide.
+    expect(await v.sequence('s', { partition: ['a/b'] }).next()).toBe(1)
+    expect(await v.sequence('s', { partition: ['a', 'b'] }).next()).toBe(1)
+    expect(await v.sequence('s', { partition: ['a/b'] }).next()).toBe(2)
+    expect(await v.sequence('s', { partition: ['a', 'b'] }).next()).toBe(2)
+  })
+
+  it('a series name containing a null byte throws ValidationError', async () => {
+    // NOTE: enforced in vault.sequence() (integration); this case may not pass
+    // until the vault.ts guard lands. Written here for completeness.
+    const v = await vault(memory())
+    expect(() => v.sequence('bad\x00series')).toThrow(ValidationError)
+  })
+
+  it('peek works on a partitioned sequence', async () => {
+    const v = await vault(memory())
+    const seq = () => v.sequence('invoice', { partition: [2026, 'EU'] })
+    expect(await seq().peek()).toBe(0)
+    await seq().next()
+    await seq().next()
+    expect(await seq().peek()).toBe(2)
+    // The unpartitioned series remains at 0.
+    expect(await v.sequence('invoice').peek()).toBe(0)
+  })
+
+  // ── seedTo (set-if-greater) ───────────────────────────────────────────────────
+  it('seedTo advances the counter so next() continues above n', async () => {
+    const v = await vault(memory())
+    const seq = v.sequence('invoice')
+    await seq.seedTo(50)
+    expect(await seq.peek()).toBe(50)
+    expect(await seq.next()).toBe(51)
+    expect(await seq.next()).toBe(52)
+  })
+
+  it('seedTo is a no-op when the counter is already higher (set-if-greater)', async () => {
+    const v = await vault(memory())
+    const seq = v.sequence('invoice')
+    await seq.next() // 1
+    await seq.next() // 2
+    await seq.next() // 3
+    await seq.seedTo(2) // below current — must not rewind
+    expect(await seq.peek()).toBe(3)
+    expect(await seq.next()).toBe(4)
+  })
+
+  it('seedTo(0) is a no-op', async () => {
+    const v = await vault(memory())
+    const seq = v.sequence('invoice')
+    await seq.seedTo(0)
+    expect(await seq.peek()).toBe(0)
+    expect(await seq.next()).toBe(1)
+  })
+
+  it('seedTo is idempotent', async () => {
+    const v = await vault(memory())
+    const seq = v.sequence('invoice')
+    await seq.seedTo(50)
+    await seq.seedTo(50)
+    await seq.seedTo(50)
+    expect(await seq.peek()).toBe(50)
+    expect(await seq.next()).toBe(51)
+  })
+
+  it('seedTo works on a partitioned sequence', async () => {
+    const v = await vault(memory())
+    const seq = v.sequence('invoice', { partition: [2026, 'EU'] })
+    await seq.seedTo(100)
+    expect(await seq.peek()).toBe(100)
+    expect(await seq.next()).toBe(101)
+    // A different partition is unaffected.
+    expect(await v.sequence('invoice', { partition: [2026, 'US'] }).peek()).toBe(0)
+  })
+
+  it('seedTo on a non-CAS store throws SequenceOfflineError', async () => {
+    const v = await vault(memory(false))
+    await expect(v.sequence('x').seedTo(50)).rejects.toBeInstanceOf(SequenceOfflineError)
+  })
+
+  // ── Regression: bundle import must not restart serials at 0 ───────────────────
+  it('bundle-import "restart at 0" regression: seedTo(50) then next()==51', async () => {
+    const v = await vault(memory())
+    const seq = v.sequence('invoice')
+    // Fresh sequence after an import — counter is at 0 but records up to 50 exist.
+    expect(await seq.peek()).toBe(0)
+    await seq.seedTo(50)
+    // next() must skip past the imported serials, not collide with serial 1.
+    expect(await seq.next()).toBe(51)
   })
 })

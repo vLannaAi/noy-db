@@ -81,6 +81,11 @@ export class MaterializedViewRegistry {
     let isQuery = false
     if (spec.unionSources) {
       dependencies = new Set(spec.unionSources.map(s => s.collection))
+      // Per-arm joins resolve right-side collections that aren't among
+      // the arm `collection`s. The consumer lists those in `sources`;
+      // fold them into the dependency set so a write to a join-target
+      // collection triggers MV refresh (and contributes a cycle edge).
+      if (spec.sources) for (const s of spec.sources) dependencies.add(s)
       queryPlanSummary = summarizeUnionPlan(spec)
     } else {
       const q = spec.query!(dbForQuery)

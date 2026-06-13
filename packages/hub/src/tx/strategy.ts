@@ -10,6 +10,7 @@
 import type { Noydb } from '../noydb.js'
 import type { TxContext, AmendmentTxOptions } from './transaction.js'
 import type { DryRunResult } from './dry-run.js'
+import type { TransactionInvariant } from './invariants.js'
 
 /**
  * @internal
@@ -19,6 +20,7 @@ export interface TxStrategy {
     db: Noydb,
     fn: (tx: TxContext) => Promise<T> | T,
     options?: AmendmentTxOptions,
+    txInvariants?: ReadonlyArray<TransactionInvariant>,
   ): Promise<T>
   runDryRun(db: Noydb, fn: (tx: TxContext) => unknown): Promise<DryRunResult>
 }
@@ -33,6 +35,11 @@ const NOT_ENABLED = new Error(
  * @internal
  */
 export const NO_TX: TxStrategy = {
-  async runTransaction() { throw NOT_ENABLED },
+  async runTransaction(
+    _db: Noydb,
+    _fn: unknown,
+    _options?: AmendmentTxOptions,
+    _txInvariants?: ReadonlyArray<TransactionInvariant>,
+  ): Promise<never> { throw NOT_ENABLED },
   async runDryRun() { throw NOT_ENABLED },
 }

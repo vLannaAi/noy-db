@@ -22,12 +22,22 @@ export class DerivationRegistry {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async register(spec: DerivationStrategy<any, any>): Promise<void> {
     const outputKeys = Object.keys(spec.outputs)
-    const strategyHash = await computeStrategyHash(spec.source, outputKeys, spec.derive)
+    const strategyHash = await computeStrategyHash(spec.source, outputKeys, spec.derive, spec.sources)
     const reg: RegisteredStrategy = { spec, strategyHash }
 
     const fromSource = this._bySource.get(spec.source)
     if (fromSource) fromSource.push(reg)
     else this._bySource.set(spec.source, [reg])
+
+    // Declared sibling sources (#344) index the SAME `reg` under each
+    // extra collection so `strategiesForSource(extra)` returns it and a
+    // sibling write re-fires the derivation. Sibling keys also enter
+    // `_bySource`, so `validate()`'s cycle DFS walks them automatically.
+    for (const extra of spec.sources ?? []) {
+      const fromExtra = this._bySource.get(extra)
+      if (fromExtra) fromExtra.push(reg)
+      else this._bySource.set(extra, [reg])
+    }
 
     for (const key of outputKeys) {
       const output = spec.outputs[key]

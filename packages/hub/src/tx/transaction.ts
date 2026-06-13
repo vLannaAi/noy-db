@@ -70,6 +70,8 @@ import {
 import { generateULID } from '../bundle/ulid.js'
 import type { GuardExecutor as GuardExecutorModule } from '../guards/executor.js'
 import type { LedgerEntry } from '../history/ledger/entry.js'
+import type { TransactionInvariant } from './invariants.js'
+import type { GuardChange, GuardContext, ReadOnlyVaultFacade } from '../guards/types.js'
 
 /** One op buffered inside a running `TxContext`. @internal */
 export interface StagedOp {
@@ -288,6 +290,7 @@ export async function runTransaction<T>(
   db: Noydb,
   fn: (tx: TxContext) => Promise<T> | T,
   options?: AmendmentTxOptions,
+  txInvariants?: ReadonlyArray<TransactionInvariant>,
 ): Promise<T> {
   // ─── Amendment-mode pre-flight ───────────────────────────────
   // `reason` is the only thing we can validate before the body runs;
@@ -333,11 +336,28 @@ export async function runTransaction<T>(
   // state; the in-order replay in Phase 2 takes care of successor ops.
   const priorEnvelopes = new Map<string, EncryptedEnvelope | null>()
   const store = db._store
+
+  // Commit-time changeset invariants (#342) need PLAINTEXT prior records
+  // for `before`, but `priorEnvelopes` holds ENCRYPTED envelopes. So for
+  // ops in a watched scope we additionally decrypt the prior record here,
+  // in Phase 1, BEFORE Phase 2 overwrites it. Snapshots only the initial
+  // committed state per (vault, coll, id), matching the envelope snapshot.
+  const invariants = txInvariants ?? []
+  const watchedScopes = new Set(invariants.map(i => i.scope))
+  const plainBefore = new Map<string, unknown>()
+
   for (const op of ctx._ops) {
     const key = keyOf(op)
     if (!priorEnvelopes.has(key)) {
       const env = await store.get(op.vaultName, op.collectionName, op.id)
       priorEnvelopes.set(key, env)
+    }
+    if (watchedScopes.has(op.collectionName) && !plainBefore.has(key)) {
+      const prior = await db
+        .vault(op.vaultName)
+        .collection(op.collectionName)
+        .get(op.id)
+      plainBefore.set(key, prior ?? null)
     }
     if (op.expectedVersion !== undefined) {
       const env = priorEnvelopes.get(key) ?? null
@@ -476,6 +496,86 @@ export async function runTransaction<T>(
           })
         }
         void vaultName
+      }
+    } catch (err) {
+      await revertExecuted(ctx._executed, store, db)
+      throw err instanceof InvariantError ? err : new InvariantError(
+        err instanceof Error ? err.message : `invariant violated: ${String(err)}`,
+      )
+    }
+  }
+
+  // ─── Commit-time changeset invariant phase (#342) ───────────
+  // Runs for BOTH ordinary and amendment transactions (placed after the
+  // amendment phase so an amendment commit is still subject to these
+  // set-level constraints). Assemble the changeset from the executed
+  // staged ops, deduped to the LAST write per (vault, coll, id) while
+  // preserving write order, then group `GuardChange` by collection
+  // (scope) and run each matching invariant. A throw mirrors the
+  // amendment-phase failure mode exactly: revert every executed op and
+  // re-throw as `InvariantError`.
+  if (invariants.length > 0) {
+    // Dedup ctx._ops to the last write per key, preserving first-seen
+    // (write) order so the changeset is stable and order-meaningful.
+    const lastOp = new Map<string, StagedOp>()
+    const order: string[] = []
+    for (const op of ctx._ops) {
+      const key = keyOf(op)
+      if (!lastOp.has(key)) order.push(key)
+      lastOp.set(key, op)
+    }
+
+    // Group {before, after} pairs by collection name (the invariant
+    // scope). `before` is the plaintext prior captured in Phase 1 (null
+    // for inserts / unwatched — only watched scopes were captured, and
+    // every grouped key belongs to a watched scope). `after` is the
+    // written record, null for a delete.
+    const changesByScope = new Map<string, GuardChange<unknown>[]>()
+    // Parallel map: scope → the vault name of its (last-seen) op, used to
+    // build the per-invariant read-only ctx (facade + userId + role).
+    const scopeVault = new Map<string, string>()
+    for (const key of order) {
+      const op = lastOp.get(key)!
+      if (!watchedScopes.has(op.collectionName)) continue
+      const before = plainBefore.get(key) ?? null
+      const after = op.type === 'delete' ? null : (op.record ?? null)
+      const change = { before, after } as GuardChange<unknown>
+      const arr = changesByScope.get(op.collectionName)
+      if (arr) arr.push(change)
+      else changesByScope.set(op.collectionName, [change])
+
+      // Stash the vault name alongside so we can build a per-vault ctx.
+      // (All ops in a scope group could span vaults; we resolve the
+      // vault per change below via a parallel map keyed the same way.)
+      scopeVault.set(op.collectionName, op.vaultName)
+    }
+
+    try {
+      for (const inv of invariants) {
+        const changes = changesByScope.get(inv.scope)
+        if (changes === undefined || changes.length === 0) continue
+        const vaultName = scopeVault.get(inv.scope)!
+        const v = db.vault(vaultName)
+        // Prefer the real read-only facade so the invariant can read
+        // sibling collections; fall back to a minimal read-only stub.
+        const facade: ReadOnlyVaultFacade =
+          v._getReadOnlyFacade() ?? {
+            collection<R = unknown>(name: string) {
+              const c = v.collection<R>(name)
+              return {
+                get: (id: string) => c.get(id),
+                list: () => c.list(),
+                query: () => c.query(),
+              }
+            },
+          }
+        const ctxForInv: GuardContext<unknown> = {
+          existing: null,
+          vault: facade,
+          userId: v.userId,
+          role: v.role,
+        }
+        await inv.check(changes, ctxForInv)
       }
     } catch (err) {
       await revertExecuted(ctx._executed, store, db)
