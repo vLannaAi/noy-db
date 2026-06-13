@@ -26,6 +26,22 @@ export function withDerivation<
     throw new ValidationError('withDerivation: derive must be a function')
   }
 
+  // Validate declared sibling sources (#344). Each must be a non-empty
+  // string and must differ from the primary source — a self-reference
+  // would double-register the strategy under the same `_bySource` key.
+  if (spec.sources !== undefined) {
+    for (const extra of spec.sources) {
+      if (typeof extra !== 'string' || extra.length === 0) {
+        throw new ValidationError('withDerivation: each entry in sources[] must be a non-empty string')
+      }
+      if (extra === spec.source) {
+        throw new ValidationError(
+          `withDerivation: sources[] must not contain the primary source "${spec.source}"`,
+        )
+      }
+    }
+  }
+
   // Validate array-shape outputs.
   const lifecycleMode = typeof spec.lifecycle === 'string' ? spec.lifecycle : spec.lifecycle.mode
   for (const [outputKey, outputSpec] of Object.entries(spec.outputs)) {

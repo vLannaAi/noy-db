@@ -1615,9 +1615,23 @@ export class Collection<T> {
         if (DerivationExecutor === null) {
           ({ DerivationExecutor } = (await import('./derivations/executor.js')) as { DerivationExecutor: typeof DerivationExecutorType })
         }
-        const sourceWithId = { ...incoming, id } as Record<string, unknown> & { id: string }
+        // #344: a sibling-triggered strategy (spec.source !== this.name)
+        // derives against the PRIMARY source record at the same id — not
+        // the incoming sibling record. Read it through the primary
+        // collection so its own money/crypto wiring applies; silent
+        // no-op if no primary record exists at that id (same-id rule).
+        let sourceWithId: Record<string, unknown> & { id: string }
+        let sourceVersion = version
+        if (spec.source === this.name) {
+          sourceWithId = { ...incoming, id } as Record<string, unknown> & { id: string }
+        } else {
+          const primary = await this.derivationSource.getCollection(spec.source).get(id)
+          if (primary === null || primary === undefined) continue
+          sourceWithId = { ...primary, id } as Record<string, unknown> & { id: string }
+          sourceVersion = 0
+        }
         const ctx = { vault: this.derivationSource.getReadOnlyFacade() }
-        const result = await DerivationExecutor.run(spec, sourceWithId, version, strategyHash, ctx)
+        const result = await DerivationExecutor.run(spec, sourceWithId, sourceVersion, strategyHash, ctx)
         for (const key of Object.keys(spec.outputs)) {
           const out = result.outputs[key]
           if (!out) continue

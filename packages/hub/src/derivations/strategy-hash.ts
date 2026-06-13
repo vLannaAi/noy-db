@@ -1,6 +1,7 @@
 /**
  * Deterministic hash of a derivation strategy's "shape": source
- * collection, output keys, derive function source. Used to detect
+ * collection, declared sibling sources, output keys, derive function
+ * source. Used to detect
  * strategy drift: a record whose `_derivedFrom.strategyHash` doesn't
  * match the current strategy is considered stale.
  *
@@ -11,11 +12,16 @@ export async function computeStrategyHash(
   outputKeys: readonly string[],
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   derive: (...args: any[]) => any,
+  sources?: ReadonlyArray<string>,
 ): Promise<string> {
   const canonical = JSON.stringify({
     source,
     outputs: [...outputKeys].sort(),
     derive: derive.toString(),
+    // Declared sibling sources (#344) — adding/removing a trigger
+    // collection invalidates cached derived records. Omitted when empty
+    // so strategies without siblings keep their existing hash.
+    ...(sources?.length ? { sources: [...sources].sort() } : {}),
   })
   const bytes = new TextEncoder().encode(canonical)
   const digest = await crypto.subtle.digest('SHA-256', bytes)
