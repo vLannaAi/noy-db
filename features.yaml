@@ -111,8 +111,10 @@ features:
     subsystem_doc: docs/core/02-encryption.md
     package: '@noy-db/hub'
     factory: null
-    status: preview
-    showcases: []
+    status: stable
+    showcases:
+      - id: 100-with-erasable-blobs
+        path: showcases/src/100-with-erasable-blobs.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
