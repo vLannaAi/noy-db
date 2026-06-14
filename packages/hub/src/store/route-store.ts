@@ -276,6 +276,14 @@ export interface RoutedNoydbStore extends NoydbStore {
 
   /** Snapshot the current override/suspend state for diagnostics. */
   routeStatus(): RouteStatus
+
+  /**
+   * Resolve the physical backend a vault id maps to via the geographic
+   * `vaultRoutes` prefix routing (collection-independent), falling back to
+   * the `default` store. Used by the federation data-residency guard (#271)
+   * to read the placement backend's `capabilities.region`.
+   */
+  resolveBackend(vaultId: string): NoydbStore
 }
 
 // ─── Implementation ──────────────────────────────────────────────────────
@@ -671,6 +679,17 @@ export function routeStore(opts: RouteStoreOptions): RoutedNoydbStore {
       const q: Record<string, number> = {}
       for (const [k, v] of writeQueues) q[k] = v.writes.length
       return { overrides: ov, suspended: [...suspended], queued: q }
+    },
+
+    resolveBackend(vaultId: string): NoydbStore {
+      // Geographic routing is vault-prefix based + collection-independent;
+      // the region-relevant backend is the vaultRoutes match, else default.
+      if (opts.vaultRoutes) {
+        for (const [prefix, s] of Object.entries(opts.vaultRoutes)) {
+          if (vaultId.startsWith(prefix)) return s
+        }
+      }
+      return primary
     },
   }
 

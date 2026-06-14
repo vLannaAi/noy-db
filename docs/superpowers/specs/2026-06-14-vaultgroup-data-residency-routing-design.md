@@ -1,6 +1,10 @@
 # VaultGroup data-residency routing constraint (#271)
 
-> **Status:** DESIGN — awaiting maintainer decision (see § Decision).
+> **Status:** ACCEPTED + BUILT (0.2.0-pre.19 cycle) — shipped recommendation
+> 1 + 2 (advisory `StoreCapabilities.region` + `sharding.regionOf` placement
+> guard + `DataResidencyError` + `RoutedNoydbStore.resolveBackend`) and
+> documented 3 (region-encoded partition-key convention). The `shardKey` helper
+> remains optional/deferred.
 > **Context:** the epic flags data-residency (dim11's `region` idea) as an
 > undesigned dependency for regulated MVF deployments. This scopes how a
 > `VaultGroup` routes each shard to a region-appropriate backend and refuses

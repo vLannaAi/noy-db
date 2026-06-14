@@ -8,7 +8,7 @@ import type { Noydb } from '../noydb.js'
 import type { Vault } from '../vault.js'
 import type { Collection } from '../collection.js'
 import { StateManagementVault } from './state-vault.js'
-import { CrossShardJoinError, ReservedVaultNameError, ShardProvisioningError, UnknownShardError, ValidationError } from '../errors.js'
+import { CrossShardJoinError, DataResidencyError, ReservedVaultNameError, ShardProvisioningError, UnknownShardError, ValidationError } from '../errors.js'
 import { STATE_VAULT_NAME } from './constants.js'
 import { classifyShardSkip } from './classify-skip.js'
 import { applyBroadcastLegs } from './cross-shard-join.js'
@@ -143,14 +143,25 @@ export class VaultGroup<T> {
    * - row + vault present → no-op, return handle
    * - row present, vault gone → ShardProvisioningError
    * - row absent (vault present or not) → open-or-create, configure, write row
+   *
+   * When `region` is given (the routing `put` passes `sharding.regionOf(record)`),
+   * the candidate backend's `capabilities.region` must match or this throws
+   * `DataResidencyError` BEFORE provisioning (#271 data-residency guard).
    */
-  async createShard(partitionKey: string): Promise<Vault> {
+  async createShard(partitionKey: string, region?: string): Promise<Vault> {
     const vaultId = this.shardVaultId(partitionKey)
     const row = await this.registry.get(this.registryId(partitionKey))
     const provisioned = await this.db._shardVaultProvisioned(vaultId)
 
     if (row && !provisioned) throw new ShardProvisioningError(vaultId, partitionKey)
     if (row && provisioned) return this.openShard(partitionKey)
+
+    // Data-residency placement guard: refuse a shard landing on a backend
+    // whose declared region doesn't match the record's required region.
+    if (region !== undefined) {
+      const backendRegion = this.db._resolveBackend(vaultId).capabilities?.region
+      if (backendRegion !== region) throw new DataResidencyError(vaultId, region, backendRegion)
+    }
 
     // Row absent → create (or reconcile a provisioned-but-unregistered vault).
     const vault = await this.db.openVault(vaultId)
@@ -407,7 +418,7 @@ export class ShardedCollection<T, R = T> {
       if (this.group.sharding.autoCreate === false) {
         throw new UnknownShardError(key, this.group.name)
       }
-      vault = await this.group.createShard(key)
+      vault = await this.group.createShard(key, this.group.sharding.regionOf?.(record))
     } else {
       vault = await this.group.openShard(key)
     }

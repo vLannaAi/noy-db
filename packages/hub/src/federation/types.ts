@@ -42,6 +42,16 @@ export interface ShardingConfig<T> {
   readonly vaultTemplate: string
   /** When a write targets an unknown partition key, stamp a shard inline. Default `true`. */
   readonly autoCreate?: boolean
+  /**
+   * Data-residency guard (#271): the geographic region a record's shard must
+   * live in (e.g. `'eu'`). When set, `createShard` resolves the candidate
+   * backend (via `routeStore`'s vault-prefix routing) and throws
+   * `DataResidencyError` if its `capabilities.region` doesn't match — so a
+   * shard never lands on a non-compliant backend. Advisory until a region is
+   * declared on the backing store; pair with `routeStore({ vaultRoutes })`
+   * and a region-encoded partition key (e.g. `eu-acme` → `firm--eu-`).
+   */
+  readonly regionOf?: (record: T) => string
 }
 
 /** Options for `Noydb.openVaultGroup`. */

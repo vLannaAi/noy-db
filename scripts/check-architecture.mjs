@@ -529,7 +529,11 @@ const KERNEL_SURFACE_BUDGET = {
   // on delete, so the bus observer keeps the index from going stale), plus the
   // forgetStrategy field + forwarding to every Vault. The index crypto + the
   // erasure flow live in src/forget/ and vault.ts.
-  'packages/hub/src/noydb.ts': 3070,
+  // Bumped 3070→3085 (2026-06-14, #271 close-out): `_resolveBackend(vaultId)` —
+  // the store-resolution seam for the data-residency placement guard. It must
+  // live on Noydb (which owns `options.store`); the routing logic itself stays
+  // in src/store/route-store.ts (RoutedNoydbStore.resolveBackend).
+  'packages/hub/src/noydb.ts': 3085,
 }
 
 function checkKernelSurface() {

@@ -216,6 +216,46 @@ await firm.migrateShard('acme')
 - **Co-location assumption**: the runner drives co-located shards in-process.
   Per-process/distributed shards are a `by-server` concern, out of scope.
 
+## Data residency (#271)
+
+A regulated firm must keep each client's shard on a backend in a specific region
+(`acme` → EU store, `globex` → US store). Routing already supports this via
+`routeStore({ vaultRoutes })` (vault-name prefix → backend); the residency guard
+adds **enforcement** so a shard can never be *placed* on a wrong-region backend.
+
+```ts
+const eu = /* an EU-region store */, us = /* a US-region store */
+// Backends declare the region they serve:
+eu.capabilities = { ...eu.capabilities, region: 'eu' }
+us.capabilities = { ...us.capabilities, region: 'us' }
+
+const store = routeStore({ vaultRoutes: { 'firm--eu-': eu, 'firm--us-': us }, default: control })
+const firm = await db.openVaultGroup<Client>('firm', {
+  sharding: {
+    keyOf: (r) => r.placementKey,   // region-encoded → routes to the right backend
+    regionOf: (r) => r.region,      // the legally-required residency region
+    vaultTemplate: 'client', autoCreate: true,
+  },
+})
+
+await firm.collection('clients').put('c1', { region: 'eu', placementKey: 'eu-acme', ... })  // ✓ EU
+await firm.collection('clients').put('c2', { region: 'eu', placementKey: 'us-acme', ... })  // ✗ DataResidencyError
+```
+
+- **`StoreCapabilities.region`** (advisory) — a store declares the region it serves;
+  zero behavior change for stores that omit it.
+- **`sharding.regionOf(record)`** — the region a record's shard must live in. On
+  `createShard` (and the auto-creating `put`), the group resolves the candidate
+  backend (`routeStore.resolveBackend(vaultId)` — vault-prefix routing) and throws
+  **`DataResidencyError`** *before provisioning* if the backend's `region` differs.
+- **Placement-only.** Reads aren't blocked (the route already determines the
+  physical backend); the guard prevents wrong-region *placement* — the
+  compliance-relevant event — and loudly catches naming/routing drift.
+- **Convention.** Encode the region in the partition key (`eu-acme`, `us-globex`,
+  within `[A-Za-z0-9._-]`) so `firm--eu-` / `firm--us-` prefixes route. Re-homing
+  an existing shard between regions is out of scope (an `extractPartition` →
+  re-adopt ceremony, #198), not a routing change.
+
 ## Control plane — StateManagement Vault
 
 `openVaultGroup(name)` (no explicit `registry`) auto-opens the reserved
