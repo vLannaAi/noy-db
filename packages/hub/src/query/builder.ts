@@ -24,6 +24,13 @@ import { moneyFieldClause } from '../money/where.js'
 export interface OrderBy {
   readonly field: string
   readonly direction: 'asc' | 'desc'
+  /**
+   * Sort key for a `dictKey`/`staticDict` field (#285): `'value'` (default)
+   * sorts by the stored code; `'label'` sorts by the code's resolved label at
+   * the query locale (`toArray({ locale })`, or a `staticDict` `displayLocale`).
+   * Falls back to the code when no label resolves.
+   */
+  readonly by?: 'value' | 'label'
 }
 
 /**
@@ -304,11 +311,16 @@ export class Query<T> {
     )
   }
 
-  /** Sort by a field. Subsequent calls are tie-breakers. */
-  orderBy(field: string, direction: 'asc' | 'desc' = 'asc'): Query<T> {
+  /**
+   * Sort by a field. Subsequent calls are tie-breakers. Pass
+   * `{ by: 'label' }` to sort a `dictKey`/`staticDict` field by its resolved
+   * label at the query locale instead of the stored code (#285).
+   */
+  orderBy(field: string, direction: 'asc' | 'desc' = 'asc', opts?: { by?: 'value' | 'label' }): Query<T> {
+    const entry: OrderBy = opts?.by === 'label' ? { field, direction, by: 'label' } : { field, direction }
     return new Query<T>(
       this.source as QuerySource<T>,
-      { ...this.plan, orderBy: [...this.plan.orderBy, { field, direction }] },
+      { ...this.plan, orderBy: [...this.plan.orderBy, entry] },
       this.joinContext,
       this.aggregateStrategy,
       this.predicates,
@@ -561,7 +573,7 @@ export class Query<T> {
     // query().toArray() matches get()/sum(), which already return decimal.
     // Decode the left/base records before joins (right-side aliased fields
     // belong to other collections and are out of this source's money scope).
-    const base = this.decodeMoney(executePlanWithSource(this.source, this.plan, this.joinContext))
+    const base = this.decodeMoney(executePlanWithSource(this.source, this.plan, this.joinContext, opts?.locale))
     if (this.plan.joins.length === 0) return base as T[]
     if (!this.joinContext) {
       // Unreachable in practice — .join() throws if joinContext is
@@ -947,6 +959,7 @@ function executePlanWithSource(
   source: InternalSource,
   plan: QueryPlan,
   joinContext?: JoinContext,
+  locale?: string,
 ): unknown[] {
   const hasCrossJoins = plan.clauses.some(c => c.type === 'crossJoin')
 
@@ -971,7 +984,10 @@ function executePlanWithSource(
   }
 
   if (plan.orderBy.length > 0) {
-    result = sortRecords(result, plan.orderBy, source.moneyFields)
+    // #285 dictKey label-sort: for any `orderBy(..., { by: 'label' })`, build a
+    // sync code→label map at the query locale so the sort compares labels.
+    const labelMaps = buildOrderLabelMaps(plan.orderBy, joinContext, locale)
+    result = sortRecords(result, plan.orderBy, source.moneyFields, labelMaps)
   }
   if (plan.offset > 0) {
     result = result.slice(plan.offset)
@@ -1226,12 +1242,23 @@ function sortRecords(
   records: unknown[],
   orderBy: readonly OrderBy[],
   moneyFields?: Record<string, MoneyDescriptor>,
+  labelMaps?: Map<string, Map<string, string>>,
 ): unknown[] {
   // Stable sort: Array.prototype.sort is required to be stable since ES2019.
   return [...records].sort((a, b) => {
-    for (const { field, direction } of orderBy) {
-      const av = readField(a, field)
-      const bv = readField(b, field)
+    for (const { field, direction, by } of orderBy) {
+      let av = readField(a, field)
+      let bv = readField(b, field)
+      // #285 dictKey label-sort: compare resolved labels (fallback to the code
+      // when unresolved), so e.g. honorific codes sort by their locale label.
+      const labelMap = by === 'label' ? labelMaps?.get(field) : undefined
+      if (labelMap) {
+        av = (typeof av === 'string' ? labelMap.get(av) : undefined) ?? av
+        bv = (typeof bv === 'string' ? labelMap.get(bv) : undefined) ?? bv
+        const cmp = compareValues(av, bv)
+        if (cmp !== 0) return direction === 'asc' ? cmp : -cmp
+        continue
+      }
       // Money fields are stored as scaled-integer strings (#322); the generic
       // string comparator would sort them lexically ('9882' > '10004'). Compare
       // declared money fields by their BigInt scaled value instead — exact, and
@@ -1242,6 +1269,39 @@ function sortRecords(
     }
     return 0
   })
+}
+
+/**
+ * #285 dictKey label-sort: for each `orderBy(..., { by: 'label' })` field, build
+ * a sync `code → label` map at the query `locale` (falling back to a
+ * `staticDict` `displayLocale`) from the join context's dict source. Fields
+ * with no resolvable dict source are skipped — the sort then falls back to the
+ * stored code for them.
+ */
+function buildOrderLabelMaps(
+  orderBy: readonly OrderBy[],
+  joinContext: JoinContext | undefined,
+  locale: string | undefined,
+): Map<string, Map<string, string>> | undefined {
+  if (!joinContext?.resolveDictSource) return undefined
+  const resolveDict = joinContext.resolveDictSource.bind(joinContext)
+  let maps: Map<string, Map<string, string>> | undefined
+  for (const { field, by } of orderBy) {
+    if (by !== 'label') continue
+    const dictSource = resolveDict(field)
+    if (!dictSource) continue
+    const loc = locale ?? dictSource.displayLocale
+    if (loc === undefined) continue
+    const codeToLabel = new Map<string, string>()
+    for (const entry of dictSource.snapshot()) {
+      const k = (entry as Record<string, unknown>)['key']
+      const labels = (entry as Record<string, unknown>)['labels'] as Record<string, string> | undefined
+      const label = labels?.[loc]
+      if (typeof k === 'string' && typeof label === 'string') codeToLabel.set(k, label)
+    }
+    ;(maps ??= new Map()).set(field, codeToLabel)
+  }
+  return maps
 }
 
 /** Compare two stored money values by BigInt scaled-int; nullish/malformed last (asc). */

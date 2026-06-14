@@ -569,6 +569,7 @@ features:
       - 'script enforcement is asymmetric-Latin: non-Latin locales also allow Latin (embedded brand/building names); Latin locales reject other scripts; Common/Inherited/Mark always allowed'
       - 'onScriptViolation reject (default) | filter | warn; ScriptViolationError distinct from MissingTranslationError / LocaleNotSpecifiedError'
       - 'dictKey array-of-keys resolves to [{key,label}] pair objects; wildcard-path contacts[].title adds per-element <leaf>Label; identity ops bind to the stable key'
+      - 'dictKey label-sort (#285): orderBy(field, dir, {by:"label"}) sorts a dictKey/staticDict field by its resolved label at the query locale (toArray({locale}) or staticDict displayLocale), falling back to the code; default orderBy still sorts by the stored code; identity binding stays on the code'
       - 'staticDict(name, table, {displayLocale}) resolves labels from an in-code table — no _dict_* collection, no rename()'
       - 'static dicts resolve under a locale-less read via displayLocale; plain dictKey does not (locale gate preserved)'
       - 'static dict names are read-only: put/rename/delete throw StaticDictReadonlyError'
