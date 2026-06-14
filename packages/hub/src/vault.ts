@@ -77,6 +77,7 @@ import { NO_PERIODS, type PeriodsStrategy } from './periods/strategy.js'
 import {
   RefRegistry,
   RefIntegrityError,
+  isRefArray,
   type RefDescriptor,
   type RefViolation,
 } from './refs.js'
@@ -1909,6 +1910,48 @@ export class Vault {
       // Users who want "always required" should express it in their
       // Standard Schema validator via a non-optional field.
       if (rawId === null || rawId === undefined) continue
+
+      // Array ref (#377-A): validate each element against the target.
+      if (isRefArray(descriptor)) {
+        if (!Array.isArray(rawId)) {
+          throw new RefIntegrityError({
+            collection: collectionName,
+            id: (obj['id'] as string | undefined) ?? '<unknown>',
+            field,
+            refTo: descriptor.target,
+            refId: null,
+            message: `Array ref field "${collectionName}.${field}" must be an array, got ${typeof rawId}.`,
+          })
+        }
+        const arrTarget = this.collection<Record<string, unknown>>(descriptor.target)
+        for (const el of rawId) {
+          if (typeof el !== 'string' && typeof el !== 'number') {
+            throw new RefIntegrityError({
+              collection: collectionName,
+              id: (obj['id'] as string | undefined) ?? '<unknown>',
+              field,
+              refTo: descriptor.target,
+              refId: null,
+              message: `Array ref "${collectionName}.${field}" elements must be strings or numbers, got ${typeof el}.`,
+            })
+          }
+          const elId = String(el)
+          if (!(await arrTarget.get(elId))) {
+            throw new RefIntegrityError({
+              collection: collectionName,
+              id: (obj['id'] as string | undefined) ?? '<unknown>',
+              field,
+              refTo: descriptor.target,
+              refId: elId,
+              message:
+                `Strict array ref "${collectionName}.${field}" → "${descriptor.target}" ` +
+                `cannot be satisfied: element id "${elId}" not found in "${descriptor.target}".`,
+            })
+          }
+        }
+        continue
+      }
+
       // Refs must be strings or numbers — anything else (object,
       // array, boolean) is a programming error and should fail
       // loudly rather than serialize as "[object Object]".
@@ -1969,7 +2012,13 @@ export class Vault {
         const allRecords = await fromCollection.list()
         const matches = allRecords.filter((rec) => {
           const raw = rec[rule.field]
-          // Same string/number-only restriction as enforceRefsOnPut.
+          // Array ref (#377-A): match when any element equals the deleted id.
+          if (rule.isArray) {
+            return Array.isArray(raw) && raw.some(
+              (el) => (typeof el === 'string' || typeof el === 'number') && String(el) === id,
+            )
+          }
+          // Scalar: same string/number-only restriction as enforceRefsOnPut.
           // Anything else can't have been a valid ref to begin with,
           // so it can't match.
           if (typeof raw !== 'string' && typeof raw !== 'number') return false
@@ -2098,6 +2147,26 @@ export class Vault {
         for (const [field, descriptor] of Object.entries(refs)) {
           const rawId = record[field]
           if (rawId === null || rawId === undefined) continue
+          const target = this.collection<Record<string, unknown>>(descriptor.target)
+
+          // Array ref (#377-A): report one violation per dangling element.
+          if (isRefArray(descriptor)) {
+            if (!Array.isArray(rawId)) {
+              violations.push({ collection: collectionName, id: recId, field, refTo: descriptor.target, refId: rawId, mode: descriptor.mode })
+              continue
+            }
+            for (const el of rawId) {
+              if (typeof el !== 'string' && typeof el !== 'number') {
+                violations.push({ collection: collectionName, id: recId, field, refTo: descriptor.target, refId: el, mode: descriptor.mode })
+                continue
+              }
+              if (!(await target.get(String(el)))) {
+                violations.push({ collection: collectionName, id: recId, field, refTo: descriptor.target, refId: el, mode: descriptor.mode })
+              }
+            }
+            continue
+          }
+
           // Non-scalar ref values are flagged as a violation rather
           // than thrown — `checkIntegrity` is a "report what's wrong"
           // tool, not a "block on first failure" tool. The thrown
@@ -2114,7 +2183,6 @@ export class Vault {
             continue
           }
           const refId = String(rawId)
-          const target = this.collection<Record<string, unknown>>(descriptor.target)
           const exists = await target.get(refId)
           if (!exists) {
             violations.push({

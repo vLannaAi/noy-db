@@ -53,6 +53,33 @@ Three modes (passed as `ref(target, mode)` or `ref(target, { mode })`):
 | `'warn'` | Throws | Joined value is `null`; one-shot console warn |
 | `'cascade'` | Cascades the delete to all referencing children | Joined value is `null` silently |
 
+### Array refs / many-to-many (`refArray`, #377-A)
+
+`refArray(target, mode)` gives a field holding an **array of ids** the same
+integrity, for M:N relationships (order↔product, post↔tag):
+
+```ts
+import { refArray } from '@noy-db/hub'
+
+const orders = vault.collection<Order>('orders', {
+  refs: { productIds: refArray('products', 'warn') },
+})
+```
+
+Each element is validated against `target` independently, with the same
+three modes applied per element:
+
+- **strict** — `put()` rejects if **any** element's target is missing (the
+  error's `refId` is the offending element); `delete()` of a target is
+  blocked while any record's array still contains its id.
+- **warn** — both succeed; `vault.checkIntegrity()` reports **one violation
+  per dangling element**.
+- **cascade** — `delete()` of a target deletes every record whose array
+  contains its id (cycle-safe, like scalar cascade); `put()` is unchecked
+  (same as scalar cascade).
+
+An empty array or a `null`/`undefined` field is allowed (no links).
+
 Used by:
 - `query.join(field, { as })` — see [docs/subsystems/joins.md](../subsystems/joins.md)
 - `vault.checkIntegrity()` — full ref-graph audit

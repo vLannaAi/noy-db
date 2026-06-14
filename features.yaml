@@ -167,7 +167,9 @@ features:
     package: '@noy-db/hub'
     factory: null
     status: stable
-    showcases: []
+    showcases:
+      - id: 103-ref-array
+        path: showcases/src/103-ref-array.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
@@ -175,6 +177,7 @@ features:
       - 'Standard Schema v1 — Zod, Valibot, ArkType, Effect Schema compatible'
       - 'Validation runs before encryption (write) and after decryption (read)'
       - 'cascade-delete (ref mode "cascade") is transaction-atomic (#346): cascaded child deletes register on the active TxContext (_executed) and roll back with the parent on mid-batch failure; outside a tx, children + parent delete in place as before'
+      - 'array refs / M:N (#377-A): refArray(target, mode) validates each element of an id-array field against the target; strict rejects on a missing element at put + blocks delete of a referenced target; cascade deletes every record whose array contains the deleted id (cycle-safe); warn surfaces one checkIntegrity() violation per dangling element; empty/nullish arrays allowed'
     related: [vault-and-collections]
 
   - id: money-field

@@ -446,6 +446,8 @@ export type {
 // Foreign-key references via ref()
 export {
   ref,
+  refArray,
+  isRefArray,
   RefRegistry,
   RefIntegrityError,
   RefScopeError,
