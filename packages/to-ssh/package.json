@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/to-ssh",
-  "version": "0.2.0-pre.17",
+  "version": "0.2.0-pre.18",
   "description": "SSH/SFTP store for noy-db — remote encrypted document storage over SSH using public-key auth. Any Linux/macOS server with sshd running becomes a noy-db backend; leverages existing ~/.ssh keys or ssh-agent. Key-only auth (no passwords).",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
