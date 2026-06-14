@@ -450,7 +450,14 @@ const KERNEL_SURFACE_BUDGET = {
   // write-path lifecycle moved to src/record-keys/lifecycle.ts behind a deps
   // interface — resolveRecordCek is now a thin delegate to resolveStableCek,
   // and the elevate/demote tier re-wrap if/else collapsed into rewrapBodyToDek.
-  'packages/hub/src/collection.ts': 4385,
+  // Bumped 4385→4610 (2026-06-14, 0.2.0-pre.18): #376 FK-keyed derivations —
+  // triggerBy reverse-denormalization + withRollup aggregate-onto-parent. The
+  // dispatch refactor (runs[] fan-out), self-write denorm with value-equality
+  // cycle guard, _getStoredRecord/_findMatchingIds index lookup, and the rollup
+  // recompute + onDelete hook are write-path orchestration that must sequence
+  // with the existing derivation dispatch; the rollup/trigger registries live
+  // in src/derivations/.
+  'packages/hub/src/collection.ts': 4610,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
@@ -494,7 +501,14 @@ const KERNEL_SURFACE_BUDGET = {
   // orchestration — it must sequence with the per-record tombstone + the single
   // op:'forget' ledger entry, so it cannot move onto the bus. The blob refCount/
   // crypto-shred mechanics live in src/blobs/blob-set.ts.
-  'packages/hub/src/vault.ts': 4210,
+  // Bumped 4210→4470 (2026-06-14, 0.2.0-pre.18): the pilot-2 fast-lane batch —
+  // #375 formatted/reset-aware sequence() overload, #377-A refArray enforcement
+  // branches in enforceRefsOnPut/Delete/checkIntegrity, #377-B vault.link/links
+  // managed M:N (link-set methods + enforceLinksOnDelete + reserved guard), and
+  // #361 per-collection history-ledger scoping (historyConfig on collection()).
+  // These are call-site/enforcement seams that must live on the always-on vault;
+  // the engines live in src/sequence/, src/refs.ts, and src/links/.
+  'packages/hub/src/vault.ts': 4470,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
