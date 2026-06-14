@@ -3839,6 +3839,35 @@ export class Collection<T> {
   }
 
   /**
+   * @internal — hard-delete this record's persisted `_idx/<field>/<recordId>`
+   * side-cars for the erasure path (#401). `forget()` crypto-shreds the body but
+   * keeps the collection DEK, under which these side-cars are encrypted — so
+   * without this they leave the indexed field VALUES readable after a "forget".
+   *
+   * Content-free: the side-car id is `encodeIdxId(def.key, id)`, so it needs no
+   * body decode (the body is being shredded). Eager mode has no durable side-car
+   * → no-op. The in-memory mirror is left as-is: it is ephemeral (rebuilt from
+   * the now-deleted side-cars on reopen) and live reads skip the tombstone, so a
+   * stale mirror hit cannot surface the erased record. Returns the count deleted
+   * + the `def.key`s whose delete FAILED (residue that still leaks the value).
+   */
+  async _purgePersistedIndexes(id: string): Promise<{ purged: number; residue: string[] }> {
+    const persisted = this.persistedIndexes
+    if (!persisted) return { purged: 0, residue: [] }
+    let purged = 0
+    const residue: string[] = []
+    for (const def of persisted.definitions()) {
+      try {
+        await this.adapter.delete(this.vault, this.name, encodeIdxId(def.key, id))
+        purged++
+      } catch {
+        residue.push(def.key)
+      }
+    }
+    return { purged, residue }
+  }
+
+  /**
    * Bulk-load the persisted-index mirror from `_idx/<field>/*` side-cars
    * on first lazy-mode query. Idempotent — subsequent calls short-circuit
    * on the `persistedIndexesLoaded` flag.

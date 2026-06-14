@@ -457,7 +457,11 @@ const KERNEL_SURFACE_BUDGET = {
   // recompute + onDelete hook are write-path orchestration that must sequence
   // with the existing derivation dispatch; the rollup/trigger registries live
   // in src/derivations/.
-  'packages/hub/src/collection.ts': 4610,
+  // Bumped 4610→4640 (2026-06-14, #401): `_purgePersistedIndexes(id)` — the
+  // erasure-path teardown of a record's `_idx` side-cars that `forget()` calls
+  // (they live under the retained collection DEK, so crypto-shred alone leaves
+  // them readable). Must be on the collection (owns the adapter + index defs).
+  'packages/hub/src/collection.ts': 4640,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
@@ -508,7 +512,10 @@ const KERNEL_SURFACE_BUDGET = {
   // #361 per-collection history-ledger scoping (historyConfig on collection()).
   // These are call-site/enforcement seams that must live on the always-on vault;
   // the engines live in src/sequence/, src/refs.ts, and src/links/.
-  'packages/hub/src/vault.ts': 4470,
+  // Bumped 4470→4485 (2026-06-14, #401): forget() now purges each shredded
+  // record's persisted `_idx` side-cars + reports residue (indexPostingsPurged /
+  // indexResidue) — core erasure orchestration alongside the tombstone/blob shred.
+  'packages/hub/src/vault.ts': 4485,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),

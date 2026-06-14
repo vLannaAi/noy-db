@@ -2469,6 +2469,8 @@ export class Vault {
     const blobResidueCollections = new Set<string>()
     let blobsShredded = 0
     let blobsRetainedShared = 0
+    let indexPostingsPurged = 0
+    const indexResidue: string[] = []
     const blobsEnabled = this.blobStrategy !== undefined
     const actor = this.keyring.userId
 
@@ -2497,6 +2499,14 @@ export class Vault {
       historyVersionsShredded += await this.historyStrategy.tombstoneHistory(
         this.adapter, this.name, ref.collection, ref.id, actor,
       )
+
+      // Purge the record's persisted `_idx` side-cars (#401): they live under
+      // the retained collection DEK, so crypto-shred alone leaves the indexed
+      // field VALUES readable. Content-free delete; failures → indexResidue.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const idxPurge = await (coll as any)._purgePersistedIndexes(ref.id) as { purged: number; residue: string[] }
+      indexPostingsPurged += idxPurge.purged
+      for (const field of idxPurge.residue) indexResidue.push(`${ref.collection}:${ref.id}:${field}`)
 
       // Blob attachments (#365): crypto-shred the record's erasable blobs.
       // An erasable blob's chunks are under a per-blob content CEK whose only
@@ -2549,6 +2559,8 @@ export class Vault {
         blobsShredded,
         blobsRetainedShared,
         blobResidueCollections: [...blobResidueCollections],
+        indexPostingsPurged,
+        indexResidueCount: indexResidue.length,
       }),
     })
 
@@ -2561,6 +2573,8 @@ export class Vault {
       blobsShredded,
       blobsRetainedShared,
       blobResidueCollections: [...blobResidueCollections],
+      indexPostingsPurged,
+      indexResidue,
       ledgerEntry,
     }
   }

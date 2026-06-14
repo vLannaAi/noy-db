@@ -112,6 +112,20 @@ export interface ForgetResult {
   readonly blobsRetainedShared: number
   /** Collections with blobs that could NOT be crypto-shredded — legacy (no `_cek`) or blobs disabled (see type docs). */
   readonly blobResidueCollections: readonly string[]
+  /**
+   * Count of persisted `_idx/<field>/<recordId>` index side-cars hard-deleted
+   * across the shredded records (#401). These live under the retained
+   * collection DEK, so crypto-shred alone would leave the indexed field VALUES
+   * readable — `forget()` must delete them.
+   */
+  readonly indexPostingsPurged: number
+  /**
+   * `collection:id:field` entries whose persisted `_idx` side-car could NOT be
+   * deleted (#401) — index residue that still leaks the indexed value under the
+   * retained collection DEK. Non-empty means erasure is INCOMPLETE: retry, or
+   * purge the side-car out of band.
+   */
+  readonly indexResidue: readonly string[]
   /** The single `op:'forget'` ledger entry appended for this erasure. */
   readonly ledgerEntry: LedgerEntry
 }
