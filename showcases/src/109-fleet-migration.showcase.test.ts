@@ -40,7 +40,8 @@ import { memory } from '@noy-db/to-memory'
 const oldSchema = z.object({ id: z.string(), clientId: z.string(), total: z.number() })
 const newSchema = z.object({ id: z.string(), clientId: z.string(), amount: z.object({ gross: z.number() }) })
 const transform = (d: Record<string, unknown>) => ({ id: d['id'], clientId: d['clientId'], amount: { gross: d['total'] } })
-const sharding = { keyOf: (r: { clientId: string }) => r.clientId, vaultTemplate: 'client', autoCreate: true }
+type InvoiceV1 = { id: string; clientId: string; total: number }
+const sharding = { keyOf: (r: InvoiceV1) => r.clientId, vaultTemplate: 'client', autoCreate: true }
 
 describe('Showcase 109 — Fleet schema migration', () => {
   it('migrates a sharded fleet from v1 to v2, staged then complete', async () => {
