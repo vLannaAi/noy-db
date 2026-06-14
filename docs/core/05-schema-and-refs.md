@@ -85,6 +85,40 @@ Used by:
 - `vault.checkIntegrity()` — full ref-graph audit
 - `Vault.delete*` enforcement — `enforceRefsOnDelete(collection, id)`
 
+## Managed many-to-many links (`vault.link`, #377-B)
+
+For a real M:N relationship — queryable from both sides, with per-link
+metadata — declare a **managed junction**. `vault.link()` registers a
+dedicated encrypted `_links_<name>` collection between two endpoint
+collections; `vault.links()` operates it.
+
+```ts
+vault.link('saleLineLinks', {
+  a: ref('saleLines'), b: ref('purchaseLines'), // or plain names
+  onDelete: 'cascade',                          // default
+})
+
+const links = vault.links('saleLineLinks')
+await links.connect('s1', 'p1', { matchedQty: 6 }) // validates both endpoints exist
+await links.of('s1')        // [{ a:'s1', b:'p1', meta:{ matchedQty:6 } }] — either slot
+await links.has('s1', 'p1') // true
+await links.disconnect('s1', 'p1')
+```
+
+- **Slot-typed** — `a` is an id in the `a` collection, `b` in the `b`
+  collection (may be the same for self-links); `of(id)` matches either slot.
+- **`onDelete`** when an endpoint *record* is deleted: `'cascade'` (default)
+  removes the touching link rows (tx-atomic in a transaction); `'strict'`
+  throws `LinkIntegrityError` and blocks the delete; `'warn'` leaves orphan
+  rows, surfaced by `vault.checkIntegrity()`.
+- Rows are encrypted under their own `_links_<name>` DEK; `vault.collection('_links_*')` is rejected.
+
+**`refArray` vs `vault.link`.** Reach for [`refArray`](#) (an id-array on one
+record) for simple tag-like sets; reach for `vault.link` when links are
+*entities* — queryable both ways, annotatable, cascading. v1 of `vault.link`
+defers a query-DSL `joinThrough()` (use `of(id)`) and ledgering of link
+mutations.
+
 ## Edge cases
 
 - Refs are **intra-vault**. Cross-vault references are out of scope; use `db.queryAcross` for federated reads.
