@@ -872,6 +872,28 @@ features:
       - 'amendmentInvariant (#349): optional; when supplied, wires a real constraining invariant (matching GuardStrategy.amendment.invariant) into the amendment path so a constraint stays inviolable even under amendment; default omitted = empty-allow override (backward compatible)'
     related: [guards, transactions]
 
+  - id: transition-guard
+    name: transitionGuard — declarative state-machine guard
+    cluster: time-and-audit
+    spec: docs/subsystems/guards.md#guards
+    subsystem_doc: docs/subsystems/guards.md
+    package: '@noy-db/hub/guards'
+    factory: null
+    status: preview
+    showcases:
+      - id: 101-transition-guard
+        path: showcases/src/101-transition-guard.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'transitionGuard({ collection, field, transitions, initial? }) generates a withGuard spec — no new write-path code; generalizes immutableGuard (WORM = every state maps to [])'
+      - 'insert (existing === null): incoming[field] must be in `initial`; when `initial` is omitted any value is allowed on insert'
+      - 'update: the arc (existing[field] → incoming[field]) must be a declared edge in transitions[from], else IllegalTransitionError(collection,id,from,to); a state absent from the map is terminal'
+      - 'same-state write (from === to) allowed when allowIdempotent (default true), so puts that change other fields without moving state pass'
+      - 'amendment override (admin|owner) skips the check and is ledgered, via the standard guard amendment path; out-of-initial inserts report from: "(none)"'
+    related: [guards, transactions, immutable-guard]
+
   - id: bundle
     name: '.noydb container format'
     cluster: snapshot-and-portability

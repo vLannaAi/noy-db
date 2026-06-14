@@ -558,6 +558,34 @@ export class FieldFrozenError extends NoydbError {
 }
 
 /**
+ * Thrown by a `transitionGuard` when a write moves a state field along an
+ * arc that the declared transition graph does not allow — either an
+ * update `from → to` that is not a listed edge, or an insert whose
+ * initial state is not in the allowed `initial` set (reported with
+ * `from: '(none)'`). Override via an amendment transaction by an
+ * authorized role, like any guard.
+ */
+export class IllegalTransitionError extends NoydbError {
+  readonly collection: string
+  readonly id: string
+  readonly from: string
+  readonly to: string
+
+  constructor(collection: string, id: string, from: string, to: string) {
+    super(
+      'ILLEGAL_TRANSITION',
+      `Cannot transition ${collection}/${id} from "${from}" to "${to}" — not a declared arc. ` +
+        `Use withTransactions({ amendment: true, reason }) with admin/owner role to override.`,
+    )
+    this.name = 'IllegalTransitionError'
+    this.collection = collection
+    this.id = id
+    this.from = from
+    this.to = to
+  }
+}
+
+/**
  * Thrown by an amendment invariant when the proposed change-set violates
  * the declared business rule (e.g. disbursement total not preserved).
  * Triggers a full transaction rollback via the existing revert pass.
