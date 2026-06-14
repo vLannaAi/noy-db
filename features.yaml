@@ -311,7 +311,9 @@ features:
     package: '@noy-db/hub'
     factory: null
     status: preview
-    showcases: []
+    showcases:
+      - id: 102-formatted-sequence
+        path: showcases/src/102-formatted-sequence.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
@@ -322,6 +324,7 @@ features:
       - 'jittered backoff; SequenceContentionError after the retry budget so callers can retry/queue'
       - 'partitioned counters (#345): vault.sequence(series, { partition: [...] }) keys an independent counter per partition; storage key = series + null-byte separator + URI-encoded "/"-joined parts, provably disjoint from plain series keys (null byte rejected in a series name)'
       - 'seedTo(n) (#345): set-if-greater on the handle — advances to at least n, never rewinds; idempotent + CAS-safe under concurrent next()/seedTo(); fixes bundle/CSV-import counter restart-at-0; online-only (SequenceOfflineError on non-CAS; ValidationError on a deferred series)'
+      - 'formatted serials (#375): vault.sequence(series, { format }) returns a FormattedSequenceHandle whose next() resolves to { serial, formatted }; tokens {seq}/{seq:0N}/{partition.i}; unknown token or out-of-range partition index throws ValidationError at construction; per-partition reset is inherent; unformatted next() still returns a bare number (back-compat); format is CAS-only (ValidationError on a deferred series — deferred-numbering render is a follow-up)'
     related: [stores-contract, query-basics]
 
   - id: deferred-numbering

@@ -58,6 +58,81 @@ export interface NextOptions {
 export interface SequenceOptions {
   /** Partition tuple. Each component is URI-encoded and `'/'`-joined. */
   readonly partition?: readonly (string | number)[]
+  /**
+   * Render template for the serial string (#375). When set, `vault.sequence`
+   * returns a {@link FormattedSequenceHandle} whose `next()` resolves to
+   * `{ serial, formatted }`. Tokens:
+   * - `{seq}` — the allocated integer
+   * - `{seq:0N}` — zero-padded to width N (e.g. `{seq:04}` → `0001`)
+   * - `{partition.i}` — the i-th `partition` component (original value)
+   *
+   * Any other token, or a `{partition.i}` index beyond the supplied
+   * `partition`, throws `ValidationError` at `vault.sequence()` construction.
+   * Per-partition reset is inherent: a new partition tuple starts at 1.
+   */
+  readonly format?: string
+}
+
+/**
+ * A formatted sequence handle (#375). Identical to {@link SequenceHandle}
+ * except `next()` also returns the rendered `formatted` string. `peek()` /
+ * `seedTo()` operate on the underlying integer counter, unchanged.
+ */
+export interface FormattedSequenceHandle {
+  /** Allocate the next value and return it with its rendered serial string. */
+  next(opts?: NextOptions): Promise<{ serial: number; formatted: string }>
+  /** Read the current integer value without allocating. Returns 0 if never used. */
+  peek(): Promise<number>
+  /** Set-if-greater on the underlying integer counter. See {@link SequenceHandle.seedTo}. */
+  seedTo(n: number): Promise<void>
+}
+
+// Matches a single `{...}` token with no nested braces.
+const SEQ_FORMAT_TOKEN = /\{([^{}]*)\}/g
+const SEQ_PAD_TOKEN = /^seq:0(\d+)$/
+const SEQ_PARTITION_TOKEN = /^partition\.(\d+)$/
+
+/**
+ * Validate a sequence `format` against the supplied partition and return a
+ * pure `(serial) => string` renderer. Eager validation: every token is
+ * checked now, so a bad pattern throws `ValidationError` at construction —
+ * never at `next()` time.
+ */
+export function compileSequenceFormat(
+  format: string,
+  series: string,
+  partition: readonly (string | number)[] | undefined,
+): (serial: number) => string {
+  const parts = partition ?? []
+  for (const m of format.matchAll(SEQ_FORMAT_TOKEN)) {
+    const token = m[1] ?? ''
+    if (token === 'seq') continue
+    if (SEQ_PAD_TOKEN.test(token)) continue
+    const partMatch = SEQ_PARTITION_TOKEN.exec(token)
+    if (partMatch) {
+      const idx = Number(partMatch[1])
+      if (idx >= parts.length) {
+        throw new ValidationError(
+          `sequence("${series}"): format token "{${token}}" references partition index ${idx}, ` +
+            `but only ${parts.length} partition component(s) were supplied.`,
+        )
+      }
+      continue
+    }
+    throw new ValidationError(
+      `sequence("${series}"): format contains unknown token "{${token}}". ` +
+        `Accepted tokens: {seq}, {seq:0N}, {partition.i}.`,
+    )
+  }
+  return (serial: number): string =>
+    format.replace(SEQ_FORMAT_TOKEN, (full, token: string) => {
+      if (token === 'seq') return String(serial)
+      const padMatch = SEQ_PAD_TOKEN.exec(token)
+      if (padMatch) return String(serial).padStart(Number(padMatch[1]), '0')
+      const partMatch = SEQ_PARTITION_TOKEN.exec(token)
+      if (partMatch) return String(parts[Number(partMatch[1])])
+      return full // unreachable — validated above
+    })
 }
 
 /**

@@ -326,3 +326,75 @@ describe('#345 vault.sequence — partition + seedTo', () => {
     expect(await seq.next()).toBe(51)
   })
 })
+
+describe('#375 vault.sequence — format', () => {
+  it('next() returns { serial, formatted } when format is set', async () => {
+    const v = await vault(memory())
+    const seq = v.sequence('fatture', { partition: [2026], format: '{partition.0}/{seq:04}' })
+    expect(await seq.next()).toEqual({ serial: 1, formatted: '2026/0001' })
+    expect(await seq.next()).toEqual({ serial: 2, formatted: '2026/0002' })
+  })
+
+  it('per-partition reset is inherent — a new partition starts at 0001', async () => {
+    const v = await vault(memory())
+    const y2026 = v.sequence('fatture', { partition: [2026], format: '{partition.0}/{seq:04}' })
+    const y2027 = v.sequence('fatture', { partition: [2027], format: '{partition.0}/{seq:04}' })
+    expect((await y2026.next()).formatted).toBe('2026/0001')
+    expect((await y2026.next()).formatted).toBe('2026/0002')
+    expect((await y2027.next()).formatted).toBe('2027/0001') // independent counter
+    expect((await y2026.next()).formatted).toBe('2026/0003')
+  })
+
+  it('renders {seq} unpadded and {seq:0N} zero-padded', async () => {
+    const v = await vault(memory())
+    const bare = v.sequence('a', { format: 'INV-{seq}' })
+    expect((await bare.next()).formatted).toBe('INV-1')
+    const padded = v.sequence('b', { format: 'INV-{seq:03}' })
+    expect((await padded.next()).formatted).toBe('INV-001')
+  })
+
+  it('renders multiple partition components', async () => {
+    const v = await vault(memory())
+    const seq = v.sequence('inv', { partition: [2026, 'EU'], format: '{partition.1}-{partition.0}-{seq:05}' })
+    expect((await seq.next()).formatted).toBe('EU-2026-00001')
+  })
+
+  it('peek() and seedTo() still operate on the underlying integer', async () => {
+    const v = await vault(memory())
+    const seq = v.sequence('fatture', { partition: [2026], format: '{partition.0}/{seq:04}' })
+    expect(await seq.peek()).toBe(0)
+    await seq.seedTo(41)
+    expect(await seq.peek()).toBe(41)
+    expect(await seq.next()).toEqual({ serial: 42, formatted: '2026/0042' })
+  })
+
+  it('throws ValidationError at construction on an unknown token', () => {
+    return vault(memory()).then((v) => {
+      expect(() => v.sequence('x', { format: '{year}/{seq}' })).toThrow(ValidationError)
+    })
+  })
+
+  it('throws ValidationError at construction when {partition.i} exceeds the partition', () => {
+    return vault(memory()).then((v) => {
+      expect(() => v.sequence('x', { partition: [2026], format: '{partition.2}/{seq}' })).toThrow(ValidationError)
+    })
+  })
+
+  it('unformatted sequences still return a bare number (back-compat)', async () => {
+    const v = await vault(memory())
+    const seq = v.sequence('plain')
+    const n = await seq.next()
+    expect(typeof n).toBe('number')
+    expect(n).toBe(1)
+  })
+
+  it('rejects format on a deferred-numbering series', async () => {
+    const { withDeferredNumbering } = await import('../src/numbering/descriptor.js')
+    const db = await createNoydb({
+      store: memory(), user: 'owner', secret: 'pw',
+      numbering: [withDeferredNumbering({ series: 'def', collection: 'docs', field: 'serial' })],
+    })
+    const v = await db.openVault('books')
+    expect(() => v.sequence('def', { format: '{seq:04}' })).toThrow(ValidationError)
+  })
+})

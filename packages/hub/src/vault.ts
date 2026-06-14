@@ -45,7 +45,7 @@ import type { BlobStrategy } from './blobs/strategy.js'
 import type { ArchiveStrategy } from './archive/index.js'
 import type { ArchivePolicy, ArchiveContext, ArchiveResult, ArchiveRunOptions } from './archive/index.js'
 import { runArchive, runRestore, runListArchived } from './archive/index.js'
-import { SequenceStore, type SequenceHandle, type SequenceOptions, resolveSequenceKey, SEQUENCE_COLLECTION } from './sequence/index.js'
+import { SequenceStore, type SequenceHandle, type FormattedSequenceHandle, type SequenceOptions, resolveSequenceKey, compileSequenceFormat, SEQUENCE_COLLECTION } from './sequence/index.js'
 import { DeferredNumberingStore, type Assignment } from './numbering/index.js'
 import type { DeferredNumberingConfig } from './numbering/descriptor.js'
 import type { IndexStrategy } from './indexing/strategy.js'
@@ -1564,8 +1564,19 @@ export class Vault {
    * const n = await vault.sequence('invoice-2026').next()   // 1, then 2, …
    * const cur = await vault.sequence('invoice-2026').peek()  // current value, no allocation
    * ```
+   *
+   * Pass a `format` (#375) to emit a serial string instead of a bare
+   * integer — `next()` then returns `{ serial, formatted }`. Per-partition
+   * reset is inherent (a new partition tuple starts at 1):
+   *
+   * ```ts
+   * const seq = vault.sequence('fatture', { partition: [2026], format: '{partition.0}/{seq:04}' })
+   * await seq.next()   // { serial: 1, formatted: '2026/0001' }
+   * ```
    */
-  sequence(series: string, opts?: SequenceOptions): SequenceHandle {
+  sequence(series: string, opts: SequenceOptions & { format: string }): FormattedSequenceHandle
+  sequence(series: string, opts?: SequenceOptions): SequenceHandle
+  sequence(series: string, opts?: SequenceOptions): SequenceHandle | FormattedSequenceHandle {
     // A null byte is the structural partition separator in
     // resolveSequenceKey; a series name carrying one could forge a
     // partitioned key, so reject it (#345).
@@ -1577,6 +1588,14 @@ export class Vault {
     // no CAS counter, so seedTo (CAS-only) is unavailable. All other names
     // use the CAS counter.
     if (this.numberingConfigs.has(series)) {
+      if (opts?.format !== undefined) {
+        // Deferred numbering stamps an auto-assigned serial onto a record
+        // field at seal time; a render template there is a separate change
+        // (it would alter the stamped field's type). Not in this slice (#375).
+        throw new ValidationError(
+          `sequence("${series}") is a deferred-numbering series; the format option applies to CAS sequences only.`,
+        )
+      }
       const eng = this.deferred()
       return {
         next: async (nextOpts) => {
@@ -1600,7 +1619,20 @@ export class Vault {
         actor: this.keyring.userId,
       })
     }
-    return this.sequenceStore.handle(resolveSequenceKey(series, opts))
+    const handle = this.sequenceStore.handle(resolveSequenceKey(series, opts))
+    if (opts?.format === undefined) return handle
+    // Formatted variant (#375): validate the template now (throws on a bad
+    // token), then wrap next() to also return the rendered serial string.
+    // peek/seedTo operate on the underlying integer counter, unchanged.
+    const render = compileSequenceFormat(opts.format, series, opts.partition)
+    return {
+      next: async (nextOpts) => {
+        const serial = await handle.next(nextOpts)
+        return { serial, formatted: render(serial) }
+      },
+      peek: () => handle.peek(),
+      seedTo: (n) => handle.seedTo(n),
+    }
   }
 
   /** @internal — lazily build the deferred-numbering engine with a cache-coherent stamp. */
