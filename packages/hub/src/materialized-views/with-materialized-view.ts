@@ -114,6 +114,17 @@ export function withMaterializedView<TRow extends Record<string, unknown>>(
       )
     }
   }
+  // #285: i18nLocale / i18nFields drive UNION-mode compute-time i18n resolution
+  // (resolve group-key i18n fields before bucketing). The query() form does its
+  // own groupBy inside the Query, which carries no locale yet (#285 §3, deferred)
+  // — so these are UNION-only.
+  if ((spec.i18nLocale !== undefined || spec.i18nFields !== undefined) && !spec.unionSources) {
+    throw new MaterializedViewConfigError(
+      `withMaterializedView "${spec.name}": i18nLocale / i18nFields are UNION-mode only — `
+      + `the query() form groups inside its Query, which carries no locale yet (#285 §3). `
+      + `Group by a dictKey/staticDict code in the query form, or use unionSources.`,
+    )
+  }
   if (typeof spec.rowKey !== 'function') {
     throw new ValidationError('withMaterializedView: rowKey is required (no default; see spec § Type surface)')
   }
