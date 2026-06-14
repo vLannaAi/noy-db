@@ -112,6 +112,48 @@ This retires the hand-rolled "poke a sibling" pattern (writing a no-op
 back to the source to force a re-derive when a referenced record
 changed).
 
+### FK-keyed triggers — reverse-denormalization (#376)
+
+`sources[]` re-fires at the **same id**. `triggerBy` re-fires keyed by a
+**foreign key**: a write to a PARENT collection fans out to every source
+record whose FK matches the parent's id. The canonical use is keeping a
+denormalized field on the children in sync with a parent change.
+
+```ts
+withDerivation<Sale, { self: Sale }>({
+  source: 'sales',
+  deterministic: true,
+  // A write to buyers re-derives every sale where sale.buyerId === buyer.id.
+  triggerBy: [{ collection: 'buyers', on: 'buyerId' }], // `on` = the FK ON the source
+  // Self-write: patch ONLY buyerName back onto the sale (field-level provenance).
+  outputs: { self: { shape: 'record', collection: 'sales', denorm: ['buyerName'] } },
+  derive: async (sale, ctx) => {
+    const b = await ctx.vault.collection<Buyer>('buyers').get(sale.buyerId)
+    return { self: { ...sale, buyerName: b?.companyName ?? null } }
+  },
+  lifecycle: 'eager',
+})
+```
+
+- **Self-write + `denorm`.** A record output whose `collection` equals the
+  `source` is a *self-write* and MUST declare `denorm: [...]`. Only those
+  fields are merged onto the **raw stored record** — the rest of the user's
+  record (and any i18n maps) is never clobbered, and no whole-record
+  `_derivedFrom` tag is added (the record stays user-owned). The self-write
+  edge is exempt from cycle detection; a **value-equality guard** breaks the
+  recursion: when the patch changes nothing, no write is issued.
+- **Fan-out cost.** The match runs through the FK index when the source
+  declares `indexes: ['<on>']` (O(matching rows)); otherwise it scans
+  (O(N) — fine for small child sets; index the FK to scale). An optional
+  `maxFanout` on the trigger entry throws `DerivationCapExceededError`
+  before any write.
+- `triggerBy.collection` must differ from `source`; `on` is required.
+
+> **Slice 1 scope (#376).** This ships `triggerBy` reverse-denormalization.
+> The aggregate-onto-parent companion (`withRollup`) and rollup-on-delete
+> are a tracked follow-up (Slice 2). `vault.forget()` does not auto-re-derive
+> (it bypasses the put path) — recompute explicitly if needed.
+
 ### Optional outputs (#144)
 
 Declare an output as `optional: true` to let `derive` return `null` for

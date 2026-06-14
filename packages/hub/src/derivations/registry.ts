@@ -39,6 +39,16 @@ export class DerivationRegistry {
       else this._bySource.set(extra, [reg])
     }
 
+    // FK triggers (#376) index the SAME `reg` under each parent collection so
+    // a parent write re-fires the derivation (fanned out to matching source
+    // records in `dispatchDerivations`). Like sources[], these keys enter
+    // `_bySource` so the cycle DFS walks the trigger→output edge.
+    for (const t of spec.triggerBy ?? []) {
+      const fromTrigger = this._bySource.get(t.collection)
+      if (fromTrigger) fromTrigger.push(reg)
+      else this._bySource.set(t.collection, [reg])
+    }
+
     for (const key of outputKeys) {
       const output = spec.outputs[key]
       if (!output) continue
@@ -97,6 +107,17 @@ export class DerivationRegistry {
           for (const key of Object.keys(s.spec.outputs)) {
             const output = s.spec.outputs[key]
             if (!output) continue
+            // Self-write reverse-denorm (#376): an output back to its own
+            // source is intentional, not an infinite cycle — the value-equality
+            // guard in dispatch terminates it. Skip this edge so it isn't
+            // flagged. (Self-write outputs are required to declare `denorm`.)
+            if (
+              output.shape === 'record' &&
+              output.collection === s.spec.source &&
+              output.denorm !== undefined
+            ) {
+              continue
+            }
             visit(output.collection)
           }
         }

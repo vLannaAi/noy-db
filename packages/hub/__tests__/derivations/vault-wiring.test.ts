@@ -72,10 +72,20 @@ describe('Vault.derivationRegistry wiring', () => {
   })
 
   it('refuses to open vault with a cyclic derivation graph', async () => {
-    const bad = withDerivation({
+    // A → B → A cycle (an undeclared a → a self-write is now a construction
+    // error, #376, so use a genuine multi-collection cycle to exercise the
+    // vault-open DFS).
+    const a = withDerivation({
       source: 'a',
       deterministic: true,
-      outputs: { o: { shape: 'record', collection: 'a' } }, // self-cycle
+      outputs: { o: { shape: 'record', collection: 'b' } },
+      derive: () => ({ o: {} }),
+      lifecycle: 'eager',
+    })
+    const b = withDerivation({
+      source: 'b',
+      deterministic: true,
+      outputs: { o: { shape: 'record', collection: 'a' } },
       derive: () => ({ o: {} }),
       lifecycle: 'eager',
     })
@@ -83,7 +93,7 @@ describe('Vault.derivationRegistry wiring', () => {
       store: memory(),
       user: 'alice',
       secret: 'derivation-vault-wiring-cycle-passphrase-2026',
-      derivationStrategies: [bad],
+      derivationStrategies: [a, b],
     })
     await expect(db.openVault('demo')).rejects.toBeInstanceOf(DerivationCycleError)
   })

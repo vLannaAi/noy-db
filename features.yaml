@@ -756,6 +756,8 @@ features:
     showcases:
       - id: 80-with-derivation
         path: showcases/src/80-with-derivation.showcase.test.ts
+      - id: 104-reverse-denorm
+        path: showcases/src/104-reverse-denorm.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
@@ -766,6 +768,8 @@ features:
       - 'strict: true rolls back source write on output failure inside withTransactions'
       - 'cycle detection at vault open — refuses cyclic graphs'
       - 'declared sibling sources (#344): withDerivation({ source, sources: [...] }) re-fires the derivation on writes to any declared sibling, using the PRIMARY source record at the SAME id (silent no-op if no primary record exists there); siblings are indexed in _bySource, participate in cycle detection, and fold into the strategy hash; sources[] entries must be non-empty and != source'
+      - 'FK-keyed triggers (#376 slice 1): withDerivation({ triggerBy: [{ collection, on }] }) fans a PARENT write out to every source record where source[on] === parentId (re-derives each); fan-out uses the FK index when present, else scans; optional maxFanout throws DerivationCapExceededError before any write; triggerBy.collection must != source'
+      - 'self-write reverse-denorm (#376): a record output whose collection === source MUST declare denorm:[...] — only those fields are patched onto the raw stored record (i18n maps/other fields never clobbered; no whole-record _derivedFrom tag); the self-write edge is exempt from cycle detection and terminated by a value-equality guard (no write when the patch changes nothing)'
     related: [guards, transactions]
 
   - id: materialized-views

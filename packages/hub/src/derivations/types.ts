@@ -48,6 +48,27 @@ export interface RecordOutputSpec {
    * `DerivationOutputShapeError` — same as v1.
    */
   optional?: boolean
+  /**
+   * Field-level provenance for a **self-write** output (#376) — an output
+   * whose `collection` equals the strategy's `source`, used by
+   * reverse-denormalization (`triggerBy`) to patch a denormalized field
+   * back onto the source record.
+   *
+   * `denorm` names the ONLY top-level fields the derivation owns on that
+   * record. The engine merges just those fields from the `derive` return
+   * value onto the current stored record (`{ ...current, ...pick(out, denorm) }`)
+   * — the rest of the user's record is never clobbered by a stale snapshot.
+   * The whole-record `_derivedFrom` provenance tag is NOT applied (the
+   * record stays user-owned); the derivation only claims `denorm`.
+   *
+   * Cycle break is value-level: if the patch changes nothing, no write is
+   * issued — so the self-write that re-fires the source-path derivation
+   * terminates after one idempotent pass.
+   *
+   * REQUIRED when `collection === source` (validated at construction);
+   * ignored for outputs to a different collection.
+   */
+  denorm?: readonly string[]
 }
 
 /**
@@ -134,6 +155,33 @@ export interface DerivationStrategy<
    * (validated at `withDerivation()` construction time).
    */
   sources?: ReadonlyArray<string>
+  /**
+   * Foreign-key-keyed triggers for reverse-denormalization (#376). Unlike
+   * `sources[]` (which re-fires at the SAME id), a `triggerBy` entry fans a
+   * write to a PARENT collection OUT to every source record whose FK matches
+   * the written parent's id.
+   *
+   * `{ collection, on }`: a write to `collection` (the parent, e.g.
+   * `'buyers'`) re-fires this derivation once per source record where
+   * `source[on] === writtenParentId` (`on` is the FK field ON the source,
+   * e.g. `'buyerId'`). The matched source record — not the parent — is
+   * passed to `derive`.
+   *
+   * Typical use: keep a denormalized field on the source in sync with a
+   * parent change (a buyer rename → refresh `buyerName` on all their sales),
+   * via a self-write output (`collection === source`) declaring `denorm`.
+   *
+   * Fan-out runs through `ctx.vault.collection(source).query().where(on,'==',id)`,
+   * which uses the FK index when the source declares `withIndexing()` on
+   * `on` (O(children)) and otherwise scans (O(N) — fine for small child
+   * sets). Set `maxFanout` as a safety rail; exceeding it throws
+   * `DerivationCapExceededError` before any write. `triggerBy` collections
+   * participate in cycle detection like `source`/`sources`.
+   *
+   * Each `collection` must be non-empty and not equal `source`; `on` must
+   * be a non-empty field name (validated at construction).
+   */
+  triggerBy?: ReadonlyArray<{ collection: string; on: string; maxFanout?: number }>
   /** v1: only deterministic derivations supported. */
   deterministic: true
   /**
