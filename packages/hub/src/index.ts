@@ -289,8 +289,8 @@ export type {
 } from './archive/index.js'
 
 // ─── Atomic sequence (#303) ─────────────────────────────────────────────────────
-export { SequenceStore, resolveSequenceKey } from './sequence/index.js'
-export type { SequenceHandle, NextOptions, SequenceOptions } from './sequence/index.js'
+export { SequenceStore, resolveSequenceKey, compileSequenceFormat } from './sequence/index.js'
+export type { SequenceHandle, FormattedSequenceHandle, NextOptions, SequenceOptions } from './sequence/index.js'
 
 // Deferred numbering — store-clock-ordered serials for non-CAS stores.
 export { withDeferredNumbering } from './numbering/descriptor.js'
