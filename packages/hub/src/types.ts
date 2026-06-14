@@ -1663,6 +1663,13 @@ export interface StoreCapabilities {
    * numbering (use CAS `sequence().next()` or per-series).
    */
   serverWriteTime?: boolean
+  /**
+   * Advisory geographic region this store serves (e.g. `'eu'`, `'us'`).
+   * Purely declarative — no behavior change for stores that omit it. The
+   * federation data-residency guard (#271) compares this against a
+   * `sharding.regionOf(record)` to refuse non-compliant shard placement.
+   */
+  region?: string
   auth: StoreAuth
   /**
    * true — the store implements {@link NoydbStore.tx} and commits

@@ -2183,6 +2183,33 @@ export class ShardProvisioningError extends NoydbError {
 }
 
 /**
+ * Thrown by `VaultGroup.createShard` when `sharding.regionOf` resolves a
+ * required region that doesn't match the placement backend's
+ * `capabilities.region` — the shard would land on a non-compliant backend
+ * (data-residency violation, #271). Raised BEFORE provisioning, so no
+ * vault is created.
+ */
+export class DataResidencyError extends NoydbError {
+  readonly vaultId: string
+  readonly requiredRegion: string
+  readonly backendRegion: string | undefined
+
+  constructor(vaultId: string, requiredRegion: string, backendRegion: string | undefined) {
+    super(
+      'DATA_RESIDENCY',
+      `Shard "${vaultId}" requires region "${requiredRegion}" but its placement backend ` +
+        `declares region ${backendRegion === undefined ? '(none)' : `"${backendRegion}"`}. ` +
+        `Refusing to provision — route this shard to a region-correct backend via ` +
+        `routeStore({ vaultRoutes }) (e.g. a region-encoded partition key) before retrying.`,
+    )
+    this.name = 'DataResidencyError'
+    this.vaultId = vaultId
+    this.requiredRegion = requiredRegion
+    this.backendRegion = backendRegion
+  }
+}
+
+/**
  * Thrown by `ShardedQuery.crossShardJoin` / `broadcastJoin` for
  * deterministic, query-shaping errors: an undeclared join ref (which
  * would fail identically on every shard), or calling a deferred

@@ -1297,6 +1297,8 @@ features:
         path: showcases/src/108-insight-vault.showcase.test.ts
       - id: 109-fleet-migration
         path: showcases/src/109-fleet-migration.showcase.test.ts
+      - id: 110-data-residency
+        path: showcases/src/110-data-residency.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
@@ -1307,6 +1309,8 @@ features:
       - 'crossShardJoin is co-partitioned fan-out + central broadcast enrichment; join.ts and its partitionScope seam stay untouched'
       - 'Insight Vault (#271 Layer 4, push model): withCrossVaultDerivation({ source, target, derive }) + refreshInsights() reads each eligible shard, runs derive(records, ctx{vaultId,partitionKey,schemaVersion}) per shard, writes one summary row per shard into the target analytics vault keyed by partitionKey — re-encrypted under the Insight Vault DEK, shard ciphertext never crosses a DEK boundary; respects the minVersion drift guard; failed shard reads → skippedVaults (no stale row); v1 is explicit-refresh (no write-path push). ZK note: Insight Vault backend sees aggregated cross-shard structure — weaker profile than per-shard vaults; opt-in, aggregate scalars only'
       - 'fleet schema migration (#271): migrateFleet({cohort?,batchSize?}) + migrateShard(key) drive each shard through M12 vault.runSchemaCutover() (single-vault protocol internally), then advance the registry schemaVersion and write migration-status to the StateManagement Vault; cohort = staged/canary, batchSize = back-pressure; migrateOnOpen lazily migrates a behind shard on access; resumable/crash-safe (registry version is source of truth — re-run skips current, retries failed); a failed shard cutover is recorded, not fatal'
+      - 'Insight-write isolation (#271): withCrossVaultDerivation throws ValidationError if target.vault is the group itself or one of its shards (<group>--<key>) — a summary must never write back into client-shard data (per-shard DEK boundary). Least-privilege executor = a service account granted read-on-shards + write-on-Insight only (grant()+createNoydb wiring, no hub change)'
+      - 'data-residency placement guard (#271): sharding.regionOf(record) + advisory StoreCapabilities.region; on createShard the group resolves the placement backend (routeStore.resolveBackend via vault-prefix routing) and throws DataResidencyError before provisioning if the backend region != regionOf — so a shard never lands on a non-compliant backend. Advisory until a region is declared; reads are unaffected (placement-only constraint); re-homing an existing shard is out of scope (extractPartition ceremony)'
     related: [permissions, transferable-partition, derivations, schema-and-refs]
 
 # ─── Storage adapters (phase 2) ──────────────────────────────────────

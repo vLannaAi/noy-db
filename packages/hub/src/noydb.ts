@@ -1141,6 +1141,19 @@ export class Noydb {
   }
 
   /**
+   * @internal — the physical backend store a vault id maps to. A
+   * `routeStore` resolves the vault-prefix route via its `resolveBackend`;
+   * a plain store is its own backend. Used by the federation data-residency
+   * guard to read the placement backend's `capabilities.region` (#271).
+   */
+  _resolveBackend(vaultId: string): NoydbStore {
+    const store = this.options.store as NoydbStore & {
+      resolveBackend?: (vaultId: string) => NoydbStore
+    }
+    return store.resolveBackend ? store.resolveBackend(vaultId) : this.options.store
+  }
+
+  /**
    * Change the current user's passphrase for a vault.
    *
    * Validates the new passphrase against the strength rules. Pass
