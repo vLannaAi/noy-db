@@ -197,6 +197,7 @@ features:
       - 'money-aware sum/min/max in BigInt — fixed → single string, multi → per-currency map, sum convertTo+fx → one exact figure; remove() supports live/MV maintenance'
       - 'ONE canonical encoding at user-facing extension points (#332/#335): guard gate ctx (both sides), filter()/wherePredicate() callbacks, MV union maps all see the decoded decimal — the scaled-int never escapes storage'
       - 'where() on a money field takes MAJOR-unit operands, compares BigInt-exact in scaled space (#336); contains/startsWith and malformed operands throw at build time; multi-mode cross-currency matches != only'
+      - 'orderBy() on a money field sorts by the BigInt scaled-int value, not lexically by the stored digit string (#390 — consistent with where/sum); non-money fields use the generic comparator; malformed/missing money values sort last (asc)'
       - 'nested-path declarations (#334): descriptor keys accept dotted / [] / * paths (lineItems[].amount, billing.fee, summary.*); syntax validated loudly at registration; quantize walk throws on shape mismatch, decode walk is lenient'
       - 'exact arithmetic helpers (#337): mulRate (one rounding step, at the end) and largest-remainder allocate (parts sum EXACTLY to the whole, zero drift by construction)'
       - 'branded MoneyString output type + asMoney/isMoneyString/moneyNumber accessors (#338) — input side stays the permissive string | number union'
