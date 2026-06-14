@@ -1,4 +1,5 @@
 export { withDerivation } from './with-derivation.js'
+export { withRollup } from './with-rollup.js'
 export { DerivationRegistry } from './registry.js'
 export { DerivationExecutor } from './executor.js'
 export type {
