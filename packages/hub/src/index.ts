@@ -262,6 +262,7 @@ export {
   ReadOnlyFrameError,
   RecordLockedError,
   FieldFrozenError,
+  IllegalTransitionError,
   InvariantError,
   AmendmentForbiddenError,
   AttestationError,
@@ -652,6 +653,8 @@ export type { TransactionStrategyOptions } from './tx/active.js'
 export { withGuard } from './guards/index.js'
 export { immutableGuard } from './guards/index.js'
 export type { ImmutableGuardConfig } from './guards/index.js'
+export { transitionGuard } from './guards/index.js'
+export type { TransitionGuardConfig } from './guards/index.js'
 export type {
   GuardStrategy,
   GuardStrategyHandle,

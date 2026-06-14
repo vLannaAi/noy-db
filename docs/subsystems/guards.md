@@ -148,6 +148,38 @@ immutableGuard<Receipt>({
 
 Omitting `amendmentInvariant` leaves the empty-allow override in place.
 
+### `transitionGuard` (state-machine sugar, #374)
+
+`transitionGuard` generalizes `immutableGuard` from "any state → locked"
+to an arbitrary state graph. Declare the allowed arcs once; every write
+that moves the lifecycle field along an undeclared edge throws
+`IllegalTransitionError`. It's sugar over `withGuard` (no new write-path
+code) and inherits the same ledgered amendment override.
+
+```ts
+transitionGuard<Sale>({
+  collection: 'sales', field: 'status',
+  transitions: {                          // absence of an arc = forbidden
+    draft: ['to_verify', 'cancelled'],
+    to_verify: ['proforma', 'draft', 'cancelled'],
+    proforma: ['invoiced', 'cancelled'],
+    invoiced: ['paid'], paid: [], cancelled: [],
+  },
+  initial: ['draft', 'to_verify'],        // allowed status on insert (default: any)
+  allowIdempotent: true,                  // same→same write allowed (default true)
+})
+```
+
+- **Insert** (`existing === null`): `incoming[field]` must be in `initial`
+  (any value when `initial` is omitted); a violation reports `from: '(none)'`.
+- **Update**: the arc `(existing[field] → incoming[field])` must be a
+  declared edge, else `IllegalTransitionError(collection, id, from, to)`.
+  A state absent from the map (or mapped to `[]`) is terminal.
+- **Idempotent**: a same-state write passes when `allowIdempotent` (default
+  `true`), so a put that changes other fields without moving state is fine.
+- **Override**: an `amendment` tx by an authorized role skips the check and
+  is ledgered — `immutableGuard` is the WORM special case (every state → `[]`).
+
 ### Amendment flow
 
 ```
