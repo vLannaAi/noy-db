@@ -522,7 +522,10 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 4470→4485 (2026-06-14, #401): forget() now purges each shredded
   // record's persisted `_idx` side-cars + reports residue (indexPostingsPurged /
   // indexResidue) — core erasure orchestration alongside the tombstone/blob shred.
-  'packages/hub/src/vault.ts': 4485,
+  // Bumped 4485→4495 (2026-06-15, #285 export layer): exportStream reads each
+  // record at the export locale through the `export` layer (i18nText collapse +
+  // dict-label resolution) + skips the now-redundant dictionary snapshot.
+  'packages/hub/src/vault.ts': 4495,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),

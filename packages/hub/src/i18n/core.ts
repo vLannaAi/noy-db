@@ -122,16 +122,17 @@ export interface I18nTextOptions {
    * See {@link OnMissingPolicy}.
    *
    * NOTE (current wiring): the `read` (`get`/`list`), `guard`, `derivation`,
-   * `mv` and `join` layers are enforced. Guard / derivation `ctx.vault` reads
-   * resolve under their own layer policy (`guard` defaults to the lenient
-   * `'substitute'`). The `mv` layer fires for UNION materialized views that
-   * declare `{ i18nLocale, i18nFields }` (group-key i18n fields resolve at the
-   * `mv` layer before bucketing; grouping a raw i18n field without a locale
-   * throws). The `join` layer resolves a joined right-side i18n field to the
-   * query locale (`toArray({ locale })` or the vault default; raw when
-   * locale-less). Still NOT wired: the `export` layer and query-form MV
-   * grouping (a `Query`'s own `groupBy` carries no locale channel) — a tracked
-   * follow-up (#285).
+   * `mv`, `join` and `export` layers are enforced. Guard / derivation
+   * `ctx.vault` reads resolve under their own layer policy (`guard` defaults to
+   * the lenient `'substitute'`). The `mv` layer fires for UNION materialized
+   * views that declare `{ i18nLocale, i18nFields }` (group-key i18n fields
+   * resolve at the `mv` layer before bucketing; grouping a raw i18n field
+   * without a locale throws). The `join` layer resolves a joined right-side
+   * i18n field to the query locale (`toArray({ locale })` or the vault default;
+   * raw when locale-less). The `export` layer fires for
+   * `exportStream`/`exportJSON({ resolveLabels })` — records collapse to the
+   * export locale. Still NOT wired: query-form MV grouping (a `Query`'s own
+   * `groupBy` carries no locale channel) — a tracked follow-up (#285).
    */
   readonly onMissing?: OnMissingPolicy
   /**

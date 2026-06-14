@@ -772,13 +772,15 @@ export interface ExportStreamOptions {
    */
   readonly withLedgerHead?: boolean
   /**
-   * When set to a BCP 47 locale string (e.g. `'th'`), `exportJSON()`
-   * resolves all `dictKey` labels to that locale and omits the raw
-   * `dictionaries` snapshot from the output. Has no effect
-   * on `exportStream()` — format packages use the `chunk.dictionaries`
-   * snapshot directly and apply their own locale strategy.
+   * Export locale (BCP 47, e.g. `'th'`). When set, records are read at this
+   * locale through the **`export` layer** (#285): `i18nText` fields collapse to
+   * the locale string (honoring each field's `export`-layer `onMissing` policy)
+   * and `dictKey`/`staticDict` `<field>Label`s are resolved — a single-locale
+   * export. The raw `dictionaries` snapshot is then redundant and omitted. This
+   * applies to BOTH `exportStream()` and `exportJSON()`.
    *
-   * Default: `undefined` — embed the raw snapshot under `_dictionaries`.
+   * Default: `undefined` — raw `{locale}` maps + the `_dictionaries` snapshot
+   * (a full, all-locale backup; format packages apply their own locale strategy).
    */
   readonly resolveLabels?: string
 }
