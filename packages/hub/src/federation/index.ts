@@ -25,4 +25,6 @@ export type {
   CrossVaultDerivationSpec,
   CrossVaultDerivationContext,
   RefreshInsightsResult,
+  MigrationStatusRow,
+  FleetMigrationResult,
 } from './types.js'

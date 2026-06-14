@@ -89,9 +89,10 @@ grantees; access control is at the shard level.
 - The `minVersion` guard pre-filters shards by their registry-recorded
   `schemaVersion`; behind-version shards land in `skippedVaults`, never mixed
   into `results`.
-- **Out of scope (still):** the fleet schema-migration runner (lazy/active/
-  staged orchestration). cross-shard joins, reactive `queryAcrossLive`,
-  `aggregateAcross`, and the Insight Vault (below) have since shipped.
+- **Out of scope (still):** cross-shard joins, push-model cross-vault
+  derivations (Insight Vault), reactive `queryAcrossLive`, `aggregateAcross`
+  have since shipped; remaining open items are the design questions (DEK-grant
+  executor identity, data-residency routing). See the spec's deferred list.
 
 ## Insight Vault — cross-vault derivation (push model, #271 Layer 4)
 
@@ -133,6 +134,46 @@ const { written, skippedVaults } = await firm.refreshInsights({ minVersion: 3 })
 > should hold **aggregate scalars only** — no raw records, no embeddings.
 > Treat its backend as a `tier: 'derived'` store with a formally weaker ZK
 > profile, and grant it explicitly.
+
+## Fleet schema migration (#271)
+
+When the template's `version` bumps (new schema + a `coordinatedCutover`
+transform), each shard must run its per-vault M12 cutover. The fleet runner
+orchestrates that across the group and records per-shard status in the
+StateManagement Vault — **each shard still uses M12's single-vault protocol
+internally** (`vault.runSchemaCutover()`); this adds the fleet-level ordering,
+status, and resumability.
+
+```ts
+// Active batch runner — migrate every behind shard to the template version.
+const { target, migrated, failed } = await firm.migrateFleet({ batchSize: 8 })
+
+// Staged / canary — migrate a cohort first, verify, then the rest.
+await firm.migrateFleet({ cohort: ['acme'] })
+await firm.migrateFleet()
+
+// Lazy — migrate a shard on first access (opt-in at openVaultGroup).
+const firm = await db.openVaultGroup('firm', { sharding, migrateOnOpen: true })
+
+// One shard.
+await firm.migrateShard('acme')
+```
+
+- **Per-shard step (`migrateShard`)**: open the shard (applies the template →
+  arms the cutover) → `_drainPendingSchemaWrites()` → `runSchemaCutover()` →
+  advance the registry row's `schemaVersion` → write `migration-status`. A shard
+  already at the target is a no-op. A failed cutover is caught, recorded as
+  `status: 'failed'`, and does **not** abort the fleet run.
+- **Resumable / crash-safe**: the registry `schemaVersion` is the source of
+  truth; a re-run skips shards already at the target and retries failed ones.
+- **`migration-status`** rows (`{ vaultId, currentVersion, targetVersion,
+  status, migrated?, error? }`) + `migration-started/completed/failed`
+  deployment events live in the StateManagement Vault.
+- **Mixed-version reads stay safe**: the `minVersion` fan-out guard skips
+  behind-version shards (`skippedVaults`) rather than mixing record shapes —
+  so reads work throughout the rollout window.
+- **Co-location assumption**: the runner drives co-located shards in-process.
+  Per-process/distributed shards are a `by-server` concern, out of scope.
 
 ## Control plane — StateManagement Vault
 

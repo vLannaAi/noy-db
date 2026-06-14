@@ -1099,7 +1099,7 @@ export class Noydb {
     // Managed control plane when no explicit registry is supplied.
     const stateVault = opts.registry ? undefined : await StateManagementVault.open(this)
     const registry = opts.registry ?? stateVault!.registry
-    const group = new VaultGroup<T>(this, name, registry, opts.sharding, template)
+    const group = new VaultGroup<T>(this, name, registry, opts.sharding, template, opts.migrateOnOpen ?? false)
     if (stateVault) {
       group._attachStateVault(stateVault)
       // recordManifest persists control-plane state → hard-fail on error.
