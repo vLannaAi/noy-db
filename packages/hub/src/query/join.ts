@@ -48,6 +48,7 @@
 import type { RefDescriptor, RefMode } from '../refs.js'
 import { readPath } from './predicate.js'
 import { JoinTooLargeError, DanglingReferenceError } from '../errors.js'
+import { applyI18nLocale, type I18nTextDescriptor } from '../i18n/core.js'
 
 /** Planner strategy for a single join leg. Auto-selected unless overridden. */
 export type JoinStrategy = 'hash' | 'nested'
@@ -128,6 +129,16 @@ export interface JoinableSource {
    */
   readonly displayLocale?: string
   /**
+   * i18nText descriptors of the right-side collection (#285 §3, `join`
+   * layer). When present and the query carries a locale, each joined
+   * right-side record's i18n fields resolve to that locale at the `join`
+   * layer (`resolvePolicy(onMissing, 'join')`) BEFORE it is attached under
+   * the leg's alias — so a joined `i18nText` field is a resolved string, not
+   * a raw `{ locale }` map. Locale-less queries leave joined fields raw
+   * (consistent with a locale-less read).
+   */
+  readonly i18nFields?: Record<string, I18nTextDescriptor>
+  /**
    * Subscribe to mutations on this source. The callback fires
    * AFTER the underlying record set has been updated. Returns an
    * unsubscribe function. Optional — sources without this method
@@ -150,6 +161,13 @@ export interface JoinableSource {
 export interface JoinContext {
   /** Name of the left-side (owning) collection. */
   readonly leftCollection: string
+  /**
+   * The owning collection's default locale (#285 §3). Used to resolve joined
+   * i18n fields at the `join` layer when a terminal call doesn't pass an
+   * explicit locale — so `openVault({ locale })` flows to joins like it does
+   * to `get`/`list`. A per-call `toArray({ locale })` overrides it.
+   */
+  readonly defaultLocale?: string
   /** Look up a `RefDescriptor` by field name on the left collection. */
   resolveRef(field: string): RefDescriptor | null
   /** Resolve a right-side source by target collection name. */
@@ -253,12 +271,13 @@ export function applyJoins(
   rows: readonly unknown[],
   joins: readonly JoinLeg[],
   context: JoinContext,
+  locale?: string,
 ): unknown[] {
   if (joins.length === 0) return [...rows]
 
   let result: unknown[] = [...rows]
   for (const leg of joins) {
-    result = applyOneJoin(result, leg, context)
+    result = applyOneJoin(result, leg, context, locale)
   }
   return result
 }
@@ -267,6 +286,7 @@ function applyOneJoin(
   leftRows: readonly unknown[],
   leg: JoinLeg,
   context: JoinContext,
+  locale?: string,
 ): unknown[] {
   // Dict join path — resolve left-field value against the
   // dictionary snapshot and attach { key, ...labels } under leg.as.
@@ -346,6 +366,19 @@ function applyOneJoin(
     warnCeilingApproaching(leg.target, 'right', rightSnapshot.length, maxRows)
   }
 
+  // #285 §3 — `join`-layer i18n. When the query carries a locale (per-call
+  // or the owning collection's default) and the right side declares i18n
+  // fields, resolve each matched right record's i18n fields to that locale
+  // at the `join` layer before it's attached. Locale-less → leave raw.
+  const effLocale = locale ?? context.defaultLocale
+  const i18nResolve: ((right: unknown) => unknown) | undefined =
+    effLocale !== undefined && source.i18nFields !== undefined
+      ? (right) =>
+          right !== null && typeof right === 'object'
+            ? applyI18nLocale(right as Record<string, unknown>, source.i18nFields!, effLocale, undefined, 'join')
+            : right
+      : undefined
+
   // Strategy selection: explicit override wins; otherwise prefer
   // nested-loop when the source exposes lookupById (O(1) per row),
   // falling back to hash join when it doesn't.
@@ -357,21 +390,23 @@ function applyOneJoin(
     // doesn't drift — same pattern as the existing candidateRecords
     // helper in builder.ts.
     const lookup = (id: string): unknown => source.lookupById?.(id)
-    return nestedLoopJoin(leftRows, leg, lookup)
+    return nestedLoopJoin(leftRows, leg, lookup, i18nResolve)
   }
-  return hashJoin(leftRows, leg, rightSnapshot)
+  return hashJoin(leftRows, leg, rightSnapshot, i18nResolve)
 }
 
 function nestedLoopJoin(
   leftRows: readonly unknown[],
   leg: JoinLeg,
   lookupById: (id: string) => unknown,
+  i18nResolve?: (right: unknown) => unknown,
 ): unknown[] {
   const out: unknown[] = []
   for (const left of leftRows) {
     const rawId = readPath(left, leg.field)
     const key = coerceRefKey(rawId)
-    const right = key === null ? undefined : lookupById(key)
+    let right = key === null ? undefined : lookupById(key)
+    if (i18nResolve && right !== undefined) right = i18nResolve(right)
     out.push(attachJoin(left, leg, right, rawId))
   }
   return out
@@ -381,6 +416,7 @@ function hashJoin(
   leftRows: readonly unknown[],
   leg: JoinLeg,
   rightSnapshot: readonly unknown[],
+  i18nResolve?: (right: unknown) => unknown,
 ): unknown[] {
   // Build the right-side hash once per query execution. We key on
   // the `id` field because ref() always points to a target's primary
@@ -397,7 +433,8 @@ function hashJoin(
   for (const left of leftRows) {
     const rawId = readPath(left, leg.field)
     const key = coerceRefKey(rawId)
-    const right = key === null ? undefined : rightMap.get(key)
+    let right = key === null ? undefined : rightMap.get(key)
+    if (i18nResolve && right !== undefined) right = i18nResolve(right)
     out.push(attachJoin(left, leg, right, rawId))
   }
   return out

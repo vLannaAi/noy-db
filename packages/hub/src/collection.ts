@@ -2791,6 +2791,10 @@ export class Collection<T> {
           leftCollection,
           resolveRef: (field: string) => resolver.resolveRef(leftCollection, field),
           resolveSource: (collectionName: string) => resolver.resolveSource(collectionName),
+          // #285 §3 — flow the vault/collection default locale to joins so a
+          // joined i18n field resolves like get()/list() when no per-call
+          // locale is given; toArray({ locale }) overrides it.
+          ...(this.defaultLocale !== undefined ? { defaultLocale: this.defaultLocale } : {}),
           ...(resolver.resolveDictSource
             ? { resolveDictSource: (field: string) => resolver.resolveDictSource!(leftCollection, field) }
             : {}),
@@ -2897,6 +2901,9 @@ export class Collection<T> {
         this.emitter.on('change', handler)
         return () => this.emitter.off('change', handler)
       },
+      // #285 §3 — expose this (right-side) collection's i18nText descriptors so
+      // the join executor can resolve joined i18n fields at the `join` layer.
+      ...(this.i18nFields !== undefined ? { i18nFields: this.i18nFields } : {}),
     }
   }
 
@@ -3163,6 +3170,10 @@ export class Collection<T> {
           leftCollection,
           resolveRef: (field: string) => resolver.resolveRef(leftCollection, field),
           resolveSource: (collectionName: string) => resolver.resolveSource(collectionName),
+          // #285 §3 — flow the vault/collection default locale to joins so a
+          // joined i18n field resolves like get()/list() when no per-call
+          // locale is given; toArray({ locale }) overrides it.
+          ...(this.defaultLocale !== undefined ? { defaultLocale: this.defaultLocale } : {}),
           ...(resolver.resolveDictSource
             ? { resolveDictSource: (field: string) => resolver.resolveDictSource!(leftCollection, field) }
             : {}),
