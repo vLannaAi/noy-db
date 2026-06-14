@@ -42,9 +42,44 @@ export function withDerivation<
     }
   }
 
+  // Validate FK triggers (#376). Each `collection` must be a non-empty
+  // string differing from the primary source, and `on` a non-empty field.
+  if (spec.triggerBy !== undefined) {
+    for (const t of spec.triggerBy) {
+      if (typeof t?.collection !== 'string' || t.collection.length === 0) {
+        throw new ValidationError('withDerivation: each triggerBy entry needs a non-empty `collection`')
+      }
+      if (t.collection === spec.source) {
+        throw new ValidationError(
+          `withDerivation: triggerBy.collection must not equal the source "${spec.source}" (use sources[] for same-id triggers)`,
+        )
+      }
+      if (typeof t.on !== 'string' || t.on.length === 0) {
+        throw new ValidationError(
+          `withDerivation: triggerBy on "${t.collection}" needs a non-empty \`on\` (the FK field on the source)`,
+        )
+      }
+      if (t.maxFanout !== undefined && (!Number.isInteger(t.maxFanout) || t.maxFanout < 1)) {
+        throw new ValidationError(
+          `withDerivation: triggerBy maxFanout on "${t.collection}" must be a positive integer (got ${String(t.maxFanout)}).`,
+        )
+      }
+    }
+  }
+
   // Validate array-shape outputs.
   const lifecycleMode = typeof spec.lifecycle === 'string' ? spec.lifecycle : spec.lifecycle.mode
   for (const [outputKey, outputSpec] of Object.entries(spec.outputs)) {
+    // Self-write output (collection === source): reverse-denorm must declare
+    // `denorm` (the fields it owns) — field-level provenance, #376.
+    if (outputSpec.shape === 'record' && outputSpec.collection === spec.source) {
+      if (!outputSpec.denorm || outputSpec.denorm.length === 0) {
+        throw new ValidationError(
+          `withDerivation: self-write output "${outputKey}" (collection === source "${spec.source}") `
+          + 'must declare `denorm: [...]` naming the fields it maintains.',
+        )
+      }
+    }
     if (outputSpec.shape === 'array') {
       if (lifecycleMode !== 'eager') {
         throw new ValidationError(

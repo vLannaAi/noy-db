@@ -46,7 +46,7 @@ import type { PersistedCollectionIndex, PersistedIndexDef } from './indexing/per
 import { LazyQuery } from './indexing/lazy-builder.js'
 import type { LazyQuerySource } from './indexing/lazy-builder.js'
 import { NO_INDEXING, type IndexStrategy, type IndexState } from './indexing/strategy.js'
-import { IndexWriteFailureError } from './errors.js'
+import { IndexWriteFailureError, DerivationCapExceededError } from './errors.js'
 import { buildUniqueConstraintSet, type UniqueConstraintSet } from './indexing/unique-constraints.js'
 import type { RefDescriptor } from './refs.js'
 import { Lru, parseBytes, estimateRecordBytes, type LruStats } from './cache/index.js'
@@ -77,6 +77,22 @@ import type * as MVStaleModule from './materialized-views/stale.js'
 
 /** Callback for dirty tracking (sync engine integration). */
 export type OnDirtyCallback = (collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>
+
+/**
+ * Value-equality for a single self-write reverse-denorm field (#376). Scalars
+ * compare by identity; objects by canonical JSON (denorm values should be
+ * deterministically shaped). Used as the cycle guard — when every denorm
+ * field already matches, no write is issued and the self-write recursion ends.
+ */
+function selfWriteFieldEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') return false
+  try {
+    return JSON.stringify(a) === JSON.stringify(b)
+  } catch {
+    return false
+  }
+}
 
 /**
  * Event delivered to a `collection.subscribe()` callback. Distinct
@@ -1676,6 +1692,64 @@ export class Collection<T> {
    * output (carries `_derivedFrom`) — defensive guard against missed
    * cycle detection.
    */
+  /**
+   * @internal #376 — the RAW stored record (canonical-money form, i18n maps
+   * intact), WITHOUT the locale resolution `get()` applies. Used as the
+   * patch base for self-write reverse-denorm so writing back never clobbers
+   * an i18n map or re-quantizes money incorrectly. Returns null for
+   * missing / tombstoned records.
+   */
+  async _getStoredRecord(id: string): Promise<T | null> {
+    let raw: T | null
+    if (this.lazy && this.lru) {
+      const cached = this.lru.get(id)
+      if (cached) raw = cached.record
+      else {
+        const env = await this.adapter.get(this.vault, this.name, id)
+        if (!env || isTombstone(env, this.encrypted)) return null
+        raw = await this.decryptRecord(env, { id })
+        if (raw === null) return null
+        this.lru.set(id, { record: raw, version: env._v }, estimateRecordBytes(raw))
+      }
+    } else {
+      await this.ensureHydrated()
+      raw = this.cache.get(id)?.record ?? null
+    }
+    if (raw === null) return null
+    return canonicalizeStoredMoney(raw, this.moneyFields) as T
+  }
+
+  /**
+   * @internal #376 — ids of records whose top-level `field` equals `value`.
+   * Uses the FK index when the field is indexed (O(matches)); otherwise a
+   * linear scan (O(N) — fine for small child sets; index the FK to scale).
+   */
+  async _findMatchingIds(field: string, value: unknown): Promise<string[]> {
+    const hit = this.getIndexes()?.lookupEqual(field, value)
+    if (hit) return [...hit]
+    const target = String(value)
+    const matches = (rec: Record<string, unknown>): boolean => {
+      const fv = rec[field]
+      // FK values are scalars; ignore object/array fields (never a valid FK).
+      return (typeof fv === 'string' || typeof fv === 'number') && String(fv) === target
+    }
+    if (!this.lazy) {
+      await this.ensureHydrated()
+      const out: string[] = []
+      for (const [rid, e] of this.cache) {
+        if (matches(e.record as Record<string, unknown>)) out.push(rid)
+      }
+      return out
+    }
+    const ids = await this.adapter.list(this.vault, this.name)
+    const out: string[] = []
+    for (const rid of ids) {
+      const raw = await this._getStoredRecord(rid)
+      if (raw !== null && matches(raw as Record<string, unknown>)) out.push(rid)
+    }
+    return out
+  }
+
   private async dispatchDerivations(id: string, record: T, version: number): Promise<void> {
     if (this.derivationSource === undefined) return
     // `record` is the stored form here (post-quantize) — decode so
@@ -1693,34 +1767,72 @@ export class Collection<T> {
     let DerivationExecutor: typeof DerivationExecutorType | null = null
     for (const { spec, strategyHash } of strategies) {
       const mode = typeof spec.lifecycle === 'string' ? spec.lifecycle : spec.lifecycle.mode
-      if (mode === 'eager') {
-        if (DerivationExecutor === null) {
-          ({ DerivationExecutor } = (await import('./derivations/executor.js')) as { DerivationExecutor: typeof DerivationExecutorType })
+
+      // Determine how `this.name` triggers this strategy, and build the list
+      // of source records to (re-)derive:
+      //   • source     — re-derive the written record itself (same-id).
+      //   • sources[]  — re-derive the PRIMARY source at the same id (#344).
+      //   • triggerBy  — FK fan-out (#376): re-derive every source record
+      //                  whose `on` field equals the written parent's id.
+      // `input` is passed to derive(); `base` is the raw stored source record
+      // used as the patch base for a self-write reverse-denorm output.
+      const isSource = spec.source === this.name
+      const isSibling = !isSource && (spec.sources?.includes(this.name) ?? false)
+      const trigger = !isSource && !isSibling
+        ? spec.triggerBy?.find(t => t.collection === this.name)
+        : undefined
+
+      const runs: Array<{
+        input: Record<string, unknown> & { id: string }
+        base: Record<string, unknown>
+        runId: string
+        version: number
+      }> = []
+
+      if (isSource) {
+        runs.push({ input: { ...incoming, id }, base: incoming, runId: id, version })
+      } else if (isSibling) {
+        const p = await this.derivationSource.getCollection(spec.source).get(id)
+        if (p !== null && p !== undefined) {
+          // Raw base for a (rare) sibling self-write; falls back to the
+          // resolved primary if the raw read misses.
+          const raw = await this.derivationSource.getCollection(spec.source)._getStoredRecord(id)
+          runs.push({ input: { ...p, id }, base: raw ?? p, runId: id, version: 0 })
         }
-        // #344: a sibling-triggered strategy (spec.source !== this.name)
-        // derives against the PRIMARY source record at the same id — not
-        // the incoming sibling record. Read it through the primary
-        // collection so its own money/crypto wiring applies; silent
-        // no-op if no primary record exists at that id (same-id rule).
-        let sourceWithId: Record<string, unknown> & { id: string }
-        let sourceVersion = version
-        if (spec.source === this.name) {
-          sourceWithId = { ...incoming, id } as Record<string, unknown> & { id: string }
-        } else {
-          const primary = await this.derivationSource.getCollection(spec.source).get(id)
-          if (primary === null || primary === undefined) continue
-          sourceWithId = { ...primary, id } as Record<string, unknown> & { id: string }
-          sourceVersion = 0
+      } else if (trigger) {
+        const srcColl = this.derivationSource.getCollection(spec.source)
+        const ids = await srcColl._findMatchingIds(trigger.on, id)
+        if (trigger.maxFanout !== undefined && ids.length > trigger.maxFanout) {
+          throw new DerivationCapExceededError(`triggerBy ${this.name}→${spec.source}`, ids.length, trigger.maxFanout)
         }
+        for (const sid of ids) {
+          const raw = await srcColl._getStoredRecord(sid)
+          if (raw === null) continue
+          runs.push({ input: { ...raw, id: sid }, base: raw, runId: sid, version: 0 })
+        }
+      }
+
+      if (runs.length === 0) continue
+
+      if (mode !== 'eager') {
+        for (const run of runs) await markStale(registry, spec, run.runId)
+        continue
+      }
+
+      if (DerivationExecutor === null) {
+        ({ DerivationExecutor } = (await import('./derivations/executor.js')) as { DerivationExecutor: typeof DerivationExecutorType })
+      }
+
+      for (const run of runs) {
         const ctx = { vault: this.derivationSource.getReadOnlyFacade() }
-        const result = await DerivationExecutor.run(spec, sourceWithId, sourceVersion, strategyHash, ctx)
+        const result = await DerivationExecutor.run(spec, run.input, run.version, strategyHash, ctx)
         for (const key of Object.keys(spec.outputs)) {
           const out = result.outputs[key]
           if (!out) continue
           if (out.kind === 'failed') {
             const err = out.error
             if (spec.strict) throw err
-            console.warn(`[derivation] output "${key}" for source "${spec.source}" id="${id}" failed:`, err)
+            console.warn(`[derivation] output "${key}" for source "${spec.source}" id="${run.runId}" failed:`, err)
             continue
           }
           const outSpec = spec.outputs[key]
@@ -1743,7 +1855,7 @@ export class Collection<T> {
               this.adapter,
               this.vault,
               spec.source,
-              id,
+              run.runId,
               key,
             )
             const prevKeys = new Set<string>(prior?.keys ?? [])
@@ -1779,7 +1891,7 @@ export class Collection<T> {
             // on failure-mode symmetry).
             await saveFanoutSidecar(this.adapter, this.vault, {
               source: spec.source,
-              sourceId: id,
+              sourceId: run.runId,
               outputKey: key,
               outputCollection: outSpec.collection,
               keys: newKeysList,
@@ -1787,7 +1899,7 @@ export class Collection<T> {
             continue
           }
 
-          // ── Record-shape branch (existing v1 behavior) ─────────
+          // ── Record-shape branch ────────────────────────────────
           if (out.skipped === true) {
             // Optional output returned null. Delete the
             // previously-emitted output at this id, if any. Routed
@@ -1797,25 +1909,55 @@ export class Collection<T> {
             // user-initiated delete. The txCtx hookup captures the
             // prior envelope inside `_internalDelete` for rollback
             // symmetry; delete-of-absent is a silent no-op.
-            await outputCollection._internalDelete(id, txCtx)
+            await outputCollection._internalDelete(run.runId, txCtx)
             continue
           }
+
+          // ── Self-write reverse-denorm (#376) ───────────────────
+          // An output back to its own source: patch ONLY the declared
+          // `denorm` fields onto the raw stored record, never the whole
+          // value (which would clobber user fields / i18n maps and carries
+          // the executor's `_derivedFrom` tag). If the patch changes
+          // nothing, skip the write — that value-equality is the cycle
+          // guard: the self-write re-fires the source-path derivation,
+          // which recomputes identical fields and terminates here.
+          if (outSpec.shape === 'record' && outSpec.denorm !== undefined && outSpec.collection === spec.source) {
+            const value = out.value
+            const patched: Record<string, unknown> = { ...run.base }
+            let changed = false
+            for (const f of outSpec.denorm) {
+              if (!selfWriteFieldEqual(run.base[f], value[f])) {
+                patched[f] = value[f]
+                changed = true
+              }
+            }
+            if (!changed) continue // cycle guard — nothing to write
+            if (txCtx !== null) {
+              const prior = await this.adapter.get(this.vault, outSpec.collection, run.runId)
+              txCtx._executed.push({
+                op: { type: 'put', vaultName: this.vault, collectionName: outSpec.collection, id: run.runId },
+                priorEnvelope: prior,
+              })
+            }
+            await outputCollection.put(run.runId, patched)
+            continue
+          }
+
+          // ── Normal record output (separate output collection) ──
           if (txCtx !== null) {
-            const prior = await this.adapter.get(this.vault, outSpec.collection, id)
+            const prior = await this.adapter.get(this.vault, outSpec.collection, run.runId)
             txCtx._executed.push({
               op: {
                 type: 'put',
                 vaultName: this.vault,
                 collectionName: outSpec.collection,
-                id,
+                id: run.runId,
               },
               priorEnvelope: prior,
             })
           }
-          await outputCollection.put(id, out.value)
+          await outputCollection.put(run.runId, out.value)
         }
-      } else {
-        await markStale(registry, spec, id)
       }
     }
   }
