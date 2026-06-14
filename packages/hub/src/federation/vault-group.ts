@@ -7,7 +7,7 @@
 import type { Noydb } from '../noydb.js'
 import type { Vault } from '../vault.js'
 import type { Collection } from '../collection.js'
-import type { StateManagementVault } from './state-vault.js'
+import { StateManagementVault } from './state-vault.js'
 import { CrossShardJoinError, ReservedVaultNameError, ShardProvisioningError, UnknownShardError, ValidationError } from '../errors.js'
 import { STATE_VAULT_NAME } from './constants.js'
 import { classifyShardSkip } from './classify-skip.js'
@@ -30,6 +30,8 @@ import type {
   CrossVaultDerivationSpec,
   CrossVaultDerivationContext,
   RefreshInsightsResult,
+  MigrationStatusRow,
+  FleetMigrationResult,
 } from './types.js'
 
 /** Reserved separator between group name and partition key in a shard vault id. */
@@ -65,6 +67,7 @@ export class VaultGroup<T> {
     /** @internal */ readonly registry: Collection<VaultRegistryRow>,
     /** @internal */ readonly sharding: ShardingConfig<T>,
     /** @internal */ readonly template: VaultTemplate,
+    /** @internal — lazy migrate-on-open (#271). */ readonly migrateOnOpen: boolean = false,
   ) {
     if (name.includes(SHARD_SEPARATOR)) {
       throw new ValidationError(
@@ -111,8 +114,23 @@ export class VaultGroup<T> {
     return rows.filter((r) => r.group === this.name)
   }
 
-  /** Open an existing shard and apply the template. */
+  /**
+   * Open an existing shard and apply the template. When `migrateOnOpen` is set
+   * (#271) and the shard's registry version is behind the template, its cutover
+   * runs inline first — so a behind shard never surfaces a stale handle.
+   */
   async openShard(partitionKey: string): Promise<Vault> {
+    if (this.migrateOnOpen) {
+      const row = await this.registry.get(this.registryId(partitionKey))
+      if (row && row.schemaVersion < this.template.version) {
+        await this.migrateShard(partitionKey)
+      }
+    }
+    return this._openShardRaw(partitionKey)
+  }
+
+  /** @internal — open + configure with no migrate-on-open hook (used by the migration path itself to avoid recursion). */
+  private async _openShardRaw(partitionKey: string): Promise<Vault> {
     const vault = await this.db.openVault(this.shardVaultId(partitionKey), { create: false })
     this.template.configure(vault)
     return vault
@@ -274,6 +292,90 @@ export class VaultGroup<T> {
       }
     }
     return { written, skippedVaults: skipped }
+  }
+
+  /** @internal — the control-plane vault for migration status; lazily opened. */
+  private async ensureStateVault(): Promise<StateManagementVault> {
+    if (!this.stateVault) this.stateVault = await StateManagementVault.open(this.db)
+    return this.stateVault
+  }
+
+  /**
+   * Migrate ONE shard to the template's current version (#271 fleet runner,
+   * per-shard step). Opens the shard (applying the template, which arms the
+   * M12 cutover), drains schema-write detection, runs `vault.runSchemaCutover()`
+   * (the per-vault drain-barrier-transform protocol), then advances the
+   * registry row's `schemaVersion` and records `migration-status`. A shard
+   * already at the template version is a no-op (`status: 'done'`, migrated 0).
+   * Never throws on a cutover failure — it records `status: 'failed'` and
+   * returns the row, so a fleet run continues past a bad shard.
+   */
+  async migrateShard(partitionKey: string): Promise<MigrationStatusRow> {
+    const vaultId = this.shardVaultId(partitionKey)
+    const row = await this.registry.get(this.registryId(partitionKey))
+    if (!row) throw new UnknownShardError(partitionKey, this.name)
+    const target = this.template.version
+    const sv = await this.ensureStateVault()
+    const base = { vaultId, group: this.name, currentVersion: row.schemaVersion, targetVersion: target }
+
+    if (row.schemaVersion >= target) {
+      const done: MigrationStatusRow = { ...base, status: 'done', migrated: 0, finishedAt: Date.now() }
+      await sv.upsertMigrationStatus(done)
+      return done
+    }
+
+    await sv.upsertMigrationStatus({ ...base, status: 'running', startedAt: Date.now() })
+    try { await sv.appendEvent({ type: 'migration-started', group: this.name, vaultId, version: target }) } catch { /* best-effort */ }
+
+    try {
+      const vault = await this._openShardRaw(partitionKey)
+      await vault._drainPendingSchemaWrites()
+      const { migrated } = await vault.runSchemaCutover()
+      // Advance the authoritative registry version (no built-in update path).
+      await this.registry.put(this.registryId(partitionKey), { ...row, schemaVersion: target })
+      const done: MigrationStatusRow = { ...base, currentVersion: target, status: 'done', migrated, finishedAt: Date.now() }
+      await sv.upsertMigrationStatus(done)
+      try { await sv.appendEvent({ type: 'migration-completed', group: this.name, vaultId, version: target }) } catch { /* best-effort */ }
+      return done
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err)
+      const failed: MigrationStatusRow = { ...base, status: 'failed', error, finishedAt: Date.now() }
+      await sv.upsertMigrationStatus(failed)
+      try { await sv.appendEvent({ type: 'migration-failed', group: this.name, vaultId, version: target, detail: error }) } catch { /* best-effort */ }
+      return failed
+    }
+  }
+
+  /**
+   * Active batch runner (#271): migrate every shard behind the template version
+   * to it, in controlled batches. **Resumable + crash-safe** — shards already at
+   * the target are skipped (the registry version is the source of truth), so a
+   * re-run after a crash only picks up the unfinished + previously-failed shards.
+   *
+   * - `cohort` — restrict to these partition keys (the staged / canary rollout:
+   *   migrate a small cohort, verify the Insight Vault, then run the rest).
+   * - `batchSize` — max shards migrated concurrently per batch (back-pressure).
+   *   Default 4. Batches run sequentially; shards within a batch run in parallel.
+   */
+  async migrateFleet(options: { cohort?: readonly string[]; batchSize?: number } = {}): Promise<FleetMigrationResult> {
+    const target = this.template.version
+    const rows = await this.allRows()
+    const cohort = options.cohort
+    const todo = rows.filter(
+      (r) => r.schemaVersion < target && (cohort === undefined || cohort.includes(r.partitionKey)),
+    )
+    const batchSize = Math.max(1, options.batchSize ?? 4)
+    const migrated: string[] = []
+    const failed: { vaultId: string; error: string }[] = []
+    for (let i = 0; i < todo.length; i += batchSize) {
+      const batch = todo.slice(i, i + batchSize)
+      const settled = await Promise.all(batch.map((r) => this.migrateShard(r.partitionKey)))
+      for (const res of settled) {
+        if (res.status === 'done') migrated.push(res.vaultId)
+        else failed.push({ vaultId: res.vaultId, error: res.error ?? 'unknown' })
+      }
+    }
+    return { target, migrated, failed }
   }
 }
 

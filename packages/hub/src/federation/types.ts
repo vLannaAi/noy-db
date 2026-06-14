@@ -53,6 +53,23 @@ export interface VaultGroupOptions<T> {
    */
   readonly registry?: Collection<VaultRegistryRow>
   readonly sharding: ShardingConfig<T>
+  /**
+   * Lazy migrate-on-open (#271 fleet migration). When `true`, opening a shard
+   * whose registry `schemaVersion` is behind the template's version runs that
+   * shard's cutover inline (via `migrateShard`) before surfacing the handle.
+   * Zero cost for shards never opened. Default `false` (use `migrateFleet`).
+   */
+  readonly migrateOnOpen?: boolean
+}
+
+/** Result of `VaultGroup.migrateFleet` (#271 active batch runner). */
+export interface FleetMigrationResult {
+  /** The version migrated toward (the template's current version). */
+  readonly target: number
+  /** vaultIds successfully migrated (or already current). */
+  readonly migrated: string[]
+  /** vaultIds whose cutover failed, with the error message. */
+  readonly failed: { readonly vaultId: string; readonly error: string }[]
 }
 
 /** Options for a cross-shard fan-out read. */
@@ -173,10 +190,39 @@ export interface SchemaManifestRow {
 export interface DeploymentEvent {
   readonly id: string
   readonly ts: number
-  readonly type: 'shard-created' | 'manifest-recorded' | 'group-opened'
+  readonly type:
+    | 'shard-created'
+    | 'manifest-recorded'
+    | 'group-opened'
+    | 'migration-started'
+    | 'migration-completed'
+    | 'migration-failed'
   readonly group: string
   readonly vaultId?: string
   readonly templateName?: string
   readonly version?: number
   readonly actor?: string
+  /** Free-form detail (e.g. migration error message). */
+  readonly detail?: string
+}
+
+/**
+ * One row in the StateManagement `migration-status` collection (#271 fleet
+ * schema-migration runner), keyed by `vaultId`. Tracks each shard's progress
+ * toward the template's current version so the active batch runner is
+ * resumable and the staged rollout can verify a cohort before proceeding.
+ */
+export interface MigrationStatusRow {
+  readonly vaultId: string
+  readonly group: string
+  /** The shard's registry schemaVersion at the time of this status. */
+  readonly currentVersion: number
+  /** The version the runner is moving this shard to (the template's version). */
+  readonly targetVersion: number
+  readonly status: 'pending' | 'running' | 'done' | 'failed'
+  readonly startedAt?: number
+  readonly finishedAt?: number
+  /** Records migrated by the per-shard cutover (when status `done`). */
+  readonly migrated?: number
+  readonly error?: string
 }

@@ -7,7 +7,7 @@
 import type { Noydb } from '../noydb.js'
 import type { Collection } from '../collection.js'
 import type { Query } from '../query/builder.js'
-import type { VaultRegistryRow, SchemaManifestRow, DeploymentEvent, VaultTemplate } from './types.js'
+import type { VaultRegistryRow, SchemaManifestRow, DeploymentEvent, MigrationStatusRow, VaultTemplate } from './types.js'
 import { captureBlueprint, fingerprintBlueprint } from './schema-manifest.js'
 import { STATE_VAULT_NAME } from './constants.js'
 import { generateULID } from '../bundle/ulid.js'
@@ -20,6 +20,7 @@ export { STATE_VAULT_NAME } from './constants.js'
 const REGISTRY = 'vaultRegistry'
 const MANIFEST = 'schemaManifest'
 const EVENTS = 'deploymentEvents'
+const MIGRATION_STATUS = 'migrationStatus'
 
 export class StateManagementVault {
   /**
@@ -29,23 +30,44 @@ export class StateManagementVault {
    * `schemaManifest` are deliberately public: consumers read and write them.)
    */
   readonly #events: Collection<DeploymentEvent>
+  /** Per-shard fleet-migration progress (#271). Surfaced via typed methods only. */
+  readonly #migrationStatus: Collection<MigrationStatusRow>
 
   private constructor(
     readonly registry: Collection<VaultRegistryRow>,
     readonly schemaManifest: Collection<SchemaManifestRow>,
     events: Collection<DeploymentEvent>,
+    migrationStatus: Collection<MigrationStatusRow>,
   ) {
     this.#events = events
+    this.#migrationStatus = migrationStatus
   }
 
-  /** Idempotently open the reserved state vault and bind the three control-plane collections. */
+  /** Idempotently open the reserved state vault and bind the control-plane collections. */
   static async open(db: Noydb): Promise<StateManagementVault> {
     const vault = await db.openVault(STATE_VAULT_NAME)
     return new StateManagementVault(
       vault.collection<VaultRegistryRow>(REGISTRY),
       vault.collection<SchemaManifestRow>(MANIFEST),
       vault.collection<DeploymentEvent>(EVENTS),
+      vault.collection<MigrationStatusRow>(MIGRATION_STATUS),
     )
+  }
+
+  /** Read one shard's migration status (or null). */
+  async getMigrationStatus(vaultId: string): Promise<MigrationStatusRow | null> {
+    return this.#migrationStatus.get(vaultId)
+  }
+
+  /** All migration-status rows (hydrates first). */
+  async listMigrationStatus(): Promise<MigrationStatusRow[]> {
+    await this.#migrationStatus.list()
+    return this.#migrationStatus.query().toArray()
+  }
+
+  /** Upsert one shard's migration status (keyed by vaultId). */
+  async upsertMigrationStatus(row: MigrationStatusRow): Promise<void> {
+    await this.#migrationStatus.put(row.vaultId, row)
   }
 
   /** Read-only query over the append-only deployment-events log. */

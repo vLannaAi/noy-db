@@ -128,7 +128,6 @@ function mergeUnionMembers(
 
     // Use first-seen descriptor as the base (presentIn is always non-empty here since
     // we iterate names that appeared in at least one member's fields)
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const base = presentIn[0]!.fields[name]!
 
     // For discriminator-like fields: collect const/enum values across all members

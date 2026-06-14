@@ -326,6 +326,8 @@ export type {
   CrossVaultDerivationSpec,
   CrossVaultDerivationContext,
   RefreshInsightsResult,
+  MigrationStatusRow,
+  FleetMigrationResult,
 } from './federation/index.js'
 export { STATE_VAULT_NAME } from './federation/constants.js'
 export { UnknownShardError, ShardProvisioningError, VaultTemplateNotFoundError, ReservedVaultNameError } from './errors.js'

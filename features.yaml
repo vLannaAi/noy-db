@@ -1259,6 +1259,8 @@ features:
         path: showcases/src/100-state-management-vault.showcase.test.ts
       - id: 108-insight-vault
         path: showcases/src/108-insight-vault.showcase.test.ts
+      - id: 109-fleet-migration
+        path: showcases/src/109-fleet-migration.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
@@ -1268,7 +1270,8 @@ features:
       - 'minVersion guard pre-filters shards by registry schemaVersion (no silent shape-mixing)'
       - 'crossShardJoin is co-partitioned fan-out + central broadcast enrichment; join.ts and its partitionScope seam stay untouched'
       - 'Insight Vault (#271 Layer 4, push model): withCrossVaultDerivation({ source, target, derive }) + refreshInsights() reads each eligible shard, runs derive(records, ctx{vaultId,partitionKey,schemaVersion}) per shard, writes one summary row per shard into the target analytics vault keyed by partitionKey — re-encrypted under the Insight Vault DEK, shard ciphertext never crosses a DEK boundary; respects the minVersion drift guard; failed shard reads → skippedVaults (no stale row); v1 is explicit-refresh (no write-path push). ZK note: Insight Vault backend sees aggregated cross-shard structure — weaker profile than per-shard vaults; opt-in, aggregate scalars only'
-    related: [permissions, transferable-partition, derivations]
+      - 'fleet schema migration (#271): migrateFleet({cohort?,batchSize?}) + migrateShard(key) drive each shard through M12 vault.runSchemaCutover() (single-vault protocol internally), then advance the registry schemaVersion and write migration-status to the StateManagement Vault; cohort = staged/canary, batchSize = back-pressure; migrateOnOpen lazily migrates a behind shard on access; resumable/crash-safe (registry version is source of truth — re-run skips current, retries failed); a failed shard cutover is recorded, not fatal'
+    related: [permissions, transferable-partition, derivations, schema-and-refs]
 
 # ─── Storage adapters (phase 2) ──────────────────────────────────────
 
