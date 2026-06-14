@@ -10,7 +10,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb, withMaterializedView } from '../../src/index.js'
 import { withAggregate } from '../../src/aggregate/index.js'
-import { sum } from '../../src/aggregate/reducers.js'
+import { sum, count } from '../../src/aggregate/reducers.js'
 import { i18nText } from '../../src/i18n/core.js'
 import { withI18n } from '../../src/i18n/index.js'
 import { LocaleNotSpecifiedError, MaterializedViewConfigError } from '../../src/errors.js'
@@ -74,6 +74,32 @@ describe('MV i18n — §2 compute (i18nLocale resolves group keys at the mv laye
   })
 })
 
+describe('MV i18n — query-form grouping (#285)', () => {
+  it('a query-form MV groups by the resolved i18n label when i18nLocale + i18nFields are set', async () => {
+    const mv = withMaterializedView<CatCount>({
+      name: 'qCatCounts',
+      query: (db) => db.collection<Product>('products').query().groupBy('category').aggregate({ n: count() }) as never,
+      sources: ['products'],
+      i18nLocale: 'en',
+      i18nFields: { category: CATEGORY },
+      rowKey: (row) => String(row.category),
+      refresh: 'manual',
+    })
+    const db = await createNoydb({ store: memory(), user: 'a', secret: SECRET, materializedViewStrategies: [mv], aggregateStrategy: withAggregate(), i18nStrategy: withI18n() })
+    const vault = await db.openVault('v')
+    const products = vault.collection<Product>('products', { i18nFields: { category: CATEGORY } })
+    await products.put('p1', { id: 'p1', category: { en: 'Food', th: 'อาหาร' } })
+    await products.put('p2', { id: 'p2', category: { en: 'Food', th: 'อาหาร' } })
+    await products.put('p3', { id: 'p3', category: { en: 'Toys', th: 'ของเล่น' } })
+
+    await vault.refreshView('qCatCounts')
+
+    const out = vault.collection<CatCount>('qCatCounts')
+    expect((await out.get('Food'))?.n).toBe(2)
+    expect((await out.get('Toys'))?.n).toBe(1)
+  })
+})
+
 describe('MV i18n — guard (grouping a raw i18n field without a locale)', () => {
   it('throws LocaleNotSpecifiedError rather than bucketing on a raw locale map', async () => {
     const mv = withMaterializedView<CatCount>({
@@ -118,8 +144,8 @@ describe('MV i18n — §1 display (resolve-at-output)', () => {
   })
 })
 
-describe('MV i18n — registration (union-only)', () => {
-  it('rejects i18nLocale on a query-form MV (#285 §3 deferred)', () => {
+describe('MV i18n — registration', () => {
+  it('rejects i18nLocale without i18nFields (nothing to resolve)', () => {
     expect(() =>
       withMaterializedView<CatCount>({
         name: 'q',
@@ -129,5 +155,18 @@ describe('MV i18n — registration (union-only)', () => {
         refresh: 'manual',
       }),
     ).toThrow(MaterializedViewConfigError)
+  })
+
+  it('allows i18nLocale + i18nFields on a query-form MV (#285 query-form grouping)', () => {
+    expect(() =>
+      withMaterializedView<CatCount>({
+        name: 'q2',
+        query: (db) => db.collection<CatCount>('products').query() as never,
+        i18nLocale: 'en',
+        i18nFields: { category: CATEGORY },
+        rowKey: (row) => String(row.category),
+        refresh: 'manual',
+      }),
+    ).not.toThrow()
   })
 })

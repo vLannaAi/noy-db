@@ -114,15 +114,15 @@ export function withMaterializedView<TRow extends Record<string, unknown>>(
       )
     }
   }
-  // #285: i18nLocale / i18nFields drive UNION-mode compute-time i18n resolution
-  // (resolve group-key i18n fields before bucketing). The query() form does its
-  // own groupBy inside the Query, which carries no locale yet (#285 §3, deferred)
-  // — so these are UNION-only.
-  if ((spec.i18nLocale !== undefined || spec.i18nFields !== undefined) && !spec.unionSources) {
+  // #285: i18nLocale + i18nFields drive compute-time i18n resolution of group-key
+  // i18nText fields before bucketing — UNION mode (resolved on the unified rows)
+  // AND query mode (resolved in GroupedAggregation.run before groupAndReduce).
+  // i18nLocale without i18nFields cannot resolve anything, so reject it early.
+  if (spec.i18nLocale !== undefined && spec.i18nFields === undefined) {
     throw new MaterializedViewConfigError(
-      `withMaterializedView "${spec.name}": i18nLocale / i18nFields are UNION-mode only — `
-      + `the query() form groups inside its Query, which carries no locale yet (#285 §3). `
-      + `Group by a dictKey/staticDict code in the query form, or use unionSources.`,
+      `withMaterializedView "${spec.name}": i18nLocale requires i18nFields — `
+      + `declare the i18nText descriptors of the group-key fields so they can be `
+      + `resolved at the mv layer before bucketing.`,
     )
   }
   if (typeof spec.rowKey !== 'function') {
