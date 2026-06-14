@@ -182,6 +182,22 @@ export interface DerivationStrategy<
    * be a non-empty field name (validated at construction).
    */
   triggerBy?: ReadonlyArray<{ collection: string; on: string; maxFanout?: number }>
+  /**
+   * @internal — set by `withRollup()` (#376 slice 2). Marks this strategy as
+   * an aggregate-onto-parent rollup: a write OR delete of a `from` (child)
+   * record recomputes `compute(children where child[key] === parentId)` and
+   * patches it onto `source[field]` of the parent at `parentId` (= child[key]).
+   * `source` is the parent (`into`) collection; the synthetic self-write
+   * output carries `denorm: [field]`. Dispatch handles rollup specially (it
+   * does not run the executor). Eager-only in this slice.
+   */
+  rollup?: {
+    readonly from: string
+    readonly key: string
+    readonly field: string
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    readonly compute: (children: any[]) => unknown
+  }
   /** v1: only deterministic derivations supported. */
   deterministic: true
   /**

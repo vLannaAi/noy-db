@@ -1750,6 +1750,65 @@ export class Collection<T> {
     return out
   }
 
+  /**
+   * @internal #376 slice 2 — recompute a rollup aggregate onto the parent.
+   * Gathers every child of `parentId`, runs `compute`, and patches only the
+   * rollup `field` onto the parent's raw stored record (value-equality
+   * guarded). No-op when the parent record does not exist.
+   */
+  private async recomputeRollup(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    spec: { source: string; rollup?: { from: string; key: string; field: string; compute: (children: any[]) => unknown } },
+    parentId: string,
+  ): Promise<void> {
+    if (this.derivationSource === undefined || spec.rollup === undefined) return
+    const { from, key, field, compute } = spec.rollup
+    const into = spec.source
+    const intoColl = this.derivationSource.getCollection(into)
+    const base = await intoColl._getStoredRecord(parentId)
+    if (base === null) return // no parent record to patch
+
+    const fromColl = this.derivationSource.getCollection(from)
+    const childIds = await fromColl._findMatchingIds(key, parentId)
+    const children: Array<Record<string, unknown>> = []
+    for (const cid of childIds) {
+      const c = await fromColl.get(cid)
+      if (c !== null && c !== undefined) children.push(c)
+    }
+
+    const newValue = compute(children)
+    if (selfWriteFieldEqual(base[field], newValue)) return // no change → no write
+
+    const patched = { ...base, [field]: newValue }
+    const txCtx = this.derivationSource.getActiveTxContext()
+    if (txCtx !== null) {
+      const prior = await this.adapter.get(this.vault, into, parentId)
+      txCtx._executed.push({
+        op: { type: 'put', vaultName: this.vault, collectionName: into, id: parentId },
+        priorEnvelope: prior,
+      })
+    }
+    await intoColl.put(parentId, patched)
+  }
+
+  /**
+   * @internal #376 slice 2 — fire any rollups for which THIS collection is the
+   * child `from`, recomputing the affected parent after a child delete. Called
+   * from the delete path with the just-removed record's key value. Other
+   * derivation kinds do not react to deletes (unchanged).
+   */
+  private async dispatchRollupsOnDelete(deleted: T): Promise<void> {
+    if (this.derivationSource === undefined) return
+    const registry = this.derivationSource.registry()
+    const rec = deleted as Record<string, unknown>
+    for (const { spec } of registry.strategiesForSource(this.name)) {
+      if (!spec.rollup || spec.rollup.from !== this.name) continue
+      const kv = rec[spec.rollup.key]
+      if (typeof kv !== 'string' && typeof kv !== 'number') continue
+      await this.recomputeRollup(spec, String(kv))
+    }
+  }
+
   private async dispatchDerivations(id: string, record: T, version: number): Promise<void> {
     if (this.derivationSource === undefined) return
     // `record` is the stored form here (post-quantize) — decode so
@@ -1767,6 +1826,22 @@ export class Collection<T> {
     let DerivationExecutor: typeof DerivationExecutorType | null = null
     for (const { spec, strategyHash } of strategies) {
       const mode = typeof spec.lifecycle === 'string' ? spec.lifecycle : spec.lifecycle.mode
+
+      // Rollup (#376 slice 2): a write to the child `from` recomputes the
+      // parent at id child[key]; a write to the parent (source = into)
+      // recomputes its own aggregate. Handled here (the executor is not run).
+      if (spec.rollup) {
+        if (mode !== 'eager') continue
+        let parentId: string | null
+        if (this.name === spec.rollup.from) {
+          const kv = incoming[spec.rollup.key]
+          parentId = (typeof kv === 'string' || typeof kv === 'number') ? String(kv) : null
+        } else {
+          parentId = id // a write to the parent recomputes its own aggregate
+        }
+        if (parentId !== null) await this.recomputeRollup(spec, parentId)
+        continue
+      }
 
       // Determine how `this.name` triggers this strategy, and build the list
       // of source records to (re-)derive:
@@ -2240,6 +2315,11 @@ export class Collection<T> {
     if (!internal) {
       await this.dispatchMaterializedViewsOnDelete(id)
       await this.dispatchArrayDerivationsOnDelete(id)
+      // Rollup-on-delete (#376 slice 2): recompute the parent aggregate now
+      // that this child is gone. `existing.record` carries the deleted child's
+      // FK; the recompute gathers the REMAINING children (this one already
+      // removed from the store/cache above).
+      if (existing) await this.dispatchRollupsOnDelete(existing.record)
     }
   }
 
