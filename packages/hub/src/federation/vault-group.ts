@@ -243,10 +243,23 @@ export class VaultGroup<T> {
    *
    * v1 is explicit-refresh (no write-path push); call `refreshInsights()`
    * after a batch of writes, or on a schedule.
+   *
+   * The `target.vault` must NOT be the group itself or one of its shards —
+   * a summary writing back into client-shard data would breach the Insight
+   * Vault's separate-DEK-boundary contract. Such a target throws a
+   * `ValidationError` at registration (#271 Insight-write isolation).
    */
   withCrossVaultDerivation<R = Record<string, unknown>, S = Record<string, unknown>>(
     spec: CrossVaultDerivationSpec<R, S>,
   ): void {
+    const target = spec.target.vault
+    if (target === this.name || target.startsWith(`${this.name}${SHARD_SEPARATOR}`)) {
+      throw new ValidationError(
+        `withCrossVaultDerivation: target.vault "${target}" is the "${this.name}" group itself or one of ` +
+          `its shards — an Insight summary must target a SEPARATE analytics vault, never write back into ` +
+          `client-shard data (it would breach the per-shard DEK boundary). Use a distinct vault name.`,
+      )
+    }
     this.crossVaultDerivations.push(spec as unknown as CrossVaultDerivationSpec)
   }
 
