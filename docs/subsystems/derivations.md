@@ -149,10 +149,44 @@ withDerivation<Sale, { self: Sale }>({
   before any write.
 - `triggerBy.collection` must differ from `source`; `on` is required.
 
-> **Slice 1 scope (#376).** This ships `triggerBy` reverse-denormalization.
-> The aggregate-onto-parent companion (`withRollup`) and rollup-on-delete
-> are a tracked follow-up (Slice 2). `vault.forget()` does not auto-re-derive
-> (it bypasses the put path) — recompute explicitly if needed.
+### Rollups — aggregate onto a parent field (#376 slice 2)
+
+`withRollup` is the inverse of a join: instead of reading children on
+demand, the parent carries a **maintained summary** folded from its
+children by foreign key. It recomputes on child insert, update, AND
+delete — gap-free.
+
+```ts
+import { withRollup } from '@noy-db/hub/derivations'
+
+withRollup<Sale, Buyer>({
+  from: 'sales',          // child collection (the trigger)
+  key: 'buyerId',         // FK on the child → parent id
+  into: 'buyers',         // parent collection
+  field: 'revenueByYear', // field on the parent to maintain
+  compute: (sales) => groupSumByYear(sales, 'total'),
+})
+```
+
+- On a `from` write/delete the parent at id `child[key]` is recomputed:
+  `compute(children where child[key] === parentId)` is patched onto
+  `parent[field]`. A parent write also recomputes its own aggregate, so a
+  **parent created after its children** still fills in.
+- Only `field` is patched onto the parent's raw record (other fields and
+  i18n maps untouched); a value-equality guard suppresses no-op writes.
+- The aggregate gathers children through the FK index when the `from`
+  collection declares `indexes:[key]` (O(children)), else a scan.
+- Eager-only in this slice. Desugars to a derivation carrying a `rollup`
+  marker; dispatch handles it without the executor.
+
+> **Why not a materialized view?** An MV aggregates children into a
+> *parallel* collection (`buyer-totals.get(id)`); it cannot write the
+> aggregate onto a field of the parent `buyers` record. `withRollup` does.
+
+> **Scope (#376).** Slice 1 = `triggerBy` reverse-denormalization; slice 2
+> = `withRollup` (this section) + rollup-on-delete. `vault.forget()` does
+> not auto-re-derive (it bypasses the put path) — recompute explicitly if a
+> forgotten record must drop out of an aggregate.
 
 ### Optional outputs (#144)
 

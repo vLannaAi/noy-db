@@ -49,6 +49,18 @@ export class DerivationRegistry {
       else this._bySource.set(t.collection, [reg])
     }
 
+    // Rollup (#376 slice 2): a write to the child `from` collection recomputes
+    // the parent (= spec.source = into) at id child[key]. Index under `from`
+    // so a child write fires it; spec.source (into) is already indexed above,
+    // so a parent write also recomputes its own aggregate (covers the
+    // parent-created-after-children case). The from→into edge enters the cycle
+    // DFS automatically.
+    if (spec.rollup) {
+      const fromRollup = this._bySource.get(spec.rollup.from)
+      if (fromRollup) fromRollup.push(reg)
+      else this._bySource.set(spec.rollup.from, [reg])
+    }
+
     for (const key of outputKeys) {
       const output = spec.outputs[key]
       if (!output) continue

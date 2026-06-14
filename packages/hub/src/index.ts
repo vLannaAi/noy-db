@@ -673,6 +673,7 @@ export type {
 
 // Derivations (Dim 14) — see docs/superpowers/specs/2026-05-01-dim14-derivation-v1-design.md
 export { withDerivation } from './derivations/index.js'
+export { withRollup } from './derivations/index.js'
 export type {
   DerivationStrategy,
   DerivationStrategyHandle,
