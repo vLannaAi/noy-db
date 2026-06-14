@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
-import { ConflictError } from '../src/errors.js'
+import { ConflictError, ValidationError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
 import type { Noydb } from '../src/noydb.js'
 import type { Vault } from '../src/vault.js'
@@ -82,6 +82,32 @@ describe('Insight Vault — withCrossVaultDerivation / refreshInsights (#271)', 
       }),
     })
   }
+
+  it('refuses a target.vault that is the group itself or one of its shards (Insight-write isolation)', () => {
+    // The group is 'firm-clients'; its shards are 'firm-clients--<key>'.
+    expect(() =>
+      h.firm.withCrossVaultDerivation<Invoice, Summary>({
+        source: 'invoices',
+        target: { vault: 'firm-clients', collection: 'x' },
+        derive: () => ({}) as Summary,
+      }),
+    ).toThrow(ValidationError)
+    expect(() =>
+      h.firm.withCrossVaultDerivation<Invoice, Summary>({
+        source: 'invoices',
+        target: { vault: 'firm-clients--acme', collection: 'x' },
+        derive: () => ({}) as Summary,
+      }),
+    ).toThrow(ValidationError)
+    // A separate analytics vault is fine.
+    expect(() =>
+      h.firm.withCrossVaultDerivation<Invoice, Summary>({
+        source: 'invoices',
+        target: { vault: 'firm-insights', collection: 'client-summary' },
+        derive: () => ({}) as Summary,
+      }),
+    ).not.toThrow()
+  })
 
   it('writes one summary row per shard into the Insight Vault', async () => {
     const inv = h.firm.collection<Invoice>('invoices')

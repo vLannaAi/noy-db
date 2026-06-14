@@ -135,6 +135,47 @@ const { written, skippedVaults } = await firm.refreshInsights({ minVersion: 3 })
 > Treat its backend as a `tier: 'derived'` store with a formally weaker ZK
 > profile, and grant it explicitly.
 
+### Executor identity & least privilege
+
+`refreshInsights()` runs the derivation under whatever `Noydb` opened the group.
+In v1 that is typically the operator/admin, whose keyrings can decrypt **every**
+shard and write **everywhere** — a broad blast radius for a background job.
+
+For production, run the aggregation under a **dedicated service account** granted
+*only* read on each shard's `source` collection and write on the Insight Vault —
+nothing else. No hub change is needed; this is `grant()` + `createNoydb()` wiring:
+
+```ts
+// One-time provisioning by an admin holding owner on each vault:
+for (const shardId of shardIds) {
+  await admin.grant(shardId, {
+    userId: 'svc-insights', displayName: 'Insight aggregator', role: 'operator',
+    passphrase: SVC_PASSPHRASE,
+    permissions: { collections: { invoices: ['read'] } },        // read-only source
+  })
+}
+await admin.grant('firm-insights', {
+  userId: 'svc-insights', displayName: 'Insight aggregator', role: 'operator',
+  passphrase: SVC_PASSPHRASE,
+  permissions: { collections: { 'client-summary': ['read', 'write'] } },
+})
+
+// The aggregation process runs as the service account:
+const svc = await createNoydb({ store, user: 'svc-insights', secret: SVC_PASSPHRASE })
+const firm = await svc.openVaultGroup('firm-clients', { sharding })
+firm.withCrossVaultDerivation({ source: 'invoices', target, derive })
+await firm.refreshInsights()   // reads only what it's granted; writes only the summary
+```
+
+A shard the service account isn't granted → a `'no-grant'` skip (already handled);
+revoking its grant cleanly drops that shard from future refreshes. Every write is
+actor-stamped (`_by = 'svc-insights'`) for a clean audit trail.
+
+**Write isolation (enforced).** `withCrossVaultDerivation` throws a
+`ValidationError` if `target.vault` is the group itself or one of its shards
+(`<group>--<key>`) — a summary must never write back into client-shard data, which
+would breach the per-shard DEK boundary. The target must be a separate vault.
+
 ## Fleet schema migration (#271)
 
 When the template's `version` bumps (new schema + a `coordinatedCutover`

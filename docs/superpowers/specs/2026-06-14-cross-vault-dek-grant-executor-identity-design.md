@@ -1,6 +1,8 @@
 # Cross-vault DEK-grant executor identity — Insight Vault (#271)
 
-> **Status:** DESIGN — awaiting maintainer decision (see § Decision).
+> **Status:** ACCEPTED + BUILT (0.2.0-pre.19 cycle) — recommendation adopted:
+> documented the service-account least-privilege pattern + shipped Hardening 2
+> (Insight-write isolation guard). Hardening 1 (no) and 3 (defer) unchanged.
 > **Context:** the Insight Vault (#271 Layer 4, PR #391) shipped with the
 > derivation running under the **caller's** `Noydb`. This pins down the
 > least-privilege production identity for that executor.
