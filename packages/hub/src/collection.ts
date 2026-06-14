@@ -3412,8 +3412,12 @@ export class Collection<T> {
 
     // 1. i18nText resolution — guarded on `locale`, because the relaxed gate
     // above can now be entered with `locale === undefined` (static-display).
+    // The layer (`'read'` by default; `'guard'`/`'derivation'` when read
+    // through a layer-tagged facade, #285) selects the field's per-layer
+    // `onMissing` policy inside applyI18nLocale.
+    const layer = localeOpts?._layer ?? 'read'
     if (locale && hasI18n && this.i18nFields) {
-      result = this.i18nStrategy.applyI18nLocale(result, this.i18nFields, locale, localeOpts?.fallback)
+      result = this.i18nStrategy.applyI18nLocale(result, this.i18nFields, locale, localeOpts?.fallback, layer)
     }
 
     // 2. dictKey / staticDict label resolution
@@ -3425,7 +3429,7 @@ export class Collection<T> {
         // behavior — unless the field declares onMissing. 'substitute'
         // walks the declared substitute chain (passed as the resolver's
         // fallback); 'throw' raises LocaleNotSpecifiedError.
-        const policy = desc.onMissing ? resolvePolicy(desc.onMissing, 'read') : 'null'
+        const policy = desc.onMissing ? resolvePolicy(desc.onMissing, layer) : 'null'
         const fallback =
           policy === 'substitute'
             ? (localeOpts?.fallback ?? desc.substitute)

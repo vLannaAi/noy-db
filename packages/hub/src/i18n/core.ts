@@ -121,12 +121,14 @@ export interface I18nTextOptions {
    * export). Default `'throw'` — today's behavior, zero breaking change.
    * See {@link OnMissingPolicy}.
    *
-   * NOTE (current wiring): the `read` layer (`get`/`list`) is enforced.
-   * Guard, derivation, mv, join and export reads currently resolve
-   * through the same read path and so observe the `read`/scalar policy;
-   * dedicated per-layer enforcement for those contexts is a tracked
-   * follow-up (mv/join additionally require resolution to be injected
-   * into the query/aggregate pipeline, which today reads raw maps).
+   * NOTE (current wiring): the `read` (`get`/`list`), `guard` and
+   * `derivation` layers are enforced — guard / derivation `ctx.vault`
+   * reads resolve under their own layer policy (`guard` defaults to the
+   * lenient `'substitute'`). The `mv`, `join` and `export` layers are NOT
+   * yet wired: mv/join read raw `{locale}` maps in the query/aggregate
+   * pipeline (no resolution call site), so injecting resolution there is a
+   * tracked follow-up (#285 D2/D3). Until then those reads observe the raw
+   * map, not this policy.
    */
   readonly onMissing?: OnMissingPolicy
   /**
