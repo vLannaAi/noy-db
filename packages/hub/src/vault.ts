@@ -4144,6 +4144,14 @@ export class Vault {
    */
   async *exportStream(opts: ExportStreamOptions = {}): AsyncIterableIterator<ExportChunk> {
     const granularity = opts.granularity ?? 'collection'
+    // #285 export layer: when an export locale is set, read each record at that
+    // locale through the `export` layer (`resolvePolicy(onMissing, 'export')`) —
+    // collapsing i18nText fields to the locale string and resolving dictKey/
+    // staticDict `<field>Label`s — so the export is single-locale and the raw
+    // dictionary snapshot is redundant (omitted). Unset → raw `{locale}` maps +
+    // the dictionaries snapshot (a full, all-locale backup).
+    const exportLocale = opts.resolveLabels
+    const localeOpts = exportLocale !== undefined ? { locale: exportLocale, _layer: 'export' as const } : undefined
 
     // One bulk read to enumerate collections. `loadAll` filters out
     // underscore-prefixed internal collections, which is exactly what we
@@ -4177,19 +4185,23 @@ export class Vault {
       string, // collection name
       Record<string, Record<string, Record<string, string>>> // field → key → locale → label
     >()
-    for (const collectionName of collectionNames) {
-      const dictFields = this.dictKeyFieldRegistry.get(collectionName)
-      if (dictFields && Object.keys(dictFields).length > 0) {
-        const snap: Record<string, Record<string, Record<string, string>>> = {}
-        for (const [fieldName, dictName] of Object.entries(dictFields)) {
-          const entries = await this.dictionary(dictName).list()
-          const keyMap: Record<string, Record<string, string>> = {}
-          for (const entry of entries) {
-            keyMap[entry.key] = entry.labels
+    // Skip the snapshot entirely when exporting at a locale — records carry
+    // resolved `<field>Label`s, so the raw dictionary is redundant.
+    if (exportLocale === undefined) {
+      for (const collectionName of collectionNames) {
+        const dictFields = this.dictKeyFieldRegistry.get(collectionName)
+        if (dictFields && Object.keys(dictFields).length > 0) {
+          const snap: Record<string, Record<string, Record<string, string>>> = {}
+          for (const [fieldName, dictName] of Object.entries(dictFields)) {
+            const entries = await this.dictionary(dictName).list()
+            const keyMap: Record<string, Record<string, string>> = {}
+            for (const entry of entries) {
+              keyMap[entry.key] = entry.labels
+            }
+            snap[fieldName] = keyMap
           }
-          snap[fieldName] = keyMap
+          dictSnapshotCache.set(collectionName, snap)
         }
-        dictSnapshotCache.set(collectionName, snap)
       }
     }
 
@@ -4213,7 +4225,7 @@ export class Vault {
         // and any future cache/index plumbing rides through it.
         const records: unknown[] = []
         for (const id of ids) {
-          const record = await coll.get(id)
+          const record = await coll.get(id, localeOpts)
           if (record !== null) records.push(record)
         }
         const chunk: ExportChunk = {
@@ -4230,7 +4242,7 @@ export class Vault {
         // The schema/refs metadata is repeated on every chunk so
         // consumers don't have to thread state across yields.
         for (const id of ids) {
-          const record = await coll.get(id)
+          const record = await coll.get(id, localeOpts)
           if (record === null) continue
           const chunk: ExportChunk = {
             collection: collectionName,
@@ -4351,6 +4363,9 @@ export class Vault {
     for await (const chunk of this.exportStream({
       granularity: 'collection',
       withLedgerHead: opts.withLedgerHead === true,
+      // #285 export layer: thread the export locale so records are read at the
+      // `export` layer (i18nText collapsed + dictKey/staticDict labels resolved).
+      ...(opts.resolveLabels !== undefined ? { resolveLabels: opts.resolveLabels } : {}),
     })) {
       collections[chunk.collection] = {
         schema: null, // Standard Schema validators are not JSON-serializable
