@@ -452,6 +452,7 @@ features:
       - 'Hash-chained ledger; every entry prevHash = sha256 of predecessor'
       - 'Multi-writer safe on casAtomic stores via optimistic-CAS retry'
       - 'vault.at(timestamp) returns a VaultInstant for past-state reads'
+      - 'Per-collection scoping (#361): vault.collection(name, { historyConfig }) overrides the vault-wide history config wholesale for that collection — `enabled:false` suppresses snapshots, `ledger:false` excludes its writes from the tamper chain (chain still verifies; entries simply absent); no effect without withHistory()'
     related: [vault-and-collections, periods, bundle]
 
   - id: blobs
