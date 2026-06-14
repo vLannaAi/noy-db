@@ -74,8 +74,22 @@ export interface NoydbLiveQuery<R> {
  * for full type safety.
  */
 export interface NoydbStoreOptions<T> {
-  /** Vault (tenant) name. */
-  vault: string
+  /**
+   * Vault (tenant) name, or a **resolver** evaluated at access time for
+   * federation routing (#383). A plain `string` binds the store to one
+   * vault for its lifetime (unchanged behavior). A `() => string` resolver
+   * is re-evaluated on every read/write and whenever its reactive
+   * dependencies change — so a store can follow the app's active scope into
+   * a per-client shard vault (e.g. `() => firm.shardVaultId(clientCode.value)`).
+   *
+   * When the resolved name changes, the store re-opens the new vault and
+   * re-hydrates `items` (mirrors the `i18n: 'follow'` re-read). If the
+   * resolver reads Vue reactive state, the re-hydrate is automatic; if it
+   * reads non-reactive state, the next `refresh()`/`add()`/`remove()`
+   * re-binds. Note: an in-flight `liveQuery()` handle stays bound to the
+   * vault it was created against — recreate it after a vault change.
+   */
+  vault: string | (() => string)
   /** Collection name within the vault. Defaults to the store id. */
   collection?: string
   /**
@@ -210,14 +224,27 @@ export function defineNoydbStore<T>(
       }
     }
 
-    // Lazy collection handle — created on first hydrate.
+    // Resolve the target vault name. A `() => string` resolver (#383) is
+    // evaluated on every access so the store can follow the app's active
+    // scope into a per-client shard vault; a plain string is constant.
+    const resolveVaultName = (): string =>
+      typeof options.vault === 'function' ? options.vault() : options.vault
+
+    // Lazy collection handle — created on first hydrate, and re-created when
+    // the resolved vault name changes (federation re-bind).
     let cachedCompartment: Vault | null = null
     let cachedCollection: Collection<T> | null = null
+    let boundVaultName: string | null = null
 
     async function getCollection(): Promise<Collection<T>> {
-      if (cachedCollection) return cachedCollection
+      const vaultName = resolveVaultName()
+      // Self-heal on vault change: a cached handle is only reused while it
+      // belongs to the currently-resolved vault. When the resolver returns a
+      // new name, fall through and re-open — so add()/remove()/refresh() all
+      // bind to the right shard without any extra wiring.
+      if (cachedCollection && boundVaultName === vaultName) return cachedCollection
       const noydb = resolveNoydb(options.noydb ?? null)
-      cachedCompartment = await noydb.openVault(options.vault)
+      cachedCompartment = await noydb.openVault(vaultName)
       // Pass the schema down to the Collection so validation runs at
       // the encrypt/decrypt boundary instead of only at the store
       // layer. This catches drifted stored data on read (which the
@@ -230,6 +257,7 @@ export function defineNoydbStore<T>(
       if (options.i18nFields !== undefined) collOpts.i18nFields = options.i18nFields
       if (options.dictKeyFields !== undefined) collOpts.dictKeyFields = options.dictKeyFields
       cachedCollection = cachedCompartment.collection<T>(collectionName, collOpts)
+      boundVaultName = vaultName
       return cachedCollection
     }
 
@@ -343,6 +371,18 @@ export function defineNoydbStore<T>(
       )
     } else if (typeof i18nMode === 'object' && isRef(i18nMode.locale)) {
       watch(i18nMode.locale, () => { void refresh() })
+    }
+
+    // Federation re-bind (#383): when the vault resolver depends on reactive
+    // state, re-hydrate as its resolved name changes. `getCollection()` already
+    // self-heals to the new vault; this just drives the auto-refresh so `items`
+    // follows the active scope. Only wired for a resolver (a static string
+    // never changes). The value-equality guard means a reactive dependency
+    // change that yields the same vault name does not re-hydrate.
+    if (typeof options.vault === 'function') {
+      watch(resolveVaultName, (next, prev) => {
+        if (next !== prev) void refresh()
+      })
     }
 
     return {

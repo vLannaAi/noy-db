@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { setActivePinia, createPinia, storeToRefs } from 'pinia'
-import { effectScope } from 'vue'
+import { effectScope, ref } from 'vue'
 import { createNoydb, additiveOnly, i18nText, type Noydb, type NoydbStore, type EncryptedEnvelope, type VaultSnapshot, type StandardSchemaV1, ConflictError, Query } from '@noy-db/hub'
 import { withI18n } from '@noy-db/hub/i18n'
 import { defineNoydbStore, setActiveNoydb, useNoydbI18n } from '../src/index.js'
@@ -580,5 +580,79 @@ describe('defineNoydbStore — i18nFields / dictKeyFields forwarding', () => {
     await store.$ready
     await store.add('p1', { id: 'p1', name: { th: 'สมชาย', en: 'Somchai' } })
     expect(store.items.find((x) => x.id === 'p1')?.name).toBe('สมชาย')
+  })
+})
+
+describe('defineNoydbStore — dynamic vault resolver (#383)', () => {
+  let db: Noydb
+  beforeEach(async () => {
+    setActivePinia(createPinia())
+    db = await makeNoydb()
+    setActiveNoydb(db)
+  })
+  afterEach(() => { setActiveNoydb(null) })
+
+  it('resolves the vault from a function and re-hydrates when its reactive dep changes', async () => {
+    // Seed two per-client shard vaults directly.
+    const c1 = await db.openVault('clients-C1')
+    await c1.collection<Invoice>('invoices').put('a', { id: 'a', amount: 1, status: 'open', client: 'C1' })
+    const c2 = await db.openVault('clients-C2')
+    await c2.collection<Invoice>('invoices').put('b', { id: 'b', amount: 2, status: 'open', client: 'C2' })
+
+    const code = ref('C1') // active client scope (e.g. from the URL)
+    const useInvoices = defineNoydbStore<Invoice>('invoices', { vault: () => `clients-${code.value}` })
+    const store = useInvoices()
+    await store.$ready
+    expect(store.items.map((i) => i.id)).toEqual(['a'])
+
+    // Drill into the other client → the store follows into its shard.
+    code.value = 'C2'
+    for (let n = 0; n < 50 && store.items[0]?.id !== 'b'; n++) await tick(10)
+    expect(store.items.map((i) => i.id)).toEqual(['b'])
+
+    // …and back.
+    code.value = 'C1'
+    for (let n = 0; n < 50 && store.items[0]?.id !== 'a'; n++) await tick(10)
+    expect(store.items.map((i) => i.id)).toEqual(['a'])
+  })
+
+  it('writes land in the currently-resolved vault', async () => {
+    const code = ref('C1')
+    const useInvoices = defineNoydbStore<Invoice>('invoices', { vault: () => `w-${code.value}` })
+    const store = useInvoices()
+    await store.$ready
+    await store.add('x', { id: 'x', amount: 5, status: 'open', client: 'C1' })
+
+    code.value = 'C2'
+    await tick(20) // let the re-bind watch settle
+    await store.add('y', { id: 'y', amount: 9, status: 'open', client: 'C2' })
+
+    const w1 = await db.openVault('w-C1')
+    const w2 = await db.openVault('w-C2')
+    expect((await w1.collection<Invoice>('invoices').list()).map((i) => i.id)).toEqual(['x'])
+    expect((await w2.collection<Invoice>('invoices').list()).map((i) => i.id)).toEqual(['y'])
+  })
+
+  it('a non-reactive resolver self-heals on the next refresh()/add()', async () => {
+    let current = 'C1'
+    const useInvoices = defineNoydbStore<Invoice>('invoices', { vault: () => `nr-${current}` })
+    const store = useInvoices()
+    await store.$ready
+    await store.add('a', { id: 'a', amount: 1, status: 'open', client: 'C1' })
+    expect(store.items.map((i) => i.id)).toEqual(['a'])
+
+    current = 'C2' // non-reactive change — no auto-watch fires
+    await store.refresh() // explicit re-bind
+    expect(store.items.map((i) => i.id)).toEqual([]) // nr-C2 is empty
+    await store.add('b', { id: 'b', amount: 2, status: 'open', client: 'C2' })
+    expect(store.items.map((i) => i.id)).toEqual(['b'])
+  })
+
+  it('a static string vault still works (back-compat)', async () => {
+    const useInvoices = defineNoydbStore<Invoice>('invoices', { vault: 'static-v' })
+    const store = useInvoices()
+    await store.$ready
+    await store.add('a', { id: 'a', amount: 1, status: 'open', client: 'X' })
+    expect(store.items.map((i) => i.id)).toEqual(['a'])
   })
 })

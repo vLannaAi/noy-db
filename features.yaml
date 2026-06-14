@@ -1726,6 +1726,8 @@ frameworks:
         path: showcases/src/38-in-pinia.showcase.test.ts
       - id: 95-in-pinia-i18n
         path: showcases/src/95-in-pinia-i18n.showcase.test.ts
+      - id: 106-in-pinia-dynamic-vault
+        path: showcases/src/106-in-pinia-dynamic-vault.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
@@ -1736,6 +1738,7 @@ frameworks:
       - 'useNoydbI18n is the reactive active-locale; setLocale is state-only by default (vault.setLocale opt-in via syncVault); bindTo follows an external ref state-only and never touches a vault'
       - 'defineNoydbStore i18n option defaults to raw (today behavior; non-breaking); follow re-reads c.list({locale}) on locale change; {locale} pins'
       - 'useI18nField is a reactive pickLang (resolveI18nText policy:null → string|null); useDictLabel defaults its locale/fallback to useNoydbI18n and follows a global flip'
+      - 'dynamic vault resolver (#383): vault may be a () => string evaluated at access time for federation routing; getCollection() self-heals when the resolved name changes (add/remove/refresh re-bind); a reactive resolver auto re-hydrates items on change (watch → refresh); a static string is unchanged/back-compat; an in-flight liveQuery() stays bound to its creation-time vault'
     related: [in-vue]
 
   - id: in-devtools
