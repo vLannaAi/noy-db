@@ -209,7 +209,7 @@ features:
     subsystem_doc: docs/superpowers/specs/2026-06-08-money-decimal-field-design.md
     package: '@noy-db/hub'
     factory: null
-    status: preview
+    status: stable
     showcases: []
     recipes: []
     playground_pages: []
@@ -235,7 +235,7 @@ features:
     subsystem_doc: docs/superpowers/specs/2026-06-08-computed-scalar-fields-design.md
     package: '@noy-db/hub'
     factory: null
-    status: preview
+    status: stable
     showcases: []
     recipes: []
     playground_pages: []
@@ -811,7 +811,7 @@ features:
     subsystem_doc: docs/subsystems/derivations.md
     package: '@noy-db/hub'
     factory: withMaterializedView
-    status: preview
+    status: stable
     showcases:
       - id: 81-with-mv-eager
         path: showcases/src/81-with-mv-eager.showcase.test.ts
