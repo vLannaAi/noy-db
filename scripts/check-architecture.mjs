@@ -464,7 +464,11 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 4640→4665 (2026-06-14, #308): the thin `collection.search()`
   // scan-mode entry point (eager-cache iterate + delegate). The tokenizer +
   // BM25 ranker engine live in the tree-shakeable src/search/ subsystem.
-  'packages/hub/src/collection.ts': 4665,
+  // Bumped 4665→4675 (2026-06-15, #285 §3): the join-layer i18n seam —
+  // querySourceForJoin exposes the right collection's i18nFields, and query()/
+  // scan() thread the default locale into the JoinContext. The resolution
+  // itself lives in src/query/join.ts.
+  'packages/hub/src/collection.ts': 4675,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.

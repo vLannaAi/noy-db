@@ -550,8 +550,13 @@ export class Query<T> {
    * carries any join legs, they are applied after `where` / `orderBy`
    * / `limit` / `offset` narrow the left set. See the `.join()` doc
    * for the ordering rationale.
+   *
+   * `opts.locale` (#285 §3) resolves JOINED right-side i18n fields at the
+   * `join` layer to that locale; without it, the owning collection's default
+   * locale applies, and a locale-less query leaves joined i18n fields raw.
+   * (Left/base i18n fields are resolved by `get`/`list`, not here.)
    */
-  toArray(): T[] {
+  toArray(opts?: { locale?: string }): T[] {
     // #322 — decode money fields (stored scaled-int → canonical decimal) so
     // query().toArray() matches get()/sum(), which already return decimal.
     // Decode the left/base records before joins (right-side aliased fields
@@ -568,7 +573,7 @@ export class Query<T> {
           `pre-populated. Use collection.query().join(...) instead.`,
       )
     }
-    return applyJoins(base, this.plan.joins, this.joinContext) as T[]
+    return applyJoins(base, this.plan.joins, this.joinContext, opts?.locale) as T[]
   }
 
   /**
@@ -589,9 +594,9 @@ export class Query<T> {
     return records.map(r => decodeMoneyFields(r as Record<string, unknown>, moneyFields, 'raw'))
   }
 
-  /** Return the first matching record, or null. Joins are applied. */
-  first(): T | null {
-    const arr = this.limit(1).toArray()
+  /** Return the first matching record, or null. Joins are applied. `opts.locale` resolves joined i18n fields (#285 §3). */
+  first(opts?: { locale?: string }): T | null {
+    const arr = this.limit(1).toArray(opts)
     return arr[0] ?? null
   }
 
