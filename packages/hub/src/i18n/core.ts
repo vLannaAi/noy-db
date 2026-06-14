@@ -43,6 +43,7 @@
 import { MissingTranslationError, LocaleNotSpecifiedError } from '../errors.js'
 import type { OnMissing, OnMissingPolicy, Layer } from './policy.js'
 import { resolvePolicy } from './policy.js'
+import { inferScripts } from './script.js'
 
 // ─── I18nMap type helper ───────────────────────────────────────────────
 
@@ -142,6 +143,14 @@ export interface I18nTextOptions {
    * at read time takes precedence over this declared list.
    */
   readonly substitute?: readonly string[]
+  /**
+   * #285 smart-substitute. When `true`, a missing-locale `substitute` walk that
+   * misses the explicit chain prefers the available locale whose script is
+   * nearest the target (same script, then Latin) rather than an arbitrary value
+   * — e.g. a missing Thai label prefers another Thai (or Latin) translation over
+   * an unreadable script. Default `false` (legacy first-non-empty behavior).
+   */
+  readonly smartSubstitute?: boolean
   /**
    * Per-locale script enforcement (write-time). `'auto'` infers the
    * allowed Unicode scripts per locale (asymmetric Latin tolerance); an
@@ -297,6 +306,13 @@ export interface ResolveI18nOptions {
   readonly policy?: OnMissing
   /** Declared substitute chain; applied only under policy `'substitute'`. */
   readonly substitute?: readonly string[]
+  /**
+   * #285 smart-substitute. When `true` and policy is `'substitute'`, after the
+   * explicit chain misses, pick the available locale whose script is nearest the
+   * target (same script first, then Latin's broad readability) instead of an
+   * arbitrary value. Default `false`.
+   */
+  readonly smartSubstitute?: boolean
 }
 
 /** Normalize a single-or-list fallback into an array. */
@@ -368,6 +384,12 @@ export function resolveI18nText(
   if (policy === 'substitute') {
     const subHit = pickFromChain(value, toChain(opts?.substitute))
     if (subHit !== undefined) return subHit
+    // #285 smart-substitute: after the explicit chain, prefer the script-nearest
+    // available locale over an arbitrary first-non-empty value.
+    if (opts?.smartSubstitute) {
+      const smartHit = pickNearestScript(value, locale)
+      if (smartHit !== undefined) return smartHit
+    }
   }
 
   // Exhausted.
@@ -380,6 +402,27 @@ export function resolveI18nText(
     )
   }
   return null
+}
+
+/**
+ * #285 smart-substitute: among the non-empty locales in `value`, pick the one
+ * whose primary script is nearest the target `locale` — same script first, then
+ * Latin (broadly readable), then any other — so a missing Thai label falls back
+ * to another Thai (or Latin) value rather than, say, an Arabic one. First-seen
+ * wins on ties. Returns the value string, or `undefined` when `value` has no
+ * non-empty entry.
+ */
+function pickNearestScript(value: Record<string, string>, target: string): string | undefined {
+  const targetScript = inferScripts(target)[0] ?? 'Latin'
+  let best: { score: number; v: string } | undefined
+  for (const [loc, v] of Object.entries(value)) {
+    if (typeof v !== 'string' || v === '') continue
+    const s = inferScripts(loc)[0] ?? 'Latin'
+    const score = s === targetScript ? 0 : s === 'Latin' ? 1 : 2
+    if (best === undefined || score < best.score) best = { score, v }
+    if (score === 0) break // nothing beats a same-script match
+  }
+  return best?.v
 }
 
 // ─── Path helpers (nested i18nFields like 'address.lineOne') ──────────
@@ -514,10 +557,11 @@ export function applyI18nLocale(
   let result = record
 
   for (const [field, descriptor] of Object.entries(i18nFields)) {
-    const { onMissing, substitute } = descriptor.options
+    const { onMissing, substitute, smartSubstitute } = descriptor.options
     const opts: ResolveI18nOptions = {
       policy: resolvePolicy(onMissing, layer),
       ...(substitute !== undefined ? { substitute } : {}),
+      ...(smartSubstitute ? { smartSubstitute } : {}),
     }
     result = applyAtPath(result, field, locale, fallback, opts)
   }
