@@ -22,4 +22,7 @@ export type {
   SchemaManifestRow,
   DeploymentEvent,
   CapturedBlueprint,
+  CrossVaultDerivationSpec,
+  CrossVaultDerivationContext,
+  RefreshInsightsResult,
 } from './types.js'

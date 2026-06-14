@@ -89,9 +89,50 @@ grantees; access control is at the shard level.
 - The `minVersion` guard pre-filters shards by their registry-recorded
   `schemaVersion`; behind-version shards land in `skippedVaults`, never mixed
   into `results`.
-- **Out of scope (this MVP):** cross-shard joins, push-model cross-vault
-  derivations (Insight Vault), reactive `queryAcrossLive`, `aggregateAcross`,
-  and the fleet schema-migration runner. See the spec's deferred-items list.
+- **Out of scope (still):** the fleet schema-migration runner (lazy/active/
+  staged orchestration). cross-shard joins, reactive `queryAcrossLive`,
+  `aggregateAcross`, and the Insight Vault (below) have since shipped.
+
+## Insight Vault — cross-vault derivation (push model, #271 Layer 4)
+
+A fleet dashboard shouldn't decrypt N client vaults on every read. The
+**Insight Vault** is a separate analytics vault holding one small summary row
+per shard, derived from each shard and pushed in.
+
+```ts
+firm.withCrossVaultDerivation<Invoice, ClientSummary>({
+  source: 'invoices',                                       // read from each shard
+  target: { vault: 'firm-insights', collection: 'client-summary' },
+  derive: (records, ctx) => ({                              // runs per shard
+    clientId: ctx.partitionKey,
+    totalRevenue: records.reduce((s, r) => s + r.amount, 0),
+    overdueCount: records.filter((r) => r.status === 'overdue').length,
+    schemaVersion: ctx.schemaVersion,
+  }),
+})
+
+const { written, skippedVaults } = await firm.refreshInsights({ minVersion: 3 })
+// analyst then reads firm-insights directly — no per-client decryption
+```
+
+- **Push model.** `refreshInsights()` reads each eligible shard's `source`
+  records in-process (under the group's `Noydb`, which holds both keyrings),
+  runs `derive(records, ctx)` per shard, and writes the returned row into the
+  Insight Vault keyed by partition key — **re-encrypted under the Insight
+  Vault's own DEK**. A shard's ciphertext never crosses a DEK boundary.
+- **`ctx`** = `{ vaultId, partitionKey, schemaVersion }` (from the registry row).
+- Respects the `minVersion` drift guard; a shard whose read fails lands in
+  `skippedVaults` and its summary is **not** overwritten with a stale value.
+- **v1 is explicit-refresh** — call `refreshInsights()` after a batch of writes
+  or on a schedule. Auto-push-on-write is a deferred follow-up.
+
+> **⚠️ Zero-knowledge profile (weaker — read before adopting).** The Insight
+> Vault backend sees *aggregated structure* (totals, counts, timestamps) drawn
+> from many shards. That is a **weaker** guarantee than the per-shard vaults,
+> each of which is its own DEK boundary. The Insight Vault is **opt-in** and
+> should hold **aggregate scalars only** — no raw records, no embeddings.
+> Treat its backend as a `tier: 'derived'` store with a formally weaker ZK
+> profile, and grant it explicitly.
 
 ## Control plane — StateManagement Vault
 
