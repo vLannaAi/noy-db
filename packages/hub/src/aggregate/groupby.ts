@@ -71,6 +71,7 @@ import { canonicalGroupKey } from './canonical-key.js'
 import { GroupCardinalityError } from '../errors.js'
 import type { MoneyDescriptor } from '../money/descriptor.js'
 import { wrapMoneyReducers } from '../money/money-reducer.js'
+import { applyI18nLocale, type I18nTextDescriptor } from '../i18n/core.js'
 
 /**
  * Cardinality thresholds for `.groupBy()`. The warn threshold gives
@@ -378,9 +379,29 @@ export class GroupedAggregation<R> {
     this.fields = typeof fields === 'string' ? [fields] : [...fields]
   }
 
-  /** Execute the query, group, reduce, and return an array of rows. */
-  run(): R[] {
-    return groupAndReduce<R>(this.executeRecords(), this.fields, this.spec)
+  /**
+   * Execute the query, group, reduce, and return an array of rows.
+   *
+   * `opts` (#285 query-form MV grouping): when a `locale` + `i18nFields` are
+   * given, the declared group-key `i18nText` fields are resolved to that locale
+   * at the `mv` layer BEFORE bucketing — so an i18n group key is a stable string
+   * instead of a raw `{locale}` map. The MV executor passes the MV's
+   * `i18nLocale`/`i18nFields`; ordinary `.run()` callers pass nothing and are
+   * unaffected.
+   */
+  run(opts?: { locale?: string; i18nFields?: Record<string, I18nTextDescriptor> }): R[] {
+    let records = this.executeRecords()
+    if (opts?.locale !== undefined && opts.i18nFields !== undefined) {
+      const groupI18n: Record<string, I18nTextDescriptor> = {}
+      for (const f of this.fields) {
+        const d = opts.i18nFields[f]
+        if (d !== undefined) groupI18n[f] = d
+      }
+      if (Object.keys(groupI18n).length > 0) {
+        records = records.map((r) => applyI18nLocale(r as Record<string, unknown>, groupI18n, opts.locale!, undefined, 'mv'))
+      }
+    }
+    return groupAndReduce<R>(records, this.fields, this.spec)
   }
 
   /**

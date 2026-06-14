@@ -51,6 +51,8 @@ async function materializeQueryResult(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   q: any,
   mvName: string,
+  i18nLocale?: string,
+  i18nFields?: Record<string, I18nTextDescriptor>,
 ): Promise<ReadonlyArray<Record<string, unknown>>> {
   if (typeof q?.toArray === 'function') {
     // Query<T> — non-aggregate path. `.toArray()` returns Promise<T[]>.
@@ -61,7 +63,11 @@ async function materializeQueryResult(
     // and returns either a single object (Aggregation) or an array of
     // rows (GroupedAggregation). Promise.resolve() normalizes both
     // sync and async (future) variants.
-    const result: unknown = await Promise.resolve(q.run())
+    // #285 query-form MV grouping: when the MV declares i18nLocale, pass it +
+    // i18nFields so a GroupedAggregation resolves i18n group keys before
+    // bucketing (the Aggregation path ignores the extra arg).
+    const runOpts = i18nLocale !== undefined ? { locale: i18nLocale, i18nFields } : undefined
+    const result: unknown = await Promise.resolve(q.run(runOpts))
     if (Array.isArray(result)) {
       return result as ReadonlyArray<Record<string, unknown>>
     }
@@ -240,7 +246,7 @@ export const MaterializedViewExecutor = {
       rows = await materializeUnionResult(spec, ctxForQuery)
     } else {
       const q = spec.query!(ctxForQuery)
-      rows = await materializeQueryResult(q, spec.name)
+      rows = await materializeQueryResult(q, spec.name, spec.i18nLocale, spec.i18nFields)
     }
 
     // 2. Cost ceiling check BEFORE any writes — keeps the rollback
