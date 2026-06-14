@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { createNoydb, withDerivation, DerivationCycleError } from '../../src/index.js'
+import { createNoydb, withDerivation, DerivationCycleError, ValidationError } from '../../src/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
 
 function memory(): NoydbStore {
@@ -36,21 +36,20 @@ function memory(): NoydbStore {
 }
 
 describe('Derivation cycle detection at vault open', () => {
-  it('refuses to open a vault with a self-cycle', async () => {
-    const bad = withDerivation({
-      source: 'a',
-      deterministic: true,
-      outputs: { o: { shape: 'record', collection: 'a' } },
-      derive: () => ({ o: {} }),
-      lifecycle: 'eager',
-    })
-    const db = await createNoydb({
-      store: memory(),
-      user: 'alice',
-      secret: 'derivation-cycle-self-passphrase-2026',
-      derivationStrategies: [bad],
-    })
-    await expect(db.openVault('demo')).rejects.toBeInstanceOf(DerivationCycleError)
+  it('rejects a self-write output without denorm at construction (#376 — was a self-cycle)', () => {
+    // A record output back to its own source is now a self-write
+    // reverse-denorm (#376) and MUST declare `denorm`. An undeclared
+    // self-write — the old "self-cycle" — is rejected earlier, at
+    // withDerivation() construction, rather than by vault-open DFS.
+    expect(() =>
+      withDerivation({
+        source: 'a',
+        deterministic: true,
+        outputs: { o: { shape: 'record', collection: 'a' } },
+        derive: () => ({ o: {} }),
+        lifecycle: 'eager',
+      }),
+    ).toThrow(ValidationError)
   })
 
   it('refuses A -> B -> A', async () => {

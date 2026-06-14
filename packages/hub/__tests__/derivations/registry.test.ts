@@ -31,13 +31,18 @@ describe('DerivationRegistry', () => {
 
   it('detects self-cycle at register-and-validate', async () => {
     const reg = new DerivationRegistry()
-    await reg.register(withDerivation({
+    // Build the spec directly — withDerivation() now rejects an undeclared
+    // self-write at construction (#376), so to exercise validate()'s DFS in
+    // isolation (and prove it still flags a denorm-LESS a → a self-cycle) we
+    // register a hand-built spec.
+    await reg.register({
       source: 'a',
       deterministic: true,
-      outputs: { o: { shape: 'record', collection: 'a' } }, // a → a
+      outputs: { o: { shape: 'record', collection: 'a' } }, // a → a, no denorm
       derive: () => ({ o: {} }),
       lifecycle: 'eager',
-    }).spec)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any)
     expect(() => reg.validate()).toThrow(DerivationCycleError)
   })
 
