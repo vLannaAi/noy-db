@@ -159,6 +159,31 @@ function formatCurrency(decimal: string, currency: string, scale: number, locale
 }
 
 /**
+ * The stored scaled-integer value of a money field as a `BigInt`, for
+ * exact numeric comparison (e.g. `orderBy` / sorting), or `null` when the
+ * stored value is missing/malformed. Mirrors the stored form `decodeValue`
+ * reads: a bare scaled-int (fixed mode) or `{ amount, currency }`
+ * (multi-currency). Comparison is in scaled space and is exact within a
+ * single currency/scale (the `where` / `sum` BigInt model); across
+ * currencies of different scales the raw scaled comparison is best-effort.
+ */
+export function moneyScaledValue(stored: unknown, desc: MoneyDescriptor): bigint | null {
+  let raw: unknown
+  if (desc.mode === 'fixed') {
+    raw = stored
+  } else {
+    if (!isMoneyValueObject(stored)) return null
+    raw = stored.amount
+  }
+  if (typeof raw !== 'string' && typeof raw !== 'number') return null
+  try {
+    return BigInt(String(raw))
+  } catch {
+    return null
+  }
+}
+
+/**
  * Decode ONE stored field value to its read shape, or `null` when the
  * stored value is malformed (defensive — never brick a read).
  */

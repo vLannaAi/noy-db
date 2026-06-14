@@ -18,7 +18,7 @@ import type { GroupedQuery, GroupedQueryN } from '../aggregate/groupby.js'
 import { NO_AGGREGATE, type AggregateStrategy } from '../aggregate/strategy.js'
 import type { MoneyDescriptor } from '../money/descriptor.js'
 import { wrapMoneyReducers } from '../money/money-reducer.js'
-import { decodeMoneyFields } from '../money/normalize.js'
+import { decodeMoneyFields, moneyScaledValue } from '../money/normalize.js'
 import { moneyFieldClause } from '../money/where.js'
 
 export interface OrderBy {
@@ -966,7 +966,7 @@ function executePlanWithSource(
   }
 
   if (plan.orderBy.length > 0) {
-    result = sortRecords(result, plan.orderBy)
+    result = sortRecords(result, plan.orderBy, source.moneyFields)
   }
   if (plan.offset > 0) {
     result = result.slice(plan.offset)
@@ -1217,17 +1217,35 @@ function applyCrossJoin(
   return expanded
 }
 
-function sortRecords(records: unknown[], orderBy: readonly OrderBy[]): unknown[] {
+function sortRecords(
+  records: unknown[],
+  orderBy: readonly OrderBy[],
+  moneyFields?: Record<string, MoneyDescriptor>,
+): unknown[] {
   // Stable sort: Array.prototype.sort is required to be stable since ES2019.
   return [...records].sort((a, b) => {
     for (const { field, direction } of orderBy) {
       const av = readField(a, field)
       const bv = readField(b, field)
-      const cmp = compareValues(av, bv)
+      // Money fields are stored as scaled-integer strings (#322); the generic
+      // string comparator would sort them lexically ('9882' > '10004'). Compare
+      // declared money fields by their BigInt scaled value instead — exact, and
+      // consistent with `where` (#336) and `sum` (#390).
+      const desc = moneyFields?.[field]
+      const cmp = desc ? compareMoney(av, bv, desc) : compareValues(av, bv)
       if (cmp !== 0) return direction === 'asc' ? cmp : -cmp
     }
     return 0
   })
+}
+
+/** Compare two stored money values by BigInt scaled-int; nullish/malformed last (asc). */
+function compareMoney(a: unknown, b: unknown, desc: MoneyDescriptor): number {
+  const av = moneyScaledValue(a, desc)
+  const bv = moneyScaledValue(b, desc)
+  if (av === null) return bv === null ? 0 : 1
+  if (bv === null) return -1
+  return av < bv ? -1 : av > bv ? 1 : 0
 }
 
 function readField(record: unknown, field: string): unknown {
