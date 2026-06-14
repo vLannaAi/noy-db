@@ -180,6 +180,28 @@ features:
       - 'array refs / M:N (#377-A): refArray(target, mode) validates each element of an id-array field against the target; strict rejects on a missing element at put + blocks delete of a referenced target; cascade deletes every record whose array contains the deleted id (cycle-safe); warn surfaces one checkIntegrity() violation per dangling element; empty/nullish arrays allowed'
     related: [vault-and-collections]
 
+  - id: link-collection
+    name: Managed many-to-many link sets (vault.link)
+    cluster: core
+    spec: docs/core/05-schema-and-refs.md
+    subsystem_doc: docs/core/05-schema-and-refs.md
+    package: '@noy-db/hub'
+    factory: null
+    status: preview
+    showcases:
+      - id: 107-vault-link
+        path: showcases/src/107-vault-link.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'vault.link(name, { a, b, onDelete? }) declares a first-class M:N junction (design B, #377); vault.links(name) returns the handle (connect/disconnect/has/of/list). links() before link() throws; conflicting re-declare throws'
+      - 'rows live in a reserved encrypted _links_<name> collection (own DEK, zero-knowledge); row key = encodeURIComponent(a)|encodeURIComponent(b); body { a, b, meta? }; vault.collection("_links_*") is rejected (ReservedCollectionNameError)'
+      - 'connect validates BOTH endpoints exist (LinkEndpointError on missing); slot-typed (a in collection a, b in collection b); of(id) matches either slot; optional per-link metadata'
+      - 'onDelete on endpoint record delete: cascade (default) removes touching link rows (tx-atomic via _executed when in a tx), strict throws LinkIntegrityError (blocks the delete), warn leaves orphans surfaced by checkIntegrity()'
+      - 'complements refArray (#377-A): refArray = lightweight id-array on one record; vault.link = queryable-both-ways junction with metadata + cascade. v1 defers a query-DSL joinThrough() (of(id) is the query surface) and ledgering of link mutations'
+    related: [schema-and-refs, vault-and-collections]
+
   - id: money-field
     name: money() currency-safe decimal field descriptor
     cluster: core

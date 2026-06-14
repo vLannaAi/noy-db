@@ -458,6 +458,19 @@ export type {
   RefViolation,
 } from './refs.js'
 
+// Managed many-to-many link sets via vault.link() / vault.links() (#377-B)
+export {
+  isLinkCollectionName,
+  LinkEndpointError,
+  LinkIntegrityError,
+} from './links/link-set.js'
+export type {
+  LinkSpec,
+  LinkRow,
+  LinkOnDelete,
+  LinkSetHandle,
+} from './links/link-set.js'
+
 // Keyring types
 export type { UnlockedKeyring } from './team/keyring.js'
 

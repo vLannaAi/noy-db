@@ -83,6 +83,7 @@ import {
 } from './refs.js'
 import type { DictionaryHandle, DictionaryOptions, DictKeyDescriptor, StaticDictDescriptor } from './i18n/dictionary.js'
 import { isDictCollectionName, isStaticDictDescriptor } from './i18n/dictionary.js'
+import { LinkSet, isLinkCollectionName, linkCollectionName, linkRowKey, LinkIntegrityError, type LinkSpec, type LinkSetHandle } from './links/link-set.js'
 import type { I18nTextDescriptor } from './i18n/core.js'
 import { getAtPath } from './i18n/core.js'
 import type { MoneyDescriptor } from './money/descriptor.js'
@@ -448,6 +449,11 @@ export class Vault {
   /** Cache of DictionaryHandle instances, one per dictionary name. */
   private readonly dictionaryCache = new Map<string, DictionaryHandle>()
 
+  /** Registered link specs (#377-B), keyed by link name; set by `vault.link()`. */
+  private readonly linkRegistry = new Map<string, LinkSpec>()
+  /** Cache of LinkSet handles, one per link name. */
+  private readonly linkSetCache = new Map<string, LinkSet>()
+
   /** — subscribers for cross-tier access events. */
   private readonly crossTierSubs = new Set<(event: CrossTierAccessEvent) => void>()
 
@@ -731,6 +737,10 @@ export class Vault {
     }
     // Guard: reject the internal _sequences collection — use vault.sequence() instead.
     if (collectionName === SEQUENCE_COLLECTION) {
+      throw new ReservedCollectionNameError(collectionName)
+    }
+    // Guard: reject reserved _links_* names — use vault.link()/vault.links() instead (#377-B).
+    if (isLinkCollectionName(collectionName)) {
       throw new ReservedCollectionNameError(collectionName)
     }
 
@@ -1320,6 +1330,73 @@ export class Vault {
       this.dictionaryCache.set(name, handle)
     }
     return handle as DictionaryHandle<Keys>
+  }
+
+  /**
+   * Declare a managed many-to-many link set (#377-B). Registers a
+   * `_links_<name>` junction between two endpoint collections; access its
+   * rows via `vault.links(name)`. Idempotent for an identical re-declaration;
+   * a conflicting one throws. See {@link links}.
+   *
+   * ```ts
+   * vault.link('saleLineLinks', { a: ref('saleLines'), b: ref('purchaseLines'), onDelete: 'cascade' })
+   * ```
+   *
+   * `a` / `b` accept either a collection name or a `ref(target)` descriptor
+   * (only its `target` is used — links manage their own integrity). `onDelete`
+   * governs what happens to link rows when an endpoint record is deleted
+   * (`'cascade'` default, `'strict'`, `'warn'`).
+   */
+  link(
+    name: string,
+    spec: { a: string | RefDescriptor; b: string | RefDescriptor; onDelete?: LinkSpec['onDelete'] },
+  ): void {
+    const a = typeof spec.a === 'string' ? spec.a : spec.a.target
+    const b = typeof spec.b === 'string' ? spec.b : spec.b.target
+    for (const [slot, target] of [['a', a], ['b', b]] as const) {
+      if (!target || target.startsWith('_') || target.includes('/')) {
+        throw new ValidationError(
+          `vault.link("${name}"): endpoint "${slot}" must be a simple collection name, got "${target}".`,
+        )
+      }
+    }
+    const resolved: LinkSpec = { a, b, ...(spec.onDelete ? { onDelete: spec.onDelete } : {}) }
+    const existing = this.linkRegistry.get(name)
+    if (existing) {
+      if (existing.a !== resolved.a || existing.b !== resolved.b || (existing.onDelete ?? 'cascade') !== (resolved.onDelete ?? 'cascade')) {
+        throw new ValidationError(`vault.link("${name}"): conflicting re-declaration.`)
+      }
+      return
+    }
+    this.linkRegistry.set(name, resolved)
+  }
+
+  /**
+   * Access a declared link set (#377-B). Throws if `name` was not first
+   * declared via {@link link}. Returns a cached {@link LinkSetHandle}:
+   * `connect(a, b, meta?)`, `disconnect(a, b)`, `has(a, b)`, `of(id)`, `list()`.
+   */
+  links(name: string): LinkSetHandle {
+    let handle = this.linkSetCache.get(name)
+    if (!handle) {
+      const spec = this.linkRegistry.get(name)
+      if (!spec) {
+        throw new ValidationError(`vault.links("${name}"): not declared. Call vault.link("${name}", { a, b }) first.`)
+      }
+      handle = new LinkSet(
+        this.adapter,
+        this.name,
+        name,
+        spec,
+        this.encrypted,
+        this.getDEK,
+        this.keyring.userId,
+        this.emitter,
+        async (collection, id) => (await this.collection(collection).get(id)) !== null,
+      )
+      this.linkSetCache.set(name, handle)
+    }
+    return handle
   }
 
   /**
@@ -2090,8 +2167,48 @@ export class Vault {
         }
         // warn: no-op
       }
+      // Managed link sets (#377-B): apply each link's onDelete to its rows
+      // touching the deleted endpoint. Runs inside the same cascade guard /
+      // before the adapter delete, so a 'strict' link blocks the delete.
+      await this.enforceLinksOnDelete(collectionName, id)
     } finally {
       this.cascadeInProgress.delete(key)
+    }
+  }
+
+  /**
+   * @internal — apply link `onDelete` policy when an endpoint record is
+   * deleted (#377-B). `'strict'` throws (blocks the delete), `'cascade'`
+   * removes the touching link rows (tx-atomic when a transaction is active),
+   * `'warn'` leaves orphans for `checkIntegrity()`.
+   */
+  private async enforceLinksOnDelete(collectionName: string, id: string): Promise<void> {
+    for (const [name, spec] of this.linkRegistry) {
+      if (spec.a !== collectionName && spec.b !== collectionName) continue
+      const handle = this.links(name) as LinkSet
+      const touching = await handle._rowsTouchingEndpoint(collectionName, id)
+      if (touching.length === 0) continue
+      const mode = spec.onDelete ?? 'cascade'
+      if (mode === 'warn') continue
+      if (mode === 'strict') {
+        throw new LinkIntegrityError(name, collectionName, id, touching.length)
+      }
+      // cascade — remove every touching link row.
+      const linkColl = handle._collectionName
+      const txCtx = this.noydb._activeTxContextOrNull
+      for (const row of touching) {
+        const rowKey = linkRowKey(row.a, row.b)
+        if (txCtx !== null) {
+          const prior = await this.adapter.get(this.name, linkColl, rowKey)
+          if (prior !== null) {
+            txCtx._executed.push({
+              op: { type: 'delete', vaultName: this.name, collectionName: linkColl, id: rowKey },
+              priorEnvelope: prior,
+            })
+          }
+        }
+        await handle.disconnect(row.a, row.b)
+      }
     }
   }
 
@@ -2214,6 +2331,23 @@ export class Vault {
               mode: descriptor.mode,
             })
           }
+        }
+      }
+    }
+
+    // Managed link sets (#377-B): a link row whose endpoint no longer exists
+    // is an orphan (the common 'warn'-mode outcome). Report one violation per
+    // dangling endpoint, field 'a'/'b', mode = the link's onDelete policy.
+    for (const [name, spec] of this.linkRegistry) {
+      const linkColl = linkCollectionName(name)
+      const rows = await this.links(name).list()
+      for (const row of rows) {
+        const rowKey = linkRowKey(row.a, row.b)
+        if ((await this.collection(spec.a).get(row.a)) === null) {
+          violations.push({ collection: linkColl, id: rowKey, field: 'a', refTo: spec.a, refId: row.a, mode: spec.onDelete ?? 'cascade' })
+        }
+        if ((await this.collection(spec.b).get(row.b)) === null) {
+          violations.push({ collection: linkColl, id: rowKey, field: 'b', refTo: spec.b, refId: row.b, mode: spec.onDelete ?? 'cascade' })
         }
       }
     }
