@@ -30,6 +30,7 @@ import { ConflictError, ForgetStrategyNotConfiguredError } from '../src/errors.j
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { withHistory } from '../src/history/index.js'
 import { withForgetCascade } from '../src/forget/index.js'
+import { withIndexing } from '../src/indexing/index.js'
 import { withCrdt } from '../src/crdt/index.js'
 import { withSync } from '../src/sync/index.js'
 import { sha256Hex } from '../src/history/ledger/entry.js'
@@ -344,5 +345,40 @@ describe('forget — group 9: CRDT-mode tombstone + list() skip do not throw', (
     // skips the shredded record.
     const all = await invoices.list()
     expect(all.map((r) => r.id)).toEqual(['c-2'])
+  })
+})
+
+describe('forget — group 10: persisted _idx side-cars are purged (#401)', () => {
+  it('forget() deletes the _idx side-cars of shredded records, leaving no DEK-decryptable index residue', async () => {
+    const store = memory()
+    const db = await createNoydb({
+      store, user: 'alice', secret: SECRET,
+      historyStrategy: withHistory(),
+      forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } }),
+      indexStrategy: withIndexing(),
+    })
+    const vault = await db.openVault('v')
+    // Lazy mode (prefetch:false) → durable `_idx/<field>/<recordId>` side-cars.
+    const invoices = vault.collection<Invoice>('invoices', { indexes: ['buyerId'], prefetch: false, cache: { maxRecords: 100 } })
+
+    await invoices.put('i-1', { id: 'i-1', buyerId: 'buyer-1', amount: 100 })
+    await invoices.put('i-2', { id: 'i-2', buyerId: 'buyer-1', amount: 50 })
+    await invoices.put('i-3', { id: 'i-3', buyerId: 'buyer-2', amount: 999 })
+
+    const idxIds = () => store.rawList('v', 'invoices').filter((k) => k.startsWith('_idx/'))
+    // Side-cars exist for the soon-to-be-forgotten records.
+    expect(idxIds().some((k) => k.endsWith('/i-1'))).toBe(true)
+    expect(idxIds().some((k) => k.endsWith('/i-2'))).toBe(true)
+
+    const result = await vault.forget('buyer-1')
+    expect(result.recordsShredded).toBe(2)
+    expect(result.indexPostingsPurged).toBeGreaterThanOrEqual(2)
+    expect(result.indexResidue).toEqual([])
+
+    // The shredded records' index side-cars are GONE (no value leak under the DEK).
+    expect(idxIds().some((k) => k.endsWith('/i-1'))).toBe(false)
+    expect(idxIds().some((k) => k.endsWith('/i-2'))).toBe(false)
+    // buyer-2's side-car is intact (only the subject's index was purged).
+    expect(idxIds().some((k) => k.endsWith('/i-3'))).toBe(true)
   })
 })
