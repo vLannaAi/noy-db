@@ -1256,6 +1256,8 @@ features:
         path: showcases/src/99-vault-group-live-aggregate.showcase.test.ts
       - id: 100-state-management-vault
         path: showcases/src/100-state-management-vault.showcase.test.ts
+      - id: 108-insight-vault
+        path: showcases/src/108-insight-vault.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
@@ -1264,7 +1266,8 @@ features:
       - 'createShard is idempotent; row-without-vault raises ShardProvisioningError'
       - 'minVersion guard pre-filters shards by registry schemaVersion (no silent shape-mixing)'
       - 'crossShardJoin is co-partitioned fan-out + central broadcast enrichment; join.ts and its partitionScope seam stay untouched'
-    related: [permissions, transferable-partition]
+      - 'Insight Vault (#271 Layer 4, push model): withCrossVaultDerivation({ source, target, derive }) + refreshInsights() reads each eligible shard, runs derive(records, ctx{vaultId,partitionKey,schemaVersion}) per shard, writes one summary row per shard into the target analytics vault keyed by partitionKey — re-encrypted under the Insight Vault DEK, shard ciphertext never crosses a DEK boundary; respects the minVersion drift guard; failed shard reads → skippedVaults (no stale row); v1 is explicit-refresh (no write-path push). ZK note: Insight Vault backend sees aggregated cross-shard structure — weaker profile than per-shard vaults; opt-in, aggregate scalars only'
+    related: [permissions, transferable-partition, derivations]
 
 # ─── Storage adapters (phase 2) ──────────────────────────────────────
 

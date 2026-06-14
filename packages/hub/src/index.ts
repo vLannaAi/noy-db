@@ -322,6 +322,11 @@ export type {
   GroupedRow as CrossVaultGroupedRow,
 } from './federation/index.js'
 export type { SchemaManifestRow, DeploymentEvent, CapturedBlueprint } from './federation/index.js'
+export type {
+  CrossVaultDerivationSpec,
+  CrossVaultDerivationContext,
+  RefreshInsightsResult,
+} from './federation/index.js'
 export { STATE_VAULT_NAME } from './federation/constants.js'
 export { UnknownShardError, ShardProvisioningError, VaultTemplateNotFoundError, ReservedVaultNameError } from './errors.js'
 export { ForgetStrategyNotConfiguredError } from './errors.js'

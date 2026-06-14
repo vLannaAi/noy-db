@@ -105,6 +105,48 @@ export interface CrossVaultLiveAggregation<R> extends LiveAggregation<R> {
   readonly ready: Promise<void>
 }
 
+/**
+ * Context passed to a cross-vault `derive` callback (#271 Insight Vault).
+ * One call per shard; identifies which shard the records came from.
+ */
+export interface CrossVaultDerivationContext {
+  /** The shard's vault id (e.g. `firm-clients--acme`). */
+  readonly vaultId: string
+  /** The shard's partition key (e.g. `acme`). */
+  readonly partitionKey: string
+  /** The shard's schema/template version, from its registry row. */
+  readonly schemaVersion: number
+}
+
+/**
+ * A push-model cross-vault derivation (#271, Insight Vault — Layer 4).
+ *
+ * For each eligible shard, `refreshInsights()` reads the shard's `source`
+ * collection, runs `derive` on that shard's records, and writes the returned
+ * summary row into a separate analytics ("Insight") vault — keyed by partition
+ * key, one row per shard. The summary is re-encrypted under the Insight Vault's
+ * own DEK; the shard's ciphertext never leaves its DEK boundary (the push model
+ * that resolves the cross-vault DEK conflict). See the ZK note in the spec —
+ * the Insight Vault backend sees aggregated structure across shards, a weaker
+ * profile than per-shard vaults; opt-in.
+ */
+export interface CrossVaultDerivationSpec<R = Record<string, unknown>, S = Record<string, unknown>> {
+  /** Collection read from each shard. */
+  readonly source: string
+  /** Destination Insight Vault + collection for the per-shard summary rows. */
+  readonly target: { readonly vault: string; readonly collection: string }
+  /** Per-shard reducer: that shard's source records + context → one summary row. */
+  readonly derive: (records: R[], ctx: CrossVaultDerivationContext) => S
+}
+
+/** The result of `refreshInsights()`. */
+export interface RefreshInsightsResult {
+  /** Number of summary rows written (one per eligible shard × registered derivation). */
+  readonly written: number
+  /** Shards excluded (schema-drift, unprovisioned, or read error). */
+  readonly skippedVaults: SkippedVault[]
+}
+
 /** A serializable blueprint captured from a VaultTemplate.configure run. */
 export interface CapturedBlueprint {
   /** Sorted collection names declared by the template. */

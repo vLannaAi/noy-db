@@ -27,6 +27,9 @@ import type {
   WhereClause,
   LiveQueryOptions,
   CrossVaultLiveQuery,
+  CrossVaultDerivationSpec,
+  CrossVaultDerivationContext,
+  RefreshInsightsResult,
 } from './types.js'
 
 /** Reserved separator between group name and partition key in a shard vault id. */
@@ -197,6 +200,80 @@ export class VaultGroup<T> {
       else skipped.push({ vaultId: row.vaultId, reason: 'error', error: new ShardProvisioningError(row.vaultId, row.partitionKey) })
     })
     return { eligible, skipped }
+  }
+
+  /** @internal — registered push-model cross-vault derivations (#271 Insight Vault). */
+  private readonly crossVaultDerivations: CrossVaultDerivationSpec[] = []
+
+  /**
+   * Register a push-model cross-vault derivation — the Insight Vault pattern
+   * (#271, Layer 4). Drive it with {@link refreshInsights}.
+   *
+   * For each shard, `derive(records, ctx)` runs on that shard's `source`
+   * records and its return value is written into the analytics
+   * (`target.vault` / `target.collection`) vault, keyed by partition key —
+   * one summary row per shard. The derivation runs in-process under THIS
+   * group's `Noydb` (which already holds both the shard and Insight Vault
+   * keyrings); the shard's decrypted records are reduced to a summary that is
+   * re-encrypted under the Insight Vault's own DEK, so no shard ciphertext
+   * crosses a DEK boundary.
+   *
+   * **Zero-knowledge note:** the Insight Vault backend sees aggregated
+   * structure (totals, counts, timestamps) drawn from many shards — a weaker
+   * ZK profile than the per-shard vaults. Opt-in; keep summaries to aggregate
+   * scalars (no embeddings / no raw records).
+   *
+   * v1 is explicit-refresh (no write-path push); call `refreshInsights()`
+   * after a batch of writes, or on a schedule.
+   */
+  withCrossVaultDerivation<R = Record<string, unknown>, S = Record<string, unknown>>(
+    spec: CrossVaultDerivationSpec<R, S>,
+  ): void {
+    this.crossVaultDerivations.push(spec as unknown as CrossVaultDerivationSpec)
+  }
+
+  /**
+   * Run every registered {@link withCrossVaultDerivation}: read each eligible
+   * shard's source records, derive a per-shard summary, and write it into the
+   * Insight Vault keyed by partition key. Shards behind `minVersion`,
+   * unprovisioned, or whose read errors are reported in `skippedVaults` and
+   * are not written (a stale summary is never left behind for a failed shard).
+   */
+  async refreshInsights(options: { minVersion?: number; concurrency?: number } = {}): Promise<RefreshInsightsResult> {
+    if (this.crossVaultDerivations.length === 0) return { written: 0, skippedVaults: [] }
+    const { eligible, skipped } = await this.resolveEligible(
+      options.minVersion !== undefined ? { minVersion: options.minVersion } : {},
+    )
+    let written = 0
+    for (const spec of this.crossVaultDerivations) {
+      const results = await this.db.queryAcross<Record<string, unknown>[]>(
+        eligible.map((r) => r.vaultId),
+        async (vault) => {
+          this.template.configure(vault)
+          return vault.collection<Record<string, unknown>>(spec.source).list()
+        },
+        { create: false, ...(options.concurrency !== undefined ? { concurrency: options.concurrency } : {}) },
+      )
+      const insight = await this.db.openVault(spec.target.vault)
+      const out = insight.collection<Record<string, unknown>>(spec.target.collection)
+      for (let i = 0; i < eligible.length; i++) {
+        const row = eligible[i]!
+        const res = results[i]
+        if (!res || res.result === undefined) {
+          skipped.push({ vaultId: row.vaultId, reason: 'error', ...(res?.error ? { error: res.error } : {}) })
+          continue
+        }
+        const ctx: CrossVaultDerivationContext = {
+          vaultId: row.vaultId,
+          partitionKey: row.partitionKey,
+          schemaVersion: row.schemaVersion,
+        }
+        const summary = spec.derive(res.result, ctx)
+        await out.put(row.partitionKey, summary)
+        written++
+      }
+    }
+    return { written, skippedVaults: skipped }
   }
 }
 
