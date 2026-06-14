@@ -27,6 +27,8 @@ import { ConflictError } from '../src/errors.js'
 import { withTransactions } from '../src/tx/index.js'
 import {
   ref,
+  refArray,
+  isRefArray,
   RefIntegrityError,
   RefScopeError,
   RefRegistry,
@@ -593,5 +595,131 @@ describe('checkIntegrity.', () => {
     const result = await company.checkIntegrity()
     expect(result.violations).toHaveLength(2)
     expect(result.violations.map((v) => v.field).sort()).toEqual(['categoryId', 'clientId'])
+  })
+})
+
+// ─── refArray — many-to-many (#377-A) ────────────────────────────────
+
+interface Order {
+  id: string
+  productIds: string[] | null
+}
+
+describe('refArray() helper', () => {
+  it('produces an array-ref descriptor flagged isArray', () => {
+    const d = refArray('products', 'warn')
+    expect(d).toEqual({ target: 'products', mode: 'warn', isArray: true })
+    expect(isRefArray(d)).toBe(true)
+    expect(isRefArray(ref('products'))).toBe(false)
+  })
+  it('defaults to strict mode', () => {
+    expect(refArray('products').mode).toBe('strict')
+  })
+  it('rejects cross-vault targets', () => {
+    expect(() => refArray('other/products')).toThrow(RefScopeError)
+  })
+})
+
+describe('refArray — strict on put', () => {
+  let db: Noydb
+  beforeEach(async () => {
+    db = await createNoydb({ store: memory(), user: 'alice', historyStrategy: withHistory(), secret: 'test-passphrase-1234' })
+  })
+
+  it('allows put when every element target exists', async () => {
+    const company = await db.openVault('demo-co')
+    const products = company.collection<Client>('products')
+    const orders = company.collection<Order>('orders', { refs: { productIds: refArray('products') } })
+    await products.put('p-1', { id: 'p-1', name: 'A' })
+    await products.put('p-2', { id: 'p-2', name: 'B' })
+    await orders.put('o-1', { id: 'o-1', productIds: ['p-1', 'p-2'] })
+    expect(await orders.get('o-1')).toBeTruthy()
+  })
+
+  it('rejects put when any element target is missing (reports the bad element)', async () => {
+    const company = await db.openVault('demo-co')
+    const products = company.collection<Client>('products')
+    const orders = company.collection<Order>('orders', { refs: { productIds: refArray('products') } })
+    await products.put('p-1', { id: 'p-1', name: 'A' })
+    try {
+      await orders.put('o-1', { id: 'o-1', productIds: ['p-1', 'ghost'] })
+      throw new Error('expected throw')
+    } catch (err) {
+      expect(err).toBeInstanceOf(RefIntegrityError)
+      const e = err as RefIntegrityError
+      expect(e.field).toBe('productIds')
+      expect(e.refTo).toBe('products')
+      expect(e.refId).toBe('ghost')
+    }
+  })
+
+  it('allows an empty array and a nullish field', async () => {
+    const company = await db.openVault('demo-co')
+    company.collection<Client>('products')
+    const orders = company.collection<Order>('orders', { refs: { productIds: refArray('products') } })
+    await orders.put('o-1', { id: 'o-1', productIds: [] })
+    await orders.put('o-2', { id: 'o-2', productIds: null })
+    expect(await orders.get('o-1')).toBeTruthy()
+    expect(await orders.get('o-2')).toBeTruthy()
+  })
+
+  it('rejects a non-array value for an array-ref field', async () => {
+    const company = await db.openVault('demo-co')
+    company.collection<Client>('products')
+    const orders = company.collection<Record<string, unknown>>('orders', { refs: { productIds: refArray('products') } })
+    await expect(orders.put('o-1', { id: 'o-1', productIds: 'p-1' })).rejects.toBeInstanceOf(RefIntegrityError)
+  })
+})
+
+describe('refArray — delete (strict / cascade / warn)', () => {
+  let db: Noydb
+  beforeEach(async () => {
+    db = await createNoydb({ store: memory(), user: 'alice', historyStrategy: withHistory(), secret: 'test-passphrase-1234' })
+  })
+
+  it('strict: blocks delete of a target still referenced by any array', async () => {
+    const company = await db.openVault('demo-co')
+    const products = company.collection<Client>('products')
+    const orders = company.collection<Order>('orders', { refs: { productIds: refArray('products', 'strict') } })
+    await products.put('p-1', { id: 'p-1', name: 'A' })
+    await orders.put('o-1', { id: 'o-1', productIds: ['p-1'] })
+    await expect(products.delete('p-1')).rejects.toBeInstanceOf(RefIntegrityError)
+    expect(await products.get('p-1')).toBeTruthy()
+  })
+
+  it('cascade: deletes every record whose array contains the deleted id', async () => {
+    const company = await db.openVault('demo-co')
+    const products = company.collection<Client>('products')
+    const orders = company.collection<Order>('orders', { refs: { productIds: refArray('products', 'cascade') } })
+    await products.put('p-1', { id: 'p-1', name: 'A' })
+    await products.put('p-2', { id: 'p-2', name: 'B' })
+    await orders.put('o-1', { id: 'o-1', productIds: ['p-1', 'p-9'] })
+    await orders.put('o-2', { id: 'o-2', productIds: ['p-2'] })          // unrelated
+    await products.delete('p-1')
+    expect(await orders.get('o-1')).toBeNull()   // cascaded
+    expect(await orders.get('o-2')).toBeTruthy() // untouched
+  })
+
+  it('warn: delete leaves an orphaned element, surfaced by checkIntegrity', async () => {
+    const company = await db.openVault('demo-co')
+    const products = company.collection<Client>('products')
+    const orders = company.collection<Order>('orders', { refs: { productIds: refArray('products', 'warn') } })
+    await products.put('p-1', { id: 'p-1', name: 'A' })
+    await products.put('p-2', { id: 'p-2', name: 'B' })
+    await orders.put('o-1', { id: 'o-1', productIds: ['p-1', 'p-2'] })
+    await products.delete('p-2') // warn — allowed, leaves orphan
+    const result = await company.checkIntegrity()
+    expect(result.violations).toHaveLength(1)
+    expect(result.violations[0]).toMatchObject({ collection: 'orders', id: 'o-1', field: 'productIds', refTo: 'products', refId: 'p-2', mode: 'warn' })
+  })
+
+  it('checkIntegrity reports one violation per dangling element', async () => {
+    const company = await db.openVault('demo-co')
+    company.collection<Client>('products')
+    const orders = company.collection<Order>('orders', { refs: { productIds: refArray('products', 'warn') } })
+    await orders.put('o-1', { id: 'o-1', productIds: ['ghost-1', 'ghost-2'] })
+    const result = await company.checkIntegrity()
+    expect(result.violations).toHaveLength(2)
+    expect(result.violations.map((v) => v.refId).sort()).toEqual(['ghost-1', 'ghost-2'])
   })
 })

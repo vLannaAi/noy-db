@@ -58,6 +58,21 @@ export type RefMode = 'strict' | 'warn' | 'cascade'
 export interface RefDescriptor {
   readonly target: string
   readonly mode: RefMode
+  /**
+   * Present and `true` only for an array ref (#377-A, `refArray()`): the
+   * field holds an ARRAY of ids, each validated against `target`
+   * independently (M:N). Absent for a scalar `ref()`. The same `mode`
+   * semantics apply per element — strict rejects on a missing element at
+   * put + blocks delete of a referenced target; cascade deletes every
+   * record whose array contains the deleted id; warn surfaces orphans
+   * only via `checkIntegrity()`.
+   */
+  readonly isArray?: true
+}
+
+/** Runtime predicate: is this an array ref (`refArray()`) vs a scalar `ref()`? */
+export function isRefArray(desc: RefDescriptor): boolean {
+  return desc.isArray === true
 }
 
 /**
@@ -133,6 +148,41 @@ export function ref(target: string, mode: RefMode = 'strict'): RefDescriptor {
 }
 
 /**
+ * Array reference (#377-A) — the many-to-many soft-FK. The field holds an
+ * array of ids; each element is validated against `target` independently.
+ *
+ * ```ts
+ * const orders = company.collection<Order>('orders', {
+ *   refs: { productIds: refArray('products', 'warn') },
+ * })
+ * ```
+ *
+ * Same three `mode` semantics as `ref()`, applied per element:
+ *   - **strict** — `put()` rejects if ANY element's target is missing;
+ *     `delete()` of a target is blocked while any record's array still
+ *     contains its id.
+ *   - **warn** — both succeed; orphaned elements surface via
+ *     `vault.checkIntegrity()` (one violation per dangling element).
+ *   - **cascade** — `delete()` of a target deletes every record whose
+ *     array contains its id (cycle-safe, like scalar cascade).
+ *
+ * A `null`/`undefined` field is allowed (no links). Non-array values, or
+ * non-string/number elements, are an integrity error. Cross-vault targets
+ * are rejected exactly as in `ref()`.
+ */
+export function refArray(target: string, mode: RefMode = 'strict'): RefDescriptor {
+  if (target.includes('/')) {
+    throw new RefScopeError(target)
+  }
+  if (!target || target.startsWith('_')) {
+    throw new Error(
+      `refArray(): target collection name must be non-empty and cannot start with '_' (reserved for internal collections). Got "${target}".`,
+    )
+  }
+  return { target, mode, isArray: true }
+}
+
+/**
  * Per-vault registry of reference declarations.
  *
  * The registry is populated by `Collection` constructors (which pass
@@ -159,7 +209,7 @@ export class RefRegistry {
   private readonly outbound = new Map<string, Record<string, RefDescriptor>>()
   private readonly inbound = new Map<
     string,
-    Array<{ collection: string; field: string; mode: RefMode }>
+    Array<{ collection: string; field: string; mode: RefMode; isArray?: true }>
   >()
 
   /**
@@ -184,7 +234,7 @@ export class RefRegistry {
       for (const k of existingKeys) {
         const a = existing[k]
         const b = refs[k]
-        if (!a || !b || a.target !== b.target || a.mode !== b.mode) {
+        if (!a || !b || a.target !== b.target || a.mode !== b.mode || a.isArray !== b.isArray) {
           throw new Error(
             `RefRegistry: conflicting ref declarations for collection "${collection}" field "${k}"`,
           )
@@ -195,7 +245,7 @@ export class RefRegistry {
     this.outbound.set(collection, { ...refs })
     for (const [field, desc] of Object.entries(refs)) {
       const list = this.inbound.get(desc.target) ?? []
-      list.push({ collection, field, mode: desc.mode })
+      list.push({ collection, field, mode: desc.mode, ...(desc.isArray ? { isArray: true } : {}) })
       this.inbound.set(desc.target, list)
     }
   }
@@ -208,7 +258,7 @@ export class RefRegistry {
   /** Get the inbound refs that target a given collection (or `[]`). */
   getInbound(
     target: string,
-  ): ReadonlyArray<{ collection: string; field: string; mode: RefMode }> {
+  ): ReadonlyArray<{ collection: string; field: string; mode: RefMode; isArray?: true }> {
     return this.inbound.get(target) ?? []
   }
 
