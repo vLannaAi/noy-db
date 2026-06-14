@@ -66,11 +66,12 @@ async function compressBytes(
   if (typeof CompressionStream === 'undefined') {
     return { bytes: data, algorithm: 'none' }
   }
-  const cs = new CompressionStream('gzip')
-  const writer = cs.writable.getWriter()
-  await writer.write(data as Uint8Array<ArrayBuffer>)
-  await writer.close()
-  const buf = await new Response(cs.readable).arrayBuffer()
+  // Pipe through the stream so `readable` is drained CONCURRENTLY with the
+  // write. The await-write-then-read form deadlocks once the output exceeds the
+  // stream's internal buffer (the writer backpressures waiting for a reader that
+  // hasn't started yet) — see #409.
+  const piped = new Response(data as Uint8Array<ArrayBuffer>).body!.pipeThrough(new CompressionStream('gzip'))
+  const buf = await new Response(piped).arrayBuffer()
   return { bytes: new Uint8Array(buf), algorithm: 'gzip' }
 }
 
@@ -80,11 +81,11 @@ async function decompressBytes(data: Uint8Array): Promise<Uint8Array> {
       '[noy-db] DecompressionStream not available — cannot decompress blob chunk',
     )
   }
-  const ds = new DecompressionStream('gzip')
-  const writer = ds.writable.getWriter()
-  await writer.write(data as Uint8Array<ArrayBuffer>)
-  await writer.close()
-  const buf = await new Response(ds.readable).arrayBuffer()
+  // Concurrent read via pipeThrough — the await-write-then-read form deadlocks
+  // when the DECOMPRESSED output exceeds the stream buffer (~16 KB), which is
+  // exactly the #409 hang (small compressed input → large output → backpressure).
+  const piped = new Response(data as Uint8Array<ArrayBuffer>).body!.pipeThrough(new DecompressionStream('gzip'))
+  const buf = await new Response(piped).arrayBuffer()
   return new Uint8Array(buf)
 }
 
