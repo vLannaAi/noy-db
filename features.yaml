@@ -248,6 +248,28 @@ features:
       - 'composes with money(): a computed money field is quantized after eval and sums exactly'
     related: [schema-and-refs, money-field]
 
+  - id: search-index
+    name: Scan-mode full-text search (collection.search)
+    cluster: core
+    spec: docs/subsystems/search.md
+    subsystem_doc: docs/subsystems/search.md
+    package: '@noy-db/hub'
+    factory: null
+    status: preview
+    experimental: true
+    showcases:
+      - id: 111-scan-search
+        path: showcases/src/111-scan-search.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'collection.search(field, query, opts) is SCAN mode: decrypts in-memory + ranks by BM25 — ZERO added store leakage (eager mode only); returns {id,score,record} desc by score'
+      - 'opts.match any(OR,default)/all(AND); opts.prefix → last query term is a prefix (typeahead); opts.limit → top-N'
+      - 'default tokenizer = NFKC + lowercase + Unicode word-boundary split — does NOT segment Thai/CJK (no inter-word spaces); pluggable tokenizer + a store-usable blind index (SSE; leaks term-frequency/co-occurrence) are gated follow-ups per the #308 design note'
+      - 'deleted / forgotten records never appear (eager cache eviction on delete / _writeTombstone)'
+    related: [schema-and-refs]
+
   - id: persisted-json-schema
     name: Persisted JSON Schema (opt-in)
     cluster: core
