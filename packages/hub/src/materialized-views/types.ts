@@ -3,6 +3,7 @@ import type { Collection } from '../collection.js'
 import type { AggregateSpec } from '../aggregate/aggregation.js'
 import type { JoinStrategy } from '../query/join.js'
 import type { MoneyDescriptor } from '../money/descriptor.js'
+import type { I18nTextDescriptor } from '../i18n/core.js'
 
 /**
  * Minimal vault-shaped accessor passed to the MV `query()` callback.
@@ -209,6 +210,35 @@ export interface MaterializedViewStrategy<TRow extends Record<string, unknown>> 
    * if declared alone.
    */
   moneyFields?: Record<string, MoneyDescriptor>
+  /**
+   * Compute-time i18n resolution locale (#285, `mv` layer). UNION-mode only.
+   *
+   * An MV that **groups by** an `i18nText` field would otherwise bucket on the
+   * raw `{ locale: string }` map — an unstable object key. Set `i18nLocale`
+   * (with {@link i18nFields} describing those fields) and, before grouping, the
+   * executor resolves each declared i18n group-key field to this locale at the
+   * `mv` layer (`resolvePolicy(onMissing, 'mv')`), so buckets are stable strings.
+   *
+   * This is the **compute** path only: i18n fields *carried through* for display
+   * stay raw — declare them on the OUTPUT collection and they resolve per-reader
+   * at read time (the resolve-at-output model). Without `i18nLocale`, grouping by
+   * a raw i18n field throws `LocaleNotSpecifiedError` (steer: group by a
+   * `dictKey`/`staticDict` code — the stable key — and label at read).
+   *
+   * Query-form MVs do their own `groupBy` inside the `Query`, which carries no
+   * locale yet (the join/query-locale slice, #285 §3) — so `i18nLocale` /
+   * `i18nFields` on a query-form MV throw `MaterializedViewConfigError`.
+   */
+  i18nLocale?: string
+  /**
+   * i18n descriptors for UNION-mode compute (#285), keyed by the OUTPUT field
+   * name as it appears in the mapped row (NOT the source field). Mirrors
+   * {@link moneyFields}: the concatenated mapped stream is a plain array with no
+   * collection i18n context, so the descriptor (carrying `onMissing`/`substitute`
+   * /`fallback`) must be declared here for the `mv`-layer resolution that
+   * {@link i18nLocale} drives. Meaningless without `i18nLocale`.
+   */
+  i18nFields?: Record<string, I18nTextDescriptor>
   /**
    * Pure function from a materialized row → stable id used in the
    * output collection. Required — explicit always beats default-with-pitfalls

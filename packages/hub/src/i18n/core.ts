@@ -121,14 +121,16 @@ export interface I18nTextOptions {
    * export). Default `'throw'` — today's behavior, zero breaking change.
    * See {@link OnMissingPolicy}.
    *
-   * NOTE (current wiring): the `read` (`get`/`list`), `guard` and
-   * `derivation` layers are enforced — guard / derivation `ctx.vault`
-   * reads resolve under their own layer policy (`guard` defaults to the
-   * lenient `'substitute'`). The `mv`, `join` and `export` layers are NOT
-   * yet wired: mv/join read raw `{locale}` maps in the query/aggregate
-   * pipeline (no resolution call site), so injecting resolution there is a
-   * tracked follow-up (#285 D2/D3). Until then those reads observe the raw
-   * map, not this policy.
+   * NOTE (current wiring): the `read` (`get`/`list`), `guard`, `derivation`
+   * and `mv` layers are enforced. Guard / derivation `ctx.vault` reads resolve
+   * under their own layer policy (`guard` defaults to the lenient
+   * `'substitute'`). The `mv` layer fires for UNION materialized views that
+   * declare `{ i18nLocale, i18nFields }` (group-key i18n fields resolve at the
+   * `mv` layer before bucketing; grouping a raw i18n field without a locale
+   * throws). The `join` and `export` layers — and query-form MV grouping — are
+   * NOT yet wired: those reads observe the raw `{locale}` map (query pipeline
+   * carries no locale channel), a tracked follow-up (#285 §3 join/query-locale,
+   * + export).
    */
   readonly onMissing?: OnMissingPolicy
   /**

@@ -1,12 +1,13 @@
 import type { Collection } from '../collection.js'
 import type { TxContext } from '../tx/transaction.js'
 import type { EncryptedEnvelope } from '../types.js'
-import { MaterializedViewTooLargeError } from '../errors.js'
+import { MaterializedViewTooLargeError, LocaleNotSpecifiedError } from '../errors.js'
 import type { MaterializedFromMeta, MVQueryContext, MaterializedViewStrategy } from './types.js'
 import type { RegisteredMV } from './registry.js'
 import { wrapDbWithPredicates } from './registry.js'
 import { groupAndReduce } from '../aggregate/groupby.js'
 import { canonicalGroupKey } from '../aggregate/canonical-key.js'
+import { applyI18nLocale, type I18nTextDescriptor } from '../i18n/core.js'
 
 /**
  * Accessor shape passed in from the owning Vault. Mirrors v1's
@@ -130,6 +131,40 @@ async function materializeUnionResult<TRow extends Record<string, unknown>>(
 
   const groupFields: readonly string[] =
     typeof spec.groupBy === 'string' ? [spec.groupBy] : spec.groupBy
+
+  // #285 §2/§4 — i18n-aware group keys. An `i18nText` group field carries a raw
+  // `{ locale: string }` map, an unstable object key. When `i18nLocale` is
+  // declared (with `i18nFields` describing those fields), resolve the declared
+  // group-key i18n fields to it at the `mv` layer FIRST — the same unified-rows
+  // boundary where money is threaded — so buckets are stable strings and the
+  // `mv`-layer `onMissing` policy fires here.
+  if (spec.i18nLocale !== undefined && spec.i18nFields !== undefined) {
+    const groupI18n: Record<string, I18nTextDescriptor> = {}
+    for (const f of groupFields) {
+      const d = spec.i18nFields[f]
+      if (d !== undefined) groupI18n[f] = d
+    }
+    if (Object.keys(groupI18n).length > 0) {
+      for (let i = 0; i < unified.length; i++) {
+        unified[i] = applyI18nLocale(unified[i] as Record<string, unknown>, groupI18n, spec.i18nLocale, undefined, 'mv') as TRow
+      }
+    }
+  }
+  // Guard (always): a remaining object-valued group key — an undeclared i18n
+  // field or a locale-less MV — would bucket on a map. Refuse, don't bucket wrong.
+  for (const f of groupFields) {
+    for (const row of unified) {
+      const v = (row as Record<string, unknown>)[f]
+      if (v !== null && typeof v === 'object') {
+        throw new LocaleNotSpecifiedError(
+          f,
+          `Materialized view "${spec.name}" groups by "${f}", whose value is a raw i18n locale map — ` +
+            `an unstable object group key. Declare { i18nLocale, i18nFields } on the MV to resolve it at ` +
+            `the 'mv' layer, or group by a dictKey/staticDict code (the stable key) and resolve the label at read time.`,
+        )
+      }
+    }
+  }
 
   // groupBy without aggregate — dedupe by composite key, keep first
   // seen row per key. Useful for cross-arm uniqueness (e.g. unify two
