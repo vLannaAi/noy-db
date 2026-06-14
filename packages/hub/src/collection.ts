@@ -46,6 +46,7 @@ import type { PersistedCollectionIndex, PersistedIndexDef } from './indexing/per
 import { LazyQuery } from './indexing/lazy-builder.js'
 import type { LazyQuerySource } from './indexing/lazy-builder.js'
 import { NO_INDEXING, type IndexStrategy, type IndexState } from './indexing/strategy.js'
+import { searchScan, type SearchOptions, type SearchResult } from './search/index.js'
 import { IndexWriteFailureError, DerivationCapExceededError } from './errors.js'
 import { buildUniqueConstraintSet, type UniqueConstraintSet } from './indexing/unique-constraints.js'
 import type { RefDescriptor } from './refs.js'
@@ -2508,6 +2509,31 @@ export class Collection<T> {
       (this.i18nFields !== undefined && Object.keys(this.i18nFields).length > 0) ||
       (this.dictKeyFields !== undefined && Object.keys(this.dictKeyFields).length > 0)
     )
+  }
+
+  /**
+   * Scan-mode full-text search over a plain-text `field` (#308). Decrypts the
+   * collection in memory and ranks records by BM25 against the tokenized query.
+   * **Zero added store leakage** — pure client-side scan; nothing searchable is
+   * written to the store. (A store-usable blind index for at-scale search is a
+   * separate, gated opt-in — see the #308 design note.) Eager mode only.
+   *
+   * `opts.match` (`'any'` default | `'all'`), `opts.prefix` (last query term as
+   * a prefix → typeahead), `opts.limit` (top-N). Returns `{ id, score, record }`
+   * ranked by descending score. The default tokenizer is word-boundary based —
+   * see `src/search/tokenize.ts` for the Thai/CJK caveat.
+   */
+  async search(field: string, query: string, opts: SearchOptions = {}): Promise<SearchResult<T>[]> {
+    if (this.lazy) {
+      throw new Error(
+        `Collection "${this.name}": search() (scan mode) requires eager mode (prefetch: true). ` +
+          `A store-usable blind index for lazy / at-scale search is a separate gated opt-in (#308).`,
+      )
+    }
+    await this.ensureHydrated()
+    const entries: { id: string; record: T }[] = []
+    for (const [id, e] of this.cache) entries.push({ id, record: e.record })
+    return searchScan(entries, field, query, opts)
   }
 
   // ─── Bulk operations ─────────────────────────────────────

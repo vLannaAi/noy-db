@@ -461,7 +461,10 @@ const KERNEL_SURFACE_BUDGET = {
   // erasure-path teardown of a record's `_idx` side-cars that `forget()` calls
   // (they live under the retained collection DEK, so crypto-shred alone leaves
   // them readable). Must be on the collection (owns the adapter + index defs).
-  'packages/hub/src/collection.ts': 4640,
+  // Bumped 4640→4665 (2026-06-14, #308): the thin `collection.search()`
+  // scan-mode entry point (eager-cache iterate + delegate). The tokenizer +
+  // BM25 ranker engine live in the tree-shakeable src/search/ subsystem.
+  'packages/hub/src/collection.ts': 4665,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.

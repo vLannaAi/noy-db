@@ -1028,3 +1028,7 @@ export type {
   GroupedRowN,
   ScanPageProvider,
 } from './query/index.js'
+
+// Scan-mode full-text search (#308)
+export { tokenize } from './search/index.js'
+export type { Tokenizer, SearchOptions, SearchResult, SearchEntry } from './search/index.js'
