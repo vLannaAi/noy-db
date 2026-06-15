@@ -21,6 +21,7 @@ import type {
 } from './types.js'
 import type { Collection } from '../collection.js'
 import type { NoydbStore } from '../types.js'
+import type { UnlockedKeyring } from '../team/keyring.js'
 import type { RefRegistry } from '../refs.js'
 
 /**
@@ -36,6 +37,8 @@ export interface VaultIntrospectState {
   readonly collectionCache: Map<string, Collection<unknown>>
   readonly refRegistry: RefRegistry
   readonly getDEK: (collectionName: string) => Promise<CryptoKey>
+  /** The active unlocked keyring — role/permissions/userId for access-scoped ops. */
+  readonly keyring: UnlockedKeyring
   readonly subsystems: Record<string, boolean>
   // Typed loosely on purpose — these are private subsystem registries
   // accessed only for "is anything registered" enumeration.

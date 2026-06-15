@@ -358,6 +358,8 @@ export {
   readNoydbBundleHeader,
   resetBrotliSupportCache,
 } from './bundle/bundle.js'
+export { exportAccessibleData } from './bundle/export-accessible.js'
+export type { ExportAccessibleOptions } from './bundle/export-accessible.js'
 export type {
   NoydbBundleHeader,
   CompressionAlgo,

@@ -29,6 +29,7 @@ import {
   readUserVisibility,
 } from '../../directory/visibility.js'
 import type { UserVisibility } from '../../directory/types.js'
+import type { ExportAccessibleOptions } from '../../bundle/export-accessible.js'
 
 /**
  * Recursive partial. Used for `updateMe(patch)` so callers can hand in
@@ -121,7 +122,24 @@ export class UserApi {
      * Production paths always wire the Noydb-backed implementation.
      */
     private readonly checkGate?: UserEnvelopeCheckGate,
+    /**
+     * Noydb-backed `exportMyAccessibleData` (#199), injected by the Vault
+     * (which holds the keyring + bundle machinery). Omitted in low-level tests.
+     */
+    private readonly exportAccessible?: (opts: ExportAccessibleOptions) => Promise<Uint8Array>,
   ) {}
+
+  /**
+   * #199 — export the calling user's accessible scope as a portable, re-keyed
+   * `.noydb` bundle. Non-destructive and **always allowed** (data sovereignty
+   * by construction, §11.11) but audited. Scope = the caller's DEK access set.
+   */
+  async exportMyAccessibleData(opts: ExportAccessibleOptions = {}): Promise<Uint8Array> {
+    if (!this.exportAccessible) {
+      throw new Error('exportMyAccessibleData requires a Noydb-backed vault (not a bare UserApi)')
+    }
+    return this.exportAccessible(opts)
+  }
 
   // ─── Write-self ──────────────────────────────────────────────────────
 
