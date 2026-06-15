@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/to-nfs",
-  "version": "0.2.0-pre.20",
+  "version": "0.2.0-pre.21",
   "description": "NFS network-file store for noy-db. Same indexed layout as @noy-db/to-file, with pre-flight checks for nolock / noac mount options that silently break versioning guarantees on stock NFS mounts.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
