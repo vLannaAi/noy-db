@@ -169,6 +169,46 @@ describe('#414 P1 — smart export', () => {
     expect(lk.rows.slice(1).find((r) => r[lh['Code']!] === 'paid')![lh['en']!]).toBe('Paid')
   })
 
+  it('P3: groupBy summary sheet with live SUMIFS/COUNTIFS + cached values', async () => {
+    const adapter = memory()
+    const init = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-sum' })
+    await init.openVault('firm')
+    await init.grant('firm', {
+      userId: 'alice', displayName: 'Alice', role: 'owner', passphrase: 'pw-sum',
+      exportCapability: { plaintext: ['xlsx'] },
+    })
+    init.close()
+    const db = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-sum' })
+    const vault = await db.openVault('firm')
+    await vault.collection<Client>('clients').put('c1', { id: 'c1', name: 'Acme' })
+    const invoices = vault.collection<Invoice>('invoices', { refs: { clientId: ref('clients', 'strict') } })
+    await invoices.put('i1', { id: 'i1', clientId: 'c1', amount: 100 })
+    await invoices.put('i2', { id: 'i2', clientId: 'c1', amount: 50 })
+
+    const bytes = await toBytes(vault, {
+      smart: true,
+      sheets: [{ name: 'clients', collection: 'clients' }, { name: 'invoices', collection: 'invoices' }],
+      summaries: [
+        {
+          name: 'byClient',
+          from: 'invoices',
+          groupBy: 'clientId',
+          aggregates: [{ label: 'total', op: 'sum', field: 'amount' }, { label: 'n', op: 'count' }],
+        },
+      ],
+    })
+    const wb = await readXlsx(bytes)
+    const sum = wb.sheets.find((s) => s.name === 'byClient')!
+    expect(sum).toBeTruthy()
+    const h = headerMap(sum)
+    const row = sum.rows.slice(1).find((r) => r[h['clientId']!] === 'c1')!
+    expect(row[h['total']!]).toBe(150) // cached SUMIFS
+    expect(row[h['n']!]).toBe(2) // cached COUNTIFS
+
+    const xmls = (await readZip(bytes)).filter((p) => /sheet\d+\.xml/.test(p.path)).map((p) => DEC.decode(p.bytes))
+    expect(xmls.some((x) => x.includes('SUMIFS('))).toBe(true)
+  })
+
   it('formula() emits a live <f> with a cached value (round-trips via readXlsx)', async () => {
     const { writeXlsx } = await import('../src/index.js')
     const bytes = await writeXlsx([{ name: 's', header: ['x'], rows: [[formula('1+2', 3)]] }])

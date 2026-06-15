@@ -97,10 +97,37 @@ export interface AsXlsxSheetOptions {
   readonly dictFields?: Record<string, string>
 }
 
+/** One aggregate column in a smart-mode summary sheet (#414 P3). */
+export interface AsXlsxSummaryAggregate {
+  /** Column header for this aggregate. */
+  readonly label: string
+  readonly op: 'sum' | 'count' | 'avg'
+  /** Field to aggregate — required for `sum`/`avg`, ignored for `count`. */
+  readonly field?: string
+}
+
+/**
+ * A groupBy summary sheet (#414 P3): groups the source collection's sheet by
+ * `groupBy` and emits live SUMIFS/COUNTIFS/AVERAGEIFS columns (values cached at
+ * export). The source value columns must be numeric for the live formulas to
+ * compute (apply `numberFormats` to money fields).
+ */
+export interface AsXlsxSummarySpec {
+  /** Summary sheet name. */
+  readonly name: string
+  /** Source collection (must be exported as a sheet). */
+  readonly from: string
+  /** Field to group by. */
+  readonly groupBy: string
+  readonly aggregates: readonly AsXlsxSummaryAggregate[]
+}
+
 /** Single-collection convenience — passed where a sheet-list is accepted. */
 export interface AsXlsxOptions {
   /** One or more sheets. At least one required. */
   readonly sheets: readonly AsXlsxSheetOptions[]
+  /** Smart mode only: groupBy summary sheets (live SUMIFS/COUNTIFS/AVERAGEIFS). */
+  readonly summaries?: readonly AsXlsxSummarySpec[]
   /**
    * Smart-workbook mode (#414). Emits a relational workbook instead of a flat
    * dump:
@@ -316,6 +343,9 @@ async function buildSmartSheets(
     return expr
   }
 
+  // Per-collection sheet metadata so summaries can reference data-sheet columns.
+  const sheetMeta = new Map<string, { name: string; colIndex: Map<string, number> }>()
+
   const dataSheets: XlsxSheet[] = mats.map((m) => {
     const refs = snapshot.collections[m.opt.collection]?.refs ?? {}
     const fields = snapshot.collections[m.opt.collection]?.fields ?? {}
@@ -332,6 +362,7 @@ async function buildSmartSheets(
     ]
     const colIndex = new Map<string, number>()
     header.forEach((h, i) => colIndex.set(h, i + 1))
+    sheetMeta.set(m.opt.collection, { name: m.opt.name, colIndex })
 
     // Data-validation dropdowns on base columns: explicit > ref-range > enum.
     const lastRow = Math.max(m.records.length + 1, 2)
@@ -413,6 +444,53 @@ async function buildSmartSheets(
 
   // Global LANG control — a Settings sheet + named range every i18n/dict label
   // references via IF(LANG=…). Only emitted when there are i18n fields.
+  // GroupBy summary sheets (#414 P3): live SUMIFS/COUNTIFS/AVERAGEIFS over a
+  // data sheet, values cached at export.
+  const summarySheets: XlsxSheet[] = []
+  for (const spec of options.summaries ?? []) {
+    const src = sheetMeta.get(spec.from)
+    const srcMat = matByCollection.get(spec.from)
+    const gCol = src?.colIndex.get(spec.groupBy)
+    if (!src || !srcMat || gCol === undefined) continue
+    const gLetter = colLetter(gCol)
+    const seen = new Set<string>()
+    const groups: unknown[] = []
+    for (const r of srcMat.records) {
+      const k = safeStringify(r[spec.groupBy])
+      if (!seen.has(k)) {
+        seen.add(k)
+        groups.push(r[spec.groupBy])
+      }
+    }
+    const header = [spec.groupBy, ...spec.aggregates.map((a) => a.label)]
+    const rows = groups.map((g, i) => {
+      const rowNum = i + 2
+      const groupRecs = srcMat.records.filter((r) => safeStringify(r[spec.groupBy]) === safeStringify(g))
+      const cells: unknown[] = [g]
+      for (const a of spec.aggregates) {
+        if (a.op === 'count') {
+          cells.push(formula(`COUNTIFS('${src.name}'!$${gLetter}:$${gLetter},$A${rowNum})`, groupRecs.length))
+          continue
+        }
+        const vIdx = a.field ? src.colIndex.get(a.field) : undefined
+        if (vIdx === undefined) {
+          cells.push(null)
+          continue
+        }
+        const vLetter = colLetter(vIdx)
+        const nums = groupRecs.map((r) => Number(r[a.field!])).filter((n) => Number.isFinite(n))
+        const sum = nums.reduce((s, n) => s + n, 0)
+        const cached = a.op === 'sum' ? sum : nums.length ? sum / nums.length : 0
+        const fn = a.op === 'sum' ? 'SUMIFS' : 'AVERAGEIFS'
+        cells.push(
+          formula(`${fn}('${src.name}'!$${vLetter}:$${vLetter},'${src.name}'!$${gLetter}:$${gLetter},$A${rowNum})`, cached),
+        )
+      }
+      return cells
+    })
+    summarySheets.push({ name: spec.name, header, rows })
+  }
+
   // Hidden lookup sheets: one per declared dictionary (code + per-locale labels).
   const lookupSheets: XlsxSheet[] = [...dictEntries.entries()].map(([dn, entries]) => ({
     name: `_Lookups_${dn}`,
@@ -432,7 +510,10 @@ async function buildSmartSheets(
     definedNames.push({ name: 'LANG', ref: `'_settings'!$B$2` })
   }
 
-  return { sheets: [...settingsSheets, ...lookupSheets, manifest, ...dataSheets], definedNames }
+  return {
+    sheets: [...settingsSheets, ...lookupSheets, manifest, ...summarySheets, ...dataSheets],
+    definedNames,
+  }
 }
 
 function inferColumns(records: readonly Record<string, unknown>[]): string[] {
