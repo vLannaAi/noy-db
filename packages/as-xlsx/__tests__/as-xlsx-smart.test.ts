@@ -6,7 +6,10 @@
 import { describe, expect, it } from 'vitest'
 import { createNoydb, ref } from '@noy-db/hub'
 import { memory } from '@noy-db/to-memory'
+import { readZip } from '@noy-db/as-zip'
 import { toBytes, readXlsx, formula } from '../src/index.js'
+
+const DEC = new TextDecoder()
 
 interface Client { id: string; name: string }
 interface Invoice { id: string; clientId: string; amount: number }
@@ -63,6 +66,36 @@ describe('#414 P1 — smart export', () => {
     const row = inv.rows.slice(1).find((r) => r[h['id']!] === 'i1')!
     // cached value of the VLOOKUP = the client's first field ('Acme')
     expect(row[h['clientId__label']!]).toBe('Acme')
+  })
+
+  it('numberFormats: a money field becomes a numeric cell with a number-format style', async () => {
+    const { vault } = await setup()
+    const bytes = await toBytes(vault, {
+      smart: true,
+      sheets: [
+        { name: 'clients', collection: 'clients' },
+        { name: 'invoices', collection: 'invoices', numberFormats: { amount: '#,##0.00' } },
+      ],
+    })
+    const inv = (await readXlsx(bytes)).sheets.find((s) => s.name === 'invoices')!
+    const h = headerMap(inv)
+    expect(inv.rows.slice(1).find((r) => r[h['id']!] === 'i1')![h['amount']!]).toBe(100) // numeric, not '100'
+
+    const styles = (await readZip(bytes)).find((p) => p.path === 'xl/styles.xml')
+    expect(styles).toBeTruthy()
+    expect(DEC.decode(styles!.bytes)).toContain('#,##0.00')
+  })
+
+  it('dropdowns: an FK field gets a data-validation list referencing the target sheet', async () => {
+    const { vault } = await setup()
+    const bytes = await toBytes(vault, {
+      smart: true,
+      sheets: [{ name: 'clients', collection: 'clients' }, { name: 'invoices', collection: 'invoices' }],
+    })
+    const sheetXmls = (await readZip(bytes))
+      .filter((p) => /xl\/worksheets\/sheet\d+\.xml/.test(p.path))
+      .map((p) => DEC.decode(p.bytes))
+    expect(sheetXmls.some((x) => x.includes('<dataValidation') && x.includes("clients'!$A$2"))).toBe(true)
   })
 
   it('formula() emits a live <f> with a cached value (round-trips via readXlsx)', async () => {

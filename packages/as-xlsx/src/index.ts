@@ -29,10 +29,10 @@
  */
 
 import type { Vault, DictEntry } from '@noy-db/hub'
-import { writeXlsx, colLetter, formula, type XlsxSheet } from './xlsx.js'
+import { writeXlsx, colLetter, formula, styled, type XlsxSheet, type XlsxValidation } from './xlsx.js'
 import { readXlsx } from './read.js'
 
-export { writeXlsx, colLetter, formula, type XlsxSheet, type XlsxRow, type XlsxFormulaCell } from './xlsx.js'
+export { writeXlsx, colLetter, formula, styled, type XlsxSheet, type XlsxRow, type XlsxFormulaCell, type XlsxStyledCell, type XlsxValidation } from './xlsx.js'
 export { readXlsx, type ReadXlsxResult, type ReadXlsxSheet, type ReadXlsxRow } from './read.js'
 
 /** Per-sheet options for the noy-db consumer API. */
@@ -69,6 +69,18 @@ export interface AsXlsxSheetOptions {
    * mirrors `XlsxSheet.widths`, which it threads through.
    */
   readonly widths?: ReadonlyArray<number | undefined>
+  /**
+   * Smart mode only: per-field Excel number-format codes (e.g.
+   * `{ amount: '#,##0.00' }` for currency). The value is coerced to a number so
+   * the format renders. Money has no introspection signal, so currency
+   * formatting is opt-in here.
+   */
+  readonly numberFormats?: Record<string, string>
+  /**
+   * Smart mode only: per-field explicit dropdown value lists. Overrides the
+   * auto-detected enum/ref dropdown for that field.
+   */
+  readonly dropdowns?: Record<string, readonly string[]>
 }
 
 /** Single-collection convenience — passed where a sheet-list is accepted. */
@@ -264,9 +276,44 @@ async function buildSmartSheets(vault: Vault, options: AsXlsxOptions): Promise<X
       (f) => m.cols.includes(f) && matByCollection.has(refs[f]!.target),
     )
     const header = [...m.cols, ...refFields.map((f) => `${f}__label`)]
+    const fields = snapshot.collections[m.opt.collection]?.fields ?? {}
+
+    // Data-validation dropdowns: explicit > ref-range > enum-inline.
+    const lastRow = Math.max(m.records.length + 1, 2)
+    const validations: XlsxValidation[] = []
+    for (let ci = 0; ci < m.cols.length; ci++) {
+      const field = m.cols[ci]!
+      const colL = colLetter(ci + 1)
+      const sqref = `${colL}2:${colL}${lastRow}`
+      const explicit = m.opt.dropdowns?.[field]
+      if (explicit && explicit.length > 0) {
+        validations.push({ sqref, values: explicit })
+        continue
+      }
+      const rf = refs[field]
+      if (rf && matByCollection.has(rf.target)) {
+        const targetSheet = sheetNameByCollection.get(rf.target)!
+        const targetRows = Math.max(matByCollection.get(rf.target)!.records.length + 1, 2)
+        validations.push({ sqref, formula1: `'${targetSheet}'!$A$2:$A$${targetRows}` })
+        continue
+      }
+      const enumVals = fields[field]?.constraints?.['values']
+      if (Array.isArray(enumVals) && enumVals.length > 0) {
+        validations.push({ sqref, values: enumVals.map((v) => safeStringify(v)) })
+      }
+    }
+
     const rows = m.records.map((r, i) => {
       const rowNum = i + 2 // header is row 1
-      const baseCells = m.cols.map((c) => (c === 'id' ? (r.id ?? null) : (r[c] ?? null)))
+      const baseCells = m.cols.map((c) => {
+        const raw = c === 'id' ? (r.id ?? null) : (r[c] ?? null)
+        const fmt = m.opt.numberFormats?.[c]
+        if (fmt === undefined) return raw
+        // Currency/number formats only render on numeric cells — coerce a
+        // numeric string (e.g. money '100.00') to a number.
+        const num = typeof raw === 'string' && raw.trim() !== '' && Number.isFinite(Number(raw)) ? Number(raw) : raw
+        return styled(num as string | number | boolean | null, fmt)
+      })
       const refCells = refFields.map((f) => {
         const target = refs[f]!.target
         const targetSheet = sheetNameByCollection.get(target)!
@@ -280,7 +327,13 @@ async function buildSmartSheets(vault: Vault, options: AsXlsxOptions): Promise<X
       })
       return [...baseCells, ...refCells]
     })
-    return { name: m.opt.name, header, rows, ...(m.opt.widths !== undefined ? { widths: m.opt.widths } : {}) }
+    return {
+      name: m.opt.name,
+      header,
+      rows,
+      ...(validations.length > 0 ? { validations } : {}),
+      ...(m.opt.widths !== undefined ? { widths: m.opt.widths } : {}),
+    }
   })
 
   // Manifest index sheet.
