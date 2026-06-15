@@ -12,6 +12,9 @@
  *
  * Ordering guarantees no data loss: the client's re-keyed export bundle (and the
  * freeze snapshot) are produced BEFORE anything is deleted.
+ *
+ * The `freezeAndDeleteClosure` core is shared with the two-party approval path
+ * (#199 P3, `bundle/request-withdrawal.ts`).
  */
 import type { Vault } from '../vault.js'
 import { sha256Hex } from '../crypto.js'
@@ -19,10 +22,11 @@ import { ReadOnlyError } from '../errors.js'
 import { NOYDB_FORMAT_VERSION } from '../types.js'
 import { resolveAccessibleCollections, buildAccessibleBundle } from './export-accessible.js'
 
-const FROZEN_SNAPSHOTS_COLLECTION = '_frozen_snapshots'
+export const FROZEN_SNAPSHOTS_COLLECTION = '_frozen_snapshots'
 const ENC = new TextEncoder()
 
-function randomId(): string {
+/** 24-hex-char random id (used for withdrawal ids + request ids). */
+export function randomId(): string {
   const b = globalThis.crypto.getRandomValues(new Uint8Array(12))
   return Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('')
 }
@@ -51,11 +55,71 @@ export interface WithdrawResult {
   readonly snapshot?: FrozenSnapshotRef
 }
 
+/**
+ * Dispose of the source records for `collections`: optionally freeze a
+ * write-once hash-pinned snapshot of the original ciphertext, then
+ * delete-closure the live records. Returns the snapshot ref on freeze.
+ *
+ * Caller MUST have produced the portable bundle FIRST — this is destructive.
+ * The delete is best-effort + idempotent (re-deleting an absent record is a
+ * no-op) and the snapshot put is write-once (CAS expectedVersion 0), so a
+ * crashed run re-run with the same `withdrawalId` is safe.
+ */
+export async function freezeAndDeleteClosure(
+  vault: Vault,
+  collections: readonly string[],
+  opts: { disposition: 'delete' | 'freeze'; actorUserId: string; withdrawalId?: string },
+): Promise<FrozenSnapshotRef | undefined> {
+  const { name: vaultName, adapter } = vault._introspectState()
+
+  // Enumerate the closure (record ids per collection).
+  const closure: Array<{ collection: string; id: string }> = []
+  for (const c of collections) {
+    for (const id of await adapter.list(vaultName, c)) closure.push({ collection: c, id })
+  }
+
+  // freeze: copy current envelopes into a write-once, hash-pinned snapshot
+  // (under the vault's own firm-owned DEKs — no re-key needed).
+  let snapshot: FrozenSnapshotRef | undefined
+  if (opts.disposition === 'freeze') {
+    const withdrawalId = opts.withdrawalId ?? `wd-${randomId()}`
+    const snap: Record<string, Record<string, unknown>> = {}
+    for (const { collection, id } of closure) {
+      const env = await adapter.get(vaultName, collection, id)
+      if (env) (snap[collection] ??= {})[id] = env
+    }
+    const frozenAt = new Date().toISOString()
+    const body = JSON.stringify({ withdrawalId, frozenAt, by: opts.actorUserId, collections: snap })
+    const sha = await sha256Hex(ENC.encode(body))
+    // Write-once: expectedVersion 0 rejects an overwrite (idempotent resume).
+    await adapter.put(
+      vaultName,
+      FROZEN_SNAPSHOTS_COLLECTION,
+      withdrawalId,
+      { _noydb: NOYDB_FORMAT_VERSION, _v: 1, _ts: frozenAt, _iv: '', _data: body, _by: opts.actorUserId },
+      0,
+    )
+    // Hash-pin into the tamper-evident ledger — makes the snapshot provably unaltered.
+    await vault._getLedgerOrNull()?.append({
+      op: 'lifecycle', collection: '', id: '', version: 0, actor: opts.actorUserId, payloadHash: '',
+      reason: `withdrawal-frozen-snapshot:${withdrawalId}:${sha}`,
+    })
+    snapshot = { withdrawalId, sha256: sha, recordCount: closure.length, frozenAt }
+  }
+
+  // delete-closure — only after the snapshot is durable.
+  for (const { collection, id } of closure) {
+    await vault.collection(collection).delete(id)
+  }
+
+  return snapshot
+}
+
 export async function withdrawAccessibleData(
   vault: Vault,
   opts: WithdrawAccessibleOptions,
 ): Promise<WithdrawResult> {
-  const { name: vaultName, adapter, keyring } = vault._introspectState()
+  const { keyring } = vault._introspectState()
   const disposition = opts.disposition ?? 'delete'
 
   // Owner-class roles hold blanket authority — they use extractPartition.
@@ -83,45 +147,10 @@ export async function withdrawAccessibleData(
   // 1. Produce the client's re-keyed portable copy FIRST (nothing destroyed yet).
   const bundle = await buildAccessibleBundle(vault, collections, opts.reKey)
 
-  // Enumerate the closure (record ids per writable collection).
-  const closure: Array<{ collection: string; id: string }> = []
-  for (const c of collections) {
-    for (const id of await adapter.list(vaultName, c)) closure.push({ collection: c, id })
-  }
-
-  // 2. freeze: copy current envelopes into a write-once, hash-pinned snapshot
-  //    (under the vault's own firm-owned DEKs — no re-key needed).
-  let snapshot: FrozenSnapshotRef | undefined
-  if (disposition === 'freeze') {
-    const withdrawalId = opts.withdrawalId ?? `wd-${randomId()}`
-    const snap: Record<string, Record<string, unknown>> = {}
-    for (const { collection, id } of closure) {
-      const env = await adapter.get(vaultName, collection, id)
-      if (env) (snap[collection] ??= {})[id] = env
-    }
-    const frozenAt = new Date().toISOString()
-    const body = JSON.stringify({ withdrawalId, frozenAt, by: keyring.userId, collections: snap })
-    const sha = await sha256Hex(ENC.encode(body))
-    // Write-once: expectedVersion 0 rejects an overwrite (idempotent resume).
-    await adapter.put(
-      vaultName,
-      FROZEN_SNAPSHOTS_COLLECTION,
-      withdrawalId,
-      { _noydb: NOYDB_FORMAT_VERSION, _v: 1, _ts: frozenAt, _iv: '', _data: body, _by: keyring.userId },
-      0,
-    )
-    // Hash-pin into the tamper-evident ledger — makes the snapshot provably unaltered.
-    await vault._getLedgerOrNull()?.append({
-      op: 'lifecycle', collection: '', id: '', version: 0, actor: keyring.userId, payloadHash: '',
-      reason: `withdrawal-frozen-snapshot:${withdrawalId}:${sha}`,
-    })
-    snapshot = { withdrawalId, sha256: sha, recordCount: closure.length, frozenAt }
-  }
-
-  // 3. delete-closure — only after the bundle + snapshot are durable.
-  for (const { collection, id } of closure) {
-    await vault.collection(collection).delete(id)
-  }
+  // 2. + 3. freeze (optional) then delete-closure.
+  const snapshot = await freezeAndDeleteClosure(vault, collections, {
+    disposition, actorUserId: keyring.userId, ...(opts.withdrawalId ? { withdrawalId: opts.withdrawalId } : {}),
+  })
 
   // 4. audit
   await vault._getLedgerOrNull()?.append({

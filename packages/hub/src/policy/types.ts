@@ -152,6 +152,19 @@ export type BuiltInGateName =
    * Hosts opt in explicitly (and typically pin `minTier`/factor proofs).
    */
   | 'client-unilateral-withdraw'
+  /**
+   * Authorize FILING a two-party withdrawal request —
+   * `vault.user.requestWithdrawal` (#199 P3). Non-destructive (writes a
+   * pending request only); enabled by default so a read-only client can ask.
+   */
+  | 'user-request-withdrawal'
+  /**
+   * Authorize DECIDING a two-party withdrawal request (approve/reject) —
+   * `vault.user.approveWithdrawal` / `rejectWithdrawal` (#199 P3). The approve
+   * path is destructive (extract-and-dispose under firm authority), so it
+   * defaults to a tier-2 floor; owner/admin role is enforced structurally.
+   */
+  | 'approve-user-withdrawal'
 
 /** Either a built-in gate name or an `app:*` custom gate. */
 export type GateName = BuiltInGateName | `app:${string}`

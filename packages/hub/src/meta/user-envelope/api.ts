@@ -31,6 +31,14 @@ import {
 import type { UserVisibility } from '../../directory/types.js'
 import type { ExportAccessibleOptions } from '../../bundle/export-accessible.js'
 import type { WithdrawAccessibleOptions, WithdrawResult } from '../../bundle/withdraw-accessible.js'
+import type {
+  RequestWithdrawalOptions,
+  RequestWithdrawalResult,
+  WithdrawalRequest,
+  WithdrawalRequestStatus,
+  ApproveWithdrawalOptions,
+  RejectWithdrawalOptions,
+} from '../../bundle/request-withdrawal.js'
 
 /**
  * Recursive partial. Used for `updateMe(patch)` so callers can hand in
@@ -81,7 +89,12 @@ export interface UserEnvelopePresented {
  * no-op stub is fine.
  */
 export type UserEnvelopeCheckGate = (
-  gate: 'edit-own-profile' | 'view-team-profiles' | 'client-unilateral-withdraw',
+  gate:
+    | 'edit-own-profile'
+    | 'view-team-profiles'
+    | 'client-unilateral-withdraw'
+    | 'user-request-withdrawal'
+    | 'approve-user-withdrawal',
   presented?: UserEnvelopePresented,
 ) => Promise<void>
 
@@ -133,7 +146,61 @@ export class UserApi {
      * Destructive — extract + dispose (delete | freeze). Omitted in low-level tests.
      */
     private readonly unilateralWithdraw?: (opts: WithdrawAccessibleOptions) => Promise<WithdrawResult>,
+    /**
+     * Noydb-backed two-party withdrawal ceremony (#199 P3), injected by the
+     * Vault. requestWithdraw = requester side; the rest = owner side.
+     */
+    private readonly requestWithdraw?: (opts: RequestWithdrawalOptions) => Promise<RequestWithdrawalResult>,
+    private readonly listWithdrawals?: (opts: { status?: WithdrawalRequestStatus }) => Promise<WithdrawalRequest[]>,
+    private readonly approveWithdraw?: (requestId: string, opts: ApproveWithdrawalOptions) => Promise<WithdrawResult>,
+    private readonly rejectWithdraw?: (requestId: string, opts: RejectWithdrawalOptions) => Promise<WithdrawalRequest>,
   ) {}
+
+  /**
+   * #199 P3 — file a two-party withdrawal request for the caller's accessible
+   * scope. Non-destructive (writes a pending request); an owner later approves
+   * or rejects. This is the path for read-only roles (`client`/`viewer`) that
+   * cannot self-serve a destructive `unilateralWithdrawal`. Gated by
+   * `user-request-withdrawal` (enabled by default).
+   */
+  async requestWithdrawal(opts: RequestWithdrawalOptions = {}): Promise<RequestWithdrawalResult> {
+    if (this.checkGate) await this.checkGate('user-request-withdrawal')
+    if (!this.requestWithdraw) {
+      throw new Error('requestWithdrawal requires a Noydb-backed vault (not a bare UserApi)')
+    }
+    return this.requestWithdraw(opts)
+  }
+
+  /** #199 P3 — owner side: list filed withdrawal requests (optionally by status). */
+  async listWithdrawalRequests(opts: { status?: WithdrawalRequestStatus } = {}): Promise<WithdrawalRequest[]> {
+    if (!this.listWithdrawals) {
+      throw new Error('listWithdrawalRequests requires a Noydb-backed vault (not a bare UserApi)')
+    }
+    return this.listWithdrawals(opts)
+  }
+
+  /**
+   * #199 P3 — owner side: approve a pending request. Extracts the requester's
+   * recorded scope under firm authority, disposes of the source per the
+   * request's disposition, and returns the re-keyed bundle to hand back. Gated
+   * by `approve-user-withdrawal` (tier-2 default) + owner/admin role.
+   */
+  async approveWithdrawal(requestId: string, opts: ApproveWithdrawalOptions = {}): Promise<WithdrawResult> {
+    if (this.checkGate) await this.checkGate('approve-user-withdrawal')
+    if (!this.approveWithdraw) {
+      throw new Error('approveWithdrawal requires a Noydb-backed vault (not a bare UserApi)')
+    }
+    return this.approveWithdraw(requestId, opts)
+  }
+
+  /** #199 P3 — owner side: reject a pending request (no data is touched). */
+  async rejectWithdrawal(requestId: string, opts: RejectWithdrawalOptions = {}): Promise<WithdrawalRequest> {
+    if (this.checkGate) await this.checkGate('approve-user-withdrawal')
+    if (!this.rejectWithdraw) {
+      throw new Error('rejectWithdrawal requires a Noydb-backed vault (not a bare UserApi)')
+    }
+    return this.rejectWithdraw(requestId, opts)
+  }
 
   /**
    * #199 P2 — single-party withdrawal: export the caller's accessible scope

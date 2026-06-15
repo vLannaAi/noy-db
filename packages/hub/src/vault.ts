@@ -22,6 +22,7 @@ import type { OnDirtyCallback } from './collection.js'
 import type { UnlockedKeyring, BundleRecipient } from './team/keyring.js'
 import { exportAccessibleData } from './bundle/export-accessible.js'
 import { withdrawAccessibleData } from './bundle/withdraw-accessible.js'
+import { requestWithdrawal, listWithdrawalRequests, approveWithdrawal, rejectWithdrawal } from './bundle/request-withdrawal.js'
 import type { MaterializedViewRegistry } from './materialized-views/registry.js'
 import type { MaterializedViewStrategyHandle, MVQueryContext } from './materialized-views/types.js'
 import type { OverlayedViewRegistry } from './overlay-views/registry.js'
@@ -587,6 +588,10 @@ export class Vault {
       (gate, presented) => this.noydb.checkGate(this.name, gate, presented),
       (opts) => exportAccessibleData(this, opts),
       (opts) => withdrawAccessibleData(this, opts),
+      (opts) => requestWithdrawal(this, opts),
+      (opts) => listWithdrawalRequests(this, opts),
+      (requestId, opts) => approveWithdrawal(this, requestId, opts),
+      (requestId, opts) => rejectWithdrawal(this, requestId, opts),
     )
   }
 

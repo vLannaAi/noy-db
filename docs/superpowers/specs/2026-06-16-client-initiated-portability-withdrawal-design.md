@@ -54,16 +54,20 @@ await vault.user.exportMyAccessibleData({
 ## 5. Operation 2 — `requestWithdrawal` (two-party)
 
 ```ts
-await vault.user.requestWithdrawal({ scope?, expiresIn? }): Promise<{ requestId, expiresAt }>
-// owner side (Noydb / db, owner authority):
-await db.approveWithdrawal(vaultName, requestId, factors?): Promise<{ bundleBytes }>
-await db.rejectWithdrawal(vaultName, requestId, reason?): Promise<void>
+// requester side (any non-owner with access; the path for read-only client/viewer):
+await vault.user.requestWithdrawal({ scope?, disposition?, legalBasis?, expiresInMs? }): Promise<{ requestId, status, expiresAt? }>
+// owner side (vault.user.*, owner/admin authority):
+await vault.user.listWithdrawalRequests({ status? }): Promise<WithdrawalRequest[]>
+await vault.user.approveWithdrawal(requestId, { reKey? }): Promise<{ bundle, snapshot? }>
+await vault.user.rejectWithdrawal(requestId, { reason? }): Promise<WithdrawalRequest>
 ```
 
-- Spans calendar time → **durable request record** in `_user_withdrawal_requests` (encrypted), NOT a transaction.
-- `requestWithdrawal`: gate `user-request-withdrawal` (default enabled, tier 1); writes the request + audit (`reason:'user-withdrawal-request:<id>'`).
-- `approveWithdrawal` (owner): gate `approve-user-withdrawal` (tier 2); extract the requester's closure (owner authority) → seal bundle → **delete-closure** → audit (`user-withdrawal-approved`). Returns the bundle to hand back.
-- `rejectWithdrawal`: marks the request rejected + audit.
+- Spans calendar time → **durable request record** in `_user_withdrawal_requests`, NOT a transaction. Body is plaintext metadata (collection names + disposition + legal basis — none secret in this trust model; the owner sees the data anyway) and carries **NO passphrase**: the re-key passphrase is supplied by the approver at approval time and conveyed out-of-band, so no secret is stored at rest.
+- The requester's **accessible** collections (read access defines "theirs") are resolved + recorded at request time, so the request is self-contained; the owner — who can delete anything — executes the disposition on approval.
+- `requestWithdrawal`: gate `user-request-withdrawal` (default enabled, tier 1); writes the request + audit (`reason:'user-withdrawal-request:<id>:<requester>'`).
+- `approveWithdrawal`: gate `approve-user-withdrawal` (tier-2 default) **+ owner/admin role** (enforced in code); validates the request is pending + not expired; build re-keyed bundle (owner authority) → dispose of source (`freezeAndDeleteClosure`, shared with P2) → mark approved (OCC) → audit (`user-withdrawal-approved`). Returns the bundle (+ snapshot on freeze) to hand back.
+- `rejectWithdrawal`: owner/admin; marks the request rejected (+ reason) + audit (`user-withdrawal-rejected`). No data touched.
+- The two-party `approveWithdrawal` reuses the SAME `freezeAndDeleteClosure` primitive as `unilateralWithdrawal` (delete or freeze), so the disposition the requester chose flows through end-to-end.
 
 ## 6. Operation 3 — `unilateralWithdrawal` (gated)
 
@@ -127,13 +131,13 @@ The firm's retained copy for `disposition:'freeze'`. The caller is an **operator
 
 ## 10. Phasing
 
-- **P1 (slice 1):** `exportMyAccessibleData` — conservative, non-destructive, always-allowed, audited. ✅ shipped.
-- **P2:** gate additions + `unilateralWithdrawal` with **both** dispositions — the `delete-closure` primitive (§9) AND the `freeze` snapshot (§9b) — behind the default-off gate.
-- **P3:** `requestWithdrawal` / `approveWithdrawal` / `rejectWithdrawal` two-party ceremony (durable request collection); approve supports the same `disposition`.
-- **Deferred:** `scope.entity` / `scope.subject` row-level sub-scoping (needs entity-tag model / #304 subject-index access); managed-mode/multi-recipient re-key.
+- **P1 (slice 1):** `exportMyAccessibleData` — conservative, non-destructive, always-allowed, audited. ✅ shipped (PR #436).
+- **P2:** built-in `client-unilateral-withdraw` gate + `unilateralWithdrawal` with **both** dispositions — the `delete-closure` primitive (§9) AND the `freeze` snapshot (§9b) — behind the default-off gate. ✅ shipped (PR #437).
+- **P3:** `requestWithdrawal` / `listWithdrawalRequests` / `approveWithdrawal` / `rejectWithdrawal` two-party ceremony (durable `_user_withdrawal_requests` collection); approve reuses the same `freezeAndDeleteClosure` so the requester's `disposition` flows through. Gates `user-request-withdrawal` (enabled, t1) + `approve-user-withdrawal` (t2 + owner/admin role). ✅ shipped.
+- **Deferred:** `scope.entity` / `scope.subject` row-level sub-scoping (needs entity-tag model / #304 subject-index access); managed-mode/multi-recipient re-key; in-band bundle delivery (a `_user_withdrawal_bundles` drop — v1 returns the bundle to the owner to hand off out-of-band); transaction-wrapped delete-closure.
 
-## 11. Open questions
+## 11. Resolved questions (decided during implementation)
 
-1. `reKey` shape — single `exportPassphrase` vs full `recipients` (multi-slot, managed-mode sealing per #197)? v1: single new-owner; managed/multi later.
-2. Should `approveWithdrawal` deliver the bundle to the requester in-band (a `_user_withdrawal_bundles` drop) or return it to the owner to hand off out-of-band? v1: return to owner.
-3. delete-closure when the caller is a non-owner: do they have delete rights on their accessible collections? (operator/client `rw` vs `ro` — unilateral withdrawal of `ro` scope must still delete; confirm the delete authority model.)
+1. `reKey` shape — **single `{ passphrase }`** for v1 (single new-owner). Full `recipients` multi-slot / managed-mode sealing (per #197) deferred.
+2. Bundle delivery — `approveWithdrawal` **returns the bundle to the owner** to hand off out-of-band (v1). In-band drop (`_user_withdrawal_bundles`) deferred.
+3. delete authority — **resolved by the kernel**: `hasWritePermission` makes `client`/`viewer` read-only by construction, so only an `operator` (rw) can self-serve `unilateralWithdrawal`; read-only roles use the two-party `requestWithdrawal` where the owner (blanket authority) executes the delete-closure. There is no "delete `ro` scope unilaterally" case — it routes to P3 by design.

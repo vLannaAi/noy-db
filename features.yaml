@@ -1027,6 +1027,7 @@ features:
       - 'destructive withdrawal is gated by the built-in client-unilateral-withdraw gate (fail-closed: undefined/disabled → PolicyDeniedError); built-in not app:* because app:* gates default to allow'
       - 'authority: client/viewer are read-only by construction (hasWritePermission) → ReadOnlyError pointing at requestWithdrawal; operator (rw) is the self-service destructive path; owner/admin use extractPartition'
       - 'disposition delete = delete-closure (records leave the vault); disposition freeze = write-once hash-pinned snapshot of the original envelopes at _frozen_snapshots/<id> + ledger sha256 pin, then delete-closure'
+      - 'two-party ceremony (P3) for read-only roles: requestWithdrawal files a durable plaintext-metadata request in _user_withdrawal_requests (no passphrase at rest); owner/admin approveWithdrawal (gate approve-user-withdrawal t2 + role) extracts under firm authority and reuses freezeAndDeleteClosure so the requester disposition flows through; rejectWithdrawal touches no data; approve/reject are OCC + idempotent (pending-only, expiry-checked)'
     related: [transferable-partition, bundle, team, session-tiers]
 
   - id: with-snapshots

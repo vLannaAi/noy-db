@@ -362,6 +362,21 @@ export { exportAccessibleData } from './bundle/export-accessible.js'
 export type { ExportAccessibleOptions } from './bundle/export-accessible.js'
 export { withdrawAccessibleData } from './bundle/withdraw-accessible.js'
 export type { WithdrawAccessibleOptions, WithdrawResult, FrozenSnapshotRef } from './bundle/withdraw-accessible.js'
+export {
+  requestWithdrawal,
+  listWithdrawalRequests,
+  approveWithdrawal,
+  rejectWithdrawal,
+  WithdrawalRequestError,
+} from './bundle/request-withdrawal.js'
+export type {
+  RequestWithdrawalOptions,
+  RequestWithdrawalResult,
+  WithdrawalRequest,
+  WithdrawalRequestStatus,
+  ApproveWithdrawalOptions,
+  RejectWithdrawalOptions,
+} from './bundle/request-withdrawal.js'
 export type {
   NoydbBundleHeader,
   CompressionAlgo,

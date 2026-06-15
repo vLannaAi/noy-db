@@ -11,8 +11,17 @@ Design spec: `docs/superpowers/specs/2026-06-16-client-initiated-portability-wit
 | Method | Destructive? | Gate | Notes |
 | --- | --- | --- | --- |
 | `exportMyAccessibleData(opts)` | no | none (audited) | re-keyed copy of the caller's scope; source untouched |
-| `unilateralWithdrawal(opts)` | yes | `client-unilateral-withdraw` (fail-closed) | export **then** dispose of the source |
-| `requestWithdrawal` / `approveWithdrawal` (P3) | yes | two-party | for read-only roles that can't self-serve |
+| `unilateralWithdrawal(opts)` | yes | `client-unilateral-withdraw` (fail-closed) | operator self-serve: export **then** dispose of the source |
+| `requestWithdrawal(opts)` | no | `user-request-withdrawal` (enabled, t1) | requester (incl. read-only client/viewer) files a durable request |
+| `listWithdrawalRequests({status?})` | no | owner/admin | review the queue |
+| `approveWithdrawal(id, {reKey?})` | yes | `approve-user-withdrawal` (t2) + owner/admin | extract-and-dispose under firm authority; returns the bundle |
+| `rejectWithdrawal(id, {reason?})` | no | `approve-user-withdrawal` + owner/admin | decline; no data touched |
+
+`approveWithdrawal` reuses the SAME `freezeAndDeleteClosure` primitive as
+`unilateralWithdrawal`, so the `disposition` (`delete`/`freeze`) the requester
+chose flows through end-to-end. The request body is plaintext metadata and
+carries **no passphrase** (supplied by the approver at approval time,
+out-of-band) — nothing secret is stored at rest.
 
 ### Scope
 
