@@ -10,7 +10,46 @@
  * new owner reuses `writeNoydbBundle`'s `exportPassphrase` shorthand.
  */
 import type { Vault } from '../vault.js'
+import type { UnlockedKeyring } from '../team/keyring.js'
 import { writeNoydbBundle } from './bundle.js'
+
+/**
+ * Resolve the collections a caller may export/withdraw: operator/client are
+ * scoped to their granted collections; owner/admin/viewer see everything
+ * (`undefined` = no allowlist). A `scope.collections` sub-scope intersects the
+ * granted set. `writableOnly` keeps only `rw` grants (for destructive ops).
+ */
+export function resolveAccessibleCollections(
+  keyring: UnlockedKeyring,
+  scope: { collections?: readonly string[] } | undefined,
+  writableOnly = false,
+): string[] | undefined {
+  let collections: string[] | undefined
+  if (keyring.role === 'operator' || keyring.role === 'client') {
+    collections = Object.entries(keyring.permissions)
+      .filter(([, mode]) => !writableOnly || mode === 'rw')
+      .map(([c]) => c)
+  }
+  if (scope?.collections) {
+    const allow = new Set(scope.collections)
+    collections = (collections ?? [...scope.collections]).filter((c) => allow.has(c))
+  }
+  return collections
+}
+
+/** Produce a (optionally re-keyed, scoped) `.noydb` bundle — no audit. */
+export async function buildAccessibleBundle(
+  vault: Vault,
+  collections: string[] | undefined,
+  reKey: { passphrase: string } | undefined,
+  compression: 'auto' | 'brotli' | 'gzip' | 'none' = 'auto',
+): Promise<Uint8Array> {
+  return writeNoydbBundle(vault, {
+    compression,
+    ...(collections !== undefined ? { collections } : {}),
+    ...(reKey ? { exportPassphrase: reKey.passphrase } : {}),
+  })
+}
 
 export interface ExportAccessibleOptions {
   /**
@@ -33,24 +72,8 @@ export async function exportAccessibleData(
   opts: ExportAccessibleOptions = {},
 ): Promise<Uint8Array> {
   const { keyring } = vault._introspectState()
-
-  // Access boundary: operator/client are scoped to their granted collections;
-  // owner/admin/viewer see everything (allowlist left undefined). A sub-scope
-  // intersects the granted set.
-  let collections: string[] | undefined
-  if (keyring.role === 'operator' || keyring.role === 'client') {
-    collections = Object.keys(keyring.permissions)
-  }
-  if (opts.scope?.collections) {
-    const allow = new Set(opts.scope.collections)
-    collections = (collections ?? [...opts.scope.collections]).filter((c) => allow.has(c))
-  }
-
-  const bytes = await writeNoydbBundle(vault, {
-    compression: opts.compression ?? 'auto',
-    ...(collections !== undefined ? { collections } : {}),
-    ...(opts.reKey ? { exportPassphrase: opts.reKey.passphrase } : {}),
-  })
+  const collections = resolveAccessibleCollections(keyring, opts.scope)
+  const bytes = await buildAccessibleBundle(vault, collections, opts.reKey, opts.compression ?? 'auto')
 
   // §11.11 audit — non-destructive, always-allowed export. No-op when the vault
   // has no history/ledger strategy (avoids minting a phantom _ledger DEK).

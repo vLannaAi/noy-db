@@ -30,6 +30,7 @@ import {
 } from '../../directory/visibility.js'
 import type { UserVisibility } from '../../directory/types.js'
 import type { ExportAccessibleOptions } from '../../bundle/export-accessible.js'
+import type { WithdrawAccessibleOptions, WithdrawResult } from '../../bundle/withdraw-accessible.js'
 
 /**
  * Recursive partial. Used for `updateMe(patch)` so callers can hand in
@@ -80,7 +81,7 @@ export interface UserEnvelopePresented {
  * no-op stub is fine.
  */
 export type UserEnvelopeCheckGate = (
-  gate: 'edit-own-profile' | 'view-team-profiles',
+  gate: 'edit-own-profile' | 'view-team-profiles' | 'client-unilateral-withdraw',
   presented?: UserEnvelopePresented,
 ) => Promise<void>
 
@@ -127,7 +128,27 @@ export class UserApi {
      * (which holds the keyring + bundle machinery). Omitted in low-level tests.
      */
     private readonly exportAccessible?: (opts: ExportAccessibleOptions) => Promise<Uint8Array>,
+    /**
+     * Noydb-backed `unilateralWithdrawal` (#199 P2), injected by the Vault.
+     * Destructive — extract + dispose (delete | freeze). Omitted in low-level tests.
+     */
+    private readonly unilateralWithdraw?: (opts: WithdrawAccessibleOptions) => Promise<WithdrawResult>,
   ) {}
+
+  /**
+   * #199 P2 — single-party withdrawal: export the caller's accessible scope
+   * (re-keyed) and dispose of the source (`delete` or `freeze`). Gated by the
+   * fail-closed built-in `client-unilateral-withdraw` policy — undefined or
+   * disabled → throws (use `requestWithdrawal`). The firm enables it at vault
+   * creation.
+   */
+  async unilateralWithdrawal(opts: WithdrawAccessibleOptions): Promise<WithdrawResult> {
+    if (this.checkGate) await this.checkGate('client-unilateral-withdraw')
+    if (!this.unilateralWithdraw) {
+      throw new Error('unilateralWithdrawal requires a Noydb-backed vault (not a bare UserApi)')
+    }
+    return this.unilateralWithdraw(opts)
+  }
 
   /**
    * #199 — export the calling user's accessible scope as a portable, re-keyed

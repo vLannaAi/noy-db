@@ -360,6 +360,8 @@ export {
 } from './bundle/bundle.js'
 export { exportAccessibleData } from './bundle/export-accessible.js'
 export type { ExportAccessibleOptions } from './bundle/export-accessible.js'
+export { withdrawAccessibleData } from './bundle/withdraw-accessible.js'
+export type { WithdrawAccessibleOptions, WithdrawResult, FrozenSnapshotRef } from './bundle/withdraw-accessible.js'
 export type {
   NoydbBundleHeader,
   CompressionAlgo,

@@ -143,6 +143,15 @@ export type BuiltInGateName =
    * regardless of this gate's settings.
    */
   | 'update-user'
+  /**
+   * Authorize a non-owner's self-service **destructive** withdrawal —
+   * `vault.user.unilateralWithdrawal` (#199). The actor exports their
+   * own re-keyed copy and then removes (delete-closure) or freezes the
+   * source records. Because it both egresses data AND destroys the
+   * firm's live copy, it MUST fail closed: undefined in a policy = denied.
+   * Hosts opt in explicitly (and typically pin `minTier`/factor proofs).
+   */
+  | 'client-unilateral-withdraw'
 
 /** Either a built-in gate name or an `app:*` custom gate. */
 export type GateName = BuiltInGateName | `app:${string}`

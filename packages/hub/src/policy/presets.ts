@@ -85,6 +85,12 @@ export const PERSONAL_POLICY: VaultPolicy = Object.freeze({
     //   self (privacy-strict opt-out).
     'edit-own-profile': { minTier: 3 },
     'view-team-profiles': { minTier: 2 },
+    // client-unilateral-withdraw: a non-owner's self-service DESTRUCTIVE
+    // withdrawal (export-and-delete/freeze, #199). Fail-closed by default —
+    // the firm opts in per jurisdiction/contract (e.g. GDPR Art. 17).
+    // Listed explicitly (not just relying on the built-in default) so it is
+    // discoverable in describeGate / policy dumps.
+    'client-unilateral-withdraw': { minTier: 1, enabled: false },
   },
 }) as VaultPolicy
 
@@ -192,6 +198,15 @@ export const STRICT_POLICY: VaultPolicy = Object.freeze({
       factors: [{ anyOf: ['totp', 'email-otp'] }],
     },
     'view-team-profiles': { minTier: 2 },
+    // STRICT: still fail-closed, but if a regulated firm flips enabled:true
+    // they inherit a two-factor proof + shared-device block for the
+    // destructive withdrawal (mirrors export-plaintext's hardening).
+    'client-unilateral-withdraw': {
+      minTier: 1,
+      enabled: false,
+      factors: [{ anyOf: ['totp', 'email-otp'], count: 2 }],
+      warn: { sharedDevice: 'block' },
+    },
   },
 }) as VaultPolicy
 

@@ -68,11 +68,21 @@ await db.rejectWithdrawal(vaultName, requestId, reason?): Promise<void>
 ## 6. Operation 3 — `unilateralWithdrawal` (gated)
 
 ```ts
-await vault.user.unilateralWithdrawal({ legalBasis, reKey }): Promise<Uint8Array>
+await vault.user.unilateralWithdrawal({
+  legalBasis, reKey,
+  disposition?: 'delete' | 'freeze',   // default 'delete'
+}): Promise<{ bundle: Uint8Array; snapshot?: FrozenSnapshotRef }>
 ```
 
 - Gate `client-unilateral-withdraw` — **default `{ enabled: false }`** (fail-closed). Disabled → `PolicyDeniedError` pointing the caller at `requestWithdrawal`. The firm enables it at vault creation (`policy.gates`) for jurisdictions/contracts that require it (e.g. GDPR Art. 17).
-- When enabled: export the caller's accessible closure (re-keyed) → **delete-closure** → audit (`user-unilateral-withdrawal`, `reason` carries `legalBasis`).
+- When enabled: produce the caller's re-keyed export bundle → apply the **source disposition** (§9) → audit (`user-unilateral-withdrawal`, `reason` carries `legalBasis` + disposition).
+
+### Source disposition (what happens to the source records)
+
+- **`delete`** (default) — *delete-closure*: the records leave the source vault entirely. Maximum data-minimization (GDPR Art. 17 erasure).
+- **`freeze`** — the firm retains a **cryptographically-frozen, read-only last snapshot** while the **live** records are removed. For regulated retention: the client departs with their portable copy; the firm keeps an immutable, provably-unaltered record. See §9b.
+
+`exportMyAccessibleData` (P1) is the third, non-withdrawal disposition (`leave-in-place`).
 
 ## 7. Gates (added to presets)
 
@@ -82,6 +92,8 @@ await vault.user.unilateralWithdrawal({ legalBasis, reKey }): Promise<Uint8Array
 'approve-user-withdrawal':   { minTier: 2, enabled: true },
 'client-unilateral-withdraw':{ minTier: 1, enabled: false },  // fail-closed; firm opts in
 ```
+`client-unilateral-withdraw` is a **built-in** gate (added to `BuiltInGateName`), not an `app:*` gate — built-ins fail closed when undefined, whereas `app:*` gates default to *allow* (informational). A destructive op must default-deny, so it must be built-in. Shipped in P2 (PERSONAL + STRICT presets, both `enabled:false`); STRICT additionally pins a two-factor proof + shared-device block for the opt-in case. The `user-request-withdrawal` / `approve-user-withdrawal` gates land with the P3 two-party ceremony.
+
 `exportMyAccessibleData` has **no** gate (§11.11 always-allowed) — audited only.
 
 ## 8. Audit
@@ -89,20 +101,36 @@ await vault.user.unilateralWithdrawal({ legalBasis, reKey }): Promise<Uint8Array
 All ops append a tamper-evident ledger entry reusing `op:'lifecycle'` (no op-union change) with a structured `reason`:
 `user-export` / `user-withdrawal-request` / `user-withdrawal-approved` / `user-withdrawal-rejected` / `user-unilateral-withdrawal`, each carrying `{ userId, scope, recordCount?, legalBasis?, ts }`. Entries participate in the hash chain (tamper-evident) but carry no data payload (`payloadHash:''`), matching the existing `partition-handed-over` lifecycle audit.
 
-## 9. delete-closure (the new primitive)
+## 9. delete-closure (the new destructive primitive)
 
-Single-vault deletion of the closure records after the bundle is sealed:
-1. Produce + seal the bundle (so the data is safely exported BEFORE anything is destroyed).
-2. Delete each closure record (`collection.delete` / tombstone). Run inside `withTransactions` when available for an all-or-nothing batch; otherwise best-effort + idempotent (re-deleting an absent record is a no-op).
-3. Audit AFTER deletion completes.
-Ordering guarantees no data loss on crash: a crash before step 2 leaves the source intact; a partial step 2 is resumable (the bundle already exists; re-running deletes the remainder).
+Single-vault deletion of the closure records, ALWAYS after the export (and the
+freeze snapshot, if any) is durably produced:
+1. Produce + seal the export bundle (data is safely out BEFORE anything is destroyed).
+2. (freeze only) write the frozen snapshot (§9b).
+3. Delete each closure record (`collection.delete` → tombstone). Best-effort + idempotent (re-deleting an absent record is a no-op); transaction-wrapped all-or-nothing is a future hardening (the ordering below already gives crash safety, so it is not required for correctness).
+4. Audit AFTER deletion completes.
+Crash safety by ordering: a crash before step 3 leaves the source intact; a partial step 3 is resumable (the bundle + snapshot already exist; re-running with the same `withdrawalId` deletes the remainder — the write-once snapshot put is a no-op on the second pass).
+
+**Scope:** the caller's accessible **collections** (∩ `scope.collections`). Row-level (per-entity/subject) withdrawal in a *shared* collection is deferred (needs the entity/subject model) — so withdrawal is collection-scoped, matching the per-client-vault model (#271) where a client's vault *is* their data.
+
+**Authority (kernel reality):** `hasWritePermission` (keyring.ts) makes `client` and `viewer` roles **read-only by construction** — they can never delete, regardless of any `rw` entry. So the self-service destructive path is the **`operator`** role (per-collection `rw`); owner/admin hold blanket authority and use `extractPartition` instead. A `client`/`viewer` calling `unilateralWithdrawal` is rejected with `ReadOnlyError` pointing at the two-party `requestWithdrawal`, where owner authority executes the delete. Confirmed in implementation (`withdraw-accessible.ts`).
+
+## 9b. freeze — cryptographically-frozen read-only snapshot
+
+The firm's retained copy for `disposition:'freeze'`. The caller is an **operator without the firm KEK**, so the snapshot cannot be a *re-keyed* `.noydb` bundle (the operator can't seal to the firm). Instead it **copies the existing ciphertext envelopes verbatim** — they are already under the vault's firm-owned DEKs, so the firm reopens them with the keys it already holds:
+1. For each closure record, read its stored `EncryptedEnvelope` and collect `{ collection: { id: envelope } }`.
+2. Serialize `{ withdrawalId, frozenAt, by, collections }` to JSON and store it immutably at `_frozen_snapshots/<withdrawalId>` (a reserved, write-once namespace — the put uses `expectedVersion: 0` so re-writing an existing id is rejected).
+3. **Hash-pin** it: `sha256` over the serialized body, appended to the ledger as `reason:'withdrawal-frozen-snapshot:<withdrawalId>:<sha256>'`. The hash-chained ledger makes the snapshot tamper-evident — any later alteration diverges the recorded sha256.
+4. Then delete-closure the live records (§9). Net: live data gone; the firm holds a sealed, read-only, provably-unaltered point-in-time snapshot of the original envelopes; the client holds their portable re-keyed copy.
+
+`FrozenSnapshotRef = { withdrawalId, sha256, recordCount, frozenAt }`. Reading it back = parse the stored record's `_data` JSON and decrypt each envelope with the firm's DEKs; verifying frozenness = recompute sha256 over `_data` and compare to the ledger entry.
 
 ## 10. Phasing
 
-- **P1 (slice 1):** `exportMyAccessibleData` — conservative, non-destructive, always-allowed, audited. Reuses `writeNoydbBundle` + `where` + re-key. **No new destructive code.** ← build first.
-- **P2:** the gate additions + `unilateralWithdrawal` + the `delete-closure` primitive (the destructive core, behind the default-off gate).
-- **P3:** `requestWithdrawal` / `approveWithdrawal` / `rejectWithdrawal` two-party ceremony (durable request collection).
-- **Deferred:** `scope.entity` / `scope.subject` sub-scoping (needs entity-tag model / #304 subject-index access).
+- **P1 (slice 1):** `exportMyAccessibleData` — conservative, non-destructive, always-allowed, audited. ✅ shipped.
+- **P2:** gate additions + `unilateralWithdrawal` with **both** dispositions — the `delete-closure` primitive (§9) AND the `freeze` snapshot (§9b) — behind the default-off gate.
+- **P3:** `requestWithdrawal` / `approveWithdrawal` / `rejectWithdrawal` two-party ceremony (durable request collection); approve supports the same `disposition`.
+- **Deferred:** `scope.entity` / `scope.subject` row-level sub-scoping (needs entity-tag model / #304 subject-index access); managed-mode/multi-recipient re-key.
 
 ## 11. Open questions
 
