@@ -112,6 +112,16 @@ export interface UnlockedKeyring {
   readonly kek: CryptoKey | null
   readonly salt: Uint8Array
   /**
+   * Debug-plaintext layout flag. Set only on the plaintext keyring created
+   * in `encrypt: false` + `debugPlaintext: true` mode — it lives here
+   * because its lifecycle is identical to the plaintext keyring's (no
+   * encrypted vault ever has it, so this never widens the encrypted surface).
+   * When true, user-collection records are written with their fields inlined
+   * beside the envelope metadata (`_debug: 1`) so native store tooling can
+   * read them without unwrapping `_data`.
+   */
+  readonly debugPlaintext?: boolean
+  /**
    * `@noy-db/as-*` export capability. Absent when the
    * keyring was written before this RFC landed — role-based defaults
    * apply via `hasExportCapability`.

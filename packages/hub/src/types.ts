@@ -155,6 +155,16 @@ export interface EncryptedEnvelope {
    * across records.
    */
   readonly _cek?: string
+  /**
+   * Debug-plaintext marker. Present only on records written by a vault opened
+   * with `debugPlaintext: true` (which requires `encrypt: false`). When set,
+   * the record's own fields are inlined as top-level keys on this envelope
+   * (beside the reserved `_`-prefixed metadata) and `_data` is empty — so
+   * native store tooling (jq, S3 console) reads the record directly. The read
+   * path reconstructs the record from the non-`_` keys; the marker makes a
+   * debug envelope self-describing, so a classic plaintext reader handles it too.
+   */
+  readonly _debug?: typeof NOYDB_FORMAT_VERSION
 }
 
 /**
@@ -1967,6 +1977,14 @@ export interface NoydbOptions {
   readonly auth?: 'passphrase' | 'biometric'
   /** Enable encryption. Default: true. */
   readonly encrypt?: boolean
+  /**
+   * Debug-only: lay plaintext records out as directly-inspectable store
+   * objects (record fields inlined beside envelope metadata, `_debug: 1`) so
+   * native store tooling can read them without unwrapping `_data`. Requires
+   * `encrypt: false` — combining with encryption throws `DebugPlaintextError`
+   * at construction. NEVER enable for production or client data.
+   */
+  readonly debugPlaintext?: boolean
   /** Conflict resolution strategy. Default: 'version'. */
   readonly conflict?: ConflictStrategy
   /**
