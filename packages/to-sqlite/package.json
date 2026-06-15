@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/to-sqlite",
-  "version": "0.2.0-pre.21",
+  "version": "0.2.0-pre.22",
   "description": "SQLite adapter for noy-db — single-file local encrypted document store. Works with better-sqlite3, node:sqlite (Node 22+), or bun:sqlite via a duck-typed Database interface. casAtomic: true (BEGIN IMMEDIATE + UPDATE WHERE _v=?).",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",

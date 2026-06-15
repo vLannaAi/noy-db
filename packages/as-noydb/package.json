@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/as-noydb",
-  "version": "0.2.0-pre.21",
+  "version": "0.2.0-pre.22",
   "description": "Encrypted .noydb bundle export for noy-db — wraps writeNoydbBundle() with the RFC #249 canExportBundle authorization gate and ergonomic browser/node helpers. Sole member of the @noy-db/as-* encrypted tier — ciphertext in, ciphertext out.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
