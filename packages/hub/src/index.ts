@@ -157,6 +157,14 @@ export type {
   BlobResponseOptions,
 } from './types.js'
 export { BlobSet } from './blobs/blob-set.js'
+export { memoryObjectProjection } from './blobs/object-projection.js'
+export type {
+  ObjectProjection,
+  ObjectMeta,
+  PutObjectOptions,
+  ObjectUrlOptions,
+  PutUrlOptions,
+} from './blobs/object-projection.js'
 export {
   BLOB_COLLECTION,
   BLOB_INDEX_COLLECTION,

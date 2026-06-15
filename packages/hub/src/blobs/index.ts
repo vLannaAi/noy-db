@@ -18,6 +18,15 @@
 export { withBlobs } from './active.js'
 export type { BlobStrategy, BlobStrategyOpenArgs } from './strategy.js'
 
+export { memoryObjectProjection } from './object-projection.js'
+export type {
+  ObjectProjection,
+  ObjectMeta,
+  PutObjectOptions,
+  ObjectUrlOptions,
+  PutUrlOptions,
+} from './object-projection.js'
+
 export { BlobSet } from './blob-set.js'
 export {
   BLOB_COLLECTION,
