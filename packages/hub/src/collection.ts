@@ -3603,6 +3603,7 @@ export class Collection<T> {
       encrypted: this.encrypted,
       userId: this.keyring.userId,
       erasableBlobs: this.perRecordCek,
+      debugPlaintext: this.keyring.debugPlaintext === true,
     })
   }
 

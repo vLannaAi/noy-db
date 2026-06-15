@@ -144,6 +144,7 @@ export class BlobSet {
   private readonly userId: string | undefined
   private readonly maxBlobBytes: number | undefined
   private readonly erasableBlobs: boolean
+  private readonly debugPlaintext: boolean
 
   constructor(opts: {
     store: NoydbStore
@@ -155,6 +156,7 @@ export class BlobSet {
     userId?: string
     maxBlobBytes?: number
     erasableBlobs?: boolean
+    debugPlaintext?: boolean
   }) {
     this.store = opts.store
     this.vault = opts.vault
@@ -165,6 +167,7 @@ export class BlobSet {
     this.userId = opts.userId
     this.maxBlobBytes = opts.maxBlobBytes
     this.erasableBlobs = opts.erasableBlobs === true
+    this.debugPlaintext = opts.debugPlaintext === true
   }
 
   /**
@@ -667,6 +670,11 @@ export class BlobSet {
     } else {
       shouldCompress = true
     }
+    // Debug-plaintext: write the blob as a single un-gzipped object so the
+    // stored chunk's base64 `_data` decodes directly to the original bytes
+    // (`base64 -d`) — no gzip layer, no multi-chunk reassembly. (encrypt:false
+    // already stores chunks unencrypted; this drops the remaining indirection.)
+    if (this.debugPlaintext) shouldCompress = false
 
     // Step 3 — deduplication check
     const existingBlob = await this.loadBlobObject(eTag)
@@ -682,7 +690,11 @@ export class BlobSet {
         ? await compressBytes(data)
         : { bytes: data, algorithm: 'none' as const }
 
-      const chunkSize = this.effectiveChunkSize(opts)
+      // Debug-plaintext stores the whole blob as one object (single chunk) so
+      // it is one directly-openable file in the store rather than N shards.
+      const chunkSize = this.debugPlaintext
+        ? Math.max(compressed.byteLength, 1)
+        : this.effectiveChunkSize(opts)
       const chunkCount = Math.max(1, Math.ceil(compressed.byteLength / chunkSize))
 
       // Erasable collection (`perRecordKeys`): mint a fresh per-blob content

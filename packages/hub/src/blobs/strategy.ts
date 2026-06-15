@@ -37,6 +37,14 @@ export interface BlobStrategyOpenArgs {
    * CEK design spec.
    */
   readonly erasableBlobs?: boolean
+  /**
+   * Vault is in debug-plaintext mode (`encrypt: false` + `debugPlaintext: true`).
+   * Blobs are then written as a single un-gzipped object (one base64 chunk) so
+   * the stored object is directly recoverable with native tools (`base64 -d`),
+   * matching the directly-inspectable record layout. Dev-only — see the
+   * plaintext/debug-store-mode design.
+   */
+  readonly debugPlaintext?: boolean
 }
 
 /**

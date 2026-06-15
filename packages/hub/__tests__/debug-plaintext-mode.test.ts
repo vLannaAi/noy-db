@@ -8,6 +8,7 @@ import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError, DebugPlaintextError, DebugReservedFieldError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
+import { withBlobs } from '../src/blobs/index.js'
 
 function makeStore(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -97,5 +98,53 @@ describe('#413 — debug-plaintext store mode', () => {
     const plain = await createNoydb({ store, user: 'op', encrypt: false })
     const v2 = await plain.openVault('t')
     expect(await v2.collection<{ id: string; name: string }>('docs').get('d1')).toEqual({ id: 'd1', name: 'Carol' })
+  })
+})
+
+function payload(n: number): Uint8Array {
+  const b = new Uint8Array(n)
+  for (let i = 0; i < n; i++) b[i] = (i * 7) & 0xff
+  return b
+}
+
+describe('#413 P2 — debug-plaintext blobs: single un-gzipped object', () => {
+  it('stores a blob as one un-gzipped, directly-decodable object', async () => {
+    const store = makeStore()
+    const db = await createNoydb({ store, user: 'op', encrypt: false, debugPlaintext: true, blobStrategy: withBlobs() })
+    const vault = await db.openVault('t')
+    const docs = vault.collection<{ id: string }>('docs', { blobFields: { f: {} } })
+    await docs.put('d1', { id: 'd1' })
+    const data = payload(2000)
+    await docs.blob('d1').put('f', data)
+
+    // Exactly one chunk object, plaintext, base64 decodes straight to the bytes.
+    const chunkKeys = await store.list('t', '_blob_chunks')
+    expect(chunkKeys.length).toBe(1)
+    const chunk = (await store.get('t', '_blob_chunks', chunkKeys[0]))!
+    expect(chunk._iv).toBe('')
+    expect(Buffer.from(chunk._data, 'base64').equals(Buffer.from(data))).toBe(true)
+
+    // Blob index records compression none + a single chunk.
+    const idxKeys = await store.list('t', '_blob_index')
+    const idx = JSON.parse((await store.get('t', '_blob_index', idxKeys[0]))!._data) as { compression: string; chunkCount: number }
+    expect(idx.compression).toBe('none')
+    expect(idx.chunkCount).toBe(1)
+
+    // Round-trips through the API.
+    const got = await docs.blob('d1').get('f')
+    expect(Buffer.from(got!).equals(Buffer.from(data))).toBe(true)
+  })
+
+  it('classic plaintext mode still gzips blobs (debug differs)', async () => {
+    const store = makeStore()
+    const db = await createNoydb({ store, user: 'op', encrypt: false, blobStrategy: withBlobs() })
+    const vault = await db.openVault('t')
+    const docs = vault.collection<{ id: string }>('docs', { blobFields: { f: {} } })
+    await docs.put('d1', { id: 'd1' })
+    await docs.blob('d1').put('f', payload(2000))
+
+    const idxKeys = await store.list('t', '_blob_index')
+    const idx = JSON.parse((await store.get('t', '_blob_index', idxKeys[0]))!._data) as { compression: string }
+    expect(idx.compression).toBe('gzip')
   })
 })
