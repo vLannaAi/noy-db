@@ -1006,6 +1006,29 @@ features:
       - 'extractPartition appends a partition-handed-over:<sealId> lifecycle entry to the source ledger (audit signal; no-op without history)'
     related: [bundle, persisted-json-schema, history, team]
 
+  - id: client-portability
+    name: Client-initiated portability & withdrawal (vault.user.*)
+    cluster: snapshot-and-portability
+    spec: docs/superpowers/specs/2026-06-16-client-initiated-portability-withdrawal-design.md
+    subsystem_doc: docs/subsystems/client-portability.md
+    package: '@noy-db/hub/bundle'
+    factory: null
+    status: preview
+    showcases:
+      - id: 120-client-portability-withdrawal
+        path: showcases/src/120-client-portability-withdrawal.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'own-only by construction: vault.user.* acts on the caller scope only — the DEK access set (hasAccess), optionally narrowed by scope.collections; out-of-scope records are undecryptable so never enter the bundle'
+      - 'exportMyAccessibleData is non-destructive, always-allowed (no gate), re-keyed to the caller passphrase, and audited (reason: user-export)'
+      - 'unilateralWithdrawal produces the re-keyed bundle FIRST, then disposes of the source — crash before deletion leaves the source intact; partial deletion is resumable (write-once snapshot put is idempotent on re-run)'
+      - 'destructive withdrawal is gated by the built-in client-unilateral-withdraw gate (fail-closed: undefined/disabled → PolicyDeniedError); built-in not app:* because app:* gates default to allow'
+      - 'authority: client/viewer are read-only by construction (hasWritePermission) → ReadOnlyError pointing at requestWithdrawal; operator (rw) is the self-service destructive path; owner/admin use extractPartition'
+      - 'disposition delete = delete-closure (records leave the vault); disposition freeze = write-once hash-pinned snapshot of the original envelopes at _frozen_snapshots/<id> + ledger sha256 pin, then delete-closure'
+    related: [transferable-partition, bundle, team, session-tiers]
+
   - id: with-snapshots
     name: Snapshot lifecycle (withSnapshots)
     cluster: snapshot-and-portability

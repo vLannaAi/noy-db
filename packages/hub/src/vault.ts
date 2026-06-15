@@ -21,6 +21,7 @@ import type { JoinableSource } from './query/index.js'
 import type { OnDirtyCallback } from './collection.js'
 import type { UnlockedKeyring, BundleRecipient } from './team/keyring.js'
 import { exportAccessibleData } from './bundle/export-accessible.js'
+import { withdrawAccessibleData } from './bundle/withdraw-accessible.js'
 import type { MaterializedViewRegistry } from './materialized-views/registry.js'
 import type { MaterializedViewStrategyHandle, MVQueryContext } from './materialized-views/types.js'
 import type { OverlayedViewRegistry } from './overlay-views/registry.js'
@@ -585,6 +586,7 @@ export class Vault {
       () => this.getDEK(USER_ENVELOPE_COLLECTION),
       (gate, presented) => this.noydb.checkGate(this.name, gate, presented),
       (opts) => exportAccessibleData(this, opts),
+      (opts) => withdrawAccessibleData(this, opts),
     )
   }
 
