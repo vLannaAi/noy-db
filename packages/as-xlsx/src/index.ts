@@ -595,6 +595,14 @@ export interface AsXlsxImportOptions {
    * Unknown labels (no match in any locale) pass through as-is.
    */
   readonly dicts?: Readonly<Record<string, readonly DictEntry[]>>
+  /**
+   * Read a sheet produced by smart export (#414 P4). Reverses the smart layout:
+   * reconstructs i18n fields from their per-locale columns (`<f>__<loc>` →
+   * `{ loc: value }`), and drops derived columns — the i18n display column and
+   * every `<f>__label` (FK/dict) formula column. Code columns (the real values)
+   * pass through. Maps onto the existing collection schema (Mode A).
+   */
+  readonly smart?: boolean
 }
 
 export interface AsXlsxImportPlan {
@@ -692,6 +700,17 @@ export async function fromBytes(
     }
   }
 
+  // Smart layout: any `<base>__<suffix>` where suffix isn't 'label' marks an
+  // i18n base whose display column (`<base>`) is a formula to be dropped and
+  // whose per-locale columns rebuild the `{ loc: value }` map.
+  const i18nBases = new Set<string>()
+  if (options.smart) {
+    for (const field of colToField.values()) {
+      const m = /^(.+)__(.+)$/.exec(field)
+      if (m && m[2] !== 'label') i18nBases.add(m[1]!)
+    }
+  }
+
   const records: Record<string, unknown>[] = []
   for (let i = headerRowIdx + 1; i < allRows.length; i++) {
     const row = allRows[i]!
@@ -700,6 +719,22 @@ export async function fromBytes(
     for (const [col, value] of Object.entries(row)) {
       const field = colToField.get(col)
       if (field === undefined) continue
+      if (options.smart) {
+        if (field.endsWith('__label')) continue // derived FK/dict label
+        const lm = /^(.+)__(.+)$/.exec(field)
+        if (lm && lm[2] !== 'label' && i18nBases.has(lm[1]!)) {
+          const base = lm[1]!
+          const coerced = coerceXlsxCell(value, types[base])
+          if (coerced !== undefined && coerced !== '') {
+            const map = (record[base] as Record<string, unknown> | undefined) ?? {}
+            map[lm[2]!] = coerced
+            record[base] = map
+            hasAny = true
+          }
+          continue
+        }
+        if (i18nBases.has(field)) continue // i18n display column (formula)
+      }
       const coerced = coerceXlsxCell(value, types[field])
       if (coerced !== undefined) {
         const invMap = invertMaps.get(field)

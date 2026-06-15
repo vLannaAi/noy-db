@@ -6,9 +6,10 @@
 import { describe, expect, it } from 'vitest'
 import { createNoydb, ref } from '@noy-db/hub'
 import { withI18n, i18nText, dictKey } from '@noy-db/hub/i18n'
+import { withTransactions } from '@noy-db/hub/tx'
 import { memory } from '@noy-db/to-memory'
 import { readZip } from '@noy-db/as-zip'
-import { toBytes, readXlsx, formula } from '../src/index.js'
+import { toBytes, readXlsx, formula, fromBytes } from '../src/index.js'
 
 const DEC = new TextDecoder()
 
@@ -207,6 +208,32 @@ describe('#414 P1 — smart export', () => {
 
     const xmls = (await readZip(bytes)).filter((p) => /sheet\d+\.xml/.test(p.path)).map((p) => DEC.decode(p.bytes))
     expect(xmls.some((x) => x.includes('SUMIFS('))).toBe(true)
+  })
+
+  it('P4 smart import: reverses the smart layout — rebuilds i18n maps, drops derived columns', async () => {
+    const adapter = memory()
+    const init = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-rt' })
+    await init.openVault('shop')
+    await init.grant('shop', {
+      userId: 'alice', displayName: 'Alice', role: 'owner', passphrase: 'pw-rt',
+      exportCapability: { plaintext: ['xlsx'] }, importCapability: { plaintext: ['xlsx'] },
+    })
+    init.close()
+    const db = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-rt', i18nStrategy: withI18n(), txStrategy: withTransactions() })
+    const vault = await db.openVault('shop')
+    const products = vault.collection<{ id: string; name: Record<string, string> }>('products', {
+      i18nFields: { name: i18nText({ languages: ['en', 'th'], required: 'all' }) },
+    })
+    await products.put('p1', { id: 'p1', name: { en: 'Widget', th: 'วิดเจ็ต' } })
+
+    const bytes = await toBytes(vault, { smart: true, sheets: [{ name: 'products', collection: 'products', i18nFields: ['name'] }] })
+
+    // Drop then re-import to prove the smart reader rebuilds the record.
+    await products.delete('p1')
+    const plan = await fromBytes(vault, bytes, { collection: 'products', sheet: 'products', smart: true, policy: 'merge' })
+    await plan.apply()
+
+    expect(await products.get('p1')).toEqual({ id: 'p1', name: { en: 'Widget', th: 'วิดเจ็ต' } })
   })
 
   it('formula() emits a live <f> with a cached value (round-trips via readXlsx)', async () => {
