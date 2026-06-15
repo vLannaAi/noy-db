@@ -9,6 +9,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.
 import { ConflictError, DebugPlaintextError, DebugReservedFieldError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
 import { withBlobs } from '../src/blobs/index.js'
+import { readPlaintextRecord } from '../src/debug.js'
 
 function makeStore(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -106,6 +107,21 @@ function payload(n: number): Uint8Array {
   for (let i = 0; i < n; i++) b[i] = (i * 7) & 0xff
   return b
 }
+
+describe('#413 P3 — readPlaintextRecord helper', () => {
+  it('unwraps a debug-inlined envelope', () => {
+    const env = { _noydb: 1, _v: 1, _ts: 't', _iv: '', _data: '', _by: 'op', _debug: 1, id: 'd1', name: 'Alice' }
+    expect(readPlaintextRecord(env as never)).toEqual({ id: 'd1', name: 'Alice' })
+  })
+  it('unwraps a classic plaintext envelope', () => {
+    const env = { _noydb: 1, _v: 1, _ts: 't', _iv: '', _data: JSON.stringify({ id: 'd1', n: 2 }) }
+    expect(readPlaintextRecord(env as never)).toEqual({ id: 'd1', n: 2 })
+  })
+  it('throws on an encrypted envelope (non-empty _iv)', () => {
+    const env = { _noydb: 1, _v: 1, _ts: 't', _iv: 'abc', _data: 'ciphertext' }
+    expect(() => readPlaintextRecord(env as never)).toThrow(/encrypted/)
+  })
+})
 
 describe('#413 P2 — debug-plaintext blobs: single un-gzipped object', () => {
   it('stores a blob as one un-gzipped, directly-decodable object', async () => {

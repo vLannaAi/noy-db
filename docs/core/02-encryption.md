@@ -133,6 +133,39 @@ These are the bright lines. Any change to one of them is a security review.
 | **Authenticated decryption fails closed** | A modified envelope throws `TamperedError`; no partial-decryption fallback. |
 | **Per-record CEK is stable + DEK-scoped** | Under `perRecordKeys`, a record's CEK is reused across all its versions/history and is only ever AES-KW-wrapped under the collection/tier DEK (`crypto.ts` `wrapCek`/`unwrapCek`). `_det` slots are never CEK-keyed. |
 
+## Debug-plaintext mode (dev-only)
+
+Zero-knowledge encryption is the default. During **local development**, though,
+you sometimes want to point your store's native tools straight at the data. Open
+the vault with `encrypt: false` **and** `debugPlaintext: true`:
+
+```ts
+const db = await createNoydb({ store, user: 'dev', encrypt: false, debugPlaintext: true })
+```
+
+This changes the on-store *layout* so it's directly legible:
+
+- **Records** are written with their fields inlined beside the envelope
+  metadata (`_debug: 1`, empty `_data`) instead of stuffed into `_data` as a
+  JSON string — so `jq '.total'` over a `to-file` object just works.
+- **Blobs** are written as a single un-gzipped object — the chunk's base64
+  `_data` decodes straight to the original bytes (`base64 -d`).
+
+To unwrap an envelope programmatically (the core of a `noydb cat` script),
+use `readPlaintextRecord(envelope)` — it handles both the inlined and the
+classic plaintext layouts, and throws on an encrypted envelope.
+
+Guardrails:
+
+- `debugPlaintext: true` combined with encryption throws `DebugPlaintextError`
+  at construction — it is an unencrypted-only inspection mode.
+- Opening a vault in this mode prints a loud warning.
+- A CI architecture check (`no-debug-plaintext-in-source`) forbids hardcoding
+  `debugPlaintext: true` in shipped library source.
+
+**Never use this for production or client data.** It stores everything in
+cleartext and is not crypto-shreddable.
+
 ## See also
 
 - [Core 03 — Stores](./03-stores.md) — the contract that holds these invariants in place

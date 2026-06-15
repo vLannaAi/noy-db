@@ -161,7 +161,7 @@ function createPlaintextKeyring(userId: string, debugPlaintext = false): Unlocke
     kek: null,
     salt: new Uint8Array(0),
     authenticators: [],
-    ...(debugPlaintext ? { debugPlaintext: true } : {}),
+    ...(debugPlaintext ? { debugPlaintext } : {}),
   }
 }
 

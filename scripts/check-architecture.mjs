@@ -578,6 +578,29 @@ function checkKernelSurface() {
   }
 }
 
+// ─── Check 7: no debugPlaintext in shipped library source (#413 P3) ─────
+
+/**
+ * `debugPlaintext: true` stores records UNENCRYPTED, laid out for native store
+ * inspection — a consumer-set, dev-only option. No shipped library source under
+ * `packages/*​/src` should hardcode it on. Tests (`__tests__`) and showcases
+ * (`showcases/`) live outside `packages/*​/src` and may set it freely.
+ */
+function checkNoDebugPlaintextInSource() {
+  const re = /debugPlaintext\s*:\s*true/
+  for (const pkgDir of listPackageDirs()) {
+    walkTsFiles(join(pkgDir, 'src'), (file, content) => {
+      if (re.test(stripComments(content))) {
+        fail(
+          'no-debug-plaintext-in-source',
+          `${relative(ROOT, file)} hardcodes "debugPlaintext: true" — it stores records UNENCRYPTED and is a dev-only consumer option; never ship it on in library source.`,
+          file,
+        )
+      }
+    })
+  }
+}
+
 // ─── Run ───────────────────────────────────────────────────────────────
 
 const startTime = Date.now()
@@ -588,6 +611,7 @@ checkHubPortable()
 checkStoresCiphertextOnly()
 checkStrategyOptIns()
 checkKernelSurface()
+checkNoDebugPlaintextInSource()
 
 const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
 
