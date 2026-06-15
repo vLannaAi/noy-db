@@ -2286,6 +2286,8 @@ exports:
         path: showcases/src/114-as-xlsx-smart.showcase.test.ts
       - id: 115-as-xlsx-lang-cell
         path: showcases/src/115-as-xlsx-lang-cell.showcase.test.ts
+      - id: 116-as-xlsx-summary
+        path: showcases/src/116-as-xlsx-summary.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
@@ -2294,6 +2296,7 @@ exports:
       - 'Multi-sheet — preserves relational shape across collections'
       - 'Smart mode (toBytes({ smart: true }), #414 P1): id-first sheets; FK fields (auto-detected via dumpSchema) get a <field>__label VLOOKUP column with a cached resolved label (live + immediate); a _manifest index sheet. Formula cells via formula(f, cachedValue) emit <f> + cached <v>. Number formats via styled(v, code) → styles.xml; data-validation dropdowns (enum/ref auto, explicit override)'
       - 'Smart mode #414 P2: i18nFields → per-locale columns + a display column switched live by a global LANG named range on a _settings sheet (IF(LANG=…) chain); dictFields → a _Lookups_<dict> sheet + a <field>__label VLOOKUP(code, …, MATCH(LANG, header)) display; changing LANG re-renders every i18n + dict label. definedNames support in the writer'
+      - 'Smart mode #414 P3: summaries spec → a groupBy sheet of live SUMIFS/COUNTIFS/AVERAGEIFS over a data sheet (one row per distinct group), values cached at export; source value columns must be numeric (numberFormats) for the live math'
       - 'fromBytes reads sharedStrings + workbook + sheet<N>.xml; opt-in date coercion via fieldTypes'
       - 'fast-xml-parser dep (^5.0.0); strict mode via XMLValidator pre-pass'
       - 'Import gated by importCapability.plaintext.xlsx; apply() inside vault.transaction'
