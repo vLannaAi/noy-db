@@ -88,6 +88,13 @@ export interface AsXlsxSheetOptions {
    * re-renders). Read raw, so open the export vault without an active locale.
    */
   readonly i18nFields?: readonly string[]
+  /**
+   * Smart mode only: map a dict-backed (code) field to its dictionary name, e.g.
+   * `{ status: 'status' }`. Emits a hidden `_Lookups_<dict>` sheet (code +
+   * per-locale labels) and a `<field>__label` display column resolved by the
+   * global LANG cell via `VLOOKUP(code, …, MATCH(LANG, …))`.
+   */
+  readonly dictFields?: Record<string, string>
 }
 
 /** Single-collection convenience — passed where a sheet-list is accepted. */
@@ -284,8 +291,20 @@ async function buildSmartSheets(
   }
   const matByCollection = new Map(mats.map((m) => [m.opt.collection, m]))
 
+  // Load declared dictionaries once; merge their locales into the global set.
+  const dictEntries = new Map<string, DictEntry[]>()
+  for (const m of mats) {
+    for (const [field, dictName] of Object.entries(m.opt.dictFields ?? {})) {
+      if (!m.cols.includes(field) || dictEntries.has(dictName)) continue
+      dictEntries.set(dictName, await vault.dictionary(dictName).list())
+    }
+  }
+  for (const entries of dictEntries.values()) {
+    for (const e of entries) for (const loc of Object.keys(e.labels)) localeSet.add(loc)
+  }
+
   const locales = [...localeSet].sort()
-  const hasI18n = locales.length > 0
+  const hasLang = locales.length > 0
   const defaultLocale = locales.includes('en') ? 'en' : (locales[0] ?? 'en')
   // Build an IF-chain over the per-locale cells, switched by the LANG name.
   const ifChain = (refOf: (loc: string) => string): string => {
@@ -304,7 +323,13 @@ async function buildSmartSheets(
     const refFields = Object.keys(refs).filter((f) => m.cols.includes(f) && matByCollection.has(refs[f]!.target))
     const baseCols = m.cols.filter((c) => !i18nSet.has(c))
     const i18nFlat = m.i18nFields.flatMap((f) => [f, ...locales.map((l) => `${f}__${l}`)])
-    const header = [...baseCols, ...i18nFlat, ...refFields.map((f) => `${f}__label`)]
+    const dictPairs = Object.entries(m.opt.dictFields ?? {}).filter(([f]) => m.cols.includes(f))
+    const header = [
+      ...baseCols,
+      ...i18nFlat,
+      ...dictPairs.map(([f]) => `${f}__label`),
+      ...refFields.map((f) => `${f}__label`),
+    ]
     const colIndex = new Map<string, number>()
     header.forEach((h, i) => colIndex.set(h, i + 1))
 
@@ -347,6 +372,15 @@ async function buildSmartSheets(
         )
         return [display, ...locales.map((l) => (rawMap[l] ?? null) as unknown)]
       })
+      const dictCells = dictPairs.map(([f, dn]) => {
+        const codeRef = `${colLetter(colIndex.get(f)!)}${rowNum}`
+        const lk = `_Lookups_${dn}`
+        // MATCH(LANG, lookup header row) → the locale's column in the lookup sheet.
+        const f1 = `IFERROR(VLOOKUP(${codeRef},'${lk}'!$A:$ZZ,MATCH(LANG,'${lk}'!$1:$1,0),FALSE),${codeRef})`
+        const code = r[f]
+        const entry = code == null ? undefined : dictEntries.get(dn)?.find((e) => e.key === safeStringify(code))
+        return formula(f1, asCached(entry?.labels[defaultLocale] ?? (code ?? '')))
+      })
       const refCells = refFields.map((f) => {
         const target = refs[f]!.target
         const targetSheet = sheetNameByCollection.get(target)!
@@ -357,7 +391,7 @@ async function buildSmartSheets(
         const cached = code == null ? '' : asCached(targetMat.labelMap.get(safeStringify(code)))
         return formula(f1, cached)
       })
-      return [...baseCells, ...i18nCells, ...refCells]
+      return [...baseCells, ...i18nCells, ...dictCells, ...refCells]
     })
     return {
       name: m.opt.name,
@@ -379,9 +413,16 @@ async function buildSmartSheets(
 
   // Global LANG control — a Settings sheet + named range every i18n/dict label
   // references via IF(LANG=…). Only emitted when there are i18n fields.
+  // Hidden lookup sheets: one per declared dictionary (code + per-locale labels).
+  const lookupSheets: XlsxSheet[] = [...dictEntries.entries()].map(([dn, entries]) => ({
+    name: `_Lookups_${dn}`,
+    header: ['Code', ...locales],
+    rows: entries.map((e) => [e.key, ...locales.map((l) => e.labels[l] ?? '')]),
+  }))
+
   const settingsSheets: XlsxSheet[] = []
   const definedNames: { name: string; ref: string }[] = []
-  if (hasI18n) {
+  if (hasLang) {
     settingsSheets.push({
       name: '_settings',
       header: ['Setting', 'Value'],
@@ -391,7 +432,7 @@ async function buildSmartSheets(
     definedNames.push({ name: 'LANG', ref: `'_settings'!$B$2` })
   }
 
-  return { sheets: [...settingsSheets, manifest, ...dataSheets], definedNames }
+  return { sheets: [...settingsSheets, ...lookupSheets, manifest, ...dataSheets], definedNames }
 }
 
 function inferColumns(records: readonly Record<string, unknown>[]): string[] {
