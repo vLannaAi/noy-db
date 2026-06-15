@@ -102,6 +102,39 @@ export class NoydbError extends Error {
   }
 }
 
+// ─── Debug-mode Errors ─────────────────────────────────────────────────
+
+/**
+ * Thrown at construction when `debugPlaintext: true` is combined with
+ * encryption (`encrypt` not `false`). Debug-plaintext writes records in
+ * cleartext laid out for native store inspection; it is meaningless and
+ * unsafe under encryption, so the coupling is rejected loudly rather than
+ * silently ignored.
+ */
+export class DebugPlaintextError extends NoydbError {
+  constructor(message = 'debugPlaintext requires encrypt: false') {
+    super('DEBUG_PLAINTEXT_REQUIRES_UNENCRYPTED', message)
+    this.name = 'DebugPlaintextError'
+  }
+}
+
+/**
+ * Thrown when a record written under `debugPlaintext` carries a top-level
+ * field whose name starts with `_`. Debug mode inlines record fields beside
+ * the reserved `_`-prefixed envelope metadata, so a `_`-prefixed record field
+ * would collide with metadata. The `_` namespace is reserved by NOYDB
+ * regardless; rename the field.
+ */
+export class DebugReservedFieldError extends NoydbError {
+  constructor(collection: string, field: string) {
+    super(
+      'DEBUG_RESERVED_FIELD',
+      `Record in "${collection}" has reserved field "${field}": the _ prefix is reserved under debugPlaintext mode`,
+    )
+    this.name = 'DebugReservedFieldError'
+  }
+}
+
 // ─── Crypto Errors ─────────────────────────────────────────────────────
 
 /**

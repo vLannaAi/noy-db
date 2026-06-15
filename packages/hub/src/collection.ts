@@ -47,7 +47,7 @@ import { LazyQuery } from './indexing/lazy-builder.js'
 import type { LazyQuerySource } from './indexing/lazy-builder.js'
 import { NO_INDEXING, type IndexStrategy, type IndexState } from './indexing/strategy.js'
 import { searchScan, type SearchOptions, type SearchResult } from './search/index.js'
-import { IndexWriteFailureError, DerivationCapExceededError } from './errors.js'
+import { IndexWriteFailureError, DerivationCapExceededError, DebugReservedFieldError } from './errors.js'
 import { buildUniqueConstraintSet, type UniqueConstraintSet } from './indexing/unique-constraints.js'
 import type { RefDescriptor } from './refs.js'
 import { Lru, parseBytes, estimateRecordBytes, type LruStats } from './cache/index.js'
@@ -4086,6 +4086,31 @@ export class Collection<T> {
    * path encrypts the body directly under the collection DEK — byte-identical
    * to pre-CEK behaviour, so non-adopting collections pay nothing.
    */
+  /**
+   * Build a debug-plaintext envelope: the record's own fields inlined as
+   * top-level keys beside the reserved `_`-metadata, with `_debug: 1` and an
+   * empty `_data`. Lets native store tooling read the record without
+   * unwrapping. Only reached for user collections under `debugPlaintext`
+   * (see {@link encryptRecord}). Rejects `_`-prefixed record fields, which
+   * would collide with the reserved metadata namespace.
+   */
+  private buildDebugEnvelope(record: T, version: number): EncryptedEnvelope {
+    const rec = record as unknown as Record<string, unknown>
+    for (const key of Object.keys(rec)) {
+      if (key.startsWith('_')) throw new DebugReservedFieldError(this.name, key)
+    }
+    return {
+      _noydb: NOYDB_FORMAT_VERSION,
+      _v: version,
+      _ts: new Date().toISOString(),
+      _iv: '',
+      _data: '',
+      _by: this.keyring.userId,
+      _debug: NOYDB_FORMAT_VERSION,
+      ...rec,
+    } as unknown as EncryptedEnvelope
+  }
+
   private async encryptJsonString(
     json: string,
     version: number,
@@ -4137,6 +4162,13 @@ export class Collection<T> {
     version: number,
     cek?: CryptoKey,
   ): Promise<EncryptedEnvelope> {
+    // Debug-plaintext: write user-collection records with their fields inlined
+    // beside the envelope metadata so native store tools read them directly.
+    // Internal (`_`-prefixed) collections keep the classic shape — some store
+    // `_`-prefixed fields that the inline layout would collide with.
+    if (!this.encrypted && this.keyring.debugPlaintext === true && !this.name.startsWith('_')) {
+      return this.buildDebugEnvelope(record, version)
+    }
     const base = await this.encryptJsonString(JSON.stringify(record), version, cek)
     if (!this.deterministicFields || !this.encrypted) return base
 
@@ -4536,7 +4568,20 @@ export class Collection<T> {
     // tombstones. Legacy plaintext collections (`!this.encrypted`) legitimately
     // have empty `_iv`/`_data`, so `isTombstone` is false for them — preserved.
     if (isTombstone(envelope, this.encrypted)) return null
-    if (!this.encrypted) return envelope._data
+    if (!this.encrypted) {
+      // Debug-plaintext layout: record fields were inlined as top-level keys
+      // (see buildDebugEnvelope). Reconstruct the record from the non-`_`
+      // keys. Self-describing via `_debug`, so a classic plaintext reader
+      // handles debug-written envelopes too.
+      if (envelope._debug !== undefined) {
+        const rec: Record<string, unknown> = {}
+        for (const [key, value] of Object.entries(envelope)) {
+          if (!key.startsWith('_')) rec[key] = value
+        }
+        return JSON.stringify(rec)
+      }
+      return envelope._data
+    }
     const dek = await this.getDEK(this.name)
     if (envelope._cek !== undefined) {
       const cached = id !== undefined ? this.cekCache?.get(id) : undefined

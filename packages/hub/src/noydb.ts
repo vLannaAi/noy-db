@@ -21,7 +21,7 @@ import type {
   TranslatorAuditEntry,
   WriteConflict,
 } from './types.js'
-import { ValidationError, NoAccessError, InvalidKeyError, KeyringCorruptError, StoreCapabilityError, PermissionDeniedError, VaultTemplateNotFoundError, ReservedVaultNameError } from './errors.js'
+import { ValidationError, NoAccessError, InvalidKeyError, KeyringCorruptError, StoreCapabilityError, PermissionDeniedError, VaultTemplateNotFoundError, ReservedVaultNameError, DebugPlaintextError } from './errors.js'
 import { STATE_VAULT_NAME } from './federation/constants.js'
 import type { StateManagementVault } from './federation/state-vault.js'
 import {
@@ -151,7 +151,7 @@ const ROLE_RANK: Record<Role, number> = {
 }
 
 /** Dummy keyring for unencrypted mode. */
-function createPlaintextKeyring(userId: string): UnlockedKeyring {
+function createPlaintextKeyring(userId: string, debugPlaintext = false): UnlockedKeyring {
   return {
     userId,
     displayName: userId,
@@ -161,6 +161,7 @@ function createPlaintextKeyring(userId: string): UnlockedKeyring {
     kek: null,
     salt: new Uint8Array(0),
     authenticators: [],
+    ...(debugPlaintext ? { debugPlaintext: true } : {}),
   }
 }
 
@@ -241,6 +242,17 @@ export class Noydb {
 
   constructor(options: NoydbOptions) {
     this.options = options
+    // Debug-plaintext is an unencrypted-only inspection mode; combining it with
+    // encryption is meaningless and unsafe, so reject the coupling loudly.
+    if (options.debugPlaintext === true && options.encrypt !== false) {
+      throw new DebugPlaintextError()
+    }
+    if (options.debugPlaintext === true) {
+      console.warn(
+        '[noydb] debugPlaintext is ON — records are stored UNENCRYPTED and laid ' +
+          'out for native store inspection. NEVER use this for production or client data.',
+      )
+    }
     this.txStrategy = options.txStrategy ?? NO_TX
     this.forgetStrategy = options.forgetStrategy ?? NO_FORGET
     this.sessionStrategy = options.sessionStrategy ?? NO_SESSION
@@ -630,7 +642,7 @@ export class Noydb {
 
     // For backwards compat: if not opened yet, create with cached keyring or plaintext
     if (this.options.encrypt === false) {
-      const keyring = createPlaintextKeyring(this.options.user)
+      const keyring = createPlaintextKeyring(this.options.user, this.options.debugPlaintext === true)
       const comp = new Vault({
         adapter: this.options.store,
         name,
@@ -2833,7 +2845,7 @@ export class Noydb {
     opts: { create: boolean } = { create: true },
   ): Promise<UnlockedKeyring> {
     if (this.options.encrypt === false) {
-      return createPlaintextKeyring(this.options.user)
+      return createPlaintextKeyring(this.options.user, this.options.debugPlaintext === true)
     }
 
     const cached = this.keyringCache.get(vault)
