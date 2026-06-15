@@ -43,7 +43,27 @@ import { writeZip, type ZipEntry } from '@noy-db/as-zip'
 const XML_HEADER = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
 const ENCODER = new TextEncoder()
 
-/** One row in a sheet. Values are coerced per type at emit time. */
+/**
+ * A formula cell. Emits `<f>` so the spreadsheet recomputes live; `v` is an
+ * optional cached result (what the formula currently evaluates to) so the value
+ * shows immediately on open and survives a round-trip read. Build via
+ * {@link formula}. The formula string must NOT include a leading `=`.
+ */
+export interface XlsxFormulaCell {
+  readonly __xlsxFormula: string
+  readonly v?: string | number | boolean
+}
+
+/** Build a {@link XlsxFormulaCell}. `f` is the formula body without a leading `=`. */
+export function formula(f: string, cachedValue?: string | number | boolean): XlsxFormulaCell {
+  return cachedValue === undefined ? { __xlsxFormula: f } : { __xlsxFormula: f, v: cachedValue }
+}
+
+function isFormulaCell(v: unknown): v is XlsxFormulaCell {
+  return typeof v === 'object' && v !== null && typeof (v as { __xlsxFormula?: unknown }).__xlsxFormula === 'string'
+}
+
+/** One row in a sheet. A cell is a primitive value or an {@link XlsxFormulaCell}. */
 export type XlsxRow = ReadonlyArray<unknown>
 
 /** One sheet in a workbook. */
@@ -224,6 +244,13 @@ function cellXml(
   intern: (s: string) => number,
 ): string {
   const ref = `${colLetter(colIdx)}${rowNum}`
+  if (isFormulaCell(value)) {
+    const f = escapeXmlText(value.__xlsxFormula)
+    if (value.v === undefined) return `<c r="${ref}"><f>${f}</f></c>`
+    if (typeof value.v === 'number' && Number.isFinite(value.v)) return `<c r="${ref}"><f>${f}</f><v>${value.v}</v></c>`
+    if (typeof value.v === 'boolean') return `<c r="${ref}" t="b"><f>${f}</f><v>${value.v ? 1 : 0}</v></c>`
+    return `<c r="${ref}" t="str"><f>${f}</f><v>${escapeXmlText(String(value.v))}</v></c>`
+  }
   if (value === null || value === undefined || value === '') return `<c r="${ref}"/>`
   if (typeof value === 'number' && Number.isFinite(value)) {
     return `<c r="${ref}"><v>${value}</v></c>`
