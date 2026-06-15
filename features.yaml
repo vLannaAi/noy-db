@@ -2282,12 +2282,15 @@ exports:
         path: showcases/src/33-as-xlsx.showcase.test.ts
       - id: 51-as-readers-import
         path: showcases/src/51-as-readers-import.showcase.test.ts
+      - id: 114-as-xlsx-smart
+        path: showcases/src/114-as-xlsx-smart.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
     invariants:
       - 'Real .xlsx (Office Open XML); writer emits 6 parts incl. sharedStrings'
       - 'Multi-sheet — preserves relational shape across collections'
+      - 'Smart mode (toBytes({ smart: true }), #414 P1): id-first sheets; FK fields (auto-detected via dumpSchema) get a <field>__label VLOOKUP column with a cached resolved label (live + immediate); a _manifest index sheet. Formula cells via formula(f, cachedValue) emit <f> + cached <v>'
       - 'fromBytes reads sharedStrings + workbook + sheet<N>.xml; opt-in date coercion via fieldTypes'
       - 'fast-xml-parser dep (^5.0.0); strict mode via XMLValidator pre-pass'
       - 'Import gated by importCapability.plaintext.xlsx; apply() inside vault.transaction'

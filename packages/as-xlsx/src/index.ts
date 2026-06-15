@@ -29,10 +29,10 @@
  */
 
 import type { Vault, DictEntry } from '@noy-db/hub'
-import { writeXlsx, type XlsxSheet } from './xlsx.js'
+import { writeXlsx, colLetter, formula, type XlsxSheet } from './xlsx.js'
 import { readXlsx } from './read.js'
 
-export { writeXlsx, colLetter, type XlsxSheet, type XlsxRow } from './xlsx.js'
+export { writeXlsx, colLetter, formula, type XlsxSheet, type XlsxRow, type XlsxFormulaCell } from './xlsx.js'
 export { readXlsx, type ReadXlsxResult, type ReadXlsxSheet, type ReadXlsxRow } from './read.js'
 
 /** Per-sheet options for the noy-db consumer API. */
@@ -75,6 +75,21 @@ export interface AsXlsxSheetOptions {
 export interface AsXlsxOptions {
   /** One or more sheets. At least one required. */
   readonly sheets: readonly AsXlsxSheetOptions[]
+  /**
+   * Smart-workbook mode (#414). Emits a relational workbook instead of a flat
+   * dump:
+   *   - every sheet is **id-first** (record `id` in column A);
+   *   - each foreign-key field (auto-detected via `vault.dumpSchema()`) gets a
+   *     `<field>__label` column — a cross-sheet `VLOOKUP` that resolves the
+   *     reference to the target's first field, carrying a **cached** label so it
+   *     shows immediately and recomputes live on edit;
+   *   - a `_manifest` index sheet lists every collection, its row count, and
+   *     its refs.
+   *
+   * Requires unique sheet names ≤ 31 chars (so cross-sheet refs resolve) and an
+   * `id` field on records. Defaults to the existing flat export when omitted.
+   */
+  readonly smart?: boolean
 }
 
 /** Options for `download()` — adds optional filename. */
@@ -111,6 +126,10 @@ export async function toBytes(vault: Vault, options: AsXlsxOptions): Promise<Uin
 
   if (options.sheets.length === 0) {
     throw new Error('as-xlsx: at least one sheet is required')
+  }
+
+  if (options.smart) {
+    return writeXlsx(await buildSmartSheets(vault, options))
   }
 
   const materialisedSheets: XlsxSheet[] = []
@@ -177,6 +196,109 @@ export async function write(
 }
 
 // ── internals ─────────────────────────────────────────────────────
+
+/** Safely stringify an unknown id/code/label (objects → JSON, never '[object Object]'). */
+function safeStringify(v: unknown): string {
+  if (typeof v === 'string') return v
+  if (typeof v === 'number' || typeof v === 'boolean' || typeof v === 'bigint') return String(v)
+  if (v == null) return ''
+  try {
+    return JSON.stringify(v) ?? ''
+  } catch {
+    return ''
+  }
+}
+
+/** Coerce an arbitrary value to a formula cached-value (string/number/boolean). */
+function asCached(v: unknown): string | number | boolean {
+  if (typeof v === 'number' || typeof v === 'boolean' || typeof v === 'string') return v
+  return safeStringify(v)
+}
+
+/**
+ * Smart-workbook builder (#414 P1): id-first sheets, FK→VLOOKUP label columns
+ * with cached resolved labels, and a `_manifest` index sheet. Refs auto-detected
+ * from `vault.dumpSchema()`.
+ */
+async function buildSmartSheets(vault: Vault, options: AsXlsxOptions): Promise<XlsxSheet[]> {
+  const snapshot = await vault.dumpSchema()
+  const sheetNameByCollection = new Map<string, string>()
+  for (const s of options.sheets) sheetNameByCollection.set(s.collection, s.name)
+
+  // First pass — materialise records, id-first columns, and a per-collection
+  // label map (id → first non-id field) for the cross-sheet VLOOKUP cache.
+  interface Mat {
+    opt: AsXlsxSheetOptions
+    records: Record<string, unknown>[]
+    cols: string[]
+    labelMap: Map<string, unknown>
+  }
+  const mats: Mat[] = []
+  for (const sheetOpt of options.sheets) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const collection = vault.collection<any>(sheetOpt.collection)
+    const list = await collection.list()
+    const records: Record<string, unknown>[] = []
+    for (const item of list) {
+      const r = item as Record<string, unknown>
+      if (sheetOpt.filter && !sheetOpt.filter(r)) continue
+      records.push(r)
+    }
+    const base = sheetOpt.columns ?? inferColumns(records)
+    const cols = ['id', ...base.filter((c) => c !== 'id')]
+    const labelCol = cols.find((c) => c !== 'id')
+    const labelMap = new Map<string, unknown>()
+    if (labelCol) {
+      for (const r of records) {
+        if (r.id != null) labelMap.set(safeStringify(r.id), r[labelCol])
+      }
+    }
+    mats.push({ opt: sheetOpt, records, cols, labelMap })
+  }
+  const matByCollection = new Map(mats.map((m) => [m.opt.collection, m]))
+
+  // Second pass — emit data sheets with FK label columns.
+  const dataSheets: XlsxSheet[] = mats.map((m) => {
+    const refs = snapshot.collections[m.opt.collection]?.refs ?? {}
+    const refFields = Object.keys(refs).filter(
+      (f) => m.cols.includes(f) && matByCollection.has(refs[f]!.target),
+    )
+    const header = [...m.cols, ...refFields.map((f) => `${f}__label`)]
+    const rows = m.records.map((r, i) => {
+      const rowNum = i + 2 // header is row 1
+      const baseCells = m.cols.map((c) => (c === 'id' ? (r.id ?? null) : (r[c] ?? null)))
+      const refCells = refFields.map((f) => {
+        const target = refs[f]!.target
+        const targetSheet = sheetNameByCollection.get(target)!
+        const targetMat = matByCollection.get(target)!
+        const codeRef = `${colLetter(m.cols.indexOf(f) + 1)}${rowNum}`
+        // Target is id-first, so the label is column B (index 2).
+        const f1 = `IFERROR(VLOOKUP(${codeRef},'${targetSheet}'!$A:$ZZ,2,FALSE),"")`
+        const code = r[f]
+        const cached = code == null ? '' : asCached(targetMat.labelMap.get(safeStringify(code)))
+        return formula(f1, cached)
+      })
+      return [...baseCells, ...refCells]
+    })
+    return { name: m.opt.name, header, rows, ...(m.opt.widths !== undefined ? { widths: m.opt.widths } : {}) }
+  })
+
+  // Manifest index sheet.
+  const manifestRows = mats.map((m) => {
+    const refs = snapshot.collections[m.opt.collection]?.refs ?? {}
+    const refSummary = Object.entries(refs)
+      .map(([f, r]) => `${f}→${r.target}`)
+      .join(', ')
+    return [m.opt.name, m.records.length, refSummary]
+  })
+  const manifest: XlsxSheet = {
+    name: '_manifest',
+    header: ['Collection', 'Records', 'Refs'],
+    rows: manifestRows,
+  }
+
+  return [manifest, ...dataSheets]
+}
 
 function inferColumns(records: readonly Record<string, unknown>[]): string[] {
   const seen = new Set<string>()
