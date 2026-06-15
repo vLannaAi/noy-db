@@ -1584,6 +1584,14 @@ export interface SlotRecord {
     readonly key: string
     readonly contentType?: string
     readonly public?: boolean
+    /** Opaque-token backlink stamped on the object (when `backlink:'opaque-token'`). */
+    readonly backlink?: string
+    /**
+     * Secondary metadata store synced from the object / its processing pipeline
+     * (e.g. video `duration`, image `width`/`height`, arbitrary metatags).
+     * Populated via `BlobSet.setExternalMeta()` — typically an AWS-side callback.
+     */
+    readonly meta?: Record<string, unknown>
   }
   /** User-visible filename for the slot. */
   readonly filename: string

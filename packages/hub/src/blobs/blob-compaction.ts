@@ -80,6 +80,19 @@ export interface BlobFieldPolicy<T = unknown> {
    * than presigned-only. Default `false` (presigned). Ignored unless `external`.
    */
   readonly public?: boolean
+  /**
+   * For an `external` field: how to stamp a **backlink** (this record's
+   * vault/collection/id/field) onto the object's metadata — the self-describing
+   * "secondary store" that powers reconcile / DR / import re-pairing.
+   * - `'opaque-token'` (default): a random id; preserves the opaque-bucket
+   *   property (no names leak); the token is also recorded on the slot.
+   * - `'encrypted'`: the reference encrypted under the blob DEK (ZK-preserving;
+   *   falls back to `'opaque-token'` on a plaintext vault).
+   * - `'plain'`: the reference in cleartext metadata — **leaks structure** to
+   *   bucket readers; only for non-sensitive deployments.
+   * - `'none'`: no backlink.
+   */
+  readonly backlink?: 'opaque-token' | 'encrypted' | 'plain' | 'none'
 }
 
 export type BlobFieldsConfig<T = unknown> = Record<string, BlobFieldPolicy<T>>

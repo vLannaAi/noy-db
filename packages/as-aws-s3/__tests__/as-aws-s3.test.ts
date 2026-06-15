@@ -74,6 +74,27 @@ describe('as-aws-s3 — command wiring (fake client)', () => {
     expect(fc.sent.some((c) => c.name === 'DeleteObjectCommand')).toBe(true)
   })
 
+  it('listPrefix lists objects and strips the configured prefix', async () => {
+    const fc = fakeClient({
+      ListObjectsV2Command: () => ({
+        Contents: [
+          { Key: 'p/a/b.png', Size: 10, ETag: '"e1"' },
+          { Key: 'p/a/c.png', Size: 20, ETag: '"e2"', LastModified: new Date('2026-06-15T00:00:00Z') },
+        ],
+        IsTruncated: false,
+      }),
+    })
+    const obj = asAwsS3({ bucket: 'b', prefix: 'p', client: fc as unknown as S3Client })
+    const list = await obj.listPrefix('a/')
+    expect(list).toEqual([
+      { key: 'a/b.png', meta: { size: 10, etag: '"e1"' } },
+      { key: 'a/c.png', meta: { size: 20, etag: '"e2"', lastModified: '2026-06-15T00:00:00.000Z' } },
+    ])
+    // queried under the full prefix
+    const cmd = fc.sent.find((c) => c.name === 'ListObjectsV2Command')!
+    expect(cmd.input.Prefix).toBe('p/a/')
+  })
+
   it('publicUrl is a stable URL honoring baseUrl + prefix', () => {
     const obj = asAwsS3({ bucket: 'b', prefix: 'assets', baseUrl: 'https://cdn.example.com', client: fakeClient({}) as unknown as S3Client })
     expect(obj.publicUrl('logo.png')).toBe('https://cdn.example.com/assets/logo.png')

@@ -161,10 +161,17 @@ export { memoryObjectProjection } from './blobs/object-projection.js'
 export type {
   ObjectProjection,
   ObjectMeta,
+  ObjectListEntry,
   PutObjectOptions,
   ObjectUrlOptions,
   PutUrlOptions,
 } from './blobs/object-projection.js'
+export { importExternalObjects } from './blobs/import-external.js'
+export type {
+  ImportableCollection,
+  ImportExternalOptions,
+  ImportExternalResult,
+} from './blobs/import-external.js'
 export {
   BLOB_COLLECTION,
   BLOB_INDEX_COLLECTION,
