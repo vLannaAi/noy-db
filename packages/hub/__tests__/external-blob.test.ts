@@ -10,6 +10,7 @@ import { ConflictError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
 import { withBlobs } from '../src/blobs/index.js'
 import { memoryObjectProjection } from '../src/blobs/object-projection.js'
+import { importExternalObjects } from '../src/blobs/import-external.js'
 
 function makeStore(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -92,6 +93,71 @@ describe('#412 P3 — external blob fields route to the ObjectProjection', () =>
     await docs.blob('d1').delete('video')
     expect(await objects.getObject(key)).toBeNull()
     expect(await docs.blob('d1').get('video')).toBeNull()
+  })
+
+  it('stamps an opaque-token backlink (default) onto the object + records it on the slot', async () => {
+    const objects = memoryObjectProjection()
+    const db = await createNoydb({ store: makeStore(), user: 'op', secret: 'passphrase-1234-long-enough', objectStore: objects, blobStrategy: withBlobs() })
+    const vault = await db.openVault('t')
+    const docs = vault.collection<{ id: string }>('docs', { blobFields: { video: { external: true } } })
+    await docs.put('d1', { id: 'd1' })
+    await docs.blob('d1').put('video', payload(200))
+
+    const meta = await objects.headObject('docs/d1/video')
+    const token = meta?.userMeta?.['noydb-backlink']
+    expect(typeof token).toBe('string')
+    const slot = (await docs.blob('d1').list()).find((s) => s.name === 'video')!
+    expect(slot.external?.backlink).toBe(token) // self-recorded for reconcile
+    // opaque-token does not leak the record id
+    expect(meta?.userMeta?.['noydb-record']).toBeUndefined()
+  })
+
+  it('plain backlink stamps the structure (leaky, opt-in)', async () => {
+    const objects = memoryObjectProjection()
+    const db = await createNoydb({ store: makeStore(), user: 'op', secret: 'passphrase-1234-long-enough', objectStore: objects, blobStrategy: withBlobs() })
+    const vault = await db.openVault('t')
+    const docs = vault.collection<{ id: string }>('docs', { blobFields: { video: { external: true, backlink: 'plain' } } })
+    await docs.put('d1', { id: 'd1' })
+    await docs.blob('d1').put('video', payload(200))
+    const meta = await objects.headObject('docs/d1/video')
+    expect(meta?.userMeta).toMatchObject({ 'noydb-collection': 'docs', 'noydb-record': 'd1', 'noydb-field': 'video' })
+  })
+
+  it('setExternalMeta / externalMeta round-trip the secondary metadata store', async () => {
+    const db = await createNoydb({ store: makeStore(), user: 'op', secret: 'passphrase-1234-long-enough', objectStore: memoryObjectProjection(), blobStrategy: withBlobs() })
+    const vault = await db.openVault('t')
+    const docs = vault.collection<{ id: string }>('docs', { blobFields: { video: { external: true } } })
+    await docs.put('d1', { id: 'd1' })
+    await docs.blob('d1').put('video', payload(200))
+    await docs.blob('d1').setExternalMeta('video', { durationSec: 12, width: 1920, height: 1080 })
+    expect(await docs.blob('d1').externalMeta('video')).toEqual({ durationSec: 12, width: 1920, height: 1080 })
+    // survives re-upload
+    await docs.blob('d1').put('video', payload(300))
+    expect(await docs.blob('d1').externalMeta('video')).toEqual({ durationSec: 12, width: 1920, height: 1080 })
+  })
+
+  it('importExternalObjects builds a collection from existing bucket objects (idempotent)', async () => {
+    const objects = memoryObjectProjection()
+    await objects.putObject('docs/r1/scan', payload(100), { contentType: 'image/png' })
+    await objects.putObject('docs/r2/scan', payload(150), { contentType: 'image/png' })
+    await objects.putObject('other/x', payload(10), { contentType: 'text/plain' }) // excluded by the 'docs/' prefix filter
+
+    const db = await createNoydb({ store: makeStore(), user: 'op', secret: 'passphrase-1234-long-enough', objectStore: objects, blobStrategy: withBlobs() })
+    const vault = await db.openVault('t')
+    const docs = vault.collection<{ id: string }>('docs', { blobFields: { scan: { external: true } } })
+
+    const res = await importExternalObjects({ collection: docs, objectStore: objects, field: 'scan', options: { prefix: 'docs/' } })
+    expect(res.imported).toBe(2)
+    expect(res.recordIds.sort()).toEqual(['r1', 'r2'])
+
+    // records exist + the external blob is readable through the anchored slot
+    expect(await docs.get('r1')).toEqual({ id: 'r1' })
+    expect(Buffer.from((await docs.blob('r1').get('scan'))!).equals(Buffer.from(payload(100)))).toBe(true)
+
+    // idempotent re-run
+    const res2 = await importExternalObjects({ collection: docs, objectStore: objects, field: 'scan', options: { prefix: 'docs/' } })
+    expect(res2.imported).toBe(2)
+    expect(await docs.list()).toHaveLength(2)
   })
 
   it('url() throws for a non-external slot', async () => {

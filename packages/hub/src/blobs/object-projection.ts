@@ -41,6 +41,12 @@ export interface PutUrlOptions {
   readonly expiresInSeconds?: number
 }
 
+/** One entry returned by {@link ObjectProjection.listPrefix}. */
+export interface ObjectListEntry {
+  readonly key: string
+  readonly meta: ObjectMeta
+}
+
 export interface ObjectProjection {
   /** Diagnostic name (e.g. `'aws-s3'`, `'memory'`). */
   readonly name?: string
@@ -57,6 +63,8 @@ export interface ObjectProjection {
   /** A presigned URL the client PUTs bytes to directly (large-file upload,
    *  bytes bypass the hub). */
   putUrl(key: string, opts: PutUrlOptions): Promise<string>
+  /** List objects under a key prefix — for import / reconcile. */
+  listPrefix(prefix: string): Promise<ObjectListEntry[]>
 }
 
 /**
@@ -102,6 +110,17 @@ export function memoryObjectProjection(opts: { baseUrl?: string } = {}): ObjectP
     },
     async putUrl(key, o) {
       return `${base}/${key}?upload=memory&ct=${encodeURIComponent(o.contentType)}`
+    },
+    async listPrefix(prefix) {
+      const out: ObjectListEntry[] = []
+      for (const [key, e] of store) {
+        if (!key.startsWith(prefix)) continue
+        out.push({
+          key,
+          meta: { size: e.bytes.byteLength, contentType: e.contentType, ...(e.userMeta ? { userMeta: e.userMeta } : {}) },
+        })
+      }
+      return out
     },
   }
 }

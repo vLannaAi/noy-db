@@ -669,15 +669,30 @@ export class BlobSet {
       }
       const key = `${this.collection}/${this.recordId}/${slotName}`
       const isPublic = policy.public === true
-      await this.objectStore.putObject(key, data, { contentType, public: isPublic })
+      // Stamp a self-describing backlink onto the object's metadata (the
+      // "secondary store"): default opaque-token (no name leak).
+      const backlink = await this.buildBacklink(slotName, policy.backlink ?? 'opaque-token')
+      await this.objectStore.putObject(key, data, {
+        contentType,
+        public: isPublic,
+        ...(backlink.userMeta ? { userMeta: backlink.userMeta } : {}),
+      })
 
       const uploaderUserId = opts?.uploadedBy ?? this.userId
       let oldETag: string | undefined
       await this.casUpdateSlots((slots) => {
         oldETag = slots[slotName]?.eTag || undefined
+        // Preserve any previously-synced derived metadata across re-upload.
+        const prevMeta = slots[slotName]?.external?.meta
         slots[slotName] = {
           eTag: '',
-          external: { key, contentType, ...(isPublic ? { public: true } : {}) },
+          external: {
+            key,
+            contentType,
+            ...(isPublic ? { public: true } : {}),
+            ...(backlink.token ? { backlink: backlink.token } : {}),
+            ...(prevMeta ? { meta: prevMeta } : {}),
+          },
           filename: slotName,
           size: data.byteLength,
           mimeType: contentType,
@@ -851,6 +866,106 @@ export class BlobSet {
       throw new NotFoundError(`Blob slot "${slotName}" is external but no objectStore is configured`)
     }
     return this.objectStore.objectUrl(slot.external.key, opts)
+  }
+
+  /**
+   * Build the backlink stamped onto an external object's metadata — the
+   * self-describing "secondary store" reference back to this record. See
+   * {@link BlobFieldPolicy.backlink}. Returns the `userMeta` to attach and, for
+   * `opaque-token`, the `token` to record on the slot.
+   */
+  private async buildBacklink(
+    slotName: string,
+    mode: 'opaque-token' | 'encrypted' | 'plain' | 'none',
+  ): Promise<{ userMeta?: Record<string, string>; token?: string }> {
+    if (mode === 'none') return {}
+    const ref = { vault: this.vault, collection: this.collection, record: this.recordId, field: slotName }
+    if (mode === 'plain') {
+      return {
+        userMeta: {
+          'noydb-vault': ref.vault,
+          'noydb-collection': ref.collection,
+          'noydb-record': ref.record,
+          'noydb-field': ref.field,
+        },
+      }
+    }
+    if (mode === 'encrypted' && this.encrypted) {
+      const dek = await this.getDEK(BLOB_COLLECTION)
+      const { iv, data } = await encrypt(JSON.stringify(ref), dek)
+      return { userMeta: { 'noydb-backlink-enc': `${iv}.${data}` } }
+    }
+    // opaque-token — also the fallback when `encrypted` is requested on a
+    // plaintext vault (no DEK to encrypt under).
+    const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16))
+    const token = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+    return { userMeta: { 'noydb-backlink': token }, token }
+  }
+
+  /**
+   * Adopt an EXISTING object in the projection into this slot **without
+   * re-uploading** — used by import/bootstrap to anchor objects already in the
+   * bucket. Writes the external slot record (the catalog entry).
+   */
+  async adoptExternal(
+    slotName: string,
+    ref: {
+      key: string
+      size?: number
+      contentType?: string
+      public?: boolean
+      backlink?: string
+      meta?: Record<string, unknown>
+    },
+  ): Promise<void> {
+    const uploaderUserId = this.userId
+    await this.casUpdateSlots((slots) => {
+      slots[slotName] = {
+        eTag: '',
+        external: {
+          key: ref.key,
+          ...(ref.contentType ? { contentType: ref.contentType } : {}),
+          ...(ref.public ? { public: true } : {}),
+          ...(ref.backlink ? { backlink: ref.backlink } : {}),
+          ...(ref.meta ? { meta: ref.meta } : {}),
+        },
+        filename: slotName,
+        size: ref.size ?? 0,
+        ...(ref.contentType ? { mimeType: ref.contentType } : {}),
+        uploadedAt: new Date().toISOString(),
+        ...(uploaderUserId !== undefined ? { uploadedBy: uploaderUserId } : {}),
+      }
+      return slots
+    })
+  }
+
+  /**
+   * Merge derived metadata (video `duration`, image `width`/`height`, arbitrary
+   * metatags) into an external slot's secondary metadata store. Typically called
+   * from an AWS-side processing callback (MediaConvert / ffprobe / Rekognition)
+   * once it has probed the object. No-op for a missing or non-external slot.
+   */
+  async setExternalMeta(slotName: string, meta: Record<string, unknown>): Promise<void> {
+    await this.casUpdateSlots((slots) => {
+      const slot = slots[slotName]
+      if (!slot?.external) return null
+      slots[slotName] = {
+        ...slot,
+        external: { ...slot.external, meta: { ...slot.external.meta, ...meta } },
+      }
+      return slots
+    })
+  }
+
+  /**
+   * Read an external slot's synced derived metadata (the secondary store).
+   * Returns `null` for a missing or non-external slot, `{}` if none synced yet.
+   */
+  async externalMeta(slotName: string): Promise<Record<string, unknown> | null> {
+    const { slots } = await this.loadSlots()
+    const slot = slots[slotName]
+    if (!slot?.external) return null
+    return slot.external.meta ?? {}
   }
 
   /**

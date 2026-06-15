@@ -31,6 +31,7 @@ import {
   GetObjectCommand,
   DeleteObjectCommand,
   HeadObjectCommand,
+  ListObjectsV2Command,
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 
@@ -139,6 +140,31 @@ export function asAwsS3(options: AsAwsS3Options): AsAwsS3Projection {
         new PutObjectCommand({ Bucket: bucket, Key: fullKey(key), ContentType: opts.contentType }),
         { expiresIn: opts.expiresInSeconds ?? defaultExpiry },
       )
+    },
+
+    async listPrefix(listPrefixArg: string) {
+      const out: Array<{ key: string; meta: ObjectMeta }> = []
+      let token: string | undefined
+      do {
+        const r = await client.send(
+          new ListObjectsV2Command({ Bucket: bucket, Prefix: fullKey(listPrefixArg), ContinuationToken: token }),
+        )
+        for (const obj of r.Contents ?? []) {
+          if (!obj.Key) continue
+          // Strip the configured prefix so callers see logical keys.
+          const logicalKey = prefix && obj.Key.startsWith(prefix) ? obj.Key.slice(prefix.length) : obj.Key
+          out.push({
+            key: logicalKey,
+            meta: {
+              size: obj.Size ?? 0,
+              ...(obj.ETag ? { etag: obj.ETag } : {}),
+              ...(obj.LastModified ? { lastModified: obj.LastModified.toISOString() } : {}),
+            },
+          })
+        }
+        token = r.IsTruncated ? r.NextContinuationToken : undefined
+      } while (token)
+      return out
     },
 
     publicUrl(key: string): string {

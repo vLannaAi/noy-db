@@ -22,10 +22,17 @@ export { memoryObjectProjection } from './object-projection.js'
 export type {
   ObjectProjection,
   ObjectMeta,
+  ObjectListEntry,
   PutObjectOptions,
   ObjectUrlOptions,
   PutUrlOptions,
 } from './object-projection.js'
+export { importExternalObjects } from './import-external.js'
+export type {
+  ImportableCollection,
+  ImportExternalOptions,
+  ImportExternalResult,
+} from './import-external.js'
 
 export { BlobSet } from './blob-set.js'
 export {
