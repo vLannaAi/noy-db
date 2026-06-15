@@ -14,6 +14,8 @@
 
 import type { BlobSet } from './blob-set.js'
 import type { NoydbStore } from '../types.js'
+import type { ObjectProjection } from './object-projection.js'
+import type { BlobFieldsConfig } from './blob-compaction.js'
 
 /**
  * Args forwarded by `Collection.blob(id)` to the active strategy's
@@ -45,6 +47,14 @@ export interface BlobStrategyOpenArgs {
    * plaintext/debug-store-mode design.
    */
   readonly debugPlaintext?: boolean
+  /**
+   * Object projection for `external` blob fields (`createNoydb({ objectStore })`).
+   * When present, fields declared `external` in `blobFields` route their raw
+   * bytes here instead of the encrypted-chunk path.
+   */
+  readonly objectStore?: ObjectProjection
+  /** Per-collection blob field policies — used to resolve `external` / `public`. */
+  readonly blobFields?: BlobFieldsConfig
 }
 
 /**

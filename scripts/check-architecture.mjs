@@ -472,7 +472,10 @@ const KERNEL_SURFACE_BUDGET = {
   // buildDebugEnvelope inliner plus the encryptRecord/decryptJsonString
   // branches that emit and reconstruct the directly-inspectable envelope.
   // This is intrinsic to the core record write/read path, so it lives here.
-  'packages/hub/src/collection.ts': 4720,
+  // Bumped 4720→4730 (2026-06-15, #412 P3): objectStore + blobFields threaded
+  // into the blob openSlot args so external blob fields route raw bytes to an
+  // ObjectProjection. Core blob-access wiring, lives on the hot path here.
+  'packages/hub/src/collection.ts': 4730,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
@@ -529,7 +532,9 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 4485→4495 (2026-06-15, #285 export layer): exportStream reads each
   // record at the export locale through the `export` layer (i18nText collapse +
   // dict-label resolution) + skips the now-redundant dictionary snapshot.
-  'packages/hub/src/vault.ts': 4495,
+  // Bumped 4495→4505 (2026-06-15, #412 P3): objectStore field + constructor
+  // opt + thread into every Collection (mirrors blobStrategy).
+  'packages/hub/src/vault.ts': 4505,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
@@ -554,7 +559,9 @@ const KERNEL_SURFACE_BUDGET = {
   // the store-resolution seam for the data-residency placement guard. It must
   // live on Noydb (which owns `options.store`); the routing logic itself stays
   // in src/store/route-store.ts (RoutedNoydbStore.resolveBackend).
-  'packages/hub/src/noydb.ts': 3085,
+  // Bumped 3085→3095 (2026-06-15, #412 P3): thread createNoydb({ objectStore })
+  // into the three vault-construction option spreads.
+  'packages/hub/src/noydb.ts': 3095,
 }
 
 function checkKernelSurface() {

@@ -9,6 +9,8 @@ import type {
   BlobResponseOptions,
 } from '../types.js'
 import { NOYDB_FORMAT_VERSION } from '../types.js'
+import type { ObjectProjection } from './object-projection.js'
+import type { BlobFieldsConfig } from './blob-compaction.js'
 import {
   encrypt,
   decrypt,
@@ -145,6 +147,8 @@ export class BlobSet {
   private readonly maxBlobBytes: number | undefined
   private readonly erasableBlobs: boolean
   private readonly debugPlaintext: boolean
+  private readonly objectStore: ObjectProjection | undefined
+  private readonly blobFields: BlobFieldsConfig | undefined
 
   constructor(opts: {
     store: NoydbStore
@@ -157,6 +161,8 @@ export class BlobSet {
     maxBlobBytes?: number
     erasableBlobs?: boolean
     debugPlaintext?: boolean
+    objectStore?: ObjectProjection
+    blobFields?: BlobFieldsConfig
   }) {
     this.store = opts.store
     this.vault = opts.vault
@@ -168,6 +174,8 @@ export class BlobSet {
     this.maxBlobBytes = opts.maxBlobBytes
     this.erasableBlobs = opts.erasableBlobs === true
     this.debugPlaintext = opts.debugPlaintext === true
+    this.objectStore = opts.objectStore
+    this.blobFields = opts.blobFields
   }
 
   /**
@@ -648,6 +656,43 @@ export class BlobSet {
    *    If overwriting an existing slot, decrements the old eTag's refCount.
    */
   async put(slotName: string, data: Uint8Array, opts?: BlobPutOptions): Promise<void> {
+    // External-projection path: the field is declared `external` and an
+    // ObjectProjection is configured → write the raw bytes as ONE native object
+    // (unencrypted, servable) and record an `external` slot (the catalog entry).
+    // Bypasses eTag/chunk/CEK/dedup entirely.
+    if (this.objectStore && this.blobFields?.[slotName]?.external) {
+      const policy = this.blobFields[slotName]
+      let contentType = opts?.mimeType
+      if (!contentType) {
+        const detected = detectMagic(data.subarray(0, 16))
+        contentType = detected?.mime ?? 'application/octet-stream'
+      }
+      const key = `${this.collection}/${this.recordId}/${slotName}`
+      const isPublic = policy.public === true
+      await this.objectStore.putObject(key, data, { contentType, public: isPublic })
+
+      const uploaderUserId = opts?.uploadedBy ?? this.userId
+      let oldETag: string | undefined
+      await this.casUpdateSlots((slots) => {
+        oldETag = slots[slotName]?.eTag || undefined
+        slots[slotName] = {
+          eTag: '',
+          external: { key, contentType, ...(isPublic ? { public: true } : {}) },
+          filename: slotName,
+          size: data.byteLength,
+          mimeType: contentType,
+          uploadedAt: new Date().toISOString(),
+          ...(uploaderUserId !== undefined ? { uploadedBy: uploaderUserId } : {}),
+        }
+        return slots
+      })
+      // If this slot previously held a chunk-based blob, release that eTag.
+      if (oldETag) {
+        await this.releaseRef(oldETag, 1, false).catch(() => {})
+      }
+      return
+    }
+
     // Step 1 — keyed content-hash (plaintext, before compression)
     const blobDEK = this.encrypted ? await this.getDEK(BLOB_COLLECTION) : null
     const eTag = blobDEK
@@ -777,10 +822,35 @@ export class BlobSet {
     const slot = slots[slotName]
     if (!slot) return null
 
+    if (slot.external) {
+      if (!this.objectStore) {
+        throw new NotFoundError(`Blob slot "${slotName}" is external but no objectStore is configured`)
+      }
+      return this.objectStore.getObject(slot.external.key)
+    }
+
     const result = await this.loadBlobObject(slot.eTag)
     if (!result) return null
 
     return this.fetchAllChunks(result.blob)
+  }
+
+  /**
+   * A URL to fetch an `external` slot's object directly — presigned
+   * (time-limited) or public, per the projection. Returns `null` if the slot
+   * does not exist. Throws for a non-external slot (use `get()`/`response()`).
+   */
+  async url(slotName: string, opts?: { expiresInSeconds?: number }): Promise<string | null> {
+    const { slots } = await this.loadSlots()
+    const slot = slots[slotName]
+    if (!slot) return null
+    if (!slot.external) {
+      throw new NotFoundError(`Blob slot "${slotName}" is not external — url() is only for external fields`)
+    }
+    if (!this.objectStore) {
+      throw new NotFoundError(`Blob slot "${slotName}" is external but no objectStore is configured`)
+    }
+    return this.objectStore.objectUrl(slot.external.key, opts)
   }
 
   /**
@@ -798,13 +868,22 @@ export class BlobSet {
    */
   async delete(slotName: string): Promise<void> {
     let eTagToRelease: string | undefined
+    let externalKeyToDelete: string | undefined
 
     await this.casUpdateSlots((slots) => {
       if (!(slotName in slots)) return null
-      eTagToRelease = slots[slotName]!.eTag
+      const slot = slots[slotName]!
+      if (slot.external) externalKeyToDelete = slot.external.key
+      else eTagToRelease = slot.eTag
       delete slots[slotName]
       return slots
     })
+
+    if (externalKeyToDelete && this.objectStore) {
+      // External objects are hard-deleted (no crypto-shred — they were never
+      // encrypted). CDN/replica cache TTLs may retain a copy; see the design.
+      await this.objectStore.deleteObject(externalKeyToDelete).catch(() => {})
+    }
 
     if (eTagToRelease) {
       // Erasable blobs are crypto-shredded at refCount 0 (this also covers

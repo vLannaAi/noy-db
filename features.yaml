@@ -513,6 +513,8 @@ features:
     showcases:
       - id: 08-with-blobs
         path: showcases/src/08-with-blobs.showcase.test.ts
+      - id: 113-external-blobs
+        path: showcases/src/113-external-blobs.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
@@ -522,6 +524,7 @@ features:
       - 'collection.blob(id) returns a BlobSet handle; opt-in via withBlobs()'
       - 'blobFields retention: retainDays / evictWhen evict via vault.compact() with audit'
       - 'legalHold(record) blocks eviction (fail-closed); retainUntil(record) is a period-bound retention floor; CompactionResult.held counts retained slots (#311)'
+      - 'External fields (`blobFields.<f>.external` + `createNoydb({ objectStore })`, e.g. `@noy-db/as-aws-s3`) route raw bytes to an ObjectProjection as one unencrypted, servable object (presigned via blob().url(), or public); the encrypted slot record stays the catalog (anchoring — enumerate via the collection, never the bucket); outside the zero-knowledge guarantee (#412)'
     related: [vault-and-collections, record-archival]
 
   - id: record-archival
