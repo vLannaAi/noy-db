@@ -9,7 +9,7 @@ import { withI18n, i18nText, dictKey } from '@noy-db/hub/i18n'
 import { withTransactions } from '@noy-db/hub/tx'
 import { memory } from '@noy-db/to-memory'
 import { readZip } from '@noy-db/as-zip'
-import { toBytes, readXlsx, formula, fromBytes } from '../src/index.js'
+import { toBytes, readXlsx, formula, fromBytes, writeXlsx, inferSchema, zodSourceFor } from '../src/index.js'
 
 const DEC = new TextDecoder()
 
@@ -253,6 +253,20 @@ describe('#414 P1 — smart export', () => {
     expect(xmls.some((x) => x.includes('QUERY(') && x.includes('SELECT') && x.includes('GROUP BY'))).toBe(true)
     // and NOT a per-row SUMIFS (that's the excel dialect)
     expect(xmls.some((x) => x.includes('SUMIFS('))).toBe(false)
+  })
+
+  it('P4 Mode B: infers a schema (types + FK) from an arbitrary workbook', async () => {
+    const bytes = await writeXlsx([
+      { name: 'clients', header: ['id', 'name'], rows: [['c1', 'Acme'], ['c2', 'Beta']] },
+      { name: 'invoices', header: ['id', 'clientId', 'amount', 'paid'], rows: [['i1', 'c1', 100, true]] },
+    ])
+    const schema = await inferSchema(bytes)
+    expect(schema.collections['clients']!.idField).toBe('id')
+    expect(schema.collections['clients']!.fields['name']!.type).toBe('string')
+    expect(schema.collections['invoices']!.fields['amount']!.type).toBe('number')
+    expect(schema.collections['invoices']!.fields['paid']!.type).toBe('boolean')
+    expect(schema.collections['invoices']!.fields['clientId']!.references).toBe('clients')
+    expect(zodSourceFor(schema)).toContain('z.number()')
   })
 
   it('formula() emits a live <f> with a cached value (round-trips via readXlsx)', async () => {

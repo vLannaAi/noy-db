@@ -34,6 +34,7 @@ import { readXlsx } from './read.js'
 
 export { writeXlsx, colLetter, formula, styled, type XlsxSheet, type XlsxRow, type XlsxFormulaCell, type XlsxStyledCell, type XlsxValidation } from './xlsx.js'
 export { readXlsx, type ReadXlsxResult, type ReadXlsxSheet, type ReadXlsxRow } from './read.js'
+export { inferSchema, zodSourceFor, type InferredSchema, type InferredCollection, type InferredField, type InferredType } from './infer.js'
 
 /** Per-sheet options for the noy-db consumer API. */
 export interface AsXlsxSheetOptions {
