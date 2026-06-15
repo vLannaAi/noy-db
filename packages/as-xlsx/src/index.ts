@@ -81,6 +81,13 @@ export interface AsXlsxSheetOptions {
    * auto-detected enum/ref dropdown for that field.
    */
   readonly dropdowns?: Record<string, readonly string[]>
+  /**
+   * Smart mode only: fields whose stored value is a multi-locale i18n map
+   * (`{ en: '…', th: '…' }`). Each becomes per-locale columns plus a display
+   * column resolved **live by the global LANG cell** (change LANG → every label
+   * re-renders). Read raw, so open the export vault without an active locale.
+   */
+  readonly i18nFields?: readonly string[]
 }
 
 /** Single-collection convenience — passed where a sheet-list is accepted. */
@@ -141,7 +148,8 @@ export async function toBytes(vault: Vault, options: AsXlsxOptions): Promise<Uin
   }
 
   if (options.smart) {
-    return writeXlsx(await buildSmartSheets(vault, options))
+    const { sheets, definedNames } = await buildSmartSheets(vault, options)
+    return writeXlsx(sheets, { definedNames })
   }
 
   const materialisedSheets: XlsxSheet[] = []
@@ -228,24 +236,28 @@ function asCached(v: unknown): string | number | boolean {
 }
 
 /**
- * Smart-workbook builder (#414 P1): id-first sheets, FK→VLOOKUP label columns
- * with cached resolved labels, and a `_manifest` index sheet. Refs auto-detected
- * from `vault.dumpSchema()`.
+ * Smart-workbook builder (#414 P1+P2): id-first sheets, FK→VLOOKUP label columns,
+ * a `_manifest` index, and — when i18n fields are declared — per-locale columns
+ * with a display column driven live by a global `LANG` named range on a
+ * `_settings` sheet. Refs auto-detected from `vault.dumpSchema()`.
  */
-async function buildSmartSheets(vault: Vault, options: AsXlsxOptions): Promise<XlsxSheet[]> {
+async function buildSmartSheets(
+  vault: Vault,
+  options: AsXlsxOptions,
+): Promise<{ sheets: XlsxSheet[]; definedNames: { name: string; ref: string }[] }> {
   const snapshot = await vault.dumpSchema()
   const sheetNameByCollection = new Map<string, string>()
   for (const s of options.sheets) sheetNameByCollection.set(s.collection, s.name)
 
-  // First pass — materialise records, id-first columns, and a per-collection
-  // label map (id → first non-id field) for the cross-sheet VLOOKUP cache.
   interface Mat {
     opt: AsXlsxSheetOptions
     records: Record<string, unknown>[]
     cols: string[]
     labelMap: Map<string, unknown>
+    i18nFields: string[]
   }
   const mats: Mat[] = []
+  const localeSet = new Set<string>()
   for (const sheetOpt of options.sheets) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const collection = vault.collection<any>(sheetOpt.collection)
@@ -260,30 +272,47 @@ async function buildSmartSheets(vault: Vault, options: AsXlsxOptions): Promise<X
     const cols = ['id', ...base.filter((c) => c !== 'id')]
     const labelCol = cols.find((c) => c !== 'id')
     const labelMap = new Map<string, unknown>()
-    if (labelCol) {
+    if (labelCol) for (const r of records) if (r.id != null) labelMap.set(safeStringify(r.id), r[labelCol])
+    const i18nFields = (sheetOpt.i18nFields ?? []).filter((f) => cols.includes(f))
+    for (const f of i18nFields) {
       for (const r of records) {
-        if (r.id != null) labelMap.set(safeStringify(r.id), r[labelCol])
+        const v = r[f]
+        if (v && typeof v === 'object') for (const loc of Object.keys(v as Record<string, unknown>)) localeSet.add(loc)
       }
     }
-    mats.push({ opt: sheetOpt, records, cols, labelMap })
+    mats.push({ opt: sheetOpt, records, cols, labelMap, i18nFields })
   }
   const matByCollection = new Map(mats.map((m) => [m.opt.collection, m]))
 
-  // Second pass — emit data sheets with FK label columns.
+  const locales = [...localeSet].sort()
+  const hasI18n = locales.length > 0
+  const defaultLocale = locales.includes('en') ? 'en' : (locales[0] ?? 'en')
+  // Build an IF-chain over the per-locale cells, switched by the LANG name.
+  const ifChain = (refOf: (loc: string) => string): string => {
+    if (locales.length === 0) return '""'
+    let expr = refOf(locales[0]!)
+    for (let k = locales.length - 1; k >= 0; k--) {
+      expr = `IF(LANG="${locales[k]}",${refOf(locales[k]!)},${expr})`
+    }
+    return expr
+  }
+
   const dataSheets: XlsxSheet[] = mats.map((m) => {
     const refs = snapshot.collections[m.opt.collection]?.refs ?? {}
-    const refFields = Object.keys(refs).filter(
-      (f) => m.cols.includes(f) && matByCollection.has(refs[f]!.target),
-    )
-    const header = [...m.cols, ...refFields.map((f) => `${f}__label`)]
     const fields = snapshot.collections[m.opt.collection]?.fields ?? {}
+    const i18nSet = new Set(m.i18nFields)
+    const refFields = Object.keys(refs).filter((f) => m.cols.includes(f) && matByCollection.has(refs[f]!.target))
+    const baseCols = m.cols.filter((c) => !i18nSet.has(c))
+    const i18nFlat = m.i18nFields.flatMap((f) => [f, ...locales.map((l) => `${f}__${l}`)])
+    const header = [...baseCols, ...i18nFlat, ...refFields.map((f) => `${f}__label`)]
+    const colIndex = new Map<string, number>()
+    header.forEach((h, i) => colIndex.set(h, i + 1))
 
-    // Data-validation dropdowns: explicit > ref-range > enum-inline.
+    // Data-validation dropdowns on base columns: explicit > ref-range > enum.
     const lastRow = Math.max(m.records.length + 1, 2)
     const validations: XlsxValidation[] = []
-    for (let ci = 0; ci < m.cols.length; ci++) {
-      const field = m.cols[ci]!
-      const colL = colLetter(ci + 1)
+    for (const field of baseCols) {
+      const colL = colLetter(colIndex.get(field)!)
       const sqref = `${colL}2:${colL}${lastRow}`
       const explicit = m.opt.dropdowns?.[field]
       if (explicit && explicit.length > 0) {
@@ -298,34 +327,37 @@ async function buildSmartSheets(vault: Vault, options: AsXlsxOptions): Promise<X
         continue
       }
       const enumVals = fields[field]?.constraints?.['values']
-      if (Array.isArray(enumVals) && enumVals.length > 0) {
-        validations.push({ sqref, values: enumVals.map((v) => safeStringify(v)) })
-      }
+      if (Array.isArray(enumVals) && enumVals.length > 0) validations.push({ sqref, values: enumVals.map((v) => safeStringify(v)) })
     }
 
     const rows = m.records.map((r, i) => {
       const rowNum = i + 2 // header is row 1
-      const baseCells = m.cols.map((c) => {
+      const baseCells = baseCols.map((c) => {
         const raw = c === 'id' ? (r.id ?? null) : (r[c] ?? null)
         const fmt = m.opt.numberFormats?.[c]
         if (fmt === undefined) return raw
-        // Currency/number formats only render on numeric cells — coerce a
-        // numeric string (e.g. money '100.00') to a number.
         const num = typeof raw === 'string' && raw.trim() !== '' && Number.isFinite(Number(raw)) ? Number(raw) : raw
         return styled(num as string | number | boolean | null, fmt)
+      })
+      const i18nCells = m.i18nFields.flatMap((f) => {
+        const rawMap = (r[f] && typeof r[f] === 'object' ? r[f] : {}) as Record<string, unknown>
+        const display = formula(
+          ifChain((l) => `${colLetter(colIndex.get(`${f}__${l}`)!)}${rowNum}`),
+          asCached(rawMap[defaultLocale] ?? ''),
+        )
+        return [display, ...locales.map((l) => (rawMap[l] ?? null) as unknown)]
       })
       const refCells = refFields.map((f) => {
         const target = refs[f]!.target
         const targetSheet = sheetNameByCollection.get(target)!
         const targetMat = matByCollection.get(target)!
-        const codeRef = `${colLetter(m.cols.indexOf(f) + 1)}${rowNum}`
-        // Target is id-first, so the label is column B (index 2).
+        const codeRef = `${colLetter(colIndex.get(f)!)}${rowNum}`
         const f1 = `IFERROR(VLOOKUP(${codeRef},'${targetSheet}'!$A:$ZZ,2,FALSE),"")`
         const code = r[f]
         const cached = code == null ? '' : asCached(targetMat.labelMap.get(safeStringify(code)))
         return formula(f1, cached)
       })
-      return [...baseCells, ...refCells]
+      return [...baseCells, ...i18nCells, ...refCells]
     })
     return {
       name: m.opt.name,
@@ -336,21 +368,30 @@ async function buildSmartSheets(vault: Vault, options: AsXlsxOptions): Promise<X
     }
   })
 
-  // Manifest index sheet.
-  const manifestRows = mats.map((m) => {
-    const refs = snapshot.collections[m.opt.collection]?.refs ?? {}
-    const refSummary = Object.entries(refs)
-      .map(([f, r]) => `${f}→${r.target}`)
-      .join(', ')
-    return [m.opt.name, m.records.length, refSummary]
-  })
   const manifest: XlsxSheet = {
     name: '_manifest',
     header: ['Collection', 'Records', 'Refs'],
-    rows: manifestRows,
+    rows: mats.map((m) => {
+      const refs = snapshot.collections[m.opt.collection]?.refs ?? {}
+      return [m.opt.name, m.records.length, Object.entries(refs).map(([f, r]) => `${f}→${r.target}`).join(', ')]
+    }),
   }
 
-  return [manifest, ...dataSheets]
+  // Global LANG control — a Settings sheet + named range every i18n/dict label
+  // references via IF(LANG=…). Only emitted when there are i18n fields.
+  const settingsSheets: XlsxSheet[] = []
+  const definedNames: { name: string; ref: string }[] = []
+  if (hasI18n) {
+    settingsSheets.push({
+      name: '_settings',
+      header: ['Setting', 'Value'],
+      rows: [['Language', defaultLocale]],
+      validations: [{ sqref: 'B2:B2', values: locales }],
+    })
+    definedNames.push({ name: 'LANG', ref: `'_settings'!$B$2` })
+  }
+
+  return { sheets: [...settingsSheets, manifest, ...dataSheets], definedNames }
 }
 
 function inferColumns(records: readonly Record<string, unknown>[]): string[] {

@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { createNoydb, ref } from '@noy-db/hub'
+import { withI18n, i18nText } from '@noy-db/hub/i18n'
 import { memory } from '@noy-db/to-memory'
 import { readZip } from '@noy-db/as-zip'
 import { toBytes, readXlsx, formula } from '../src/index.js'
@@ -96,6 +97,40 @@ describe('#414 P1 — smart export', () => {
       .filter((p) => /xl\/worksheets\/sheet\d+\.xml/.test(p.path))
       .map((p) => DEC.decode(p.bytes))
     expect(sheetXmls.some((x) => x.includes('<dataValidation') && x.includes("clients'!$A$2"))).toBe(true)
+  })
+
+  it('P2: global LANG cell + i18n locale columns with a live display formula', async () => {
+    const adapter = memory()
+    const init = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-i18n' })
+    await init.openVault('shop')
+    await init.grant('shop', {
+      userId: 'alice', displayName: 'Alice', role: 'owner', passphrase: 'pw-i18n',
+      exportCapability: { plaintext: ['xlsx'] },
+    })
+    init.close()
+    const db = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-i18n', i18nStrategy: withI18n() })
+    const vault = await db.openVault('shop') // no active locale → raw i18n maps
+    await vault.collection<{ id: string; name: Record<string, string> }>('products', {
+      i18nFields: { name: i18nText({ languages: ['en', 'th'], required: 'all' }) },
+    }).put('p1', { id: 'p1', name: { en: 'Widget', th: 'วิดเจ็ต' } })
+
+    const bytes = await toBytes(vault, {
+      smart: true,
+      sheets: [{ name: 'products', collection: 'products', i18nFields: ['name'] }],
+    })
+    const wb = await readXlsx(bytes)
+    expect(wb.sheets.map((s) => s.name)).toContain('_settings')
+
+    const prod = wb.sheets.find((s) => s.name === 'products')!
+    const h = headerMap(prod)
+    expect(h['name'] && h['name__en'] && h['name__th']).toBeTruthy()
+    const row = prod.rows.slice(1).find((r) => r[h['id']!] === 'p1')!
+    expect(row[h['name']!]).toBe('Widget') // display cached at default locale (en)
+    expect(row[h['name__th']!]).toBe('วิดเจ็ต') // raw per-locale column
+
+    // LANG named range present in the workbook
+    const wbxml = (await readZip(bytes)).find((p) => p.path === 'xl/workbook.xml')!
+    expect(DEC.decode(wbxml.bytes)).toContain('name="LANG"')
   })
 
   it('formula() emits a live <f> with a cached value (round-trips via readXlsx)', async () => {

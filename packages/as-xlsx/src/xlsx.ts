@@ -122,7 +122,10 @@ export interface XlsxSheet {
  * Build a complete `.xlsx` byte stream from the supplied sheet data.
  * Pure — no I/O beyond the internal zip concatenation.
  */
-export async function writeXlsx(sheets: readonly XlsxSheet[]): Promise<Uint8Array> {
+export async function writeXlsx(
+  sheets: readonly XlsxSheet[],
+  options: { definedNames?: ReadonlyArray<{ readonly name: string; readonly ref: string }> } = {},
+): Promise<Uint8Array> {
   if (sheets.length === 0) {
     throw new Error('writeXlsx: at least one sheet is required')
   }
@@ -284,6 +287,15 @@ export async function writeXlsx(sheets: readonly XlsxSheet[]): Promise<Uint8Arra
       (s) => `<sheet name="${escapeXmlAttr(s.name)}" sheetId="${s.index}" r:id="${s.id}"/>`,
     ),
     '</sheets>',
+    ...(options.definedNames && options.definedNames.length > 0
+      ? [
+          '<definedNames>',
+          ...options.definedNames.map(
+            (d) => `<definedName name="${escapeXmlAttr(d.name)}">${escapeXmlText(d.ref)}</definedName>`,
+          ),
+          '</definedNames>',
+        ]
+      : []),
     '</workbook>',
   ].join('')
 
