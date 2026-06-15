@@ -48,7 +48,7 @@ describe('showcase 112 — debug-plaintext store mode', () => {
     await invoices.put('inv-1', { id: 'inv-1', total: '120.00' })
 
     // (1) The raw stored envelope has the record's fields at the top level.
-    const raw = (await store.get('acme', 'invoices', 'inv-1'))! as Record<string, unknown>
+    const raw = (await store.get('acme', 'invoices', 'inv-1'))! as unknown as Record<string, unknown>
     expect(raw._debug).toBe(1)
     expect(raw.total).toBe('120.00')
 
