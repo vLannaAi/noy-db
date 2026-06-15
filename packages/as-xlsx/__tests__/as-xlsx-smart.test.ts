@@ -236,6 +236,25 @@ describe('#414 P1 — smart export', () => {
     expect(await products.get('p1')).toEqual({ id: 'p1', name: { en: 'Widget', th: 'วิดเจ็ต' } })
   })
 
+  it('P5 sheets dialect: a summary emits a single Google-Sheets QUERY formula', async () => {
+    const { vault } = await setup()
+    const bytes = await toBytes(vault, {
+      smart: true,
+      dialect: 'sheets',
+      sheets: [{ name: 'clients', collection: 'clients' }, { name: 'invoices', collection: 'invoices' }],
+      summaries: [{
+        name: 'byClient',
+        from: 'invoices',
+        groupBy: 'clientId',
+        aggregates: [{ label: 'total', op: 'sum', field: 'amount' }, { label: 'n', op: 'count' }],
+      }],
+    })
+    const xmls = (await readZip(bytes)).filter((p) => /sheet\d+\.xml/.test(p.path)).map((p) => DEC.decode(p.bytes))
+    expect(xmls.some((x) => x.includes('QUERY(') && x.includes('SELECT') && x.includes('GROUP BY'))).toBe(true)
+    // and NOT a per-row SUMIFS (that's the excel dialect)
+    expect(xmls.some((x) => x.includes('SUMIFS('))).toBe(false)
+  })
+
   it('formula() emits a live <f> with a cached value (round-trips via readXlsx)', async () => {
     const { writeXlsx } = await import('../src/index.js')
     const bytes = await writeXlsx([{ name: 's', header: ['x'], rows: [[formula('1+2', 3)]] }])
