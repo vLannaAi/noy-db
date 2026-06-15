@@ -1,0 +1,106 @@
+/**
+ * #412 P3 — external blob fields. A blob field declared `external` routes its
+ * RAW bytes to the vault's ObjectProjection (servable, unencrypted) instead of
+ * the encrypted-chunk path. The encrypted slot record stays the catalog
+ * (anchoring). Records themselves remain encrypted.
+ */
+import { describe, it, expect } from 'vitest'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
+import { ConflictError } from '../src/errors.js'
+import { createNoydb } from '../src/noydb.js'
+import { withBlobs } from '../src/blobs/index.js'
+import { memoryObjectProjection } from '../src/blobs/object-projection.js'
+
+function makeStore(): NoydbStore {
+  const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
+  function bucket(v: string, c: string) {
+    let m = store.get(v); if (!m) { m = new Map(); store.set(v, m) }
+    let b = m.get(c); if (!b) { b = new Map(); m.set(c, b) }
+    return b
+  }
+  return {
+    name: 'memory',
+    async get(v, c, id) { return bucket(v, c).get(id) ?? null },
+    async put(v, c, id, env, ev) { const b = bucket(v, c); const ex = b.get(id); if (ev !== undefined && (ex?._v ?? 0) !== ev) throw new ConflictError(ex?._v ?? 0); b.set(id, env) },
+    async delete(v, c, id) { bucket(v, c).delete(id) },
+    async list(v, c) { return [...bucket(v, c).keys()] },
+    async loadAll(v) { const m = store.get(v); const s: VaultSnapshot = {}; if (m) for (const [n, c] of m) { const r: Record<string, EncryptedEnvelope> = {}; for (const [id, e] of c) r[id] = e; s[n] = r } return s },
+    async saveAll(v, data) { for (const [n, recs] of Object.entries(data)) { const b = bucket(v, n); for (const [id, e] of Object.entries(recs)) b.set(id, e) } },
+  }
+}
+
+function payload(n: number): Uint8Array {
+  const b = new Uint8Array(n)
+  for (let i = 0; i < n; i++) b[i] = (i * 13) & 0xff
+  return b
+}
+
+describe('#412 P3 — external blob fields route to the ObjectProjection', () => {
+  it('stores bytes in the projection (not _blob_chunks); record/slot is the catalog', async () => {
+    const store = makeStore()
+    const objects = memoryObjectProjection({ baseUrl: 'https://cdn.example.com' })
+    const db = await createNoydb({ store, user: 'op', secret: 'passphrase-1234-long-enough', objectStore: objects, blobStrategy: withBlobs() })
+    const vault = await db.openVault('t')
+    const docs = vault.collection<{ id: string }>('docs', {
+      blobFields: { video: { external: true, public: true }, thumb: {} },
+    })
+    await docs.put('d1', { id: 'd1' })
+
+    const video = payload(3000)
+    await docs.blob('d1').put('video', video, { mimeType: 'video/mp4' })
+
+    // bytes live in the projection at a deterministic key, NOT in _blob_chunks
+    const key = 'docs/d1/video'
+    expect(Buffer.from((await objects.getObject(key))!).equals(Buffer.from(video))).toBe(true)
+    expect(await store.list('t', '_blob_chunks')).toEqual([])
+
+    // round-trip through the API
+    expect(Buffer.from((await docs.blob('d1').get('video'))!).equals(Buffer.from(video))).toBe(true)
+
+    // public object → stable URL
+    expect(await docs.blob('d1').url('video')).toBe('https://cdn.example.com/docs/d1/video')
+
+    // the slot (in the encrypted collection) is the catalog entry — anchoring
+    const slots = await docs.blob('d1').list()
+    const v = slots.find((s) => s.name === 'video')!
+    expect(v.external?.key).toBe(key)
+    expect(v.external?.public).toBe(true)
+    expect(v.eTag).toBe('')
+  })
+
+  it('non-external fields still use the encrypted-chunk path', async () => {
+    const store = makeStore()
+    const db = await createNoydb({ store, user: 'op', secret: 'passphrase-1234-long-enough', objectStore: memoryObjectProjection(), blobStrategy: withBlobs() })
+    const vault = await db.openVault('t')
+    const docs = vault.collection<{ id: string }>('docs', { blobFields: { video: { external: true } } })
+    await docs.put('d1', { id: 'd1' })
+    await docs.blob('d1').put('thumb', new Uint8Array([1, 2, 3, 4]))
+    expect((await store.list('t', '_blob_chunks')).length).toBeGreaterThan(0)
+  })
+
+  it('delete hard-removes the external object', async () => {
+    const store = makeStore()
+    const objects = memoryObjectProjection()
+    const db = await createNoydb({ store, user: 'op', secret: 'passphrase-1234-long-enough', objectStore: objects, blobStrategy: withBlobs() })
+    const vault = await db.openVault('t')
+    const docs = vault.collection<{ id: string }>('docs', { blobFields: { video: { external: true } } })
+    await docs.put('d1', { id: 'd1' })
+    await docs.blob('d1').put('video', payload(500))
+
+    const key = 'docs/d1/video'
+    expect(await objects.getObject(key)).not.toBeNull()
+    await docs.blob('d1').delete('video')
+    expect(await objects.getObject(key)).toBeNull()
+    expect(await docs.blob('d1').get('video')).toBeNull()
+  })
+
+  it('url() throws for a non-external slot', async () => {
+    const store = makeStore()
+    const db = await createNoydb({ store, user: 'op', secret: 'passphrase-1234-long-enough', objectStore: memoryObjectProjection(), blobStrategy: withBlobs() })
+    const vault = await db.openVault('t')
+    const docs = vault.collection<{ id: string }>('docs', { blobFields: { thumb: {} } })
+    await docs.put('d1', { id: 'd1' })
+    await docs.blob('d1').put('thumb', new Uint8Array([1, 2, 3]))
+    await expect(docs.blob('d1').url('thumb')).rejects.toThrow(/not external/)
+  })
+})

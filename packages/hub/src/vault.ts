@@ -42,6 +42,7 @@ import type { NoydbEventEmitter } from './events.js'
 import { BackupLedgerError, BackupCorruptedError } from './errors.js'
 import type { StandardSchemaV1 } from './schema.js'
 import type { BlobStrategy } from './blobs/strategy.js'
+import type { ObjectProjection } from './blobs/object-projection.js'
 import type { ArchiveStrategy } from './archive/index.js'
 import type { ArchivePolicy, ArchiveContext, ArchiveResult, ArchiveRunOptions } from './archive/index.js'
 import { runArchive, runRestore, runListArchived } from './archive/index.js'
@@ -206,6 +207,7 @@ export class Vault {
    * call throws with a pointer at `@noy-db/hub/blobs`.
    */
   private readonly blobStrategy: BlobStrategy | undefined
+  private readonly objectStore: ObjectProjection | undefined
 
   /** Cold-storage archival strategy (the archive target store). */
   private readonly archiveStrategy: ArchiveStrategy | undefined
@@ -503,6 +505,7 @@ export class Vault {
      * at `@noy-db/hub/blobs`.
      */
     blobStrategy?: BlobStrategy | undefined
+    objectStore?: ObjectProjection | undefined
     archiveStrategy?: ArchiveStrategy | undefined
     indexStrategy?: IndexStrategy | undefined
     aggregateStrategy?: AggregateStrategy | undefined
@@ -535,6 +538,7 @@ export class Vault {
     this.onRegisterConflictResolver = opts.onRegisterConflictResolver
     this.syncAdapter = opts.syncAdapter
     this.blobStrategy = opts.blobStrategy
+    this.objectStore = opts.objectStore
     this.archiveStrategy = opts.archiveStrategy
     this.indexStrategy = opts.indexStrategy
     this.aggregateStrategy = opts.aggregateStrategy
@@ -869,6 +873,8 @@ export class Vault {
         // collection. `undefined` is intentionally preserved so the
         // Collection constructor uses its NO_BLOBS default.
         ...(this.blobStrategy !== undefined ? { blobStrategy: this.blobStrategy } : {}),
+        ...(this.objectStore !== undefined ? { objectStore: this.objectStore } : {}),
+        ...(options?.blobFields !== undefined ? { blobFields: options.blobFields as BlobFieldsConfig<unknown> } : {}),
         ...(this.indexStrategy !== undefined ? { indexStrategy: this.indexStrategy } : {}),
         ...(this.aggregateStrategy !== undefined ? { aggregateStrategy: this.aggregateStrategy } : {}),
         ...(this.crdtStrategy !== undefined ? { crdtStrategy: this.crdtStrategy } : {}),

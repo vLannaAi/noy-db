@@ -56,6 +56,8 @@ import type { PresenceHandle, PresenceHandleOpts } from './team/presence.js'
 import { NO_SYNC, type SyncStrategy } from './team/sync-strategy.js'
 import type { BlobSet } from './blobs/blob-set.js'
 import { NO_BLOBS, type BlobStrategy } from './blobs/strategy.js'
+import type { ObjectProjection } from './blobs/object-projection.js'
+import type { BlobFieldsConfig } from './blobs/blob-compaction.js'
 import { NO_AGGREGATE, type AggregateStrategy } from './aggregate/strategy.js'
 import type { ReadOnlyVaultFacade } from './guards/types.js'
 import type { DerivationRegistry } from './derivations/registry.js'
@@ -181,6 +183,8 @@ export class Collection<T> {
    * reaches the bundle.
    */
   private readonly blobStrategy: BlobStrategy
+  private readonly objectStore: ObjectProjection | undefined
+  private readonly blobFields: BlobFieldsConfig | undefined
   private readonly aggregateStrategy: AggregateStrategy
   private readonly crdtStrategy: CrdtStrategy
   private readonly historyStrategy: HistoryStrategy
@@ -561,6 +565,8 @@ export class Collection<T> {
      * `@internal` by virtue of `BlobStrategy` being `@internal`.
      */
     blobStrategy?: BlobStrategy | undefined
+    objectStore?: ObjectProjection | undefined
+    blobFields?: BlobFieldsConfig | undefined
     aggregateStrategy?: AggregateStrategy | undefined
     crdtStrategy?: CrdtStrategy | undefined
     /**
@@ -841,6 +847,8 @@ export class Collection<T> {
     this.subsystemBus = opts.subsystemBus
     this.activeTxId = opts.activeTxId
     this.blobStrategy = opts.blobStrategy ?? NO_BLOBS
+    this.objectStore = opts.objectStore
+    this.blobFields = opts.blobFields
     this.aggregateStrategy = opts.aggregateStrategy ?? NO_AGGREGATE
     this.crdtStrategy = opts.crdtStrategy ?? NO_CRDT
     this.historyStrategy = opts.historyStrategy ?? NO_HISTORY
@@ -3604,6 +3612,8 @@ export class Collection<T> {
       userId: this.keyring.userId,
       erasableBlobs: this.perRecordCek,
       debugPlaintext: this.keyring.debugPlaintext === true,
+      ...(this.objectStore !== undefined ? { objectStore: this.objectStore } : {}),
+      ...(this.blobFields !== undefined ? { blobFields: this.blobFields } : {}),
     })
   }
 

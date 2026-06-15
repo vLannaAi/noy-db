@@ -51,6 +51,7 @@ import type { MaterializedViewStrategyHandle } from './materialized-views/types.
 import type { OverlayedViewStrategyHandle } from './overlay-views/types.js'
 import type { SealingKeyProvider } from './team/managed-passphrase.js'
 import type { ShamirRecoveryProvider } from './team/shamir-recovery-provider.js'
+import type { ObjectProjection } from './blobs/object-projection.js'
 
 /** Format version for encrypted record envelopes. */
 export const NOYDB_FORMAT_VERSION = 1 as const
@@ -1567,8 +1568,23 @@ export interface BlobObject {
  * a new envelope version (`_v++`) while the blob data is unchanged.
  */
 export interface SlotRecord {
-  /** Reference to the `BlobObject` in `_blob_index`. */
+  /**
+   * Reference to the `BlobObject` in `_blob_index` (chunk-based blobs).
+   * Empty string (`''`) for an `external` slot, whose bytes live in the
+   * `ObjectProjection` rather than `_blob_chunks` — read `external` instead.
+   */
   readonly eTag: string
+  /**
+   * External-projection reference. Present when the blob field is declared
+   * `external`: the raw bytes live in the vault's `ObjectProjection` at `key`
+   * (unencrypted), not in `_blob_chunks`. This slot record (in the encrypted
+   * collection) remains the catalog entry — the anchoring invariant.
+   */
+  readonly external?: {
+    readonly key: string
+    readonly contentType?: string
+    readonly public?: boolean
+  }
   /** User-visible filename for the slot. */
   readonly filename: string
   /** Original uncompressed size in bytes (denormalized from `BlobObject`). */
@@ -1985,6 +2001,14 @@ export interface NoydbOptions {
    * at construction. NEVER enable for production or client data.
    */
   readonly debugPlaintext?: boolean
+  /**
+   * Object projection for direct-serve / external blob fields (`as-*`, e.g.
+   * `@noy-db/as-aws-s3`). Blob fields declared `external` route their RAW bytes
+   * to this projection as a single native object (servable from S3/CDN) instead
+   * of the encrypted-chunk path; the encrypted record/slot stays the catalog.
+   * Sees plaintext bytes — outside the zero-knowledge guarantee.
+   */
+  readonly objectStore?: ObjectProjection
   /** Conflict resolution strategy. Default: 'version'. */
   readonly conflict?: ConflictStrategy
   /**

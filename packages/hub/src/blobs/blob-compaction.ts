@@ -65,6 +65,21 @@ export interface BlobFieldPolicy<T = unknown> {
    * Fail-closed: a throwing function holds the slot.
    */
   readonly retainUntil?: (record: T) => Date | string | number | null | undefined
+  /**
+   * **External projection.** When `true`, this field's bytes are stored in the
+   * vault's `ObjectProjection` (`createNoydb({ objectStore })`) as a single raw,
+   * **unencrypted** object — servable directly from S3/CDN and processable by
+   * native tooling — instead of the encrypted-chunk path. The encrypted slot
+   * record remains the catalog (anchoring invariant). Requires an `objectStore`;
+   * **outside the zero-knowledge guarantee** — use only for assets meant to
+   * leave the vault. See the as-aws-s3 design spec.
+   */
+  readonly external?: boolean
+  /**
+   * For an `external` field: make the object world-readable (CDN origin) rather
+   * than presigned-only. Default `false` (presigned). Ignored unless `external`.
+   */
+  readonly public?: boolean
 }
 
 export type BlobFieldsConfig<T = unknown> = Record<string, BlobFieldPolicy<T>>
