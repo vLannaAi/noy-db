@@ -18,6 +18,11 @@
  *      regulated retention: the client departs with their copy; the firm holds
  *      an immutable, provably-unaltered point-in-time record.
  *
+ * And the two-party ceremony (P3) for read-only roles that CAN'T self-serve a
+ * deletion: `requestWithdrawal()` files a durable request; the owner reviews via
+ * `listWithdrawalRequests()` then `approveWithdrawal()` (extract-and-dispose
+ * under firm authority) or `rejectWithdrawal()`.
+ *
  * Why it matters
  * ──────────────
  * The cryptographic invariant: the caller holds the DEKs for their scope, so
@@ -112,5 +117,35 @@ describe('Showcase 120 — client portability + withdrawal', () => {
 
     // Live records removed.
     expect(await vault.collection<Invoice>('invoices').get('i1')).toBeNull()
+  })
+
+  it('two-party ceremony: a read-only client requests, the owner approves and erases under firm authority', async () => {
+    const store = memory()
+    // Owner seeds data and grants a READ-ONLY client.
+    const director = await createNoydb({ store, user: 'alice', secret: 'alice-director-2026' })
+    const ov = await director.openVault('firm')
+    await ov.collection<Invoice>('invoices').put('i1', { id: 'i1', total: 1000 })
+    await ov.collection<Invoice>('invoices').put('i2', { id: 'i2', total: 500 })
+    await director.grant('firm', {
+      userId: 'carla', displayName: 'Carla', role: 'client', passphrase: 'carla-client-2026',
+      permissions: { invoices: 'ro' }, // read-only — cannot self-serve a deletion
+    })
+    const client = await createNoydb({ store, user: 'carla', secret: 'carla-client-2026' })
+    const cv = await client.openVault('firm')
+
+    // 1. Read-only client FILES a request (non-destructive; enabled by default).
+    const { requestId, status } = await cv.user.requestWithdrawal({ legalBasis: 'gdpr-art-17' })
+    expect(status).toBe('pending')
+
+    // 2. Owner reviews the queue.
+    const pending = await ov.user.listWithdrawalRequests({ status: 'pending' })
+    expect(pending.map((r) => r.requestId)).toContain(requestId)
+
+    // 3. Owner APPROVES → bundle handed back, records erased under firm authority
+    //    (the client could not have deleted them itself).
+    const { bundle } = await ov.user.approveWithdrawal(requestId, { reKey: { passphrase: 'carla-takeaway' } })
+    const dump = JSON.parse((await readNoydbBundle(bundle)).dumpJson) as { collections?: Record<string, unknown> }
+    expect(Object.keys(dump.collections ?? {})).toContain('invoices')
+    expect(await ov.collection<Invoice>('invoices').get('i1')).toBeNull()
   })
 })

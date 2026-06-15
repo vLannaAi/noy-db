@@ -534,7 +534,10 @@ const KERNEL_SURFACE_BUDGET = {
   // dict-label resolution) + skips the now-redundant dictionary snapshot.
   // Bumped 4495→4505 (2026-06-15, #412 P3): objectStore field + constructor
   // opt + thread into every Collection (mirrors blobStrategy).
-  'packages/hub/src/vault.ts': 4505,
+  // Bumped 4505→4510 (2026-06-16, #199 P3): four thin UserApi closures wiring
+  // the two-party withdrawal ceremony to the bundle subsystem (logic lives in
+  // bundle/request-withdrawal.ts; vault.ts only injects the closures).
+  'packages/hub/src/vault.ts': 4510,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),

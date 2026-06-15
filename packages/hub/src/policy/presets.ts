@@ -91,6 +91,11 @@ export const PERSONAL_POLICY: VaultPolicy = Object.freeze({
     // Listed explicitly (not just relying on the built-in default) so it is
     // discoverable in describeGate / policy dumps.
     'client-unilateral-withdraw': { minTier: 1, enabled: false },
+    // Two-party withdrawal (#199 P3): filing a request is non-destructive
+    // (tier-1, enabled so a read-only client can ask); deciding it is the
+    // destructive step (tier-2 floor + owner/admin role, enforced in code).
+    'user-request-withdrawal': { minTier: 1 },
+    'approve-user-withdrawal': { minTier: 2 },
   },
 }) as VaultPolicy
 
@@ -205,6 +210,14 @@ export const STRICT_POLICY: VaultPolicy = Object.freeze({
       minTier: 1,
       enabled: false,
       factors: [{ anyOf: ['totp', 'email-otp'], count: 2 }],
+      warn: { sharedDevice: 'block' },
+    },
+    // STRICT: filing stays tier-1; the destructive APPROVE demands an
+    // off-device factor + shared-device block (mirrors export-bundle).
+    'user-request-withdrawal': { minTier: 1 },
+    'approve-user-withdrawal': {
+      minTier: 2,
+      factors: [{ anyOf: ['totp', 'email-otp'] }],
       warn: { sharedDevice: 'block' },
     },
   },
