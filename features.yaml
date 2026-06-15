@@ -2292,6 +2292,8 @@ exports:
         path: showcases/src/117-as-xlsx-smart-import.showcase.test.ts
       - id: 118-as-xlsx-sheets-query
         path: showcases/src/118-as-xlsx-sheets-query.showcase.test.ts
+      - id: 119-as-xlsx-infer-schema
+        path: showcases/src/119-as-xlsx-infer-schema.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
@@ -2303,6 +2305,7 @@ exports:
       - 'Smart mode #414 P3: summaries spec → a groupBy sheet of live SUMIFS/COUNTIFS/AVERAGEIFS over a data sheet (one row per distinct group), values cached at export; source value columns must be numeric (numberFormats) for the live math'
       - 'Smart mode #414 P4: fromBytes({ smart: true }) reverses the smart layout onto an existing schema (Mode A) — rebuilds i18n maps from <f>__<loc> columns, drops the i18n display + <f>__label derived columns, keeps code columns'
       - 'Smart mode #414 P5: dialect:"sheets" emits each summary as a single Google-Sheets QUERY formula (Sheets-only — QUERY errors in Excel); dialect:"excel" (default) stays cross-compatible SUMIFS'
+      - 'Smart mode #414 P4 Mode B: inferSchema(bytes) bootstraps a schema from an arbitrary workbook — types from sampled cells, id field, FKs by value-subset match; zodSourceFor() emits a Zod snippet. Heuristic (review the draft)'
       - 'fromBytes reads sharedStrings + workbook + sheet<N>.xml; opt-in date coercion via fieldTypes'
       - 'fast-xml-parser dep (^5.0.0); strict mode via XMLValidator pre-pass'
       - 'Import gated by importCapability.plaintext.xlsx; apply() inside vault.transaction'
