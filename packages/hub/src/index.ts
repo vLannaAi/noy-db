@@ -168,6 +168,7 @@ export {
 export { detectMimeType, detectMagic, isPreCompressed } from './blobs/mime-magic.js'
 export { wrapBundleStore, createBundleStore } from './store/bundle-store.js'
 export type { WrappedBundleNoydbStore, WrapBundleStoreOptions } from './store/bundle-store.js'
+export { readPlaintextRecord } from './debug.js'
 
 // Observable write-queue
 export type { WriteQueue } from './write-queue.js'
@@ -333,6 +334,7 @@ export { STATE_VAULT_NAME } from './federation/constants.js'
 export { UnknownShardError, ShardProvisioningError, VaultTemplateNotFoundError, ReservedVaultNameError, DataResidencyError } from './errors.js'
 export { ForgetStrategyNotConfiguredError } from './errors.js'
 export { SealedRecordExpiredError, SealedRecordMismatchError, RecordCekNotFoundError } from './errors.js'
+export { DebugPlaintextError, DebugReservedFieldError } from './errors.js'
 
 // Bundle format — `.noydb` container
 export {

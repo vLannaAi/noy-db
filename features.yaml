@@ -46,7 +46,9 @@ features:
     package: '@noy-db/hub'
     factory: null
     status: stable
-    showcases: []
+    showcases:
+      - id: 112-debug-plaintext-mode
+        path: showcases/src/112-debug-plaintext-mode.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
@@ -61,6 +63,7 @@ features:
       - 'Legacy dual-read: `_cek` presence is the format discriminant, not the flag — a collection without `perRecordKeys` is byte-identical to the legacy path and a mixed vault (and recipients that never set the flag) read both kinds'
       - 'Tiers compose: elevate/demote re-wrap the same CEK from the source tier DEK to the target tier DEK (body key unchanged); bundle/extract re-key (`reKeyClosure`) re-wraps each `_cek` under the destination DEK so adopted records stay decryptable'
       - 'Tombstone tolerance: a `get()` on an envelope with no `_data`/`_cek` returns null rather than throwing TamperedError (shred tombstone creation is step 2 / #304)'
+      - 'Debug-plaintext mode (`debugPlaintext: true`, requires `encrypt: false`): records are written with fields inlined beside the `_`-metadata (`_debug: 1`, empty `_data`) and blobs as a single un-gzipped object, so native store tooling reads them directly; `readPlaintextRecord()` unwraps both layouts. Rejected under encryption (`DebugPlaintextError`); CI guard `no-debug-plaintext-in-source` forbids it in shipped library source. DEV-ONLY — never for production/client data.'
     related: [vault-and-collections, permissions]
 
   - id: forget-cascade
