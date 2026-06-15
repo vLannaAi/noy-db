@@ -129,6 +129,13 @@ export interface AsXlsxOptions {
   /** Smart mode only: groupBy summary sheets (live SUMIFS/COUNTIFS/AVERAGEIFS). */
   readonly summaries?: readonly AsXlsxSummarySpec[]
   /**
+   * Smart mode only: summary formula dialect. `'excel'` (default) emits
+   * cross-compatible per-row SUMIFS/COUNTIFS/AVERAGEIFS. `'sheets'` emits a
+   * single Google-Sheets `QUERY` formula per summary — **Sheets-only** (QUERY
+   * errors in Excel); use when the target is Google Sheets.
+   */
+  readonly dialect?: 'excel' | 'sheets'
+  /**
    * Smart-workbook mode (#414). Emits a relational workbook instead of a flat
    * dump:
    *   - every sheet is **id-first** (record `id` in column A);
@@ -444,8 +451,10 @@ async function buildSmartSheets(
 
   // Global LANG control — a Settings sheet + named range every i18n/dict label
   // references via IF(LANG=…). Only emitted when there are i18n fields.
-  // GroupBy summary sheets (#414 P3): live SUMIFS/COUNTIFS/AVERAGEIFS over a
-  // data sheet, values cached at export.
+  // GroupBy summary sheets (#414 P3/P5). Excel dialect (default): per-row live
+  // SUMIFS/COUNTIFS/AVERAGEIFS, values cached. Sheets dialect: a single
+  // Google-Sheets QUERY formula (Sheets-only — QUERY errors in Excel).
+  const dialect = options.dialect ?? 'excel'
   const summarySheets: XlsxSheet[] = []
   for (const spec of options.summaries ?? []) {
     const src = sheetMeta.get(spec.from)
@@ -453,6 +462,29 @@ async function buildSmartSheets(
     const gCol = src?.colIndex.get(spec.groupBy)
     if (!src || !srcMat || gCol === undefined) continue
     const gLetter = colLetter(gCol)
+
+    if (dialect === 'sheets') {
+      // One live QUERY formula that spills the grouped table (#414 P5).
+      const selects: string[] = []
+      const labels: string[] = []
+      for (const a of spec.aggregates) {
+        if (a.op === 'count') {
+          selects.push(`COUNT(${gLetter})`)
+          labels.push(`COUNT(${gLetter}) '${a.label}'`)
+          continue
+        }
+        const vIdx = a.field ? src.colIndex.get(a.field) : undefined
+        if (vIdx === undefined) continue
+        const vL = colLetter(vIdx)
+        const fn = a.op === 'sum' ? 'SUM' : 'AVG'
+        selects.push(`${fn}(${vL})`)
+        labels.push(`${fn}(${vL}) '${a.label}'`)
+      }
+      const q = `QUERY('${src.name}'!A:ZZ, "SELECT ${gLetter}, ${selects.join(', ')} GROUP BY ${gLetter} LABEL ${labels.join(', ')}", 1)`
+      summarySheets.push({ name: spec.name, rows: [[formula(q)]] })
+      continue
+    }
+
     const seen = new Set<string>()
     const groups: unknown[] = []
     for (const r of srcMat.records) {
