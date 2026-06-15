@@ -2293,7 +2293,7 @@ exports:
       - 'Real .xlsx (Office Open XML); writer emits 6 parts incl. sharedStrings'
       - 'Multi-sheet — preserves relational shape across collections'
       - 'Smart mode (toBytes({ smart: true }), #414 P1): id-first sheets; FK fields (auto-detected via dumpSchema) get a <field>__label VLOOKUP column with a cached resolved label (live + immediate); a _manifest index sheet. Formula cells via formula(f, cachedValue) emit <f> + cached <v>. Number formats via styled(v, code) → styles.xml; data-validation dropdowns (enum/ref auto, explicit override)'
-      - 'Smart mode #414 P2: i18nFields → per-locale columns + a display column switched live by a global LANG named range on a _settings sheet (IF(LANG=…) chain); changing LANG re-renders every label. definedNames support in the writer'
+      - 'Smart mode #414 P2: i18nFields → per-locale columns + a display column switched live by a global LANG named range on a _settings sheet (IF(LANG=…) chain); dictFields → a _Lookups_<dict> sheet + a <field>__label VLOOKUP(code, …, MATCH(LANG, header)) display; changing LANG re-renders every i18n + dict label. definedNames support in the writer'
       - 'fromBytes reads sharedStrings + workbook + sheet<N>.xml; opt-in date coercion via fieldTypes'
       - 'fast-xml-parser dep (^5.0.0); strict mode via XMLValidator pre-pass'
       - 'Import gated by importCapability.plaintext.xlsx; apply() inside vault.transaction'

@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { createNoydb, ref } from '@noy-db/hub'
-import { withI18n, i18nText } from '@noy-db/hub/i18n'
+import { withI18n, i18nText, dictKey } from '@noy-db/hub/i18n'
 import { memory } from '@noy-db/to-memory'
 import { readZip } from '@noy-db/as-zip'
 import { toBytes, readXlsx, formula } from '../src/index.js'
@@ -131,6 +131,42 @@ describe('#414 P1 — smart export', () => {
     // LANG named range present in the workbook
     const wbxml = (await readZip(bytes)).find((p) => p.path === 'xl/workbook.xml')!
     expect(DEC.decode(wbxml.bytes)).toContain('name="LANG"')
+  })
+
+  it('P2 dict: a _Lookups sheet + a LANG-driven VLOOKUP label column', async () => {
+    const adapter = memory()
+    const init = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-dict' })
+    await init.openVault('co')
+    await init.grant('co', {
+      userId: 'alice', displayName: 'Alice', role: 'owner', passphrase: 'pw-dict',
+      exportCapability: { plaintext: ['xlsx'] },
+    })
+    init.close()
+    const db = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-dict', i18nStrategy: withI18n() })
+    const vault = await db.openVault('co')
+    await vault.dictionary('status').putAll({
+      paid: { en: 'Paid', th: 'ชำระแล้ว' },
+      draft: { en: 'Draft', th: 'ฉบับร่าง' },
+    } as Record<string, Record<string, string>>)
+    await vault.collection<{ id: string; status: string }>('orders', {
+      dictKeyFields: { status: dictKey('status', ['paid', 'draft'] as const) },
+    }).put('o1', { id: 'o1', status: 'paid' })
+
+    const wb = await readXlsx(await toBytes(vault, {
+      smart: true,
+      sheets: [{ name: 'orders', collection: 'orders', dictFields: { status: 'status' } }],
+    }))
+    expect(wb.sheets.map((s) => s.name)).toEqual(expect.arrayContaining(['_settings', '_Lookups_status', 'orders']))
+
+    const orders = wb.sheets.find((s) => s.name === 'orders')!
+    const h = headerMap(orders)
+    expect(h['status__label']).toBeTruthy()
+    expect(orders.rows.slice(1).find((r) => r[h['id']!] === 'o1')![h['status__label']!]).toBe('Paid')
+
+    const lk = wb.sheets.find((s) => s.name === '_Lookups_status')!
+    const lh = headerMap(lk)
+    expect(lh['Code'] && lh['en'] && lh['th']).toBeTruthy()
+    expect(lk.rows.slice(1).find((r) => r[lh['Code']!] === 'paid')![lh['en']!]).toBe('Paid')
   })
 
   it('formula() emits a live <f> with a cached value (round-trips via readXlsx)', async () => {
