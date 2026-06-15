@@ -63,6 +63,35 @@ function isFormulaCell(v: unknown): v is XlsxFormulaCell {
   return typeof v === 'object' && v !== null && typeof (v as { __xlsxFormula?: unknown }).__xlsxFormula === 'string'
 }
 
+/**
+ * A value cell carrying a number-format code (e.g. `'#,##0.00'` for currency,
+ * `'yyyy-mm-dd'` for dates). Build via {@link styled}. The format only renders
+ * meaningfully on numeric values.
+ */
+export interface XlsxStyledCell {
+  readonly __xlsxStyle: string
+  readonly v: string | number | boolean | null
+}
+
+/** Build a {@link XlsxStyledCell} — a value plus an Excel number-format code. */
+export function styled(value: string | number | boolean | null, numberFormat: string): XlsxStyledCell {
+  return { __xlsxStyle: numberFormat, v: value }
+}
+
+function isStyledCell(v: unknown): v is XlsxStyledCell {
+  return typeof v === 'object' && v !== null && typeof (v as { __xlsxStyle?: unknown }).__xlsxStyle === 'string'
+}
+
+/** A data-validation rule (dropdown) over a cell range. */
+export interface XlsxValidation {
+  /** Target range in A1 notation, e.g. `'B2:B100'`. */
+  readonly sqref: string
+  /** Inline allowed values → a `"a,b,c"` list. Mutually exclusive with `formula1`. */
+  readonly values?: readonly string[]
+  /** Explicit `formula1` (e.g. a range ref `Clients!$A$2:$A$999`). */
+  readonly formula1?: string
+}
+
 /** One row in a sheet. A cell is a primitive value or an {@link XlsxFormulaCell}. */
 export type XlsxRow = ReadonlyArray<unknown>
 
@@ -85,6 +114,8 @@ export interface XlsxSheet {
    * for "auto" columns and a number for explicit widths.
    */
   readonly widths?: ReadonlyArray<number | undefined>
+  /** Data-validation dropdowns applied to ranges on this sheet. */
+  readonly validations?: readonly XlsxValidation[]
 }
 
 /**
@@ -118,6 +149,19 @@ export async function writeXlsx(sheets: readonly XlsxSheet[]): Promise<Uint8Arra
     const idx = sharedStrings.length
     sharedStrings.push(s)
     stringIndex.set(s, idx)
+    return idx
+  }
+
+  // Number-format styles. cellXf 0 is the default (no format); each distinct
+  // format code gets a numFmt (id 164+) and a cellXf that applies it.
+  const numFmtCodes: string[] = []
+  const styleIndexByCode = new Map<string, number>()
+  const internStyle = (code: string): number => {
+    const existing = styleIndexByCode.get(code)
+    if (existing !== undefined) return existing
+    const idx = numFmtCodes.length + 1 // cellXf index; 0 is the default xf
+    numFmtCodes.push(code)
+    styleIndexByCode.set(code, idx)
     return idx
   }
 
@@ -157,13 +201,48 @@ export async function writeXlsx(sheets: readonly XlsxSheet[]): Promise<Uint8Arra
     for (const row of sheet.rows) {
       rowNum++
       const cells = row
-        .map((value, i) => cellXml(value, i + 1, rowNum, internString))
+        .map((value, i) => cellXml(value, i + 1, rowNum, internString, internStyle))
         .join('')
       lines.push(`<row r="${rowNum}">${cells}</row>`)
     }
-    lines.push('</sheetData>', '</worksheet>')
+    lines.push('</sheetData>')
+    if (sheet.validations && sheet.validations.length > 0) {
+      lines.push(`<dataValidations count="${sheet.validations.length}">`)
+      for (const dv of sheet.validations) {
+        const f1 = dv.formula1 ?? `"${(dv.values ?? []).join(',')}"`
+        lines.push(
+          `<dataValidation type="list" allowBlank="1" showInputMessage="1" showErrorMessage="1" sqref="${escapeXmlAttr(dv.sqref)}"><formula1>${escapeXmlText(f1)}</formula1></dataValidation>`,
+        )
+      }
+      lines.push('</dataValidations>')
+    }
+    lines.push('</worksheet>')
     return lines.join('')
   })
+
+  // ── Styles (number formats) ─────────────────────────────────────
+
+  const hasStyles = numFmtCodes.length > 0
+  const stylesXml = hasStyles
+    ? [
+        XML_HEADER,
+        '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">',
+        `<numFmts count="${numFmtCodes.length}">`,
+        ...numFmtCodes.map((code, i) => `<numFmt numFmtId="${164 + i}" formatCode="${escapeXmlAttr(code)}"/>`),
+        '</numFmts>',
+        '<fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts>',
+        '<fills count="1"><fill><patternFill patternType="none"/></fill></fills>',
+        '<borders count="1"><border/></borders>',
+        '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>',
+        `<cellXfs count="${numFmtCodes.length + 1}">`,
+        '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>',
+        ...numFmtCodes.map(
+          (_, i) => `<xf numFmtId="${164 + i}" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>`,
+        ),
+        '</cellXfs>',
+        '</styleSheet>',
+      ].join('')
+    : ''
 
   // ── Fixed parts ─────────────────────────────────────────────────
 
@@ -185,6 +264,9 @@ export async function writeXlsx(sheets: readonly XlsxSheet[]): Promise<Uint8Arra
         `<Override PartName="/${s.path}" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`,
     ),
     '<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>',
+    ...(hasStyles
+      ? ['<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>']
+      : []),
     '</Types>',
   ].join('')
 
@@ -213,6 +295,9 @@ export async function writeXlsx(sheets: readonly XlsxSheet[]): Promise<Uint8Arra
         `<Relationship Id="${s.id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${s.index}.xml"/>`,
     ),
     `<Relationship Id="rIdSharedStrings" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/>`,
+    ...(hasStyles
+      ? [`<Relationship Id="rIdStyles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>`]
+      : []),
     '</Relationships>',
   ].join('')
 
@@ -229,6 +314,7 @@ export async function writeXlsx(sheets: readonly XlsxSheet[]): Promise<Uint8Arra
     { path: 'xl/workbook.xml', bytes: ENCODER.encode(workbookXml) },
     { path: 'xl/_rels/workbook.xml.rels', bytes: ENCODER.encode(workbookRels) },
     { path: 'xl/sharedStrings.xml', bytes: ENCODER.encode(sharedStringsXml) },
+    ...(hasStyles ? [{ path: 'xl/styles.xml', bytes: ENCODER.encode(stylesXml) }] : []),
     ...sheetEntries.map((s, i) => ({ path: s.path, bytes: ENCODER.encode(sheetXmls[i] ?? '') })),
   ]
 
@@ -242,8 +328,17 @@ function cellXml(
   colIdx: number,
   rowNum: number,
   intern: (s: string) => number,
+  internStyle: (code: string) => number,
 ): string {
   const ref = `${colLetter(colIdx)}${rowNum}`
+  if (isStyledCell(value)) {
+    const s = internStyle(value.__xlsxStyle)
+    const v = value.v
+    if (v === null || v === undefined || v === '') return `<c r="${ref}" s="${s}"/>`
+    if (typeof v === 'number' && Number.isFinite(v)) return `<c r="${ref}" s="${s}"><v>${v}</v></c>`
+    if (typeof v === 'boolean') return `<c r="${ref}" s="${s}" t="b"><v>${v ? 1 : 0}</v></c>`
+    return `<c r="${ref}" s="${s}" t="s"><v>${intern(typeof v === 'string' ? v : String(v))}</v></c>`
+  }
   if (isFormulaCell(value)) {
     const f = escapeXmlText(value.__xlsxFormula)
     if (value.v === undefined) return `<c r="${ref}"><f>${f}</f></c>`
