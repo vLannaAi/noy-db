@@ -60,10 +60,12 @@
  *            └─ ComputedFieldError     — computed function threw during a write
  *       └─ Erasure errors
  *            └─ ForgetStrategyNotConfiguredError — vault.forget() with no withForgetCascade
- *       └─ Sealed-record errors (record-scoped CEK sealing, #306)
- *            ├─ SealedRecordExpiredError  — sealed CEK binding past expiresAt
- *            ├─ SealedRecordMismatchError — CEK sealed for record A used on record B
- *            └─ RecordCekNotFoundError    — record missing or no per-record `_cek`
+ *       ├─ Sealed-record errors (record-scoped CEK sealing, #306)
+ *       │    ├─ SealedRecordExpiredError  — sealed CEK binding past expiresAt
+ *       │    ├─ SealedRecordMismatchError — CEK sealed for record A used on record B
+ *       │    └─ RecordCekNotFoundError    — record missing or no per-record `_cek`
+ *       └─ Federation shim errors
+ *            └─ FederationMovedError      — transitional: API moved to @klum-db/lobby
  * ```
  *
  * ## Catching all NOYDB errors
