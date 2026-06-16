@@ -49,6 +49,7 @@ const ENTRIES = {
   'sync/index': 'src/sync/index.ts',
   'util/index': 'src/util/index.ts',
   'attestation/index': 'src/attestation/index.ts',
+  'kernel/index': 'src/kernel/index.ts',
 }
 
 export default defineConfig([

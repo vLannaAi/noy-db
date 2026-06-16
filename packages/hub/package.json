@@ -275,6 +275,16 @@
         "types": "./dist/attestation/index.d.cts",
         "default": "./dist/attestation/index.cjs"
       }
+    },
+    "./kernel": {
+      "import": {
+        "types": "./dist/kernel/index.d.ts",
+        "default": "./dist/kernel/index.js"
+      },
+      "require": {
+        "types": "./dist/kernel/index.d.cts",
+        "default": "./dist/kernel/index.cjs"
+      }
     }
   },
   "main": "./dist/index.cjs",
