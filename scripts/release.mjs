@@ -83,7 +83,7 @@ for (const dir of packageDirs) {
     continue
   }
 
-  if (!pkg.name || !pkg.name.startsWith('@noy-db/')) {
+  if (!pkg.name || !(pkg.name.startsWith('@noy-db/') || pkg.name.startsWith('@klum-db/'))) {
     continue
   }
 
@@ -126,7 +126,7 @@ for (const dir of packageDirs) {
   } catch {
     continue
   }
-  if (!pkg.name || !pkg.name.startsWith('@noy-db/')) continue
+  if (!pkg.name || !(pkg.name.startsWith('@noy-db/') || pkg.name.startsWith('@klum-db/'))) continue
 
   const [maj, min, pat] = (pkg.version ?? '').split('.').map(Number)
   if (maj > coreMajor || (maj === coreMajor && min > coreMinor) || (maj === coreMajor && min === coreMinor && pat > corePatch)) {
