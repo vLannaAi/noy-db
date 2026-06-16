@@ -21,9 +21,7 @@ import type {
   TranslatorAuditEntry,
   WriteConflict,
 } from './types.js'
-import { ValidationError, NoAccessError, InvalidKeyError, KeyringCorruptError, StoreCapabilityError, PermissionDeniedError, VaultTemplateNotFoundError, ReservedVaultNameError, DebugPlaintextError } from './errors.js'
-import { STATE_VAULT_NAME } from './constants.js'
-import type { StateManagementVault } from './federation/state-vault.js'
+import { ValidationError, NoAccessError, InvalidKeyError, KeyringCorruptError, StoreCapabilityError, PermissionDeniedError, DebugPlaintextError, FederationMovedError } from './errors.js'
 import {
   readDirectoryConfig,
   persistDirectoryConfig,
@@ -131,8 +129,6 @@ import {
   type GateName,
   type VaultPolicy,
 } from './policy/index.js'
-import type { VaultGroup } from './federation/vault-group.js'
-import type { VaultTemplate, VaultGroupOptions } from './federation/types.js'
 
 /**
  * Privilege rank used by `listAccessibleVaults({ minRole })` to
@@ -211,7 +207,6 @@ export class Noydb {
   private writeRelay: CrossTabWriteRelay | undefined
   /** Per-vault policy enforcers. */
   private readonly policyEnforcers = new Map<string, PolicyEnforcer>()
-  private readonly vaultTemplates = new Map<string, VaultTemplate>()
   private readonly txStrategy: TxStrategy
   private readonly forgetStrategy: ForgetStrategy
   private readonly sessionStrategy: SessionStrategy
@@ -1097,63 +1092,19 @@ export class Noydb {
     return this.closed
   }
 
-  /**
-   * Register a shard schema blueprint. `createShard` / `openVaultGroup`
-   * stamp shards from the named template. See the MVF design spec.
-   */
-  withVaultTemplate(name: string, template: VaultTemplate): void {
-    this.vaultTemplates.set(name, template)
+  /** @deprecated Federation moved to @klum-db/lobby. Use `createLobby(db).withVaultTemplate(...)`. */
+  withVaultTemplate(): never {
+    throw new FederationMovedError('withVaultTemplate')
   }
 
-  /**
-   * Open a VaultGroup — transparent routing over per-partition shard
-   * vaults, with shard discovery backed by the supplied `vault-registry`
-   * collection.
-   */
-  async openVaultGroup<T>(name: string, opts: VaultGroupOptions<T>): Promise<VaultGroup<T>> {
-    if (this.closed) throw new ValidationError('Instance is closed')
-    if (name === STATE_VAULT_NAME) throw new ReservedVaultNameError(name)
-    const template = this.vaultTemplates.get(opts.sharding.vaultTemplate)
-    if (!template) throw new VaultTemplateNotFoundError(opts.sharding.vaultTemplate)
-    // Lazy-load so the federation module stays a separate chunk, not part
-    // of the always-loaded core graph (keeps the core bundle ceiling). Both
-    // imports below MUST remain dynamic for the same reason.
-    const { VaultGroup } = await import('./federation/vault-group.js')
-    const { StateManagementVault } = await import('./federation/state-vault.js')
-    // Managed control plane when no explicit registry is supplied.
-    const stateVault = opts.registry ? undefined : await StateManagementVault.open(this)
-    const registry = opts.registry ?? stateVault!.registry
-    const group = new VaultGroup<T>(this, name, registry, opts.sharding, template, opts.migrateOnOpen ?? false)
-    if (stateVault) {
-      group._attachStateVault(stateVault)
-      // recordManifest persists control-plane state → hard-fail on error.
-      await stateVault.recordManifest(opts.sharding.vaultTemplate, template)
-      // manifest-recorded + group-opened are incidental audit events →
-      // best-effort, never fail the open.
-      try {
-        await stateVault.appendEvent({
-          type: 'manifest-recorded',
-          group: name,
-          templateName: opts.sharding.vaultTemplate,
-          version: template.version,
-        })
-        await stateVault.appendEvent({ type: 'group-opened', group: name })
-      } catch {
-        /* best-effort: event logging never fails openVaultGroup */
-      }
-    }
-    return group
+  /** @deprecated Federation moved to @klum-db/lobby. Use `createLobby(db).openVaultGroup(...)`. */
+  async openVaultGroup(): Promise<never> {
+    throw new FederationMovedError('openVaultGroup')
   }
 
-  /**
-   * Open the reserved StateManagement control-plane vault (registry +
-   * schema-manifest + deployment-events). Lazy-loaded so the federation
-   * chunk stays out of the core graph until used.
-   */
-  async openStateManagementVault(): Promise<StateManagementVault> {
-    if (this.closed) throw new ValidationError('Instance is closed')
-    const { StateManagementVault } = await import('./federation/state-vault.js')
-    return StateManagementVault.open(this)
+  /** @deprecated Federation moved to @klum-db/lobby. Use `createLobby(db).openStateManagementVault()`. */
+  async openStateManagementVault(): Promise<never> {
+    throw new FederationMovedError('openStateManagementVault')
   }
 
   /**
