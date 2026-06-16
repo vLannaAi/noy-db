@@ -51,7 +51,7 @@
     "@noy-db/hub": "workspace:*",
     "@noy-db/to-memory": "workspace:*",
     "@types/node": "^22.0.0",
-    "zod": "^3.25.76"
+    "zod": "^3.23.0"
   },
   "keywords": [
     "klum-db",

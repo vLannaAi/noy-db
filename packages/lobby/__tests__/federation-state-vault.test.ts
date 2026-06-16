@@ -268,7 +268,7 @@ describe('deployment-events optional WORM hardening', () => {
   })
 })
 
-describe('db.openStateManagementVault factory', () => {
+describe('lobby.openStateManagementVault factory', () => {
   it('returns a usable control-plane handle (lazy-loaded)', async () => {
     const db = await createNoydb({ store: memory(), user: 'op', encrypt: false })
     const lobby = createLobby(db)
