@@ -37,6 +37,7 @@ describe('hub prep for federation extraction', () => {
     expect(err.code).toBe('FEDERATION_MOVED')
     expect(err.message).toContain('@klum-db/lobby')
     expect(err.message).toContain('openVaultGroup')
+    expect(err.message).toContain('createLobby')
   })
 
   it('Noydb exposes isClosed reflecting lifecycle', async () => {
