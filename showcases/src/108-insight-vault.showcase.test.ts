@@ -39,7 +39,9 @@
 
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '@noy-db/hub'
-import type { VaultRegistryRow, Vault } from '@noy-db/hub'
+import type { Vault } from '@noy-db/hub'
+import { createLobby } from '@klum-db/lobby'
+import type { VaultRegistryRow } from '@klum-db/lobby'
 import { memory } from '@noy-db/to-memory'
 
 interface Invoice { clientId: string; amount: number; status: 'open' | 'overdue' | 'paid' }
@@ -48,12 +50,13 @@ interface ClientSummary { clientId: string; totalRevenue: number; overdueCount: 
 describe('Showcase 108 — Insight Vault', () => {
   it('derives one fast summary row per client into a separate analytics vault', async () => {
     const db = await createNoydb({ store: memory(), user: 'firm-operator', secret: 'firm-secret-2026' })
-    db.withVaultTemplate('client-template', {
+    const lobby = createLobby(db)
+    lobby.withVaultTemplate('client-template', {
       version: 1,
       configure(vault: Vault) { vault.collection<Invoice>('invoices') },
     })
     const state = await db.openVault('state')
-    const firm = await db.openVaultGroup<Invoice>('firm-clients', {
+    const firm = await lobby.openVaultGroup<Invoice>('firm-clients', {
       registry: state.collection<VaultRegistryRow>('vault-registry'),
       sharding: { keyOf: (r) => r.clientId, vaultTemplate: 'client-template', autoCreate: true },
     })
