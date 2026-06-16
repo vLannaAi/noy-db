@@ -5,6 +5,7 @@
 **Author:** brainstormed with vLannaAi
 **Drives:** pilot-1 epic #440 (FR-1…FR-9, #441–449) and the re-homing of federation #271.
 **Supersedes framing of:** the milestone-organization sketch for #440 (see "Pilot-1 → Lobby map" below).
+**Decisions locked 2026-06-16:** brand = `klum-db`; npm org = `@klum-db/*` (created); core class = `Lobby`; repo split staged (monorepo-first, graduate later). GitHub issues now carry `noy` / `klum` labels.
 
 ---
 
@@ -146,11 +147,13 @@ The outward ecosystem already **exists inside `hub`** and is the **seed of Lobby
 
 So Lobby v0 is: **(re-homed federation) + (new pilot-1 interchange/custody)**, packaged as one coherent outward framework.
 
+**Migration cost:** federation already shipped *inside* `hub` (#271, `hub/src/federation/` — `vault-group.ts`, `cross-shard-join.ts`, `aggregate-across.ts`). Moving it to `@klum-db/*` is a **breaking change** for current federation users — it needs either a deprecation shim re-exporting from `hub` for one minor, or a clean major-bump migration note. The new pilot-1 FRs are net-new, so they start fresh in klum-db at zero cost.
+
 ---
 
 ## 10. Packaging & the enabler
 
-- **Lobby** ships as its own framework/scope, depending on `@noy-db/hub`. (Exact npm scope is an open question — `@noy-db/lobby*` vs a distinct brand scope — see §12.)
+- **Lobby** ships under its **own brand and npm org — `klum-db` / `@klum-db/*`** (org reserved 2026-06-16), depending on `@noy-db/hub`. The brand is **klum-db** (Thai *klum* กลุ่ม, "group" — a loose side-by-side group, deliberately *not* "cluster"); the core class is **Lobby**. Same relationship as Docker (brand) ↔ container (concept).
 - **Unit-driver family** at the Lobby layer expresses §5's tiering (noy-db vault = flagship; sqlite/duckdb = shallow on-ramp drivers).
 - **Inward subsystems are not changed by this spec.** Extracting computed/money/i18n/etc. from `hub` source is a *separate* effort gated on the **kernel-surface extraction** (a small, stable internal core API — long deferred; see CEK epic notes). That extraction is also what lets Lobby attach to a **stable vault API** instead of `hub` internals. It is the real enabler and should be sequenced first for any deep outward feature.
 
@@ -172,7 +175,7 @@ Each phase is its own spec → plan → implementation cycle. This document is t
 
 ## 12. Open questions
 
-- **npm scope/brand for Lobby** — `@noy-db/lobby` (one ecosystem, clear lineage) vs a distinct brand (stronger Docker:container separation). Leaning `@noy-db/lobby` for discoverability.
+- ~~npm scope/brand for Lobby~~ **DECIDED 2026-06-16:** separate brand **klum-db**, separate npm org **`@klum-db/*`** (created). **Repo split staged** — develop in the noy-db monorepo (publishing `@klum-db/*` from here) while the kernel-surface boundary stabilizes, then graduate to a separate repository at §11 step 7 once the boundary is proven.
 - **Deed mechanism** — sealed-owner credential as an extension of `#197` sealed-passphrase (unlock) into **ownership establishment**; exact key-topology TBD in the FR-6 spec.
 - **Pool authority defaults** — does the Pool ship a default Authority policy, or is it always app-supplied (Insight-Vault-style engine-vs-policy split)? Leaning app-supplied.
 - **Foreign-unit graduation** — is "dock sqlite → graduate to vault" a Lobby command or a one-off Relocate? Likely a Lobby `graduate()` built on Migrate + Adopt.
