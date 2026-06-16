@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@libsql/client": "^0.17.3",
+    "@klum-db/lobby": "workspace:*",
     "@noy-db/as-blob": "workspace:*",
     "@noy-db/as-csv": "workspace:*",
     "@noy-db/as-json": "workspace:*",
@@ -22,7 +23,6 @@
     "@noy-db/as-zip": "workspace:*",
     "@noy-db/by-peer": "workspace:*",
     "@noy-db/by-tabs": "workspace:*",
-    "@klum-db/lobby": "workspace:*",
     "@noy-db/hub": "workspace:*",
     "@noy-db/in-ai": "workspace:*",
     "@noy-db/in-devtools": "workspace:*",
