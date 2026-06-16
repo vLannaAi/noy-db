@@ -29,6 +29,10 @@ export {
   VaultTemplateNotFoundError,
 } from '../errors.js'
 
+// Types only (erased at emit). NOTE: Vault / Collection / Noydb / Query are
+// runtime classes in hub, but are re-exported here as TYPES — `instanceof`
+// against these will not work from `@noy-db/hub/kernel`. Consumers needing a
+// runtime class value must import it from `@noy-db/hub` directly.
 // ─── types ────────────────────────────────────────────────────────
 export type { ChangeEvent } from '../types.js'
 export type { Vault } from '../vault.js'
