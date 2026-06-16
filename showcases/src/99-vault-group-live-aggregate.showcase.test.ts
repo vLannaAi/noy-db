@@ -35,10 +35,10 @@
  */
 
 import { describe, it, expect, afterEach } from 'vitest'
-import { createNoydb } from '@noy-db/hub'
-import type { VaultRegistryRow } from '@noy-db/hub'
+import { createNoydb, sum, count, avg } from '@noy-db/hub'
 import type { Vault } from '@noy-db/hub'
-import { sum, count, avg } from '@noy-db/hub'
+import { createLobby } from '@klum-db/lobby'
+import type { VaultRegistryRow } from '@klum-db/lobby'
 import { memory } from '@noy-db/to-memory'
 
 // ─── Domain model ───────────────────────────────────────────────────────────
@@ -68,7 +68,8 @@ async function waitFor(pred: () => boolean, { timeout = 2000, interval = 5 } = {
  */
 async function openFirm(store: ReturnType<typeof memory>) {
   const db = await createNoydb({ store, user: 'firm-operator', secret: 'firm-secret-2026' })
-  db.withVaultTemplate('client-template', {
+  const lobby = createLobby(db)
+  lobby.withVaultTemplate('client-template', {
     version: 1,
     configure(vault: Vault) {
       vault.collection<Invoice>('invoices')
@@ -76,7 +77,7 @@ async function openFirm(store: ReturnType<typeof memory>) {
   })
   const state = await db.openVault('state')
   const registry = state.collection<VaultRegistryRow>('vault-registry')
-  const firm = await db.openVaultGroup<Invoice>('firm-clients', {
+  const firm = await lobby.openVaultGroup<Invoice>('firm-clients', {
     registry,
     sharding: { keyOf: (r) => r.clientId, vaultTemplate: 'client-template', autoCreate: true },
   })

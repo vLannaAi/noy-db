@@ -34,8 +34,9 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb, routeStore, DataResidencyError } from '@noy-db/hub'
 import type { Vault, NoydbStore } from '@noy-db/hub'
+import { createLobby } from '@klum-db/lobby'
+import type { VaultRegistryRow } from '@klum-db/lobby'
 import { memory } from '@noy-db/to-memory'
-import type { VaultRegistryRow } from '@noy-db/hub'
 
 /** A real in-memory store tagged with the region it serves. */
 function regional(region?: string): NoydbStore {
@@ -63,10 +64,11 @@ describe('Showcase 110 — Data-residency placement guard', () => {
     // Geographic routing by shard-id prefix: firm--eu-* → EU, firm--us-* → US.
     const store = routeStore({ vaultRoutes: { 'firm--eu-': eu, 'firm--us-': us }, default: control })
     const db = await createNoydb({ store, user: 'firm-op', secret: 'firm-2026' })
-    db.withVaultTemplate('client', { version: 1, configure: (v: Vault) => { v.collection<Client>('clients') } })
+    const lobby = createLobby(db)
+    lobby.withVaultTemplate('client', { version: 1, configure: (v: Vault) => { v.collection<Client>('clients') } })
 
     const state = await db.openVault('state')
-    const firm = await db.openVaultGroup<Client>('firm', {
+    const firm = await lobby.openVaultGroup<Client>('firm', {
       registry: state.collection<VaultRegistryRow>('vault-registry'),
       sharding: {
         // Routing follows the upstream-provided placement key; the residency

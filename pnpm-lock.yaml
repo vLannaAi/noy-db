@@ -1013,6 +1013,9 @@ importers:
 
   showcases:
     dependencies:
+      '@klum-db/lobby':
+        specifier: workspace:*
+        version: link:../packages/lobby
       '@libsql/client':
         specifier: ^0.17.3
         version: 0.17.3
