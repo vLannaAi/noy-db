@@ -591,9 +591,15 @@ function checkKernelSurface() {
 // ─── Check: no-outbound-klum-import (hub core must not depend on @klum-db) ───
 function checkNoOutboundKlumImport() {
   const hubSrc = join(PACKAGES_DIR, 'hub', 'src')
-  const klumPattern = /from\s+['"]@klum-db\/[^'"]+['"]/
+  // Use stripComments (NOT stripCommentsAndStrings): import specifiers ARE
+  // string literals — blanking string bodies makes this a no-op. Line-anchor
+  // to real import/export statements so FederationMovedError's runtime message
+  // (which contains "from '@klum-db/lobby'" mid-line) doesn't false-positive.
+  const klumStatic = /^\s*(?:import|export)\b[^\n]*?\bfrom\s+['"]@klum-db\//m
+  const klumDynamic = /\bimport\s*\(\s*['"]@klum-db\//
   walkTsFiles(hubSrc, (file, content) => {
-    if (klumPattern.test(stripCommentsAndStrings(content))) {
+    const code = stripComments(content)
+    if (klumStatic.test(code) || klumDynamic.test(code)) {
       fail(
         'no-outbound-klum-import',
         `${relative(ROOT, file)} imports from @klum-db. Hub core must NOT depend on the extracted orchestration package — the dependency runs the other way (@klum-db/lobby depends on @noy-db/hub/kernel).`,
