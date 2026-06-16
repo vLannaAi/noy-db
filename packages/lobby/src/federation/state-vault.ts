@@ -12,7 +12,7 @@ import { captureBlueprint, fingerprintBlueprint } from './schema-manifest.js'
 import { STATE_VAULT_NAME } from './constants.js'
 import { generateULID } from '@noy-db/hub/kernel'
 
-// Re-export so consumers can `import { STATE_VAULT_NAME } from '@noy-db/hub'`.
+// Re-export so federation/index.ts can surface STATE_VAULT_NAME without reaching past state-vault.
 export { STATE_VAULT_NAME } from './constants.js'
 
 // Physical collection names — single-token (camelCase) to stay clear of any

@@ -81,7 +81,7 @@ function warnOnceBroadcastMiss(field: string, as: string, key: string): void {
   if (warnedBroadcastKeys.has(dedup)) return
   warnedBroadcastKeys.add(dedup)
   console.warn(
-    `[noy-db] broadcastJoin: no "${as}" dimension row for ${field}="${key}". ` +
+    `[klum-db] broadcastJoin: no "${as}" dimension row for ${field}="${key}". ` +
       `Attaching null. Use mode: 'cascade' to silence.`,
   )
 }
