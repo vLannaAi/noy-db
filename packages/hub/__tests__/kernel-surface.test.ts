@@ -17,9 +17,9 @@ describe('@noy-db/hub/kernel surface', () => {
 
   it('exposes the federation error classes', () => {
     const names = [
-      'CrossShardJoinError', 'DataResidencyError', 'ReservedVaultNameError',
-      'ShardProvisioningError', 'UnknownShardError', 'ValidationError',
-      'VaultTemplateNotFoundError',
+      'CrossShardJoinError', 'DataResidencyError', 'NoAccessError',
+      'ReservedVaultNameError', 'ShardProvisioningError', 'UnknownShardError',
+      'ValidationError', 'VaultTemplateNotFoundError',
     ] as const
     for (const n of names) {
       expect(typeof (kernel as Record<string, unknown>)[n]).toBe('function')

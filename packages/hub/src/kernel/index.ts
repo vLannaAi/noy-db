@@ -22,6 +22,7 @@ export { sha256Hex } from '../crypto.js'
 export {
   CrossShardJoinError,
   DataResidencyError,
+  NoAccessError,
   ReservedVaultNameError,
   ShardProvisioningError,
   UnknownShardError,
