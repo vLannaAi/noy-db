@@ -66,3 +66,14 @@ export type {
   MigrationStatusRow, FleetMigrationResult,
 } from './federation/index.js'
 export type { GroupedRow as CrossVaultGroupedRow } from './federation/index.js'
+
+// Federation error classes as runtime values — so consumers catch them from
+// @klum-db/lobby directly, not via @noy-db/hub's internal /kernel surface.
+export {
+  CrossShardJoinError,
+  UnknownShardError,
+  ShardProvisioningError,
+  VaultTemplateNotFoundError,
+  ReservedVaultNameError,
+  DataResidencyError,
+} from '@noy-db/hub/kernel'
