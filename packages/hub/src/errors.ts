@@ -2265,8 +2265,8 @@ export class VaultTemplateNotFoundError extends NoydbError {
     super(
       'VAULT_TEMPLATE_NOT_FOUND',
       `No vault template registered under "${templateName}". Register it with ` +
-        `db.withVaultTemplate(${JSON.stringify(templateName)}, { version, configure }) ` +
-        `before opening the vault group.`,
+        `createLobby(db).withVaultTemplate(${JSON.stringify(templateName)}, { version, configure }) ` +
+        `before opening the vault group (@klum-db/lobby).`,
     )
     this.name = 'VaultTemplateNotFoundError'
     this.templateName = templateName
