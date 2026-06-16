@@ -4,13 +4,14 @@
  */
 import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
-import { ConflictError } from '../src/errors.js'
-import { createNoydb } from '../src/noydb.js'
-import type { Noydb } from '../src/noydb.js'
-import type { Vault } from '../src/vault.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub'
+import { ConflictError } from '@noy-db/hub'
+import { createNoydb } from '@noy-db/hub'
+import type { Noydb } from '@noy-db/hub'
+import type { Vault } from '@noy-db/hub'
 import { StateManagementVault } from '../src/federation/state-vault.js'
-import { coordinatedCutover } from '../src/schema-update/index.js'
+import { coordinatedCutover } from '@noy-db/hub'
+import { createLobby } from '../src/index.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -54,11 +55,12 @@ interface Invoice extends Record<string, unknown> { id: string; clientId: string
 // A managed group at `version` with a trivial template (no schema change) —
 // exercises the runner's ORCHESTRATION (version bump, status, cohort, resume).
 async function firmAt(db: Noydb, version: number, migrateOnOpen = false) {
-  db.withVaultTemplate('client-template', {
+  const lobby = createLobby(db)
+  lobby.withVaultTemplate('client-template', {
     version,
     configure: (v: Vault) => { v.collection<Invoice>('invoices') },
   })
-  return db.openVaultGroup<Invoice>('firm-clients', {
+  return lobby.openVaultGroup<Invoice>('firm-clients', {
     sharding: { keyOf: (r) => r.clientId, vaultTemplate: 'client-template', autoCreate: true },
     migrateOnOpen,
   })
@@ -165,8 +167,9 @@ describe('fleet migration — real coordinatedCutover across shards (#271)', () 
 
     // Session 1 (v1): seed old-shape data + persist the schema baseline per shard.
     const db1 = await createNoydb({ store, user: 'op', secret: 'p' })
-    db1.withVaultTemplate('ct', { version: 1, configure: (v: Vault) => { v.collection('invoices', { schema: oldSchema, persistJsonSchema: true }) } })
-    const firm1 = await db1.openVaultGroup('firm-clients', { sharding })
+    const lobby1 = createLobby(db1)
+    lobby1.withVaultTemplate('ct', { version: 1, configure: (v: Vault) => { v.collection('invoices', { schema: oldSchema, persistJsonSchema: true }) } })
+    const firm1 = await lobby1.openVaultGroup('firm-clients', { sharding })
     await firm1.collection('invoices').put('a1', { id: 'a1', clientId: 'acme', total: 100 })
     await firm1.collection('invoices').put('b1', { id: 'b1', clientId: 'globex', total: 250 })
     await (await firm1.shard('acme'))._drainPendingSchemaWrites()
@@ -175,11 +178,12 @@ describe('fleet migration — real coordinatedCutover across shards (#271)', () 
     // Session 2 (v2 — fresh Noydb over the same store, like an operator restart):
     // shards are re-opened fresh so the new schema is detected vs the v1 baseline.
     const db2 = await createNoydb({ store, user: 'op', secret: 'p' })
-    db2.withVaultTemplate('ct', {
+    const lobby2 = createLobby(db2)
+    lobby2.withVaultTemplate('ct', {
       version: 2,
       configure: (v: Vault) => { v.collection('invoices', { schema: newSchema, persistJsonSchema: true, schemaUpdate: [coordinatedCutover({ transform })] }) },
     })
-    const firm2 = await db2.openVaultGroup('firm-clients', { sharding })
+    const firm2 = await lobby2.openVaultGroup('firm-clients', { sharding })
 
     const res = await firm2.migrateFleet()
     expect(res.migrated.sort()).toEqual(['firm-clients--acme', 'firm-clients--globex'])

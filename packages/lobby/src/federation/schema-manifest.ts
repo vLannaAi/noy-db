@@ -4,9 +4,9 @@
  * fingerprint. See
  * docs/superpowers/specs/2026-06-08-statemanagement-vault-design.md.
  */
-import type { Vault } from '../vault.js'
-import type { IndexDef } from '../indexing/eager-indexes.js'
-import { sha256Hex } from '../crypto.js'
+import type { Vault } from '@noy-db/hub/kernel'
+import type { IndexDef } from '@noy-db/hub/kernel'
+import { sha256Hex } from '@noy-db/hub/kernel'
 import type { CapturedBlueprint } from './types.js'
 
 interface RecordedCollection {

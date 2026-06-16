@@ -60,10 +60,12 @@
  *            └─ ComputedFieldError     — computed function threw during a write
  *       └─ Erasure errors
  *            └─ ForgetStrategyNotConfiguredError — vault.forget() with no withForgetCascade
- *       └─ Sealed-record errors (record-scoped CEK sealing, #306)
- *            ├─ SealedRecordExpiredError  — sealed CEK binding past expiresAt
- *            ├─ SealedRecordMismatchError — CEK sealed for record A used on record B
- *            └─ RecordCekNotFoundError    — record missing or no per-record `_cek`
+ *       ├─ Sealed-record errors (record-scoped CEK sealing, #306)
+ *       │    ├─ SealedRecordExpiredError  — sealed CEK binding past expiresAt
+ *       │    ├─ SealedRecordMismatchError — CEK sealed for record A used on record B
+ *       │    └─ RecordCekNotFoundError    — record missing or no per-record `_cek`
+ *       └─ Federation shim errors
+ *            └─ FederationMovedError      — transitional: API moved to @klum-db/lobby
  * ```
  *
  * ## Catching all NOYDB errors
@@ -2263,11 +2265,23 @@ export class VaultTemplateNotFoundError extends NoydbError {
     super(
       'VAULT_TEMPLATE_NOT_FOUND',
       `No vault template registered under "${templateName}". Register it with ` +
-        `db.withVaultTemplate(${JSON.stringify(templateName)}, { version, configure }) ` +
-        `before opening the vault group.`,
+        `createLobby(db).withVaultTemplate(${JSON.stringify(templateName)}, { version, configure }) ` +
+        `before opening the vault group (@klum-db/lobby).`,
     )
     this.name = 'VaultTemplateNotFoundError'
     this.templateName = templateName
+  }
+}
+
+export class FederationMovedError extends NoydbError {
+  constructor(api: string) {
+    super(
+      'FEDERATION_MOVED',
+      `${api} has moved to @klum-db/lobby. Install @klum-db/lobby, then: `
+      + `import { createLobby } from '@klum-db/lobby'; `
+      + `const lobby = createLobby(db); await lobby.${api}(...)`,
+    )
+    this.name = 'FederationMovedError'
   }
 }
 

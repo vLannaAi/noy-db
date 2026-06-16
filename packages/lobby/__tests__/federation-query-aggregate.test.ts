@@ -4,12 +4,13 @@
  * Spec: docs/superpowers/specs/2026-06-07-cross-vault-live-and-aggregate-design.md
  */
 import { describe, it, expect } from 'vitest'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
-import { ConflictError, NoAccessError } from '../src/errors.js'
-import { createNoydb } from '../src/noydb.js'
-import type { Vault } from '../src/vault.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub'
+import { ConflictError, NoAccessError } from '@noy-db/hub'
+import { createNoydb } from '@noy-db/hub'
+import type { Vault } from '@noy-db/hub'
 import type { VaultRegistryRow } from '../src/federation/index.js'
-import { sum, count, avg } from '../src/aggregate/reducers.js'
+import { sum, count, avg } from '@noy-db/hub/aggregate'
+import { createLobby } from '../src/index.js'
 
 // ─── Shared in-memory adapter (copied from federation-vault-group.test.ts) ───
 
@@ -56,7 +57,8 @@ interface Invoice { clientId: string; amount: number; status: string }
 async function harness(opts: { autoCreate?: boolean; templateVersion?: number } = {}) {
   const adapter = memory()
   const db = await createNoydb({ store: adapter, user: 'operator', secret: 'op-pass' })
-  db.withVaultTemplate('client-template', {
+  const lobby = createLobby(db)
+  lobby.withVaultTemplate('client-template', {
     version: opts.templateVersion ?? 1,
     configure(vault: Vault) {
       vault.collection<Invoice>('invoices')
@@ -64,7 +66,7 @@ async function harness(opts: { autoCreate?: boolean; templateVersion?: number } 
   })
   const stateVault = await db.openVault('state')
   const registry = stateVault.collection<VaultRegistryRow>('vault-registry')
-  const firm = await db.openVaultGroup<Invoice>('firm-clients', {
+  const firm = await lobby.openVaultGroup<Invoice>('firm-clients', {
     registry,
     sharding: {
       keyOf: (r) => r.clientId,
@@ -191,9 +193,10 @@ describe('ShardedQuery.live() — no-grant scoped access', () => {
     // then grants advisor access to only one shard + the state registry vault.
     const adapter = memory()
     const op = await createNoydb({ store: adapter, user: 'operator', secret: 'op-pass' })
-    op.withVaultTemplate('client-template', { version: 1, configure: (v: Vault) => { v.collection<Invoice>('invoices') } })
+    const oplobby = createLobby(op)
+    oplobby.withVaultTemplate('client-template', { version: 1, configure: (v: Vault) => { v.collection<Invoice>('invoices') } })
     const opState = await op.openVault('state')
-    const opFirm = await op.openVaultGroup<Invoice>('firm-clients', {
+    const opFirm = await oplobby.openVaultGroup<Invoice>('firm-clients', {
       registry: opState.collection<VaultRegistryRow>('vault-registry'),
       sharding: { keyOf: (r) => r.clientId, vaultTemplate: 'client-template' },
     })
@@ -205,9 +208,10 @@ describe('ShardedQuery.live() — no-grant scoped access', () => {
 
     // Advisor opens the same group
     const adv = await createNoydb({ store: adapter, user: 'advisor', secret: 'adv-pass' })
-    adv.withVaultTemplate('client-template', { version: 1, configure: (v: Vault) => { v.collection<Invoice>('invoices') } })
+    const advlobby = createLobby(adv)
+    advlobby.withVaultTemplate('client-template', { version: 1, configure: (v: Vault) => { v.collection<Invoice>('invoices') } })
     const advState = await adv.openVault('state')
-    const advFirm = await adv.openVaultGroup<Invoice>('firm-clients', {
+    const advFirm = await advlobby.openVaultGroup<Invoice>('firm-clients', {
       registry: advState.collection<VaultRegistryRow>('vault-registry'),
       sharding: { keyOf: (r) => r.clientId, vaultTemplate: 'client-template' },
     })

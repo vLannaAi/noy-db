@@ -3,12 +3,13 @@
  * withCrossVaultDerivation() + refreshInsights().
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
-import { ConflictError, ValidationError } from '../src/errors.js'
-import { createNoydb } from '../src/noydb.js'
-import type { Noydb } from '../src/noydb.js'
-import type { Vault } from '../src/vault.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub'
+import { ConflictError, ValidationError } from '@noy-db/hub'
+import { createNoydb } from '@noy-db/hub'
+import type { Noydb } from '@noy-db/hub'
+import type { Vault } from '@noy-db/hub'
 import type { VaultRegistryRow } from '../src/federation/index.js'
+import { createLobby } from '../src/index.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -53,13 +54,14 @@ interface Summary extends Record<string, unknown> { clientId: string; totalReven
 async function harness(templateVersion = 1) {
   const adapter = memory()
   const db = await createNoydb({ store: adapter, user: 'operator', secret: 'op-pass' })
-  db.withVaultTemplate('client-template', {
+  const lobby = createLobby(db)
+  lobby.withVaultTemplate('client-template', {
     version: templateVersion,
     configure(vault: Vault) { vault.collection<Invoice>('invoices') },
   })
   const stateVault = await db.openVault('state')
   const registry = stateVault.collection<VaultRegistryRow>('vault-registry')
-  const firm = await db.openVaultGroup<Invoice>('firm-clients', {
+  const firm = await lobby.openVaultGroup<Invoice>('firm-clients', {
     registry,
     sharding: { keyOf: (r) => r.clientId, vaultTemplate: 'client-template', autoCreate: true },
   })

@@ -1,4 +1,4 @@
-import { NoAccessError } from '../errors.js'
+import { NoAccessError } from '@noy-db/hub/kernel'
 import type { SkippedVault } from './types.js'
 
 /**

@@ -4,11 +4,11 @@
  * routing. Spec:
  * docs/superpowers/specs/2026-06-07-mvf-vaultgroup-routing-mvp-design.md.
  */
-import type { Noydb } from '../noydb.js'
-import type { Vault } from '../vault.js'
-import type { Collection } from '../collection.js'
+import type { Noydb } from '@noy-db/hub/kernel'
+import type { Vault } from '@noy-db/hub/kernel'
+import type { Collection } from '@noy-db/hub/kernel'
 import { StateManagementVault } from './state-vault.js'
-import { CrossShardJoinError, DataResidencyError, ReservedVaultNameError, ShardProvisioningError, UnknownShardError, ValidationError } from '../errors.js'
+import { CrossShardJoinError, DataResidencyError, ReservedVaultNameError, ShardProvisioningError, UnknownShardError, ValidationError } from '@noy-db/hub/kernel'
 import { STATE_VAULT_NAME } from './constants.js'
 import { classifyShardSkip } from './classify-skip.js'
 import { applyBroadcastLegs } from './cross-shard-join.js'
@@ -16,7 +16,7 @@ import type { CoPartitionedLeg, BroadcastLeg, CrossShardJoinOptions, BroadcastJo
 import { CrossVaultLive } from './cross-vault-live.js'
 import { CrossVaultAggregation, CrossVaultGroupedAggregation } from './aggregate-across.js'
 import type { FanoutRecordSource, LiveBinding } from './aggregate-across.js'
-import type { AggregateSpec } from '../aggregate/aggregation.js'
+import type { AggregateSpec } from '@noy-db/hub/kernel'
 import type {
   ShardingConfig,
   VaultRegistryRow,

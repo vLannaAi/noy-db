@@ -9,8 +9,8 @@
  * into the existing intra-vault `.join()` from vault-group.ts — see
  * ShardedQuery.fanoutRecords. join.ts is deliberately untouched.
  */
-import { readPath } from '../query/predicate.js'
-import type { JoinStrategy } from '../query/join.js'
+import { readPath } from '@noy-db/hub/kernel'
+import type { JoinStrategy } from '@noy-db/hub/kernel'
 
 /** Public options for `ShardedQuery.crossShardJoin`. */
 export interface CrossShardJoinOptions {
@@ -81,7 +81,7 @@ function warnOnceBroadcastMiss(field: string, as: string, key: string): void {
   if (warnedBroadcastKeys.has(dedup)) return
   warnedBroadcastKeys.add(dedup)
   console.warn(
-    `[noy-db] broadcastJoin: no "${as}" dimension row for ${field}="${key}". ` +
+    `[klum-db] broadcastJoin: no "${as}" dimension row for ${field}="${key}". ` +
       `Attaching null. Use mode: 'cascade' to silence.`,
   )
 }

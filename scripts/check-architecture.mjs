@@ -588,6 +588,32 @@ function checkKernelSurface() {
   }
 }
 
+// ─── Check 8: no-outbound-klum-import (hub core must not depend on @klum-db) ───
+function checkNoOutboundKlumImport() {
+  const hubSrc = join(PACKAGES_DIR, 'hub', 'src')
+  // Use stripComments (NOT stripCommentsAndStrings): import specifiers ARE
+  // string literals — blanking string bodies makes this a no-op. Line-anchor
+  // to real import/export statements so FederationMovedError's runtime message
+  // (which contains "from '@klum-db/lobby'" mid-line) doesn't false-positive.
+  //
+  // Accepted limitation: a hand-split multi-line import where `from` lands on
+  // a `}`-leading line is NOT matched. That's fine — hub does not declare
+  // @klum-db/* as a dependency, so any real hub→klum import also fails hub's
+  // build/typecheck (hard backstop that covers the multi-line edge case).
+  const klumStatic = /^\s*(?:import|export)\b[^\n]*?\bfrom\s+['"]@klum-db\//m
+  const klumDynamic = /\bimport\s*\(\s*['"]@klum-db\//
+  walkTsFiles(hubSrc, (file, content) => {
+    const code = stripComments(content)
+    if (klumStatic.test(code) || klumDynamic.test(code)) {
+      fail(
+        'no-outbound-klum-import',
+        `${relative(ROOT, file)} imports from @klum-db. Hub core must NOT depend on the extracted orchestration package — the dependency runs the other way (@klum-db/lobby depends on @noy-db/hub/kernel).`,
+        file,
+      )
+    }
+  })
+}
+
 // ─── Check 7: no debugPlaintext in shipped library source (#413 P3) ─────
 
 /**
@@ -622,6 +648,7 @@ checkStoresCiphertextOnly()
 checkStrategyOptIns()
 checkKernelSurface()
 checkNoDebugPlaintextInSource()
+checkNoOutboundKlumImport()
 
 const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
 

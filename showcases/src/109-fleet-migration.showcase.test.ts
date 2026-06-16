@@ -35,6 +35,7 @@ import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
 import { createNoydb, coordinatedCutover } from '@noy-db/hub'
 import type { Vault } from '@noy-db/hub'
+import { createLobby } from '@klum-db/lobby'
 import { memory } from '@noy-db/to-memory'
 
 const oldSchema = z.object({ id: z.string(), clientId: z.string(), total: z.number() })
@@ -49,8 +50,9 @@ describe('Showcase 109 — Fleet schema migration', () => {
 
     // ── v1: a firm with three client shards on the old schema ──
     const db1 = await createNoydb({ store, user: 'firm-op', secret: 'firm-2026' })
-    db1.withVaultTemplate('client', { version: 1, configure: (v: Vault) => { v.collection('invoices', { schema: oldSchema, persistJsonSchema: true }) } })
-    const firmV1 = await db1.openVaultGroup('firm', { sharding })
+    const lobby1 = createLobby(db1)
+    lobby1.withVaultTemplate('client', { version: 1, configure: (v: Vault) => { v.collection('invoices', { schema: oldSchema, persistJsonSchema: true }) } })
+    const firmV1 = await lobby1.openVaultGroup('firm', { sharding })
     for (const [client, total] of [['acme', 100], ['globex', 250], ['initech', 70]] as const) {
       await firmV1.collection('invoices').put(`${client}-1`, { id: `${client}-1`, clientId: client, total })
       await (await firmV1.shard(client))._drainPendingSchemaWrites() // persist the v1 baseline
@@ -58,11 +60,12 @@ describe('Showcase 109 — Fleet schema migration', () => {
 
     // ── v2: publish the new schema + cutover transform (operator restart) ──
     const db2 = await createNoydb({ store, user: 'firm-op', secret: 'firm-2026' })
-    db2.withVaultTemplate('client', {
+    const lobby2 = createLobby(db2)
+    lobby2.withVaultTemplate('client', {
       version: 2,
       configure: (v: Vault) => { v.collection('invoices', { schema: newSchema, persistJsonSchema: true, schemaUpdate: [coordinatedCutover({ transform })] }) },
     })
-    const firm = await db2.openVaultGroup('firm', { sharding })
+    const firm = await lobby2.openVaultGroup('firm', { sharding })
 
     // A mixed-version read is safe: minVersion:2 skips the not-yet-migrated shards.
     const beforeMigration = await firm.collection('invoices').query().toArray({ minVersion: 2 })

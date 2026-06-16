@@ -1,14 +1,15 @@
 import { describe, it, expect } from 'vitest'
 import { captureBlueprint, fingerprintBlueprint } from '../src/federation/schema-manifest.js'
-import type { Vault } from '../src/vault.js'
-import { ReservedVaultNameError } from '../src/errors.js'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
-import { ConflictError } from '../src/errors.js'
-import { createNoydb } from '../src/noydb.js'
+import type { Vault } from '@noy-db/hub'
+import { ReservedVaultNameError } from '@noy-db/hub'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub'
+import { ConflictError } from '@noy-db/hub'
+import { createNoydb } from '@noy-db/hub'
 import { StateManagementVault } from '../src/federation/state-vault.js'
-import { immutableGuard } from '../src/guards/index.js'
-import { RecordLockedError } from '../src/errors.js'
-import { STATE_VAULT_NAME } from '../src/federation/state-vault.js'
+import { immutableGuard } from '@noy-db/hub/guards'
+import { RecordLockedError } from '@noy-db/hub'
+import { STATE_VAULT_NAME } from '@noy-db/hub'
+import { createLobby } from '../src/index.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -136,13 +137,14 @@ describe('StateManagementVault', () => {
 describe('group-qualified registry ids', () => {
   it('keys registry rows by `${group}--${partitionKey}` so two groups do not collide', async () => {
     const db = await createNoydb({ store: memory(), user: 'op', encrypt: false })
-    db.withVaultTemplate('t', { version: 1, configure: (v) => { v.collection('items') } })
+    const lobby = createLobby(db)
+    lobby.withVaultTemplate('t', { version: 1, configure: (v) => { v.collection('items') } })
     const sv = await StateManagementVault.open(db)
-    const groupA = await db.openVaultGroup<{ pk: string }>('groupA', {
+    const groupA = await lobby.openVaultGroup<{ pk: string }>('groupA', {
       registry: sv.registry,
       sharding: { keyOf: (r) => r.pk, vaultTemplate: 't' },
     })
-    const groupB = await db.openVaultGroup<{ pk: string }>('groupB', {
+    const groupB = await lobby.openVaultGroup<{ pk: string }>('groupB', {
       registry: sv.registry,
       sharding: { keyOf: (r) => r.pk, vaultTemplate: 't' },
     })
@@ -156,12 +158,13 @@ describe('group-qualified registry ids', () => {
     // Encrypted mode: fan-out reads gate shards on _shardVaultProvisioned (a
     // keyring check), which only holds for encrypted vaults.
     const db = await createNoydb({ store: memory(), user: 'op', secret: 'op-pass' })
-    db.withVaultTemplate('t', { version: 1, configure: (v) => { v.collection('items') } })
+    const lobby = createLobby(db)
+    lobby.withVaultTemplate('t', { version: 1, configure: (v) => { v.collection('items') } })
     // Both groups auto-wire to the same instance-wide StateManagement registry.
-    const groupA = await db.openVaultGroup<{ pk: string; tag: string }>('groupA', {
+    const groupA = await lobby.openVaultGroup<{ pk: string; tag: string }>('groupA', {
       sharding: { keyOf: (r) => r.pk, vaultTemplate: 't' },
     })
-    const groupB = await db.openVaultGroup<{ pk: string; tag: string }>('groupB', {
+    const groupB = await lobby.openVaultGroup<{ pk: string; tag: string }>('groupB', {
       sharding: { keyOf: (r) => r.pk, vaultTemplate: 't' },
     })
     await groupA.collection('items').put('a1', { pk: 'pa', tag: 'A' })
@@ -177,8 +180,9 @@ describe('group-qualified registry ids', () => {
 describe('openVaultGroup auto-wiring', () => {
   it('auto-opens the state vault when registry is omitted, recording row + manifest + event', async () => {
     const db = await createNoydb({ store: memory(), user: 'op', encrypt: false })
-    db.withVaultTemplate('client', { version: 2, configure: (v) => { v.collection('invoices') } })
-    const group = await db.openVaultGroup<{ pk: string }>('firm', {
+    const lobby = createLobby(db)
+    lobby.withVaultTemplate('client', { version: 2, configure: (v) => { v.collection('invoices') } })
+    const group = await lobby.openVaultGroup<{ pk: string }>('firm', {
       sharding: { keyOf: (r) => r.pk, vaultTemplate: 'client' },
     })
     await group.createShard('acme')
@@ -194,9 +198,10 @@ describe('openVaultGroup auto-wiring', () => {
 
   it('still honors an explicitly-passed registry (backward-compat)', async () => {
     const db = await createNoydb({ store: memory(), user: 'op', encrypt: false })
-    db.withVaultTemplate('t', { version: 1, configure: (v) => { v.collection('items') } })
+    const lobby = createLobby(db)
+    lobby.withVaultTemplate('t', { version: 1, configure: (v) => { v.collection('items') } })
     const sv = await StateManagementVault.open(db)
-    const group = await db.openVaultGroup<{ pk: string }>('g', {
+    const group = await lobby.openVaultGroup<{ pk: string }>('g', {
       registry: sv.registry,
       sharding: { keyOf: (r) => r.pk, vaultTemplate: 't' },
     })
@@ -208,16 +213,18 @@ describe('openVaultGroup auto-wiring', () => {
 describe('reserved-name rejection', () => {
   it('rejects the reserved state-vault name as a group name', async () => {
     const db = await createNoydb({ store: memory(), user: 'op', encrypt: false })
-    db.withVaultTemplate('t', { version: 1, configure: (v) => { v.collection('items') } })
+    const lobby = createLobby(db)
+    lobby.withVaultTemplate('t', { version: 1, configure: (v) => { v.collection('items') } })
     await expect(
-      db.openVaultGroup('__noydb_state__', { sharding: { keyOf: (r: { pk: string }) => r.pk, vaultTemplate: 't' } }),
+      lobby.openVaultGroup('__noydb_state__', { sharding: { keyOf: (r: { pk: string }) => r.pk, vaultTemplate: 't' } }),
     ).rejects.toBeInstanceOf(ReservedVaultNameError)
   })
 
   it('rejects the reserved name as a partition key', async () => {
     const db = await createNoydb({ store: memory(), user: 'op', encrypt: false })
-    db.withVaultTemplate('t', { version: 1, configure: (v) => { v.collection('items') } })
-    const group = await db.openVaultGroup<{ pk: string }>('g', { sharding: { keyOf: (r) => r.pk, vaultTemplate: 't' } })
+    const lobby = createLobby(db)
+    lobby.withVaultTemplate('t', { version: 1, configure: (v) => { v.collection('items') } })
+    const group = await lobby.openVaultGroup<{ pk: string }>('g', { sharding: { keyOf: (r) => r.pk, vaultTemplate: 't' } })
     await expect(group.createShard('__noydb_state__')).rejects.toBeInstanceOf(ReservedVaultNameError)
   })
 })
@@ -261,10 +268,11 @@ describe('deployment-events optional WORM hardening', () => {
   })
 })
 
-describe('db.openStateManagementVault factory', () => {
+describe('lobby.openStateManagementVault factory', () => {
   it('returns a usable control-plane handle (lazy-loaded)', async () => {
     const db = await createNoydb({ store: memory(), user: 'op', encrypt: false })
-    const sv = await db.openStateManagementVault()
+    const lobby = createLobby(db)
+    const sv = await lobby.openStateManagementVault()
     await sv.appendEvent({ type: 'group-opened', group: 'x' })
     expect((await sv.queryEvents().toArray()).length).toBe(1)
   })

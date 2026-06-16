@@ -3,13 +3,14 @@
  * Spec: docs/superpowers/specs/2026-06-07-mvf-vaultgroup-routing-mvp-design.md
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
-import { ConflictError, ShardProvisioningError, VaultTemplateNotFoundError, UnknownShardError, ValidationError, NoAccessError, InvalidKeyError, KeyringCorruptError } from '../src/errors.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub'
+import { ConflictError, ShardProvisioningError, VaultTemplateNotFoundError, UnknownShardError, ValidationError, NoAccessError, InvalidKeyError, KeyringCorruptError } from '@noy-db/hub'
 import { classifyShardSkip } from '../src/federation/classify-skip.js'
-import { createNoydb } from '../src/noydb.js'
-import type { Noydb } from '../src/noydb.js'
-import type { Vault } from '../src/vault.js'
+import { createNoydb } from '@noy-db/hub'
+import type { Noydb } from '@noy-db/hub'
+import type { Vault } from '@noy-db/hub'
 import type { VaultRegistryRow } from '../src/federation/index.js'
+import { createLobby } from '../src/index.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -54,7 +55,8 @@ interface Invoice { clientId: string; amount: number; status: string }
 async function harness(opts: { autoCreate?: boolean; templateVersion?: number } = {}) {
   const adapter = memory()
   const db = await createNoydb({ store: adapter, user: 'operator', secret: 'op-pass' })
-  db.withVaultTemplate('client-template', {
+  const lobby = createLobby(db)
+  lobby.withVaultTemplate('client-template', {
     version: opts.templateVersion ?? 1,
     configure(vault: Vault) {
       vault.collection<Invoice>('invoices')
@@ -62,7 +64,7 @@ async function harness(opts: { autoCreate?: boolean; templateVersion?: number } 
   })
   const stateVault = await db.openVault('state')
   const registry = stateVault.collection<VaultRegistryRow>('vault-registry')
-  const firm = await db.openVaultGroup<Invoice>('firm-clients', {
+  const firm = await lobby.openVaultGroup<Invoice>('firm-clients', {
     registry,
     sharding: {
       keyOf: (r) => r.clientId,
@@ -79,9 +81,10 @@ describe('VaultGroup — template + createShard', () => {
 
   it('openVaultGroup throws when the template is unregistered', async () => {
     const db = await createNoydb({ store: memory(), user: 'operator', secret: 'op-pass' })
+    const lobby = createLobby(db)
     const sv = await db.openVault('state')
     await expect(
-      db.openVaultGroup<Invoice>('firm', {
+      lobby.openVaultGroup<Invoice>('firm', {
         registry: sv.collection<VaultRegistryRow>('vault-registry'),
         sharding: { keyOf: (r) => r.clientId, vaultTemplate: 'missing' },
       }),
@@ -175,25 +178,26 @@ describe('VaultGroup — fan-out read', () => {
   it('minVersion guard moves behind-version shards into skippedVaults (not results)', async () => {
     const adapter = memory()
     const db = await createNoydb({ store: adapter, user: 'operator', secret: 'op-pass' })
+    const lobby = createLobby(db)
 
     // Register template v1, create shard A at v1.
-    db.withVaultTemplate('client-template', {
+    lobby.withVaultTemplate('client-template', {
       version: 1,
       configure(vault: Vault) { vault.collection<Invoice>('invoices') },
     })
     const stateVault = await db.openVault('state')
     const registry = stateVault.collection<VaultRegistryRow>('vault-registry')
-    let firm = await db.openVaultGroup<Invoice>('firm-clients', {
+    let firm = await lobby.openVaultGroup<Invoice>('firm-clients', {
       registry, sharding: { keyOf: (r) => r.clientId, vaultTemplate: 'client-template' },
     })
     await firm.collection('invoices').put('a-1', { clientId: 'acme', amount: 100, status: 'overdue' })
 
     // Re-register the template at v2 and create shard B at v2.
-    db.withVaultTemplate('client-template', {
+    lobby.withVaultTemplate('client-template', {
       version: 2,
       configure(vault: Vault) { vault.collection<Invoice>('invoices') },
     })
-    firm = await db.openVaultGroup<Invoice>('firm-clients', {
+    firm = await lobby.openVaultGroup<Invoice>('firm-clients', {
       registry, sharding: { keyOf: (r) => r.clientId, vaultTemplate: 'client-template' },
     })
     await firm.collection('invoices').put('b-1', { clientId: 'bigco', amount: 300, status: 'overdue' })
@@ -248,9 +252,10 @@ describe('VaultGroup — fan-out read', () => {
 
     // --- write side ---
     const wdb = await createNoydb({ store: adapter, user: 'operator', secret: 'op-pass' })
-    wdb.withVaultTemplate('client-template', { version: 1, configure: tmpl })
+    const wlobby = createLobby(wdb)
+    wlobby.withVaultTemplate('client-template', { version: 1, configure: tmpl })
     const wState = await wdb.openVault('state')
-    const wFirm = await wdb.openVaultGroup<Invoice>('firm-clients', {
+    const wFirm = await wlobby.openVaultGroup<Invoice>('firm-clients', {
       registry: wState.collection<VaultRegistryRow>('vault-registry'),
       sharding: { keyOf: (r) => r.clientId, vaultTemplate: 'client-template' },
     })
@@ -260,9 +265,10 @@ describe('VaultGroup — fan-out read', () => {
     // --- read side: fresh db, caches empty ---
     failBigco = true
     const rdb = await createNoydb({ store: adapter, user: 'operator', secret: 'op-pass' })
-    rdb.withVaultTemplate('client-template', { version: 1, configure: tmpl })
+    const rlobby = createLobby(rdb)
+    rlobby.withVaultTemplate('client-template', { version: 1, configure: tmpl })
     const rState = await rdb.openVault('state')
-    const rFirm = await rdb.openVaultGroup<Invoice>('firm-clients', {
+    const rFirm = await rlobby.openVaultGroup<Invoice>('firm-clients', {
       registry: rState.collection<VaultRegistryRow>('vault-registry'),
       sharding: { keyOf: (r) => r.clientId, vaultTemplate: 'client-template' },
     })
@@ -311,9 +317,10 @@ describe('VaultGroup — key-custody-neutral fan-out', () => {
   it('non-granted shard → no-grant skip on fan-out; clean throw on drill-down/put; zero self-provision', async () => {
     const adapter = memory()
     const op = await createNoydb({ store: adapter, user: 'operator', secret: 'op-pass' })
-    op.withVaultTemplate('t', { version: 1, configure: (v: Vault) => { v.collection<Invoice>('invoices') } })
+    const oplobby = createLobby(op)
+    oplobby.withVaultTemplate('t', { version: 1, configure: (v: Vault) => { v.collection<Invoice>('invoices') } })
     const opState = await op.openVault('state')
-    const opFirm = await op.openVaultGroup<Invoice>('firm', {
+    const opFirm = await oplobby.openVaultGroup<Invoice>('firm', {
       registry: opState.collection<VaultRegistryRow>('vault-registry'),
       sharding: { keyOf: (r) => r.clientId, vaultTemplate: 't' },
     })
@@ -323,9 +330,10 @@ describe('VaultGroup — key-custody-neutral fan-out', () => {
     await op.grant('state', { userId: 'advisor', displayName: 'Adv', role: 'viewer', passphrase: 'adv-pass' })
 
     const adv = await createNoydb({ store: adapter, user: 'advisor', secret: 'adv-pass' })
-    adv.withVaultTemplate('t', { version: 1, configure: (v: Vault) => { v.collection<Invoice>('invoices') } })
+    const advlobby = createLobby(adv)
+    advlobby.withVaultTemplate('t', { version: 1, configure: (v: Vault) => { v.collection<Invoice>('invoices') } })
     const advState = await adv.openVault('state')
-    const advFirm = await adv.openVaultGroup<Invoice>('firm', {
+    const advFirm = await advlobby.openVaultGroup<Invoice>('firm', {
       registry: advState.collection<VaultRegistryRow>('vault-registry'),
       sharding: { keyOf: (r) => r.clientId, vaultTemplate: 't' },
     })

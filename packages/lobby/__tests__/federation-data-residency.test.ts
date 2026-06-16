@@ -4,12 +4,13 @@
  * of routeStore vault-prefix routing.
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, StoreCapabilities } from '../src/types.js'
-import { ConflictError, DataResidencyError } from '../src/errors.js'
-import { routeStore } from '../src/store/route-store.js'
-import { createNoydb } from '../src/noydb.js'
-import type { Vault } from '../src/vault.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, StoreCapabilities } from '@noy-db/hub'
+import { ConflictError, DataResidencyError } from '@noy-db/hub'
+import { routeStore } from '@noy-db/hub/store'
+import { createNoydb } from '@noy-db/hub'
+import type { Vault } from '@noy-db/hub'
 import type { VaultRegistryRow } from '../src/federation/index.js'
+import { createLobby } from '../src/index.js'
 
 function memory(region?: string): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -61,10 +62,11 @@ async function harness() {
   const control = memory() // no region — the registry/state vault lives here
   const store = routeStore({ vaultRoutes: { 'firm--eu-': eu, 'firm--us-': us }, default: control })
   const db = await createNoydb({ store, user: 'operator', secret: 'op-pass' })
-  db.withVaultTemplate('client', { version: 1, configure: (v: Vault) => { v.collection<Doc>('docs') } })
+  const lobby = createLobby(db)
+  lobby.withVaultTemplate('client', { version: 1, configure: (v: Vault) => { v.collection<Doc>('docs') } })
   const stateVault = await db.openVault('state')
   const registry = stateVault.collection<VaultRegistryRow>('vault-registry')
-  const firm = await db.openVaultGroup<Doc>('firm', {
+  const firm = await lobby.openVaultGroup<Doc>('firm', {
     registry,
     sharding: {
       keyOf: (r) => r.routeKey ?? `${r.region}-${r.id}`,
@@ -106,9 +108,10 @@ describe('VaultGroup data-residency placement guard (#271)', () => {
     const eu = memory('eu')
     const store = routeStore({ vaultRoutes: { 'plain--': eu }, default: memory() })
     const db = await createNoydb({ store, user: 'op', secret: 'op-pass' })
-    db.withVaultTemplate('client', { version: 1, configure: (v: Vault) => { v.collection<Doc>('docs') } })
+    const lobby = createLobby(db)
+    lobby.withVaultTemplate('client', { version: 1, configure: (v: Vault) => { v.collection<Doc>('docs') } })
     const sv = await db.openVault('state')
-    const firm = await db.openVaultGroup<Doc>('plain', {
+    const firm = await lobby.openVaultGroup<Doc>('plain', {
       registry: sv.collection<VaultRegistryRow>('vault-registry'),
       sharding: { keyOf: (r) => r.id, vaultTemplate: 'client', autoCreate: true }, // no regionOf
     })

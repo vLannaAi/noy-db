@@ -4,18 +4,20 @@
  * Plan: docs/superpowers/plans/2026-06-09-cross-shard-join.md
  */
 import { describe, it, expect } from 'vitest'
-import { CrossShardJoinError, NoydbError, ConflictError } from '../src/errors.js'
+import { NoydbError, ConflictError } from '@noy-db/hub'
+import { CrossShardJoinError } from '@noy-db/hub/kernel'
 import {
   applyBroadcastLegs,
   resetBroadcastWarnings,
   type BroadcastLeg,
   type BroadcastSource,
 } from '../src/federation/cross-shard-join.js'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
-import { createNoydb } from '../src/noydb.js'
-import type { Vault } from '../src/vault.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub'
+import { createNoydb } from '@noy-db/hub'
+import type { Vault } from '@noy-db/hub'
 import type { VaultRegistryRow } from '../src/federation/index.js'
-import { ref } from '../src/refs.js'
+import { ref } from '@noy-db/hub'
+import { createLobby } from '../src/index.js'
 
 // ─── In-memory adapter + harness (mirrors federation-query-aggregate.test.ts) ───
 
@@ -63,7 +65,8 @@ interface Customer { id: string; name: string }
 async function harness() {
   const adapter = memory()
   const db = await createNoydb({ store: adapter, user: 'operator', secret: 'op-pass' })
-  db.withVaultTemplate('client-template', {
+  const lobby = createLobby(db)
+  lobby.withVaultTemplate('client-template', {
     version: 1,
     configure(vault: Vault) {
       vault.collection<Customer>('customers')
@@ -72,7 +75,7 @@ async function harness() {
   })
   const stateVault = await db.openVault('state')
   const registry = stateVault.collection<VaultRegistryRow>('vault-registry')
-  const firm = await db.openVaultGroup<Invoice>('firm-clients', {
+  const firm = await lobby.openVaultGroup<Invoice>('firm-clients', {
     registry,
     sharding: { keyOf: (r) => r.clientId, vaultTemplate: 'client-template' },
   })
@@ -241,7 +244,8 @@ describe('crossShardJoin failure semantics', () => {
   it('attaches null for a dangling ref in warn mode (per-shard RefMode)', async () => {
     const adapter = memory()
     const db = await createNoydb({ store: adapter, user: 'operator', secret: 'op-pass' })
-    db.withVaultTemplate('warn-template', {
+    const lobby = createLobby(db)
+    lobby.withVaultTemplate('warn-template', {
       version: 1,
       configure(vault: Vault) {
         vault.collection<Customer>('customers')
@@ -250,7 +254,7 @@ describe('crossShardJoin failure semantics', () => {
     })
     const sv = await db.openVault('state')
     const registry = sv.collection<VaultRegistryRow>('vault-registry')
-    const firm = await db.openVaultGroup<Invoice>('warn-firm', {
+    const firm = await lobby.openVaultGroup<Invoice>('warn-firm', {
       registry,
       sharding: { keyOf: (r) => r.clientId, vaultTemplate: 'warn-template' },
     })

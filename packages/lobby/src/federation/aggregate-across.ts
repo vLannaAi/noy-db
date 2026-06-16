@@ -5,9 +5,9 @@
  * so avg/mean values are computed over the full union, not as avg-of-avgs.
  * Spec: docs/superpowers/specs/2026-06-07-cross-vault-live-and-aggregate-design.md.
  */
-import { reduceRecords } from '../aggregate/aggregation.js'
-import { groupAndReduce } from '../aggregate/groupby.js'
-import type { AggregateResult, AggregateSpec } from '../aggregate/aggregation.js'
+import { reduceRecords } from '@noy-db/hub/kernel'
+import { groupAndReduce } from '@noy-db/hub/kernel'
+import type { AggregateResult, AggregateSpec } from '@noy-db/hub/kernel'
 import type {
   FanoutQueryOptions,
   SkippedVault,
@@ -17,7 +17,7 @@ import type {
   CrossVaultLiveQuery,
 } from './types.js'
 import { CrossVaultLive } from './cross-vault-live.js'
-import type { ChangeEvent } from '../types.js'
+import type { ChangeEvent } from '@noy-db/hub/kernel'
 
 /** A source that can fan out records across shards. Satisfied by ShardedQuery. */
 export interface FanoutRecordSource<R> {

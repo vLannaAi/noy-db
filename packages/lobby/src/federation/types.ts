@@ -4,12 +4,12 @@
  * transparent shard routing. See
  * docs/superpowers/specs/2026-06-07-mvf-vaultgroup-routing-mvp-design.md.
  */
-import type { Vault } from '../vault.js'
-import type { Collection } from '../collection.js'
-import type { Operator } from '../query/predicate.js'
-import type { LiveQuery } from '../query/live.js'
-import type { LiveAggregation, AggregateResult, AggregateSpec } from '../aggregate/aggregation.js'
-import type { IndexDef } from '../indexing/eager-indexes.js'
+import type { Vault } from '@noy-db/hub/kernel'
+import type { Collection } from '@noy-db/hub/kernel'
+import type { Operator } from '@noy-db/hub/kernel'
+import type { LiveQuery } from '@noy-db/hub/kernel'
+import type { LiveAggregation, AggregateResult, AggregateSpec } from '@noy-db/hub/kernel'
+import type { IndexDef } from '@noy-db/hub/kernel'
 
 /**
  * A schema blueprint for a class of shard vaults. `configure` is

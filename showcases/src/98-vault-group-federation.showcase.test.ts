@@ -6,13 +6,13 @@
  * A firm manages many independent client portfolios. Each client's data lives
  * in its OWN vault (its own DEKs, its own store namespace) — yet the firm wants
  * a single entry point to write and a single fan-out query to read across all
- * of them. `db.openVaultGroup()` provides exactly that: transparent routing by
+ * of them. `lobby.openVaultGroup()` provides exactly that: transparent routing by
  * partition key over per-client shard vaults, with shard discovery backed by a
  * `vault-registry` collection that is the single source of truth.
  *
  * This showcase exercises the whole milestone-16 MVP surface:
- *   1. `withVaultTemplate` — a versioned schema blueprint for shards
- *   2. `openVaultGroup` — the group entry point, registry-backed
+ *   1. `lobby.withVaultTemplate` — a versioned schema blueprint for shards
+ *   2. `lobby.openVaultGroup` — the group entry point, registry-backed
  *   3. transparent write routing with `autoCreate` (shards stamped on demand)
  *   4. cross-shard fan-out reads → `{ results, skippedVaults }`
  *   5. `shard()` drill-down to one client's full Collection API
@@ -38,8 +38,9 @@
 
 import { describe, it, expect } from 'vitest'
 import { createNoydb, UnknownShardError, ValidationError } from '@noy-db/hub'
-import type { VaultRegistryRow } from '@noy-db/hub'
 import type { Vault } from '@noy-db/hub'
+import { createLobby } from '@klum-db/lobby'
+import type { VaultRegistryRow } from '@klum-db/lobby'
 import { memory } from '@noy-db/to-memory'
 
 interface Invoice {
@@ -56,7 +57,8 @@ interface Invoice {
  */
 async function openFirm(store: ReturnType<typeof memory>, version = 1) {
   const db = await createNoydb({ store, user: 'firm-operator', secret: 'firm-secret-2026' })
-  db.withVaultTemplate('client-template', {
+  const lobby = createLobby(db)
+  lobby.withVaultTemplate('client-template', {
     version,
     configure(vault: Vault) {
       // Every client shard gets an identically-shaped `invoices` collection.
@@ -65,7 +67,7 @@ async function openFirm(store: ReturnType<typeof memory>, version = 1) {
   })
   const state = await db.openVault('state')
   const registry = state.collection<VaultRegistryRow>('vault-registry')
-  const firm = await db.openVaultGroup<Invoice>('firm-clients', {
+  const firm = await lobby.openVaultGroup<Invoice>('firm-clients', {
     registry,
     sharding: { keyOf: (r) => r.clientId, vaultTemplate: 'client-template', autoCreate: true },
   })
@@ -144,12 +146,13 @@ describe('Showcase 98 — Multi-vault partition federation', () => {
   it('rejects writes to unknown clients when autoCreate is off', async () => {
     const store = memory()
     const db = await createNoydb({ store, user: 'firm-operator', secret: 'firm-secret-2026' })
-    db.withVaultTemplate('client-template', {
+    const lobby = createLobby(db)
+    lobby.withVaultTemplate('client-template', {
       version: 1,
       configure(vault: Vault) { vault.collection<Invoice>('invoices') },
     })
     const state = await db.openVault('state')
-    const strictFirm = await db.openVaultGroup<Invoice>('firm-clients', {
+    const strictFirm = await lobby.openVaultGroup<Invoice>('firm-clients', {
       registry: state.collection<VaultRegistryRow>('vault-registry'),
       sharding: { keyOf: (r) => r.clientId, vaultTemplate: 'client-template', autoCreate: false },
     })

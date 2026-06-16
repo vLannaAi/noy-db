@@ -139,6 +139,8 @@ Dependency spine (unchanged from the analysis): FR-1 → {FR-2, FR-3}; FR-5 → 
 
 ## 9. Lobby is partly a re-homing, not all-new
 
+> **Status 2026-06-16 — Phase 3 SHIPPED (branch `feat/klum-db-federation-extraction`):** federation extracted from `@noy-db/hub` into `@klum-db/lobby`. `hub/src/federation/` removed; `Noydb.openVaultGroup`/`openStateManagementVault`/`withVaultTemplate` now throw `FederationMovedError` (breaking, pre-1.0); federation public types + the `Lobby` entry API live in `@klum-db/lobby`; federation error classes + `STATE_VAULT_NAME` remain public on `@noy-db/hub`. The `no-outbound-klum-import` architecture guard enforces the one-way klum→noy dependency.
+
 The outward ecosystem already **exists inside `hub`** and is the **seed of Lobby**:
 
 - **Federation #271** — VaultGroup, `withSharding`/routing, crossShardJoin, **Insight** Vault, StateManagement Vault — is outward by nature and a prime candidate to **migrate into Lobby**.
@@ -167,7 +169,7 @@ So Lobby v0 is: **(re-homed federation) + (new pilot-1 interchange/custody)**, p
 4. **Correct merge (FR-5 → FR-4)** — Provenance, then field Authority.
 5. **Custody (FR-6)** — Deed/Custodian/Liberate (parallel; independent).
 6. **Mesh + Pool (FR-7, Pool, FR-9 edge)** — Surface sync; the Pool reference vault; multi-compartment export.
-7. **Re-home federation #271** into Lobby once the boundary is proven.
+7. **Re-home federation #271** into Lobby once the boundary is proven. *(SHIPPED 2026-06-16 on branch `feat/klum-db-federation-extraction` — see §9 status note above.)*
 
 Each phase is its own spec → plan → implementation cycle. This document is the shared frame they all reference.
 
