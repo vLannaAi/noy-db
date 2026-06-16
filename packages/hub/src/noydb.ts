@@ -22,7 +22,7 @@ import type {
   WriteConflict,
 } from './types.js'
 import { ValidationError, NoAccessError, InvalidKeyError, KeyringCorruptError, StoreCapabilityError, PermissionDeniedError, VaultTemplateNotFoundError, ReservedVaultNameError, DebugPlaintextError } from './errors.js'
-import { STATE_VAULT_NAME } from './federation/constants.js'
+import { STATE_VAULT_NAME } from './constants.js'
 import type { StateManagementVault } from './federation/state-vault.js'
 import {
   readDirectoryConfig,
@@ -1086,6 +1086,15 @@ export class Noydb {
     }
 
     return results
+  }
+
+  /**
+   * @internal True once `close()` has been called. Read by
+   * `@klum-db/lobby`'s Lobby entry points (which can't see the private
+   * `closed` field).
+   */
+  get isClosed(): boolean {
+    return this.closed
   }
 
   /**

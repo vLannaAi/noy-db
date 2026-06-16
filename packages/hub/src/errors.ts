@@ -2271,6 +2271,18 @@ export class VaultTemplateNotFoundError extends NoydbError {
   }
 }
 
+export class FederationMovedError extends NoydbError {
+  constructor(api: string) {
+    super(
+      'FEDERATION_MOVED',
+      `${api} has moved to @klum-db/lobby. Install @klum-db/lobby, then: `
+      + `import { createLobby } from '@klum-db/lobby'; `
+      + `const lobby = createLobby(db); await lobby.${api}(...)`,
+    )
+    this.name = 'FederationMovedError'
+  }
+}
+
 // ─── Erasure Errors ────────────────────────────────────────────────────
 
 /**
