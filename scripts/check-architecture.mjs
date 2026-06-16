@@ -588,6 +588,21 @@ function checkKernelSurface() {
   }
 }
 
+// ─── Check: no-outbound-klum-import (hub core must not depend on @klum-db) ───
+function checkNoOutboundKlumImport() {
+  const hubSrc = join(PACKAGES_DIR, 'hub', 'src')
+  const klumPattern = /from\s+['"]@klum-db\/[^'"]+['"]/
+  walkTsFiles(hubSrc, (file, content) => {
+    if (klumPattern.test(stripCommentsAndStrings(content))) {
+      fail(
+        'no-outbound-klum-import',
+        `${relative(ROOT, file)} imports from @klum-db. Hub core must NOT depend on the extracted orchestration package — the dependency runs the other way (@klum-db/lobby depends on @noy-db/hub/kernel).`,
+        file,
+      )
+    }
+  })
+}
+
 // ─── Check 7: no debugPlaintext in shipped library source (#413 P3) ─────
 
 /**
@@ -622,6 +637,7 @@ checkStoresCiphertextOnly()
 checkStrategyOptIns()
 checkKernelSurface()
 checkNoDebugPlaintextInSource()
+checkNoOutboundKlumImport()
 
 const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
 
