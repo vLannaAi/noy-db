@@ -4,7 +4,17 @@
  * @packageDocumentation
  */
 import type { Vault } from '@noy-db/hub'
-import { walkClosure } from '@noy-db/hub/bundle'
+import {
+  walkClosure,
+  extractPartition,
+  encodeMultiBundle,
+  readNoydbBundleHeader,
+  NOYDB_MULTI_BUNDLE_VERSION,
+  generateULID,
+  type MultiBundleManifest,
+  type CompartmentManifest,
+} from '@noy-db/hub/bundle'
+import { sha256Hex } from '@noy-db/hub/kernel'
 
 /** A denormalized cross-vault FK edge (hub refuses these as native refs). */
 export interface CrossVaultRef {
@@ -134,4 +144,98 @@ export async function walkCrossVaultClosure(
   }
 
   return { perVaultSeeds, perVaultClosure, dangling }
+}
+
+// ─── Task 2: extractCrossVaultPartition ────────────────────────────────────────
+
+export class CrossVaultDanglingRefError extends Error {
+  constructor(readonly dangling: { vault: string; collection: string; id: string }[]) {
+    super(
+      `cross-vault extraction: ${dangling.length} referenced row(s) missing from their target closure: `
+      + dangling.map((d) => `${d.vault}/${d.collection}/${d.id}`).slice(0, 5).join(', '),
+    )
+    this.name = 'CrossVaultDanglingRefError'
+  }
+}
+
+export interface CompartmentMeta {
+  readonly roleTag?: string
+  readonly disclose?: {
+    readonly name?: boolean | string
+    readonly collections?: boolean
+    readonly publicEnvelope?: boolean
+  }
+}
+
+export interface ExtractCrossVaultOptions {
+  readonly seed: CrossVaultSeed
+  readonly crossVaultRefs?: readonly CrossVaultRef[]
+  readonly maxDepth?: number
+  readonly carrySchemas?: boolean
+  readonly carryLedger?: boolean
+  readonly compression?: 'auto' | 'brotli' | 'gzip' | 'none'
+  readonly compartmentMeta?: Record<string, CompartmentMeta>
+}
+
+export interface ExtractCrossVaultResult {
+  readonly bundle: Uint8Array
+  readonly transferKeys: Record<string, Uint8Array>
+  readonly sealIds: Record<string, string>
+}
+
+export async function extractCrossVaultPartition(
+  openVault: (name: string) => Promise<Vault>,
+  opts: ExtractCrossVaultOptions,
+): Promise<ExtractCrossVaultResult> {
+  const plan = await walkCrossVaultClosure(openVault, opts)
+  if (plan.dangling.length > 0) throw new CrossVaultDanglingRefError(plan.dangling)
+
+  const inner: Uint8Array[] = []
+  const compartments: CompartmentManifest[] = []
+  const transferKeys: Record<string, Uint8Array> = {}
+  const sealIds: Record<string, string> = {}
+
+  for (const [vaultName, seeds] of plan.perVaultSeeds) {
+    const v = await openVault(vaultName)
+    const { bundleBytes, transferKey, sealId } = await extractPartition(v, {
+      seeds,
+      ...(opts.maxDepth !== undefined ? { maxDepth: opts.maxDepth } : {}),
+      carrySchemas: opts.carrySchemas ?? true,
+      carryLedger: opts.carryLedger ?? false,
+      ...(opts.compression !== undefined ? { compression: opts.compression } : {}),
+    })
+
+    const header = readNoydbBundleHeader(bundleBytes)
+    const meta = opts.compartmentMeta?.[vaultName]
+
+    const entry: { -readonly [K in keyof CompartmentManifest]: CompartmentManifest[K] } = {
+      handle: header.handle,
+      exportedAt: new Date().toISOString(),
+      innerBytes: bundleBytes.length,
+      innerSha256: await sha256Hex(bundleBytes),
+    }
+
+    if (meta?.roleTag !== undefined) entry.roleTag = meta.roleTag
+    if (meta?.disclose?.name !== undefined && meta.disclose.name !== false) {
+      entry.name = meta.disclose.name === true ? v.name : meta.disclose.name
+    }
+    if (meta?.disclose?.collections === true) {
+      const cl = plan.perVaultClosure.get(vaultName)
+      if (cl) entry.collections = [...cl].map(([name, ids]) => ({ name, count: ids.size }))
+    }
+    // publicEnvelope opt-in omitted: readNoydbBundlePublicEnvelope is not
+    // exported from @noy-db/hub/bundle; deferred to a future pass.
+
+    inner.push(bundleBytes)
+    compartments.push(entry)
+    transferKeys[vaultName] = transferKey
+    sealIds[vaultName] = sealId
+  }
+
+  const manifest: MultiBundleManifest = {
+    multiFormatVersion: NOYDB_MULTI_BUNDLE_VERSION,
+    handle: generateULID(),
+    compartments,
+  }
+  return { bundle: encodeMultiBundle(manifest, inner), transferKeys, sealIds }
 }

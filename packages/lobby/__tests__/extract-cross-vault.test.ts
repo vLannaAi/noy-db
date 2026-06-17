@@ -1,11 +1,22 @@
 /**
  * walkCrossVaultClosure — cross-vault FK closure planner (Task 1)
- * Plan: docs/superpowers/plans/2026-06-17-fr2-cross-vault-extraction.md §Task 1
+ * extractCrossVaultPartition — multi-compartment bundle emitter (Task 2)
+ * Plan: docs/superpowers/plans/2026-06-17-fr2-cross-vault-extraction.md §Task 1, §Task 2
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '@noy-db/hub'
 import { memory } from '@noy-db/to-memory'
-import { walkCrossVaultClosure, type CrossVaultRef } from '../src/interchange/extract-cross-vault.js'
+import {
+  walkCrossVaultClosure,
+  extractCrossVaultPartition,
+  type CrossVaultRef,
+} from '../src/interchange/extract-cross-vault.js'
+import {
+  readNoydbBundleManifest,
+  readMultiVaultBundleCompartment,
+  adoptPartition,
+  createOwnerOnAdoptedPartition,
+} from '@noy-db/hub/bundle'
 import type { Noydb } from '@noy-db/hub'
 
 // ─── Fixture ──────────────────────────────────────────────────────────────────
@@ -97,5 +108,85 @@ describe('walkCrossVaultClosure', () => {
 
     expect(plan.perVaultSeeds.has('client')).toBe(true)
     expect(plan.perVaultSeeds.has('directory')).toBe(true)
+  })
+})
+
+// ─── Task 2: extractCrossVaultPartition ───────────────────────────────────────
+
+describe('extractCrossVaultPartition', () => {
+  it('emits a multi-compartment bundle with roleTag-labelled compartments and per-vault transfer keys', async () => {
+    const { openVault } = await buildFixture()
+
+    const res = await extractCrossVaultPartition(openVault, {
+      seed: { vault: 'client', seeds: { bills: () => true } },
+      crossVaultRefs: refs,
+      compartmentMeta: {
+        client: { roleTag: 'shard' },
+        directory: { roleTag: 'pool', disclose: { name: true } },
+      },
+    })
+
+    // manifest has 2 compartments with the correct roleTags
+    const manifest = await readNoydbBundleManifest(res.bundle)
+    expect(manifest.map((m) => m.roleTag).sort()).toEqual(['pool', 'shard'])
+
+    // both vault names present in transferKeys
+    expect(Object.keys(res.transferKeys).sort()).toEqual(['client', 'directory'])
+  })
+
+  it('directory compartment contains EXACTLY e1,e2 (not e3) after adopt + createOwner', async () => {
+    const { openVault } = await buildFixture()
+
+    const res = await extractCrossVaultPartition(openVault, {
+      seed: { vault: 'client', seeds: { bills: () => true } },
+      crossVaultRefs: refs,
+      compartmentMeta: {
+        client: { roleTag: 'shard' },
+        directory: { roleTag: 'pool', disclose: { name: true } },
+      },
+    })
+
+    // extract the directory compartment bytes
+    const manifest = await readNoydbBundleManifest(res.bundle)
+    const dirEntry = manifest.find((m) => m.roleTag === 'pool')!
+    expect(dirEntry).toBeDefined()
+    const dirBytes = readMultiVaultBundleCompartment(res.bundle, dirEntry.handle)
+
+    // adopt into a fresh in-memory store
+    const destStore = memory()
+    await adoptPartition(dirBytes, {
+      transferKey: res.transferKeys['directory']!,
+      destinationStore: destStore,
+      vaultName: 'dir-adopted',
+    })
+    await createOwnerOnAdoptedPartition(destStore, 'dir-adopted', {
+      userId: 'u',
+      passphrase: 'correct-horse-battery-staple',
+      transferKey: res.transferKeys['directory']!,
+    })
+
+    // open the adopted vault and verify EXACTLY e1,e2 (not e3)
+    const dest = await (
+      await createNoydb({ store: destStore, user: 'u', secret: 'correct-horse-battery-staple' })
+    ).openVault('dir-adopted')
+    const adoptedEntities = (await dest.collection('entities').list())
+      .map((r: Record<string, unknown>) => r['id'] as string)
+      .sort()
+    expect(adoptedEntities).toEqual(['e1', 'e2'])
+  })
+
+  it('throws CrossVaultDanglingRefError when a referenced entity is missing', async () => {
+    const { clientDb, openVault } = await buildFixture()
+
+    // add a bill pointing to a non-existent e9
+    const clientVault = await clientDb.openVault('client')
+    await clientVault.collection<Bill>('bills').put('b9', { id: 'b9', entityId: 'e9' })
+
+    await expect(
+      extractCrossVaultPartition(openVault, {
+        seed: { vault: 'client', seeds: { bills: () => true } },
+        crossVaultRefs: refs,
+      }),
+    ).rejects.toThrow('cross-vault extraction')
   })
 })
