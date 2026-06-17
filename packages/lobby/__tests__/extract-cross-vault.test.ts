@@ -110,6 +110,15 @@ describe('walkCrossVaultClosure', () => {
     expect(plan.perVaultSeeds.has('client')).toBe(true)
     expect(plan.perVaultSeeds.has('directory')).toBe(true)
   })
+
+  it('rejects a non-id cross-vault to.field (not yet supported)', async () => {
+    const { openVault } = await buildFixture()
+
+    await expect(walkCrossVaultClosure(openVault, {
+      seed: { vault: 'client', seeds: { bills: () => true } },
+      crossVaultRefs: [{ from: { collection: 'bills', field: 'entityId' }, to: { vault: 'directory', collection: 'entities', field: 'slug' } }],
+    })).rejects.toThrow(/not supported|to\.field/i)
+  })
 })
 
 // ─── Task 2: extractCrossVaultPartition ───────────────────────────────────────

@@ -21,7 +21,16 @@ import { sha256Hex } from '@noy-db/hub/kernel'
 /** A denormalized cross-vault FK edge (hub refuses these as native refs). */
 export interface CrossVaultRef {
   readonly from: { readonly collection: string; readonly field: string }
-  readonly to: { readonly vault: string; readonly collection: string; readonly field?: string }
+  readonly to: {
+    readonly vault: string
+    readonly collection: string
+    /**
+     * Target field the FK points to. **Currently must be `'id'` (or omitted).**
+     * Non-`id` business-key target fields are not yet supported (will be added
+     * when adopt/merge lands).
+     */
+    readonly field?: string
+  }
 }
 
 /** Seed for the primary vault (predicate per collection, like hub walkClosure). */
@@ -60,6 +69,18 @@ export async function walkCrossVaultClosure(
 ): Promise<CrossVaultClosurePlan> {
   const refs = opts.crossVaultRefs ?? []
   const maxDepth = opts.maxDepth ?? 16
+
+  // Guard: non-id target fields are silently broken (dangling false-positives + fixpoint burn).
+  // Fail loud until business-key target support is added with adopt/merge.
+  for (const ref of refs) {
+    if (ref.to.field !== undefined && ref.to.field !== 'id') {
+      throw new Error(
+        `cross-vault extraction: to.field "${ref.to.field}" (on ${ref.to.vault}/${ref.to.collection}) is not supported yet — `
+        + `the cross-vault target field must be "id" (or omitted). Business-key target fields are a future enhancement.`,
+      )
+    }
+  }
+
   const perVaultClosure = new Map<string, Map<string, Set<string>>>()
   const perVaultSeeds: CrossVaultClosurePlan['perVaultSeeds'] = new Map()
   // accumulated referenced ids per target vault+collection
