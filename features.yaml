@@ -1030,6 +1030,25 @@ features:
       - 'two-party ceremony (P3) for read-only roles: requestWithdrawal files a durable plaintext-metadata request in _user_withdrawal_requests (no passphrase at rest); owner/admin approveWithdrawal (gate approve-user-withdrawal t2 + role) extracts under firm authority and reuses freezeAndDeleteClosure so the requester disposition flows through; rejectWithdrawal touches no data; approve/reject are OCC + idempotent (pending-only, expiry-checked)'
     related: [transferable-partition, bundle, team, session-tiers]
 
+  - id: sovereign-custody
+    name: Deed / Custodian / Liberate — sovereignty-preserving custody (FR-6)
+    cluster: collaboration-and-auth
+    spec: docs/superpowers/specs/2026-06-17-fr6-deed-custodian-liberate-design.md
+    subsystem_doc: docs/superpowers/specs/2026-06-17-fr6-deed-custodian-liberate-design.md
+    package: '@noy-db/hub'
+    factory: null
+    status: preview
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Custodian operates fully (rw all collections) but is provably unable to grant / revoke / rotate / extract-and-sever; canGrant(custodian,*) = false, canRevoke(custodian,*) = false, rotateKeys throws PermissionDeniedError'
+      - 'Owner (sealed under a non-firm SealingKeyProvider via Deed) can revoke the custodian + extractPartition without the custodian''s cooperation; revokeCustodian is owner-only'
+      - 'Liberate claims ownership under an audited lifecycle ledger entry (liberation-claimed:<newOwnerId>:<legalBasis>); both withdrawal and liberation appear in the ledger; liberation mints a distinct new owner re-wrapping incumbent DEKs without unsealing the sealed owner credential'
+      - 'Inalienability is cryptographic: the custodian never holds KEK_owner (sealed under a non-firm SealingKeyProvider); grant-custodian and liberate-vault gates are fail-closed (disabled → PolicyDeniedError)'
+    related: [team, transferable-partition, bundle, permissions]
+
   - id: multi-compartment-bundle
     name: Multi-compartment bundle (NDBM — N vaults in one .noydb container)
     cluster: snapshot-and-portability
