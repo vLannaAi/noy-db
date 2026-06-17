@@ -14,15 +14,22 @@
 import type { Vault } from '@noy-db/hub'
 import { diffVault } from '@noy-db/hub'
 import { decryptExtractedPartition } from '@noy-db/hub/bundle'
+import {
+  resolveRecordByFieldAuthority,
+  FieldAuthorityPolicyMissingError,
+  type FieldAuthorityPolicy,
+} from './field-authority.js'
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
-/** Per-collection conflict strategy. `field-level` is deferred to FR-4. */
+/** Per-collection conflict strategy. `field-level` is a deprecated alias for `field-authority`. */
 export type MergeStrategy =
   | 'take-incoming'
   | 'keep-local'
   | 'lww-by-ts'
   | 'manual-queue'
+  | 'field-authority'
+  /** @deprecated Use `field-authority` instead. */
   | 'field-level'
 
 export interface MergeCompartmentOptions {
@@ -38,13 +45,15 @@ export interface MergeCompartmentOptions {
   readonly dryRun?: boolean
   /** Audit reason stamped on every write. Defaults to `'merge:compartment'`. */
   readonly reason?: string
+  /** Per-collection field→authority policy. Required for any collection using `field-authority`. */
+  readonly fieldAuthority?: Record<string, FieldAuthorityPolicy>
 }
 
 export interface MergeConflict {
   readonly collection: string
   readonly id: string
   readonly strategy: MergeStrategy
-  readonly resolution: 'incoming' | 'local' | 'queued'
+  readonly resolution: 'incoming' | 'local' | 'queued' | 'field-merged'
 }
 
 export interface MergeReport {
@@ -81,9 +90,9 @@ interface CollectionTally {
 // ─── Error ────────────────────────────────────────────────────────────────────
 
 /**
- * Thrown when a collection's strategy is `field-level` — this is deferred to
- * FR-4 (field-authority). Use `take-incoming`, `keep-local`, `lww-by-ts`, or
- * `manual-queue` for now.
+ * @deprecated No longer thrown — `field-level` is now a deprecated alias for
+ * `field-authority` and resolves via the field-authority resolver (FR-4).
+ * Kept for backwards compatibility of existing imports.
  */
 export class FieldLevelDeferredError extends Error {
   constructor(collection: string) {
@@ -137,20 +146,25 @@ export async function mergeCompartment(
   const incoming = await decryptExtractedPartition(compartmentBytes, opts.transferKey)
 
   // Build the candidate for diffVault: Record<collection, T[]> where each T has an `id` field.
-  // Also keep incoming _ts for lww-by-ts comparison and _source for provenance threading (FR-5).
+  // Also keep incoming _ts for lww-by-ts comparison and _source/_sourceTs for provenance
+  // threading (FR-5) and field-authority resolution (FR-4).
   const incomingTs = new Map<string, Map<string, string>>()
   const incomingSource = new Map<string, Map<string, string>>()
+  const incomingSourceTs = new Map<string, Map<string, string>>()
   const candidate: Record<string, Record<string, unknown>[]> = {}
   for (const [coll, recs] of Object.entries(incoming)) {
     const tsMap = new Map<string, string>()
     const srcMap = new Map<string, string>()
+    const stsMap = new Map<string, string>()
     for (const r of recs) {
       tsMap.set(r.id, r.ts)
       if (r.source !== undefined) srcMap.set(r.id, r.source)
+      if (r.sourceTs !== undefined) stsMap.set(r.id, r.sourceTs)
     }
     candidate[coll] = recs.map((r) => r.record)
     incomingTs.set(coll, tsMap)
     incomingSource.set(coll, srcMap)
+    incomingSourceTs.set(coll, stsMap)
   }
 
   // 2. Diff the receiver against the incoming candidate.
@@ -184,8 +198,33 @@ export async function mergeCompartment(
   for (const m of diff.modified) {
     const strat = strategyFor(opts.strategy, m.collection)
 
-    if (strat === 'field-level') {
-      throw new FieldLevelDeferredError(m.collection)
+    if (strat === 'field-authority' || strat === 'field-level') {
+      const policy = opts.fieldAuthority?.[m.collection]
+      if (policy === undefined) throw new FieldAuthorityPolicyMissingError(m.collection)
+      const recvEnv = await adapter.get(receiverName, m.collection, m.id)
+      const incSrc = incomingSource.get(m.collection)?.get(m.id)
+      const incSts = incomingSourceTs.get(m.collection)?.get(m.id)
+      const locSrc = recvEnv?._source
+      const locSts = recvEnv?._sourceTs
+      const io = {
+        ...(incSrc !== undefined ? { incomingSource: incSrc } : {}),
+        ...(incSts !== undefined ? { incomingSourceTs: incSts } : {}),
+        ...(locSrc !== undefined ? { localSource: locSrc } : {}),
+        ...(locSts !== undefined ? { localSourceTs: locSts } : {}),
+      }
+      const { merged } = resolveRecordByFieldAuthority(
+        policy,
+        m.before,
+        m.record,
+        m.fieldsChanged,
+        io,
+      )
+      // Per-field MERGED synthesis carries a record-level 'merged' source (Q3 defer).
+      // NO sourceTs override — merged records keep merge-time by design.
+      writes.push({ collection: m.collection, id: m.id, record: merged, source: 'merged' })
+      bump(m.collection, 'updated')
+      conflicts.push({ collection: m.collection, id: m.id, strategy: strat, resolution: 'field-merged' })
+      continue
     }
 
     if (strat === 'take-incoming') {
