@@ -253,7 +253,7 @@ export async function extractCrossVaultPartition(
 
 export interface CrossVaultPreview {
   readonly compartments: ReadonlyArray<{ readonly vault: string; readonly preview: ExtractionPreview }>
-  readonly dangling: { vault: string; collection: string; id: string }[]
+  readonly dangling: ReadonlyArray<{ readonly vault: string; readonly collection: string; readonly id: string }>
 }
 
 /**

@@ -216,4 +216,26 @@ describe('describeCrossVaultExtraction', () => {
     // no dangling refs
     expect(preview.dangling).toEqual([])
   })
+
+  it('surfaces dangling refs in preview.dangling without throwing (b9→e9 missing-ref)', async () => {
+    const { clientDb, openVault } = await buildFixture()
+
+    // add a bill pointing to a non-existent e9
+    const clientVault = await clientDb.openVault('client')
+    await clientVault.collection<Bill>('bills').put('b9', { id: 'b9', entityId: 'e9' })
+
+    // describeCrossVaultExtraction MUST RESOLVE (not throw) even with dangling refs —
+    // that is its core contract: surface, don't throw (contrast: extractCrossVaultPartition throws)
+    const preview = await describeCrossVaultExtraction(openVault, {
+      seed: { vault: 'client', seeds: { bills: () => true } },
+      crossVaultRefs: refs,
+    })
+
+    // dangling is non-empty and contains the missing e9 reference
+    expect(preview.dangling.length).toBeGreaterThan(0)
+    expect(preview.dangling).toContainEqual({ vault: 'directory', collection: 'entities', id: 'e9' })
+
+    // compartments are still returned (non-empty) even with dangling refs
+    expect(preview.compartments.length).toBeGreaterThan(0)
+  })
 })
