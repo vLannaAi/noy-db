@@ -1087,10 +1087,10 @@ features:
     invariants:
       - 'mergeCompartment(receiver, compartmentBytes, { transferKey, strategy, dryRun }) decrypts an extracted-partition bundle, diffs against the receiver, and applies per-collection conflict strategies'
       - 'Diff semantics: added → insert (all strategies); modified → resolve per strategy; deleted (receiver-only) → IGNORE (incoming is a slice, never deletes receiver rows); unchanged → no-op'
-      - 'Strategies: take-incoming (overwrite), keep-local (skip), lww-by-ts (ISO _ts lexicographic compare — incoming wins only if strictly newer), manual-queue (record in MergeReport.conflicts without writing), field-level (throws FieldLevelDeferredError — deferred to FR-4)'
+      - 'Strategies: take-incoming (overwrite), keep-local (skip), lww-by-ts (ISO _ts lexicographic compare — incoming wins only if strictly newer), manual-queue (record in MergeReport.conflicts without writing), field-authority (per-field resolution — see field-authority-merge; field-level is a deprecated alias)'
       - 'dryRun: true computes the full MergeReport without calling any put(); safe to call before a real merge to validate the plan'
       - 'MergeReport carries summary { inserted, updated, skipped, queued, total }, byCollection tallies, and conflicts (one entry per modified record — full audit trail including take-incoming overwrites)'
-      - 'FieldLevelDeferredError is thrown eagerly on first field-level conflict; use take-incoming / keep-local / lww-by-ts / manual-queue until FR-4 ships'
+      - 'field-level is now a deprecated alias of the field-authority strategy (FR-4); FieldLevelDeferredError is retained as a deprecated export but is no longer thrown'
     related: [cross-vault-extraction, transferable-partition, bundle]
 
   - id: field-authority-merge

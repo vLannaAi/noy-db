@@ -16,10 +16,7 @@ import { describe, it, expect } from 'vitest'
 import { createNoydb } from '@noy-db/hub'
 import { extractPartition } from '@noy-db/hub/bundle'
 import { memory } from '@noy-db/to-memory'
-import {
-  mergeCompartment,
-  FieldLevelDeferredError,
-} from '../src/interchange/merge-compartment.js'
+import { mergeCompartment } from '../src/interchange/merge-compartment.js'
 import { FieldAuthorityPolicyMissingError } from '../src/interchange/field-authority.js'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
