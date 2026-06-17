@@ -31,12 +31,35 @@ describe('multi-bundle framing codec', () => {
   })
 
   it('rejects a manifest whose innerBytes sum exceeds the body', () => {
+    // Build a valid buffer (innerBytes matches actual length), then truncate
+    // one byte so decode sees the declared innerBytes overrunning the buffer.
+    const inner0 = new Uint8Array([1, 2, 3])
     const m: MultiBundleManifest = {
       multiFormatVersion: 1, handle: '01HZZZZZZZZZZZZZZZZZZZZZZZ',
-      compartments: [{ handle: '01HAAAAAAAAAAAAAAAAAAAAAAA', exportedAt: '2026-06-17T00:00:00.000Z', innerBytes: 999, innerSha256: 'a'.repeat(64) }],
+      compartments: [{ handle: '01HAAAAAAAAAAAAAAAAAAAAAAA', exportedAt: '2026-06-17T00:00:00.000Z', innerBytes: 3, innerSha256: 'a'.repeat(64) }],
     }
-    const bytes = encodeMultiBundle(m, [new Uint8Array([1, 2, 3])])
-    // tamper: truncate body so the declared innerBytes overruns
-    expect(() => decodeMultiBundle(bytes.subarray(0, bytes.length - 1))).toThrow(/truncat|overrun|length/i)
+    const good = encodeMultiBundle(m, [inner0])
+    // Truncate the last byte — decode now sees innerBytes=3 but only 2 bytes available.
+    expect(() => decodeMultiBundle(good.subarray(0, good.length - 1))).toThrow(/truncat|overrun|length/i)
+  })
+
+  it('encodeMultiBundle rejects an innerBytes / actual-length mismatch', () => {
+    const m: MultiBundleManifest = {
+      multiFormatVersion: 1, handle: '01HZZZZZZZZZZZZZZZZZZZZZZZ',
+      compartments: [{ handle: '01HAAAAAAAAAAAAAAAAAAAAAAA', exportedAt: '2026-06-17T00:00:00.000Z', innerBytes: 99, innerSha256: 'a'.repeat(64) }],
+    }
+    expect(() => encodeMultiBundle(m, [new Uint8Array([1, 2, 3])])).toThrow(/innerBytes|declares/i)
+  })
+
+  it('decodeMultiBundle rejects trailing bytes after the last compartment', () => {
+    const inner0 = new Uint8Array([1, 2, 3])
+    const m: MultiBundleManifest = {
+      multiFormatVersion: 1, handle: '01HZZZZZZZZZZZZZZZZZZZZZZZ',
+      compartments: [{ handle: '01HAAAAAAAAAAAAAAAAAAAAAAA', exportedAt: '2026-06-17T00:00:00.000Z', innerBytes: 3, innerSha256: 'a'.repeat(64) }],
+    }
+    const good = encodeMultiBundle(m, [inner0])
+    const withTrailer = new Uint8Array(good.length + 2)
+    withTrailer.set(good, 0)
+    expect(() => decodeMultiBundle(withTrailer)).toThrow(/trailing/i)
   })
 })

@@ -65,6 +65,11 @@ export function encodeMultiBundle(
   if (manifest.compartments.length !== inner.length) {
     throw new Error(`multi-bundle: manifest has ${manifest.compartments.length} compartments but ${inner.length} inner bundles were provided.`)
   }
+  for (let i = 0; i < inner.length; i++) {
+    if (manifest.compartments[i]!.innerBytes !== inner[i]!.length) {
+      throw new Error(`multi-bundle: compartment ${i} declares innerBytes ${manifest.compartments[i]!.innerBytes} but ${inner[i]!.length} bytes were provided.`)
+    }
+  }
   const manifestBytes = new TextEncoder().encode(JSON.stringify(manifest))
   const bodyLen = inner.reduce((n, b) => n + b.length, 0)
   const out = new Uint8Array(NOYDB_MULTI_BUNDLE_PREFIX_BYTES + manifestBytes.length + bodyLen)
@@ -88,12 +93,12 @@ function validateManifest(parsed: unknown): asserts parsed is MultiBundleManifes
   if (parsed === null || typeof parsed !== 'object') throw new Error('multi-bundle manifest must be a JSON object.')
   const m = parsed as Record<string, unknown>
   if (m['multiFormatVersion'] !== NOYDB_MULTI_BUNDLE_VERSION) throw new Error(`multi-bundle manifest.multiFormatVersion must be ${NOYDB_MULTI_BUNDLE_VERSION}, got ${String(m['multiFormatVersion'])}.`)
-  if (typeof m['handle'] !== 'string') throw new Error('multi-bundle manifest.handle must be a string.')
+  if (typeof m['handle'] !== 'string' || m['handle'].length === 0) throw new Error('multi-bundle manifest.handle must be a non-empty string.')
   if (!Array.isArray(m['compartments'])) throw new Error('multi-bundle manifest.compartments must be an array.')
   for (const c of m['compartments'] as unknown[]) {
     if (c === null || typeof c !== 'object') throw new Error('multi-bundle compartment must be an object.')
     const e = c as Record<string, unknown>
-    if (typeof e['handle'] !== 'string') throw new Error('multi-bundle compartment.handle must be a string.')
+    if (typeof e['handle'] !== 'string' || e['handle'].length === 0) throw new Error('multi-bundle compartment.handle must be a non-empty string.')
     if (typeof e['innerBytes'] !== 'number' || !Number.isInteger(e['innerBytes']) || e['innerBytes'] < 0) throw new Error('multi-bundle compartment.innerBytes must be a non-negative integer.')
     if (typeof e['innerSha256'] !== 'string' || !/^[0-9a-f]{64}$/.test(e['innerSha256'])) throw new Error('multi-bundle compartment.innerSha256 must be 64-char lowercase hex.')
   }
@@ -118,6 +123,9 @@ export function decodeMultiBundle(bytes: Uint8Array): { manifest: MultiBundleMan
     if (end > bytes.length) throw new Error(`multi-bundle truncated: compartment "${c.handle}" innerBytes overruns the buffer.`)
     inner.push(bytes.subarray(off, end))
     off = end
+  }
+  if (off !== bytes.length) {
+    throw new Error(`multi-bundle: ${bytes.length - off} trailing byte(s) after the last compartment — buffer may be corrupt.`)
   }
   return { manifest: parsed, inner }
 }
@@ -209,10 +217,16 @@ export async function readNoydbBundleManifest(bytes: Uint8Array): Promise<Compar
 }
 
 /**
- * Extract one compartment's inner v1 `.noydb` bundle bytes (verified
- * against its manifest `innerSha256`), ready to pass to `readNoydbBundle`.
- * `selector` is a compartment `handle` or a zero-based index. For a
- * single v1 bundle, the bundle itself is the only compartment.
+ * Extract one compartment's inner v1 `.noydb` bundle bytes, ready to
+ * pass to `readNoydbBundle`. `selector` is a compartment `handle` or a
+ * zero-based index. For a single v1 bundle, the bundle itself is the
+ * only compartment.
+ *
+ * Does NOT verify the manifest `innerSha256` — it returns the raw
+ * slice. Integrity is enforced downstream: `readNoydbBundle` verifies
+ * the inner bundle's own `bodySha256`. Callers wanting an early,
+ * pre-decrypt check can hash the returned bytes against the
+ * compartment's `innerSha256`.
  */
 export function readMultiVaultBundleCompartment(bytes: Uint8Array, selector: string | number): Uint8Array {
   if (hasNoydbBundleMagic(bytes) && !hasMultiMagic(bytes)) {
