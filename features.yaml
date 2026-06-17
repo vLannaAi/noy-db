@@ -1072,6 +1072,27 @@ features:
       - 'Pure @klum-db/lobby — no hub change; hub ref() deliberately rejects cross-vault refs (RefScopeError); the cross-vault edges live in the caller-supplied descriptor'
     related: [multi-compartment-bundle, transferable-partition, bundle]
 
+  - id: merge-compartment
+    name: Merge-import / reconcile extracted-partition compartment into existing vault (mergeCompartment)
+    cluster: snapshot-and-portability
+    spec: docs/superpowers/specs/2026-06-16-lobby-framework-design.md
+    subsystem_doc: docs/superpowers/specs/2026-06-16-lobby-framework-design.md
+    package: '@klum-db/lobby'
+    factory: null
+    status: preview
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'mergeCompartment(receiver, compartmentBytes, { transferKey, strategy, dryRun }) decrypts an extracted-partition bundle, diffs against the receiver, and applies per-collection conflict strategies'
+      - 'Diff semantics: added → insert (all strategies); modified → resolve per strategy; deleted (receiver-only) → IGNORE (incoming is a slice, never deletes receiver rows); unchanged → no-op'
+      - 'Strategies: take-incoming (overwrite), keep-local (skip), lww-by-ts (ISO _ts lexicographic compare — incoming wins only if strictly newer), manual-queue (record in MergeReport.conflicts without writing), field-level (throws FieldLevelDeferredError — deferred to FR-4)'
+      - 'dryRun: true computes the full MergeReport without calling any put(); safe to call before a real merge to validate the plan'
+      - 'MergeReport carries summary { inserted, updated, skipped, queued, total }, byCollection tallies, and conflicts (one entry per modified record — full audit trail including take-incoming overwrites)'
+      - 'FieldLevelDeferredError is thrown eagerly on first field-level conflict; use take-incoming / keep-local / lww-by-ts / manual-queue until FR-4 ships'
+    related: [cross-vault-extraction, transferable-partition, bundle]
+
   - id: with-snapshots
     name: Snapshot lifecycle (withSnapshots)
     cluster: snapshot-and-portability

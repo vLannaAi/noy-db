@@ -94,3 +94,12 @@ export type {
   ExtractCrossVaultResult,
   CrossVaultPreview,
 } from './interchange/extract-cross-vault.js'
+
+// ─── FR-3: Merge-import / reconcile-into-existing vault ───────────────────────
+export { mergeCompartment, FieldLevelDeferredError } from './interchange/merge-compartment.js'
+export type {
+  MergeStrategy,
+  MergeCompartmentOptions,
+  MergeConflict,
+  MergeReport,
+} from './interchange/merge-compartment.js'

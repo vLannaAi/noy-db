@@ -66,6 +66,8 @@ export type { ExtractionPreview } from './describe-extraction.js'
 export { extractPartition } from './extract-partition.js'
 export type { ExtractPartitionResult } from './extract-partition.js'
 export { adoptPartition, unsealDeks, createOwnerOnAdoptedPartition } from './adopt-partition.js'
+export { decryptExtractedPartition } from './decrypt-partition.js'
+export type { DecryptedRecord } from './decrypt-partition.js'
 export type {
   AdoptPartitionOptions,
   AdoptPartitionResult,
