@@ -1163,6 +1163,40 @@ export class Collection<T> {
   }
 
   /**
+   * Read a record's unencrypted envelope metadata (version, timestamps,
+   * provenance) without decrypting the body.
+   *
+   * Returns `null` when no envelope exists for `id` (record absent or never
+   * written). Only `_source`/`_sourceTs` fields are populated when the
+   * collection was opened with `provenance: true` AND the record was written
+   * with a `source` option — but this method works on any collection because
+   * it reads the raw envelope directly.
+   *
+   * @returns `{ version, timestamp, by?, source?, sourceTs? }` or `null`.
+   *
+   * @example
+   * const meta = await clients.getMetadata('c1')
+   * if (meta) console.log(meta.source, meta.timestamp)
+   */
+  async getMetadata(id: string): Promise<{
+    readonly version: number
+    readonly timestamp: string
+    readonly by?: string
+    readonly source?: string
+    readonly sourceTs?: string
+  } | null> {
+    const env = await this.adapter.get(this.vault, this.name, id)
+    if (!env) return null
+    return {
+      version: env._v,
+      timestamp: env._ts,
+      ...(env._by !== undefined ? { by: env._by } : {}),
+      ...(env._source !== undefined ? { source: env._source } : {}),
+      ...(env._sourceTs !== undefined ? { sourceTs: env._sourceTs } : {}),
+    }
+  }
+
+  /**
    * Return a presence handle for this collection.
    *
    * The handle manages an encrypted ephemeral presence channel keyed by an

@@ -50,6 +50,23 @@ export interface VaultDiffEntry<T = unknown> {
   readonly collection: string
   readonly id: string
   readonly record: T
+  /**
+   * Unencrypted envelope metadata for the RECEIVER-side record.
+   * Populated only when `diffVault` is called with `{includeMetadata: true}`.
+   * Default: `undefined` (zero extra reads, no behavior change).
+   *
+   * For `added` entries this reflects the *receiver* envelope after it is
+   * written (i.e. the new record); for `modified` it is the CURRENT receiver
+   * state before the candidate is applied; for `deleted` it is the receiver
+   * envelope of the record being removed.
+   */
+  readonly metadata?: {
+    readonly version: number
+    readonly timestamp: string
+    readonly by?: string
+    readonly source?: string
+    readonly sourceTs?: string
+  }
 }
 
 /** Modified records carry both halves of the diff plus the field-level breakdown. */
@@ -97,6 +114,15 @@ export interface DiffOptions {
   readonly compareFn?: (a: unknown, b: unknown) => boolean
   /** If true, include unchanged records in the diff (off by default to save memory). */
   readonly includeUnchanged?: boolean
+  /**
+   * When `true`, each entry in `added`, `modified`, and `deleted` will carry a
+   * `metadata` field with the RECEIVER-side envelope metadata
+   * (`version`, `timestamp`, `by?`, `source?`, `sourceTs?`).
+   *
+   * Off by default — no extra adapter reads, no behavior change for existing callers.
+   * (FR-5 read surface, #445)
+   */
+  readonly includeMetadata?: boolean
 }
 
 /**
@@ -170,13 +196,22 @@ export async function diffVault<T = unknown>(
       const after = candColl.get(id)
 
       if (before === undefined && after !== undefined) {
+        // added: record only in candidate — no receiver envelope
         added.push({ collection, id, record: after })
       } else if (before !== undefined && after === undefined) {
-        deleted.push({ collection, id, record: before })
+        // deleted: record only in receiver — attach metadata if requested
+        const metadata = options.includeMetadata
+          ? (await vault.collection(collection).getMetadata(id)) ?? undefined
+          : undefined
+        deleted.push({ collection, id, record: before, ...(metadata !== undefined ? { metadata } : {}) })
       } else if (before !== undefined && after !== undefined) {
         if (compareFn(before, after)) {
           unchanged?.push({ collection, id, record: after })
         } else {
+          // modified: record in both — attach receiver-side metadata if requested
+          const metadata = options.includeMetadata
+            ? (await vault.collection(collection).getMetadata(id)) ?? undefined
+            : undefined
           const fieldDiffs = fieldDiff(before, after)
           const fieldsChanged = uniqueTopLevelKeys(fieldDiffs)
           modified.push({
@@ -186,6 +221,7 @@ export async function diffVault<T = unknown>(
             before,
             fieldsChanged,
             fieldDiffs,
+            ...(metadata !== undefined ? { metadata } : {}),
           })
         }
       }

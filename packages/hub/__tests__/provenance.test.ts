@@ -187,3 +187,126 @@ describe('record provenance — _source/_sourceTs envelope fields (FR-5 Task 1)'
     expect(entry?.reason).toBe('import:csv')
   })
 })
+
+// ─── Task 2: read surface ───────────────────────────────────────────────────
+
+import { diffVault } from '../src/vault-diff.js'
+
+describe('record provenance — getMetadata (FR-5 Task 2a)', () => {
+  it('returns version + timestamp + source + sourceTs for a provenance record', async () => {
+    const store = memory()
+    const db = await createNoydb({ store, user: 'alice', secret: 'provenance-test-passphrase-1234' })
+    const vault = await db.openVault('prov-vault')
+    const clients = vault.collection<Client>('clients', { provenance: true })
+
+    await clients.put('c1', { id: 'c1', name: 'Acme' }, { source: 'crm-sync' })
+
+    const meta = await clients.getMetadata('c1')
+    expect(meta).not.toBeNull()
+    expect(meta!.version).toBe(1)
+    expect(typeof meta!.timestamp).toBe('string')
+    expect(new Date(meta!.timestamp).getTime()).toBeGreaterThan(0)
+    expect(meta!.source).toBe('crm-sync')
+    expect(typeof meta!.sourceTs).toBe('string')
+  })
+
+  it('returns null for a missing id', async () => {
+    const store = memory()
+    const db = await createNoydb({ store, user: 'alice', secret: 'provenance-test-passphrase-1234' })
+    const vault = await db.openVault('prov-vault')
+    const clients = vault.collection<Client>('clients', { provenance: true })
+
+    const meta = await clients.getMetadata('does-not-exist')
+    expect(meta).toBeNull()
+  })
+
+  it('returns metadata without source when provenance is off', async () => {
+    const store = memory()
+    const db = await createNoydb({ store, user: 'alice', secret: 'provenance-test-passphrase-1234' })
+    const vault = await db.openVault('prov-vault')
+    const plain = vault.collection<Client>('plain') // no provenance
+
+    await plain.put('p1', { id: 'p1', name: 'Plain' }, { source: 'crm-sync' })
+
+    const meta = await plain.getMetadata('p1')
+    expect(meta).not.toBeNull()
+    expect(meta!.version).toBe(1)
+    expect(meta!.source).toBeUndefined()
+    expect(meta!.sourceTs).toBeUndefined()
+  })
+
+  it('increments version on update and reflects updated source', async () => {
+    const store = memory()
+    const db = await createNoydb({ store, user: 'alice', secret: 'provenance-test-passphrase-1234' })
+    const vault = await db.openVault('prov-vault')
+    const clients = vault.collection<Client>('clients', { provenance: true })
+
+    await clients.put('c1', { id: 'c1', name: 'A' }, { source: 'v1-source' })
+    await clients.put('c1', { id: 'c1', name: 'B' }, { source: 'v2-source' })
+
+    const meta = await clients.getMetadata('c1')
+    expect(meta!.version).toBe(2)
+    expect(meta!.source).toBe('v2-source')
+  })
+})
+
+describe('record provenance — diffVault includeMetadata (FR-5 Task 2b)', () => {
+  it('modified entries carry metadata.source for the receiver record when includeMetadata:true', async () => {
+    const store = memory()
+    const db = await createNoydb({ store, user: 'alice', secret: 'provenance-test-passphrase-1234' })
+    const receiverVault = await db.openVault('receiver')
+    const receiverClients = receiverVault.collection<Client>('clients', { provenance: true })
+
+    // Receiver has c1 with source 'crm-v1'
+    await receiverClients.put('c1', { id: 'c1', name: 'Old' }, { source: 'crm-v1' })
+
+    // Candidate has c1 with a different name (will be detected as modified) and c2 (added)
+    const candidate = {
+      clients: [
+        { id: 'c1', name: 'New' },
+        { id: 'c2', name: 'Brand New' },
+      ],
+    }
+
+    const diffWithMeta = await diffVault(receiverVault, candidate, { includeMetadata: true })
+    expect(diffWithMeta.modified).toHaveLength(1)
+    const modEntry = diffWithMeta.modified[0]!
+    expect(modEntry.collection).toBe('clients')
+    expect(modEntry.id).toBe('c1')
+    // metadata reflects the RECEIVER-side envelope
+    expect(modEntry.metadata).toBeDefined()
+    expect(modEntry.metadata!.source).toBe('crm-v1')
+    expect(modEntry.metadata!.version).toBe(1)
+  })
+
+  it('deleted entries carry metadata when includeMetadata:true', async () => {
+    const store = memory()
+    const db = await createNoydb({ store, user: 'alice', secret: 'provenance-test-passphrase-1234' })
+    const receiverVault = await db.openVault('receiver')
+    const receiverClients = receiverVault.collection<Client>('clients', { provenance: true })
+
+    await receiverClients.put('d1', { id: 'd1', name: 'ToDelete' }, { source: 'erp-import' })
+
+    // Candidate has no records → d1 will appear as deleted
+    const candidate = { clients: [] as Client[] }
+    const diffWithMeta = await diffVault(receiverVault, candidate, { includeMetadata: true })
+    expect(diffWithMeta.deleted).toHaveLength(1)
+    const delEntry = diffWithMeta.deleted[0]!
+    expect(delEntry.metadata).toBeDefined()
+    expect(delEntry.metadata!.source).toBe('erp-import')
+  })
+
+  it('WITHOUT includeMetadata, metadata is undefined (zero cost — no behavior change)', async () => {
+    const store = memory()
+    const db = await createNoydb({ store, user: 'alice', secret: 'provenance-test-passphrase-1234' })
+    const receiverVault = await db.openVault('receiver')
+    const receiverClients = receiverVault.collection<Client>('clients', { provenance: true })
+
+    await receiverClients.put('c1', { id: 'c1', name: 'Old' }, { source: 'crm-v1' })
+
+    const candidate = { clients: [{ id: 'c1', name: 'New' }] }
+    const diffWithout = await diffVault(receiverVault, candidate)
+    expect(diffWithout.modified).toHaveLength(1)
+    expect(diffWithout.modified[0]!.metadata).toBeUndefined()
+  })
+})
