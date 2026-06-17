@@ -101,10 +101,10 @@ function validateManifest(parsed: unknown): asserts parsed is MultiBundleManifes
     if (c === null || typeof c !== 'object') throw new Error('multi-bundle compartment must be an object.')
     const e = c as Record<string, unknown>
     if (typeof e['handle'] !== 'string' || e['handle'].length === 0) throw new Error('multi-bundle compartment.handle must be a non-empty string.')
-    if (seenHandles.has(e['handle'] as string)) {
-      throw new Error(`multi-bundle manifest has a duplicate compartment handle "${e['handle'] as string}".`)
+    if (seenHandles.has(e['handle'])) {
+      throw new Error(`multi-bundle manifest has a duplicate compartment handle "${e['handle']}".`)
     }
-    seenHandles.add(e['handle'] as string)
+    seenHandles.add(e['handle'])
     if (typeof e['innerBytes'] !== 'number' || !Number.isInteger(e['innerBytes']) || e['innerBytes'] < 0) throw new Error('multi-bundle compartment.innerBytes must be a non-negative integer.')
     if (typeof e['innerSha256'] !== 'string' || !/^[0-9a-f]{64}$/.test(e['innerSha256'])) throw new Error('multi-bundle compartment.innerSha256 must be 64-char lowercase hex.')
   }
