@@ -481,7 +481,10 @@ const KERNEL_SURFACE_BUDGET = {
   // through put / putInternal / encryptRecord / encryptJsonString / buildDebugEnvelope /
   // putAtTier — additive, guarded (provenance&&source!==undefined), zero cost off.
   // The 4 extra lines are param additions + one JSDoc sentence (no logic growth).
-  'packages/hub/src/collection.ts': 4810,
+  // Bumped 4810→4830 (2026-06-17, FR-8 Task 1): public validateInput() wrapper —
+  // thin 14-line method + JSDoc delegating to validateSchemaInput without writing;
+  // used by migrateThenMerge staging safety pre-check.
+  'packages/hub/src/collection.ts': 4830,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
