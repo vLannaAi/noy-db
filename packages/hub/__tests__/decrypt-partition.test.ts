@@ -3,6 +3,11 @@
  * bundle. Validates that all records are decrypted to plaintext (per
  * collection) with envelope ts/version, without adopting into a vault.
  * Also validates that a wrong transfer key throws.
+ *
+ * Includes a per-record-CEK round-trip test that exercises the
+ * `if (env._cek !== undefined)` branch in decrypt-partition.ts (slice 5
+ * of the CEK feature). Without this test that branch is reachable only
+ * by logic inspection.
  */
 
 import { describe, it, expect, beforeEach } from 'vitest'
@@ -64,6 +69,7 @@ function memory(): NoydbStore {
 
 interface Bill { id: string; amount: number; clientId: string }
 interface Client { id: string; name: string; operatorUserId: string }
+interface Doc { id: string; name: string }
 
 describe('decryptExtractedPartition', () => {
   let db: Noydb
@@ -127,5 +133,57 @@ describe('decryptExtractedPartition', () => {
     await expect(
       decryptExtractedPartition(new Uint8Array(16), transferKey),
     ).rejects.toThrow()
+  })
+})
+
+describe('decryptExtractedPartition — per-record CEK branch', () => {
+  /**
+   * Exercises the `if (env._cek !== undefined)` branch in
+   * decrypt-partition.ts.  A collection with `perRecordKeys: true` stores
+   * a per-record CEK wrapped under the collection DEK; after
+   * extractPartition re-keys the closure, each record's envelope still
+   * carries `_cek` (re-wrapped under the new transfer-DEK).
+   * decryptExtractedPartition must unwrap that CEK before decrypting the
+   * body — this test proves the full round-trip.
+   */
+  it('decrypts a per-record-CEK record alongside a normal record', async () => {
+    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'test-passphrase-1234' })
+    const company = await db.openVault('demo-co')
+
+    // CEK collection: each record stores a wrapped _cek in its envelope.
+    const cekColl = company.collection<Doc>('docs', { perRecordKeys: true })
+    await cekColl.put('d-1', { id: 'd-1', name: 'Secret' })
+    await cekColl.put('d-2', { id: 'd-2', name: 'TopSecret' })
+
+    // Normal (legacy, no _cek) collection alongside.
+    const plain = company.collection<Doc>('plain')
+    await plain.put('p-1', { id: 'p-1', name: 'Ordinary' })
+
+    const { bundleBytes, transferKey } = await extractPartition(company, {
+      seeds: { docs: () => true, plain: () => true },
+    })
+
+    const out = await decryptExtractedPartition(bundleBytes, transferKey)
+
+    // Both collections present.
+    expect(Object.keys(out).sort()).toEqual(['docs', 'plain'])
+
+    // CEK records: plaintext matches originals.
+    const docs = out['docs']!
+    const d1 = docs.find((r) => r.id === 'd-1')!
+    expect(d1).toBeDefined()
+    expect(d1.record).toMatchObject({ id: 'd-1', name: 'Secret' })
+    expect(typeof d1.ts).toBe('string')
+    expect(typeof d1.version).toBe('number')
+
+    const d2 = docs.find((r) => r.id === 'd-2')!
+    expect(d2).toBeDefined()
+    expect(d2.record).toMatchObject({ id: 'd-2', name: 'TopSecret' })
+
+    // Normal record: also correct.
+    const plainRecs = out['plain']!
+    const p1 = plainRecs.find((r) => r.id === 'p-1')!
+    expect(p1).toBeDefined()
+    expect(p1.record).toMatchObject({ id: 'p-1', name: 'Ordinary' })
   })
 })
