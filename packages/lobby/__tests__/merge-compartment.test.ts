@@ -299,3 +299,41 @@ describe('mergeCompartment — per-collection strategy map', () => {
     expect(c1!.name).toBe('A-OLD')
   })
 })
+
+// ─── FR-5: provenance preservation ───────────────────────────────────────────
+
+describe('mergeCompartment — provenance preservation (FR-5)', () => {
+  it('threads incoming _source through to receiver put when provenance:true', async () => {
+    // Source vault: clients collection with provenance:true; c1 written with source:'firm-A'
+    const sourceDb = await createNoydb({ store: memory(), user: 'src', secret: 'src-secret-123' })
+    const source = await sourceDb.openVault('source')
+    const srcClients = source.collection<Client>('clients', { provenance: true })
+    await srcClients.put('c1', { id: 'c1', name: 'A' }, { source: 'firm-A' })
+    await srcClients.put('c2', { id: 'c2', name: 'B' })
+
+    const { bundleBytes, transferKey } = await extractPartition(source, {
+      seeds: { clients: () => true },
+    })
+
+    // Receiver vault: clients collection with provenance:true (opt-in on receiver side)
+    const recvDb = await createNoydb({ store: memory(), user: 'recv', secret: 'recv-secret-456' })
+    const receiver = await recvDb.openVault('receiver')
+    // Register the provenance-enabled collection on the receiver
+    receiver.collection<Client>('clients', { provenance: true })
+
+    await mergeCompartment(receiver, bundleBytes, {
+      transferKey,
+      strategy: 'take-incoming',
+    })
+
+    // c1's source should be preserved through the merge
+    const meta = await receiver.collection<Client>('clients', { provenance: true }).getMetadata('c1')
+    expect(meta).not.toBeNull()
+    expect(meta!.source).toBe('firm-A')
+
+    // c2 had no source — should not have a source in metadata
+    const meta2 = await receiver.collection<Client>('clients', { provenance: true }).getMetadata('c2')
+    expect(meta2).not.toBeNull()
+    expect(meta2!.source).toBeUndefined()
+  })
+})

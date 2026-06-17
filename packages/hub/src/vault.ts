@@ -679,6 +679,12 @@ export class Vault {
      */
     perRecordKeys?: boolean
     /**
+     * Per-record provenance tracking. When `true`, `put()` calls that
+     * supply a `source` option stamp `_source` / `_sourceTs` onto the
+     * unencrypted envelope metadata. Off by default. (FR-5, #445)
+     */
+    provenance?: boolean
+    /**
      * declarative blob retention / TTL policy per slot
      * name. Values are `{ retainDays?, evictWhen? }`. Evaluated only
      * when `vault.compact()` runs.
@@ -962,6 +968,7 @@ export class Vault {
         }
         collOpts.perRecordKeys = true
       }
+      if (options?.provenance !== undefined) collOpts.provenance = options.provenance
       if (options?.tiers !== undefined) collOpts.tiers = options.tiers
       if (options?.tierMode !== undefined) collOpts.tierMode = options.tierMode
       collOpts.onCrossTierAccess = (event) => this.emitCrossTier(event)
