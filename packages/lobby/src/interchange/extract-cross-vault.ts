@@ -11,8 +11,10 @@ import {
   readNoydbBundleHeader,
   NOYDB_MULTI_BUNDLE_VERSION,
   generateULID,
+  describeExtraction,
   type MultiBundleManifest,
   type CompartmentManifest,
+  type ExtractionPreview,
 } from '@noy-db/hub/bundle'
 import { sha256Hex } from '@noy-db/hub/kernel'
 
@@ -245,4 +247,35 @@ export async function extractCrossVaultPartition(
     compartments,
   }
   return { bundle: encodeMultiBundle(manifest, inner), transferKeys, sealIds }
+}
+
+// ─── Task 3: describeCrossVaultExtraction ────────────────────────────────────
+
+export interface CrossVaultPreview {
+  readonly compartments: ReadonlyArray<{ readonly vault: string; readonly preview: ExtractionPreview }>
+  readonly dangling: { vault: string; collection: string; id: string }[]
+}
+
+/**
+ * Dry-run that walks the cross-vault FK closure and aggregates hub's per-vault
+ * `describeExtraction` into a per-compartment preview.
+ *
+ * Writes nothing. Returns the per-vault `ExtractionPreview` (record counts,
+ * byte totals) and the dangling list from the closure walk.
+ */
+export async function describeCrossVaultExtraction(
+  openVault: (name: string) => Promise<Vault>,
+  opts: { seed: CrossVaultSeed; crossVaultRefs?: readonly CrossVaultRef[]; maxDepth?: number },
+): Promise<CrossVaultPreview> {
+  const plan = await walkCrossVaultClosure(openVault, opts)
+  const compartments: Array<{ vault: string; preview: ExtractionPreview }> = []
+  for (const [vaultName, seeds] of plan.perVaultSeeds) {
+    const v = await openVault(vaultName)
+    const preview = await describeExtraction(v, {
+      seeds,
+      ...(opts.maxDepth !== undefined ? { maxDepth: opts.maxDepth } : {}),
+    })
+    compartments.push({ vault: vaultName, preview })
+  }
+  return { compartments, dangling: plan.dangling }
 }

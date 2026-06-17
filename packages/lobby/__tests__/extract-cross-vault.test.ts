@@ -9,6 +9,7 @@ import { memory } from '@noy-db/to-memory'
 import {
   walkCrossVaultClosure,
   extractCrossVaultPartition,
+  describeCrossVaultExtraction,
   type CrossVaultRef,
 } from '../src/interchange/extract-cross-vault.js'
 import {
@@ -188,5 +189,31 @@ describe('extractCrossVaultPartition', () => {
         crossVaultRefs: refs,
       }),
     ).rejects.toThrow('cross-vault extraction')
+  })
+})
+
+// ─── Task 3: describeCrossVaultExtraction ─────────────────────────────────────
+
+describe('describeCrossVaultExtraction', () => {
+  it('returns per-compartment preview for both vaults; directory entities count is 2 (e1,e2); no dangling', async () => {
+    const { openVault } = await buildFixture()
+
+    const preview = await describeCrossVaultExtraction(openVault, {
+      seed: { vault: 'client', seeds: { bills: () => true } },
+      crossVaultRefs: refs,
+    })
+
+    // both vaults appear in compartments
+    expect(preview.compartments.map((c) => c.vault).sort()).toEqual(['client', 'directory'])
+
+    // directory compartment preview shows exactly 2 entities (e1,e2 — NOT e3)
+    const dir = preview.compartments.find((c) => c.vault === 'directory')!
+    expect(dir).toBeDefined()
+    const entitiesEntry = dir.preview.byCollection.find((b) => b.name === 'entities')!
+    expect(entitiesEntry).toBeDefined()
+    expect(entitiesEntry.recordCount).toBe(2)
+
+    // no dangling refs
+    expect(preview.dangling).toEqual([])
   })
 })
