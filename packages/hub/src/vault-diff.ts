@@ -55,10 +55,10 @@ export interface VaultDiffEntry<T = unknown> {
    * Populated only when `diffVault` is called with `{includeMetadata: true}`.
    * Default: `undefined` (zero extra reads, no behavior change).
    *
-   * For `added` entries this reflects the *receiver* envelope after it is
-   * written (i.e. the new record); for `modified` it is the CURRENT receiver
-   * state before the candidate is applied; for `deleted` it is the receiver
-   * envelope of the record being removed.
+   * Populated for `modified` (the CURRENT receiver state, before the candidate
+   * is applied) and `deleted` (the receiver envelope of the record being
+   * removed). `added` entries have no receiver envelope at diff time, so their
+   * `metadata` is always absent.
    */
   readonly metadata?: {
     readonly version: number
