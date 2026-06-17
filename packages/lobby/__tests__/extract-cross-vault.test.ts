@@ -201,6 +201,33 @@ describe('extractCrossVaultPartition', () => {
   })
 })
 
+// ─── Task 2 (FR-8): schemaVersion stamping ───────────────────────────────────
+
+describe('extractCrossVaultPartition — schemaVersion stamp (FR-8)', () => {
+  it('stamps each compartment schemaVersion from the source vault fence', async () => {
+    const { openVault } = await buildFixture()
+
+    const res = await extractCrossVaultPartition(openVault, {
+      seed: { vault: 'client', seeds: { bills: () => true } },
+      crossVaultRefs: refs,
+      compartmentMeta: {
+        client: { roleTag: 'shard' },
+        directory: { roleTag: 'pool' },
+      },
+    })
+
+    const manifest = await readNoydbBundleManifest(res.bundle)
+
+    // check both compartments have schemaVersion stamped equal to the source vault fence
+    for (const entry of manifest) {
+      const vaultName = entry.roleTag === 'shard' ? 'client' : 'directory'
+      const v = await openVault(vaultName)
+      const fence = await v.schemaFenceState()
+      expect(entry.schemaVersion).toBe(fence.currentSchemaVersion)
+    }
+  })
+})
+
 // ─── Task 3: describeCrossVaultExtraction ─────────────────────────────────────
 
 describe('describeCrossVaultExtraction', () => {

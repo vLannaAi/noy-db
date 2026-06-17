@@ -47,6 +47,8 @@ export interface CompartmentManifest {
   readonly innerBytes: number
   /** SHA-256 (lowercase hex) of the inner v1 bundle bytes — pre-decrypt integrity. */
   readonly innerSha256: string
+  /** Source vault's schema fence version at extract time (FR-8). Opt-in; absent on older bundles. */
+  readonly schemaVersion?: number
 }
 
 /** The unencrypted manifest of a multi-compartment bundle. */
@@ -189,6 +191,9 @@ export async function writeMultiVaultBundle(
       const env = readNoydbBundlePublicEnvelope(innerBytes)
       if (env !== undefined) entry.publicEnvelope = env
     }
+    // FR-8: stamp schema fence version so the bundle self-describes its version.
+    const fence = await c.vault.schemaFenceState()
+    entry.schemaVersion = fence.currentSchemaVersion
     inner.push(innerBytes)
     entries.push(entry)
   }
