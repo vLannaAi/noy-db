@@ -232,4 +232,64 @@ describe('migrateThenMerge', () => {
     expect(c1).not.toBeNull()
     expect(c1!.name).toBe('Alice')
   })
+
+  // (f) Multi-step chain applies in ascending order; out-of-window steps excluded
+  it('(f) applies a v0→v1→v2 chain in order and excludes steps above toVersion', async () => {
+    const { bundleBytes, transferKey } = await buildOldBundle()
+    const db = await createNoydb({ store: memory(), user: 'recv-chain', secret: 'recv-chain-secret-789' })
+    const receiver = await db.openVault('receiver-chain')
+    receiver.collection<{ id: string; firstName: string; lastName: string; display: string }>('clients', {
+      schema: z.object({
+        id: z.string(),
+        firstName: z.string(),
+        lastName: z.string(),
+        display: z.string(),
+      }),
+    })
+
+    const report = await migrateThenMerge(receiver, bundleBytes, {
+      transferKey,
+      fromVersion: 0,
+      toVersion: 2,
+      strategy: 'take-incoming',
+      migrations: {
+        clients: [
+          // step 2 depends on step 1's output (firstName/lastName) — proves ordering
+          { toVersion: 2, transform: (r) => ({ ...r, display: `${String(r['firstName'])} ${String(r['lastName'])}`.toUpperCase() }) },
+          { toVersion: 1, transform: splitFullName },
+          // out-of-window: toVersion 3 > target 2 → must be excluded (would overwrite display)
+          { toVersion: 3, transform: (r) => ({ ...r, display: 'SHOULD-NOT-APPLY' }) },
+        ],
+      },
+    })
+
+    expect(report.migration.byCollection['clients']).toBe('transformed')
+    const merged = await receiver.collection<{ id: string; firstName: string; lastName: string; display: string }>('clients').get('c1')
+    expect(merged).toMatchObject({ firstName: 'Jane', lastName: 'Doe', display: 'JANE DOE' })
+  })
+
+  // (g) A transform that drops `id` cannot silently detach a row (id re-injected in staging).
+  //     Uses a SCHEMALESS receiver — the exact path where validateInput would NOT catch it.
+  it('(g) re-injects canonical id when a transform drops it (schemaless receiver)', async () => {
+    const { bundleBytes, transferKey } = await buildSimpleBundle()
+    const db = await createNoydb({ store: memory(), user: 'recv-idrop', secret: 'recv-idrop-secret-789' })
+    const receiver = await db.openVault('receiver-idrop')
+
+    const report = await migrateThenMerge(receiver, bundleBytes, {
+      transferKey,
+      fromVersion: 0,
+      toVersion: 1,
+      strategy: 'take-incoming',
+      migrations: {
+        // transform DROPS id entirely — without re-injection the merge would skip the row
+        clients: [{ toVersion: 1, transform: (r) => ({ name: String(r['name']).toUpperCase() }) }],
+      },
+    })
+
+    expect(report.summary.inserted).toBe(2)   // both rows merged, none silently lost
+    const c1 = await receiver.collection<SimpleClient>('clients').get('c1')
+    expect(c1).not.toBeNull()
+    expect(c1!.name).toBe('ALICE')
+    expect(c1!.id).toBe('c1')                 // canonical id preserved
+  })
 })

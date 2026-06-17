@@ -29,7 +29,13 @@ import {
 export interface MigrationStep {
   /** The target version this step brings records up to. */
   readonly toVersion: number
-  /** Pure transform: takes the old record body, returns the new record body. */
+  /**
+   * Pure transform: takes the old record body, returns the new record body.
+   * The transform need not preserve `id` — the canonical `id` from the decrypted
+   * record is re-injected after every step, so a transform that drops or renames
+   * `id` cannot silently detach a row from its identity (which would otherwise
+   * make the merge skip it, since the diff keys off `record.id`).
+   */
   readonly transform: (record: Record<string, unknown>) => Record<string, unknown>
 }
 
@@ -163,11 +169,14 @@ export async function migrateThenMerge(
       .sort((a, b) => a.toVersion - b.toVersion)
 
     // Apply transforms in-memory (throwing transform propagates immediately).
+    // Re-inject the canonical `id` after transforms: the diff keys candidate
+    // rows off `record.id`, so a transform that drops/renames `id` would
+    // otherwise silently detach the row (skipped, never merged).
     const out: DecryptedRecord[] = []
     for (const r of recs) {
       let body = r.record
       for (const step of steps) body = step.transform(body)
-      out.push({ ...r, record: body })
+      out.push({ ...r, record: { ...body, id: r.id } })
     }
     staged[coll] = out
 
