@@ -187,3 +187,35 @@ describe('decryptExtractedPartition — per-record CEK branch', () => {
     expect(p1.record).toMatchObject({ id: 'p-1', name: 'Ordinary' })
   })
 })
+
+// ─── Task 3b: _source/_sourceTs surfaced on DecryptedRecord ────────────────
+
+describe('decryptExtractedPartition — provenance source surfacing (FR-5 Task 3b)', () => {
+  it('DecryptedRecord carries source/sourceTs when the source record was put with a source', async () => {
+    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'test-passphrase-1234' })
+    const company = await db.openVault('demo-co')
+
+    const clients = company.collection<Client>('clients', { provenance: true })
+    await clients.put('c1', { id: 'c1', name: 'Acme', operatorUserId: 'bob' }, { source: 'crm-sync' })
+    // Record without source — should have no source on DecryptedRecord
+    await clients.put('c2', { id: 'c2', name: 'Beta', operatorUserId: 'carol' })
+
+    const { bundleBytes, transferKey } = await extractPartition(company, {
+      seeds: { clients: () => true },
+    })
+
+    const out = await decryptExtractedPartition(bundleBytes, transferKey)
+    const recs = out['clients']!
+
+    const c1 = recs.find((r) => r.id === 'c1')!
+    expect(c1).toBeDefined()
+    expect(c1.source).toBe('crm-sync')
+    expect(typeof c1.sourceTs).toBe('string')
+    expect(new Date(c1.sourceTs!).getTime()).toBeGreaterThan(0)
+
+    const c2 = recs.find((r) => r.id === 'c2')!
+    expect(c2).toBeDefined()
+    expect(c2.source).toBeUndefined()
+    expect(c2.sourceTs).toBeUndefined()
+  })
+})

@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { createNoydb } from '../src/noydb.js'
+import { createNoydb, withDerivation } from '../src/index.js'
 import { ConflictError } from '../src/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 
@@ -308,5 +308,72 @@ describe('record provenance — diffVault includeMetadata (FR-5 Task 2b)', () =>
     const diffWithout = await diffVault(receiverVault, candidate)
     expect(diffWithout.modified).toHaveLength(1)
     expect(diffWithout.modified[0]!.metadata).toBeUndefined()
+  })
+})
+
+// ─── Task 3a: derived-write source marker ──────────────────────────────────
+
+interface Pdf extends Record<string, unknown> { id: string; body: string }
+interface PdfMeta extends Record<string, unknown> { id: string; len: number }
+
+describe('record provenance — derived-write synthetic source (FR-5 Task 3a)', () => {
+  it('derived output records carry synthetic _source when output collection has provenance:true', async () => {
+    const strategy = withDerivation<Pdf, { meta: PdfMeta }>({
+      source: 'pdfs',
+      deterministic: true,
+      outputs: { meta: { shape: 'record', collection: 'pdf-meta' } },
+      derive: (s) => ({ meta: { id: s.id, len: s.body.length } }),
+      lifecycle: 'eager',
+    })
+
+    const store = memory()
+    const db = await createNoydb({
+      store,
+      user: 'alice',
+      secret: 'provenance-derived-passphrase-2026',
+      derivationStrategies: [strategy],
+    })
+    const vault = await db.openVault('prov-vault')
+    // Source collection — no provenance needed
+    vault.collection<Pdf>('pdfs')
+    // Output collection with provenance:true
+    vault.collection<PdfMeta>('pdf-meta', { provenance: true })
+
+    await vault.collection<Pdf>('pdfs').put('p1', { id: 'p1', body: 'hello' })
+
+    // Derived output should have been written; assert source via getMetadata
+    const meta = await vault.collection<PdfMeta>('pdf-meta').getMetadata('p1')
+    expect(meta).not.toBeNull()
+    // The synthetic source marker must be present and start with 'derived'
+    expect(meta!.source).toBeDefined()
+    expect(meta!.source).toMatch(/^derived/)
+  })
+
+  it('derived output on a non-provenance output collection does NOT carry _source', async () => {
+    const strategy = withDerivation<Pdf, { meta: PdfMeta }>({
+      source: 'pdfs',
+      deterministic: true,
+      outputs: { meta: { shape: 'record', collection: 'pdf-meta' } },
+      derive: (s) => ({ meta: { id: s.id, len: s.body.length } }),
+      lifecycle: 'eager',
+    })
+
+    const store = memory()
+    const db = await createNoydb({
+      store,
+      user: 'alice',
+      secret: 'provenance-derived-noprov-passphrase-2026',
+      derivationStrategies: [strategy],
+    })
+    const vault = await db.openVault('prov-vault')
+    vault.collection<Pdf>('pdfs')
+    // Output collection WITHOUT provenance
+    vault.collection<PdfMeta>('pdf-meta')
+
+    await vault.collection<Pdf>('pdfs').put('p1', { id: 'p1', body: 'hello' })
+
+    const env = store.raw('prov-vault', 'pdf-meta', 'p1')
+    expect(env).toBeDefined()
+    expect(env!._source).toBeUndefined()
   })
 })

@@ -2028,7 +2028,7 @@ export class Collection<T> {
                   priorEnvelope,
                 })
               }
-              await outputCollection.put(entry.key, entry.value)
+              await outputCollection.put(entry.key, entry.value, { source: 'derived' })
             }
 
             // Persist the new key set (last step — see spec §5.1
@@ -2083,7 +2083,7 @@ export class Collection<T> {
                 priorEnvelope: prior,
               })
             }
-            await outputCollection.put(run.runId, patched)
+            await outputCollection.put(run.runId, patched, { source: 'derived' })
             continue
           }
 
@@ -2100,7 +2100,7 @@ export class Collection<T> {
               priorEnvelope: prior,
             })
           }
-          await outputCollection.put(run.runId, out.value)
+          await outputCollection.put(run.runId, out.value, { source: 'derived' })
         }
       }
     }

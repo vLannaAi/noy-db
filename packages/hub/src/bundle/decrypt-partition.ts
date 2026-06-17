@@ -21,6 +21,10 @@ export interface DecryptedRecord {
   readonly ts: string
   /** Source envelope version. */
   readonly version: number
+  /** Provenance source id (FR-5). Present only when the source collection had provenance:true and a source was supplied on put. */
+  readonly source?: string
+  /** ISO-8601 timestamp the provenance source was recorded (FR-5). */
+  readonly sourceTs?: string
 }
 
 /**
@@ -50,7 +54,14 @@ export async function decryptExtractedPartition(
         ? await decrypt(env._iv, env._data, await unwrapCek(env._cek, dek))
         : await decrypt(env._iv, env._data, dek)
       const body = JSON.parse(plaintext) as Record<string, unknown>
-      recs.push({ id, record: { ...body, id }, ts: env._ts, version: env._v })
+      recs.push({
+        id,
+        record: { ...body, id },
+        ts: env._ts,
+        version: env._v,
+        ...(env._source !== undefined ? { source: env._source } : {}),
+        ...(env._sourceTs !== undefined ? { sourceTs: env._sourceTs } : {}),
+      })
     }
     out[collection] = recs
   }
