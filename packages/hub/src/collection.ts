@@ -376,6 +376,14 @@ export class Collection<T> {
   private readonly perRecordCek: boolean
 
   /**
+   * Per-record provenance opt-in (`provenance: true`). When set, `put()` calls
+   * that supply a `source` option stamp `_source`/`_sourceTs` onto the
+   * unencrypted envelope metadata. Off by default — zero cost for collections
+   * that don't need lineage tracking (FR-5, #445).
+   */
+  private readonly provenance: boolean
+
+  /**
    * Session-scoped `(id) → CEK` cache for this collection. Lets updates
    * reuse a record's stable CEK and lets repeated reads skip the AES-KW
    * unwrap. Bounded by LRU; never persisted. Dropped when the owning
@@ -767,6 +775,14 @@ export class Collection<T> {
      */
     perRecordKeys?: boolean | undefined
     /**
+     * Per-record provenance tracking. When `true`, `put()` calls that
+     * supply a `source` option stamp `_source` (opaque source id) and
+     * `_sourceTs` (ISO-8601 timestamp) onto the unencrypted envelope
+     * metadata. Off by default — zero cost for collections that don't
+     * need lineage tracking. (FR-5, #445)
+     */
+    provenance?: boolean | undefined
+    /**
      * declared tiers this collection supports. An
      * undefined or empty list disables the hierarchical-tier surface
      * on this collection (`putAtTier`, `getAtTier`, `elevate`, `demote`
@@ -901,6 +917,9 @@ export class Collection<T> {
     // are tiny CryptoKey handles, so a generous entry budget is cheap.
     this.perRecordCek = opts.perRecordKeys === true
     this.cekCache = this.perRecordCek ? new Lru<string, CryptoKey>({ maxRecords: 4096 }) : null
+
+    // per-record provenance opt-in (FR-5). Zero cost when off.
+    this.provenance = opts.provenance === true
 
     // register CRDT conflict resolver with SyncEngine
     if (opts.crdt && opts.onRegisterConflictResolver) {
@@ -1181,8 +1200,12 @@ export class Collection<T> {
    *                `reason` is stamped onto the resulting ledger entry
    *                so audit consumers can filter via
    *                `entries.filter(e => e.reason?.startsWith('import:'))`.
+   *                `source` is an opaque source id (e.g. `'crm-sync'`, `'firm-A'`)
+   *                stamped onto the envelope as `_source`/`_sourceTs` when
+   *                the collection has `provenance: true`. Ignored otherwise
+   *                (zero cost). (FR-5, #445)
    */
-  async put(id: string, record: T, options?: { readonly reason?: string }): Promise<void> {
+  async put(id: string, record: T, options?: { readonly reason?: string; readonly source?: string }): Promise<void> {
     // Refuse the write if an update strategy rejected the schema
     // change. Awaited OUTSIDE track() so a rejected write never counts
     // toward writeQueue.depth.
@@ -1250,7 +1273,7 @@ export class Collection<T> {
   }
 
   /** @internal Untracked put body — call {@link put}, not this. */
-  private async putInternal(id: string, record: T, options?: { readonly reason?: string }): Promise<void> {
+  private async putInternal(id: string, record: T, options?: { readonly reason?: string; readonly source?: string }): Promise<void> {
     if (!hasWritePermission(this.keyring, this.name)) {
       throw new ReadOnlyError()
     }
@@ -1450,7 +1473,7 @@ export class Collection<T> {
       // Stable per-record CEK shared by the new CRDT body and its history
       // snapshot (undefined on non-CEK collections → legacy path).
       const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
-      const envelope = await this.encryptJsonString(JSON.stringify(crdtState), version, cek)
+      const envelope = await this.encryptJsonString(JSON.stringify(crdtState), version, cek, options?.source)
       await this.adapter.put(this.vault, this.name, id, envelope)
 
       // Resolve snapshot for cache and history
@@ -1465,6 +1488,7 @@ export class Collection<T> {
         : undefined
 
       if (existingResolved && this.historyConfig.enabled !== false) {
+        // History snapshot of the PRIOR version — does NOT carry source from the new write
         const histEnvelope = await this.encryptRecord(existingResolved.record, existingResolved.version, cek)
         await this.historyStrategy.saveHistory(this.adapter, this.vault, this.name, id, histEnvelope)
         this.emitter.emit('history:save', { vault: this.vault, collection: this.name, id, version: existingResolved.version })
@@ -1543,7 +1567,9 @@ export class Collection<T> {
     // byte-identical legacy write path.
     const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
 
-    // Save history snapshot of the PREVIOUS version before overwriting
+    // Save history snapshot of the PREVIOUS version before overwriting.
+    // CRITICAL: the history snapshot is a record of the PRIOR version — it must
+    // NOT carry the source from the current write (source belongs to the new write only).
     if (existing && this.historyConfig.enabled !== false) {
       const historyEnvelope = await this.encryptRecord(existing.record, existing.version, cek)
       await this.historyStrategy.saveHistory(this.adapter, this.vault, this.name, id, historyEnvelope)
@@ -1563,7 +1589,7 @@ export class Collection<T> {
       }
     }
 
-    const envelope = await this.encryptRecord(record, version, cek)
+    const envelope = await this.encryptRecord(record, version, cek, options?.source)
     await this.adapter.put(this.vault, this.name, id, envelope)
 
     // Ledger append — AFTER the adapter write succeeds so a failed
@@ -4105,7 +4131,7 @@ export class Collection<T> {
    * (see {@link encryptRecord}). Rejects `_`-prefixed record fields, which
    * would collide with the reserved metadata namespace.
    */
-  private buildDebugEnvelope(record: T, version: number): EncryptedEnvelope {
+  private buildDebugEnvelope(record: T, version: number, source?: string): EncryptedEnvelope {
     const rec = record as unknown as Record<string, unknown>
     for (const key of Object.keys(rec)) {
       if (key.startsWith('_')) throw new DebugReservedFieldError(this.name, key)
@@ -4118,6 +4144,7 @@ export class Collection<T> {
       _data: '',
       _by: this.keyring.userId,
       _debug: NOYDB_FORMAT_VERSION,
+      ...(this.provenance && source !== undefined ? { _source: source, _sourceTs: new Date().toISOString() } : {}),
       ...rec,
     } as unknown as EncryptedEnvelope
   }
@@ -4126,8 +4153,12 @@ export class Collection<T> {
     json: string,
     version: number,
     cek?: CryptoKey,
+    source?: string,
   ): Promise<EncryptedEnvelope> {
     const by = this.keyring.userId
+    const provenanceFields = this.provenance && source !== undefined
+      ? { _source: source, _sourceTs: new Date().toISOString() }
+      : {}
 
     if (!this.encrypted) {
       return {
@@ -4137,6 +4168,7 @@ export class Collection<T> {
         _iv: '',
         _data: json,
         _by: by,
+        ...provenanceFields,
       }
     }
 
@@ -4153,6 +4185,7 @@ export class Collection<T> {
         _data: data,
         _by: by,
         _cek: wrapped,
+        ...provenanceFields,
       }
     }
 
@@ -4165,6 +4198,7 @@ export class Collection<T> {
       _iv: iv,
       _data: data,
       _by: by,
+      ...provenanceFields,
     }
   }
 
@@ -4172,15 +4206,16 @@ export class Collection<T> {
     record: T,
     version: number,
     cek?: CryptoKey,
+    source?: string,
   ): Promise<EncryptedEnvelope> {
     // Debug-plaintext: write user-collection records with their fields inlined
     // beside the envelope metadata so native store tools read them directly.
     // Internal (`_`-prefixed) collections keep the classic shape — some store
     // `_`-prefixed fields that the inline layout would collide with.
     if (!this.encrypted && this.keyring.debugPlaintext === true && !this.name.startsWith('_')) {
-      return this.buildDebugEnvelope(record, version)
+      return this.buildDebugEnvelope(record, version, source)
     }
-    const base = await this.encryptJsonString(JSON.stringify(record), version, cek)
+    const base = await this.encryptJsonString(JSON.stringify(record), version, cek, source)
     if (!this.deterministicFields || !this.encrypted) return base
 
     // compute deterministic-ciphertext slots for every
@@ -4314,7 +4349,7 @@ export class Collection<T> {
     id: string,
     record: T,
     tier: number,
-    opts?: { elevation?: { reason: string; fromTier: number } },
+    opts?: { elevation?: { reason: string; fromTier: number }; source?: string },
   ): Promise<void> {
     this.assertTiersEnabled()
     this.assertDeclaredTier(tier)
@@ -4335,6 +4370,7 @@ export class Collection<T> {
       _data: data,
       _by: this.keyring.userId,
       ...(tier > 0 && { _tier: tier }),
+      ...(this.provenance && opts?.source !== undefined ? { _source: opts.source, _sourceTs: new Date().toISOString() } : {}),
     }
 
     await this.adapter.put(this.vault, this.name, id, envelope)

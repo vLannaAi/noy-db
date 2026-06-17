@@ -475,7 +475,9 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 4720→4730 (2026-06-15, #412 P3): objectStore + blobFields threaded
   // into the blob openSlot args so external blob fields route raw bytes to an
   // ObjectProjection. Core blob-access wiring, lives on the hot path here.
-  'packages/hub/src/collection.ts': 4730,
+  // Bumped 4730→4800 (2026-06-17, FR-5 #445): provenance opt-in + _source/_sourceTs
+  // injection at encryptJsonString / buildDebugEnvelope / putAtTier envelope sites.
+  'packages/hub/src/collection.ts': 4800,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
@@ -537,7 +539,8 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 4505→4510 (2026-06-16, #199 P3): four thin UserApi closures wiring
   // the two-party withdrawal ceremony to the bundle subsystem (logic lives in
   // bundle/request-withdrawal.ts; vault.ts only injects the closures).
-  'packages/hub/src/vault.ts': 4510,
+  // Bumped 4510→4520 (2026-06-17, FR-5 #445): provenance option + collOpts thread.
+  'packages/hub/src/vault.ts': 4520,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),

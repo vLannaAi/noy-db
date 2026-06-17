@@ -107,6 +107,14 @@ export interface EncryptedEnvelope {
   /** User who created this version (unencrypted metadata). */
   readonly _by?: string
   /**
+   * Opaque provenance source id — which party/registry wrote this version.
+   * Unencrypted; present only when the collection opts into `provenance: true`
+   * and a `source` is supplied to `put()`. Off by default (zero cost).
+   */
+  readonly _source?: string
+  /** ISO-8601 timestamp the provenance source was recorded. Present alongside `_source`. */
+  readonly _sourceTs?: string
+  /**
    * Hierarchical access tier. Omitted → tier 0.
    *
    * Unencrypted on purpose — the store reads it to route the envelope
