@@ -252,11 +252,16 @@ export async function extractPartition(
     readonly carryLedger?: boolean
   },
 ): Promise<ExtractPartitionResult> {
-  // FR-6: owner-only is exactly right for custody — a custodian is NOT owner,
-  // so it already fails here ('custodian' is reported in the message). This is
-  // the extract-and-sever half of the inalienability floor; Task 2 adds the
-  // explicit denial assertion against this branch (no code change needed —
-  // documented here so the audit shows it was considered, not missed).
+  // FR-6: extract-and-sever is the inalienability-floor half — owner-only. A
+  // custodian operates fully but must NEVER produce a standalone re-keyed
+  // partition (that would let it sever a copy out from under the sealed owner).
+  // Explicit assertion so the security boundary is auditable at this site.
+  if (vault.role === 'custodian') {
+    throw new PartitionExtractionError(
+      'extractPartition is owner-only; a custodian cannot extract-and-sever '
+      + '(FR-6: producing a re-keyed standalone partition is an ownership operation; use the Deed owner).',
+    )
+  }
   if (vault.role !== 'owner') {
     throw new PartitionExtractionError(
       `extractPartition requires the 'owner' role on the source vault; caller is '${vault.role}'. `

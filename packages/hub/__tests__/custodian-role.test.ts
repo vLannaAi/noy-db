@@ -11,11 +11,12 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
-import { ConflictError, PermissionDeniedError } from '../src/errors.js'
+import { ConflictError, PermissionDeniedError, ReadOnlyError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
 import type { Noydb } from '../src/noydb.js'
 import { checkGate, PolicyDeniedError } from '../src/policy/index.js'
 import { putCredential } from '../src/team/sync-credentials.js'
+import { extractPartition } from '../src/bundle/extract-partition.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -159,6 +160,82 @@ describe('custodian role', () => {
       await expect(docs.putAtTier('d1', { id: 'd1', body: 'secret' }, 2)).resolves.not.toThrow()
       expect((await docs.getAtTier('d1'))?.body).toBe('secret')
     })
+  })
+})
+
+describe('FR-6 Task 2 — custodian blocked from rotate / sever / extract', () => {
+  // The custodian operates fully but is the de-facto authority WITHOUT
+  // ownership: it must be provably unable to re-key, destructively sever, or
+  // extract-and-sever. These three meta-capabilities are owner-only.
+  const COMP = 'C201'
+  // The withdrawal path is itself gated by `client-unilateral-withdraw`; enable
+  // it so the role guard (not the gate) is what rejects the custodian.
+  const POLICY = { gates: { 'client-unilateral-withdraw': { enabled: true, minTier: 1 } } }
+
+  interface Inv { id: string; amount: number; status: string }
+  let adapter: NoydbStore
+  let ownerDb: Noydb
+  let custodianDb: Noydb
+
+  beforeEach(async () => {
+    adapter = inlineMemory()
+    ownerDb = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass', policy: POLICY })
+    const comp = await ownerDb.openVault(COMP)
+    await comp.collection<Inv>('invoices').put('inv-001', { id: 'inv-001', amount: 5000, status: 'draft' })
+    await comp.collection<Inv>('payments').put('pay-001', { id: 'pay-001', amount: 3000, status: 'paid' })
+    await ownerDb.grant(COMP, {
+      userId: 'cust-01', displayName: 'Custodian', role: 'custodian', passphrase: 'cust-pass',
+    })
+    custodianDb = await createNoydb({ store: adapter, user: 'cust-01', secret: 'cust-pass' })
+  })
+
+  it('(a) custodian cannot rotate keys', async () => {
+    await custodianDb.openVault(COMP)
+    await expect(
+      custodianDb.rotate(COMP, ['invoices']),
+    ).rejects.toThrow(PermissionDeniedError)
+  })
+
+  it('(b) custodian cannot destructively withdraw/sever — redirected to liberate (delete)', async () => {
+    const comp = await custodianDb.openVault(COMP)
+    const p = comp.user.unilateralWithdrawal({
+      disposition: 'delete', legalBasis: 'x', reKey: { passphrase: 'new-pw' },
+    })
+    await expect(p).rejects.toThrow(ReadOnlyError)
+    await expect(p).rejects.toThrow(/liberate|custody/)
+    // live records untouched (nothing severed)
+    expect((await comp.collection<Inv>('invoices').get('inv-001'))?.amount).toBe(5000)
+  })
+
+  it('(b) custodian cannot destructively withdraw/sever — redirected to liberate (freeze)', async () => {
+    const comp = await custodianDb.openVault(COMP)
+    await expect(
+      comp.user.unilateralWithdrawal({
+        disposition: 'freeze', legalBasis: 'x', reKey: { passphrase: 'new-pw' },
+      }),
+    ).rejects.toThrow(/liberate|custody/)
+  })
+
+  it('(c) custodian cannot extractPartition', async () => {
+    const comp = await custodianDb.openVault(COMP)
+    await expect(
+      extractPartition(comp, { seeds: { invoices: () => true } }),
+    ).rejects.toThrow(/owner|custodian/)
+  })
+
+  it('control: the owner CAN rotate / extract (no regression)', async () => {
+    const comp = await ownerDb.openVault(COMP)
+    await expect(ownerDb.rotate(COMP, ['invoices'])).resolves.not.toThrow()
+    await expect(
+      extractPartition(comp, { seeds: { invoices: () => true } }),
+    ).resolves.toBeTruthy()
+  })
+
+  it('control: an admin CAN rotate (no regression)', async () => {
+    await ownerDb.grant(COMP, { userId: 'admin-01', displayName: 'Admin', role: 'admin', passphrase: 'admin-pass' })
+    const adminDb = await createNoydb({ store: adapter, user: 'admin-01', secret: 'admin-pass' })
+    await adminDb.openVault(COMP)
+    await expect(adminDb.rotate(COMP, ['invoices'])).resolves.not.toThrow()
   })
 })
 

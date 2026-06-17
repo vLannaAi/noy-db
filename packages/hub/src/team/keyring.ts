@@ -782,11 +782,14 @@ export async function rotateKeys(
   callerKeyring: UnlockedKeyring,
   collections: string[],
 ): Promise<void> {
-  // TODO(FR-6 Task 2): block custodian from rotating keys —
-  //   `if (callerKeyring.role === 'custodian') throw new PermissionDeniedError(...)`.
-  //   Re-keying is an owner meta-capability; a custodian must NOT be able to
-  //   rotate (it would let it strip the sealed owner's DEK access). Enforced in
-  //   Task 2; flagged here so this site is not overlooked.
+  // FR-6: re-keying is an owner-only meta-capability. A custodian operates the
+  // vault fully but must NOT rotate — rotation would let it mint fresh DEKs and
+  // strip the sealed owner's access, breaking the inalienability floor.
+  if (callerKeyring.role === 'custodian') {
+    throw new PermissionDeniedError(
+      'custodian cannot rotate keys (FR-6: re-key is an owner-only meta-capability; use the Deed owner)',
+    )
+  }
   // Generate new DEKs for each affected collection
   const newDeks = new Map<string, CryptoKey>()
   for (const collName of collections) {

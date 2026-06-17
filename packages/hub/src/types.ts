@@ -85,8 +85,9 @@ export const NOYDB_SYNC_VERSION = 1 as const
  * **`custodian` (FR-6 sovereign custody).** Operationally admin-rank —
  * rw + access on every collection, receives all collection DEKs on grant
  * — but is *provably non-owning*: it CANNOT grant, revoke, rotate keys,
- * or extract-and-sever a partition (the last three are enforced in Task 2,
- * see the TODO(FR-6 Task 2) markers). Only the (sealed Deed) **owner** may
+ * destructively withdraw/sever, or extract-and-sever a partition (rotate is
+ * blocked in `rotateKeys`, sever in `withdrawAccessibleData`, and extract in
+ * `extractPartition`). Only the (sealed Deed) **owner** may
  * mint or remove a custodian; an admin cannot. This is the inalienability
  * floor — a custodian can run the vault day-to-day yet never escalate to
  * the owner credential.
