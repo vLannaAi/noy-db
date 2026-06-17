@@ -77,3 +77,20 @@ export {
   ReservedVaultNameError,
   DataResidencyError,
 } from '@noy-db/hub/kernel'
+
+// ─── FR-2: Cross-vault FK-closure extraction ──────────────────────────────────
+export {
+  walkCrossVaultClosure,
+  extractCrossVaultPartition,
+  describeCrossVaultExtraction,
+  CrossVaultDanglingRefError,
+} from './interchange/extract-cross-vault.js'
+export type {
+  CrossVaultRef,
+  CrossVaultSeed,
+  CrossVaultClosurePlan,
+  CompartmentMeta,
+  ExtractCrossVaultOptions,
+  ExtractCrossVaultResult,
+  CrossVaultPreview,
+} from './interchange/extract-cross-vault.js'

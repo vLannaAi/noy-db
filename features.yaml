@@ -1051,6 +1051,27 @@ features:
       - 'encodeMultiBundle / decodeMultiBundle are the low-level framing primitives; decodeMultiBundle validates magic, version, manifest JSON, and per-compartment innerBytes overrun'
     related: [bundle, transferable-partition, public-envelope]
 
+  - id: cross-vault-extraction
+    name: Cross-vault FK-closure extraction (walkCrossVaultClosure / extractCrossVaultPartition)
+    cluster: snapshot-and-portability
+    spec: docs/superpowers/specs/2026-06-16-lobby-framework-design.md
+    subsystem_doc: docs/superpowers/specs/2026-06-16-lobby-framework-design.md
+    package: '@klum-db/lobby'
+    factory: null
+    status: preview
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'walkCrossVaultClosure walks an FK closure spanning vault boundaries via app-supplied CrossVaultRef descriptors; per-vault seed predicates are returned for downstream extractPartition calls'
+      - 'extractCrossVaultPartition composes walkCrossVaultClosure + hub extractPartition and emits a NDBM multi-compartment bundle whose compartments contain exactly the FK-reachable slice of each vault (no extra rows)'
+      - 'describeCrossVaultExtraction is a dry-run: resolves with per-compartment ExtractionPreview and surfaces dangling refs without throwing (contrast: extractCrossVaultPartition throws CrossVaultDanglingRefError on dangling)'
+      - 'CrossVaultDanglingRefError is thrown by extractCrossVaultPartition when a referenced row is absent from its target vault closure; dangling refs are always collected and never silently dropped'
+      - 'Per-compartment transfer keys: each extractPartition mints its own key; result returns a { vaultName → transferKey } map for out-of-band delivery — bundle and keys must never be co-located'
+      - 'Pure @klum-db/lobby — no hub change; hub ref() deliberately rejects cross-vault refs (RefScopeError); the cross-vault edges live in the caller-supplied descriptor'
+    related: [multi-compartment-bundle, transferable-partition, bundle]
+
   - id: with-snapshots
     name: Snapshot lifecycle (withSnapshots)
     cluster: snapshot-and-portability
