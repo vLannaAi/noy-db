@@ -377,3 +377,30 @@ describe('record provenance — derived-write synthetic source (FR-5 Task 3a)', 
     expect(env!._source).toBeUndefined()
   })
 })
+
+// ─── Task 1 (FR-4): sourceTs override ─────────────────────────────────────────
+
+describe('record provenance — sourceTs override (FR-4 Task 1)', () => {
+  it('put({source, sourceTs}) preserves the supplied origin sourceTs', async () => {
+    const store = memory()
+    const db = await createNoydb({ store, user: 'alice', secret: 'provenance-test-passphrase-1234' })
+    const vault = await db.openVault('prov-vault')
+    const c = vault.collection<Client>('clients', { provenance: true })
+    const origin = '2020-01-02T03:04:05.000Z'
+    await c.put('c1', { id: 'c1', name: 'A' }, { source: 'firm-A', sourceTs: origin })
+    const meta = await c.getMetadata('c1')
+    expect(meta?.source).toBe('firm-A')
+    expect(meta?.sourceTs).toBe(origin)                    // NOT now()
+  })
+
+  it('put({source}) without sourceTs still stamps current time', async () => {
+    const store = memory()
+    const db = await createNoydb({ store, user: 'alice', secret: 'provenance-test-passphrase-1234' })
+    const vault = await db.openVault('prov-vault')
+    const c = vault.collection<Client>('clients', { provenance: true })
+    await c.put('c1', { id: 'c1', name: 'A' }, { source: 'firm-A' })
+    const meta = await c.getMetadata('c1')
+    expect(meta?.source).toBe('firm-A')
+    expect(typeof meta?.sourceTs).toBe('string')           // present, machine-stamped
+  })
+})

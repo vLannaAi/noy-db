@@ -477,7 +477,11 @@ const KERNEL_SURFACE_BUDGET = {
   // ObjectProjection. Core blob-access wiring, lives on the hot path here.
   // Bumped 4730→4800 (2026-06-17, FR-5 #445): provenance opt-in + _source/_sourceTs
   // injection at encryptJsonString / buildDebugEnvelope / putAtTier envelope sites.
-  'packages/hub/src/collection.ts': 4800,
+  // Bumped 4800→4810 (2026-06-17, FR-4): sourceTs? origin-override param threaded
+  // through put / putInternal / encryptRecord / encryptJsonString / buildDebugEnvelope /
+  // putAtTier — additive, guarded (provenance&&source!==undefined), zero cost off.
+  // The 4 extra lines are param additions + one JSDoc sentence (no logic growth).
+  'packages/hub/src/collection.ts': 4810,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.

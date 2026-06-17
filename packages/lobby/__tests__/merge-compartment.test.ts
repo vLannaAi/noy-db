@@ -16,14 +16,13 @@ import { describe, it, expect } from 'vitest'
 import { createNoydb } from '@noy-db/hub'
 import { extractPartition } from '@noy-db/hub/bundle'
 import { memory } from '@noy-db/to-memory'
-import {
-  mergeCompartment,
-  FieldLevelDeferredError,
-} from '../src/interchange/merge-compartment.js'
+import { mergeCompartment } from '../src/interchange/merge-compartment.js'
+import { FieldAuthorityPolicyMissingError } from '../src/interchange/field-authority.js'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Client { id: string; name: string }
+interface LegalEntity { id: string; juristicName: string; nickname: string }
 
 // ─── Fixture builders ─────────────────────────────────────────────────────────
 
@@ -246,8 +245,10 @@ describe('mergeCompartment — dry-run', () => {
   })
 })
 
-describe('mergeCompartment — field-level', () => {
-  it('rejects with FieldLevelDeferredError', async () => {
+describe('mergeCompartment — field-level (deprecated alias)', () => {
+  it('resolves via field-authority (no longer throws FieldLevelDeferredError)', async () => {
+    // 'field-level' is now a deprecated alias for 'field-authority'.
+    // Without fieldAuthority policy it throws FieldAuthorityPolicyMissingError.
     const { bundleBytes, transferKey } = await buildBundle()
     const receiver = await buildReceiver()
 
@@ -256,7 +257,7 @@ describe('mergeCompartment — field-level', () => {
         transferKey,
         strategy: 'field-level',
       }),
-    ).rejects.toThrow(FieldLevelDeferredError)
+    ).rejects.toThrow(FieldAuthorityPolicyMissingError)
   })
 })
 
@@ -335,5 +336,144 @@ describe('mergeCompartment — provenance preservation (FR-5)', () => {
     const meta2 = await receiver.collection<Client>('clients', { provenance: true }).getMetadata('c2')
     expect(meta2).not.toBeNull()
     expect(meta2!.source).toBeUndefined()
+  })
+})
+
+// ─── FR-4: field-authority merge strategy ────────────────────────────────────
+
+/**
+ * Build a source vault with a single `clients` (LegalEntity) collection with
+ * provenance:true. Incoming c1: juristicName='New Co', nickname='theirNick',
+ * written with source:'firm-B', sourceTs:'2022-01-01T00:00:00.000Z'.
+ * Returns { bundleBytes, transferKey }.
+ */
+async function buildFr4Bundle() {
+  const sourceDb = await createNoydb({ store: memory(), user: 'src-fa', secret: 'src-fa-secret-123' })
+  const source = await sourceDb.openVault('source-fa')
+  const clients = source.collection<LegalEntity>('clients', { provenance: true })
+  await clients.put('c1', { id: 'c1', juristicName: 'New Co', nickname: 'theirNick' }, {
+    source: 'firm-B',
+    sourceTs: '2022-01-01T00:00:00.000Z',
+  })
+  const { bundleBytes, transferKey } = await extractPartition(source, {
+    seeds: { clients: () => true },
+  })
+  return { bundleBytes, transferKey }
+}
+
+/**
+ * Build a fresh receiver vault with `clients` collection (provenance:true).
+ * Receiver c1: juristicName='Old Co', nickname='localNick',
+ * written with source:'principal-X', sourceTs:'2021-01-01T00:00:00.000Z'.
+ */
+async function buildFr4Receiver() {
+  const db = await createNoydb({ store: memory(), user: 'recv-fa', secret: 'recv-fa-secret-456' })
+  const vault = await db.openVault('receiver-fa')
+  const clients = vault.collection<LegalEntity>('clients', { provenance: true })
+  await clients.put('c1', { id: 'c1', juristicName: 'Old Co', nickname: 'localNick' }, {
+    source: 'principal-X',
+    sourceTs: '2021-01-01T00:00:00.000Z',
+  })
+  return vault
+}
+
+describe('mergeCompartment — field-authority (FR-4)', () => {
+  it('merges per field: registry field takes newest source, sovereign field keeps owner', async () => {
+    const { bundleBytes, transferKey } = await buildFr4Bundle()
+    const receiver = await buildFr4Receiver()
+
+    const report = await mergeCompartment(receiver, bundleBytes, {
+      transferKey,
+      strategy: 'field-authority',
+      fieldAuthority: {
+        clients: {
+          juristicName: { authority: 'source-newest' },
+          nickname: { authority: 'owner', ownerSource: 'principal-X' },
+        },
+      },
+    })
+
+    const merged = await receiver.collection<LegalEntity>('clients', { provenance: true }).get('c1')
+    expect(merged).not.toBeNull()
+    // source-newest: incoming (firm-B, 2022) is newer than local (principal-X, 2021)
+    expect(merged!.juristicName).toBe('New Co')
+    // owner principal-X: incoming source is firm-B (not principal-X) → local kept
+    expect(merged!.nickname).toBe('localNick')
+    // merged record bumps updated
+    expect(report.summary.updated).toBe(1)
+    // conflict recorded as field-merged
+    const conflict = report.conflicts.find((c) => c.id === 'c1')
+    expect(conflict).toBeDefined()
+    expect(conflict!.resolution).toBe('field-merged')
+  })
+
+  it('throws FieldAuthorityPolicyMissingError when no policy supplied for the collection', async () => {
+    const { bundleBytes, transferKey } = await buildFr4Bundle()
+    const receiver = await buildFr4Receiver()
+
+    await expect(
+      mergeCompartment(receiver, bundleBytes, {
+        transferKey,
+        strategy: 'field-authority',
+        // no fieldAuthority → missing policy for 'clients'
+      }),
+    ).rejects.toThrow(FieldAuthorityPolicyMissingError)
+  })
+
+  it('dryRun computes the field-authority outcome without writing', async () => {
+    const { bundleBytes, transferKey } = await buildFr4Bundle()
+    const receiver = await buildFr4Receiver()
+
+    const report = await mergeCompartment(receiver, bundleBytes, {
+      transferKey,
+      strategy: 'field-authority',
+      dryRun: true,
+      fieldAuthority: {
+        clients: {
+          juristicName: { authority: 'source-newest' },
+        },
+      },
+    })
+
+    expect(report.dryRun).toBe(true)
+    // Nothing written: receiver c1 still has old juristicName
+    const untouched = await receiver.collection<LegalEntity>('clients', { provenance: true }).get('c1')
+    expect(untouched!.juristicName).toBe('Old Co')
+    // summary still reflects the planned update
+    expect(report.summary.updated).toBe(1)
+  })
+})
+
+// ─── FR-4 Q2: take-incoming preserves incoming origin _sourceTs ───────────────
+
+describe('mergeCompartment — origin _sourceTs preservation (FR-4 Q2)', () => {
+  it('take-incoming preserves the incoming origin _sourceTs (not merge time)', async () => {
+    // incoming c1 written with {source:'firm-A', sourceTs:'2020-05-05T00:00:00.000Z'}
+    const sourceDb = await createNoydb({ store: memory(), user: 'src-sts', secret: 'src-sts-secret-123' })
+    const source = await sourceDb.openVault('source-sts')
+    const srcClients = source.collection<Client>('clients', { provenance: true })
+    await srcClients.put('c1', { id: 'c1', name: 'A-incoming' }, {
+      source: 'firm-A',
+      sourceTs: '2020-05-05T00:00:00.000Z',
+    })
+    await srcClients.put('c2', { id: 'c2', name: 'B' })
+
+    const { bundleBytes, transferKey } = await extractPartition(source, {
+      seeds: { clients: () => true },
+    })
+
+    // receiver has a divergent c1
+    const recvDb = await createNoydb({ store: memory(), user: 'recv-sts', secret: 'recv-sts-secret-456' })
+    const receiver = await recvDb.openVault('receiver-sts')
+    const recvClients = receiver.collection<Client>('clients', { provenance: true })
+    await recvClients.put('c1', { id: 'c1', name: 'A-local' }, { source: 'local-source' })
+
+    await mergeCompartment(receiver, bundleBytes, { transferKey, strategy: 'take-incoming' })
+
+    const meta = await receiver.collection<Client>('clients', { provenance: true }).getMetadata('c1')
+    expect(meta).not.toBeNull()
+    expect(meta!.source).toBe('firm-A')
+    // origin _sourceTs preserved — NOT merge-time
+    expect(meta!.sourceTs).toBe('2020-05-05T00:00:00.000Z')
   })
 })

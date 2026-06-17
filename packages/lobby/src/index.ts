@@ -103,3 +103,15 @@ export type {
   MergeConflict,
   MergeReport,
 } from './interchange/merge-compartment.js'
+
+// ─── FR-4: Field-authority conflict resolver ──────────────────────────────────
+export {
+  resolveFieldAuthority,
+  resolveRecordByFieldAuthority,
+  FieldAuthorityPolicyMissingError,
+} from './interchange/field-authority.js'
+export type {
+  FieldAuthorityRule,
+  FieldAuthorityPolicy,
+  FieldAuthorityInputs,
+} from './interchange/field-authority.js'

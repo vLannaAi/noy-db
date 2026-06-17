@@ -1087,11 +1087,33 @@ features:
     invariants:
       - 'mergeCompartment(receiver, compartmentBytes, { transferKey, strategy, dryRun }) decrypts an extracted-partition bundle, diffs against the receiver, and applies per-collection conflict strategies'
       - 'Diff semantics: added → insert (all strategies); modified → resolve per strategy; deleted (receiver-only) → IGNORE (incoming is a slice, never deletes receiver rows); unchanged → no-op'
-      - 'Strategies: take-incoming (overwrite), keep-local (skip), lww-by-ts (ISO _ts lexicographic compare — incoming wins only if strictly newer), manual-queue (record in MergeReport.conflicts without writing), field-level (throws FieldLevelDeferredError — deferred to FR-4)'
+      - 'Strategies: take-incoming (overwrite), keep-local (skip), lww-by-ts (ISO _ts lexicographic compare — incoming wins only if strictly newer), manual-queue (record in MergeReport.conflicts without writing), field-authority (per-field resolution — see field-authority-merge; field-level is a deprecated alias)'
       - 'dryRun: true computes the full MergeReport without calling any put(); safe to call before a real merge to validate the plan'
       - 'MergeReport carries summary { inserted, updated, skipped, queued, total }, byCollection tallies, and conflicts (one entry per modified record — full audit trail including take-incoming overwrites)'
-      - 'FieldLevelDeferredError is thrown eagerly on first field-level conflict; use take-incoming / keep-local / lww-by-ts / manual-queue until FR-4 ships'
+      - 'field-level is now a deprecated alias of the field-authority strategy (FR-4); FieldLevelDeferredError is retained as a deprecated export but is no longer thrown'
     related: [cross-vault-extraction, transferable-partition, bundle]
+
+  - id: field-authority-merge
+    name: Field-authority conflict resolver — per-field merge policy for cross-vault reconciliation (FR-4)
+    cluster: snapshot-and-portability
+    spec: docs/superpowers/specs/2026-06-16-lobby-framework-design.md
+    subsystem_doc: docs/superpowers/specs/2026-06-16-lobby-framework-design.md
+    package: '@klum-db/lobby'
+    factory: null
+    status: preview
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'resolveFieldAuthority(rule, io) is pure: given a FieldAuthorityRule and record-level provenance for both sides, returns "incoming" or "local" with no I/O — unit-testable in isolation'
+      - 'FieldAuthorityRule variants: source-newest (ISO-8601 lexicographic _sourceTs compare; tie/missing-incoming → local), owner (incoming wins iff _source === ownerSource), fixed-source (incoming wins iff _source === source)'
+      - 'resolveRecordByFieldAuthority(policy, before, incoming, changedFields, io) applies per-field rules from the policy map; fields not in the policy default to keep-local (never clobbers on ambiguity)'
+      - 'mergeCompartment gains strategy "field-authority" (and deprecated alias "field-level") wired to the resolver; requires a fieldAuthority per-collection policy map — throws FieldAuthorityPolicyMissingError when absent'
+      - 'FieldAuthorityPolicyMissingError is thrown eagerly when the field-authority strategy is used but no policy entry exists for the collection being merged'
+      - 'field-authority MERGED records carry record-level source "merged" (merge-time _sourceTs); per-field source lineage is deferred to Q3'
+      - 'record-level take strategies (take-incoming, lww-by-ts incoming-wins, added) preserve the incoming origin _sourceTs via the hub put() sourceTs override (FR-4 Q2) so source-newest stays correct across re-merges'
+    related: [merge-compartment, record-provenance, cross-vault-extraction]
 
   - id: record-provenance
     name: Record provenance (_source / _sourceTs envelope fields)
