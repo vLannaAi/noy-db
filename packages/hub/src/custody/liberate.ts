@@ -86,6 +86,16 @@ export async function liberateVault(
     )
   }
 
+  // Refuse to clobber an existing principal: the new owner must be a FRESH id.
+  // (Checked before any side effect so a colliding id never leaves a half-run
+  //  ceremony — no orphan snapshot, no partial keyring overwrite.)
+  const existing = await adapter.get(vaultName, '_keyring', opts.newOwnerId)
+  if (existing) {
+    throw new PermissionDeniedError(
+      `liberateVault: newOwnerId "${opts.newOwnerId}" already exists as a principal; choose a fresh id (liberation mints a distinct owner, it never overwrites an existing keyring)`,
+    )
+  }
+
   // 3. Pre-liberation EVIDENCE snapshot of every operational collection —
   //    snapshot-only (live data preserved for the new owner; liberation
   //    transfers operational continuity, it does not erase).

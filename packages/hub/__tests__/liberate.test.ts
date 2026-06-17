@@ -169,4 +169,20 @@ describe('FR-6 Task 5 — liberateVault (audited custodian ownership claim)', ()
       liberateVault(opVault, { newOwnerId: 'firm-owner-01', newOwnerPassphrase: 'firm-owner-pass-long', legalBasis: 'contractual-handover' }),
     ).rejects.toBeInstanceOf(PermissionDeniedError)
   })
+
+  it('refuses to clobber an existing principal: newOwnerId must be a fresh id', async () => {
+    await provisionWithCustodian()
+    const firmDb = await createNoydb({ store: adapter, user: 'firm-01', secret: 'firm-pass-long', historyStrategy: withHistory() })
+    const custodianVault = await firmDb.openVault(VAULT)
+    // capture the existing owner-01 keyring envelope before the attempt
+    const before = await adapter.get(VAULT, '_keyring', 'owner-01')
+    // newOwnerId collides with the existing sealed owner → must throw, no clobber.
+    await expect(
+      liberateVault(custodianVault, { newOwnerId: 'owner-01', newOwnerPassphrase: 'whatever-long-pass', legalBasis: 'contractual-handover' }),
+    ).rejects.toBeInstanceOf(PermissionDeniedError)
+    // the original keyring is byte-identical (not overwritten) and no liberation ledger entry was written.
+    expect(await adapter.get(VAULT, '_keyring', 'owner-01')).toEqual(before)
+    const entries = await custodianVault.ledger().entries()
+    expect(entries.filter(e => e.reason?.startsWith('liberation-claimed:'))).toHaveLength(0)
+  })
 })
