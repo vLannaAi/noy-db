@@ -1115,6 +1115,28 @@ features:
       - 'record-level take strategies (take-incoming, lww-by-ts incoming-wins, added) preserve the incoming origin _sourceTs via the hub put() sourceTs override (FR-4 Q2) so source-newest stays correct across re-merges'
     related: [merge-compartment, record-provenance, cross-vault-extraction]
 
+  - id: migrate-then-merge
+    name: Migrate-then-merge — upgrade incoming compartment to receiver schema version before reconcile (FR-8)
+    cluster: snapshot-and-portability
+    spec: docs/superpowers/specs/2026-06-16-lobby-framework-design.md
+    subsystem_doc: docs/superpowers/specs/2026-06-16-lobby-framework-design.md
+    package: '@klum-db/lobby'
+    factory: null
+    status: preview
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'migrateThenMerge(receiver, compartmentBytes, opts) is a two-stage pipeline: apply per-collection migration transforms in staging, pre-validate all staged records via validateInput, then delegate to mergeDecryptedRecords — the merge engine never branches on schema version'
+      - 'Staging-safety guarantee: all transforms and validateInput checks run in-memory before any write; a throwing transform or failing validation leaves the receiver completely untouched'
+      - 'MinVersionError is thrown (before any write) when the incoming bundle is at a schema version newer than the receiver — a newer bundle cannot be down-migrated; the receiver must upgrade first'
+      - 'Additive fast-path: collections with no supplied transform pass staging when the old shape validates against the receiver schema; schemaless receiver collections accept any shape (validateInput is a no-op)'
+      - 'MigrationTransformRequiredError is thrown (before any write) when a collection fails validation and no transform was supplied, naming the offending collection and carrying the underlying validation error'
+      - 'mergeDecryptedRecords is the shared core used by both mergeCompartment (decrypt → core) and migrateThenMerge (decrypt → migrate → core); exported for reuse by future coordinators'
+      - 'MigrateThenMergeReport extends MergeReport with a migration field carrying fromVersion, toVersion, and per-collection classification (transformed | additive-no-transform | same-version)'
+    related: [merge-compartment, field-authority-merge, cross-vault-extraction]
+
   - id: record-provenance
     name: Record provenance (_source / _sourceTs envelope fields)
     cluster: time-and-audit

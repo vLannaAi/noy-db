@@ -96,13 +96,25 @@ export type {
 } from './interchange/extract-cross-vault.js'
 
 // ─── FR-3: Merge-import / reconcile-into-existing vault ───────────────────────
-export { mergeCompartment, FieldLevelDeferredError } from './interchange/merge-compartment.js'
+export { mergeCompartment, mergeDecryptedRecords, FieldLevelDeferredError } from './interchange/merge-compartment.js'
 export type {
   MergeStrategy,
   MergeCompartmentOptions,
   MergeConflict,
   MergeReport,
 } from './interchange/merge-compartment.js'
+
+// ─── FR-8: Migrate-then-merge — upgrade incoming bundle before reconcile ──────
+export {
+  migrateThenMerge,
+  MinVersionError,
+  MigrationTransformRequiredError,
+} from './interchange/migrate-then-merge.js'
+export type {
+  MigrationStep,
+  MigrateThenMergeOptions,
+  MigrateThenMergeReport,
+} from './interchange/migrate-then-merge.js'
 
 // ─── FR-4: Field-authority conflict resolver ──────────────────────────────────
 export {
