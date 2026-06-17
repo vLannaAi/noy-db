@@ -56,6 +56,59 @@ export interface WithdrawResult {
 }
 
 /**
+ * Freeze a write-once, hash-pinned snapshot of the current ciphertext for
+ * `collections` WITHOUT touching the live records. Returns the snapshot ref.
+ *
+ * This is the non-destructive core shared by two callers:
+ *  - `freezeAndDeleteClosure` (#199 withdrawal, disposition `'freeze'`) — which
+ *    pins the snapshot and THEN delete-closures the live records.
+ *  - FR-6 `liberateVault` (custody) — which pins a PRE-liberation evidence
+ *    snapshot but PRESERVES the live data for the new owner (operational
+ *    continuity; liberation transfers, it does not erase).
+ *
+ * The snapshot put is write-once (CAS expectedVersion 0) and the ledger pin is
+ * appended on success, so a crashed run re-run with the same `withdrawalId` is
+ * safe. The snapshot is taken under the vault's own firm-owned DEKs — no re-key.
+ */
+export async function freezeSnapshotOnly(
+  vault: Vault,
+  collections: readonly string[],
+  opts: { actorUserId: string; withdrawalId?: string },
+): Promise<FrozenSnapshotRef> {
+  const { name: vaultName, adapter } = vault._introspectState()
+
+  // Enumerate the closure (record ids per collection).
+  const closure: Array<{ collection: string; id: string }> = []
+  for (const c of collections) {
+    for (const id of await adapter.list(vaultName, c)) closure.push({ collection: c, id })
+  }
+
+  const withdrawalId = opts.withdrawalId ?? `wd-${randomId()}`
+  const snap: Record<string, Record<string, unknown>> = {}
+  for (const { collection, id } of closure) {
+    const env = await adapter.get(vaultName, collection, id)
+    if (env) (snap[collection] ??= {})[id] = env
+  }
+  const frozenAt = new Date().toISOString()
+  const body = JSON.stringify({ withdrawalId, frozenAt, by: opts.actorUserId, collections: snap })
+  const sha = await sha256Hex(ENC.encode(body))
+  // Write-once: expectedVersion 0 rejects an overwrite (idempotent resume).
+  await adapter.put(
+    vaultName,
+    FROZEN_SNAPSHOTS_COLLECTION,
+    withdrawalId,
+    { _noydb: NOYDB_FORMAT_VERSION, _v: 1, _ts: frozenAt, _iv: '', _data: body, _by: opts.actorUserId },
+    0,
+  )
+  // Hash-pin into the tamper-evident ledger — makes the snapshot provably unaltered.
+  await vault._getLedgerOrNull()?.append({
+    op: 'lifecycle', collection: '', id: '', version: 0, actor: opts.actorUserId, payloadHash: '',
+    reason: `withdrawal-frozen-snapshot:${withdrawalId}:${sha}`,
+  })
+  return { withdrawalId, sha256: sha, recordCount: closure.length, frozenAt }
+}
+
+/**
  * Dispose of the source records for `collections`: optionally freeze a
  * write-once hash-pinned snapshot of the original ciphertext, then
  * delete-closure the live records. Returns the snapshot ref on freeze.
@@ -70,46 +123,21 @@ export async function freezeAndDeleteClosure(
   collections: readonly string[],
   opts: { disposition: 'delete' | 'freeze'; actorUserId: string; withdrawalId?: string },
 ): Promise<FrozenSnapshotRef | undefined> {
-  const { name: vaultName, adapter } = vault._introspectState()
-
-  // Enumerate the closure (record ids per collection).
-  const closure: Array<{ collection: string; id: string }> = []
-  for (const c of collections) {
-    for (const id of await adapter.list(vaultName, c)) closure.push({ collection: c, id })
-  }
-
-  // freeze: copy current envelopes into a write-once, hash-pinned snapshot
-  // (under the vault's own firm-owned DEKs — no re-key needed).
-  let snapshot: FrozenSnapshotRef | undefined
-  if (opts.disposition === 'freeze') {
-    const withdrawalId = opts.withdrawalId ?? `wd-${randomId()}`
-    const snap: Record<string, Record<string, unknown>> = {}
-    for (const { collection, id } of closure) {
-      const env = await adapter.get(vaultName, collection, id)
-      if (env) (snap[collection] ??= {})[id] = env
-    }
-    const frozenAt = new Date().toISOString()
-    const body = JSON.stringify({ withdrawalId, frozenAt, by: opts.actorUserId, collections: snap })
-    const sha = await sha256Hex(ENC.encode(body))
-    // Write-once: expectedVersion 0 rejects an overwrite (idempotent resume).
-    await adapter.put(
-      vaultName,
-      FROZEN_SNAPSHOTS_COLLECTION,
-      withdrawalId,
-      { _noydb: NOYDB_FORMAT_VERSION, _v: 1, _ts: frozenAt, _iv: '', _data: body, _by: opts.actorUserId },
-      0,
-    )
-    // Hash-pin into the tamper-evident ledger — makes the snapshot provably unaltered.
-    await vault._getLedgerOrNull()?.append({
-      op: 'lifecycle', collection: '', id: '', version: 0, actor: opts.actorUserId, payloadHash: '',
-      reason: `withdrawal-frozen-snapshot:${withdrawalId}:${sha}`,
-    })
-    snapshot = { withdrawalId, sha256: sha, recordCount: closure.length, frozenAt }
-  }
+  // freeze: pin a write-once, hash-pinned snapshot BEFORE any delete. The
+  // snapshot-only core is shared with FR-6 liberation (which never deletes).
+  const snapshot = opts.disposition === 'freeze'
+    ? await freezeSnapshotOnly(vault, collections, {
+        actorUserId: opts.actorUserId,
+        ...(opts.withdrawalId ? { withdrawalId: opts.withdrawalId } : {}),
+      })
+    : undefined
 
   // delete-closure — only after the snapshot is durable.
-  for (const { collection, id } of closure) {
-    await vault.collection(collection).delete(id)
+  const { name: vaultName, adapter } = vault._introspectState()
+  for (const c of collections) {
+    for (const id of await adapter.list(vaultName, c)) {
+      await vault.collection(c).delete(id)
+    }
   }
 
   return snapshot
