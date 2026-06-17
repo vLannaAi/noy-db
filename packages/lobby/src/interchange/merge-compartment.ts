@@ -173,7 +173,7 @@ export async function mergeCompartment(
   // 3. Resolve conflicts.
   const byCollection: Record<string, CollectionTally> = {}
   const conflicts: MergeConflict[] = []
-  const writes: { collection: string; id: string; record: Record<string, unknown>; source?: string }[] = []
+  const writes: { collection: string; id: string; record: Record<string, unknown>; source?: string; sourceTs?: string }[] = []
 
   function bump(
     coll: string,
@@ -187,7 +187,12 @@ export async function mergeCompartment(
   // 3a. added → insert (all strategies)
   for (const a of diff.added) {
     const src = incomingSource.get(a.collection)?.get(a.id)
-    writes.push({ collection: a.collection, id: a.id, record: a.record, ...(src !== undefined ? { source: src } : {}) })
+    const sts = incomingSourceTs.get(a.collection)?.get(a.id)
+    writes.push({
+      collection: a.collection, id: a.id, record: a.record,
+      ...(src !== undefined ? { source: src } : {}),
+      ...(sts !== undefined ? { sourceTs: sts } : {}),
+    })
     bump(a.collection, 'inserted')
   }
 
@@ -229,7 +234,12 @@ export async function mergeCompartment(
 
     if (strat === 'take-incoming') {
       const src = incomingSource.get(m.collection)?.get(m.id)
-      writes.push({ collection: m.collection, id: m.id, record: m.record, ...(src !== undefined ? { source: src } : {}) })
+      const sts = incomingSourceTs.get(m.collection)?.get(m.id)
+      writes.push({
+        collection: m.collection, id: m.id, record: m.record,
+        ...(src !== undefined ? { source: src } : {}),
+        ...(sts !== undefined ? { sourceTs: sts } : {}),
+      })
       bump(m.collection, 'updated')
       conflicts.push({ collection: m.collection, id: m.id, strategy: strat, resolution: 'incoming' })
     } else if (strat === 'keep-local') {
@@ -245,7 +255,12 @@ export async function mergeCompartment(
       const localTs = recvEnv?._ts ?? ''
       if (incTs > localTs) {
         const src = incomingSource.get(m.collection)?.get(m.id)
-        writes.push({ collection: m.collection, id: m.id, record: m.record, ...(src !== undefined ? { source: src } : {}) })
+        const sts = incomingSourceTs.get(m.collection)?.get(m.id)
+        writes.push({
+          collection: m.collection, id: m.id, record: m.record,
+          ...(src !== undefined ? { source: src } : {}),
+          ...(sts !== undefined ? { sourceTs: sts } : {}),
+        })
         bump(m.collection, 'updated')
         conflicts.push({ collection: m.collection, id: m.id, strategy: strat, resolution: 'incoming' })
       } else {
@@ -264,6 +279,7 @@ export async function mergeCompartment(
       await receiver.collection(w.collection).put(w.id, w.record, {
         reason,
         ...(w.source !== undefined ? { source: w.source } : {}),
+        ...(w.sourceTs !== undefined ? { sourceTs: w.sourceTs } : {}),
       })
     }
   }

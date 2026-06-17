@@ -446,3 +446,37 @@ describe('mergeCompartment — field-authority (FR-4)', () => {
     expect(report.summary.updated).toBe(1)
   })
 })
+
+// ─── FR-4 Q2: take-incoming preserves incoming origin _sourceTs ───────────────
+
+describe('mergeCompartment — origin _sourceTs preservation (FR-4 Q2)', () => {
+  it('take-incoming preserves the incoming origin _sourceTs (not merge time)', async () => {
+    // incoming c1 written with {source:'firm-A', sourceTs:'2020-05-05T00:00:00.000Z'}
+    const sourceDb = await createNoydb({ store: memory(), user: 'src-sts', secret: 'src-sts-secret-123' })
+    const source = await sourceDb.openVault('source-sts')
+    const srcClients = source.collection<Client>('clients', { provenance: true })
+    await srcClients.put('c1', { id: 'c1', name: 'A-incoming' }, {
+      source: 'firm-A',
+      sourceTs: '2020-05-05T00:00:00.000Z',
+    })
+    await srcClients.put('c2', { id: 'c2', name: 'B' })
+
+    const { bundleBytes, transferKey } = await extractPartition(source, {
+      seeds: { clients: () => true },
+    })
+
+    // receiver has a divergent c1
+    const recvDb = await createNoydb({ store: memory(), user: 'recv-sts', secret: 'recv-sts-secret-456' })
+    const receiver = await recvDb.openVault('receiver-sts')
+    const recvClients = receiver.collection<Client>('clients', { provenance: true })
+    await recvClients.put('c1', { id: 'c1', name: 'A-local' }, { source: 'local-source' })
+
+    await mergeCompartment(receiver, bundleBytes, { transferKey, strategy: 'take-incoming' })
+
+    const meta = await receiver.collection<Client>('clients', { provenance: true }).getMetadata('c1')
+    expect(meta).not.toBeNull()
+    expect(meta!.source).toBe('firm-A')
+    // origin _sourceTs preserved — NOT merge-time
+    expect(meta!.sourceTs).toBe('2020-05-05T00:00:00.000Z')
+  })
+})
