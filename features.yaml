@@ -1030,6 +1030,27 @@ features:
       - 'two-party ceremony (P3) for read-only roles: requestWithdrawal files a durable plaintext-metadata request in _user_withdrawal_requests (no passphrase at rest); owner/admin approveWithdrawal (gate approve-user-withdrawal t2 + role) extracts under firm authority and reuses freezeAndDeleteClosure so the requester disposition flows through; rejectWithdrawal touches no data; approve/reject are OCC + idempotent (pending-only, expiry-checked)'
     related: [transferable-partition, bundle, team, session-tiers]
 
+  - id: multi-compartment-bundle
+    name: Multi-compartment bundle (NDBM — N vaults in one .noydb container)
+    cluster: snapshot-and-portability
+    spec: docs/superpowers/specs/2026-06-16-lobby-framework-design.md
+    subsystem_doc: docs/superpowers/specs/2026-06-16-lobby-framework-design.md
+    package: '@noy-db/hub'
+    factory: null
+    status: preview
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'NDBM outer container: magic NDBM(4) + version(1) + reserved(1) + manifestLen uint32BE(4) + manifest JSON + concat inner v1 bundles in manifest order'
+      - 'Compose, not mutate: each compartment is a complete standard v1 NDB1 bundle produced by writeNoydbBundle; the v1 format/validator is untouched'
+      - 'Pre-decrypt manifest: always-on fields handle/exportedAt/innerBytes/innerSha256; opt-in fields name/collections/publicEnvelope controlled per-compartment by writeMultiVaultBundle({ disclose })'
+      - 'readNoydbBundleManifest is format-polymorphic: NDBM returns N entries; a single v1 NDB1 bundle returns a 1-entry manifest (back-compat for uniform callers)'
+      - 'readMultiVaultBundleCompartment(bytes, handleOrIndex) extracts one compartment slice for direct pass-through to readNoydbBundle; for a v1 bundle the bundle itself is the only compartment'
+      - 'encodeMultiBundle / decodeMultiBundle are the low-level framing primitives; decodeMultiBundle validates magic, version, manifest JSON, and per-compartment innerBytes overrun'
+    related: [bundle, transferable-partition, public-envelope]
+
   - id: with-snapshots
     name: Snapshot lifecycle (withSnapshots)
     cluster: snapshot-and-portability

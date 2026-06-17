@@ -41,6 +41,23 @@ export type {
 
 export { generateULID, isULID } from './ulid.js'
 
+// ─── Multi-compartment bundle (NDBM) ─────────────────────────────────
+export {
+  writeMultiVaultBundle,
+  readNoydbBundleManifest,
+  readMultiVaultBundleCompartment,
+  encodeMultiBundle,
+  decodeMultiBundle,
+  NOYDB_MULTI_BUNDLE_MAGIC,
+  NOYDB_MULTI_BUNDLE_PREFIX_BYTES,
+  NOYDB_MULTI_BUNDLE_VERSION,
+} from './multi-bundle.js'
+export type {
+  CompartmentManifest,
+  MultiBundleManifest,
+  MultiVaultCompartmentInput,
+} from './multi-bundle.js'
+
 // ─── Partition extraction ────────────────────────────────
 export { walkClosure } from './walk-closure.js'
 export type { WalkClosureOptions, ClosureResult } from './walk-closure.js'
