@@ -574,7 +574,10 @@ const KERNEL_SURFACE_BUDGET = {
   // in src/store/route-store.ts (RoutedNoydbStore.resolveBackend).
   // Bumped 3085→3095 (2026-06-15, #412 P3): thread createNoydb({ objectStore })
   // into the three vault-construction option spreads.
-  'packages/hub/src/noydb.ts': 3095,
+  // Bumped 3095→3140 (2026-06-17, FR-6 Task 4): grantCustodian/revokeCustodian —
+  // the genuinely-core owner-only custody grant/revoke surface (defended in
+  // depth by gate + explicit keyring.role !== 'owner' check).
+  'packages/hub/src/noydb.ts': 3140,
 }
 
 function checkKernelSurface() {

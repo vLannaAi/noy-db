@@ -749,6 +749,47 @@ export class Noydb {
   }
 
   /**
+   * Grant the FR-6 `custodian` role to a user (owner-only custody API).
+   *
+   * A custodian operates every collection (rw + access) but is provably
+   * unable to grant / revoke / rotate / extract-and-sever. Only the Deed
+   * owner may mint one. Defended in depth: the `grant-custodian` gate
+   * (fail-closed) AND an explicit `keyring.role !== 'owner'` check — the
+   * gate enforces host policy, the role check enforces the cryptographic
+   * owner-only invariant even if a host mis-configures the gate.
+   */
+  async grantCustodian(
+    vault: string,
+    options: Omit<GrantOptions, 'role'>,
+    factors?: FactorProofBundle,
+  ): Promise<void> {
+    this.checkPolicyOperation(vault, 'grant')
+    await this.checkGate(vault, 'grant-custodian', factors)
+    const keyring = await this.getKeyringInternal(vault)
+    if (keyring.role !== 'owner') throw new PermissionDeniedError('only the Deed owner can grant a custodian')
+    await keyringGrant(this.options.store, vault, keyring, { ...options, role: 'custodian' })
+  }
+
+  /**
+   * Revoke a custodian (owner-only custody API).
+   *
+   * Mirrors {@link revoke} but pins the caller to the Deed owner: defended
+   * in depth by the `revoke-user` gate AND an explicit `keyring.role !==
+   * 'owner'` check, so an admin cannot unwind a custodianship.
+   */
+  async revokeCustodian(
+    vault: string,
+    options: RevokeOptions,
+    factors?: FactorProofBundle,
+  ): Promise<void> {
+    this.checkPolicyOperation(vault, 'revoke')
+    await this.checkGate(vault, 'revoke-user', factors)
+    const keyring = await this.getKeyringInternal(vault)
+    if (keyring.role !== 'owner') throw new PermissionDeniedError('only the Deed owner can revoke a custodian')
+    await keyringRevoke(this.options.store, vault, keyring, options)
+  }
+
+  /**
    * Mutate post-grant identity fields on an existing keyring — `role`,
    * `displayName`, and/or `permissions`. Pure plaintext-header rewrite:
    * no DEK rewrap, no KEK required, no authenticator slots touched.
