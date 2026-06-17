@@ -3258,8 +3258,14 @@ export class Vault {
     }
     // Construction-time tier-reach check: scan keyring for any
     // `*#${tier}` DEK. Owners and admins skip — they auto-mint at
-    // write time per the existing `assertTierAccess` rules.
-    if (this.keyring.role !== 'owner' && this.keyring.role !== 'admin') {
+    // write time per the existing `assertTierAccess` rules. FR-6:
+    // custodian is admin-rank operationally and auto-mints tier DEKs
+    // too (kept in lockstep with assertTierAccess in team/tiers.ts).
+    if (
+      this.keyring.role !== 'owner' &&
+      this.keyring.role !== 'admin' &&
+      this.keyring.role !== 'custodian'
+    ) {
       const suffix = `#${tier}`
       let found = false
       for (const k of this.keyring.deks.keys()) {

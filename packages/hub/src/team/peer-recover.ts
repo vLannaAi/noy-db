@@ -41,6 +41,10 @@ import { assertStrongPassphrase, type PassphrasePolicy } from '../validation.js'
 import type { UnlockedKeyring } from './keyring.js'
 import { mintKeyringCanary } from './keyring.js'
 
+// FR-6: 'custodian' is deliberately ABSENT — an admin cannot peer-recover a
+// custodian (mirrors ADMIN_GRANTABLE_TARGETS: custodians are owner-managed
+// only). The owner CAN recover one (canRecover returns true for owner). As a
+// CALLER, a custodian recovers nobody (it is neither owner nor admin → false).
 const ADMIN_RECOVERABLE_TARGETS: readonly Role[] = ['operator', 'viewer', 'client', 'admin']
 
 /**

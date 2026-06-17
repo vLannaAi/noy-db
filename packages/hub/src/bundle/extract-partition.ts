@@ -252,6 +252,11 @@ export async function extractPartition(
     readonly carryLedger?: boolean
   },
 ): Promise<ExtractPartitionResult> {
+  // FR-6: owner-only is exactly right for custody — a custodian is NOT owner,
+  // so it already fails here ('custodian' is reported in the message). This is
+  // the extract-and-sever half of the inalienability floor; Task 2 adds the
+  // explicit denial assertion against this branch (no code change needed —
+  // documented here so the audit shows it was considered, not missed).
   if (vault.role !== 'owner') {
     throw new PartitionExtractionError(
       `extractPartition requires the 'owner' role on the source vault; caller is '${vault.role}'. `

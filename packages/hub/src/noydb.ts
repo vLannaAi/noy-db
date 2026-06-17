@@ -142,6 +142,12 @@ const ROLE_RANK: Record<Role, number> = {
   client: 1,
   viewer: 2,
   operator: 3,
+  // FR-6: custodian is operationally admin-rank (rw + access on every
+  // collection) — it ranks alongside admin for "how much can this
+  // principal see/operate." It is NOT above admin, and explicitly below
+  // owner: a custodian can never grant/revoke/rotate/sever (those are
+  // owner meta-capabilities), so it must not outrank or equal the owner.
+  custodian: 4,
   admin: 4,
   owner: 5,
 }

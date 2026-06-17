@@ -73,15 +73,25 @@ export const NOYDB_SYNC_VERSION = 1 as const
  * Roles control both the operations a user can perform and which DEKs
  * they receive in their keyring:
  *
- * | Role       | Collections      | Can grant/revoke | Can export |
- * |------------|-----------------|:----------------:|:----------:|
- * | `owner`    | all (rw)        | Yes (all roles)  | Yes        |
- * | `admin`    | all (rw)        | Yes (≤ admin)    | Yes        |
- * | `operator` | explicit (rw)   | No               | ACL-scoped |
- * | `viewer`   | all (ro)        | No               | Yes        |
- * | `client`   | explicit (ro)   | No               | ACL-scoped |
+ * | Role        | Collections      | Can grant/revoke | Can export |
+ * |-------------|-----------------|:----------------:|:----------:|
+ * | `owner`     | all (rw)        | Yes (all roles)  | Yes        |
+ * | `admin`     | all (rw)        | Yes (≤ admin)    | Yes        |
+ * | `custodian` | all (rw)        | No (see below)   | Yes        |
+ * | `operator`  | explicit (rw)   | No               | ACL-scoped |
+ * | `viewer`    | all (ro)        | No               | Yes        |
+ * | `client`    | explicit (ro)   | No               | ACL-scoped |
+ *
+ * **`custodian` (FR-6 sovereign custody).** Operationally admin-rank —
+ * rw + access on every collection, receives all collection DEKs on grant
+ * — but is *provably non-owning*: it CANNOT grant, revoke, rotate keys,
+ * or extract-and-sever a partition (the last three are enforced in Task 2,
+ * see the TODO(FR-6 Task 2) markers). Only the (sealed Deed) **owner** may
+ * mint or remove a custodian; an admin cannot. This is the inalienability
+ * floor — a custodian can run the vault day-to-day yet never escalate to
+ * the owner credential.
  */
-export type Role = 'owner' | 'admin' | 'operator' | 'viewer' | 'client'
+export type Role = 'owner' | 'admin' | 'custodian' | 'operator' | 'viewer' | 'client'
 
 /**
  * Read-write or read-only access on a collection.

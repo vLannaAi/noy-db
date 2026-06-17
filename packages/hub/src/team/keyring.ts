@@ -47,10 +47,18 @@ import {
  *      a console warning (`cascade: 'warn'`). The walk uses the
  *      `granted_by` field on each keyring file as the parent pointer.
  */
+// FR-6: 'custodian' is deliberately ABSENT here. An admin must not be able
+// to mint (or revoke) a custodian — only the (sealed Deed) owner can, because
+// the custodian is the de-facto operational authority and granting one is an
+// ownership-level act. `canGrant(admin, 'custodian')` therefore returns false.
 const ADMIN_GRANTABLE_TARGETS: readonly Role[] = ['operator', 'viewer', 'client', 'admin']
 
 function canGrant(callerRole: Role, targetRole: Role): boolean {
   if (callerRole === 'owner') return true
+  // FR-6: a custodian can never grant — it holds the DEKs to OPERATE the
+  // vault but no authority to widen the principal set. Explicit + fail-safe
+  // (it would also fall through to `return false`, but spell it out).
+  if (callerRole === 'custodian') return false
   if (callerRole === 'admin') return ADMIN_GRANTABLE_TARGETS.includes(targetRole)
   return false
 }
@@ -58,6 +66,8 @@ function canGrant(callerRole: Role, targetRole: Role): boolean {
 function canRevoke(callerRole: Role, targetRole: Role): boolean {
   if (targetRole === 'owner') return false // owner cannot be revoked
   if (callerRole === 'owner') return true
+  // FR-6: a custodian can never revoke — same non-owning rationale as canGrant.
+  if (callerRole === 'custodian') return false
   if (callerRole === 'admin') return ADMIN_GRANTABLE_TARGETS.includes(targetRole)
   return false
 }
@@ -439,8 +449,16 @@ export async function grant(
     }
   }
 
-  // For owner/admin/viewer roles, wrap ALL known DEKs
-  if (options.role === 'owner' || options.role === 'admin' || options.role === 'viewer') {
+  // For owner/admin/custodian/viewer roles, wrap ALL known DEKs.
+  // FR-6: a custodian operates EVERY collection, so — like admin — it must
+  // receive every collection DEK on grant. Without this branch a custodian
+  // could neither read nor write and the role would be inert.
+  if (
+    options.role === 'owner' ||
+    options.role === 'admin' ||
+    options.role === 'custodian' ||
+    options.role === 'viewer'
+  ) {
     for (const [collName, dek] of callerKeyring.deks) {
       if (!(collName in wrappedDeks)) {
         wrappedDeks[collName] = await wrapKey(dek, newKek)
@@ -555,6 +573,11 @@ async function findAdminDescendants(
     const env = await adapter.get(vault, '_keyring', userId)
     if (!env) continue
     const kf = JSON.parse(env._data) as KeyringFile
+    // Only admins can grant, so only admins have a delegation subtree to
+    // cascade. FR-6: a custodian is intentionally EXCLUDED here — it cannot
+    // grant (canGrant(custodian,*) === false), so it is never a cascade root
+    // and never a descendant edge. Treating it as an admin-descendant would
+    // wrongly sweep it into an admin's revoke cascade.
     if (kf.role !== 'admin') continue // only admins can grant — leaves are uninteresting
     if (kf.user_id === rootUserId) continue // self-edges are noise
     const list = childrenByParent.get(kf.granted_by) ?? []
@@ -759,6 +782,11 @@ export async function rotateKeys(
   callerKeyring: UnlockedKeyring,
   collections: string[],
 ): Promise<void> {
+  // TODO(FR-6 Task 2): block custodian from rotating keys —
+  //   `if (callerKeyring.role === 'custodian') throw new PermissionDeniedError(...)`.
+  //   Re-keying is an owner meta-capability; a custodian must NOT be able to
+  //   rotate (it would let it strip the sealed owner's DEK access). Enforced in
+  //   Task 2; flagged here so this site is not overlooked.
   // Generate new DEKs for each affected collection
   const newDeks = new Map<string, CryptoKey>()
   for (const collName of collections) {
@@ -1035,8 +1063,10 @@ export async function buildRecipientKeyringFile(
     }
   }
 
-  // owner / admin / viewer: wrap every known DEK (matches grant).
-  if (role === 'owner' || role === 'admin' || role === 'viewer') {
+  // owner / admin / custodian / viewer: wrap every known DEK (matches grant).
+  // FR-6: a custodian recipient operates every collection, so it receives all
+  // DEKs just like admin (kept in lockstep with grant()'s all-DEKs branch).
+  if (role === 'owner' || role === 'admin' || role === 'custodian' || role === 'viewer') {
     for (const [collName, dek] of callerKeyring.deks) {
       if (!(collName in wrappedDeks)) {
         wrappedDeks[collName] = await wrapKey(dek, newKek)
@@ -1168,6 +1198,11 @@ export async function listUsersWithEnvelopes<T = unknown>(
   callerRole: Role,
   options: ListUsersOptions = {},
 ): Promise<Array<{ user: UserInfo; envelope: UserEnvelopeReader<T> | null }>> {
+  // FR-6: custodian is INTENTIONALLY treated as NON-privileged here (SAFER
+  // default — review flag). Directory-privilege is a team-MANAGEMENT capability
+  // (bypassing the visibility toggle + listing hidden principals); a custodian
+  // is non-owning and cannot grant/revoke, so it should not see the hidden
+  // team membership. It still gets the normal (non-hidden) directory view.
   const isPrivileged = callerRole === 'owner' || callerRole === 'admin'
 
   // 1. Vault-level directory toggle.
@@ -1242,14 +1277,22 @@ export async function ensureCollectionDEK(
 
 /** Check if a user has write permission for a collection. */
 export function hasWritePermission(keyring: UnlockedKeyring, collectionName: string): boolean {
-  if (keyring.role === 'owner' || keyring.role === 'admin') return true
+  // FR-6: custodian writes every collection (admin-level operational rw).
+  if (keyring.role === 'owner' || keyring.role === 'admin' || keyring.role === 'custodian') return true
   if (keyring.role === 'viewer' || keyring.role === 'client') return false
   return keyring.permissions[collectionName] === 'rw'
 }
 
 /** Check if a user has any access to a collection. */
 export function hasAccess(keyring: UnlockedKeyring, collectionName: string): boolean {
-  if (keyring.role === 'owner' || keyring.role === 'admin' || keyring.role === 'viewer') return true
+  // FR-6: custodian reads every collection (admin-level operational access).
+  if (
+    keyring.role === 'owner' ||
+    keyring.role === 'admin' ||
+    keyring.role === 'custodian' ||
+    keyring.role === 'viewer'
+  )
+    return true
   return collectionName in keyring.permissions
 }
 
@@ -1312,6 +1355,12 @@ export async function persistKeyring(
  * keyring revocation.
  */
 function defaultBundleCapability(role: Role): boolean {
+  // FR-6: custodian is INTENTIONALLY not in the default-true set (SAFER
+  // default — review flag). A bundle is an external artifact that outlives
+  // keyring revocation; the owner can still grant a custodian
+  // `exportCapability.bundle = true` explicitly when an offline backup is
+  // part of the custody contract. Defaulting it off keeps a custodian from
+  // silently minting a revocation-surviving copy of the whole vault.
   return role === 'owner' || role === 'admin'
 }
 
@@ -1454,7 +1503,11 @@ export function evaluateImportCapability(
 }
 
 function resolvePermissions(role: Role, explicit?: Permissions): Permissions {
-  if (role === 'owner' || role === 'admin' || role === 'viewer') return {}
+  // FR-6: custodian is full-access-by-role (hasAccess/hasWritePermission
+  // short-circuit on the role), so — like admin — its permissions map is
+  // empty. Returning {} also prevents a caller-supplied `permissions` from
+  // accidentally NARROWING a custodian below its role guarantee.
+  if (role === 'owner' || role === 'admin' || role === 'custodian' || role === 'viewer') return {}
   return explicit ?? {}
 }
 

@@ -76,6 +76,11 @@ export interface SyncCredential {
 // ─── Access check ─────────────────────────────────────────────────────
 
 function requireAdminAccess(keyring: UnlockedKeyring): void {
+  // FR-6: custodian is INTENTIONALLY excluded. Sync credentials are the
+  // firm's hosting/infrastructure secrets (OAuth tokens, connection strings) —
+  // not the custodian's operational scope. A custodian operates the DATA but
+  // must never mint or read transport credentials that could be used to
+  // re-home or impersonate the firm's vault. Do NOT add 'custodian' here.
   if (keyring.role !== 'owner' && keyring.role !== 'admin') {
     throw new PermissionDeniedError(
       `Sync credentials require owner or admin role. Current role: "${keyring.role}"`,

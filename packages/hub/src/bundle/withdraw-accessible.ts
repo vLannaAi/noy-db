@@ -128,6 +128,14 @@ export async function withdrawAccessibleData(
       'unilateralWithdrawal is the scoped self-service path; an owner/admin should use extractPartition',
     )
   }
+  // TODO(FR-6 Task 2): add an explicit `custodian` branch here that throws and
+  //   points the caller to `vault.custody.liberate` — a custodian must NOT
+  //   destructively SEVER the vault; it claims ownership via the audited
+  //   Liberate ceremony. Today a custodian falls through to the operator path
+  //   below and is rejected by the "requires rw access on scope" guard
+  //   (resolveAccessibleCollections returns undefined for custodian → no
+  //   collections), so it cannot self-serve a sever — but the message is
+  //   wrong. Task 2 replaces this with a dedicated, correctly-worded branch.
   // client/viewer are read-only by construction (see hasWritePermission): a
   // destructive withdrawal they cannot self-serve — they use the two-party
   // requestWithdrawal flow where firm authority executes the delete-closure.
