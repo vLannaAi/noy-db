@@ -365,6 +365,8 @@ export {
   hasNoydbBundleMagic,
 } from './bundle/format.js'
 export { generateULID, isULID } from './bundle/ulid.js'
+export { decryptExtractedPartition } from './bundle/decrypt-partition.js'
+export type { DecryptedRecord } from './bundle/decrypt-partition.js'
 
 // Schema validation — Standard Schema v1 integration
 export type {

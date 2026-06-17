@@ -1,0 +1,58 @@
+/**
+ * Read-side counterpart to `extractPartition`: decrypt an
+ * extracted-partition bundle's records to plaintext using its transfer
+ * key, WITHOUT adopting it into a vault. Used by reconcile/merge
+ * (@klum-db/lobby FR-3) and field-authority (FR-4) to compare incoming
+ * records against a receiver. The transfer key validates the bundle
+ * (wrong key throws).
+ * @module
+ */
+import type { EncryptedEnvelope } from '../types.js'
+import { decrypt } from '../crypto.js'
+import { unwrapCek } from '../record-keys/index.js'
+import { readNoydbBundleHeader, readNoydbBundle, parseExtractedPartitionBody } from './bundle.js'
+import { unsealDeks } from './adopt-partition.js'
+
+/** One decrypted record from an extracted-partition compartment. */
+export interface DecryptedRecord {
+  readonly id: string
+  readonly record: Record<string, unknown>
+  /** Source envelope write timestamp (ISO) — for last-write-wins merges. */
+  readonly ts: string
+  /** Source envelope version. */
+  readonly version: number
+}
+
+/**
+ * Decrypt every record of an extracted-partition bundle to plaintext,
+ * grouped by collection. Throws if the bundle isn't an
+ * extracted-partition or the transfer key is wrong.
+ */
+export async function decryptExtractedPartition(
+  bundleBytes: Uint8Array,
+  transferKey: Uint8Array,
+): Promise<Record<string, DecryptedRecord[]>> {
+  const header = readNoydbBundleHeader(bundleBytes)
+  if (header.bundleKind !== 'extracted-partition' || header.transferSeal === undefined) {
+    throw new Error('decryptExtractedPartition: bundle is not an extracted-partition.')
+  }
+  const { dumpJson } = await readNoydbBundle(bundleBytes)
+  const { dump, seal } = parseExtractedPartitionBody(dumpJson)
+  const deks = await unsealDeks(seal, transferKey) // throws TransferSealError on wrong key
+  const backup = JSON.parse(dump) as { collections: Record<string, Record<string, EncryptedEnvelope>> }
+  const out: Record<string, DecryptedRecord[]> = {}
+  for (const [collection, byId] of Object.entries(backup.collections)) {
+    const dek = deks.get(collection)
+    if (dek === undefined) continue // no DEK sealed for this collection — skip
+    const recs: DecryptedRecord[] = []
+    for (const [id, env] of Object.entries(byId)) {
+      const plaintext = env._cek !== undefined
+        ? await decrypt(env._iv, env._data, await unwrapCek(env._cek, dek))
+        : await decrypt(env._iv, env._data, dek)
+      const body = JSON.parse(plaintext) as Record<string, unknown>
+      recs.push({ id, record: { ...body, id }, ts: env._ts, version: env._v })
+    }
+    out[collection] = recs
+  }
+  return out
+}
