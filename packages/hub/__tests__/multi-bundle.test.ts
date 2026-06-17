@@ -141,6 +141,18 @@ describe('multi-bundle framing codec', () => {
     withTrailer.set(good, 0)
     expect(() => decodeMultiBundle(withTrailer)).toThrow(/trailing/i)
   })
+
+  it('rejects duplicate compartment handles', () => {
+    const dup = '01HAAAAAAAAAAAAAAAAAAAAAAA'
+    const m: MultiBundleManifest = {
+      multiFormatVersion: 1, handle: '01HZZZZZZZZZZZZZZZZZZZZZZZ',
+      compartments: [
+        { handle: dup, exportedAt: '2026-06-17T00:00:00.000Z', innerBytes: 1, innerSha256: 'a'.repeat(64) },
+        { handle: dup, exportedAt: '2026-06-17T00:00:00.000Z', innerBytes: 1, innerSha256: 'b'.repeat(64) },
+      ],
+    }
+    expect(() => encodeMultiBundle(m, [new Uint8Array([1]), new Uint8Array([2])])).toThrow(/duplicate/i)
+  })
 })
 
 // ---------------------------------------------------------------------------

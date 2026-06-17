@@ -62,6 +62,7 @@ export function encodeMultiBundle(
   manifest: MultiBundleManifest,
   inner: readonly Uint8Array[],
 ): Uint8Array {
+  validateManifest(manifest)
   if (manifest.compartments.length !== inner.length) {
     throw new Error(`multi-bundle: manifest has ${manifest.compartments.length} compartments but ${inner.length} inner bundles were provided.`)
   }
@@ -95,10 +96,15 @@ function validateManifest(parsed: unknown): asserts parsed is MultiBundleManifes
   if (m['multiFormatVersion'] !== NOYDB_MULTI_BUNDLE_VERSION) throw new Error(`multi-bundle manifest.multiFormatVersion must be ${NOYDB_MULTI_BUNDLE_VERSION}, got ${String(m['multiFormatVersion'])}.`)
   if (typeof m['handle'] !== 'string' || m['handle'].length === 0) throw new Error('multi-bundle manifest.handle must be a non-empty string.')
   if (!Array.isArray(m['compartments'])) throw new Error('multi-bundle manifest.compartments must be an array.')
+  const seenHandles = new Set<string>()
   for (const c of m['compartments'] as unknown[]) {
     if (c === null || typeof c !== 'object') throw new Error('multi-bundle compartment must be an object.')
     const e = c as Record<string, unknown>
     if (typeof e['handle'] !== 'string' || e['handle'].length === 0) throw new Error('multi-bundle compartment.handle must be a non-empty string.')
+    if (seenHandles.has(e['handle'] as string)) {
+      throw new Error(`multi-bundle manifest has a duplicate compartment handle "${e['handle'] as string}".`)
+    }
+    seenHandles.add(e['handle'] as string)
     if (typeof e['innerBytes'] !== 'number' || !Number.isInteger(e['innerBytes']) || e['innerBytes'] < 0) throw new Error('multi-bundle compartment.innerBytes must be a non-negative integer.')
     if (typeof e['innerSha256'] !== 'string' || !/^[0-9a-f]{64}$/.test(e['innerSha256'])) throw new Error('multi-bundle compartment.innerSha256 must be 64-char lowercase hex.')
   }
@@ -229,6 +235,9 @@ export async function readNoydbBundleManifest(bytes: Uint8Array): Promise<Compar
  * compartment's `innerSha256`.
  */
 export function readMultiVaultBundleCompartment(bytes: Uint8Array, selector: string | number): Uint8Array {
+  if (typeof selector === 'number' && !Number.isInteger(selector)) {
+    throw new Error(`readMultiVaultBundleCompartment: numeric selector must be an integer, got ${selector}.`)
+  }
   if (hasNoydbBundleMagic(bytes) && !hasMultiMagic(bytes)) {
     const header = readNoydbBundleHeader(bytes)
     if (selector === 0 || selector === header.handle) return bytes
