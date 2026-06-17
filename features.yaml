@@ -1093,6 +1093,28 @@ features:
       - 'FieldLevelDeferredError is thrown eagerly on first field-level conflict; use take-incoming / keep-local / lww-by-ts / manual-queue until FR-4 ships'
     related: [cross-vault-extraction, transferable-partition, bundle]
 
+  - id: record-provenance
+    name: Record provenance (_source / _sourceTs envelope fields)
+    cluster: time-and-audit
+    spec: docs/superpowers/specs/2026-06-16-lobby-framework-design.md
+    subsystem_doc: docs/superpowers/specs/2026-06-16-lobby-framework-design.md
+    package: '@noy-db/hub'
+    factory: null
+    status: preview
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Off by default — collection opts in via collection(name, { provenance: true }); zero-cost for all other collections (no envelope injection, no extra reads)'
+      - '_source (opaque string) + _sourceTs (ISO-8601) are written at the 3 envelope-construction sites only when provenance:true AND a source is supplied to put(); absent otherwise — additive, no migration required'
+      - 'collection.getMetadata(id) returns { version, timestamp, by?, source?, sourceTs? } or null without decrypting the body; zero DEK access needed for metadata reads'
+      - 'diffVault(..., { includeMetadata: true }) attaches metadata to each VaultDiffEntry (receiver-side envelopes, opt-in); default off = zero extra reads and no behavior change for existing callers'
+      - 'Derived writes carry synthetic source (derived) when the output collection has provenance:true; source is ignored when provenance is off'
+      - 'decryptExtractedPartition surfaces source/sourceTs on DecryptedRecord (envelope fields are preserved across extractPartition by the {...env} spread)'
+      - 'mergeCompartment re-stamps the incoming source on receiver writes so provenance is preserved across vault boundaries; silently no-op when the receiver collection has provenance off'
+    related: [vault-and-collections, history, merge-compartment, transferable-partition]
+
   - id: with-snapshots
     name: Snapshot lifecycle (withSnapshots)
     cluster: snapshot-and-portability
