@@ -136,6 +136,8 @@ import {
   type MagicLinkGrantRecord,
 } from './team/magic-link-grant.js'
 import { UserApi } from './meta/user-envelope/api.js'
+import { CustodyApi } from './custody/index.js'
+import { liberateVault } from './custody/liberate.js'
 import { persistSchemaIfNeeded } from './persisted-schemas/register.js'
 import { SchemaUpdateGate } from './schema-update/gate.js'
 import { SchemaFenceController } from './schema-update/fence-controller.js'
@@ -280,6 +282,19 @@ export class Vault {
    * @see docs/superpowers/specs/2026-05-05-user-envelope-design.md
    */
   public readonly user: UserApi
+
+  /**
+   * FR-6 custody API — the sovereign-custody surface, mirroring `vault.user.*`.
+   *
+   * - `grantCustodian(opts)` / `revokeCustodian(opts)` — owner-only: mint /
+   *   remove a `custodian` who operates the vault fully but can never grant /
+   *   rotate / sever / extract.
+   * - `liberate(opts)` — custodian-only: the audited claim of ownership over a
+   *   sealed-owner (Deed) vault (mints a DISTINCT new owner; ledger-audited).
+   *
+   * @see docs/superpowers/specs/2026-06-17-fr6-deed-custodian-liberate-design.md
+   */
+  public readonly custody: CustodyApi
 
   /**
    * Optional callback that re-derives an UnlockedKeyring from the
@@ -592,6 +607,16 @@ export class Vault {
       (opts) => listWithdrawalRequests(this, opts),
       (requestId, opts) => approveWithdrawal(this, requestId, opts),
       (requestId, opts) => rejectWithdrawal(this, requestId, opts),
+    )
+
+    // FR-6 custody API — mirrors the UserApi injection pattern: vault-bound
+    // closures over Noydb.grantCustodian/revokeCustodian (owner-only, gated)
+    // and the liberateVault ceremony (custodian-only). No logic here — the
+    // CustodyApi is a pure delegation shell (see custody/index.ts).
+    this.custody = new CustodyApi(
+      (options, factors) => this.noydb.grantCustodian(this.name, options, factors),
+      (options, factors) => this.noydb.revokeCustodian(this.name, options, factors),
+      (opts) => liberateVault(this, opts),
     )
   }
 
@@ -3258,8 +3283,14 @@ export class Vault {
     }
     // Construction-time tier-reach check: scan keyring for any
     // `*#${tier}` DEK. Owners and admins skip — they auto-mint at
-    // write time per the existing `assertTierAccess` rules.
-    if (this.keyring.role !== 'owner' && this.keyring.role !== 'admin') {
+    // write time per the existing `assertTierAccess` rules. FR-6:
+    // custodian is admin-rank operationally and auto-mints tier DEKs
+    // too (kept in lockstep with assertTierAccess in team/tiers.ts).
+    if (
+      this.keyring.role !== 'owner' &&
+      this.keyring.role !== 'admin' &&
+      this.keyring.role !== 'custodian'
+    ) {
       const suffix = `#${tier}`
       let found = false
       for (const k of this.keyring.deks.keys()) {

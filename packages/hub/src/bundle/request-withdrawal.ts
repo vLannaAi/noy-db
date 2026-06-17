@@ -136,6 +136,10 @@ export async function listWithdrawalRequests(
 
 function assertApprover(vault: Vault): string {
   const { keyring } = vault._introspectState()
+  // FR-6: custodian is INTENTIONALLY excluded (SAFER default — review flag).
+  // Approving a two-party withdrawal is a destructive extract-and-dispose
+  // exercised under FIRM authority — a governance act adjacent to grant/revoke,
+  // which a non-owning custodian cannot do. It stays owner/admin-only.
   if (keyring.role !== 'owner' && keyring.role !== 'admin') {
     throw new WithdrawalRequestError('approveWithdrawal / rejectWithdrawal require an owner or admin')
   }

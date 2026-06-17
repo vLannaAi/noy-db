@@ -60,7 +60,9 @@ export function assertTierAccess(
   tier: number,
 ): void {
   if (tier <= 0) return
-  if (keyring.role === 'owner' || keyring.role === 'admin') return
+  // FR-6: custodian operates every collection at every tier (admin-level
+  // operational authority), so it may mint a tier DEK on demand like admin.
+  if (keyring.role === 'owner' || keyring.role === 'admin' || keyring.role === 'custodian') return
   if (!keyring.deks.has(dekKey(collection, tier))) {
     throw new TierNotGrantedError(collection, tier)
   }

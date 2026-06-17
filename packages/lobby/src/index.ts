@@ -127,3 +127,10 @@ export type {
   FieldAuthorityPolicy,
   FieldAuthorityInputs,
 } from './interchange/field-authority.js'
+
+// ─── FR-6: Sovereign custody (Deed / Custodian / Liberate) ────────────────────
+// Pure re-exports — custody is a vault-level concern in @noy-db/hub; the Lobby
+// surfaces the types/functions so fleet-level orchestration can reach them
+// without importing hub internals directly (no lobby logic in this slice).
+export { CustodyApi, liberateVault, createDeedOwner, loadDeedMarker, isDeedVault } from '@noy-db/hub'
+export type { DeedMarker, LiberateOptions, LiberateResult, GrantCustodianOptions } from '@noy-db/hub'

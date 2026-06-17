@@ -165,6 +165,23 @@ export type BuiltInGateName =
    * defaults to a tier-2 floor; owner/admin role is enforced structurally.
    */
   | 'approve-user-withdrawal'
+  /**
+   * Authorize minting a **custodian** — `db.grantCustodian` (FR-6). The
+   * custodian is the de-facto operational authority on a sealed-owner (Deed)
+   * vault, so granting one is an ownership-level act: this gate MUST fail
+   * closed (undefined in a policy = denied) and owner-only role is enforced
+   * structurally. Hosts opt in explicitly, typically pinning factor proofs.
+   */
+  | 'grant-custodian'
+  /**
+   * Authorize the audited **Liberate** ceremony — `vault.custody.liberate`
+   * (FR-6). The custodian (holding the live DEKs) claims ownership of a
+   * sealed-owner vault under a recorded legal basis, minting a NEW owner
+   * keyring. Destructive-of-the-old-ownership and irreversible, so it MUST
+   * fail closed (undefined = denied); the caller-is-custodian check is
+   * enforced structurally in the ceremony.
+   */
+  | 'liberate-vault'
 
 /** Either a built-in gate name or an `app:*` custom gate. */
 export type GateName = BuiltInGateName | `app:${string}`

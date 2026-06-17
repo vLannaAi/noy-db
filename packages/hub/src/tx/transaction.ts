@@ -160,7 +160,10 @@ export class TxContext {
       // vault case the tests exercise; multi-vault amendments check
       // each touched vault as they first appear.
       const role = v.role
-      if (role !== 'admin' && role !== 'owner') {
+      // FR-6: custodian is admin-rank for operational mutations, and an
+      // amendment is an operational (data-correcting) act — not an ownership
+      // meta-capability — so custodian is allowed alongside owner/admin.
+      if (role !== 'admin' && role !== 'owner' && role !== 'custodian') {
         throw new AmendmentForbiddenError(v.userId, role)
       }
       // Amendments require an initialised guard registry — they

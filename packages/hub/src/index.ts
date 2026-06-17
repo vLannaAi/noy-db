@@ -560,6 +560,14 @@ export type {
 } from './meta/user-envelope/api.js'
 export { UserApi } from './meta/user-envelope/api.js'
 
+// FR-6 sovereign custody — Deed / Custodian / Liberate.
+export { CustodyApi } from './custody/index.js'
+export type { GrantCustodianOptions } from './custody/index.js'
+export { liberateVault } from './custody/liberate.js'
+export type { LiberateOptions, LiberateResult } from './custody/liberate.js'
+export { createDeedOwner, loadDeedMarker, isDeedVault, DEED_RECORD_ID } from './team/deed.js'
+export type { DeedMarker } from './team/deed.js'
+
 // Auth introspection
 export {
   describeAuthConfig,

@@ -547,7 +547,10 @@ const KERNEL_SURFACE_BUDGET = {
   // the two-party withdrawal ceremony to the bundle subsystem (logic lives in
   // bundle/request-withdrawal.ts; vault.ts only injects the closures).
   // Bumped 4510→4520 (2026-06-17, FR-5 #445): provenance option + collOpts thread.
-  'packages/hub/src/vault.ts': 4520,
+  // Bumped 4520→4545 (2026-06-17, FR-6 Task 6): custody surface field + wiring
+  // (`public readonly custody: CustodyApi` + the three-closure injection
+  // mirroring the UserApi pattern; logic lives in custody/index.ts + liberate.ts).
+  'packages/hub/src/vault.ts': 4545,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
@@ -574,7 +577,10 @@ const KERNEL_SURFACE_BUDGET = {
   // in src/store/route-store.ts (RoutedNoydbStore.resolveBackend).
   // Bumped 3085→3095 (2026-06-15, #412 P3): thread createNoydb({ objectStore })
   // into the three vault-construction option spreads.
-  'packages/hub/src/noydb.ts': 3095,
+  // Bumped 3095→3140 (2026-06-17, FR-6 Task 4): grantCustodian/revokeCustodian —
+  // the genuinely-core owner-only custody grant/revoke surface (defended in
+  // depth by gate + explicit keyring.role !== 'owner' check).
+  'packages/hub/src/noydb.ts': 3140,
 }
 
 function checkKernelSurface() {
