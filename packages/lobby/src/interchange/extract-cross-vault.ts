@@ -152,7 +152,7 @@ export class CrossVaultDanglingRefError extends Error {
   constructor(readonly dangling: { vault: string; collection: string; id: string }[]) {
     super(
       `cross-vault extraction: ${dangling.length} referenced row(s) missing from their target closure: `
-      + dangling.map((d) => `${d.vault}/${d.collection}/${d.id}`).slice(0, 5).join(', '),
+      + dangling.slice(0, 5).map((d) => `${d.vault}/${d.collection}/${d.id}`).join(', '),
     )
     this.name = 'CrossVaultDanglingRefError'
   }
@@ -163,7 +163,6 @@ export interface CompartmentMeta {
   readonly disclose?: {
     readonly name?: boolean | string
     readonly collections?: boolean
-    readonly publicEnvelope?: boolean
   }
 }
 
@@ -179,6 +178,13 @@ export interface ExtractCrossVaultOptions {
 
 export interface ExtractCrossVaultResult {
   readonly bundle: Uint8Array
+  /**
+   * Per-compartment raw 32-byte transfer keys, keyed by vault name. Each
+   * unseals that compartment's DEKs on adoption.
+   * @remarks SECRET — deliver these out-of-band, SEPARATELY from `bundle`.
+   * Anyone with both the bundle and a compartment's key can decrypt that
+   * compartment. Never store them alongside the bundle.
+   */
   readonly transferKeys: Record<string, Uint8Array>
   readonly sealIds: Record<string, string>
 }
@@ -221,10 +227,11 @@ export async function extractCrossVaultPartition(
     }
     if (meta?.disclose?.collections === true) {
       const cl = plan.perVaultClosure.get(vaultName)
+      // `ids.size` reflects the EXTRACTED CLOSURE SLICE for this vault (the subset
+      // selected by the cross-vault FK walk), NOT the full vault record count.
+      // This differs from FR-1's writeMultiVaultBundle which counts the full vault.
       if (cl) entry.collections = [...cl].map(([name, ids]) => ({ name, count: ids.size }))
     }
-    // publicEnvelope opt-in omitted: readNoydbBundlePublicEnvelope is not
-    // exported from @noy-db/hub/bundle; deferred to a future pass.
 
     inner.push(bundleBytes)
     compartments.push(entry)
