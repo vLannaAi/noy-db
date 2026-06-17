@@ -137,14 +137,20 @@ export async function mergeCompartment(
   const incoming = await decryptExtractedPartition(compartmentBytes, opts.transferKey)
 
   // Build the candidate for diffVault: Record<collection, T[]> where each T has an `id` field.
-  // Also keep incoming _ts for lww-by-ts comparison.
+  // Also keep incoming _ts for lww-by-ts comparison and _source for provenance threading (FR-5).
   const incomingTs = new Map<string, Map<string, string>>()
+  const incomingSource = new Map<string, Map<string, string>>()
   const candidate: Record<string, Record<string, unknown>[]> = {}
   for (const [coll, recs] of Object.entries(incoming)) {
     const tsMap = new Map<string, string>()
-    for (const r of recs) tsMap.set(r.id, r.ts)
+    const srcMap = new Map<string, string>()
+    for (const r of recs) {
+      tsMap.set(r.id, r.ts)
+      if (r.source !== undefined) srcMap.set(r.id, r.source)
+    }
     candidate[coll] = recs.map((r) => r.record)
     incomingTs.set(coll, tsMap)
+    incomingSource.set(coll, srcMap)
   }
 
   // 2. Diff the receiver against the incoming candidate.
@@ -153,7 +159,7 @@ export async function mergeCompartment(
   // 3. Resolve conflicts.
   const byCollection: Record<string, CollectionTally> = {}
   const conflicts: MergeConflict[] = []
-  const writes: { collection: string; id: string; record: Record<string, unknown> }[] = []
+  const writes: { collection: string; id: string; record: Record<string, unknown>; source?: string }[] = []
 
   function bump(
     coll: string,
@@ -166,7 +172,8 @@ export async function mergeCompartment(
 
   // 3a. added → insert (all strategies)
   for (const a of diff.added) {
-    writes.push({ collection: a.collection, id: a.id, record: a.record })
+    const src = incomingSource.get(a.collection)?.get(a.id)
+    writes.push({ collection: a.collection, id: a.id, record: a.record, ...(src !== undefined ? { source: src } : {}) })
     bump(a.collection, 'inserted')
   }
 
@@ -182,7 +189,8 @@ export async function mergeCompartment(
     }
 
     if (strat === 'take-incoming') {
-      writes.push({ collection: m.collection, id: m.id, record: m.record })
+      const src = incomingSource.get(m.collection)?.get(m.id)
+      writes.push({ collection: m.collection, id: m.id, record: m.record, ...(src !== undefined ? { source: src } : {}) })
       bump(m.collection, 'updated')
       conflicts.push({ collection: m.collection, id: m.id, strategy: strat, resolution: 'incoming' })
     } else if (strat === 'keep-local') {
@@ -197,7 +205,8 @@ export async function mergeCompartment(
       const recvEnv = await adapter.get(receiverName, m.collection, m.id)
       const localTs = recvEnv?._ts ?? ''
       if (incTs > localTs) {
-        writes.push({ collection: m.collection, id: m.id, record: m.record })
+        const src = incomingSource.get(m.collection)?.get(m.id)
+        writes.push({ collection: m.collection, id: m.id, record: m.record, ...(src !== undefined ? { source: src } : {}) })
         bump(m.collection, 'updated')
         conflicts.push({ collection: m.collection, id: m.id, strategy: strat, resolution: 'incoming' })
       } else {
@@ -213,7 +222,10 @@ export async function mergeCompartment(
   // 4. Apply writes (unless dry-run).
   if (!opts.dryRun) {
     for (const w of writes) {
-      await receiver.collection(w.collection).put(w.id, w.record, { reason })
+      await receiver.collection(w.collection).put(w.id, w.record, {
+        reason,
+        ...(w.source !== undefined ? { source: w.source } : {}),
+      })
     }
   }
 
