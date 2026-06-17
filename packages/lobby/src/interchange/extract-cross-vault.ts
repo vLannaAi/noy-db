@@ -1,0 +1,137 @@
+/**
+ * @klum-db/lobby interchange — cross-vault FK-closure extraction.
+ * Composes hub's intra-vault primitives + FR-1's encodeMultiBundle.
+ * @packageDocumentation
+ */
+import type { Vault } from '@noy-db/hub'
+import { walkClosure } from '@noy-db/hub/bundle'
+
+/** A denormalized cross-vault FK edge (hub refuses these as native refs). */
+export interface CrossVaultRef {
+  readonly from: { readonly collection: string; readonly field: string }
+  readonly to: { readonly vault: string; readonly collection: string; readonly field?: string }
+}
+
+/** Seed for the primary vault (predicate per collection, like hub walkClosure). */
+export interface CrossVaultSeed {
+  readonly vault: string
+  readonly seeds: Record<string, (rec: Record<string, unknown>) => boolean | Promise<boolean>>
+}
+
+export interface CrossVaultClosurePlan {
+  /** vault → seed predicates to feed extractPartition (primary: caller's; targets: id-membership). */
+  readonly perVaultSeeds: Map<string, Record<string, (rec: Record<string, unknown>) => boolean | Promise<boolean>>>
+  /** vault → intra closure (collection → ids). */
+  readonly perVaultClosure: Map<string, Map<string, Set<string>>>
+  /** referenced rows not found in their target closure. */
+  readonly dangling: { vault: string; collection: string; id: string }[]
+}
+
+function asIdArray(v: unknown): string[] {
+  if (v === null || v === undefined) return []
+  if (Array.isArray(v)) return v.filter((x) => typeof x === 'string' || typeof x === 'number').map(String)
+  if (typeof v === 'string' || typeof v === 'number') return [String(v)]
+  return []
+}
+
+/**
+ * Walk an FK closure that spans vault boundaries via app-supplied cross-vault refs.
+ *
+ * @param openVault - resolver for a vault by name (idempotent in the hub —
+ *   repeated calls return the same cached instance, so the per-round calls are free).
+ * @param opts.maxDepth - bounds BOTH the number of inter-vault rounds (this planner's
+ *   outer fixpoint loop) AND hub's intra-vault `walkClosure` FK depth. Default 16.
+ */
+export async function walkCrossVaultClosure(
+  openVault: (name: string) => Promise<Vault>,
+  opts: { seed: CrossVaultSeed; crossVaultRefs?: readonly CrossVaultRef[]; maxDepth?: number },
+): Promise<CrossVaultClosurePlan> {
+  const refs = opts.crossVaultRefs ?? []
+  const maxDepth = opts.maxDepth ?? 16
+  const perVaultClosure = new Map<string, Map<string, Set<string>>>()
+  const perVaultSeeds: CrossVaultClosurePlan['perVaultSeeds'] = new Map()
+  // accumulated referenced ids per target vault+collection
+  const targetIds = new Map<string, Map<string, Set<string>>>()
+
+  const addTarget = (v: string, c: string, id: string) => {
+    let m = targetIds.get(v)
+    if (!m) { m = new Map(); targetIds.set(v, m) }
+    let s = m.get(c)
+    if (!s) { s = new Set(); m.set(c, s) }
+    s.add(id)
+  }
+
+  const mergeClosure = (v: string, cl: Map<string, Set<string>>) => {
+    let dest = perVaultClosure.get(v)
+    if (!dest) { dest = new Map(); perVaultClosure.set(v, dest) }
+    for (const [c, ids] of cl) {
+      let s = dest.get(c)
+      if (!s) { s = new Set(); dest.set(c, s) }
+      for (const id of ids) s.add(id)
+    }
+  }
+
+  // round 0: primary vault
+  perVaultSeeds.set(opts.seed.vault, opts.seed.seeds)
+  const queue: string[] = [opts.seed.vault]
+  const walkedSignature = new Set<string>()
+
+  let round = 0
+  while (queue.length > 0) {
+    if (round++ > maxDepth) break
+    const batch = queue.splice(0, queue.length)
+    for (const vaultName of batch) {
+      const seeds = perVaultSeeds.get(vaultName)!
+      const v = await openVault(vaultName)
+      const { closure } = await walkClosure(v, {
+        seeds,
+        ...(opts.maxDepth !== undefined ? { maxDepth: opts.maxDepth } : {}),
+      })
+      mergeClosure(vaultName, closure)
+      // harvest cross-vault FKs from this vault's closure
+      for (const ref of refs) {
+        const ids = closure.get(ref.from.collection)
+        if (!ids) continue
+        const coll = v.collection<Record<string, unknown>>(ref.from.collection)
+        for (const id of ids) {
+          const rec = await coll.get(id)
+          for (const fk of asIdArray(rec?.[ref.from.field])) {
+            addTarget(ref.to.vault, ref.to.collection, fk)
+          }
+        }
+      }
+    }
+    // enqueue targets whose id-set introduces records not yet in their closure
+    for (const [tVault, colls] of targetIds) {
+      for (const [tColl, ids] of colls) {
+        const field = refs.find((r) => r.to.vault === tVault && r.to.collection === tColl)?.to.field ?? 'id'
+        const have = perVaultClosure.get(tVault)?.get(tColl) ?? new Set<string>()
+        const sig = `${tVault}\0${tColl}\0${[...ids].sort().join(',')}`
+        if ([...ids].every((id) => have.has(id)) || walkedSignature.has(sig)) continue
+        // Stamp before enqueue; safe because harvest is sequential — no other FK
+        // accumulation can extend targetIds between this stamp and the next round.
+        walkedSignature.add(sig)
+        const wanted = new Set(ids)
+        const seed = { [tColl]: (rec: Record<string, unknown>) => wanted.has(String(rec[field])) }
+        const existing = perVaultSeeds.get(tVault)
+        // `wanted` is always the full cumulative targetIds set for this collection,
+        // so overwriting an existing predicate for tColl is safe and idempotent.
+        perVaultSeeds.set(tVault, existing ? { ...existing, ...seed } : seed)
+        queue.push(tVault)
+      }
+    }
+  }
+
+  // dangling check: every harvested target id must appear in the final closure
+  const dangling: CrossVaultClosurePlan['dangling'] = []
+  for (const [tVault, colls] of targetIds) {
+    for (const [tColl, ids] of colls) {
+      const have = perVaultClosure.get(tVault)?.get(tColl) ?? new Set<string>()
+      for (const id of ids) {
+        if (!have.has(id)) dangling.push({ vault: tVault, collection: tColl, id })
+      }
+    }
+  }
+
+  return { perVaultSeeds, perVaultClosure, dangling }
+}
