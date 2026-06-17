@@ -13,7 +13,7 @@
  */
 import type { Vault } from '@noy-db/hub'
 import { diffVault } from '@noy-db/hub'
-import { decryptExtractedPartition } from '@noy-db/hub/bundle'
+import { decryptExtractedPartition, type DecryptedRecord } from '@noy-db/hub/bundle'
 import {
   resolveRecordByFieldAuthority,
   FieldAuthorityPolicyMissingError,
@@ -118,7 +118,9 @@ function strategyFor(
 // ─── Core ─────────────────────────────────────────────────────────────────────
 
 /**
- * Reconcile an incoming extracted-partition compartment into a receiver vault.
+ * Merge an already-decrypted record set into the receiver. The shared core of
+ * `mergeCompartment` (decrypt → this) and `migrateThenMerge` (decrypt → migrate → this).
+ * `decrypted` is keyed by collection; each record carries id/record/ts/source/sourceTs.
  *
  * Semantics:
  * - **added**: in incoming, not in receiver → always insert (every strategy).
@@ -135,15 +137,12 @@ function strategyFor(
  * returned promise but leaves the receiver partially merged. Use `dryRun`
  * first to validate the plan when partial application is unacceptable.
  */
-export async function mergeCompartment(
+export async function mergeDecryptedRecords(
   receiver: Vault,
-  compartmentBytes: Uint8Array,
+  decrypted: Record<string, readonly DecryptedRecord[]>,
   opts: MergeCompartmentOptions,
 ): Promise<MergeReport> {
   const reason = opts.reason ?? 'merge:compartment'
-
-  // 1. Decrypt incoming records.
-  const incoming = await decryptExtractedPartition(compartmentBytes, opts.transferKey)
 
   // Build the candidate for diffVault: Record<collection, T[]> where each T has an `id` field.
   // Also keep incoming _ts for lww-by-ts comparison and _source/_sourceTs for provenance
@@ -152,7 +151,7 @@ export async function mergeCompartment(
   const incomingSource = new Map<string, Map<string, string>>()
   const incomingSourceTs = new Map<string, Map<string, string>>()
   const candidate: Record<string, Record<string, unknown>[]> = {}
-  for (const [coll, recs] of Object.entries(incoming)) {
+  for (const [coll, recs] of Object.entries(decrypted)) {
     const tsMap = new Map<string, string>()
     const srcMap = new Map<string, string>()
     const stsMap = new Map<string, string>()
@@ -301,4 +300,20 @@ export async function mergeCompartment(
     byCollection,
     conflicts,
   }
+}
+
+/**
+ * Reconcile an incoming extracted-partition compartment into a receiver vault.
+ * Decrypts the compartment bytes then delegates to {@link mergeDecryptedRecords}.
+ *
+ * See {@link mergeDecryptedRecords} for full semantics, dryRun behaviour, and
+ * the non-transactional write caveat.
+ */
+export async function mergeCompartment(
+  receiver: Vault,
+  compartmentBytes: Uint8Array,
+  opts: MergeCompartmentOptions,
+): Promise<MergeReport> {
+  const incoming = await decryptExtractedPartition(compartmentBytes, opts.transferKey)
+  return mergeDecryptedRecords(receiver, incoming, opts)
 }
