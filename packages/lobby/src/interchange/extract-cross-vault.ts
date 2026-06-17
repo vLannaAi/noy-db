@@ -256,6 +256,10 @@ export async function extractCrossVaultPartition(
       if (cl) entry.collections = [...cl].map(([name, ids]) => ({ name, count: ids.size }))
     }
 
+    // FR-8: stamp the source vault's schema fence version so the bundle self-describes its version.
+    const fence = await v.schemaFenceState()
+    entry.schemaVersion = fence.currentSchemaVersion
+
     inner.push(bundleBytes)
     compartments.push(entry)
     transferKeys[vaultName] = transferKey

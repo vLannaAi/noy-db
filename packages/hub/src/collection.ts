@@ -1280,6 +1280,21 @@ export class Collection<T> {
     }
   }
 
+  /**
+   * Validate a record against this collection's schema WITHOUT writing it.
+   * Returns the (possibly coerced) record on success; throws
+   * {@link SchemaValidationError} (direction: `'input'`) on violation.
+   * A no-op pass-through when no schema is declared.
+   *
+   * Used by FR-8 migrate-then-merge to pre-validate all staged records
+   * before `mergeDecryptedRecords` writes anything — so a failed upgrade
+   * never half-writes the receiver.
+   */
+  async validateInput(record: T): Promise<T> {
+    if (this.schema === undefined) return record
+    return validateSchemaInput(this.schema, record, `validateInput(${this.name})`)
+  }
+
   /** @internal — true when hooks should fire for this write (handlers exist, not re-entrant). */
   #hooksActive(): boolean {
     return this.writeHooks !== undefined && this.writeHooks.hasHandlers && !this.writeHooks.suppressed
