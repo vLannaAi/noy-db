@@ -40,6 +40,7 @@ export interface ReKeyResult {
 export async function reKeyClosure(
   vault: Vault,
   closure: Map<string, Set<string>>,
+  fieldProjection?: Record<string, readonly string[]>,
 ): Promise<ReKeyResult> {
   const { name: vaultName, adapter, getDEK } = vault._introspectState()
   const collections: Record<string, Record<string, EncryptedEnvelope>> = {}
@@ -50,6 +51,22 @@ export async function reKeyClosure(
     const destDek = await generateDEK()
     deks.set(collectionName, destDek)
     const out: Record<string, EncryptedEnvelope> = {}
+    // FR-7 structural field projection: when this collection has a projection,
+    // narrow the plaintext body to `id` (always) + the listed fields BEFORE
+    // re-encryption, so excluded fields never travel in the bundle. Applied
+    // identically in both re-key branches; only the body changes — the `_cek`
+    // re-wrap order is untouched. Absent/empty projection → byte-identical to
+    // the un-projected path (`proj` is undefined and `project` is a no-op).
+    const projList = fieldProjection?.[collectionName]
+    const proj = projList ? new Set(projList) : undefined
+    const project = (plaintext: string): string => {
+      if (!proj) return plaintext
+      const rec = JSON.parse(plaintext) as Record<string, unknown>
+      const kept: Record<string, unknown> = {}
+      if ('id' in rec) kept['id'] = rec['id'] // id ALWAYS preserved
+      for (const f of proj) if (f in rec) kept[f] = rec[f]
+      return JSON.stringify(kept)
+    }
 
     for (const id of ids) {
       const env = await adapter.get(vaultName, collectionName, id)
@@ -65,13 +82,13 @@ export async function reKeyClosure(
         // re-wrap the collection DEK under their KEK on adopt.
         const cek = await unwrapCek(env._cek, srcDek)
         const plaintext = await decrypt(env._iv, env._data, cek)
-        const { iv, data } = await encrypt(plaintext, cek)
+        const { iv, data } = await encrypt(project(plaintext), cek)
         const wrapped = await wrapCek(cek, destDek)
         out[id] = { ...env, _iv: iv, _data: data, _cek: wrapped }
         continue
       }
       const plaintext = await decrypt(env._iv, env._data, srcDek)
-      const { iv, data } = await encrypt(plaintext, destDek)
+      const { iv, data } = await encrypt(project(plaintext), destDek)
       out[id] = { ...env, _iv: iv, _data: data }
     }
     collections[collectionName] = out
@@ -90,11 +107,16 @@ export async function reKeySchemas(
   vault: Vault,
   closure: Map<string, Set<string>>,
   destDeks: Map<string, CryptoKey>,
+  fieldProjection?: Record<string, readonly string[]>,
 ): Promise<Record<string, EncryptedEnvelope>> {
   const { name: vaultName, adapter, getDEK } = vault._introspectState()
   const out: Record<string, EncryptedEnvelope> = {}
 
   for (const collectionName of closure.keys()) {
+    // FR-7: skip a projected collection's schema — the narrowed shape no
+    // longer matches the stored JSON Schema, so carrying it would assert a
+    // contract the projected records violate (missing required fields).
+    if (fieldProjection?.[collectionName]) continue
     const env = await adapter.get(vaultName, SCHEMAS_COLLECTION, collectionName)
     if (!env) continue // collection has no persisted schema — skip
     const destDek = destDeks.get(collectionName)
@@ -250,6 +272,14 @@ export async function extractPartition(
     readonly compression?: 'auto' | 'brotli' | 'gzip' | 'none'
     readonly carrySchemas?: boolean
     readonly carryLedger?: boolean
+    /**
+     * FR-7 structural field projection: per-collection allow-list of fields
+     * to keep. Non-listed fields are dropped from each record BEFORE
+     * re-encryption (so they never travel in the bundle); `id` is always
+     * preserved. A projected collection's persisted schema is NOT carried.
+     * Absent/empty → un-projected behavior (byte-identical to today).
+     */
+    readonly fieldProjection?: Record<string, readonly string[]>
   },
 ): Promise<ExtractPartitionResult> {
   // FR-6: extract-and-sever is the inalienability-floor half — owner-only. A
@@ -277,7 +307,7 @@ export async function extractPartition(
   if (opts.carrySchemas) await vault._drainPendingSchemaWrites()
 
   const { closure } = await walkClosure(vault, opts)
-  const { collections, deks } = await reKeyClosure(vault, closure)
+  const { collections, deks } = await reKeyClosure(vault, closure, opts.fieldProjection)
 
   // carryLedger: mint a fresh _ledger DEK, build the carried chain, and
   // SEAL the ledger DEK alongside the data DEKs so owner-creation wraps it into the
@@ -302,7 +332,7 @@ export async function extractPartition(
 
   // Build _internal (schemas + ledger). reKeySchemas reads data-
   // collection DEKs only, so it is unaffected by the _ledger DEK added above.
-  const internalSchemas = opts.carrySchemas ? await reKeySchemas(vault, closure, deks) : {}
+  const internalSchemas = opts.carrySchemas ? await reKeySchemas(vault, closure, deks, opts.fieldProjection) : {}
   const internal: Record<string, Record<string, EncryptedEnvelope>> = {}
   if (Object.keys(internalSchemas).length > 0) internal[SCHEMAS_COLLECTION] = internalSchemas
   if (ledgerEntries) internal[LEDGER_COLLECTION] = ledgerEntries

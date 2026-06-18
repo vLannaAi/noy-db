@@ -7,7 +7,7 @@
 import type { Noydb } from '@noy-db/hub/kernel'
 import type { Collection } from '@noy-db/hub/kernel'
 import type { Query } from '@noy-db/hub/kernel'
-import type { VaultRegistryRow, SchemaManifestRow, DeploymentEvent, MigrationStatusRow, VaultTemplate } from './types.js'
+import type { VaultRegistryRow, SchemaManifestRow, DeploymentEvent, MigrationStatusRow, SurfaceRow, VaultTemplate } from './types.js'
 import { captureBlueprint, fingerprintBlueprint } from './schema-manifest.js'
 import { STATE_VAULT_NAME } from './constants.js'
 import { generateULID } from '@noy-db/hub/kernel'
@@ -21,6 +21,7 @@ const REGISTRY = 'vaultRegistry'
 const MANIFEST = 'schemaManifest'
 const EVENTS = 'deploymentEvents'
 const MIGRATION_STATUS = 'migrationStatus'
+const SURFACES = 'surfaces'
 
 export class StateManagementVault {
   /**
@@ -32,15 +33,19 @@ export class StateManagementVault {
   readonly #events: Collection<DeploymentEvent>
   /** Per-shard fleet-migration progress (#271). Surfaced via typed methods only. */
   readonly #migrationStatus: Collection<MigrationStatusRow>
+  /** Persisted Surface agreements (FR-7). Surfaced via typed methods only. */
+  readonly #surfaces: Collection<SurfaceRow>
 
   private constructor(
     readonly registry: Collection<VaultRegistryRow>,
     readonly schemaManifest: Collection<SchemaManifestRow>,
     events: Collection<DeploymentEvent>,
     migrationStatus: Collection<MigrationStatusRow>,
+    surfaces: Collection<SurfaceRow>,
   ) {
     this.#events = events
     this.#migrationStatus = migrationStatus
+    this.#surfaces = surfaces
   }
 
   /** Idempotently open the reserved state vault and bind the control-plane collections. */
@@ -51,6 +56,7 @@ export class StateManagementVault {
       vault.collection<SchemaManifestRow>(MANIFEST),
       vault.collection<DeploymentEvent>(EVENTS),
       vault.collection<MigrationStatusRow>(MIGRATION_STATUS),
+      vault.collection<SurfaceRow>(SURFACES),
     )
   }
 
@@ -68,6 +74,37 @@ export class StateManagementVault {
   /** Upsert one shard's migration status (keyed by vaultId). */
   async upsertMigrationStatus(row: MigrationStatusRow): Promise<void> {
     await this.#migrationStatus.put(row.vaultId, row)
+  }
+
+  // ─── FR-7 Surface CRUD ────────────────────────────────────────────────────
+
+  /** Persist a new Surface row (keyed by `row.id`). */
+  async createSurface(row: SurfaceRow): Promise<void> {
+    await this.#surfaces.put(row.id, row)
+  }
+
+  /** Read one Surface row by id, or null if absent. */
+  async getSurface(id: string): Promise<SurfaceRow | null> {
+    return this.#surfaces.get(id)
+  }
+
+  /** All persisted Surface rows (hydrates first). */
+  async listSurfaces(): Promise<SurfaceRow[]> {
+    await this.#surfaces.list()
+    return this.#surfaces.query().toArray()
+  }
+
+  /**
+   * Merge `patch` into the existing Surface row keyed by `id`, persist the
+   * result, and return it. Mirrors the migrationStatus upsert pattern but
+   * returns the merged row for convenience.
+   */
+  async updateSurface(id: string, patch: Partial<SurfaceRow>): Promise<SurfaceRow> {
+    const existing = await this.#surfaces.get(id)
+    if (!existing) throw new Error(`Surface not found: ${id}`)
+    const updated: SurfaceRow = { ...existing, ...patch }
+    await this.#surfaces.put(id, updated)
+    return updated
   }
 
   /** Read-only query over the append-only deployment-events log. */
