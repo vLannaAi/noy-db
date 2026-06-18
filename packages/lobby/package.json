@@ -1,6 +1,6 @@
 {
   "name": "@klum-db/lobby",
-  "version": "0.2.0-pre.23",
+  "version": "0.2.0-pre.24",
   "description": "klum-db Lobby — orchestrates a group of sovereign noy-db vaults (federation, interchange, custody). The outward framework to noy-db's inward vault.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
