@@ -107,10 +107,15 @@ export async function agreeSurface(
 
 /**
  * Export a scoped partition from `source` bounded to the surface's collections
- * and field projection. Only surface.collections are included in the bundle
- * (`maxDepth: 0` prevents ref-expansion to non-surface collections; the `seeds`
- * keys are exactly `surface.collections`). Excluded fields are structurally
- * redacted before re-encryption and never travel in the bundle.
+ * and field projection. Only surface.collections are included in the bundle:
+ * `seeds` keys are exactly `surface.collections` and `maxDepth: 0` bounds the
+ * walk so no non-surface collection can enter the closure. NOTE: if a surface
+ * collection holds a `ref()` to an OUT-OF-SURFACE collection, the export
+ * hard-fails with `PartitionExtractionError` (the safe outcome — it never
+ * silently pulls in or leaks the referenced collection); surfaces over
+ * collections that cross-reference outside the surface are not supported.
+ * Excluded fields are structurally redacted before re-encryption and never
+ * travel in the bundle.
  *
  * `exportSurface`/`applySurface` are direction-AGNOSTIC mechanics: export
  * produces a slice from a source vault, apply merges a slice into a receiver
@@ -153,6 +158,12 @@ export async function exportSurface(
  *
  * Direction-agnostic mechanic (see `exportSurface`): the receiver merges the
  * slice regardless of direction; the sync flow decides which party applies.
+ *
+ * NOTE: a field-projected slice applied with a `take-incoming` conflict policy
+ * is DESTRUCTIVE to non-surface fields on a record the receiver already holds
+ * (the narrowed `{id, ...surface.fields}` overwrites the full row, dropping its
+ * other fields). Use `keep-local` or `field-authority` when the receiver's
+ * out-of-surface fields must be preserved across a projected push.
  *
  * Throws:
  * - `SurfaceStateError` when `surface.status !== 'agreed'`.
