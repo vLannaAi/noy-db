@@ -4,6 +4,8 @@
  * transparent shard routing. See
  * docs/superpowers/specs/2026-06-07-mvf-vaultgroup-routing-mvp-design.md.
  */
+import type { MergeStrategy } from '../interchange/merge-compartment.js'
+import type { FieldAuthorityPolicy } from '../interchange/field-authority.js'
 import type { Vault } from '@noy-db/hub/kernel'
 import type { Collection } from '@noy-db/hub/kernel'
 import type { Operator } from '@noy-db/hub/kernel'
@@ -235,4 +237,45 @@ export interface MigrationStatusRow {
   /** Records migrated by the per-shard cutover (when status `done`). */
   readonly migrated?: number
   readonly error?: string
+}
+
+// ─── FR-7 Surface / Scoped Sync ──────────────────────────────────────────────
+
+/** Which direction the sync flows across the surface boundary. */
+export type SurfaceDirection = 'push' | 'pull' | 'bidi'
+
+/** Lifecycle state of a bilateral surface agreement. */
+export type SurfaceStatus = 'proposed' | 'agreed' | 'suspended'
+
+/**
+ * Conflict resolution policy for a Surface.
+ * `strategy` may be a single MergeStrategy applied to all collections, or a
+ * per-collection map (with an optional `default` fallback).
+ */
+export interface SurfaceConflictPolicy {
+  readonly strategy: MergeStrategy | (Record<string, MergeStrategy> & { default?: MergeStrategy })
+  readonly fieldAuthority?: Record<string, FieldAuthorityPolicy>
+}
+
+/**
+ * Persisted row in the StateManagementVault `surfaces` collection (FR-7).
+ * Describes a bilaterally-agreed subset of collections/fields that two parties
+ * sync in a given direction with a given conflict policy.
+ */
+export interface SurfaceRow {
+  readonly id: string
+  /** Collection names included in this surface. */
+  readonly collections: readonly string[]
+  /** Per-collection field allow-lists (omit = all fields). */
+  readonly fields?: Record<string, readonly string[]>
+  readonly direction: SurfaceDirection
+  readonly conflictPolicy: SurfaceConflictPolicy
+  /** Sync cadence in milliseconds (undefined = manual only). */
+  readonly cadenceMs?: number
+  readonly status: SurfaceStatus
+  readonly proposedBy: string
+  readonly agreedBy?: string
+  readonly createdAt: number
+  readonly lastSyncAt?: number
+  readonly nextSyncDueAt?: number
 }
