@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/as-aws-s3",
-  "version": "0.2.0-pre.23",
+  "version": "0.2.0-pre.24",
   "description": "AWS S3 object projection for noy-db — serve blob bytes directly from S3/CDN (presigned or public), outside the encrypted store",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
