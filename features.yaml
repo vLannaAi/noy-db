@@ -1038,7 +1038,9 @@ features:
     package: '@noy-db/hub'
     factory: null
     status: preview
-    showcases: []
+    showcases:
+      - id: '122-klum-sovereign-custody'
+        path: 'showcases/src/122-klum-sovereign-custody.showcase.test.ts'
     recipes: []
     playground_pages: []
     diagrams: []
@@ -1078,7 +1080,9 @@ features:
     package: '@klum-db/lobby'
     factory: null
     status: preview
-    showcases: []
+    showcases:
+      - id: '121-klum-onboarding-spine'
+        path: 'showcases/src/121-klum-onboarding-spine.showcase.test.ts'
     recipes: []
     playground_pages: []
     diagrams: []
@@ -1099,7 +1103,9 @@ features:
     package: '@klum-db/lobby'
     factory: null
     status: preview
-    showcases: []
+    showcases:
+      - id: '121-klum-onboarding-spine'
+        path: 'showcases/src/121-klum-onboarding-spine.showcase.test.ts'
     recipes: []
     playground_pages: []
     diagrams: []
@@ -1120,7 +1126,9 @@ features:
     package: '@klum-db/lobby'
     factory: null
     status: preview
-    showcases: []
+    showcases:
+      - id: '121-klum-onboarding-spine'
+        path: 'showcases/src/121-klum-onboarding-spine.showcase.test.ts'
     recipes: []
     playground_pages: []
     diagrams: []
@@ -1142,7 +1150,9 @@ features:
     package: '@klum-db/lobby'
     factory: null
     status: preview
-    showcases: []
+    showcases:
+      - id: '121-klum-onboarding-spine'
+        path: 'showcases/src/121-klum-onboarding-spine.showcase.test.ts'
     recipes: []
     playground_pages: []
     diagrams: []
@@ -1164,7 +1174,9 @@ features:
     package: '@noy-db/hub'
     factory: null
     status: preview
-    showcases: []
+    showcases:
+      - id: '121-klum-onboarding-spine'
+        path: 'showcases/src/121-klum-onboarding-spine.showcase.test.ts'
     recipes: []
     playground_pages: []
     diagrams: []
@@ -1186,7 +1198,9 @@ features:
     package: '@noy-db/as-xlsx'
     factory: null
     status: preview
-    showcases: []
+    showcases:
+      - id: '124-klum-multivault-xlsx'
+        path: 'showcases/src/124-klum-multivault-xlsx.showcase.test.ts'
     recipes: []
     playground_pages: []
     diagrams: []
@@ -1206,7 +1220,9 @@ features:
     package: '@klum-db/lobby'
     factory: null
     status: preview
-    showcases: []
+    showcases:
+      - id: '123-klum-scoped-surface-sync'
+        path: 'showcases/src/123-klum-scoped-surface-sync.showcase.test.ts'
     recipes: []
     playground_pages: []
     diagrams: []
