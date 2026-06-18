@@ -272,8 +272,12 @@ export {
   agreeSurface,
   exportSurface,
   applySurface,
+  isSurfaceDue,
+  listDueSurfaces,
+  markSynced,
   SurfaceNotFoundError,
   SurfaceStateError,
+  SurfaceCadenceScheduler,
 } from './interchange/surface.js'
 export type {
   SurfaceDefinition,

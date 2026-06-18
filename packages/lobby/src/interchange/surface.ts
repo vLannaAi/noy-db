@@ -176,3 +176,106 @@ export async function applySurface(
     reason: `sync:surface:${surface.id}`,
   })
 }
+
+// ─── Cadence helpers ──────────────────────────────────────────────────────────
+
+/**
+ * Pure due-check — deterministic, no Date.now() inside.
+ *
+ * A surface is due iff:
+ *  - it has a `cadenceMs` (manually-only surfaces are never due via this check)
+ *  - its `status` is `'agreed'` (proposed/suspended do not fire)
+ *  - it has never been synced (`lastSyncAt === undefined`), OR
+ *    `now` has reached or passed `nextSyncDueAt`
+ *
+ * The caller always passes `now` explicitly so the function is testable without
+ * any timer mocking.
+ */
+export function isSurfaceDue(surface: SurfaceRow, now: number): boolean {
+  if (surface.cadenceMs === undefined) return false
+  if (surface.status !== 'agreed') return false
+  if (surface.lastSyncAt === undefined) return true
+  return now >= (surface.nextSyncDueAt ?? 0)
+}
+
+/**
+ * Filter a list of surfaces to those that are currently due.
+ * Delegates to `isSurfaceDue` for each entry.
+ */
+export function listDueSurfaces(surfaces: readonly SurfaceRow[], now: number): SurfaceRow[] {
+  return surfaces.filter(s => isSurfaceDue(s, now))
+}
+
+/**
+ * Stamp `lastSyncAt = now` and `nextSyncDueAt = now + surface.cadenceMs` in
+ * the StateManagementVault after a successful sync run. The surface must exist
+ * (reads it to get `cadenceMs`). If `cadenceMs` is undefined the stamps are
+ * written with `nextSyncDueAt = now` (no-op for future due-checks).
+ *
+ * Does NOT call Date.now() internally — the caller supplies `now`.
+ */
+export async function markSynced(
+  smv: StateManagementVault,
+  id: string,
+  now: number,
+): Promise<SurfaceRow> {
+  const existing = await smv.getSurface(id)
+  if (!existing) throw new Error(`markSynced: surface not found: ${id}`)
+  const cadenceMs = existing.cadenceMs ?? 0
+  return smv.updateSurface(id, {
+    lastSyncAt: now,
+    nextSyncDueAt: now + cadenceMs,
+  })
+}
+
+/**
+ * Thin interval driver for surface cadence.
+ *
+ * Wraps a `Map<surfaceId, timer>` so each surface can be independently
+ * started / stopped. `start` calls `setInterval(fn, intervalMs)` and
+ * replaces any existing timer for the same id. `stopAll` clears all.
+ *
+ * Accepts an injectable `nowFn` (default `Date.now`) for use-sites that
+ * need to capture the current time inside the callback — the pure due-check
+ * (`isSurfaceDue`) takes `now` explicitly and should not call this.
+ */
+export class SurfaceCadenceScheduler {
+  readonly #timers = new Map<string, ReturnType<typeof setInterval>>()
+  readonly #nowFn: () => number
+
+  constructor(nowFn: () => number = Date.now) {
+    this.#nowFn = nowFn
+  }
+
+  /** Expose nowFn for callback use-sites. */
+  get now(): number {
+    return this.#nowFn()
+  }
+
+  /**
+   * Schedule `fn` to fire every `intervalMs` milliseconds for the given
+   * `surfaceId`. If the id is already running, the previous interval is
+   * cancelled first (replace semantics).
+   */
+  start(surfaceId: string, intervalMs: number, fn: () => void): void {
+    this.stop(surfaceId)
+    const timer = setInterval(fn, intervalMs)
+    this.#timers.set(surfaceId, timer)
+  }
+
+  /** Cancel the interval for `surfaceId` (no-op if not running). */
+  stop(surfaceId: string): void {
+    const timer = this.#timers.get(surfaceId)
+    if (timer !== undefined) {
+      clearInterval(timer)
+      this.#timers.delete(surfaceId)
+    }
+  }
+
+  /** Cancel all running intervals. */
+  stopAll(): void {
+    for (const [id] of this.#timers) {
+      this.stop(id)
+    }
+  }
+}
