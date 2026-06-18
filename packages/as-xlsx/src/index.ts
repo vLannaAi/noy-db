@@ -257,7 +257,121 @@ export async function write(
   await writeFile(path, bytes)
 }
 
+// ── multi-vault export ─────────────────────────────────────────────
+
+/**
+ * One vault entry in a multi-vault export. Supplies the pre-opened
+ * vault, the sheet specs to render for it, and an optional closure
+ * (per-collection id allowlist computed externally by the orchestrator).
+ */
+export interface MultiVaultXlsxEntry {
+  readonly vault: Vault
+  readonly sheets: readonly AsXlsxSheetOptions[]
+  /**
+   * Optional per-collection id allowlist (e.g. from walkCrossVaultClosure).
+   * When set, only rows whose `id` appears in the set are exported for that
+   * collection. Omit to export all rows.
+   */
+  readonly closure?: ReadonlyMap<string, ReadonlySet<string>>
+  /**
+   * Optional display label for sheet-name prefixing.
+   * Defaults to `vault.name`.
+   */
+  readonly label?: string
+}
+
+/** Options for {@link toBytesMultiVault}. */
+export interface MultiVaultXlsxOptions {
+  readonly dialect?: 'excel' | 'sheets'
+  /**
+   * Separator inserted between the vault label and the sheet name when
+   * building tab names. Default `'_'`. Names are then truncated to 31 chars
+   * (Excel limit) by `writeXlsx`.
+   */
+  readonly sheetSeparator?: string
+}
+
+/**
+ * Build an `.xlsx` byte stream spanning **multiple vaults**. Each entry
+ * supplies a pre-opened vault with its sheet specs and an optional
+ * per-collection id-closure (rows filtered to exactly those ids). A
+ * `_manifest` sheet is prepended that lists every vault-collection pair
+ * and its exported record count.
+ *
+ * ## Auth
+ * Every vault in `entries` must independently hold `assertCanExport('plaintext','xlsx')`.
+ * The check fires fail-fast before any rows are materialised.
+ *
+ * ## Architecture
+ * This function is **edge-pure** — it takes pre-opened vaults and a
+ * pre-computed closure; it performs no cross-vault FK walk itself.
+ * Cross-vault orchestration lives in `@klum-db/lobby` (allowed direction).
+ */
+export async function toBytesMultiVault(
+  entries: readonly MultiVaultXlsxEntry[],
+  options: MultiVaultXlsxOptions = {},
+): Promise<Uint8Array> {
+  const sep = options.sheetSeparator ?? '_'
+
+  // Fail-fast auth check on every vault before materialising any rows.
+  for (const entry of entries) {
+    entry.vault.assertCanExport('plaintext', 'xlsx')
+  }
+
+  const allSheets: XlsxSheet[] = []
+  const manifestRows: (string | number)[][] = []
+
+  for (const entry of entries) {
+    const prefix = entry.label ?? entry.vault.name
+    for (const s of entry.sheets) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const all = await entry.vault.collection<any>(s.collection).list()
+      const records: Record<string, unknown>[] = []
+      for (const item of all) {
+        const r = item as Record<string, unknown>
+        // Closure filter: if a closure is supplied for this collection, keep
+        // only rows whose id is in the allowlist.
+        const allow = entry.closure?.get(s.collection)
+        if (allow && !allow.has(String((r as { id?: unknown }).id))) continue
+        // User-supplied row predicate (same semantics as single-vault toBytes).
+        if (s.filter && !s.filter(r)) continue
+        records.push(r)
+      }
+      const columns = s.columns ?? inferColumns(records)
+      const sheetName = `${prefix}${sep}${s.name}`
+      allSheets.push(buildFlatSheet(sheetName, columns, records))
+      manifestRows.push([prefix, s.collection, records.length])
+    }
+  }
+
+  // Prepend the _manifest sheet.
+  allSheets.unshift({
+    name: '_manifest',
+    header: ['Vault', 'Collection', 'Records'],
+    rows: manifestRows,
+  })
+
+  return writeXlsx(allSheets)
+}
+
 // ── internals ─────────────────────────────────────────────────────
+
+/**
+ * Build a flat {@link XlsxSheet} from pre-filtered records.
+ * Used by both {@link toBytes} (via its own inline path) and
+ * {@link toBytesMultiVault}.
+ */
+function buildFlatSheet(
+  name: string,
+  columns: readonly string[],
+  records: readonly Record<string, unknown>[],
+): XlsxSheet {
+  return {
+    name,
+    header: [...columns],
+    rows: records.map((r) => columns.map((c) => r[c] ?? null)),
+  }
+}
 
 /** Safely stringify an unknown id/code/label (objects → JSON, never '[object Object]'). */
 function safeStringify(v: unknown): string {
