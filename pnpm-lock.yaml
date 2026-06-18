@@ -575,6 +575,9 @@ importers:
 
   packages/lobby:
     devDependencies:
+      '@noy-db/as-xlsx':
+        specifier: workspace:*
+        version: link:../as-xlsx
       '@noy-db/hub':
         specifier: workspace:*
         version: link:../hub

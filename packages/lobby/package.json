@@ -45,9 +45,11 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
+    "@noy-db/as-xlsx": "workspace:*",
     "@noy-db/hub": "workspace:*"
   },
   "devDependencies": {
+    "@noy-db/as-xlsx": "workspace:*",
     "@noy-db/hub": "workspace:*",
     "@noy-db/to-memory": "workspace:*",
     "@types/node": "^22.0.0",
