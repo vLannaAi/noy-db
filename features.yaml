@@ -1198,6 +1198,26 @@ features:
       - 'Dependency direction preserved: @noy-db/as-xlsx (edge adapter) imports only @noy-db/hub — it never imports @klum-db/lobby; Lobby gains a peer-dependency on @noy-db/as-xlsx (the allowed klum→noy direction); guarded by the no-outbound-klum-import architecture check'
     related: [cross-vault-extraction, as-xlsx]
 
+  - id: scoped-sync-surface
+    name: 'Surface — scoped sync (collections/fields/direction/conflict, persisted + handshake + cadence) (FR-7)'
+    cluster: snapshot-and-portability
+    spec: docs/superpowers/specs/2026-06-16-lobby-framework-design.md
+    subsystem_doc: docs/superpowers/specs/2026-06-16-lobby-framework-design.md
+    package: '@klum-db/lobby'
+    factory: null
+    status: preview
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'A surface syncs only its named collections, optionally restricted to named fields (fieldProjection), in its declared direction (push/pull/bidirectional) with its conflict policy — no other data leaves the vault'
+      - 'Collections and fields outside the surface never leave the vault: structural field projection is applied at extractPartition (hub extract-partition.ts fieldProjection) before re-encryption, and only surface.collections are included in the exported bundle (maxDepth:0 collection bounding)'
+      - 'A propose/agree bilateral handshake gates sync: only surfaces in state "agreed" are eligible for exportSurface/applySurface; proposeSurface → agreeSurface is the required ceremony before any data flows'
+      - 'Surfaces are persisted in the StateManagementVault surfaces collection: SurfaceRow is stored in the SMV and survives restarts; state machine transitions (proposed → agreed → suspended → closed) are durable'
+      - 'Cadence is host-driven: isSurfaceDue(surface, now) is a pure predicate; the interval driver in the scheduler advances surfaces whose cadence window has elapsed — no background process, no shared clock'
+    related: [cross-vault-extraction, merge-compartment, vault-group-federation]
+
   - id: with-snapshots
     name: Snapshot lifecycle (withSnapshots)
     cluster: snapshot-and-portability
