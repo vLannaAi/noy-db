@@ -1,9 +1,12 @@
 /**
- * @klum-db/lobby interchange — Surface bilateral handshake (FR-7).
+ * @klum-db/lobby interchange — Surface bilateral handshake + export/apply (FR-7).
  * Pure helpers: `now` is always passed in; no Date.now() calls inside.
  * @packageDocumentation
  */
 import { generateULID } from '@noy-db/hub/kernel'
+import type { Vault } from '@noy-db/hub'
+import { extractPartition } from '@noy-db/hub/bundle'
+import { mergeCompartment, type MergeReport } from './merge-compartment.js'
 import type { StateManagementVault } from '../federation/state-vault.js'
 import type {
   SurfaceRow,
@@ -98,4 +101,86 @@ export async function agreeSurface(
     throw new SurfaceStateError(surfaceId, existing.status, 'proposed')
   }
   return smv.updateSurface(surfaceId, { status: 'agreed', agreedBy })
+}
+
+// ─── Export / Apply ───────────────────────────────────────────────────────────
+
+/**
+ * Export a scoped partition from `source` bounded to the surface's collections
+ * and field projection. Only surface.collections are included in the bundle
+ * (`maxDepth: 0` prevents ref-expansion to non-surface collections; the `seeds`
+ * keys are exactly `surface.collections`). Excluded fields are structurally
+ * redacted before re-encryption and never travel in the bundle.
+ *
+ * Throws:
+ * - `SurfaceStateError` when `surface.status !== 'agreed'`.
+ * - `SurfaceStateError` when `surface.direction === 'pull'` (pull-only surfaces
+ *   cannot be exported; export is a push-side operation).
+ */
+export async function exportSurface(
+  source: Vault,
+  surface: SurfaceRow,
+): Promise<{ bundleBytes: Uint8Array; transferKey: Uint8Array }> {
+  if (surface.status !== 'agreed') {
+    throw new SurfaceStateError(surface.id, surface.status, 'agreed')
+  }
+  if (surface.direction === 'pull') {
+    throw new SurfaceStateError(
+      surface.id,
+      `direction:${surface.direction}`,
+      'direction:push or direction:bidi (export is a push-side operation)',
+    )
+  }
+
+  // Seeds: include ALL records in each surface collection (no predicate filtering).
+  // maxDepth:0 ensures ref-following stops at the seed collections so no
+  // non-surface collection can slip into the closure.
+  const seeds = Object.fromEntries(surface.collections.map(c => [c, () => true]))
+
+  const { bundleBytes, transferKey } = await extractPartition(source, {
+    seeds,
+    maxDepth: 0,
+    ...(surface.fields ? { fieldProjection: surface.fields } : {}),
+    carrySchemas: false,
+    carryLedger: false,
+  })
+
+  return { bundleBytes, transferKey }
+}
+
+/**
+ * Apply an exported surface bundle into `receiver`. Decrypts + merges using
+ * the surface's conflict policy.
+ *
+ * Throws:
+ * - `SurfaceStateError` when `surface.status !== 'agreed'`.
+ * - `SurfaceStateError` when `surface.direction === 'pull'` (on a pull surface
+ *   the pull-side initiates an extract from the source; applySurface is not
+ *   used in that flow).
+ */
+export async function applySurface(
+  receiver: Vault,
+  surface: SurfaceRow,
+  bundleBytes: Uint8Array,
+  transferKey: Uint8Array,
+): Promise<MergeReport> {
+  if (surface.status !== 'agreed') {
+    throw new SurfaceStateError(surface.id, surface.status, 'agreed')
+  }
+  if (surface.direction === 'pull') {
+    throw new SurfaceStateError(
+      surface.id,
+      `direction:${surface.direction}`,
+      'direction:push or direction:bidi (applySurface is the receive side of a push)',
+    )
+  }
+
+  return mergeCompartment(receiver, bundleBytes, {
+    transferKey,
+    strategy: surface.conflictPolicy.strategy,
+    ...(surface.conflictPolicy.fieldAuthority
+      ? { fieldAuthority: surface.conflictPolicy.fieldAuthority }
+      : {}),
+    reason: `sync:surface:${surface.id}`,
+  })
 }

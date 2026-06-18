@@ -44,6 +44,10 @@ export interface ExportMultiVaultXlsxOptions {
   readonly sheetSeparator?: string
 }
 
+// ─── FR-7 Surface type imports (used in Lobby method signatures) ──────────────
+import type { SurfaceRow } from './federation/types.js'
+import type { MergeReport } from './interchange/merge-compartment.js'
+
 export class Lobby {
   readonly noydb: Noydb
   private readonly vaultTemplates = new Map<string, VaultTemplate>()
@@ -83,6 +87,38 @@ export class Lobby {
     if (db.isClosed) throw new ValidationError('Instance is closed')
     const { StateManagementVault } = await import('./federation/state-vault.js')
     return StateManagementVault.open(db)
+  }
+
+  // ─── FR-7 Surface API ─────────────────────────────────────────────────────
+
+  /**
+   * Export a scoped partition from `vaultName` bounded to the given surface.
+   * Delegates to `exportSurface` in `interchange/surface.ts`.
+   * The vault is opened via `this.noydb.openVault(vaultName)`.
+   */
+  async exportSurface(
+    vaultName: string,
+    surface: SurfaceRow,
+  ): Promise<{ bundleBytes: Uint8Array; transferKey: Uint8Array }> {
+    const { exportSurface: exportSurfaceFn } = await import('./interchange/surface.js')
+    const vault = await this.noydb.openVault(vaultName)
+    return exportSurfaceFn(vault, surface)
+  }
+
+  /**
+   * Apply an exported surface bundle into `vaultName`.
+   * Delegates to `applySurface` in `interchange/surface.ts`.
+   * The vault is opened via `this.noydb.openVault(vaultName)`.
+   */
+  async applySurface(
+    vaultName: string,
+    surface: SurfaceRow,
+    bundleBytes: Uint8Array,
+    transferKey: Uint8Array,
+  ): Promise<MergeReport> {
+    const { applySurface: applySurfaceFn } = await import('./interchange/surface.js')
+    const vault = await this.noydb.openVault(vaultName)
+    return applySurfaceFn(vault, surface, bundleBytes, transferKey)
   }
 
   /**
@@ -229,3 +265,22 @@ export type {
   MultiVaultXlsxOptions,
   MultiVaultDenormColumn,
 } from '@noy-db/as-xlsx'
+
+// ─── FR-7: Surface / Scoped Sync ─────────────────────────────────────────────
+export {
+  proposeSurface,
+  agreeSurface,
+  exportSurface,
+  applySurface,
+  SurfaceNotFoundError,
+  SurfaceStateError,
+} from './interchange/surface.js'
+export type {
+  SurfaceDefinition,
+} from './interchange/surface.js'
+export type {
+  SurfaceRow,
+  SurfaceDirection,
+  SurfaceStatus,
+  SurfaceConflictPolicy,
+} from './federation/types.js'
