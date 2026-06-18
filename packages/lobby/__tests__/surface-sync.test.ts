@@ -7,10 +7,10 @@
  *   Surface:       agreed, push, collections:['clients'], fields:{clients:['name']},
  *                  conflictPolicy:{strategy:'take-incoming'}
  *
- * Direction guards (per plan):
- *   exportSurface: rejects direction='pull' (pull-only surfaces; push/bidi may export)
- *   applySurface:  rejects direction='pull' (on a pull surface, the pull-side initiates
- *                  the extract; applySurface is not called directly)
+ * Direction is orchestration metadata, NOT a primitive gate: export/apply are
+ * direction-agnostic mechanics (source→slice, slice→receiver) and work for
+ * push / pull / bidi alike (gating pull here would make pull surfaces unusable).
+ * The sync flow decides which party exports vs applies per direction.
  *
  * Both throw SurfaceStateError for a non-agreed surface.
  */
@@ -126,10 +126,14 @@ describe('exportSurface / applySurface — scoped field-projected sync', () => {
     await expect(applySurface(recvVault, proposed, new Uint8Array(16), new Uint8Array(32))).rejects.toThrow(SurfaceStateError)
   })
 
-  it('direction:pull rejects exportSurface (export is push-side only; pull surfaces cannot be exported)', async () => {
+  it('direction:pull is a direction-agnostic mechanic — export+apply work (flow agreer→proposer)', async () => {
+    // A pull surface must NOT be dead: the source still exports its slice and the
+    // receiver still applies it. Direction is honoured by the sync flow (who is
+    // source vs receiver), not by gating the primitives.
     const pullDef: SurfaceDefinition = {
       id: 'surf-pull-1',
       collections: ['clients'],
+      fields: { clients: ['name'] },
       direction: 'pull',
       conflictPolicy: { strategy: 'take-incoming' },
     }
@@ -137,23 +141,18 @@ describe('exportSurface / applySurface — scoped field-projected sync', () => {
 
     const sourceDb = await createNoydb({ store: memory(), user: 'src', secret: 'src-secret-123' })
     const sourceVault = await sourceDb.openVault('source')
+    await sourceVault.collection<Client>('clients').put('c1', { id: 'c1', name: 'Alice', phone: '+1-555-0101' })
 
-    await expect(exportSurface(sourceVault, surface)).rejects.toThrow(SurfaceStateError)
-  })
-
-  it('direction:pull rejects applySurface (pull surface: the pull-side initiates via export, not apply)', async () => {
-    const pullDef: SurfaceDefinition = {
-      id: 'surf-pull-apply-1',
-      collections: ['clients'],
-      direction: 'pull',
-      conflictPolicy: { strategy: 'take-incoming' },
-    }
-    const surface = await buildAgreedSurface(pullDef)
+    const { bundleBytes, transferKey } = await exportSurface(sourceVault, surface)
 
     const recvDb = await createNoydb({ store: memory(), user: 'recv', secret: 'recv-secret-456' })
     const recvVault = await recvDb.openVault('receiver')
+    const report = await applySurface(recvVault, surface, bundleBytes, transferKey)
 
-    await expect(applySurface(recvVault, surface, new Uint8Array(16), new Uint8Array(32))).rejects.toThrow(SurfaceStateError)
+    expect(report.summary.inserted).toBe(1)
+    const c1 = await recvVault.collection<Record<string, unknown>>('clients').get('c1')
+    expect(c1!['name']).toBe('Alice')
+    expect(c1!['phone']).toBeUndefined()   // projection still applies
   })
 })
 

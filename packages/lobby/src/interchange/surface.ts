@@ -112,10 +112,16 @@ export async function agreeSurface(
  * keys are exactly `surface.collections`). Excluded fields are structurally
  * redacted before re-encryption and never travel in the bundle.
  *
+ * `exportSurface`/`applySurface` are direction-AGNOSTIC mechanics: export
+ * produces a slice from a source vault, apply merges a slice into a receiver
+ * vault. Both are needed for EVERY direction (push: proposer exports → agreer
+ * applies; pull: agreer exports → proposer applies; bidi: both). `direction` is
+ * orchestration metadata honoured by the sync flow (which party exports vs
+ * applies), not a gate on the primitives — gating it here would make pull
+ * surfaces unusable.
+ *
  * Throws:
  * - `SurfaceStateError` when `surface.status !== 'agreed'`.
- * - `SurfaceStateError` when `surface.direction === 'pull'` (pull-only surfaces
- *   cannot be exported; export is a push-side operation).
  */
 export async function exportSurface(
   source: Vault,
@@ -123,13 +129,6 @@ export async function exportSurface(
 ): Promise<{ bundleBytes: Uint8Array; transferKey: Uint8Array }> {
   if (surface.status !== 'agreed') {
     throw new SurfaceStateError(surface.id, surface.status, 'agreed')
-  }
-  if (surface.direction === 'pull') {
-    throw new SurfaceStateError(
-      surface.id,
-      `direction:${surface.direction}`,
-      'direction:push or direction:bidi (export is a push-side operation)',
-    )
   }
 
   // Seeds: include ALL records in each surface collection (no predicate filtering).
@@ -152,11 +151,11 @@ export async function exportSurface(
  * Apply an exported surface bundle into `receiver`. Decrypts + merges using
  * the surface's conflict policy.
  *
+ * Direction-agnostic mechanic (see `exportSurface`): the receiver merges the
+ * slice regardless of direction; the sync flow decides which party applies.
+ *
  * Throws:
  * - `SurfaceStateError` when `surface.status !== 'agreed'`.
- * - `SurfaceStateError` when `surface.direction === 'pull'` (on a pull surface
- *   the pull-side initiates an extract from the source; applySurface is not
- *   used in that flow).
  */
 export async function applySurface(
   receiver: Vault,
@@ -166,13 +165,6 @@ export async function applySurface(
 ): Promise<MergeReport> {
   if (surface.status !== 'agreed') {
     throw new SurfaceStateError(surface.id, surface.status, 'agreed')
-  }
-  if (surface.direction === 'pull') {
-    throw new SurfaceStateError(
-      surface.id,
-      `direction:${surface.direction}`,
-      'direction:push or direction:bidi (applySurface is the receive side of a push)',
-    )
   }
 
   return mergeCompartment(receiver, bundleBytes, {
