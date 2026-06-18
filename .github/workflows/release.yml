@@ -1,6 +1,6 @@
 name: Release to npm
 
-# Strict release pipeline — for @noy-db/* package publishes.
+# Strict release pipeline — for @noy-db/* and @klum-db/* package publishes.
 #
 # Triggered on GitHub Release `published`. Runs the full verification
 # gate (install + build + lint + typecheck + test) on a clean checkout
@@ -33,9 +33,11 @@ name: Release to npm
 #
 # Setup required (one-time, in repo Settings → Secrets and variables):
 #   - NPM_TOKEN (npm automation token, scope "Publish packages")
-#     IMPORTANT: must have publish access to the unscoped `create-noy-db`
-#     package in addition to `@noy-db/*`. If using a granular access token
-#     scoped only to `@noy-db/*`, create-noy-db will fail with E403.
+#     IMPORTANT: must have publish access to ALL of: `@noy-db/*`,
+#     `@klum-db/*` (the Lobby), AND the unscoped `create-noy-db` package.
+#     A classic Automation token from an account that owns all three works;
+#     a granular token must explicitly include every scope + create-noy-db,
+#     or the missing one fails with E403.
 #   - GitHub Actions must have "Read and write permissions" under
 #     Settings → Actions → General → Workflow permissions
 #
@@ -270,6 +272,32 @@ jobs:
             echo "" >> "$GITHUB_STEP_SUMMARY"
             echo '```' >> "$GITHUB_STEP_SUMMARY"
             cat /tmp/scoped-publish.log >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$EXIT"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # Publish the @klum-db/* packages (the Lobby) AFTER @noy-db/* — lobby
+      # depends on @noy-db/hub + @noy-db/as-xlsx (workspace:* resolved to real
+      # versions at publish time), so those must already be on the registry.
+      # Same flags as the @noy-db step; pnpm skips versions already published,
+      # so re-runs are safe. Requires NPM_TOKEN to have @klum-db/* publish access.
+      - name: Publish @klum-db/* scoped packages
+        run: |
+          set -o pipefail
+          echo "Publishing @klum-db/* with --tag ${{ steps.dist_tag.outputs.tag }}"
+          pnpm publish -r --filter '@klum-db/*' \
+            --access public \
+            --tag '${{ steps.dist_tag.outputs.tag }}' \
+            --no-git-checks \
+            --provenance 2>&1 | tee /tmp/klum-publish.log
+          EXIT=${PIPESTATUS[0]}
+          if [ "$EXIT" -ne 0 ]; then
+            echo "### @klum-db publish failed" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            cat /tmp/klum-publish.log >> "$GITHUB_STEP_SUMMARY"
             echo '```' >> "$GITHUB_STEP_SUMMARY"
           fi
           exit "$EXIT"
