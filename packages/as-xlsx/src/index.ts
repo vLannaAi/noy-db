@@ -322,7 +322,6 @@ export interface MultiVaultXlsxEntry {
 
 /** Options for {@link toBytesMultiVault}. */
 export interface MultiVaultXlsxOptions {
-  readonly dialect?: 'excel' | 'sheets'
   /**
    * Separator inserted between the vault label and the sheet name when
    * building tab names. Default `'_'`. Names are then truncated to 31 chars

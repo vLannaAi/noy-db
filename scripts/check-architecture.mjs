@@ -604,30 +604,39 @@ function checkKernelSurface() {
   }
 }
 
-// ─── Check 8: no-outbound-klum-import (hub core must not depend on @klum-db) ───
+// ─── Check 8: no-outbound-klum-import (NO @noy-db package may depend on @klum-db) ───
 function checkNoOutboundKlumImport() {
-  const hubSrc = join(PACKAGES_DIR, 'hub', 'src')
+  // The dependency runs ONE way: @klum-db/* (orchestration) → @noy-db/* (vault).
+  // No @noy-db package — hub core OR any edge adapter (e.g. as-xlsx, FR-9) — may
+  // import @klum-db. Scan every package's src EXCEPT the @klum-db packages
+  // themselves (which legitimately import each other / re-export klum symbols).
+  //
   // Use stripComments (NOT stripCommentsAndStrings): import specifiers ARE
   // string literals — blanking string bodies makes this a no-op. Line-anchor
   // to real import/export statements so FederationMovedError's runtime message
   // (which contains "from '@klum-db/lobby'" mid-line) doesn't false-positive.
   //
   // Accepted limitation: a hand-split multi-line import where `from` lands on
-  // a `}`-leading line is NOT matched. That's fine — hub does not declare
-  // @klum-db/* as a dependency, so any real hub→klum import also fails hub's
-  // build/typecheck (hard backstop that covers the multi-line edge case).
+  // a `}`-leading line is NOT matched. That's fine — no @noy-db package declares
+  // @klum-db/* as a dependency, so any real outbound import also fails that
+  // package's build/typecheck (hard backstop that covers the multi-line edge case).
   const klumStatic = /^\s*(?:import|export)\b[^\n]*?\bfrom\s+['"]@klum-db\//m
   const klumDynamic = /\bimport\s*\(\s*['"]@klum-db\//
-  walkTsFiles(hubSrc, (file, content) => {
-    const code = stripComments(content)
-    if (klumStatic.test(code) || klumDynamic.test(code)) {
-      fail(
-        'no-outbound-klum-import',
-        `${relative(ROOT, file)} imports from @klum-db. Hub core must NOT depend on the extracted orchestration package — the dependency runs the other way (@klum-db/lobby depends on @noy-db/hub/kernel).`,
-        file,
-      )
-    }
-  })
+  for (const pkgDir of listPackageDirs()) {
+    let name
+    try { name = readPackageJson(pkgDir).name } catch { continue }
+    if (typeof name === 'string' && name.startsWith('@klum-db/')) continue // klum packages may import klum
+    walkTsFiles(join(pkgDir, 'src'), (file, content) => {
+      const code = stripComments(content)
+      if (klumStatic.test(code) || klumDynamic.test(code)) {
+        fail(
+          'no-outbound-klum-import',
+          `${relative(ROOT, file)} imports from @klum-db. No @noy-db package (hub core OR edge adapter) may depend on the orchestration package — the dependency runs the other way (@klum-db/lobby depends on @noy-db/hub/kernel + edge adapters).`,
+          file,
+        )
+      }
+    })
+  }
 }
 
 // ─── Check 7: no debugPlaintext in shipped library source (#413 P3) ─────

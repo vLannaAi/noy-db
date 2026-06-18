@@ -8,7 +8,7 @@ import { STATE_VAULT_NAME } from '@noy-db/hub'
 import type { VaultGroup } from './federation/vault-group.js'
 import type { StateManagementVault } from './federation/state-vault.js'
 import type { VaultTemplate, VaultGroupOptions } from './federation/types.js'
-import type { AsXlsxSheetOptions, MultiVaultXlsxOptions } from '@noy-db/as-xlsx'
+import type { AsXlsxSheetOptions } from '@noy-db/as-xlsx'
 import type { CrossVaultRef } from './interchange/extract-cross-vault.js'
 
 /**
@@ -40,8 +40,6 @@ export interface ExportMultiVaultXlsxOptions {
   readonly sheets: Readonly<Record<string, readonly AsXlsxSheetOptions[]>>
   /** Optional maxDepth for walkCrossVaultClosure. */
   readonly maxDepth?: number
-  /** Optional dialect forwarded to toBytesMultiVault. */
-  readonly dialect?: MultiVaultXlsxOptions['dialect']
   /** Optional sheet-name separator forwarded to toBytesMultiVault. */
   readonly sheetSeparator?: string
 }
@@ -133,7 +131,6 @@ export class Lobby {
     )
 
     return toBytesMultiVault(entries, {
-      ...(opts.dialect ? { dialect: opts.dialect } : {}),
       ...(opts.sheetSeparator !== undefined ? { sheetSeparator: opts.sheetSeparator } : {}),
     })
   }
