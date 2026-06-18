@@ -1540,7 +1540,7 @@ features:
     cluster: core
     spec: docs/subsystems/vault-group.md#overview
     subsystem_doc: docs/subsystems/vault-group.md
-    package: '@noy-db/hub'
+    package: '@klum-db/lobby'
     factory: null
     status: preview
     experimental: true
