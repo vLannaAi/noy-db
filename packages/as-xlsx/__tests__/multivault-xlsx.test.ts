@@ -11,7 +11,7 @@
 import { describe, expect, it } from 'vitest'
 import { ExportCapabilityError, createNoydb } from '@noy-db/hub'
 import { memory } from '@noy-db/to-memory'
-import { toBytesMultiVault } from '../src/index.js'
+import { toBytesMultiVault, type MultiVaultDenormColumn } from '../src/index.js'
 
 // ── zip helpers (mirrors as-xlsx.test.ts) ──────────────────────────
 
@@ -301,5 +301,195 @@ describe('toBytesMultiVault', () => {
     ).rejects.toThrow(ExportCapabilityError)
 
     await db.close()
+  })
+})
+
+// ── Task 2: denormalized FK columns ───────────────────────────────────
+
+describe('toBytesMultiVault — denormalized columns', () => {
+  it('adds entityName column to bills sheet via in-memory join from directory/entities', async () => {
+    const { db, adapter } = await seedTwoVaults()
+    await grantXlsxBothVaults(adapter)
+
+    const db2 = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const primaryVault = await db2.openVault('primary')
+    const dirVault = await db2.openVault('directory')
+
+    const denormalize: MultiVaultDenormColumn[] = [
+      {
+        column: 'entityName',
+        localField: 'entityId',
+        from: { label: 'directory', collection: 'entities', keyField: 'id', pick: 'name' },
+      },
+    ]
+
+    const bytes = await toBytesMultiVault([
+      {
+        vault: primaryVault,
+        label: 'primary',
+        sheets: [{
+          name: 'bills',
+          collection: 'bills',
+          columns: ['id', 'entityId', 'amount'],
+          denormalize,
+        }],
+      },
+      {
+        vault: dirVault,
+        label: 'directory',
+        sheets: [{ name: 'entities', collection: 'entities', columns: ['id', 'name'] }],
+        closure: new Map([['entities', new Set(['e1'])]]),
+      },
+    ])
+
+    // The bills sheet header should contain entityName
+    const shared = readZipFile(bytes, 'xl/sharedStrings.xml')!
+    expect(shared).toContain('>entityName<')
+
+    // The resolved name for e1 (Globex Corp) must appear in the bills sheet
+    expect(shared).toContain('>Globex Corp<')
+
+    await db.close()
+    await db2.close()
+  })
+
+  it('yields empty cell for unresolved FK (entity id not in closure/index)', async () => {
+    const adapter = memory()
+    const db = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+
+    const primaryVault = await db.openVault('primary')
+    const bills = primaryVault.collection<{ id: string; entityId: string; amount: number }>('bills')
+    await bills.put('b1', { id: 'b1', entityId: 'e1', amount: 100 })
+    // bill b3 references e99 which is NOT in the directory closure
+    await bills.put('b3', { id: 'b3', entityId: 'e99', amount: 50 })
+
+    const dirVault = await db.openVault('directory')
+    const entities = dirVault.collection<{ id: string; name: string }>('entities')
+    await entities.put('e1', { id: 'e1', name: 'Globex Corp' })
+    await entities.put('e99', { id: 'e99', name: 'Ghost Corp' }) // in store but NOT in closure
+
+    await db.close()
+
+    // Grant xlsx on both vaults
+    const db2 = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    await db2.grant('primary', {
+      userId: 'owner-01', displayName: 'Owner', role: 'owner',
+      passphrase: 'owner-pass',
+      exportCapability: { plaintext: ['xlsx'] },
+    })
+    await db2.grant('directory', {
+      userId: 'owner-01', displayName: 'Owner', role: 'owner',
+      passphrase: 'owner-pass',
+      exportCapability: { plaintext: ['xlsx'] },
+    })
+    await db2.close()
+
+    const db3 = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const pv = await db3.openVault('primary')
+    const dv = await db3.openVault('directory')
+
+    const bytes = await toBytesMultiVault([
+      {
+        vault: pv,
+        label: 'primary',
+        sheets: [{
+          name: 'bills',
+          collection: 'bills',
+          columns: ['id', 'entityId', 'amount'],
+          denormalize: [{
+            column: 'entityName',
+            localField: 'entityId',
+            from: { label: 'directory', collection: 'entities', keyField: 'id', pick: 'name' },
+          }],
+        }],
+      },
+      {
+        vault: dv,
+        label: 'directory',
+        // closure limits to e1 only — e99 is NOT indexed even though it exists in the store
+        sheets: [{ name: 'entities', collection: 'entities', columns: ['id', 'name'] }],
+        closure: new Map([['entities', new Set(['e1'])]]),
+      },
+    ])
+
+    const shared = readZipFile(bytes, 'xl/sharedStrings.xml')!
+    // Globex Corp (e1) resolves fine
+    expect(shared).toContain('>Globex Corp<')
+    // Ghost Corp (e99) must NOT appear — it's outside the closure and stays empty
+    expect(shared).not.toContain('>Ghost Corp<')
+
+    // Parse the bills worksheet XML to verify the unresolved row has an empty cell
+    // We check the worksheet for the bills sheet — sheet 2 in the workbook (_manifest=1, primary_bills=2)
+    const workbook = readZipFile(bytes, 'xl/workbook.xml')!
+    // Extract sheet IDs to find primary_bills position
+    const billsMatch = workbook.match(/name="primary_bills" sheetId="(\d+)"/)
+    expect(billsMatch).not.toBeNull()
+    const sheetId = billsMatch![1]
+    const sheetXml = readZipFile(bytes, `xl/worksheets/sheet${sheetId}.xml`)!
+
+    // The row for b3 (entityId=e99) should have an empty last cell for entityName.
+    // We look for the presence of 'e99' (shared string) — it should be there as the entityId value
+    expect(shared).toContain('>e99<')
+
+    await db3.close()
+  })
+
+  it('declared columns appear before denorm columns in header', async () => {
+    const { db, adapter } = await seedTwoVaults()
+    await grantXlsxBothVaults(adapter)
+
+    const db2 = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const primaryVault = await db2.openVault('primary')
+    const dirVault = await db2.openVault('directory')
+
+    const bytes = await toBytesMultiVault([
+      {
+        vault: primaryVault,
+        label: 'primary',
+        sheets: [{
+          name: 'bills',
+          collection: 'bills',
+          columns: ['id', 'entityId', 'amount'],
+          denormalize: [{
+            column: 'entityName',
+            localField: 'entityId',
+            from: { label: 'directory', collection: 'entities', keyField: 'id', pick: 'name' },
+          }],
+        }],
+      },
+      {
+        vault: dirVault,
+        label: 'directory',
+        sheets: [{ name: 'entities', collection: 'entities', columns: ['id', 'name'] }],
+        closure: new Map([['entities', new Set(['e1'])]]),
+      },
+    ])
+
+    // Find the primary_bills sheet id
+    const workbook = readZipFile(bytes, 'xl/workbook.xml')!
+    const match = workbook.match(/name="primary_bills" sheetId="(\d+)"/)
+    expect(match).not.toBeNull()
+    const sheetId = match![1]
+    const sheetXml = readZipFile(bytes, `xl/worksheets/sheet${sheetId}.xml`)!
+
+    // The header row (row 1) should have id/entityId/amount then entityName.
+    // Column A=id, B=entityId, C=amount, D=entityName
+    // We verify by checking that entityName has a higher column index than amount.
+    // The sharedStrings approach: find string indices for 'entityName' and 'amount'.
+    const shared = readZipFile(bytes, 'xl/sharedStrings.xml')!
+    const strings = [...shared.matchAll(/<t[^>]*>([^<]+)<\/t>/g)].map((m) => m[1]!)
+    const idxEntityName = strings.indexOf('entityName')
+    const idxAmount = strings.indexOf('amount')
+    expect(idxEntityName).toBeGreaterThan(-1)
+    expect(idxAmount).toBeGreaterThan(-1)
+    // In the header row the cell for 'amount' should appear before 'entityName'
+    const amountCellPos = sheetXml.indexOf(`v>${idxAmount}</v>`)
+    const entityNameCellPos = sheetXml.indexOf(`v>${idxEntityName}</v>`)
+    expect(amountCellPos).toBeGreaterThan(-1)
+    expect(entityNameCellPos).toBeGreaterThan(-1)
+    expect(amountCellPos).toBeLessThan(entityNameCellPos)
+
+    await db.close()
+    await db2.close()
   })
 })

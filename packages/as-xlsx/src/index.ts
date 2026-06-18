@@ -96,6 +96,46 @@ export interface AsXlsxSheetOptions {
    * global LANG cell via `VLOOKUP(code, …, MATCH(LANG, …))`.
    */
   readonly dictFields?: Record<string, string>
+  /**
+   * Multi-vault export only: pull FK-referenced fields from a supporting vault
+   * into this sheet as extra columns. Each entry resolves `localField` on the
+   * primary record against the `keyField` of another vault's collection (matched
+   * by `from.label`/`from.collection`), and emits the `pick` field value as
+   * `column`. Appended AFTER the declared `columns` in declaration order.
+   * Unresolved FK (row not in the supporting-vault index) → empty cell.
+   * Ignored by single-vault `toBytes`.
+   */
+  readonly denormalize?: readonly MultiVaultDenormColumn[]
+}
+
+/**
+ * One denormalized column in a multi-vault export: pulls a field from a
+ * supporting vault into the primary sheet via an in-memory join.
+ *
+ * @example
+ * ```ts
+ * {
+ *   column: 'entityName',   // new column header in the primary sheet
+ *   localField: 'entityId', // FK field on the primary record
+ *   from: { label: 'directory', collection: 'entities', keyField: 'id', pick: 'name' },
+ * }
+ * ```
+ */
+export interface MultiVaultDenormColumn {
+  /** Header of the new column to append to the primary sheet. */
+  readonly column: string
+  /** Field on the primary record whose value is the FK. */
+  readonly localField: string
+  readonly from: {
+    /** Label of the supporting vault entry (matches `MultiVaultXlsxEntry.label`). */
+    readonly label: string
+    /** Collection in the supporting vault. */
+    readonly collection: string
+    /** Field in the supporting record that is the join key (usually `'id'`). */
+    readonly keyField: string
+    /** Field in the supporting record to copy as the denorm value. */
+    readonly pick: string
+  }
 }
 
 /** One aggregate column in a smart-mode summary sheet (#414 P3). */
@@ -306,6 +346,15 @@ export interface MultiVaultXlsxOptions {
  * This function is **edge-pure** — it takes pre-opened vaults and a
  * pre-computed closure; it performs no cross-vault FK walk itself.
  * Cross-vault orchestration lives in `@klum-db/lobby` (allowed direction).
+ *
+ * ## Two-pass execution (when `denormalize` is declared)
+ * **Pass 1** — load and closure-filter ALL entries' rows, building a
+ * `Map<"${label}/${collection}", Map<keyValue, row>>` index keyed by each
+ * sheet's `keyField` (default `'id'`). Only closure-filtered rows are indexed,
+ * so an FK pointing outside the closure yields an empty cell (correct: that
+ * row was not referenced / not exported).
+ * **Pass 2** — emit each sheet; for sheets with `denormalize`, append each
+ * denorm column AFTER the declared columns by resolving the index lookup.
  */
 export async function toBytesMultiVault(
   entries: readonly MultiVaultXlsxEntry[],
@@ -318,8 +367,19 @@ export async function toBytesMultiVault(
     entry.vault.assertCanExport('plaintext', 'xlsx')
   }
 
-  const allSheets: XlsxSheet[] = []
-  const manifestRows: (string | number)[][] = []
+  // ── Pass 1: load + closure-filter all rows, build denorm index ────
+
+  /** Loaded rows per (label, collection) pair. */
+  interface LoadedSheet {
+    entry: MultiVaultXlsxEntry
+    prefix: string
+    sheetOpt: AsXlsxSheetOptions
+    records: Record<string, unknown>[]
+  }
+  const loaded: LoadedSheet[] = []
+
+  /** Denorm index: `"${label}/${collection}" → Map<keyValue, row>`. */
+  const denormIndex = new Map<string, Map<string, Record<string, unknown>>>()
 
   for (const entry of entries) {
     const prefix = entry.label ?? entry.vault.name
@@ -337,11 +397,77 @@ export async function toBytesMultiVault(
         if (s.filter && !s.filter(r)) continue
         records.push(r)
       }
-      const columns = s.columns ?? inferColumns(records)
-      const sheetName = `${prefix}${sep}${s.name}`
-      allSheets.push(buildFlatSheet(sheetName, columns, records))
-      manifestRows.push([prefix, s.collection, records.length])
+      loaded.push({ entry, prefix, sheetOpt: s, records })
+
+      // Build index for this collection, keyed by every field that any denorm
+      // might reference as `keyField`. We index by `id` by default, and also
+      // by any explicitly declared `keyField` that differs from `'id'`.
+      const indexKey = `${prefix}/${s.collection}`
+      const collectionIndex = denormIndex.get(indexKey) ?? new Map<string, Record<string, unknown>>()
+      denormIndex.set(indexKey, collectionIndex)
+      for (const r of records) {
+        // Always index by `id` (most common key) and by any declared keyFields.
+        const idVal = (r as { id?: unknown }).id
+        if (idVal != null) collectionIndex.set(safeStringify(idVal), r)
+      }
     }
+  }
+
+  // If any sheet declares denormalize with a non-'id' keyField, also index by that.
+  for (const ls of loaded) {
+    for (const d of ls.sheetOpt.denormalize ?? []) {
+      if (d.from.keyField === 'id') continue // already indexed
+      const indexKey = `${d.from.label}/${d.from.collection}`
+      const idx = denormIndex.get(indexKey)
+      if (!idx) continue
+      // Find the loaded sheet for that label+collection and re-index by keyField.
+      const srcLoaded = loaded.find(
+        (l) => l.prefix === d.from.label && l.sheetOpt.collection === d.from.collection,
+      )
+      if (!srcLoaded) continue
+      for (const r of srcLoaded.records) {
+        const kv = r[d.from.keyField]
+        if (kv != null) idx.set(safeStringify(kv), r)
+      }
+    }
+  }
+
+  // ── Pass 2: emit sheets with optional denorm columns ─────────────
+
+  const allSheets: XlsxSheet[] = []
+  const manifestRows: (string | number)[][] = []
+
+  for (const { prefix, sheetOpt: s, records } of loaded) {
+    const baseColumns = s.columns ?? inferColumns(records)
+    const denormDefs = s.denormalize ?? []
+
+    if (denormDefs.length === 0) {
+      // Fast path: no denorm — identical to Task 1 behaviour.
+      const sheetName = `${prefix}${sep}${s.name}`
+      allSheets.push(buildFlatSheet(sheetName, baseColumns, records))
+      manifestRows.push([prefix, s.collection, records.length])
+      continue
+    }
+
+    // Denorm path: append extra columns after the declared ones.
+    const allColumns = [...baseColumns, ...denormDefs.map((d) => d.column)]
+    const sheetName = `${prefix}${sep}${s.name}`
+    const rows = records.map((r) => {
+      const baseCells = baseColumns.map((c) => r[c] ?? null)
+      const denormCells = denormDefs.map((d) => {
+        const idxKey = `${d.from.label}/${d.from.collection}`
+        const idx = denormIndex.get(idxKey)
+        if (!idx) return ''
+        const fkVal = r[d.localField]
+        if (fkVal == null) return ''
+        const supporting = idx.get(safeStringify(fkVal))
+        if (!supporting) return '' // unresolved FK → empty cell
+        return supporting[d.from.pick] ?? ''
+      })
+      return [...baseCells, ...denormCells]
+    })
+    allSheets.push({ name: sheetName, header: allColumns, rows })
+    manifestRows.push([prefix, s.collection, records.length])
   }
 
   // Prepend the _manifest sheet.
