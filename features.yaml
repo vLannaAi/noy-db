@@ -1038,9 +1038,7 @@ features:
     package: '@noy-db/hub'
     factory: null
     status: preview
-    showcases:
-      - id: '122-klum-sovereign-custody'
-        path: 'showcases/src/122-klum-sovereign-custody.showcase.test.ts'
+    showcases: []
     recipes: []
     playground_pages: []
     diagrams: []
@@ -1072,100 +1070,6 @@ features:
       - 'encodeMultiBundle / decodeMultiBundle are the low-level framing primitives; decodeMultiBundle validates magic, version, manifest JSON, and per-compartment innerBytes overrun'
     related: [bundle, transferable-partition, public-envelope]
 
-  - id: cross-vault-extraction
-    name: Cross-vault FK-closure extraction (walkCrossVaultClosure / extractCrossVaultPartition)
-    cluster: snapshot-and-portability
-    spec: docs/superpowers/specs/2026-06-16-lobby-framework-design.md
-    subsystem_doc: docs/superpowers/specs/2026-06-16-lobby-framework-design.md
-    package: '@klum-db/lobby'
-    factory: null
-    status: preview
-    showcases:
-      - id: '121-klum-onboarding-spine'
-        path: 'showcases/src/121-klum-onboarding-spine.showcase.test.ts'
-    recipes: []
-    playground_pages: []
-    diagrams: []
-    invariants:
-      - 'walkCrossVaultClosure walks an FK closure spanning vault boundaries via app-supplied CrossVaultRef descriptors; per-vault seed predicates are returned for downstream extractPartition calls'
-      - 'extractCrossVaultPartition composes walkCrossVaultClosure + hub extractPartition and emits a NDBM multi-compartment bundle whose compartments contain exactly the FK-reachable slice of each vault (no extra rows)'
-      - 'describeCrossVaultExtraction is a dry-run: resolves with per-compartment ExtractionPreview and surfaces dangling refs without throwing (contrast: extractCrossVaultPartition throws CrossVaultDanglingRefError on dangling)'
-      - 'CrossVaultDanglingRefError is thrown by extractCrossVaultPartition when a referenced row is absent from its target vault closure; dangling refs are always collected and never silently dropped'
-      - 'Per-compartment transfer keys: each extractPartition mints its own key; result returns a { vaultName → transferKey } map for out-of-band delivery — bundle and keys must never be co-located'
-      - 'Pure @klum-db/lobby — no hub change; hub ref() deliberately rejects cross-vault refs (RefScopeError); the cross-vault edges live in the caller-supplied descriptor'
-    related: [multi-compartment-bundle, transferable-partition, bundle]
-
-  - id: merge-compartment
-    name: Merge-import / reconcile extracted-partition compartment into existing vault (mergeCompartment)
-    cluster: snapshot-and-portability
-    spec: docs/superpowers/specs/2026-06-16-lobby-framework-design.md
-    subsystem_doc: docs/superpowers/specs/2026-06-16-lobby-framework-design.md
-    package: '@klum-db/lobby'
-    factory: null
-    status: preview
-    showcases:
-      - id: '121-klum-onboarding-spine'
-        path: 'showcases/src/121-klum-onboarding-spine.showcase.test.ts'
-    recipes: []
-    playground_pages: []
-    diagrams: []
-    invariants:
-      - 'mergeCompartment(receiver, compartmentBytes, { transferKey, strategy, dryRun }) decrypts an extracted-partition bundle, diffs against the receiver, and applies per-collection conflict strategies'
-      - 'Diff semantics: added → insert (all strategies); modified → resolve per strategy; deleted (receiver-only) → IGNORE (incoming is a slice, never deletes receiver rows); unchanged → no-op'
-      - 'Strategies: take-incoming (overwrite), keep-local (skip), lww-by-ts (ISO _ts lexicographic compare — incoming wins only if strictly newer), manual-queue (record in MergeReport.conflicts without writing), field-authority (per-field resolution — see field-authority-merge; field-level is a deprecated alias)'
-      - 'dryRun: true computes the full MergeReport without calling any put(); safe to call before a real merge to validate the plan'
-      - 'MergeReport carries summary { inserted, updated, skipped, queued, total }, byCollection tallies, and conflicts (one entry per modified record — full audit trail including take-incoming overwrites)'
-      - 'field-level is now a deprecated alias of the field-authority strategy (FR-4); FieldLevelDeferredError is retained as a deprecated export but is no longer thrown'
-    related: [cross-vault-extraction, transferable-partition, bundle]
-
-  - id: field-authority-merge
-    name: Field-authority conflict resolver — per-field merge policy for cross-vault reconciliation (FR-4)
-    cluster: snapshot-and-portability
-    spec: docs/superpowers/specs/2026-06-16-lobby-framework-design.md
-    subsystem_doc: docs/superpowers/specs/2026-06-16-lobby-framework-design.md
-    package: '@klum-db/lobby'
-    factory: null
-    status: preview
-    showcases:
-      - id: '121-klum-onboarding-spine'
-        path: 'showcases/src/121-klum-onboarding-spine.showcase.test.ts'
-    recipes: []
-    playground_pages: []
-    diagrams: []
-    invariants:
-      - 'resolveFieldAuthority(rule, io) is pure: given a FieldAuthorityRule and record-level provenance for both sides, returns "incoming" or "local" with no I/O — unit-testable in isolation'
-      - 'FieldAuthorityRule variants: source-newest (ISO-8601 lexicographic _sourceTs compare; tie/missing-incoming → local), owner (incoming wins iff _source === ownerSource), fixed-source (incoming wins iff _source === source)'
-      - 'resolveRecordByFieldAuthority(policy, before, incoming, changedFields, io) applies per-field rules from the policy map; fields not in the policy default to keep-local (never clobbers on ambiguity)'
-      - 'mergeCompartment gains strategy "field-authority" (and deprecated alias "field-level") wired to the resolver; requires a fieldAuthority per-collection policy map — throws FieldAuthorityPolicyMissingError when absent'
-      - 'FieldAuthorityPolicyMissingError is thrown eagerly when the field-authority strategy is used but no policy entry exists for the collection being merged'
-      - 'field-authority MERGED records carry record-level source "merged" (merge-time _sourceTs); per-field source lineage is deferred to Q3'
-      - 'record-level take strategies (take-incoming, lww-by-ts incoming-wins, added) preserve the incoming origin _sourceTs via the hub put() sourceTs override (FR-4 Q2) so source-newest stays correct across re-merges'
-    related: [merge-compartment, record-provenance, cross-vault-extraction]
-
-  - id: migrate-then-merge
-    name: Migrate-then-merge — upgrade incoming compartment to receiver schema version before reconcile (FR-8)
-    cluster: snapshot-and-portability
-    spec: docs/superpowers/specs/2026-06-16-lobby-framework-design.md
-    subsystem_doc: docs/superpowers/specs/2026-06-16-lobby-framework-design.md
-    package: '@klum-db/lobby'
-    factory: null
-    status: preview
-    showcases:
-      - id: '121-klum-onboarding-spine'
-        path: 'showcases/src/121-klum-onboarding-spine.showcase.test.ts'
-    recipes: []
-    playground_pages: []
-    diagrams: []
-    invariants:
-      - 'migrateThenMerge(receiver, compartmentBytes, opts) is a two-stage pipeline: apply per-collection migration transforms in staging, pre-validate all staged records via validateInput, then delegate to mergeDecryptedRecords — the merge engine never branches on schema version'
-      - 'Staging-safety guarantee: all transforms and validateInput checks run in-memory before any write; a throwing transform or failing validation leaves the receiver completely untouched'
-      - 'MinVersionError is thrown (before any write) when the incoming bundle is at a schema version newer than the receiver — a newer bundle cannot be down-migrated; the receiver must upgrade first'
-      - 'Additive fast-path: collections with no supplied transform pass staging when the old shape validates against the receiver schema; schemaless receiver collections accept any shape (validateInput is a no-op)'
-      - 'MigrationTransformRequiredError is thrown (before any write) when a collection fails validation and no transform was supplied, naming the offending collection and carrying the underlying validation error'
-      - 'mergeDecryptedRecords is the shared core used by both mergeCompartment (decrypt → core) and migrateThenMerge (decrypt → migrate → core); exported for reuse by future coordinators'
-      - 'MigrateThenMergeReport extends MergeReport with a migration field carrying fromVersion, toVersion, and per-collection classification (transformed | additive-no-transform | same-version)'
-    related: [merge-compartment, field-authority-merge, cross-vault-extraction]
-
   - id: record-provenance
     name: Record provenance (_source / _sourceTs envelope fields)
     cluster: time-and-audit
@@ -1174,9 +1078,7 @@ features:
     package: '@noy-db/hub'
     factory: null
     status: preview
-    showcases:
-      - id: '121-klum-onboarding-spine'
-        path: 'showcases/src/121-klum-onboarding-spine.showcase.test.ts'
+    showcases: []
     recipes: []
     playground_pages: []
     diagrams: []
@@ -1188,7 +1090,7 @@ features:
       - 'Derived writes carry synthetic source (derived) when the output collection has provenance:true; source is ignored when provenance is off'
       - 'decryptExtractedPartition surfaces source/sourceTs on DecryptedRecord (envelope fields are preserved across extractPartition by the {...env} spread)'
       - 'mergeCompartment re-stamps the incoming source on receiver writes so provenance is preserved across vault boundaries; silently no-op when the receiver collection has provenance off'
-    related: [vault-and-collections, history, merge-compartment, transferable-partition]
+    related: [vault-and-collections, history, transferable-partition]
 
   - id: multivault-xlsx-export
     name: Multi-vault FK-driven Excel export (FR-9)
@@ -1198,9 +1100,7 @@ features:
     package: '@noy-db/as-xlsx'
     factory: null
     status: preview
-    showcases:
-      - id: '124-klum-multivault-xlsx'
-        path: 'showcases/src/124-klum-multivault-xlsx.showcase.test.ts'
+    showcases: []
     recipes: []
     playground_pages: []
     diagrams: []
@@ -1210,29 +1110,7 @@ features:
       - 'FK-referenced fields denormalized as columns: denormalize on AsXlsxSheetOptions declares MultiVaultDenormColumn entries; toBytesMultiVault performs a two-pass in-memory join (load all entries + build index in pass 1; emit sheets with denorm columns appended in pass 2); unresolved FK → empty cell'
       - 'Single-vault toBytes is unchanged (regression-guarded): denormalize is additive/optional and ignored by the single-vault path; toBytesMultiVault is a separate export, not a modification of toBytes'
       - 'Dependency direction preserved: @noy-db/as-xlsx (edge adapter) imports only @noy-db/hub — it never imports @klum-db/lobby; Lobby gains a peer-dependency on @noy-db/as-xlsx (the allowed klum→noy direction); guarded by the no-outbound-klum-import architecture check'
-    related: [cross-vault-extraction, as-xlsx]
-
-  - id: scoped-sync-surface
-    name: 'Surface — scoped sync (collections/fields/direction/conflict, persisted + handshake + cadence) (FR-7)'
-    cluster: snapshot-and-portability
-    spec: docs/superpowers/specs/2026-06-16-lobby-framework-design.md
-    subsystem_doc: docs/superpowers/specs/2026-06-16-lobby-framework-design.md
-    package: '@klum-db/lobby'
-    factory: null
-    status: preview
-    showcases:
-      - id: '123-klum-scoped-surface-sync'
-        path: 'showcases/src/123-klum-scoped-surface-sync.showcase.test.ts'
-    recipes: []
-    playground_pages: []
-    diagrams: []
-    invariants:
-      - 'A surface syncs only its named collections, optionally restricted to named fields (fieldProjection), in its declared direction (push/pull/bidirectional) with its conflict policy — no other data leaves the vault'
-      - 'Collections and fields outside the surface never leave the vault: structural field projection is applied at extractPartition (hub extract-partition.ts fieldProjection) before re-encryption, and only surface.collections are included in the exported bundle (maxDepth:0 collection bounding)'
-      - 'A propose/agree bilateral handshake gates sync: only surfaces in state "agreed" are eligible for exportSurface/applySurface; proposeSurface → agreeSurface is the required ceremony before any data flows'
-      - 'Surfaces are persisted in the StateManagementVault surfaces collection: SurfaceRow is stored in the SMV and survives restarts; state machine transitions (proposed → agreed → suspended → closed) are durable'
-      - 'Cadence is host-driven: isSurfaceDue(surface, now) is a pure predicate; the interval driver in the scheduler advances surfaces whose cadence window has elapsed — no background process, no shared clock'
-    related: [cross-vault-extraction, merge-compartment, vault-group-federation]
+    related: [as-xlsx]
 
   - id: with-snapshots
     name: Snapshot lifecycle (withSnapshots)
@@ -1534,42 +1412,6 @@ features:
       - 'detection converges the cache to the store but never auto-resolves; a tab that never wrote the doc never reports a conflict'
       - 'opt-in via db.onWriteConflict / db.enableTabCoordination; base is null when history is unavailable (default NO_HISTORY)'
     related: [cross-tab-write-propagation, write-lifecycle-hooks]
-
-  - id: vault-group-federation
-    name: Multi-vault partition federation (VaultGroup)
-    cluster: core
-    spec: docs/subsystems/vault-group.md#overview
-    subsystem_doc: docs/subsystems/vault-group.md
-    package: '@klum-db/lobby'
-    factory: null
-    status: preview
-    experimental: true
-    showcases:
-      - id: 98-vault-group-federation
-        path: showcases/src/98-vault-group-federation.showcase.test.ts
-      - id: 99-vault-group-live-aggregate
-        path: showcases/src/99-vault-group-live-aggregate.showcase.test.ts
-      - id: 100-state-management-vault
-        path: showcases/src/100-state-management-vault.showcase.test.ts
-      - id: 108-insight-vault
-        path: showcases/src/108-insight-vault.showcase.test.ts
-      - id: 109-fleet-migration
-        path: showcases/src/109-fleet-migration.showcase.test.ts
-      - id: 110-data-residency
-        path: showcases/src/110-data-residency.showcase.test.ts
-    recipes: []
-    playground_pages: []
-    diagrams: []
-    invariants:
-      - 'vault-registry is the single source of truth for shard discovery'
-      - 'createShard is idempotent; row-without-vault raises ShardProvisioningError'
-      - 'minVersion guard pre-filters shards by registry schemaVersion (no silent shape-mixing)'
-      - 'crossShardJoin is co-partitioned fan-out + central broadcast enrichment; join.ts and its partitionScope seam stay untouched'
-      - 'Insight Vault (#271 Layer 4, push model): withCrossVaultDerivation({ source, target, derive }) + refreshInsights() reads each eligible shard, runs derive(records, ctx{vaultId,partitionKey,schemaVersion}) per shard, writes one summary row per shard into the target analytics vault keyed by partitionKey — re-encrypted under the Insight Vault DEK, shard ciphertext never crosses a DEK boundary; respects the minVersion drift guard; failed shard reads → skippedVaults (no stale row); v1 is explicit-refresh (no write-path push). ZK note: Insight Vault backend sees aggregated cross-shard structure — weaker profile than per-shard vaults; opt-in, aggregate scalars only'
-      - 'fleet schema migration (#271): migrateFleet({cohort?,batchSize?}) + migrateShard(key) drive each shard through M12 vault.runSchemaCutover() (single-vault protocol internally), then advance the registry schemaVersion and write migration-status to the StateManagement Vault; cohort = staged/canary, batchSize = back-pressure; migrateOnOpen lazily migrates a behind shard on access; resumable/crash-safe (registry version is source of truth — re-run skips current, retries failed); a failed shard cutover is recorded, not fatal'
-      - 'Insight-write isolation (#271): withCrossVaultDerivation throws ValidationError if target.vault is the group itself or one of its shards (<group>--<key>) — a summary must never write back into client-shard data (per-shard DEK boundary). Least-privilege executor = a service account granted read-on-shards + write-on-Insight only (grant()+createNoydb wiring, no hub change)'
-      - 'data-residency placement guard (#271): sharding.regionOf(record) + advisory StoreCapabilities.region; on createShard the group resolves the placement backend (routeStore.resolveBackend via vault-prefix routing) and throws DataResidencyError before provisioning if the backend region != regionOf — so a shard never lands on a non-compliant backend. Advisory until a region is declared; reads are unaffected (placement-only constraint); re-homing an existing shard is out of scope (extractPartition ceremony)'
-    related: [permissions, transferable-partition, derivations, schema-and-refs]
 
 # ─── Storage adapters (phase 2) ──────────────────────────────────────
 
