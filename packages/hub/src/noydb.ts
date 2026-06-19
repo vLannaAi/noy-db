@@ -21,7 +21,7 @@ import type {
   TranslatorAuditEntry,
   WriteConflict,
 } from './types.js'
-import { ValidationError, NoAccessError, InvalidKeyError, KeyringCorruptError, StoreCapabilityError, PermissionDeniedError, DebugPlaintextError, FederationMovedError } from './errors.js'
+import { ValidationError, NoAccessError, InvalidKeyError, KeyringCorruptError, StoreCapabilityError, PermissionDeniedError, DebugPlaintextError } from './errors.js'
 import {
   readDirectoryConfig,
   persistDirectoryConfig,
@@ -1131,27 +1131,12 @@ export class Noydb {
   }
 
   /**
-   * @internal True once `close()` has been called. Read by
-   * `@klum-db/lobby`'s Lobby entry points (which can't see the private
-   * `closed` field).
+   * @internal True once `close()` has been called. Read by outward
+   * orchestration frameworks whose entry points can't see the private
+   * `closed` field.
    */
   get isClosed(): boolean {
     return this.closed
-  }
-
-  /** @deprecated Federation moved to @klum-db/lobby. Use `createLobby(db).withVaultTemplate(...)`. */
-  withVaultTemplate(): never {
-    throw new FederationMovedError('withVaultTemplate')
-  }
-
-  /** @deprecated Federation moved to @klum-db/lobby. Use `createLobby(db).openVaultGroup(...)`. */
-  async openVaultGroup(): Promise<never> {
-    throw new FederationMovedError('openVaultGroup')
-  }
-
-  /** @deprecated Federation moved to @klum-db/lobby. Use `createLobby(db).openStateManagementVault()`. */
-  async openStateManagementVault(): Promise<never> {
-    throw new FederationMovedError('openStateManagementVault')
   }
 
   /**

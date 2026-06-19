@@ -1105,11 +1105,11 @@ features:
     playground_pages: []
     diagrams: []
     invariants:
-      - 'Workbook spans ≥2 vaults: toBytesMultiVault(entries, options?) in @noy-db/as-xlsx renders one workbook from pre-opened vaults; Lobby.exportMultiVaultXlsx in @klum-db/lobby orchestrates the FK walk + vault opening before delegating to toBytesMultiVault'
+      - 'Workbook spans ≥2 vaults: toBytesMultiVault(entries, options?) in @noy-db/as-xlsx renders one workbook from pre-opened vaults; an outward orchestration layer performs the FK walk + vault opening before delegating to toBytesMultiVault'
       - 'Supporting-vault rows are exactly FK-referenced (no full-table dump): each MultiVaultXlsxEntry closure field (Map<collection, Set<id>>) filters rows to only the allowlisted ids; walkCrossVaultClosure (FR-2) populates these closures from the declared CrossVaultRef descriptors'
       - 'FK-referenced fields denormalized as columns: denormalize on AsXlsxSheetOptions declares MultiVaultDenormColumn entries; toBytesMultiVault performs a two-pass in-memory join (load all entries + build index in pass 1; emit sheets with denorm columns appended in pass 2); unresolved FK → empty cell'
       - 'Single-vault toBytes is unchanged (regression-guarded): denormalize is additive/optional and ignored by the single-vault path; toBytesMultiVault is a separate export, not a modification of toBytes'
-      - 'Dependency direction preserved: @noy-db/as-xlsx (edge adapter) imports only @noy-db/hub — it never imports @klum-db/lobby; Lobby gains a peer-dependency on @noy-db/as-xlsx (the allowed klum→noy direction); guarded by the no-outbound-klum-import architecture check'
+      - 'Dependency direction preserved: @noy-db/as-xlsx (edge adapter) imports only @noy-db/hub — it never imports an outward orchestration layer; the orchestrator depends on @noy-db/as-xlsx (the allowed outward→vault direction); guarded by the no-outbound-klum-import architecture check'
     related: [as-xlsx]
 
   - id: with-snapshots

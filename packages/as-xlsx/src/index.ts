@@ -344,7 +344,7 @@ export interface MultiVaultXlsxOptions {
  * ## Architecture
  * This function is **edge-pure** — it takes pre-opened vaults and a
  * pre-computed closure; it performs no cross-vault FK walk itself.
- * Cross-vault orchestration lives in `@klum-db/lobby` (allowed direction).
+ * Cross-vault orchestration lives in the outward orchestration layer (allowed direction).
  *
  * ## Two-pass execution (when `denormalize` is declared)
  * **Pass 1** — load and closure-filter ALL entries' rows, building a

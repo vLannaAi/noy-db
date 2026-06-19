@@ -316,7 +316,7 @@ export { NumberingUncertaintyError } from './errors.js'
 export type { StoreTime } from './types.js'
 
 export { STATE_VAULT_NAME } from './constants.js'
-export { UnknownShardError, ShardProvisioningError, VaultTemplateNotFoundError, ReservedVaultNameError, DataResidencyError, FederationMovedError } from './errors.js'
+export { UnknownShardError, ShardProvisioningError, VaultTemplateNotFoundError, ReservedVaultNameError, DataResidencyError } from './errors.js'
 export { ForgetStrategyNotConfiguredError } from './errors.js'
 export { SealedRecordExpiredError, SealedRecordMismatchError, RecordCekNotFoundError } from './errors.js'
 export { DebugPlaintextError, DebugReservedFieldError } from './errors.js'

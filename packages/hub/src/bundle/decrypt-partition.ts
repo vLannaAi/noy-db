@@ -1,9 +1,9 @@
 /**
  * Read-side counterpart to `extractPartition`: decrypt an
  * extracted-partition bundle's records to plaintext using its transfer
- * key, WITHOUT adopting it into a vault. Used by reconcile/merge
- * (@klum-db/lobby FR-3) and field-authority (FR-4) to compare incoming
- * records against a receiver. The transfer key validates the bundle
+ * key, WITHOUT adopting it into a vault. Used by an outward
+ * orchestration layer's reconcile/merge and field-authority flows to
+ * compare incoming records against a receiver. The transfer key validates the bundle
  * (wrong key throws).
  * @module
  */
