@@ -1,7 +1,5 @@
-// packages/hub/__tests__/bundle-magic-export.test.ts
 import { describe, it, expect } from 'vitest'
-import { hasNoydbBundleMagic } from '../src/index.js'
-import { writeNoydbBundle } from '../src/bundle/bundle.js'
+import { hasNoydbBundleMagic, writeNoydbBundle } from '../src/index.js'
 import { createNoydb } from '../src/noydb.js'
 import { ConflictError } from '../src/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
