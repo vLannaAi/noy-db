@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
-import { ConflictError, FederationMovedError } from '../src/errors.js'
+import { ConflictError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
 
 function inlineMemory(): NoydbStore {
@@ -30,35 +30,11 @@ function inlineMemory(): NoydbStore {
   }
 }
 
-describe('hub prep for federation extraction', () => {
-  it('FederationMovedError carries the stable code + API name', () => {
-    const err = new FederationMovedError('openVaultGroup')
-    expect(err).toBeInstanceOf(Error)
-    expect(err.code).toBe('FEDERATION_MOVED')
-    expect(err.message).toContain('@klum-db/lobby')
-    expect(err.message).toContain('openVaultGroup')
-    expect(err.message).toContain('createLobby')
-  })
-
-  it('Noydb exposes isClosed reflecting lifecycle', async () => {
+describe('Noydb lifecycle', () => {
+  it('exposes isClosed reflecting lifecycle', async () => {
     const db = await createNoydb({ store: inlineMemory(), user: 'a', secret: 'correct-horse-battery-staple' })
     expect(db.isClosed).toBe(false)
     db.close()
     expect(db.isClosed).toBe(true)
-  })
-})
-
-describe('federation entry methods throw FederationMovedError', () => {
-  it('openVaultGroup throws', async () => {
-    const db = await createNoydb({ store: inlineMemory(), user: 'a', secret: 'correct-horse-battery-staple' })
-    await expect(db.openVaultGroup()).rejects.toBeInstanceOf(FederationMovedError)
-  })
-  it('openStateManagementVault throws', async () => {
-    const db = await createNoydb({ store: inlineMemory(), user: 'a', secret: 'correct-horse-battery-staple' })
-    await expect(db.openStateManagementVault()).rejects.toBeInstanceOf(FederationMovedError)
-  })
-  it('withVaultTemplate throws', async () => {
-    const db = await createNoydb({ store: inlineMemory(), user: 'a', secret: 'correct-horse-battery-staple' })
-    expect(() => db.withVaultTemplate()).toThrow(FederationMovedError)
   })
 })

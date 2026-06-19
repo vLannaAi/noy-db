@@ -57,7 +57,7 @@
       "properties": {
         "id":      { "$ref": "#/$defs/id" },
         "name":    { "type": "string", "minLength": 1 },
-        "package": { "type": "string", "pattern": "^(@noy-db/[a-z][a-z0-9-]*(/[a-z][a-z0-9-]*)?|@klum-db/[a-z][a-z0-9-]*|create-noy-db)$" },
+        "package": { "type": "string", "pattern": "^(@noy-db/[a-z][a-z0-9-]*(/[a-z][a-z0-9-]*)?|create-noy-db)$" },
         "status":  { "$ref": "#/$defs/status" },
         "experimental": {
           "oneOf": [

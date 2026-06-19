@@ -1,6 +1,6 @@
 /**
  * **@noy-db/hub/kernel** — the stable internal surface that outward
- * frameworks (klum-db / Lobby) bind to *instead of* reaching into hub
+ * orchestration frameworks bind to *instead of* reaching into hub
  * internals via relative paths.
  *
  * This is the "kernel-surface extraction" (spec §10): the minimal set
