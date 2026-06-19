@@ -23,8 +23,9 @@ The NDBM multivault bundle is **pure composition**: it frames N independent sing
   - `writeNoydbBundle`, `readNoydbBundleHeader`, `WriteNoydbBundleOptions` — already on `@noy-db/hub/bundle`. ✓
   - `readNoydbBundlePublicEnvelope` — already on `@noy-db/hub` (root). ✓
   - `sha256Hex`, `generateULID`, `Vault` (type) — already on `@noy-db/hub/kernel`. ✓
-  - `PublicEnvelope` (type) — **internal only** (`hub/src/meta/public-envelope/types.js`). This is the **one** primitive noy-db must newly expose.
-  - byte helpers `readUint32BE` / `writeUint32BE` / `hasNoydbBundleMagic` — trivial; **klum brings its own** rather than have hub expose low-level byte utilities.
+  - `PublicEnvelope` (type) — **already public** on the `@noy-db/hub` root (`index.ts:528`). No change needed.
+  - `hasNoydbBundleMagic` (predicate, `hub/src/bundle/format.ts:394`) — **internal**; the NDBM reader (`readNoydbBundleManifest`, `readMultiVaultBundleCompartment`) uses it to detect a single-vault NDB1 bundle. klum can't own this without duplicating noy-db's frozen format magic, so noy-db exposes it. **This is PR-A's only new surface.**
+  - byte helpers `readUint32BE` / `writeUint32BE` — trivial; **klum brings its own** rather than have hub expose low-level byte utilities.
 
 ## Design
 
@@ -32,7 +33,7 @@ The NDBM multivault bundle is **pure composition**: it frames N independent sing
 Single-vault bundle (`bundle.ts`), byte-format primitives (`format.ts`), `extractPartition`, `decryptExtractedPartition`, `describeExtraction`, snapshots. noy-db's single-vault bundle format is byte-unchanged.
 
 ### noy-db sheds + exposes
-1. **Expose** `PublicEnvelope` as a public type from `@noy-db/hub` (additive; the only new surface).
+1. **Expose** `hasNoydbBundleMagic` (predicate) as public from `@noy-db/hub` (additive; PR-A's only new surface — `PublicEnvelope` is already public).
 2. **Delete** `packages/hub/src/bundle/multi-bundle.ts` and its re-exports from `hub/src/index.ts` and `hub/src/bundle/index.ts`.
 3. **Remove** the `multi-compartment-bundle` entry from `features.yaml` (package `@noy-db/hub`).
 
@@ -51,7 +52,7 @@ Single-vault bundle (`bundle.ts`), byte-format primitives (`format.ts`), `extrac
 
 The multivault bundle is never missing from *both* published packages, so klum is never broken mid-flight. (noy-db and klum-db version on **independent** `pre.N` lines now — `pre.N`/`pre.M` below do not need to align; noy-db is currently at `pre.24`, klum at `pre.26`.)
 
-1. **noy-db PR-A** *(additive, non-breaking)*: expose `PublicEnvelope` type. **Keep** `multi-bundle.ts`. Merge → publish `@noy-db pre.N`.
+1. **noy-db PR-A** *(additive, non-breaking)*: expose `hasNoydbBundleMagic`. **Keep** `multi-bundle.ts`. Merge → publish `@noy-db pre.N`.
 2. **klum-db PR** : add `src/bundle/multi-bundle.ts` (consuming `pre.N`), rewire `extract-cross-vault`, export from barrel, migrate tests. Merge → publish `@klum-db/lobby` (its next `pre.M`).
 3. **noy-db PR-B** *(breaking)*: delete `multi-bundle.ts` + its re-exports + the `features.yaml` entry. Merge → publish `@noy-db pre.N+1`.
 
