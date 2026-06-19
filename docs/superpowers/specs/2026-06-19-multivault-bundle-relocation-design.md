@@ -24,7 +24,7 @@ The NDBM multivault bundle is **pure composition**: it frames N independent sing
   - `readNoydbBundlePublicEnvelope` — already on `@noy-db/hub` (root). ✓
   - `sha256Hex`, `generateULID`, `Vault` (type) — already on `@noy-db/hub/kernel`. ✓
   - `PublicEnvelope` (type) — **already public** on the `@noy-db/hub` root (`index.ts:528`). No change needed.
-  - `hasNoydbBundleMagic` (predicate, `hub/src/bundle/format.ts:394`) — **internal**; the NDBM reader (`readNoydbBundleManifest`, `readMultiVaultBundleCompartment`) uses it to detect a single-vault NDB1 bundle. klum can't own this without duplicating noy-db's frozen format magic, so noy-db exposes it. **This is PR-A's only new surface.**
+  - `hasNoydbBundleMagic` (predicate) — **ALREADY public** (`hub/src/index.ts:365`, re-exported from `bundle/format.ts`) and **already in the published `@noy-db/hub@0.2.0-pre.24`** (runtime-verified from klum's installed dep, 2026-06-20). klum's relocated NDBM reader consumes it directly. **No new noy-db surface is required — the originally-planned "PR-A expose" step is ELIMINATED.**
   - byte helpers `readUint32BE` / `writeUint32BE` — trivial; **klum brings its own** rather than have hub expose low-level byte utilities.
 
 ## Design
@@ -32,10 +32,11 @@ The NDBM multivault bundle is **pure composition**: it frames N independent sing
 ### Stays in noy-db (unchanged behavior)
 Single-vault bundle (`bundle.ts`), byte-format primitives (`format.ts`), `extractPartition`, `decryptExtractedPartition`, `describeExtraction`, snapshots. noy-db's single-vault bundle format is byte-unchanged.
 
-### noy-db sheds + exposes
-1. **Expose** `hasNoydbBundleMagic` (predicate) as public from `@noy-db/hub` (additive; PR-A's only new surface — `PublicEnvelope` is already public).
-2. **Delete** `packages/hub/src/bundle/multi-bundle.ts` and its re-exports from `hub/src/index.ts` and `hub/src/bundle/index.ts`.
-3. **Remove** the `multi-compartment-bundle` entry from `features.yaml` (package `@noy-db/hub`).
+### noy-db sheds
+**Nothing to expose** — `hasNoydbBundleMagic` + `PublicEnvelope` are already public and already published in `pre.24`. noy-db's only work is the removal:
+1. **Delete** `packages/hub/src/bundle/multi-bundle.ts` and its re-exports from `hub/src/index.ts` and `hub/src/bundle/index.ts`.
+2. **Remove** the `multi-compartment-bundle` entry from `features.yaml` (package `@noy-db/hub`).
+3. **Add** a guard test (`bundle-magic-export.test.ts`) asserting `hasNoydbBundleMagic` stays publicly exported — klum now depends on it across the seam. (This is the salvaged test from the eliminated PR-A.)
 
 ### klum-db receives
 1. New module `klum-db/src/bundle/multi-bundle.ts` (dedicated `src/bundle/` directory — distinct concern from `src/interchange/`). It is the moved NDBM framing, with imports rebound to the published seam:
@@ -48,21 +49,19 @@ Single-vault bundle (`bundle.ts`), byte-format primitives (`format.ts`), `extrac
 ### Public-API outcome
 `@noy-db/hub` no longer exports any multivault/NDBM symbol. Consumers wanting a multivault bundle import from `@klum-db/lobby`. noy-db's bundle surface is single-vault only.
 
-## The publish-seam sequence (3-PR, no-gap)
+## The publish-seam sequence (2-PR, no-gap)
 
-The multivault bundle is never missing from *both* published packages, so klum is never broken mid-flight. (noy-db and klum-db version on **independent** `pre.N` lines now — `pre.N`/`pre.M` below do not need to align; noy-db is currently at `pre.24`, klum at `pre.26`.)
+**PR-A is eliminated** — the primitives are already public and published in `pre.24`, so klum's work is unblocked immediately. The multivault bundle is never missing from *both* published packages, so klum is never broken mid-flight. (noy-db and klum-db version on **independent** `pre.N` lines; noy-db is at `pre.24`, klum at `pre.26`.)
 
-1. **noy-db PR-A** *(additive, non-breaking)*: expose `hasNoydbBundleMagic`. **Keep** `multi-bundle.ts`. Merge → publish `@noy-db pre.N`.
-2. **klum-db PR** : add `src/bundle/multi-bundle.ts` (consuming `pre.N`), rewire `extract-cross-vault`, export from barrel, migrate tests. Merge → publish `@klum-db/lobby` (its next `pre.M`).
-3. **noy-db PR-B** *(breaking)*: delete `multi-bundle.ts` + its re-exports + the `features.yaml` entry. Merge → publish `@noy-db pre.N+1`.
+1. **klum-db PR** *(unblocked now)*: add `src/bundle/multi-bundle.ts` (consuming the already-published `@noy-db@pre.24`), rewire `extract-cross-vault`, export from barrel, migrate tests. Merge → publish `@klum-db/lobby` (its next `pre.M`).
+2. **noy-db PR** *(breaking)*: delete `multi-bundle.ts` + its re-exports + the `features.yaml` entry; add the `hasNoydbBundleMagic` guard test. Merge → publish `@noy-db pre.N`.
 
-After step 3, klum's `extract-cross-vault` already imports from its local module, so removing the hub copy breaks nothing. (Pre-1.0 this could collapse to 2 PRs with a brief gap; the no-gap version is preferred to keep the seam honest.)
+After step 2, klum's `extract-cross-vault` already imports from its local module and the published `@klum-db/lobby` owns the bundle, so removing the hub copy breaks nothing. The bundle stays in published `@noy-db@pre.24` until klum publishes its own in step 1 — no gap.
 
 ## Testing & verification
 
-- **noy-db PR-A:** `pnpm turbo build/typecheck/lint`, `validate:features`, `check:architecture` (Check 8 still green). Additive — no behavior change.
-- **klum-db PR:** `pnpm test` (the migrated NDBM suite + existing 177 green) against published `@noy-db pre.N`; `pnpm build/typecheck/lint`.
-- **noy-db PR-B:** full gate suite; confirm no dangling references to multivault symbols; `validate:features` passes with the entry removed; hub test count drops only by the migrated NDBM tests.
+- **klum-db PR:** `pnpm test` (the migrated NDBM suite + existing 177 green) against the published `@noy-db@pre.24`; `pnpm build/typecheck/lint`.
+- **noy-db PR:** full gate suite; the `hasNoydbBundleMagic` guard test passes; confirm no dangling references to multivault symbols; `validate:features` passes with the entry removed; hub test count drops only by the removed NDBM tests (net of the added guard test).
 
 ## Out of scope (separate specs in the boundary epic)
 - **Workstream #2 — governance ceremonies:** custody (Deed/Custodian/Liberate), two-party withdrawal, managed transfer → klum façades over hub crypto. Security-sensitive.

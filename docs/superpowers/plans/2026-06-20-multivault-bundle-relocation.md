@@ -4,7 +4,9 @@
 
 **Goal:** Move the multi-compartment (NDBM) multivault bundle out of `@noy-db/hub` and into `@klum-db/lobby`, leaving noy-db a pure single-vault library.
 
-**Architecture:** Cross-repo change across the published-package seam. The NDBM bundle is pure composition (it frames N single-vault bundles, touches no crypto), so it relocates by consuming the single-vault bundle primitives from the published `@noy-db`. Shipped as a 3-PR no-gap sequence (noy-db expose → klum add+publish → noy-db delete) so the published `@klum-db/lobby` is never broken mid-flight.
+**Architecture:** Cross-repo change across the published-package seam. The NDBM bundle is pure composition (it frames N single-vault bundles, touches no crypto), so it relocates by consuming the single-vault bundle primitives from the published `@noy-db`. **2-PR no-gap sequence (klum add+publish → noy-db delete)** so the published `@klum-db/lobby` is never broken mid-flight.
+
+> **⚠️ UPDATE 2026-06-20 — PHASE 1 / PR-A ELIMINATED.** Verification during execution showed the published `@noy-db/hub@0.2.0-pre.24` **already exports** `hasNoydbBundleMagic` (`index.ts:365`) + `PublicEnvelope`. So no "expose" PR is needed and **Phase 1 + Gate A are dropped.** Start at **Phase 2 (klum)** — it's unblocked against the current published `@noy-db`. The `bundle-magic-export.test.ts` written for the old Phase 1 is **salvaged**: it moves into the Phase 3 noy-db delete PR as a guard that `hasNoydbBundleMagic` stays public (klum now depends on it). Renumbering after this update: **Phase 2 → the klum PR; Gate B → Gate A; Phase 3 → the noy-db PR; Gate C → Gate B.**
 
 **Tech Stack:** TypeScript (strict, ESM `.js` specifiers), vitest, pnpm. Repos: `vLannaAi/noy-db` (`/Users/vicio/_github/noy-db`) and `vLannaAi/klum-db` (`/Users/vicio/_github/klum-db`).
 
