@@ -535,10 +535,6 @@ export type {
 } from './meta/public-envelope/index.js'
 export { readNoydbBundlePublicEnvelope } from './bundle/bundle.js'
 
-// Multi-compartment bundle (NDBM) — writeMultiVaultBundle / readNoydbBundleManifest / readMultiVaultBundleCompartment
-export { writeMultiVaultBundle, readNoydbBundleManifest, readMultiVaultBundleCompartment } from './bundle/multi-bundle.js'
-export type { CompartmentManifest, MultiBundleManifest, MultiVaultCompartmentInput } from './bundle/multi-bundle.js'
-
 // User envelope (docs/superpowers/specs/2026-05-05-user-envelope-design.md)
 export {
   USER_ENVELOPE_COLLECTION,
