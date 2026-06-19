@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/to-aws-dynamo",
-  "version": "0.2.0-pre.24",
+  "version": "0.2.0-pre.25",
   "description": "AWS DynamoDB adapter for noy-db — single-table design, zero-knowledge cloud sync",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
