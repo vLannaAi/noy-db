@@ -1,7 +1,7 @@
 import type { Vault } from '@noy-db/hub'
-import type { InspectorSnapshot, InspectorCollection, VaultInfo, InspectorNoydb } from './types.js'
+import type { InspectorSnapshot, InspectorCollection, VaultInfo, InspectableContainer } from './types.js'
 
-export async function listVaults(noydb: InspectorNoydb): Promise<ReadonlyArray<VaultInfo>> {
+export async function listVaults(noydb: InspectableContainer): Promise<ReadonlyArray<VaultInfo>> {
   return noydb.listAccessibleVaults()
 }
 

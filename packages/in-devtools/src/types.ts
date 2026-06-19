@@ -1,8 +1,10 @@
 import type {
-  Noydb,
   Vault,
   WriteEvent,
   WriteConflict,
+  WriteHook,
+  Unsubscribe,
+  WriteQueue,
   AccessibleVault,
   CollectionDescriptor,
   CollectionStats,
@@ -68,5 +70,15 @@ export interface Inspector {
   meterSnapshot(): MeterSnapshot | null
 }
 
-/** @internal — the hub handle the inspector reads from. */
-export type InspectorNoydb = Noydb
+/**
+ * The container of vaults the inspector reads from. A `Noydb` satisfies this
+ * verbatim; a klum `VaultGroup` adapter conforms structurally — so the inspector
+ * works on a single instance OR a federation without importing either.
+ */
+export interface InspectableContainer {
+  listAccessibleVaults(): Promise<readonly AccessibleVault[]>
+  openVault(name: string): Promise<Vault>
+  onAfterWrite(handler: WriteHook): Unsubscribe
+  onWriteConflict(handler: (c: WriteConflict) => void): Unsubscribe
+  readonly writeQueue: WriteQueue
+}
