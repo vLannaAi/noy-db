@@ -4,6 +4,48 @@ import { i18nText, applyI18nLocale } from '../src/i18n/core.js'
 import { computeExemptFills, densify } from '../src/i18n/densify.js'
 import { withI18n } from '../src/i18n/index.js'
 import { NO_I18N } from '../src/i18n/strategy.js'
+import { createNoydb } from '../src/noydb.js'
+import type { Noydb } from '../src/noydb.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
+import { ConflictError } from '../src/errors.js'
+
+function memory(): NoydbStore {
+  const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
+  function gc(c: string, col: string) {
+    let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
+    let coll = comp.get(col); if (!coll) { coll = new Map(); comp.set(col, coll) }
+    return coll
+  }
+  return {
+    name: 'memory',
+    async get(c, col, id) { return store.get(c)?.get(col)?.get(id) ?? null },
+    async put(c, col, id, env, ev) {
+      const coll = gc(c, col); const ex = coll.get(id)
+      if (ev !== undefined && ex && ex._v !== ev) throw new ConflictError(ex._v)
+      coll.set(id, env)
+    },
+    async delete(c, col, id) { store.get(c)?.get(col)?.delete(id) },
+    async list(c, col) { const coll = store.get(c)?.get(col); return coll ? [...coll.keys()] : [] },
+    async loadAll(c) {
+      const comp = store.get(c); const s: VaultSnapshot = {}
+      if (comp) for (const [n, coll] of comp) if (!n.startsWith('_')) {
+        const r: Record<string, EncryptedEnvelope> = {}; for (const [id, e] of coll) r[id] = e; s[n] = r
+      }
+      return s
+    },
+    async saveAll(c, data) {
+      const comp = new Map<string, Map<string, EncryptedEnvelope>>()
+      for (const [name, records] of Object.entries(data)) {
+        const coll = new Map<string, EncryptedEnvelope>()
+        for (const [id, env] of Object.entries(records)) coll.set(id, env)
+        comp.set(name, coll)
+      }
+      const existing = store.get(c)
+      if (existing) for (const [name, coll] of existing) if (name.startsWith('_')) comp.set(name, coll)
+      store.set(c, comp)
+    },
+  }
+}
 
 describe('densifyOnWrite config validation', () => {
   it('rejects densifyOnWrite + explicit scalar throw policy', () => {
@@ -142,5 +184,44 @@ describe('applyI18nLocale strips the _i18nFilled marker (#435)', () => {
     const out: any = applyI18nLocale(rec, fields, 'raw')
     expect('_i18nFilled' in out).toBe(false)
     expect(rec._i18nFilled).toEqual({ name: ['en'] }) // input untouched
+  })
+})
+
+interface Co { id: string; name: Record<string, string> }
+async function densDb(): Promise<Noydb> {
+  return createNoydb({ store: memory(), user: 'a', secret: 'pw-densify', i18nStrategy: withI18n() })
+}
+
+describe('densifyOnWrite (integration)', () => {
+  it('fills en from th, hides the marker, exposes it via i18nProvenance', async () => {
+    const db = await densDb()
+    const v = await db.openVault('v', { locale: 'en' })
+    const co = v.collection<Co>('co', {
+      i18nFields: { name: i18nText({ languages: ['th', 'en'], required: 'any', substitute: ['en', 'th'], densifyOnWrite: true }) },
+    })
+    await co.put('c1', { id: 'c1', name: { th: 'สมชาย' } })
+    expect((await co.get('c1') as any).name).toBe('สมชาย') // en reader sees the fill
+    const raw = await co.get('c1', { locale: 'raw' })
+    expect('_i18nFilled' in (raw as any)).toBe(false)
+    expect((raw as any).name).toEqual({ th: 'สมชาย', en: 'สมชาย' }) // dense
+    expect(await co.i18nProvenance('c1')).toEqual({ name: ['en'] })
+  })
+
+  it('refreshes on source change and does not clobber an authored value (the round-trip proof)', async () => {
+    const db = await densDb()
+    const v = await db.openVault('v', { locale: 'en' })
+    const co = v.collection<Co>('co', {
+      i18nFields: { name: i18nText({ languages: ['th', 'en'], required: 'any', substitute: ['en', 'th'], densifyOnWrite: true, script: 'auto' }) },
+    })
+    await co.put('c1', { id: 'c1', name: { th: 'สมชาย' } }) // en filled = สมชาย (Thai)
+    const r1 = await co.get('c1', { locale: 'raw' })
+    await co.put('c1', { id: 'c1', name: { ...(r1 as any).name, th: 'สมชัย' } })
+    const r2 = await co.get('c1', { locale: 'raw' })
+    expect((r2 as any).name.en).toBe('สมชัย') // refreshed, NOT script-rejected
+    expect(await co.i18nProvenance('c1')).toEqual({ name: ['en'] })
+    await co.put('c1', { id: 'c1', name: { th: 'สมชัย', en: 'Somchai' } })
+    const r3 = await co.get('c1', { locale: 'raw' })
+    expect((r3 as any).name.en).toBe('Somchai')
+    expect(await co.i18nProvenance('c1')).toBeUndefined() // marker cleared
   })
 })

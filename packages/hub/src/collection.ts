@@ -314,6 +314,13 @@ export class Collection<T> {
   private readonly i18nFields: Record<string, I18nTextDescriptor> | undefined
 
   /**
+   * #435 — the densify-enabled subset of {@link i18nFields} (fields whose
+   * descriptor opts in via `densifyOnWrite: true`). `undefined` when none opt
+   * in, so the write path skips all densify work for ordinary collections.
+   */
+  private readonly i18nDensifyFields: Record<string, I18nTextDescriptor> | undefined
+
+  /**
    * Map of field name → `DictKeyDescriptor` for fields declared with
    * `dictKey()`. Used by `get()`/`list()` to add `<field>Label` virtual
    * fields when a locale is requested.
@@ -879,6 +886,15 @@ export class Collection<T> {
     this.refEnforcer = opts.refEnforcer
     this.joinResolver = opts.joinResolver
     this.i18nFields = opts.i18nFields
+    // #435 — precompute the densify-enabled subset (undefined when none opt in)
+    // so the write path skips work for non-densify collections.
+    const densifyFields = opts.i18nFields
+      ? Object.fromEntries(
+          Object.entries(opts.i18nFields).filter(([, d]) => d.options.densifyOnWrite === true),
+        )
+      : {}
+    this.i18nDensifyFields =
+      Object.keys(densifyFields).length > 0 ? densifyFields : undefined
     this.dictKeyFields = opts.dictKeyFields
     if (opts.moneyFields) validateMoneyFieldPaths(opts.moneyFields)
     this.moneyFields = opts.moneyFields
@@ -1281,6 +1297,34 @@ export class Collection<T> {
   }
 
   /**
+   * #435 — resolve the prior stored record (with its `_i18nFilled` marker) for
+   * densify. Eager: in-memory cache; lazy: LRU then adapter. undefined if absent.
+   */
+  private async resolveDensifyPrior(id: string): Promise<Record<string, unknown> | undefined> {
+    if (this.lazy && this.lru) {
+      const cached = this.lru.get(id)
+      if (cached) return cached.record as Record<string, unknown>
+      const env = await this.adapter.get(this.vault, this.name, id)
+      if (!env) return undefined
+      const rec = await this.decryptRecord(env)
+      return rec === null ? undefined : (rec as Record<string, unknown>)
+    }
+    await this.ensureHydrated()
+    return this.cache.get(id)?.record as Record<string, unknown> | undefined
+  }
+
+  /**
+   * #435 — densify provenance for a record: which i18n slots were auto-filled,
+   * e.g. `{ name: ['en'] }`. undefined when nothing was filled. The marker is
+   * stripped from ordinary reads; this is the sanctioned audit accessor.
+   */
+  async i18nProvenance(id: string): Promise<Record<string, readonly string[]> | undefined> {
+    const prior = await this.resolveDensifyPrior(id)
+    const marker = prior?.['_i18nFilled'] as Record<string, string[]> | undefined
+    return marker && Object.keys(marker).length > 0 ? marker : undefined
+  }
+
+  /**
    * Validate a record against this collection's schema WITHOUT writing it.
    * Returns the (possibly coerced) record on success; throws
    * {@link SchemaValidationError} (direction: `'input'`) on violation.
@@ -1442,6 +1486,20 @@ export class Collection<T> {
       }
     }
 
+    // #435 densifyOnWrite (decision A): read prior fills so a round-tripped
+    // derived copy is exempt from script enforcement and can be refreshed.
+    // `densifyPrior` is read once here and reused by densify() below.
+    let densifyPrior: Record<string, unknown> | undefined
+    let exemptFills: Map<string, Set<string>> | undefined
+    if (this.i18nDensifyFields) {
+      densifyPrior = await this.resolveDensifyPrior(id)
+      exemptFills = this.i18nStrategy.computeExemptFills(
+        densifyPrior,
+        record as Record<string, unknown>,
+        this.i18nDensifyFields,
+      )
+    }
+
     // i18nText script enforcement — runs AFTER auto-translate (so
     // generated values are checked too). Throws ScriptViolationError
     // under the default 'reject'; 'filter' strips disallowed chars in
@@ -1459,6 +1517,7 @@ export class Collection<T> {
             leafMap,
             field,
             descriptor,
+            exemptFills?.get(field),
           )
           if (cleaned !== leafMap) Object.assign(leafMap, cleaned)
           // enforceScript only returns warnings under 'warn'/'filter' ('reject'
@@ -1485,6 +1544,17 @@ export class Collection<T> {
     // when required translations are absent.
     if (this.i18nPutValidator !== undefined) {
       this.i18nPutValidator(record)
+    }
+
+    // #435 — eager-fill empty slots + record provenance. Runs AFTER the
+    // authored gates (required + script) so only authored slots are validated;
+    // filled slots are recorded in the internal `_i18nFilled` marker.
+    if (this.i18nDensifyFields) {
+      this.i18nStrategy.densify(
+        record as Record<string, unknown>,
+        densifyPrior,
+        this.i18nDensifyFields,
+      )
     }
 
     // Foreign-key ref enforcement. Runs AFTER schema
