@@ -589,10 +589,24 @@ export function applyI18nLocale(
   }
 
   // #435 — the internal densify provenance marker never leaves the store.
-  if (Object.prototype.hasOwnProperty.call(result, '_i18nFilled')) {
-    const { _i18nFilled: _omit, ...rest } = result
-    result = rest
-  }
+  result = stripI18nFilled(result)
 
   return result
+}
+
+/**
+ * Remove the internal densify provenance marker (`_i18nFilled`) from a
+ * read-facing record (#435). NON-mutating: returns the same object when the
+ * marker is absent, otherwise a shallow copy without the marker.
+ *
+ * MUST be applied on every user-facing read return — even locale-less ones,
+ * which bypass {@link applyI18nLocale}. MUST NOT be applied on the internal
+ * prior-read path (decryptRecord / resolveDensifyPrior), where densify needs
+ * the marker.
+ */
+export function stripI18nFilled<T extends Record<string, unknown>>(record: T): T {
+  if (!Object.prototype.hasOwnProperty.call(record, '_i18nFilled')) return record
+  const rest: T = { ...record }
+  delete (rest as Record<string, unknown>)._i18nFilled
+  return rest
 }

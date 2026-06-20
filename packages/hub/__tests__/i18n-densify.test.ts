@@ -225,3 +225,50 @@ describe('densifyOnWrite (integration)', () => {
     expect(await co.i18nProvenance('c1')).toBeUndefined() // marker cleared
   })
 })
+
+describe('densify never leaks _i18nFilled on locale-less reads (#435)', () => {
+  // Vault has NO default locale — exercises the read paths that bypass
+  // applyI18nLocale (get early-return, list, search).
+  async function localelessSetup() {
+    const db = await densDb()
+    const v = await db.openVault('v') // NO { locale }
+    const co = v.collection<Co>('co', {
+      i18nFields: { name: i18nText({ languages: ['th', 'en'], required: 'any', substitute: ['en', 'th'], densifyOnWrite: true }) },
+    })
+    await co.put('c1', { id: 'c1', name: { th: 'สมชาย' } })
+    return { co }
+  }
+
+  it('get() does not expose the marker (locale-less)', async () => {
+    const { co } = await localelessSetup()
+    const rec = (await co.get('c1'))!
+    expect('_i18nFilled' in rec).toBe(false)
+    // densify still works internally: the empty en slot was filled
+    expect((rec as any).name).toEqual({ th: 'สมชาย', en: 'สมชาย' })
+    // provenance still readable via the dedicated API
+    expect(await co.i18nProvenance('c1')).toEqual({ name: ['en'] })
+  })
+
+  it('list() does not expose the marker on any item (locale-less)', async () => {
+    const { co } = await localelessSetup()
+    const items = await co.list()
+    expect(items.length).toBe(1)
+    for (const item of items) expect('_i18nFilled' in (item as any)).toBe(false)
+  })
+
+  it('search() does not expose the marker on any result (locale-less)', async () => {
+    // Search runs over a plain-text field (`tag`); the densify i18n field
+    // (`name`) fills its empty 'en' slot, so the matched record still carries
+    // the top-level _i18nFilled marker that search returns verbatim.
+    const db = await densDb()
+    const v = await db.openVault('v') // NO { locale }
+    interface Sco { id: string; tag: string; name: Record<string, string> }
+    const co = v.collection<Sco>('co', {
+      i18nFields: { name: i18nText({ languages: ['th', 'en'], required: 'any', substitute: ['th', 'en'], densifyOnWrite: true }) },
+    })
+    await co.put('c1', { id: 'c1', tag: 'Consulting Services', name: { th: 'สมชาย' } })
+    const results = await co.search('tag', 'Consulting')
+    expect(results.length).toBeGreaterThan(0)
+    for (const r of results) expect('_i18nFilled' in (r.record as any)).toBe(false)
+  })
+})

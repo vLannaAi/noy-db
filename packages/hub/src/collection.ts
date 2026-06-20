@@ -3,7 +3,7 @@ import { NOYDB_FORMAT_VERSION } from './types.js'
 import type { CrdtMode, CrdtState, LwwMapState, RgaState } from './crdt/crdt.js'
 import { NO_CRDT, type CrdtStrategy } from './crdt/strategy.js'
 import type { I18nTextDescriptor } from './i18n/core.js'
-import { getAtPath, setAtPathInPlace } from './i18n/core.js'
+import { getAtPath, setAtPathInPlace, stripI18nFilled } from './i18n/core.js'
 import type { DictKeyDescriptor, StaticDictDescriptor } from './i18n/dictionary.js'
 import { isStaticDictDescriptor } from './i18n/dictionary.js'
 import type { MoneyDescriptor } from './money/descriptor.js'
@@ -2704,7 +2704,11 @@ export class Collection<T> {
     }
     await this.ensureHydrated()
     const entries: { id: string; record: T }[] = []
-    for (const [id, e] of this.cache) entries.push({ id, record: e.record })
+    // #435 — strip the internal densify marker from the user-facing records.
+    // Non-mutating: never touches the cached record object. The search index
+    // is built over the same (marker-free) record, which is fine — the marker
+    // is never a searchable field.
+    for (const [id, e] of this.cache) entries.push({ id, record: stripI18nFilled(e.record as Record<string, unknown>) as T })
     return searchScan(entries, field, query, opts)
   }
 
@@ -3842,7 +3846,10 @@ export class Collection<T> {
       Object.values(this.dictKeyFields).some(
         (d) => isStaticDictDescriptor(d) && d.displayLocale !== undefined,
       )
-    if (!locale && !hasStaticDisplay) return result as T
+    // #435 — strip the internal densify marker even when no locale is active
+    // (applyI18nLocale, which normally strips it, is skipped on this path).
+    // Non-mutating: never touches the cached/stored record object.
+    if (!locale && !hasStaticDisplay) return stripI18nFilled(result) as T
 
     // 1. i18nText resolution — guarded on `locale`, because the relaxed gate
     // above can now be entered with `locale === undefined` (static-display).
@@ -3940,7 +3947,10 @@ export class Collection<T> {
       result = withLabels
     }
 
-    return result as T
+    // #435 — final guard: the locale-less static-display path skips
+    // applyI18nLocale's strip, so ensure the densify marker never leaks here
+    // either. Non-mutating (no-op when absent or already stripped above).
+    return stripI18nFilled(result) as T
   }
 
   /**

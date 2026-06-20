@@ -598,8 +598,8 @@ features:
     diagrams: []
     invariants:
       - 'densifyOnWrite: opt-in flag on withI18n; when true, every put/save eagerly fills empty locale slots by walking the substitute chain at write time'
-      - 'Provenance marker _i18nFilled:true is written into each slot populated by densification; slots the caller explicitly provided are never overwritten'
-      - 'Incompatible with onMissing:"throw" (the default); the two options are mutually exclusive and the constructor throws a ConfigError if combined'
+      - 'Provenance is a single top-level marker _i18nFilled: { <field>: [<locales>] } mapping each densify field to the locales it filled; slots the caller explicitly provided are never overwritten. The marker is internal — stripped from every user-facing read; read provenance via i18nProvenance(id)'
+      - 'Incompatible with an EXPLICIT onMissing:"throw" (scalar or any per-layer value): i18nText() throws a plain Error at field-construction time. The default onMissing is undefined (NOT "throw"), so the default case is allowed'
     related: [i18n]
 
   - id: i18n-script-violation-event
@@ -617,8 +617,8 @@ features:
     playground_pages: []
     diagrams: []
     invariants:
-      - 'Script-enforcement in warn or filter mode emits typed ScriptViolationEvent objects on the i18n:script-violation channel (observable via vault.on("i18n:script-violation", handler))'
-      - 'Event carries: field, locale, value, violatingChars[] + the enforcement mode that triggered it'
+      - 'Script-enforcement in warn or filter mode emits typed events on the i18n:script-violation channel (observable via vault.on("i18n:script-violation", handler))'
+      - 'Event payload: { vault, collection, id, mode: "warn"|"filter", warning } where warning: ScriptWarning = { field, locale, expected, sample } — expected is the allowed-script list, sample is a short offending-character excerpt. There is NO value or violatingChars[] field'
       - 'warn mode: the value is stored as-is and a warning event is emitted; filter mode: violating chars are stripped and an event is emitted; reject mode (default): throws ScriptViolationError synchronously (no event)'
     related: [i18n]
 
