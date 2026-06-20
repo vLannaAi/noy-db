@@ -58,6 +58,7 @@ import {
 import { resolveManagedSecret, saveSealedPassphrase } from './team/managed-passphrase.js'
 import type { ShamirRecoveryProvider } from './team/shamir-recovery-provider.js'
 import { generateULID } from './bundle/ulid.js'
+import { StoreCoordinationProvider, type CoordinationProvider } from './coordination/index.js'
 import { RecoveryNotEnrolledError, RecoveryProfileNotImplementedError, ManagedRecoveryNotEnrolledError, PolicyDeniedError } from './policy/errors.js'
 import {
   describeAuthConfig as fnDescribeAuthConfig,
@@ -175,6 +176,10 @@ export class Noydb {
   private readonly writeHooks = new WriteHookRegistry()
   private readonly subsystemBus = new SubsystemBus()
   private readonly clientId = generateULID()
+  /** Session that owns this instance's writers (one user's writers across vaults). */
+  private readonly sessionId: string
+  /** Drain-barrier coordination transport for the schema fence (#469). */
+  private readonly coordinationProvider: CoordinationProvider
   private readonly vaultCache = new Map<string, Vault>()
   private readonly keyringCache = new Map<string, UnlockedKeyring>()
   private readonly syncEngines = new Map<string, SyncEngine>()
@@ -254,6 +259,11 @@ export class Noydb {
           'out for native store inspection. NEVER use this for production or client data.',
       )
     }
+    this.sessionId = options.sessionId ?? generateULID()
+    // Default coordination = store-backed provider over the SAME primary store,
+    // so the fence subsystem reproduces today's store-polling behavior exactly.
+    // `by-*` / klum inject a real-time transport via `coordinationStrategy`.
+    this.coordinationProvider = options.coordinationStrategy ?? new StoreCoordinationProvider(options.store)
     this.txStrategy = options.txStrategy ?? NO_TX
     this.forgetStrategy = options.forgetStrategy ?? NO_FORGET
     this.sessionStrategy = options.sessionStrategy ?? NO_SESSION
@@ -1549,6 +1559,20 @@ export class Noydb {
   /** @internal Stable per-instance id for schema-cutover coordination. */
   get _clientId(): string {
     return this.clientId
+  }
+
+  /** @internal Session that owns this instance's writers (#469). */
+  get _sessionId(): string {
+    return this.sessionId
+  }
+
+  /**
+   * @internal Drain-barrier coordination transport for the schema fence (#469).
+   * The default store-backed provider reproduces today's fence behavior; a
+   * `by-*` real-time transport is injected via `coordinationStrategy`.
+   */
+  get coordination(): CoordinationProvider {
+    return this.coordinationProvider
   }
 
   /**

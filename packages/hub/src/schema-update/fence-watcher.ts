@@ -1,12 +1,18 @@
 /**
- * Per-client schema-fence watcher. Polls the fence;
- * on `draining` it drains in-flight writes and acks; emits a same-instance
- * signal on every state transition (for UI). Driven by an interval
- * in production and by explicit `check()`/`beat()` in tests.
+ * Per-client schema-fence watcher. Watches the fence via the injected
+ * {@link CoordinationProvider}; on `draining` it drains in-flight writes
+ * and reports presence (its ack); emits a same-instance signal on every
+ * state transition (for UI). Driven by an interval in production and by
+ * explicit `check()`/`beat()` in tests.
+ *
+ * The transport is the coordination port: the default
+ * {@link StoreCoordinationProvider} maps `reportPresence` →
+ * `_meta/schema-fence:client:<id>` and `readFence` → `_meta/schema-fence`,
+ * so behavior is byte-for-byte the same; `by-tabs` / `by-peer` swap in
+ * real-time push transports.
  */
-import type { NoydbStore } from '../types.js'
-import { loadFence, type FenceState } from './fence.js'
-import { writeClientDoc } from './client-registry.js'
+import { type FenceState } from './fence.js'
+import type { CoordinationProvider } from '../coordination/index.js'
 
 export interface FenceWatcherEvent {
   readonly currentSchemaVersion: number
@@ -14,9 +20,10 @@ export interface FenceWatcherEvent {
 }
 
 export class FenceWatcher {
-  readonly #store: NoydbStore
+  readonly #coordination: CoordinationProvider
   readonly #vault: string
-  readonly #clientId: string
+  readonly #writerId: string
+  readonly #sessionId: string
   readonly #onFlush: () => Promise<void>
   readonly #now: () => number
   readonly #emit: (e: FenceWatcherEvent) => void
@@ -25,16 +32,18 @@ export class FenceWatcher {
   #timer: ReturnType<typeof setInterval> | undefined
 
   constructor(opts: {
-    store: NoydbStore
+    coordination: CoordinationProvider
     vault: string
     clientId: string
+    sessionId?: string
     onFlush: () => Promise<void>
     now?: () => number
     emit?: (e: FenceWatcherEvent) => void
   }) {
-    this.#store = opts.store
+    this.#coordination = opts.coordination
     this.#vault = opts.vault
-    this.#clientId = opts.clientId
+    this.#writerId = opts.clientId
+    this.#sessionId = opts.sessionId ?? opts.clientId
     this.#onFlush = opts.onFlush
     this.#now = opts.now ?? (() => Date.now())
     this.#emit = opts.emit ?? (() => {})
@@ -42,7 +51,9 @@ export class FenceWatcher {
 
   /** Publish liveness (and the current ack) without changing quiesce state. */
   async beat(): Promise<void> {
-    await writeClientDoc(this.#store, this.#vault, this.#clientId, {
+    await this.#coordination.reportPresence(this.#vault, {
+      writerId: this.#writerId,
+      sessionId: this.#sessionId,
       lastSeen: this.#now(),
       quiescedAtVersion: this.#quiescedAtVersion,
     })
@@ -50,7 +61,7 @@ export class FenceWatcher {
 
   /** Poll the fence; quiesce on draining; emit on transitions. */
   async check(): Promise<void> {
-    const fence = await loadFence(this.#store, this.#vault)
+    const fence = await this.#coordination.readFence(this.#vault)
     if (fence.fenceState !== this.#lastState) {
       this.#lastState = fence.fenceState
       this.#emit({ currentSchemaVersion: fence.currentSchemaVersion, fenceState: fence.fenceState })

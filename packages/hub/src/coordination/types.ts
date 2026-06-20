@@ -38,6 +38,13 @@ export interface WriterPresence {
 export interface CoordinationProvider {
   /** orchestrator → all writers */
   setFence(vault: string, fence: FenceState): Promise<void>
+  /**
+   * Fresh one-shot fence read for the write-path gate (`assertWritable`).
+   * A direct read (not a cached `observeFence` snapshot) avoids a staleness
+   * window and keeps the timing-sensitive cutover gate exact. The store
+   * default reads `_meta/schema-fence`; `by-*` return their last-pushed fence.
+   */
+  readFence(vault: string): Promise<FenceState>
   /** writer observes fence changes (default: poll-emit; by-*: push) */
   observeFence(vault: string, onChange: (f: FenceState) => void): Unsubscribe
   /** writer → orchestrator: presence + ack (heartbeat + quiescedAtVersion) */

@@ -2,10 +2,16 @@ import { describe, expect, it } from 'vitest'
 import { memory } from '../../../to-memory/src/index.js'
 import { SchemaFenceController } from '../../src/schema-update/fence-controller.js'
 import { saveFence, loadFence } from '../../src/schema-update/fence.js'
+import { StoreCoordinationProvider } from '../../src/coordination/index.js'
 import { SchemaFenceError, MigrationRequiredError } from '../../src/errors.js'
 
 function ctrl(store = memory()) {
-  return { store, c: new SchemaFenceController({ store, vault: 'v', onFlush: async () => {} }) }
+  // Default coordination = StoreCoordinationProvider over the same store, so the
+  // controller's behavior (and these store-level assertions) is unchanged.
+  return {
+    store,
+    c: new SchemaFenceController({ coordination: new StoreCoordinationProvider(store), vault: 'v', onFlush: async () => {} }),
+  }
 }
 
 describe('SchemaFenceController', () => {
