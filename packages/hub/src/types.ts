@@ -56,6 +56,7 @@ import type { ObjectProjection } from './blobs/object-projection.js'
 // re-exports `StoreCoordinationProvider`, which imports `NoydbStore` from this
 // file, so going through it would create an import cycle.
 import type { CoordinationProvider } from './coordination/types.js'
+import type { ScriptWarning } from './i18n/script.js'
 
 /** Format version for encrypted record envelopes. */
 export const NOYDB_FORMAT_VERSION = 1 as const
@@ -1071,6 +1072,19 @@ export interface NoydbEventMap {
   'sync:backup-error': { vault: string; target: string; error: Error }
   'history:save': { vault: string; collection: string; id: string; version: number }
   'history:prune': { vault: string; collection: string; id: string; pruned: number }
+  /**
+   * A non-fatal i18n script violation under `onScriptViolation: 'warn' | 'filter'`.
+   * 'warn' stored the value as-is; 'filter' stripped disallowed characters
+   * (the event is the only signal the stored data was mutated). 'reject'
+   * throws `ScriptViolationError` and emits nothing. (#435)
+   */
+  'i18n:script-violation': {
+    vault: string
+    collection: string
+    id: string
+    mode: 'warn' | 'filter'
+    warning: ScriptWarning
+  }
   /**
    * Emitted when a persisted-index side-car put/delete fails after the
    * main record write already succeeded. The main record is durable; the

@@ -1455,12 +1455,27 @@ export class Collection<T> {
         for (const leaf of getAtPath(obj, field)) {
           if (!leaf || typeof leaf !== 'object' || Array.isArray(leaf)) continue
           const leafMap = leaf as Record<string, unknown>
-          const { value: cleaned } = this.i18nStrategy.enforceScript(
+          const { value: cleaned, warnings } = this.i18nStrategy.enforceScript(
             leafMap,
             field,
             descriptor,
           )
           if (cleaned !== leafMap) Object.assign(leafMap, cleaned)
+          // enforceScript only returns warnings under 'warn'/'filter' ('reject'
+          // throws first), so this guard never fires — it makes that invariant
+          // explicit and keeps `mode` off the optional-undefined type.
+          const mode = descriptor.options.onScriptViolation
+          if (mode === 'warn' || mode === 'filter') {
+            for (const w of warnings) {
+              this.emitter.emit('i18n:script-violation', {
+                vault: this.vault,
+                collection: this.name,
+                id,
+                mode,
+                warning: w,
+              })
+            }
+          }
         }
       }
     }
