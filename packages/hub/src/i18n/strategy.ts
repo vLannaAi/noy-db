@@ -105,6 +105,7 @@ export interface I18nStrategy {
     value: Record<string, unknown>,
     field: string,
     descriptor: I18nTextDescriptor,
+    exempt?: ReadonlySet<string>,
   ): { value: Record<string, unknown>; warnings: ScriptWarning[] }
 
   /**
