@@ -582,6 +582,42 @@ features:
       - 'static dict names are read-only: put/rename/delete throw StaticDictReadonlyError'
     related: [vault-and-collections]
 
+  - id: i18n-densify-on-write
+    name: densifyOnWrite — eager-fill empty i18n locale slots at write time
+    cluster: data-shape
+    spec: docs/superpowers/specs/2026-06-20-i18n-v1x-tail-design.md
+    subsystem_doc: docs/subsystems/i18n.md
+    package: '@noy-db/hub/i18n'
+    factory: withI18n
+    status: preview
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'densifyOnWrite: opt-in flag on withI18n; when true, every put/save eagerly fills empty locale slots by walking the substitute chain at write time'
+      - 'Provenance marker _i18nFilled:true is written into each slot populated by densification; slots the caller explicitly provided are never overwritten'
+      - 'Incompatible with onMissing:"throw" (the default); the two options are mutually exclusive and the constructor throws a ConfigError if combined'
+    related: [i18n]
+
+  - id: i18n-script-violation-event
+    name: i18n:script-violation typed event channel for script-enforcement warnings
+    cluster: data-shape
+    spec: docs/superpowers/specs/2026-06-20-i18n-v1x-tail-design.md
+    subsystem_doc: docs/subsystems/i18n.md
+    package: '@noy-db/hub/i18n'
+    factory: withI18n
+    status: preview
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Script-enforcement in warn or filter mode emits typed ScriptViolationEvent objects on the i18n:script-violation channel (observable via vault.on("i18n:script-violation", handler))'
+      - 'Event carries: field, locale, value, violatingChars[] + the enforcement mode that triggered it'
+      - 'warn mode: the value is stored as-is and a warning event is emitted; filter mode: violating chars are stripped and an event is emitted; reject mode (default): throws ScriptViolationError synchronously (no event)'
+    related: [i18n]
+
   - id: aggregate
     name: Aggregate query terminals (sum/count/avg/groupBy)
     cluster: read-and-query
