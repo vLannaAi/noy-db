@@ -2,6 +2,8 @@
 import { describe, it, expect } from 'vitest'
 import { i18nText } from '../src/i18n/core.js'
 import { computeExemptFills, densify } from '../src/i18n/densify.js'
+import { withI18n } from '../src/i18n/index.js'
+import { NO_I18N } from '../src/i18n/strategy.js'
 
 describe('densifyOnWrite config validation', () => {
   it('rejects densifyOnWrite + explicit scalar throw policy', () => {
@@ -112,5 +114,22 @@ describe('densify (pure)', () => {
     densify(rec, prior, fields)
     expect(rec.name.en).toBe('สมชาย')
     expect(rec._i18nFilled).toEqual({ name: ['en'] }) // stays a fill (and stays script-exempt)
+  })
+})
+
+describe('densify wired into the strategy', () => {
+  const fields = { name: i18nText({ languages: ['th', 'en'], required: 'any', substitute: ['en', 'th'], densifyOnWrite: true }) }
+
+  it('withI18n().densify fills slots', () => {
+    const rec: any = { id: 'c1', name: { th: 'สมชาย' } }
+    withI18n().densify(rec, undefined, fields)
+    expect(rec.name.en).toBe('สมชาย')
+  })
+
+  it('NO_I18N densify is a no-op and computeExemptFills is empty', () => {
+    const rec: any = { id: 'c1', name: { th: 'สมชาย' } }
+    NO_I18N.densify(rec, undefined, fields)
+    expect(rec._i18nFilled).toBeUndefined()
+    expect(NO_I18N.computeExemptFills(undefined, rec, fields).size).toBe(0)
   })
 })

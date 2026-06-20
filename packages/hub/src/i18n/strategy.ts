@@ -109,6 +109,27 @@ export interface I18nStrategy {
   ): { value: Record<string, unknown>; warnings: ScriptWarning[] }
 
   /**
+   * Per-field locales that are unchanged round-tripped densify fills (exempt
+   * from write-time script enforcement). Empty under NO_I18N. (#435)
+   */
+  computeExemptFills(
+    prior: Record<string, unknown> | undefined,
+    incoming: Record<string, unknown>,
+    fields: Record<string, I18nTextDescriptor>,
+  ): Map<string, Set<string>>
+
+  /**
+   * Eager-fill empty i18n slots from each field's substitute chain and record
+   * provenance in `record['_i18nFilled']`. Mutates `record`. No-op under
+   * NO_I18N. (#435)
+   */
+  densify(
+    record: Record<string, unknown>,
+    prior: Record<string, unknown> | undefined,
+    fields: Record<string, I18nTextDescriptor>,
+  ): void
+
+  /**
    * Construct a typed `DictionaryHandle` for the named dictionary.
    * Throws under `NO_I18N`.
    */
@@ -135,5 +156,7 @@ export const NO_I18N: I18nStrategy = {
   applyI18nLocale(record) { return record },
   validateI18nTextValue() { throw notEnabled('i18nText field validation') },
   enforceScript(value) { return { value, warnings: [] } },
+  computeExemptFills() { return new Map<string, Set<string>>() },
+  densify() {},
   buildDictionaryHandle() { throw notEnabled('vault.dictionary()') },
 }
