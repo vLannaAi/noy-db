@@ -139,6 +139,7 @@ export function enforceScript(
   value: Record<string, unknown>,
   field: string,
   descriptor: I18nTextDescriptor,
+  exempt?: ReadonlySet<string>,
 ): { value: Record<string, unknown>; warnings: ScriptWarning[] } {
   const opt = descriptor.options
   if (!opt.script) return { value, warnings: [] }
@@ -148,6 +149,7 @@ export function enforceScript(
   let out = value
 
   for (const [locale, raw] of Object.entries(value)) {
+    if (exempt?.has(locale)) continue
     if (typeof raw !== 'string') continue
     const allowed = allowedFor(descriptor, locale)
     if (fullMatcher(allowed).test(raw)) continue

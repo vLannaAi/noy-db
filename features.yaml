@@ -582,6 +582,46 @@ features:
       - 'static dict names are read-only: put/rename/delete throw StaticDictReadonlyError'
     related: [vault-and-collections]
 
+  - id: i18n-densify-on-write
+    name: densifyOnWrite — eager-fill empty i18n locale slots at write time
+    cluster: data-shape
+    spec: docs/superpowers/specs/2026-06-20-i18n-v1x-tail-design.md
+    subsystem_doc: docs/subsystems/i18n.md
+    package: '@noy-db/hub/i18n'
+    factory: withI18n
+    status: preview
+    showcases:
+      - id: 121-with-i18n-densify
+        path: showcases/src/121-with-i18n-densify.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'densifyOnWrite: opt-in flag on withI18n; when true, every put/save eagerly fills empty locale slots by walking the substitute chain at write time'
+      - 'Provenance is a single top-level marker _i18nFilled: { <field>: [<locales>] } mapping each densify field to the locales it filled; slots the caller explicitly provided are never overwritten. The marker is internal — stripped from every user-facing read; read provenance via i18nProvenance(id)'
+      - 'Incompatible with an EXPLICIT onMissing:"throw" (scalar or any per-layer value): i18nText() throws a plain Error at field-construction time. The default onMissing is undefined (NOT "throw"), so the default case is allowed'
+    related: [i18n]
+
+  - id: i18n-script-violation-event
+    name: i18n:script-violation typed event channel for script-enforcement warnings
+    cluster: data-shape
+    spec: docs/superpowers/specs/2026-06-20-i18n-v1x-tail-design.md
+    subsystem_doc: docs/subsystems/i18n.md
+    package: '@noy-db/hub/i18n'
+    factory: withI18n
+    status: preview
+    showcases:
+      - id: 121-with-i18n-densify
+        path: showcases/src/121-with-i18n-densify.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Script-enforcement in warn or filter mode emits typed events on the i18n:script-violation channel (observable via vault.on("i18n:script-violation", handler))'
+      - 'Event payload: { vault, collection, id, mode: "warn"|"filter", warning } where warning: ScriptWarning = { field, locale, expected, sample } — expected is the allowed-script list, sample is a short offending-character excerpt. There is NO value or violatingChars[] field'
+      - 'warn mode: the value is stored as-is and a warning event is emitted; filter mode: violating chars are stripped and an event is emitted; reject mode (default): throws ScriptViolationError synchronously (no event)'
+    related: [i18n]
+
   - id: aggregate
     name: Aggregate query terminals (sum/count/avg/groupBy)
     cluster: read-and-query

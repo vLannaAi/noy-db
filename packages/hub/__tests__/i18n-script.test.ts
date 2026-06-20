@@ -74,3 +74,15 @@ describe('enforceScript — filter / warn', () => {
     expect(warnings[0]?.locale).toBe('en')
   })
 })
+
+describe('enforceScript exempt set (#435)', () => {
+  const d = i18nText({ languages: ['th', 'en'], required: 'any', script: 'auto' })
+
+  it('throws on Thai in the en slot without exempt', () => {
+    expect(() => enforceScript({ th: 'สมชาย', en: 'สมชาย' }, 'name', d)).toThrow()
+  })
+
+  it('skips an exempt locale (a known fill)', () => {
+    expect(() => enforceScript({ th: 'สมชาย', en: 'สมชาย' }, 'name', d, new Set(['en']))).not.toThrow()
+  })
+})

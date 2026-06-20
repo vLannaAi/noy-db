@@ -3,7 +3,7 @@ import { NOYDB_FORMAT_VERSION } from './types.js'
 import type { CrdtMode, CrdtState, LwwMapState, RgaState } from './crdt/crdt.js'
 import { NO_CRDT, type CrdtStrategy } from './crdt/strategy.js'
 import type { I18nTextDescriptor } from './i18n/core.js'
-import { getAtPath, setAtPathInPlace } from './i18n/core.js'
+import { getAtPath, setAtPathInPlace, stripI18nFilled } from './i18n/core.js'
 import type { DictKeyDescriptor, StaticDictDescriptor } from './i18n/dictionary.js'
 import { isStaticDictDescriptor } from './i18n/dictionary.js'
 import type { MoneyDescriptor } from './money/descriptor.js'
@@ -312,6 +312,13 @@ export class Collection<T> {
    * Declared via the `i18nFields` collection option.
    */
   private readonly i18nFields: Record<string, I18nTextDescriptor> | undefined
+
+  /**
+   * #435 — the densify-enabled subset of {@link i18nFields} (fields whose
+   * descriptor opts in via `densifyOnWrite: true`). `undefined` when none opt
+   * in, so the write path skips all densify work for ordinary collections.
+   */
+  private readonly i18nDensifyFields: Record<string, I18nTextDescriptor> | undefined
 
   /**
    * Map of field name → `DictKeyDescriptor` for fields declared with
@@ -879,6 +886,15 @@ export class Collection<T> {
     this.refEnforcer = opts.refEnforcer
     this.joinResolver = opts.joinResolver
     this.i18nFields = opts.i18nFields
+    // #435 — precompute the densify-enabled subset (undefined when none opt in)
+    // so the write path skips work for non-densify collections.
+    const densifyFields = opts.i18nFields
+      ? Object.fromEntries(
+          Object.entries(opts.i18nFields).filter(([, d]) => d.options.densifyOnWrite === true),
+        )
+      : {}
+    this.i18nDensifyFields =
+      Object.keys(densifyFields).length > 0 ? densifyFields : undefined
     this.dictKeyFields = opts.dictKeyFields
     if (opts.moneyFields) validateMoneyFieldPaths(opts.moneyFields)
     this.moneyFields = opts.moneyFields
@@ -1281,6 +1297,34 @@ export class Collection<T> {
   }
 
   /**
+   * #435 — resolve the prior stored record (with its `_i18nFilled` marker) for
+   * densify. Eager: in-memory cache; lazy: LRU then adapter. undefined if absent.
+   */
+  private async resolveDensifyPrior(id: string): Promise<Record<string, unknown> | undefined> {
+    if (this.lazy && this.lru) {
+      const cached = this.lru.get(id)
+      if (cached) return cached.record as Record<string, unknown>
+      const env = await this.adapter.get(this.vault, this.name, id)
+      if (!env) return undefined
+      const rec = await this.decryptRecord(env)
+      return rec === null ? undefined : (rec as Record<string, unknown>)
+    }
+    await this.ensureHydrated()
+    return this.cache.get(id)?.record as Record<string, unknown> | undefined
+  }
+
+  /**
+   * #435 — densify provenance for a record: which i18n slots were auto-filled,
+   * e.g. `{ name: ['en'] }`. undefined when nothing was filled. The marker is
+   * stripped from ordinary reads; this is the sanctioned audit accessor.
+   */
+  async i18nProvenance(id: string): Promise<Record<string, readonly string[]> | undefined> {
+    const prior = await this.resolveDensifyPrior(id)
+    const marker = prior?.['_i18nFilled'] as Record<string, string[]> | undefined
+    return marker && Object.keys(marker).length > 0 ? marker : undefined
+  }
+
+  /**
    * Validate a record against this collection's schema WITHOUT writing it.
    * Returns the (possibly coerced) record on success; throws
    * {@link SchemaValidationError} (direction: `'input'`) on violation.
@@ -1442,6 +1486,20 @@ export class Collection<T> {
       }
     }
 
+    // #435 densifyOnWrite (decision A): read prior fills so a round-tripped
+    // derived copy is exempt from script enforcement and can be refreshed.
+    // `densifyPrior` is read once here and reused by densify() below.
+    let densifyPrior: Record<string, unknown> | undefined
+    let exemptFills: Map<string, Set<string>> | undefined
+    if (this.i18nDensifyFields) {
+      densifyPrior = await this.resolveDensifyPrior(id)
+      exemptFills = this.i18nStrategy.computeExemptFills(
+        densifyPrior,
+        record as Record<string, unknown>,
+        this.i18nDensifyFields,
+      )
+    }
+
     // i18nText script enforcement — runs AFTER auto-translate (so
     // generated values are checked too). Throws ScriptViolationError
     // under the default 'reject'; 'filter' strips disallowed chars in
@@ -1455,12 +1513,28 @@ export class Collection<T> {
         for (const leaf of getAtPath(obj, field)) {
           if (!leaf || typeof leaf !== 'object' || Array.isArray(leaf)) continue
           const leafMap = leaf as Record<string, unknown>
-          const { value: cleaned } = this.i18nStrategy.enforceScript(
+          const { value: cleaned, warnings } = this.i18nStrategy.enforceScript(
             leafMap,
             field,
             descriptor,
+            exemptFills?.get(field),
           )
           if (cleaned !== leafMap) Object.assign(leafMap, cleaned)
+          // enforceScript only returns warnings under 'warn'/'filter' ('reject'
+          // throws first), so this guard never fires — it makes that invariant
+          // explicit and keeps `mode` off the optional-undefined type.
+          const mode = descriptor.options.onScriptViolation
+          if (mode === 'warn' || mode === 'filter') {
+            for (const w of warnings) {
+              this.emitter.emit('i18n:script-violation', {
+                vault: this.vault,
+                collection: this.name,
+                id,
+                mode,
+                warning: w,
+              })
+            }
+          }
         }
       }
     }
@@ -1470,6 +1544,17 @@ export class Collection<T> {
     // when required translations are absent.
     if (this.i18nPutValidator !== undefined) {
       this.i18nPutValidator(record)
+    }
+
+    // #435 — eager-fill empty slots + record provenance. Runs AFTER the
+    // authored gates (required + script) so only authored slots are validated;
+    // filled slots are recorded in the internal `_i18nFilled` marker.
+    if (this.i18nDensifyFields) {
+      this.i18nStrategy.densify(
+        record as Record<string, unknown>,
+        densifyPrior,
+        this.i18nDensifyFields,
+      )
     }
 
     // Foreign-key ref enforcement. Runs AFTER schema
@@ -2619,7 +2704,11 @@ export class Collection<T> {
     }
     await this.ensureHydrated()
     const entries: { id: string; record: T }[] = []
-    for (const [id, e] of this.cache) entries.push({ id, record: e.record })
+    // #435 — strip the internal densify marker from the user-facing records.
+    // Non-mutating: never touches the cached record object. The search index
+    // is built over the same (marker-free) record, which is fine — the marker
+    // is never a searchable field.
+    for (const [id, e] of this.cache) entries.push({ id, record: stripI18nFilled(e.record as Record<string, unknown>) as T })
     return searchScan(entries, field, query, opts)
   }
 
@@ -3757,7 +3846,10 @@ export class Collection<T> {
       Object.values(this.dictKeyFields).some(
         (d) => isStaticDictDescriptor(d) && d.displayLocale !== undefined,
       )
-    if (!locale && !hasStaticDisplay) return result as T
+    // #435 — strip the internal densify marker even when no locale is active
+    // (applyI18nLocale, which normally strips it, is skipped on this path).
+    // Non-mutating: never touches the cached/stored record object.
+    if (!locale && !hasStaticDisplay) return stripI18nFilled(result) as T
 
     // 1. i18nText resolution — guarded on `locale`, because the relaxed gate
     // above can now be entered with `locale === undefined` (static-display).
@@ -3855,7 +3947,10 @@ export class Collection<T> {
       result = withLabels
     }
 
-    return result as T
+    // #435 — final guard: the locale-less static-display path skips
+    // applyI18nLocale's strip, so ensure the densify marker never leaks here
+    // either. Non-mutating (no-op when absent or already stripped above).
+    return stripI18nFilled(result) as T
   }
 
   /**
