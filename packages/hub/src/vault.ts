@@ -545,10 +545,11 @@ export class Vault {
     this.keyring = opts.keyring
     this.encrypted = opts.encrypted
     this.schemaFence = new SchemaFenceController({
-      store: this.adapter,
+      coordination: this.noydb.coordination,
       vault: this.name,
       onFlush: () => this.noydb._writeQueueTracker.onFlush(),
       clientId: this.noydb._clientId,
+      sessionId: this.noydb._sessionId,
       emit: (e) => this.emitter.emit('schema:fence-changed', { vault: this.name, ...e }),
     })
     this.emitter = opts.emitter
@@ -1156,9 +1157,10 @@ export class Vault {
     if (this.#fenceCoordinationStarted) return
     this.#fenceCoordinationStarted = true
     this.#fenceWatcher = new FenceWatcher({
-      store: this.adapter,
+      coordination: this.noydb.coordination,
       vault: this.name,
       clientId: this.noydb._clientId,
+      sessionId: this.noydb._sessionId,
       onFlush: () => this.noydb._writeQueueTracker.onFlush(),
       emit: (e) => this.emitter.emit('schema:fence-changed', { vault: this.name, ...e }),
     })

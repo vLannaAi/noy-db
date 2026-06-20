@@ -550,7 +550,10 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 4520→4545 (2026-06-17, FR-6 Task 6): custody surface field + wiring
   // (`public readonly custody: CustodyApi` + the three-closure injection
   // mirroring the UserApi pattern; logic lives in custody/index.ts + liberate.ts).
-  'packages/hub/src/vault.ts': 4545,
+  // Bumped 4545→4546 (2026-06-20, #469): coordination-port wiring threads the
+  // injected `CoordinationProvider` into SchemaFenceController + FenceWatcher
+  // (the barrier/transport logic itself lives in coordination/ + schema-update/).
+  'packages/hub/src/vault.ts': 4546,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),

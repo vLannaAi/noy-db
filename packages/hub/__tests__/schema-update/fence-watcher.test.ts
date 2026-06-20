@@ -3,12 +3,15 @@ import { memory } from '../../../to-memory/src/index.js'
 import { FenceWatcher } from '../../src/schema-update/fence-watcher.js'
 import { saveFence } from '../../src/schema-update/fence.js'
 import { listClientDocs } from '../../src/schema-update/client-registry.js'
+import { StoreCoordinationProvider } from '../../src/coordination/index.js'
 
 function mkWatcher(store = memory(), onFlush = async () => {}) {
   let t = 1000
   const events: string[] = []
+  // Default coordination = StoreCoordinationProvider over the same store; the
+  // watcher's beat/check behavior (and these store-level assertions) is unchanged.
   const w = new FenceWatcher({
-    store, vault: 'v', clientId: 'c1', onFlush,
+    coordination: new StoreCoordinationProvider(store), vault: 'v', clientId: 'c1', onFlush,
     now: () => t,
     emit: (e) => events.push(e.fenceState),
   })

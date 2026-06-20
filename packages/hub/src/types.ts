@@ -52,6 +52,10 @@ import type { OverlayedViewStrategyHandle } from './overlay-views/types.js'
 import type { SealingKeyProvider } from './team/managed-passphrase.js'
 import type { ShamirRecoveryProvider } from './team/shamir-recovery-provider.js'
 import type { ObjectProjection } from './blobs/object-projection.js'
+// Import the port type from the leaf module (not the barrel) — the barrel
+// re-exports `StoreCoordinationProvider`, which imports `NoydbStore` from this
+// file, so going through it would create an import cycle.
+import type { CoordinationProvider } from './coordination/types.js'
 
 /** Format version for encrypted record envelopes. */
 export const NOYDB_FORMAT_VERSION = 1 as const
@@ -2160,6 +2164,25 @@ export interface NoydbOptions {
    * Defaults to `'anonymous'` when not supplied.
    */
   readonly plaintextTranslatorName?: string
+  /**
+   * Drain-barrier coordination transport for the schema fence (#469).
+   * When omitted, the kernel uses a {@link CoordinationProvider} backed by the
+   * primary store (`StoreCoordinationProvider`), reproducing today's
+   * store-polling fence behavior byte-for-byte. `@noy-db/by-tabs` /
+   * `@noy-db/by-peer` inject a real-time push transport here; an external
+   * orchestrator (`@klum-db/lobby`) drives it through the `Noydb` handle.
+   *
+   * @internal
+   */
+  readonly coordinationStrategy?: CoordinationProvider
+  /**
+   * Stable id for the session that owns this instance's writers (one user's
+   * writers across vaults). Tags every {@link WriterPresence} the fence
+   * watcher reports. Defaults to a fresh ULID per `Noydb` instance.
+   *
+   * @internal
+   */
+  readonly sessionId?: string
 }
 
 // ─── History / Audit Trail ─────────────────────────────────────────────

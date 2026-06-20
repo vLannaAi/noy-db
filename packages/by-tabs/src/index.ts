@@ -27,6 +27,8 @@ import type { PeerChannel } from '@noy-db/by-peer'
 
 export type { PeerChannel }
 
+export { tabsCoordination } from './coordination.js'
+
 /**
  * Options for `tabsChannel()`.
  */
