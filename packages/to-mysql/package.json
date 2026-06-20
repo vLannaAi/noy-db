@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/to-mysql",
-  "version": "0.2.0-pre.26",
+  "version": "0.2.0-pre.27",
   "description": "MySQL / MariaDB adapter for noy-db — encrypted-envelope KV with JSON column. Works with any duck-typed mysql2-style pool/connection. casAtomic: true via UPDATE … WHERE v = ?.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
