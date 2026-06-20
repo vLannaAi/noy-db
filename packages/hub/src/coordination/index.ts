@@ -5,3 +5,4 @@
  */
 
 export * from './types.js'
+export { StoreCoordinationProvider } from './store-provider.js'
