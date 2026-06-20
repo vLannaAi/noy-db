@@ -17,6 +17,12 @@ export { reduceRecords } from '../aggregate/aggregation.js'
 export { groupAndReduce } from '../aggregate/groupby.js'
 export { generateULID } from '../bundle/ulid.js'
 export { sha256Hex } from '../crypto.js'
+// #469 coordination port — the stable drain-barrier seam an outward
+// orchestrator (@klum-db/lobby) or a `by-*` transport binds to. The pure
+// helpers are runtime; the port + presence/fence shapes are types only
+// (see the `types` group below). `StoreCoordinationProvider` is hub-internal
+// and intentionally NOT exported here — consumers inject their own.
+export { isQuorum, runDrainBarrier } from '../coordination/index.js'
 
 // ─── error classes ────────────────────────────────────────────────
 export {
@@ -49,3 +55,11 @@ export type {
   LiveAggregation,
 } from '../aggregate/aggregation.js'
 export type { IndexDef } from '../indexing/eager-indexes.js'
+// #469 coordination port types — the implementable contract surface for an
+// injected drain-barrier transport (runtime helpers are in the group above).
+export type {
+  CoordinationProvider,
+  WriterPresence,
+  FenceState,
+  DrainBarrierOptions,
+} from '../coordination/index.js'
