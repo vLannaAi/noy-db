@@ -484,7 +484,11 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 4810→4830 (2026-06-17, FR-8 Task 1): public validateInput() wrapper —
   // thin 14-line method + JSDoc delegating to validateSchemaInput without writing;
   // used by migrateThenMerge staging safety pre-check.
-  'packages/hub/src/collection.ts': 4830,
+  // Bumped 4830→4911 (2026-06-20, #435 Task 7): densifyOnWrite wiring — i18nDensifyFields
+  // field + constructor subset, prior-read + computeExemptFills before enforceScript,
+  // densify() call after the put-validator, plus resolveDensifyPrior + i18nProvenance
+  // accessor. Densify logic lives in src/i18n/densify.ts; only thin call-sites are here.
+  'packages/hub/src/collection.ts': 4911,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
