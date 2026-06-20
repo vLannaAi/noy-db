@@ -1,6 +1,6 @@
 /** #435 F1 — densifyOnWrite. */
 import { describe, it, expect } from 'vitest'
-import { i18nText } from '../src/i18n/core.js'
+import { i18nText, applyI18nLocale } from '../src/i18n/core.js'
 import { computeExemptFills, densify } from '../src/i18n/densify.js'
 import { withI18n } from '../src/i18n/index.js'
 import { NO_I18N } from '../src/i18n/strategy.js'
@@ -131,5 +131,16 @@ describe('densify wired into the strategy', () => {
     NO_I18N.densify(rec, undefined, fields)
     expect(rec._i18nFilled).toBeUndefined()
     expect(NO_I18N.computeExemptFills(undefined, rec, fields).size).toBe(0)
+  })
+})
+
+describe('applyI18nLocale strips the _i18nFilled marker (#435)', () => {
+  const fields = { name: i18nText({ languages: ['th', 'en'], required: 'any' }) }
+
+  it('removes _i18nFilled from output without mutating the input', () => {
+    const rec: any = { id: 'c1', name: { th: 'A', en: 'A' }, _i18nFilled: { name: ['en'] } }
+    const out: any = applyI18nLocale(rec, fields, 'raw')
+    expect('_i18nFilled' in out).toBe(false)
+    expect(rec._i18nFilled).toEqual({ name: ['en'] }) // input untouched
   })
 })

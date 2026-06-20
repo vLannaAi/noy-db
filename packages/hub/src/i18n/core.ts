@@ -588,5 +588,11 @@ export function applyI18nLocale(
     result = applyAtPath(result, field, locale, fallback, opts)
   }
 
+  // #435 — the internal densify provenance marker never leaves the store.
+  if (Object.prototype.hasOwnProperty.call(result, '_i18nFilled')) {
+    const { _i18nFilled: _omit, ...rest } = result
+    result = rest
+  }
+
   return result
 }
