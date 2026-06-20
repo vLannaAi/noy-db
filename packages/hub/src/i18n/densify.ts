@@ -65,6 +65,15 @@ export function computeExemptFills(
  * densify-enabled field from the field's substitute chain, recompute unchanged
  * prior fills, clear marks for slots that became authored, and write the
  * resulting `_i18nFilled` marker (removed when empty).
+ *
+ * `prior` is read-only — it is never mutated.
+ *
+ * Provenance uses value-equality (decision A): a slot counts as an unchanged
+ * fill when it was prior-marked AND its value still equals the prior value. A
+ * consequence is that re-authoring a value byte-identical to the existing fill
+ * keeps it classified as a fill (the visible value is unchanged either way; the
+ * slot stays script-exempt and will auto-refresh if its source later changes).
+ * This is inherent to value-equality provenance, not a bug.
  */
 export function densify(
   record: Record<string, unknown>,

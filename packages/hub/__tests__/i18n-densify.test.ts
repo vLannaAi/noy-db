@@ -69,4 +69,48 @@ describe('densify (pure)', () => {
     densify(rec, undefined, fields)
     expect(rec._i18nFilled).toBeUndefined()
   })
+
+  it('drops a stale fill and clears the marker when its source disappears', () => {
+    const prior: any = { name: { th: 'สมชาย', en: 'สมชาย' }, _i18nFilled: { name: ['en'] } }
+    const rec: any = { id: 'c1', name: { en: 'สมชาย' } } // th removed, only the stale en fill remains
+    densify(rec, prior, fields)
+    expect(rec.name.en).toBeUndefined() // stale fill dropped — no authored source left
+    expect(rec._i18nFilled).toBeUndefined()
+  })
+
+  it('fills multiple empty locales from one authored source in one pass', () => {
+    const multi = {
+      name: i18nText({ languages: ['th', 'en', 'lo'], required: 'any', substitute: ['th'], densifyOnWrite: true }),
+    }
+    const rec: any = { id: 'c1', name: { th: 'สมชาย' } }
+    densify(rec, undefined, multi)
+    expect(rec.name).toEqual({ th: 'สมชาย', en: 'สมชาย', lo: 'สมชาย' })
+    expect(rec._i18nFilled.name).toEqual(expect.arrayContaining(['en', 'lo']))
+    expect(rec._i18nFilled.name).toHaveLength(2)
+  })
+
+  it('treats an empty-string slot as eligible to fill', () => {
+    const rec: any = { id: 'c1', name: { th: 'สมชาย', en: '' } }
+    densify(rec, undefined, fields)
+    expect(rec.name.en).toBe('สมชาย') // '' is empty, not authored → filled
+    expect(rec._i18nFilled).toEqual({ name: ['en'] })
+  })
+
+  it('does not mutate the prior record', () => {
+    const prior: any = { name: { th: 'สมชาย', en: 'สมชาย' }, _i18nFilled: { name: ['en'] } }
+    const priorSnapshot = JSON.parse(JSON.stringify(prior))
+    const rec: any = { id: 'c1', name: { th: 'สมชัย', en: 'สมชาย' } }
+    densify(rec, prior, fields)
+    expect(prior).toEqual(priorSnapshot)
+  })
+
+  it('keeps a re-authored value identical to the fill classified as a fill (value-equality limitation)', () => {
+    // 'en' was filled from 'th'; the user re-types the same string for 'en'.
+    // Value-equality provenance cannot tell this apart from the round-tripped fill.
+    const prior: any = { name: { th: 'สมชาย', en: 'สมชาย' }, _i18nFilled: { name: ['en'] } }
+    const rec: any = { id: 'c1', name: { th: 'สมชาย', en: 'สมชาย' } }
+    densify(rec, prior, fields)
+    expect(rec.name.en).toBe('สมชาย')
+    expect(rec._i18nFilled).toEqual({ name: ['en'] }) // stays a fill (and stays script-exempt)
+  })
 })
