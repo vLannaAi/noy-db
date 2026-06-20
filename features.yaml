@@ -590,7 +590,9 @@ features:
     package: '@noy-db/hub/i18n'
     factory: withI18n
     status: preview
-    showcases: []
+    showcases:
+      - id: 121-with-i18n-densify
+        path: showcases/src/121-with-i18n-densify.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
@@ -608,7 +610,9 @@ features:
     package: '@noy-db/hub/i18n'
     factory: withI18n
     status: preview
-    showcases: []
+    showcases:
+      - id: 121-with-i18n-densify
+        path: showcases/src/121-with-i18n-densify.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
