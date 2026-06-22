@@ -64,6 +64,10 @@
  *       │    ├─ SealedRecordExpiredError  — sealed CEK binding past expiresAt
  *       │    ├─ SealedRecordMismatchError — CEK sealed for record A used on record B
  *       │    └─ RecordCekNotFoundError    — record missing or no per-record `_cek`
+ *       └─ Embedding errors (#308 L2)
+ *            ├─ EmbeddingEncoderNotConfiguredError — collection declares embeddings but no encode() hook
+ *            ├─ EmbeddingDimMismatchError           — stored vector dim ≠ descriptor dim
+ *            └─ EmbeddingModelMismatchError         — stored vector model tag ≠ descriptor model
  * ```
  *
  * ## Catching all NOYDB errors
@@ -2365,5 +2369,65 @@ export class RecordCekNotFoundError extends NoydbError {
     this.name = 'RecordCekNotFoundError'
     this.collection = collection
     this.id = id
+  }
+}
+
+// ─── Embedding Errors (#308 L2) ─────────────────────────────────────────────
+
+/**
+ * Thrown when a collection declares `embeddings` but no `encode()` hook was
+ * provided via the collection options. The collection name is surfaced so the
+ * developer can locate the mis-configured registration quickly.
+ */
+export class EmbeddingEncoderNotConfiguredError extends NoydbError {
+  constructor(collection: string) {
+    super(
+      'EMBEDDING_ENCODER_NOT_CONFIGURED',
+      `Collection "${collection}" declares embeddings but no encode() hook was configured.`,
+    )
+    this.name = 'EmbeddingEncoderNotConfiguredError'
+  }
+}
+
+/**
+ * Thrown when a stored vector's dimension does not match the dimension declared
+ * by the active `EmbeddingDescriptor`. The `field`, `expected`, and `actual`
+ * properties are machine-readable for switch blocks and logging.
+ */
+export class EmbeddingDimMismatchError extends NoydbError {
+  readonly field: string
+  readonly expected: number
+  readonly actual: number
+
+  constructor(field: string, expected: number, actual: number) {
+    super(
+      'EMBEDDING_DIM_MISMATCH',
+      `Embedding for "${field}" has dim ${actual}, expected ${expected}.`,
+    )
+    this.name = 'EmbeddingDimMismatchError'
+    this.field = field
+    this.expected = expected
+    this.actual = actual
+  }
+}
+
+/**
+ * Thrown when the model tag on a stored vector does not match the `model`
+ * declared by the active `EmbeddingDescriptor`. Signals that the encoder was
+ * swapped without re-indexing; call `vault.embeddings.reindex()` to rebuild.
+ */
+export class EmbeddingModelMismatchError extends NoydbError {
+  readonly expected: string
+  readonly found: string
+
+  constructor(expected: string, found: string) {
+    super(
+      'EMBEDDING_MODEL_MISMATCH',
+      `Embedding model mismatch: collection uses "${expected}" but a stored vector is "${found}". ` +
+        `Run vault.embeddings.reindex() after changing the encoder.`,
+    )
+    this.name = 'EmbeddingModelMismatchError'
+    this.expected = expected
+    this.found = found
   }
 }
