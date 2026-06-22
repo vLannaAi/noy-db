@@ -682,6 +682,8 @@ export class Vault {
     textIndexes?: readonly string[]
     /** — #308 L1: pre-build the lexical index on open (eager-only). */
     warmIndexOnOpen?: boolean
+    /** — #308 L1.5: persist the lexical index as an opaque encrypted blob at `_ftindex/<name>`. */
+    textIndexPersist?: boolean
     /** — declare dictKey / staticDict fields for label resolution on reads. */
     dictKeyFields?: Record<string, DictKeyDescriptor | StaticDictDescriptor>
     /** — declare money() fields for currency-safe decimal storage/formatting. */
@@ -1006,6 +1008,7 @@ export class Vault {
       if (options?.i18nFields !== undefined) collOpts.i18nFields = options.i18nFields
       if (options?.textIndexes !== undefined) collOpts.textIndexes = options.textIndexes
       if (options?.warmIndexOnOpen !== undefined) collOpts.warmIndexOnOpen = options.warmIndexOnOpen
+      if (options?.textIndexPersist !== undefined) collOpts.textIndexPersist = options.textIndexPersist
       if (options?.moneyFields !== undefined) collOpts.moneyFields = options.moneyFields
       if (options?.computed !== undefined) collOpts.computed = options.computed as ComputedFields
       if (options?.dictKeyFields !== undefined) {
