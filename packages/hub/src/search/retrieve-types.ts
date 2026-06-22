@@ -15,6 +15,7 @@ export interface RetrieveOptions {
 export interface RetrieveHit<T> {
   readonly id: string
   readonly score: number
+  readonly rank: number
   readonly field: string
   readonly snippet: string
   readonly locale?: string

@@ -139,4 +139,22 @@ describe('collection.retrieve() — string fields (#308 L1)', () => {
     await c.retrieve('invoice', { prefix: true })
     expect(writes.length).toBe(before) // build+retrieve wrote nothing
   })
+
+  it('hits carry a 1-based rank monotonic with score order (#308 L1.5)', async () => {
+    const v = await n.openVault('v')
+    const c = v.collection<Inv>('inv', { textIndexes: ['description', 'notes'] })
+    // Record a: TCM appears in description (stronger match)
+    await c.put('a', { id: 'a', description: 'TCM TCM overdue invoice', notes: 'regular payment' })
+    // Record b: TCM appears in notes only (weaker match)
+    await c.put('b', { id: 'b', description: 'paid invoice', notes: 'TCM building rent' })
+
+    const hits = await c.retrieve('TCM')
+    expect(hits.length).toBe(2)
+    // Hits are returned in score order (highest first)
+    expect(hits[0].id).toBe('a') // description match scores higher
+    expect(hits[1].id).toBe('b') // notes match scores lower
+    // Verify rank is 1-based and monotonic
+    expect(hits[0].rank).toBe(1)
+    expect(hits[1].rank).toBe(2)
+  })
 })

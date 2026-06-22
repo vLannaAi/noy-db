@@ -2931,10 +2931,11 @@ export class Collection<T> {
       ...(opts.fields ? { fields: opts.fields } : {}),
     })
     const window = opts.snippetWindow ?? 80
-    return hits.map((h: IndexHit) => {
+    return hits.map((h: IndexHit, i: number) => {
       const base: RetrieveHit<T> = {
         id: h.id,
         score: h.score,
+        rank: i + 1,
         field: h.field,
         snippet: extractSnippet(h.text, h.offset, window),
         ...(h.locale !== undefined ? { locale: h.locale } : {}),
