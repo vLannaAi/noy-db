@@ -1048,3 +1048,4 @@ export type {
 // Scan-mode full-text search (#308)
 export { tokenize } from './search/index.js'
 export type { Tokenizer, SearchOptions, SearchResult, SearchEntry } from './search/index.js'
+export type { RetrieveOptions, RetrieveHit } from './search/index.js'

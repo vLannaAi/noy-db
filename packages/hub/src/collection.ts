@@ -47,6 +47,11 @@ import { LazyQuery } from './indexing/lazy-builder.js'
 import type { LazyQuerySource } from './indexing/lazy-builder.js'
 import { NO_INDEXING, type IndexStrategy, type IndexState } from './indexing/strategy.js'
 import { searchScan, type SearchOptions, type SearchResult } from './search/index.js'
+import { MemoryIndexStore, type IndexStore } from './search/index-store.js'
+import { extractSnippet } from './search/snippet.js'
+import { buildStringFieldEntries } from './search/build-docs.js'
+import type { IndexDoc, IndexHit } from './search/inverted-index.js'
+import type { RetrieveOptions, RetrieveHit } from './search/retrieve-types.js'
 import { IndexWriteFailureError, DerivationCapExceededError, DebugReservedFieldError } from './errors.js'
 import { buildUniqueConstraintSet, type UniqueConstraintSet } from './indexing/unique-constraints.js'
 import type { RefDescriptor } from './refs.js'
@@ -312,6 +317,18 @@ export class Collection<T> {
    * Declared via the `i18nFields` collection option.
    */
   private readonly i18nFields: Record<string, I18nTextDescriptor> | undefined
+
+  /**
+   * #308 L1 — the configured string fields exposed to `retrieve()`. `undefined`
+   * for ordinary collections, so the search path costs nothing when unused.
+   */
+  private readonly textIndexes: readonly string[] | undefined
+
+  /**
+   * #308 L1 — the session-scoped lexical index store. `undefined` (so the dirty
+   * poke + retrieve are zero-cost) unless `textIndexes` is non-empty.
+   */
+  private readonly searchIndexStore: IndexStore | undefined
 
   /**
    * #435 — the densify-enabled subset of {@link i18nFields} (fields whose
@@ -679,6 +696,10 @@ export class Collection<T> {
       | undefined
     /** — i18nText field descriptors for locale-aware reads. */
     i18nFields?: Record<string, I18nTextDescriptor> | undefined
+    /** — #308 L1: string fields exposed to client-side `retrieve()`. */
+    textIndexes?: readonly string[] | undefined
+    /** — #308 L1: pre-build the lexical index on open (eager-only). */
+    warmIndexOnOpen?: boolean | undefined
     /** — dictKey field descriptors for label resolution on reads. */
     dictKeyFields?: Record<string, DictKeyDescriptor | StaticDictDescriptor> | undefined
     moneyFields?: Record<string, MoneyDescriptor> | undefined
@@ -886,6 +907,11 @@ export class Collection<T> {
     this.refEnforcer = opts.refEnforcer
     this.joinResolver = opts.joinResolver
     this.i18nFields = opts.i18nFields
+    // #308 L1 — only spin up an index store when text fields are declared, so
+    // ordinary collections pay nothing (the dirty poke + retrieve see undefined).
+    this.textIndexes = opts.textIndexes
+    this.searchIndexStore =
+      opts.textIndexes && opts.textIndexes.length > 0 ? new MemoryIndexStore() : undefined
     // #435 — precompute the densify-enabled subset (undefined when none opt in)
     // so the write path skips work for non-densify collections.
     const densifyFields = opts.i18nFields
@@ -1660,6 +1686,7 @@ export class Collection<T> {
 
       await this.onDirty?.(this.name, id, 'put', version)
       this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action: 'put' } satisfies ChangeEvent)
+      this.searchIndexStore?.markDirty() // #308 L1 — zero-cost for non-search collections
       await this.onAccess?.('put', id)
       await this.dispatchDerivations(id, record, version)
       await this.dispatchMaterializedViews(id, record)
@@ -1792,6 +1819,7 @@ export class Collection<T> {
       id,
       action: 'put',
     } satisfies ChangeEvent)
+    this.searchIndexStore?.markDirty() // #308 L1 — zero-cost for non-search collections
 
     await this.onAccess?.('put', id)
 
@@ -2469,6 +2497,7 @@ export class Collection<T> {
       id,
       action: 'delete',
     } satisfies ChangeEvent)
+    this.searchIndexStore?.markDirty() // #308 L1 — zero-cost for non-search collections
 
     await this.onAccess?.('delete', id)
 
@@ -2710,6 +2739,65 @@ export class Collection<T> {
     // is never a searchable field.
     for (const [id, e] of this.cache) entries.push({ id, record: stripI18nFilled(e.record as Record<string, unknown>) as T })
     return searchScan(entries, field, query, opts)
+  }
+
+  /** #308 L1 — build IndexDoc[] for the configured text fields over the live cache. */
+  private buildRetrievalDocs(only?: readonly string[]): IndexDoc[] {
+    const docs: IndexDoc[] = []
+    for (const [id, e] of this.cache) {
+      const rec = stripI18nFilled(e.record as Record<string, unknown>)
+      const fields = buildStringFieldEntries(rec, this.textIndexes ?? [], only)
+      if (fields.length > 0) docs.push({ id, fields })
+    }
+    return docs
+  }
+
+  /** #308 L1 — pre-build the lexical index (e.g. on open) so the first retrieve() pays no build scan. */
+  async warmIndex(): Promise<void> {
+    if (!this.searchIndexStore) return
+    if (this.lazy) {
+      throw new Error(
+        `Collection "${this.name}": warmIndex() requires eager mode (prefetch: true).`,
+      )
+    }
+    await this.ensureHydrated()
+    this.searchIndexStore.getOrBuild(() => this.buildRetrievalDocs())
+  }
+
+  /** #308 L1 — client-side lexical retrieval; ranked { id, score, field, snippet, locale? }. */
+  async retrieve(query: string, opts: RetrieveOptions = {}): Promise<RetrieveHit<T>[]> {
+    if (!this.searchIndexStore) {
+      throw new Error(`Collection "${this.name}": retrieve() requires a textIndexes config.`)
+    }
+    if (this.lazy) {
+      throw new Error(
+        `Collection "${this.name}": retrieve() requires eager mode (prefetch: true).`,
+      )
+    }
+    await this.ensureHydrated()
+    const index = this.searchIndexStore.getOrBuild(() => this.buildRetrievalDocs(opts.fields))
+    const hits = index.query(query, {
+      ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
+      ...(opts.match ? { match: opts.match } : {}),
+      ...(opts.prefix ? { prefix: opts.prefix } : {}),
+    })
+    const window = opts.snippetWindow ?? 80
+    return hits.map((h: IndexHit) => {
+      const base: RetrieveHit<T> = {
+        id: h.id,
+        score: h.score,
+        field: h.field,
+        snippet: extractSnippet(h.text, h.offset, window),
+        ...(h.locale !== undefined ? { locale: h.locale } : {}),
+        ...(opts.includeRecord
+          ? (() => {
+              const e = this.cache.get(h.id)
+              return e ? { record: stripI18nFilled(e.record as Record<string, unknown>) as T } : {}
+            })()
+          : {}),
+      }
+      return base
+    })
   }
 
   // ─── Bulk operations ─────────────────────────────────────
@@ -3457,6 +3545,7 @@ export class Collection<T> {
   async _applyRemoteChange(id: string, action: 'put' | 'delete'): Promise<void> {
     await this._invalidateCacheEntry(id)
     this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action })
+    this.searchIndexStore?.markDirty() // #308 L1 — peer write changed the cache; rebuild on next retrieve
   }
 
   /** @internal — the current in-memory record without a store read (for conflict capture). */

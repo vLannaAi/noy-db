@@ -9,7 +9,7 @@ export function extractSnippet(text: string, offset: number, window = 80): strin
   const cpOffset = Array.from(text.slice(0, Math.max(0, offset))).length
   const half = Math.floor(window / 2)
   let start = Math.max(0, cpOffset - half)
-  let end = Math.min(chars.length, start + window)
+  const end = Math.min(chars.length, start + window)
   start = Math.max(0, end - window)
   const body = chars.slice(start, end).join('')
   return `${start > 0 ? '…' : ''}${body}${end < chars.length ? '…' : ''}`
