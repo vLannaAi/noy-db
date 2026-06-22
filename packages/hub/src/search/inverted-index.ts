@@ -27,6 +27,7 @@ export interface QueryOptions {
   readonly limit?: number
   readonly match?: 'any' | 'all'
   readonly prefix?: boolean
+  readonly fields?: readonly string[]
 }
 
 interface Doc {
@@ -79,6 +80,7 @@ export class InvertedIndex {
     // best (max-score) doc per record
     const best = new Map<string, IndexHit>()
     for (const doc of this.docs) {
+      if (opts.fields !== undefined && !opts.fields.includes(doc.field)) continue
       const stats = this.fieldStats.get(doc.field)!
       const avgdl = stats.totalLen / stats.n || 1
       let score = 0

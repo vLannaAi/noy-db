@@ -2775,11 +2775,12 @@ export class Collection<T> {
       )
     }
     await this.ensureHydrated()
-    const index = this.searchIndexStore.getOrBuild(() => this.buildRetrievalDocs(opts.fields))
+    const index = this.searchIndexStore.getOrBuild(() => this.buildRetrievalDocs())
     const hits = index.query(query, {
       ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
       ...(opts.match ? { match: opts.match } : {}),
       ...(opts.prefix ? { prefix: opts.prefix } : {}),
+      ...(opts.fields ? { fields: opts.fields } : {}),
     })
     const window = opts.snippetWindow ?? 80
     return hits.map((h: IndexHit) => {

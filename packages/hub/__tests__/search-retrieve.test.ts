@@ -89,6 +89,26 @@ describe('collection.retrieve() — string fields (#308 L1)', () => {
     expect((await c.retrieve('invoice')).length).toBe(2)
   })
 
+  it('fields filter restricts results at query time, not index-build time (cache-poison regression)', async () => {
+    const v = await n.openVault('v')
+    const c = v.collection<Inv>('inv', { textIndexes: ['description', 'notes'] })
+    // rec-N: TCM only in notes, NOT in description
+    await c.put('N', { id: 'N', description: 'regular invoice', notes: 'TCM building rent' })
+    // rec-D: TCM only in description, NOT in notes
+    await c.put('D', { id: 'D', description: 'overdue TCM invoice', notes: 'no match here' })
+
+    await c.warmIndex() // builds full index over both fields
+
+    // fields-scoped query: should return only rec-N (TCM is in notes)
+    const notesHits = await c.retrieve('TCM', { fields: ['notes'] })
+    expect(notesHits.map((h) => h.id)).toEqual(['N'])
+
+    // unconstrained query AFTER the fields query: must return BOTH records
+    // (proves the fields query did not poison the shared cache)
+    const allHits = await c.retrieve('TCM')
+    expect(allHits.map((h) => h.id).sort()).toEqual(['D', 'N'])
+  })
+
   it('writes NOTHING to the store during build+retrieve (zero leakage)', async () => {
     const store = memory()
     const writes: string[] = []
