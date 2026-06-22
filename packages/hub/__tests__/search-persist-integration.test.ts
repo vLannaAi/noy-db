@@ -81,4 +81,68 @@ describe('persisted lexical index (#308 L1.5)', () => {
     await c.flushIndex()
     expect((await c.query().toArray()).map((r) => r.id)).toEqual(['a']) // only the real record
   })
+
+  it('cold-load session-2 retrieve does not write any new _ftindex blobs (fingerprint matched, loaded not rebuilt)', async () => {
+    const store = memory()
+    const puts: string[] = []
+    const wrapped: NoydbStore = {
+      ...store,
+      async put(c, col, id, e, ev) { puts.push(`${col}/${id}`); return store.put(c, col, id, e, ev) },
+    }
+
+    // session 1 — build + persist the index
+    const db1 = await createNoydb({ store: wrapped, user: 'a', secret: 'pw-l15', i18nStrategy: withI18n() })
+    const v1 = await db1.openVault('v')
+    const c1 = v1.collection<Inv>('inv', { textIndexes: ['description'], textIndexPersist: true })
+    await c1.put('r1', { id: 'r1', description: 'overdue invoice TCM' })
+    await c1.flushIndex()
+
+    // session 2 — fresh db on same store
+    const db2 = await createNoydb({ store: wrapped, user: 'a', secret: 'pw-l15', i18nStrategy: withI18n() })
+    const v2 = await db2.openVault('v')
+    const c2 = v2.collection<Inv>('inv', { textIndexes: ['description'], textIndexPersist: true })
+
+    // snapshot _ftindex put count before retrieve
+    const ftindexPutsBefore = puts.filter((p) => p.startsWith('_ftindex/')).length
+
+    // cold-load retrieve — must return correct results
+    const hits = await c2.retrieve('invoice')
+    expect(hits.map((h) => h.id)).toEqual(['r1'])
+
+    // assert NO new _ftindex writes during session-2 retrieve (blob was deserialized, not rebuilt)
+    const ftindexPutsAfter = puts.filter((p) => p.startsWith('_ftindex/')).length
+    expect(ftindexPutsAfter).toBe(ftindexPutsBefore)
+  })
+
+  it('zero _ftindex I/O when textIndexPersist is not set (MemoryIndexStore path)', async () => {
+    const store = memory()
+    const ftindexOps: string[] = []
+    const wrapped: NoydbStore = {
+      ...store,
+      async put(c, col, id, e, ev) {
+        if (col === '_ftindex') ftindexOps.push(`put:${col}/${id}`)
+        return store.put(c, col, id, e, ev)
+      },
+      async get(c, col, id) {
+        if (col === '_ftindex') ftindexOps.push(`get:${col}/${id}`)
+        return store.get(c, col, id)
+      },
+      async delete(c, col, id) {
+        if (col === '_ftindex') ftindexOps.push(`delete:${col}/${id}`)
+        return store.delete(c, col, id)
+      },
+    }
+
+    // collection WITHOUT textIndexPersist
+    const db = await createNoydb({ store: wrapped, user: 'a', secret: 'pw-nocost', i18nStrategy: withI18n() })
+    const v = await db.openVault('v')
+    const c = v.collection<Inv>('inv', { textIndexes: ['description'] /* no textIndexPersist */ })
+    await c.put('r1', { id: 'r1', description: 'overdue invoice TCM' })
+    await c.flushIndex()
+    const hits = await c.retrieve('invoice')
+    expect(hits.map((h) => h.id)).toEqual(['r1'])
+
+    // the _ftindex collection must have received zero put/get/delete calls
+    expect(ftindexOps).toHaveLength(0)
+  })
 })

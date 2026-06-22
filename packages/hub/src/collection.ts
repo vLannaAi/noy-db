@@ -2842,7 +2842,7 @@ export class Collection<T> {
     return maps
   }
 
-  /** #308 L1.5 — force-persist the lexical index now (e.g. on save/idle). No-op without textIndexPersist. */
+  /** #308 L1.5 — force-persist the lexical index now (e.g. on save/idle). Persists only when textIndexPersist is enabled; a no-op otherwise. */
   async flushIndex(): Promise<void> {
     if (!this.searchIndexStore) return
     await this.ensureHydrated()
