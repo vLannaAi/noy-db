@@ -1678,6 +1678,13 @@ export interface BlobPutOptions {
   compress?: boolean
   /** User ID to record as `uploadedBy`. Defaults to the Noydb session user. */
   uploadedBy?: string
+  /**
+   * User-visible filename to store on the slot. Defaults to the slot name.
+   * Differs from the slot name when the caller wants a display/download name
+   * (e.g. slot `attachment` holding `invoice-2024.pdf`); this is the value
+   * that the L1 lexical index (#308) tokenizes for blob fields.
+   */
+  filename?: string
 }
 
 /** Options for `BlobSet.response()` and `BlobSet.responseVersion()`. */

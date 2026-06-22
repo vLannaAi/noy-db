@@ -49,7 +49,7 @@ import { NO_INDEXING, type IndexStrategy, type IndexState } from './indexing/str
 import { searchScan, type SearchOptions, type SearchResult } from './search/index.js'
 import { MemoryIndexStore, type IndexStore } from './search/index-store.js'
 import { extractSnippet } from './search/snippet.js'
-import { buildStringFieldEntries, buildI18nFieldEntries, buildDictKeyFieldEntries } from './search/build-docs.js'
+import { buildStringFieldEntries, buildI18nFieldEntries, buildDictKeyFieldEntries, buildBlobFieldEntries } from './search/build-docs.js'
 import type { IndexDoc, IndexHit } from './search/inverted-index.js'
 import type { RetrieveOptions, RetrieveHit } from './search/retrieve-types.js'
 import { IndexWriteFailureError, DerivationCapExceededError, DebugReservedFieldError } from './errors.js'
@@ -2756,16 +2756,62 @@ export class Collection<T> {
   }
 
   /** #308 L1 — build IndexDoc[] for the configured text fields over the live cache. */
-  private buildRetrievalDocs(labelMaps: Map<string, Map<string, Record<string, string>>>, only?: readonly string[]): IndexDoc[] {
+  private buildRetrievalDocs(
+    labelMaps: Map<string, Map<string, Record<string, string>>>,
+    blobFilenames: Map<string, Map<string, string[]>>,
+    only?: readonly string[],
+  ): IndexDoc[] {
     const docs: IndexDoc[] = []
     for (const [id, e] of this.cache) {
       const rec = stripI18nFilled(e.record as Record<string, unknown>)
       const fields = buildStringFieldEntries(rec, this.textIndexes ?? [], only)
       if (this.i18nFields) fields.push(...buildI18nFieldEntries(rec, this.i18nFields, this.textIndexes ?? [], only))
       if (this.dictKeyFields) fields.push(...buildDictKeyFieldEntries(rec, this.dictKeyFields, labelMaps, this.textIndexes ?? [], only))
+      const blobNames = blobFilenames.get(id)
+      if (blobNames) fields.push(...buildBlobFieldEntries(blobNames))
       if (fields.length > 0) docs.push({ id, fields })
     }
     return docs
+  }
+
+  /** #308 L1 — true iff any configured text index is also a blob field (gates ALL slot I/O). */
+  private hasIndexedBlobFields(only?: readonly string[]): boolean {
+    if (!this.blobFields || !this.textIndexes) return false
+    const fields = only ? this.textIndexes.filter((f) => only.includes(f)) : this.textIndexes
+    return fields.some((f) => f in this.blobFields!)
+  }
+
+  /**
+   * #308 L1 — resolve `recordId -> (blobField -> filenames[])` by listing slots
+   * for the configured blob fields of each cached record. Blob slot metadata is
+   * NOT inline on the record: it lives in a separate `_blob_slots_*` collection,
+   * so this costs ONE `blob(id).list()` (a `listSlots`) per record at build time
+   * — the heaviest indexing source. Fully gated by {@link hasIndexedBlobFields};
+   * non-blob (and blob-but-not-indexed) collections do ZERO slot I/O.
+   */
+  private async resolveBlobFilenames(only?: readonly string[]): Promise<Map<string, Map<string, string[]>>> {
+    const out = new Map<string, Map<string, string[]>>()
+    if (!this.hasIndexedBlobFields(only)) return out
+    const indexed = (only ? this.textIndexes!.filter((f) => only.includes(f)) : this.textIndexes!)
+      .filter((f) => f in this.blobFields!)
+    const indexedSet = new Set(indexed)
+    for (const id of this.cache.keys()) {
+      let slots
+      try {
+        slots = await this.blob(id).list()
+      } catch {
+        continue
+      }
+      let byField: Map<string, string[]> | undefined
+      for (const slot of slots) {
+        if (!indexedSet.has(slot.name) || !slot.filename) continue
+        if (!byField) { byField = new Map(); out.set(id, byField) }
+        const names = byField.get(slot.name)
+        if (names) names.push(slot.filename)
+        else byField.set(slot.name, [slot.filename])
+      }
+    }
+    return out
   }
 
   /** #308 L1 — field -> (key -> {locale->label}) for dictKey fields; static from table, dynamic via getDictionary().list(). */
@@ -2798,8 +2844,10 @@ export class Collection<T> {
       )
     }
     await this.ensureHydrated()
-    const labelMaps = this.searchIndexStore.built ? new Map() : await this.resolveDictLabelMaps()
-    this.searchIndexStore.getOrBuild(() => this.buildRetrievalDocs(labelMaps))
+    const built = this.searchIndexStore.built
+    const labelMaps = built ? new Map() : await this.resolveDictLabelMaps()
+    const blobFilenames = built ? new Map() : await this.resolveBlobFilenames()
+    this.searchIndexStore.getOrBuild(() => this.buildRetrievalDocs(labelMaps, blobFilenames))
   }
 
   /** #308 L1 — client-side lexical retrieval; ranked { id, score, field, snippet, locale? }. */
@@ -2813,8 +2861,10 @@ export class Collection<T> {
       )
     }
     await this.ensureHydrated()
-    const labelMaps = this.searchIndexStore.built ? new Map() : await this.resolveDictLabelMaps()
-    const index = this.searchIndexStore.getOrBuild(() => this.buildRetrievalDocs(labelMaps, opts.fields))
+    const built = this.searchIndexStore.built
+    const labelMaps = built ? new Map() : await this.resolveDictLabelMaps()
+    const blobFilenames = built ? new Map() : await this.resolveBlobFilenames(opts.fields)
+    const index = this.searchIndexStore.getOrBuild(() => this.buildRetrievalDocs(labelMaps, blobFilenames, opts.fields))
     const hits = index.query(query, {
       ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
       ...(opts.match ? { match: opts.match } : {}),

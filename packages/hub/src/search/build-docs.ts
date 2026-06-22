@@ -1,7 +1,9 @@
 /**
  * Map a decrypted record's configured text fields → IndexDoc field entries
- * (#308 L1). String fields only here; i18nText / dictKey / blob add their own
- * expansion in later tasks. Uses getAtPath for nested/[]-wildcard paths.
+ * (#308 L1). String, i18nText, dictKey, and blob-filename expansion. Uses
+ * getAtPath for nested/[]-wildcard paths. Blob filenames are NOT inline on the
+ * record — the collection pre-resolves them (one listSlots() per record, the
+ * heaviest source) and feeds them to {@link buildBlobFieldEntries}.
  */
 import { getAtPath } from '../i18n/core.js'
 import type { I18nTextDescriptor } from '../i18n/core.js'
@@ -67,6 +69,19 @@ export function buildDictKeyFieldEntries(
         }
       }
     }
+  }
+  return out
+}
+
+/**
+ * Blob filenames precomputed in the collection (`field -> filenames[]`, from one
+ * async `listSlots()` per record — the heaviest source, see {@link buildBlobFieldEntries}'s
+ * caller). Bytes are never tokenized; only the slot `filename` is indexed.
+ */
+export function buildBlobFieldEntries(filenamesByField: Map<string, string[]>): FieldEntry[] {
+  const out: FieldEntry[] = []
+  for (const [field, names] of filenamesByField) {
+    for (const name of names) if (name !== '') out.push({ field, text: name })
   }
   return out
 }
