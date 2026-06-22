@@ -53,7 +53,8 @@ import { extractSnippet } from './search/snippet.js'
 import { buildStringFieldEntries, buildI18nFieldEntries, buildDictKeyFieldEntries, buildBlobFieldEntries } from './search/build-docs.js'
 import type { IndexDoc, IndexHit } from './search/inverted-index.js'
 import type { RetrieveOptions, RetrieveHit } from './search/retrieve-types.js'
-import { IndexWriteFailureError, DerivationCapExceededError, DebugReservedFieldError } from './errors.js'
+import { IndexWriteFailureError, DerivationCapExceededError, DebugReservedFieldError, EmbeddingDimMismatchError } from './errors.js'
+import { embeddingSourceText, VectorSet, type EmbeddingDescriptor, type StoredVector } from './embeddings/index.js'
 import { buildUniqueConstraintSet, type UniqueConstraintSet } from './indexing/unique-constraints.js'
 import type { RefDescriptor } from './refs.js'
 import { Lru, parseBytes, estimateRecordBytes, type LruStats } from './cache/index.js'
@@ -337,6 +338,19 @@ export class Collection<T> {
    * in, so the write path skips all densify work for ordinary collections.
    */
   private readonly i18nDensifyFields: Record<string, I18nTextDescriptor> | undefined
+
+  /**
+   * #308 L2 — embedding config for write-time vector derivation. `undefined`
+   * for ordinary collections (zero cost). When set, `put()` encodes the
+   * source field(s) and stores an encrypted `_vec` sidecar.
+   */
+  private readonly embeddings: EmbeddingDescriptor | undefined
+
+  /**
+   * #308 L2 — in-memory vector set, populated lazily from `_vec` sidecars.
+   * `undefined` when no embedding config is declared.
+   */
+  private vectorSet: VectorSet | undefined
 
   /**
    * Map of field name → `DictKeyDescriptor` for fields declared with
@@ -704,6 +718,8 @@ export class Collection<T> {
       | undefined
     /** — i18nText field descriptors for locale-aware reads. */
     i18nFields?: Record<string, I18nTextDescriptor> | undefined
+    /** — #308 L2: embedding config for write-time vector derivation + semantic retrieval. */
+    embeddings?: EmbeddingDescriptor | undefined
     /** — #308 L1: string fields exposed to client-side `retrieve()`. */
     textIndexes?: readonly string[] | undefined
     /** — #308 L1: pre-build the lexical index on open (eager-only). */
@@ -941,6 +957,16 @@ export class Collection<T> {
       : {}
     this.i18nDensifyFields =
       Object.keys(densifyFields).length > 0 ? densifyFields : undefined
+    // #308 L2 — wire embedding descriptor + vector set (undefined for non-embedding collections).
+    // Guard: CRDT collections cannot use embeddings (the embedding-derive block is unreachable
+    // after the CRDT early-return in putInternal; full CRDT-derivation is out of L2 scope).
+    if (opts.embeddings && opts.crdt) {
+      throw new Error(
+        `Collection "${opts.name}": embeddings are not supported on CRDT collections (L2). Use a non-CRDT collection for semantic search.`,
+      )
+    }
+    this.embeddings = opts.embeddings
+    this.vectorSet = opts.embeddings ? new VectorSet() : undefined
     this.dictKeyFields = opts.dictKeyFields
     if (opts.moneyFields) validateMoneyFieldPaths(opts.moneyFields)
     this.moneyFields = opts.moneyFields
@@ -1777,6 +1803,19 @@ export class Collection<T> {
 
     const envelope = await this.encryptRecord(record, version, cek, options?.source, options?.sourceTs)
     await this.adapter.put(this.vault, this.name, id, envelope)
+
+    // #308 L2 — derive the embedding vector at write (encode → encrypted _vec sidecar).
+    // Placed AFTER the main adapter.put so `version` (computed above) is in scope and
+    // the record write is committed first. The _vec envelope _v is not OCC-checked.
+    if (this.embeddings) {
+      const text = embeddingSourceText(record as Record<string, unknown>, this.embeddings.source)
+      const vec = await this.embeddings.encode(text)
+      if (vec.length !== this.embeddings.dim) throw new EmbeddingDimMismatchError('embeddings', this.embeddings.dim, vec.length)
+      const body = JSON.stringify({ vec: Array.from(vec), model: this.embeddings.model, dim: this.embeddings.dim })
+      const vecEnv = await this.encryptJsonString(body, version)
+      await this.adapter.put(this.vault, '_vec', id, vecEnv)
+      this.vectorSet?.markDirty()
+    }
 
     // Ledger append — AFTER the adapter write succeeds so a failed
     // write never produces an orphan ledger entry. Computing the
@@ -2852,6 +2891,23 @@ export class Collection<T> {
     await this.searchIndexStore.flush?.()
   }
 
+  /** #308 L2 — load + decrypt all _vec sidecars into StoredVector[] for the VectorSet. */
+  private buildVectorLoad(): () => Promise<StoredVector[]> {
+    return async () => {
+      const ids = await this.adapter.list(this.vault, '_vec')
+      const out: StoredVector[] = []
+      for (const id of ids) {
+        const env = await this.adapter.get(this.vault, '_vec', id)
+        if (!env) continue
+        const body = await this.decryptJsonString(env)
+        if (body === null) continue
+        const parsed = JSON.parse(body) as { vec: number[]; model: string }
+        out.push({ id, vec: new Float32Array(parsed.vec), model: parsed.model })
+      }
+      return out
+    }
+  }
+
   /**
    * #308 L1.5 — build the PersistedIndexCallbacks bridge: crypto lives here
    * (collection has getDEK / encryptJsonString / decryptJsonString / adapter),
@@ -2911,6 +2967,7 @@ export class Collection<T> {
 
   /** #308 L1 — client-side lexical retrieval; ranked { id, score, field, snippet, locale? }. */
   async retrieve(query: string, opts: RetrieveOptions = {}): Promise<RetrieveHit<T>[]> {
+    if (opts.mode === 'semantic') return this.retrieveSemantic(query, opts)
     if (!this.searchIndexStore) {
       throw new Error(`Collection "${this.name}": retrieve() requires a textIndexes config.`)
     }
@@ -2946,6 +3003,36 @@ export class Collection<T> {
             })()
           : {}),
       }
+      return base
+    })
+  }
+
+  /** #308 L2 — semantic branch of retrieve(): encode query → similarTo(). */
+  private async retrieveSemantic(query: string, opts: RetrieveOptions): Promise<RetrieveHit<T>[]> {
+    if (!this.embeddings) throw new Error(`Collection "${this.name}": retrieve({mode:'semantic'}) requires an embeddings config.`)
+    if (this.lazy) throw new Error(`Collection "${this.name}": retrieve() requires eager mode (prefetch: true).`)
+    const qVec = await this.embeddings.encode(query)
+    return this.similarTo(qVec, {
+      ...(opts.limit !== undefined ? { k: opts.limit } : {}),
+      ...(opts.minScore !== undefined ? { minScore: opts.minScore } : {}),
+      ...(opts.includeRecord ? { includeRecord: true } : {}),
+    })
+  }
+
+  /** #308 L2 — raw-vector kNN over the encrypted vector set (decrypted in the trusted tier).
+   *  Snippet is '' for vector hits in v1 (semantic match isn't span-located). */
+  async similarTo(vector: Float32Array, opts: { k?: number; minScore?: number; includeRecord?: boolean } = {}): Promise<RetrieveHit<T>[]> {
+    if (!this.embeddings || !this.vectorSet) throw new Error(`Collection "${this.name}": similarTo() requires an embeddings config.`)
+    if (this.lazy) throw new Error(`Collection "${this.name}": similarTo() requires eager mode (prefetch: true).`)
+    await this.ensureHydrated()
+    await this.vectorSet.ensureLoaded(this.buildVectorLoad())
+    const hits = this.vectorSet.cosineTopK(vector, opts.k ?? 10, {
+      ...(opts.minScore !== undefined ? { minScore: opts.minScore } : {}),
+      expectModel: this.embeddings.model,
+    })
+    return hits.map((h, i) => {
+      const base: RetrieveHit<T> = { id: h.id, score: h.score, rank: i + 1, field: '(vector)', snippet: '' }
+      if (opts.includeRecord) { const e = this.cache.get(h.id); if (e) (base as { record?: T }).record = stripI18nFilled(e.record as Record<string, unknown>) as T }
       return base
     })
   }
@@ -4326,6 +4413,13 @@ export class Collection<T> {
       }
     }
     return { purged, residue }
+  }
+
+  /** #308 L2 — drop a record's encrypted _vec sidecar on erasure (a vector is text-invertible).
+   *  Called by vault.ts forget() inside a resilient try/catch; residue is reported in ForgetResult. */
+  async _purgeVector(id: string): Promise<void> {
+    await this.adapter.delete(this.vault, '_vec', id)
+    this.vectorSet?.markDirty()
   }
 
   /** #308 L1.5 — drop the persisted lexical-index blob (forget/erasure): an opaque

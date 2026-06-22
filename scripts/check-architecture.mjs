@@ -492,7 +492,8 @@ const KERNEL_SURFACE_BUDGET = {
   // locale-less read returns (get/list early-return, search, static-display final).
   // Bumped 4922→5100 (#308 L1): retrieve()/warmIndex call-sites + dict/blob label resolvers (engine in src/search/)
   // Bumped 5100→5168 (#308 L1.5): persisted-index call-sites + forget/close wiring
-  'packages/hub/src/collection.ts': 5168,
+  // Bumped 5168→5255 (#308 L2): embeddings derive/retrieve/forget call-sites (engine in src/embeddings/)
+  'packages/hub/src/collection.ts': 5255,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
@@ -563,7 +564,8 @@ const KERNEL_SURFACE_BUDGET = {
   // (the barrier/transport logic itself lives in coordination/ + schema-update/).
   // Bumped 4546→4571 (#308 L1): getDictionary label-resolver injection + warmIndexOnOpen wiring (engine in src/search/)
   // Bumped 4571→4597 (#308 L1.5): persisted-index call-sites + forget/close wiring
-  'packages/hub/src/vault.ts': 4597,
+  // Bumped 4597→4610 (#308 L2): embeddings derive/retrieve/forget call-sites (engine in src/embeddings/)
+  'packages/hub/src/vault.ts': 4610,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),

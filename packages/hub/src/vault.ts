@@ -88,6 +88,7 @@ import {
 import type { DictionaryHandle, DictionaryOptions, DictKeyDescriptor, StaticDictDescriptor } from './i18n/dictionary.js'
 import { isDictCollectionName, isStaticDictDescriptor } from './i18n/dictionary.js'
 import { LinkSet, isLinkCollectionName, linkCollectionName, linkRowKey, LinkIntegrityError, type LinkSpec, type LinkSetHandle } from './links/link-set.js'
+import type { EmbeddingDescriptor } from './embeddings/index.js'
 import type { I18nTextDescriptor } from './i18n/core.js'
 import { getAtPath } from './i18n/core.js'
 import type { MoneyDescriptor } from './money/descriptor.js'
@@ -678,6 +679,8 @@ export class Vault {
     refs?: Record<string, RefDescriptor>
     /** — declare i18nText fields for locale-aware reads. */
     i18nFields?: Record<string, I18nTextDescriptor>
+    /** — #308 L2: embedding config for write-time vector derivation + semantic retrieval. */
+    embeddings?: EmbeddingDescriptor
     /** — #308 L1: string fields exposed to client-side `retrieve()`. */
     textIndexes?: readonly string[]
     /** — #308 L1: pre-build the lexical index on open (eager-only). */
@@ -1006,6 +1009,7 @@ export class Vault {
       collOpts.onCrossTierAccess = (event) => this.emitCrossTier(event)
       if (this.syncAdapter !== undefined) collOpts.syncAdapter = this.syncAdapter
       if (options?.i18nFields !== undefined) collOpts.i18nFields = options.i18nFields
+      if (options?.embeddings !== undefined) collOpts.embeddings = options.embeddings
       if (options?.textIndexes !== undefined) collOpts.textIndexes = options.textIndexes
       if (options?.warmIndexOnOpen !== undefined) collOpts.warmIndexOnOpen = options.warmIndexOnOpen
       if (options?.textIndexPersist !== undefined) collOpts.textIndexPersist = options.textIndexPersist
@@ -2585,6 +2589,15 @@ export class Vault {
       const idxPurge = await (coll as any)._purgePersistedIndexes(ref.id) as { purged: number; residue: string[] }
       indexPostingsPurged += idxPurge.purged
       for (const field of idxPurge.residue) indexResidue.push(`${ref.collection}:${ref.id}:${field}`)
+
+      // Purge the record's encrypted _vec sidecar (#308 L2): a vector embedding
+      // is text-invertible, so it must not survive crypto-shred of the source record.
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (coll as any)._purgeVector(ref.id)
+      } catch {
+        indexResidue.push(`${ref.collection}:${ref.id}:_vec`)
+      }
 
       // Blob attachments (#365): crypto-shred the record's erasable blobs.
       // An erasable blob's chunks are under a per-blob content CEK whose only

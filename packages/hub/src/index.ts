@@ -906,6 +906,9 @@ export { TierNotGrantedError, TierDemoteDeniedError, DelegationTargetMissingErro
 export { IndexRequiredError, IndexWriteFailureError } from './errors.js'
 // unique-index enforcement error
 export { UniqueConstraintError, UnsupportedIndexOptionError } from './errors.js'
+// embeddings / semantic-retrieval (L2)
+export { EmbeddingDimMismatchError, EmbeddingModelMismatchError } from './errors.js'
+export type { EmbeddingDescriptor } from './embeddings/index.js'
 export { dekKey, effectiveClearance, assertTierAccess } from './team/tiers.js'
 export type { DelegationToken, IssueDelegationOptions } from './team/delegation.js'
 export { DELEGATIONS_COLLECTION, issueDelegation, loadActiveDelegations, revokeDelegation } from './team/delegation.js'
