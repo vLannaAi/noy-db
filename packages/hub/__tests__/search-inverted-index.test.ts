@@ -45,4 +45,47 @@ describe('InvertedIndex (#308 L1)', () => {
     expect(hits.length).toBe(1)
     expect(hits[0]!.field).toBe('notes') // higher tf
   })
+
+  // Defect 1 regression: prefix df must count DISTINCT docs, not sum per-term df.
+  // Doc A has "invoice" and "inventory" (both start with "inv"); doc B has "invoice".
+  // Correct df for prefix "inv" = 2 (two distinct docs), NOT 3 (sum: A=2, B=1).
+  it('prefix df counts distinct docs, not sum of per-term df (#308 L1 defect 1)', () => {
+    const prefixDocs: IndexDoc[] = [
+      { id: 'A', fields: [{ field: 'text', text: 'invoice inventory' }] },
+      { id: 'B', fields: [{ field: 'text', text: 'invoice' }] },
+    ]
+    const idx = InvertedIndex.build(prefixDocs)
+    const hits = idx.query('inv', { prefix: true })
+    // Both docs must be returned
+    expect(hits.map((h) => h.id).sort()).toEqual(['A', 'B'])
+    // Both scores must be finite and positive
+    expect(hits.every((h) => h.score > 0 && isFinite(h.score))).toBe(true)
+    // Key assertion: with correct distinct-doc df=2, the idf is log(1+(2-2+0.5)/(2+0.5))=log(1+0.2)
+    // With wrong sum df=3, idf would be log(1+(2-3+0.5)/(3+0.5))=log(1+(-0.5/3.5)) — negative or near-zero
+    // Both scores must be positive, confirming df=2 (distinct) is used, not df=3 (sum).
+    // Also: A should not be penalized relative to B purely from df over-count.
+    const hitA = hits.find((h) => h.id === 'A')!
+    const hitB = hits.find((h) => h.id === 'B')!
+    // A has higher combined tf (invoice=1 + inventory=1 = ptf=2), B has ptf=1.
+    // With correct df=2, A scores higher than B.
+    expect(hitA.score).toBeGreaterThan(hitB.score)
+  })
+
+  // Defect 2 regression: exact term must not be double-counted when it also matches the prefix.
+  // Query "invoice inv" with prefix:true → exact=["invoice"], prefix="inv".
+  // "invoice".startsWith("inv") is true, so without the fix, "invoice" is scored twice.
+  // Fix: skip exact terms in the prefix accumulation loop.
+  it('exact term not double-counted as prefix match (#308 L1 defect 2)', () => {
+    const singleDoc: IndexDoc[] = [
+      { id: 'X', fields: [{ field: 'text', text: 'invoice paid' }] },
+    ]
+    const idx = InvertedIndex.build(singleDoc)
+    // Score for exact "invoice" alone
+    const scoreExact = idx.query('invoice')[0]!.score
+    // Score for "invoice inv" with prefix: "inv" only matches "invoice" (already exact) → no new contribution
+    const scorePrefixed = idx.query('invoice inv', { prefix: true, match: 'any' })[0]!.score
+    // Without the fix, scorePrefixed > scoreExact because "invoice" is counted twice.
+    // With the fix, the prefix adds no new terms, so score equals the exact-only score.
+    expect(scorePrefixed).toBeCloseTo(scoreExact, 10)
+  })
 })

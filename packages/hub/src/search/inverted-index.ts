@@ -97,18 +97,24 @@ export class InvertedIndex {
       for (const qt of exact) scoreTerm(doc.tf.get(qt) ?? 0, stats.df.get(qt) ?? 0, doc.firstOffset.get(qt) ?? -1)
 
       if (prefix !== undefined) {
+        // Build a set of exact query terms so we don't double-count a term that
+        // is both an exact match and starts with the prefix (defect 2 fix).
+        const exactSet = new Set(exact)
         let ptf = 0
         let poff = -1
-        let pdf = 0
         for (const [term, c] of doc.tf) {
-          if (term.startsWith(prefix)) {
+          if (term.startsWith(prefix) && !exactSet.has(term)) {
             ptf += c
             if (poff < 0) poff = doc.firstOffset.get(term) ?? -1
           }
         }
         if (ptf > 0) {
-          // df for the prefix: docs in this field with any term starting with it
-          for (const term of stats.df.keys()) if (term.startsWith(prefix)) pdf += stats.df.get(term)!
+          // df for the prefix: count DISTINCT docs in this field that have any
+          // prefix-matching term — mirrors scan.ts semantics (defect 1 fix).
+          let pdf = 0
+          for (const d of this.docs) {
+            if (d.field === doc.field && [...d.tf.keys()].some((t) => t.startsWith(prefix))) pdf++
+          }
           scoreTerm(ptf, pdf || 1, poff)
         }
       }
