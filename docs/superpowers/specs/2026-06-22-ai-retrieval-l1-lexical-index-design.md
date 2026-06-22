@@ -74,7 +74,7 @@ method rather than inventing a new surface later.
 | `collection.retrieve(query, opts)` | multi-field, returns `{ id, score, field, snippet }[]`, ranked |
 | `textIndexes: string[]` collection config | opt-in indexed fields; supports nested + `[]` wildcard paths |
 | **i18nText fields → index ALL locale values** | a query term in any language matches whichever locale holds it; hit carries matched `locale`; snippet from that locale |
-| **Blob fields → index `filename` + `userMeta`** | blob *metadata* only; blob *bytes* are never tokenized (content extraction is app-side) |
+| **Blob fields → index `filename`** (heaviest, last) | via `listSlots(recordId)` (async, per-record, `_blob_*` collection); `filename`/`mimeType` only — bytes never tokenized; no `userMeta` on the stored slot |
 | **dictKey fields → index resolved labels** (opt-in) | all-locale labels resolved via the dictionary at build (async); matched `locale` returned; key stays opaque (→ `where`) |
 | **`warmIndexOnOpen?: boolean`** collection option | auto-build the index on collection open (vs lazy on first `retrieve()` / manual `warmIndex()`) |
 | Multi-field BM25, **max-field** combination | a doc's score = its best field's BM25; `field` is that winning field; snippet from it |
@@ -102,7 +102,7 @@ error as `where('>')` on a paragraph.
 |---|---|---|
 | `string` | ✅ | tokenized as-is |
 | `i18nText` (`{[locale]:string}`) | ✅ | **all locale values** indexed under the field name; matched `locale` returned; locale-agnostic search |
-| Blob field (`filename`, `userMeta`) | ✅ | metadata strings tokenized; **bytes never** tokenized |
+| Blob field (`filename`, `mimeType`) | ✅ (heaviest) | slot metadata via **`listSlots(recordId)`** (async, per-record, separate `_blob_*` collection) — `filename` tokenized (`mimeType` optional); **bytes never** tokenized. `SlotRecord` has no `userMeta` (that's a projection-time concept), so it is not indexed. Sequenced last. |
 | `dictKey` label | ✅ opt-in | resolved **labels** (all locales) indexed via the dictionary at build (async); the opaque **key** is not text-indexed → use `where` for key equality |
 | `money` / `number` / `date` / `boolean` | ⛔ by design | use `where('amount','>',1000)` etc. — formatting variance makes text-matching values wrong |
 | Blob **content** (PDF/image bytes) | ⛔ out of scope | app extracts text into a normal field (OCR/PDF→text), which then indexes |
@@ -111,9 +111,12 @@ The builder detects `i18nFields`, `dictKeyFields`, and blob fields from the
 collection config; `getAtPath` resolves nested/wildcard paths. `fieldText` is
 extended to emit **`{ text, locale? }` segments** (one per i18n locale / dictKey
 label locale / blob-meta string) rather than a single string, so postings carry
-locale attribution. dictKey labels require **async** resolution via the dictionary
-at build time (heavier than inline fields — hence opt-in); resolution happens in the
-collection build step, which feeds resolved label text into the pure `InvertedIndex`.
+locale attribution. **dictKey** labels (all locales) come from: `StaticDictDescriptor.table[key]`
+(inline `{locale→label}`, sync) or, for dynamic dictKey, one `DictionaryHandle.entries()`
+call per dictionary (returns `{key, labels}[]` → a `key→labels` map). **Blob** filenames
+come from `listSlots(recordId)` (async, per-record, separate `_blob_*` collection — the
+heaviest source, sequenced last). All resolution happens in the collection build step,
+which feeds plain text into the pure `InvertedIndex`.
 
 **Hybrid (money + text together)** — the agent/UI composes `retrieve()` (text
 candidate ids) with the existing query pipeline (`query().where('amount','>',1000)`):
