@@ -1193,6 +1193,16 @@ export class Vault {
     this.#fenceCoordinationStarted = false
   }
 
+  /** @internal #308 L1.5 — best-effort flush of all open collections' persisted
+   *  lexical indexes on close(). Called fire-and-forget from noydb.close().
+   *  Correctness is backstopped by the fingerprint: a missed flush → rebuild on
+   *  next load. Only collections with textIndexPersist have a flush(); others no-op. */
+  async _flushSearchIndexes(): Promise<void> {
+    for (const coll of this.collectionCache.values()) {
+      await (coll as any).flushIndex().catch(() => { /* best-effort */ })
+    }
+  }
+
   /** @internal Drive one heartbeat + watch cycle deterministically (tests). */
   async _fenceTick(): Promise<void> {
     this._ensureFenceCoordination()
@@ -2599,6 +2609,13 @@ export class Vault {
 
       // Drop the (now-shredded) ref from the subject index.
       await this._removeSubjectRef(subjectId, ref)
+    }
+
+    // Purge the persisted lexical-index blob for each affected collection
+    // (#308 L1.5): an opaque all-records index must not survive crypto-shred.
+    for (const collName of collections) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (this.collection(collName) as any)._purgeSearchIndex()
     }
 
     // ONE summary ledger entry for the whole subject. payloadHash =

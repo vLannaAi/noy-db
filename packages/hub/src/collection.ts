@@ -4327,6 +4327,14 @@ export class Collection<T> {
     return { purged, residue }
   }
 
+  /** #308 L1.5 — drop the persisted lexical-index blob (forget/erasure): an opaque
+   *  all-records index must not survive crypto-shred. Idempotent; no-op without persist. */
+  async _purgeSearchIndex(): Promise<void> {
+    const store = this.searchIndexStore
+    if (store && 'removePersisted' in store) await (store as { removePersisted(): Promise<void> }).removePersisted()
+    else store?.markDirty()
+  }
+
   /**
    * Bulk-load the persisted-index mirror from `_idx/<field>/*` side-cars
    * on first lazy-mode query. Idempotent — subsequent calls short-circuit
