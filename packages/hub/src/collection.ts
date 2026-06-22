@@ -2960,6 +2960,7 @@ export class Collection<T> {
 
   /** #308 L1 — client-side lexical retrieval; ranked { id, score, field, snippet, locale? }. */
   async retrieve(query: string, opts: RetrieveOptions = {}): Promise<RetrieveHit<T>[]> {
+    if (opts.mode === 'semantic') return this.retrieveSemantic(query, opts)
     if (!this.searchIndexStore) {
       throw new Error(`Collection "${this.name}": retrieve() requires a textIndexes config.`)
     }
@@ -2995,6 +2996,36 @@ export class Collection<T> {
             })()
           : {}),
       }
+      return base
+    })
+  }
+
+  /** #308 L2 — semantic branch of retrieve(): encode query → similarTo(). */
+  private async retrieveSemantic(query: string, opts: RetrieveOptions): Promise<RetrieveHit<T>[]> {
+    if (!this.embeddings) throw new Error(`Collection "${this.name}": retrieve({mode:'semantic'}) requires an embeddings config.`)
+    if (this.lazy) throw new Error(`Collection "${this.name}": retrieve() requires eager mode (prefetch: true).`)
+    const qVec = await this.embeddings.encode(query)
+    return this.similarTo(qVec, {
+      ...(opts.limit !== undefined ? { k: opts.limit } : {}),
+      ...(opts.minScore !== undefined ? { minScore: opts.minScore } : {}),
+      ...(opts.includeRecord ? { includeRecord: true } : {}),
+    })
+  }
+
+  /** #308 L2 — raw-vector kNN over the encrypted vector set (decrypted in the trusted tier).
+   *  Snippet is '' for vector hits in v1 (semantic match isn't span-located). */
+  async similarTo(vector: Float32Array, opts: { k?: number; minScore?: number; includeRecord?: boolean } = {}): Promise<RetrieveHit<T>[]> {
+    if (!this.embeddings || !this.vectorSet) throw new Error(`Collection "${this.name}": similarTo() requires an embeddings config.`)
+    if (this.lazy) throw new Error(`Collection "${this.name}": similarTo() requires eager mode (prefetch: true).`)
+    await this.ensureHydrated()
+    await this.vectorSet.ensureLoaded(this.buildVectorLoad())
+    const hits = this.vectorSet.cosineTopK(vector, opts.k ?? 10, {
+      ...(opts.minScore !== undefined ? { minScore: opts.minScore } : {}),
+      expectModel: this.embeddings.model,
+    })
+    return hits.map((h, i) => {
+      const base: RetrieveHit<T> = { id: h.id, score: h.score, rank: i + 1, field: '(vector)', snippet: '' }
+      if (opts.includeRecord) { const e = this.cache.get(h.id); if (e) (base as { record?: T }).record = stripI18nFilled(e.record as Record<string, unknown>) as T }
       return base
     })
   }
