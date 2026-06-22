@@ -13,7 +13,7 @@
 |---|---|---|
 | **L0** | `collection.search(field, query, opts)` — in-memory decrypt + BM25 scan, zero leakage | ✅ shipped |
 | **L1** | `collection.retrieve(query, opts)` — client-side **lexical inverted index**, i18n tokenizer, multi-field, snippet | ✅ shipped (#308) |
-| L1.5 | Persisted **opaque encrypted** index blob (warm cross-session, `IndexStore` seam built in L1) | deferred |
+| **L1.5** | Persisted **opaque encrypted** index blob (warm cross-session, fingerprint staleness check, debounced flush) | ✅ shipped (#308 L1.5) |
 | L2 | Client-side **semantic / vector** retrieval — `retrieve(…, {mode:'semantic'\|'hybrid'})` | future spec |
 | L3 | Formalized **agent retrieval API** (hybrid ranking, context assembly) | future spec |
 | L4 | Access-pattern privacy (ORAM) + attested-enclave (PCC-style) compute tier | research-grade |
@@ -82,12 +82,18 @@ const detail = await invoices.retrieve('overdue', { includeRecord: true })
 interface RetrieveHit<T> {
   readonly id: string       // record key
   readonly score: number    // BM25, descending
+  readonly rank: number     // 1-based position — federation-ready (Reciprocal Rank Fusion across vaults/modalities)
   readonly field: string    // winning field (highest per-field BM25)
   readonly snippet: string  // ±window chars around the best match
   readonly locale?: string  // set for i18nText and dictKey hits
   readonly record?: T       // only when includeRecord: true
 }
 ```
+
+`rank` is 1-based and monotonic with score order. It enables cross-vault Reciprocal
+Rank Fusion in the klum-db Lobby (L3) without sharing corpus-relative BM25 scores
+across vault boundaries (which would leak global document frequency). It also powers
+L3's lexical⊕semantic hybrid fusion.
 
 ### `RetrieveOptions`
 
@@ -177,20 +183,84 @@ Both require **eager mode** (`prefetch: true`, the default). Calling
 
 ---
 
-## In-memory, session-rebuilt — and the L1.5 persistence note
+## In-memory, session-rebuilt — and L1.5 persisted index
 
-The index is **session-scoped and in-memory**:
+The L1 index is **session-scoped and in-memory** by default:
 
 - It is built from the **decrypted eager cache** — no extra store reads.
 - It is **never written to the store** — zero leakage.
 - On a new session the index rebuilds on first `retrieve()` / `warmIndex()`.
 - A write (`put` / `delete`) marks the index **dirty**; the next `retrieve()`
-  triggers a full rebuild. Incremental posting updates are an L1.5 optimization.
+  triggers a full rebuild. Incremental posting updates are an L1.5+ optimization.
 
-**L1.5 (deferred):** The `IndexStore` seam is already built. A future
-`EncryptedBlobIndexStore` backend will serialize the index to an opaque encrypted
-blob in the store (same zero-knowledge guarantee, warm cross-session, write-amp
-analysis required). L1.5 is a backend swap — the `retrieve()` API is unchanged.
+**L1.5 — `textIndexPersist: true` (shipped #308 L1.5):** Opt-in persisted backend
+that survives sessions and devices with **zero added leakage**.
+
+### `textIndexPersist` option
+
+```ts
+vault.collection<Invoice>('invoices', {
+  textIndexes: ['title', 'notes'],
+  textIndexPersist: true,   // opt-in: persist the index as an opaque encrypted blob
+  warmIndexOnOpen: true,    // combine with warm load for instant first retrieve()
+})
+```
+
+When `textIndexPersist: true`:
+
+- The in-memory index is serialized and **encrypted under the collection DEK** (the
+  same key used for all records in the collection). The store sees **one opaque
+  ciphertext blob** at `_ftindex/<collection>` — no terms, postings, or plaintext.
+  Per-term addressability (the blind-index leakage profile) is structurally absent.
+- On `retrieve()` / `warmIndex()` in a new session: the blob is loaded and
+  **fingerprint-checked** (`{ count, maxVersion }` derived from the eager cache).
+  If the fingerprint matches, the index is used as-is (cold load with no re-tokenize
+  scan). If it does not match (a write on another device/tab), the index is rebuilt
+  and re-persisted (self-healing).
+- Writes (`put` / `delete`) mark the index dirty and schedule a **debounced flush**
+  — typically ~1 blob write per burst of writes, not per record.
+- **`flushIndex()`** — force-persist the index immediately (call before saving state
+  to a checkpoint, or before a known idle window):
+
+  ```ts
+  await invoices.flushIndex()
+  ```
+
+- **Close-flush** — `db.close()` triggers a best-effort flush of any pending dirty
+  index so the next session finds the freshest blob.
+- **`forget()` teardown** — `vault.forget(subject)` crypto-shreds records and **also
+  deletes the `_ftindex` blob** (calls `remove()` + `markDirty`). The blob's DEK
+  scope means it would still decrypt the forgotten subject's indexed terms if left in
+  place — so it is purged. The next `retrieve()` rebuilds from the post-forget record
+  set. If the blob could not be deleted (e.g. store is offline at shred time), this
+  is reported as a **residue warning** in the `forget()` return value — the same
+  residue-tracking contract as the `_idx` side-cars (per #401).
+
+### Fingerprint `{ count, maxVersion }`
+
+The fingerprint is derived cheaply from the in-memory eager cache at load time:
+`count` = number of records in the cache, `maxVersion` = the highest `_v` across
+all records. Every `put` bumps `_v`; every `delete` changes `count`. A fingerprint
+mismatch means the record-set has changed since the blob was built, so the blob is
+discarded and the index rebuilt. This is best-effort (two corpora can share count +
+maxVersion by coincidence), but in practice every normal operation changes at least
+one of the two values.
+
+### Zero-leakage guarantee
+
+`textIndexPersist` does **not** add any new store leakage beyond the opaque blob
+size. Specifically:
+
+- No per-term keys (blind-index pattern): the entire posting list is one blob.
+- The blob is ciphertext under the collection DEK — the store cannot distinguish
+  index writes from record writes by content.
+- The fingerprint is stored **inside** the encrypted envelope — the store never sees
+  plaintext fingerprint values.
+- `textIndexPersist: false` (default) writes nothing — collections without this
+  option pay zero overhead.
+
+See the L1.5 design spec for detailed threat analysis:
+`docs/superpowers/specs/2026-06-22-ai-retrieval-l1.5-persisted-index-design.md`
 
 ---
 
@@ -226,6 +296,8 @@ default**. The SSE path is superseded by the client-side index.
 ## Cross-references
 
 - L1 design + field-type analysis: `docs/superpowers/specs/2026-06-22-ai-retrieval-l1-lexical-index-design.md`
+- L1.5 persisted index design: `docs/superpowers/specs/2026-06-22-ai-retrieval-l1.5-persisted-index-design.md`
 - Showcase 111: L0 scan-mode search — `showcases/src/111-scan-search.showcase.test.ts`
 - Showcase 122: L1 `retrieve()` walkthrough — `showcases/src/122-with-retrieve.showcase.test.ts`
+- Showcase 123: L1.5 persisted index warm load — `showcases/src/123-persisted-index.showcase.test.ts`
 - `features.yaml` → `features` → `search-index`
