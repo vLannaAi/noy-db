@@ -2798,7 +2798,7 @@ export class Collection<T> {
       )
     }
     await this.ensureHydrated()
-    const labelMaps = await this.resolveDictLabelMaps()
+    const labelMaps = this.searchIndexStore.built ? new Map() : await this.resolveDictLabelMaps()
     this.searchIndexStore.getOrBuild(() => this.buildRetrievalDocs(labelMaps))
   }
 
@@ -2813,11 +2813,11 @@ export class Collection<T> {
       )
     }
     await this.ensureHydrated()
-    const labelMaps = await this.resolveDictLabelMaps()
+    const labelMaps = this.searchIndexStore.built ? new Map() : await this.resolveDictLabelMaps()
     const index = this.searchIndexStore.getOrBuild(() => this.buildRetrievalDocs(labelMaps, opts.fields))
     const hits = index.query(query, {
       ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
-      match: opts.match ?? 'all',
+      ...(opts.match ? { match: opts.match } : {}),
       ...(opts.prefix ? { prefix: opts.prefix } : {}),
       ...(opts.fields ? { fields: opts.fields } : {}),
     })

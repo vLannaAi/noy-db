@@ -62,8 +62,8 @@ describe('retrieve() over dictKey labels (#308 L1)', () => {
     })
     await c.put('a', { id: 'a', status: 'overdue' })
     await c.put('b', { id: 'b', status: 'paid' })
-    expect((await c.retrieve('overdue')).map((h) => h.id)).toEqual(['a'])      // en label
-    expect((await c.retrieve('ค้างชำระ')).map((h) => h.id)).toEqual(['a'])     // th label
-    expect((await c.retrieve('paid')).map((h) => h.id)).toEqual(['b'])
+    expect((await c.retrieve('overdue')).map((h) => h.id)).toEqual(['a'])                        // en label, default any
+    expect((await c.retrieve('ค้างชำระ', { match: 'all' })).map((h) => h.id)).toEqual(['a'])    // th: tokens ค้าง+ชำระ, need all to exclude ชำระแล้ว
+    expect((await c.retrieve('paid')).map((h) => h.id)).toEqual(['b'])                          // en label, default any
   })
 })
