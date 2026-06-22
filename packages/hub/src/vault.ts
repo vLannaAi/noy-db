@@ -682,6 +682,8 @@ export class Vault {
     textIndexes?: readonly string[]
     /** — #308 L1: pre-build the lexical index on open (eager-only). */
     warmIndexOnOpen?: boolean
+    /** — #308 L1.5: persist the lexical index as an opaque encrypted blob at `_ftindex/<name>`. */
+    textIndexPersist?: boolean
     /** — declare dictKey / staticDict fields for label resolution on reads. */
     dictKeyFields?: Record<string, DictKeyDescriptor | StaticDictDescriptor>
     /** — declare money() fields for currency-safe decimal storage/formatting. */
@@ -1006,6 +1008,7 @@ export class Vault {
       if (options?.i18nFields !== undefined) collOpts.i18nFields = options.i18nFields
       if (options?.textIndexes !== undefined) collOpts.textIndexes = options.textIndexes
       if (options?.warmIndexOnOpen !== undefined) collOpts.warmIndexOnOpen = options.warmIndexOnOpen
+      if (options?.textIndexPersist !== undefined) collOpts.textIndexPersist = options.textIndexPersist
       if (options?.moneyFields !== undefined) collOpts.moneyFields = options.moneyFields
       if (options?.computed !== undefined) collOpts.computed = options.computed as ComputedFields
       if (options?.dictKeyFields !== undefined) {
@@ -1188,6 +1191,16 @@ export class Vault {
     this.#fenceWatcher?.stop()
     this.#fenceWatcher = undefined
     this.#fenceCoordinationStarted = false
+  }
+
+  /** @internal #308 L1.5 — best-effort flush of all open collections' persisted
+   *  lexical indexes on close(). Called fire-and-forget from noydb.close().
+   *  Correctness is backstopped by the fingerprint: a missed flush → rebuild on
+   *  next load. Only collections with textIndexPersist have a flush(); others no-op. */
+  async _flushSearchIndexes(): Promise<void> {
+    for (const coll of this.collectionCache.values()) {
+      await coll.flushIndex().catch(() => { /* best-effort */ })
+    }
   }
 
   /** @internal Drive one heartbeat + watch cycle deterministically (tests). */
@@ -2596,6 +2609,19 @@ export class Vault {
 
       // Drop the (now-shredded) ref from the subject index.
       await this._removeSubjectRef(subjectId, ref)
+    }
+
+    // Purge the persisted lexical-index blob for each affected collection
+    // (#308 L1.5): an opaque all-records index must not survive crypto-shred.
+    // Failures (transient/permission) must NOT abort forget — an unpurgeable
+    // blob is erasure residue surfaced in the returned ForgetResult.
+    for (const collName of collections) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (this.collection(collName) as any)._purgeSearchIndex()
+      } catch {
+        indexResidue.push(`${collName}:_ftindex`)
+      }
     }
 
     // ONE summary ledger entry for the whole subject. payloadHash =

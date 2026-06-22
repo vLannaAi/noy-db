@@ -1632,6 +1632,7 @@ export class Noydb {
     }
     this.syncEngines.clear()
     for (const v of this.vaultCache.values()) v._stopFenceCoordination() // stop heartbeat/watcher timers
+    for (const v of this.vaultCache.values()) void v._flushSearchIndexes() // #308 L1.5 best-effort flush
     this.disableTabCoordination() // stop tab lock/heartbeat timers
     this.keyringCache.clear()
     this.vaultCache.clear()

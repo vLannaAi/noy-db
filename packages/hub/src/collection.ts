@@ -48,6 +48,7 @@ import type { LazyQuerySource } from './indexing/lazy-builder.js'
 import { NO_INDEXING, type IndexStrategy, type IndexState } from './indexing/strategy.js'
 import { searchScan, type SearchOptions, type SearchResult } from './search/index.js'
 import { MemoryIndexStore, type IndexStore } from './search/index-store.js'
+import { PersistedIndexStore, type PersistedIndexCallbacks } from './search/persisted-index-store.js'
 import { extractSnippet } from './search/snippet.js'
 import { buildStringFieldEntries, buildI18nFieldEntries, buildDictKeyFieldEntries, buildBlobFieldEntries } from './search/build-docs.js'
 import type { IndexDoc, IndexHit } from './search/inverted-index.js'
@@ -707,6 +708,8 @@ export class Collection<T> {
     textIndexes?: readonly string[] | undefined
     /** — #308 L1: pre-build the lexical index on open (eager-only). */
     warmIndexOnOpen?: boolean | undefined
+    /** — #308 L1.5: persist the lexical index as an opaque encrypted blob at `_ftindex/<name>`. */
+    textIndexPersist?: boolean | undefined
     /** — dictKey field descriptors for label resolution on reads. */
     dictKeyFields?: Record<string, DictKeyDescriptor | StaticDictDescriptor> | undefined
     moneyFields?: Record<string, MoneyDescriptor> | undefined
@@ -924,7 +927,11 @@ export class Collection<T> {
     // ordinary collections pay nothing (the dirty poke + retrieve see undefined).
     this.textIndexes = opts.textIndexes
     this.searchIndexStore =
-      opts.textIndexes && opts.textIndexes.length > 0 ? new MemoryIndexStore() : undefined
+      opts.textIndexes && opts.textIndexes.length > 0
+        ? opts.textIndexPersist
+          ? new PersistedIndexStore(this.buildPersistedIndexCallbacks())
+          : new MemoryIndexStore()
+        : undefined
     // #435 — precompute the densify-enabled subset (undefined when none opt in)
     // so the write path skips work for non-densify collections.
     const densifyFields = opts.i18nFields
@@ -2835,6 +2842,58 @@ export class Collection<T> {
     return maps
   }
 
+  /** #308 L1.5 — force-persist the lexical index now (e.g. on save/idle). Persists only when textIndexPersist is enabled; a no-op otherwise. */
+  async flushIndex(): Promise<void> {
+    if (!this.searchIndexStore) return
+    await this.ensureHydrated()
+    const labelMaps = await this.resolveDictLabelMaps()
+    const blobFilenames = await this.resolveBlobFilenames()
+    await this.searchIndexStore.ensureBuilt(() => this.buildRetrievalDocs(labelMaps, blobFilenames))
+    await this.searchIndexStore.flush?.()
+  }
+
+  /**
+   * #308 L1.5 — build the PersistedIndexCallbacks bridge: crypto lives here
+   * (collection has getDEK / encryptJsonString / decryptJsonString / adapter),
+   * the index store itself is crypto-free.
+   *
+   * Fingerprint encoding: body-wrap approach — save(json, fp) stores
+   * JSON.stringify({ fp, idx: json }) as the encrypted body so the standard
+   * EncryptedEnvelope shape is never extended. load() decrypts and JSON.parses
+   * the wrapper back out.
+   *
+   * Cache shape: this.cache stores { record, version } — currentFingerprint()
+   * iterates over e.version.
+   */
+  private buildPersistedIndexCallbacks(): PersistedIndexCallbacks {
+    const FT = '_ftindex'
+    return {
+      load: async () => {
+        const env = await this.adapter.get(this.vault, FT, this.name)
+        if (!env) return null
+        const body = await this.decryptJsonString(env)
+        if (body === null) return null
+        try {
+          const wrapped = JSON.parse(body) as { fp: { count: number; maxVersion: number }; idx: string }
+          return { json: wrapped.idx, fingerprint: wrapped.fp }
+        } catch {
+          return null
+        }
+      },
+      save: async (json, fp) => {
+        const body = JSON.stringify({ fp, idx: json })
+        const env = await this.encryptJsonString(body, fp.count)
+        await this.adapter.put(this.vault, FT, this.name, env)
+      },
+      remove: async () => { await this.adapter.delete(this.vault, FT, this.name) },
+      currentFingerprint: () => {
+        let maxVersion = 0
+        for (const e of this.cache.values()) if (e.version > maxVersion) maxVersion = e.version
+        return { count: this.cache.size, maxVersion }
+      },
+    }
+  }
+
   /** #308 L1 — pre-build the lexical index (e.g. on open) so the first retrieve() pays no build scan. */
   async warmIndex(): Promise<void> {
     if (!this.searchIndexStore) return
@@ -2847,7 +2906,7 @@ export class Collection<T> {
     const built = this.searchIndexStore.built
     const labelMaps = built ? new Map() : await this.resolveDictLabelMaps()
     const blobFilenames = built ? new Map() : await this.resolveBlobFilenames()
-    this.searchIndexStore.getOrBuild(() => this.buildRetrievalDocs(labelMaps, blobFilenames))
+    await this.searchIndexStore.ensureBuilt(() => this.buildRetrievalDocs(labelMaps, blobFilenames))
   }
 
   /** #308 L1 — client-side lexical retrieval; ranked { id, score, field, snippet, locale? }. */
@@ -2864,7 +2923,7 @@ export class Collection<T> {
     const built = this.searchIndexStore.built
     const labelMaps = built ? new Map() : await this.resolveDictLabelMaps()
     const blobFilenames = built ? new Map() : await this.resolveBlobFilenames()
-    const index = this.searchIndexStore.getOrBuild(() => this.buildRetrievalDocs(labelMaps, blobFilenames))
+    const index = await this.searchIndexStore.ensureBuilt(() => this.buildRetrievalDocs(labelMaps, blobFilenames))
     const hits = index.query(query, {
       ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
       ...(opts.match ? { match: opts.match } : {}),
@@ -2872,10 +2931,11 @@ export class Collection<T> {
       ...(opts.fields ? { fields: opts.fields } : {}),
     })
     const window = opts.snippetWindow ?? 80
-    return hits.map((h: IndexHit) => {
+    return hits.map((h: IndexHit, i: number) => {
       const base: RetrieveHit<T> = {
         id: h.id,
         score: h.score,
+        rank: i + 1,
         field: h.field,
         snippet: extractSnippet(h.text, h.offset, window),
         ...(h.locale !== undefined ? { locale: h.locale } : {}),
@@ -4266,6 +4326,14 @@ export class Collection<T> {
       }
     }
     return { purged, residue }
+  }
+
+  /** #308 L1.5 — drop the persisted lexical-index blob (forget/erasure): an opaque
+   *  all-records index must not survive crypto-shred. Idempotent; no-op without persist. */
+  async _purgeSearchIndex(): Promise<void> {
+    const store = this.searchIndexStore
+    if (store && 'removePersisted' in store) await (store as { removePersisted(): Promise<void> }).removePersisted()
+    else store?.markDirty()
   }
 
   /**
