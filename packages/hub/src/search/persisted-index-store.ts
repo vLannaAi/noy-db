@@ -53,7 +53,7 @@ export class PersistedIndexStore implements IndexStore {
     if (this.timer) clearTimeout(this.timer)
     this.timer = setTimeout(() => {
       this.timer = null
-      void this.rebuildAndPersist()
+      void this.rebuildAndPersist().catch(() => { /* best-effort flush; fingerprint backstop forces rebuild next load */ })
     }, this.debounceMs)
   }
 
@@ -73,7 +73,9 @@ export class PersistedIndexStore implements IndexStore {
   /** Rebuild using the last known build thunk, then persist. */
   private async rebuildAndPersist(): Promise<void> {
     if (this.lastBuild === undefined) return
-    await this.ensureBuilt(this.lastBuild)
+    if (this.index === undefined) {
+      this.index = InvertedIndex.build(this.lastBuild())
+    }
     await this.persist()
   }
 
