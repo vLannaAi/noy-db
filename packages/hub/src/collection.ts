@@ -2847,7 +2847,7 @@ export class Collection<T> {
     const built = this.searchIndexStore.built
     const labelMaps = built ? new Map() : await this.resolveDictLabelMaps()
     const blobFilenames = built ? new Map() : await this.resolveBlobFilenames()
-    this.searchIndexStore.getOrBuild(() => this.buildRetrievalDocs(labelMaps, blobFilenames))
+    await this.searchIndexStore.ensureBuilt(() => this.buildRetrievalDocs(labelMaps, blobFilenames))
   }
 
   /** #308 L1 — client-side lexical retrieval; ranked { id, score, field, snippet, locale? }. */
@@ -2864,7 +2864,7 @@ export class Collection<T> {
     const built = this.searchIndexStore.built
     const labelMaps = built ? new Map() : await this.resolveDictLabelMaps()
     const blobFilenames = built ? new Map() : await this.resolveBlobFilenames()
-    const index = this.searchIndexStore.getOrBuild(() => this.buildRetrievalDocs(labelMaps, blobFilenames))
+    const index = await this.searchIndexStore.ensureBuilt(() => this.buildRetrievalDocs(labelMaps, blobFilenames))
     const hits = index.query(query, {
       ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
       ...(opts.match ? { match: opts.match } : {}),
