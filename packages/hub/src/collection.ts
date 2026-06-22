@@ -4408,6 +4408,12 @@ export class Collection<T> {
     return { purged, residue }
   }
 
+  /** #308 L2 — drop a record's encrypted _vec sidecar on erasure (a vector is text-invertible). */
+  async _purgeVector(id: string): Promise<void> {
+    await this.adapter.delete(this.vault, '_vec', id)
+    this.vectorSet?.markDirty()
+  }
+
   /** #308 L1.5 — drop the persisted lexical-index blob (forget/erasure): an opaque
    *  all-records index must not survive crypto-shred. Idempotent; no-op without persist. */
   async _purgeSearchIndex(): Promise<void> {

@@ -2590,6 +2590,15 @@ export class Vault {
       indexPostingsPurged += idxPurge.purged
       for (const field of idxPurge.residue) indexResidue.push(`${ref.collection}:${ref.id}:${field}`)
 
+      // Purge the record's encrypted _vec sidecar (#308 L2): a vector embedding
+      // is text-invertible, so it must not survive crypto-shred of the source record.
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (coll as any)._purgeVector(ref.id)
+      } catch {
+        indexResidue.push(`${ref.collection}:${ref.id}:_vec`)
+      }
+
       // Blob attachments (#365): crypto-shred the record's erasable blobs.
       // An erasable blob's chunks are under a per-blob content CEK whose only
       // copy is the BlobObject's wrapped `_cek`; deleting it at refCount 0
