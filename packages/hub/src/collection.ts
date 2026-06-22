@@ -4,7 +4,7 @@ import type { CrdtMode, CrdtState, LwwMapState, RgaState } from './crdt/crdt.js'
 import { NO_CRDT, type CrdtStrategy } from './crdt/strategy.js'
 import type { I18nTextDescriptor } from './i18n/core.js'
 import { getAtPath, setAtPathInPlace, stripI18nFilled } from './i18n/core.js'
-import type { DictKeyDescriptor, StaticDictDescriptor } from './i18n/dictionary.js'
+import type { DictKeyDescriptor, StaticDictDescriptor, DictionaryHandle } from './i18n/dictionary.js'
 import { isStaticDictDescriptor } from './i18n/dictionary.js'
 import type { MoneyDescriptor } from './money/descriptor.js'
 import { quantizeMoneyFields, decodeMoneyFields, canonicalizeStoredMoney, canonicalizeIncomingMoney } from './money/normalize.js'
@@ -49,7 +49,7 @@ import { NO_INDEXING, type IndexStrategy, type IndexState } from './indexing/str
 import { searchScan, type SearchOptions, type SearchResult } from './search/index.js'
 import { MemoryIndexStore, type IndexStore } from './search/index-store.js'
 import { extractSnippet } from './search/snippet.js'
-import { buildStringFieldEntries, buildI18nFieldEntries } from './search/build-docs.js'
+import { buildStringFieldEntries, buildI18nFieldEntries, buildDictKeyFieldEntries } from './search/build-docs.js'
 import type { IndexDoc, IndexHit } from './search/inverted-index.js'
 import type { RetrieveOptions, RetrieveHit } from './search/retrieve-types.js'
 import { IndexWriteFailureError, DerivationCapExceededError, DebugReservedFieldError } from './errors.js'
@@ -373,6 +373,13 @@ export class Collection<T> {
         fallback?: string | readonly string[],
       ) => Promise<string | undefined>)
     | undefined
+
+  /**
+   * #308 L1 — async callback provided by the Vault to open a dynamic
+   * dictionary handle (for label-map pre-computation in the search index).
+   * Only used in `resolveDictLabelMaps()`; static dicts bypass this entirely.
+   */
+  private readonly getDictionary: ((name: string) => Promise<DictionaryHandle>) | undefined
 
   /**
    * Synchronous callback provided by the Vault that validates
@@ -717,6 +724,12 @@ export class Collection<T> {
         ) => Promise<string | undefined>)
       | undefined
     /**
+     * #308 L1 — async callback to open a dynamic dictionary handle.
+     * Provided by the Vault for dynamic-dict label-map resolution in
+     * the search index. Static dicts bypass this.
+     */
+    getDictionary?: ((name: string) => Promise<DictionaryHandle>) | undefined
+    /**
      * synchronous callback that validates i18nText fields
      * on put. Provided by the Vault. Throws MissingTranslationError.
      */
@@ -926,6 +939,7 @@ export class Collection<T> {
     this.moneyFields = opts.moneyFields
     this.computed = opts.computed
     this.dictLabelResolver = opts.dictLabelResolver
+    this.getDictionary = opts.getDictionary
     this.i18nPutValidator = opts.i18nPutValidator
     this.autoTranslateHook = opts.autoTranslateHook
     this.defaultLocale = opts.defaultLocale
@@ -2742,15 +2756,37 @@ export class Collection<T> {
   }
 
   /** #308 L1 — build IndexDoc[] for the configured text fields over the live cache. */
-  private buildRetrievalDocs(only?: readonly string[]): IndexDoc[] {
+  private buildRetrievalDocs(labelMaps: Map<string, Map<string, Record<string, string>>>, only?: readonly string[]): IndexDoc[] {
     const docs: IndexDoc[] = []
     for (const [id, e] of this.cache) {
       const rec = stripI18nFilled(e.record as Record<string, unknown>)
       const fields = buildStringFieldEntries(rec, this.textIndexes ?? [], only)
       if (this.i18nFields) fields.push(...buildI18nFieldEntries(rec, this.i18nFields, this.textIndexes ?? [], only))
+      if (this.dictKeyFields) fields.push(...buildDictKeyFieldEntries(rec, this.dictKeyFields, labelMaps, this.textIndexes ?? [], only))
       if (fields.length > 0) docs.push({ id, fields })
     }
     return docs
+  }
+
+  /** #308 L1 — field -> (key -> {locale->label}) for dictKey fields; static from table, dynamic via getDictionary().list(). */
+  private async resolveDictLabelMaps(): Promise<Map<string, Map<string, Record<string, string>>>> {
+    const maps = new Map<string, Map<string, Record<string, string>>>()
+    if (!this.dictKeyFields || !this.textIndexes) return maps
+    for (const field of this.textIndexes) {
+      const desc = this.dictKeyFields[field]
+      if (!desc) continue
+      const m = new Map<string, Record<string, string>>()
+      if ('_noydbStaticDict' in desc) {
+        for (const [key, labels] of Object.entries(desc.table)) m.set(key, labels as Record<string, string>)
+      } else {
+        if (this.getDictionary) {
+          const handle = await this.getDictionary(desc.name)
+          for (const e of await handle.list()) m.set(e.key, e.labels)
+        }
+      }
+      maps.set(field, m)
+    }
+    return maps
   }
 
   /** #308 L1 — pre-build the lexical index (e.g. on open) so the first retrieve() pays no build scan. */
@@ -2762,7 +2798,8 @@ export class Collection<T> {
       )
     }
     await this.ensureHydrated()
-    this.searchIndexStore.getOrBuild(() => this.buildRetrievalDocs())
+    const labelMaps = await this.resolveDictLabelMaps()
+    this.searchIndexStore.getOrBuild(() => this.buildRetrievalDocs(labelMaps))
   }
 
   /** #308 L1 — client-side lexical retrieval; ranked { id, score, field, snippet, locale? }. */
@@ -2776,10 +2813,11 @@ export class Collection<T> {
       )
     }
     await this.ensureHydrated()
-    const index = this.searchIndexStore.getOrBuild(() => this.buildRetrievalDocs())
+    const labelMaps = await this.resolveDictLabelMaps()
+    const index = this.searchIndexStore.getOrBuild(() => this.buildRetrievalDocs(labelMaps, opts.fields))
     const hits = index.query(query, {
       ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
-      ...(opts.match ? { match: opts.match } : {}),
+      match: opts.match ?? 'all',
       ...(opts.prefix ? { prefix: opts.prefix } : {}),
       ...(opts.fields ? { fields: opts.fields } : {}),
     })

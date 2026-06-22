@@ -1022,6 +1022,9 @@ export class Vault {
           const handle = this.dictionary(dictName)
           return handle.resolveLabel(key, locale, fallback)
         }
+        // #308 L1 — provide a handle factory for dynamic dicts so the search
+        // index can call list() to build the full key→labels map.
+        collOpts.getDictionary = async (name: string) => this.dictionary(name)
         collOpts.dictKeyFields = options.dictKeyFields
       }
       // i18n / staticDict validation on put — enforced via the compartment's
