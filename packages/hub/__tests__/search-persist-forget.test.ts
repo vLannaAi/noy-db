@@ -69,6 +69,58 @@ interface Invoice { id: string; buyerId: string; memo: string }
 
 const SECRET = 'search-forget-passphrase-5678'
 
+/**
+ * A NoydbStore wrapper whose `delete` throws for the `_ftindex` collection
+ * (simulates a transient/permission failure when purging the lexical-index blob)
+ * but passes through all other operations unchanged.
+ */
+function memoryWithFtindexDeleteFailure(): NoydbStore & {
+  raw(c: string, col: string, id: string): EncryptedEnvelope | undefined
+} {
+  const base = memory()
+  return {
+    ...base,
+    async delete(c, col, id) {
+      if (col === '_ftindex') throw new Error('simulated _ftindex delete failure')
+      return base.delete(c, col, id)
+    },
+  }
+}
+
+describe('forget — _ftindex purge failure is resilient (#308 L1.5)', () => {
+  it('forget() resolves, surfaces _ftindex residue, and still shreds the record when the index-blob delete throws', async () => {
+    const store = memoryWithFtindexDeleteFailure()
+    const db = await createNoydb({
+      store,
+      user: 'alice',
+      secret: SECRET,
+      historyStrategy: withHistory(),
+      forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } }),
+      i18nStrategy: withI18n(),
+    })
+    const vault = await db.openVault('v')
+    const invoices = vault.collection<Invoice>('invoices', {
+      textIndexes: ['memo'],
+      textIndexPersist: true,
+    })
+
+    await invoices.put('i-1', { id: 'i-1', buyerId: 'buyer-1', memo: 'overdue payment frombuyer1' })
+    await invoices.put('i-2', { id: 'i-2', buyerId: 'buyer-2', memo: 'receipt frombuyer2' })
+
+    // Force the index to be persisted so the purge path is exercised.
+    await invoices.flushIndex()
+
+    // (a) forget() must RESOLVE even though _ftindex delete will throw.
+    const result = await vault.forget('buyer-1')
+
+    // (b) The returned ForgetResult must surface the FT-index as residue.
+    expect(result.indexResidue).toContain('invoices:_ftindex')
+
+    // (c) The record erasure still happened (tombstone written).
+    expect(result.recordsShredded).toBe(1)
+  })
+})
+
 describe('forget — persisted _ftindex blob is purged (#308 L1.5)', () => {
   it('forget() deletes the _ftindex blob and retrieve() rebuilds without the forgotten record', async () => {
     const store = memory()

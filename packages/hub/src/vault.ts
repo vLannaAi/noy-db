@@ -2613,9 +2613,15 @@ export class Vault {
 
     // Purge the persisted lexical-index blob for each affected collection
     // (#308 L1.5): an opaque all-records index must not survive crypto-shred.
+    // Failures (transient/permission) must NOT abort forget — an unpurgeable
+    // blob is erasure residue surfaced in the returned ForgetResult.
     for (const collName of collections) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (this.collection(collName) as any)._purgeSearchIndex()
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (this.collection(collName) as any)._purgeSearchIndex()
+      } catch {
+        indexResidue.push(`${collName}:_ftindex`)
+      }
     }
 
     // ONE summary ledger entry for the whole subject. payloadHash =
