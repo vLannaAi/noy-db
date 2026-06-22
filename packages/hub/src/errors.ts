@@ -65,7 +65,6 @@
  *       │    ├─ SealedRecordMismatchError — CEK sealed for record A used on record B
  *       │    └─ RecordCekNotFoundError    — record missing or no per-record `_cek`
  *       └─ Embedding errors (#308 L2)
- *            ├─ EmbeddingEncoderNotConfiguredError — collection declares embeddings but no encode() hook
  *            ├─ EmbeddingDimMismatchError           — stored vector dim ≠ descriptor dim
  *            └─ EmbeddingModelMismatchError         — stored vector model tag ≠ descriptor model
  * ```
@@ -2373,21 +2372,6 @@ export class RecordCekNotFoundError extends NoydbError {
 }
 
 // ─── Embedding Errors (#308 L2) ─────────────────────────────────────────────
-
-/**
- * Thrown when a collection declares `embeddings` but no `encode()` hook was
- * provided via the collection options. The collection name is surfaced so the
- * developer can locate the mis-configured registration quickly.
- */
-export class EmbeddingEncoderNotConfiguredError extends NoydbError {
-  constructor(collection: string) {
-    super(
-      'EMBEDDING_ENCODER_NOT_CONFIGURED',
-      `Collection "${collection}" declares embeddings but no encode() hook was configured.`,
-    )
-    this.name = 'EmbeddingEncoderNotConfiguredError'
-  }
-}
 
 /**
  * Thrown when a stored vector's dimension does not match the dimension declared

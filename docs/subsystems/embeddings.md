@@ -69,10 +69,13 @@ const docs = vault.collection<Doc>('docs', {
   (space-separated) before encoding.
 - `encode` is async; errors propagate like `autoTranslate` — write fails if the
   encoder throws.
-- If a collection declares `embeddings` but no `encode` hook is reachable,
-  `EmbeddingEncoderNotConfiguredError` is thrown at write time.
 - `dim` is validated on every write: `encode()` returning a vector of wrong
   length throws `EmbeddingDimMismatchError`.
+- **CRDT collections are unsupported** — constructing a collection with both
+  `embeddings` and `crdt` set throws immediately. Use a non-CRDT collection for
+  semantic search (L2 scope).
+- An empty source field (blank or absent value) yields a near-zero vector; the
+  record is stored and retrieved but will score low on all queries.
 
 ---
 
@@ -135,15 +138,21 @@ interface RetrieveHit<T> {
 
 Accepts a raw `Float32Array` (caller has already encoded the query). This is
 the "bring your own vector" path — useful when the query has already been
-encoded by the caller, or when composing with `.where()`:
+encoded by the caller.
 
 ```ts
 const qVec = await myEncoder('quarterly report')
 const hits = await docs.similarTo(qVec, { k: 10 })
 
-// Compose with a predicate filter (intersect cosine top-k with the predicate set):
-const filtered = await docs.query().where('status', '=', 'active').similarTo(qVec, { k: 5 }).run()
+// Manual hybrid filter: intersect similarTo() ids with a predicate query result:
+const vecHits = await docs.similarTo(qVec, { k: 20 })
+const active = new Set((await docs.query().where('status', '=', 'active').run()).map((r) => r.id))
+const filtered = vecHits.filter((h) => active.has(h.id))
 ```
+
+> **Note:** `query().similarTo().where()` chaining (hybrid filtering in one
+> expression) is **deferred**. The workaround above — intersecting two result
+> sets manually — is the supported pattern in L2.
 
 ---
 
@@ -181,7 +190,6 @@ the record itself.
 | Situation | Behaviour |
 |---|---|
 | `encode()` returns wrong length | `EmbeddingDimMismatchError` at write time |
-| No `encode` hook configured | `EmbeddingEncoderNotConfiguredError` at first embedded write |
 | Model mismatch on retrieval | `EmbeddingModelMismatchError`; re-put records to re-derive |
 | Collection has no `embeddings` config | `similarTo()` / `retrieve(mode:'semantic')` throws (no-op descriptor) |
 | `VectorSet` dirty after a write | Rebuilt lazily on the next `retrieve`/`similarTo` call |

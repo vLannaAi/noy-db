@@ -958,6 +958,13 @@ export class Collection<T> {
     this.i18nDensifyFields =
       Object.keys(densifyFields).length > 0 ? densifyFields : undefined
     // #308 L2 — wire embedding descriptor + vector set (undefined for non-embedding collections).
+    // Guard: CRDT collections cannot use embeddings (the embedding-derive block is unreachable
+    // after the CRDT early-return in putInternal; full CRDT-derivation is out of L2 scope).
+    if (opts.embeddings && opts.crdt) {
+      throw new Error(
+        `Collection "${opts.name}": embeddings are not supported on CRDT collections (L2). Use a non-CRDT collection for semantic search.`,
+      )
+    }
     this.embeddings = opts.embeddings
     this.vectorSet = opts.embeddings ? new VectorSet() : undefined
     this.dictKeyFields = opts.dictKeyFields
@@ -4408,7 +4415,8 @@ export class Collection<T> {
     return { purged, residue }
   }
 
-  /** #308 L2 — drop a record's encrypted _vec sidecar on erasure (a vector is text-invertible). */
+  /** #308 L2 — drop a record's encrypted _vec sidecar on erasure (a vector is text-invertible).
+   *  Called by vault.ts forget() inside a resilient try/catch; residue is reported in ForgetResult. */
   async _purgeVector(id: string): Promise<void> {
     await this.adapter.delete(this.vault, '_vec', id)
     this.vectorSet?.markDirty()

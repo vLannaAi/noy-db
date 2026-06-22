@@ -73,4 +73,12 @@ describe('embeddings write derivation (#308 L2)', () => {
     const c = v.collection<Doc>('d', { embeddings: { ...enc(8), encode: async () => new Float32Array(4) } })
     await expect(c.put('x', { id: 'x', text: 'hi' })).rejects.toThrow(EmbeddingDimMismatchError)
   })
+
+  it('CRDT + embeddings → throws at construction (guard)', async () => {
+    const db = await createNoydb({ store: memory(), user: 'a', secret: 'pw' })
+    const v = await db.openVault('v')
+    expect(() =>
+      v.collection<Doc>('d', { embeddings: enc(8), crdt: 'lww-map' }),
+    ).toThrow(/embeddings are not supported on CRDT collections/)
+  })
 })

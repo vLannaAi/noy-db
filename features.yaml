@@ -307,7 +307,7 @@ features:
       - 'encrypted-local model: vectors encrypted at rest under the collection DEK (_vec sidecar); decrypted only in the trusted tier for in-memory cosine — zero store leakage of vector values or source text (managed/plaintext vector backends deferred/gated — the blind-index twin)'
       - 'embeddings config on collection(): { source: string|string[], encode: (text) => Promise<Float32Array>, dim: number, model: string } — no bundled model; encode hook is host/remote (call any embedding API)'
       - 'retrieve(q, { mode: "semantic", k?, minScore? }) encodes the query via the same encode hook, then brute-force cosines over the decrypted VectorSet; returns RetrieveHit[] with rank (1-based) + score'
-      - 'collection.similarTo(vector, { k?, minScore? }) accepts a raw Float32Array (caller embeds the query); composes with .where() by intersecting cosine top-k with the predicate set'
+      - 'collection.similarTo(vector, { k?, minScore? }) accepts a raw Float32Array (caller embeds the query); hybrid filtering / query().similarTo().where() chaining is DEFERRED — consumers can intersect similarTo() ids with query().where() ids manually'
       - 'model-version guard: each stored vector tagged with model; EmbeddingModelMismatchError when stored model != descriptor model — invalidation is hard (the embedding space changes); vault.embeddings.reindex() is DEFERRED (v1: re-put records to re-derive)'
       - 'EmbeddingDimMismatchError on write when encode() returns a vector whose length != descriptor dim'
       - 'forget() purges the _vec/<id> sidecar (resilient try/catch + ForgetResult residue, mirroring _ftindex); marks VectorSet dirty — forgotten vectors (source-invertible) must not survive crypto-shred'
