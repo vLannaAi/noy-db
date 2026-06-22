@@ -490,7 +490,8 @@ const KERNEL_SURFACE_BUDGET = {
   // accessor. Densify logic lives in src/i18n/densify.ts; only thin call-sites are here.
   // Bumped 4911→4922 (2026-06-20, #435 review): stripI18nFilled at the three
   // locale-less read returns (get/list early-return, search, static-display final).
-  'packages/hub/src/collection.ts': 4922,
+  // Bumped 4922→5100 (#308 L1): retrieve()/warmIndex call-sites + dict/blob label resolvers (engine in src/search/)
+  'packages/hub/src/collection.ts': 5100,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
@@ -559,7 +560,8 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 4545→4546 (2026-06-20, #469): coordination-port wiring threads the
   // injected `CoordinationProvider` into SchemaFenceController + FenceWatcher
   // (the barrier/transport logic itself lives in coordination/ + schema-update/).
-  'packages/hub/src/vault.ts': 4546,
+  // Bumped 4546→4571 (#308 L1): getDictionary label-resolver injection + warmIndexOnOpen wiring (engine in src/search/)
+  'packages/hub/src/vault.ts': 4571,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
