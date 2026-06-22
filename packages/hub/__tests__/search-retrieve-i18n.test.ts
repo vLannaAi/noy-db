@@ -1,6 +1,4 @@
-/**
- * Script enforcement wired into Collection.put (#283).
- */
+/** i18n-aware lexical retrieval via collection.retrieve() (#308 L1). */
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
 import { withI18n } from '../src/i18n/index.js'

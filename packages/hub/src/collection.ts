@@ -2822,7 +2822,7 @@ export class Collection<T> {
       const desc = this.dictKeyFields[field]
       if (!desc) continue
       const m = new Map<string, Record<string, string>>()
-      if ('_noydbStaticDict' in desc) {
+      if (isStaticDictDescriptor(desc)) {
         for (const [key, labels] of Object.entries(desc.table)) m.set(key, labels as Record<string, string>)
       } else {
         if (this.getDictionary) {
@@ -2863,8 +2863,8 @@ export class Collection<T> {
     await this.ensureHydrated()
     const built = this.searchIndexStore.built
     const labelMaps = built ? new Map() : await this.resolveDictLabelMaps()
-    const blobFilenames = built ? new Map() : await this.resolveBlobFilenames(opts.fields)
-    const index = this.searchIndexStore.getOrBuild(() => this.buildRetrievalDocs(labelMaps, blobFilenames, opts.fields))
+    const blobFilenames = built ? new Map() : await this.resolveBlobFilenames()
+    const index = this.searchIndexStore.getOrBuild(() => this.buildRetrievalDocs(labelMaps, blobFilenames))
     const hits = index.query(query, {
       ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
       ...(opts.match ? { match: opts.match } : {}),

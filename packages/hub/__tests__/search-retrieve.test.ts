@@ -109,6 +109,23 @@ describe('collection.retrieve() — string fields (#308 L1)', () => {
     expect(allHits.map((h) => h.id).sort()).toEqual(['D', 'N'])
   })
 
+  it('cold-call: fields-scoped first retrieve does not poison cache for subsequent unscoped retrieve', async () => {
+    const v = await n.openVault('v')
+    const c = v.collection<Inv>('inv', { textIndexes: ['description', 'notes'] })
+    // rec-N: TCM only in notes
+    await c.put('N', { id: 'N', description: 'regular invoice', notes: 'TCM building rent' })
+    // rec-D: TCM only in description
+    await c.put('D', { id: 'D', description: 'overdue TCM invoice', notes: 'no match here' })
+
+    // NO warmIndex — first retrieve is fields-scoped (cold cache)
+    const notesHits = await c.retrieve('TCM', { fields: ['notes'] })
+    expect(notesHits.map((h) => h.id)).toEqual(['N'])
+
+    // Unscoped retrieve must return BOTH records, not just the notes-only record
+    const allHits = await c.retrieve('TCM')
+    expect(allHits.map((h) => h.id).sort()).toEqual(['D', 'N'])
+  })
+
   it('writes NOTHING to the store during build+retrieve (zero leakage)', async () => {
     const store = memory()
     const writes: string[] = []
