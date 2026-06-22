@@ -75,6 +75,8 @@ method rather than inventing a new surface later.
 | `textIndexes: string[]` collection config | opt-in indexed fields; supports nested + `[]` wildcard paths |
 | **i18nText fields → index ALL locale values** | a query term in any language matches whichever locale holds it; hit carries matched `locale`; snippet from that locale |
 | **Blob fields → index `filename` + `userMeta`** | blob *metadata* only; blob *bytes* are never tokenized (content extraction is app-side) |
+| **dictKey fields → index resolved labels** (opt-in) | all-locale labels resolved via the dictionary at build (async); matched `locale` returned; key stays opaque (→ `where`) |
+| **`warmIndexOnOpen?: boolean`** collection option | auto-build the index on collection open (vs lazy on first `retrieve()` / manual `warmIndex()`) |
 | Multi-field BM25, **max-field** combination | a doc's score = its best field's BM25; `field` is that winning field; snippet from it |
 | Dirty-on-write invalidation | a write to the collection marks the cached index dirty → rebuilt on next `retrieve()` |
 | Transparent index-acceleration of `search(field,…)` | when `field ∈ textIndexes`, route through the index instead of re-tokenizing all docs |
@@ -101,14 +103,17 @@ error as `where('>')` on a paragraph.
 | `string` | ✅ | tokenized as-is |
 | `i18nText` (`{[locale]:string}`) | ✅ | **all locale values** indexed under the field name; matched `locale` returned; locale-agnostic search |
 | Blob field (`filename`, `userMeta`) | ✅ | metadata strings tokenized; **bytes never** tokenized |
-| `dictKey` label | ⛔ deferred | needs async dictionary resolution; L2-adjacent |
+| `dictKey` label | ✅ opt-in | resolved **labels** (all locales) indexed via the dictionary at build (async); the opaque **key** is not text-indexed → use `where` for key equality |
 | `money` / `number` / `date` / `boolean` | ⛔ by design | use `where('amount','>',1000)` etc. — formatting variance makes text-matching values wrong |
 | Blob **content** (PDF/image bytes) | ⛔ out of scope | app extracts text into a normal field (OCR/PDF→text), which then indexes |
 
-The builder detects `i18nFields` descriptors and blob fields from the collection
-config; `getAtPath` resolves nested/wildcard paths. `fieldText` is extended to emit
-**`{ text, locale? }` segments** (one per i18n locale / blob-meta string) rather than
-a single string, so postings carry locale attribution.
+The builder detects `i18nFields`, `dictKeyFields`, and blob fields from the
+collection config; `getAtPath` resolves nested/wildcard paths. `fieldText` is
+extended to emit **`{ text, locale? }` segments** (one per i18n locale / dictKey
+label locale / blob-meta string) rather than a single string, so postings carry
+locale attribution. dictKey labels require **async** resolution via the dictionary
+at build time (heavier than inline fields — hence opt-in); resolution happens in the
+collection build step, which feeds resolved label text into the pure `InvertedIndex`.
 
 **Hybrid (money + text together)** — the agent/UI composes `retrieve()` (text
 candidate ids) with the existing query pipeline (`query().where('amount','>',1000)`):
@@ -174,7 +179,8 @@ class InvertedIndex {
 
 ```ts
 vault.collection<Invoice>('invoices', {
-  textIndexes: ['description', 'notes', 'lineItems[].description'],
+  textIndexes: ['description', 'notes', 'lineItems[].description', 'category'], // 'category' = dictKey → labels indexed
+  warmIndexOnOpen: true,   // optional: build eagerly on open; default false (lazy on first retrieve / manual warmIndex())
 })
 
 interface RetrieveOptions {
@@ -269,7 +275,7 @@ pattern hiding for any future server-side retrieval is L4/ORAM, out of scope.)
 2. **`InvertedIndex`** (`inverted-index.ts`) — build (with i18n all-locale + blob filename/userMeta field expansion via `getAtPath` + descriptors; money/number excluded) + multi-field BM25 max-field query, reusing the scan formula; unit tests vs the scan ranker for parity on single-field. *Slice 2*
 3. **Snippet** (`snippet.ts`) + tests. *Slice 3*
 4. **`IndexStore`/`MemoryIndexStore`** seam + dirty-flag. *Slice 4*
-5. **`collection.retrieve()` + `warmIndex()`** call-site + `textIndexes` config + dirty poke in put/delete + transparent `search()` acceleration + integration tests + leakage test (no store writes). *Slice 5*
+5. **`collection.retrieve()` + `warmIndex()` + `warmIndexOnOpen`** call-site + `textIndexes` config + **dictKey label resolution** in the build step + dirty poke in put/delete + transparent `search()` acceleration + integration tests + leakage test (no store writes). *Slice 5*
 6. **Docs + features.yaml + showcase** (Thai agent-retrieval query; snippet minimal-disclosure). *Slice 6*
 
 ## Testing & non-code obligations
@@ -284,8 +290,11 @@ pattern hiding for any future server-side retrieval is L4/ORAM, out of scope.)
   tokenized by the index.
 - **Field-type boundary:** money/number/date fields are NOT in the index (asserted);
   the hybrid pattern `retrieve ∩ where('amount','>',N)` returns the expected rows.
-- **Dual-use / latency:** `warmIndex()` pre-builds so a subsequent `retrieve()` issues
-  no build scan; autocomplete via repeated `prefix` calls reuses the warm index.
+- **dictKey labels:** a record is found by its resolved label text in any locale
+  (opt-in field); the opaque key is not text-matched.
+- **Dual-use / latency:** `warmIndex()` and `warmIndexOnOpen:true` both pre-build so a
+  subsequent `retrieve()` issues no build scan; autocomplete via repeated `prefix`
+  calls reuses the warm index.
 - Snippets: window bounds, multi-occurrence picks best, unicode-safe slicing.
 - Lifecycle: dirty-rebuild after `put`/`delete`; `includeRecord` toggle.
 - **Leakage test:** wrap the store; assert build+`retrieve` issue **zero writes** and
