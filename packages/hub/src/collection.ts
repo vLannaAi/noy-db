@@ -4,7 +4,7 @@ import type { CrdtMode, CrdtState, LwwMapState, RgaState } from './crdt/crdt.js'
 import { NO_CRDT, type CrdtStrategy } from './crdt/strategy.js'
 import type { I18nTextDescriptor } from './i18n/core.js'
 import { getAtPath, setAtPathInPlace, stripI18nFilled } from './i18n/core.js'
-import type { DictKeyDescriptor, StaticDictDescriptor } from './i18n/dictionary.js'
+import type { DictKeyDescriptor, StaticDictDescriptor, DictionaryHandle } from './i18n/dictionary.js'
 import { isStaticDictDescriptor } from './i18n/dictionary.js'
 import type { MoneyDescriptor } from './money/descriptor.js'
 import { quantizeMoneyFields, decodeMoneyFields, canonicalizeStoredMoney, canonicalizeIncomingMoney } from './money/normalize.js'
@@ -47,6 +47,11 @@ import { LazyQuery } from './indexing/lazy-builder.js'
 import type { LazyQuerySource } from './indexing/lazy-builder.js'
 import { NO_INDEXING, type IndexStrategy, type IndexState } from './indexing/strategy.js'
 import { searchScan, type SearchOptions, type SearchResult } from './search/index.js'
+import { MemoryIndexStore, type IndexStore } from './search/index-store.js'
+import { extractSnippet } from './search/snippet.js'
+import { buildStringFieldEntries, buildI18nFieldEntries, buildDictKeyFieldEntries, buildBlobFieldEntries } from './search/build-docs.js'
+import type { IndexDoc, IndexHit } from './search/inverted-index.js'
+import type { RetrieveOptions, RetrieveHit } from './search/retrieve-types.js'
 import { IndexWriteFailureError, DerivationCapExceededError, DebugReservedFieldError } from './errors.js'
 import { buildUniqueConstraintSet, type UniqueConstraintSet } from './indexing/unique-constraints.js'
 import type { RefDescriptor } from './refs.js'
@@ -314,6 +319,18 @@ export class Collection<T> {
   private readonly i18nFields: Record<string, I18nTextDescriptor> | undefined
 
   /**
+   * #308 L1 — the configured string fields exposed to `retrieve()`. `undefined`
+   * for ordinary collections, so the search path costs nothing when unused.
+   */
+  private readonly textIndexes: readonly string[] | undefined
+
+  /**
+   * #308 L1 — the session-scoped lexical index store. `undefined` (so the dirty
+   * poke + retrieve are zero-cost) unless `textIndexes` is non-empty.
+   */
+  private readonly searchIndexStore: IndexStore | undefined
+
+  /**
    * #435 — the densify-enabled subset of {@link i18nFields} (fields whose
    * descriptor opts in via `densifyOnWrite: true`). `undefined` when none opt
    * in, so the write path skips all densify work for ordinary collections.
@@ -356,6 +373,13 @@ export class Collection<T> {
         fallback?: string | readonly string[],
       ) => Promise<string | undefined>)
     | undefined
+
+  /**
+   * #308 L1 — async callback provided by the Vault to open a dynamic
+   * dictionary handle (for label-map pre-computation in the search index).
+   * Only used in `resolveDictLabelMaps()`; static dicts bypass this entirely.
+   */
+  private readonly getDictionary: ((name: string) => Promise<DictionaryHandle>) | undefined
 
   /**
    * Synchronous callback provided by the Vault that validates
@@ -679,6 +703,10 @@ export class Collection<T> {
       | undefined
     /** — i18nText field descriptors for locale-aware reads. */
     i18nFields?: Record<string, I18nTextDescriptor> | undefined
+    /** — #308 L1: string fields exposed to client-side `retrieve()`. */
+    textIndexes?: readonly string[] | undefined
+    /** — #308 L1: pre-build the lexical index on open (eager-only). */
+    warmIndexOnOpen?: boolean | undefined
     /** — dictKey field descriptors for label resolution on reads. */
     dictKeyFields?: Record<string, DictKeyDescriptor | StaticDictDescriptor> | undefined
     moneyFields?: Record<string, MoneyDescriptor> | undefined
@@ -695,6 +723,12 @@ export class Collection<T> {
           fallback?: string | readonly string[],
         ) => Promise<string | undefined>)
       | undefined
+    /**
+     * #308 L1 — async callback to open a dynamic dictionary handle.
+     * Provided by the Vault for dynamic-dict label-map resolution in
+     * the search index. Static dicts bypass this.
+     */
+    getDictionary?: ((name: string) => Promise<DictionaryHandle>) | undefined
     /**
      * synchronous callback that validates i18nText fields
      * on put. Provided by the Vault. Throws MissingTranslationError.
@@ -886,6 +920,11 @@ export class Collection<T> {
     this.refEnforcer = opts.refEnforcer
     this.joinResolver = opts.joinResolver
     this.i18nFields = opts.i18nFields
+    // #308 L1 — only spin up an index store when text fields are declared, so
+    // ordinary collections pay nothing (the dirty poke + retrieve see undefined).
+    this.textIndexes = opts.textIndexes
+    this.searchIndexStore =
+      opts.textIndexes && opts.textIndexes.length > 0 ? new MemoryIndexStore() : undefined
     // #435 — precompute the densify-enabled subset (undefined when none opt in)
     // so the write path skips work for non-densify collections.
     const densifyFields = opts.i18nFields
@@ -900,6 +939,7 @@ export class Collection<T> {
     this.moneyFields = opts.moneyFields
     this.computed = opts.computed
     this.dictLabelResolver = opts.dictLabelResolver
+    this.getDictionary = opts.getDictionary
     this.i18nPutValidator = opts.i18nPutValidator
     this.autoTranslateHook = opts.autoTranslateHook
     this.defaultLocale = opts.defaultLocale
@@ -1660,6 +1700,7 @@ export class Collection<T> {
 
       await this.onDirty?.(this.name, id, 'put', version)
       this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action: 'put' } satisfies ChangeEvent)
+      this.searchIndexStore?.markDirty() // #308 L1 — zero-cost for non-search collections
       await this.onAccess?.('put', id)
       await this.dispatchDerivations(id, record, version)
       await this.dispatchMaterializedViews(id, record)
@@ -1792,6 +1833,7 @@ export class Collection<T> {
       id,
       action: 'put',
     } satisfies ChangeEvent)
+    this.searchIndexStore?.markDirty() // #308 L1 — zero-cost for non-search collections
 
     await this.onAccess?.('put', id)
 
@@ -2469,6 +2511,7 @@ export class Collection<T> {
       id,
       action: 'delete',
     } satisfies ChangeEvent)
+    this.searchIndexStore?.markDirty() // #308 L1 — zero-cost for non-search collections
 
     await this.onAccess?.('delete', id)
 
@@ -2710,6 +2753,141 @@ export class Collection<T> {
     // is never a searchable field.
     for (const [id, e] of this.cache) entries.push({ id, record: stripI18nFilled(e.record as Record<string, unknown>) as T })
     return searchScan(entries, field, query, opts)
+  }
+
+  /** #308 L1 — build IndexDoc[] for the configured text fields over the live cache. */
+  private buildRetrievalDocs(
+    labelMaps: Map<string, Map<string, Record<string, string>>>,
+    blobFilenames: Map<string, Map<string, string[]>>,
+    only?: readonly string[],
+  ): IndexDoc[] {
+    const docs: IndexDoc[] = []
+    for (const [id, e] of this.cache) {
+      const rec = stripI18nFilled(e.record as Record<string, unknown>)
+      const fields = buildStringFieldEntries(rec, this.textIndexes ?? [], only)
+      if (this.i18nFields) fields.push(...buildI18nFieldEntries(rec, this.i18nFields, this.textIndexes ?? [], only))
+      if (this.dictKeyFields) fields.push(...buildDictKeyFieldEntries(rec, this.dictKeyFields, labelMaps, this.textIndexes ?? [], only))
+      const blobNames = blobFilenames.get(id)
+      if (blobNames) fields.push(...buildBlobFieldEntries(blobNames))
+      if (fields.length > 0) docs.push({ id, fields })
+    }
+    return docs
+  }
+
+  /** #308 L1 — true iff any configured text index is also a blob field (gates ALL slot I/O). */
+  private hasIndexedBlobFields(only?: readonly string[]): boolean {
+    if (!this.blobFields || !this.textIndexes) return false
+    const fields = only ? this.textIndexes.filter((f) => only.includes(f)) : this.textIndexes
+    return fields.some((f) => f in this.blobFields!)
+  }
+
+  /**
+   * #308 L1 — resolve `recordId -> (blobField -> filenames[])` by listing slots
+   * for the configured blob fields of each cached record. Blob slot metadata is
+   * NOT inline on the record: it lives in a separate `_blob_slots_*` collection,
+   * so this costs ONE `blob(id).list()` (a `listSlots`) per record at build time
+   * — the heaviest indexing source. Fully gated by {@link hasIndexedBlobFields};
+   * non-blob (and blob-but-not-indexed) collections do ZERO slot I/O.
+   */
+  private async resolveBlobFilenames(only?: readonly string[]): Promise<Map<string, Map<string, string[]>>> {
+    const out = new Map<string, Map<string, string[]>>()
+    if (!this.hasIndexedBlobFields(only)) return out
+    const indexed = (only ? this.textIndexes!.filter((f) => only.includes(f)) : this.textIndexes!)
+      .filter((f) => f in this.blobFields!)
+    const indexedSet = new Set(indexed)
+    for (const id of this.cache.keys()) {
+      let slots
+      try {
+        slots = await this.blob(id).list()
+      } catch {
+        continue
+      }
+      let byField: Map<string, string[]> | undefined
+      for (const slot of slots) {
+        if (!indexedSet.has(slot.name) || !slot.filename) continue
+        if (!byField) { byField = new Map(); out.set(id, byField) }
+        const names = byField.get(slot.name)
+        if (names) names.push(slot.filename)
+        else byField.set(slot.name, [slot.filename])
+      }
+    }
+    return out
+  }
+
+  /** #308 L1 — field -> (key -> {locale->label}) for dictKey fields; static from table, dynamic via getDictionary().list(). */
+  private async resolveDictLabelMaps(): Promise<Map<string, Map<string, Record<string, string>>>> {
+    const maps = new Map<string, Map<string, Record<string, string>>>()
+    if (!this.dictKeyFields || !this.textIndexes) return maps
+    for (const field of this.textIndexes) {
+      const desc = this.dictKeyFields[field]
+      if (!desc) continue
+      const m = new Map<string, Record<string, string>>()
+      if (isStaticDictDescriptor(desc)) {
+        for (const [key, labels] of Object.entries(desc.table)) m.set(key, labels as Record<string, string>)
+      } else {
+        if (this.getDictionary) {
+          const handle = await this.getDictionary(desc.name)
+          for (const e of await handle.list()) m.set(e.key, e.labels)
+        }
+      }
+      maps.set(field, m)
+    }
+    return maps
+  }
+
+  /** #308 L1 — pre-build the lexical index (e.g. on open) so the first retrieve() pays no build scan. */
+  async warmIndex(): Promise<void> {
+    if (!this.searchIndexStore) return
+    if (this.lazy) {
+      throw new Error(
+        `Collection "${this.name}": warmIndex() requires eager mode (prefetch: true).`,
+      )
+    }
+    await this.ensureHydrated()
+    const built = this.searchIndexStore.built
+    const labelMaps = built ? new Map() : await this.resolveDictLabelMaps()
+    const blobFilenames = built ? new Map() : await this.resolveBlobFilenames()
+    this.searchIndexStore.getOrBuild(() => this.buildRetrievalDocs(labelMaps, blobFilenames))
+  }
+
+  /** #308 L1 — client-side lexical retrieval; ranked { id, score, field, snippet, locale? }. */
+  async retrieve(query: string, opts: RetrieveOptions = {}): Promise<RetrieveHit<T>[]> {
+    if (!this.searchIndexStore) {
+      throw new Error(`Collection "${this.name}": retrieve() requires a textIndexes config.`)
+    }
+    if (this.lazy) {
+      throw new Error(
+        `Collection "${this.name}": retrieve() requires eager mode (prefetch: true).`,
+      )
+    }
+    await this.ensureHydrated()
+    const built = this.searchIndexStore.built
+    const labelMaps = built ? new Map() : await this.resolveDictLabelMaps()
+    const blobFilenames = built ? new Map() : await this.resolveBlobFilenames()
+    const index = this.searchIndexStore.getOrBuild(() => this.buildRetrievalDocs(labelMaps, blobFilenames))
+    const hits = index.query(query, {
+      ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
+      ...(opts.match ? { match: opts.match } : {}),
+      ...(opts.prefix ? { prefix: opts.prefix } : {}),
+      ...(opts.fields ? { fields: opts.fields } : {}),
+    })
+    const window = opts.snippetWindow ?? 80
+    return hits.map((h: IndexHit) => {
+      const base: RetrieveHit<T> = {
+        id: h.id,
+        score: h.score,
+        field: h.field,
+        snippet: extractSnippet(h.text, h.offset, window),
+        ...(h.locale !== undefined ? { locale: h.locale } : {}),
+        ...(opts.includeRecord
+          ? (() => {
+              const e = this.cache.get(h.id)
+              return e ? { record: stripI18nFilled(e.record as Record<string, unknown>) as T } : {}
+            })()
+          : {}),
+      }
+      return base
+    })
   }
 
   // ─── Bulk operations ─────────────────────────────────────
@@ -3457,6 +3635,7 @@ export class Collection<T> {
   async _applyRemoteChange(id: string, action: 'put' | 'delete'): Promise<void> {
     await this._invalidateCacheEntry(id)
     this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action })
+    this.searchIndexStore?.markDirty() // #308 L1 — peer write changed the cache; rebuild on next retrieve
   }
 
   /** @internal — the current in-memory record without a store read (for conflict capture). */

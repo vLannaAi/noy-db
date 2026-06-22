@@ -693,7 +693,7 @@ export class BlobSet {
             ...(backlink.token ? { backlink: backlink.token } : {}),
             ...(prevMeta ? { meta: prevMeta } : {}),
           },
-          filename: slotName,
+          filename: opts?.filename ?? slotName,
           size: data.byteLength,
           mimeType: contentType,
           uploadedAt: new Date().toISOString(),
@@ -801,7 +801,7 @@ export class BlobSet {
       const oldETag = slots[slotName]?.eTag
       slots[slotName] = {
         eTag,
-        filename: slotName,
+        filename: opts?.filename ?? slotName,
         size: data.byteLength,
         ...(mimeType !== undefined ? { mimeType } : {}),
         uploadedAt: new Date().toISOString(),

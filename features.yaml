@@ -252,9 +252,9 @@ features:
     related: [schema-and-refs, money-field]
 
   - id: search-index
-    name: Scan-mode full-text search (collection.search)
+    name: Full-text scan + L1 lexical retrieval (collection.search / collection.retrieve)
     cluster: core
-    spec: docs/subsystems/search.md
+    spec: docs/superpowers/specs/2026-06-22-ai-retrieval-l1-lexical-index-design.md
     subsystem_doc: docs/subsystems/search.md
     package: '@noy-db/hub'
     factory: null
@@ -263,15 +263,24 @@ features:
     showcases:
       - id: 111-scan-search
         path: showcases/src/111-scan-search.showcase.test.ts
+      - id: 122-with-retrieve
+        path: showcases/src/122-with-retrieve.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
     invariants:
-      - 'collection.search(field, query, opts) is SCAN mode: decrypts in-memory + ranks by BM25 — ZERO added store leakage (eager mode only); returns {id,score,record} desc by score'
-      - 'opts.match any(OR,default)/all(AND); opts.prefix → last query term is a prefix (typeahead); opts.limit → top-N'
-      - 'default tokenizer = NFKC + lowercase + Unicode word-boundary split — does NOT segment Thai/CJK (no inter-word spaces); pluggable tokenizer + a store-usable blind index (SSE; leaks term-frequency/co-occurrence) are gated follow-ups per the #308 design note'
+      - 'collection.search(field, query, opts) is SCAN mode (L0): decrypts in-memory + ranks by BM25 — ZERO added store leakage (eager mode only); returns {id,score,record} desc by score'
+      - 'collection.retrieve(query, opts) is INDEXED mode (L1): client-side in-memory inverted index with Intl.Segmenter i18n tokenizer; multi-field BM25 + max-field scoring; returns RetrieveHit{id,score,field,snippet,locale?,record?} — ZERO store leakage (never written to the store)'
+      - 'textIndexes: string[] collection opt-in selects which fields enter the inverted index; collections with no textIndexes pay zero overhead'
+      - 'i18nText fields: ALL locale values indexed; hit carries matched locale; locale-agnostic query matches any locale'
+      - 'dictKey fields: resolved labels (all locales) indexed; opaque key is NOT text-indexed (use where() for key equality)'
+      - 'blob fields: filename indexed via listSlots() (async per-record); bytes never tokenized'
+      - 'money/number/date/boolean fields: NOT indexed — use where() (text-formatting variance makes full-text wrong)'
+      - 'warmIndexOnOpen:true pre-builds on collection open; warmIndex() pre-builds on demand; both require eager mode'
+      - 'index is session-scoped and in-memory; rebuild on new session; dirty-rebuild after put/delete; IndexStore seam ready for L1.5 persisted encrypted blob backend'
+      - 'opts.match any(OR,default)/all(AND); opts.prefix → last query term is a prefix (typeahead); opts.limit → top-N; opts.includeRecord → attach full decrypted record'
       - 'deleted / forgotten records never appear (eager cache eviction on delete / _writeTombstone)'
-    related: [schema-and-refs]
+    related: [schema-and-refs, i18n]
 
   - id: persisted-json-schema
     name: Persisted JSON Schema (opt-in)

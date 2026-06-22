@@ -678,6 +678,10 @@ export class Vault {
     refs?: Record<string, RefDescriptor>
     /** — declare i18nText fields for locale-aware reads. */
     i18nFields?: Record<string, I18nTextDescriptor>
+    /** — #308 L1: string fields exposed to client-side `retrieve()`. */
+    textIndexes?: readonly string[]
+    /** — #308 L1: pre-build the lexical index on open (eager-only). */
+    warmIndexOnOpen?: boolean
     /** — declare dictKey / staticDict fields for label resolution on reads. */
     dictKeyFields?: Record<string, DictKeyDescriptor | StaticDictDescriptor>
     /** — declare money() fields for currency-safe decimal storage/formatting. */
@@ -1000,6 +1004,8 @@ export class Vault {
       collOpts.onCrossTierAccess = (event) => this.emitCrossTier(event)
       if (this.syncAdapter !== undefined) collOpts.syncAdapter = this.syncAdapter
       if (options?.i18nFields !== undefined) collOpts.i18nFields = options.i18nFields
+      if (options?.textIndexes !== undefined) collOpts.textIndexes = options.textIndexes
+      if (options?.warmIndexOnOpen !== undefined) collOpts.warmIndexOnOpen = options.warmIndexOnOpen
       if (options?.moneyFields !== undefined) collOpts.moneyFields = options.moneyFields
       if (options?.computed !== undefined) collOpts.computed = options.computed as ComputedFields
       if (options?.dictKeyFields !== undefined) {
@@ -1016,6 +1022,9 @@ export class Vault {
           const handle = this.dictionary(dictName)
           return handle.resolveLabel(key, locale, fallback)
         }
+        // #308 L1 — provide a handle factory for dynamic dicts so the search
+        // index can call list() to build the full key→labels map.
+        collOpts.getDictionary = async (name: string) => this.dictionary(name)
         collOpts.dictKeyFields = options.dictKeyFields
       }
       // i18n / staticDict validation on put — enforced via the compartment's
@@ -1035,6 +1044,13 @@ export class Vault {
       }
       coll = new Collection<T>(collOpts)
       this.collectionCache.set(collectionName, coll)
+
+      // #308 L1 — pre-build the lexical index on open when opted in. Fire-and-forget,
+      // eager-only; warmIndex() no-ops when no textIndexes are declared and throws
+      // (caught here) in lazy mode, so this stays a single guarded line.
+      if (options?.warmIndexOnOpen === true && options.prefetch !== false) {
+        void coll.warmIndex().catch(() => {})
+      }
 
       // Fire-and-forget persisted-schema write when opted in. Pushed
       // onto _pendingSchemaWrites so tests can drain before asserting;
