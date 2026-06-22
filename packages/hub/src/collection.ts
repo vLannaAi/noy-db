@@ -49,7 +49,7 @@ import { NO_INDEXING, type IndexStrategy, type IndexState } from './indexing/str
 import { searchScan, type SearchOptions, type SearchResult } from './search/index.js'
 import { MemoryIndexStore, type IndexStore } from './search/index-store.js'
 import { extractSnippet } from './search/snippet.js'
-import { buildStringFieldEntries } from './search/build-docs.js'
+import { buildStringFieldEntries, buildI18nFieldEntries } from './search/build-docs.js'
 import type { IndexDoc, IndexHit } from './search/inverted-index.js'
 import type { RetrieveOptions, RetrieveHit } from './search/retrieve-types.js'
 import { IndexWriteFailureError, DerivationCapExceededError, DebugReservedFieldError } from './errors.js'
@@ -2747,6 +2747,7 @@ export class Collection<T> {
     for (const [id, e] of this.cache) {
       const rec = stripI18nFilled(e.record as Record<string, unknown>)
       const fields = buildStringFieldEntries(rec, this.textIndexes ?? [], only)
+      if (this.i18nFields) fields.push(...buildI18nFieldEntries(rec, this.i18nFields, this.textIndexes ?? [], only))
       if (fields.length > 0) docs.push({ id, fields })
     }
     return docs
