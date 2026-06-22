@@ -55,7 +55,7 @@ export class InvertedIndex {
           tf.set(t.term, (tf.get(t.term) ?? 0) + 1)
           if (!firstOffset.has(t.term)) firstOffset.set(t.term, t.offset)
         }
-        const doc: Doc = { id: d.id, field: f.field, locale: f.locale, text: f.text, len: tokens.length, tf, firstOffset }
+        const doc: Doc = { id: d.id, field: f.field, ...(f.locale !== undefined ? { locale: f.locale } : {}), text: f.text, len: tokens.length, tf, firstOffset }
         idx.docs.push(doc)
         let s = idx.fieldStats.get(f.field)
         if (!s) { s = { df: new Map(), n: 0, totalLen: 0 }; idx.fieldStats.set(f.field, s) }
