@@ -30,6 +30,15 @@ export interface QueryOptions {
   readonly fields?: readonly string[]
 }
 
+export interface IndexSnapshot {
+  readonly v: 1
+  readonly fieldStats: ReadonlyArray<[string, { df: [string, number][]; n: number; totalLen: number }]>
+  readonly docs: ReadonlyArray<{
+    id: string; field: string; locale?: string; text: string; len: number
+    tf: [string, number][]; firstOffset: [string, number][]
+  }>
+}
+
 interface Doc {
   id: string
   field: string
@@ -135,5 +144,30 @@ export class InvertedIndex {
 
     const results = [...best.values()].sort((a, b) => b.score - a.score)
     return opts.limit !== undefined ? results.slice(0, opts.limit) : results
+  }
+
+  toSnapshot(): IndexSnapshot {
+    return {
+      v: 1,
+      fieldStats: [...this.fieldStats].map(([f, s]) => [f, { df: [...s.df], n: s.n, totalLen: s.totalLen }]),
+      docs: this.docs.map((d) => ({
+        id: d.id, field: d.field, text: d.text, len: d.len,
+        tf: [...d.tf], firstOffset: [...d.firstOffset],
+        ...(d.locale !== undefined ? { locale: d.locale } : {}),
+      })),
+    }
+  }
+
+  static fromSnapshot(s: IndexSnapshot): InvertedIndex {
+    const idx = new InvertedIndex()
+    for (const [f, st] of s.fieldStats) idx.fieldStats.set(f, { df: new Map(st.df), n: st.n, totalLen: st.totalLen })
+    for (const d of s.docs) {
+      idx.docs.push({
+        id: d.id, field: d.field, text: d.text, len: d.len,
+        tf: new Map(d.tf), firstOffset: new Map(d.firstOffset),
+        ...(d.locale !== undefined ? { locale: d.locale } : {}),
+      })
+    }
+    return idx
   }
 }
