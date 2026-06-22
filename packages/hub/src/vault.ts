@@ -1199,7 +1199,7 @@ export class Vault {
    *  next load. Only collections with textIndexPersist have a flush(); others no-op. */
   async _flushSearchIndexes(): Promise<void> {
     for (const coll of this.collectionCache.values()) {
-      await (coll as any).flushIndex().catch(() => { /* best-effort */ })
+      await coll.flushIndex().catch(() => { /* best-effort */ })
     }
   }
 
