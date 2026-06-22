@@ -73,6 +73,8 @@ method rather than inventing a new surface later.
 | Snippet extraction (`src/search/snippet.ts`) | char-window around the best match, offsets from the segmenter |
 | `collection.retrieve(query, opts)` | multi-field, returns `{ id, score, field, snippet }[]`, ranked |
 | `textIndexes: string[]` collection config | opt-in indexed fields; supports nested + `[]` wildcard paths |
+| **i18nText fields → index ALL locale values** | a query term in any language matches whichever locale holds it; hit carries matched `locale`; snippet from that locale |
+| **Blob fields → index `filename` + `userMeta`** | blob *metadata* only; blob *bytes* are never tokenized (content extraction is app-side) |
 | Multi-field BM25, **max-field** combination | a doc's score = its best field's BM25; `field` is that winning field; snippet from it |
 | Dirty-on-write invalidation | a write to the collection marks the cached index dirty → rebuilt on next `retrieve()` |
 | Transparent index-acceleration of `search(field,…)` | when `field ∈ textIndexes`, route through the index instead of re-tokenizing all docs |
@@ -87,6 +89,51 @@ method rather than inventing a new surface later.
 | Store-side `mode:'blind-index'` (SSE) | — (superseded) | wrong direction for PII per the reframe; replaced by the client-side index |
 | ORAM access-pattern hiding + attested enclave | L4 | research-grade |
 | Multiple snippets per record; phrase/positional queries; stemming; fuzzy/trigram | future | `tokenizer` + the index structure are the extension seams |
+
+## Field-type handling (the lexical vs. structured boundary)
+
+L1 indexes **text-bearing** fields only; **value-typed** fields belong to the
+structured `where` pipeline. Trying to full-text a money field is the same category
+error as `where('>')` on a paragraph.
+
+| Field type | In the text index? | How |
+|---|---|---|
+| `string` | ✅ | tokenized as-is |
+| `i18nText` (`{[locale]:string}`) | ✅ | **all locale values** indexed under the field name; matched `locale` returned; locale-agnostic search |
+| Blob field (`filename`, `userMeta`) | ✅ | metadata strings tokenized; **bytes never** tokenized |
+| `dictKey` label | ⛔ deferred | needs async dictionary resolution; L2-adjacent |
+| `money` / `number` / `date` / `boolean` | ⛔ by design | use `where('amount','>',1000)` etc. — formatting variance makes text-matching values wrong |
+| Blob **content** (PDF/image bytes) | ⛔ out of scope | app extracts text into a normal field (OCR/PDF→text), which then indexes |
+
+The builder detects `i18nFields` descriptors and blob fields from the collection
+config; `getAtPath` resolves nested/wildcard paths. `fieldText` is extended to emit
+**`{ text, locale? }` segments** (one per i18n locale / blob-meta string) rather than
+a single string, so postings carry locale attribution.
+
+**Hybrid (money + text together)** — the agent/UI composes `retrieve()` (text
+candidate ids) with the existing query pipeline (`query().where('amount','>',1000)`):
+intersect the id sets, then rank. L1 supports this by exposing candidate ids;
+**L3 formalizes** a single hybrid call. Money/date filtering stays in `where`, where
+it's exact.
+
+## Dual use — agents AND humans (AI optional)
+
+`retrieve()` is a **general retrieval primitive**, not agent-only. One index, three
+consumers:
+
+- **Human "google-like" search** — results list; `snippet` is the result preview.
+- **Autocomplete / typeahead** — `prefix:true` on the last term; per-keystroke calls
+  are O(postings) after the index is warm.
+- **Agent RAG** — `snippet`s fed into the model context (minimal disclosure);
+  `includeRecord` off by default.
+
+**No AI required** — AI is one caller. (A reactive `in-pinia`/`in-vue` search-box
+wrapper over `retrieve()` is a natural follow-on, out of scope here.)
+
+**Latency:** the first `retrieve()` per session builds the index (one decrypt+
+tokenize scan); subsequent calls — including per-keystroke autocomplete — are fast.
+For a snappy human box on a large corpus, call `warmIndex()` on vault open, or adopt
+the L1.5 persisted blob. At the pilot's scale the cold build is negligible.
 
 ## Architecture
 
@@ -138,9 +185,17 @@ interface RetrieveOptions {
   fields?: string[]           // restrict to a subset of textIndexes
   includeRecord?: boolean     // also return the decrypted record (default false — minimal disclosure)
 }
-interface RetrieveHit<T> { id: string; score: number; field: string; snippet: string; record?: T }
+interface RetrieveHit<T> {
+  id: string; score: number; field: string; snippet: string
+  locale?: string            // matched locale, when `field` is an i18nText field
+  record?: T                 // only when opts.includeRecord
+}
 
 retrieve(query: string, opts?: RetrieveOptions): Promise<RetrieveHit<T>[]>
+
+// Optional: pre-build the index (e.g. on vault open) so the first human
+// keystroke / agent call doesn't pay the one-time build scan.
+warmIndex(): Promise<void>
 ```
 
 One hit **per record** (its best-scoring field), deduped — clean for context
@@ -211,18 +266,26 @@ pattern hiding for any future server-side retrieval is L4/ORAM, out of scope.)
 ## Build sequence (independently shippable slices)
 
 1. **Segmenter tokenizer** (`segment.ts`) + offset support + tests (Thai/CJK/NFKC). *Slice 1*
-2. **`InvertedIndex`** (`inverted-index.ts`) — build + multi-field BM25 max-field query, reusing the scan formula; unit tests vs the scan ranker for parity on single-field. *Slice 2*
+2. **`InvertedIndex`** (`inverted-index.ts`) — build (with i18n all-locale + blob filename/userMeta field expansion via `getAtPath` + descriptors; money/number excluded) + multi-field BM25 max-field query, reusing the scan formula; unit tests vs the scan ranker for parity on single-field. *Slice 2*
 3. **Snippet** (`snippet.ts`) + tests. *Slice 3*
 4. **`IndexStore`/`MemoryIndexStore`** seam + dirty-flag. *Slice 4*
-5. **`collection.retrieve()`** call-site + `textIndexes` config + dirty poke in put/delete + transparent `search()` acceleration + integration tests + leakage test (no store writes). *Slice 5*
+5. **`collection.retrieve()` + `warmIndex()`** call-site + `textIndexes` config + dirty poke in put/delete + transparent `search()` acceleration + integration tests + leakage test (no store writes). *Slice 5*
 6. **Docs + features.yaml + showcase** (Thai agent-retrieval query; snippet minimal-disclosure). *Slice 6*
 
 ## Testing & non-code obligations
 
 - TDD throughout; conformance on `to-memory`.
 - i18n: Thai/CJK segmentation + NFKC equivalence; word-run fallback parity for Latin.
-- Ranking: multi-field max-field order; `match any/all`; prefix typeahead; single-field
-  `retrieve` matches `searchScan` order (regression vs L0).
+- Ranking: multi-field max-field order; `match any/all`; prefix typeahead (autocomplete);
+  single-field `retrieve` matches `searchScan` order (regression vs L0).
+- **i18n:** a bilingual record is found by a term in *either* locale; hit carries the
+  matched `locale`; snippet comes from that locale.
+- **Blob metadata:** `filename`/`userMeta` are searchable; blob bytes are never read/
+  tokenized by the index.
+- **Field-type boundary:** money/number/date fields are NOT in the index (asserted);
+  the hybrid pattern `retrieve ∩ where('amount','>',N)` returns the expected rows.
+- **Dual-use / latency:** `warmIndex()` pre-builds so a subsequent `retrieve()` issues
+  no build scan; autocomplete via repeated `prefix` calls reuses the warm index.
 - Snippets: window bounds, multi-occurrence picks best, unicode-safe slicing.
 - Lifecycle: dirty-rebuild after `put`/`delete`; `includeRecord` toggle.
 - **Leakage test:** wrap the store; assert build+`retrieve` issue **zero writes** and
