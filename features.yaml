@@ -390,6 +390,7 @@ features:
     package: '@noy-db/hub'
     factory: null
     status: preview
+    experimental: true
     showcases:
       - id: 126-describe-field-metadata
         path: showcases/src/126-describe-field-metadata.showcase.test.ts

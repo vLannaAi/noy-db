@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { derivePersistedSchema, isZod4Schema, isZodSchema } from '../../src/persisted-schemas/derive.js'
 
 describe('isZodSchema', () => {
-  it('identifies a Zod schema via _def.typeName', () => {
+  it('identifies a Zod schema via ~standard.vendor (v4) with _def.typeName (v3) fallback', () => {
     expect(isZodSchema(z.object({ id: z.string() }))).toBe(true)
     expect(isZodSchema(z.string())).toBe(true)
   })

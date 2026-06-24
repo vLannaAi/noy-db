@@ -335,12 +335,12 @@ describe('Showcase 126-C — merge precedence: channel > inferred-from-config', 
     })
     const vault = await db.openVault('firm')
 
-    interface Record extends globalThis.Record<string, unknown> {
+    interface OrderRecord extends globalThis.Record<string, unknown> {
       id: string
       status: string
     }
 
-    const coll = vault.collection<Record>('orders', {
+    const coll = vault.collection<OrderRecord>('orders', {
       dictKeyFields: {
         status: staticDict('orderStatus', {
           open:   { en: 'Open' },

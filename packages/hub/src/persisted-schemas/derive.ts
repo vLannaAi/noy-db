@@ -84,7 +84,7 @@ async function loadZodV4Converter(): Promise<(s: unknown) => object> {
     return mod.toJSONSchema
   } catch (err) {
     throw new Error(
-      'persistJsonSchema with a Zod v4 schema requires zod@4 to be installed. '
+      'persistJsonSchema with a Zod v4 schema requires zod@4 with toJSONSchema. '
       + `Original error: ${err instanceof Error ? err.message : String(err)}`,
     )
   }
