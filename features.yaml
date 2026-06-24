@@ -382,6 +382,31 @@ features:
       - 'exit codes: 0 ok, 1 internal, 2 usage, 3 auth failure'
     related: [persisted-json-schema, dump-schema-introspection]
 
+  - id: field-metadata
+    name: Consumer-neutral field descriptors — collection.describe() + fieldMeta (#483)
+    cluster: core
+    spec: docs/superpowers/specs/2026-06-25-field-metadata-foundation-design.md
+    subsystem_doc: docs/subsystems/field-metadata.md
+    package: '@noy-db/hub'
+    factory: null
+    status: preview
+    showcases:
+      - id: 126-describe-field-metadata
+        path: showcases/src/126-describe-field-metadata.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'collection.describe() — sync overload (zero args): config-only, zero store I/O, returns CollectionDescription synchronously; async overload (opts arg): adds validator-derived exact types (deriveZodFields, lazy import), zod-4 .meta() merge, and optional dynamic-dict label resolution (resolveDictLabels: true)'
+      - 'fieldMeta collection option: Record<string, FieldMeta> — the primary validator-agnostic authoring channel; keys: label (required), description, semanticType, unit, sensitivity (public|pii|secret), aggregate, aliases, displayFor'
+      - 'merge precedence (fixed): channel (fieldMeta) > zod-4 .meta() (async path only) > inferred-from-config (money→currency, ref→entity, dictKey→enum)'
+      - 'descriptive-not-prescriptive: DescribedField carries meaning (label/unit/sensitivity/semanticType/aggregate/aliases/displayFor) — never layout, styling, or locale selection; those stay app-side'
+      - 'sync = zero store I/O: describe() (no args) reads only in-memory config assembled at collection registration — no store.get / store.list / decryption ever triggered'
+      - 'public exports from @noy-db/hub only (not from kernel): FieldMeta, SemanticType, CollectionDescription, DescribedField, DescribeOptions'
+      - 'fieldMeta key guard (async path): when zodFields is non-empty, unknown fieldMeta keys throw FieldMetaUnknownFieldError — typo protection; sync path skips this check (schema fields not knowable without async derivation)'
+      - 'validator-agnostic: works without zod; non-zod validators get structural type inference from config only on the sync path'
+    related: [dump-schema-introspection, cli-describe, money-field, schema-and-refs, i18n]
+
   - id: query-basics
     name: Always-on query DSL
     cluster: core
