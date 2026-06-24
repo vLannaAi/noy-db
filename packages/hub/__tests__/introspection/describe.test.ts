@@ -10,6 +10,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest'
+import { z } from 'zod'
 import { createNoydb } from '../../src/noydb.js'
 import { money } from '../../src/money/descriptor.js'
 import { staticDict, dictKey } from '../../src/i18n/dictionary.js'
@@ -204,15 +205,14 @@ describe('collection.describe(opts) — async path', () => {
    */
 
   it('async describe derives exact types from the zod-4 validator', async () => {
-    const z4 = await import('/Users/vicio/_github/noy-db/node_modules/.pnpm/zod@4.4.3/node_modules/zod/index.js')
     const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-async-1' })
     const v = await db.openVault('av1')
 
-    const salesSchema = z4.z.object({
-      id: z4.z.string(),
-      saleDate: z4.z.string().optional(),
-      total: z4.z.number(),
-      buyerId: z4.z.string(),
+    const salesSchema = z.object({
+      id: z.string(),
+      saleDate: z.string().optional(),
+      total: z.number(),
+      buyerId: z.string(),
     })
 
     const sales = v.collection('sales_async', {
@@ -231,14 +231,13 @@ describe('collection.describe(opts) — async path', () => {
   })
 
   it('async describe merges zod-4 .meta() when channel is silent', async () => {
-    const z4 = await import('/Users/vicio/_github/noy-db/node_modules/.pnpm/zod@4.4.3/node_modules/zod/index.js')
     const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-async-2' })
     const v = await db.openVault('av2')
 
     // net has .meta({ unit: 'kg' }), no fieldMeta entry for it
-    const weightsSchema = z4.z.object({
-      id: z4.z.string(),
-      net: z4.z.number().meta({ unit: 'kg' }),
+    const weightsSchema = z.object({
+      id: z.string(),
+      net: z.number().meta({ unit: 'kg' }),
     })
 
     const weights = v.collection('weights_async', {
@@ -272,13 +271,12 @@ describe('collection.describe(opts) — async path', () => {
   })
 
   it('fieldMeta key-validation: typo in fieldMeta key rejects with FieldMetaUnknownFieldError', async () => {
-    const z4 = await import('/Users/vicio/_github/noy-db/node_modules/.pnpm/zod@4.4.3/node_modules/zod/index.js')
     const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-async-4' })
     const v = await db.openVault('av4')
 
-    const schema = z4.z.object({
-      id: z4.z.string(),
-      total: z4.z.number(),
+    const schema = z.object({
+      id: z.string(),
+      total: z.number(),
     })
 
     // 'totl' is a typo — not a real field in the schema or any config
