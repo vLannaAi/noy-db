@@ -16,6 +16,8 @@
 - **Litmus test invariant:** a field-metadata key is admissible only if *"a second, unrelated consumer would want this fact."*
 - Merge precedence (highest wins): `fieldMeta` channel → zod-4 `.meta()` registry → inferred-from-config.
 - `describe()` (sync) does **zero store I/O** (no decryption). Only the async overload touches `_dict_*`.
+- **Test file location:** ALL test files go under `packages/hub/__tests__/introspection/` — NOT `src/`. Vitest's include glob is `__tests__/**/*.test.ts`, so a `.test.ts` placed under `src/` is **silently ignored** (won't run → false green). Import the module under test via `../../src/introspection/<file>.js`. The `Test:` paths in the tasks below say `src/introspection/...` for locality — place them under `__tests__/introspection/...` and adjust import depth.
+- **Package manager is pnpm** (not npm) for installs; `npm test -w @noy-db/hub` works for running tests.
 - New public symbols require re-export from `src/index.ts` (a recurring gap: local tsc passes because tests import `../src/`; only the showcase + CI cross-package typecheck against `dist/` catch a missing barrel export — so verify by building + showcase typecheck). Do **not** add to `src/kernel/index.ts` (per-collection introspection is not orchestration surface).
 - Every feature change must touch `features.yaml` or CI "Spec coverage" fails.
 - No Claude attribution in commits.
@@ -29,7 +31,7 @@
 - Create: `packages/hub/src/introspection/field-meta.ts` (the `FieldMeta` type + helpers)
 - Modify: `packages/hub/src/vault.ts` — add `fieldMeta?` to the `CollectionOptions<T>` interface (the interface defining `schema`/`refs`/`moneyFields`/`dictKeyFields`, ~`vault.ts:672-767`) and register it in the collection-construction block (~`vault.ts:801-971`, where `refs`/`dictKeyFields` are registered and threaded into `new Collection(...)`)
 - Modify: `packages/hub/src/collection.ts` — accept + store `fieldMeta` on the Collection (mirror the `dictKeyFields` private field at ~`collection.ts:360`/assignment ~`collection.ts:970`) and add a getter
-- Test: `packages/hub/src/introspection/field-meta.test.ts`
+- Test: `packages/hub/__tests__/introspection/field-meta.test.ts`
 
 **Interfaces:**
 - Produces:
@@ -40,7 +42,7 @@
 
 - [ ] **Step 1: Write the `FieldMeta` type and a validation helper (failing test first)**
 
-In `packages/hub/src/introspection/field-meta.test.ts`:
+In `packages/hub/__tests__/introspection/field-meta.test.ts`:
 ```ts
 import { describe, it, expect } from 'vitest'
 import { validateFieldMetaKeys } from './field-meta.js'
@@ -167,7 +169,7 @@ Expected: PASS (collection.ts/vault.ts edits are tiny — getter + option thread
 - [ ] **Step 7: Commit**
 
 ```bash
-git add packages/hub/src/introspection/field-meta.ts packages/hub/src/introspection/field-meta.test.ts packages/hub/src/vault.ts packages/hub/src/collection.ts
+git add packages/hub/src/introspection/field-meta.ts packages/hub/__tests__/introspection/field-meta.test.ts packages/hub/src/vault.ts packages/hub/src/collection.ts
 git commit -m "feat(hub): fieldMeta collection option + storage + fail-loud key check (#483)"
 ```
 
@@ -177,7 +179,7 @@ git commit -m "feat(hub): fieldMeta collection option + storage + fail-loud key 
 
 **Files:**
 - Modify: `packages/hub/src/introspection/field-meta.ts` (add `mergeFieldMeta`)
-- Test: `packages/hub/src/introspection/field-meta.test.ts`
+- Test: `packages/hub/__tests__/introspection/field-meta.test.ts`
 
 **Interfaces:**
 - Consumes: `FieldMeta`.
@@ -282,7 +284,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add packages/hub/src/introspection/field-meta.ts packages/hub/src/introspection/field-meta.test.ts
+git add packages/hub/src/introspection/field-meta.ts packages/hub/__tests__/introspection/field-meta.test.ts
 git commit -m "feat(hub): fieldMeta merge precedence + humanize (#483)"
 ```
 
@@ -294,7 +296,7 @@ git commit -m "feat(hub): fieldMeta merge precedence + humanize (#483)"
 - Create: `packages/hub/src/introspection/describe.ts` (`buildDescription` pure assembler + `DescribedField`/`CollectionDescription` types)
 - Modify: `packages/hub/src/collection.ts` (add the sync `describe()` method)
 - Modify: `packages/hub/src/index.ts` (re-export the new public types + `FieldMeta`)
-- Test: `packages/hub/src/introspection/describe.test.ts`
+- Test: `packages/hub/__tests__/introspection/describe.test.ts`
 
 **Interfaces:**
 - Consumes: `Collection.getFieldMeta()`, the collection's `moneyFields`/`dictKeyFields`/`refs`/`computed` (add internal getters mirroring `getFieldMeta` if not already reachable), `resolveFieldMeta`, the vault `refRegistry.getOutbound(name)`.
@@ -403,7 +405,7 @@ Expected: PASS — proves the new public types are actually re-exported from the
 - [ ] **Step 7: Commit**
 
 ```bash
-git add packages/hub/src/introspection/describe.ts packages/hub/src/introspection/describe.test.ts packages/hub/src/collection.ts packages/hub/src/index.ts
+git add packages/hub/src/introspection/describe.ts packages/hub/__tests__/introspection/describe.test.ts packages/hub/src/collection.ts packages/hub/src/index.ts
 git commit -m "feat(hub): collection.describe() sync config-merge + public exports (#483)"
 ```
 
@@ -414,7 +416,7 @@ git commit -m "feat(hub): collection.describe() sync config-merge + public expor
 **Files:**
 - Modify: `packages/hub/src/introspection/describe.ts` (a `deriveZodFields` helper + `DescribeOptions`)
 - Modify: `packages/hub/src/collection.ts` (`describeAsync`)
-- Test: `packages/hub/src/introspection/describe.test.ts`
+- Test: `packages/hub/__tests__/introspection/describe.test.ts`
 
 **Interfaces:**
 - Consumes: `derivePersistedSchema` + `isZod4Schema` (Plan 1), the existing JSON-Schema→field mapper in `introspection/fields.ts`, `vault.dictionary(name).list()` for dynamic dict labels.
@@ -498,7 +500,7 @@ Add a test building a collection with a **non-zod** Standard-Schema validator (a
 - [ ] **Step 7: Commit**
 
 ```bash
-git add packages/hub/src/introspection/describe.ts packages/hub/src/introspection/describe.test.ts packages/hub/src/collection.ts
+git add packages/hub/src/introspection/describe.ts packages/hub/__tests__/introspection/describe.test.ts packages/hub/src/collection.ts
 git commit -m "feat(hub): async describe() — exact types, zod-4 meta merge, dynamic dict labels (#483)"
 ```
 
