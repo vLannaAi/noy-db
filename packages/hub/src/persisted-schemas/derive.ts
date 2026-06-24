@@ -1,7 +1,9 @@
 /**
  * Derive a {@link PersistedSchemaEnvelope} from a Standard Schema v1
- * validator. v0 supports Zod via `zod-to-json-schema` (optional peer-dep);
- * other families write a stub envelope flagging the kind.
+ * validator. Supports zod 3 (via the optional `zod-to-json-schema` peer-dep)
+ * and zod 4 (via its native `z.toJSONSchema()`); both are loaded lazily so
+ * hub never statically imports zod. Other validator families write a stub
+ * envelope flagging the kind.
  *
  * @see docs/superpowers/specs/2026-05-22-schema-dump-design.md
  *
@@ -40,8 +42,10 @@ function detectKind(validator: unknown): PersistedSchemaKind {
  * (i.e. `import { z } from 'zod'` where zod resolves to v4). Zod v4 native
  * schemas carry a `_zod` property whereas Zod v3 schemas (and the v3-compat
  * shim shipped inside zod@4 at `zod/v3`) use `_def.typeName`.
+ *
+ * Kept duck-typed so hub never statically imports zod.
  */
-function isZodV4Native(value: unknown): boolean {
+export function isZod4Schema(value: unknown): boolean {
   if (value === null || typeof value !== 'object') return false
   return '_zod' in (value as object)
 }
@@ -95,7 +99,7 @@ export async function derivePersistedSchema(
   if (kind === 'Zod') {
     let jsonSchema: object
 
-    if (isZodV4Native(validator)) {
+    if (isZod4Schema(validator)) {
       // Zod v4 native schemas: use zod's built-in toJSONSchema (available in
       // zod@4) because zod-to-json-schema@3.x parses _def.typeName which is
       // absent in native v4 schemas.
