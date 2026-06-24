@@ -10,8 +10,8 @@ export interface RetrieveOptions {
   readonly snippetWindow?: number
   readonly fields?: readonly string[]
   readonly includeRecord?: boolean
-  /** #308 L2 — retrieval strategy; defaults to 'lexical'. */
-  readonly mode?: 'lexical' | 'semantic'
+  /** #308 — retrieval strategy; defaults to 'lexical'. 'hybrid' fuses lexical+semantic (L3). */
+  readonly mode?: 'lexical' | 'semantic' | 'hybrid'
   /** #308 L2 — minimum cosine score for semantic hits (semantic mode only). */
   readonly minScore?: number
 }
