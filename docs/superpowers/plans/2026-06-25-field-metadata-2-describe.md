@@ -486,22 +486,26 @@ private async describeAsync(opts: DescribeOptions): Promise<CollectionDescriptio
 ```
 Extend `buildDescription` to accept `zodFields` (exact types + zod meta) and `dictLabels` (dynamic-dict value→label) and fold them in (zod meta enters `resolveFieldMeta` as `zodMeta`; dictLabels populate dynamic `dict.values[].label`). Replace the Task-3 stub branch in `describe()` so `opts` routes to `describeAsync`.
 
-- [ ] **Step 5: Run tests + arch check**
+- [ ] **Step 5: Relocate real fieldMeta key-validation here (carry from Task 1)**
+
+Task 1's sync `validateFieldMetaKeys` call in `vault.ts` is a structural **no-op** — the known-field set there includes `fieldMeta`'s own keys, so it can never throw (schema field names aren't knowable synchronously). The async path is where validation becomes meaningful. In `describeAsync` (or `buildDescription` when `zodFields` is present), build the real known set = config keys (`moneyFields`/`dictKeyFields`/`refs`/`computed`) ∪ **`zodFields` keys (the derived schema fields)**, and call `validateFieldMetaKeys(this.name, this.fieldMeta ?? {}, realKnown)` so a typo'd `fieldMeta` key (e.g. `totl` for `total`) throws `FieldMetaUnknownFieldError` at first async `describe()`. Add a test: a collection whose `fieldMeta` references a non-existent field → `await c.describe({})` rejects with `FieldMetaUnknownFieldError`. Also **remove the misleading no-op** from `vault.ts`: delete the `Object.keys(options.fieldMeta)` self-inclusion + the `validateFieldMetaKeys` call there (keep the option threading), since it advertises a guarantee it can't honor. (This resolves the Task-1 review's Important plan-mandated finding.)
+
+- [ ] **Step 6: Run tests + arch check**
 
 Run: `npm test -w @noy-db/hub -- describe`
 Expected: PASS.
 Run: `node scripts/check-architecture.mjs`
 Expected: PASS.
 
-- [ ] **Step 6: Validator-agnostic test (guards the core invariant)**
+- [ ] **Step 7: Validator-agnostic test (guards the core invariant)**
 
 Add a test building a collection with a **non-zod** Standard-Schema validator (a hand-rolled `{ '~standard': { version:1, vendor:'stub', validate } }`) plus a `fieldMeta` channel; assert `describe()` (sync) and `await describe({})` both return the channel metadata and never throw (no zod required). This proves the channel path is fully validator-agnostic.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add packages/hub/src/introspection/describe.ts packages/hub/__tests__/introspection/describe.test.ts packages/hub/src/collection.ts
-git commit -m "feat(hub): async describe() — exact types, zod-4 meta merge, dynamic dict labels (#483)"
+git add packages/hub/src/introspection/describe.ts packages/hub/__tests__/introspection/describe.test.ts packages/hub/src/collection.ts packages/hub/src/vault.ts
+git commit -m "feat(hub): async describe() — exact types, zod-4 meta merge, dynamic dict labels + key validation (#483)"
 ```
 
 ---
