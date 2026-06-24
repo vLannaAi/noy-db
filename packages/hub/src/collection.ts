@@ -1,4 +1,5 @@
 import type { NoydbStore, EncryptedEnvelope, ChangeEvent, HistoryConfig, HistoryOptions, HistoryEntry, PruneOptions, ListPageResult, LocaleReadOptions, ConflictPolicy, CollectionConflictResolver, PutManyItemOptions, PutManyOptions, PutManyResult, DeleteManyResult } from './types.js'
+import type { FieldMeta } from './introspection/field-meta.js'
 import { NOYDB_FORMAT_VERSION } from './types.js'
 import type { CrdtMode, CrdtState, LwwMapState, RgaState } from './crdt/crdt.js'
 import { NO_CRDT, type CrdtStrategy } from './crdt/strategy.js'
@@ -358,6 +359,12 @@ export class Collection<T> {
    * fields when a locale is requested.
    */
   private readonly dictKeyFields: Record<string, DictKeyDescriptor | StaticDictDescriptor> | undefined
+
+  /**
+   * Consumer-neutral per-field descriptors declared via the `fieldMeta`
+   * collection option. Read by `getFieldMeta()`; merged by `collection.describe()`.
+   */
+  private readonly fieldMeta: Record<string, FieldMeta> | undefined
 
   /**
    * Money field descriptors keyed by field path. Declared via the
@@ -728,6 +735,8 @@ export class Collection<T> {
     textIndexPersist?: boolean | undefined
     /** — dictKey field descriptors for label resolution on reads. */
     dictKeyFields?: Record<string, DictKeyDescriptor | StaticDictDescriptor> | undefined
+    /** — consumer-neutral per-field descriptors. Read via getFieldMeta(). */
+    fieldMeta?: Record<string, FieldMeta> | undefined
     moneyFields?: Record<string, MoneyDescriptor> | undefined
     computed?: ComputedFields | undefined
     /**
@@ -968,6 +977,7 @@ export class Collection<T> {
     this.embeddings = opts.embeddings
     this.vectorSet = opts.embeddings ? new VectorSet() : undefined
     this.dictKeyFields = opts.dictKeyFields
+    this.fieldMeta = opts.fieldMeta
     if (opts.moneyFields) validateMoneyFieldPaths(opts.moneyFields)
     this.moneyFields = opts.moneyFields
     this.computed = opts.computed
@@ -1148,6 +1158,9 @@ export class Collection<T> {
   getSchema(): StandardSchemaV1<unknown, T> | undefined {
     return this.schema
   }
+
+  /** The declared consumer-neutral field metadata channel (canonical). */
+  getFieldMeta(): Record<string, FieldMeta> | undefined { return this.fieldMeta }
 
   /**
    * @internal — attach money descriptors post-construction. MV dependency

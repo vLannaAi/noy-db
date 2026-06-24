@@ -151,6 +151,8 @@ import type { IssueContext } from './attestation/issue.js'
 import type { RevokeContext } from './attestation/revoke.js'
 import type { DumpSchemaOptions, VaultSchemaSnapshot, SchemaIntrospection } from './introspection/types.js'
 import { dumpVaultSchema, type VaultIntrospectState } from './introspection/walk.js'
+import type { FieldMeta } from './introspection/field-meta.js'
+import { validateFieldMetaKeys } from './introspection/field-meta.js'
 import { USER_ENVELOPE_COLLECTION } from './meta/user-envelope/types.js'
 
 /**
@@ -689,6 +691,8 @@ export class Vault {
     textIndexPersist?: boolean
     /** — declare dictKey / staticDict fields for label resolution on reads. */
     dictKeyFields?: Record<string, DictKeyDescriptor | StaticDictDescriptor>
+    /** Consumer-neutral per-field descriptors (label/unit/semanticType/sensitivity…). See collection.describe(). */
+    readonly fieldMeta?: Record<string, FieldMeta>
     /** — declare money() fields for currency-safe decimal storage/formatting. */
     moneyFields?: Record<string, MoneyDescriptor>
     /** — declare computed scalar fields, evaluated on write (schema-owned). */
@@ -1048,6 +1052,18 @@ export class Vault {
       // Wire the translator for autoTranslate: true fields
       if (options?.i18nFields !== undefined && this.translateText) {
         collOpts.autoTranslateHook = this.translateText
+      }
+      // fieldMeta: validate keys against union of all declared config keys, then thread through.
+      if (options?.fieldMeta !== undefined) {
+        const known = new Set<string>([
+          ...Object.keys(options.moneyFields ?? {}),
+          ...Object.keys(options.dictKeyFields ?? {}),
+          ...Object.keys(options.refs ?? {}),
+          ...Object.keys(options.computed ?? {}),
+          ...Object.keys(options.fieldMeta), // schema fields: accepted (not strictly checkable sync)
+        ])
+        validateFieldMetaKeys(collectionName, options.fieldMeta, known)
+        collOpts.fieldMeta = options.fieldMeta
       }
       coll = new Collection<T>(collOpts)
       this.collectionCache.set(collectionName, coll)
