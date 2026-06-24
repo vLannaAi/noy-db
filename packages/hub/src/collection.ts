@@ -3279,6 +3279,7 @@ export class Collection<T> {
       // back to a linear scan otherwise.
       getIndexes: () => this.getIndexes(),
       lookupById: (id: string) => this.cache.get(id)?.record,
+      snapshotEntries: () => [...this.cache.entries()].map(([id, e]) => ({ id, record: e.record })),
       ...(this.moneyFields ? { moneyFields: this.moneyFields } : {}),
     }
     // Build a JoinContext if the vault passed a join resolver.
