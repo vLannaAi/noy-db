@@ -3,7 +3,9 @@
  * the search subsystem so collection.ts holds only thin call-sites; re-exported
  * from the search barrel and the hub root.
  */
-export interface RetrieveOptions {
+import type { Query } from '../query/builder.js'
+
+export interface RetrieveOptions<T = unknown> {
   readonly limit?: number
   readonly match?: 'any' | 'all'
   readonly prefix?: boolean
@@ -14,6 +16,8 @@ export interface RetrieveOptions {
   readonly mode?: 'lexical' | 'semantic' | 'hybrid'
   /** #308 L2 — minimum cosine score for semantic hits (semantic mode only). */
   readonly minScore?: number
+  /** #308 L3 — intersect hits with a structured query (retrieve ∩ where). Eager-mode only. */
+  readonly within?: Query<T>
 }
 
 export interface RetrieveHit<T> {

@@ -46,14 +46,13 @@ import type { PersistedCollectionIndex, PersistedIndexDef } from './indexing/per
 import { LazyQuery } from './indexing/lazy-builder.js'
 import type { LazyQuerySource } from './indexing/lazy-builder.js'
 import { NO_INDEXING, type IndexStrategy, type IndexState } from './indexing/strategy.js'
-import { searchScan, type SearchOptions, type SearchResult } from './search/index.js'
+import { searchScan, fuseRetrieval, type SearchOptions, type SearchResult } from './search/index.js'
 import { MemoryIndexStore, type IndexStore } from './search/index-store.js'
 import { PersistedIndexStore, type PersistedIndexCallbacks } from './search/persisted-index-store.js'
 import { extractSnippet } from './search/snippet.js'
 import { buildStringFieldEntries, buildI18nFieldEntries, buildDictKeyFieldEntries, buildBlobFieldEntries } from './search/build-docs.js'
 import type { IndexDoc, IndexHit } from './search/inverted-index.js'
 import type { RetrieveOptions, RetrieveHit } from './search/retrieve-types.js'
-import { fuseRetrieval } from './search/index.js'
 import { IndexWriteFailureError, DerivationCapExceededError, DebugReservedFieldError, EmbeddingDimMismatchError } from './errors.js'
 import { embeddingSourceText, VectorSet, type EmbeddingDescriptor, type StoredVector } from './embeddings/index.js'
 import { buildUniqueConstraintSet, type UniqueConstraintSet } from './indexing/unique-constraints.js'
@@ -2967,14 +2966,22 @@ export class Collection<T> {
   }
 
   /** #308 — retrieval. mode: 'lexical' (default) | 'semantic' (L2) | 'hybrid' (L3). */
-  async retrieve(query: string, opts: RetrieveOptions = {}): Promise<RetrieveHit<T>[]> {
-    if (opts.mode === 'semantic') return this.retrieveSemantic(query, opts)
-    if (opts.mode === 'hybrid') return this.retrieveHybrid(query, opts)
-    return this.retrieveLexical(query, opts)
+  async retrieve(query: string, opts: RetrieveOptions<T> = {}): Promise<RetrieveHit<T>[]> {
+    const hits =
+      opts.mode === 'semantic' ? await this.retrieveSemantic(query, opts)
+      : opts.mode === 'hybrid' ? await this.retrieveHybrid(query, opts)
+      : await this.retrieveLexical(query, opts)
+    return opts.within ? this.applyWithin(hits, opts.within) : hits
+  }
+
+  /** #308 L3 — keep only hits whose id matches the structured query, re-rank 1-based. */
+  private applyWithin(hits: RetrieveHit<T>[], within: Query<T>): RetrieveHit<T>[] {
+    const ids = new Set(within._idArray())
+    return hits.filter(h => ids.has(h.id)).map((h, i) => ({ ...h, rank: i + 1 }))
   }
 
   /** #308 L1 — client-side lexical retrieval; ranked { id, score, field, snippet, locale? }. */
-  private async retrieveLexical(query: string, opts: RetrieveOptions): Promise<RetrieveHit<T>[]> {
+  private async retrieveLexical(query: string, opts: RetrieveOptions<T>): Promise<RetrieveHit<T>[]> {
     if (!this.searchIndexStore) {
       throw new Error(`Collection "${this.name}": retrieve() requires a textIndexes config.`)
     }
@@ -3015,7 +3022,7 @@ export class Collection<T> {
   }
 
   /** #308 L3 — hybrid: fuse lexical (L1) + semantic (L2) by RRF. Requires embeddings. */
-  private async retrieveHybrid(query: string, opts: RetrieveOptions): Promise<RetrieveHit<T>[]> {
+  private async retrieveHybrid(query: string, opts: RetrieveOptions<T>): Promise<RetrieveHit<T>[]> {
     if (!this.embeddings) {
       throw new Error(`Collection "${this.name}": retrieve({mode:'hybrid'}) requires an embeddings config.`)
     }
@@ -3027,7 +3034,7 @@ export class Collection<T> {
   }
 
   /** #308 L2 — semantic branch of retrieve(): encode query → similarTo(). */
-  private async retrieveSemantic(query: string, opts: RetrieveOptions): Promise<RetrieveHit<T>[]> {
+  private async retrieveSemantic(query: string, opts: RetrieveOptions<T>): Promise<RetrieveHit<T>[]> {
     if (!this.embeddings) throw new Error(`Collection "${this.name}": retrieve({mode:'semantic'}) requires an embeddings config.`)
     if (this.lazy) throw new Error(`Collection "${this.name}": retrieve() requires eager mode (prefetch: true).`)
     const qVec = await this.embeddings.encode(query)
