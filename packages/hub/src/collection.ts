@@ -365,7 +365,7 @@ export class Collection<T> {
    * Consumer-neutral per-field descriptors declared via the `fieldMeta`
    * collection option. Read by `getFieldMeta()`; merged by `collection.describe()`.
    */
-  private readonly fieldMeta: Record<string, FieldMeta> | undefined
+  private fieldMeta: Record<string, FieldMeta> | undefined
 
   /**
    * Outbound ref declarations for this collection (snapshot from vault
@@ -1258,6 +1258,11 @@ export class Collection<T> {
   /** @internal — attach computed fields post-construction. See {@link _applyMoneyFields}. */
   _applyComputed(computed: ComputedFields): void {
     if (this.computed === undefined) this.computed = computed
+  }
+
+  /** @internal — attach fieldMeta post-construction. See {@link _applyMoneyFields}. First-wins. */
+  _applyFieldMeta(fieldMeta: Record<string, FieldMeta>): void {
+    if (this.fieldMeta === undefined) this.fieldMeta = fieldMeta
   }
 
   /**

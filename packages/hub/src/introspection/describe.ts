@@ -254,9 +254,10 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
         // Dynamic dictKey: keys declared in config; labels optionally resolved
         // from vault.dictionary(name).list() when resolveDictLabels was requested.
         const labelMap = dictLabels?.[dict.name]
-        if (labelMap !== undefined) {
+        const labelMapHasEntries = labelMap !== undefined && Object.keys(labelMap).length > 0
+        if (labelMapHasEntries) {
           // We have resolved labels — build values from the label map.
-          const values = Object.entries(labelMap).map(([value, label]) => ({ value, label }))
+          const values = Object.entries(labelMap!).map(([value, label]) => ({ value, label }))
           dictBlock = { name: dict.name, static: false, values }
         } else if (dict.keys !== undefined) {
           const values = dict.keys.map((k) => ({ value: k }))
@@ -266,7 +267,7 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
         }
       }
     } else if (isComputed) {
-      type = zod?.type ?? 'unknown'
+      // type already initialized to zod?.type ?? 'unknown' above; no re-set needed
     }
 
     // ── Merge fieldMeta channel ────────────────────────────────────────────

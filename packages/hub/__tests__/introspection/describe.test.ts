@@ -326,4 +326,44 @@ describe('collection.describe(opts) — async path', () => {
     // type falls back to 'unknown' since no zod schema (no JSON Schema derivable)
     expect(asyncField!.type).toBe('unknown')
   })
+
+  // Fix 1 — fieldMeta reconcile on pre-created (cached) collection
+  it('fieldMeta reconcile: re-declaring a cached collection with fieldMeta reflects label in describe()', async () => {
+    const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-reconcile-1' })
+    const v = await db.openVault('reconcile_vault')
+
+    // First declaration — no fieldMeta (simulates MV auto-creation path)
+    v.collection('rec_coll', {})
+
+    // Second declaration with fieldMeta — must reconcile onto cached instance
+    const c = v.collection('rec_coll', {
+      fieldMeta: { price: { label: 'Unit Price', unit: '€' } },
+    })
+
+    const d = c.describe()
+    const priceField = d.fields.find((f) => f.key === 'price')
+    expect(priceField).toBeDefined()
+    expect(priceField!.label).toBe('Unit Price')
+    expect(priceField!.unit).toBe('€')
+  })
+
+  // Fix 2 — empty async dict must fall back to declared keys
+  it('resolveDictLabels with empty store falls back to declared keys (async superset of sync)', async () => {
+    const { withI18n } = await import('../../src/i18n/active.js')
+    const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-emptydict-1', i18nStrategy: withI18n() })
+    const v = await db.openVault('emptydict_vault')
+
+    const c = v.collection('inv', {
+      dictKeyFields: { status: dictKey('inv_status', ['draft', 'sent'] as const) },
+    })
+
+    // Do NOT call putAll — store is empty; resolveDictLabels returns {} for the dict
+    const d = await c.describe({ resolveDictLabels: true })
+    const statusField = d.fields.find((f) => f.key === 'status')!
+
+    // Must surface the declared keys even though the store is empty
+    const values = statusField.dict?.values?.map((entry) => entry.value)
+    expect(values).toContain('draft')
+    expect(values).toContain('sent')
+  })
 })

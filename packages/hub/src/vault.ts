@@ -691,7 +691,7 @@ export class Vault {
     /** — declare dictKey / staticDict fields for label resolution on reads. */
     dictKeyFields?: Record<string, DictKeyDescriptor | StaticDictDescriptor>
     /** Consumer-neutral per-field descriptors (label/unit/semanticType/sensitivity…). See collection.describe(). */
-    readonly fieldMeta?: Record<string, FieldMeta>
+    fieldMeta?: Record<string, FieldMeta>
     /** — declare money() fields for currency-safe decimal storage/formatting. */
     moneyFields?: Record<string, MoneyDescriptor>
     /** — declare computed scalar fields, evaluated on write (schema-owned). */
@@ -814,6 +814,12 @@ export class Vault {
       // MV source is auto-created (without options) before this
       // declaration; attach computed fields so writes materialize them.
       coll._applyComputed(options.computed as ComputedFields)
+    }
+    if (coll && options?.fieldMeta) {
+      // Same MV-pre-creation reconcile as money/computed: a collection
+      // auto-created without options gets its fieldMeta attached here.
+      // First-wins: if the collection already has fieldMeta set this is a no-op.
+      coll._applyFieldMeta(options.fieldMeta)
     }
     if (!coll) {
       // Register ref declarations (if any) with the vault-level
