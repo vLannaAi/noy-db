@@ -50,3 +50,38 @@ export function validateFieldMetaKeys(
     if (!knownFields.has(key)) throw new FieldMetaUnknownFieldError(collection, key)
   }
 }
+
+export interface MergeInputs {
+  channel?: FieldMeta
+  zodMeta?: Partial<FieldMeta>
+  inferred?: Partial<FieldMeta>
+}
+export interface ResolvedMeta extends Partial<FieldMeta> { label: string }
+
+/** camelCase / snake_case → Title Case words. */
+export function humanizeFieldKey(key: string): string {
+  return key
+    .replace(/[_-]+/g, ' ')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .trim()
+    .split(/\s+/)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ')
+}
+
+/** Merge one field's metadata: channel > zodMeta > inferred; label always present. */
+export function resolveFieldMeta(key: string, inputs: MergeInputs): ResolvedMeta {
+  const { channel, zodMeta, inferred } = inputs
+  const pick = <K extends keyof FieldMeta>(k: K): FieldMeta[K] | undefined =>
+    channel?.[k] ?? zodMeta?.[k] ?? inferred?.[k]
+  return {
+    label: pick('label') ?? humanizeFieldKey(key),
+    ...(pick('description') !== undefined ? { description: pick('description') } : {}),
+    ...(pick('semanticType') !== undefined ? { semanticType: pick('semanticType') } : {}),
+    ...(pick('unit') !== undefined ? { unit: pick('unit') } : {}),
+    ...(pick('sensitivity') !== undefined ? { sensitivity: pick('sensitivity') } : {}),
+    ...(pick('aggregate') !== undefined ? { aggregate: pick('aggregate') } : {}),
+    ...(pick('aliases') !== undefined ? { aliases: pick('aliases') } : {}),
+    ...(pick('displayFor') !== undefined ? { displayFor: pick('displayFor') } : {}),
+  }
+}
