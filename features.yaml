@@ -283,15 +283,15 @@ features:
       - 'fingerprint {count,maxVersion}: recomputed from eager cache on load; mismatch → rebuild + re-persist (self-healing cross-session staleness)'
       - 'debounced flush after put/delete; flushIndex() forces immediate persist; db.close() best-effort close-flush'
       - 'forget() teardown: removes the _ftindex blob (markDirty + remove); index would otherwise decrypt forgotten subject terms under the collection DEK'
-      - 'RetrieveHit.rank: 1-based, monotonic with score order; federation-ready for Reciprocal Rank Fusion across vaults (klum Lobby, L3 hybrid) without sharing corpus-relative BM25 scores'
+      - 'RetrieveHit.rank: 1-based, monotonic with score order; federation-ready for Reciprocal Rank Fusion across vaults (klum Lobby) and across modalities (L3 hybrid fuseRetrieval) without sharing corpus-relative BM25 scores'
       - 'opts.match any(OR,default)/all(AND); opts.prefix → last query term is a prefix (typeahead); opts.limit → top-N; opts.includeRecord → attach full decrypted record'
       - 'deleted / forgotten records never appear (eager cache eviction on delete / _writeTombstone)'
     related: [schema-and-refs, i18n]
 
   - id: vector-search
-    name: Semantic / vector retrieval — encrypted-local L2 (collection.retrieve(mode:semantic) / collection.similarTo)
+    name: Semantic / vector + hybrid retrieval — encrypted-local L2/L3 (collection.retrieve / collection.similarTo / fuseRetrieval)
     cluster: core
-    spec: docs/superpowers/specs/2026-06-22-ai-retrieval-l2-semantic-vector-design.md
+    spec: docs/superpowers/specs/2026-06-23-ai-retrieval-l3-hybrid-design.md
     subsystem_doc: docs/subsystems/embeddings.md
     package: '@noy-db/hub'
     factory: null
@@ -300,14 +300,20 @@ features:
     showcases:
       - id: 124-semantic-retrieve
         path: showcases/src/124-semantic-retrieve.showcase.test.ts
+      - id: 125-hybrid-retrieve
+        path: showcases/src/125-hybrid-retrieve.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
     invariants:
       - 'encrypted-local model: vectors encrypted at rest under the collection DEK (_vec sidecar); decrypted only in the trusted tier for in-memory cosine — zero store leakage of vector values or source text (managed/plaintext vector backends deferred/gated — the blind-index twin)'
       - 'embeddings config on collection(): { source: string|string[], encode: (text) => Promise<Float32Array>, dim: number, model: string } — no bundled model; encode hook is host/remote (call any embedding API)'
-      - 'retrieve(q, { mode: "semantic", k?, minScore? }) encodes the query via the same encode hook, then brute-force cosines over the decrypted VectorSet; returns RetrieveHit[] with rank (1-based) + score'
-      - 'collection.similarTo(vector, { k?, minScore? }) accepts a raw Float32Array (caller embeds the query); hybrid filtering / query().similarTo().where() chaining is DEFERRED — consumers can intersect similarTo() ids with query().where() ids manually'
+      - 'retrieve(q, { mode: "lexical" }) is the default L1 path; retrieve(q, { mode: "semantic", k?, minScore? }) is the L2 cosine path; retrieve(q, { mode: "hybrid" }) (L3) runs both and fuses by Reciprocal Rank Fusion (RRF, k=60) — the fused score is an RRF score, NOT BM25 or cosine'
+      - 'retrieve(q, { mode: "hybrid" }) requires a collection configured with embeddings — throws if no embeddings descriptor is present'
+      - 'within: Query<T> option on retrieve() (all modes, L3): retrieve ∩ where — intersects hits with a structured query().where(…) predicate; eager-mode only; re-ranks 1-based within the filtered set; ZERO store writes (pure in-memory intersection over the eager cache)'
+      - 'fuseRetrieval(lists, opts?) — pure RRF reducer exported from @noy-db/hub AND @noy-db/hub/kernel; arity-generic over any RetrieveHit[]; one primitive for both modality fusion (lexical+semantic) and cross-vault federation (klum Lobby fans out per-vault retrieve(), qualifies ids, calls fuseRetrieval to merge)'
+      - 'L3 adds ZERO store artifacts: hybrid retrieval is pure in-trusted-tier compute over L1 in-memory index, L2 in-memory VectorSet, and the eager cache — zero new store leakage'
+      - 'collection.similarTo(vector, { k?, minScore? }) accepts a raw Float32Array (caller embeds the query)'
       - 'model-version guard: each stored vector tagged with model; EmbeddingModelMismatchError when stored model != descriptor model — invalidation is hard (the embedding space changes); vault.embeddings.reindex() is DEFERRED (v1: re-put records to re-derive)'
       - 'EmbeddingDimMismatchError on write when encode() returns a vector whose length != descriptor dim'
       - 'forget() purges the _vec/<id> sidecar (resilient try/catch + ForgetResult residue, mirroring _ftindex); marks VectorSet dirty — forgotten vectors (source-invertible) must not survive crypto-shred'

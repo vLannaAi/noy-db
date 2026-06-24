@@ -14,7 +14,7 @@
 | **L1** | `collection.retrieve(query, opts)` — client-side lexical inverted index, i18n tokenizer, multi-field BM25 | shipped (#308 L1) |
 | **L1.5** | Persisted opaque encrypted index blob (warm cross-session, fingerprint staleness check, debounced flush) | shipped (#308 L1.5) |
 | **L2** | Client-side **semantic / vector** retrieval — `retrieve({mode:'semantic'})` + `similarTo()` — this doc | shipped (#308 L2) |
-| L3 | Formalized agent retrieval API (hybrid ranking, context assembly, `fuseRetrieval`) | future spec |
+| **L3** | **Hybrid retrieval** — `retrieve({mode:'hybrid'})` (RRF lexical+semantic fusion) + `fuseRetrieval` + `within` filter — this doc | shipped (#308 L3) |
 | L4 | Access-pattern privacy (ORAM) + attested-enclave (PCC-style) compute tier | research-grade |
 
 ---
@@ -156,6 +156,124 @@ const filtered = vecHits.filter((h) => active.has(h.id))
 
 ---
 
+## Hybrid retrieval (L3)
+
+### `retrieve(q, { mode: 'hybrid' })`
+
+```ts
+const hits = await docs.retrieve('overdue invoice', { mode: 'hybrid' })
+// Returns RetrieveHit[] — best first by RRF score
+// { id, score, rank, field, snippet?, record? }
+```
+
+`mode: 'hybrid'` fuses **lexical (L1) + semantic (L2)** ranked lists by
+**Reciprocal Rank Fusion** (RRF). The algorithm:
+
+1. Run `retrieveLexical` → ranked list A.
+2. Run `retrieveSemantic` → ranked list B.
+3. For each id, compute RRF score = `Σ 1 / (k + rank_i)` across the lists it
+   appears in (default `k = 60`).
+4. Re-sort descending by RRF score; ties broken by id (deterministic).
+5. Re-assign `rank` 1-based.
+
+**The fused `score` is an RRF score — NOT BM25 or cosine.** It is a small
+positive number (at most `2/61 ≈ 0.033` with two lists). A document appearing
+in both lists earns contributions from each and typically outranks a doc
+appearing in only one list, even if that doc ranks higher in its single
+modality. This is the key benefit of hybrid retrieval: it combines exact-token
+signal and semantic-proximity signal without requiring corpus-level score
+normalization.
+
+**Requires `embeddings` configured on the collection.** If the collection has
+no `embeddings` descriptor, `retrieve(q, { mode: 'hybrid' })` throws.
+
+**L3 adds ZERO new store artifacts.** Hybrid retrieval is pure in-trusted-tier
+compute over L1's in-memory index, L2's in-memory VectorSet, and the eager
+cache — the same privacy guarantee as L1 and L2.
+
+---
+
+### `within: Query<T>` — retrieve ∩ where
+
+The `within` option intersects the retrieve result with a structured
+`collection.query().where(…)` predicate. It works with all modes
+(`'lexical'`, `'semantic'`, `'hybrid'`).
+
+```ts
+// Hybrid retrieve filtered to open status only:
+const hits = await docs.retrieve('overdue invoice', {
+  mode: 'hybrid',
+  within: docs.query().where('status', '==', 'open'),
+})
+
+// Lexical retrieve filtered to high-value invoices (using an indexed field):
+const hits2 = await invoices.retrieve('overdue', {
+  within: invoices.query().where('amount', '>', 1000),
+})
+```
+
+Internally, `within._idArray()` evaluates the query plan against the in-memory
+eager cache (same snapshot as `retrieve` uses), returning matched ids by
+reference identity. The retrieve hits are then filtered to that set and
+re-ranked 1-based. **No store reads.** Requires **eager mode** (the default).
+
+**Supported `within` operators:** `where`, `filter`, `and`, `or`, and
+projection `.join()`. **`crossJoin` is unsupported** — it produces new spread
+row objects that break reference-identity id recovery, so `_idArray()` throws a
+clear error if the plan contains a `crossJoin` clause.
+
+**`limit` and `within` interact at the retrieve stage, not after.** `limit` is
+applied per-mode (lexical/semantic/hybrid) before the `within` intersection, so
+`{ limit: N, within }` can return fewer than N matches even when more matching
+docs exist beyond the cutoff (post-filter semantics, not post-limit).
+
+If the `within` query matches no records, the result is an empty array.
+
+---
+
+### `fuseRetrieval(lists, opts?)` — the federation primitive
+
+```ts
+import { fuseRetrieval } from '@noy-db/hub'
+// also available from '@noy-db/hub/kernel' (federation seam)
+
+const fused = fuseRetrieval([lexicalHits, semanticHits])
+// → RetrieveHit[] — best first by RRF score
+
+// Custom k and limit:
+const top5 = fuseRetrieval([listA, listB], { k: 60, limit: 5 })
+```
+
+`fuseRetrieval` is the bare RRF reducer. It is:
+
+- **Pure** — no I/O, no store access. Takes `ReadonlyArray<ReadonlyArray<RetrieveHit<T>>>` and returns `RetrieveHit<T>[]`.
+- **Arity-generic** — works with 2 or more lists (modality fusion, cross-vault fusion, or both).
+- **One primitive for two use cases:**
+  - **Modality fusion** — `retrieve(mode:'hybrid')` calls it internally with `[lexicalHits, semanticHits]`.
+  - **Cross-vault federation** — klum-db Lobby fans out per-vault `retrieve()` calls, collects the results as separate lists, then calls `fuseRetrieval` to merge. The fused result is vault-rank-agnostic (no corpus-relative BM25 scores cross vault boundaries).
+
+`fuseRetrieval` is exported from both `@noy-db/hub` (the package entry, for
+consumers) and `@noy-db/hub/kernel` (the federation seam, for klum-db Lobby
+and other integrators that compose the primitive without a full DB instance).
+
+**`FuseOptions`:**
+
+| Option | Default | Meaning |
+|---|---|---|
+| `strategy` | `'rrf'` | Only `'rrf'` in v1 |
+| `k` | `60` | RRF constant; larger = flatter rank weighting |
+| `limit` | — | Truncate the fused output to top-N |
+
+**Merged-hit field policy:** when an id appears in multiple lists, the
+presentation (field, snippet, locale) of the **lexical** hit is preferred over
+the vector placeholder (`field: '(vector)'`). The `record` is recovered from
+whichever hit has it. When two lexical hits for the same id fuse (e.g., a
+future N-vault federation scenario where the same id appears in separate per-vault
+lists), the **first list's** field, snippet, and locale win and the second's are
+dropped — v1 modality fusion (2 lists) never hits this case.
+
+---
+
 ## Model-version guard
 
 Every stored vector is tagged with the `model` string from the descriptor. On
@@ -200,6 +318,8 @@ the record itself.
 ## Cross-references
 
 - L2 design spec: `docs/superpowers/specs/2026-06-22-ai-retrieval-l2-semantic-vector-design.md`
+- L3 hybrid design spec: `docs/superpowers/specs/2026-06-23-ai-retrieval-l3-hybrid-design.md`
 - L1/L1.5 search subsystem: `docs/subsystems/search.md`
 - Showcase 124: semantic retrieve walkthrough — `showcases/src/124-semantic-retrieve.showcase.test.ts`
+- Showcase 125: hybrid retrieve + fuseRetrieval walkthrough — `showcases/src/125-hybrid-retrieve.showcase.test.ts`
 - `features.yaml` -> `features` -> `vector-search`

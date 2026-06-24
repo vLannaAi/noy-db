@@ -14,8 +14,8 @@
 | **L0** | `collection.search(field, query, opts)` — in-memory decrypt + BM25 scan, zero leakage | ✅ shipped |
 | **L1** | `collection.retrieve(query, opts)` — client-side **lexical inverted index**, i18n tokenizer, multi-field, snippet | ✅ shipped (#308) |
 | **L1.5** | Persisted **opaque encrypted** index blob (warm cross-session, fingerprint staleness check, debounced flush) | ✅ shipped (#308 L1.5) |
-| L2 | Client-side **semantic / vector** retrieval — `retrieve(…, {mode:'semantic'\|'hybrid'})` | future spec |
-| L3 | Formalized **agent retrieval API** (hybrid ranking, context assembly) | future spec |
+| **L2** | Client-side **semantic / vector** retrieval — `retrieve({mode:'semantic'})` + `similarTo()` | ✅ shipped (#308 L2) |
+| **L3** | **Hybrid retrieval** — `retrieve({mode:'hybrid'})` (RRF lexical+semantic) + `fuseRetrieval` + `within` filter | ✅ shipped (#308 L3) |
 | L4 | Access-pattern privacy (ORAM) + attested-enclave (PCC-style) compute tier | research-grade |
 
 ---
@@ -99,12 +99,14 @@ L3's lexical⊕semantic hybrid fusion.
 
 | Option | Default | Meaning |
 |---|---|---|
+| `mode` | `'lexical'` | `'lexical'` (L1 BM25), `'semantic'` (L2 cosine), or `'hybrid'` (L3 RRF fusion — requires `embeddings`) |
 | `limit` | — | Return top-N hits only |
 | `match` | `'any'` | `'any'` = OR, `'all'` = AND of query terms |
 | `prefix` | `false` | Last query term is a prefix (typeahead / autocomplete) |
 | `snippetWindow` | `80` | Half-window char count around the best match |
 | `fields` | all `textIndexes` | Restrict search to a subset of indexed fields |
 | `includeRecord` | `false` | Attach the full decrypted record to each hit |
+| `within` | — | `Query<T>` from `collection.query().where(…)` — intersects hits with a predicate (eager-mode only, zero store writes); see [Hybrid retrieval docs](embeddings.md#hybrid-retrieval-l3) |
 
 ### `textIndexes` collection option
 
@@ -297,7 +299,11 @@ default**. The SSE path is superseded by the client-side index.
 
 - L1 design + field-type analysis: `docs/superpowers/specs/2026-06-22-ai-retrieval-l1-lexical-index-design.md`
 - L1.5 persisted index design: `docs/superpowers/specs/2026-06-22-ai-retrieval-l1.5-persisted-index-design.md`
+- L3 hybrid design: `docs/superpowers/specs/2026-06-23-ai-retrieval-l3-hybrid-design.md`
 - Showcase 111: L0 scan-mode search — `showcases/src/111-scan-search.showcase.test.ts`
 - Showcase 122: L1 `retrieve()` walkthrough — `showcases/src/122-with-retrieve.showcase.test.ts`
 - Showcase 123: L1.5 persisted index warm load — `showcases/src/123-persisted-index.showcase.test.ts`
+- Showcase 124: L2 semantic retrieve — `showcases/src/124-semantic-retrieve.showcase.test.ts`
+- Showcase 125: L3 hybrid retrieve + fuseRetrieval — `showcases/src/125-hybrid-retrieve.showcase.test.ts`
+- L2/L3 semantic + hybrid docs: `docs/subsystems/embeddings.md`
 - `features.yaml` → `features` → `search-index`

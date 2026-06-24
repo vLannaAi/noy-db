@@ -23,6 +23,9 @@ export { sha256Hex } from '../crypto.js'
 // (see the `types` group below). `StoreCoordinationProvider` is hub-internal
 // and intentionally NOT exported here — consumers inject their own.
 export { isQuorum, runDrainBarrier } from '../coordination/index.js'
+// #308 L3 — rank-fusion reducer: an outward orchestrator (@klum-db/lobby)
+// fuses per-vault retrieve() result-sets with the SAME primitive hybrid uses.
+export { fuseRetrieval } from '../search/fuse.js'
 
 // ─── error classes ────────────────────────────────────────────────
 export {
@@ -55,6 +58,9 @@ export type {
   LiveAggregation,
 } from '../aggregate/aggregation.js'
 export type { IndexDef } from '../indexing/eager-indexes.js'
+// #308 L3 — rank-fusion types
+export type { FuseOptions } from '../search/fuse.js'
+export type { RetrieveHit, RetrieveOptions } from '../search/retrieve-types.js'
 // #469 coordination port types — the implementable contract surface for an
 // injected drain-barrier transport (runtime helpers are in the group above).
 export type {

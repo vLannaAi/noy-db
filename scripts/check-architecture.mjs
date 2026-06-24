@@ -493,7 +493,9 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 4922→5100 (#308 L1): retrieve()/warmIndex call-sites + dict/blob label resolvers (engine in src/search/)
   // Bumped 5100→5168 (#308 L1.5): persisted-index call-sites + forget/close wiring
   // Bumped 5168→5255 (#308 L2): embeddings derive/retrieve/forget call-sites (engine in src/embeddings/)
-  'packages/hub/src/collection.ts': 5255,
+  // Bumped 5255→5278 (#308 L3): retrieveLexical/retrieveHybrid private methods + thin retrieve() dispatcher
+  // Bumped 5278→5285 (#308 L3 Task 4): applyWithin() private method + within dispatch in retrieve()
+  'packages/hub/src/collection.ts': 5285,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.

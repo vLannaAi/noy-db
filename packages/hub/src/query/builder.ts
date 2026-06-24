@@ -93,6 +93,11 @@ export interface QuerySource<T> {
    * `sum`/`min`/`max` over money fields into exact BigInt reducers.
    */
   moneyFields?: Record<string, MoneyDescriptor>
+  /**
+   * #308 L3 — id-paired snapshot for `Query._idArray()` (the `retrieve({within})`
+   * id projection). Optional: only collection-backed queries supply it.
+   */
+  snapshotEntries?(): readonly { id: string; record: T }[]
 }
 
 interface InternalSource {
@@ -101,6 +106,7 @@ interface InternalSource {
   getIndexes?(): CollectionIndexes | null
   lookupById?(id: string): unknown
   moneyFields?: Record<string, MoneyDescriptor>
+  snapshotEntries?(): readonly { id: string; record: unknown }[]
 }
 
 /**
@@ -182,6 +188,40 @@ export class Query<T> {
       this.aggregateStrategy,
       predicates,
     )
+  }
+
+  /**
+   * @internal — #308 L3. The ids of records matching this query's plan,
+   * recovered by reference identity: `executePlanWithSource` returns the
+   * ORIGINAL snapshot record references (money-decode and joins are applied
+   * later, in `toArray`), so each matched record is found in the id-paired
+   * `snapshotEntries()` map. Used by `collection.retrieve({ within })`.
+   * Throws if the source is not collection-backed (no `snapshotEntries`).
+   */
+  _idArray(): string[] {
+    const entries = this.source.snapshotEntries?.()
+    if (entries === undefined) {
+      throw new Error(
+        'Query._idArray(): the query source has no snapshotEntries(); ' +
+          'retrieve({ within }) requires a collection-backed query (collection.query()).',
+      )
+    }
+    if (this.plan.clauses.some(c => c.type === 'crossJoin')) {
+      throw new Error(
+        'Query._idArray(): retrieve({ within }) does not support crossJoin queries ' +
+          '(cross-join produces new row objects, breaking id recovery). ' +
+          'Use where/filter/and/or, or a projection .join().',
+      )
+    }
+    const refToId = new Map<unknown, string>()
+    for (const { id, record } of entries) refToId.set(record, id)
+    const matched = executePlanWithSource(this.source, this.plan, this.joinContext)
+    const ids: string[] = []
+    for (const r of matched) {
+      const id = refToId.get(r)
+      if (id !== undefined) ids.push(id)
+    }
+    return ids
   }
 
   /**

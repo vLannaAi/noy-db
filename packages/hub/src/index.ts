@@ -904,6 +904,8 @@ export { TierNotGrantedError, TierDemoteDeniedError, DelegationTargetMissingErro
 
 // lazy-mode index errors
 export { IndexRequiredError, IndexWriteFailureError } from './errors.js'
+// #308 L3 — hybrid-retrieval rank fusion (also the klum federation primitive)
+export { fuseRetrieval, type FuseOptions } from './search/fuse.js'
 // unique-index enforcement error
 export { UniqueConstraintError, UnsupportedIndexOptionError } from './errors.js'
 // embeddings / semantic-retrieval (L2)
