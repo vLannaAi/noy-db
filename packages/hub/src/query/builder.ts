@@ -206,6 +206,13 @@ export class Query<T> {
           'retrieve({ within }) requires a collection-backed query (collection.query()).',
       )
     }
+    if (this.plan.clauses.some(c => c.type === 'crossJoin')) {
+      throw new Error(
+        'Query._idArray(): retrieve({ within }) does not support crossJoin queries ' +
+          '(cross-join produces new row objects, breaking id recovery). ' +
+          'Use where/filter/and/or, or a projection .join().',
+      )
+    }
     const refToId = new Map<unknown, string>()
     for (const { id, record } of entries) refToId.set(record, id)
     const matched = executePlanWithSource(this.source, this.plan, this.joinContext)

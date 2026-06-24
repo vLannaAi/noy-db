@@ -217,6 +217,16 @@ eager cache (same snapshot as `retrieve` uses), returning matched ids by
 reference identity. The retrieve hits are then filtered to that set and
 re-ranked 1-based. **No store reads.** Requires **eager mode** (the default).
 
+**Supported `within` operators:** `where`, `filter`, `and`, `or`, and
+projection `.join()`. **`crossJoin` is unsupported** — it produces new spread
+row objects that break reference-identity id recovery, so `_idArray()` throws a
+clear error if the plan contains a `crossJoin` clause.
+
+**`limit` and `within` interact at the retrieve stage, not after.** `limit` is
+applied per-mode (lexical/semantic/hybrid) before the `within` intersection, so
+`{ limit: N, within }` can return fewer than N matches even when more matching
+docs exist beyond the cutoff (post-filter semantics, not post-limit).
+
 If the `within` query matches no records, the result is an empty array.
 
 ---
@@ -257,7 +267,10 @@ and other integrators that compose the primitive without a full DB instance).
 **Merged-hit field policy:** when an id appears in multiple lists, the
 presentation (field, snippet, locale) of the **lexical** hit is preferred over
 the vector placeholder (`field: '(vector)'`). The `record` is recovered from
-whichever hit has it.
+whichever hit has it. When two lexical hits for the same id fuse (e.g., a
+future N-vault federation scenario where the same id appears in separate per-vault
+lists), the **first list's** field, snippet, and locale win and the second's are
+dropped — v1 modality fusion (2 lists) never hits this case.
 
 ---
 

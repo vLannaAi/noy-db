@@ -16,6 +16,11 @@ export interface FuseOptions {
   readonly limit?: number
 }
 
+/**
+ * Callers must supply hits with `rank >= 1` (the retrieve contract guarantees
+ * it; a federation caller passing `rank: 0` with `k: 0` would divide by zero).
+ * Doc-only note — no runtime guard; rank ≥ 1 is the retrieve contract.
+ */
 export function fuseRetrieval<T>(
   lists: ReadonlyArray<ReadonlyArray<RetrieveHit<T>>>,
   opts: FuseOptions = {},

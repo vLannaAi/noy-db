@@ -3,8 +3,31 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb, money } from '../src/index.js'
+import { Query } from '../src/query/builder.js'
+import type { QuerySource, JoinContext, JoinableSource } from '../src/query/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError } from '../src/errors.js'
+
+function staticSourceWithEntries<T extends object>(
+  records: T[],
+): QuerySource<T> & { snapshotEntries(): readonly { id: string; record: T }[] } {
+  const entries = records.map((r, i) => ({ id: `id${i}`, record: r }))
+  return {
+    snapshot: () => records,
+    snapshotEntries: () => entries,
+  }
+}
+
+function mockJoinContext(sources: Record<string, unknown[]>): JoinContext {
+  return {
+    leftCollection: 'left',
+    resolveRef: () => null,
+    resolveSource: (name: string): JoinableSource | null => {
+      const snap = sources[name]
+      return snap !== undefined ? { snapshot: () => snap } : null
+    },
+  }
+}
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -73,5 +96,22 @@ describe('Query._idArray()', () => {
     const { Query } = await import('../src/query/builder.js')
     const raw = new Query<{ x: number }>({ snapshot: () => [{ x: 1 }] })
     expect(() => (raw as unknown as { _idArray(): string[] })._idArray()).toThrow(/snapshotEntries/)
+  })
+})
+
+describe('Query._idArray() > crossJoin guard', () => {
+  it('throws with a crossJoin message when the plan contains a crossJoin clause', () => {
+    const RIGHT = [{ name: 'Alice' }, { name: 'Bob' }]
+    const jc = mockJoinContext({ workers: RIGHT })
+    const source = staticSourceWithEntries([{ id: 'p1' }, { id: 'p2' }])
+    const q = new Query(source, { clauses: [], orderBy: [], limit: undefined, offset: 0, joins: [] }, jc)
+      .crossJoin('workers', { as: 'worker' })
+    expect(() => (q as unknown as { _idArray(): string[] })._idArray()).toThrow(/crossJoin/)
+  })
+
+  it('does NOT throw for a where-only query (no false-trip on existing within tests)', () => {
+    const source = staticSourceWithEntries([{ status: 'open' }, { status: 'closed' }])
+    const q = new Query(source).where('status', '==', 'open')
+    expect(() => (q as unknown as { _idArray(): string[] })._idArray()).not.toThrow()
   })
 })
