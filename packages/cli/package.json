@@ -59,7 +59,7 @@
     "@noy-db/to-probe": "workspace:*",
     "@types/node": "^22.0.0",
     "yaml": "^2.9.0",
-    "zod": "^3.23.0",
+    "zod": "^4.0.0",
     "zod-to-json-schema": "^3.25.2"
   },
   "keywords": [
