@@ -152,7 +152,6 @@ import type { RevokeContext } from './attestation/revoke.js'
 import type { DumpSchemaOptions, VaultSchemaSnapshot, SchemaIntrospection } from './introspection/types.js'
 import { dumpVaultSchema, type VaultIntrospectState } from './introspection/walk.js'
 import type { FieldMeta } from './introspection/field-meta.js'
-import { validateFieldMetaKeys } from './introspection/field-meta.js'
 import { USER_ENVELOPE_COLLECTION } from './meta/user-envelope/types.js'
 
 /**
@@ -1053,16 +1052,11 @@ export class Vault {
       if (options?.i18nFields !== undefined && this.translateText) {
         collOpts.autoTranslateHook = this.translateText
       }
-      // fieldMeta: validate keys against union of all declared config keys, then thread through.
+      // fieldMeta: thread through to the collection. Real key-validation (against
+      // schema-derived fields) happens in the async describe() path where the full
+      // known-field set is available. The sync path at vault-construction time cannot
+      // validate schema fields, so no validate call here.
       if (options?.fieldMeta !== undefined) {
-        const known = new Set<string>([
-          ...Object.keys(options.moneyFields ?? {}),
-          ...Object.keys(options.dictKeyFields ?? {}),
-          ...Object.keys(options.refs ?? {}),
-          ...Object.keys(options.computed ?? {}),
-          ...Object.keys(options.fieldMeta), // schema fields: accepted (not strictly checkable sync)
-        ])
-        validateFieldMetaKeys(collectionName, options.fieldMeta, known)
         collOpts.fieldMeta = options.fieldMeta
       }
       // Pass a snapshot of the outbound refs for describe() (sync, config-only).

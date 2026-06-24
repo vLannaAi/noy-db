@@ -497,7 +497,8 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 5278→5285 (#308 L3 Task 4): applyWithin() private method + within dispatch in retrieve()
   // Bumped 5285→5293 (#483 Task 1): fieldMeta private field + getFieldMeta() getter + FieldMeta type import
   // Bumped 5293→5332 (#483 Task 3): describe() sync method + _refs private field + buildDescription import + declaredRefs opt
-  'packages/hub/src/collection.ts': 5332,
+  // Bumped 5332→5374 (#483 Task 4): describeAsync() private method (derive zodFields + resolveDictLabels + delegate to buildDescription)
+  'packages/hub/src/collection.ts': 5374,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.

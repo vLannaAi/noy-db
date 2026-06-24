@@ -1,18 +1,22 @@
 /**
- * collection.describe() — sync config-merge (#483 Task 3).
+ * collection.describe() — sync config-merge (#483 Task 3) + async exact-types (#483 Task 4).
  *
- * Tests the SYNC zero-arg describe() path: config-only, no store I/O.
+ * Sync tests (zero-arg describe()): config-only, no store I/O.
  * Covers: money→currency inference, ref→entity inference, staticDict values,
  * fieldMeta label/semanticType/unit/displayFor override, zero-store-I/O guarantee.
+ *
+ * Async tests (describe(opts)): validator-derived exact types, zod-4 .meta() merge,
+ * dynamic dict label resolution, fieldMeta key-validation, validator-agnostic invariant.
  */
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { createNoydb } from '../../src/noydb.js'
 import { money } from '../../src/money/descriptor.js'
-import { staticDict } from '../../src/i18n/dictionary.js'
+import { staticDict, dictKey } from '../../src/i18n/dictionary.js'
 import { ref } from '../../src/refs.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/types.js'
 import { ConflictError } from '../../src/errors.js'
+import { FieldMetaUnknownFieldError } from '../../src/introspection/field-meta.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -117,45 +121,37 @@ describe('collection.describe() — sync path', () => {
   })
 
   it('zero store I/O: describe() does not touch the store', async () => {
-    const throwing: NoydbStore = {
-      async get() { throw new Error('store.get must not be called') },
-      async put() { throw new Error('store.put must not be called') },
-      async delete() { throw new Error('store.delete must not be called') },
-      async list() { throw new Error('store.list must not be called') },
-      async loadAll() { throw new Error('store.loadAll must not be called') },
-      async saveAll() { throw new Error('store.saveAll must not be called') },
-    }
-
-    // Use a normal memory store for the db bootstrap (key derivation, _keyring write),
-    // but wrap the vault's collection in a way that lets us check no data reads occur.
-    // Since createNoydb itself writes _keyring at init time we need a real store for open,
-    // then we just confirm describe() on a fully-constructed collection does NOT throw.
-    const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-describe-2' })
+    // Build on a real store so createNoydb / openVault succeed (keyring write etc.)
+    const mem = inlineMemory()
+    const db = await createNoydb({ store: mem, user: 'alice', secret: 'pw-describe-2' })
     const v = await db.openVault('w')
     const coll = v.collection<Sale>('sales2', {
       moneyFields: { total: money({ currency: 'USD' }) },
-    })
-
-    // describe() is sync and config-only — should never throw
-    expect(() => coll.describe()).not.toThrow()
-
-    // Confirm the throwing store variant: build a collection directly on a
-    // fresh db that immediately switches to a throwing store post-open.
-    // We validate that calling describe() on the already-constructed collection
-    // does not interact with any store methods.
-    const db2 = await createNoydb({ store: inlineMemory(), user: 'bob', secret: 'pw-describe-3' })
-    const v2 = await db2.openVault('w2')
-    const coll2 = v2.collection<Sale>('sales3', {
-      moneyFields: { total: money({ currency: 'GBP' }) },
       refs: { buyerId: ref('buyers') },
     })
 
-    // Calling describe() is purely synchronous over in-memory config — no store calls
-    const desc = coll2.describe()
-    expect(desc.collection).toBe('sales3')
+    // Spy on every store method AFTER the vault is open (so init writes don't trip us).
+    // Any call during describe() will be recorded — we assert zero calls.
+    const getspy   = vi.spyOn(mem, 'get')
+    const putspy   = vi.spyOn(mem, 'put')
+    const delspy   = vi.spyOn(mem, 'delete')
+    const listspy  = vi.spyOn(mem, 'list')
+    const loadspy  = vi.spyOn(mem, 'loadAll')
+    const savespy  = vi.spyOn(mem, 'saveAll')
+
+    // describe() is sync and config-only — must never touch any store method.
+    const desc = coll.describe()
+
+    expect(getspy).not.toHaveBeenCalled()
+    expect(putspy).not.toHaveBeenCalled()
+    expect(delspy).not.toHaveBeenCalled()
+    expect(listspy).not.toHaveBeenCalled()
+    expect(loadspy).not.toHaveBeenCalled()
+    expect(savespy).not.toHaveBeenCalled()
+
+    // Sanity: the description is still correct.
+    expect(desc.collection).toBe('sales2')
     expect(desc.fields.length).toBeGreaterThan(0)
-    // The throwing store was never used above — the test passes without touching it.
-    void throwing // referenced to satisfy linter
   })
 
   it('dynamic dictKey: values list uses declared keys, no label', async () => {
@@ -189,5 +185,147 @@ describe('collection.describe() — sync path', () => {
     const byKey = Object.fromEntries(d.fields.map((f) => [f.key, f]))
     expect(byKey.tagIds.ref?.isArray).toBe(true)
     expect(byKey.tagIds.type).toBe('array')
+  })
+})
+
+// ─── Async describe(opts) — Task 4 (#483) ────────────────────────────────────
+
+describe('collection.describe(opts) — async path', () => {
+  /**
+   * Shared vault + collections for async tests.
+   *
+   * zod-4 empirical finding (verified via `node -e "…z.toJSONSchema(schema)…"`):
+   * toJSONSchema() emits .meta() keys INLINE on each JSON Schema property, at the
+   * same level as `type` / `format`. For example:
+   *   z.number().meta({ unit: 'kg' }) → { "type": "number", "unit": "kg" }
+   * Keys mapped: label, description, unit, semanticType, sensitivity, aggregate,
+   * aliases, displayFor. Unknown keys are ignored.
+   * Optional fields are excluded from the `required` array at root level.
+   */
+
+  it('async describe derives exact types from the zod-4 validator', async () => {
+    const z4 = await import('/Users/vicio/_github/noy-db/node_modules/.pnpm/zod@4.4.3/node_modules/zod/index.js')
+    const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-async-1' })
+    const v = await db.openVault('av1')
+
+    const salesSchema = z4.z.object({
+      id: z4.z.string(),
+      saleDate: z4.z.string().optional(),
+      total: z4.z.number(),
+      buyerId: z4.z.string(),
+    })
+
+    const sales = v.collection('sales_async', {
+      schema: salesSchema as unknown as import('../../src/schema.js').StandardSchemaV1,
+    })
+
+    const d = await sales.describe({})
+    const byKey = Object.fromEntries(d.fields.map((f) => [f.key, f]))
+
+    // Validator-derived types — not 'unknown'
+    expect(byKey.saleDate.type).toBe('string')
+    expect(byKey.total.type).toBe('number')
+    // optional: saleDate is optional in zod schema, total/id are required
+    expect(byKey.saleDate.optional).toBe(true)
+    expect(byKey.total.optional).toBe(false)
+  })
+
+  it('async describe merges zod-4 .meta() when channel is silent', async () => {
+    const z4 = await import('/Users/vicio/_github/noy-db/node_modules/.pnpm/zod@4.4.3/node_modules/zod/index.js')
+    const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-async-2' })
+    const v = await db.openVault('av2')
+
+    // net has .meta({ unit: 'kg' }), no fieldMeta entry for it
+    const weightsSchema = z4.z.object({
+      id: z4.z.string(),
+      net: z4.z.number().meta({ unit: 'kg' }),
+    })
+
+    const weights = v.collection('weights_async', {
+      schema: weightsSchema as unknown as import('../../src/schema.js').StandardSchemaV1,
+    })
+
+    const d = await weights.describe({})
+    const w = d.fields.find((f) => f.key === 'net')!
+
+    // zod .meta({ unit: 'kg' }) should be merged via zodMeta path
+    expect(w.unit).toBe('kg')
+  })
+
+  it('resolveDictLabels fills dynamic dict labels (async, reads _dict_)', async () => {
+    const { withI18n } = await import('../../src/i18n/active.js')
+    const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-async-3', i18nStrategy: withI18n() })
+    const v = await db.openVault('av3')
+
+    const tickets = v.collection('tickets_async', {
+      dictKeyFields: { priority: dictKey('priority') },
+    })
+
+    await v.dictionary('priority').putAll({ hi: { en: 'High' }, lo: { en: 'Low' } })
+
+    const d = await tickets.describe({ resolveDictLabels: true })
+    const p = d.fields.find((f) => f.key === 'priority')!
+
+    expect(p.dict?.values).toEqual(
+      expect.arrayContaining([{ value: 'hi', label: 'High' }]),
+    )
+  })
+
+  it('fieldMeta key-validation: typo in fieldMeta key rejects with FieldMetaUnknownFieldError', async () => {
+    const z4 = await import('/Users/vicio/_github/noy-db/node_modules/.pnpm/zod@4.4.3/node_modules/zod/index.js')
+    const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-async-4' })
+    const v = await db.openVault('av4')
+
+    const schema = z4.z.object({
+      id: z4.z.string(),
+      total: z4.z.number(),
+    })
+
+    // 'totl' is a typo — not a real field in the schema or any config
+    const c = v.collection('typo_coll', {
+      schema: schema as unknown as import('../../src/schema.js').StandardSchemaV1,
+      fieldMeta: {
+        totl: { label: 'Total (typo)' },
+      },
+    })
+
+    await expect(c.describe({})).rejects.toBeInstanceOf(FieldMetaUnknownFieldError)
+  })
+
+  it('validator-agnostic: non-zod Standard-Schema validator + fieldMeta channel works in sync and async describe', async () => {
+    const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-async-5' })
+    const v = await db.openVault('av5')
+
+    // Hand-rolled Standard Schema v1 stub — vendor is NOT 'zod'
+    const stubValidator: import('../../src/schema.js').StandardSchemaV1 = {
+      '~standard': {
+        version: 1,
+        vendor: 'stub',
+        validate: (value) => ({ value: value as Record<string, unknown> }),
+      },
+    }
+
+    const c = v.collection('stub_coll', {
+      schema: stubValidator,
+      fieldMeta: {
+        amount: { label: 'Amount', unit: '€' },
+      },
+    })
+
+    // Sync describe — channel metadata must be present, no zod needed
+    const syncDesc = c.describe()
+    const syncField = syncDesc.fields.find((f) => f.key === 'amount')
+    expect(syncField).toBeDefined()
+    expect(syncField!.label).toBe('Amount')
+    expect(syncField!.unit).toBe('€')
+
+    // Async describe — same channel metadata; no zod = no exact types but no throw
+    const asyncDesc = await c.describe({})
+    const asyncField = asyncDesc.fields.find((f) => f.key === 'amount')
+    expect(asyncField).toBeDefined()
+    expect(asyncField!.label).toBe('Amount')
+    expect(asyncField!.unit).toBe('€')
+    // type falls back to 'unknown' since no zod schema (no JSON Schema derivable)
+    expect(asyncField!.type).toBe('unknown')
   })
 })

@@ -58,7 +58,7 @@ import { IndexWriteFailureError, DerivationCapExceededError, DebugReservedFieldE
 import { embeddingSourceText, VectorSet, type EmbeddingDescriptor, type StoredVector } from './embeddings/index.js'
 import { buildUniqueConstraintSet, type UniqueConstraintSet } from './indexing/unique-constraints.js'
 import type { RefDescriptor } from './refs.js'
-import { buildDescription, type CollectionDescription, type DescribeOptions } from './introspection/describe.js'
+import { buildDescription, deriveZodFields, type CollectionDescription, type DescribeOptions } from './introspection/describe.js'
 import { Lru, parseBytes, estimateRecordBytes, type LruStats } from './cache/index.js'
 import { generateULID } from './bundle/ulid.js'
 import type { PresenceHandle, PresenceHandleOpts } from './team/presence.js'
@@ -1187,8 +1187,7 @@ export class Collection<T> {
   describe(opts: DescribeOptions): Promise<CollectionDescription>
   describe(opts?: DescribeOptions): CollectionDescription | Promise<CollectionDescription> {
     if (opts) {
-      // Async path implemented in Task 4 (#483).
-      return Promise.reject(new Error('async describe() lands in Task 4 (#483)'))
+      return this.describeAsync(opts)
     }
     return buildDescription({
       collection: this.name,
@@ -1198,6 +1197,49 @@ export class Collection<T> {
       computed: this.computed,
       refs: this._refs,
       zodFields: undefined,
+    })
+  }
+
+  /**
+   * Async describe implementation (#483 Task 4).
+   * Derives validator-exact types via deriveZodFields (lazy, no static zod import),
+   * optionally resolves dynamic-dict labels from vault.dictionary(name).list(),
+   * then delegates to buildDescription which also runs fieldMeta key-validation.
+   */
+  private async describeAsync(opts: DescribeOptions): Promise<CollectionDescription> {
+    // 1. Derive per-field type/optional/constraints/meta from the validator (if any).
+    const zodFields = this.schema !== undefined
+      ? await deriveZodFields(this.schema)
+      : undefined
+
+    // 2. Optionally resolve dynamic-dict labels from the vault's dictionary store.
+    let dictLabels: Record<string, Record<string, string>> | undefined
+    if (opts.resolveDictLabels === true && this.dictKeyFields !== undefined) {
+      dictLabels = {}
+      for (const [, desc] of Object.entries(this.dictKeyFields)) {
+        if (!isStaticDictDescriptor(desc) && this.getDictionary !== undefined) {
+          const handle = await this.getDictionary(desc.name)
+          const entries = await handle.list()
+          const valueToLabel: Record<string, string> = {}
+          for (const entry of entries) {
+            // Pick the first available locale label as the display label.
+            const label = Object.values(entry.labels)[0]
+            if (label !== undefined) valueToLabel[entry.key] = label
+          }
+          dictLabels[desc.name] = valueToLabel
+        }
+      }
+    }
+
+    return buildDescription({
+      collection: this.name,
+      fieldMeta: this.fieldMeta,
+      moneyFields: this.moneyFields,
+      dictKeyFields: this.dictKeyFields,
+      computed: this.computed,
+      refs: this._refs,
+      zodFields,
+      ...(dictLabels !== undefined ? { dictLabels } : {}),
     })
   }
 
