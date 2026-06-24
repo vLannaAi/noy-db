@@ -74,14 +74,21 @@ export function resolveFieldMeta(key: string, inputs: MergeInputs): ResolvedMeta
   const { channel, zodMeta, inferred } = inputs
   const pick = <K extends keyof FieldMeta>(k: K): FieldMeta[K] | undefined =>
     channel?.[k] ?? zodMeta?.[k] ?? inferred?.[k]
+  const description = pick('description')
+  const semanticType = pick('semanticType')
+  const unit = pick('unit')
+  const sensitivity = pick('sensitivity')
+  const aggregate = pick('aggregate')
+  const aliases = pick('aliases')
+  const displayFor = pick('displayFor')
   return {
     label: pick('label') ?? humanizeFieldKey(key),
-    ...(pick('description') !== undefined ? { description: pick('description') } : {}),
-    ...(pick('semanticType') !== undefined ? { semanticType: pick('semanticType') } : {}),
-    ...(pick('unit') !== undefined ? { unit: pick('unit') } : {}),
-    ...(pick('sensitivity') !== undefined ? { sensitivity: pick('sensitivity') } : {}),
-    ...(pick('aggregate') !== undefined ? { aggregate: pick('aggregate') } : {}),
-    ...(pick('aliases') !== undefined ? { aliases: pick('aliases') } : {}),
-    ...(pick('displayFor') !== undefined ? { displayFor: pick('displayFor') } : {}),
+    ...(description !== undefined ? { description } : {}),
+    ...(semanticType !== undefined ? { semanticType } : {}),
+    ...(unit !== undefined ? { unit } : {}),
+    ...(sensitivity !== undefined ? { sensitivity } : {}),
+    ...(aggregate !== undefined ? { aggregate } : {}),
+    ...(aliases !== undefined ? { aliases } : {}),
+    ...(displayFor !== undefined ? { displayFor } : {}),
   }
 }

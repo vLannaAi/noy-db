@@ -58,6 +58,7 @@ import { IndexWriteFailureError, DerivationCapExceededError, DebugReservedFieldE
 import { embeddingSourceText, VectorSet, type EmbeddingDescriptor, type StoredVector } from './embeddings/index.js'
 import { buildUniqueConstraintSet, type UniqueConstraintSet } from './indexing/unique-constraints.js'
 import type { RefDescriptor } from './refs.js'
+import { buildDescription, type CollectionDescription, type DescribeOptions } from './introspection/describe.js'
 import { Lru, parseBytes, estimateRecordBytes, type LruStats } from './cache/index.js'
 import { generateULID } from './bundle/ulid.js'
 import type { PresenceHandle, PresenceHandleOpts } from './team/presence.js'
@@ -365,6 +366,12 @@ export class Collection<T> {
    * collection option. Read by `getFieldMeta()`; merged by `collection.describe()`.
    */
   private readonly fieldMeta: Record<string, FieldMeta> | undefined
+
+  /**
+   * Outbound ref declarations for this collection (snapshot from vault
+   * refRegistry at construction time). Used by `describe()` (sync, config-only).
+   */
+  private readonly _refs: Record<string, RefDescriptor>
 
   /**
    * Money field descriptors keyed by field path. Declared via the
@@ -738,6 +745,8 @@ export class Collection<T> {
     /** — consumer-neutral per-field descriptors. Read via getFieldMeta(). */
     fieldMeta?: Record<string, FieldMeta> | undefined
     moneyFields?: Record<string, MoneyDescriptor> | undefined
+    /** — outbound ref declarations (snapshot from vault refRegistry). Used by describe(). */
+    declaredRefs?: Record<string, RefDescriptor> | undefined
     computed?: ComputedFields | undefined
     /**
      * async callback that resolves a dict key to its label
@@ -978,6 +987,7 @@ export class Collection<T> {
     this.vectorSet = opts.embeddings ? new VectorSet() : undefined
     this.dictKeyFields = opts.dictKeyFields
     this.fieldMeta = opts.fieldMeta
+    this._refs = opts.declaredRefs ?? {}
     if (opts.moneyFields) validateMoneyFieldPaths(opts.moneyFields)
     this.moneyFields = opts.moneyFields
     this.computed = opts.computed
@@ -1161,6 +1171,35 @@ export class Collection<T> {
 
   /** The declared consumer-neutral field metadata channel (canonical). */
   getFieldMeta(): Record<string, FieldMeta> | undefined { return this.fieldMeta }
+
+  /**
+   * Describe the collection's field schema from in-memory config — zero store I/O.
+   *
+   * Sync overload (no args): merges moneyFields / dictKeyFields / refs /
+   * computed / fieldMeta into a {@link CollectionDescription}. Field types are
+   * inferred from config (money→'number', ref→'string'/'array', dict→'enum',
+   * others→'unknown'). Validator-derived types require the async overload (Task 4).
+   *
+   * Async overload (Task 4 #483): resolves validator-derived types + dynamic dict
+   * labels before building the description.
+   */
+  describe(): CollectionDescription
+  describe(opts: DescribeOptions): Promise<CollectionDescription>
+  describe(opts?: DescribeOptions): CollectionDescription | Promise<CollectionDescription> {
+    if (opts) {
+      // Async path implemented in Task 4 (#483).
+      return Promise.reject(new Error('async describe() lands in Task 4 (#483)'))
+    }
+    return buildDescription({
+      collection: this.name,
+      fieldMeta: this.fieldMeta,
+      moneyFields: this.moneyFields,
+      dictKeyFields: this.dictKeyFields,
+      computed: this.computed,
+      refs: this._refs,
+      zodFields: undefined,
+    })
+  }
 
   /**
    * @internal — attach money descriptors post-construction. MV dependency

@@ -1065,6 +1065,10 @@ export class Vault {
         validateFieldMetaKeys(collectionName, options.fieldMeta, known)
         collOpts.fieldMeta = options.fieldMeta
       }
+      // Pass a snapshot of the outbound refs for describe() (sync, config-only).
+      if (options?.refs !== undefined) {
+        collOpts.declaredRefs = this.refRegistry.getOutbound(collectionName)
+      }
       coll = new Collection<T>(collOpts)
       this.collectionCache.set(collectionName, coll)
 
