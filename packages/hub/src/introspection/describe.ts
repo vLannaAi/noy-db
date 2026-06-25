@@ -17,6 +17,7 @@ import type { CollectionMeta } from './meta.js'
 import type { MoneyDescriptor } from '../money/descriptor.js'
 import type { DictKeyDescriptor, StaticDictDescriptor } from '../i18n/dictionary.js'
 import { isStaticDictDescriptor } from '../i18n/dictionary.js'
+import type { I18nTextDescriptor } from '../i18n/core.js'
 import type { ComputedFields } from '../computed/index.js'
 import type { RefDescriptor } from '../refs.js'
 import { derivePersistedSchema, isZod4Schema } from '../persisted-schemas/derive.js'
@@ -42,6 +43,12 @@ export interface DescribedField {
   readonly money?: { mode: 'fixed' | 'multi'; currency?: string; scale?: number; rounding?: string }
   readonly dict?: { name: string; static: boolean; values?: readonly { value: string; label?: string }[] }
   readonly computed?: true
+  /** i18n metadata for fields declared with i18nText(). Present only when the field is i18n-enabled. */
+  readonly i18n?: { readonly locales?: readonly string[]; readonly densify?: boolean }
+  /** Widget hint derived from semanticType+type, overridable via fieldMeta.widget. */
+  readonly widget?: string
+  /** Whether the field is user-editable. False for computed, id, and provenance-stamped fields. */
+  readonly editable: boolean
 }
 
 export interface CollectionDescription {
@@ -158,10 +165,49 @@ export interface BuildDescriptionInput {
   readonly dictLabels?: Record<string, Record<string, string>> | undefined
   /** Collection-level descriptive metadata. Label falls back to humanized collection name. */
   readonly meta?: CollectionMeta | undefined
+  /**
+   * Map of field name → I18nTextDescriptor for fields declared with i18nText().
+   * When present, describe() surfaces an `i18n` block on matching DescribedField entries.
+   */
+  readonly i18nFields?: Record<string, I18nTextDescriptor> | undefined
 }
 
 // Re-export so that callers that want to catch the error don't need another import path.
 export { FieldMetaUnknownFieldError }
+
+// ─── Widget derivation ────────────────────────────────────────────────────────
+
+/**
+ * Derive a widget hint from resolved field metadata.
+ * Priority: explicit override (resolvedWidget) > semanticType > dict > type > 'text'.
+ */
+function deriveWidget(opts: {
+  semanticType?: string
+  type: string
+  dict?: unknown
+  resolvedWidget?: string
+}): string {
+  if (opts.resolvedWidget !== undefined) return opts.resolvedWidget
+  switch (opts.semanticType) {
+    case 'date':
+    case 'datetime':
+      return 'date'
+    case 'currency':
+      return 'money'
+    case 'entity':
+      return 'ref-select'
+    case 'url':
+      return 'url'
+    case 'email':
+      return 'email'
+    case 'percent':
+      return 'number'
+  }
+  if (opts.dict !== undefined) return 'select'
+  if (opts.type === 'boolean') return 'checkbox'
+  if (opts.type === 'number') return 'number'
+  return 'text'
+}
 
 /**
  * Pure assembler: no I/O, no side effects.
@@ -173,7 +219,7 @@ export { FieldMetaUnknownFieldError }
  * couldn't do (schema fields weren't knowable synchronously).
  */
 export function buildDescription(input: BuildDescriptionInput): CollectionDescription {
-  const { collection, fieldMeta, moneyFields, dictKeyFields, computed, refs, zodFields, dictLabels, meta } = input
+  const { collection, fieldMeta, moneyFields, dictKeyFields, computed, refs, zodFields, dictLabels, meta, i18nFields } = input
 
   // When zodFields is present AND non-empty (async path, validator successfully derived
   // a schema): validate fieldMeta keys against the real known-field set = config keys ∪
@@ -201,6 +247,7 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
     ...Object.keys(computed ?? {}),
     ...Object.keys(fieldMeta ?? {}),
     ...Object.keys(zodFields ?? {}),
+    ...Object.keys(i18nFields ?? {}),
   ])
 
   const fields: DescribedField[] = []
@@ -211,6 +258,7 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
     const dict = dictKeyFields?.[key]
     const refDesc = refs[key]
     const isComputed = computed !== undefined && key in computed
+    const i18nDesc = i18nFields?.[key]
 
     // ── Infer type + structural extras ────────────────────────────────────
     let type = zod?.type ?? 'unknown'
@@ -271,6 +319,10 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
           dictBlock = { name: dict.name, static: false }
         }
       }
+    } else if (i18nDesc) {
+      // i18nText field: the stored value is a locale-map object, but the resolved
+      // type exposed to consumers is 'string' (locale resolution collapses to a string).
+      type = 'string'
     } else if (isComputed) {
       // type already initialized to zod?.type ?? 'unknown' above; no re-set needed
     }
@@ -283,6 +335,32 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
       ...(zodMeta !== undefined ? { zodMeta } : {}),
       inferred,
     })
+
+    // ── i18n block (only for i18nText fields) ─────────────────────────────
+    let i18nBlock: DescribedField['i18n'] | undefined
+    if (i18nDesc !== undefined) {
+      const locales = i18nDesc.options.languages
+      const densify = i18nDesc.options.densifyOnWrite
+      i18nBlock = {
+        ...(locales !== undefined ? { locales } : {}),
+        ...(densify !== undefined ? { densify } : {}),
+      }
+    }
+
+    // ── Widget (derived, overridable via resolvedWidget from fieldMeta/zodMeta) ──
+    const widget = deriveWidget({
+      type,
+      ...(resolved.semanticType !== undefined ? { semanticType: resolved.semanticType } : {}),
+      ...(dictBlock !== undefined ? { dict: dictBlock } : {}),
+      ...(resolved.widget !== undefined ? { resolvedWidget: resolved.widget } : {}),
+    })
+
+    // ── Editable: false for computed, id, provenance-stamped fields ────────
+    // Provenance fields (_source, _sourceTs) are envelope-level metadata, not
+    // user schema fields — they won't appear as keys in fieldMeta so this check
+    // is implicitly handled (they'd never appear in allKeys). Explicitly guard
+    // computed + 'id' as the two structural non-editable cases.
+    const editable = !isComputed && key !== 'id'
 
     // ── Assemble the field (exactOptionalPropertyTypes-safe spreads) ───────
     const field: DescribedField = {
@@ -301,6 +379,9 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
       ...(moneyBlock !== undefined ? { money: moneyBlock } : {}),
       ...(dictBlock !== undefined ? { dict: dictBlock } : {}),
       ...(isComputed ? { computed: true as const } : {}),
+      ...(i18nBlock !== undefined ? { i18n: i18nBlock } : {}),
+      widget,
+      editable,
     }
 
     fields.push(field)

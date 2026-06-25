@@ -14,6 +14,7 @@ import { z } from 'zod'
 import { createNoydb } from '../../src/noydb.js'
 import { money } from '../../src/money/descriptor.js'
 import { staticDict, dictKey } from '../../src/i18n/dictionary.js'
+import { i18nText } from '../../src/i18n/core.js'
 import { ref } from '../../src/refs.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/types.js'
 import { ConflictError } from '../../src/errors.js'
@@ -365,5 +366,105 @@ describe('collection.describe(opts) — async path', () => {
     const values = statusField.dict?.values?.map((entry) => entry.value)
     expect(values).toContain('draft')
     expect(values).toContain('sent')
+  })
+})
+
+// ─── Task 3 (#483): i18n / widget / editable per-field enhancements ──────────
+
+describe('collection.describe() — Task 3: i18n, widget, editable', () => {
+  async function makeSalesVault() {
+    const { withI18n } = await import('../../src/i18n/active.js')
+    const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-t3-1', i18nStrategy: withI18n() })
+    const v = await db.openVault('t3v1')
+
+    // sales: total (money/currency), saleDate (z.iso.date semanticType), name (i18nText), subtotal (computed)
+    const sales = v.collection('sales', {
+      moneyFields: { total: money({ currency: 'EUR' }) },
+      i18nFields: { name: i18nText({ languages: ['en', 'th'], required: 'all', densifyOnWrite: false }) },
+      computed: { subtotal: () => 0 },
+      fieldMeta: {
+        saleDate: { label: 'Date', semanticType: 'date' },
+        total: { label: 'Total', unit: '€' },
+        name: { label: 'Name' },
+      },
+    })
+
+    return { sales }
+  }
+
+  async function makeWidgetOverrideVault() {
+    const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-t3-2' })
+    const v = await db.openVault('t3v2')
+
+    // 'note' field with fieldMeta.widget override
+    const withWidgetOverride = v.collection('notes', {
+      fieldMeta: {
+        note: { label: 'Note', widget: 'textarea' },
+      },
+    })
+
+    return { withWidgetOverride }
+  }
+
+  it('surfaces i18n, derived widget, and editable', async () => {
+    const { sales } = await makeSalesVault()
+    // sales: total (money), saleDate (semanticType:date), name (i18nText), subtotal (computed)
+    const d = sales.describe()
+    const by = Object.fromEntries(d.fields.map(f => [f.key, f]))
+    expect(by.total.widget).toBe('money')
+    expect(by.saleDate.widget).toBe('date')
+    expect(by.name.i18n).toBeDefined()            // i18n block present
+    expect(by.subtotal.editable).toBe(false)      // computed → read-only
+    expect(by.total.editable).toBe(true)
+  })
+
+  it('fieldMeta.widget overrides the derived widget', async () => {
+    const { withWidgetOverride } = await makeWidgetOverrideVault()
+    const f = withWidgetOverride.describe().fields.find(x => x.key === 'note')!
+    expect(f.widget).toBe('textarea')             // fieldMeta:{ note:{ widget:'textarea' } }
+  })
+
+  it('i18n block includes languages as locales and densifyOnWrite as densify', async () => {
+    const { sales } = await makeSalesVault()
+    const d = sales.describe()
+    const name = d.fields.find(f => f.key === 'name')!
+    expect(name.i18n).toBeDefined()
+    expect(name.i18n?.locales).toEqual(['en', 'th'])
+    expect(name.i18n?.densify).toBe(false)
+  })
+
+  it('editable=false for id field', async () => {
+    const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-t3-3' })
+    const v = await db.openVault('t3v3')
+    const c = v.collection('things', {
+      fieldMeta: {
+        id: { label: 'ID' },
+        name: { label: 'Name' },
+      },
+    })
+    const d = c.describe()
+    const by = Object.fromEntries(d.fields.map(f => [f.key, f]))
+    expect(by.id.editable).toBe(false)
+    expect(by.name.editable).toBe(true)
+  })
+
+  it('widget derivation table: boolean→checkbox, number→number, dict→select, default→text', async () => {
+    const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-t3-4' })
+    const v = await db.openVault('t3v4')
+    const c = v.collection('things', {
+      dictKeyFields: { status: dictKey('status', ['a', 'b'] as const) },
+      fieldMeta: {
+        active: { label: 'Active', semanticType: 'boolean' as never },
+        score: { label: 'Score', semanticType: 'number' as never },
+        status: { label: 'Status' },
+        note: { label: 'Note' },
+      },
+    })
+    const d = c.describe()
+    const by = Object.fromEntries(d.fields.map(f => [f.key, f]))
+    // dict field → select
+    expect(by.status.widget).toBe('select')
+    // non-special fieldMeta-only → text
+    expect(by.note.widget).toBe('text')
   })
 })

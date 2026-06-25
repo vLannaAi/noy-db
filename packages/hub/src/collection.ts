@@ -1211,6 +1211,7 @@ export class Collection<T> {
       refs: this._refs,
       zodFields: undefined,
       ...(this.meta !== undefined ? { meta: this.meta } : {}),
+      ...(this.i18nFields !== undefined ? { i18nFields: this.i18nFields } : {}),
     })
   }
 
@@ -1255,6 +1256,7 @@ export class Collection<T> {
       zodFields,
       ...(dictLabels !== undefined ? { dictLabels } : {}),
       ...(this.meta !== undefined ? { meta: this.meta } : {}),
+      ...(this.i18nFields !== undefined ? { i18nFields: this.i18nFields } : {}),
     })
   }
 

@@ -30,6 +30,12 @@ export interface FieldMeta {
   aliases?: readonly string[]
   /** Entity pairing: the field holding the human label for this id (buyerId → buyerName). */
   displayFor?: string
+  /**
+   * Override the widget hint derived from semanticType/type.
+   * e.g. 'textarea', 'date', 'money', 'select', 'checkbox', 'number', 'text'.
+   * When absent, the widget is derived automatically by buildDescription.
+   */
+  widget?: string
 }
 
 export class FieldMetaUnknownFieldError extends Error {
@@ -81,6 +87,7 @@ export function resolveFieldMeta(key: string, inputs: MergeInputs): ResolvedMeta
   const aggregate = pick('aggregate')
   const aliases = pick('aliases')
   const displayFor = pick('displayFor')
+  const widget = pick('widget')
   return {
     label: pick('label') ?? humanizeFieldKey(key),
     ...(description !== undefined ? { description } : {}),
@@ -90,5 +97,6 @@ export function resolveFieldMeta(key: string, inputs: MergeInputs): ResolvedMeta
     ...(aggregate !== undefined ? { aggregate } : {}),
     ...(aliases !== undefined ? { aliases } : {}),
     ...(displayFor !== undefined ? { displayFor } : {}),
+    ...(widget !== undefined ? { widget } : {}),
   }
 }
