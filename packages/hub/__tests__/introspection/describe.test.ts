@@ -448,7 +448,7 @@ describe('collection.describe() — Task 3: i18n, widget, editable', () => {
     expect(by.name.editable).toBe(true)
   })
 
-  it('widget derivation table: boolean→checkbox, number→number, dict→select, default→text', async () => {
+  it('widget derivation table: dict→select, default→text', async () => {
     const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-t3-4' })
     const v = await db.openVault('t3v4')
     const c = v.collection('things', {
@@ -466,5 +466,29 @@ describe('collection.describe() — Task 3: i18n, widget, editable', () => {
     expect(by.status.widget).toBe('select')
     // non-special fieldMeta-only → text
     expect(by.note.widget).toBe('text')
+  })
+
+  // Regression: i18nFields keys must be included in the async knownFields set so
+  // validateFieldMetaKeys does not throw FieldMetaUnknownFieldError for fields that
+  // live in i18nFields + fieldMeta but not in the zod schema (typical for i18nText).
+  it('async describe does not throw when field is in both i18nFields and fieldMeta but not zod schema', async () => {
+    const { withI18n } = await import('../../src/i18n/active.js')
+    const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-t3-i18n-regress', i18nStrategy: withI18n() })
+    const v = await db.openVault('t3v_i18n_regress')
+
+    const c = v.collection('items', {
+      i18nFields: { name: i18nText({ languages: ['en', 'th'], required: 'all', densifyOnWrite: false }) },
+      fieldMeta: {
+        name: { label: 'Item Name' },
+      },
+    })
+
+    // Must not throw FieldMetaUnknownFieldError despite 'name' not being a zod schema field
+    const d = await c.describe({})
+    const nameField = d.fields.find(f => f.key === 'name')!
+    expect(nameField).toBeDefined()
+    expect(nameField.label).toBe('Item Name')
+    expect(nameField.i18n).toBeDefined()
+    expect(nameField.i18n?.locales).toEqual(['en', 'th'])
   })
 })

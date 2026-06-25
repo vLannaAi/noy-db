@@ -235,6 +235,7 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
       ...Object.keys(refs),
       ...Object.keys(computed ?? {}),
       ...Object.keys(zodFields),
+      ...Object.keys(i18nFields ?? {}),
     ])
     validateFieldMetaKeys(collection, fieldMeta, knownFields)
   }
