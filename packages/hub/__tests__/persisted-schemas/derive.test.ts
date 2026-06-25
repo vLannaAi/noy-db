@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
-import { derivePersistedSchema, isZodSchema } from '../../src/persisted-schemas/derive.js'
+import { derivePersistedSchema, isZod4Schema, isZodSchema } from '../../src/persisted-schemas/derive.js'
 
 describe('isZodSchema', () => {
-  it('identifies a Zod schema via _def.typeName', () => {
+  it('identifies a Zod schema via ~standard.vendor (v4) with _def.typeName (v3) fallback', () => {
     expect(isZodSchema(z.object({ id: z.string() }))).toBe(true)
     expect(isZodSchema(z.string())).toBe(true)
   })
@@ -57,5 +57,32 @@ describe('derivePersistedSchema', () => {
     expect(env.jsonSchema).toBeNull()
     expect(env.hash).toBeNull()
     expect(env.reason).toMatch(/derivation not yet supported/i)
+  })
+})
+
+// Empirical observation (zod@4): z.object({a:z.string()}) carries a `_zod`
+// property (the v4 internal namespace); `_def.typeName` is absent in native
+// v4 schemas. `z.toJSONSchema` is a top-level export on the zod module.
+describe('derivePersistedSchema — zod 4', () => {
+  it('detects a zod-4 schema', () => {
+    expect(isZod4Schema(z.object({ a: z.string() }))).toBe(true)
+    expect(isZod4Schema({})).toBe(false)
+    expect(isZod4Schema(null)).toBe(false)
+  })
+
+  it('derives a real JSON Schema from a zod-4 schema (kind=Zod)', async () => {
+    const env = await derivePersistedSchema(z.object({ name: z.string(), age: z.number() }))
+    expect(env.kind).toBe('Zod')
+    expect(env.jsonSchema).not.toBeNull()
+    expect(env.hash).not.toBeNull()
+    // properties survive the conversion
+    const props = (env.jsonSchema as { properties?: Record<string, unknown> }).properties ?? {}
+    expect(Object.keys(props).sort()).toEqual(['age', 'name'])
+  })
+
+  it('returns the stub envelope for a non-zod validator', async () => {
+    const env = await derivePersistedSchema({ '~standard': { version: 1, vendor: 'x', validate: () => ({ value: 1 }) } })
+    expect(env.kind).toBe('Unknown')
+    expect(env.jsonSchema).toBeNull()
   })
 })

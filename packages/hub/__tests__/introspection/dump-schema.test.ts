@@ -122,4 +122,103 @@ describe('vault.dumpSchema() — baseline', () => {
       overlayViews: expect.any(Boolean),
     }))
   })
+
+  it('surfaces collection-level config (embeddings/textIndexes/crdt/provenance/tiers)', async () => {
+    const comp = await db.openVault(COMP)
+    comp.collection<{ id: string; body: string }>('docs', {
+      textIndexes: ['body'],
+      embeddings: {
+        source: 'body',
+        dim: 128,
+        model: 'test-model',
+        encode: async () => new Float32Array(128),
+      },
+      provenance: true,
+      tiers: [1, 2],
+    })
+    const dump = await comp.dumpSchema()
+    const cfg = dump.collections['docs'].config!
+    expect(cfg.textIndexes).toContain('body')
+    expect(cfg.provenance).toBe(true)
+    expect(cfg.tiers).toEqual([1, 2])
+    expect(cfg.embeddings?.dim).toBeGreaterThan(0)
+  })
+
+  it('omits config when a collection has no configured options', async () => {
+    const comp = await db.openVault(COMP)
+    comp.collection<Invoice>('plain')
+    const dump = await comp.dumpSchema()
+    expect(dump.collections['plain'].config).toBeUndefined()
+  })
+})
+
+describe('vault.dumpSchema() — archive + schemaUpdate config', () => {
+  const COMP = 'acme-config'
+  let adapter: NoydbStore
+  let db: Noydb
+
+  beforeEach(async () => {
+    adapter = inlineMemory()
+    db = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+  })
+
+  it('surfaces archive: true when a collection declares an archive policy', async () => {
+    const comp = await db.openVault(COMP)
+    comp.collection<Invoice>('invoices', {
+      archive: { archiveWhen: (r) => r.status === 'paid' },
+    })
+    const dump = await comp.dumpSchema()
+    const cfg = dump.collections['invoices'].config
+    expect(cfg).toBeDefined()
+    expect(cfg!.archive).toBe(true)
+  })
+
+  it('surfaces schemaUpdate with strategy names when registered', async () => {
+    const comp = await db.openVault(COMP)
+    const strategy = {
+      name: 'addDueDate',
+      detect: async () => false as const,
+      transform: async (r: unknown) => r,
+    }
+    comp.collection<Invoice>('invoices', {
+      schema: z.object({ id: z.string(), amount: z.number(), status: z.string() }),
+      persistJsonSchema: true,
+      schemaUpdate: [strategy],
+    })
+    await comp.collection<Invoice>('invoices').put('i1', { id: 'i1', amount: 100, status: 'draft' })
+    await comp._drainPendingSchemaWrites()
+    const dump = await comp.dumpSchema()
+    const cfg = dump.collections['invoices'].config!
+    expect(cfg.schemaUpdate).toContain('addDueDate')
+  })
+
+  it('merges archive + Collection-level options into a single config object', async () => {
+    const comp = await db.openVault(COMP)
+    comp.collection<{ id: string; body: string }>('docs', {
+      textIndexes: ['body'],
+      archive: { archiveWhen: () => false },
+    })
+    const dump = await comp.dumpSchema()
+    const cfg = dump.collections['docs'].config!
+    expect(cfg.textIndexes).toContain('body')
+    expect(cfg.archive).toBe(true)
+  })
+
+  it('surfaces history: true when historyConfig is explicitly provided and enabled', async () => {
+    const comp = await db.openVault(COMP)
+    comp.collection<Invoice>('invoices', {
+      historyConfig: { maxVersions: 10 },
+    })
+    const dump = await comp.dumpSchema()
+    const cfg = dump.collections['invoices'].config!
+    expect(cfg.history).toBe(true)
+  })
+
+  it('omits history from config when no explicit historyConfig is declared', async () => {
+    const comp = await db.openVault(COMP)
+    comp.collection<Invoice>('plain')
+    const dump = await comp.dumpSchema()
+    // A plain collection has no explicit historyConfig — history must not appear.
+    expect(dump.collections['plain'].config?.history).toBeUndefined()
+  })
 })

@@ -10,6 +10,7 @@
 
 import type { PersistedSchemaKind } from '../persisted-schemas/types.js'
 import type { Permission } from '../types.js'
+import type { CollectionMeta, VaultMeta } from './meta.js'
 
 /** Flat snapshot of a vault's registered schema. */
 export interface SchemaIntrospection {
@@ -48,6 +49,41 @@ export interface CollectionStats {
   readonly newest: string
 }
 
+/**
+ * Collection-level configuration options surfaced by `dumpSchema()`.
+ * Only fields that are actively configured are present; the object is
+ * omitted entirely from `CollectionDescriptor.config` when nothing is set.
+ * Reused by Task 5 in-devtools display.
+ */
+export interface CollectionConfig {
+  readonly i18nFields?: readonly string[]
+  readonly embeddings?: { readonly source: string | readonly string[]; readonly dim: number; readonly model?: string }
+  readonly textIndexes?: readonly string[]
+  readonly textIndexPersist?: boolean
+  readonly perRecordKeys?: boolean
+  readonly provenance?: boolean
+  readonly tiers?: readonly number[]
+  readonly tierMode?: string
+  readonly crdt?: string
+  /**
+   * `true` when history is explicitly enabled for this collection.
+   * Omitted when history is not configured or when the default vault-wide
+   * setting applies without explicit per-collection configuration.
+   */
+  readonly history?: boolean
+  /**
+   * Present when the collection is registered in `vault.archiveRegistry`
+   * (i.e. an archive policy was declared). `true` = archive policy present.
+   */
+  readonly archive?: boolean
+  /**
+   * Strategy names registered for schema updates on this collection.
+   * Present only when at least one strategy is registered.
+   */
+  readonly schemaUpdate?: readonly string[]
+  // conflictPolicy omitted: consumed at construction, no retained state to surface.
+}
+
 export interface CollectionDescriptor {
   readonly fields: Record<string, FieldDescriptor>
   readonly indexes: ReadonlyArray<{ readonly fields: ReadonlyArray<string>; readonly unique?: boolean }>
@@ -57,6 +93,8 @@ export interface CollectionDescriptor {
     readonly source: 'persisted' | 'live-validator'
   }
   readonly stats?: CollectionStats
+  readonly meta?: CollectionMeta
+  readonly config?: CollectionConfig
 }
 
 export interface MaterializedViewDescriptor {
@@ -88,6 +126,7 @@ export interface VaultSchemaSnapshot {
   readonly emittedAt: string
   readonly subsystems: Record<string, boolean>
   readonly aclRoles?: ReadonlyArray<string>
+  readonly meta?: VaultMeta
   readonly collections: Record<string, CollectionDescriptor>
   readonly materializedViews: Record<string, MaterializedViewDescriptor>
   readonly overlayViews: Record<string, OverlayViewDescriptor>

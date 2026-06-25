@@ -44,6 +44,7 @@ export {
 // against these will not work from `@noy-db/hub/kernel`. Consumers needing a
 // runtime class value must import it from `@noy-db/hub` directly.
 // ─── types ────────────────────────────────────────────────────────
+export type { CollectionMeta, VaultMeta } from '../introspection/meta.js'
 export type { ChangeEvent } from '../types.js'
 export type { Vault } from '../vault.js'
 export type { Collection } from '../collection.js'

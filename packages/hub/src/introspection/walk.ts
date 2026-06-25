@@ -9,6 +9,7 @@ import { derivePersistedSchema } from '../persisted-schemas/derive.js'
 import { loadPersistedSchema } from '../persisted-schemas/storage.js'
 import { jsonSchemaToFields } from './fields.js'
 import type {
+  CollectionConfig,
   CollectionDescriptor,
   CollectionStats,
   DumpSchemaOptions,
@@ -23,6 +24,7 @@ import type { Collection } from '../collection.js'
 import type { NoydbStore } from '../types.js'
 import type { UnlockedKeyring } from '../team/keyring.js'
 import type { RefRegistry } from '../refs.js'
+import type { VaultMeta } from './meta.js'
 
 /**
  * The minimal slice of Vault internal state the walker needs.
@@ -40,11 +42,25 @@ export interface VaultIntrospectState {
   /** The active unlocked keyring — role/permissions/userId for access-scoped ops. */
   readonly keyring: UnlockedKeyring
   readonly subsystems: Record<string, boolean>
+  /** Vault-level descriptive metadata, when set via `openVault({meta})`. */
+  readonly vaultMeta?: VaultMeta
   // Typed loosely on purpose — these are private subsystem registries
   // accessed only for "is anything registered" enumeration.
   readonly mvRegistry: unknown
   readonly overlayRegistry: unknown
   readonly derivationRegistry: unknown
+  /**
+   * Returns the registered schema-update strategy names for a collection,
+   * or `undefined` when none are registered. Populated from
+   * `vault.#schemaUpdateNames` in `_introspectState()`.
+   */
+  readonly getCollectionSchemaUpdateNames?: (col: string) => readonly string[] | undefined
+  /**
+   * Returns `true` when the collection has an archive policy registered
+   * in `vault.archiveRegistry`, `false` otherwise. Populated from
+   * `vault.archiveRegistry` in `_introspectState()`.
+   */
+  readonly hasCollectionArchive?: (col: string) => boolean
 }
 
 const INTERNAL_PREFIX = '_'
@@ -95,6 +111,7 @@ export async function dumpVaultSchema(
     vault: state.name,
     emittedAt: new Date().toISOString(),
     subsystems: state.subsystems,
+    ...(state.vaultMeta !== undefined ? { meta: state.vaultMeta } : {}),
     collections,
     materializedViews,
     overlayViews,
@@ -142,10 +159,11 @@ async function describeCollection(
     // No DEK or decrypt failure — fall through to live-validator
   }
 
+  const liveColl = state.collectionCache.get(collectionName)
+
   // 2. Try the live in-process validator (when no persisted envelope).
   if (!validator) {
-    const coll = state.collectionCache.get(collectionName)
-    const schema = coll?.getSchema()
+    const schema = liveColl?.getSchema()
     if (schema) {
       try {
         const derived = await derivePersistedSchema(schema)
@@ -164,11 +182,33 @@ async function describeCollection(
     // Sampling path not implemented in baseline slice 2; reserved for follow-up.
   }
 
+  // Populate collection-level meta and config from the live collection when available.
+  const collMeta = liveColl?.getMeta()
+  const collConfig = liveColl?.getConfig()
+
+  // Thread vault-level config (archive + schemaUpdate) that the Collection cannot see.
+  const archivePresent = state.hasCollectionArchive?.(collectionName) === true
+  const schemaUpdateNames = state.getCollectionSchemaUpdateNames?.(collectionName)
+  const hasSchemaUpdate = schemaUpdateNames !== undefined && schemaUpdateNames.length > 0
+
+  // Merge Collection-level config with vault-level fields. Omit config entirely
+  // when all sources are empty.
+  let mergedConfig: CollectionConfig | undefined
+  if (collConfig !== undefined || archivePresent || hasSchemaUpdate) {
+    mergedConfig = {
+      ...(collConfig ?? {}),
+      ...(archivePresent ? { archive: true as const } : {}),
+      ...(hasSchemaUpdate ? { schemaUpdate: schemaUpdateNames } : {}),
+    }
+  }
+
   const descriptor: CollectionDescriptor = {
     fields,
     indexes: [],
     refs,
     ...(validator ? { validator } : {}),
+    ...(collMeta !== undefined ? { meta: collMeta } : {}),
+    ...(mergedConfig !== undefined ? { config: mergedConfig } : {}),
   }
   if (withStats) {
     const stats = await statsForCollection(state.adapter, state.name, collectionName)

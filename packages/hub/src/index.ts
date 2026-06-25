@@ -194,6 +194,11 @@ export type { WriteEvent, WriteHook } from './write-hooks.js'
 // Runtime schema introspection
 export type { SchemaIntrospection } from './introspection/types.js'
 
+// Field metadata (#483)
+export type { FieldMeta, SemanticType } from './introspection/field-meta.js'
+export type { CollectionMeta, VaultMeta } from './introspection/meta.js'
+export type { CollectionDescription, DescribedField, DescribeOptions } from './introspection/describe.js'
+
 // Dry-run transactions
 export type { DryRunResult, AffectedDocument, GuardViolation } from './tx/dry-run.js'
 
@@ -384,6 +389,7 @@ export type {
   VaultSchemaSnapshot,
   DumpSchemaOptions,
   CollectionDescriptor,
+  CollectionConfig,
   CollectionStats,
   FieldDescriptor,
   FieldSource,

@@ -151,6 +151,8 @@ import type { IssueContext } from './attestation/issue.js'
 import type { RevokeContext } from './attestation/revoke.js'
 import type { DumpSchemaOptions, VaultSchemaSnapshot, SchemaIntrospection } from './introspection/types.js'
 import { dumpVaultSchema, type VaultIntrospectState } from './introspection/walk.js'
+import type { FieldMeta } from './introspection/field-meta.js'
+import type { CollectionMeta, VaultMeta } from './introspection/meta.js'
 import { USER_ENVELOPE_COLLECTION } from './meta/user-envelope/types.js'
 
 /**
@@ -392,6 +394,13 @@ export class Vault {
   private locale: string | undefined
 
   /**
+   * Vault-level descriptive metadata. Set once at construction via
+   * `openVault(name, { meta })`. First-wins: re-opening a cached vault
+   * with different meta leaves the original untouched.
+   */
+  private readonly vaultMeta: VaultMeta | undefined
+
+  /**
    * Current consent scope. Set by `withConsent()` and
    * restored in its finally block. When non-null, every collection
    * access inside the scope writes one entry to `_consent_audit`.
@@ -538,6 +547,8 @@ export class Vault {
     guardStrategies?: ReadonlyArray<GuardStrategyHandleAny> | undefined
     numberingConfigs?: ReadonlyArray<DeferredNumberingConfig> | undefined
     forgetStrategy?: ForgetStrategy | undefined
+    /** Vault-level descriptive metadata — set once at construction (first-wins). */
+    meta?: VaultMeta | undefined
   }) {
     this.adapter = opts.adapter
     this.name = opts.name
@@ -582,6 +593,7 @@ export class Vault {
     this.historyConfig = opts.historyConfig ?? { enabled: true }
     this.reloadKeyring = opts.reloadKeyring
     this.locale = opts.locale
+    this.vaultMeta = opts.meta
     this.translateText = opts.plaintextTranslator
 
     // Build the lazy DEK resolver. Pulled out into a private method
@@ -689,6 +701,10 @@ export class Vault {
     textIndexPersist?: boolean
     /** — declare dictKey / staticDict fields for label resolution on reads. */
     dictKeyFields?: Record<string, DictKeyDescriptor | StaticDictDescriptor>
+    /** Consumer-neutral per-field descriptors (label/unit/semanticType/sensitivity…). See collection.describe(). */
+    fieldMeta?: Record<string, FieldMeta>
+    /** The collection's own descriptive metadata (label/description/icon). See collection.describe(). */
+    meta?: CollectionMeta
     /** — declare money() fields for currency-safe decimal storage/formatting. */
     moneyFields?: Record<string, MoneyDescriptor>
     /** — declare computed scalar fields, evaluated on write (schema-owned). */
@@ -812,6 +828,18 @@ export class Vault {
       // declaration; attach computed fields so writes materialize them.
       coll._applyComputed(options.computed as ComputedFields)
     }
+    if (coll && options?.fieldMeta) {
+      // Same MV-pre-creation reconcile as money/computed: a collection
+      // auto-created without options gets its fieldMeta attached here.
+      // First-wins: if the collection already has fieldMeta set this is a no-op.
+      coll._applyFieldMeta(options.fieldMeta)
+    }
+    if (coll && options?.meta) {
+      // Same MV-pre-creation reconcile as fieldMeta: attach collection-level
+      // descriptive metadata to a collection that was auto-created without options.
+      // First-wins.
+      coll._applyMeta(options.meta)
+    }
     if (!coll) {
       // Register ref declarations (if any) with the vault-level
       // registry BEFORE constructing the Collection. This way the
@@ -919,6 +947,7 @@ export class Vault {
         getDEK: this.getDEK,
         onDirty: this.onDirty,
         historyConfig: effectiveHistoryConfig,
+        historyConfigExplicit: options?.historyConfig !== undefined,
         // thread the vault-wide blob strategy into every
         // collection. `undefined` is intentionally preserved so the
         // Collection constructor uses its NO_BLOBS default.
@@ -1048,6 +1077,21 @@ export class Vault {
       // Wire the translator for autoTranslate: true fields
       if (options?.i18nFields !== undefined && this.translateText) {
         collOpts.autoTranslateHook = this.translateText
+      }
+      // fieldMeta: thread through to the collection. Real key-validation (against
+      // schema-derived fields) happens in the async describe() path where the full
+      // known-field set is available. The sync path at vault-construction time cannot
+      // validate schema fields, so no validate call here.
+      if (options?.fieldMeta !== undefined) {
+        collOpts.fieldMeta = options.fieldMeta
+      }
+      // meta: thread through to the collection; surfaced via getMeta() / describe().
+      if (options?.meta !== undefined) {
+        collOpts.meta = options.meta
+      }
+      // Pass a snapshot of the outbound refs for describe() (sync, config-only).
+      if (options?.refs !== undefined) {
+        collOpts.declaredRefs = this.refRegistry.getOutbound(collectionName)
       }
       coll = new Collection<T>(collOpts)
       this.collectionCache.set(collectionName, coll)
@@ -1559,6 +1603,11 @@ export class Vault {
   /** Return the current vault-default locale. */
   getLocale(): string | undefined {
     return this.locale
+  }
+
+  /** Return the vault-level descriptive metadata (set-once at construction). */
+  getMeta(): VaultMeta | undefined {
+    return this.vaultMeta
   }
 
   /**
@@ -3773,9 +3822,18 @@ export class Vault {
         materializedViews: this.materializedViewRegistry !== null,
         overlayViews: this.overlayedViewRegistry !== null,
       },
+      ...(this.vaultMeta !== undefined ? { vaultMeta: this.vaultMeta } : {}),
       mvRegistry: this.materializedViewRegistry,
       overlayRegistry: this.overlayedViewRegistry,
       derivationRegistry: this.derivationRegistry,
+      // Thread vault-level per-collection registries into the walker so
+      // walk.ts can project archive/schemaUpdate into CollectionDescriptor.config
+      // without coupling the walker to Vault internals.
+      getCollectionSchemaUpdateNames: (col) => {
+        const names = this.#schemaUpdateNames.get(col)
+        return names !== undefined && names.length > 0 ? names : undefined
+      },
+      hasCollectionArchive: (col) => this.archiveRegistry.has(col),
     }
   }
 

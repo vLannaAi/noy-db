@@ -382,6 +382,77 @@ features:
       - 'exit codes: 0 ok, 1 internal, 2 usage, 3 auth failure'
     related: [persisted-json-schema, dump-schema-introspection]
 
+  - id: field-metadata
+    name: Consumer-neutral field descriptors — collection.describe() + fieldMeta (#483)
+    cluster: core
+    spec: docs/superpowers/specs/2026-06-25-field-metadata-foundation-design.md
+    subsystem_doc: docs/subsystems/field-metadata.md
+    package: '@noy-db/hub'
+    factory: null
+    status: preview
+    experimental: true
+    showcases:
+      - id: 126-describe-field-metadata
+        path: showcases/src/126-describe-field-metadata.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'collection.describe() — sync overload (zero args): config-only, zero store I/O, returns CollectionDescription synchronously; async overload (opts arg): adds validator-derived exact types (deriveZodFields, lazy import), zod-4 .meta() merge, and optional dynamic-dict label resolution (resolveDictLabels: true)'
+      - 'fieldMeta collection option: Record<string, FieldMeta> — the primary validator-agnostic authoring channel; keys: label (required), description, semanticType, unit, sensitivity (public|pii|secret), aggregate, aliases, displayFor'
+      - 'merge precedence (fixed): channel (fieldMeta) > zod-4 .meta() (async path only) > inferred-from-config (money→currency, ref→entity, dictKey→enum)'
+      - 'descriptive-not-prescriptive: DescribedField carries meaning (label/unit/sensitivity/semanticType/aggregate/aliases/displayFor) — never layout, styling, or locale selection; those stay app-side'
+      - 'sync = zero store I/O: describe() (no args) reads only in-memory config assembled at collection registration — no store.get / store.list / decryption ever triggered'
+      - 'public exports from @noy-db/hub only (not from kernel): FieldMeta, SemanticType, CollectionDescription, DescribedField, DescribeOptions'
+      - 'fieldMeta key guard (async path): when zodFields is non-empty, unknown fieldMeta keys throw FieldMetaUnknownFieldError — typo protection; sync path skips this check (schema fields not knowable without async derivation)'
+      - 'validator-agnostic: works without zod; non-zod validators get structural type inference from config only on the sync path'
+    related: [dump-schema-introspection, cli-describe, money-field, schema-and-refs, i18n, metadata-ladder]
+
+  - id: metadata-ladder
+    name: Metadata ladder — collectionMeta/vaultMeta + devtools schema surfacing (#483)
+    cluster: core
+    spec: docs/superpowers/specs/2026-06-25-metadata-ladder-and-schema-surfacing-design.md
+    subsystem_doc: docs/subsystems/field-metadata.md
+    package: '@noy-db/hub'
+    factory: null
+    status: preview
+    experimental: true
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'collectionMeta option (meta?: CollectionMeta): label/description/icon/pluralLabel on vault.collection(); first-wins reconciler (_applyMeta) on MV-pre-created collections; surfaced in describe() meta block and dumpSchema() CollectionDescriptor.meta'
+      - 'vaultMeta option (meta?: VaultMeta): label/description/icon on openVault(); first-wins: re-opening a cached vault keeps its meta; surfaced in dumpSchema() VaultSchemaSnapshot.meta'
+      - 'describe() enhancements: i18n block (locales/densify) for i18nText fields; widget derived from semanticType+type (overridable via fieldMeta.widget); editable:false for computed/id/provenance-stamped fields, true otherwise'
+      - 'dumpSchema() config block (CollectionConfig): textIndexes/embeddings/i18nFields/crdt/provenance/archive/tiers/tierMode/perRecordKeys/history/schemaUpdate surfaced from live collection; omitted on bundle-reconstructed collections; function-valued options surface as booleans (presence only)'
+      - 'in-devtools snapshot(): InspectorCollection gains meta/described/config; InspectorSnapshot gains meta (VaultMeta); rich fields from describe() populates described[]'
+      - 'TUI (in-devtools-tui): DetailPane shows collection meta.label heading + DescribedField list with label/type/widget/<sensitivity>/[i18n]/[ro] markers + compact config strip; CollectionList shows meta.label; VaultList shows vault meta.label for active vault'
+      - 'CollectionMeta/VaultMeta exported from @noy-db/hub (src/index.ts) AND @noy-db/hub/kernel (kernel/index.ts) for klum-db federation contract'
+    related: [field-metadata, dump-schema-introspection, in-devtools, in-devtools-nuxt]
+
+  - id: metadata-riders
+    name: Metadata riders — toJSONSchema + dictKey inline labels + devtools PII masking (#484 #485)
+    cluster: core
+    spec: docs/superpowers/specs/2026-06-25-metadata-riders-design.md
+    subsystem_doc: docs/subsystems/field-metadata.md
+    package: '@noy-db/hub'
+    factory: null
+    status: preview
+    experimental: true
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'collection.toJSONSchema() — async; pipelines derivePersistedSchema(schema) as base then overlays describe() metadata as x- extension keys per property: x-label, x-unit, x-semanticType, x-sensitivity, x-widget, x-readonly (when editable:false), x-money, x-ref, x-enumLabels (value→label map from dict.values)'
+      - 'toJSONSchema() validator-agnostic fallback: when derivePersistedSchema yields no jsonSchema (non-zod validator), builds a minimal { type:"object", properties } from field types derived by describe(); x- metadata still applied; no throw, no zod required'
+      - 'dictKey inline labels (#485): dictKey() 2nd arg may now be a plain object (value→label map; keys inferred) or retain existing array form with optional { labels: Record<string,string> } option; DictKeyDescriptor gains readonly labels?: Record<string,string>'
+      - 'dictKey inline labels surface in sync describe() — dict.values[].label populated from code-provided defaults with no store I/O; describe({ resolveDictLabels: true }) overrides from _dict_ collection and falls back to inline label; toJSONSchema() x-enumLabels reflects inline labels'
+      - 'devtools PII masking (Nuxt + TUI): RecordsPane masks cells for fields where sensitivity !== "public" as •••• by default; a reveal toggle (per-field reveal in Nuxt, pane-level "r" key in TUI) un-masks; public and unclassified fields always shown; collection without described → no masking (back-compat)'
+      - 'TUI reveal-all resets on collection navigation (selectedIdx change) so revealed PII does not linger when switching to another collection'
+    related: [field-metadata, metadata-ladder, in-devtools, in-devtools-nuxt]
+
   - id: query-basics
     name: Always-on query DSL
     cluster: core

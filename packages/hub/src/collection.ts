@@ -1,4 +1,6 @@
 import type { NoydbStore, EncryptedEnvelope, ChangeEvent, HistoryConfig, HistoryOptions, HistoryEntry, PruneOptions, ListPageResult, LocaleReadOptions, ConflictPolicy, CollectionConflictResolver, PutManyItemOptions, PutManyOptions, PutManyResult, DeleteManyResult } from './types.js'
+import type { FieldMeta } from './introspection/field-meta.js'
+import type { CollectionMeta } from './introspection/meta.js'
 import { NOYDB_FORMAT_VERSION } from './types.js'
 import type { CrdtMode, CrdtState, LwwMapState, RgaState } from './crdt/crdt.js'
 import { NO_CRDT, type CrdtStrategy } from './crdt/strategy.js'
@@ -35,6 +37,7 @@ import type { SchemaUpdateGate } from './schema-update/gate.js'
 import type { SchemaFenceController } from './schema-update/fence-controller.js'
 import type { StandardSchemaV1 } from './schema.js'
 import { validateSchemaInput, validateSchemaOutput } from './schema.js'
+import { derivePersistedSchema } from './persisted-schemas/derive.js'
 import type { LedgerStore } from './history/ledger/index.js'
 import type { DiffEntry } from './history/diff.js'
 import { NO_HISTORY, type HistoryStrategy } from './history/strategy.js'
@@ -57,6 +60,9 @@ import { IndexWriteFailureError, DerivationCapExceededError, DebugReservedFieldE
 import { embeddingSourceText, VectorSet, type EmbeddingDescriptor, type StoredVector } from './embeddings/index.js'
 import { buildUniqueConstraintSet, type UniqueConstraintSet } from './indexing/unique-constraints.js'
 import type { RefDescriptor } from './refs.js'
+import { buildDescription, deriveZodFields, type CollectionDescription, type DescribeOptions } from './introspection/describe.js'
+import { buildJsonSchema } from './introspection/json-schema.js'
+import type { CollectionConfig } from './introspection/types.js'
 import { Lru, parseBytes, estimateRecordBytes, type LruStats } from './cache/index.js'
 import { generateULID } from './bundle/ulid.js'
 import type { PresenceHandle, PresenceHandleOpts } from './team/presence.js'
@@ -179,6 +185,8 @@ export class Collection<T> {
   private readonly getDEK: (collectionName: string) => Promise<CryptoKey>
   private readonly onDirty: OnDirtyCallback | undefined
   private readonly historyConfig: HistoryConfig
+  /** True when the caller explicitly provided a `historyConfig` option (vs. inheriting the vault default). */
+  private readonly historyConfigExplicit: boolean
 
   /**
    * tree-shake seam — the strategy that backs `collection.blob(id)`.
@@ -358,6 +366,24 @@ export class Collection<T> {
    * fields when a locale is requested.
    */
   private readonly dictKeyFields: Record<string, DictKeyDescriptor | StaticDictDescriptor> | undefined
+
+  /**
+   * Consumer-neutral per-field descriptors declared via the `fieldMeta`
+   * collection option. Read by `getFieldMeta()`; merged by `collection.describe()`.
+   */
+  private fieldMeta: Record<string, FieldMeta> | undefined
+
+  /**
+   * Collection-level descriptive metadata declared via the `meta` collection
+   * option. Read by `getMeta()`; surfaced in `collection.describe()`.
+   */
+  private meta: CollectionMeta | undefined
+
+  /**
+   * Outbound ref declarations for this collection (snapshot from vault
+   * refRegistry at construction time). Used by `describe()` (sync, config-only).
+   */
+  private readonly _refs: Record<string, RefDescriptor>
 
   /**
    * Money field descriptors keyed by field path. Declared via the
@@ -611,6 +637,12 @@ export class Collection<T> {
     activeTxId?: (() => string | null) | undefined
     getDEK: (collectionName: string) => Promise<CryptoKey>
     historyConfig?: HistoryConfig | undefined
+    /**
+     * When `true`, the caller explicitly provided `historyConfig` rather than
+     * inheriting the vault-wide default. Used by `getConfig()` to decide
+     * whether to surface `history: true` in the schema dump.
+     */
+    historyConfigExplicit?: boolean | undefined
     onDirty?: OnDirtyCallback | undefined
     /**
      * tree-shake seam. When omitted, `collection.blob(id)` throws
@@ -728,7 +760,13 @@ export class Collection<T> {
     textIndexPersist?: boolean | undefined
     /** — dictKey field descriptors for label resolution on reads. */
     dictKeyFields?: Record<string, DictKeyDescriptor | StaticDictDescriptor> | undefined
+    /** — consumer-neutral per-field descriptors. Read via getFieldMeta(). */
+    fieldMeta?: Record<string, FieldMeta> | undefined
+    /** — collection-level descriptive metadata. Read via getMeta(). */
+    meta?: CollectionMeta | undefined
     moneyFields?: Record<string, MoneyDescriptor> | undefined
+    /** — outbound ref declarations (snapshot from vault refRegistry). Used by describe(). */
+    declaredRefs?: Record<string, RefDescriptor> | undefined
     computed?: ComputedFields | undefined
     /**
      * async callback that resolves a dict key to its label
@@ -934,6 +972,7 @@ export class Collection<T> {
     this.getDEK = opts.getDEK
     this.onDirty = opts.onDirty
     this.historyConfig = opts.historyConfig ?? { enabled: true }
+    this.historyConfigExplicit = opts.historyConfigExplicit ?? false
     this.schema = opts.schema
     this.ledger = opts.ledger
     this.refEnforcer = opts.refEnforcer
@@ -968,6 +1007,9 @@ export class Collection<T> {
     this.embeddings = opts.embeddings
     this.vectorSet = opts.embeddings ? new VectorSet() : undefined
     this.dictKeyFields = opts.dictKeyFields
+    this.fieldMeta = opts.fieldMeta
+    this.meta = opts.meta
+    this._refs = opts.declaredRefs ?? {}
     if (opts.moneyFields) validateMoneyFieldPaths(opts.moneyFields)
     this.moneyFields = opts.moneyFields
     this.computed = opts.computed
@@ -1149,6 +1191,160 @@ export class Collection<T> {
     return this.schema
   }
 
+  /** The declared consumer-neutral field metadata channel (canonical). */
+  getFieldMeta(): Record<string, FieldMeta> | undefined { return this.fieldMeta }
+
+  /** The collection's declared descriptive metadata. */
+  getMeta(): CollectionMeta | undefined { return this.meta }
+
+  /**
+   * Aggregate all collection-level configuration options that are actively set
+   * into a {@link CollectionConfig} snapshot. Returns `undefined` when no options
+   * are configured (omitting the `config` block from `dumpSchema()` output).
+   * Consumed by `walk.ts` to populate `CollectionDescriptor.config`.
+   */
+  getConfig(): CollectionConfig | undefined {
+    const i18nFields = this.i18nFields !== undefined
+      ? Object.keys(this.i18nFields)
+      : undefined
+    const embeddings = this.embeddings !== undefined
+      ? {
+          source: this.embeddings.source,
+          dim: this.embeddings.dim,
+          ...(this.embeddings.model !== undefined ? { model: this.embeddings.model } : {}),
+        }
+      : undefined
+    const textIndexes = this.textIndexes !== undefined && this.textIndexes.length > 0
+      ? this.textIndexes
+      : undefined
+    const textIndexPersist = this.searchIndexStore instanceof PersistedIndexStore ? true : undefined
+    const perRecordKeys = this.perRecordCek ? true : undefined
+    const provenance = this.provenance ? true : undefined
+    const tiers = this.tiers !== null ? Array.from(this.tiers) : undefined
+    const tierMode = this.tiers !== null ? (this.tierMode as string) : undefined
+    const crdt = this.crdtMode !== undefined ? (this.crdtMode as string) : undefined
+    /**
+     * `true` when history is explicitly enabled for this collection (i.e. the
+     * caller supplied a `historyConfig` option and history is not disabled).
+     * Omitted when no per-collection config was provided or history is disabled.
+     */
+    const history = this.historyConfigExplicit && this.historyConfig.enabled !== false
+      ? true
+      : undefined
+
+    const hasAny =
+      i18nFields !== undefined ||
+      embeddings !== undefined ||
+      textIndexes !== undefined ||
+      textIndexPersist !== undefined ||
+      perRecordKeys !== undefined ||
+      provenance !== undefined ||
+      tiers !== undefined ||
+      crdt !== undefined ||
+      history !== undefined
+
+    if (!hasAny) return undefined
+
+    return {
+      ...(i18nFields !== undefined ? { i18nFields } : {}),
+      ...(embeddings !== undefined ? { embeddings } : {}),
+      ...(textIndexes !== undefined ? { textIndexes } : {}),
+      ...(textIndexPersist !== undefined ? { textIndexPersist } : {}),
+      ...(perRecordKeys !== undefined ? { perRecordKeys } : {}),
+      ...(provenance !== undefined ? { provenance } : {}),
+      ...(tiers !== undefined ? { tiers } : {}),
+      ...(tierMode !== undefined ? { tierMode } : {}),
+      ...(crdt !== undefined ? { crdt } : {}),
+      ...(history !== undefined ? { history } : {}),
+    }
+  }
+
+  /**
+   * Describe the collection's field schema from in-memory config — zero store I/O.
+   *
+   * Sync overload (no args): merges moneyFields / dictKeyFields / refs /
+   * computed / fieldMeta into a {@link CollectionDescription}. Field types are
+   * inferred from config (money→'number', ref→'string'/'array', dict→'enum',
+   * others→'unknown'). Validator-derived types require the async overload (Task 4).
+   *
+   * Async overload (Task 4 #483): resolves validator-derived types + dynamic dict
+   * labels before building the description.
+   */
+  describe(): CollectionDescription
+  describe(opts: DescribeOptions): Promise<CollectionDescription>
+  describe(opts?: DescribeOptions): CollectionDescription | Promise<CollectionDescription> {
+    if (opts) {
+      return this.describeAsync(opts)
+    }
+    return buildDescription({
+      collection: this.name,
+      fieldMeta: this.fieldMeta,
+      moneyFields: this.moneyFields,
+      dictKeyFields: this.dictKeyFields,
+      computed: this.computed,
+      refs: this._refs,
+      zodFields: undefined,
+      ...(this.meta !== undefined ? { meta: this.meta } : {}),
+      ...(this.i18nFields !== undefined ? { i18nFields: this.i18nFields } : {}),
+    })
+  }
+
+  /**
+   * Async describe implementation (#483 Task 4).
+   * Derives validator-exact types via deriveZodFields (lazy, no static zod import),
+   * optionally resolves dynamic-dict labels from vault.dictionary(name).list(),
+   * then delegates to buildDescription which also runs fieldMeta key-validation.
+   */
+  private async describeAsync(opts: DescribeOptions): Promise<CollectionDescription> {
+    // 1. Derive per-field type/optional/constraints/meta from the validator (if any).
+    const zodFields = this.schema !== undefined
+      ? await deriveZodFields(this.schema)
+      : undefined
+
+    // 2. Optionally resolve dynamic-dict labels from the vault's dictionary store.
+    let dictLabels: Record<string, Record<string, string>> | undefined
+    if (opts.resolveDictLabels === true && this.dictKeyFields !== undefined) {
+      dictLabels = {}
+      for (const [, desc] of Object.entries(this.dictKeyFields)) {
+        if (!isStaticDictDescriptor(desc) && this.getDictionary !== undefined) {
+          const handle = await this.getDictionary(desc.name)
+          const entries = await handle.list()
+          const valueToLabel: Record<string, string> = {}
+          for (const entry of entries) {
+            // Pick the first available locale label as the display label.
+            const label = Object.values(entry.labels)[0]
+            if (label !== undefined) valueToLabel[entry.key] = label
+          }
+          dictLabels[desc.name] = valueToLabel
+        }
+      }
+    }
+
+    return buildDescription({
+      collection: this.name,
+      fieldMeta: this.fieldMeta,
+      moneyFields: this.moneyFields,
+      dictKeyFields: this.dictKeyFields,
+      computed: this.computed,
+      refs: this._refs,
+      zodFields,
+      ...(dictLabels !== undefined ? { dictLabels } : {}),
+      ...(this.meta !== undefined ? { meta: this.meta } : {}),
+      ...(this.i18nFields !== undefined ? { i18nFields: this.i18nFields } : {}),
+    })
+  }
+
+  /** JSON Schema for this collection with describe() metadata as x- extensions. */
+  async toJSONSchema(): Promise<object> {
+    const desc = await this.describe({})
+    let base: Record<string, unknown> | null = null
+    if (this.schema !== undefined) {
+      const env = await derivePersistedSchema(this.schema)
+      base = (env.jsonSchema as Record<string, unknown> | null) ?? null
+    }
+    return buildJsonSchema(desc, base)
+  }
+
   /**
    * @internal — attach money descriptors post-construction. MV dependency
    * analysis auto-creates a source collection (without options) during
@@ -1164,6 +1360,16 @@ export class Collection<T> {
   /** @internal — attach computed fields post-construction. See {@link _applyMoneyFields}. */
   _applyComputed(computed: ComputedFields): void {
     if (this.computed === undefined) this.computed = computed
+  }
+
+  /** @internal — attach fieldMeta post-construction. See {@link _applyMoneyFields}. First-wins. */
+  _applyFieldMeta(fieldMeta: Record<string, FieldMeta>): void {
+    if (this.fieldMeta === undefined) this.fieldMeta = fieldMeta
+  }
+
+  /** @internal — attach collection-level meta post-construction. See {@link _applyMoneyFields}. First-wins. */
+  _applyMeta(meta: CollectionMeta): void {
+    if (this.meta === undefined) this.meta = meta
   }
 
   /**

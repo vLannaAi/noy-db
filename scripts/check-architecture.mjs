@@ -495,7 +495,16 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 5168→5255 (#308 L2): embeddings derive/retrieve/forget call-sites (engine in src/embeddings/)
   // Bumped 5255→5278 (#308 L3): retrieveLexical/retrieveHybrid private methods + thin retrieve() dispatcher
   // Bumped 5278→5285 (#308 L3 Task 4): applyWithin() private method + within dispatch in retrieve()
-  'packages/hub/src/collection.ts': 5285,
+  // Bumped 5285→5293 (#483 Task 1): fieldMeta private field + getFieldMeta() getter + FieldMeta type import
+  // Bumped 5293→5332 (#483 Task 3): describe() sync method + _refs private field + buildDescription import + declaredRefs opt
+  // Bumped 5332→5374 (#483 Task 4): describeAsync() private method (derive zodFields + resolveDictLabels + delegate to buildDescription)
+  // Bumped 5374→5379 (#483 fix-wave): _applyFieldMeta() — first-wins reconciler mirroring _applyMoneyFields, needed for MV-pre-created collection re-declaration path
+  // Bumped 5379→5399 (#483 Task 1): CollectionMeta import + private meta field + getMeta() getter + _applyMeta() reconciler + meta threading into both describe() calls
+  // Bumped 5399→5401 (#483 Task 3): i18nFields passed into both buildDescription call-sites
+  // Bumped 5401→5457 (#483 Task 4): CollectionConfig import + getConfig() aggregator (reads existing private fields, no new state)
+  // Bumped 5457→5473 (#483 review follow-up): historyConfigExplicit private field + opts flag for presence-semantic history in getConfig()
+  // Bumped 5473→5486 (#484 Task 2): toJSONSchema() thin delegator + buildJsonSchema/derivePersistedSchema imports (logic lives in json-schema.ts)
+  'packages/hub/src/collection.ts': 5486,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
@@ -567,7 +576,12 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 4546→4571 (#308 L1): getDictionary label-resolver injection + warmIndexOnOpen wiring (engine in src/search/)
   // Bumped 4571→4597 (#308 L1.5): persisted-index call-sites + forget/close wiring
   // Bumped 4597→4610 (#308 L2): embeddings derive/retrieve/forget call-sites (engine in src/embeddings/)
-  'packages/hub/src/vault.ts': 4610,
+  // Bumped 4610→4617 (#483 Task 1): fieldMeta option in CollectionOptions + FieldMeta import + validation call-site
+  // Bumped 4617→4621 (#483 Task 3): declaredRefs wiring (snapshot of outbound refs for describe())
+  // Bumped 4621→4633 (#483 Task 1): meta option in CollectionOptions + _applyMeta reconcile in cached-collection branch + meta threading into new Collection() opts
+  // Bumped 4633→4650 (#483 Task 2): vaultMeta field + getMeta() getter + constructor opts + _introspectState() wiring
+  // Bumped 4650→4659 (#483 review follow-up): historyConfigExplicit threading + archive/schemaUpdate accessors in _introspectState()
+  'packages/hub/src/vault.ts': 4659,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),

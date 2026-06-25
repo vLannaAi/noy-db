@@ -92,36 +92,65 @@ export interface DictKeyDescriptor<Keys extends string = string> {
   readonly onMissing?: OnMissingPolicy
   /** Ordered preferred-substitute locales for label resolution. */
   readonly substitute?: readonly string[]
+  /**
+   * Optional inline display labels (value → label map). A SYNC display
+   * fallback for `describe()` when async `dictLabels` (from `_dict_`) are
+   * not resolved. The async path still wins when available.
+   */
+  readonly labels?: Record<string, string>
 }
 
 /**
  * Create a `DictKeyDescriptor` for a dictionary-backed enum field.
  *
- * @param name   The dictionary name (corresponds to `_dict_<name>` collection).
- * @param keys   Optional `as const` array of valid key literals — narrows the
- *               TypeScript type to a literal union and enables put-time
- *               validation.
+ * @param name        The dictionary name (corresponds to `_dict_<name>` collection).
+ * @param keysOrMap   Either:
+ *   - An `as const` array of valid key literals — narrows the TypeScript type
+ *     to a literal union and enables put-time validation.
+ *   - A **value→label map** (`{ draft: 'Draft', paid: 'Paid' }`) — keys are
+ *     inferred from the map, and the labels are stored as inline display
+ *     defaults surfaced by `describe()` without a store read.
+ * @param opts        `{ labels?, onMissing?, substitute? }` when the array form
+ *                    is used; `opts.labels` provides inline display defaults for
+ *                    specific keys (same semantics as the map form, but
+ *                    explicit key order from the array is preserved).
  *
  * @example
  * ```ts
- * const invoices = company.collection<Invoice>('invoices', {
- *   dictKeyFields: {
- *     status: dictKey('status', ['draft', 'open', 'paid'] as const),
- *   },
- * })
+ * // array form (original):
+ * dictKey('status', ['draft', 'open', 'paid'] as const)
+ *
+ * // value→label map form (keys inferred, inline labels for describe()):
+ * dictKey('status', { draft: 'Draft', open: 'Open', paid: 'Paid' })
+ *
+ * // array + opts.labels (preserves explicit order, partial labels OK):
+ * dictKey('status', ['draft', 'open', 'paid'] as const, { labels: { paid: 'Paid' } })
  * ```
  */
 export function dictKey<Keys extends string>(
   name: string,
-  keys?: readonly Keys[],
-  opts?: { onMissing?: OnMissingPolicy; substitute?: readonly string[] },
+  keysOrMap?: readonly Keys[] | Record<Keys, string>,
+  opts?: { onMissing?: OnMissingPolicy; substitute?: readonly string[]; labels?: Record<string, string> },
 ): DictKeyDescriptor<Keys> {
+  let keys: readonly Keys[] | undefined
+  let labels: Record<string, string> | undefined
+  if (Array.isArray(keysOrMap)) {
+    keys = keysOrMap as readonly Keys[]
+    labels = opts?.labels
+  } else if (keysOrMap && typeof keysOrMap === 'object') {
+    keys = Object.keys(keysOrMap) as Keys[]
+    labels = keysOrMap as Record<string, string>
+  } else {
+    keys = undefined
+    labels = opts?.labels
+  }
   return {
     _noydbDictKey: true,
     name,
     keys,
     ...(opts?.onMissing !== undefined ? { onMissing: opts.onMissing } : {}),
     ...(opts?.substitute !== undefined ? { substitute: opts.substitute } : {}),
+    ...(labels !== undefined ? { labels } : {}),
   }
 }
 
