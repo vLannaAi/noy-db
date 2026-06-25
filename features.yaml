@@ -406,7 +406,30 @@ features:
       - 'public exports from @noy-db/hub only (not from kernel): FieldMeta, SemanticType, CollectionDescription, DescribedField, DescribeOptions'
       - 'fieldMeta key guard (async path): when zodFields is non-empty, unknown fieldMeta keys throw FieldMetaUnknownFieldError — typo protection; sync path skips this check (schema fields not knowable without async derivation)'
       - 'validator-agnostic: works without zod; non-zod validators get structural type inference from config only on the sync path'
-    related: [dump-schema-introspection, cli-describe, money-field, schema-and-refs, i18n]
+    related: [dump-schema-introspection, cli-describe, money-field, schema-and-refs, i18n, metadata-ladder]
+
+  - id: metadata-ladder
+    name: Metadata ladder — collectionMeta/vaultMeta + devtools schema surfacing (#483)
+    cluster: core
+    spec: docs/superpowers/specs/2026-06-25-metadata-ladder-and-schema-surfacing-design.md
+    subsystem_doc: docs/subsystems/field-metadata.md
+    package: '@noy-db/hub'
+    factory: null
+    status: preview
+    experimental: true
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'collectionMeta option (meta?: CollectionMeta): label/description/icon/pluralLabel on vault.collection(); first-wins reconciler (_applyMeta) on MV-pre-created collections; surfaced in describe() meta block and dumpSchema() CollectionDescriptor.meta'
+      - 'vaultMeta option (meta?: VaultMeta): label/description/icon on openVault(); first-wins: re-opening a cached vault keeps its meta; surfaced in dumpSchema() VaultSchemaSnapshot.meta'
+      - 'describe() enhancements: i18n block (locales/densify) for i18nText fields; widget derived from semanticType+type (overridable via fieldMeta.widget); editable:false for computed/id/provenance-stamped fields, true otherwise'
+      - 'dumpSchema() config block (CollectionConfig): textIndexes/embeddings/i18nFields/crdt/provenance/archive/tiers/tierMode/perRecordKeys/history/schemaUpdate surfaced from live collection; omitted on bundle-reconstructed collections; function-valued options surface as booleans (presence only)'
+      - 'in-devtools snapshot(): InspectorCollection gains meta/described/config; InspectorSnapshot gains meta (VaultMeta); rich fields from describe() populates described[]'
+      - 'TUI (in-devtools-tui): DetailPane shows collection meta.label heading + DescribedField list with label/type/widget/<sensitivity>/[i18n]/[ro] markers + compact config strip; CollectionList shows meta.label; VaultList shows vault meta.label for active vault'
+      - 'CollectionMeta/VaultMeta exported from @noy-db/hub (src/index.ts) AND @noy-db/hub/kernel (kernel/index.ts) for klum-db federation contract'
+    related: [field-metadata, dump-schema-introspection, in-devtools, in-devtools-nuxt]
 
   - id: query-basics
     name: Always-on query DSL

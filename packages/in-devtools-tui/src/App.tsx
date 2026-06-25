@@ -105,7 +105,7 @@ export function App({ inspector, vault, vaultName, initial }: AppProps) {
     <Box flexDirection="column">
       <Text bold>noy-db inspector — {vaultName} <Text dimColor>(↑/↓ · ↵ drill · ⇥ tab · q quit)</Text></Text>
       <Box marginTop={1}>
-        <VaultList vaults={vaults} activeName={vaultName} />
+        <VaultList vaults={vaults} activeName={vaultName} snapshot={snapshot} />
         <CollectionList snapshot={snapshot ?? { vault: vaultName, collections: [] }} selectedIdx={selectedIdx} />
         {drilled && tab === 'records' && current
           ? <RecordsPane collection={current} page={page} {...(recErr !== undefined ? { error: recErr } : {})} />

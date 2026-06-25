@@ -1,7 +1,8 @@
-# Field metadata — `collection.describe()` + `fieldMeta`
+# Field metadata — `collection.describe()` + `fieldMeta` + metadata ladder
 
-> Status: **preview** (#483). Spec:
+> Status: **preview** (#483). Specs:
 > `docs/superpowers/specs/2026-06-25-field-metadata-foundation-design.md`
+> · `docs/superpowers/specs/2026-06-25-metadata-ladder-and-schema-surfacing-design.md`
 
 ---
 
@@ -177,3 +178,184 @@ const d2: CollectionDescription = await coll.describe({ resolveDictLabels: true 
 ```
 
 See also: Showcase 126 (`showcases/src/126-describe-field-metadata.showcase.test.ts`).
+
+---
+
+## Metadata ladder — collection + vault level
+
+The field-level descriptors (`fieldMeta` / `DescribedField`) are the bottom rung
+of a **three-rung metadata ladder**:
+
+```
+field  →  collection  →  vault
+```
+
+Each rung adds a friendly identity layer that viewers (devtools, editor, export
+filename, API doc) consume without duplicating their own label logic.
+
+### `collectionMeta`
+
+Declare via the `meta` collection option:
+
+```ts
+const invoices = vault.collection<Invoice>('invoices', {
+  meta: {
+    label: 'Sales Invoices',
+    description: 'Outbound sales invoices billed to clients.',
+    pluralLabel: 'Sales Invoices',  // for list headers
+    icon: 'receipt',                // semantic icon name (Lucide etc.)
+  },
+  fieldMeta: { … },
+})
+```
+
+`CollectionMeta` members:
+
+| Field | Type | Purpose |
+|---|---|---|
+| `label` | `string?` | Friendly collection name; falls back to the humanized collection name |
+| `description` | `string?` | Longer tooltip / context |
+| `icon` | `string?` | Semantic icon name (e.g. a Lucide key), not styling |
+| `pluralLabel` | `string?` | Plural form for list headers ("Invoice" → "Invoices") |
+
+Unlike `FieldMeta.label`, `CollectionMeta.label` is **optional** — the
+collection name is already a reasonable fallback identity.
+
+**First-wins reconciler.** When a collection is pre-created by an MV before the
+app's own `vault.collection()` call, the first declared `meta` wins (mirrors
+`_applyFieldMeta`).
+
+**Surfaces in:**
+- `collection.describe()` → `CollectionDescription.meta`
+- `vault.dumpSchema()` → `CollectionDescriptor.meta`
+- `in-devtools` `snapshot()` → `InspectorCollection.meta`
+
+### `vaultMeta`
+
+Declare via the `meta` vault option:
+
+```ts
+const vault = await db.openVault('ledger', {
+  meta: { label: 'Acme Ledger 2026', description: 'Main accounting vault.' },
+})
+```
+
+`VaultMeta` members:
+
+| Field | Type | Purpose |
+|---|---|---|
+| `label` | `string?` | Friendly vault name; falls back to the vault name |
+| `description` | `string?` | Longer context |
+| `icon` | `string?` | Semantic icon name |
+
+**First-wins.** Re-opening an already-cached vault keeps its `meta`.
+
+**Surfaces in:**
+- `vault.dumpSchema()` → `VaultSchemaSnapshot.meta`
+- `in-devtools` `snapshot()` → `InspectorSnapshot.meta`
+
+**Kernel export.** `CollectionMeta` and `VaultMeta` are also exported from
+`@noy-db/hub/kernel` so that klum-db's federation layer can reuse `VaultMeta`
+for `groupMeta` without taking a full hub dep.
+
+---
+
+## `describe()` enhancements — `i18n`, `widget`, `editable`
+
+The metadata ladder build added three fields to `DescribedField`:
+
+### `i18n?: { locales?: readonly string[]; densify?: boolean }`
+
+Present on fields declared with `i18nText()`. Exposes the configured locale set
+and the `densifyOnWrite` flag so consumers know the field is multi-locale.
+
+### `widget?: string`
+
+Derived from `semanticType` + `type`, overridable via `fieldMeta.widget`:
+
+| Condition | Derived `widget` |
+|---|---|
+| `semanticType: 'date'` or `'datetime'` | `'date'` |
+| `semanticType: 'currency'` (money) | `'money'` |
+| `semanticType: 'entity'` (ref) | `'ref-select'` |
+| `dict` block present | `'select'` |
+| `type: 'boolean'` | `'checkbox'` |
+| `semanticType: 'percent'` | `'number'` |
+| `semanticType: 'url'` | `'url'` |
+| `semanticType: 'email'` | `'email'` |
+| else | `'text'` |
+
+Override: `fieldMeta: { amount: { label: 'Amount', widget: 'currency-input' } }`.
+
+### `editable: boolean`
+
+`false` for computed fields, the `id` field, and provenance-stamped fields;
+`true` otherwise. Data editors use this to render read-only cells without
+knowing the collection's internals.
+
+---
+
+## `dumpSchema()` collection-level `config` block
+
+`CollectionDescriptor.config` surfaces the **live** collection's configuration
+options for structural-audit tooling. It is populated by `dumpSchema()` when the
+collection is live-declared; omitted for bundle-reconstructed collections where
+options aren't available.
+
+```ts
+config?: {
+  textIndexes?: readonly string[]
+  textIndexPersist?: boolean
+  embeddings?: { source: string | readonly string[]; dim: number; model?: string }
+  i18nFields?: readonly string[]
+  crdt?: string
+  provenance?: boolean
+  archive?: boolean          // presence flag (the predicate is code)
+  tiers?: readonly number[]
+  tierMode?: string
+  perRecordKeys?: boolean
+  history?: boolean          // presence flag
+  schemaUpdate?: readonly string[]  // strategy names
+}
+```
+
+**Function-valued options surface as booleans (presence).** `conflictPolicy` is
+consumed at construction and has no retained state to surface.
+
+---
+
+## Devtools schema view
+
+### `in-devtools` `snapshot()`
+
+`InspectorCollection` carries all three rung outputs:
+- `meta?: CollectionMeta` — collection-level label/description
+- `described?: readonly DescribedField[]` — rich field list (label/type/widget/sensitivity/i18n/editable)
+- `config?: CollectionConfig` — structural config strip
+
+`InspectorSnapshot` gains `meta?: VaultMeta` for the vault-level label.
+
+### Terminal UI (`@noy-db/in-devtools-tui`)
+
+The structure view renders the metadata ladder compactly:
+
+**VaultList** — shows `meta.label (vaultId)` for the active vault when a label
+is declared; falls back to the vault id.
+
+**CollectionList** — shows `meta.label (name)` for each collection when a label
+is declared; falls back to the collection name.
+
+**DetailPane** (drilled schema tab):
+- Heading: `meta.label (name)` or just `name`
+- If `described` is present: one line per field — `Label  (key: type)  [pii]  [i18n]  [ro]  <widget>`
+- If `described` is absent (no live describe): raw `key: type` from `fields`
+- Config strip (dimmed): `config: idx:2  emb:1536d  i18n:3  crdt:lww  provenance  archive`
+
+Markers used:
+| Marker | Meaning |
+|---|---|
+| `[pii]` | `sensitivity: 'pii'` |
+| `[secret]` | `sensitivity: 'secret'` |
+| `[i18n]` | `i18n` block present |
+| `[ro]` | `editable: false` |
+| `<widget>` | widget hint, e.g. `<money>` or `<ref-select>` |
