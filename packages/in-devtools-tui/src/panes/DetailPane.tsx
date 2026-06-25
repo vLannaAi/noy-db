@@ -66,8 +66,8 @@ export function DetailPane({ collection }: { collection: InspectorCollection | u
           <Box flexDirection="column" marginTop={1}>
             <Text bold>schema</Text>
             {Object.keys(collection.fields).length
-              ? Object.keys(collection.fields).map((k) => (
-                <Text key={k}>{'  '}{k}: <Text dimColor>{collection.fields[k].type}</Text></Text>
+              ? Object.entries(collection.fields).map(([k, f]) => (
+                <Text key={k}>{'  '}{k}: <Text dimColor>{f.type}</Text></Text>
               ))
               : <Text dimColor>  (no declared fields)</Text>}
           </Box>
