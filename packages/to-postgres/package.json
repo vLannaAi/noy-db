@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/to-postgres",
-  "version": "0.2.0-pre.29",
+  "version": "0.2.0-pre.30",
   "description": "PostgreSQL adapter for noy-db — encrypted-envelope KV with jsonb column. Works with any duck-typed pg-style Client (node-postgres, postgres.js, pg-native, Supabase, Neon serverless). casAtomic: true via UPDATE … WHERE _v = ?.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
