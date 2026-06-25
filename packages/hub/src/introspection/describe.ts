@@ -257,7 +257,7 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
         const labelMapHasEntries = labelMap !== undefined && Object.keys(labelMap).length > 0
         if (labelMapHasEntries) {
           // We have resolved labels — build values from the label map.
-          const values = Object.entries(labelMap!).map(([value, label]) => ({ value, label }))
+          const values = Object.entries(labelMap).map(([value, label]) => ({ value, label }))
           dictBlock = { name: dict.name, static: false, values }
         } else if (dict.keys !== undefined) {
           const values = dict.keys.map((k) => ({ value: k }))

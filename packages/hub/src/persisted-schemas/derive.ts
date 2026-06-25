@@ -47,7 +47,7 @@ function detectKind(validator: unknown): PersistedSchemaKind {
  */
 export function isZod4Schema(value: unknown): boolean {
   if (value === null || typeof value !== 'object') return false
-  return '_zod' in (value as object)
+  return '_zod' in value
 }
 
 /**
