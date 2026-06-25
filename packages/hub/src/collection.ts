@@ -37,6 +37,7 @@ import type { SchemaUpdateGate } from './schema-update/gate.js'
 import type { SchemaFenceController } from './schema-update/fence-controller.js'
 import type { StandardSchemaV1 } from './schema.js'
 import { validateSchemaInput, validateSchemaOutput } from './schema.js'
+import { derivePersistedSchema } from './persisted-schemas/derive.js'
 import type { LedgerStore } from './history/ledger/index.js'
 import type { DiffEntry } from './history/diff.js'
 import { NO_HISTORY, type HistoryStrategy } from './history/strategy.js'
@@ -60,6 +61,7 @@ import { embeddingSourceText, VectorSet, type EmbeddingDescriptor, type StoredVe
 import { buildUniqueConstraintSet, type UniqueConstraintSet } from './indexing/unique-constraints.js'
 import type { RefDescriptor } from './refs.js'
 import { buildDescription, deriveZodFields, type CollectionDescription, type DescribeOptions } from './introspection/describe.js'
+import { buildJsonSchema } from './introspection/json-schema.js'
 import type { CollectionConfig } from './introspection/types.js'
 import { Lru, parseBytes, estimateRecordBytes, type LruStats } from './cache/index.js'
 import { generateULID } from './bundle/ulid.js'
@@ -1330,6 +1332,17 @@ export class Collection<T> {
       ...(this.meta !== undefined ? { meta: this.meta } : {}),
       ...(this.i18nFields !== undefined ? { i18nFields: this.i18nFields } : {}),
     })
+  }
+
+  /** JSON Schema for this collection with describe() metadata as x- extensions. */
+  async toJSONSchema(): Promise<object> {
+    const desc = await this.describe({})
+    let base: Record<string, unknown> | null = null
+    if (this.schema !== undefined) {
+      const env = await derivePersistedSchema(this.schema)
+      base = (env.jsonSchema as Record<string, unknown> | null) ?? null
+    }
+    return buildJsonSchema(desc, base)
   }
 
   /**

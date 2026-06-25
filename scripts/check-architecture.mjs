@@ -503,7 +503,8 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 5399→5401 (#483 Task 3): i18nFields passed into both buildDescription call-sites
   // Bumped 5401→5457 (#483 Task 4): CollectionConfig import + getConfig() aggregator (reads existing private fields, no new state)
   // Bumped 5457→5473 (#483 review follow-up): historyConfigExplicit private field + opts flag for presence-semantic history in getConfig()
-  'packages/hub/src/collection.ts': 5473,
+  // Bumped 5473→5486 (#484 Task 2): toJSONSchema() thin delegator + buildJsonSchema/derivePersistedSchema imports (logic lives in json-schema.ts)
+  'packages/hub/src/collection.ts': 5486,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
