@@ -55,3 +55,16 @@ describe('collectionMeta', () => {
     expect(plain.describe().meta?.label).toBe('Line Items')   // humanized fallback
   })
 })
+
+describe('vaultMeta', () => {
+  it('surfaces vaultMeta on dumpSchema, first-wins', async () => {
+    const db = await createNoydb({ store: inlineMemory(), user: 'u', secret: 's' })
+    const v = await db.openVault('books', { meta: { label: 'Acme Books', description: '2026' } })
+    v.collection('sales', {})
+    const dump = await v.dumpSchema()
+    expect(dump.meta).toMatchObject({ label: 'Acme Books', description: '2026' })
+    // re-open with different meta → first-wins keeps original
+    const v2 = await db.openVault('books', { meta: { label: 'OTHER' } })
+    expect(v2.getMeta()?.label).toBe('Acme Books')
+  })
+})

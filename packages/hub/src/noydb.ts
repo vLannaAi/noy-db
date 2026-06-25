@@ -77,6 +77,7 @@ import {
   type ResolvedPublicEnvelopeSchema,
 } from './meta/public-envelope/index.js'
 import { Vault } from './vault.js'
+import type { VaultMeta } from './introspection/meta.js'
 import { NoydbEventEmitter } from './events.js'
 import { WriteQueueTracker, type WriteQueue } from './write-queue.js'
 import { WriteHookRegistry, type WriteHook, type Unsubscribe } from './write-hooks.js'
@@ -500,7 +501,7 @@ export class Noydb {
    */
   async openVault(
     name: string,
-    opts?: { locale?: string; create?: boolean },
+    opts?: { locale?: string; create?: boolean; meta?: VaultMeta },
   ): Promise<Vault> {
     if (this.closed) throw new ValidationError('Instance is closed')
     this.touchPolicy(name)
@@ -604,6 +605,7 @@ export class Noydb {
       ...(this.options.numbering !== undefined ? { numberingConfigs: this.options.numbering } : {}),
       forgetStrategy: this.forgetStrategy,
       locale: opts?.locale,
+      ...(opts?.meta !== undefined ? { meta: opts.meta } : {}),
       // Thread the translator hook so Collection.put() can invoke it
       plaintextTranslator: this.options.plaintextTranslator
         ? (text, from, to, field, collection) =>

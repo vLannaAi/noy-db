@@ -23,6 +23,7 @@ import type { Collection } from '../collection.js'
 import type { NoydbStore } from '../types.js'
 import type { UnlockedKeyring } from '../team/keyring.js'
 import type { RefRegistry } from '../refs.js'
+import type { VaultMeta } from './meta.js'
 
 /**
  * The minimal slice of Vault internal state the walker needs.
@@ -40,6 +41,8 @@ export interface VaultIntrospectState {
   /** The active unlocked keyring — role/permissions/userId for access-scoped ops. */
   readonly keyring: UnlockedKeyring
   readonly subsystems: Record<string, boolean>
+  /** Vault-level descriptive metadata, when set via `openVault({meta})`. */
+  readonly vaultMeta?: VaultMeta
   // Typed loosely on purpose — these are private subsystem registries
   // accessed only for "is anything registered" enumeration.
   readonly mvRegistry: unknown
@@ -95,6 +98,7 @@ export async function dumpVaultSchema(
     vault: state.name,
     emittedAt: new Date().toISOString(),
     subsystems: state.subsystems,
+    ...(state.vaultMeta !== undefined ? { meta: state.vaultMeta } : {}),
     collections,
     materializedViews,
     overlayViews,

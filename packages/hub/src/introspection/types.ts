@@ -10,7 +10,7 @@
 
 import type { PersistedSchemaKind } from '../persisted-schemas/types.js'
 import type { Permission } from '../types.js'
-import type { CollectionMeta } from './meta.js'
+import type { CollectionMeta, VaultMeta } from './meta.js'
 
 /** Flat snapshot of a vault's registered schema. */
 export interface SchemaIntrospection {
@@ -90,6 +90,7 @@ export interface VaultSchemaSnapshot {
   readonly emittedAt: string
   readonly subsystems: Record<string, boolean>
   readonly aclRoles?: ReadonlyArray<string>
+  readonly meta?: VaultMeta
   readonly collections: Record<string, CollectionDescriptor>
   readonly materializedViews: Record<string, MaterializedViewDescriptor>
   readonly overlayViews: Record<string, OverlayViewDescriptor>

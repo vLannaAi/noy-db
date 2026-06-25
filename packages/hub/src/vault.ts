@@ -152,6 +152,7 @@ import type { RevokeContext } from './attestation/revoke.js'
 import type { DumpSchemaOptions, VaultSchemaSnapshot, SchemaIntrospection } from './introspection/types.js'
 import { dumpVaultSchema, type VaultIntrospectState } from './introspection/walk.js'
 import type { FieldMeta } from './introspection/field-meta.js'
+import type { VaultMeta } from './introspection/meta.js'
 import { USER_ENVELOPE_COLLECTION } from './meta/user-envelope/types.js'
 
 /**
@@ -393,6 +394,13 @@ export class Vault {
   private locale: string | undefined
 
   /**
+   * Vault-level descriptive metadata. Set once at construction via
+   * `openVault(name, { meta })`. First-wins: re-opening a cached vault
+   * with different meta leaves the original untouched.
+   */
+  private readonly vaultMeta: VaultMeta | undefined
+
+  /**
    * Current consent scope. Set by `withConsent()` and
    * restored in its finally block. When non-null, every collection
    * access inside the scope writes one entry to `_consent_audit`.
@@ -539,6 +547,8 @@ export class Vault {
     guardStrategies?: ReadonlyArray<GuardStrategyHandleAny> | undefined
     numberingConfigs?: ReadonlyArray<DeferredNumberingConfig> | undefined
     forgetStrategy?: ForgetStrategy | undefined
+    /** Vault-level descriptive metadata — set once at construction (first-wins). */
+    meta?: VaultMeta | undefined
   }) {
     this.adapter = opts.adapter
     this.name = opts.name
@@ -583,6 +593,7 @@ export class Vault {
     this.historyConfig = opts.historyConfig ?? { enabled: true }
     this.reloadKeyring = opts.reloadKeyring
     this.locale = opts.locale
+    this.vaultMeta = opts.meta
     this.translateText = opts.plaintextTranslator
 
     // Build the lazy DEK resolver. Pulled out into a private method
@@ -1591,6 +1602,11 @@ export class Vault {
   /** Return the current vault-default locale. */
   getLocale(): string | undefined {
     return this.locale
+  }
+
+  /** Return the vault-level descriptive metadata (set-once at construction). */
+  getMeta(): VaultMeta | undefined {
+    return this.vaultMeta
   }
 
   /**
@@ -3805,6 +3821,7 @@ export class Vault {
         materializedViews: this.materializedViewRegistry !== null,
         overlayViews: this.overlayedViewRegistry !== null,
       },
+      ...(this.vaultMeta !== undefined ? { vaultMeta: this.vaultMeta } : {}),
       mvRegistry: this.materializedViewRegistry,
       overlayRegistry: this.overlayedViewRegistry,
       derivationRegistry: this.derivationRegistry,
