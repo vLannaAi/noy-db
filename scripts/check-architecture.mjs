@@ -499,7 +499,8 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 5293→5332 (#483 Task 3): describe() sync method + _refs private field + buildDescription import + declaredRefs opt
   // Bumped 5332→5374 (#483 Task 4): describeAsync() private method (derive zodFields + resolveDictLabels + delegate to buildDescription)
   // Bumped 5374→5379 (#483 fix-wave): _applyFieldMeta() — first-wins reconciler mirroring _applyMoneyFields, needed for MV-pre-created collection re-declaration path
-  'packages/hub/src/collection.ts': 5379,
+  // Bumped 5379→5399 (#483 Task 1): CollectionMeta import + private meta field + getMeta() getter + _applyMeta() reconciler + meta threading into both describe() calls
+  'packages/hub/src/collection.ts': 5399,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
@@ -573,7 +574,8 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 4597→4610 (#308 L2): embeddings derive/retrieve/forget call-sites (engine in src/embeddings/)
   // Bumped 4610→4617 (#483 Task 1): fieldMeta option in CollectionOptions + FieldMeta import + validation call-site
   // Bumped 4617→4621 (#483 Task 3): declaredRefs wiring (snapshot of outbound refs for describe())
-  'packages/hub/src/vault.ts': 4621,
+  // Bumped 4621→4633 (#483 Task 1): meta option in CollectionOptions + _applyMeta reconcile in cached-collection branch + meta threading into new Collection() opts
+  'packages/hub/src/vault.ts': 4633,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),

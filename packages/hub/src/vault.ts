@@ -692,6 +692,8 @@ export class Vault {
     dictKeyFields?: Record<string, DictKeyDescriptor | StaticDictDescriptor>
     /** Consumer-neutral per-field descriptors (label/unit/semanticType/sensitivity…). See collection.describe(). */
     fieldMeta?: Record<string, FieldMeta>
+    /** The collection's own descriptive metadata (label/description/icon). See collection.describe(). */
+    meta?: import('./introspection/meta.js').CollectionMeta
     /** — declare money() fields for currency-safe decimal storage/formatting. */
     moneyFields?: Record<string, MoneyDescriptor>
     /** — declare computed scalar fields, evaluated on write (schema-owned). */
@@ -820,6 +822,12 @@ export class Vault {
       // auto-created without options gets its fieldMeta attached here.
       // First-wins: if the collection already has fieldMeta set this is a no-op.
       coll._applyFieldMeta(options.fieldMeta)
+    }
+    if (coll && options?.meta) {
+      // Same MV-pre-creation reconcile as fieldMeta: attach collection-level
+      // descriptive metadata to a collection that was auto-created without options.
+      // First-wins.
+      coll._applyMeta(options.meta)
     }
     if (!coll) {
       // Register ref declarations (if any) with the vault-level
@@ -1064,6 +1072,10 @@ export class Vault {
       // validate schema fields, so no validate call here.
       if (options?.fieldMeta !== undefined) {
         collOpts.fieldMeta = options.fieldMeta
+      }
+      // meta: thread through to the collection; surfaced via getMeta() / describe().
+      if (options?.meta !== undefined) {
+        collOpts.meta = options.meta
       }
       // Pass a snapshot of the outbound refs for describe() (sync, config-only).
       if (options?.refs !== undefined) {

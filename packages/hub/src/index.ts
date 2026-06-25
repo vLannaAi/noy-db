@@ -196,6 +196,7 @@ export type { SchemaIntrospection } from './introspection/types.js'
 
 // Field metadata (#483)
 export type { FieldMeta, SemanticType } from './introspection/field-meta.js'
+export type { CollectionMeta, VaultMeta } from './introspection/meta.js'
 export type { CollectionDescription, DescribedField, DescribeOptions } from './introspection/describe.js'
 
 // Dry-run transactions

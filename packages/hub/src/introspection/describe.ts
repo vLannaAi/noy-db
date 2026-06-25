@@ -12,7 +12,8 @@
  */
 
 import type { FieldMeta } from './field-meta.js'
-import { resolveFieldMeta, validateFieldMetaKeys, FieldMetaUnknownFieldError } from './field-meta.js'
+import { resolveFieldMeta, validateFieldMetaKeys, FieldMetaUnknownFieldError, humanizeFieldKey } from './field-meta.js'
+import type { CollectionMeta } from './meta.js'
 import type { MoneyDescriptor } from '../money/descriptor.js'
 import type { DictKeyDescriptor, StaticDictDescriptor } from '../i18n/dictionary.js'
 import { isStaticDictDescriptor } from '../i18n/dictionary.js'
@@ -46,6 +47,8 @@ export interface DescribedField {
 export interface CollectionDescription {
   readonly collection: string
   readonly fields: readonly DescribedField[]
+  /** Collection-level descriptive metadata; label falls back to the humanized collection name. */
+  readonly meta?: CollectionMeta
 }
 
 /** Options for the async describe(opts) overload (#483 Task 4). */
@@ -153,6 +156,8 @@ export interface BuildDescriptionInput {
    * Used to populate `dict.values[].label`.
    */
   readonly dictLabels?: Record<string, Record<string, string>> | undefined
+  /** Collection-level descriptive metadata. Label falls back to humanized collection name. */
+  readonly meta?: CollectionMeta | undefined
 }
 
 // Re-export so that callers that want to catch the error don't need another import path.
@@ -168,7 +173,7 @@ export { FieldMetaUnknownFieldError }
  * couldn't do (schema fields weren't knowable synchronously).
  */
 export function buildDescription(input: BuildDescriptionInput): CollectionDescription {
-  const { collection, fieldMeta, moneyFields, dictKeyFields, computed, refs, zodFields, dictLabels } = input
+  const { collection, fieldMeta, moneyFields, dictKeyFields, computed, refs, zodFields, dictLabels, meta } = input
 
   // When zodFields is present AND non-empty (async path, validator successfully derived
   // a schema): validate fieldMeta keys against the real known-field set = config keys ∪
@@ -301,5 +306,15 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
     fields.push(field)
   }
 
-  return { collection, fields }
+  // Build collection-level meta with label fallback to humanized collection name.
+  const collectionMeta: CollectionMeta = {
+    ...meta,
+    label: meta?.label ?? humanizeFieldKey(collection),
+  }
+
+  return {
+    collection,
+    fields,
+    meta: collectionMeta,
+  }
 }

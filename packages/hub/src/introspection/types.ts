@@ -10,6 +10,7 @@
 
 import type { PersistedSchemaKind } from '../persisted-schemas/types.js'
 import type { Permission } from '../types.js'
+import type { CollectionMeta } from './meta.js'
 
 /** Flat snapshot of a vault's registered schema. */
 export interface SchemaIntrospection {
@@ -57,6 +58,7 @@ export interface CollectionDescriptor {
     readonly source: 'persisted' | 'live-validator'
   }
   readonly stats?: CollectionStats
+  readonly meta?: CollectionMeta
 }
 
 export interface MaterializedViewDescriptor {

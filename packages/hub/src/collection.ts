@@ -1,5 +1,6 @@
 import type { NoydbStore, EncryptedEnvelope, ChangeEvent, HistoryConfig, HistoryOptions, HistoryEntry, PruneOptions, ListPageResult, LocaleReadOptions, ConflictPolicy, CollectionConflictResolver, PutManyItemOptions, PutManyOptions, PutManyResult, DeleteManyResult } from './types.js'
 import type { FieldMeta } from './introspection/field-meta.js'
+import type { CollectionMeta } from './introspection/meta.js'
 import { NOYDB_FORMAT_VERSION } from './types.js'
 import type { CrdtMode, CrdtState, LwwMapState, RgaState } from './crdt/crdt.js'
 import { NO_CRDT, type CrdtStrategy } from './crdt/strategy.js'
@@ -366,6 +367,12 @@ export class Collection<T> {
    * collection option. Read by `getFieldMeta()`; merged by `collection.describe()`.
    */
   private fieldMeta: Record<string, FieldMeta> | undefined
+
+  /**
+   * Collection-level descriptive metadata declared via the `meta` collection
+   * option. Read by `getMeta()`; surfaced in `collection.describe()`.
+   */
+  private meta: CollectionMeta | undefined
 
   /**
    * Outbound ref declarations for this collection (snapshot from vault
@@ -744,6 +751,8 @@ export class Collection<T> {
     dictKeyFields?: Record<string, DictKeyDescriptor | StaticDictDescriptor> | undefined
     /** — consumer-neutral per-field descriptors. Read via getFieldMeta(). */
     fieldMeta?: Record<string, FieldMeta> | undefined
+    /** — collection-level descriptive metadata. Read via getMeta(). */
+    meta?: CollectionMeta | undefined
     moneyFields?: Record<string, MoneyDescriptor> | undefined
     /** — outbound ref declarations (snapshot from vault refRegistry). Used by describe(). */
     declaredRefs?: Record<string, RefDescriptor> | undefined
@@ -987,6 +996,7 @@ export class Collection<T> {
     this.vectorSet = opts.embeddings ? new VectorSet() : undefined
     this.dictKeyFields = opts.dictKeyFields
     this.fieldMeta = opts.fieldMeta
+    this.meta = opts.meta
     this._refs = opts.declaredRefs ?? {}
     if (opts.moneyFields) validateMoneyFieldPaths(opts.moneyFields)
     this.moneyFields = opts.moneyFields
@@ -1172,6 +1182,9 @@ export class Collection<T> {
   /** The declared consumer-neutral field metadata channel (canonical). */
   getFieldMeta(): Record<string, FieldMeta> | undefined { return this.fieldMeta }
 
+  /** The collection's declared descriptive metadata. */
+  getMeta(): CollectionMeta | undefined { return this.meta }
+
   /**
    * Describe the collection's field schema from in-memory config — zero store I/O.
    *
@@ -1197,6 +1210,7 @@ export class Collection<T> {
       computed: this.computed,
       refs: this._refs,
       zodFields: undefined,
+      ...(this.meta !== undefined ? { meta: this.meta } : {}),
     })
   }
 
@@ -1240,6 +1254,7 @@ export class Collection<T> {
       refs: this._refs,
       zodFields,
       ...(dictLabels !== undefined ? { dictLabels } : {}),
+      ...(this.meta !== undefined ? { meta: this.meta } : {}),
     })
   }
 
@@ -1263,6 +1278,11 @@ export class Collection<T> {
   /** @internal — attach fieldMeta post-construction. See {@link _applyMoneyFields}. First-wins. */
   _applyFieldMeta(fieldMeta: Record<string, FieldMeta>): void {
     if (this.fieldMeta === undefined) this.fieldMeta = fieldMeta
+  }
+
+  /** @internal — attach collection-level meta post-construction. See {@link _applyMoneyFields}. First-wins. */
+  _applyMeta(meta: CollectionMeta): void {
+    if (this.meta === undefined) this.meta = meta
   }
 
   /**
