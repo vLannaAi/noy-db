@@ -359,3 +359,103 @@ Markers used:
 | `[i18n]` | `i18n` block present |
 | `[ro]` | `editable: false` |
 | `<widget>` | widget hint, e.g. `<money>` or `<ref-select>` |
+
+---
+
+## Metadata riders (#484 #485) — `toJSONSchema()`, dictKey inline labels, devtools PII masking
+
+> Spec: `docs/superpowers/specs/2026-06-25-metadata-riders-design.md`
+
+### `collection.toJSONSchema()`  (#484)
+
+An async method on `Collection` that produces a JSON Schema object annotated
+with `describe()` metadata as `x-` extension keys:
+
+```ts
+const schema = await myCollection.toJSONSchema()
+```
+
+**Pipeline:**
+1. `derivePersistedSchema(this.schema)` — produces the base JSON Schema (zod-4
+   `z.toJSONSchema()` path; zod-3 via `zod-to-json-schema`).
+2. `await this.describe({})` — the normalized per-field metadata.
+3. Overlay each property with the `x-` extension keys below.
+
+**`x-` key table:**
+
+| `describe()` field | JSON-Schema key | Notes |
+|---|---|---|
+| `label` | `x-label` | |
+| `unit` | `x-unit` | |
+| `semanticType` | `x-semanticType` | |
+| `sensitivity` | `x-sensitivity` | `'public'`, `'pii'`, or `'secret'` |
+| `widget` | `x-widget` | derived hint, overridable |
+| `editable: false` | `x-readonly: true` | only emitted when `false` |
+| `money` | `x-money` | `{ currency, scale }` |
+| `ref` | `x-ref` | `{ target }` |
+| `dict.values[].label` | `x-enumLabels` | `{ [value]: label }` map |
+
+**Validator-agnostic fallback:** when `derivePersistedSchema` yields no JSON
+Schema (non-zod validator), `toJSONSchema()` builds a minimal
+`{ type: 'object', properties }` from the field types derived by `describe()`,
+then overlays the same `x-` metadata. No throw; no zod required.
+
+---
+
+### `dictKey` inline labels  (#485)
+
+`dictKey` gains an optional inline label map alongside the existing array form:
+
+```ts
+// Today (still valid — bare array):
+dictKey('saleStatus', ['draft', 'to_verify', 'paid'] as const)
+
+// New — value→label map (keys inferred from the map):
+dictKey('saleStatus', { draft: 'Draft', to_verify: 'To Verify', paid: 'Paid' })
+
+// Or array + labels option (preserves explicit order):
+dictKey('saleStatus', VALUES, { labels: { to_verify: 'To Verify' } })
+```
+
+`DictKeyDescriptor` gains `readonly labels?: Record<string, string>`.
+
+**Semantics — display fallback:**
+- Inline labels are code-provided *defaults* surfaced when the `_dict_`
+  collection has no label for a key.
+- `describe()` (**sync**) surfaces inline labels into `dict.values[].label`
+  with zero store I/O — equivalent to `staticDict` for display purposes.
+- `describe({ resolveDictLabels: true })` (**async**) overrides from `_dict_`
+  and falls back to the inline label.
+- `toJSONSchema()` `x-enumLabels` picks them up via `describe()`.
+
+This keeps `staticDict` (closed code labels, no `_dict_`) and
+`dictKey` + inline labels (dynamic dict *with* code defaults) as distinct,
+non-overlapping tools.
+
+---
+
+### Devtools PII masking
+
+The `RecordsPane` in both devtools surfaces masks values for fields where
+`sensitivity !== 'public'` (i.e. `pii` and `secret`), protecting data during
+screen-sharing or shoulder surfing.
+
+**Behavior:**
+- Sensitive cells render as `••••` by default.
+- A reveal toggle un-masks the value on demand:
+  - **Nuxt** (`@noy-db/in-devtools-nuxt`): per-field reveal (click the masked
+    cell); a header "reveal all" toggle un-masks the whole pane.
+  - **TUI** (`@noy-db/in-devtools-tui`): press `r` to toggle reveal-all for
+    the pane (a single pane-level toggle is terminal-appropriate).
+- Public fields (`sensitivity: 'public'`) and unclassified fields (no
+  `sensitivity`) always render their raw values — they are never masked.
+- **Back-compat:** a collection without `described` (non-live or pre-enrichment)
+  has an empty sensitive-field set → nothing is masked → behavior is identical
+  to before.
+
+**Collection-change reset (TUI):** the reveal-all flag resets when the selected
+collection index changes, so revealed PII does not linger when navigating to
+another collection.
+
+This is shoulder-surfing / screen-share safety over already-decrypted local
+data — it is **not** access control. The data is already in the trusted tier.

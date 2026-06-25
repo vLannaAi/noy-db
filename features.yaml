@@ -431,6 +431,28 @@ features:
       - 'CollectionMeta/VaultMeta exported from @noy-db/hub (src/index.ts) AND @noy-db/hub/kernel (kernel/index.ts) for klum-db federation contract'
     related: [field-metadata, dump-schema-introspection, in-devtools, in-devtools-nuxt]
 
+  - id: metadata-riders
+    name: Metadata riders — toJSONSchema + dictKey inline labels + devtools PII masking (#484 #485)
+    cluster: core
+    spec: docs/superpowers/specs/2026-06-25-metadata-riders-design.md
+    subsystem_doc: docs/subsystems/field-metadata.md
+    package: '@noy-db/hub'
+    factory: null
+    status: preview
+    experimental: true
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'collection.toJSONSchema() — async; pipelines derivePersistedSchema(schema) as base then overlays describe() metadata as x- extension keys per property: x-label, x-unit, x-semanticType, x-sensitivity, x-widget, x-readonly (when editable:false), x-money, x-ref, x-enumLabels (value→label map from dict.values)'
+      - 'toJSONSchema() validator-agnostic fallback: when derivePersistedSchema yields no jsonSchema (non-zod validator), builds a minimal { type:"object", properties } from field types derived by describe(); x- metadata still applied; no throw, no zod required'
+      - 'dictKey inline labels (#485): dictKey() 2nd arg may now be a plain object (value→label map; keys inferred) or retain existing array form with optional { labels: Record<string,string> } option; DictKeyDescriptor gains readonly labels?: Record<string,string>'
+      - 'dictKey inline labels surface in sync describe() — dict.values[].label populated from code-provided defaults with no store I/O; describe({ resolveDictLabels: true }) overrides from _dict_ collection and falls back to inline label; toJSONSchema() x-enumLabels reflects inline labels'
+      - 'devtools PII masking (Nuxt + TUI): RecordsPane masks cells for fields where sensitivity !== "public" as •••• by default; a reveal toggle (per-field reveal in Nuxt, pane-level "r" key in TUI) un-masks; public and unclassified fields always shown; collection without described → no masking (back-compat)'
+      - 'TUI reveal-all resets on collection navigation (selectedIdx change) so revealed PII does not linger when switching to another collection'
+    related: [field-metadata, metadata-ladder, in-devtools, in-devtools-nuxt]
+
   - id: query-basics
     name: Always-on query DSL
     cluster: core
