@@ -60,6 +60,7 @@ import { embeddingSourceText, VectorSet, type EmbeddingDescriptor, type StoredVe
 import { buildUniqueConstraintSet, type UniqueConstraintSet } from './indexing/unique-constraints.js'
 import type { RefDescriptor } from './refs.js'
 import { buildDescription, deriveZodFields, type CollectionDescription, type DescribeOptions } from './introspection/describe.js'
+import type { CollectionConfig } from './introspection/types.js'
 import { Lru, parseBytes, estimateRecordBytes, type LruStats } from './cache/index.js'
 import { generateULID } from './bundle/ulid.js'
 import type { PresenceHandle, PresenceHandleOpts } from './team/presence.js'
@@ -1184,6 +1185,61 @@ export class Collection<T> {
 
   /** The collection's declared descriptive metadata. */
   getMeta(): CollectionMeta | undefined { return this.meta }
+
+  /**
+   * Aggregate all collection-level configuration options that are actively set
+   * into a {@link CollectionConfig} snapshot. Returns `undefined` when no options
+   * are configured (omitting the `config` block from `dumpSchema()` output).
+   * Consumed by `walk.ts` to populate `CollectionDescriptor.config`.
+   */
+  getConfig(): CollectionConfig | undefined {
+    const i18nFields = this.i18nFields !== undefined
+      ? Object.keys(this.i18nFields)
+      : undefined
+    const embeddings = this.embeddings !== undefined
+      ? {
+          source: this.embeddings.source,
+          dim: this.embeddings.dim,
+          ...(this.embeddings.model !== undefined ? { model: this.embeddings.model } : {}),
+        }
+      : undefined
+    const textIndexes = this.textIndexes !== undefined && this.textIndexes.length > 0
+      ? this.textIndexes
+      : undefined
+    const textIndexPersist = this.searchIndexStore instanceof PersistedIndexStore ? true : undefined
+    const perRecordKeys = this.perRecordCek ? true : undefined
+    const provenance = this.provenance ? true : undefined
+    const tiers = this.tiers !== null ? Array.from(this.tiers) : undefined
+    const tierMode = this.tiers !== null ? (this.tierMode as string) : undefined
+    const crdt = this.crdtMode !== undefined ? (this.crdtMode as string) : undefined
+    const history = this.historyConfig.enabled === false ? false : undefined
+
+    const hasAny =
+      i18nFields !== undefined ||
+      embeddings !== undefined ||
+      textIndexes !== undefined ||
+      textIndexPersist !== undefined ||
+      perRecordKeys !== undefined ||
+      provenance !== undefined ||
+      tiers !== undefined ||
+      crdt !== undefined ||
+      history !== undefined
+
+    if (!hasAny) return undefined
+
+    return {
+      ...(i18nFields !== undefined ? { i18nFields } : {}),
+      ...(embeddings !== undefined ? { embeddings } : {}),
+      ...(textIndexes !== undefined ? { textIndexes } : {}),
+      ...(textIndexPersist !== undefined ? { textIndexPersist } : {}),
+      ...(perRecordKeys !== undefined ? { perRecordKeys } : {}),
+      ...(provenance !== undefined ? { provenance } : {}),
+      ...(tiers !== undefined ? { tiers } : {}),
+      ...(tierMode !== undefined ? { tierMode } : {}),
+      ...(crdt !== undefined ? { crdt } : {}),
+      ...(history !== undefined ? { history } : {}),
+    }
+  }
 
   /**
    * Describe the collection's field schema from in-memory config — zero store I/O.

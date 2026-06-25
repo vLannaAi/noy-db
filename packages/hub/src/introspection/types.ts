@@ -49,6 +49,25 @@ export interface CollectionStats {
   readonly newest: string
 }
 
+/**
+ * Collection-level configuration options surfaced by `dumpSchema()`.
+ * Only fields that are actively configured are present; the object is
+ * omitted entirely from `CollectionDescriptor.config` when nothing is set.
+ * Reused by Task 5 in-devtools display.
+ */
+export interface CollectionConfig {
+  readonly i18nFields?: readonly string[]
+  readonly embeddings?: { readonly source: string | readonly string[]; readonly dim: number; readonly model?: string }
+  readonly textIndexes?: readonly string[]
+  readonly textIndexPersist?: boolean
+  readonly perRecordKeys?: boolean
+  readonly provenance?: boolean
+  readonly tiers?: readonly number[]
+  readonly tierMode?: string
+  readonly crdt?: string
+  readonly history?: boolean
+}
+
 export interface CollectionDescriptor {
   readonly fields: Record<string, FieldDescriptor>
   readonly indexes: ReadonlyArray<{ readonly fields: ReadonlyArray<string>; readonly unique?: boolean }>
@@ -59,6 +78,7 @@ export interface CollectionDescriptor {
   }
   readonly stats?: CollectionStats
   readonly meta?: CollectionMeta
+  readonly config?: CollectionConfig
 }
 
 export interface MaterializedViewDescriptor {

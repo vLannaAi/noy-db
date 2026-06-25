@@ -168,9 +168,10 @@ async function describeCollection(
     // Sampling path not implemented in baseline slice 2; reserved for follow-up.
   }
 
-  // Populate collection-level meta from the live collection when available.
+  // Populate collection-level meta and config from the live collection when available.
   const liveColl = state.collectionCache.get(collectionName)
   const collMeta = liveColl?.getMeta()
+  const collConfig = liveColl?.getConfig()
 
   const descriptor: CollectionDescriptor = {
     fields,
@@ -178,6 +179,7 @@ async function describeCollection(
     refs,
     ...(validator ? { validator } : {}),
     ...(collMeta !== undefined ? { meta: collMeta } : {}),
+    ...(collConfig !== undefined ? { config: collConfig } : {}),
   }
   if (withStats) {
     const stats = await statsForCollection(state.adapter, state.name, collectionName)

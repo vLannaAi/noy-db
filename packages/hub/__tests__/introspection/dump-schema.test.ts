@@ -122,4 +122,32 @@ describe('vault.dumpSchema() — baseline', () => {
       overlayViews: expect.any(Boolean),
     }))
   })
+
+  it('surfaces collection-level config (embeddings/textIndexes/crdt/provenance/tiers)', async () => {
+    const comp = await db.openVault(COMP)
+    comp.collection<{ id: string; body: string }>('docs', {
+      textIndexes: ['body'],
+      embeddings: {
+        source: 'body',
+        dim: 128,
+        model: 'test-model',
+        encode: async () => new Float32Array(128),
+      },
+      provenance: true,
+      tiers: [1, 2],
+    })
+    const dump = await comp.dumpSchema()
+    const cfg = dump.collections['docs'].config!
+    expect(cfg.textIndexes).toContain('body')
+    expect(cfg.provenance).toBe(true)
+    expect(cfg.tiers).toEqual([1, 2])
+    expect(cfg.embeddings?.dim).toBeGreaterThan(0)
+  })
+
+  it('omits config when a collection has no configured options', async () => {
+    const comp = await db.openVault(COMP)
+    comp.collection<Invoice>('plain')
+    const dump = await comp.dumpSchema()
+    expect(dump.collections['plain'].config).toBeUndefined()
+  })
 })
