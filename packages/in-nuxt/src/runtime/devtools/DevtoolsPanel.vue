@@ -36,6 +36,7 @@
       <div v-if="topTab === 'structure'" class="noydb-panel__body">
         <VaultSidebar
           :vault-name="vaultInfo!.id"
+          :vault-meta="snapshotMeta"
           :collections="collections"
           :selected-name="selectedCollection?.name ?? null"
           @select="selectCollection"
@@ -78,7 +79,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { getActiveNoydb } from '@noy-db/in-pinia'
 import { createInspector } from '@noy-db/in-devtools'
 import type { Inspector, InspectorCollection, VaultInfo, RecordPage } from '@noy-db/in-devtools'
-import type { Vault } from '@noy-db/hub'
+import type { Vault, VaultMeta } from '@noy-db/hub'
 import type { MeterSnapshot } from '@noy-db/to-meter'
 import VaultSidebar from './panes/VaultSidebar.vue'
 import SchemaPane from './panes/SchemaPane.vue'
@@ -101,6 +102,7 @@ const vaults = ref<ReadonlyArray<VaultInfo>>([])
 const vaultInfo = computed(() => vaults.value[0] ?? null)
 const openVault = ref<Vault | null>(null)
 const collections = ref<ReadonlyArray<InspectorCollection>>([])
+const snapshotMeta = ref<VaultMeta | null>(null)
 const snapshotError = ref<string | undefined>(undefined)
 const selectedCollection = ref<InspectorCollection | null>(null)
 
@@ -148,6 +150,7 @@ async function loadSnapshot() {
   try {
     const snap = await inspector.value.snapshot(openVault.value)
     collections.value = snap.collections
+    snapshotMeta.value = snap.meta ?? null
     selectedCollection.value = snap.collections[0] ?? null
     snapshotError.value = undefined
   } catch (e) {
