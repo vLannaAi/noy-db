@@ -159,10 +159,11 @@ async function describeCollection(
     // No DEK or decrypt failure — fall through to live-validator
   }
 
+  const liveColl = state.collectionCache.get(collectionName)
+
   // 2. Try the live in-process validator (when no persisted envelope).
   if (!validator) {
-    const coll = state.collectionCache.get(collectionName)
-    const schema = coll?.getSchema()
+    const schema = liveColl?.getSchema()
     if (schema) {
       try {
         const derived = await derivePersistedSchema(schema)
@@ -182,7 +183,6 @@ async function describeCollection(
   }
 
   // Populate collection-level meta and config from the live collection when available.
-  const liveColl = state.collectionCache.get(collectionName)
   const collMeta = liveColl?.getMeta()
   const collConfig = liveColl?.getConfig()
 

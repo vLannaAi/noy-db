@@ -46,7 +46,7 @@ export interface DescribedField {
   /** i18n metadata for fields declared with i18nText(). Present only when the field is i18n-enabled. */
   readonly i18n?: { readonly locales?: readonly string[]; readonly densify?: boolean }
   /** Widget hint derived from semanticType+type, overridable via fieldMeta.widget. */
-  readonly widget?: string
+  readonly widget: string
   /** Whether the field is user-editable. False for computed, id, and provenance-stamped fields. */
   readonly editable: boolean
 }
@@ -55,7 +55,7 @@ export interface CollectionDescription {
   readonly collection: string
   readonly fields: readonly DescribedField[]
   /** Collection-level descriptive metadata; label falls back to the humanized collection name. */
-  readonly meta?: CollectionMeta
+  readonly meta: CollectionMeta
 }
 
 /** Options for the async describe(opts) overload (#483 Task 4). */

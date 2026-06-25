@@ -498,6 +498,7 @@ export class Noydb {
    * @param opts.locale  Default locale for i18n/dictKey field resolution
    *. Set here to avoid passing `{ locale }`
    *                     on every individual `get()`/`list()` call.
+   * @param opts.meta    Vault descriptive metadata (label, description, etc.). First-wins: applied on first open, ignored on subsequent opens.
    */
   async openVault(
     name: string,
