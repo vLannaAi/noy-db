@@ -9,6 +9,7 @@ export default defineConfig({
     environmentMatchGlobs: [
       ['__tests__/devtools*.test.ts', 'happy-dom'],
       ['__tests__/schema-pane.test.ts', 'happy-dom'],
+      ['__tests__/records-mask.test.ts', 'happy-dom'],
     ],
     include: ['__tests__/**/*.test.ts'],
   },
