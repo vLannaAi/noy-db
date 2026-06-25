@@ -152,7 +152,7 @@ import type { RevokeContext } from './attestation/revoke.js'
 import type { DumpSchemaOptions, VaultSchemaSnapshot, SchemaIntrospection } from './introspection/types.js'
 import { dumpVaultSchema, type VaultIntrospectState } from './introspection/walk.js'
 import type { FieldMeta } from './introspection/field-meta.js'
-import type { VaultMeta } from './introspection/meta.js'
+import type { CollectionMeta, VaultMeta } from './introspection/meta.js'
 import { USER_ENVELOPE_COLLECTION } from './meta/user-envelope/types.js'
 
 /**
@@ -704,7 +704,7 @@ export class Vault {
     /** Consumer-neutral per-field descriptors (label/unit/semanticType/sensitivity…). See collection.describe(). */
     fieldMeta?: Record<string, FieldMeta>
     /** The collection's own descriptive metadata (label/description/icon). See collection.describe(). */
-    meta?: import('./introspection/meta.js').CollectionMeta
+    meta?: CollectionMeta
     /** — declare money() fields for currency-safe decimal storage/formatting. */
     moneyFields?: Record<string, MoneyDescriptor>
     /** — declare computed scalar fields, evaluated on write (schema-owned). */
