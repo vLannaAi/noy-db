@@ -188,6 +188,20 @@ describe('collection.describe() — sync path', () => {
     expect(byKey.tagIds.ref?.isArray).toBe(true)
     expect(byKey.tagIds.type).toBe('array')
   })
+
+  it('sync describe surfaces inline dictKey labels (#485)', async () => {
+    const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-describe-6' })
+    const v = await db.openVault('v4')
+
+    const orders = v.collection('orders485', {
+      dictKeyFields: { status: dictKey('saleStatus', { draft: 'Draft', to_verify: 'To Verify' }) },
+    })
+
+    const f = orders.describe().fields.find((x) => x.key === 'status')!
+    expect(f.dict?.values).toEqual(expect.arrayContaining([
+      { value: 'draft', label: 'Draft' }, { value: 'to_verify', label: 'To Verify' },
+    ]))
+  })
 })
 
 // ─── Async describe(opts) — Task 4 (#483) ────────────────────────────────────

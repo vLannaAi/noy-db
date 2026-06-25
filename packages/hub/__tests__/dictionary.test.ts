@@ -601,3 +601,23 @@ describe('staticDict — code-provided dictionary (#291)', () => {
     expect(byCode['adultFemale']).toBe(1)
   })
 })
+
+// ─── dictKey inline labels (#485) ────────────────────────────────────────────
+
+describe('dictKey inline labels (#485)', () => {
+  it('map form: keys inferred, labels captured', () => {
+    const d = dictKey('saleStatus', { draft: 'Draft', to_verify: 'To Verify' })
+    expect(d.keys).toEqual(['draft', 'to_verify'])
+    expect(d.labels).toEqual({ draft: 'Draft', to_verify: 'To Verify' })
+  })
+  it('array + opts.labels', () => {
+    const d = dictKey('saleStatus', ['draft', 'to_verify'] as const, { labels: { to_verify: 'To Verify' } })
+    expect(d.keys).toEqual(['draft', 'to_verify'])
+    expect(d.labels).toEqual({ to_verify: 'To Verify' })
+  })
+  it('bare array unchanged (no labels)', () => {
+    const d = dictKey('saleStatus', ['draft', 'paid'] as const)
+    expect(d.keys).toEqual(['draft', 'paid'])
+    expect(d.labels).toBeUndefined()
+  })
+})

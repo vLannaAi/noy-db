@@ -92,6 +92,12 @@ export interface DictKeyDescriptor<Keys extends string = string> {
   readonly onMissing?: OnMissingPolicy
   /** Ordered preferred-substitute locales for label resolution. */
   readonly substitute?: readonly string[]
+  /**
+   * Optional inline display labels (value → label map). A SYNC display
+   * fallback for `describe()` when async `dictLabels` (from `_dict_`) are
+   * not resolved. The async path still wins when available.
+   */
+  readonly labels?: Record<string, string>
 }
 
 /**
@@ -113,15 +119,28 @@ export interface DictKeyDescriptor<Keys extends string = string> {
  */
 export function dictKey<Keys extends string>(
   name: string,
-  keys?: readonly Keys[],
-  opts?: { onMissing?: OnMissingPolicy; substitute?: readonly string[] },
+  keysOrMap?: readonly Keys[] | Record<Keys, string>,
+  opts?: { onMissing?: OnMissingPolicy; substitute?: readonly string[]; labels?: Record<string, string> },
 ): DictKeyDescriptor<Keys> {
+  let keys: readonly Keys[] | undefined
+  let labels: Record<string, string> | undefined
+  if (Array.isArray(keysOrMap)) {
+    keys = keysOrMap as readonly Keys[]
+    labels = opts?.labels
+  } else if (keysOrMap && typeof keysOrMap === 'object') {
+    keys = Object.keys(keysOrMap) as Keys[]
+    labels = keysOrMap as Record<string, string>
+  } else {
+    keys = undefined
+    labels = opts?.labels
+  }
   return {
     _noydbDictKey: true,
     name,
     keys,
     ...(opts?.onMissing !== undefined ? { onMissing: opts.onMissing } : {}),
     ...(opts?.substitute !== undefined ? { substitute: opts.substitute } : {}),
+    ...(labels !== undefined ? { labels } : {}),
   }
 }
 
