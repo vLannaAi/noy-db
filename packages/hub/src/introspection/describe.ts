@@ -315,7 +315,7 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
           dictBlock = { name: dict.name, static: false, values }
         } else if (dict.keys !== undefined) {
           const values = dict.keys.map((k) => {
-            const label = (dict as { labels?: Record<string, string> }).labels?.[k]
+            const label = dict.labels?.[k]
             return label !== undefined ? { value: k, label } : { value: k }
           })
           dictBlock = { name: dict.name, static: false, values }

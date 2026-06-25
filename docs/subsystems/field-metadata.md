@@ -391,8 +391,8 @@ const schema = await myCollection.toJSONSchema()
 | `sensitivity` | `x-sensitivity` | `'public'`, `'pii'`, or `'secret'` |
 | `widget` | `x-widget` | derived hint, overridable |
 | `editable: false` | `x-readonly: true` | only emitted when `false` |
-| `money` | `x-money` | `{ currency, scale }` |
-| `ref` | `x-ref` | `{ target }` |
+| `money` | `x-money` | full money block: `{ mode, currency?, scale?, rounding? }` |
+| `ref` | `x-ref` | bare string — the ref target collection name |
 | `dict.values[].label` | `x-enumLabels` | `{ [value]: label }` map |
 
 **Validator-agnostic fallback:** when `derivePersistedSchema` yields no JSON

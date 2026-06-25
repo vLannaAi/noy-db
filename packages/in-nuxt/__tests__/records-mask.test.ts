@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
+import { nextTick } from 'vue'
 
 import type {
   Inspector,
@@ -36,6 +37,7 @@ vi.mock('@noy-db/in-devtools', () => ({
 import { getActiveNoydb } from '@noy-db/in-pinia'
 import { createInspector } from '@noy-db/in-devtools'
 import DevtoolsPanel from '../src/runtime/devtools/DevtoolsPanel.vue'
+import RecordsPane from '../src/runtime/devtools/panes/RecordsPane.vue'
 
 beforeEach(() => {
   vi.mocked(getActiveNoydb).mockReset()
@@ -102,7 +104,7 @@ describe('RecordsPane — PII masking', () => {
 
   it('masks pii values by default and shows public values', async () => {
     const wrapper = await mountWithRecords(snap, page)
-    expect(wrapper.text()).toContain('••••••')      // vat masked
+    expect(wrapper.text()).toContain('••••')      // vat masked
     expect(wrapper.text()).toContain('10.00')        // public total shown
     expect(wrapper.text()).not.toContain('IT123')    // pii hidden
   })
@@ -143,7 +145,7 @@ describe('RecordsPane — PII masking', () => {
       offset: 0,
     }
     const wrapper = await mountWithRecords(secretSnap, secretPage)
-    expect(wrapper.text()).toContain('••••••')
+    expect(wrapper.text()).toContain('••••')
     expect(wrapper.text()).not.toContain('sk-supersecret')
   })
 
@@ -178,7 +180,7 @@ describe('RecordsPane — PII masking', () => {
     const wrapper = await mountWithRecords(noDescSnap, noDescPage)
     expect(wrapper.text()).toContain('inv001')
     expect(wrapper.text()).toContain('9.99')
-    expect(wrapper.text()).not.toContain('••••••')
+    expect(wrapper.text()).not.toContain('••••')
   })
 
   it('treats a field not in described as not-sensitive', async () => {
@@ -213,8 +215,77 @@ describe('RecordsPane — PII masking', () => {
       offset: 0,
     }
     const wrapper = await mountWithRecords(partialDescSnap, partialPage)
-    expect(wrapper.text()).toContain('••••••')
+    expect(wrapper.text()).toContain('••••')
     expect(wrapper.text()).not.toContain('Alice')
     expect(wrapper.text()).toContain('visible') // extra not in described → shown
+  })
+})
+
+// ── Collection-change reveal reset ─────────────────────────────────────────
+
+describe('RecordsPane — collection-change reveal reset', () => {
+  const collectionA = {
+    name: 'collA',
+    fields: { secret: { type: 'string' } as never },
+    indexes: [],
+    refs: [],
+    described: [
+      {
+        key: 'secret',
+        type: 'string',
+        optional: false,
+        label: 'Secret',
+        sensitivity: 'pii' as const,
+        widget: 'text',
+        editable: true,
+      },
+    ],
+  }
+
+  const collectionB = {
+    name: 'collB',
+    fields: { secret: { type: 'string' } as never },
+    indexes: [],
+    refs: [],
+    described: [
+      {
+        key: 'secret',
+        type: 'string',
+        optional: false,
+        label: 'Secret',
+        sensitivity: 'pii' as const,
+        widget: 'text',
+        editable: true,
+      },
+    ],
+  }
+
+  const page: RecordPage = {
+    rows: [{ secret: 'SENSITIVE' }],
+    total: 1,
+    limit: 20,
+    offset: 0,
+  }
+
+  it('resets revealed state when the collection prop changes', async () => {
+    const wrapper = mount(RecordsPane, {
+      props: { collection: collectionA, page, error: undefined },
+    })
+    await flushPromises()
+
+    // Field starts masked
+    expect(wrapper.text()).toContain('••••')
+    expect(wrapper.text()).not.toContain('SENSITIVE')
+
+    // Reveal the field
+    await wrapper.find('[data-reveal="secret"]').trigger('click')
+    await nextTick()
+    expect(wrapper.text()).toContain('SENSITIVE')
+
+    // Switch to a different collection — reveal state must reset
+    await wrapper.setProps({ collection: collectionB })
+    await nextTick()
+    expect(wrapper.text()).toContain('••••')
+    expect(wrapper.text()).not.toContain('SENSITIVE')
   })
 })

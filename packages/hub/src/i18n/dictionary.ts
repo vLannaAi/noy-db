@@ -103,18 +103,28 @@ export interface DictKeyDescriptor<Keys extends string = string> {
 /**
  * Create a `DictKeyDescriptor` for a dictionary-backed enum field.
  *
- * @param name   The dictionary name (corresponds to `_dict_<name>` collection).
- * @param keys   Optional `as const` array of valid key literals — narrows the
- *               TypeScript type to a literal union and enables put-time
- *               validation.
+ * @param name        The dictionary name (corresponds to `_dict_<name>` collection).
+ * @param keysOrMap   Either:
+ *   - An `as const` array of valid key literals — narrows the TypeScript type
+ *     to a literal union and enables put-time validation.
+ *   - A **value→label map** (`{ draft: 'Draft', paid: 'Paid' }`) — keys are
+ *     inferred from the map, and the labels are stored as inline display
+ *     defaults surfaced by `describe()` without a store read.
+ * @param opts        `{ labels?, onMissing?, substitute? }` when the array form
+ *                    is used; `opts.labels` provides inline display defaults for
+ *                    specific keys (same semantics as the map form, but
+ *                    explicit key order from the array is preserved).
  *
  * @example
  * ```ts
- * const invoices = company.collection<Invoice>('invoices', {
- *   dictKeyFields: {
- *     status: dictKey('status', ['draft', 'open', 'paid'] as const),
- *   },
- * })
+ * // array form (original):
+ * dictKey('status', ['draft', 'open', 'paid'] as const)
+ *
+ * // value→label map form (keys inferred, inline labels for describe()):
+ * dictKey('status', { draft: 'Draft', open: 'Open', paid: 'Paid' })
+ *
+ * // array + opts.labels (preserves explicit order, partial labels OK):
+ * dictKey('status', ['draft', 'open', 'paid'] as const, { labels: { paid: 'Paid' } })
  * ```
  */
 export function dictKey<Keys extends string>(

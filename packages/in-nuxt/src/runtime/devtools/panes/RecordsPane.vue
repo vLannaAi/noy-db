@@ -32,7 +32,7 @@
             class="noydb-records__mask"
             :data-reveal="f"
             @click="reveal(f)"
-          >••••••</button>
+          >••••</button>
         </span>
       </div>
     </template>
@@ -40,7 +40,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { InspectorCollection, RecordPage } from '@noy-db/in-devtools'
 
 const props = defineProps<{
@@ -78,6 +78,10 @@ const revealed = ref(new Set<string>())
 
 /** When true, all sensitive fields are shown. */
 const revealAll = ref(false)
+
+// Reset reveal state when the viewed collection changes (prevent PII from one
+// collection lingering when the user navigates to another).
+watch(() => props.collection, () => { revealed.value = new Set(); revealAll.value = false })
 
 function isVisible(field: string): boolean {
   if (!sensitiveFields.value.has(field)) return true

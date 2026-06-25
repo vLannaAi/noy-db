@@ -45,7 +45,7 @@ export function RecordsPane({ collection, page, error, revealAll }: {
     return raw
   }
 
-  const revealHint = sensitiveKeys.size > 0 ? ' · r reveal' : ''
+  const revealHint = sensitiveKeys.size > 0 ? ' · r reveal/hide' : ''
   return (
     <Box flexDirection="column">
       <Text bold>rows {from}–{to} of {page.total} <Text dimColor>(n/p page · ⇥ back{revealHint})</Text></Text>

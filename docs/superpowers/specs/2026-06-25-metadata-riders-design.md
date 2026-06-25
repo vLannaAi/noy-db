@@ -69,8 +69,8 @@ Pipeline:
    | `sensitivity` | `x-sensitivity` |
    | `widget` | `x-widget` |
    | `editable` (when false) | `x-readonly: true` |
-   | `money` | `x-money` (currency/scale) |
-   | `ref` | `x-ref` (target) |
+   | `money` | `x-money` (full block: `mode`, `currency?`, `scale?`, `rounding?`) |
+   | `ref` | `x-ref` (bare string — the ref target collection name) |
    | `dict.values[].label` | `x-enumLabels` (value→label map) |
 
 **Validator-agnostic fallback:** when `derivePersistedSchema` yields no

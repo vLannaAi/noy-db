@@ -9,7 +9,7 @@
  * @module
  */
 
-import type { CollectionDescription, DescribedField } from './describe.js'
+import type { CollectionDescription } from './describe.js'
 
 /** Map a DescribedField's type tag to a JSON-Schema `type`. */
 function jsonType(t: string): string {
@@ -47,6 +47,3 @@ export function buildJsonSchema(desc: CollectionDescription, base?: Record<strin
     ? { ...base, properties }
     : { type: 'object', properties }
 }
-
-// Re-export the type for callers that want to document the parameter shape.
-export type { CollectionDescription, DescribedField }
