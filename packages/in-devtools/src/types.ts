@@ -8,6 +8,10 @@ import type {
   AccessibleVault,
   CollectionDescriptor,
   CollectionStats,
+  CollectionMeta,
+  VaultMeta,
+  CollectionConfig,
+  DescribedField,
 } from '@noy-db/hub'
 import type { MeterSnapshot } from '@noy-db/to-meter'
 
@@ -30,12 +34,20 @@ export interface InspectorCollection {
   readonly indexes: CollectionDescriptor['indexes']
   readonly refs: CollectionDescriptor['refs']
   readonly stats?: CollectionStats
+  /** Collection-level descriptive metadata (label/description/icon). */
+  readonly meta?: CollectionMeta
+  /** Per-field rich descriptors from collection.describe() (label/widget/money/dict/…). */
+  readonly described?: readonly DescribedField[]
+  /** Collection-level configuration (textIndexes/embeddings/crdt/provenance/…). */
+  readonly config?: CollectionConfig
 }
 
 /** Structure + stats for one open vault. */
 export interface InspectorSnapshot {
   readonly vault: string
   readonly collections: ReadonlyArray<InspectorCollection>
+  /** Vault-level descriptive metadata (label/description/icon). */
+  readonly meta?: VaultMeta
 }
 
 /** A page of decrypted records from one collection. */
