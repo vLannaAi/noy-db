@@ -947,6 +947,7 @@ export class Vault {
         getDEK: this.getDEK,
         onDirty: this.onDirty,
         historyConfig: effectiveHistoryConfig,
+        historyConfigExplicit: options?.historyConfig !== undefined,
         // thread the vault-wide blob strategy into every
         // collection. `undefined` is intentionally preserved so the
         // Collection constructor uses its NO_BLOBS default.
@@ -3825,6 +3826,14 @@ export class Vault {
       mvRegistry: this.materializedViewRegistry,
       overlayRegistry: this.overlayedViewRegistry,
       derivationRegistry: this.derivationRegistry,
+      // Thread vault-level per-collection registries into the walker so
+      // walk.ts can project archive/schemaUpdate into CollectionDescriptor.config
+      // without coupling the walker to Vault internals.
+      getCollectionSchemaUpdateNames: (col) => {
+        const names = this.#schemaUpdateNames.get(col)
+        return names !== undefined && names.length > 0 ? names : undefined
+      },
+      hasCollectionArchive: (col) => this.archiveRegistry.has(col),
     }
   }
 

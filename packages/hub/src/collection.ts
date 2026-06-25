@@ -183,6 +183,8 @@ export class Collection<T> {
   private readonly getDEK: (collectionName: string) => Promise<CryptoKey>
   private readonly onDirty: OnDirtyCallback | undefined
   private readonly historyConfig: HistoryConfig
+  /** True when the caller explicitly provided a `historyConfig` option (vs. inheriting the vault default). */
+  private readonly historyConfigExplicit: boolean
 
   /**
    * tree-shake seam — the strategy that backs `collection.blob(id)`.
@@ -633,6 +635,12 @@ export class Collection<T> {
     activeTxId?: (() => string | null) | undefined
     getDEK: (collectionName: string) => Promise<CryptoKey>
     historyConfig?: HistoryConfig | undefined
+    /**
+     * When `true`, the caller explicitly provided `historyConfig` rather than
+     * inheriting the vault-wide default. Used by `getConfig()` to decide
+     * whether to surface `history: true` in the schema dump.
+     */
+    historyConfigExplicit?: boolean | undefined
     onDirty?: OnDirtyCallback | undefined
     /**
      * tree-shake seam. When omitted, `collection.blob(id)` throws
@@ -962,6 +970,7 @@ export class Collection<T> {
     this.getDEK = opts.getDEK
     this.onDirty = opts.onDirty
     this.historyConfig = opts.historyConfig ?? { enabled: true }
+    this.historyConfigExplicit = opts.historyConfigExplicit ?? false
     this.schema = opts.schema
     this.ledger = opts.ledger
     this.refEnforcer = opts.refEnforcer
@@ -1212,7 +1221,14 @@ export class Collection<T> {
     const tiers = this.tiers !== null ? Array.from(this.tiers) : undefined
     const tierMode = this.tiers !== null ? (this.tierMode as string) : undefined
     const crdt = this.crdtMode !== undefined ? (this.crdtMode as string) : undefined
-    const history = this.historyConfig.enabled === false ? false : undefined
+    /**
+     * `true` when history is explicitly enabled for this collection (i.e. the
+     * caller supplied a `historyConfig` option and history is not disabled).
+     * Omitted when no per-collection config was provided or history is disabled.
+     */
+    const history = this.historyConfigExplicit && this.historyConfig.enabled !== false
+      ? true
+      : undefined
 
     const hasAny =
       i18nFields !== undefined ||

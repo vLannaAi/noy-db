@@ -65,7 +65,23 @@ export interface CollectionConfig {
   readonly tiers?: readonly number[]
   readonly tierMode?: string
   readonly crdt?: string
+  /**
+   * `true` when history is explicitly enabled for this collection.
+   * Omitted when history is not configured or when the default vault-wide
+   * setting applies without explicit per-collection configuration.
+   */
   readonly history?: boolean
+  /**
+   * Present when the collection is registered in `vault.archiveRegistry`
+   * (i.e. an archive policy was declared). `true` = archive policy present.
+   */
+  readonly archive?: boolean
+  /**
+   * Strategy names registered for schema updates on this collection.
+   * Present only when at least one strategy is registered.
+   */
+  readonly schemaUpdate?: readonly string[]
+  // conflictPolicy omitted: consumed at construction, no retained state to surface.
 }
 
 export interface CollectionDescriptor {

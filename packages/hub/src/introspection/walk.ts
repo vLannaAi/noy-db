@@ -9,6 +9,7 @@ import { derivePersistedSchema } from '../persisted-schemas/derive.js'
 import { loadPersistedSchema } from '../persisted-schemas/storage.js'
 import { jsonSchemaToFields } from './fields.js'
 import type {
+  CollectionConfig,
   CollectionDescriptor,
   CollectionStats,
   DumpSchemaOptions,
@@ -48,6 +49,18 @@ export interface VaultIntrospectState {
   readonly mvRegistry: unknown
   readonly overlayRegistry: unknown
   readonly derivationRegistry: unknown
+  /**
+   * Returns the registered schema-update strategy names for a collection,
+   * or `undefined` when none are registered. Populated from
+   * `vault.#schemaUpdateNames` in `_introspectState()`.
+   */
+  readonly getCollectionSchemaUpdateNames?: (col: string) => readonly string[] | undefined
+  /**
+   * Returns `true` when the collection has an archive policy registered
+   * in `vault.archiveRegistry`, `false` otherwise. Populated from
+   * `vault.archiveRegistry` in `_introspectState()`.
+   */
+  readonly hasCollectionArchive?: (col: string) => boolean
 }
 
 const INTERNAL_PREFIX = '_'
@@ -173,13 +186,29 @@ async function describeCollection(
   const collMeta = liveColl?.getMeta()
   const collConfig = liveColl?.getConfig()
 
+  // Thread vault-level config (archive + schemaUpdate) that the Collection cannot see.
+  const archivePresent = state.hasCollectionArchive?.(collectionName) === true
+  const schemaUpdateNames = state.getCollectionSchemaUpdateNames?.(collectionName)
+  const hasSchemaUpdate = schemaUpdateNames !== undefined && schemaUpdateNames.length > 0
+
+  // Merge Collection-level config with vault-level fields. Omit config entirely
+  // when all sources are empty.
+  let mergedConfig: CollectionConfig | undefined
+  if (collConfig !== undefined || archivePresent || hasSchemaUpdate) {
+    mergedConfig = {
+      ...(collConfig ?? {}),
+      ...(archivePresent ? { archive: true as const } : {}),
+      ...(hasSchemaUpdate ? { schemaUpdate: schemaUpdateNames } : {}),
+    }
+  }
+
   const descriptor: CollectionDescriptor = {
     fields,
     indexes: [],
     refs,
     ...(validator ? { validator } : {}),
     ...(collMeta !== undefined ? { meta: collMeta } : {}),
-    ...(collConfig !== undefined ? { config: collConfig } : {}),
+    ...(mergedConfig !== undefined ? { config: mergedConfig } : {}),
   }
   if (withStats) {
     const stats = await statsForCollection(state.adapter, state.name, collectionName)
