@@ -72,16 +72,14 @@ await db.close()                               // clears keys from memory
 import { jsonFile } from '@noy-db/to-file'
 store: jsonFile({ dir: './data' })
 
-// PostgreSQL
-import { postgres } from '@noy-db/to-postgres'
-store: postgres({ client: myPool })
-
-// S3
-import { s3 } from '@noy-db/to-aws-s3'
-store: s3({ bucket: 'my-vaults', client: myS3Client })
+// Browser (IndexedDB)
+import { idbStore } from '@noy-db/to-browser-idb'
+store: idbStore()
 ```
 
-→ See 20+ backends in **[Storage stores (`to-*`)](docs/packages/to-stores.md)**.
+Extended cloud and SQL backends (`@noy-db/to-aws-dynamo`, `@noy-db/to-aws-s3`, `@noy-db/to-postgres`, and 13 more) live in the **[noy-db-to](https://github.com/vLannaAi/noy-db-to)** companion repo — same npm names, separate install.
+
+→ Full store catalog: **[Storage stores (`to-*`)](docs/packages/to-stores.md)**.
 
 ---
 
@@ -143,7 +141,7 @@ Each prefix reads as a preposition — the mental model stays the same as you sc
 
 | Prefix | Reads as | What it is | Catalog |
 |---|---|---|---|
-| **`to-`** | *"data goes **to** a backend"* | **Storage destinations** — the only piece that touches ciphertext on the wire. 20 packages: file, browser, SQL, cloud, remote FS, iCloud, Drive, metrics, diagnostics. | [→ stores.md](docs/packages/to-stores.md) |
+| **`to-`** | *"data goes **to** a backend"* | **Storage destinations** — the only piece that touches ciphertext on the wire. 5 essentials (`to-file`, `to-memory`, `to-browser-idb`, `to-probe`, `to-meter`) in this repo; extended cloud/SQL/remote-FS backends in [noy-db-to](https://github.com/vLannaAi/noy-db-to). | [→ stores.md](docs/packages/to-stores.md) |
 | **`in-`** | *"runs **in** a framework"* | **Framework integrations** — thin reactive bindings. React, Next.js, Vue, Nuxt, Pinia, Svelte, Zustand, TanStack Query/Table, Yjs CRDT, LLM tool-calling. | [→ integrations.md](docs/packages/in-integrations.md) |
 | **`on-`** | *"you get **on** via this method"* | **Unlock / auth** — composable primitives. Passkeys (WebAuthn), OIDC split-key, magic links, TOTP, email OTP, recovery codes, Shamir k-of-n, duress + honeypot. | [→ auth.md](docs/packages/on-auth.md) |
 | **`as-`** | *"export **as** XLSX / JSON / …"* | **Portable artefacts** — two-tier authorisation with audit ledger. CSV, Excel, XML, JSON, NDJSON, SQL dump, PDF blobs, ZIP, and the encrypted `.noydb` bundle. | [→ exports.md](docs/packages/as-exports.md) |
@@ -152,7 +150,7 @@ Each prefix reads as a preposition — the mental model stays the same as you sc
 
 Plus the hub (`@noy-db/hub`) and the standalone tools: `@noy-db/cli`, `create-noy-db` (scaffolder).
 
-> **Maturity at a glance.** `@noy-db/hub` is **Core** — security-critical, highest test bar. `to-memory`, `to-file`, `to-browser-idb`, `to-aws-dynamo`, `to-aws-s3` are **Recommended** — first-class production paths. Most other satellites are **Bridges** — thin adapters proven in tests but less production-battled. P2P, niche stores, and unusual auth modes are **Experimental** — useful, validate before depending on them.
+> **Maturity at a glance.** `@noy-db/hub` is **Core** — security-critical, highest test bar. `to-memory`, `to-file`, `to-browser-idb` are **Recommended** essentials that ship here. Cloud/SQL backends (`to-aws-dynamo`, `to-aws-s3`, `to-postgres`, etc.) are in [noy-db-to](https://github.com/vLannaAi/noy-db-to) — same quality bar, separate repo. Most other satellites are **Bridges** — thin adapters proven in tests but less production-battled. P2P, niche stores, and unusual auth modes are **Experimental** — useful, validate before depending on them.
 
 ---
 
@@ -201,7 +199,7 @@ loadAll(vault)
 saveAll(vault, data)
 ```
 
-> If your existing storage can implement these six methods, it can store noy-db ciphertext. That is the full contract — 20+ shipped `to-*` stores (browser, file, SQL, object, remote-FS) are all built against it, and a custom one is `createStore(opts => ({ name, ...methods }))`.
+> If your existing storage can implement these six methods, it can store noy-db ciphertext. That is the full contract — 5 essential `to-*` stores ship here; 16 extended stores (SQL, cloud, remote-FS, personal drives) live in [noy-db-to](https://github.com/vLannaAi/noy-db-to). A custom store is `createStore(opts => ({ name, ...methods }))`.
 
 ---
 
@@ -223,7 +221,7 @@ pnpm add @noy-db/in-nuxt @noy-db/in-pinia @noy-db/hub @noy-db/to-browser-idb @pi
 # React / Next.js
 pnpm add @noy-db/in-nextjs @noy-db/in-react @noy-db/hub @noy-db/to-browser-idb
 
-# Offline-first with cloud sync
+# Offline-first with cloud sync (cloud adapters from noy-db-to)
 pnpm add @noy-db/hub @noy-db/to-file @noy-db/to-aws-dynamo
 ```
 
@@ -253,10 +251,10 @@ Pre-1.0 (today): both channels can be ahead of where you'd expect a `0.x` librar
 | 📱 Mobile browser | Safari 14+, Chrome 90+ | [`to-browser-idb`](docs/packages/to-stores.md) |
 | 🌐 Desktop browser | Chrome, Firefox, Safari, Edge | [`to-browser-idb`](docs/packages/to-stores.md) |
 | ⚡ PWA / offline web app | Service Worker + browser | [`to-browser-idb`](docs/packages/to-stores.md) |
-| 🖧 Server (headless) | Node 18+ | [`to-file`](docs/packages/to-stores.md) / [`to-aws-dynamo`](docs/packages/to-stores.md) / [`to-postgres`](docs/packages/to-stores.md) |
+| 🖧 Server (headless) | Node 18+ | [`to-file`](docs/packages/to-stores.md) / `to-aws-dynamo` / `to-postgres` *(noy-db-to)* |
 | 💾 USB stick / removable disk | Any OS + any runtime | [`to-file`](docs/packages/to-stores.md) |
 | 🔌 Electron / Tauri | Desktop shell | [`to-file`](docs/packages/to-stores.md) |
-| ☁️ Cloudflare Workers | Edge JS | [`to-cloudflare-d1`](docs/packages/to-stores.md) + [`to-cloudflare-r2`](docs/packages/to-stores.md) |
+| ☁️ Cloudflare Workers | Edge JS | `to-cloudflare-d1` + `to-cloudflare-r2` *(noy-db-to)* |
 | 🧪 Tests / CI | Any JS runtime | [`to-memory`](docs/packages/to-stores.md) |
 
 Minimum requirements: a JavaScript engine and the Web Crypto API. That's it.
