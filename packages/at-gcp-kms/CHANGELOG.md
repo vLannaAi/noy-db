@@ -1,5 +1,12 @@
 # Changelog — at-gcp-kms
 
+## 0.2.0-pre.31
+
+### Patch Changes
+
+- Updated dependencies
+  - @noy-db/hub@0.2.0-pre.31
+
 ## 0.2.0-pre.5
 
 Docs-only: pruned internal issue-tracker references from source comments (Track A comment-provenance prune). No code or public API change.
@@ -24,4 +31,3 @@ Version-only lockstep bump; no source changes since pre.2.
 ### Minor Changes
 
 - First release. Google Cloud KMS `SealingKeyProvider` — `seal`/`unseal` via Cloud KMS encrypt/decrypt; handles base64-string responses; ambient ADC ([#189](https://github.com/vLannaAi/noy-db/issues/189)).
-

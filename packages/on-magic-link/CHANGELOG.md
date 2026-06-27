@@ -1,5 +1,12 @@
 # @noy-db/on-magic-link
 
+## 0.2.0-pre.31
+
+### Patch Changes
+
+- Updated dependencies
+  - @noy-db/hub@0.2.0-pre.31
+
 ## 0.2.0-pre.5
 
 Docs-only: pruned internal issue-tracker references from source comments (Track A comment-provenance prune). No code or public API change.
@@ -39,6 +46,7 @@ Version-only lockstep bump; no source changes since pre.2.
 
 - Updated dependencies
   - @noy-db/hub@0.1.0-pre.15
+
 ## 0.1.0-pre.14
 
 ### Patch Changes
@@ -53,14 +61,12 @@ Version-only lockstep bump; no source changes since pre.2.
 - Updated dependencies
   - @noy-db/hub@0.1.0-pre.12
 
-
 ## 0.1.0-pre.11
 
 ### Patch Changes
 
 - Updated dependencies
   - @noy-db/hub@0.1.0-pre.11
-
 
 ## 0.1.0-pre.9
 
@@ -92,11 +98,21 @@ Version-only lockstep bump; no source changes since pre.2.
 - **Invite + peer-recovery primitives** ([#32](https://github.com/vLannaAi/noy-db/issues/32)) — adds parallel primitives layered on top of hub's `db.grant` (invite — mints a NEW user) and `db.recoverUser` (peer-recovery — rewraps an EXISTING user). The existing delegation-grant primitives are unchanged; these are siblings with a different threat model.
 
   ```ts
-  import { issueInvite, issuePeerRecovery, acceptInvite, revokeInvite } from '@noy-db/on-magic-link'
+  import {
+    issueInvite,
+    issuePeerRecovery,
+    acceptInvite,
+    revokeInvite,
+  } from "@noy-db/on-magic-link";
 
-  const { encoded } = await issueInvite(db, 'acme', { userId, displayName, role, ttlMs })
+  const { encoded } = await issueInvite(db, "acme", {
+    userId,
+    displayName,
+    role,
+    ttlMs,
+  });
   // Embed in URL fragment: https://app.example.com/invite#<encoded>
-  const { db: bobDb } = await acceptInvite(encoded, { store, newPhrase })
+  const { db: bobDb } = await acceptInvite(encoded, { store, newPhrase });
   ```
 
   Threat model: temp passphrase travels in the URL fragment (server-blind transport). Single-use enforced two ways: (1) rotation inside `acceptInvite` invalidates the temp phrase by construction; (2) audit doc at `_meta/invite-audit-<tokenId>` is marked `acceptedAt` on success — a second `acceptInvite` throws `InviteAlreadyAcceptedError`. Missing-audit-doc throws `InviteAuditMissingError` (revoked-link-shadow-keyring defense).

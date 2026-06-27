@@ -1,5 +1,12 @@
 # @noy-db/on-password
 
+## 0.2.0-pre.31
+
+### Patch Changes
+
+- Updated dependencies
+  - @noy-db/hub@0.2.0-pre.31
+
 ## 0.2.0-pre.5
 
 Docs-only: pruned internal issue-tracker references from source comments (Track A comment-provenance prune). No code or public API change.
@@ -39,6 +46,7 @@ Version-only lockstep bump; no source changes since pre.2.
 
 - Updated dependencies
   - @noy-db/hub@0.1.0-pre.15
+
 ## 0.1.0-pre.14
 
 ### Patch Changes
@@ -53,14 +61,12 @@ Version-only lockstep bump; no source changes since pre.2.
 - Updated dependencies
   - @noy-db/hub@0.1.0-pre.12
 
-
 ## 0.1.0-pre.11
 
 ### Patch Changes
 
 - Updated dependencies
   - @noy-db/hub@0.1.0-pre.11
-
 
 ## 0.1.0-pre.10
 
@@ -69,17 +75,20 @@ Version-only lockstep bump; no source changes since pre.2.
 - **`passwordSlotRewrapCeremony(password): SlotRewrapCeremony`** ([#96](https://github.com/vLannaAi/noy-db/issues/96)) — parallel to `webAuthnSlotRewrapCeremony` shipped from `@noy-db/on-webauthn` in pre.9 (#56). Closes the on-webauthn ↔ on-password symmetry: a consumer can now preserve a tier-2 password enrollment across a tier-1 phrase rotation without forcing a re-enroll.
 
   ```ts
-  await db.rotatePassphrase('acme', {
-    oldPassphrase, newPassphrase,
-    slotCeremonies: { 'password': passwordSlotRewrapCeremony('strong-password-2026') },
-  })
+  await db.rotatePassphrase("acme", {
+    oldPassphrase,
+    newPassphrase,
+    slotCeremonies: {
+      password: passwordSlotRewrapCeremony("strong-password-2026"),
+    },
+  });
   ```
 
   Higher-order shape (vs WebAuthn's direct `(ctx) => ...`) because the password is required input and a closure makes the call site clean. Validates `oldSlot.method === 'password'` + `wrapKind === 'deks'`; preserves the slot's strength config (`minLength`, `pattern`) and `enrolled_via_tier` from the old slot's meta — rotation cannot silently downgrade.
 
 ### Naming cleanup
 
-- **Drop the "daily" qualifier from naming and docs** ([#110](https://github.com/vLannaAi/noy-db/pull/110)) — "daily password" was meant to signal *"the password the user types day-to-day"* (in contrast to the rarely-typed master phrase) but English readers can equally read it as *"rotates every 24 hours"*. Default slot id `'password-daily'` → `'password'`. Package description, JSDoc, and example values all updated. **Pre-1.0 default slot id rename** — consumers who hand-picked `'password-daily'` can keep their wire format by passing `enrollPasswordAuthenticator({ id: 'password-daily', ... })` explicitly; only the default changed.
+- **Drop the "daily" qualifier from naming and docs** ([#110](https://github.com/vLannaAi/noy-db/pull/110)) — "daily password" was meant to signal _"the password the user types day-to-day"_ (in contrast to the rarely-typed master phrase) but English readers can equally read it as _"rotates every 24 hours"_. Default slot id `'password-daily'` → `'password'`. Package description, JSDoc, and example values all updated. **Pre-1.0 default slot id rename** — consumers who hand-picked `'password-daily'` can keep their wire format by passing `enrollPasswordAuthenticator({ id: 'password-daily', ... })` explicitly; only the default changed.
 
 ### Patch Changes
 
@@ -90,7 +99,6 @@ Version-only lockstep bump; no source changes since pre.2.
 ### Patch Changes
 
 - Updated dependencies — @noy-db/hub@0.1.0-pre.9
-
 
 ## 0.1.0-pre.8
 
