@@ -79,7 +79,7 @@ import { s3 } from '@noy-db/to-aws-s3'
 store: s3({ bucket: 'my-vaults', client: myS3Client })
 ```
 
-→ ดู backend อื่น 20+ ตัวที่ **[Storage stores (`to-*`)](../packages/to-stores.md)**
+→ ดู backend อื่น ๆ ที่ **[Storage stores (`to-*`)](../packages/to-stores.md)** (extended cloud/SQL backends อยู่ใน [noy-db-to](https://github.com/vLannaAi/noy-db-to))
 
 ---
 
