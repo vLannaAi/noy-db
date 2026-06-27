@@ -99,7 +99,10 @@ exporting `runStoreConformanceTests(name, factory, cleanup?)`) is **promoted in 
 package** — keeping its current name to avoid renaming 21 store devDeps + 21 test imports — so the
 external repo runs the *same* contract tests against the *published* hub. Because a publishable kit
 must peer `@noy-db/hub` at a **range**, it takes a narrow, explicit **exemption from architecture
-guard rule #1** (it is test tooling, not a satellite).
+guard rule #1** (it is test tooling, not a satellite). As of P0, `check-architecture.mjs` scans
+only `packages/`, so the kit currently satisfies rule #1 by being outside the scan — the explicit
+exemption is pre-emptive and becomes active in P1 (when packages move under `packages/*/*` or the
+scan broadens to `test-harnesses/`).
 
 ### D4 — Versioning
 

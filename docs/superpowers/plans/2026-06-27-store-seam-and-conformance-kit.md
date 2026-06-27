@@ -401,7 +401,10 @@ Expected: the kit emits `dist/index.{js,cjs,d.ts,d.cts}`; typecheck clean; `to-m
 ```bash
 pnpm check:architecture
 ```
-Expected: pass — the kit is skipped by rule #1; every other `@noy-db/*` package still must be `workspace:*`.
+Expected: pass — the kit is outside the `packages/` scan (it lives in `test-harnesses/`), so
+rule #1 is satisfied without the exemption firing. The exemption is pre-emptive: it becomes
+load-bearing in P1 when the scan is broadened or packages move under `packages/*/*`. Every other
+`@noy-db/*` package still must be `workspace:*`.
 
 - [ ] **Step 7: Full-graph sanity (guards + build + a representative test)**
 
@@ -427,6 +430,9 @@ git commit -m "feat(conformance): make adapter-conformance kit publishable on th
 - **D3 (the seam):** Task 1 creates `@noy-db/hub/adapter` exporting the contract types + store errors. ✓
 - **D3 (conformance kit):** Task 3 promotes `@noy-db/test-adapter-conformance` to publishable, peering hub at a range. ✓
 - **D6 (guard exemption):** Task 3 Step 4 adds the narrow rule-#1 exemption. ✓
+  Note: as of P0 the exemption is pre-emptive — `check:architecture` is green because the kit
+  lives in `test-harnesses/` and is outside the `packages/` scan, not because the exemption fired.
+  The exemption becomes active in P1.
 - **P0 "essential stores build against the subpath":** Task 2 migrates `to-memory`, `to-file`, `to-browser-idb`. ✓
 - **Naming collision (`/store` taken):** seam named `/adapter`. ✓
 - **Deferred (correctly out of P0):** the 15 moving stores migrate in P3; `noy-db-to` scaffold is P2; folder reorg is P1. Not in this plan.
