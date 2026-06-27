@@ -285,6 +285,16 @@
         "types": "./dist/kernel/index.d.cts",
         "default": "./dist/kernel/index.cjs"
       }
+    },
+    "./adapter": {
+      "import": {
+        "types": "./dist/adapter/index.d.ts",
+        "default": "./dist/adapter/index.js"
+      },
+      "require": {
+        "types": "./dist/adapter/index.d.cts",
+        "default": "./dist/adapter/index.cjs"
+      }
     }
   },
   "main": "./dist/index.cjs",

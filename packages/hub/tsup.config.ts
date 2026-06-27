@@ -50,6 +50,7 @@ const ENTRIES = {
   'util/index': 'src/util/index.ts',
   'attestation/index': 'src/attestation/index.ts',
   'kernel/index': 'src/kernel/index.ts',
+  'adapter/index': 'src/adapter/index.ts',
 }
 
 export default defineConfig([
