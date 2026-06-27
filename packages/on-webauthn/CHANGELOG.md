@@ -1,5 +1,12 @@
 # Changelog — on-webauthn
 
+## 0.2.0-pre.31
+
+### Patch Changes
+
+- Updated dependencies
+  - @noy-db/hub@0.2.0-pre.31
+
 ## 0.2.0-pre.5
 
 Docs-only: pruned internal issue-tracker references from source comments (Track A comment-provenance prune). No code or public API change.
@@ -39,6 +46,7 @@ Version-only lockstep bump; no source changes since pre.2.
 
 - Updated dependencies
   - @noy-db/hub@0.1.0-pre.15
+
 ## 0.1.0-pre.14
 
 ### Patch Changes
@@ -53,14 +61,12 @@ Version-only lockstep bump; no source changes since pre.2.
 - Updated dependencies
   - @noy-db/hub@0.1.0-pre.12
 
-
 ## 0.1.0-pre.11
 
 ### Patch Changes
 
 - Updated dependencies
   - @noy-db/hub@0.1.0-pre.11
-
 
 ## 0.1.0-pre.9
 
@@ -69,15 +75,16 @@ Version-only lockstep bump; no source changes since pre.2.
 - **`webAuthnSlotRewrapCeremony`** ([#56](https://github.com/vLannaAi/noy-db/issues/56)) — exports a `SlotRewrapCeremony` for WebAuthn slots, the long-promised filling for the `/* re-prove WebAuthn, return slot */` placeholder in hub's [#29](https://github.com/vLannaAi/noy-db/issues/29) `slotCeremonies` API. Until this helper, the answer to "rotate phrase without losing my biometric" was "rotate, then re-enrol Touch ID" — UX-equivalent but not atomic.
 
   ```ts
-  import { rotatePassphrase } from '@noy-db/hub'
-  import { webAuthnSlotRewrapCeremony } from '@noy-db/on-webauthn'
+  import { rotatePassphrase } from "@noy-db/hub";
+  import { webAuthnSlotRewrapCeremony } from "@noy-db/on-webauthn";
 
-  await db.rotatePassphrase('acme', {
-    oldPassphrase, newPassphrase,
+  await db.rotatePassphrase("acme", {
+    oldPassphrase,
+    newPassphrase,
     slotCeremonies: {
-      'webauthn-yubikey': webAuthnSlotRewrapCeremony,
+      "webauthn-yubikey": webAuthnSlotRewrapCeremony,
     },
-  })
+  });
   ```
 
   Single ceremony, two crypto operations under one assertion: trigger one WebAuthn assertion → derive the wrapping key (PRF or rawId fallback, deterministic per credential) → decrypt the OLD `wrapped_kek` to extract identity carry-through fields (userId, displayName, role, permissions, salt — none of these change on phrase rotate) → build NEW payload with `ctx.newDeks` → encrypt with the same wrapping key under a fresh IV → return `EnrollAuthenticatorOptions` preserving `oldSlot.id` and `method: 'webauthn'` (anti-slot-swap defense).

@@ -1,5 +1,21 @@
 # @noy-db/playground-nuxt
 
+## 0.2.0-pre.2
+
+### Patch Changes
+
+- Updated dependencies
+  - @noy-db/hub@0.2.0-pre.31
+  - @noy-db/as-json@0.2.0-pre.31
+  - @noy-db/by-peer@0.2.0-pre.31
+  - @noy-db/by-tabs@0.2.0-pre.31
+  - @noy-db/in-nuxt@0.2.0-pre.31
+  - @noy-db/in-pinia@0.2.0-pre.31
+  - @noy-db/in-vue@0.2.0-pre.31
+  - @noy-db/on-oidc@0.2.0-pre.31
+  - @noy-db/on-webauthn@0.2.0-pre.31
+  - @noy-db/to-browser-idb@0.2.0-pre.31
+
 ## 0.2.0-pre.1
 
 ### Patch Changes
@@ -20,6 +36,7 @@
 
 - Updated dependencies
   - @noy-db/hub@0.1.0-pre.15
+
 ## 0.1.0-pre.14
 
 ### Patch Changes
@@ -34,14 +51,12 @@
 - Updated dependencies
   - @noy-db/hub@0.1.0-pre.12
 
-
 ## 0.1.0-pre.11
 
 ### Patch Changes
 
 - Updated dependencies
   - @noy-db/hub@0.1.0-pre.11
-
 
 ## 0.1.0-pre.7
 

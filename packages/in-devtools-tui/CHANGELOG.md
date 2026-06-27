@@ -1,5 +1,14 @@
 # @noy-db/in-devtools-tui
 
+## 0.2.0-pre.31
+
+### Patch Changes
+
+- Updated dependencies
+  - @noy-db/hub@0.2.0-pre.31
+  - @noy-db/in-devtools@0.2.0-pre.31
+  - @noy-db/to-meter@0.2.0-pre.31
+
 ## 0.2.0-pre.5
 
 Initial release. A **terminal inspector** for noy-db built on ink/React ([#265](https://github.com/vLannaAi/noy-db/issues/265), Track B — B2.1).

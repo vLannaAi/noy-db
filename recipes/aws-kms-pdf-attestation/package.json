@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/recipe-aws-kms-pdf-attestation",
-  "version": "0.0.0",
+  "version": "0.0.1-pre.0",
   "private": true,
   "type": "module",
   "description": "Deployable reference: KMS-decrypt an S3 doc record, render HTML→PDF with the attestation QR as vector. Recipe, not published.",
