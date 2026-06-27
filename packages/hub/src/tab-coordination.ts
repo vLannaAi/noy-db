@@ -201,6 +201,11 @@ function cheapRand(): string {
 
 /** Browser default lock manager (navigator.locks) or undefined. */
 export function defaultLockManager(): TabLockManager | undefined {
+  // Gate on `window` — a real browser signal. Node 21+ exposes a global
+  // `navigator`, and Node 24+ surfaces `navigator.locks` (Web Locks), so the
+  // presence of navigator.locks alone is NOT a browser signal; without this
+  // gate we'd run the role election in Node. Symmetric with defaultChannel().
+  if (typeof (globalThis as { window?: unknown }).window === 'undefined') return undefined
   const nav = (globalThis as { navigator?: { locks?: TabLockManager } }).navigator
   return nav?.locks
 }

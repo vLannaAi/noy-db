@@ -44,19 +44,14 @@
 
 import { readFile, writeFile, mkdir, readdir, unlink, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub/adapter'
+import { ConflictError } from '@noy-db/hub/adapter'
 import type {
-  NoydbStore,
-  EncryptedEnvelope,
-  VaultSnapshot,
   Vault,
   WriteNoydbBundleOptions,
   NoydbBundleReadResult,
 } from '@noy-db/hub'
-import {
-  ConflictError,
-  writeNoydbBundle,
-  readNoydbBundle,
-} from '@noy-db/hub'
+import { writeNoydbBundle, readNoydbBundle } from '@noy-db/hub'
 
 /**
  * Options for `jsonFile()`.

@@ -79,7 +79,15 @@
  * @packageDocumentation
  */
 
+import { createRequire } from 'node:module'
+
 import type { SealingKeyProvider } from '@noy-db/hub'
+
+// ESM has no ambient `require`. Synthesize one bound to this module's URL so
+// the native `@napi-rs/keyring` addon (a CJS-only N-API binary) can still be
+// lazily loaded on darwin. This package is Node/darwin-only by definition, so
+// node:module is always available here.
+const require = createRequire(import.meta.url)
 
 /**
  * Structural shape of `@napi-rs/keyring`'s `Entry` class.

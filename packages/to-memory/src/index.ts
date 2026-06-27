@@ -27,8 +27,8 @@
  * @packageDocumentation
  */
 
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, TxOp } from '@noy-db/hub'
-import { ConflictError } from '@noy-db/hub'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, TxOp } from '@noy-db/hub/adapter'
+import { ConflictError } from '@noy-db/hub/adapter'
 
 /**
  * Create an in-memory adapter backed by nested Maps.
