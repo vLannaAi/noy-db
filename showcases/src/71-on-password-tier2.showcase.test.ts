@@ -78,7 +78,7 @@ if (
  *   PBKDF2 + AES-GCM run identically everywhere. No Playwright, no
  *   Docker, no env gate.
  * - Cross-version slot compat: future work; pre-pre.8 wrap-KEK slots
- *   are tested in `packages/on-password/__tests__/on-password.test.ts`.
+ *   are tested in `packages/on/on-password/__tests__/on-password.test.ts`.
  */
 
 import { afterEach, describe, expect, it } from 'vitest'

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
 import { withHistory } from '../src/history/index.js'
-import { memory } from '../../to-memory/src/index.js'
+import { memory } from '../../to/to-memory/src/index.js'
 import type { TabChannel } from '../src/tab-coordination.js'
 
 /** In-memory broadcast bus (each send reaches all OTHER channels). */

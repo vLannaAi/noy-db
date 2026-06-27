@@ -1,0 +1,63 @@
+{
+  "name": "@noy-db/as-zip",
+  "version": "0.2.0-pre.31",
+  "description": "Composite record + blob archive export for noy-db — bundles a collection's records plus every attached blob into one zip. Zero dependencies (STORE-only zip encoder). Gated by the RFC #249 `canExportPlaintext` capability bit with format `'zip'`. Part of the @noy-db/as-* portable-artefact family.",
+  "license": "MIT",
+  "author": "vLannaAi <vicio@lanna.ai>",
+  "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/as/as-zip#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vLannaAi/noy-db.git",
+    "directory": "packages/as/as-zip"
+  },
+  "bugs": {
+    "url": "https://github.com/vLannaAi/noy-db/issues"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit",
+    "interop:fixtures": "node scripts/interop-fixtures.mjs"
+  },
+  "peerDependencies": {
+    "@noy-db/hub": "workspace:*"
+  },
+  "devDependencies": {
+    "@noy-db/hub": "workspace:*",
+    "@noy-db/to-memory": "workspace:*",
+    "@types/node": "^22.0.0"
+  },
+  "keywords": [
+    "noy-db",
+    "as-zip",
+    "zip",
+    "archive",
+    "export",
+    "plaintext",
+    "zero-knowledge",
+    "audit-trail"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "tag": "latest"
+  }
+}

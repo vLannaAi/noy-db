@@ -12,7 +12,7 @@
  *   - Overload preserves the existing `transaction(vault)` SyncTransaction path
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import { memory } from '../../to-memory/src/index.js'
+import { memory } from '../../to/to-memory/src/index.js'
 import type { ChangeEvent } from '../src/types.js'
 import { ConflictError, createNoydb, SyncTransaction } from '../src/index.js'
 import { withSync } from '../src/sync/index.js'

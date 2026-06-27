@@ -1,0 +1,64 @@
+{
+  "name": "@noy-db/at-env",
+  "version": "0.2.0-pre.31",
+  "description": "Env-var sealing key provider for noy-db managed-passphrase mode — AES-256-GCM under a key from process.env. Smallest production-shape provider; pair with Kubernetes Secrets / Heroku env / AWS Secrets Manager.",
+  "license": "MIT",
+  "author": "vLannaAi <vicio@lanna.ai>",
+  "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/at/at-env#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vLannaAi/noy-db.git",
+    "directory": "packages/at/at-env"
+  },
+  "bugs": {
+    "url": "https://github.com/vLannaAi/noy-db/issues"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@noy-db/hub": "workspace:*"
+  },
+  "devDependencies": {
+    "@noy-db/hub": "workspace:*",
+    "@noy-db/on-shamir": "workspace:*",
+    "@noy-db/to-memory": "workspace:*",
+    "@types/node": "^22.0.0"
+  },
+  "keywords": [
+    "noy-db",
+    "at-env",
+    "sealing-key-provider",
+    "managed-passphrase",
+    "env",
+    "rubber-hose-resistant",
+    "aes-256-gcm",
+    "encryption",
+    "zero-knowledge"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "tag": "latest"
+  }
+}

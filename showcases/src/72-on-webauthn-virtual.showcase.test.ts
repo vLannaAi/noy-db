@@ -26,7 +26,7 @@
  *
  * Per-package tests use synthetic `mockCredential()` objects with a
  * fixed `prf.results.first` ArrayBuffer (see
- * `packages/on-webauthn/__tests__/*.test.ts`); showcase 23 follows
+ * `packages/on/on-webauthn/__tests__/*.test.ts`); showcase 23 follows
  * the same pattern. None of those tests prove the **virtual
  * authenticator** delivers the behaviour the package assumes — and
  * that is precisely the gap real-vendor authenticators differ on.

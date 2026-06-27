@@ -6,27 +6,27 @@
     "moduleResolution": "bundler",
     "paths": {
       "@noy-db/hub": ["./packages/hub/src/index.ts"],
-      "@noy-db/to-file": ["./packages/to-file/src/index.ts"],
-      "@noy-db/to-memory": ["./packages/to-memory/src/index.ts"],
-      "@noy-db/to-browser-idb": ["./packages/to-browser-idb/src/index.ts"],
-      "@noy-db/in-vue": ["./packages/in-vue/src/index.ts"],
-      "@noy-db/in-pinia": ["./packages/in-pinia/src/index.ts"],
-      "@noy-db/in-yjs": ["./packages/in-yjs/src/index.ts"],
-      "@noy-db/on-webauthn": ["./packages/on-webauthn/src/index.ts"],
-      "@noy-db/on-oidc": ["./packages/on-oidc/src/index.ts"]
+      "@noy-db/to-file": ["./packages/to/to-file/src/index.ts"],
+      "@noy-db/to-memory": ["./packages/to/to-memory/src/index.ts"],
+      "@noy-db/to-browser-idb": ["./packages/to/to-browser-idb/src/index.ts"],
+      "@noy-db/in-vue": ["./packages/in/in-vue/src/index.ts"],
+      "@noy-db/in-pinia": ["./packages/in/in-pinia/src/index.ts"],
+      "@noy-db/in-yjs": ["./packages/in/in-yjs/src/index.ts"],
+      "@noy-db/on-webauthn": ["./packages/on/on-webauthn/src/index.ts"],
+      "@noy-db/on-oidc": ["./packages/on/on-oidc/src/index.ts"]
     }
   },
   "include": [
     "packages/hub/src/**/*.ts",
-    "packages/to-file/src/**/*.ts",
-    "packages/to-memory/src/**/*.ts",
-    "packages/to-browser-idb/src/**/*.ts",
-    "packages/in-vue/src/**/*.ts",
-    "packages/in-pinia/src/**/*.ts",
-    "packages/in-nuxt/src/**/*.ts",
-    "packages/in-yjs/src/**/*.ts",
-    "packages/on-webauthn/src/**/*.ts",
-    "packages/on-oidc/src/**/*.ts"
+    "packages/to/to-file/src/**/*.ts",
+    "packages/to/to-memory/src/**/*.ts",
+    "packages/to/to-browser-idb/src/**/*.ts",
+    "packages/in/in-vue/src/**/*.ts",
+    "packages/in/in-pinia/src/**/*.ts",
+    "packages/in/in-nuxt/src/**/*.ts",
+    "packages/in/in-yjs/src/**/*.ts",
+    "packages/on/on-webauthn/src/**/*.ts",
+    "packages/on/on-oidc/src/**/*.ts"
   ],
   "exclude": [
     "**/__tests__/**",

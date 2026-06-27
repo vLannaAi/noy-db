@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { memory } from '../../../to-memory/src/index.js'
+import { memory } from '../../../to/to-memory/src/index.js'
 import { writeClientDoc, listClientDocs, activeQuiesced } from '../../src/schema-update/client-registry.js'
 
 describe('client registry', () => {

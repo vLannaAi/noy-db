@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import { z } from 'zod'
 import { generateDEK } from '../../src/crypto.js'
-import { memory } from '../../../to-memory/src/index.js'
+import { memory } from '../../../to/to-memory/src/index.js'
 import { persistSchemaIfNeeded } from '../../src/persisted-schemas/register.js'
 import { SCHEMAS_COLLECTION } from '../../src/persisted-schemas/storage.js'
 import { additiveOnly } from '../../src/schema-update/strategies.js'

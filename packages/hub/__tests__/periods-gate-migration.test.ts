@@ -10,7 +10,7 @@
  *      still rejects via the gate path.
  */
 import { describe, it, expect } from 'vitest'
-import { memory } from '../../to-memory/src/index.js'
+import { memory } from '../../to/to-memory/src/index.js'
 import { PeriodClosedError, createNoydb } from '../src/index.js'
 import { withPeriods } from '../src/periods/index.js'
 

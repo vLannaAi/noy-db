@@ -15,7 +15,7 @@
  *   - openPeriod materialises opening balances via time-machine view
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import { memory } from '../../to-memory/src/index.js'
+import { memory } from '../../to/to-memory/src/index.js'
 import { ValidationError, PeriodClosedError, createNoydb } from '../src/index.js'
 import { withPeriods } from '../src/periods/index.js'
 import type { Noydb } from '../src/index.js'

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { memory } from '../../../to-memory/src/index.js'
+import { memory } from '../../../to/to-memory/src/index.js'
 import { FenceWatcher } from '../../src/schema-update/fence-watcher.js'
 import { saveFence } from '../../src/schema-update/fence.js'
 import { listClientDocs } from '../../src/schema-update/client-registry.js'

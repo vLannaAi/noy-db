@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
 import { withTransactions } from '../src/tx/index.js'
-import { memory } from '../../to-memory/src/index.js'
+import { memory } from '../../to/to-memory/src/index.js'
 
 describe('TxContext.txId', () => {
   it('each transaction gets a distinct non-empty txId exposed on the tx handle', async () => {

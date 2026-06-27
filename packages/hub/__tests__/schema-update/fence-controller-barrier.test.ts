@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { memory } from '../../../to-memory/src/index.js'
+import { memory } from '../../../to/to-memory/src/index.js'
 import { SchemaFenceController } from '../../src/schema-update/fence-controller.js'
 import { loadFence, saveFence } from '../../src/schema-update/fence.js'
 import { writeClientDoc } from '../../src/schema-update/client-registry.js'

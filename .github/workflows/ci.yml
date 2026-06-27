@@ -219,5 +219,5 @@ jobs:
         run: choco install 7zip -y
 
       - name: Run interop tests
-        working-directory: packages/as-zip
+        working-directory: packages/as/as-zip
         run: pnpm vitest run __tests__/interop.test.ts --reporter=verbose

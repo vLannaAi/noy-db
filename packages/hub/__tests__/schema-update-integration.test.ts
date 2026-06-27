@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { createNoydb } from '../src/noydb.js'
-import { memory } from '../../to-memory/src/index.js'
+import { memory } from '../../to/to-memory/src/index.js'
 import { additiveOnly, lockSchema } from '../src/schema-update/index.js'
 import { NonAdditiveSchemaChangeError, SchemaLockedError } from '../src/errors.js'
 import type { NoydbStore } from '../src/types.js'

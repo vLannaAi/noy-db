@@ -24,7 +24,7 @@
  * ─────────────────
  *   - showcase 02-storage-file (persist to disk)
  *   - docs/core/03-stores.md (the 6-method contract)
- *   - packages/to-memory/src/index.ts (~40 LOC, readable end-to-end)
+ *   - packages/to/to-memory/src/index.ts (~40 LOC, readable end-to-end)
  *
  * Spec mapping
  * ────────────

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { memory } from '../../../to-memory/src/index.js'
+import { memory } from '../../../to/to-memory/src/index.js'
 import { loadFence, saveFence, DEFAULT_FENCE } from '../../src/schema-update/fence.js'
 
 describe('fence storage', () => {

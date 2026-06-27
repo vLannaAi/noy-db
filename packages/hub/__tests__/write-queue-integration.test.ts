@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { createNoydb, type Noydb } from '../src/noydb.js'
-import { memory } from '../../to-memory/src/index.js'
+import { memory } from '../../to/to-memory/src/index.js'
 import type { NoydbStore } from '../src/types.js'
 
 interface Invoice extends Record<string, unknown> {
