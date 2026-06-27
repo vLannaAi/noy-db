@@ -5,7 +5,7 @@
 
 ## What it is
 
-A `NoydbStore` is a 6-method async interface. The hub never sees the inside of one — it hands ciphertext envelopes to the store and gets ciphertext back. Twenty backends ship today; you can write your own in ~150 lines.
+A `NoydbStore` is a 6-method async interface. The hub never sees the inside of one — it hands ciphertext envelopes to the store and gets ciphertext back. Five essential backends ship in this repo; extended cloud/SQL/remote-FS stores live in [noy-db-to](https://github.com/vLannaAi/noy-db-to). You can write your own in ~150 lines.
 
 ## The contract
 
@@ -74,12 +74,21 @@ export const myStore = createStore((opts: MyStoreOptions): NoydbStore => ({
 
 ## Capabilities by built-in store
 
+Five stores ship in this repo:
+
 | Store | `casAtomic` | Notes |
 |---|:--:|---|
 | `to-memory` | ✓ | Map-of-maps; testing only |
 | `to-file` | ✗ | Atomic write via tmp + rename |
-| `to-browser-local` | ✓ | localStorage transactions |
 | `to-browser-idb` | ✓ | Single-readwrite IDB transaction |
+| `to-probe` | n/a | Diagnostic; wraps any store |
+| `to-meter` | n/a | Metrics; wraps any store |
+
+Extended stores (in [noy-db-to](https://github.com/vLannaAi/noy-db-to)) include:
+
+| Store | `casAtomic` | Notes |
+|---|:--:|---|
+| `to-browser-local` | ✓ | localStorage transactions |
 | `to-aws-dynamo` | ✓ | `ConditionExpression: attribute_not_exists OR _v = :ev` |
 | `to-aws-s3` | ✗ | No native CAS; advisory locks via `If-Match` |
 | `to-postgres` | ✓ | UPDATE … WHERE _v = $expectedVersion |

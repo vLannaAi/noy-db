@@ -57,11 +57,11 @@
  * | Package | Purpose |
  * |---------|---------|
  * | `@noy-db/to-file` | JSON file store (USB / local disk) |
- * | `@noy-db/to-aws-dynamo` | DynamoDB single-table store |
- * | `@noy-db/to-aws-s3` | S3 object store |
  * | `@noy-db/to-browser-idb` | IndexedDB store (atomic CAS) |
- * | `@noy-db/to-browser-local` | localStorage store |
  * | `@noy-db/to-memory` | In-memory store (testing) |
+ * | `@noy-db/to-aws-dynamo` | DynamoDB single-table store *(noy-db-to)* |
+ * | `@noy-db/to-aws-s3` | S3 object store *(noy-db-to)* |
+ * | `@noy-db/to-postgres` | PostgreSQL store *(noy-db-to)* |
  * | `@noy-db/in-vue` | Vue 3 composables |
  * | `@noy-db/in-pinia` | Pinia store integration |
  * | `@noy-db/in-nuxt` | Nuxt 4 module |

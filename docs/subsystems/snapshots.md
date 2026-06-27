@@ -27,7 +27,7 @@ After `restoreSnapshot()`, existing collection handles become stale — `vault.l
 ```typescript
 import { createNoydb } from '@noy-db/hub'
 import { withSnapshots } from '@noy-db/hub/snapshots'
-import { toDrive } from '@noy-db/to-drive'  // or to-webdav, to-s3, etc.
+import { toDrive } from '@noy-db/to-drive'  // noy-db-to: or to-webdav, to-aws-s3, etc.
 
 const db = await createNoydb({
   store: memory(),
@@ -158,7 +158,7 @@ is logged, never thrown, and leaves the vault pending so the next cadence tick
 
 ## S3 bundle store
 
-`@noy-db/to-aws-s3` ships `s3Bundle()` — a `NoydbBundleStore` for whole-vault
+`@noy-db/to-aws-s3` (from [noy-db-to](https://github.com/vLannaAi/noy-db-to)) ships `s3Bundle()` — a `NoydbBundleStore` for whole-vault
 `.noydb` blobs (distinct from the per-record `s3()` adapter), suitable as a
 snapshot destination.
 
