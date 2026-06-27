@@ -85,9 +85,9 @@ store: s3({ bucket: 'my-vaults', client: myS3Client })
 
 ---
 
-## The 21-subsystem catalog
+## The 24-subsystem catalog
 
-A minimalist core (~6,500 LOC) plus 21 opt-in capabilities behind `with*()` strategy seams. Apps that don't import a strategy ship none of its code.
+A minimalist core (~6,500 LOC) plus 24 opt-in capabilities behind `with*()` strategy seams. Apps that don't import a strategy ship none of its code.
 
 ```ts
 import { createNoydb } from '@noy-db/hub'
@@ -101,7 +101,7 @@ const db = await createNoydb({
   historyStrategy: withHistory(),     // versioning + ledger + time-machine
   aggregateStrategy: withAggregate(), // sum/groupBy/avg
   blobStrategy: withBlobs(),          // file attachments
-  // ... 18 more available
+  // ... 21 more available
 })
 ```
 
@@ -156,6 +156,12 @@ Plus the hub (`@noy-db/hub`) and the standalone tools: `@noy-db/cli`, `create-no
 
 ---
 
+## Schema-driven UI
+
+Two sibling packages — `@noy-db/ui` and `@noy-db/ui-nuxt` — ship from a separate repo ([`vLannaAi/noy-db-ui`](https://github.com/vLannaAi/noy-db-ui)) but publish under the same `@noy-db` npm org. They are a **domain-free, schema-driven** search/list/detail layer that renders itself from `collection.describe()` — the field-metadata surface the hub exposes (labels, types, dictKey enums, PII masking, i18n, JSON-Schema) — so you don't hand-write forms or tables for each collection. `@noy-db/ui` is the framework-agnostic engine plus design tokens; `@noy-db/ui-nuxt` is the Nuxt module and components built on it. They stay on the *right* side of the trust boundary: the UI only ever touches records the hub has **already decrypted in-process**, never ciphertext or keys, and they peer-depend on `@noy-db/hub` by published-version range on their own independent release line.
+
+---
+
 ## Querying without SQL
 
 The store never sees plaintext, so it never runs your query. The query DSL lives inside `@noy-db/hub` and runs **after decryption** — the storage backend stays a dumb, untrusted ciphertext store.
@@ -175,6 +181,12 @@ for await (const r of invoices.scan()) { /* backpressure-friendly */ }
 ```
 
 Joins are **intra-vault and core-side** — no backend ever inspects plaintext fields. Cross-vault correlation is explicit via `queryAcross`. Huge relational workloads are still better served by a real database; noy-db is for sensitive, small-to-mid datasets where the trust boundary matters more than query throughput.
+
+**Private, AI-ready retrieval.** On top of the query DSL, `collection.retrieve(query)` adds a ranked search tier that — like everything else — runs *after decryption*, so no plaintext, no embedding, and no query ever leaves the process. It layers from client-side lexical ranking, to an optional persisted lexical index, to encrypted-local **semantic/vector** search (cosine over locally-computed embeddings), to a **hybrid** mode that fuses lexical and semantic results with reciprocal-rank fusion. The fusion primitive (`fuseRetrieval`) is exported from `@noy-db/hub/kernel`, so an orchestrator can federate ranked result-sets across many vaults without any of them sharing plaintext.
+
+```ts
+const hits = await invoices.retrieve('overdue acme', { mode: 'hybrid', limit: 10 })
+```
 
 ---
 
@@ -346,7 +358,7 @@ The hub package itself uses only `crypto.subtle`, which is built into every targ
 | If you want to… | Read |
 |---|---|
 | see what's always-on (the floor) | [`docs/core/`](docs/core/) |
-| browse the 17 opt-in subsystems | [`docs/subsystems/`](docs/subsystems/) — index + the [SUBSYSTEMS.md](SUBSYSTEMS.md) catalog |
+| browse the 24 opt-in subsystems | [`docs/subsystems/`](docs/subsystems/) — index + the [SUBSYSTEMS.md](SUBSYSTEMS.md) catalog |
 | copy a starter recipe | [`docs/recipes/`](docs/recipes/) — personal-notebook · accounting-app · realtime-crdt-app · analytics-app |
 | pick a storage backend | [`docs/packages/to-stores.md`](docs/packages/to-stores.md) |
 | pick a framework integration | [`docs/packages/in-integrations.md`](docs/packages/in-integrations.md) |
