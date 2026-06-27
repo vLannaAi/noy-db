@@ -133,6 +133,9 @@ function checkPeerDeps() {
     // depend on hub.
     if (!pj.name.startsWith('@noy-db/')) continue
     if (pj.name === '@noy-db/hub') continue
+    // Test tooling: must peer @noy-db/hub at a RANGE so external repos (noy-db-to)
+    // can consume it. Exempt from the workspace:* convention. (Not a satellite.)
+    if (pj.name === '@noy-db/test-adapter-conformance') continue
 
     const dep = pj.dependencies?.['@noy-db/hub']
     const peer = pj.peerDependencies?.['@noy-db/hub']

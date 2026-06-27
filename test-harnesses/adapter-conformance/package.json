@@ -1,17 +1,47 @@
 {
   "name": "@noy-db/test-adapter-conformance",
-  "version": "0.0.0",
-  "private": true,
-  "description": "Parameterized adapter contract tests",
+  "version": "0.2.0-pre.30",
+  "description": "Parameterized adapter contract tests for noy-db storage backends",
+  "license": "MIT",
+  "author": "vLannaAi <vicio@lanna.ai>",
   "type": "module",
+  "sideEffects": false,
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
   },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
-    "test": "vitest run --passWithNoTests"
+    "build": "tsup",
+    "test": "vitest run --passWithNoTests",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@noy-db/hub": "workspace:^",
+    "vitest": "^3.0.0"
   },
   "devDependencies": {
     "@noy-db/hub": "workspace:*",
     "vitest": "^3.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "tag": "latest"
   }
 }
