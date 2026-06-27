@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { ConflictError, NetworkError, StoreCapabilityError } from '@noy-db/hub/adapter'
+import { ConflictError, NetworkError, StoreCapabilityError, BundleVersionConflictError } from '@noy-db/hub/adapter'
 import type {
   NoydbStore,
   EncryptedEnvelope,
@@ -8,6 +8,7 @@ import type {
   StoreCapabilities,
   StoreTime,
   ListPageResult,
+  NoydbBundleStore,
 } from '@noy-db/hub/adapter'
 
 describe('@noy-db/hub/adapter seam', () => {
@@ -17,6 +18,14 @@ describe('@noy-db/hub/adapter seam', () => {
     expect(conflict.version).toBe(7)
     expect(new NetworkError()).toBeInstanceOf(NetworkError)
     expect(new StoreCapabilityError('listVaults', 'openVault')).toBeInstanceOf(StoreCapabilityError)
+  })
+
+  it('re-exports the bundle-store contract (drive/icloud)', () => {
+    expect(typeof BundleVersionConflictError).toBe('function')
+    const e = new BundleVersionConflictError('remote-v2')
+    expect(e).toBeInstanceOf(BundleVersionConflictError)
+    const bundleStore = null as unknown as NoydbBundleStore
+    expect(bundleStore).toBeNull()
   })
 
   it('re-exports the store contract types (compile-time only)', () => {
