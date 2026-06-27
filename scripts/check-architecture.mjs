@@ -133,14 +133,6 @@ function checkPeerDeps() {
     // depend on hub.
     if (!pj.name.startsWith('@noy-db/')) continue
     if (pj.name === '@noy-db/hub') continue
-    // Test tooling: must peer @noy-db/hub at a RANGE so external repos (noy-db-to)
-    // can consume it. Exempt from the workspace:* convention. (Not a satellite.)
-    // NOTE: This exemption is PRE-EMPTIVE — inert today because this guard only
-    // scans packages/ (via listPackageDirs) and the kit lives in
-    // test-harnesses/adapter-conformance (outside the scan). It becomes
-    // load-bearing in P1 when packages move under packages/*/* or the scan is
-    // broadened to cover test-harnesses/.
-    if (pj.name === '@noy-db/test-adapter-conformance') continue
 
     const dep = pj.dependencies?.['@noy-db/hub']
     const peer = pj.peerDependencies?.['@noy-db/hub']

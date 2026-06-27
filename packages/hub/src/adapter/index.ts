@@ -4,7 +4,9 @@
  * A storage backend (a `to-*` package) binds ONLY to this subpath: the
  * ciphertext-facing slice of the hub. It carries the 6-method `NoydbStore`
  * contract (plus its optional extension methods), the envelope / snapshot / op
- * types a store passes through, and the store-facing error classes. Mirrors the
+ * types a store passes through, the store-facing error classes, and the
+ * `NoydbBundleStore` contract (plus `BundleVersionConflictError`) for bundle
+ * stores such as `to-drive` and `to-icloud`. Mirrors the
  * `@noy-db/hub/kernel` seam used by klum-db and the `by-*` transports.
  *
  * Named re-exports only (no `export *`) so the published surface is explicit and
@@ -12,6 +14,7 @@
  */
 export type {
   NoydbStore,
+  NoydbBundleStore,
   EncryptedEnvelope,
   VaultSnapshot,
   TxOp,
@@ -20,4 +23,4 @@ export type {
   ListPageResult,
 } from '../types.js'
 
-export { ConflictError, NetworkError, StoreCapabilityError } from '../errors.js'
+export { ConflictError, NetworkError, StoreCapabilityError, BundleVersionConflictError } from '../errors.js'
