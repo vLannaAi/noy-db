@@ -7,7 +7,7 @@ export default defineConfig({
     'src/adapters/fastify.ts',
     'src/adapters/nitro.ts',
   ],
-  format: ['esm', 'cjs'],
+  format: ['esm'],
   dts: true,
   clean: true,
   splitting: false,

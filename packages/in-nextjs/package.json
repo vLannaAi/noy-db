@@ -17,27 +17,14 @@
   "sideEffects": false,
   "exports": {
     ".": {
-      "import": {
-        "types": "./dist/index.d.ts",
-        "default": "./dist/index.js"
-      },
-      "require": {
-        "types": "./dist/index.d.cts",
-        "default": "./dist/index.cjs"
-      }
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     },
     "./client": {
-      "import": {
-        "types": "./dist/client.d.ts",
-        "default": "./dist/client.js"
-      },
-      "require": {
-        "types": "./dist/client.d.cts",
-        "default": "./dist/client.cjs"
-      }
+      "types": "./dist/client.d.ts",
+      "default": "./dist/client.js"
     }
   },
-  "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
@@ -46,7 +33,7 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   },
   "scripts": {
     "build": "tsup",

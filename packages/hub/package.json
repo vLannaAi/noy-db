@@ -17,287 +17,118 @@
   "sideEffects": false,
   "exports": {
     ".": {
-      "import": {
-        "types": "./dist/index.d.ts",
-        "default": "./dist/index.js"
-      },
-      "require": {
-        "types": "./dist/index.d.cts",
-        "default": "./dist/index.cjs"
-      }
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     },
     "./i18n": {
-      "import": {
-        "types": "./dist/i18n/index.d.ts",
-        "default": "./dist/i18n/index.js"
-      },
-      "require": {
-        "types": "./dist/i18n/index.d.cts",
-        "default": "./dist/i18n/index.cjs"
-      }
+      "types": "./dist/i18n/index.d.ts",
+      "default": "./dist/i18n/index.js"
     },
     "./store": {
-      "import": {
-        "types": "./dist/store/index.d.ts",
-        "default": "./dist/store/index.js"
-      },
-      "require": {
-        "types": "./dist/store/index.d.cts",
-        "default": "./dist/store/index.cjs"
-      }
+      "types": "./dist/store/index.d.ts",
+      "default": "./dist/store/index.js"
     },
     "./team": {
-      "import": {
-        "types": "./dist/team/index.d.ts",
-        "default": "./dist/team/index.js"
-      },
-      "require": {
-        "types": "./dist/team/index.d.cts",
-        "default": "./dist/team/index.cjs"
-      }
+      "types": "./dist/team/index.d.ts",
+      "default": "./dist/team/index.js"
     },
     "./session": {
-      "import": {
-        "types": "./dist/session/index.d.ts",
-        "default": "./dist/session/index.js"
-      },
-      "require": {
-        "types": "./dist/session/index.d.cts",
-        "default": "./dist/session/index.cjs"
-      }
+      "types": "./dist/session/index.d.ts",
+      "default": "./dist/session/index.js"
     },
     "./history": {
-      "import": {
-        "types": "./dist/history/index.d.ts",
-        "default": "./dist/history/index.js"
-      },
-      "require": {
-        "types": "./dist/history/index.d.cts",
-        "default": "./dist/history/index.cjs"
-      }
+      "types": "./dist/history/index.d.ts",
+      "default": "./dist/history/index.js"
     },
     "./forget": {
-      "import": {
-        "types": "./dist/forget/index.d.ts",
-        "default": "./dist/forget/index.js"
-      },
-      "require": {
-        "types": "./dist/forget/index.d.cts",
-        "default": "./dist/forget/index.cjs"
-      }
+      "types": "./dist/forget/index.d.ts",
+      "default": "./dist/forget/index.js"
     },
     "./sealed-record": {
-      "import": {
-        "types": "./dist/sealed-record/index.d.ts",
-        "default": "./dist/sealed-record/index.js"
-      },
-      "require": {
-        "types": "./dist/sealed-record/index.d.cts",
-        "default": "./dist/sealed-record/index.cjs"
-      }
+      "types": "./dist/sealed-record/index.d.ts",
+      "default": "./dist/sealed-record/index.js"
     },
     "./query": {
-      "import": {
-        "types": "./dist/query/index.d.ts",
-        "default": "./dist/query/index.js"
-      },
-      "require": {
-        "types": "./dist/query/index.d.cts",
-        "default": "./dist/query/index.cjs"
-      }
+      "types": "./dist/query/index.d.ts",
+      "default": "./dist/query/index.js"
     },
     "./blobs": {
-      "import": {
-        "types": "./dist/blobs/index.d.ts",
-        "default": "./dist/blobs/index.js"
-      },
-      "require": {
-        "types": "./dist/blobs/index.d.cts",
-        "default": "./dist/blobs/index.cjs"
-      }
+      "types": "./dist/blobs/index.d.ts",
+      "default": "./dist/blobs/index.js"
     },
     "./indexing": {
-      "import": {
-        "types": "./dist/indexing/index.d.ts",
-        "default": "./dist/indexing/index.js"
-      },
-      "require": {
-        "types": "./dist/indexing/index.d.cts",
-        "default": "./dist/indexing/index.cjs"
-      }
+      "types": "./dist/indexing/index.d.ts",
+      "default": "./dist/indexing/index.js"
     },
     "./aggregate": {
-      "import": {
-        "types": "./dist/aggregate/index.d.ts",
-        "default": "./dist/aggregate/index.js"
-      },
-      "require": {
-        "types": "./dist/aggregate/index.d.cts",
-        "default": "./dist/aggregate/index.cjs"
-      }
+      "types": "./dist/aggregate/index.d.ts",
+      "default": "./dist/aggregate/index.js"
     },
     "./crdt": {
-      "import": {
-        "types": "./dist/crdt/index.d.ts",
-        "default": "./dist/crdt/index.js"
-      },
-      "require": {
-        "types": "./dist/crdt/index.d.cts",
-        "default": "./dist/crdt/index.cjs"
-      }
+      "types": "./dist/crdt/index.d.ts",
+      "default": "./dist/crdt/index.js"
     },
     "./bundle": {
-      "import": {
-        "types": "./dist/bundle/index.d.ts",
-        "default": "./dist/bundle/index.js"
-      },
-      "require": {
-        "types": "./dist/bundle/index.d.cts",
-        "default": "./dist/bundle/index.cjs"
-      }
+      "types": "./dist/bundle/index.d.ts",
+      "default": "./dist/bundle/index.js"
     },
     "./consent": {
-      "import": {
-        "types": "./dist/consent/index.d.ts",
-        "default": "./dist/consent/index.js"
-      },
-      "require": {
-        "types": "./dist/consent/index.d.cts",
-        "default": "./dist/consent/index.cjs"
-      }
+      "types": "./dist/consent/index.d.ts",
+      "default": "./dist/consent/index.js"
     },
     "./periods": {
-      "import": {
-        "types": "./dist/periods/index.d.ts",
-        "default": "./dist/periods/index.js"
-      },
-      "require": {
-        "types": "./dist/periods/index.d.cts",
-        "default": "./dist/periods/index.cjs"
-      }
+      "types": "./dist/periods/index.d.ts",
+      "default": "./dist/periods/index.js"
     },
     "./guards": {
-      "import": {
-        "types": "./dist/guards/index.d.ts",
-        "default": "./dist/guards/index.js"
-      },
-      "require": {
-        "types": "./dist/guards/index.d.cts",
-        "default": "./dist/guards/index.cjs"
-      }
+      "types": "./dist/guards/index.d.ts",
+      "default": "./dist/guards/index.js"
     },
     "./shadow": {
-      "import": {
-        "types": "./dist/shadow/index.d.ts",
-        "default": "./dist/shadow/index.js"
-      },
-      "require": {
-        "types": "./dist/shadow/index.d.cts",
-        "default": "./dist/shadow/index.cjs"
-      }
+      "types": "./dist/shadow/index.d.ts",
+      "default": "./dist/shadow/index.js"
     },
     "./snapshots": {
-      "import": {
-        "types": "./dist/snapshots/index.d.ts",
-        "default": "./dist/snapshots/index.js"
-      },
-      "require": {
-        "types": "./dist/snapshots/index.d.cts",
-        "default": "./dist/snapshots/index.cjs"
-      }
+      "types": "./dist/snapshots/index.d.ts",
+      "default": "./dist/snapshots/index.js"
     },
     "./tx": {
-      "import": {
-        "types": "./dist/tx/index.d.ts",
-        "default": "./dist/tx/index.js"
-      },
-      "require": {
-        "types": "./dist/tx/index.d.cts",
-        "default": "./dist/tx/index.cjs"
-      }
+      "types": "./dist/tx/index.d.ts",
+      "default": "./dist/tx/index.js"
     },
     "./derivations": {
-      "import": {
-        "types": "./dist/derivations/index.d.ts",
-        "default": "./dist/derivations/index.js"
-      },
-      "require": {
-        "types": "./dist/derivations/index.d.cts",
-        "default": "./dist/derivations/index.cjs"
-      }
+      "types": "./dist/derivations/index.d.ts",
+      "default": "./dist/derivations/index.js"
     },
     "./materialized-views": {
-      "import": {
-        "types": "./dist/materialized-views/index.d.ts",
-        "default": "./dist/materialized-views/index.js"
-      },
-      "require": {
-        "types": "./dist/materialized-views/index.d.cts",
-        "default": "./dist/materialized-views/index.cjs"
-      }
+      "types": "./dist/materialized-views/index.d.ts",
+      "default": "./dist/materialized-views/index.js"
     },
     "./overlay-views": {
-      "import": {
-        "types": "./dist/overlay-views/index.d.ts",
-        "default": "./dist/overlay-views/index.js"
-      },
-      "require": {
-        "types": "./dist/overlay-views/index.d.cts",
-        "default": "./dist/overlay-views/index.cjs"
-      }
+      "types": "./dist/overlay-views/index.d.ts",
+      "default": "./dist/overlay-views/index.js"
     },
     "./sync": {
-      "import": {
-        "types": "./dist/sync/index.d.ts",
-        "default": "./dist/sync/index.js"
-      },
-      "require": {
-        "types": "./dist/sync/index.d.cts",
-        "default": "./dist/sync/index.cjs"
-      }
+      "types": "./dist/sync/index.d.ts",
+      "default": "./dist/sync/index.js"
     },
     "./util": {
-      "import": {
-        "types": "./dist/util/index.d.ts",
-        "default": "./dist/util/index.js"
-      },
-      "require": {
-        "types": "./dist/util/index.d.cts",
-        "default": "./dist/util/index.cjs"
-      }
+      "types": "./dist/util/index.d.ts",
+      "default": "./dist/util/index.js"
     },
     "./attestation": {
-      "import": {
-        "types": "./dist/attestation/index.d.ts",
-        "default": "./dist/attestation/index.js"
-      },
-      "require": {
-        "types": "./dist/attestation/index.d.cts",
-        "default": "./dist/attestation/index.cjs"
-      }
+      "types": "./dist/attestation/index.d.ts",
+      "default": "./dist/attestation/index.js"
     },
     "./kernel": {
-      "import": {
-        "types": "./dist/kernel/index.d.ts",
-        "default": "./dist/kernel/index.js"
-      },
-      "require": {
-        "types": "./dist/kernel/index.d.cts",
-        "default": "./dist/kernel/index.cjs"
-      }
+      "types": "./dist/kernel/index.d.ts",
+      "default": "./dist/kernel/index.js"
     },
     "./adapter": {
-      "import": {
-        "types": "./dist/adapter/index.d.ts",
-        "default": "./dist/adapter/index.js"
-      },
-      "require": {
-        "types": "./dist/adapter/index.d.cts",
-        "default": "./dist/adapter/index.cjs"
-      }
+      "types": "./dist/adapter/index.d.ts",
+      "default": "./dist/adapter/index.js"
     }
   },
-  "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
@@ -306,7 +137,7 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   },
   "scripts": {
     "build": "tsup",
