@@ -13,26 +13,10 @@ vault-only stores (concurrency there is per-bundle OCC, not per-record CAS).
 
 | Adapter | record | vault | casAtomic | Use case | Status |
 |---|:--:|:--:|:--:|---|---|
-| `to-aws-dynamo` | ✅ | ❌ | ✅ | cloud-serverless | stable |
-| `to-aws-s3` | ✅ | ✅ | ✅ | cloud-blob-storage | stable |
 | `to-browser-idb` | ✅ | ❌ | ✅ | pwa-offline-first | stable |
-| `to-browser-local` | ✅ | ❌ | ❌ | simple-pwa-cache | stable |
-| `to-cloudflare-d1` | ✅ | ❌ | ✅ | edge-serverless | stable |
-| `to-cloudflare-r2` | ✅ | ❌ | ✅ | edge-blob-storage | stable |
-| `to-drive` | ❌ | ✅ | n/a | cloud-bundle-storage | stable |
 | `to-file` | ✅ | ❌ | ❌ | usb-or-local-disk | stable |
-| `to-icloud` | ❌ | ✅ | n/a | apple-ecosystem-sync | stable |
 | `to-memory` | ✅ | ❌ | ✅ | testing | stable |
 | `to-meter` | ✅ | ❌ | ❌ | observability | stable |
-| `to-mysql` | ✅ | ❌ | ✅ | self-hosted-sql | stable |
-| `to-nfs` | ✅ | ❌ | ❌ | enterprise-fileshare | stable |
-| `to-postgres` | ✅ | ❌ | ✅ | self-hosted-sql | stable |
 | `to-probe` | ✅ | ❌ | ❌ | diagnostics | stable |
-| `to-smb` | ✅ | ❌ | ❌ | enterprise-fileshare | stable |
-| `to-sqlite` | ✅ | ❌ | ✅ | embedded-sql | stable |
-| `to-ssh` | ✅ | ❌ | ❌ | remote-disk | stable |
-| `to-supabase` | ✅ | ❌ | ✅ | hosted-postgres | stable |
-| `to-turso` | ✅ | ❌ | ✅ | hosted-edge-sqlite | stable |
-| `to-webdav` | ✅ | ❌ | ❌ | byo-cloud | stable |
 
-**Totals:** 21 adapters — 19 record-capable, 3 vault-capable (1 both).
+**Totals:** 5 adapters — 5 record-capable, 0 vault-capable (0 both).
