@@ -23,7 +23,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 
 const FILES = execSync(
-  `find packages -type d -name node_modules -prune -o -path 'packages/*/src' -prune -print`,
+  `find packages -type d -name node_modules -prune -o \\( -path 'packages/*/src' -o -path 'packages/*/*/src' \\) -prune -print`,
   { encoding: 'utf8' },
 )
   .split('\n')

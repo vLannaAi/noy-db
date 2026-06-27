@@ -32,7 +32,7 @@
 
 import { execSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
-import { readdirSync, statSync } from 'node:fs'
+import { readdirSync, statSync, existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -65,16 +65,31 @@ console.log(`\n[release] Canonical version from @noy-db/hub: ${canonicalVersion}
 // ─── 3. Walk packages/* and normalize versions ─────────────────────────
 
 const packagesDir = join(ROOT, 'packages')
-const packageDirs = readdirSync(packagesDir).filter((name) => {
-  const full = join(packagesDir, name)
-  return statSync(full).isDirectory() && name !== 'typescript-config' && name !== 'test-adapter-conformance'
-})
+const EXCLUDED = new Set(['typescript-config', 'test-adapter-conformance'])
+
+function collectPackageDirs() {
+  const out = []
+  for (const name of readdirSync(packagesDir)) {
+    if (EXCLUDED.has(name)) continue
+    const full = join(packagesDir, name)
+    if (!statSync(full).isDirectory()) continue
+    if (existsSync(join(full, 'package.json'))) { out.push(full); continue }  // root-level pkg
+    for (const child of readdirSync(full)) {                                   // family folder → its members
+      if (child === 'node_modules' || child === 'dist') continue
+      const cp = join(full, child)
+      if (statSync(cp).isDirectory() && existsSync(join(cp, 'package.json'))) out.push(cp)
+    }
+  }
+  return out
+}
+
+const packageDirs = collectPackageDirs()
 
 const corrected = []
 const alreadyCorrect = []
 
 for (const dir of packageDirs) {
-  const pkgPath = join(packagesDir, dir, 'package.json')
+  const pkgPath = join(dir, 'package.json')
   let pkg
   try {
     pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))
@@ -119,7 +134,7 @@ const [coreMajor, coreMinor, corePatch] = canonicalVersion.split('.').map(Number
 let failed = false
 
 for (const dir of packageDirs) {
-  const pkgPath = join(packagesDir, dir, 'package.json')
+  const pkgPath = join(dir, 'package.json')
   let pkg
   try {
     pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))

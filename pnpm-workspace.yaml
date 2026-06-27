@@ -1,5 +1,6 @@
 packages:
   - "packages/*"
+  - "packages/*/*"
   - "test-harnesses/*"
   - "playground"
   - "playground/cli"

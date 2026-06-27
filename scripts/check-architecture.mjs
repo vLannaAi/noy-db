@@ -64,10 +64,19 @@ function fail(check, message, where) {
 // ─── Helpers ───────────────────────────────────────────────────────────
 
 function listPackageDirs() {
-  return readdirSync(PACKAGES_DIR)
-    .map(d => join(PACKAGES_DIR, d))
-    .filter(p => statSync(p).isDirectory())
-    .filter(p => existsSync(join(p, 'package.json')))
+  const out = []
+  for (const entry of readdirSync(PACKAGES_DIR)) {
+    if (entry === 'node_modules') continue
+    const p = join(PACKAGES_DIR, entry)
+    if (!statSync(p).isDirectory()) continue
+    if (existsSync(join(p, 'package.json'))) { out.push(p); continue }       // root-level pkg (hub, cli, …)
+    for (const child of readdirSync(p)) {                                     // family folder → its members
+      if (child === 'node_modules' || child === 'dist') continue
+      const cp = join(p, child)
+      if (statSync(cp).isDirectory() && existsSync(join(cp, 'package.json'))) out.push(cp)
+    }
+  }
+  return out
 }
 
 function readPackageJson(pkgDir) {
