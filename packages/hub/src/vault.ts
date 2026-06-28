@@ -780,6 +780,11 @@ export class Vault {
      * derived collections. Defaults to the vault-wide `history` config. See #361.
      */
     historyConfig?: HistoryConfig
+    /**
+     * Opt-in: keep the working set encrypted in RAM, decrypting on read (future phase).
+     * Default false — the working set is plaintext.
+     */
+    ramCiphertext?: boolean
   }): Collection<T> {
     // Overlay intercept. When the requested collection name
     // matches a registered `withOverlayedView`, return the virtual
@@ -1033,6 +1038,7 @@ export class Vault {
         collOpts.perRecordKeys = true
       }
       if (options?.provenance !== undefined) collOpts.provenance = options.provenance
+      if (options?.ramCiphertext !== undefined) collOpts.ramCiphertext = options.ramCiphertext
       if (options?.tiers !== undefined) collOpts.tiers = options.tiers
       if (options?.tierMode !== undefined) collOpts.tierMode = options.tierMode
       collOpts.onCrossTierAccess = (event) => this.emitCrossTier(event)

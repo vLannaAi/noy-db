@@ -175,6 +175,7 @@ export class Collection<T> {
   private readonly name: string
   private readonly keyring: UnlockedKeyring
   private readonly storeCiphertext: boolean
+  private readonly ramCiphertext: boolean
   private readonly emitter: NoydbEventEmitter
   private readonly writeQueue: WriteQueueTracker | undefined
   private readonly schemaUpdateGate: SchemaUpdateGate | undefined
@@ -617,6 +618,11 @@ export class Collection<T> {
     name: string
     keyring: UnlockedKeyring
     encrypted: boolean
+    /**
+     * Opt-in: keep the working set encrypted in RAM, decrypting on read (future phase).
+     * Default false — the working set is plaintext.
+     */
+    ramCiphertext?: boolean
     emitter: NoydbEventEmitter
     /**
      * Vault-level in-flight write tracker. When present,
@@ -953,6 +959,7 @@ export class Collection<T> {
     this.name = opts.name
     this.keyring = opts.keyring
     this.storeCiphertext = opts.encrypted
+    this.ramCiphertext = opts.ramCiphertext ?? false
     this.emitter = opts.emitter
     this.writeQueue = opts.writeQueue
     this.schemaUpdateGate = opts.schemaUpdateGate
@@ -1371,6 +1378,9 @@ export class Collection<T> {
   _applyMeta(meta: CollectionMeta): void {
     if (this.meta === undefined) this.meta = meta
   }
+
+  /** @internal — used only in tests; do not read in production code. */
+  get _ramCiphertext(): boolean { return this.ramCiphertext }
 
   /**
    * Get a single record by ID.
