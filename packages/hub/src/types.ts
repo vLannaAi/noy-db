@@ -224,12 +224,18 @@ export interface Sealed<V> {
 /**
  * The shape a public read returns for a collection that declares `sensitive`
  * fields `S`: every sealed field becomes an opaque {@link Sealed} handle while
- * the rest of the record is unchanged. `SealedView<T, never>` collapses to `T`,
- * so collections with no sensitive fields are unaffected.
+ * the rest of the record is unchanged. The `[S] extends [never]` guard collapses
+ * `SealedView<T, never>` to exactly `T`, so collections with no sensitive fields
+ * are unaffected — a plain `Omit<T, never>` is *not* a faithful identity for
+ * generic intersection record types (it can degrade intersection-only members to
+ * `unknown`), which would break consumers like the derivation/MV `_derivedFrom` /
+ * `_materializedFrom` reads.
  */
-export type SealedView<T, S extends keyof T> = Omit<T, S> & {
-  readonly [K in S]: Sealed<T[K]>
-}
+export type SealedView<T, S extends keyof T> = [S] extends [never]
+  ? T
+  : Omit<T, S> & {
+      readonly [K in S]: Sealed<T[K]>
+    }
 
 /**
  * Concrete {@link Sealed} handle. Holds the reveal closure (which captures the
