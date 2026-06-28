@@ -12,11 +12,11 @@ events, multi-user keyrings all work identically over every backend.
 
 ## Essentials (ship in this repo)
 
-The stores 80% of apps start with, plus the tooling pair.
+The stores 80% of apps start with, plus the tooling pair. For the in-memory case the kernel ships a **built-in default store** — `createNoydb()` needs no `store` — so `@noy-db/to-memory` below is the *fuller* in-memory backend, not a prerequisite to start.
 
 | Package | When to use |
 |---|---|
-| [`@noy-db/to-memory`](../../packages/to-memory) | Tests, REPL, ephemeral caches. `casAtomic: true`, `txAtomic: true` — a great sanity backstop. |
+| [`@noy-db/to-memory`](../../packages/to-memory) | **Fuller in-memory store** (the kernel's built-in default already covers basic in-memory). Tests, REPL, ephemeral caches; adds `listVaults` / `tx` / `listPage` over the 6-method built-in. `casAtomic: true`, `txAtomic: true` — a great sanity backstop. |
 | [`@noy-db/to-file`](../../packages/to-file) | Local disk / USB stick. JSON file per record. Also ships `saveBundle` / `loadBundle` and `exportBlobsToDirectory` (target-profile filename sanitization + Zip-Slip path containment). |
 | [`@noy-db/to-browser-idb`](../../packages/to-browser-idb) | IndexedDB in browsers / PWAs. Atomic CAS via single `readwrite` transaction. |
 | [`@noy-db/to-probe`](../../packages/to-probe) | **Diagnostic companion.** Not a backend — runs synthetic benchmarks against any store you pass in and reports on its suitability for a given role (primary, sync-peer, backup, archive). |
@@ -68,7 +68,7 @@ pnpm add @noy-db/to-postgres     # node-postgres
 - **"I have an AWS account."** → `to-aws-dynamo` primary + `to-aws-s3` blobs via `routeStore` (both in noy-db-to).
 - **"I have ssh access to a box."** → `to-ssh` (noy-db-to).
 - **"I'm in Cloudflare Workers."** → `to-cloudflare-d1` + `to-cloudflare-r2` (both in noy-db-to).
-- **"I'm just testing."** → `to-memory`.
+- **"I'm just testing."** → nothing — the built-in in-memory default is enough; reach for `to-memory` only when you need `listVaults` / `tx` / `listPage`.
 
 Don't pick one forever — a vault can sync to multiple `SyncTarget`s with
 different stores, roles, and policies. See the

@@ -44,14 +44,12 @@ An encrypted, offline-first, **serverless** document store. The library lives in
 
 ## 30-second vanilla example
 
-The minimum — no framework, no cloud, nothing to install beyond two packages:
+The minimum — no framework, no cloud, nothing to install beyond `@noy-db/hub`:
 
 ```ts
 import { createNoydb } from '@noy-db/hub'
-import { memory } from '@noy-db/to-memory'
 
-const db = await createNoydb({
-  store: memory(),
+const db = await createNoydb({       // zero-config: in-memory by default (built-in store)
   user: 'alice',
   secret: 'correct-horse-battery-staple',
 })
@@ -64,6 +62,8 @@ console.log(await invoices.get('inv-001'))   // { id: 'inv-001', amount: 1200 }
 
 await db.close()                               // clears keys from memory
 ```
+
+`createNoydb()` needs no `store` — it uses a **built-in in-memory store** by default (non-persistent). For tests wanting the fuller in-memory backend (adds `listVaults`/`tx`/`listPage`), add **[`@noy-db/to-memory`](docs/packages/to-stores.md)** and pass `store: memory()`.
 
 **Swap storage with one line** — keep the rest identical:
 
@@ -199,14 +199,16 @@ loadAll(vault)
 saveAll(vault, data)
 ```
 
-> If your existing storage can implement these six methods, it can store noy-db ciphertext. That is the full contract — 5 essential `to-*` stores ship here; 16 extended stores (SQL, cloud, remote-FS, personal drives) live in [noy-db-to](https://github.com/vLannaAi/noy-db-to). A custom store is `createStore(opts => ({ name, ...methods }))`.
+> If your existing storage can implement these six methods, it can store noy-db ciphertext. That is the full contract — the kernel ships a **built-in in-memory store** (so `store` is optional for the in-memory case); 5 essential `to-*` stores ship here for persistence and the fuller in-memory backend; 16 extended stores (SQL, cloud, remote-FS, personal drives) live in [noy-db-to](https://github.com/vLannaAi/noy-db-to). A custom store is `createStore(opts => ({ name, ...methods }))`.
 
 ---
 
 ## Install for common scenarios
 
 ```bash
-# Development / testing — in-memory, no persistence
+# Development / testing — in-memory, no persistence (built-in; nothing to add)
+pnpm add @noy-db/hub
+# …or the fuller in-memory test store (adds listVaults / tx / listPage):
 pnpm add @noy-db/hub @noy-db/to-memory
 
 # Local CLI / Node service — files on disk
