@@ -722,6 +722,12 @@ export class Vault {
     /** — explicit ack that deterministic encryption leaks equality. */
     acknowledgeDeterministicRisk?: boolean
     /**
+     * — structural group-encryption (#503). Fields sealed into their own
+     * `_sealed[field]` envelope slot (per-field key), kept out of the open
+     * `_data` blob. Default-off; byte-identical output when absent.
+     */
+    sensitive?: readonly string[]
+    /**
      * — per-record content-encryption keys. When `true`, every record
      * body is encrypted under a fresh per-record CEK wrapped under the
      * collection DEK (`_cek`), stable across versions. Foundation for
@@ -1019,6 +1025,9 @@ export class Vault {
       }
       if (options?.acknowledgeDeterministicRisk !== undefined) {
         collOpts.acknowledgeDeterministicRisk = options.acknowledgeDeterministicRisk
+      }
+      if (options?.sensitive !== undefined) {
+        collOpts.sensitive = options.sensitive
       }
       if (options?.perRecordKeys !== undefined) {
         collOpts.perRecordKeys = options.perRecordKeys

@@ -505,7 +505,8 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 5457→5473 (#483 review follow-up): historyConfigExplicit private field + opts flag for presence-semantic history in getConfig()
   // Bumped 5473→5486 (#484 Task 2): toJSONSchema() thin delegator + buildJsonSchema/derivePersistedSchema imports (logic lives in json-schema.ts)
   // Bumped 5486→5496 (storage-arch P2 foundation): ramCiphertext opt-in flag — field + opts + doc-comment + test getter. The documented hook for the future ciphertext-resident-working-set phase (default false, no behavior change). P2-T3 (StoreEdgeCodec extraction) moves crypto logic OUT of this file.
-  'packages/hub/src/collection.ts': 5496,
+  // Bumped 5496→5566 (#503 structural group-encryption): sensitive-field sealing is genuine crypto core — the write path peels declared `sensitive` fields out of `_data` and seals each into `_sealed[field]` under a per-field key, the read path re-merges them, plus the `sensitiveFields` set + `sensitive` opt + doc-comments. The per-field key derivation lives in crypto.ts (`deriveSealedFieldKey`); only the per-record encrypt/decrypt orchestration is here, beside the existing `_det`/`_cek` seams it mirrors.
+  'packages/hub/src/collection.ts': 5566,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
@@ -583,7 +584,8 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 4633→4650 (#483 Task 2): vaultMeta field + getMeta() getter + constructor opts + _introspectState() wiring
   // Bumped 4650→4659 (#483 review follow-up): historyConfigExplicit threading + archive/schemaUpdate accessors in _introspectState()
   // Bumped 4659→4665 (storage-arch P2 foundation): plumb ramCiphertext through vault.collection() to collOpts (TS declaration + pass-through) so the opt-in flag is reachable/testable. Minimal necessary plumbing.
-  'packages/hub/src/vault.ts': 4665,
+  // Bumped 4665→4674 (#503 structural group-encryption): plumb the `sensitive` collection option through vault.collection() to collOpts (TS declaration + doc-comment + pass-through), mirroring deterministicFields. Minimal necessary plumbing; the sealing crypto lives in collection.ts/crypto.ts.
+  'packages/hub/src/vault.ts': 4674,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),

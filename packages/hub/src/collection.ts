@@ -15,7 +15,7 @@ import type { ComputedFields } from './computed/index.js'
 import { evalComputedFields } from './computed/index.js'
 import { NO_I18N, type I18nStrategy } from './i18n/strategy.js'
 import { resolvePolicy } from './i18n/policy.js'
-import { encrypt, decrypt, encryptDeterministic } from './crypto.js'
+import { encrypt, decrypt, encryptDeterministic, deriveSealedFieldKey } from './crypto.js'
 import {
   wrapCek,
   unwrapCek,
@@ -436,6 +436,14 @@ export class Collection<T> {
    * is inactive for this collection; a frozen `Set` otherwise.
    */
   private readonly deterministicFields: ReadonlySet<string> | null
+
+  /**
+   * Declared structural-group-encryption fields (`sensitive`). Each is
+   * sealed into its own `_sealed[field]` slot under a per-field key and kept
+   * out of the open `_data` blob. Empty set ⇒ feature off (byte-identical
+   * output). See {@link encryptRecord} / {@link decryptRecord}. (#503)
+   */
+  private readonly sensitiveFields: ReadonlySet<string>
 
   /**
    * Per-record CEK opt-in (`perRecordKeys: true`). When set, writes mint /
@@ -870,6 +878,15 @@ export class Collection<T> {
      */
     acknowledgeDeterministicRisk?: boolean | undefined
     /**
+     * Structural group-encryption (#503). Fields listed here are
+     * encrypted into their own `_sealed[field]` envelope slot — each under
+     * an HKDF-derived per-field key — instead of sitting inside the open
+     * `_data` blob. Default-off: with no `sensitive` fields the envelope is
+     * byte-identical to today. Read merges them back inline (the
+     * `Sealed<V>`/`reveal()` access restriction is a separate follow-up).
+     */
+    sensitive?: readonly string[] | undefined
+    /**
      * Per-record content-encryption keys. When `true`, every record body
      * (and every history version of it) is encrypted under a fresh
      * per-record CEK, AES-KW-wrapped under the collection DEK and stored
@@ -1050,6 +1067,12 @@ export class Collection<T> {
     } else {
       this.deterministicFields = null
     }
+
+    // structural group-encryption wiring (#503): the set of fields sealed
+    // into `_sealed` per-field slots. Empty when the option is absent.
+    this.sensitiveFields = opts.sensitive && opts.sensitive.length > 0
+      ? Object.freeze(new Set(opts.sensitive))
+      : Object.freeze(new Set<string>())
 
     // per-record CEK wiring. The cache is bounded by record count; CEKs
     // are tiny CryptoKey handles, so a generous entry budget is cheap.
@@ -4949,24 +4972,55 @@ export class Collection<T> {
     if (!this.storeCiphertext && this.keyring.debugPlaintext === true && !this.name.startsWith('_')) {
       return this.buildDebugEnvelope(record, version, source, sourceTs)
     }
-    const base = await this.encryptJsonString(JSON.stringify(record), version, cek, source, sourceTs)
-    if (!this.deterministicFields || !this.storeCiphertext) return base
+
+    // Structural group-encryption (#503): peel declared sensitive fields out
+    // of the record BEFORE building `_data`, sealing each into its own
+    // `_sealed[field]` slot under a per-field key. Default-off — with no
+    // sensitive fields the open record is unchanged and no `_sealed` is
+    // emitted, so the envelope stays byte-identical to legacy output.
+    let openRecord = record
+    let sealed: Record<string, string> | undefined
+    if (this.storeCiphertext && this.sensitiveFields.size > 0) {
+      const src = record as unknown as Record<string, unknown>
+      const dek = await this.getDEK(this.name)
+      const open: Record<string, unknown> = { ...src }
+      const slots: Record<string, string> = {}
+      for (const field of this.sensitiveFields) {
+        if (!(field in src)) continue
+        const value = src[field]
+        if (value === undefined) continue
+        const fieldKey = await deriveSealedFieldKey(dek, this.name, field)
+        const { iv, data } = await encrypt(JSON.stringify(value), fieldKey)
+        slots[field] = `${iv}:${data}`
+        delete open[field]
+      }
+      if (Object.keys(slots).length > 0) {
+        sealed = slots
+        openRecord = open as unknown as T
+      }
+    }
+
+    const base = await this.encryptJsonString(JSON.stringify(openRecord), version, cek, source, sourceTs)
+    const withSealed = sealed ? { ...base, _sealed: sealed } : base
+    if (!this.deterministicFields || !this.storeCiphertext) return withSealed
 
     // compute deterministic-ciphertext slots for every
     // declared field. Non-primitive values are JSON-stringified so
-    // objects/arrays still dedupe on structural equality.
+    // objects/arrays still dedupe on structural equality. Sealed fields are
+    // excluded — they live only in `_sealed`, never the `_det` index.
     const dek = await this.getDEK(this.name)
     const rec = record as unknown as Record<string, unknown>
     const det: Record<string, string> = {}
     for (const field of this.deterministicFields) {
+      if (this.sensitiveFields.has(field)) continue
       const value = rec[field]
       if (value === undefined || value === null) continue
       const plaintext = typeof value === 'string' ? value : JSON.stringify(value)
       const { iv, data } = await encryptDeterministic(plaintext, dek, `${this.name}/${field}`)
       det[field] = `${iv}:${data}`
     }
-    if (Object.keys(det).length === 0) return base
-    return { ...base, _det: det }
+    if (Object.keys(det).length === 0) return withSealed
+    return { ...withSealed, _det: det }
   }
 
   /**
@@ -5405,6 +5459,22 @@ export class Collection<T> {
     }
 
     let record = parsed as T
+
+    // Structural group-encryption (#503): merge sealed fields back inline.
+    // Each `_sealed[field]` slot is decrypted under its own per-field key
+    // and JSON-parsed, restoring the complete record before schema
+    // validation. (The `Sealed<V>`/`reveal()` access gate is a follow-up.)
+    if (envelope._sealed !== undefined && this.storeCiphertext) {
+      const dek = await this.getDEK(this.name)
+      const target = record as unknown as Record<string, unknown>
+      for (const [field, blob] of Object.entries(envelope._sealed)) {
+        const sep = blob.indexOf(':')
+        const iv = blob.slice(0, sep)
+        const data = blob.slice(sep + 1)
+        const fieldKey = await deriveSealedFieldKey(dek, this.name, field)
+        target[field] = JSON.parse(await decrypt(iv, data, fieldKey))
+      }
+    }
 
     if (this.schema !== undefined && !opts.skipValidation) {
       // Context string deliberately avoids leaking the record id — the
