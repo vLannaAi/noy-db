@@ -160,6 +160,18 @@ export interface EncryptedEnvelope {
    */
   readonly _det?: Record<string, string>
   /**
+   * Structural group-encryption (#503). Map of sensitive field name →
+   * per-field sealed ciphertext in `iv:data` form (same shape as a `_det`
+   * slot). Present only when the collection declares `sensitive` fields and
+   * at least one is present on the record. Each field is encrypted under its
+   * own HKDF-derived per-field key (`deriveSealedFieldKey`, domain-separated
+   * by `<collection>/sealed/<field>`), and is kept OUT of the open `_data`
+   * blob — so a reader who can open `_data` still cannot see sealed fields
+   * without re-deriving each field key. With no sensitive fields declared the
+   * map is absent and `_data` is unchanged (byte-identical to legacy output).
+   */
+  readonly _sealed?: Record<string, string>
+  /**
    * Per-record content-encryption key (CEK), base64 AES-KW-wrapped under
    * the collection (or tier) DEK. Present only on records written by a
    * collection opened with `perRecordKeys: true`. When present, the body
