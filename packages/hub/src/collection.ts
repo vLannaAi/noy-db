@@ -1107,6 +1107,27 @@ export class Collection<T, S extends keyof T = never> {
       )
     }
 
+    // Warn when a sealed `sensitive` field is also declared in `indexes`: a
+    // plaintext secondary index defeats non-residency (the index buckets hold
+    // the cleartext value the seal was meant to hide). Compile-time refusal is
+    // a deferred follow-up.
+    if (this.sensitiveFields.size > 0 && opts.indexes) {
+      const indexedFields = new Set<string>()
+      for (const def of opts.indexes) {
+        if (typeof def === 'string') indexedFields.add(def)
+        else if (Array.isArray(def)) for (const f of def) indexedFields.add(f)
+        else for (const f of (def as { fields: readonly string[] }).fields) indexedFields.add(f)
+      }
+      const leaked = [...this.sensitiveFields].filter((f) => indexedFields.has(f))
+      if (leaked.length > 0) {
+        console.warn(
+          `[noy-db] collection "${opts.name}": sealed \`sensitive\` field(s) ` +
+          `${leaked.map((f) => `"${f}"`).join(', ')} also appear in \`indexes\` — a ` +
+          `plaintext secondary index stores the cleartext value and defeats non-residency.`,
+        )
+      }
+    }
+
     // per-record provenance opt-in (FR-5). Zero cost when off.
     this.provenance = opts.provenance === true
 
@@ -2258,14 +2279,34 @@ export class Collection<T, S extends keyof T = never> {
   async _getStoredRecord(id: string): Promise<T | null> {
     let raw: T | null
     if (this.lazy && this.lru) {
-      const cached = this.lru.get(id)
-      if (cached) raw = cached.record
-      else {
+      if (this.sensitiveFields.size > 0) {
+        // Sealed collection (lazy mirror of the eager `resolvePriorValues`):
+        // the LRU holds {@link Sealed} handles for sensitive fields (non-
+        // residency), but `_getStoredRecord` is the reverse-denorm / rollup
+        // PATCH BASE — re-encrypting a handle would persist the marker
+        // `'[sealed]'` in place of the value. So always re-decrypt the stored
+        // envelope to REAL values for the returned base. On a miss, populate
+        // the LRU in HANDLE form via `toCacheRecord` — never `record: raw`
+        // plaintext, which would leak sealed plaintext into the working set
+        // (a later public `get()` would then return it, defeating the gate).
+        const cached = this.lru.get(id)
         const env = await this.adapter.get(this.vault, this.name, id)
         if (!env || isTombstone(env, this.storeCiphertext)) return null
         raw = await this.decryptRecord(env, { id })
         if (raw === null) return null
-        this.lru.set(id, { record: raw, version: env._v }, estimateRecordBytes(raw))
+        if (!cached) {
+          this.lru.set(id, { record: this.toCacheRecord(raw, env), version: env._v }, estimateRecordBytes(raw))
+        }
+      } else {
+        const cached = this.lru.get(id)
+        if (cached) raw = cached.record
+        else {
+          const env = await this.adapter.get(this.vault, this.name, id)
+          if (!env || isTombstone(env, this.storeCiphertext)) return null
+          raw = await this.decryptRecord(env, { id })
+          if (raw === null) return null
+          this.lru.set(id, { record: raw, version: env._v }, estimateRecordBytes(raw))
+        }
       }
     } else {
       await this.ensureHydrated()

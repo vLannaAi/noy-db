@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { createNoydb } from '../src/index.js'
+import { createNoydb, withRollup } from '../src/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, Sealed } from '../src/types.js'
 import { ConflictError } from '../src/index.js'
 
@@ -167,5 +167,77 @@ describe('Sealed<V> access gate — public reads return handles', () => {
 
     const cache = (people as unknown as { cache: Map<string, { record: Person }> }).cache
     expect(cache.get('p1')!.record.ssn).toBe(SSN)
+  })
+})
+
+// Regression: lazy cache mode + sealed `sensitive` field + a rollup derivation
+// that patches the parent. `recomputeRollup` uses `_getStoredRecord` as the
+// patch base; pre-fix the lazy branch returned the cached Sealed handle (which
+// re-encrypts to the marker '[sealed]' → corruption) on a HIT, and stored raw
+// plaintext into the LRU on a MISS (non-residency leak). See
+// `Collection._getStoredRecord`.
+interface Buyer extends Record<string, unknown> { id: string; companyName: string; ssn?: string; totalSpent?: number }
+interface Sale extends Record<string, unknown> { id: string; buyerId: string; total: number }
+
+describe('Sealed<V> gate — lazy cache + sealed field + rollup derivation (regression)', () => {
+  async function setup() {
+    const store = memoryStore()
+    const db = await createNoydb({
+      store, secret: 'pw', user: 'owner',
+      derivationStrategies: [
+        withRollup<Sale, Buyer>({
+          from: 'sales', key: 'buyerId', into: 'buyers',
+          field: 'totalSpent', compute: (sales) => sales.reduce((t, s) => t + s.total, 0),
+        }),
+      ],
+    })
+    const v = await db.openVault('v1', { passphrase: 'pw' })
+    // Parent is LAZY (prefetch:false + bounded cache) AND seals `ssn`.
+    const buyers = v.collection<Buyer>('buyers', {
+      sensitive: ['ssn'], prefetch: false, cache: { maxRecords: 16 },
+    })
+    const sales = v.collection<Sale>('sales')
+    return { buyers, sales }
+  }
+
+  it('keeps the sealed field intact across a rollup patch + restores the gate invariants', async () => {
+    const { buyers, sales } = await setup()
+    await buyers.put('b1', { id: 'b1', companyName: 'Acme', ssn: SSN })
+
+    // Child write triggers recomputeRollup → patches buyers.b1 via _getStoredRecord.
+    await sales.put('s1', { id: 's1', buyerId: 'b1', total: 100 })
+    await sales.put('s2', { id: 's2', buyerId: 'b1', total: 250 })
+
+    // (1) The rollup field is maintained AND the sealed field's real value is
+    //     intact (NOT '[sealed]') — round-trips via reveal().
+    const r = await buyers.get('b1')
+    expect(r!.totalSpent).toBe(350)
+    expect(isSealed(r!.ssn)).toBe(true)
+    expect(await (r!.ssn as Sealed<string>).reveal()).toBe(SSN)
+
+    // (3) public get() returns a handle for ssn → gate intact.
+    expect((r!.ssn as Sealed<string>).sealed).toBe(true)
+
+    // (2) the LRU entry carries a handle, not sealed plaintext.
+    const peeked = (buyers as unknown as { _peekCached(id: string): Buyer | null })._peekCached('b1')
+    expect(isSealed(peeked!.ssn)).toBe(true)
+  })
+
+  it('a derivation MISS pass never poisons the LRU with sealed plaintext', async () => {
+    const { buyers, sales } = await setup()
+    await buyers.put('b1', { id: 'b1', companyName: 'Acme', ssn: SSN })
+    // Evict the write-path LRU entry so the rollup recompute hits a MISS.
+    ;(buyers as unknown as { lru: { clear?: () => void; remove: (id: string) => void } }).lru.remove('b1')
+
+    await sales.put('s1', { id: 's1', buyerId: 'b1', total: 42 })
+
+    const peeked = (buyers as unknown as { _peekCached(id: string): Buyer | null })._peekCached('b1')
+    expect(peeked).not.toBeNull()
+    expect(isSealed(peeked!.ssn)).toBe(true)
+
+    const r = await buyers.get('b1')
+    expect(isSealed(r!.ssn)).toBe(true)
+    expect(await (r!.ssn as Sealed<string>).reveal()).toBe(SSN)
+    expect(r!.totalSpent).toBe(42)
   })
 })
