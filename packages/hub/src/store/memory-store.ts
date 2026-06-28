@@ -1,4 +1,4 @@
-import type { NoydbStore, VaultSnapshot, EncryptedEnvelope, StoreTime } from '../types.js'
+import type { NoydbStore, VaultSnapshot, EncryptedEnvelope, StoreTime, ListPageResult } from '../types.js'
 import { ConflictError } from '../errors.js'
 
 /**
@@ -81,6 +81,21 @@ export function memoryStore(): NoydbStore {
         const c = coll(vault, name)
         for (const [id, envelope] of Object.entries(records)) c.set(id, envelope)
       }
+    },
+
+    async listPage(vault, collection, cursor, limit = 100): Promise<ListPageResult> {
+      const c = store.get(vault)?.get(collection)
+      if (!c) return { items: [], nextCursor: null }
+      const ids = [...c.keys()].sort()
+      const start = cursor ? parseInt(cursor, 10) : 0
+      const end = Math.min(start + limit, ids.length)
+      const items: Array<{ id: string; envelope: EncryptedEnvelope }> = []
+      for (let i = start; i < end; i++) {
+        const id = ids[i]!
+        const envelope = c.get(id)
+        if (envelope) items.push({ id, envelope })
+      }
+      return { items, nextCursor: end < ids.length ? String(end) : null }
     },
   }
 }
