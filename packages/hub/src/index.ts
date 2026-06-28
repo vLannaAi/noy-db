@@ -226,6 +226,7 @@ export { SyncScheduler, INDEXED_STORE_POLICY, BUNDLE_STORE_POLICY } from './stor
 export type { SyncTarget, SyncTargetRole } from './types.js'
 
 // Store routing
+export { memoryStore } from './store/memory-store.js'
 export { routeStore } from './store/route-store.js'
 export type {
   RouteStoreOptions, RoutedNoydbStore, BlobStoreRoute, AgeRoute,
