@@ -884,6 +884,11 @@ export class Collection<T> {
      * `_data` blob. Default-off: with no `sensitive` fields the envelope is
      * byte-identical to today. Read merges them back inline (the
      * `Sealed<V>`/`reveal()` access restriction is a separate follow-up).
+     *
+     * **Incompatible with `perRecordKeys`/forget-cascade (#304):** sealed
+     * field keys derive off the *collection* DEK, not the per-record CEK, so
+     * crypto-shredding a record does not erase its sealed fields. Full
+     * per-record sealing is tracked in #306.
      */
     sensitive?: readonly string[] | undefined
     /**
@@ -1078,6 +1083,28 @@ export class Collection<T> {
     // are tiny CryptoKey handles, so a generous entry budget is cheap.
     this.perRecordCek = opts.perRecordKeys === true
     this.cekCache = this.perRecordCek ? new Lru<string, CryptoKey>({ maxRecords: 4096 }) : null
+
+    // Fix 1: guard the forget-cascade / per-record-CEK incompatibility with
+    // sealed sensitive fields (#304 × #503). Sealed-field keys derive off the
+    // collection DEK (getDEK), not the per-record CEK, so crypto-shredding a
+    // record erases _data but leaves _sealed[field] recoverable.
+    if (this.sensitiveFields.size > 0 && this.perRecordCek) {
+      console.warn(
+        `[noy-db] collection "${opts.name}": sealed \`sensitive\` fields derive off the ` +
+        `collection DEK and are NOT covered by per-record crypto-shred (#304) until ` +
+        `record-scoped sealing (#306) — forgetting a record leaves its sealed fields recoverable.`,
+      )
+    }
+
+    // Fix 3: warn when `sensitive` is a no-op in debug-plaintext mode. When
+    // storeCiphertext is false the sealing path is skipped entirely, so
+    // sensitive fields are written in plaintext.
+    if (this.sensitiveFields.size > 0 && !this.storeCiphertext) {
+      console.warn(
+        `[noy-db] collection "${opts.name}": \`sensitive\` fields are NOT sealed in ` +
+        `plaintext (debug) mode — they are written unencrypted.`,
+      )
+    }
 
     // per-record provenance opt-in (FR-5). Zero cost when off.
     this.provenance = opts.provenance === true

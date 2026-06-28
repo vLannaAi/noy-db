@@ -506,7 +506,8 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 5473→5486 (#484 Task 2): toJSONSchema() thin delegator + buildJsonSchema/derivePersistedSchema imports (logic lives in json-schema.ts)
   // Bumped 5486→5496 (storage-arch P2 foundation): ramCiphertext opt-in flag — field + opts + doc-comment + test getter. The documented hook for the future ciphertext-resident-working-set phase (default false, no behavior change). P2-T3 (StoreEdgeCodec extraction) moves crypto logic OUT of this file.
   // Bumped 5496→5566 (#503 structural group-encryption): sensitive-field sealing is genuine crypto core — the write path peels declared `sensitive` fields out of `_data` and seals each into `_sealed[field]` under a per-field key, the read path re-merges them, plus the `sensitiveFields` set + `sensitive` opt + doc-comments. The per-field key derivation lives in crypto.ts (`deriveSealedFieldKey`); only the per-record encrypt/decrypt orchestration is here, beside the existing `_det`/`_cek` seams it mirrors.
-  'packages/hub/src/collection.ts': 5566,
+  // Bumped 5566→5593 (P3 safety fixes): three constructor guards — forget-cascade/perRecordCek incompatibility warn, debug-plaintext no-op warn, doc-comment note on #306. All are defensive one-time console.warn calls; no behavior change to default-off paths.
+  'packages/hub/src/collection.ts': 5593,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.

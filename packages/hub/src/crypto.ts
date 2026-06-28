@@ -452,12 +452,14 @@ export async function derivePresenceKey(dek: CryptoKey, collectionName: string):
  *
  * Domain-separated from the data DEK (and from the presence/deterministic
  * channels) by the fixed salt `'noydb-sealed'` and an `info` of
- * `` `${collectionName}/sealed/${field}` ``. The field name in the `info`
- * means each sensitive field gets a **distinct** key, so a `_sealed[a]`
- * ciphertext does not authenticate under field `b`'s key — sealed fields
- * are cryptographically isolated from one another. The collection name keeps
- * the same field name in two collections from sharing a key, mirroring how
- * `derivePresenceKey` / `encryptDeterministic` domain-separate.
+ * `JSON.stringify(['noydb-sealed', collectionName, field])`. The JSON-array
+ * encoding is injective — each element is separately quoted/escaped — so
+ * collection `a/sealed/b` + field `c` cannot collide with collection `a` +
+ * field `b/sealed/c`. Each sensitive field gets a **distinct** key, so a
+ * `_sealed[a]` ciphertext does not authenticate under field `b`'s key —
+ * sealed fields are cryptographically isolated from one another. The
+ * collection name keeps the same field name in two collections from sharing a
+ * key, mirroring how `derivePresenceKey` / `encryptDeterministic` domain-separate.
  *
  * @param dek            The collection's AES-256-GCM DEK (extractable).
  * @param collectionName Part of the HKDF `info` for domain separation.
@@ -472,7 +474,10 @@ export async function deriveSealedFieldKey(
   const rawDek = await subtle.exportKey('raw', dek)
   const hkdfKey = await subtle.importKey('raw', rawDek, 'HKDF', false, ['deriveBits'])
   const salt = new TextEncoder().encode('noydb-sealed')
-  const info = new TextEncoder().encode(`${collectionName}/sealed/${field}`)
+  // JSON-array encoding is injective: each element is separately quoted/
+  // escaped, so collection `a/sealed/b` + field `c` cannot collide with
+  // collection `a` + field `b/sealed/c`.
+  const info = new TextEncoder().encode(JSON.stringify(['noydb-sealed', collectionName, field]))
   const bits = await subtle.deriveBits(
     { name: 'HKDF', hash: 'SHA-256', salt, info },
     hkdfKey,
