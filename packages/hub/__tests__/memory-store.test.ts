@@ -49,4 +49,31 @@ describe('memoryStore', () => {
     const t2 = await s.getStoreTime!()
     expect(t2.earliest).toBeGreaterThan(t1.earliest)
   })
+
+  it('listPage returns paginated results with stable sorting (by id) and correct cursor', async () => {
+    const s = memoryStore()
+    // Seed out of lexicographic order so the sort() guarantee is actually exercised
+    // (Map preserves insertion order; without sort, page 1 would be ['c','a']).
+    await s.put('v', 'c', 'c', env(0))
+    await s.put('v', 'c', 'a', env(0))
+    await s.put('v', 'c', 'b', env(0))
+
+    // First page: 2 items (limit 2)
+    const page1 = await s.listPage!('v', 'c', undefined, 2)
+    expect(page1.items).toHaveLength(2)
+    expect(page1.items[0]?.id).toBe('a')
+    expect(page1.items[1]?.id).toBe('b')
+    expect(page1.nextCursor).toBe('2')
+
+    // Second page: 1 item remaining
+    const page2 = await s.listPage!('v', 'c', '2', 2)
+    expect(page2.items).toHaveLength(1)
+    expect(page2.items[0]?.id).toBe('c')
+    expect(page2.nextCursor).toBeNull()
+
+    // Empty collection
+    const emptyPage = await s.listPage!('v', 'nonexistent', undefined, 10)
+    expect(emptyPage.items).toEqual([])
+    expect(emptyPage.nextCursor).toBeNull()
+  })
 })
