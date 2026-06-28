@@ -205,6 +205,58 @@ export interface EncryptedEnvelope {
 }
 
 /**
+ * Opaque access gate for a sealed (`sensitive`) field returned by a public
+ * read (#503 access layer). The handle carries only the per-field
+ * **ciphertext** — the plaintext is never materialised into the working-set
+ * cache. Call {@link Sealed.reveal} to decrypt the value on demand.
+ *
+ * A handle is intentionally NOT usable as `V`: it serialises to a non-leaking
+ * marker (`JSON.stringify` / structured logging emit `'[sealed]'`, never the
+ * value) and exposes no synchronous accessor.
+ */
+export interface Sealed<V> {
+  /** Discriminant — always `true`, lets callers narrow a field to a handle. */
+  readonly sealed: true
+  /** Decrypt and return the underlying value. */
+  reveal(): Promise<V>
+}
+
+/**
+ * The shape a public read returns for a collection that declares `sensitive`
+ * fields `S`: every sealed field becomes an opaque {@link Sealed} handle while
+ * the rest of the record is unchanged. `SealedView<T, never>` collapses to `T`,
+ * so collections with no sensitive fields are unaffected.
+ */
+export type SealedView<T, S extends keyof T> = Omit<T, S> & {
+  readonly [K in S]: Sealed<T[K]>
+}
+
+/**
+ * Concrete {@link Sealed} handle. Holds the reveal closure (which captures the
+ * field's ciphertext blob and the unseal routine) in a private field, so it is
+ * invisible to `JSON.stringify`, `util.inspect`, and `Object.keys`. `toJSON`
+ * returns the marker `'[sealed]'` — a handle can never leak its value through
+ * serialisation or logging because the plaintext is not stored on it at all.
+ */
+export class SealedHandle<V> implements Sealed<V> {
+  readonly sealed = true as const
+  readonly #reveal: () => Promise<V>
+
+  constructor(reveal: () => Promise<V>) {
+    this.#reveal = reveal
+  }
+
+  reveal(): Promise<V> {
+    return this.#reveal()
+  }
+
+  /** Non-leaking serialisation marker — never the underlying value. */
+  toJSON(): string {
+    return '[sealed]'
+  }
+}
+
+/**
  * Placeholder returned by `getAtTier()` in `'ghost'` mode when a
  * record is at a tier the caller cannot decrypt. Record existence is
  * advertised — the id and tier are visible — but contents are

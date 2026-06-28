@@ -1,4 +1,5 @@
-import type { NoydbStore, EncryptedEnvelope, ChangeEvent, HistoryConfig, HistoryOptions, HistoryEntry, PruneOptions, ListPageResult, LocaleReadOptions, ConflictPolicy, CollectionConflictResolver, PutManyItemOptions, PutManyOptions, PutManyResult, DeleteManyResult } from './types.js'
+import type { NoydbStore, EncryptedEnvelope, ChangeEvent, HistoryConfig, HistoryOptions, HistoryEntry, PruneOptions, ListPageResult, LocaleReadOptions, ConflictPolicy, CollectionConflictResolver, PutManyItemOptions, PutManyOptions, PutManyResult, DeleteManyResult, SealedView } from './types.js'
+import { SealedHandle } from './types.js'
 import type { FieldMeta } from './introspection/field-meta.js'
 import type { CollectionMeta } from './introspection/meta.js'
 import { NOYDB_FORMAT_VERSION } from './types.js'
@@ -169,7 +170,7 @@ function warnOnceFallback(adapterName: string): void {
 }
 
 /** A typed collection of records within a vault. */
-export class Collection<T> {
+export class Collection<T, S extends keyof T = never> {
   private readonly adapter: NoydbStore
   private readonly vault: string
   private readonly name: string
@@ -1445,7 +1446,7 @@ export class Collection<T> {
    * @returns The decrypted (and optionally locale-resolved) record, or
    *          `null` if not found.
    */
-  async get(id: string, locale?: LocaleReadOptions): Promise<T | null> {
+  async get(id: string, locale?: LocaleReadOptions): Promise<SealedView<T, S> | null> {
     // --- Lazy derivation resolution ---
     // If this collection is the output of a lazy-mode derivation
     // strategy, consult the stale map and re-derive on demand before
@@ -1481,7 +1482,7 @@ export class Collection<T> {
         // Tombstone tolerance (decision 5): a shredded record carries no
         // body / CEK. Reads return null rather than throwing TamperedError.
         if (isTombstone(envelope, this.storeCiphertext)) return null
-        record = await this.decryptRecord(envelope, { id })
+        record = await this.decryptRecord(envelope, { id, sealedAsHandles: true })
         if (record === null) return null
         this.lru.set(id, { record, version: envelope._v }, estimateRecordBytes(record))
       }
@@ -1494,7 +1495,11 @@ export class Collection<T> {
 
     if (record === null) return null
     await this.onAccess?.('get', id)
-    return this.applyLocaleToRecord(record, locale)
+    // The cache/decrypt path already substituted Sealed handles for declared
+    // sensitive fields (S); the cast reflects that runtime shape. For
+    // collections with no sensitive fields S = never and SealedView<T, never>
+    // collapses to T, so this is a no-op widening.
+    return this.applyLocaleToRecord(record, locale) as unknown as SealedView<T, S>
   }
 
   /**
@@ -1706,6 +1711,26 @@ export class Collection<T> {
 
   #txIdForHook(): string {
     return this.activeTxId?.() ?? generateULID()
+  }
+
+  /**
+   * Resolve the prior record as REAL VALUES for the eager write/delete paths
+   * (history snapshot, ledger patch, index upkeep). The eager cache holds
+   * {@link Sealed} handles for sensitive fields (non-residency), so when the
+   * collection seals anything we re-decrypt the stored envelope to materialise
+   * real values — re-encrypting a handle would otherwise persist the marker
+   * `'[sealed]'` in place of the value. Collections that seal nothing read the
+   * cache directly (no extra I/O), matching the previous behaviour exactly.
+   */
+  private async resolvePriorValues(id: string): Promise<{ record: T; version: number } | undefined> {
+    if (this.sensitiveFields.size > 0) {
+      const env = await this.adapter.get(this.vault, this.name, id)
+      if (!env || isTombstone(env, this.storeCiphertext)) return undefined
+      const rec = await this.decryptRecord(env, { skipValidation: true, id })
+      return rec === null ? undefined : { record: rec, version: env._v }
+    }
+    const cached = this.cache.get(id)
+    return cached ? { record: cached.record, version: cached.version } : undefined
   }
 
   /** @internal Untracked put body — call {@link put}, not this. */
@@ -2025,7 +2050,9 @@ export class Collection<T> {
       }
     } else {
       await this.ensureHydrated()
-      existing = this.cache.get(id)
+      // Real values, not cache handles — the prior record is re-encrypted into
+      // a history snapshot below; a handle would seal the `'[sealed]'` marker.
+      existing = await this.resolvePriorValues(id)
     }
 
     const version = existing ? existing.version + 1 : 1
@@ -2122,13 +2149,15 @@ export class Collection<T> {
     }
 
     if (this.lazy && this.lru) {
-      this.lru.set(id, { record, version }, estimateRecordBytes(record))
+      // Cache the handle-form (sealed fields → Sealed handles) so plaintext
+      // for sensitive fields is never resident in the working set.
+      this.lru.set(id, { record: this.toCacheRecord(record, envelope), version }, estimateRecordBytes(record))
       // Maintain persisted-index side-cars. Lazy mode is the
       // only place `persistedIndexes` is populated; eager mode uses the
       // in-memory `CollectionIndexes` above.
       await this.maintainPersistedIndexesOnPut(id, record, existing ? existing.record : null, version)
     } else {
-      this.cache.set(id, { record, version })
+      this.cache.set(id, { record: this.toCacheRecord(record, envelope), version })
       // Update secondary indexes incrementally — no-op if no indexes are
       // declared. Pass the previous record (if any) so old buckets are
       // cleaned up before the new value is added.
@@ -2240,7 +2269,9 @@ export class Collection<T> {
       }
     } else {
       await this.ensureHydrated()
-      raw = this.cache.get(id)?.record ?? null
+      // Patch base for self-write reverse-denorm → must be real values, not
+      // the cache's Sealed handles, or a write-back would re-seal the marker.
+      raw = (await this.resolvePriorValues(id))?.record ?? null
     }
     if (raw === null) return null
     return canonicalizeStoredMoney(raw, this.moneyFields) as T
@@ -2759,7 +2790,8 @@ export class Collection<T> {
         }
       }
     } else {
-      existing = this.cache.get(id)
+      // Real values, not cache handles — re-encrypted into a history snapshot.
+      existing = await this.resolvePriorValues(id)
     }
 
     // Save history snapshot before deleting. On a CEK collection the
@@ -3483,7 +3515,7 @@ export class Collection<T> {
   async getMany(ids: readonly string[]): Promise<Map<string, T | null>> {
     const result = new Map<string, T | null>()
     for (const id of ids) {
-      result.set(id, await this.get(id))
+      result.set(id, (await this.get(id)) as unknown as T | null)
     }
     return result
   }
@@ -3633,7 +3665,7 @@ export class Collection<T> {
       if (event.action === 'put') {
         // Cache hit in eager mode; get() in lazy mode.
         void this.get(event.id).then(record => {
-          cb({ type: 'put', id: event.id, record: record ?? null })
+          cb({ type: 'put', id: event.id, record: (record ?? null) as unknown as T | null })
         }).catch(() => {
           // Record vanished between emit + lookup (race). Emit with null
           // so subscribers still see the event they were promised.
@@ -3895,7 +3927,7 @@ export class Collection<T> {
       const id = ids[i]!
       const envelope = await this.adapter.get(this.vault, this.name, id)
       if (envelope) {
-        const record = await this.decryptRecord(envelope)
+        const record = await this.decryptRecord(envelope, { sealedAsHandles: true })
         if (record === null) continue // shredded (tombstone) — skip
         items.push(record)
         // Same lazy-mode skip as the native path: don't pollute the LRU
@@ -3996,7 +4028,9 @@ export class Collection<T> {
   ): Promise<Array<{ id: string; record: T; version: number }>> {
     const out: Array<{ id: string; record: T; version: number }> = []
     for (const { id, envelope } of items) {
-      const record = await this.decryptRecord(envelope)
+      // Public scan/listPage output (and the opportunistic cache fill in
+      // listPage) — sealed fields surface as handles, never plaintext.
+      const record = await this.decryptRecord(envelope, { sealedAsHandles: true })
       if (record === null) continue // shredded (tombstone) — skip the page row
       out.push({ id, record, version: envelope._v })
     }
@@ -4050,7 +4084,8 @@ export class Collection<T> {
       }
       return
     }
-    const record = await this.decryptRecord(envelope)
+    // Handle-form for the cache (non-residency for sensitive fields).
+    const record = await this.decryptRecord(envelope, { sealedAsHandles: true })
     if (record === null) {
       // The on-disk envelope is now a tombstone (shredded). Treat exactly
       // like a deleted record: drop the cache entry and its index rows.
@@ -4091,7 +4126,7 @@ export class Collection<T> {
     for (const id of ids) {
       const envelope = await this.adapter.get(this.vault, this.name, id)
       if (envelope && !isTombstone(envelope, this.storeCiphertext)) {
-        const record = await this.decryptRecord(envelope, { id })
+        const record = await this.decryptRecord(envelope, { id, sealedAsHandles: true })
         if (record === null) continue
         this.cache.set(id, { record, version: envelope._v })
       }
@@ -4105,7 +4140,7 @@ export class Collection<T> {
   async hydrateFromSnapshot(records: Record<string, EncryptedEnvelope>): Promise<void> {
     for (const [id, envelope] of Object.entries(records)) {
       if (isTombstone(envelope, this.storeCiphertext)) continue
-      const record = await this.decryptRecord(envelope, { id })
+      const record = await this.decryptRecord(envelope, { id, sealedAsHandles: true })
       if (record === null) continue
       this.cache.set(id, { record, version: envelope._v })
     }
@@ -4875,7 +4910,7 @@ export class Collection<T> {
       collectionName: this.name,
       persistedIndexes: persisted,
       ensurePersistedIndexesLoaded: () => this.ensurePersistedIndexesLoaded(),
-      getRecord: (id: string) => this.get(id),
+      getRecord: (id: string) => this.get(id) as unknown as Promise<T | null>,
     }
     return new LazyQuery<T>(source)
   }
@@ -5469,9 +5504,55 @@ export class Collection<T> {
    * that may predate a schema change, so validating it would be a
    * false positive. Every non-history read leaves this flag `false`.
    */
+  /**
+   * Unseal a single `_sealed[field]` slot to its plaintext value: derive the
+   * per-field key off the collection DEK, AES-GCM-decrypt the `iv:data` blob,
+   * and JSON-parse the result. Shared by both the inline-decrypt path and a
+   * {@link Sealed} handle's `reveal()` — so the on-demand reveal and the eager
+   * materialisation always agree byte-for-byte.
+   */
+  private async unsealField(field: string, blob: string): Promise<unknown> {
+    const dek = await this.getDEK(this.name)
+    const sep = blob.indexOf(':')
+    const iv = blob.slice(0, sep)
+    const data = blob.slice(sep + 1)
+    const fieldKey = await deriveSealedFieldKey(dek, this.name, field)
+    return JSON.parse(await decrypt(iv, data, fieldKey))
+  }
+
+  /**
+   * Build a non-leaking {@link Sealed} handle over a sealed field's ciphertext.
+   * The handle captures only the ciphertext `blob` and a closure to
+   * {@link unsealField}; the plaintext is never stored on it — so the handle
+   * may sit in the working-set cache (or be logged/serialised) without
+   * exposing the value, which decrypts only on `reveal()`.
+   */
+  private makeSealedHandle(field: string, blob: string): SealedHandle<unknown> {
+    return new SealedHandle(() => this.unsealField(field, blob))
+  }
+
+  /**
+   * Replace a record's declared sensitive fields with {@link Sealed} handles
+   * built from the just-written envelope's `_sealed` slots, leaving every
+   * other field as its plaintext value. Used to populate the cache on the
+   * write path without ever materialising sealed plaintext into it. Returns
+   * `record` untouched when the collection seals nothing.
+   */
+  private toCacheRecord(record: T, envelope: EncryptedEnvelope): T {
+    const sealed = envelope._sealed
+    if (sealed === undefined || !this.storeCiphertext || this.sensitiveFields.size === 0) {
+      return record
+    }
+    const clone = { ...(record as unknown as Record<string, unknown>) }
+    for (const [field, blob] of Object.entries(sealed)) {
+      clone[field] = this.makeSealedHandle(field, blob)
+    }
+    return clone as unknown as T
+  }
+
   private async decryptRecord(
     envelope: EncryptedEnvelope,
-    opts: { skipValidation?: boolean; id?: string } = {},
+    opts: { skipValidation?: boolean; id?: string; sealedAsHandles?: boolean } = {},
   ): Promise<T | null> {
     const json = await this.decryptJsonString(envelope, opts.id)
     // Tombstone (shredded record) → null, propagated from decryptJsonString.
@@ -5487,23 +5568,29 @@ export class Collection<T> {
 
     let record = parsed as T
 
-    // Structural group-encryption (#503): merge sealed fields back inline.
-    // Each `_sealed[field]` slot is decrypted under its own per-field key
-    // and JSON-parsed, restoring the complete record before schema
-    // validation. (The `Sealed<V>`/`reveal()` access gate is a follow-up.)
+    // Structural group-encryption (#503) + sealed access gate.
+    // Each `_sealed[field]` slot is restored under its own per-field key.
+    // `sealedAsHandles: false` (default — internal callers that compute on
+    // real values) inline-decrypts to the plaintext value; `true` (the
+    // public / cache path) yields an opaque {@link Sealed} handle so the
+    // plaintext is never materialised into the working-set cache.
     if (envelope._sealed !== undefined && this.storeCiphertext) {
-      const dek = await this.getDEK(this.name)
       const target = record as unknown as Record<string, unknown>
       for (const [field, blob] of Object.entries(envelope._sealed)) {
-        const sep = blob.indexOf(':')
-        const iv = blob.slice(0, sep)
-        const data = blob.slice(sep + 1)
-        const fieldKey = await deriveSealedFieldKey(dek, this.name, field)
-        target[field] = JSON.parse(await decrypt(iv, data, fieldKey))
+        target[field] = opts.sealedAsHandles
+          ? this.makeSealedHandle(field, blob)
+          : await this.unsealField(field, blob)
       }
     }
 
-    if (this.schema !== undefined && !opts.skipValidation) {
+    // Skip output validation when sealed fields are returned as handles:
+    // the record carries opaque `Sealed` handles in place of the declared
+    // values, so a whole-record schema check would false-positive on them.
+    // (The values were validated on input/write; the open fields are
+    // unchanged from the validated body.) The inline-value path below still
+    // validates fully.
+    const sealedAsHandles = opts.sealedAsHandles === true && envelope._sealed !== undefined
+    if (this.schema !== undefined && !opts.skipValidation && !sealedAsHandles) {
       // Context string deliberately avoids leaking the record id — the
       // envelope only carries the version, not the id (the id lives in
       // the adapter-side key). `<collection>@v<n>` is enough for the

@@ -681,7 +681,7 @@ export class Vault {
    * Lazy mode + indexes is rejected at construction time — see the
    * Collection constructor for the rationale.
    */
-  collection<T>(collectionName: string, options?: {
+  collection<T, const S extends readonly (keyof T & string)[] = readonly []>(collectionName: string, options?: {
     indexes?: IndexDef[]
     /** — auto-reconcile policy for persisted-index drift. */
     reconcileOnOpen?: 'off' | 'dry-run' | 'auto'
@@ -726,7 +726,7 @@ export class Vault {
      * `_sealed[field]` envelope slot (per-field key), kept out of the open
      * `_data` blob. Default-off; byte-identical output when absent.
      */
-    sensitive?: readonly string[]
+    sensitive?: S
     /**
      * — per-record content-encryption keys. When `true`, every record
      * body is encrypted under a fresh per-record CEK wrapped under the
@@ -791,7 +791,7 @@ export class Vault {
      * Default false — the working set is plaintext.
      */
     ramCiphertext?: boolean
-  }): Collection<T> {
+  }): Collection<T, S[number]> {
     // Overlay intercept. When the requested collection name
     // matches a registered `withOverlayedView`, return the virtual
     // proxy that merges base + overlay on read and routes writes to
@@ -809,7 +809,7 @@ export class Vault {
         const overlay = this.collection<T>(spec.overlay)
         const baseRowKey = overlayRegistry.resolveBaseRowKey(collectionName, this.materializedViewRegistry)
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return new OverlayedCollection<any>(spec, base, overlay, baseRowKey) as unknown as Collection<T>
+        return new OverlayedCollection<any>(spec, base, overlay, baseRowKey) as unknown as Collection<T, S[number]>
       }
     }
     // Guard: reject reserved _dict_* names
@@ -1153,7 +1153,7 @@ export class Vault {
         this._pendingSchemaWrites.push(work)
       }
     }
-    return coll as Collection<T>
+    return coll as unknown as Collection<T, S[number]>
   }
 
   /**
@@ -1926,7 +1926,7 @@ export class Vault {
       listRecords: (name: string) => this.adapter.list(this.name, name),
       getRecord: async <T>(name: string, id: string) => {
         const coll = this.collection<T>(name)
-        return coll.get(id)
+        return coll.get(id) as unknown as T | null
       },
       listSlots: async (name: string, id: string) => {
         const coll = this.collection(name)
