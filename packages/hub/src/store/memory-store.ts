@@ -11,11 +11,15 @@ import { ConflictError } from '../errors.js'
  *
  * Portable: imports only `types` + `errors` (no crypto primitive) — passes
  * the `stores-ciphertext-only` architecture guard.
+ *
+ * Implements the 6-method core only (no optional `listVaults`/`ping`/`tx`),
+ * so `Noydb.listAccessibleVaults()` throws its documented capability error
+ * rather than enumerating vaults under the default store.
  */
 export function memoryStore(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   let clock = 0
-  const epsilon = 1
+  const epsilon = 0 // matches @noy-db/to-memory's default clockUncertainty; non-overlapping intervals
 
   const coll = (vault: string, collection: string): Map<string, EncryptedEnvelope> => {
     let comp = store.get(vault)
