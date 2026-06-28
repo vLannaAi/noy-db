@@ -174,7 +174,8 @@ export class Collection<T> {
   private readonly vault: string
   private readonly name: string
   private readonly keyring: UnlockedKeyring
-  private readonly encrypted: boolean
+  private readonly storeCiphertext: boolean
+  private readonly ramCiphertext: boolean
   private readonly emitter: NoydbEventEmitter
   private readonly writeQueue: WriteQueueTracker | undefined
   private readonly schemaUpdateGate: SchemaUpdateGate | undefined
@@ -617,6 +618,11 @@ export class Collection<T> {
     name: string
     keyring: UnlockedKeyring
     encrypted: boolean
+    /**
+     * Opt-in: keep the working set encrypted in RAM, decrypting on read (future phase).
+     * Default false — the working set is plaintext.
+     */
+    ramCiphertext?: boolean
     emitter: NoydbEventEmitter
     /**
      * Vault-level in-flight write tracker. When present,
@@ -952,7 +958,8 @@ export class Collection<T> {
     this.vault = opts.vault
     this.name = opts.name
     this.keyring = opts.keyring
-    this.encrypted = opts.encrypted
+    this.storeCiphertext = opts.encrypted
+    this.ramCiphertext = opts.ramCiphertext ?? false
     this.emitter = opts.emitter
     this.writeQueue = opts.writeQueue
     this.schemaUpdateGate = opts.schemaUpdateGate
@@ -1372,6 +1379,9 @@ export class Collection<T> {
     if (this.meta === undefined) this.meta = meta
   }
 
+  /** @internal — used only in tests; do not read in production code. */
+  get _ramCiphertext(): boolean { return this.ramCiphertext }
+
   /**
    * Get a single record by ID.
    *
@@ -1420,7 +1430,7 @@ export class Collection<T> {
         if (!envelope) return null
         // Tombstone tolerance (decision 5): a shredded record carries no
         // body / CEK. Reads return null rather than throwing TamperedError.
-        if (isTombstone(envelope, this.encrypted)) return null
+        if (isTombstone(envelope, this.storeCiphertext)) return null
         record = await this.decryptRecord(envelope, { id })
         if (record === null) return null
         this.lru.set(id, { record, version: envelope._v }, estimateRecordBytes(record))
@@ -1509,7 +1519,7 @@ export class Collection<T> {
       vault: this.vault,
       collectionName: this.name,
       userId: this.keyring.userId,
-      encrypted: this.encrypted,
+      encrypted: this.storeCiphertext,
       getDEK: this.getDEK,
     }
     if (this.syncAdapter !== undefined) presenceOpts.syncAdapter = this.syncAdapter
@@ -2173,7 +2183,7 @@ export class Collection<T> {
       if (cached) raw = cached.record
       else {
         const env = await this.adapter.get(this.vault, this.name, id)
-        if (!env || isTombstone(env, this.encrypted)) return null
+        if (!env || isTombstone(env, this.storeCiphertext)) return null
         raw = await this.decryptRecord(env, { id })
         if (raw === null) return null
         this.lru.set(id, { record: raw, version: env._v }, estimateRecordBytes(raw))
@@ -2549,7 +2559,7 @@ export class Collection<T> {
     let count = 0
     for (const id of ids) {
       const env = await this.adapter.get(this.vault, this.name, id)
-      if (!env || isTombstone(env, this.encrypted)) continue
+      if (!env || isTombstone(env, this.storeCiphertext)) continue
       const decoded = await this.decryptRecord(env, { skipValidation: true, id })
       if (decoded === null) continue // defensive: shredded between list and get
       const record = decoded as unknown as Record<string, unknown>
@@ -2829,7 +2839,7 @@ export class Collection<T> {
 
   async _writeTombstone(id: string, actor: string): Promise<{ previousVersion: number } | null> {
     const live = await this.adapter.get(this.vault, this.name, id)
-    if (!live || isTombstone(live, this.encrypted)) return null
+    if (!live || isTombstone(live, this.storeCiphertext)) return null
 
     await this.adapter.put(this.vault, this.name, id, buildTombstone(live._v, actor))
 
@@ -4030,7 +4040,7 @@ export class Collection<T> {
     const ids = await this.adapter.list(this.vault, this.name)
     for (const id of ids) {
       const envelope = await this.adapter.get(this.vault, this.name, id)
-      if (envelope && !isTombstone(envelope, this.encrypted)) {
+      if (envelope && !isTombstone(envelope, this.storeCiphertext)) {
         const record = await this.decryptRecord(envelope, { id })
         if (record === null) continue
         this.cache.set(id, { record, version: envelope._v })
@@ -4044,7 +4054,7 @@ export class Collection<T> {
   /** Hydrate from a pre-loaded snapshot (used by Vault). */
   async hydrateFromSnapshot(records: Record<string, EncryptedEnvelope>): Promise<void> {
     for (const [id, envelope] of Object.entries(records)) {
-      if (isTombstone(envelope, this.encrypted)) continue
+      if (isTombstone(envelope, this.storeCiphertext)) continue
       const record = await this.decryptRecord(envelope, { id })
       if (record === null) continue
       this.cache.set(id, { record, version: envelope._v })
@@ -4335,7 +4345,7 @@ export class Collection<T> {
       collection: this.name,
       recordId: id,
       getDEK: this.getDEK,
-      encrypted: this.encrypted,
+      encrypted: this.storeCiphertext,
       userId: this.keyring.userId,
       erasableBlobs: this.perRecordCek,
       debugPlaintext: this.keyring.debugPlaintext === true,
@@ -4883,7 +4893,7 @@ export class Collection<T> {
       ? { _source: source, _sourceTs: sourceTs ?? new Date().toISOString() }
       : {}
 
-    if (!this.encrypted) {
+    if (!this.storeCiphertext) {
       return {
         _noydb: NOYDB_FORMAT_VERSION,
         _v: version,
@@ -4936,11 +4946,11 @@ export class Collection<T> {
     // beside the envelope metadata so native store tools read them directly.
     // Internal (`_`-prefixed) collections keep the classic shape — some store
     // `_`-prefixed fields that the inline layout would collide with.
-    if (!this.encrypted && this.keyring.debugPlaintext === true && !this.name.startsWith('_')) {
+    if (!this.storeCiphertext && this.keyring.debugPlaintext === true && !this.name.startsWith('_')) {
       return this.buildDebugEnvelope(record, version, source, sourceTs)
     }
     const base = await this.encryptJsonString(JSON.stringify(record), version, cek, source, sourceTs)
-    if (!this.deterministicFields || !this.encrypted) return base
+    if (!this.deterministicFields || !this.storeCiphertext) return base
 
     // compute deterministic-ciphertext slots for every
     // declared field. Non-primitive values are JSON-stringified so
@@ -4978,7 +4988,7 @@ export class Collection<T> {
         `Collection "${this.name}": field "${field}" is not declared in deterministicFields`,
       )
     }
-    if (!this.encrypted) {
+    if (!this.storeCiphertext) {
       throw new Error(
         `Collection "${this.name}": findByDet is only meaningful on encrypted collections`,
       )
@@ -5009,7 +5019,7 @@ export class Collection<T> {
         `Collection "${this.name}": field "${field}" is not declared in deterministicFields`,
       )
     }
-    if (!this.encrypted) {
+    if (!this.storeCiphertext) {
       throw new Error(
         `Collection "${this.name}": queryByDet is only meaningful on encrypted collections`,
       )
@@ -5336,10 +5346,10 @@ export class Collection<T> {
     // `_cek`. Decrypting it would call `decrypt('', '', dek)` → AES-GCM
     // OperationError → TamperedError. Return null so every read callsite
     // treats it as "absent / skip", matching how get()/list already drop
-    // tombstones. Legacy plaintext collections (`!this.encrypted`) legitimately
+    // tombstones. Legacy plaintext collections (`!this.storeCiphertext`) legitimately
     // have empty `_iv`/`_data`, so `isTombstone` is false for them — preserved.
-    if (isTombstone(envelope, this.encrypted)) return null
-    if (!this.encrypted) {
+    if (isTombstone(envelope, this.storeCiphertext)) return null
+    if (!this.storeCiphertext) {
       // Debug-plaintext layout: record fields were inlined as top-level keys
       // (see buildDebugEnvelope). Reconstruct the record from the non-`_`
       // keys. Self-describing via `_debug`, so a classic plaintext reader
