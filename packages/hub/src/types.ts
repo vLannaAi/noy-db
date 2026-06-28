@@ -1772,8 +1772,8 @@ export interface StoreCapabilities {
 // ─── Factory Options ───────────────────────────────────────────────────
 
 export interface NoydbOptions {
-  /** Primary store (local storage). */
-  readonly store: NoydbStore
+  /** The ciphertext store. Optional — defaults to the built-in `memoryStore()` (non-persistent). */
+  readonly store?: NoydbStore
   /**
    * tree-shake seam — optional blob strategy. Pass `withBlobs()`
    * from `@noy-db/hub/blobs` to enable `collection.blob(id)` storage.

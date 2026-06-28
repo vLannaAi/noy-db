@@ -118,6 +118,7 @@ import { NO_TX, type TxStrategy } from './tx/strategy.js'
 import { NO_FORGET, type ForgetStrategy } from './forget/strategy.js'
 import { readDottedPath, coerceSubjectId } from './forget/subject-index.js'
 import { INDEXED_STORE_POLICY } from './store/sync-policy.js'
+import { memoryStore } from './store/memory-store.js'
 import type { PolicyEnforcer } from './session/session-policy.js'
 import { NO_SESSION, type SessionStrategy } from './session/strategy.js'
 import {
@@ -169,9 +170,12 @@ function createPlaintextKeyring(userId: string, debugPlaintext = false): Unlocke
   }
 }
 
+/** NoydbOptions with the store resolved to a non-optional value (internal use only). */
+type ResolvedNoydbOptions = NoydbOptions & { readonly store: NoydbStore }
+
 /** The top-level NOYDB instance. */
 export class Noydb {
-  private readonly options: NoydbOptions
+  private readonly options: ResolvedNoydbOptions
   private readonly emitter = new NoydbEventEmitter()
   private readonly writeQueueTracker = new WriteQueueTracker()
   private readonly writeHooks = new WriteHookRegistry()
@@ -247,7 +251,7 @@ export class Noydb {
   /** Audit log for all translator invocations in this session. Cleared on `close()`. */
   private readonly _translatorAuditLog: TranslatorAuditEntry[] = []
 
-  constructor(options: NoydbOptions) {
+  constructor(options: ResolvedNoydbOptions) {
     this.options = options
     // Debug-plaintext is an unencrypted-only inspection mode; combining it with
     // encryption is meaningless and unsafe, so reject the coupling loudly.
@@ -3046,6 +3050,7 @@ export class Noydb {
 
 /** Create a new NOYDB instance. */
 export async function createNoydb(options: NoydbOptions): Promise<Noydb> {
+  if (!options.store) options = { ...options, store: memoryStore() }
   const encrypted = options.encrypt !== false
   const managed = options.passphraseMode === 'managed'
 
@@ -3082,7 +3087,7 @@ export async function createNoydb(options: NoydbOptions): Promise<Noydb> {
     throw new ValidationError('A secret (passphrase) or getKeyring callback is required when encryption is enabled')
   }
 
-  return new Noydb(options)
+  return new Noydb(options as ResolvedNoydbOptions)
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────
