@@ -36,5 +36,5 @@ export {
 } from './groupby.js'
 export type { GroupedRow, GroupedRowN } from './groupby.js'
 
-export { count, sum, avg, min, max, moneySum, moneyMin, moneyMax } from './reducers.js'
-export type { Reducer, ReducerOptions } from './reducers.js'
+export { count, sum, avg, min, max, moneySum, moneyMin, moneyMax, reducerBuilder } from './reducers.js'
+export type { Reducer, ReducerOptions, ReducerBuilder } from './reducers.js'

@@ -25,8 +25,8 @@ export { applyJoins, DEFAULT_JOIN_MAX_ROWS, resetJoinWarnings } from './join.js'
 export type { JoinLeg, JoinContext, JoinableSource, JoinStrategy } from './join.js'
 export { buildLiveQuery } from './live.js'
 export type { LiveQuery, LiveUpstream } from './live.js'
-export { count, sum, avg, min, max, moneySum, moneyMin, moneyMax } from '../aggregate/reducers.js'
-export type { Reducer, ReducerOptions } from '../aggregate/reducers.js'
+export { count, sum, avg, min, max, moneySum, moneyMin, moneyMax, reducerBuilder } from '../aggregate/reducers.js'
+export type { Reducer, ReducerOptions, ReducerBuilder } from '../aggregate/reducers.js'
 export { Aggregation, reduceRecords, buildLiveAggregation } from '../aggregate/aggregation.js'
 export type {
   AggregateSpec,

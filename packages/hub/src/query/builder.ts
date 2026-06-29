@@ -15,6 +15,8 @@ import { CrossJoinTooLargeError, CrossJoinSourceUnknownError } from '../errors.j
 import type { LiveQuery, LiveUpstream } from './live.js'
 import { buildLiveQuery } from './live.js'
 import type { AggregateSpec, AggregateResult, AggregationUpstream, Aggregation } from '../aggregate/aggregation.js'
+import type { ReducerBuilder } from '../aggregate/reducers.js'
+import { reducerBuilder } from '../aggregate/reducers.js'
 import type { GroupedQuery, GroupedQueryN } from '../aggregate/groupby.js'
 import { NO_AGGREGATE, type AggregateStrategy } from '../aggregate/strategy.js'
 import type { MoneyDescriptor } from '../money/descriptor.js'
@@ -719,17 +721,31 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    * aggregation lands, the seed will carry running state across
    * partition boundaries without an API break.
    *
-   * KNOWN GAP (sealed fields): `where`/`orderBy`/`groupBy` refuse a
-   * `sensitive` field at compile time, but a reducer over a sensitive field
-   * (e.g. `aggregate({ x: sum('ssn') })`) is NOT refused — the reducer
-   * factories (`sum`/`min`/`max`/…) are standalone `(field: string)` functions
-   * with no collection-type context, so `aggregate(spec)` cannot see which
-   * field is inside each reducer. Closing this requires a typed spec-builder
-   * redesign (tracked separately); avoid aggregating sensitive fields.
+   * KNOWN GAP (sealed fields, bare-spec form): `where`/`orderBy`/`groupBy`
+   * refuse a `sensitive` field at compile time, but a reducer over a sensitive
+   * field in the BARE-SPEC form (e.g. `aggregate({ x: sum('ssn') })`) is NOT
+   * refused — the reducer factories (`sum`/`min`/`max`/…) are standalone
+   * `(field: string)` functions with no collection-type context. This form is
+   * preserved as-is for backward compatibility.
+   *
+   * The BUILDER form closes this gap: `aggregate(b => ({ x: b.sum('field') }))`
+   * types the builder's field parameter as `QueryField<T, S>`, refusing any
+   * `sensitive` field at compile time. Use the builder form for new code that
+   * aggregates over a collection with sensitive fields.
+   *
+   * Follow-ups (out of scope for this change):
+   *   - `GroupedQuery.aggregate` dropped `S` and cannot be retrofitted here;
+   *     a separate builder form is needed.
+   *   - `ScanBuilder.aggregate` similarly has no `S` context.
    */
+  aggregate<Spec extends AggregateSpec>(spec: Spec): Aggregation<AggregateResult<Spec>>
+  aggregate<Spec extends AggregateSpec>(build: (b: ReducerBuilder<T, S>) => Spec): Aggregation<AggregateResult<Spec>>
   aggregate<Spec extends AggregateSpec>(
-    spec: Spec,
+    specOrBuild: Spec | ((b: ReducerBuilder<T, S>) => Spec),
   ): Aggregation<AggregateResult<Spec>> {
+    let spec = typeof specOrBuild === 'function'
+      ? (specOrBuild as (b: ReducerBuilder<T, S>) => Spec)((reducerBuilder as unknown) as ReducerBuilder<T, S>)
+      : specOrBuild
     // Rewrite sum/min/max over money fields into exact BigInt reducers
     // before the strategy runs (covers static run() and live/MV paths).
     const moneyFields = this.source.moneyFields
