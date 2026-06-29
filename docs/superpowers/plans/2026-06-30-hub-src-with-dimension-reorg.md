@@ -16,6 +16,27 @@
 - **Commit into a worktree immediately** (durability — the prior attempt was lost as uncommitted worktree state).
 - No Claude attribution in commits.
 
+## Prerequisite — consolidate crypto BEFORE the move (from the 2026-06-30 review)
+
+The refactoring + architecture reviews found the envelope-build / encrypt-decrypt / CEK / #306 sealed dual-read logic **copy-pasted** across `collection.ts`, `vault.ts`, `record-keys/sealing.ts`, and ~12 subsystem files (the envelope literal ~30×; the security-critical dual-read in 2–3 drifting copies). **Reorging first scatters these copies into 7 folders.** So, before Task 1:
+
+- **Extract `record-codec.ts`** (envelope build + encrypt/decrypt/CEK; `collection.ts` ~4980–5160, 5485–5660) — also the named "encryption-in-the-hub" module the architecture review wants, and the seed of edge-crypto Plan B P2.
+- **Dedupe the sealed-slot `iv:data` parse + #306 dual-read** into `record-keys/sealing.ts` (`collection.ts:5559–5579` ↔ `sealing.ts:154–165`).
+- **Add `buildEnvelope()`** to kill the ~30× literal.
+- **Land the H-1 / M-1 `forget()` security fixes** (review §🔴) in the same consolidated path while it's a single copy.
+
+These are their own commits/PR, before the reorg. See `docs/superpowers/2026-06-30-REVIEW-PACKAGE.md`.
+
+> **Reorg-readiness confirmed (review):** the mapping below is **exact** against current `main` — all 46 `src/` subfolders resolve (36 moved, 10 stay), **0 unmapped**. `tsconfig` needs no change; only the 28 tsup-entry **source paths** change (keys stay = subpaths). Codemod scale: **~404 test-import refs across 260 of 333 test files** (larger than the prototype's 438/224 — budget the second pass). ~75 cross-/same-dimension sibling-import edges; depth-recompute, don't prefix-swap.
+
+## Catalog-drift fixes to fold in (architecture review)
+
+While moving, reconcile catalog ↔ exports ↔ folders: `joins`/`live` (documented, no module/export), `routing` (claimed `@noy-db/hub/routing`, actually `./store`), `transactions` (docs say `/transactions`, export is `./tx`), `team`/`attestation`/`sealed-record` (subpath but no `with*()`). Update `SUBSYSTEMS.md` + `package.json` to match reality.
+
+## Test layout decision (review)
+
+Tests are in a flat `__tests__/` (contra CLAUDE.md "beside source"). The move orphans that from the new structure. **Decide in this pass:** mirror `__tests__/with-*/…` or co-locate. Also extract `__tests__/helpers/` fixtures (172/229 files inline `createNoydb(` with no shared helper) to cut churn during the move.
+
 ## The mapping (target)
 
 | dimension | subsystem folders moved in |
