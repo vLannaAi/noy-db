@@ -1,5 +1,20 @@
 # Changelog — hub
 
+## Unreleased
+
+Record-scoped sealing (epic [#306](https://github.com/vLannaAi/noy-db/issues/306)) — sealed `sensitive` fields now participate in crypto-shred and tamper-evidence end to end — plus money-typing parity across the aggregate builders.
+
+### Feature: record-scoped sealing — `forget()` erases sealed fields + the ledger attests them ([#306](https://github.com/vLannaAi/noy-db/issues/306))
+
+- **Erasure.** When a collection sets both `sensitive` and `perRecordKeys`, each sealed field's key now derives from the record's per-record CEK (`deriveSealedFieldKeyFromCek`) instead of the collection DEK. `vault.forget()` drops the record's wrapped `_cek`, which now makes `_sealed` cryptographically unrecoverable — the same erasure guarantee `_data` already had. `ForgetResult` gains a **`sealedFieldsShredded`** count.
+- **No-migration dual-read.** Reads try the CEK-derived key first and fall back to the collection-DEK key, so records sealed before this change stay readable with no migration step; they upgrade to CEK-derivation on their next `put()`. `rotateRecordCek` re-encrypts `_sealed` under the new CEK rather than carrying it forward.
+- **Ledger integrity.** The history ledger's `payloadHash` now binds `_sealed`, so `vault.verifyBackupIntegrity()` detects tampering or erasure of a sealed value. Backward-compatible: a record with no sealed fields hashes exactly as before (`sha256(_data)`), so existing ledgers and non-sealed backups verify byte-identically. `_cek` is intentionally **not** bound (a tampered wrapped-CEK self-detects, and `rotateRecordCek` rewrites it with no ledger entry).
+- **Boundary.** A backup captured *before* `forget()` that retained both `_sealed` and `_cek` remains recoverable by a collection-DEK holder — the same caveat `_data` carries.
+
+### Feature: money-field typing across all aggregate builders ([#306](https://github.com/vLannaAi/noy-db/issues/306))
+
+- `scan().aggregate(b => …)` and `query().groupBy(...).aggregate(b => …)` now auto-type `b.sum`/`min`/`max` over a declared `moneyFields` member as **`MoneyString`**, matching `Query.aggregate` — completing the opt-in money-field (`M`) type matrix across `Query`, `ScanBuilder`, and `GroupedQuery`/`GroupedQueryN`. Type-only (phantom generic defaulting to `never`), so collections that don't opt in stay `number`.
+
 ## 0.2.0-pre.31
 
 ### Patch Changes

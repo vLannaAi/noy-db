@@ -1,6 +1,6 @@
 # #306 — Record-scoped sealing (design + spec)
 
-> Status: **design/spec for review** (2026-06-29). Slice A (a data-loss bug fix) is safe to land now; Slice B (the core feature) is a runtime-crypto change spec'd here for a supervised go-ahead; Slice C is a deferred ledger-format epic. Derived from a verified code investigation — every `file:line` below was confirmed against the tree.
+> Status: **SHIPPED** (2026-06-30) — all three slices merged to `main`. Slice A `f97c64b4` (rotateRecordCek `_sealed` data-loss fix); Slice B `03929256` (CEK-derived sealing + dual-read so `forget()` crypto-shreds sealed fields); Slice C `56d747ce` (ledger `payloadHash` binds `_sealed` — back-compat, `_cek` excluded). Each was TDD'd and adversarially reviewed; the dual-read legacy-record data-loss guard is pinned by `__tests__/sealed-fields-cek-derived.test.ts`. Release note: `.changeset/record-scoped-sealing.md`. The text below is the original design (2026-06-29), kept for the rationale; one in-flight decision changed during implementation — Slice C covers `_data + _sealed` only, NOT `_cek` (a tampered `_cek` self-detects, and `rotateRecordCek` rewrites it with no ledger entry).
 
 ## Problem
 
