@@ -3613,9 +3613,9 @@ export class Collection<T, S extends keyof T = never> {
    * const drafts = invoices.query(i => i.status === 'draft');
    * ```
    */
-  query(): Query<T>
+  query(): Query<T, S>
   query(predicate: (record: T) => boolean): T[]
-  query(predicate?: (record: T) => boolean): Query<T> | T[] {
+  query(predicate?: (record: T) => boolean): Query<T, S> | T[] {
     if (this.lazy) {
       throw new Error(
         `Collection "${this.name}": query() is not available in lazy mode (prefetch: false). ` +
@@ -3667,7 +3667,7 @@ export class Collection<T, S extends keyof T = never> {
             : {}),
         }
       : undefined
-    return new Query<T>(source, undefined, joinContext, this.aggregateStrategy)
+    return new Query<T, S>(source, undefined, joinContext, this.aggregateStrategy)
   }
 
   /**

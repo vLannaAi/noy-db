@@ -5,6 +5,7 @@
  * mutated. This makes plans safe to share, cache, and serialize.
  */
 
+import type { QueryField } from '../types.js'
 import type { Clause, CrossJoinClause, FieldClause, FilterClause, GroupClause, Operator, WherePredicateClause } from './predicate.js'
 import { evaluateClause, hasFnClause } from './predicate.js'
 import type { CollectionIndexes } from '../indexing/eager-indexes.js'
@@ -135,7 +136,7 @@ export interface DeclaredPredicate {
   fn: (record: unknown, ctx?: unknown) => boolean
 }
 
-export class Query<T> {
+export class Query<T, S extends keyof T = never> {
   private readonly source: InternalSource
   private readonly plan: QueryPlan
   private readonly joinContext: JoinContext | undefined
@@ -180,8 +181,8 @@ export class Query<T> {
    * `.wherePredicate(name, ctx?)` for the MV's query callback.
    * Consumers don't call this directly.
    */
-  _withPredicates(predicates: ReadonlyMap<string, DeclaredPredicate>): Query<T> {
-    return new Query<T>(
+  _withPredicates(predicates: ReadonlyMap<string, DeclaredPredicate>): Query<T, S> {
+    return new Query<T, S>(
       this.source as QuerySource<T>,
       this.plan,
       this.joinContext,
@@ -235,7 +236,7 @@ export class Query<T> {
    * canonical-JSON hash of `ctx` fold into the MV's `queryHash`, so
    * either changing forces refresh on next visit.
    */
-  wherePredicate(name: string, ctx?: unknown): Query<T> {
+  wherePredicate(name: string, ctx?: unknown): Query<T, S> {
     if (!this.predicates) {
       throw new Error(
         `.wherePredicate("${name}"): no predicates registered on this Query. ` +
@@ -259,7 +260,7 @@ export class Query<T> {
       ctxHash: canonicalCtxHash(ctx),
       fn: decl.fn,
     }
-    return new Query<T>(
+    return new Query<T, S>(
       this.source as QuerySource<T>,
       { ...this.plan, clauses: [...this.plan.clauses, clause] },
       this.joinContext,
@@ -277,12 +278,12 @@ export class Query<T> {
    * BigInt-exact per record. A malformed operand or a string operator
    * (`contains`/`startsWith`) throws here, at the call site.
    */
-  where(field: string, op: Operator, value: unknown): Query<T> {
+  where(field: QueryField<T, S>, op: Operator, value: unknown): Query<T, S> {
     const desc = this.source.moneyFields?.[field]
     const clause: FieldClause = desc
       ? moneyFieldClause(field, op, value, desc)
       : { type: 'field', field, op, value }
-    return new Query<T>(
+    return new Query<T, S>(
       this.source as QuerySource<T>,
       { ...this.plan, clauses: [...this.plan.clauses, clause] },
       this.joinContext,
@@ -296,16 +297,16 @@ export class Query<T> {
    * Each clause inside the callback is OR-combined; the group itself
    * joins the parent plan with AND.
    */
-  or(builder: (q: Query<T>) => Query<T>): Query<T> {
+  or(builder: (q: Query<T, S>) => Query<T, S>): Query<T, S> {
     const sub = builder(
-      new Query<T>(this.source as QuerySource<T>, EMPTY_PLAN, this.joinContext, this.aggregateStrategy, this.predicates),
+      new Query<T, S>(this.source as QuerySource<T>, EMPTY_PLAN, this.joinContext, this.aggregateStrategy, this.predicates),
     )
     const group: GroupClause = {
       type: 'group',
       op: 'or',
       clauses: sub.plan.clauses,
     }
-    return new Query<T>(
+    return new Query<T, S>(
       this.source as QuerySource<T>,
       { ...this.plan, clauses: [...this.plan.clauses, group] },
       this.joinContext,
@@ -318,16 +319,16 @@ export class Query<T> {
    * Logical AND group. Same shape as `or()` but every clause inside the group
    * must match. Useful for explicit grouping inside a larger OR.
    */
-  and(builder: (q: Query<T>) => Query<T>): Query<T> {
+  and(builder: (q: Query<T, S>) => Query<T, S>): Query<T, S> {
     const sub = builder(
-      new Query<T>(this.source as QuerySource<T>, EMPTY_PLAN, this.joinContext, this.aggregateStrategy, this.predicates),
+      new Query<T, S>(this.source as QuerySource<T>, EMPTY_PLAN, this.joinContext, this.aggregateStrategy, this.predicates),
     )
     const group: GroupClause = {
       type: 'group',
       op: 'and',
       clauses: sub.plan.clauses,
     }
-    return new Query<T>(
+    return new Query<T, S>(
       this.source as QuerySource<T>,
       { ...this.plan, clauses: [...this.plan.clauses, group] },
       this.joinContext,
@@ -337,12 +338,12 @@ export class Query<T> {
   }
 
   /** Escape hatch: add an arbitrary predicate function. Not serializable. */
-  filter(fn: (record: T) => boolean): Query<T> {
+  filter(fn: (record: T) => boolean): Query<T, S> {
     const clause: FilterClause = {
       type: 'filter',
       fn: fn as (record: unknown) => boolean,
     }
-    return new Query<T>(
+    return new Query<T, S>(
       this.source as QuerySource<T>,
       { ...this.plan, clauses: [...this.plan.clauses, clause] },
       this.joinContext,
@@ -356,9 +357,9 @@ export class Query<T> {
    * `{ by: 'label' }` to sort a `dictKey`/`staticDict` field by its resolved
    * label at the query locale instead of the stored code (#285).
    */
-  orderBy(field: string, direction: 'asc' | 'desc' = 'asc', opts?: { by?: 'value' | 'label' }): Query<T> {
+  orderBy(field: QueryField<T, S>, direction: 'asc' | 'desc' = 'asc', opts?: { by?: 'value' | 'label' }): Query<T, S> {
     const entry: OrderBy = opts?.by === 'label' ? { field, direction, by: 'label' } : { field, direction }
-    return new Query<T>(
+    return new Query<T, S>(
       this.source as QuerySource<T>,
       { ...this.plan, orderBy: [...this.plan.orderBy, entry] },
       this.joinContext,
@@ -368,8 +369,8 @@ export class Query<T> {
   }
 
   /** Cap the result size. */
-  limit(n: number): Query<T> {
-    return new Query<T>(
+  limit(n: number): Query<T, S> {
+    return new Query<T, S>(
       this.source as QuerySource<T>,
       { ...this.plan, limit: n },
       this.joinContext,
@@ -379,8 +380,8 @@ export class Query<T> {
   }
 
   /** Skip the first N matching records (after ordering). */
-  offset(n: number): Query<T> {
-    return new Query<T>(
+  offset(n: number): Query<T, S> {
+    return new Query<T, S>(
       this.source as QuerySource<T>,
       { ...this.plan, offset: n },
       this.joinContext,
@@ -448,9 +449,9 @@ export class Query<T> {
    * `.join()`.
    */
   join<As extends string, R = unknown>(
-    field: string,
+    field: QueryField<T, S>,
     opts: { as: As; strategy?: JoinStrategy; maxRows?: number },
-  ): Query<T & Record<As, R | null>> {
+  ): Query<T & Record<As, R | null>, S> {
     if (!this.joinContext) {
       throw new Error(
         `Query.join() requires a join context. Use collection.query() ` +
@@ -492,7 +493,7 @@ export class Query<T> {
           partitionScope: 'all',
           isDictJoin: true,
         }
-    return new Query<T & Record<As, R | null>>(
+    return new Query<T & Record<As, R | null>, S>(
       this.source as unknown as QuerySource<T & Record<As, R | null>>,
       { ...this.plan, joins: [...this.plan.joins, leg] },
       this.joinContext,
@@ -531,7 +532,7 @@ export class Query<T> {
         | { readonly predicate: string }
       maxRows?: number
     },
-  ): Query<T & { [K in As]: TTarget }> {
+  ): Query<T & { [K in As]: TTarget }, S> {
     if (!this.joinContext) {
       throw new Error(
         `Query.crossJoin("${target}"): requires a join context. ` +
@@ -588,7 +589,7 @@ export class Query<T> {
       ...(opts.maxRows !== undefined && { maxRows: opts.maxRows }),
     }
 
-    return new Query<T & { [K in As]: TTarget }>(
+    return new Query<T & { [K in As]: TTarget }, S>(
       this.source as unknown as QuerySource<T & { [K in As]: TTarget }>,
       { ...this.plan, clauses: [...this.plan.clauses, clause] },
       this.joinContext,
