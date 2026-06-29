@@ -238,6 +238,36 @@ export type SealedView<T, S extends keyof T> = [S] extends [never]
     }
 
 /**
+ * The type of a field-name argument to the query/scan DSL (`where`, `orderBy`,
+ * …) for a collection whose sealed (`sensitive`) fields are `S`.
+ *
+ * Guarded so the common case is unchanged: with **no** sensitive fields
+ * (`S = never`) it is exactly `string` — collections that don't opt into
+ * `sensitive` keep today's permissive DSL, zero churn. Once a field is
+ * declared `sensitive`, the DSL narrows to the non-sensitive field names, so
+ * `where('ssn', …)` becomes a compile error. TypeScript cannot subtract a
+ * literal from `string`, so refusing a sensitive name necessarily means
+ * narrowing to the known field-name union — this is intentional and only
+ * affects collections that opted in.
+ */
+export type QueryField<T, S extends keyof T = never> = [S] extends [never]
+  ? string
+  : Exclude<keyof T & string, S>
+
+/**
+ * The type of a field-name reference in a collection's index-declaration
+ * options (`indexes`, `deterministicFields`, `textIndexes`). Same guarded
+ * narrowing as {@link QueryField}: permissive `string` until a field is
+ * declared `sensitive`, then the sensitive names are refused (a plaintext
+ * secondary index over a sealed field defeats non-residency — previously only
+ * a runtime `console.warn`). Kept distinct from `QueryField` so the two DSL
+ * surfaces can diverge later without coupling.
+ */
+export type IndexFieldName<T, S extends keyof T = never> = [S] extends [never]
+  ? string
+  : Exclude<keyof T & string, S>
+
+/**
  * Concrete {@link Sealed} handle. Holds the reveal closure (which captures the
  * field's ciphertext blob and the unseal routine) in a private field, so it is
  * invisible to `JSON.stringify`, `util.inspect`, and `Object.keys`. `toJSON`
