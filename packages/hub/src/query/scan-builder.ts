@@ -58,6 +58,9 @@
  *   - `scan().join(...)` — tracked under  (streaming join)
  */
 
+import type { QueryField } from '../types.js'
+import type { ReducerBuilder } from '../aggregate/reducers.js'
+import { reducerBuilder } from '../aggregate/reducers.js'
 import type { Clause, FieldClause, Operator } from './predicate.js'
 import { evaluateClause, hasFnClause, readPath } from './predicate.js'
 import type {
@@ -96,7 +99,7 @@ const DEFAULT_SCAN_PAGE_SIZE = 100
  * page size. The original builder is never mutated, so it's safe
  * to reuse across multiple parallel consumers.
  */
-export class ScanBuilder<T> implements AsyncIterable<T> {
+export class ScanBuilder<T, S extends keyof T = never> implements AsyncIterable<T> {
   private readonly pageProvider: ScanPageProvider<T>
   private readonly pageSize: number
   private readonly clauses: readonly Clause[]
@@ -167,14 +170,14 @@ export class ScanBuilder<T> implements AsyncIterable<T> {
    * are a future optimization — the current implementation
    * evaluates clauses per record in O(1) per clause.
    */
-  where(field: string, op: Operator, value: unknown): ScanBuilder<T> {
+  where(field: QueryField<T, S>, op: Operator, value: unknown): ScanBuilder<T, S> {
     // Money fields compare in major units, BigInt-exact in scaled space —
     // same build-time operand rewrite as Query.where() (#336).
-    const desc = this.moneyFields?.[field]
+    const desc = this.moneyFields?.[field as string]
     const clause: FieldClause = desc
-      ? moneyFieldClause(field, op, value, desc)
-      : { type: 'field', field, op, value }
-    return new ScanBuilder<T>(
+      ? moneyFieldClause(field as string, op, value, desc)
+      : { type: 'field', field: field as string, op, value }
+    return new ScanBuilder<T, S>(
       this.pageProvider,
       this.pageSize,
       [...this.clauses, clause],
@@ -190,12 +193,12 @@ export class ScanBuilder<T> implements AsyncIterable<T> {
    * don't round-trip through `toPlan()`. Prefer `.where()` when
    * possible.
    */
-  filter(fn: (record: T) => boolean): ScanBuilder<T> {
+  filter(fn: (record: T) => boolean): ScanBuilder<T, S> {
     const clause: Clause = {
       type: 'filter',
       fn: fn as (record: unknown) => boolean,
     }
-    return new ScanBuilder<T>(
+    return new ScanBuilder<T, S>(
       this.pageProvider,
       this.pageSize,
       [...this.clauses, clause],
@@ -284,9 +287,9 @@ export class ScanBuilder<T> implements AsyncIterable<T> {
    * eager join.
    */
   join<As extends string, R = unknown>(
-    field: string,
+    field: QueryField<T, S>,
     opts: { as: As },
-  ): ScanBuilder<T & Record<As, R | null>> {
+  ): ScanBuilder<T & Record<As, R | null>, S> {
     if (!this.joinContext) {
       throw new Error(
         `ScanBuilder.join() requires a join context. Use ` +
@@ -318,7 +321,7 @@ export class ScanBuilder<T> implements AsyncIterable<T> {
       // changing the planner shape.
       partitionScope: 'all',
     }
-    return new ScanBuilder<T & Record<As, R | null>>(
+    return new ScanBuilder<T & Record<As, R | null>, S>(
       this.pageProvider as unknown as ScanPageProvider<T & Record<As, R | null>>,
       this.pageSize,
       this.clauses,
@@ -578,9 +581,17 @@ export class ScanBuilder<T> implements AsyncIterable<T> {
    * narrow with `.where()` enough to fit in the 50k `query()`
    * limit and use `query().aggregate().live()` instead.
    */
+  async aggregate<Spec extends AggregateSpec>(spec: Spec): Promise<AggregateResult<Spec>>
+  async aggregate<Spec extends AggregateSpec>(build: (b: ReducerBuilder<T, S>) => Spec): Promise<AggregateResult<Spec>>
   async aggregate<Spec extends AggregateSpec>(
-    spec: Spec,
+    specOrBuild: Spec | ((b: ReducerBuilder<T, S>) => Spec),
   ): Promise<AggregateResult<Spec>> {
+    // Opt-in builder form `aggregate(b => spec)`: `b`'s field args are
+    // `QueryField<T, S>`, refusing sensitive fields (the standalone-spec form
+    // stays unrefused for back-compat). Mirrors `Query.aggregate`.
+    const spec: Spec = typeof specOrBuild === 'function'
+      ? (specOrBuild as (b: ReducerBuilder<T, S>) => Spec)(reducerBuilder as unknown as ReducerBuilder<T, S>)
+      : specOrBuild
     const keys = Object.keys(spec)
     // Per-reducer state. Exactly |keys| entries, never grows with
     // the record count — that's the O(reducers) memory guarantee.

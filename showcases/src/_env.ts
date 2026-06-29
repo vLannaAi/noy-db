@@ -1,14 +1,6 @@
 /**
  * Shared environment-gate helper for storage showcases.
  *
- * **Relationship to `_aws.ts`.** `_aws.ts` is the older AWS-specific
- * skip helper (single env var: `NOYDB_SHOWCASE_AWS_PROFILE`, used by
- * showcases 04 / 04b / 57). It still works and stays as-is — no point
- * thrashing existing callers. `_env.ts` is the generalised pattern for
- * every non-AWS credentialed store (postgres, mysql, supabase, R2, …):
- * pass a `vars[]` list, get a typed gate object back. Both produce the
- * same "Skipping — set $VAR in showcases/.env" hint shape.
- *
  * Cloud / network storage showcases need credentials that we never check
  * into the repo. The convention:
  *
@@ -20,10 +12,8 @@
  *   4. When unset, `logSkipHint()` prints exactly which `.env` keys to fill in
  *      so the developer doesn't have to guess.
  *
- * The pattern intentionally mirrors `_aws.ts` (which predates this file and
- * stays as-is for the AWS-profile case) but is dependency-free and works for
- * any store that takes a connection string, an HTTP endpoint + token pair,
- * or any other arbitrary credential shape.
+ * Dependency-free and works for any store that takes a connection string,
+ * an HTTP endpoint + token pair, or any other arbitrary credential shape.
  */
 
 export interface EnvGateOptions {

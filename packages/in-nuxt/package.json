@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/in-nuxt",
-  "version": "0.2.0-pre.25",
+  "version": "0.2.0-pre.31",
   "description": "Nuxt 4 module for noy-db — auto-imports, SSR-safe runtime plugin, and the @noy-db/in-pinia bridge",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
@@ -30,7 +30,7 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.0.0"
   },
   "scripts": {
     "build": "tsup",

@@ -8,7 +8,7 @@ function memory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
-    capabilities: { casAtomic: true, auth: { kind: 'none' } },
+    capabilities: { casAtomic: true, auth: { kind: 'none', required: false, flow: 'static' } },
     async get(v, c, i) { return data.get(k(v, c, i)) ?? null },
     async put(v, c, i, env) { data.set(k(v, c, i), env) },
     async delete(v, c, i) { data.delete(k(v, c, i)) },
@@ -21,16 +21,16 @@ function memory(): NoydbStore {
       for (const [key, env] of data) {
         const [vname, cname, id] = key.split('/')
         if (vname === v) {
-          out[cname] = out[cname] ?? {}
-          out[cname][id] = env
+          out[cname!] = out[cname!] ?? {}
+          out[cname!]![id!] = env
         }
       }
       return out
     },
     async saveAll(v, payload) {
       for (const c of Object.keys(payload)) {
-        for (const i of Object.keys(payload[c])) {
-          data.set(k(v, c, i), payload[c][i])
+        for (const i of Object.keys(payload[c]!)) {
+          data.set(k(v, c, i), payload[c]![i]!)
         }
       }
     },
@@ -59,9 +59,8 @@ describe('withDerivation — optional outputs (#144)', () => {
       derive: (alloc) => ({
         receipt: alloc.servicesNetPortion > 0
           ? { id: alloc.id, paymentId: alloc.paymentId, appliedAmount: alloc.appliedAmount }
-          : null,
-        // Type assertion: TS sees the union via the runtime branch above.
-      }) as { receipt: Receipt | null },
+          : null!,
+      }),
       lifecycle: 'eager',
     })
 
@@ -96,8 +95,8 @@ describe('withDerivation — optional outputs (#144)', () => {
       derive: (alloc) => ({
         receipt: alloc.servicesNetPortion > 0
           ? { id: alloc.id, paymentId: alloc.paymentId, appliedAmount: alloc.appliedAmount }
-          : null,
-      }) as { receipt: Receipt | null },
+          : null!,
+      }),
       lifecycle: 'eager',
     })
 
@@ -162,8 +161,8 @@ describe('withDerivation — optional outputs (#144)', () => {
       derive: (alloc) => ({
         receipt: alloc.servicesNetPortion > 0
           ? { id: alloc.id, paymentId: alloc.paymentId, appliedAmount: alloc.appliedAmount }
-          : null,
-      }) as { receipt: Receipt | null },
+          : null!,
+      }),
       lifecycle: 'eager',
     })
     const receiptGuard = withGuard<Receipt>({
@@ -218,8 +217,8 @@ describe('withDerivation — optional outputs (#144)', () => {
       derive: (alloc) => ({
         receipt: alloc.servicesNetPortion > 0
           ? { id: alloc.id, paymentId: alloc.paymentId, appliedAmount: alloc.appliedAmount }
-          : null,
-      }) as { receipt: Receipt | null },
+          : null!,
+      }),
       lifecycle: 'lazy',
     })
     const receiptGuard = withGuard<Receipt>({
@@ -277,8 +276,8 @@ describe('withDerivation — optional outputs (#144)', () => {
       derive: (alloc) => ({
         receipt: alloc.servicesNetPortion > 0
           ? { id: alloc.id, paymentId: alloc.paymentId, appliedAmount: alloc.appliedAmount }
-          : null,
-      }) as { receipt: Receipt | null },
+          : null!,
+      }),
       lifecycle: 'lazy',
     })
     const db = await createNoydb({
@@ -324,8 +323,8 @@ describe('withDerivation — optional outputs (#144)', () => {
       derive: (alloc) => ({
         receipt: alloc.servicesNetPortion > 0
           ? { id: alloc.id, paymentId: alloc.paymentId, appliedAmount: alloc.appliedAmount }
-          : null,
-      }) as { receipt: Receipt | null },
+          : null!,
+      }),
       lifecycle: 'eager',
     })
     const db = await createNoydb({
@@ -370,8 +369,8 @@ describe('withDerivation — optional outputs (#144)', () => {
       derive: (alloc) => ({
         receipt: alloc.servicesNetPortion > 0
           ? { id: alloc.id, paymentId: alloc.paymentId, appliedAmount: alloc.appliedAmount }
-          : null,
-      }) as { receipt: Receipt | null },
+          : null!,
+      }),
       lifecycle: 'eager',
     })
     const receiptGuard = withGuard<Receipt>({
@@ -398,7 +397,6 @@ describe('withDerivation — optional outputs (#144)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      role: 'owner',
       secret: 'derivation-tombstone-in-amendment-passphrase-2026',
       derivationStrategies: [allocationDerivation],
       guardStrategies: [receiptGuard],
@@ -417,7 +415,7 @@ describe('withDerivation — optional outputs (#144)', () => {
     // see the {before, after: null} change and reject.
     await expect(
       db.transaction(
-        { vault: 'demo', amendment: true, reason: 'zero out services portion' },
+        { amendment: true, reason: 'zero out services portion' },
         async (tx) => {
           await tx.vault('demo').collection('allocations').put('a1', {
             id: 'a1', paymentId: 'p1', appliedAmount: 500, servicesNetPortion: 0,
@@ -439,8 +437,8 @@ describe('withDerivation — optional outputs (#144)', () => {
       derive: (alloc) => ({
         receipt: alloc.servicesNetPortion > 0
           ? { id: alloc.id, paymentId: alloc.paymentId, appliedAmount: alloc.appliedAmount }
-          : null,
-      }) as { receipt: Receipt | null },
+          : null!,
+      }),
       lifecycle: 'lazy',
     })
 

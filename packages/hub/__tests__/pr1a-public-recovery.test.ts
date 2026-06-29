@@ -123,7 +123,7 @@ describe('PR1a public surface', () => {
       // Use one code to recover under a new phrase.
       await db.recoverPassphrase('acme', {
         newPassphrase: STRONG_NEW,
-        recoveryProof: { profile: 'paper', payload: { code: codes[0] } },
+        recoveryProof: { profile: 'paper', payload: { code: codes[0]! } },
       })
 
       // After recovery, a fresh client with the new phrase can open the vault.

@@ -58,6 +58,7 @@ import {
 import { resolveManagedSecret, saveSealedPassphrase } from './team/managed-passphrase.js'
 import type { ShamirRecoveryProvider } from './team/shamir-recovery-provider.js'
 import { generateULID } from './bundle/ulid.js'
+import { StoreCoordinationProvider, type CoordinationProvider } from './coordination/index.js'
 import { RecoveryNotEnrolledError, RecoveryProfileNotImplementedError, ManagedRecoveryNotEnrolledError, PolicyDeniedError } from './policy/errors.js'
 import {
   describeAuthConfig as fnDescribeAuthConfig,
@@ -76,6 +77,7 @@ import {
   type ResolvedPublicEnvelopeSchema,
 } from './meta/public-envelope/index.js'
 import { Vault } from './vault.js'
+import type { VaultMeta } from './introspection/meta.js'
 import { NoydbEventEmitter } from './events.js'
 import { WriteQueueTracker, type WriteQueue } from './write-queue.js'
 import { WriteHookRegistry, type WriteHook, type Unsubscribe } from './write-hooks.js'
@@ -116,6 +118,7 @@ import { NO_TX, type TxStrategy } from './tx/strategy.js'
 import { NO_FORGET, type ForgetStrategy } from './forget/strategy.js'
 import { readDottedPath, coerceSubjectId } from './forget/subject-index.js'
 import { INDEXED_STORE_POLICY } from './store/sync-policy.js'
+import { memoryStore } from './store/memory-store.js'
 import type { PolicyEnforcer } from './session/session-policy.js'
 import { NO_SESSION, type SessionStrategy } from './session/strategy.js'
 import {
@@ -167,14 +170,21 @@ function createPlaintextKeyring(userId: string, debugPlaintext = false): Unlocke
   }
 }
 
+/** NoydbOptions with the store resolved to a non-optional value (internal use only). */
+type ResolvedNoydbOptions = NoydbOptions & { readonly store: NoydbStore }
+
 /** The top-level NOYDB instance. */
 export class Noydb {
-  private readonly options: NoydbOptions
+  private readonly options: ResolvedNoydbOptions
   private readonly emitter = new NoydbEventEmitter()
   private readonly writeQueueTracker = new WriteQueueTracker()
   private readonly writeHooks = new WriteHookRegistry()
   private readonly subsystemBus = new SubsystemBus()
   private readonly clientId = generateULID()
+  /** Session that owns this instance's writers (one user's writers across vaults). */
+  private readonly sessionId: string
+  /** Drain-barrier coordination transport for the schema fence (#469). */
+  private readonly coordinationProvider: CoordinationProvider
   private readonly vaultCache = new Map<string, Vault>()
   private readonly keyringCache = new Map<string, UnlockedKeyring>()
   private readonly syncEngines = new Map<string, SyncEngine>()
@@ -241,7 +251,7 @@ export class Noydb {
   /** Audit log for all translator invocations in this session. Cleared on `close()`. */
   private readonly _translatorAuditLog: TranslatorAuditEntry[] = []
 
-  constructor(options: NoydbOptions) {
+  constructor(options: ResolvedNoydbOptions) {
     this.options = options
     // Debug-plaintext is an unencrypted-only inspection mode; combining it with
     // encryption is meaningless and unsafe, so reject the coupling loudly.
@@ -254,6 +264,11 @@ export class Noydb {
           'out for native store inspection. NEVER use this for production or client data.',
       )
     }
+    this.sessionId = options.sessionId ?? generateULID()
+    // Default coordination = store-backed provider over the SAME primary store,
+    // so the fence subsystem reproduces today's store-polling behavior exactly.
+    // `by-*` / klum inject a real-time transport via `coordinationStrategy`.
+    this.coordinationProvider = options.coordinationStrategy ?? new StoreCoordinationProvider(options.store)
     this.txStrategy = options.txStrategy ?? NO_TX
     this.forgetStrategy = options.forgetStrategy ?? NO_FORGET
     this.sessionStrategy = options.sessionStrategy ?? NO_SESSION
@@ -487,10 +502,11 @@ export class Noydb {
    * @param opts.locale  Default locale for i18n/dictKey field resolution
    *. Set here to avoid passing `{ locale }`
    *                     on every individual `get()`/`list()` call.
+   * @param opts.meta    Vault descriptive metadata (label, description, etc.). First-wins: applied on first open, ignored on subsequent opens.
    */
   async openVault(
     name: string,
-    opts?: { locale?: string; create?: boolean },
+    opts?: { locale?: string; create?: boolean; meta?: VaultMeta },
   ): Promise<Vault> {
     if (this.closed) throw new ValidationError('Instance is closed')
     this.touchPolicy(name)
@@ -594,6 +610,7 @@ export class Noydb {
       ...(this.options.numbering !== undefined ? { numberingConfigs: this.options.numbering } : {}),
       forgetStrategy: this.forgetStrategy,
       locale: opts?.locale,
+      ...(opts?.meta !== undefined ? { meta: opts.meta } : {}),
       // Thread the translator hook so Collection.put() can invoke it
       plaintextTranslator: this.options.plaintextTranslator
         ? (text, from, to, field, collection) =>
@@ -1551,6 +1568,20 @@ export class Noydb {
     return this.clientId
   }
 
+  /** @internal Session that owns this instance's writers (#469). */
+  get _sessionId(): string {
+    return this.sessionId
+  }
+
+  /**
+   * @internal Drain-barrier coordination transport for the schema fence (#469).
+   * The default store-backed provider reproduces today's fence behavior; a
+   * `by-*` real-time transport is injected via `coordinationStrategy`.
+   */
+  get coordination(): CoordinationProvider {
+    return this.coordinationProvider
+  }
+
   /**
    * Soft-lock a single vault: clear its in-memory keyring, DEKs, vault
    * instance, sync engine, policy enforcer, and active-tier entry —
@@ -1608,6 +1639,7 @@ export class Noydb {
     }
     this.syncEngines.clear()
     for (const v of this.vaultCache.values()) v._stopFenceCoordination() // stop heartbeat/watcher timers
+    for (const v of this.vaultCache.values()) void v._flushSearchIndexes() // #308 L1.5 best-effort flush
     this.disableTabCoordination() // stop tab lock/heartbeat timers
     this.keyringCache.clear()
     this.vaultCache.clear()
@@ -3018,6 +3050,7 @@ export class Noydb {
 
 /** Create a new NOYDB instance. */
 export async function createNoydb(options: NoydbOptions): Promise<Noydb> {
+  if (!options.store) options = { ...options, store: memoryStore() }
   const encrypted = options.encrypt !== false
   const managed = options.passphraseMode === 'managed'
 
@@ -3054,7 +3087,7 @@ export async function createNoydb(options: NoydbOptions): Promise<Noydb> {
     throw new ValidationError('A secret (passphrase) or getKeyring callback is required when encryption is enabled')
   }
 
-  return new Noydb(options)
+  return new Noydb(options as ResolvedNoydbOptions)
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────

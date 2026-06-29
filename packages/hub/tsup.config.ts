@@ -14,13 +14,9 @@ import { defineConfig } from 'tsup'
  *
  * `splitting: true` for ESM extracts shared modules into separate
  * chunk files (e.g. `dist/chunk-ABC123.js`) that every entry imports.
- * One class definition; `instanceof` works again across subpaths.
- *
- * CJS doesn't support code splitting natively. We keep CJS as the
- * single-bundle "self-contained per entry" mode. Modern consumers
- * almost universally use ESM, where instanceof works correctly.
- * CJS consumers who mix subpaths can use string-discriminator checks
- * (`err.code === '...'`) — documented in `docs/reference/api-stability.md`.
+ * One class definition; `instanceof` works again across subpaths. The
+ * package is ESM-only, so this single build is the whole story — there
+ * is no CJS single-bundle mode to reconcile against.
  */
 const ENTRIES = {
   index: 'src/index.ts',
@@ -50,31 +46,17 @@ const ENTRIES = {
   'util/index': 'src/util/index.ts',
   'attestation/index': 'src/attestation/index.ts',
   'kernel/index': 'src/kernel/index.ts',
+  'adapter/index': 'src/adapter/index.ts',
 }
 
-export default defineConfig([
-  // ESM build with code splitting — shared chunks deduplicated so
-  // class identity holds across subpath boundaries.
-  {
-    entry: ENTRIES,
-    format: ['esm'],
-    dts: true,
-    clean: true,
-    splitting: true,
-    sourcemap: true,
-    target: 'es2022',
-  },
-  // CJS build without splitting — preserves the v0.24 single-bundle
-  // shape for legacy consumers. `clean: false` so it doesn't wipe the
-  // ESM artefacts emitted by the first config. dts emits `.d.cts` for
-  // CJS consumers under `moduleResolution: node16/nodenext`.
-  {
-    entry: ENTRIES,
-    format: ['cjs'],
-    dts: true,
-    clean: false,
-    splitting: false,
-    sourcemap: true,
-    target: 'es2022',
-  },
-])
+// ESM build with code splitting — shared chunks deduplicated so
+// class identity holds across subpath boundaries.
+export default defineConfig({
+  entry: ENTRIES,
+  format: ['esm'],
+  dts: true,
+  clean: true,
+  splitting: true,
+  sourcemap: true,
+  target: 'es2022',
+})

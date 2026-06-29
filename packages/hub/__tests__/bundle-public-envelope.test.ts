@@ -44,7 +44,7 @@ function inlineMemory(): NoydbStore {
       }
       return out
     },
-    async saveAll(c, data) {
+    async saveAll(c, data: Record<string, Record<string, EncryptedEnvelope>>) {
       const comp = new Map<string, Map<string, EncryptedEnvelope>>()
       for (const [col, recs] of Object.entries(data)) {
         comp.set(col, new Map(Object.entries(recs)))

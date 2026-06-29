@@ -62,7 +62,7 @@ describe('enforceScript — filter / warn', () => {
       languages: ['en'], required: 'any', script: 'auto', onScriptViolation: 'filter',
     })
     const { value, warnings } = enforceScript({ en: 'John สมชาย' }, 'name', desc)
-    expect(value.en.trim()).toBe('John')
+    expect((value.en as string).trim()).toBe('John')
     expect(warnings).toHaveLength(1)
   })
   it("warn keeps the value and records a warning", () => {
@@ -72,5 +72,17 @@ describe('enforceScript — filter / warn', () => {
     const { value, warnings } = enforceScript({ en: 'John สมชาย' }, 'name', desc)
     expect(value.en).toBe('John สมชาย')
     expect(warnings[0]?.locale).toBe('en')
+  })
+})
+
+describe('enforceScript exempt set (#435)', () => {
+  const d = i18nText({ languages: ['th', 'en'], required: 'any', script: 'auto' })
+
+  it('throws on Thai in the en slot without exempt', () => {
+    expect(() => enforceScript({ th: 'สมชาย', en: 'สมชาย' }, 'name', d)).toThrow()
+  })
+
+  it('skips an exempt locale (a known fill)', () => {
+    expect(() => enforceScript({ th: 'สมชาย', en: 'สมชาย' }, 'name', d, new Set(['en']))).not.toThrow()
   })
 })

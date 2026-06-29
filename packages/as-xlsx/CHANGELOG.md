@@ -1,5 +1,13 @@
 # @noy-db/as-xlsx
 
+## 0.2.0-pre.31
+
+### Patch Changes
+
+- Updated dependencies
+  - @noy-db/hub@0.2.0-pre.31
+  - @noy-db/as-zip@0.2.0-pre.31
+
 ## 0.2.0-pre.5
 
 Version-only lockstep bump; no source changes since pre.4.
@@ -44,6 +52,7 @@ Version-only lockstep bump; no source changes since pre.2.
 
 - Updated dependencies
   - @noy-db/hub@0.1.0-pre.15
+
 ## 0.1.0-pre.14
 
 ### Patch Changes
@@ -58,7 +67,6 @@ Version-only lockstep bump; no source changes since pre.2.
 - Updated dependencies
   - @noy-db/hub@0.1.0-pre.12
 
-
 ## 0.1.0-pre.11
 
 ### Patch Changes
@@ -66,13 +74,11 @@ Version-only lockstep bump; no source changes since pre.2.
 - Updated dependencies
   - @noy-db/hub@0.1.0-pre.11
 
-
 ## 0.1.0-pre.9
 
 ### Patch Changes
 
 - Updated dependencies — @noy-db/hub@0.1.0-pre.9
-
 
 ## 0.1.0-pre.8
 

@@ -1,7 +1,0 @@
-__tests__/
-*.test.ts
-*.spec.ts
-vitest.config.ts
-tsup.config.ts
-tsconfig.json
-src/

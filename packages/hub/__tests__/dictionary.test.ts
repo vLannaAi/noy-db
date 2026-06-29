@@ -16,7 +16,6 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
 import { withI18n } from '../src/i18n/index.js'
 import type { Noydb } from '../src/noydb.js'
-import { withI18n } from '../src/i18n/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError } from '../src/errors.js'
 import {
@@ -599,5 +598,25 @@ describe('staticDict — code-provided dictionary (#291)', () => {
     const byCode = Object.fromEntries(rows.map((r) => [r.civilStatus, r.n]))
     expect(byCode['adultMale']).toBe(2)
     expect(byCode['adultFemale']).toBe(1)
+  })
+})
+
+// ─── dictKey inline labels (#485) ────────────────────────────────────────────
+
+describe('dictKey inline labels (#485)', () => {
+  it('map form: keys inferred, labels captured', () => {
+    const d = dictKey('saleStatus', { draft: 'Draft', to_verify: 'To Verify' })
+    expect(d.keys).toEqual(['draft', 'to_verify'])
+    expect(d.labels).toEqual({ draft: 'Draft', to_verify: 'To Verify' })
+  })
+  it('array + opts.labels', () => {
+    const d = dictKey('saleStatus', ['draft', 'to_verify'] as const, { labels: { to_verify: 'To Verify' } })
+    expect(d.keys).toEqual(['draft', 'to_verify'])
+    expect(d.labels).toEqual({ to_verify: 'To Verify' })
+  })
+  it('bare array unchanged (no labels)', () => {
+    const d = dictKey('saleStatus', ['draft', 'paid'] as const)
+    expect(d.keys).toEqual(['draft', 'paid'])
+    expect(d.labels).toBeUndefined()
   })
 })

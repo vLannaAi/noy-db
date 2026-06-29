@@ -1,17 +1,17 @@
-import type { InspectorWriteEvent, InspectorWriteConflict, PendingWrites, InspectorNoydb } from './types.js'
+import type { InspectorWriteEvent, InspectorWriteConflict, PendingWrites, InspectableContainer } from './types.js'
 
 export function subscribe(
-  noydb: InspectorNoydb,
+  noydb: InspectableContainer,
   handler: (event: InspectorWriteEvent) => void,
 ): () => void {
   return noydb.onAfterWrite(handler)
 }
 
-export function pendingWrites(noydb: InspectorNoydb): PendingWrites {
+export function pendingWrites(noydb: InspectableContainer): PendingWrites {
   const q = noydb.writeQueue
   return { pending: q.pending, depth: q.depth }
 }
 
-export function subscribeConflicts(noydb: InspectorNoydb, handler: (c: InspectorWriteConflict) => void): () => void {
+export function subscribeConflicts(noydb: InspectableContainer, handler: (c: InspectorWriteConflict) => void): () => void {
   return noydb.onWriteConflict(handler)
 }

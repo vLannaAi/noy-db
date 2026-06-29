@@ -1,11 +1,17 @@
 import type {
-  Noydb,
   Vault,
   WriteEvent,
   WriteConflict,
+  WriteHook,
+  Unsubscribe,
+  WriteQueue,
   AccessibleVault,
   CollectionDescriptor,
   CollectionStats,
+  CollectionMeta,
+  VaultMeta,
+  CollectionConfig,
+  DescribedField,
 } from '@noy-db/hub'
 import type { MeterSnapshot } from '@noy-db/to-meter'
 
@@ -28,12 +34,20 @@ export interface InspectorCollection {
   readonly indexes: CollectionDescriptor['indexes']
   readonly refs: CollectionDescriptor['refs']
   readonly stats?: CollectionStats
+  /** Collection-level descriptive metadata (label/description/icon). */
+  readonly meta?: CollectionMeta
+  /** Per-field rich descriptors from collection.describe() (label/widget/money/dict/…). */
+  readonly described?: readonly DescribedField[]
+  /** Collection-level configuration (textIndexes/embeddings/crdt/provenance/…). */
+  readonly config?: CollectionConfig
 }
 
 /** Structure + stats for one open vault. */
 export interface InspectorSnapshot {
   readonly vault: string
   readonly collections: ReadonlyArray<InspectorCollection>
+  /** Vault-level descriptive metadata (label/description/icon). */
+  readonly meta?: VaultMeta
 }
 
 /** A page of decrypted records from one collection. */
@@ -68,5 +82,15 @@ export interface Inspector {
   meterSnapshot(): MeterSnapshot | null
 }
 
-/** @internal — the hub handle the inspector reads from. */
-export type InspectorNoydb = Noydb
+/**
+ * The container of vaults the inspector reads from. A `Noydb` satisfies this
+ * verbatim; a klum `VaultGroup` adapter conforms structurally — so the inspector
+ * works on a single instance OR a federation without importing either.
+ */
+export interface InspectableContainer {
+  listAccessibleVaults(): Promise<readonly AccessibleVault[]>
+  openVault(name: string): Promise<Vault>
+  onAfterWrite(handler: WriteHook): Unsubscribe
+  onWriteConflict(handler: (c: WriteConflict) => void): Unsubscribe
+  readonly writeQueue: WriteQueue
+}

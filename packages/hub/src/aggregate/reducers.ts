@@ -25,6 +25,8 @@
  */
 
 import { readPath } from '../query/predicate.js'
+import type { MoneyString } from '../money/branded.js'
+import type { QueryField } from '../types.js'
 
 /**
  * A single reducer: factory-produced, ready to plug into an
@@ -146,6 +148,14 @@ export function count(opts?: ReducerOptions<number>): Reducer<number> {
  * at the field path are coerced to 0 — consumers who want a different
  * behavior (throw, skip, treat as NaN) should filter upstream via
  * `.where()` or write a custom reducer.
+ *
+ * KNOWN LIMITATION (type imprecision): the declared result type is `number`,
+ * but when `field` is a **money** field the runtime returns a decimal *string*
+ * (e.g. `'0.30'`, or `{ EUR: '0.30' }` in multi-currency mode) — money sums are
+ * BigInt-exact in scaled space and never collapse to a float. The `number` type
+ * is therefore a lie for money fields; narrow the result yourself at the call
+ * site. A precise fix requires threading money-field declarations into the type
+ * system (tracked separately).
  */
 export function sum(
   field: string,
@@ -297,6 +307,104 @@ export function max(
     },
     merge: (a, b) => ({ values: [...a.values, ...b.values] }),
   }
+}
+
+// ---------------------------------------------------------------------------
+// Money-typed reducer constructors
+// ---------------------------------------------------------------------------
+
+/**
+ * `sum()` for a **declared money field**, typed to match the runtime.
+ *
+ * `sum()` returns `Reducer<number>`, but `wrapMoneyReducers` (applied at
+ * `query.aggregate()` time, once `moneyFields` is known) rewrites any
+ * `sum`/`min`/`max` over a money field to a money reducer that finalizes to a
+ * `MoneyString` decimal — so the `number` type is a lie for money fields and
+ * consumers need a cast at every read site. `moneySum` is the same reducer with
+ * the correct `Reducer<MoneyString>` return type, so no read-site cast is
+ * needed. It is the caller's assertion that `field` is a money field; use plain
+ * `sum()` for non-money fields. (For a multi-currency money field WITHOUT
+ * `convertTo`, the runtime returns a per-currency `Record<string, MoneyString>`
+ * rather than a single `MoneyString` — pass `convertTo` to collapse to one
+ * currency, or read the map at the boundary.)
+ */
+export function moneySum(field: string, opts?: ReducerOptions<number>): Reducer<MoneyString> {
+  // The constructed reducer is the plain numeric `sum`; `wrapMoneyReducers`
+  // swaps in the MoneyString-producing money reducer at aggregate() time.
+  return sum(field, opts) as unknown as Reducer<MoneyString>
+}
+
+/**
+ * `min()` for a declared money field, typed `Reducer<MoneyString | null>`
+ * (null on an empty result set in fixed-currency mode, mirroring `min()`). See
+ * {@link moneySum} for the late-binding rewrite. Note: `convertTo`/`fx` on
+ * `opts` have no effect on min/max (cross-currency min/max is unsupported — use
+ * {@link moneySum} for currency conversion). In multi-currency mode the runtime
+ * returns a per-currency map and an empty result is `{}` rather than `null`.
+ */
+export function moneyMin(field: string, opts?: ReducerOptions<number>): Reducer<MoneyString | null> {
+  return min(field, opts) as unknown as Reducer<MoneyString | null>
+}
+
+/**
+ * `max()` for a declared money field, typed `Reducer<MoneyString | null>`
+ * (null on an empty result set in fixed-currency mode, mirroring `max()`). See
+ * {@link moneyMin} for the `convertTo`/`fx` and multi-currency caveats.
+ */
+export function moneyMax(field: string, opts?: ReducerOptions<number>): Reducer<MoneyString | null> {
+  return max(field, opts) as unknown as Reducer<MoneyString | null>
+}
+
+// ---------------------------------------------------------------------------
+// Builder (typed spec-builder for aggregate())
+// ---------------------------------------------------------------------------
+
+/**
+ * Typed builder passed to the `aggregate(b => spec)` overload.
+ *
+ * Each field-taking method narrows `field` to `QueryField<T, S>`, which
+ * excludes any field listed in the collection's `sensitive` option at
+ * compile time. `count()` carries no field argument and is always allowed.
+ *
+ * The type parameters match the `Query<T, S>` they come from:
+ *   - `T` — the record type of the collection
+ *   - `S` — the union of sensitive field keys (defaults to `never`)
+ *
+ * ONE shared runtime instance (`reducerBuilder`) serves all `T`/`S`
+ * combinations — the field narrowing is type-only; the methods delegate
+ * directly to the standalone factories.
+ */
+export interface ReducerBuilder<T, S extends keyof T = never, M extends keyof T & string = never> {
+  count(opts?: ReducerOptions<number>): Reducer<number>
+  sum<F extends QueryField<T, S>>(field: F, opts?: ReducerOptions<number>): [F] extends [M] ? Reducer<MoneyString> : Reducer<number>
+  avg(field: QueryField<T, S>, opts?: ReducerOptions<{ sum: number; count: number }>): ReturnType<typeof avg>
+  min<F extends QueryField<T, S>>(field: F, opts?: ReducerOptions<number>): [F] extends [M] ? Reducer<MoneyString | null> : ReturnType<typeof min>
+  max<F extends QueryField<T, S>>(field: F, opts?: ReducerOptions<number>): [F] extends [M] ? Reducer<MoneyString | null> : ReturnType<typeof max>
+  moneySum(field: QueryField<T, S>, opts?: ReducerOptions<number>): Reducer<MoneyString>
+  moneyMin(field: QueryField<T, S>, opts?: ReducerOptions<number>): Reducer<MoneyString | null>
+  moneyMax(field: QueryField<T, S>, opts?: ReducerOptions<number>): Reducer<MoneyString | null>
+}
+
+/**
+ * Shared runtime instance for the `aggregate(b => spec)` builder form.
+ *
+ * The field-narrowing to `QueryField<T, S>` is type-only — each method
+ * delegates directly to its standalone factory. A `(field: string) => R`
+ * factory is assignable to a `(field: QueryField<T,S>) => R` method by
+ * parameter-contravariance, so this single instance works for all `T`/`S`.
+ */
+export const reducerBuilder: ReducerBuilder<Record<string, unknown>> = {
+  count,
+  // The generic F parameter on sum/min/max in the interface is type-only; the
+  // standalone factories are plain `(field: string)` functions. With M=never the
+  // conditional return collapses to the numeric branch, matching the factories'
+  // return type, but TypeScript cannot verify that collapse for a generic method
+  // signature — so each factory is cast directly to the method's type.
+  sum: sum as ReducerBuilder<Record<string, unknown>>['sum'],
+  avg,
+  min: min as ReducerBuilder<Record<string, unknown>>['min'],
+  max: max as ReducerBuilder<Record<string, unknown>>['max'],
+  moneySum, moneyMin, moneyMax,
 }
 
 // ---------------------------------------------------------------------------

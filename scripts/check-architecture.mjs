@@ -363,6 +363,11 @@ function checkStrategyOptIns() {
 }
 
 function scanFileForStrategyOptIn(file, content) {
+  // Type-only tests (`*.test-d.ts`) are consumed by tsc and NEVER executed, so
+  // the runtime "gated API throws without its strategy" hazard this check guards
+  // against cannot occur in them. Skip the whole class (covers any current/future
+  // type-test that references a gated API like `.lazyQuery()` for type assertions).
+  if (file.endsWith('.test-d.ts')) return
   if (STRATEGY_OPT_IN_EXEMPT.has(relative(ROOT, file))) return
   // Use the stronger strip — error-message strings legitimately mention
   // method names like ".dictionary()" inside hint text, which the
@@ -484,7 +489,32 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 4810→4830 (2026-06-17, FR-8 Task 1): public validateInput() wrapper —
   // thin 14-line method + JSDoc delegating to validateSchemaInput without writing;
   // used by migrateThenMerge staging safety pre-check.
-  'packages/hub/src/collection.ts': 4830,
+  // Bumped 4830→4911 (2026-06-20, #435 Task 7): densifyOnWrite wiring — i18nDensifyFields
+  // field + constructor subset, prior-read + computeExemptFills before enforceScript,
+  // densify() call after the put-validator, plus resolveDensifyPrior + i18nProvenance
+  // accessor. Densify logic lives in src/i18n/densify.ts; only thin call-sites are here.
+  // Bumped 4911→4922 (2026-06-20, #435 review): stripI18nFilled at the three
+  // locale-less read returns (get/list early-return, search, static-display final).
+  // Bumped 4922→5100 (#308 L1): retrieve()/warmIndex call-sites + dict/blob label resolvers (engine in src/search/)
+  // Bumped 5100→5168 (#308 L1.5): persisted-index call-sites + forget/close wiring
+  // Bumped 5168→5255 (#308 L2): embeddings derive/retrieve/forget call-sites (engine in src/embeddings/)
+  // Bumped 5255→5278 (#308 L3): retrieveLexical/retrieveHybrid private methods + thin retrieve() dispatcher
+  // Bumped 5278→5285 (#308 L3 Task 4): applyWithin() private method + within dispatch in retrieve()
+  // Bumped 5285→5293 (#483 Task 1): fieldMeta private field + getFieldMeta() getter + FieldMeta type import
+  // Bumped 5293→5332 (#483 Task 3): describe() sync method + _refs private field + buildDescription import + declaredRefs opt
+  // Bumped 5332→5374 (#483 Task 4): describeAsync() private method (derive zodFields + resolveDictLabels + delegate to buildDescription)
+  // Bumped 5374→5379 (#483 fix-wave): _applyFieldMeta() — first-wins reconciler mirroring _applyMoneyFields, needed for MV-pre-created collection re-declaration path
+  // Bumped 5379→5399 (#483 Task 1): CollectionMeta import + private meta field + getMeta() getter + _applyMeta() reconciler + meta threading into both describe() calls
+  // Bumped 5399→5401 (#483 Task 3): i18nFields passed into both buildDescription call-sites
+  // Bumped 5401→5457 (#483 Task 4): CollectionConfig import + getConfig() aggregator (reads existing private fields, no new state)
+  // Bumped 5457→5473 (#483 review follow-up): historyConfigExplicit private field + opts flag for presence-semantic history in getConfig()
+  // Bumped 5473→5486 (#484 Task 2): toJSONSchema() thin delegator + buildJsonSchema/derivePersistedSchema imports (logic lives in json-schema.ts)
+  // Bumped 5486→5496 (storage-arch P2 foundation): ramCiphertext opt-in flag — field + opts + doc-comment + test getter. The documented hook for the future ciphertext-resident-working-set phase (default false, no behavior change). P2-T3 (StoreEdgeCodec extraction) moves crypto logic OUT of this file.
+  // Bumped 5496→5566 (#503 structural group-encryption): sensitive-field sealing is genuine crypto core — the write path peels declared `sensitive` fields out of `_data` and seals each into `_sealed[field]` under a per-field key, the read path re-merges them, plus the `sensitiveFields` set + `sensitive` opt + doc-comments. The per-field key derivation lives in crypto.ts (`deriveSealedFieldKey`); only the per-record encrypt/decrypt orchestration is here, beside the existing `_det`/`_cek` seams it mirrors.
+  // Bumped 5566→5593 (P3 safety fixes): three constructor guards — forget-cascade/perRecordCek incompatibility warn, debug-plaintext no-op warn, doc-comment note on #306. All are defensive one-time console.warn calls; no behavior change to default-off paths.
+  // Bumped 5593→5680 (P3 Sealed<V> access gate): the sealed-field handle layer is genuine crypto/cache core. Adds `unsealField` (shared by inline-decrypt + handle reveal()), `makeSealedHandle`/`toCacheRecord` (build non-leaking handles for the working-set cache so sealed plaintext is never resident), `resolvePriorValues` (eager write/delete paths re-decrypt real values rather than re-encrypt cache handles), and `sealedAsHandles` routing through decryptRecord + the cache/public read paths. Sits directly on the existing `_sealed` seam; the per-field key derivation still lives in crypto.ts.
+  // Bumped 5680→5721 (P3 lazy-mode Sealed-field corruption/leak fix): mirrors the eager `resolvePriorValues` for the lazy `_getStoredRecord` patch base — on a sealed collection it re-decrypts the stored envelope to REAL values (never re-encrypting a cache handle into the marker `'[sealed]'`) and populates the LRU in handle form via `toCacheRecord` (never sealed plaintext). Plus a one-time constructor `console.warn` when a `sensitive` field also appears in `indexes` (plaintext index defeats non-residency). Both are core crypto/cache correctness on the existing `_sealed`/LRU seams.
+  'packages/hub/src/collection.ts': 5721,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
@@ -550,7 +580,20 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 4520→4545 (2026-06-17, FR-6 Task 6): custody surface field + wiring
   // (`public readonly custody: CustodyApi` + the three-closure injection
   // mirroring the UserApi pattern; logic lives in custody/index.ts + liberate.ts).
-  'packages/hub/src/vault.ts': 4545,
+  // Bumped 4545→4546 (2026-06-20, #469): coordination-port wiring threads the
+  // injected `CoordinationProvider` into SchemaFenceController + FenceWatcher
+  // (the barrier/transport logic itself lives in coordination/ + schema-update/).
+  // Bumped 4546→4571 (#308 L1): getDictionary label-resolver injection + warmIndexOnOpen wiring (engine in src/search/)
+  // Bumped 4571→4597 (#308 L1.5): persisted-index call-sites + forget/close wiring
+  // Bumped 4597→4610 (#308 L2): embeddings derive/retrieve/forget call-sites (engine in src/embeddings/)
+  // Bumped 4610→4617 (#483 Task 1): fieldMeta option in CollectionOptions + FieldMeta import + validation call-site
+  // Bumped 4617→4621 (#483 Task 3): declaredRefs wiring (snapshot of outbound refs for describe())
+  // Bumped 4621→4633 (#483 Task 1): meta option in CollectionOptions + _applyMeta reconcile in cached-collection branch + meta threading into new Collection() opts
+  // Bumped 4633→4650 (#483 Task 2): vaultMeta field + getMeta() getter + constructor opts + _introspectState() wiring
+  // Bumped 4650→4659 (#483 review follow-up): historyConfigExplicit threading + archive/schemaUpdate accessors in _introspectState()
+  // Bumped 4659→4665 (storage-arch P2 foundation): plumb ramCiphertext through vault.collection() to collOpts (TS declaration + pass-through) so the opt-in flag is reachable/testable. Minimal necessary plumbing.
+  // Bumped 4665→4674 (#503 structural group-encryption): plumb the `sensitive` collection option through vault.collection() to collOpts (TS declaration + doc-comment + pass-through), mirroring deterministicFields. Minimal necessary plumbing; the sealing crypto lives in collection.ts/crypto.ts.
+  'packages/hub/src/vault.ts': 4674,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),

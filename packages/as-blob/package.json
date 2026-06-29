@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/as-blob",
-  "version": "0.2.0-pre.25",
+  "version": "0.2.0-pre.31",
   "description": "Single-attachment plaintext export for noy-db — extracts one blob from BlobSet as native MIME bytes. Gated by the RFC #249 `canExportPlaintext` capability bit; writes an audit-ledger entry on every call. Part of the @noy-db/as-* portable-artefact family (plaintext tier, document sub-family).",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
@@ -17,17 +17,10 @@
   "sideEffects": false,
   "exports": {
     ".": {
-      "import": {
-        "types": "./dist/index.d.ts",
-        "default": "./dist/index.js"
-      },
-      "require": {
-        "types": "./dist/index.d.cts",
-        "default": "./dist/index.cjs"
-      }
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     }
   },
-  "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
@@ -36,7 +29,7 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   },
   "scripts": {
     "build": "tsup",

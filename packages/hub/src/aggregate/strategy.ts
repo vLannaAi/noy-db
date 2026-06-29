@@ -42,10 +42,10 @@ export interface AggregateStrategy {
   ): Aggregation<AggregateResult<Spec>>
 
   /**
-   * Build a `GroupedQuery<T, F>` for `Query.groupBy(field)`. Same
+   * Build a `GroupedQuery<T, F, S>` for `Query.groupBy(field)`. Same
    * closure / upstream inputs as `aggregate` plus the group key field.
    */
-  groupBy<T, F extends string>(
+  groupBy<T, F extends string, S extends keyof T = never>(
     executeRecords: () => readonly unknown[],
     field: F,
     upstreams: readonly AggregationUpstream[],
@@ -55,20 +55,20 @@ export interface AggregateStrategy {
       fallback?: string | readonly string[],
     ) => Promise<string | undefined>,
     moneyFields?: Record<string, MoneyDescriptor>,
-  ): GroupedQuery<T, F>
+  ): GroupedQuery<T, F, S>
 
   /**
-   * Variadic-keyed sibling — builds a `GroupedQueryN<T, F>` for
+   * Variadic-keyed sibling — builds a `GroupedQueryN<T, F, S>` for
    * `Query.groupBy(...fields)`. No dictLabelResolver — `<field>Label`
    * projection only applies to single-field groupings, which dispatch
    * through `groupBy` above.
    */
-  groupByN<T, F extends readonly string[]>(
+  groupByN<T, F extends readonly string[], S extends keyof T = never>(
     executeRecords: () => readonly unknown[],
     fields: F,
     upstreams: readonly AggregationUpstream[],
     moneyFields?: Record<string, MoneyDescriptor>,
-  ): GroupedQueryN<T, F>
+  ): GroupedQueryN<T, F, S>
 
   /**
    * Terminal streaming aggregator for `ScanBuilder.aggregate(spec)`.

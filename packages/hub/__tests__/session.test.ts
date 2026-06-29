@@ -43,8 +43,9 @@ async function makeKeyring(overrides?: Partial<UnlockedKeyring>): Promise<Unlock
     deks: new Map([['invoices', dek], ['clients', dek2]]),
     kek: null, // KEK is not needed by session layer
     salt: new Uint8Array(32).fill(1),
+    authenticators: [],
     ...overrides,
-  }
+  } as UnlockedKeyring
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────

@@ -162,6 +162,14 @@ export interface I18nTextOptions {
    * allowed script set. Default `'reject'`.
    */
   readonly onScriptViolation?: 'reject' | 'filter' | 'warn'
+  /**
+   * #435 v1.x — eager-fill empty locale slots from the substitute chain at
+   * write time, recording provenance in the internal `_i18nFilled` marker.
+   * Mutually exclusive with an EXPLICIT `'throw'` onMissing policy (densify
+   * fills every hole, so a throw would be unreachable). Without an explicit
+   * `substitute`, fills from `'any'` (first non-empty). Default absent.
+   */
+  readonly densifyOnWrite?: boolean
 }
 
 /**
@@ -193,7 +201,21 @@ export interface I18nTextDescriptor {
  * ```
  */
 export function i18nText(options: I18nTextOptions): I18nTextDescriptor {
+  if (options.densifyOnWrite === true && hasThrowPolicy(options.onMissing)) {
+    throw new Error(
+      `i18nText: densifyOnWrite cannot be combined with an explicit onMissing 'throw' ` +
+        `policy — densify fills every empty slot, so a 'throw' would be unreachable. ` +
+        `Remove the 'throw' policy or disable densifyOnWrite.`,
+    )
+  }
   return { _noydbI18nText: true, options }
+}
+
+/** True when `onMissing` declares `'throw'` for any layer (scalar or per-layer). */
+function hasThrowPolicy(onMissing: OnMissingPolicy | undefined): boolean {
+  if (onMissing === undefined) return false
+  if (typeof onMissing === 'string') return onMissing === 'throw'
+  return Object.values(onMissing).includes('throw')
 }
 
 /** Runtime predicate for detecting an `I18nTextDescriptor`. */
@@ -566,5 +588,25 @@ export function applyI18nLocale(
     result = applyAtPath(result, field, locale, fallback, opts)
   }
 
+  // #435 — the internal densify provenance marker never leaves the store.
+  result = stripI18nFilled(result)
+
   return result
+}
+
+/**
+ * Remove the internal densify provenance marker (`_i18nFilled`) from a
+ * read-facing record (#435). NON-mutating: returns the same object when the
+ * marker is absent, otherwise a shallow copy without the marker.
+ *
+ * MUST be applied on every user-facing read return — even locale-less ones,
+ * which bypass {@link applyI18nLocale}. MUST NOT be applied on the internal
+ * prior-read path (decryptRecord / resolveDensifyPrior), where densify needs
+ * the marker.
+ */
+export function stripI18nFilled<T extends Record<string, unknown>>(record: T): T {
+  if (!Object.prototype.hasOwnProperty.call(record, '_i18nFilled')) return record
+  const rest: T = { ...record }
+  delete (rest as Record<string, unknown>)._i18nFilled
+  return rest
 }

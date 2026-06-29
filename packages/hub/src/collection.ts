@@ -1,10 +1,13 @@
-import type { NoydbStore, EncryptedEnvelope, ChangeEvent, HistoryConfig, HistoryOptions, HistoryEntry, PruneOptions, ListPageResult, LocaleReadOptions, ConflictPolicy, CollectionConflictResolver, PutManyItemOptions, PutManyOptions, PutManyResult, DeleteManyResult } from './types.js'
+import type { NoydbStore, EncryptedEnvelope, ChangeEvent, HistoryConfig, HistoryOptions, HistoryEntry, PruneOptions, ListPageResult, LocaleReadOptions, ConflictPolicy, CollectionConflictResolver, PutManyItemOptions, PutManyOptions, PutManyResult, DeleteManyResult, SealedView } from './types.js'
+import { SealedHandle } from './types.js'
+import type { FieldMeta } from './introspection/field-meta.js'
+import type { CollectionMeta } from './introspection/meta.js'
 import { NOYDB_FORMAT_VERSION } from './types.js'
 import type { CrdtMode, CrdtState, LwwMapState, RgaState } from './crdt/crdt.js'
 import { NO_CRDT, type CrdtStrategy } from './crdt/strategy.js'
 import type { I18nTextDescriptor } from './i18n/core.js'
-import { getAtPath, setAtPathInPlace } from './i18n/core.js'
-import type { DictKeyDescriptor, StaticDictDescriptor } from './i18n/dictionary.js'
+import { getAtPath, setAtPathInPlace, stripI18nFilled } from './i18n/core.js'
+import type { DictKeyDescriptor, StaticDictDescriptor, DictionaryHandle } from './i18n/dictionary.js'
 import { isStaticDictDescriptor } from './i18n/dictionary.js'
 import type { MoneyDescriptor } from './money/descriptor.js'
 import { quantizeMoneyFields, decodeMoneyFields, canonicalizeStoredMoney, canonicalizeIncomingMoney } from './money/normalize.js'
@@ -13,7 +16,7 @@ import type { ComputedFields } from './computed/index.js'
 import { evalComputedFields } from './computed/index.js'
 import { NO_I18N, type I18nStrategy } from './i18n/strategy.js'
 import { resolvePolicy } from './i18n/policy.js'
-import { encrypt, decrypt, encryptDeterministic } from './crypto.js'
+import { encrypt, decrypt, encryptDeterministic, deriveSealedFieldKey } from './crypto.js'
 import {
   wrapCek,
   unwrapCek,
@@ -35,6 +38,7 @@ import type { SchemaUpdateGate } from './schema-update/gate.js'
 import type { SchemaFenceController } from './schema-update/fence-controller.js'
 import type { StandardSchemaV1 } from './schema.js'
 import { validateSchemaInput, validateSchemaOutput } from './schema.js'
+import { derivePersistedSchema } from './persisted-schemas/derive.js'
 import type { LedgerStore } from './history/ledger/index.js'
 import type { DiffEntry } from './history/diff.js'
 import { NO_HISTORY, type HistoryStrategy } from './history/strategy.js'
@@ -46,10 +50,20 @@ import type { PersistedCollectionIndex, PersistedIndexDef } from './indexing/per
 import { LazyQuery } from './indexing/lazy-builder.js'
 import type { LazyQuerySource } from './indexing/lazy-builder.js'
 import { NO_INDEXING, type IndexStrategy, type IndexState } from './indexing/strategy.js'
-import { searchScan, type SearchOptions, type SearchResult } from './search/index.js'
-import { IndexWriteFailureError, DerivationCapExceededError, DebugReservedFieldError } from './errors.js'
+import { searchScan, fuseRetrieval, type SearchOptions, type SearchResult } from './search/index.js'
+import { MemoryIndexStore, type IndexStore } from './search/index-store.js'
+import { PersistedIndexStore, type PersistedIndexCallbacks } from './search/persisted-index-store.js'
+import { extractSnippet } from './search/snippet.js'
+import { buildStringFieldEntries, buildI18nFieldEntries, buildDictKeyFieldEntries, buildBlobFieldEntries } from './search/build-docs.js'
+import type { IndexDoc, IndexHit } from './search/inverted-index.js'
+import type { RetrieveOptions, RetrieveHit } from './search/retrieve-types.js'
+import { IndexWriteFailureError, DerivationCapExceededError, DebugReservedFieldError, EmbeddingDimMismatchError } from './errors.js'
+import { embeddingSourceText, VectorSet, type EmbeddingDescriptor, type StoredVector } from './embeddings/index.js'
 import { buildUniqueConstraintSet, type UniqueConstraintSet } from './indexing/unique-constraints.js'
 import type { RefDescriptor } from './refs.js'
+import { buildDescription, deriveZodFields, type CollectionDescription, type DescribeOptions } from './introspection/describe.js'
+import { buildJsonSchema } from './introspection/json-schema.js'
+import type { CollectionConfig } from './introspection/types.js'
 import { Lru, parseBytes, estimateRecordBytes, type LruStats } from './cache/index.js'
 import { generateULID } from './bundle/ulid.js'
 import type { PresenceHandle, PresenceHandleOpts } from './team/presence.js'
@@ -156,12 +170,13 @@ function warnOnceFallback(adapterName: string): void {
 }
 
 /** A typed collection of records within a vault. */
-export class Collection<T> {
+export class Collection<T, S extends keyof T = never, Q extends keyof T & string = never, M extends keyof T & string = never> {
   private readonly adapter: NoydbStore
   private readonly vault: string
   private readonly name: string
   private readonly keyring: UnlockedKeyring
-  private readonly encrypted: boolean
+  private readonly storeCiphertext: boolean
+  private readonly ramCiphertext: boolean
   private readonly emitter: NoydbEventEmitter
   private readonly writeQueue: WriteQueueTracker | undefined
   private readonly schemaUpdateGate: SchemaUpdateGate | undefined
@@ -172,6 +187,8 @@ export class Collection<T> {
   private readonly getDEK: (collectionName: string) => Promise<CryptoKey>
   private readonly onDirty: OnDirtyCallback | undefined
   private readonly historyConfig: HistoryConfig
+  /** True when the caller explicitly provided a `historyConfig` option (vs. inheriting the vault default). */
+  private readonly historyConfigExplicit: boolean
 
   /**
    * tree-shake seam — the strategy that backs `collection.blob(id)`.
@@ -314,11 +331,61 @@ export class Collection<T> {
   private readonly i18nFields: Record<string, I18nTextDescriptor> | undefined
 
   /**
+   * #308 L1 — the configured string fields exposed to `retrieve()`. `undefined`
+   * for ordinary collections, so the search path costs nothing when unused.
+   */
+  private readonly textIndexes: readonly string[] | undefined
+
+  /**
+   * #308 L1 — the session-scoped lexical index store. `undefined` (so the dirty
+   * poke + retrieve are zero-cost) unless `textIndexes` is non-empty.
+   */
+  private readonly searchIndexStore: IndexStore | undefined
+
+  /**
+   * #435 — the densify-enabled subset of {@link i18nFields} (fields whose
+   * descriptor opts in via `densifyOnWrite: true`). `undefined` when none opt
+   * in, so the write path skips all densify work for ordinary collections.
+   */
+  private readonly i18nDensifyFields: Record<string, I18nTextDescriptor> | undefined
+
+  /**
+   * #308 L2 — embedding config for write-time vector derivation. `undefined`
+   * for ordinary collections (zero cost). When set, `put()` encodes the
+   * source field(s) and stores an encrypted `_vec` sidecar.
+   */
+  private readonly embeddings: EmbeddingDescriptor | undefined
+
+  /**
+   * #308 L2 — in-memory vector set, populated lazily from `_vec` sidecars.
+   * `undefined` when no embedding config is declared.
+   */
+  private vectorSet: VectorSet | undefined
+
+  /**
    * Map of field name → `DictKeyDescriptor` for fields declared with
    * `dictKey()`. Used by `get()`/`list()` to add `<field>Label` virtual
    * fields when a locale is requested.
    */
   private readonly dictKeyFields: Record<string, DictKeyDescriptor | StaticDictDescriptor> | undefined
+
+  /**
+   * Consumer-neutral per-field descriptors declared via the `fieldMeta`
+   * collection option. Read by `getFieldMeta()`; merged by `collection.describe()`.
+   */
+  private fieldMeta: Record<string, FieldMeta> | undefined
+
+  /**
+   * Collection-level descriptive metadata declared via the `meta` collection
+   * option. Read by `getMeta()`; surfaced in `collection.describe()`.
+   */
+  private meta: CollectionMeta | undefined
+
+  /**
+   * Outbound ref declarations for this collection (snapshot from vault
+   * refRegistry at construction time). Used by `describe()` (sync, config-only).
+   */
+  private readonly _refs: Record<string, RefDescriptor>
 
   /**
    * Money field descriptors keyed by field path. Declared via the
@@ -351,6 +418,13 @@ export class Collection<T> {
     | undefined
 
   /**
+   * #308 L1 — async callback provided by the Vault to open a dynamic
+   * dictionary handle (for label-map pre-computation in the search index).
+   * Only used in `resolveDictLabelMaps()`; static dicts bypass this entirely.
+   */
+  private readonly getDictionary: ((name: string) => Promise<DictionaryHandle>) | undefined
+
+  /**
    * Synchronous callback provided by the Vault that validates
    * i18nText fields on `put()`. Throws `MissingTranslationError` when
    * a required translation is absent. Called after schema validation,
@@ -363,6 +437,14 @@ export class Collection<T> {
    * is inactive for this collection; a frozen `Set` otherwise.
    */
   private readonly deterministicFields: ReadonlySet<string> | null
+
+  /**
+   * Declared structural-group-encryption fields (`sensitive`). Each is
+   * sealed into its own `_sealed[field]` slot under a per-field key and kept
+   * out of the open `_data` blob. Empty set ⇒ feature off (byte-identical
+   * output). See {@link encryptRecord} / {@link decryptRecord}. (#503)
+   */
+  private readonly sensitiveFields: ReadonlySet<string>
 
   /**
    * Per-record CEK opt-in (`perRecordKeys: true`). When set, writes mint /
@@ -545,6 +627,11 @@ export class Collection<T> {
     name: string
     keyring: UnlockedKeyring
     encrypted: boolean
+    /**
+     * Opt-in: keep the working set encrypted in RAM, decrypting on read (future phase).
+     * Default false — the working set is plaintext.
+     */
+    ramCiphertext?: boolean
     emitter: NoydbEventEmitter
     /**
      * Vault-level in-flight write tracker. When present,
@@ -565,6 +652,12 @@ export class Collection<T> {
     activeTxId?: (() => string | null) | undefined
     getDEK: (collectionName: string) => Promise<CryptoKey>
     historyConfig?: HistoryConfig | undefined
+    /**
+     * When `true`, the caller explicitly provided `historyConfig` rather than
+     * inheriting the vault-wide default. Used by `getConfig()` to decide
+     * whether to surface `history: true` in the schema dump.
+     */
+    historyConfigExplicit?: boolean | undefined
     onDirty?: OnDirtyCallback | undefined
     /**
      * tree-shake seam. When omitted, `collection.blob(id)` throws
@@ -672,9 +765,23 @@ export class Collection<T> {
       | undefined
     /** — i18nText field descriptors for locale-aware reads. */
     i18nFields?: Record<string, I18nTextDescriptor> | undefined
+    /** — #308 L2: embedding config for write-time vector derivation + semantic retrieval. */
+    embeddings?: EmbeddingDescriptor | undefined
+    /** — #308 L1: string fields exposed to client-side `retrieve()`. */
+    textIndexes?: readonly string[] | undefined
+    /** — #308 L1: pre-build the lexical index on open (eager-only). */
+    warmIndexOnOpen?: boolean | undefined
+    /** — #308 L1.5: persist the lexical index as an opaque encrypted blob at `_ftindex/<name>`. */
+    textIndexPersist?: boolean | undefined
     /** — dictKey field descriptors for label resolution on reads. */
     dictKeyFields?: Record<string, DictKeyDescriptor | StaticDictDescriptor> | undefined
+    /** — consumer-neutral per-field descriptors. Read via getFieldMeta(). */
+    fieldMeta?: Record<string, FieldMeta> | undefined
+    /** — collection-level descriptive metadata. Read via getMeta(). */
+    meta?: CollectionMeta | undefined
     moneyFields?: Record<string, MoneyDescriptor> | undefined
+    /** — outbound ref declarations (snapshot from vault refRegistry). Used by describe(). */
+    declaredRefs?: Record<string, RefDescriptor> | undefined
     computed?: ComputedFields | undefined
     /**
      * async callback that resolves a dict key to its label
@@ -688,6 +795,12 @@ export class Collection<T> {
           fallback?: string | readonly string[],
         ) => Promise<string | undefined>)
       | undefined
+    /**
+     * #308 L1 — async callback to open a dynamic dictionary handle.
+     * Provided by the Vault for dynamic-dict label-map resolution in
+     * the search index. Static dicts bypass this.
+     */
+    getDictionary?: ((name: string) => Promise<DictionaryHandle>) | undefined
     /**
      * synchronous callback that validates i18nText fields
      * on put. Provided by the Vault. Throws MissingTranslationError.
@@ -765,6 +878,20 @@ export class Collection<T> {
      * any deterministic field is declared. Any other value throws.
      */
     acknowledgeDeterministicRisk?: boolean | undefined
+    /**
+     * Structural group-encryption (#503). Fields listed here are
+     * encrypted into their own `_sealed[field]` envelope slot — each under
+     * an HKDF-derived per-field key — instead of sitting inside the open
+     * `_data` blob. Default-off: with no `sensitive` fields the envelope is
+     * byte-identical to today. Read merges them back inline (the
+     * `Sealed<V>`/`reveal()` access restriction is a separate follow-up).
+     *
+     * **Incompatible with `perRecordKeys`/forget-cascade (#304):** sealed
+     * field keys derive off the *collection* DEK, not the per-record CEK, so
+     * crypto-shredding a record does not erase its sealed fields. Full
+     * per-record sealing is tracked in #306.
+     */
+    sensitive?: readonly string[] | undefined
     /**
      * Per-record content-encryption keys. When `true`, every record body
      * (and every history version of it) is encrypted under a fresh
@@ -854,7 +981,8 @@ export class Collection<T> {
     this.vault = opts.vault
     this.name = opts.name
     this.keyring = opts.keyring
-    this.encrypted = opts.encrypted
+    this.storeCiphertext = opts.encrypted
+    this.ramCiphertext = opts.ramCiphertext ?? false
     this.emitter = opts.emitter
     this.writeQueue = opts.writeQueue
     this.schemaUpdateGate = opts.schemaUpdateGate
@@ -874,16 +1002,49 @@ export class Collection<T> {
     this.getDEK = opts.getDEK
     this.onDirty = opts.onDirty
     this.historyConfig = opts.historyConfig ?? { enabled: true }
+    this.historyConfigExplicit = opts.historyConfigExplicit ?? false
     this.schema = opts.schema
     this.ledger = opts.ledger
     this.refEnforcer = opts.refEnforcer
     this.joinResolver = opts.joinResolver
     this.i18nFields = opts.i18nFields
+    // #308 L1 — only spin up an index store when text fields are declared, so
+    // ordinary collections pay nothing (the dirty poke + retrieve see undefined).
+    this.textIndexes = opts.textIndexes
+    this.searchIndexStore =
+      opts.textIndexes && opts.textIndexes.length > 0
+        ? opts.textIndexPersist
+          ? new PersistedIndexStore(this.buildPersistedIndexCallbacks())
+          : new MemoryIndexStore()
+        : undefined
+    // #435 — precompute the densify-enabled subset (undefined when none opt in)
+    // so the write path skips work for non-densify collections.
+    const densifyFields = opts.i18nFields
+      ? Object.fromEntries(
+          Object.entries(opts.i18nFields).filter(([, d]) => d.options.densifyOnWrite === true),
+        )
+      : {}
+    this.i18nDensifyFields =
+      Object.keys(densifyFields).length > 0 ? densifyFields : undefined
+    // #308 L2 — wire embedding descriptor + vector set (undefined for non-embedding collections).
+    // Guard: CRDT collections cannot use embeddings (the embedding-derive block is unreachable
+    // after the CRDT early-return in putInternal; full CRDT-derivation is out of L2 scope).
+    if (opts.embeddings && opts.crdt) {
+      throw new Error(
+        `Collection "${opts.name}": embeddings are not supported on CRDT collections (L2). Use a non-CRDT collection for semantic search.`,
+      )
+    }
+    this.embeddings = opts.embeddings
+    this.vectorSet = opts.embeddings ? new VectorSet() : undefined
     this.dictKeyFields = opts.dictKeyFields
+    this.fieldMeta = opts.fieldMeta
+    this.meta = opts.meta
+    this._refs = opts.declaredRefs ?? {}
     if (opts.moneyFields) validateMoneyFieldPaths(opts.moneyFields)
     this.moneyFields = opts.moneyFields
     this.computed = opts.computed
     this.dictLabelResolver = opts.dictLabelResolver
+    this.getDictionary = opts.getDictionary
     this.i18nPutValidator = opts.i18nPutValidator
     this.autoTranslateHook = opts.autoTranslateHook
     this.defaultLocale = opts.defaultLocale
@@ -913,10 +1074,59 @@ export class Collection<T> {
       this.deterministicFields = null
     }
 
+    // structural group-encryption wiring (#503): the set of fields sealed
+    // into `_sealed` per-field slots. Empty when the option is absent.
+    this.sensitiveFields = opts.sensitive && opts.sensitive.length > 0
+      ? Object.freeze(new Set(opts.sensitive))
+      : Object.freeze(new Set<string>())
+
     // per-record CEK wiring. The cache is bounded by record count; CEKs
     // are tiny CryptoKey handles, so a generous entry budget is cheap.
     this.perRecordCek = opts.perRecordKeys === true
     this.cekCache = this.perRecordCek ? new Lru<string, CryptoKey>({ maxRecords: 4096 }) : null
+
+    // Fix 1: guard the forget-cascade / per-record-CEK incompatibility with
+    // sealed sensitive fields (#304 × #503). Sealed-field keys derive off the
+    // collection DEK (getDEK), not the per-record CEK, so crypto-shredding a
+    // record erases _data but leaves _sealed[field] recoverable.
+    if (this.sensitiveFields.size > 0 && this.perRecordCek) {
+      console.warn(
+        `[noy-db] collection "${opts.name}": sealed \`sensitive\` fields derive off the ` +
+        `collection DEK and are NOT covered by per-record crypto-shred (#304) until ` +
+        `record-scoped sealing (#306) — forgetting a record leaves its sealed fields recoverable.`,
+      )
+    }
+
+    // Fix 3: warn when `sensitive` is a no-op in debug-plaintext mode. When
+    // storeCiphertext is false the sealing path is skipped entirely, so
+    // sensitive fields are written in plaintext.
+    if (this.sensitiveFields.size > 0 && !this.storeCiphertext) {
+      console.warn(
+        `[noy-db] collection "${opts.name}": \`sensitive\` fields are NOT sealed in ` +
+        `plaintext (debug) mode — they are written unencrypted.`,
+      )
+    }
+
+    // Warn when a sealed `sensitive` field is also declared in `indexes`: a
+    // plaintext secondary index defeats non-residency (the index buckets hold
+    // the cleartext value the seal was meant to hide). Compile-time refusal is
+    // a deferred follow-up.
+    if (this.sensitiveFields.size > 0 && opts.indexes) {
+      const indexedFields = new Set<string>()
+      for (const def of opts.indexes) {
+        if (typeof def === 'string') indexedFields.add(def)
+        else if (Array.isArray(def)) for (const f of def) indexedFields.add(f)
+        else for (const f of (def as { fields: readonly string[] }).fields) indexedFields.add(f)
+      }
+      const leaked = [...this.sensitiveFields].filter((f) => indexedFields.has(f))
+      if (leaked.length > 0) {
+        console.warn(
+          `[noy-db] collection "${opts.name}": sealed \`sensitive\` field(s) ` +
+          `${leaked.map((f) => `"${f}"`).join(', ')} also appear in \`indexes\` — a ` +
+          `plaintext secondary index stores the cleartext value and defeats non-residency.`,
+        )
+      }
+    }
 
     // per-record provenance opt-in (FR-5). Zero cost when off.
     this.provenance = opts.provenance === true
@@ -1060,6 +1270,160 @@ export class Collection<T> {
     return this.schema
   }
 
+  /** The declared consumer-neutral field metadata channel (canonical). */
+  getFieldMeta(): Record<string, FieldMeta> | undefined { return this.fieldMeta }
+
+  /** The collection's declared descriptive metadata. */
+  getMeta(): CollectionMeta | undefined { return this.meta }
+
+  /**
+   * Aggregate all collection-level configuration options that are actively set
+   * into a {@link CollectionConfig} snapshot. Returns `undefined` when no options
+   * are configured (omitting the `config` block from `dumpSchema()` output).
+   * Consumed by `walk.ts` to populate `CollectionDescriptor.config`.
+   */
+  getConfig(): CollectionConfig | undefined {
+    const i18nFields = this.i18nFields !== undefined
+      ? Object.keys(this.i18nFields)
+      : undefined
+    const embeddings = this.embeddings !== undefined
+      ? {
+          source: this.embeddings.source,
+          dim: this.embeddings.dim,
+          ...(this.embeddings.model !== undefined ? { model: this.embeddings.model } : {}),
+        }
+      : undefined
+    const textIndexes = this.textIndexes !== undefined && this.textIndexes.length > 0
+      ? this.textIndexes
+      : undefined
+    const textIndexPersist = this.searchIndexStore instanceof PersistedIndexStore ? true : undefined
+    const perRecordKeys = this.perRecordCek ? true : undefined
+    const provenance = this.provenance ? true : undefined
+    const tiers = this.tiers !== null ? Array.from(this.tiers) : undefined
+    const tierMode = this.tiers !== null ? (this.tierMode as string) : undefined
+    const crdt = this.crdtMode !== undefined ? (this.crdtMode as string) : undefined
+    /**
+     * `true` when history is explicitly enabled for this collection (i.e. the
+     * caller supplied a `historyConfig` option and history is not disabled).
+     * Omitted when no per-collection config was provided or history is disabled.
+     */
+    const history = this.historyConfigExplicit && this.historyConfig.enabled !== false
+      ? true
+      : undefined
+
+    const hasAny =
+      i18nFields !== undefined ||
+      embeddings !== undefined ||
+      textIndexes !== undefined ||
+      textIndexPersist !== undefined ||
+      perRecordKeys !== undefined ||
+      provenance !== undefined ||
+      tiers !== undefined ||
+      crdt !== undefined ||
+      history !== undefined
+
+    if (!hasAny) return undefined
+
+    return {
+      ...(i18nFields !== undefined ? { i18nFields } : {}),
+      ...(embeddings !== undefined ? { embeddings } : {}),
+      ...(textIndexes !== undefined ? { textIndexes } : {}),
+      ...(textIndexPersist !== undefined ? { textIndexPersist } : {}),
+      ...(perRecordKeys !== undefined ? { perRecordKeys } : {}),
+      ...(provenance !== undefined ? { provenance } : {}),
+      ...(tiers !== undefined ? { tiers } : {}),
+      ...(tierMode !== undefined ? { tierMode } : {}),
+      ...(crdt !== undefined ? { crdt } : {}),
+      ...(history !== undefined ? { history } : {}),
+    }
+  }
+
+  /**
+   * Describe the collection's field schema from in-memory config — zero store I/O.
+   *
+   * Sync overload (no args): merges moneyFields / dictKeyFields / refs /
+   * computed / fieldMeta into a {@link CollectionDescription}. Field types are
+   * inferred from config (money→'number', ref→'string'/'array', dict→'enum',
+   * others→'unknown'). Validator-derived types require the async overload (Task 4).
+   *
+   * Async overload (Task 4 #483): resolves validator-derived types + dynamic dict
+   * labels before building the description.
+   */
+  describe(): CollectionDescription
+  describe(opts: DescribeOptions): Promise<CollectionDescription>
+  describe(opts?: DescribeOptions): CollectionDescription | Promise<CollectionDescription> {
+    if (opts) {
+      return this.describeAsync(opts)
+    }
+    return buildDescription({
+      collection: this.name,
+      fieldMeta: this.fieldMeta,
+      moneyFields: this.moneyFields,
+      dictKeyFields: this.dictKeyFields,
+      computed: this.computed,
+      refs: this._refs,
+      zodFields: undefined,
+      ...(this.meta !== undefined ? { meta: this.meta } : {}),
+      ...(this.i18nFields !== undefined ? { i18nFields: this.i18nFields } : {}),
+    })
+  }
+
+  /**
+   * Async describe implementation (#483 Task 4).
+   * Derives validator-exact types via deriveZodFields (lazy, no static zod import),
+   * optionally resolves dynamic-dict labels from vault.dictionary(name).list(),
+   * then delegates to buildDescription which also runs fieldMeta key-validation.
+   */
+  private async describeAsync(opts: DescribeOptions): Promise<CollectionDescription> {
+    // 1. Derive per-field type/optional/constraints/meta from the validator (if any).
+    const zodFields = this.schema !== undefined
+      ? await deriveZodFields(this.schema)
+      : undefined
+
+    // 2. Optionally resolve dynamic-dict labels from the vault's dictionary store.
+    let dictLabels: Record<string, Record<string, string>> | undefined
+    if (opts.resolveDictLabels === true && this.dictKeyFields !== undefined) {
+      dictLabels = {}
+      for (const [, desc] of Object.entries(this.dictKeyFields)) {
+        if (!isStaticDictDescriptor(desc) && this.getDictionary !== undefined) {
+          const handle = await this.getDictionary(desc.name)
+          const entries = await handle.list()
+          const valueToLabel: Record<string, string> = {}
+          for (const entry of entries) {
+            // Pick the first available locale label as the display label.
+            const label = Object.values(entry.labels)[0]
+            if (label !== undefined) valueToLabel[entry.key] = label
+          }
+          dictLabels[desc.name] = valueToLabel
+        }
+      }
+    }
+
+    return buildDescription({
+      collection: this.name,
+      fieldMeta: this.fieldMeta,
+      moneyFields: this.moneyFields,
+      dictKeyFields: this.dictKeyFields,
+      computed: this.computed,
+      refs: this._refs,
+      zodFields,
+      ...(dictLabels !== undefined ? { dictLabels } : {}),
+      ...(this.meta !== undefined ? { meta: this.meta } : {}),
+      ...(this.i18nFields !== undefined ? { i18nFields: this.i18nFields } : {}),
+    })
+  }
+
+  /** JSON Schema for this collection with describe() metadata as x- extensions. */
+  async toJSONSchema(): Promise<object> {
+    const desc = await this.describe({})
+    let base: Record<string, unknown> | null = null
+    if (this.schema !== undefined) {
+      const env = await derivePersistedSchema(this.schema)
+      base = (env.jsonSchema as Record<string, unknown> | null) ?? null
+    }
+    return buildJsonSchema(desc, base)
+  }
+
   /**
    * @internal — attach money descriptors post-construction. MV dependency
    * analysis auto-creates a source collection (without options) during
@@ -1077,6 +1441,19 @@ export class Collection<T> {
     if (this.computed === undefined) this.computed = computed
   }
 
+  /** @internal — attach fieldMeta post-construction. See {@link _applyMoneyFields}. First-wins. */
+  _applyFieldMeta(fieldMeta: Record<string, FieldMeta>): void {
+    if (this.fieldMeta === undefined) this.fieldMeta = fieldMeta
+  }
+
+  /** @internal — attach collection-level meta post-construction. See {@link _applyMoneyFields}. First-wins. */
+  _applyMeta(meta: CollectionMeta): void {
+    if (this.meta === undefined) this.meta = meta
+  }
+
+  /** @internal — used only in tests; do not read in production code. */
+  get _ramCiphertext(): boolean { return this.ramCiphertext }
+
   /**
    * Get a single record by ID.
    *
@@ -1090,7 +1467,7 @@ export class Collection<T> {
    * @returns The decrypted (and optionally locale-resolved) record, or
    *          `null` if not found.
    */
-  async get(id: string, locale?: LocaleReadOptions): Promise<T | null> {
+  async get(id: string, locale?: LocaleReadOptions): Promise<SealedView<T, S> | null> {
     // --- Lazy derivation resolution ---
     // If this collection is the output of a lazy-mode derivation
     // strategy, consult the stale map and re-derive on demand before
@@ -1125,8 +1502,8 @@ export class Collection<T> {
         if (!envelope) return null
         // Tombstone tolerance (decision 5): a shredded record carries no
         // body / CEK. Reads return null rather than throwing TamperedError.
-        if (isTombstone(envelope, this.encrypted)) return null
-        record = await this.decryptRecord(envelope, { id })
+        if (isTombstone(envelope, this.storeCiphertext)) return null
+        record = await this.decryptRecord(envelope, { id, sealedAsHandles: true })
         if (record === null) return null
         this.lru.set(id, { record, version: envelope._v }, estimateRecordBytes(record))
       }
@@ -1139,7 +1516,11 @@ export class Collection<T> {
 
     if (record === null) return null
     await this.onAccess?.('get', id)
-    return this.applyLocaleToRecord(record, locale)
+    // The cache/decrypt path already substituted Sealed handles for declared
+    // sensitive fields (S); the cast reflects that runtime shape. For
+    // collections with no sensitive fields S = never and SealedView<T, never>
+    // collapses to T, so this is a no-op widening.
+    return this.applyLocaleToRecord(record, locale) as unknown as SealedView<T, S>
   }
 
   /**
@@ -1214,7 +1595,7 @@ export class Collection<T> {
       vault: this.vault,
       collectionName: this.name,
       userId: this.keyring.userId,
-      encrypted: this.encrypted,
+      encrypted: this.storeCiphertext,
       getDEK: this.getDEK,
     }
     if (this.syncAdapter !== undefined) presenceOpts.syncAdapter = this.syncAdapter
@@ -1281,6 +1662,34 @@ export class Collection<T> {
   }
 
   /**
+   * #435 — resolve the prior stored record (with its `_i18nFilled` marker) for
+   * densify. Eager: in-memory cache; lazy: LRU then adapter. undefined if absent.
+   */
+  private async resolveDensifyPrior(id: string): Promise<Record<string, unknown> | undefined> {
+    if (this.lazy && this.lru) {
+      const cached = this.lru.get(id)
+      if (cached) return cached.record as Record<string, unknown>
+      const env = await this.adapter.get(this.vault, this.name, id)
+      if (!env) return undefined
+      const rec = await this.decryptRecord(env)
+      return rec === null ? undefined : (rec as Record<string, unknown>)
+    }
+    await this.ensureHydrated()
+    return this.cache.get(id)?.record as Record<string, unknown> | undefined
+  }
+
+  /**
+   * #435 — densify provenance for a record: which i18n slots were auto-filled,
+   * e.g. `{ name: ['en'] }`. undefined when nothing was filled. The marker is
+   * stripped from ordinary reads; this is the sanctioned audit accessor.
+   */
+  async i18nProvenance(id: string): Promise<Record<string, readonly string[]> | undefined> {
+    const prior = await this.resolveDensifyPrior(id)
+    const marker = prior?.['_i18nFilled'] as Record<string, string[]> | undefined
+    return marker && Object.keys(marker).length > 0 ? marker : undefined
+  }
+
+  /**
    * Validate a record against this collection's schema WITHOUT writing it.
    * Returns the (possibly coerced) record on success; throws
    * {@link SchemaValidationError} (direction: `'input'`) on violation.
@@ -1323,6 +1732,26 @@ export class Collection<T> {
 
   #txIdForHook(): string {
     return this.activeTxId?.() ?? generateULID()
+  }
+
+  /**
+   * Resolve the prior record as REAL VALUES for the eager write/delete paths
+   * (history snapshot, ledger patch, index upkeep). The eager cache holds
+   * {@link Sealed} handles for sensitive fields (non-residency), so when the
+   * collection seals anything we re-decrypt the stored envelope to materialise
+   * real values — re-encrypting a handle would otherwise persist the marker
+   * `'[sealed]'` in place of the value. Collections that seal nothing read the
+   * cache directly (no extra I/O), matching the previous behaviour exactly.
+   */
+  private async resolvePriorValues(id: string): Promise<{ record: T; version: number } | undefined> {
+    if (this.sensitiveFields.size > 0) {
+      const env = await this.adapter.get(this.vault, this.name, id)
+      if (!env || isTombstone(env, this.storeCiphertext)) return undefined
+      const rec = await this.decryptRecord(env, { skipValidation: true, id })
+      return rec === null ? undefined : { record: rec, version: env._v }
+    }
+    const cached = this.cache.get(id)
+    return cached ? { record: cached.record, version: cached.version } : undefined
   }
 
   /** @internal Untracked put body — call {@link put}, not this. */
@@ -1442,6 +1871,20 @@ export class Collection<T> {
       }
     }
 
+    // #435 densifyOnWrite (decision A): read prior fills so a round-tripped
+    // derived copy is exempt from script enforcement and can be refreshed.
+    // `densifyPrior` is read once here and reused by densify() below.
+    let densifyPrior: Record<string, unknown> | undefined
+    let exemptFills: Map<string, Set<string>> | undefined
+    if (this.i18nDensifyFields) {
+      densifyPrior = await this.resolveDensifyPrior(id)
+      exemptFills = this.i18nStrategy.computeExemptFills(
+        densifyPrior,
+        record as Record<string, unknown>,
+        this.i18nDensifyFields,
+      )
+    }
+
     // i18nText script enforcement — runs AFTER auto-translate (so
     // generated values are checked too). Throws ScriptViolationError
     // under the default 'reject'; 'filter' strips disallowed chars in
@@ -1455,12 +1898,28 @@ export class Collection<T> {
         for (const leaf of getAtPath(obj, field)) {
           if (!leaf || typeof leaf !== 'object' || Array.isArray(leaf)) continue
           const leafMap = leaf as Record<string, unknown>
-          const { value: cleaned } = this.i18nStrategy.enforceScript(
+          const { value: cleaned, warnings } = this.i18nStrategy.enforceScript(
             leafMap,
             field,
             descriptor,
+            exemptFills?.get(field),
           )
           if (cleaned !== leafMap) Object.assign(leafMap, cleaned)
+          // enforceScript only returns warnings under 'warn'/'filter' ('reject'
+          // throws first), so this guard never fires — it makes that invariant
+          // explicit and keeps `mode` off the optional-undefined type.
+          const mode = descriptor.options.onScriptViolation
+          if (mode === 'warn' || mode === 'filter') {
+            for (const w of warnings) {
+              this.emitter.emit('i18n:script-violation', {
+                vault: this.vault,
+                collection: this.name,
+                id,
+                mode,
+                warning: w,
+              })
+            }
+          }
         }
       }
     }
@@ -1470,6 +1929,17 @@ export class Collection<T> {
     // when required translations are absent.
     if (this.i18nPutValidator !== undefined) {
       this.i18nPutValidator(record)
+    }
+
+    // #435 — eager-fill empty slots + record provenance. Runs AFTER the
+    // authored gates (required + script) so only authored slots are validated;
+    // filled slots are recorded in the internal `_i18nFilled` marker.
+    if (this.i18nDensifyFields) {
+      this.i18nStrategy.densify(
+        record as Record<string, unknown>,
+        densifyPrior,
+        this.i18nDensifyFields,
+      )
     }
 
     // Foreign-key ref enforcement. Runs AFTER schema
@@ -1575,6 +2045,7 @@ export class Collection<T> {
 
       await this.onDirty?.(this.name, id, 'put', version)
       this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action: 'put' } satisfies ChangeEvent)
+      this.searchIndexStore?.markDirty() // #308 L1 — zero-cost for non-search collections
       await this.onAccess?.('put', id)
       await this.dispatchDerivations(id, record, version)
       await this.dispatchMaterializedViews(id, record)
@@ -1600,7 +2071,9 @@ export class Collection<T> {
       }
     } else {
       await this.ensureHydrated()
-      existing = this.cache.get(id)
+      // Real values, not cache handles — the prior record is re-encrypted into
+      // a history snapshot below; a handle would seal the `'[sealed]'` marker.
+      existing = await this.resolvePriorValues(id)
     }
 
     const version = existing ? existing.version + 1 : 1
@@ -1645,6 +2118,19 @@ export class Collection<T> {
     const envelope = await this.encryptRecord(record, version, cek, options?.source, options?.sourceTs)
     await this.adapter.put(this.vault, this.name, id, envelope)
 
+    // #308 L2 — derive the embedding vector at write (encode → encrypted _vec sidecar).
+    // Placed AFTER the main adapter.put so `version` (computed above) is in scope and
+    // the record write is committed first. The _vec envelope _v is not OCC-checked.
+    if (this.embeddings) {
+      const text = embeddingSourceText(record as Record<string, unknown>, this.embeddings.source)
+      const vec = await this.embeddings.encode(text)
+      if (vec.length !== this.embeddings.dim) throw new EmbeddingDimMismatchError('embeddings', this.embeddings.dim, vec.length)
+      const body = JSON.stringify({ vec: Array.from(vec), model: this.embeddings.model, dim: this.embeddings.dim })
+      const vecEnv = await this.encryptJsonString(body, version)
+      await this.adapter.put(this.vault, '_vec', id, vecEnv)
+      this.vectorSet?.markDirty()
+    }
+
     // Ledger append — AFTER the adapter write succeeds so a failed
     // write never produces an orphan ledger entry. Computing the
     // payloadHash here uses the envelope we just wrote, which is the
@@ -1684,13 +2170,15 @@ export class Collection<T> {
     }
 
     if (this.lazy && this.lru) {
-      this.lru.set(id, { record, version }, estimateRecordBytes(record))
+      // Cache the handle-form (sealed fields → Sealed handles) so plaintext
+      // for sensitive fields is never resident in the working set.
+      this.lru.set(id, { record: this.toCacheRecord(record, envelope), version }, estimateRecordBytes(record))
       // Maintain persisted-index side-cars. Lazy mode is the
       // only place `persistedIndexes` is populated; eager mode uses the
       // in-memory `CollectionIndexes` above.
       await this.maintainPersistedIndexesOnPut(id, record, existing ? existing.record : null, version)
     } else {
-      this.cache.set(id, { record, version })
+      this.cache.set(id, { record: this.toCacheRecord(record, envelope), version })
       // Update secondary indexes incrementally — no-op if no indexes are
       // declared. Pass the previous record (if any) so old buckets are
       // cleaned up before the new value is added.
@@ -1707,6 +2195,7 @@ export class Collection<T> {
       id,
       action: 'put',
     } satisfies ChangeEvent)
+    this.searchIndexStore?.markDirty() // #308 L1 — zero-cost for non-search collections
 
     await this.onAccess?.('put', id)
 
@@ -1790,18 +2279,40 @@ export class Collection<T> {
   async _getStoredRecord(id: string): Promise<T | null> {
     let raw: T | null
     if (this.lazy && this.lru) {
-      const cached = this.lru.get(id)
-      if (cached) raw = cached.record
-      else {
+      if (this.sensitiveFields.size > 0) {
+        // Sealed collection (lazy mirror of the eager `resolvePriorValues`):
+        // the LRU holds {@link Sealed} handles for sensitive fields (non-
+        // residency), but `_getStoredRecord` is the reverse-denorm / rollup
+        // PATCH BASE — re-encrypting a handle would persist the marker
+        // `'[sealed]'` in place of the value. So always re-decrypt the stored
+        // envelope to REAL values for the returned base. On a miss, populate
+        // the LRU in HANDLE form via `toCacheRecord` — never `record: raw`
+        // plaintext, which would leak sealed plaintext into the working set
+        // (a later public `get()` would then return it, defeating the gate).
+        const cached = this.lru.get(id)
         const env = await this.adapter.get(this.vault, this.name, id)
-        if (!env || isTombstone(env, this.encrypted)) return null
+        if (!env || isTombstone(env, this.storeCiphertext)) return null
         raw = await this.decryptRecord(env, { id })
         if (raw === null) return null
-        this.lru.set(id, { record: raw, version: env._v }, estimateRecordBytes(raw))
+        if (!cached) {
+          this.lru.set(id, { record: this.toCacheRecord(raw, env), version: env._v }, estimateRecordBytes(raw))
+        }
+      } else {
+        const cached = this.lru.get(id)
+        if (cached) raw = cached.record
+        else {
+          const env = await this.adapter.get(this.vault, this.name, id)
+          if (!env || isTombstone(env, this.storeCiphertext)) return null
+          raw = await this.decryptRecord(env, { id })
+          if (raw === null) return null
+          this.lru.set(id, { record: raw, version: env._v }, estimateRecordBytes(raw))
+        }
       }
     } else {
       await this.ensureHydrated()
-      raw = this.cache.get(id)?.record ?? null
+      // Patch base for self-write reverse-denorm → must be real values, not
+      // the cache's Sealed handles, or a write-back would re-seal the marker.
+      raw = (await this.resolvePriorValues(id))?.record ?? null
     }
     if (raw === null) return null
     return canonicalizeStoredMoney(raw, this.moneyFields) as T
@@ -2170,7 +2681,7 @@ export class Collection<T> {
     let count = 0
     for (const id of ids) {
       const env = await this.adapter.get(this.vault, this.name, id)
-      if (!env || isTombstone(env, this.encrypted)) continue
+      if (!env || isTombstone(env, this.storeCiphertext)) continue
       const decoded = await this.decryptRecord(env, { skipValidation: true, id })
       if (decoded === null) continue // defensive: shredded between list and get
       const record = decoded as unknown as Record<string, unknown>
@@ -2320,7 +2831,8 @@ export class Collection<T> {
         }
       }
     } else {
-      existing = this.cache.get(id)
+      // Real values, not cache handles — re-encrypted into a history snapshot.
+      existing = await this.resolvePriorValues(id)
     }
 
     // Save history snapshot before deleting. On a CEK collection the
@@ -2384,6 +2896,7 @@ export class Collection<T> {
       id,
       action: 'delete',
     } satisfies ChangeEvent)
+    this.searchIndexStore?.markDirty() // #308 L1 — zero-cost for non-search collections
 
     await this.onAccess?.('delete', id)
 
@@ -2449,7 +2962,7 @@ export class Collection<T> {
 
   async _writeTombstone(id: string, actor: string): Promise<{ previousVersion: number } | null> {
     const live = await this.adapter.get(this.vault, this.name, id)
-    if (!live || isTombstone(live, this.encrypted)) return null
+    if (!live || isTombstone(live, this.storeCiphertext)) return null
 
     await this.adapter.put(this.vault, this.name, id, buildTombstone(live._v, actor))
 
@@ -2619,8 +3132,274 @@ export class Collection<T> {
     }
     await this.ensureHydrated()
     const entries: { id: string; record: T }[] = []
-    for (const [id, e] of this.cache) entries.push({ id, record: e.record })
+    // #435 — strip the internal densify marker from the user-facing records.
+    // Non-mutating: never touches the cached record object. The search index
+    // is built over the same (marker-free) record, which is fine — the marker
+    // is never a searchable field.
+    for (const [id, e] of this.cache) entries.push({ id, record: stripI18nFilled(e.record as Record<string, unknown>) as T })
     return searchScan(entries, field, query, opts)
+  }
+
+  /** #308 L1 — build IndexDoc[] for the configured text fields over the live cache. */
+  private buildRetrievalDocs(
+    labelMaps: Map<string, Map<string, Record<string, string>>>,
+    blobFilenames: Map<string, Map<string, string[]>>,
+    only?: readonly string[],
+  ): IndexDoc[] {
+    const docs: IndexDoc[] = []
+    for (const [id, e] of this.cache) {
+      const rec = stripI18nFilled(e.record as Record<string, unknown>)
+      const fields = buildStringFieldEntries(rec, this.textIndexes ?? [], only)
+      if (this.i18nFields) fields.push(...buildI18nFieldEntries(rec, this.i18nFields, this.textIndexes ?? [], only))
+      if (this.dictKeyFields) fields.push(...buildDictKeyFieldEntries(rec, this.dictKeyFields, labelMaps, this.textIndexes ?? [], only))
+      const blobNames = blobFilenames.get(id)
+      if (blobNames) fields.push(...buildBlobFieldEntries(blobNames))
+      if (fields.length > 0) docs.push({ id, fields })
+    }
+    return docs
+  }
+
+  /** #308 L1 — true iff any configured text index is also a blob field (gates ALL slot I/O). */
+  private hasIndexedBlobFields(only?: readonly string[]): boolean {
+    if (!this.blobFields || !this.textIndexes) return false
+    const fields = only ? this.textIndexes.filter((f) => only.includes(f)) : this.textIndexes
+    return fields.some((f) => f in this.blobFields!)
+  }
+
+  /**
+   * #308 L1 — resolve `recordId -> (blobField -> filenames[])` by listing slots
+   * for the configured blob fields of each cached record. Blob slot metadata is
+   * NOT inline on the record: it lives in a separate `_blob_slots_*` collection,
+   * so this costs ONE `blob(id).list()` (a `listSlots`) per record at build time
+   * — the heaviest indexing source. Fully gated by {@link hasIndexedBlobFields};
+   * non-blob (and blob-but-not-indexed) collections do ZERO slot I/O.
+   */
+  private async resolveBlobFilenames(only?: readonly string[]): Promise<Map<string, Map<string, string[]>>> {
+    const out = new Map<string, Map<string, string[]>>()
+    if (!this.hasIndexedBlobFields(only)) return out
+    const indexed = (only ? this.textIndexes!.filter((f) => only.includes(f)) : this.textIndexes!)
+      .filter((f) => f in this.blobFields!)
+    const indexedSet = new Set(indexed)
+    for (const id of this.cache.keys()) {
+      let slots
+      try {
+        slots = await this.blob(id).list()
+      } catch {
+        continue
+      }
+      let byField: Map<string, string[]> | undefined
+      for (const slot of slots) {
+        if (!indexedSet.has(slot.name) || !slot.filename) continue
+        if (!byField) { byField = new Map(); out.set(id, byField) }
+        const names = byField.get(slot.name)
+        if (names) names.push(slot.filename)
+        else byField.set(slot.name, [slot.filename])
+      }
+    }
+    return out
+  }
+
+  /** #308 L1 — field -> (key -> {locale->label}) for dictKey fields; static from table, dynamic via getDictionary().list(). */
+  private async resolveDictLabelMaps(): Promise<Map<string, Map<string, Record<string, string>>>> {
+    const maps = new Map<string, Map<string, Record<string, string>>>()
+    if (!this.dictKeyFields || !this.textIndexes) return maps
+    for (const field of this.textIndexes) {
+      const desc = this.dictKeyFields[field]
+      if (!desc) continue
+      const m = new Map<string, Record<string, string>>()
+      if (isStaticDictDescriptor(desc)) {
+        for (const [key, labels] of Object.entries(desc.table)) m.set(key, labels as Record<string, string>)
+      } else {
+        if (this.getDictionary) {
+          const handle = await this.getDictionary(desc.name)
+          for (const e of await handle.list()) m.set(e.key, e.labels)
+        }
+      }
+      maps.set(field, m)
+    }
+    return maps
+  }
+
+  /** #308 L1.5 — force-persist the lexical index now (e.g. on save/idle). Persists only when textIndexPersist is enabled; a no-op otherwise. */
+  async flushIndex(): Promise<void> {
+    if (!this.searchIndexStore) return
+    await this.ensureHydrated()
+    const labelMaps = await this.resolveDictLabelMaps()
+    const blobFilenames = await this.resolveBlobFilenames()
+    await this.searchIndexStore.ensureBuilt(() => this.buildRetrievalDocs(labelMaps, blobFilenames))
+    await this.searchIndexStore.flush?.()
+  }
+
+  /** #308 L2 — load + decrypt all _vec sidecars into StoredVector[] for the VectorSet. */
+  private buildVectorLoad(): () => Promise<StoredVector[]> {
+    return async () => {
+      const ids = await this.adapter.list(this.vault, '_vec')
+      const out: StoredVector[] = []
+      for (const id of ids) {
+        const env = await this.adapter.get(this.vault, '_vec', id)
+        if (!env) continue
+        const body = await this.decryptJsonString(env)
+        if (body === null) continue
+        const parsed = JSON.parse(body) as { vec: number[]; model: string }
+        out.push({ id, vec: new Float32Array(parsed.vec), model: parsed.model })
+      }
+      return out
+    }
+  }
+
+  /**
+   * #308 L1.5 — build the PersistedIndexCallbacks bridge: crypto lives here
+   * (collection has getDEK / encryptJsonString / decryptJsonString / adapter),
+   * the index store itself is crypto-free.
+   *
+   * Fingerprint encoding: body-wrap approach — save(json, fp) stores
+   * JSON.stringify({ fp, idx: json }) as the encrypted body so the standard
+   * EncryptedEnvelope shape is never extended. load() decrypts and JSON.parses
+   * the wrapper back out.
+   *
+   * Cache shape: this.cache stores { record, version } — currentFingerprint()
+   * iterates over e.version.
+   */
+  private buildPersistedIndexCallbacks(): PersistedIndexCallbacks {
+    const FT = '_ftindex'
+    return {
+      load: async () => {
+        const env = await this.adapter.get(this.vault, FT, this.name)
+        if (!env) return null
+        const body = await this.decryptJsonString(env)
+        if (body === null) return null
+        try {
+          const wrapped = JSON.parse(body) as { fp: { count: number; maxVersion: number }; idx: string }
+          return { json: wrapped.idx, fingerprint: wrapped.fp }
+        } catch {
+          return null
+        }
+      },
+      save: async (json, fp) => {
+        const body = JSON.stringify({ fp, idx: json })
+        const env = await this.encryptJsonString(body, fp.count)
+        await this.adapter.put(this.vault, FT, this.name, env)
+      },
+      remove: async () => { await this.adapter.delete(this.vault, FT, this.name) },
+      currentFingerprint: () => {
+        let maxVersion = 0
+        for (const e of this.cache.values()) if (e.version > maxVersion) maxVersion = e.version
+        return { count: this.cache.size, maxVersion }
+      },
+    }
+  }
+
+  /** #308 L1 — pre-build the lexical index (e.g. on open) so the first retrieve() pays no build scan. */
+  async warmIndex(): Promise<void> {
+    if (!this.searchIndexStore) return
+    if (this.lazy) {
+      throw new Error(
+        `Collection "${this.name}": warmIndex() requires eager mode (prefetch: true).`,
+      )
+    }
+    await this.ensureHydrated()
+    const built = this.searchIndexStore.built
+    const labelMaps = built ? new Map() : await this.resolveDictLabelMaps()
+    const blobFilenames = built ? new Map() : await this.resolveBlobFilenames()
+    await this.searchIndexStore.ensureBuilt(() => this.buildRetrievalDocs(labelMaps, blobFilenames))
+  }
+
+  /** #308 — retrieval. mode: 'lexical' (default) | 'semantic' (L2) | 'hybrid' (L3). */
+  async retrieve(query: string, opts: RetrieveOptions<T> = {}): Promise<RetrieveHit<T>[]> {
+    const hits =
+      opts.mode === 'semantic' ? await this.retrieveSemantic(query, opts)
+      : opts.mode === 'hybrid' ? await this.retrieveHybrid(query, opts)
+      : await this.retrieveLexical(query, opts)
+    return opts.within ? this.applyWithin(hits, opts.within) : hits
+  }
+
+  /** #308 L3 — keep only hits whose id matches the structured query, re-rank 1-based. */
+  private applyWithin(hits: RetrieveHit<T>[], within: Query<T>): RetrieveHit<T>[] {
+    const ids = new Set(within._idArray())
+    return hits.filter(h => ids.has(h.id)).map((h, i) => ({ ...h, rank: i + 1 }))
+  }
+
+  /** #308 L1 — client-side lexical retrieval; ranked { id, score, field, snippet, locale? }. */
+  private async retrieveLexical(query: string, opts: RetrieveOptions<T>): Promise<RetrieveHit<T>[]> {
+    if (!this.searchIndexStore) {
+      throw new Error(`Collection "${this.name}": retrieve() requires a textIndexes config.`)
+    }
+    if (this.lazy) {
+      throw new Error(
+        `Collection "${this.name}": retrieve() requires eager mode (prefetch: true).`,
+      )
+    }
+    await this.ensureHydrated()
+    const built = this.searchIndexStore.built
+    const labelMaps = built ? new Map() : await this.resolveDictLabelMaps()
+    const blobFilenames = built ? new Map() : await this.resolveBlobFilenames()
+    const index = await this.searchIndexStore.ensureBuilt(() => this.buildRetrievalDocs(labelMaps, blobFilenames))
+    const hits = index.query(query, {
+      ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
+      ...(opts.match ? { match: opts.match } : {}),
+      ...(opts.prefix ? { prefix: opts.prefix } : {}),
+      ...(opts.fields ? { fields: opts.fields } : {}),
+    })
+    const window = opts.snippetWindow ?? 80
+    return hits.map((h: IndexHit, i: number) => {
+      const base: RetrieveHit<T> = {
+        id: h.id,
+        score: h.score,
+        rank: i + 1,
+        field: h.field,
+        snippet: extractSnippet(h.text, h.offset, window),
+        ...(h.locale !== undefined ? { locale: h.locale } : {}),
+        ...(opts.includeRecord
+          ? (() => {
+              const e = this.cache.get(h.id)
+              return e ? { record: stripI18nFilled(e.record as Record<string, unknown>) as T } : {}
+            })()
+          : {}),
+      }
+      return base
+    })
+  }
+
+  /** #308 L3 — hybrid: fuse lexical (L1) + semantic (L2) by RRF. Requires embeddings. */
+  private async retrieveHybrid(query: string, opts: RetrieveOptions<T>): Promise<RetrieveHit<T>[]> {
+    if (!this.embeddings) {
+      throw new Error(`Collection "${this.name}": retrieve({mode:'hybrid'}) requires an embeddings config.`)
+    }
+    const [lex, sem] = await Promise.all([
+      this.retrieveLexical(query, opts),
+      this.retrieveSemantic(query, opts),
+    ])
+    return fuseRetrieval([lex, sem], opts.limit !== undefined ? { limit: opts.limit } : {})
+  }
+
+  /** #308 L2 — semantic branch of retrieve(): encode query → similarTo(). */
+  private async retrieveSemantic(query: string, opts: RetrieveOptions<T>): Promise<RetrieveHit<T>[]> {
+    if (!this.embeddings) throw new Error(`Collection "${this.name}": retrieve({mode:'semantic'}) requires an embeddings config.`)
+    if (this.lazy) throw new Error(`Collection "${this.name}": retrieve() requires eager mode (prefetch: true).`)
+    const qVec = await this.embeddings.encode(query)
+    return this.similarTo(qVec, {
+      ...(opts.limit !== undefined ? { k: opts.limit } : {}),
+      ...(opts.minScore !== undefined ? { minScore: opts.minScore } : {}),
+      ...(opts.includeRecord ? { includeRecord: true } : {}),
+    })
+  }
+
+  /** #308 L2 — raw-vector kNN over the encrypted vector set (decrypted in the trusted tier).
+   *  Snippet is '' for vector hits in v1 (semantic match isn't span-located). */
+  async similarTo(vector: Float32Array, opts: { k?: number; minScore?: number; includeRecord?: boolean } = {}): Promise<RetrieveHit<T>[]> {
+    if (!this.embeddings || !this.vectorSet) throw new Error(`Collection "${this.name}": similarTo() requires an embeddings config.`)
+    if (this.lazy) throw new Error(`Collection "${this.name}": similarTo() requires eager mode (prefetch: true).`)
+    await this.ensureHydrated()
+    await this.vectorSet.ensureLoaded(this.buildVectorLoad())
+    const hits = this.vectorSet.cosineTopK(vector, opts.k ?? 10, {
+      ...(opts.minScore !== undefined ? { minScore: opts.minScore } : {}),
+      expectModel: this.embeddings.model,
+    })
+    return hits.map((h, i) => {
+      const base: RetrieveHit<T> = { id: h.id, score: h.score, rank: i + 1, field: '(vector)', snippet: '' }
+      if (opts.includeRecord) { const e = this.cache.get(h.id); if (e) (base as { record?: T }).record = stripI18nFilled(e.record as Record<string, unknown>) as T }
+      return base
+    })
   }
 
   // ─── Bulk operations ─────────────────────────────────────
@@ -2777,7 +3556,7 @@ export class Collection<T> {
   async getMany(ids: readonly string[]): Promise<Map<string, T | null>> {
     const result = new Map<string, T | null>()
     for (const id of ids) {
-      result.set(id, await this.get(id))
+      result.set(id, (await this.get(id)) as unknown as T | null)
     }
     return result
   }
@@ -2834,9 +3613,9 @@ export class Collection<T> {
    * const drafts = invoices.query(i => i.status === 'draft');
    * ```
    */
-  query(): Query<T>
+  query(): Query<T, S, Q, M>
   query(predicate: (record: T) => boolean): T[]
-  query(predicate?: (record: T) => boolean): Query<T> | T[] {
+  query(predicate?: (record: T) => boolean): Query<T, S, Q, M> | T[] {
     if (this.lazy) {
       throw new Error(
         `Collection "${this.name}": query() is not available in lazy mode (prefetch: false). ` +
@@ -2865,6 +3644,7 @@ export class Collection<T> {
       // back to a linear scan otherwise.
       getIndexes: () => this.getIndexes(),
       lookupById: (id: string) => this.cache.get(id)?.record,
+      snapshotEntries: () => [...this.cache.entries()].map(([id, e]) => ({ id, record: e.record })),
       ...(this.moneyFields ? { moneyFields: this.moneyFields } : {}),
     }
     // Build a JoinContext if the vault passed a join resolver.
@@ -2887,7 +3667,7 @@ export class Collection<T> {
             : {}),
         }
       : undefined
-    return new Query<T>(source, undefined, joinContext, this.aggregateStrategy)
+    return new Query<T, S, Q, M>(source, undefined, joinContext, this.aggregateStrategy)
   }
 
   /**
@@ -2926,7 +3706,7 @@ export class Collection<T> {
       if (event.action === 'put') {
         // Cache hit in eager mode; get() in lazy mode.
         void this.get(event.id).then(record => {
-          cb({ type: 'put', id: event.id, record: record ?? null })
+          cb({ type: 'put', id: event.id, record: (record ?? null) as unknown as T | null })
         }).catch(() => {
           // Record vanished between emit + lookup (race). Emit with null
           // so subscribers still see the event they were promised.
@@ -3188,7 +3968,7 @@ export class Collection<T> {
       const id = ids[i]!
       const envelope = await this.adapter.get(this.vault, this.name, id)
       if (envelope) {
-        const record = await this.decryptRecord(envelope)
+        const record = await this.decryptRecord(envelope, { sealedAsHandles: true })
         if (record === null) continue // shredded (tombstone) — skip
         items.push(record)
         // Same lazy-mode skip as the native path: don't pollute the LRU
@@ -3243,7 +4023,7 @@ export class Collection<T> {
    * to the synthetic pagination path with the same one-time
    * warning (`listPage()` routes through that fallback internally).
    */
-  scan(opts: { pageSize?: number } = {}): ScanBuilder<T> {
+  scan(opts: { pageSize?: number } = {}): ScanBuilder<T, S> {
     const pageSize = opts.pageSize ?? 100
     // Build a JoinContext if the vault passed a join resolver
     // — same machinery as `query()`. Without one, `.join()`
@@ -3271,7 +4051,7 @@ export class Collection<T> {
     // coupling. Rebinding through the arrow keeps the unbound-
     // method lint rule happy — matches the pattern used in
     // builder.ts's candidateRecords helper.
-    return new ScanBuilder<T>(
+    return new ScanBuilder<T, S>(
       {
         listPage: (listOpts) => this.listPage(listOpts),
       },
@@ -3289,7 +4069,9 @@ export class Collection<T> {
   ): Promise<Array<{ id: string; record: T; version: number }>> {
     const out: Array<{ id: string; record: T; version: number }> = []
     for (const { id, envelope } of items) {
-      const record = await this.decryptRecord(envelope)
+      // Public scan/listPage output (and the opportunistic cache fill in
+      // listPage) — sealed fields surface as handles, never plaintext.
+      const record = await this.decryptRecord(envelope, { sealedAsHandles: true })
       if (record === null) continue // shredded (tombstone) — skip the page row
       out.push({ id, record, version: envelope._v })
     }
@@ -3343,7 +4125,8 @@ export class Collection<T> {
       }
       return
     }
-    const record = await this.decryptRecord(envelope)
+    // Handle-form for the cache (non-residency for sensitive fields).
+    const record = await this.decryptRecord(envelope, { sealedAsHandles: true })
     if (record === null) {
       // The on-disk envelope is now a tombstone (shredded). Treat exactly
       // like a deleted record: drop the cache entry and its index rows.
@@ -3368,6 +4151,7 @@ export class Collection<T> {
   async _applyRemoteChange(id: string, action: 'put' | 'delete'): Promise<void> {
     await this._invalidateCacheEntry(id)
     this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action })
+    this.searchIndexStore?.markDirty() // #308 L1 — peer write changed the cache; rebuild on next retrieve
   }
 
   /** @internal — the current in-memory record without a store read (for conflict capture). */
@@ -3382,8 +4166,8 @@ export class Collection<T> {
     const ids = await this.adapter.list(this.vault, this.name)
     for (const id of ids) {
       const envelope = await this.adapter.get(this.vault, this.name, id)
-      if (envelope && !isTombstone(envelope, this.encrypted)) {
-        const record = await this.decryptRecord(envelope, { id })
+      if (envelope && !isTombstone(envelope, this.storeCiphertext)) {
+        const record = await this.decryptRecord(envelope, { id, sealedAsHandles: true })
         if (record === null) continue
         this.cache.set(id, { record, version: envelope._v })
       }
@@ -3396,8 +4180,8 @@ export class Collection<T> {
   /** Hydrate from a pre-loaded snapshot (used by Vault). */
   async hydrateFromSnapshot(records: Record<string, EncryptedEnvelope>): Promise<void> {
     for (const [id, envelope] of Object.entries(records)) {
-      if (isTombstone(envelope, this.encrypted)) continue
-      const record = await this.decryptRecord(envelope, { id })
+      if (isTombstone(envelope, this.storeCiphertext)) continue
+      const record = await this.decryptRecord(envelope, { id, sealedAsHandles: true })
       if (record === null) continue
       this.cache.set(id, { record, version: envelope._v })
     }
@@ -3687,7 +4471,7 @@ export class Collection<T> {
       collection: this.name,
       recordId: id,
       getDEK: this.getDEK,
-      encrypted: this.encrypted,
+      encrypted: this.storeCiphertext,
       userId: this.keyring.userId,
       erasableBlobs: this.perRecordCek,
       debugPlaintext: this.keyring.debugPlaintext === true,
@@ -3757,7 +4541,10 @@ export class Collection<T> {
       Object.values(this.dictKeyFields).some(
         (d) => isStaticDictDescriptor(d) && d.displayLocale !== undefined,
       )
-    if (!locale && !hasStaticDisplay) return result as T
+    // #435 — strip the internal densify marker even when no locale is active
+    // (applyI18nLocale, which normally strips it, is skipped on this path).
+    // Non-mutating: never touches the cached/stored record object.
+    if (!locale && !hasStaticDisplay) return stripI18nFilled(result) as T
 
     // 1. i18nText resolution — guarded on `locale`, because the relaxed gate
     // above can now be entered with `locale === undefined` (static-display).
@@ -3855,7 +4642,10 @@ export class Collection<T> {
       result = withLabels
     }
 
-    return result as T
+    // #435 — final guard: the locale-less static-display path skips
+    // applyI18nLocale's strip, so ensure the densify marker never leaks here
+    // either. Non-mutating (no-op when absent or already stripped above).
+    return stripI18nFilled(result) as T
   }
 
   /**
@@ -3994,6 +4784,21 @@ export class Collection<T> {
     return { purged, residue }
   }
 
+  /** #308 L2 — drop a record's encrypted _vec sidecar on erasure (a vector is text-invertible).
+   *  Called by vault.ts forget() inside a resilient try/catch; residue is reported in ForgetResult. */
+  async _purgeVector(id: string): Promise<void> {
+    await this.adapter.delete(this.vault, '_vec', id)
+    this.vectorSet?.markDirty()
+  }
+
+  /** #308 L1.5 — drop the persisted lexical-index blob (forget/erasure): an opaque
+   *  all-records index must not survive crypto-shred. Idempotent; no-op without persist. */
+  async _purgeSearchIndex(): Promise<void> {
+    const store = this.searchIndexStore
+    if (store && 'removePersisted' in store) await (store as { removePersisted(): Promise<void> }).removePersisted()
+    else store?.markDirty()
+  }
+
   /**
    * Bulk-load the persisted-index mirror from `_idx/<field>/*` side-cars
    * on first lazy-mode query. Idempotent — subsequent calls short-circuit
@@ -4120,7 +4925,7 @@ export class Collection<T> {
    * `query()` there. Throws if no index is declared, because a lazy
    * query with no index would need to enumerate the whole collection.
    */
-  lazyQuery(): LazyQuery<T> {
+  lazyQuery(): LazyQuery<T, S, Q> {
     if (!this.lazy) {
       throw new Error(
         `Collection "${this.name}": lazyQuery() is only available in lazy mode ` +
@@ -4146,9 +4951,9 @@ export class Collection<T> {
       collectionName: this.name,
       persistedIndexes: persisted,
       ensurePersistedIndexesLoaded: () => this.ensurePersistedIndexesLoaded(),
-      getRecord: (id: string) => this.get(id),
+      getRecord: (id: string) => this.get(id) as unknown as Promise<T | null>,
     }
-    return new LazyQuery<T>(source)
+    return new LazyQuery<T, S, Q>(source)
   }
 
   /**
@@ -4214,7 +5019,7 @@ export class Collection<T> {
       ? { _source: source, _sourceTs: sourceTs ?? new Date().toISOString() }
       : {}
 
-    if (!this.encrypted) {
+    if (!this.storeCiphertext) {
       return {
         _noydb: NOYDB_FORMAT_VERSION,
         _v: version,
@@ -4267,27 +5072,58 @@ export class Collection<T> {
     // beside the envelope metadata so native store tools read them directly.
     // Internal (`_`-prefixed) collections keep the classic shape — some store
     // `_`-prefixed fields that the inline layout would collide with.
-    if (!this.encrypted && this.keyring.debugPlaintext === true && !this.name.startsWith('_')) {
+    if (!this.storeCiphertext && this.keyring.debugPlaintext === true && !this.name.startsWith('_')) {
       return this.buildDebugEnvelope(record, version, source, sourceTs)
     }
-    const base = await this.encryptJsonString(JSON.stringify(record), version, cek, source, sourceTs)
-    if (!this.deterministicFields || !this.encrypted) return base
+
+    // Structural group-encryption (#503): peel declared sensitive fields out
+    // of the record BEFORE building `_data`, sealing each into its own
+    // `_sealed[field]` slot under a per-field key. Default-off — with no
+    // sensitive fields the open record is unchanged and no `_sealed` is
+    // emitted, so the envelope stays byte-identical to legacy output.
+    let openRecord = record
+    let sealed: Record<string, string> | undefined
+    if (this.storeCiphertext && this.sensitiveFields.size > 0) {
+      const src = record as unknown as Record<string, unknown>
+      const dek = await this.getDEK(this.name)
+      const open: Record<string, unknown> = { ...src }
+      const slots: Record<string, string> = {}
+      for (const field of this.sensitiveFields) {
+        if (!(field in src)) continue
+        const value = src[field]
+        if (value === undefined) continue
+        const fieldKey = await deriveSealedFieldKey(dek, this.name, field)
+        const { iv, data } = await encrypt(JSON.stringify(value), fieldKey)
+        slots[field] = `${iv}:${data}`
+        delete open[field]
+      }
+      if (Object.keys(slots).length > 0) {
+        sealed = slots
+        openRecord = open as unknown as T
+      }
+    }
+
+    const base = await this.encryptJsonString(JSON.stringify(openRecord), version, cek, source, sourceTs)
+    const withSealed = sealed ? { ...base, _sealed: sealed } : base
+    if (!this.deterministicFields || !this.storeCiphertext) return withSealed
 
     // compute deterministic-ciphertext slots for every
     // declared field. Non-primitive values are JSON-stringified so
-    // objects/arrays still dedupe on structural equality.
+    // objects/arrays still dedupe on structural equality. Sealed fields are
+    // excluded — they live only in `_sealed`, never the `_det` index.
     const dek = await this.getDEK(this.name)
     const rec = record as unknown as Record<string, unknown>
     const det: Record<string, string> = {}
     for (const field of this.deterministicFields) {
+      if (this.sensitiveFields.has(field)) continue
       const value = rec[field]
       if (value === undefined || value === null) continue
       const plaintext = typeof value === 'string' ? value : JSON.stringify(value)
       const { iv, data } = await encryptDeterministic(plaintext, dek, `${this.name}/${field}`)
       det[field] = `${iv}:${data}`
     }
-    if (Object.keys(det).length === 0) return base
-    return { ...base, _det: det }
+    if (Object.keys(det).length === 0) return withSealed
+    return { ...withSealed, _det: det }
   }
 
   /**
@@ -4309,7 +5145,7 @@ export class Collection<T> {
         `Collection "${this.name}": field "${field}" is not declared in deterministicFields`,
       )
     }
-    if (!this.encrypted) {
+    if (!this.storeCiphertext) {
       throw new Error(
         `Collection "${this.name}": findByDet is only meaningful on encrypted collections`,
       )
@@ -4340,7 +5176,7 @@ export class Collection<T> {
         `Collection "${this.name}": field "${field}" is not declared in deterministicFields`,
       )
     }
-    if (!this.encrypted) {
+    if (!this.storeCiphertext) {
       throw new Error(
         `Collection "${this.name}": queryByDet is only meaningful on encrypted collections`,
       )
@@ -4667,10 +5503,10 @@ export class Collection<T> {
     // `_cek`. Decrypting it would call `decrypt('', '', dek)` → AES-GCM
     // OperationError → TamperedError. Return null so every read callsite
     // treats it as "absent / skip", matching how get()/list already drop
-    // tombstones. Legacy plaintext collections (`!this.encrypted`) legitimately
+    // tombstones. Legacy plaintext collections (`!this.storeCiphertext`) legitimately
     // have empty `_iv`/`_data`, so `isTombstone` is false for them — preserved.
-    if (isTombstone(envelope, this.encrypted)) return null
-    if (!this.encrypted) {
+    if (isTombstone(envelope, this.storeCiphertext)) return null
+    if (!this.storeCiphertext) {
       // Debug-plaintext layout: record fields were inlined as top-level keys
       // (see buildDebugEnvelope). Reconstruct the record from the non-`_`
       // keys. Self-describing via `_debug`, so a classic plaintext reader
@@ -4709,9 +5545,55 @@ export class Collection<T> {
    * that may predate a schema change, so validating it would be a
    * false positive. Every non-history read leaves this flag `false`.
    */
+  /**
+   * Unseal a single `_sealed[field]` slot to its plaintext value: derive the
+   * per-field key off the collection DEK, AES-GCM-decrypt the `iv:data` blob,
+   * and JSON-parse the result. Shared by both the inline-decrypt path and a
+   * {@link Sealed} handle's `reveal()` — so the on-demand reveal and the eager
+   * materialisation always agree byte-for-byte.
+   */
+  private async unsealField(field: string, blob: string): Promise<unknown> {
+    const dek = await this.getDEK(this.name)
+    const sep = blob.indexOf(':')
+    const iv = blob.slice(0, sep)
+    const data = blob.slice(sep + 1)
+    const fieldKey = await deriveSealedFieldKey(dek, this.name, field)
+    return JSON.parse(await decrypt(iv, data, fieldKey))
+  }
+
+  /**
+   * Build a non-leaking {@link Sealed} handle over a sealed field's ciphertext.
+   * The handle captures only the ciphertext `blob` and a closure to
+   * {@link unsealField}; the plaintext is never stored on it — so the handle
+   * may sit in the working-set cache (or be logged/serialised) without
+   * exposing the value, which decrypts only on `reveal()`.
+   */
+  private makeSealedHandle(field: string, blob: string): SealedHandle<unknown> {
+    return new SealedHandle(() => this.unsealField(field, blob))
+  }
+
+  /**
+   * Replace a record's declared sensitive fields with {@link Sealed} handles
+   * built from the just-written envelope's `_sealed` slots, leaving every
+   * other field as its plaintext value. Used to populate the cache on the
+   * write path without ever materialising sealed plaintext into it. Returns
+   * `record` untouched when the collection seals nothing.
+   */
+  private toCacheRecord(record: T, envelope: EncryptedEnvelope): T {
+    const sealed = envelope._sealed
+    if (sealed === undefined || !this.storeCiphertext || this.sensitiveFields.size === 0) {
+      return record
+    }
+    const clone = { ...(record as unknown as Record<string, unknown>) }
+    for (const [field, blob] of Object.entries(sealed)) {
+      clone[field] = this.makeSealedHandle(field, blob)
+    }
+    return clone as unknown as T
+  }
+
   private async decryptRecord(
     envelope: EncryptedEnvelope,
-    opts: { skipValidation?: boolean; id?: string } = {},
+    opts: { skipValidation?: boolean; id?: string; sealedAsHandles?: boolean } = {},
   ): Promise<T | null> {
     const json = await this.decryptJsonString(envelope, opts.id)
     // Tombstone (shredded record) → null, propagated from decryptJsonString.
@@ -4727,7 +5609,29 @@ export class Collection<T> {
 
     let record = parsed as T
 
-    if (this.schema !== undefined && !opts.skipValidation) {
+    // Structural group-encryption (#503) + sealed access gate.
+    // Each `_sealed[field]` slot is restored under its own per-field key.
+    // `sealedAsHandles: false` (default — internal callers that compute on
+    // real values) inline-decrypts to the plaintext value; `true` (the
+    // public / cache path) yields an opaque {@link Sealed} handle so the
+    // plaintext is never materialised into the working-set cache.
+    if (envelope._sealed !== undefined && this.storeCiphertext) {
+      const target = record as unknown as Record<string, unknown>
+      for (const [field, blob] of Object.entries(envelope._sealed)) {
+        target[field] = opts.sealedAsHandles
+          ? this.makeSealedHandle(field, blob)
+          : await this.unsealField(field, blob)
+      }
+    }
+
+    // Skip output validation when sealed fields are returned as handles:
+    // the record carries opaque `Sealed` handles in place of the declared
+    // values, so a whole-record schema check would false-positive on them.
+    // (The values were validated on input/write; the open fields are
+    // unchanged from the validated body.) The inline-value path below still
+    // validates fully.
+    const sealedAsHandles = opts.sealedAsHandles === true && envelope._sealed !== undefined
+    if (this.schema !== undefined && !opts.skipValidation && !sealedAsHandles) {
       // Context string deliberately avoids leaking the record id — the
       // envelope only carries the version, not the id (the id lives in
       // the adapter-side key). `<collection>@v<n>` is enough for the

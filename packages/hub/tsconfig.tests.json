@@ -1,0 +1,17 @@
+{
+  "//": "Ratchet: typechecks runtime test files (*.test.ts) so they can't silently drift from the public API (closes the gap that hid #504's Sealed<V> handle types). `noImplicitAny:false` drops the implicit-any param tax (noise); strictNullChecks/exactOptionalPropertyTypes stay ON. The `exclude` list is the burn-down backlog of files that currently fail typecheck (or import sibling @noy-db/* packages not built in the typecheck CI job) — fix a file's errors (and add any sibling it needs as a hub devDependency), then remove it from this list. New/untouched, non-sibling test files MUST typecheck. Run via `pnpm --filter @noy-db/hub typecheck`.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "../..",
+    "noEmit": true,
+    "types": [
+      "node"
+    ],
+    "noImplicitAny": false
+  },
+  "include": [
+    "src",
+    "__tests__/**/*.test.ts"
+  ],
+  "exclude": []
+}

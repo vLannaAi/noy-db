@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { createNoydb, withMaterializedView, sum } from '../../src/index.js'
+import { createNoydb, withMaterializedView, sum, GroupedAggregation } from '../../src/index.js'
 import { withAggregate } from '../../src/aggregate/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
 
@@ -7,7 +7,7 @@ function memory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
-    capabilities: { casAtomic: true, auth: { kind: 'none' } },
+    capabilities: { casAtomic: true, auth: { kind: 'none', required: false, flow: 'static' } },
     async get(v, c, i) { return data.get(k(v, c, i)) ?? null },
     async put(v, c, i, env) { data.set(k(v, c, i), env) },
     async delete(v, c, i) { data.delete(k(v, c, i)) },
@@ -20,16 +20,16 @@ function memory(): NoydbStore {
       for (const [key, env] of data) {
         const [vname, cname, id] = key.split('/')
         if (vname === v) {
-          out[cname] = out[cname] ?? {}
-          out[cname][id] = env
+          out[cname!] = out[cname!] ?? {}
+          out[cname!]![id!] = env
         }
       }
       return out
     },
     async saveAll(v, payload) {
       for (const c of Object.keys(payload)) {
-        for (const i of Object.keys(payload[c])) {
-          data.set(k(v, c, i), payload[c][i])
+        for (const i of Object.keys(payload[c]!)) {
+          data.set(k(v, c, i), payload[c]![i]!)
         }
       }
     },
@@ -61,7 +61,7 @@ describe('withMaterializedView — multi-key groupBy inside query() (#166)', () 
         db.collection<Compensation>('compensations')
           .query()
           .groupBy('clientId', 'period')
-          .aggregate({ total: sum('taxAmount') }),
+          .aggregate({ total: sum('taxAmount') }) as GroupedAggregation<Pnd1Row>,
       sources: ['compensations'],
       rowKey: row => `${row.clientId}|${row.period}`,
       refresh: 'eager',

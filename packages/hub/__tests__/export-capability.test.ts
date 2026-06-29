@@ -70,6 +70,7 @@ function fakeKeyring(role: UnlockedKeyring['role'], cap?: UnlockedKeyring['expor
     deks: new Map(),
     kek: {} as CryptoKey,
     salt: new Uint8Array(),
+    authenticators: [],
     ...(cap !== undefined && { exportCapability: cap }),
   }
 }

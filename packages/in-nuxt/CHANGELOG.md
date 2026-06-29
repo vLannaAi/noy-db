@@ -1,5 +1,16 @@
 # Changelog — in-nuxt
 
+## 0.2.0-pre.31
+
+### Patch Changes
+
+- Updated dependencies
+  - @noy-db/hub@0.2.0-pre.31
+  - @noy-db/in-devtools@0.2.0-pre.31
+  - @noy-db/in-pinia@0.2.0-pre.31
+  - @noy-db/in-rest@0.2.0-pre.31
+  - @noy-db/in-vue@0.2.0-pre.31
+
 ## Unreleased (0.2.0-pre.6)
 
 - **Nuxt DevTools tab** — dev-mode inspector panel at `/_noydb-devtools`. Auto-discovered via `getActiveNoydb()`; shows vault structure (schema + stats), paged records (n/p), and live write monitor with conflict highlighting + optional store-latency readout (`to-meter`). Opt out with `noydb: { devtools: false }`.
@@ -43,6 +54,7 @@ Version-only lockstep bump; no source changes since pre.2.
 
 - Updated dependencies
   - @noy-db/hub@0.1.0-pre.15
+
 ## 0.1.0-pre.14
 
 ### Patch Changes
@@ -57,7 +69,6 @@ Version-only lockstep bump; no source changes since pre.2.
 - Updated dependencies
   - @noy-db/hub@0.1.0-pre.12
 
-
 ## 0.1.0-pre.11
 
 ### Patch Changes
@@ -65,13 +76,11 @@ Version-only lockstep bump; no source changes since pre.2.
 - Updated dependencies
   - @noy-db/hub@0.1.0-pre.11
 
-
 ## 0.1.0-pre.9
 
 ### Patch Changes
 
 - Updated dependencies — @noy-db/hub@0.1.0-pre.9
-
 
 ## 0.1.0-pre.8
 

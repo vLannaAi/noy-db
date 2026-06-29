@@ -28,6 +28,7 @@
 import type { I18nStrategy, BuildDictionaryHandleOptions } from './strategy.js'
 import { applyI18nLocale, validateI18nTextValue } from './core.js'
 import { enforceScript } from './script.js'
+import { computeExemptFills, densify } from './densify.js'
 import { DictionaryHandle } from './dictionary.js'
 
 export function withI18n(): I18nStrategy {
@@ -35,6 +36,8 @@ export function withI18n(): I18nStrategy {
     applyI18nLocale,
     validateI18nTextValue,
     enforceScript,
+    computeExemptFills,
+    densify,
     buildDictionaryHandle<Keys extends string = string>(
       opts: BuildDictionaryHandleOptions<Keys>,
     ): DictionaryHandle<Keys> {

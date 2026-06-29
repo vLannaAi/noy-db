@@ -5,7 +5,7 @@ export default defineConfig({
     index: 'src/index.ts',
     'bin/noydb': 'src/bin/noydb.ts',
   },
-  format: ['esm', 'cjs'],
+  format: ['esm'],
   dts: { entry: 'src/index.ts' },
   clean: true,
   splitting: false,

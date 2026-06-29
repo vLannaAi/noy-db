@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/attestation",
-  "version": "0.2.0-pre.25",
+  "version": "0.2.0-pre.31",
   "description": "Pure, zero-dependency document-attestation primitive for noy-db — per-field salted commitments, Ed25519 sign/verify, QR credential codec, and revocation checks. Runs in Node and the browser; the offline verifier imports only this.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
@@ -17,17 +17,10 @@
   "sideEffects": false,
   "exports": {
     ".": {
-      "import": {
-        "types": "./dist/index.d.ts",
-        "default": "./dist/index.js"
-      },
-      "require": {
-        "types": "./dist/index.d.cts",
-        "default": "./dist/index.cjs"
-      }
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     }
   },
-  "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
@@ -36,7 +29,7 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   },
   "scripts": {
     "build": "tsup",

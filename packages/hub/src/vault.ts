@@ -31,7 +31,7 @@ import { OverlayedCollection } from './overlay-views/virtual-collection.js'
 import type { PublicEnvelope } from './meta/public-envelope/types.js'
 import { buildRecipientKeyringFile } from './team/keyring.js'
 import { ensureCollectionDEK, hasAccess, hasExportCapability, hasImportCapability } from './team/keyring.js'
-import type { ExportFormat, KeyringFile } from './types.js'
+import type { ExportFormat, KeyringFile, SensitiveOpt, IndexFieldName, IndexDefFor, MoneyFieldsOpt } from './types.js'
 import {
   ExportCapabilityError,
   ImportCapabilityError,
@@ -88,9 +88,9 @@ import {
 import type { DictionaryHandle, DictionaryOptions, DictKeyDescriptor, StaticDictDescriptor } from './i18n/dictionary.js'
 import { isDictCollectionName, isStaticDictDescriptor } from './i18n/dictionary.js'
 import { LinkSet, isLinkCollectionName, linkCollectionName, linkRowKey, LinkIntegrityError, type LinkSpec, type LinkSetHandle } from './links/link-set.js'
+import type { EmbeddingDescriptor } from './embeddings/index.js'
 import type { I18nTextDescriptor } from './i18n/core.js'
 import { getAtPath } from './i18n/core.js'
-import type { MoneyDescriptor } from './money/descriptor.js'
 import type { ComputedFields } from './computed/index.js'
 import { NO_I18N, type I18nStrategy } from './i18n/strategy.js'
 import { NO_SYNC, type SyncStrategy } from './team/sync-strategy.js'
@@ -150,6 +150,8 @@ import type { IssueContext } from './attestation/issue.js'
 import type { RevokeContext } from './attestation/revoke.js'
 import type { DumpSchemaOptions, VaultSchemaSnapshot, SchemaIntrospection } from './introspection/types.js'
 import { dumpVaultSchema, type VaultIntrospectState } from './introspection/walk.js'
+import type { FieldMeta } from './introspection/field-meta.js'
+import type { CollectionMeta, VaultMeta } from './introspection/meta.js'
 import { USER_ENVELOPE_COLLECTION } from './meta/user-envelope/types.js'
 
 /**
@@ -391,6 +393,13 @@ export class Vault {
   private locale: string | undefined
 
   /**
+   * Vault-level descriptive metadata. Set once at construction via
+   * `openVault(name, { meta })`. First-wins: re-opening a cached vault
+   * with different meta leaves the original untouched.
+   */
+  private readonly vaultMeta: VaultMeta | undefined
+
+  /**
    * Current consent scope. Set by `withConsent()` and
    * restored in its finally block. When non-null, every collection
    * access inside the scope writes one entry to `_consent_audit`.
@@ -537,6 +546,8 @@ export class Vault {
     guardStrategies?: ReadonlyArray<GuardStrategyHandleAny> | undefined
     numberingConfigs?: ReadonlyArray<DeferredNumberingConfig> | undefined
     forgetStrategy?: ForgetStrategy | undefined
+    /** Vault-level descriptive metadata — set once at construction (first-wins). */
+    meta?: VaultMeta | undefined
   }) {
     this.adapter = opts.adapter
     this.name = opts.name
@@ -545,10 +556,11 @@ export class Vault {
     this.keyring = opts.keyring
     this.encrypted = opts.encrypted
     this.schemaFence = new SchemaFenceController({
-      store: this.adapter,
+      coordination: this.noydb.coordination,
       vault: this.name,
       onFlush: () => this.noydb._writeQueueTracker.onFlush(),
       clientId: this.noydb._clientId,
+      sessionId: this.noydb._sessionId,
       emit: (e) => this.emitter.emit('schema:fence-changed', { vault: this.name, ...e }),
     })
     this.emitter = opts.emitter
@@ -580,6 +592,7 @@ export class Vault {
     this.historyConfig = opts.historyConfig ?? { enabled: true }
     this.reloadKeyring = opts.reloadKeyring
     this.locale = opts.locale
+    this.vaultMeta = opts.meta
     this.translateText = opts.plaintextTranslator
 
     // Build the lazy DEK resolver. Pulled out into a private method
@@ -667,8 +680,8 @@ export class Vault {
    * Lazy mode + indexes is rejected at construction time — see the
    * Collection constructor for the rationale.
    */
-  collection<T>(collectionName: string, options?: {
-    indexes?: IndexDef[]
+  collection<T, S extends keyof T & string = never, Q extends keyof T & string = never, M extends keyof T & string = never>(collectionName: string, options?: {
+    indexes?: readonly IndexDefFor<IndexFieldName<T, S, Q>>[]
     /** — auto-reconcile policy for persisted-index drift. */
     reconcileOnOpen?: 'off' | 'dry-run' | 'auto'
     prefetch?: boolean
@@ -677,10 +690,22 @@ export class Vault {
     refs?: Record<string, RefDescriptor>
     /** — declare i18nText fields for locale-aware reads. */
     i18nFields?: Record<string, I18nTextDescriptor>
+    /** — #308 L2: embedding config for write-time vector derivation + semantic retrieval. */
+    embeddings?: EmbeddingDescriptor
+    /** — #308 L1: string fields exposed to client-side `retrieve()`. */
+    textIndexes?: readonly IndexFieldName<T, S>[]
+    /** — #308 L1: pre-build the lexical index on open (eager-only). */
+    warmIndexOnOpen?: boolean
+    /** — #308 L1.5: persist the lexical index as an opaque encrypted blob at `_ftindex/<name>`. */
+    textIndexPersist?: boolean
     /** — declare dictKey / staticDict fields for label resolution on reads. */
     dictKeyFields?: Record<string, DictKeyDescriptor | StaticDictDescriptor>
+    /** Consumer-neutral per-field descriptors (label/unit/semanticType/sensitivity…). See collection.describe(). */
+    fieldMeta?: Record<string, FieldMeta>
+    /** The collection's own descriptive metadata (label/description/icon). See collection.describe(). */
+    meta?: CollectionMeta
     /** — declare money() fields for currency-safe decimal storage/formatting. */
-    moneyFields?: Record<string, MoneyDescriptor>
+    moneyFields?: MoneyFieldsOpt<T, M>
     /** — declare computed scalar fields, evaluated on write (schema-owned). */
     computed?: ComputedFields<T>
     /** — per-collection conflict resolution policy. */
@@ -692,9 +717,15 @@ export class Vault {
      * equality search. See `Collection` constructor docs for the full
      * trade-off. Requires `acknowledgeDeterministicRisk: true`.
      */
-    deterministicFields?: readonly string[]
+    deterministicFields?: readonly IndexFieldName<T, S>[]
     /** — explicit ack that deterministic encryption leaks equality. */
     acknowledgeDeterministicRisk?: boolean
+    /**
+     * — structural group-encryption (#503). Fields sealed into their own
+     * `_sealed[field]` envelope slot (per-field key), kept out of the open
+     * `_data` blob. Default-off; byte-identical output when absent.
+     */
+    sensitive?: SensitiveOpt<T, S>
     /**
      * — per-record content-encryption keys. When `true`, every record
      * body is encrypted under a fresh per-record CEK wrapped under the
@@ -754,7 +785,12 @@ export class Vault {
      * derived collections. Defaults to the vault-wide `history` config. See #361.
      */
     historyConfig?: HistoryConfig
-  }): Collection<T> {
+    /**
+     * Opt-in: keep the working set encrypted in RAM, decrypting on read (future phase).
+     * Default false — the working set is plaintext.
+     */
+    ramCiphertext?: boolean
+  }): Collection<T, S, Q, M> {
     // Overlay intercept. When the requested collection name
     // matches a registered `withOverlayedView`, return the virtual
     // proxy that merges base + overlay on read and routes writes to
@@ -772,7 +808,7 @@ export class Vault {
         const overlay = this.collection<T>(spec.overlay)
         const baseRowKey = overlayRegistry.resolveBaseRowKey(collectionName, this.materializedViewRegistry)
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return new OverlayedCollection<any>(spec, base, overlay, baseRowKey) as unknown as Collection<T>
+        return new OverlayedCollection<any>(spec, base, overlay, baseRowKey) as unknown as Collection<T, S, Q, M>
       }
     }
     // Guard: reject reserved _dict_* names
@@ -801,6 +837,18 @@ export class Vault {
       // MV source is auto-created (without options) before this
       // declaration; attach computed fields so writes materialize them.
       coll._applyComputed(options.computed as ComputedFields)
+    }
+    if (coll && options?.fieldMeta) {
+      // Same MV-pre-creation reconcile as money/computed: a collection
+      // auto-created without options gets its fieldMeta attached here.
+      // First-wins: if the collection already has fieldMeta set this is a no-op.
+      coll._applyFieldMeta(options.fieldMeta)
+    }
+    if (coll && options?.meta) {
+      // Same MV-pre-creation reconcile as fieldMeta: attach collection-level
+      // descriptive metadata to a collection that was auto-created without options.
+      // First-wins.
+      coll._applyMeta(options.meta)
     }
     if (!coll) {
       // Register ref declarations (if any) with the vault-level
@@ -909,6 +957,7 @@ export class Vault {
         getDEK: this.getDEK,
         onDirty: this.onDirty,
         historyConfig: effectiveHistoryConfig,
+        historyConfigExplicit: options?.historyConfig !== undefined,
         // thread the vault-wide blob strategy into every
         // collection. `undefined` is intentionally preserved so the
         // Collection constructor uses its NO_BLOBS default.
@@ -963,7 +1012,7 @@ export class Vault {
             }
           : {}),
       }
-      if (options?.indexes !== undefined) collOpts.indexes = options.indexes
+      if (options?.indexes !== undefined) collOpts.indexes = options.indexes as unknown as IndexDef[]
       if (options?.reconcileOnOpen !== undefined) collOpts.reconcileOnOpen = options.reconcileOnOpen
       if (options?.prefetch !== undefined) collOpts.prefetch = options.prefetch
       if (options?.cache !== undefined) collOpts.cache = options.cache
@@ -975,6 +1024,9 @@ export class Vault {
       }
       if (options?.acknowledgeDeterministicRisk !== undefined) {
         collOpts.acknowledgeDeterministicRisk = options.acknowledgeDeterministicRisk
+      }
+      if (options?.sensitive !== undefined) {
+        collOpts.sensitive = options.sensitive
       }
       if (options?.perRecordKeys !== undefined) {
         collOpts.perRecordKeys = options.perRecordKeys
@@ -994,11 +1046,16 @@ export class Vault {
         collOpts.perRecordKeys = true
       }
       if (options?.provenance !== undefined) collOpts.provenance = options.provenance
+      if (options?.ramCiphertext !== undefined) collOpts.ramCiphertext = options.ramCiphertext
       if (options?.tiers !== undefined) collOpts.tiers = options.tiers
       if (options?.tierMode !== undefined) collOpts.tierMode = options.tierMode
       collOpts.onCrossTierAccess = (event) => this.emitCrossTier(event)
       if (this.syncAdapter !== undefined) collOpts.syncAdapter = this.syncAdapter
       if (options?.i18nFields !== undefined) collOpts.i18nFields = options.i18nFields
+      if (options?.embeddings !== undefined) collOpts.embeddings = options.embeddings
+      if (options?.textIndexes !== undefined) collOpts.textIndexes = options.textIndexes
+      if (options?.warmIndexOnOpen !== undefined) collOpts.warmIndexOnOpen = options.warmIndexOnOpen
+      if (options?.textIndexPersist !== undefined) collOpts.textIndexPersist = options.textIndexPersist
       if (options?.moneyFields !== undefined) collOpts.moneyFields = options.moneyFields
       if (options?.computed !== undefined) collOpts.computed = options.computed as ComputedFields
       if (options?.dictKeyFields !== undefined) {
@@ -1015,6 +1072,9 @@ export class Vault {
           const handle = this.dictionary(dictName)
           return handle.resolveLabel(key, locale, fallback)
         }
+        // #308 L1 — provide a handle factory for dynamic dicts so the search
+        // index can call list() to build the full key→labels map.
+        collOpts.getDictionary = async (name: string) => this.dictionary(name)
         collOpts.dictKeyFields = options.dictKeyFields
       }
       // i18n / staticDict validation on put — enforced via the compartment's
@@ -1032,8 +1092,30 @@ export class Vault {
       if (options?.i18nFields !== undefined && this.translateText) {
         collOpts.autoTranslateHook = this.translateText
       }
+      // fieldMeta: thread through to the collection. Real key-validation (against
+      // schema-derived fields) happens in the async describe() path where the full
+      // known-field set is available. The sync path at vault-construction time cannot
+      // validate schema fields, so no validate call here.
+      if (options?.fieldMeta !== undefined) {
+        collOpts.fieldMeta = options.fieldMeta
+      }
+      // meta: thread through to the collection; surfaced via getMeta() / describe().
+      if (options?.meta !== undefined) {
+        collOpts.meta = options.meta
+      }
+      // Pass a snapshot of the outbound refs for describe() (sync, config-only).
+      if (options?.refs !== undefined) {
+        collOpts.declaredRefs = this.refRegistry.getOutbound(collectionName)
+      }
       coll = new Collection<T>(collOpts)
       this.collectionCache.set(collectionName, coll)
+
+      // #308 L1 — pre-build the lexical index on open when opted in. Fire-and-forget,
+      // eager-only; warmIndex() no-ops when no textIndexes are declared and throws
+      // (caught here) in lazy mode, so this stays a single guarded line.
+      if (options?.warmIndexOnOpen === true && options.prefetch !== false) {
+        void coll.warmIndex().catch(() => {})
+      }
 
       // Fire-and-forget persisted-schema write when opted in. Pushed
       // onto _pendingSchemaWrites so tests can drain before asserting;
@@ -1070,7 +1152,7 @@ export class Vault {
         this._pendingSchemaWrites.push(work)
       }
     }
-    return coll as Collection<T>
+    return coll as unknown as Collection<T, S, Q, M>
   }
 
   /**
@@ -1156,9 +1238,10 @@ export class Vault {
     if (this.#fenceCoordinationStarted) return
     this.#fenceCoordinationStarted = true
     this.#fenceWatcher = new FenceWatcher({
-      store: this.adapter,
+      coordination: this.noydb.coordination,
       vault: this.name,
       clientId: this.noydb._clientId,
+      sessionId: this.noydb._sessionId,
       onFlush: () => this.noydb._writeQueueTracker.onFlush(),
       emit: (e) => this.emitter.emit('schema:fence-changed', { vault: this.name, ...e }),
     })
@@ -1170,6 +1253,16 @@ export class Vault {
     this.#fenceWatcher?.stop()
     this.#fenceWatcher = undefined
     this.#fenceCoordinationStarted = false
+  }
+
+  /** @internal #308 L1.5 — best-effort flush of all open collections' persisted
+   *  lexical indexes on close(). Called fire-and-forget from noydb.close().
+   *  Correctness is backstopped by the fingerprint: a missed flush → rebuild on
+   *  next load. Only collections with textIndexPersist have a flush(); others no-op. */
+  async _flushSearchIndexes(): Promise<void> {
+    for (const coll of this.collectionCache.values()) {
+      await coll.flushIndex().catch(() => { /* best-effort */ })
+    }
   }
 
   /** @internal Drive one heartbeat + watch cycle deterministically (tests). */
@@ -1526,6 +1619,11 @@ export class Vault {
     return this.locale
   }
 
+  /** Return the vault-level descriptive metadata (set-once at construction). */
+  getMeta(): VaultMeta | undefined {
+    return this.vaultMeta
+  }
+
   /**
    * The user id of the keyring backing this vault session. Useful for
    * UI affordances ("you are alice"), audit trails, and orchestration
@@ -1827,7 +1925,7 @@ export class Vault {
       listRecords: (name: string) => this.adapter.list(this.name, name),
       getRecord: async <T>(name: string, id: string) => {
         const coll = this.collection<T>(name)
-        return coll.get(id)
+        return coll.get(id) as unknown as T | null
       },
       listSlots: async (name: string, id: string) => {
         const coll = this.collection(name)
@@ -2555,6 +2653,15 @@ export class Vault {
       indexPostingsPurged += idxPurge.purged
       for (const field of idxPurge.residue) indexResidue.push(`${ref.collection}:${ref.id}:${field}`)
 
+      // Purge the record's encrypted _vec sidecar (#308 L2): a vector embedding
+      // is text-invertible, so it must not survive crypto-shred of the source record.
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (coll as any)._purgeVector(ref.id)
+      } catch {
+        indexResidue.push(`${ref.collection}:${ref.id}:_vec`)
+      }
+
       // Blob attachments (#365): crypto-shred the record's erasable blobs.
       // An erasable blob's chunks are under a per-blob content CEK whose only
       // copy is the BlobObject's wrapped `_cek`; deleting it at refCount 0
@@ -2578,6 +2685,19 @@ export class Vault {
 
       // Drop the (now-shredded) ref from the subject index.
       await this._removeSubjectRef(subjectId, ref)
+    }
+
+    // Purge the persisted lexical-index blob for each affected collection
+    // (#308 L1.5): an opaque all-records index must not survive crypto-shred.
+    // Failures (transient/permission) must NOT abort forget — an unpurgeable
+    // blob is erasure residue surfaced in the returned ForgetResult.
+    for (const collName of collections) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (this.collection(collName) as any)._purgeSearchIndex()
+      } catch {
+        indexResidue.push(`${collName}:_ftindex`)
+      }
     }
 
     // ONE summary ledger entry for the whole subject. payloadHash =
@@ -3716,9 +3836,18 @@ export class Vault {
         materializedViews: this.materializedViewRegistry !== null,
         overlayViews: this.overlayedViewRegistry !== null,
       },
+      ...(this.vaultMeta !== undefined ? { vaultMeta: this.vaultMeta } : {}),
       mvRegistry: this.materializedViewRegistry,
       overlayRegistry: this.overlayedViewRegistry,
       derivationRegistry: this.derivationRegistry,
+      // Thread vault-level per-collection registries into the walker so
+      // walk.ts can project archive/schemaUpdate into CollectionDescriptor.config
+      // without coupling the walker to Vault internals.
+      getCollectionSchemaUpdateNames: (col) => {
+        const names = this.#schemaUpdateNames.get(col)
+        return names !== undefined && names.length > 0 ? names : undefined
+      },
+      hasCollectionArchive: (col) => this.archiveRegistry.has(col),
     }
   }
 

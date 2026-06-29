@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/types.js'
 import { ConflictError } from '../../src/errors.js'
-import { createNoydb, withMaterializedView, sum } from '../../src/index.js'
+import { createNoydb, withMaterializedView, sum, GroupedAggregation } from '../../src/index.js'
 import { withAggregate } from '../../src/aggregate/index.js'
 
 function inlineMemory(): NoydbStore {
@@ -47,7 +47,7 @@ describe('vault.dumpSchema() — materialized views', () => {
       name: 'invoice-totals',
       sources: ['invoices'],
       query: (db) => db.collection<Invoice>('invoices').query()
-        .groupBy('client_id').aggregate({ total: sum('amount') }),
+        .groupBy('client_id').aggregate({ total: sum('amount') }) as GroupedAggregation<{ client_id: string; total: number }>,
       rowKey: (r) => r.client_id,
       refresh: 'eager',
     })
@@ -99,7 +99,7 @@ describe('vault.dumpSchema() — materialized views', () => {
     const snap = await vault.dumpSchema()
     const mv = snap.materializedViews['monthly-vat']
     expect(mv).toBeDefined()
-    expect(mv!.sources.sort()).toEqual(['credit-notes', 'receipts'])
+    expect([...mv!.sources].sort()).toEqual(['credit-notes', 'receipts'])
     expect(mv!.groupBy).toEqual(['client_id', 'period'])
     expect(mv!.aggregate).toBeDefined()
     expect(typeof mv!.aggregate!.vat).toBe('string')

@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { WriteHookRegistry, type WriteEvent } from '../src/write-hooks.js'
 
 const evt = (over: Partial<WriteEvent> = {}): WriteEvent => ({
-  op: 'create', collection: 'invoices', docId: 'i1',
-  before: null, after: { id: 'i1' }, userId: 'u', timestamp: 0, txId: 't', ...over,
+  op: 'create', vault: 'v1', collection: 'invoices', docId: 'i1',
+  before: null, after: { id: 'i1' }, baseVersion: 0, version: 1, userId: 'u', timestamp: 0, txId: 't', ...over,
 })
 
 describe('WriteHookRegistry', () => {

@@ -19,8 +19,8 @@ export default defineConfig({
     'src/bin/create.ts',
     'src/bin/noy-db.ts',
   ],
-  // ESM-only: every other @noy-db package is ESM and Node 20+ supports it
-  // natively. CJS would just be dead code that bloats the install.
+  // ESM-only: every @noy-db package is ESM and the family targets Node 22+.
+  // CJS would just be dead code that bloats the install.
   format: ['esm'],
   dts: true,
   clean: true,

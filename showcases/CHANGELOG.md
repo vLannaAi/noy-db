@@ -1,5 +1,49 @@
 # @noy-db/showcases
 
+## 0.2.0-pre.2
+
+### Patch Changes
+
+- Updated dependencies
+  - @noy-db/hub@0.2.0-pre.31
+  - @noy-db/as-blob@0.2.0-pre.31
+  - @noy-db/as-csv@0.2.0-pre.31
+  - @noy-db/as-json@0.2.0-pre.31
+  - @noy-db/as-ndjson@0.2.0-pre.31
+  - @noy-db/as-noydb@0.2.0-pre.31
+  - @noy-db/as-xlsx@0.2.0-pre.31
+  - @noy-db/as-xml@0.2.0-pre.31
+  - @noy-db/as-zip@0.2.0-pre.31
+  - @noy-db/by-peer@0.2.0-pre.31
+  - @noy-db/by-tabs@0.2.0-pre.31
+  - @noy-db/in-ai@0.2.0-pre.31
+  - @noy-db/in-devtools@0.2.0-pre.31
+  - @noy-db/in-nextjs@0.2.0-pre.31
+  - @noy-db/in-pinia@0.2.0-pre.31
+  - @noy-db/in-react@0.2.0-pre.31
+  - @noy-db/in-rest@0.2.0-pre.31
+  - @noy-db/in-solid@0.2.0-pre.31
+  - @noy-db/in-svelte@0.2.0-pre.31
+  - @noy-db/in-tanstack-query@0.2.0-pre.31
+  - @noy-db/in-tanstack-table@0.2.0-pre.31
+  - @noy-db/in-vue@0.2.0-pre.31
+  - @noy-db/in-yjs@0.2.0-pre.31
+  - @noy-db/in-zustand@0.2.0-pre.31
+  - @noy-db/on-email-otp@0.2.0-pre.31
+  - @noy-db/on-magic-link@0.2.0-pre.31
+  - @noy-db/on-oidc@0.2.0-pre.31
+  - @noy-db/on-password@0.2.0-pre.31
+  - @noy-db/on-pin@0.2.0-pre.31
+  - @noy-db/on-recovery@0.2.0-pre.31
+  - @noy-db/on-threat@0.2.0-pre.31
+  - @noy-db/on-totp@0.2.0-pre.31
+  - @noy-db/on-webauthn@0.2.0-pre.31
+  - @noy-db/to-browser-idb@0.2.0-pre.31
+  - @noy-db/to-file@0.2.0-pre.31
+  - @noy-db/to-memory@0.2.0-pre.31
+  - @noy-db/to-meter@0.2.0-pre.31
+  - @noy-db/to-probe@0.2.0-pre.31
+
 ## 0.2.0-pre.1
 
 ### Patch Changes
@@ -55,14 +99,12 @@ Four new showcases for Dim 14 v2 ([#155](https://github.com/vLannaAi/noy-db/issu
 - Updated dependencies
   - @noy-db/hub@0.1.0-pre.12
 
-
 ## 0.1.0-pre.11
 
 ### Patch Changes
 
 - Updated dependencies
   - @noy-db/hub@0.1.0-pre.11
-
 
 ## 0.1.0-pre.7
 

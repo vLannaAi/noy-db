@@ -86,10 +86,6 @@ id_ecdsa*
 id_ed25519*
 known_hosts
 authorized_keys
-# Showcase docker-compose ssh fixture keypair — only the .pub half is
-# safe to commit (it's loaded into the sshd container's authorized_keys).
-showcases/fixtures/ssh-test-key
-!showcases/fixtures/ssh-test-key.pub
 credentials.json
 credentials.yaml
 credentials.yml

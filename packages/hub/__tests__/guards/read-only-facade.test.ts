@@ -107,24 +107,22 @@ describe('ReadOnlyVaultFacade', () => {
 
   it('lets a guard enforce a Σ-over-siblings invariant via query().aggregate()', async () => {
     interface Payment { id: string; amount: number }
-    interface Allocation { id: string; paymentId: string; appliedAmount: number }
+    interface Allocation extends Record<string, unknown> { id: string; paymentId: string; appliedAmount: number }
 
     const allocationGuard = withGuard<Allocation>({
       collection: 'allocations',
       check: async (incoming, { vault, existing }) => {
         const payment = await vault.collection<Payment>('payments').get(incoming.paymentId)
-        if (!payment) throw new InvariantError('allocations', incoming.id, 'unknown paymentId')
+        if (!payment) throw new InvariantError(`unknown paymentId for allocation ${incoming.id}`)
         const { total } = await vault
           .collection<Allocation>('allocations')
           .query()
           .where('paymentId', '==', incoming.paymentId)
-          .aggregate({ total: sum<Allocation>('appliedAmount') })
+          .aggregate({ total: sum('appliedAmount') })
           .run()
         const otherTotal = total - (existing?.appliedAmount ?? 0)
         if (otherTotal + incoming.appliedAmount > payment.amount) {
           throw new InvariantError(
-            'allocations',
-            incoming.id,
             `Σ allocations (${otherTotal + incoming.appliedAmount}) exceeds payment.amount (${payment.amount})`,
           )
         }

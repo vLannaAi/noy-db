@@ -9,7 +9,7 @@ import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
 function fileStore(dir: string): NoydbStore {
   const filePath = (v: string, c: string, i: string) => join(dir, v, c, `${i}.json`)
   return {
-    capabilities: { casAtomic: false, auth: { kind: 'none' } },
+    capabilities: { casAtomic: false, auth: { kind: 'none', required: false, flow: 'static' } },
     async get(v, c, i) {
       try {
         const raw = await readFile(filePath(v, c, i), 'utf8')
@@ -55,8 +55,8 @@ function fileStore(dir: string): NoydbStore {
     },
     async saveAll(v, payload) {
       for (const c of Object.keys(payload)) {
-        for (const i of Object.keys(payload[c])) {
-          await this.put(v, c, i, payload[c][i])
+        for (const i of Object.keys(payload[c]!)) {
+          await this.put(v, c, i, payload[c]![i]!)
         }
       }
     },

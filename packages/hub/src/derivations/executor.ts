@@ -64,7 +64,7 @@ export const DerivationExecutor = {
    */
   async run<
     TSource extends Record<string, unknown>,
-    TOutputs extends Record<string, Record<string, unknown>>,
+    TOutputs extends Record<string, Record<string, unknown> | ReadonlyArray<Record<string, unknown>>>,
   >(
     strategy: DerivationStrategy<TSource, TOutputs>,
     source: TSource & { id: string },

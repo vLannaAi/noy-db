@@ -57,11 +57,11 @@
  * | Package | Purpose |
  * |---------|---------|
  * | `@noy-db/to-file` | JSON file store (USB / local disk) |
- * | `@noy-db/to-aws-dynamo` | DynamoDB single-table store |
- * | `@noy-db/to-aws-s3` | S3 object store |
  * | `@noy-db/to-browser-idb` | IndexedDB store (atomic CAS) |
- * | `@noy-db/to-browser-local` | localStorage store |
  * | `@noy-db/to-memory` | In-memory store (testing) |
+ * | `@noy-db/to-aws-dynamo` | DynamoDB single-table store *(noy-db-to)* |
+ * | `@noy-db/to-aws-s3` | S3 object store *(noy-db-to)* |
+ * | `@noy-db/to-postgres` | PostgreSQL store *(noy-db-to)* |
  * | `@noy-db/in-vue` | Vue 3 composables |
  * | `@noy-db/in-pinia` | Pinia store integration |
  * | `@noy-db/in-nuxt` | Nuxt 4 module |
@@ -194,6 +194,11 @@ export type { WriteEvent, WriteHook } from './write-hooks.js'
 // Runtime schema introspection
 export type { SchemaIntrospection } from './introspection/types.js'
 
+// Field metadata (#483)
+export type { FieldMeta, SemanticType } from './introspection/field-meta.js'
+export type { CollectionMeta, VaultMeta } from './introspection/meta.js'
+export type { CollectionDescription, DescribedField, DescribeOptions } from './introspection/describe.js'
+
 // Dry-run transactions
 export type { DryRunResult, AffectedDocument, GuardViolation } from './tx/dry-run.js'
 
@@ -221,6 +226,7 @@ export { SyncScheduler, INDEXED_STORE_POLICY, BUNDLE_STORE_POLICY } from './stor
 export type { SyncTarget, SyncTargetRole } from './types.js'
 
 // Store routing
+export { memoryStore } from './store/memory-store.js'
 export { routeStore } from './store/route-store.js'
 export type {
   RouteStoreOptions, RoutedNoydbStore, BlobStoreRoute, AgeRoute,
@@ -384,6 +390,7 @@ export type {
   VaultSchemaSnapshot,
   DumpSchemaOptions,
   CollectionDescriptor,
+  CollectionConfig,
   CollectionStats,
   FieldDescriptor,
   FieldSource,
@@ -904,8 +911,13 @@ export { TierNotGrantedError, TierDemoteDeniedError, DelegationTargetMissingErro
 
 // lazy-mode index errors
 export { IndexRequiredError, IndexWriteFailureError } from './errors.js'
+// #308 L3 — hybrid-retrieval rank fusion (also the klum federation primitive)
+export { fuseRetrieval, type FuseOptions } from './search/fuse.js'
 // unique-index enforcement error
 export { UniqueConstraintError, UnsupportedIndexOptionError } from './errors.js'
+// embeddings / semantic-retrieval (L2)
+export { EmbeddingDimMismatchError, EmbeddingModelMismatchError } from './errors.js'
+export type { EmbeddingDescriptor } from './embeddings/index.js'
 export { dekKey, effectiveClearance, assertTierAccess } from './team/tiers.js'
 export type { DelegationToken, IssueDelegationOptions } from './team/delegation.js'
 export { DELEGATIONS_COLLECTION, issueDelegation, loadActiveDelegations, revokeDelegation } from './team/delegation.js'
@@ -1007,6 +1019,10 @@ export {
   avg,
   min,
   max,
+  moneySum,
+  moneyMin,
+  moneyMax,
+  reducerBuilder,
   Aggregation,
   reduceRecords,
   GroupedQuery,
@@ -1036,6 +1052,7 @@ export type {
   LiveUpstream,
   Reducer,
   ReducerOptions,
+  ReducerBuilder,
   AggregateSpec,
   AggregateResult,
   AggregationUpstream,
@@ -1045,6 +1062,18 @@ export type {
   ScanPageProvider,
 } from './query/index.js'
 
+// Query DSL helpers (escape-hatch types for consumers with dynamic field names)
+export type { QueryField, IndexFieldName } from './types.js'
+
+// Sealed-field access surface (#504): `Sealed<V>` is the opaque handle a public
+// read returns for a `sensitive` field; `SealedView<T, S>` is the record shape
+// `get()` returns (sealed fields → handles); `SealedHandle` is the concrete
+// class (exported for `instanceof` narrowing — the `Sealed.sealed` discriminant
+// also narrows structurally).
+export type { Sealed, SealedView } from './types.js'
+export { SealedHandle } from './types.js'
+
 // Scan-mode full-text search (#308)
 export { tokenize } from './search/index.js'
 export type { Tokenizer, SearchOptions, SearchResult, SearchEntry } from './search/index.js'
+export type { RetrieveOptions, RetrieveHit } from './search/index.js'

@@ -11,7 +11,7 @@ function memory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
-    capabilities: { casAtomic: true, auth: { kind: 'none' } },
+    capabilities: { casAtomic: true, auth: { kind: 'none', required: false, flow: 'static' } },
     async get(v, c, i) { return data.get(k(v, c, i)) ?? null },
     async put(v, c, i, env) { data.set(k(v, c, i), env) },
     async delete(v, c, i) { data.delete(k(v, c, i)) },

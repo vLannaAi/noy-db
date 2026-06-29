@@ -104,7 +104,7 @@ describe('crypto — encryptDeterministic', () => {
 describe('collection — deterministicFields', () => {
   it('rejects deterministicFields without acknowledgeDeterministicRisk', async () => {
     const db = await createNoydb({ store: memoryStore(), secret: 'pw', user: 'owner' })
-    const v = await db.openVault('v1', { passphrase: 'pw' })
+    const v = await db.openVault('v1')
     expect(() =>
       v.collection<User>('users', {
         deterministicFields: ['email'],
@@ -114,7 +114,7 @@ describe('collection — deterministicFields', () => {
 
   it('attaches _det to envelopes for declared fields', async () => {
     const db = await createNoydb({ store: memoryStore(), secret: 'pw', user: 'owner' })
-    const v = await db.openVault('v1', { passphrase: 'pw' })
+    const v = await db.openVault('v1')
     const users = v.collection<User>('users', {
       deterministicFields: ['email'],
       acknowledgeDeterministicRisk: true,
@@ -130,7 +130,7 @@ describe('collection — deterministicFields', () => {
 
   it('produces identical _det slots for the same field value across records', async () => {
     const db = await createNoydb({ store: memoryStore(), secret: 'pw', user: 'owner' })
-    const v = await db.openVault('v1', { passphrase: 'pw' })
+    const v = await db.openVault('v1')
     const users = v.collection<User>('users', {
       deterministicFields: ['email'],
       acknowledgeDeterministicRisk: true,
@@ -151,7 +151,7 @@ describe('collection — deterministicFields', () => {
 
   it('findByDet returns the matching record', async () => {
     const db = await createNoydb({ store: memoryStore(), secret: 'pw', user: 'owner' })
-    const v = await db.openVault('v1', { passphrase: 'pw' })
+    const v = await db.openVault('v1')
     const users = v.collection<User>('users', {
       deterministicFields: ['email'],
       acknowledgeDeterministicRisk: true,
@@ -169,7 +169,7 @@ describe('collection — deterministicFields', () => {
 
   it('queryByDet returns every match', async () => {
     const db = await createNoydb({ store: memoryStore(), secret: 'pw', user: 'owner' })
-    const v = await db.openVault('v1', { passphrase: 'pw' })
+    const v = await db.openVault('v1')
     const users = v.collection<User>('users', {
       deterministicFields: ['email'],
       acknowledgeDeterministicRisk: true,
@@ -186,7 +186,7 @@ describe('collection — deterministicFields', () => {
 
   it('throws on findByDet for an undeclared field', async () => {
     const db = await createNoydb({ store: memoryStore(), secret: 'pw', user: 'owner' })
-    const v = await db.openVault('v1', { passphrase: 'pw' })
+    const v = await db.openVault('v1')
     const users = v.collection<User>('users', {
       deterministicFields: ['email'],
       acknowledgeDeterministicRisk: true,
@@ -196,7 +196,7 @@ describe('collection — deterministicFields', () => {
 
   it('skips _det for undefined field values', async () => {
     const db = await createNoydb({ store: memoryStore(), secret: 'pw', user: 'owner' })
-    const v = await db.openVault('v1', { passphrase: 'pw' })
+    const v = await db.openVault('v1')
     const users = v.collection<User>('users', {
       deterministicFields: ['email', 'phone'],
       acknowledgeDeterministicRisk: true,

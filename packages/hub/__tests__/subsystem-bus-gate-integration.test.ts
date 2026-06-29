@@ -55,9 +55,9 @@ describe('SubsystemBus gate integration — beforePut/beforeDelete', () => {
     await docs.put('a', { id: 'a', n: 1 })            // create
     await docs.put('a', { id: 'a', n: 2 })            // update
     expect(seen[0]).toEqual({ op: 'create', existing: null, existingVersion: 0 })
-    expect(seen[1].op).toBe('update')
-    expect((seen[1].existing as { n: number }).n).toBe(1)
-    expect(seen[1].existingVersion).toBeGreaterThanOrEqual(1)
+    expect(seen[1]!.op).toBe('update')
+    expect((seen[1]!.existing as { n: number }).n).toBe(1)
+    expect(seen[1]!.existingVersion).toBeGreaterThanOrEqual(1)
   })
 
   it('a throwing beforeDelete handler aborts the delete', async () => {

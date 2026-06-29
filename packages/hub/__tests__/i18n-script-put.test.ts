@@ -84,6 +84,6 @@ describe('script enforcement on put', () => {
     })
     await co.put('c1', { id: 'c1', name: { en: 'John สมชาย' } })
     const got = await co.get('c1', { locale: 'raw' })
-    expect((got!.name as Record<string, string>).en.trim()).toBe('John')
+    expect((got!.name as Record<string, string>).en!.trim()).toBe('John')
   })
 })

@@ -67,6 +67,8 @@ import type {
   LiveAggregation,
 } from './aggregation.js'
 import { buildLiveAggregation } from './aggregation.js'
+import type { ReducerBuilder } from './reducers.js'
+import { reducerBuilder } from './reducers.js'
 import { canonicalGroupKey } from './canonical-key.js'
 import { GroupCardinalityError } from '../errors.js'
 import type { MoneyDescriptor } from '../money/descriptor.js'
@@ -202,16 +204,27 @@ abstract class GroupedQueryBase {
  * them post-group would be a different operation (`having` /
  * `groupOrderBy`), out of scope for.
  */
-export class GroupedQuery<T, F extends string> extends GroupedQueryBase {
+export class GroupedQuery<T, F extends string, S extends keyof T = never> extends GroupedQueryBase {
   /**
    * Build a grouped aggregation. Returns a `GroupedAggregation`
    * with `.run()`, `.runAsync()`, and `.live()` terminals — same shape
    * as the non-grouped `.aggregate()` wrapper, just with an array
    * result (one row per bucket) instead of a single reduced object.
+   *
+   * The builder overload `aggregate(b => spec)` types `b` as
+   * `ReducerBuilder<T, S>`, so field-taking reducers (`sum`, `avg`,
+   * `min`, `max`) refuse any field listed in the collection's
+   * `sensitive` option at compile time. The bare-spec overload is
+   * preserved for backward compatibility.
    */
+  aggregate<Spec extends AggregateSpec>(spec: Spec): GroupedAggregation<GroupedRow<F, AggregateResult<Spec>>>
+  aggregate<Spec extends AggregateSpec>(build: (b: ReducerBuilder<T, S>) => Spec): GroupedAggregation<GroupedRow<F, AggregateResult<Spec>>>
   aggregate<Spec extends AggregateSpec>(
-    spec: Spec,
+    specOrBuild: Spec | ((b: ReducerBuilder<T, S>) => Spec),
   ): GroupedAggregation<GroupedRow<F, AggregateResult<Spec>>> {
+    const spec: Spec = typeof specOrBuild === 'function'
+      ? (specOrBuild as (b: ReducerBuilder<T, S>) => Spec)(reducerBuilder as unknown as ReducerBuilder<T, S>)
+      : specOrBuild
     // T is phantom on the wrapper so consumers can still see the
     // source row type on hover. Reference it to keep lint quiet.
     void undefined as T | undefined
@@ -230,10 +243,15 @@ export class GroupedQuery<T, F extends string> extends GroupedQueryBase {
  * multi-arg `Query.groupBy(...fields)` overload. The runtime shape is
  * identical — only the type-level result-row narrowing differs.
  */
-export class GroupedQueryN<T, F extends readonly string[]> extends GroupedQueryBase {
+export class GroupedQueryN<T, F extends readonly string[], S extends keyof T = never> extends GroupedQueryBase {
+  aggregate<Spec extends AggregateSpec>(spec: Spec): GroupedAggregation<GroupedRowN<F, AggregateResult<Spec>>>
+  aggregate<Spec extends AggregateSpec>(build: (b: ReducerBuilder<T, S>) => Spec): GroupedAggregation<GroupedRowN<F, AggregateResult<Spec>>>
   aggregate<Spec extends AggregateSpec>(
-    spec: Spec,
+    specOrBuild: Spec | ((b: ReducerBuilder<T, S>) => Spec),
   ): GroupedAggregation<GroupedRowN<F, AggregateResult<Spec>>> {
+    const spec: Spec = typeof specOrBuild === 'function'
+      ? (specOrBuild as (b: ReducerBuilder<T, S>) => Spec)(reducerBuilder as unknown as ReducerBuilder<T, S>)
+      : specOrBuild
     void undefined as T | undefined
     return new GroupedAggregation<GroupedRowN<F, AggregateResult<Spec>>>(
       this.executeRecords,

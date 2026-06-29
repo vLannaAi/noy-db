@@ -215,7 +215,7 @@ describe('verifiable backups.', () => {
     // Tamper: modify the second ledger entry's encrypted bytes.
     const ledgerEntries = backup._internal._ledger
     const keys = Object.keys(ledgerEntries).sort()
-    const secondKey = keys[1]
+    const secondKey = keys[1]!
     const env = ledgerEntries[secondKey]
     env._data = env._data.split('').reverse().join('')
     const tamperedJson = JSON.stringify(backup)

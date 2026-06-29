@@ -72,7 +72,7 @@ describe('coordinatedCutover E2E (#232 3a)', () => {
     await v._drainPendingSchemaWrites()
 
     v = await open(store)
-    const logs = v.collection<{ id: string; level?: string }>('logs', {
+    const logs = v.collection<{ id: string; level?: string | undefined }>('logs', {
       schema: z.object({ id: z.string(), level: z.string().optional() }), // additive
       persistJsonSchema: true, schemaUpdate: [coordinatedCutover({ transform: (d) => d }), additiveOnly()],
     })

@@ -1,0 +1,39 @@
+/**
+ * **@noy-db/by-tabs** real-time {@link CoordinationProvider} — a drain-barrier
+ * transport over a {@link PeerChannel} (BroadcastChannel between tabs).
+ *
+ * The kernel defines the {@link CoordinationProvider} port (#469); the store
+ * default polls `_meta/schema-fence`, but a multi-tab app can inject this
+ * push-based provider so a schema cutover fences **instantly** instead of via
+ * store polling. The migration cutover and `@klum-db/lobby` both drive the same
+ * port through `coordinationStrategy`, so neither names `by-tabs`.
+ *
+ * ## Shared core
+ *
+ * The protocol (JSON `co-fence`/`co-presence` envelopes, per-vault fence +
+ * presence maps, local-update-before-broadcast, prune-on-read) is transport
+ * agnostic — it is **identical** for a BroadcastChannel tab and a WebRTC peer.
+ * To stay DRY, that core lives once in `@noy-db/by-peer` as
+ * `channelCoordination`; `tabsCoordination` is a thin, named delegation. See
+ * that module for the wire protocol and local-echo notes.
+ *
+ * @module
+ */
+
+import { channelCoordination } from '@noy-db/by-peer'
+import type { PeerChannel } from '@noy-db/by-peer'
+import type { CoordinationProvider } from '@noy-db/hub/kernel'
+
+/**
+ * Build a real-time {@link CoordinationProvider} backed by a {@link PeerChannel}
+ * (a BroadcastChannel between tabs of the same origin).
+ *
+ * Delegates to the shared `channelCoordination` core in `@noy-db/by-peer` — the
+ * by-tabs and by-peer transports run the identical drain-barrier protocol, so
+ * the logic is not duplicated. Pass it as
+ * `createNoydb({ coordinationStrategy: tabsCoordination(ch) })`, or drive it
+ * directly via `runDrainBarrier`.
+ */
+export function tabsCoordination(channel: PeerChannel): CoordinationProvider {
+  return channelCoordination(channel)
+}

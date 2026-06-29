@@ -1,5 +1,11 @@
 # Changelog — hub
 
+## 0.2.0-pre.31
+
+### Patch Changes
+
+- Extract the 16 non-essential `to-*` storage adapters to the separate `noy-db-to` repo (essentials `to-memory`/`to-file`/`to-browser-idb`/`to-meter`/`to-probe` stay). Extend `@noy-db/hub/adapter` with the bundle-store contract for the extracted backends to bind against, and re-private the `test-adapter-conformance` kit (workspace-only, never published).
+
 ## 0.2.0-pre.12
 
 Multi-vault federation (epic [#271](https://github.com/vLannaAi/noy-db/issues/271)) + fiscal-grade field, lifecycle & numbering primitives (m17 clusters A–D).
@@ -53,7 +59,7 @@ Adopter-reported correctness + introspection batch.
 
 ### Fix: `dumpSchema()` completeness ([#294](https://github.com/vLannaAi/noy-db/issues/294), [#295](https://github.com/vLannaAi/noy-db/issues/295))
 
-- Surfaces fields for **`z.discriminatedUnion`** schemas — the union of member fields (required only when required in *all* members), with the discriminator's literal set. Previously returned `fields: {}`. ([#294](https://github.com/vLannaAi/noy-db/issues/294))
+- Surfaces fields for **`z.discriminatedUnion`** schemas — the union of member fields (required only when required in _all_ members), with the discriminator's literal set. Previously returned `fields: {}`. ([#294](https://github.com/vLannaAi/noy-db/issues/294))
 - Populates the **`derivations`** and **`overlayViews`** maps (both registries gained an `all()`); derivations are keyed by **output collection**, so multiple derivations sharing one source no longer collide. ([#295](https://github.com/vLannaAi/noy-db/issues/295))
 - Materialized-view `aggregate` ops now render as **`sum(field)`** / **`count`** instead of `"[object Object]"` (reducers carry `op`/`field` metadata). ([#295](https://github.com/vLannaAi/noy-db/issues/295))
 
@@ -190,11 +196,11 @@ The **`at-*` family graduation** line. Minor bump (`0.1 → 0.2`) because it car
 
 ### Catalog
 
-- `at-*` registered in `features.yaml` (new `sealers:` section) + `docs/packages/at-hosts.md` ([#214](https://github.com/vLannaAi/noy-db/issues/214)). The README now names the **two trust boundaries**: zero-knowledge (`to-*`/`by-*`) vs trusted-compute (`at-*`, which *can* decrypt the scoped slice it unseals).
+- `at-*` registered in `features.yaml` (new `sealers:` section) + `docs/packages/at-hosts.md` ([#214](https://github.com/vLannaAi/noy-db/issues/214)). The README now names the **two trust boundaries**: zero-knowledge (`to-*`/`by-*`) vs trusted-compute (`at-*`, which _can_ decrypt the scoped slice it unseals).
 
 ## 0.1.0-pre.16
 
-The **sealing dimension foundation** + the **`at-*` sealing-key provider family debut**. Where every prior tier protected the vault with something the user *knows* or *has* (passphrase, WebAuthn, PIN), `at-*` providers seal it with a key drawn from the *environment* — an env var, an OS keychain — for unattended / managed-host scenarios. Shipped alongside managed-passphrase mode, the recovery-profile dispatch groundwork, and the persisted-schema introspection trio.
+The **sealing dimension foundation** + the **`at-*` sealing-key provider family debut**. Where every prior tier protected the vault with something the user _knows_ or _has_ (passphrase, WebAuthn, PIN), `at-*` providers seal it with a key drawn from the _environment_ — an env var, an OS keychain — for unattended / managed-host scenarios. Shipped alongside managed-passphrase mode, the recovery-profile dispatch groundwork, and the persisted-schema introspection trio.
 
 This release also lands a build fix: `main` had been red since [#196](https://github.com/vLannaAi/noy-db/issues/196) — see "Build" below.
 
@@ -229,7 +235,7 @@ This release also lands a build fix: `main` had been red since [#196](https://gi
 
 ### Build
 
-- Removed `@noy-db/on-shamir`'s spurious `peer`+`dev` dependencies on `@noy-db/hub`. #196 made hub import on-shamir's secret-sharing engine at runtime; combined with on-shamir's (never-imported) hub deps, turbo saw a `hub ↔ on-shamir` build cycle and **`main` failed CI from #196 through #197**. on-shamir is a self-contained primitive *consumed by* hub, so its hub deps were dead metadata. Properly decoupling hub from the on-shamir package (via injected provider) is tracked in [#211](https://github.com/vLannaAi/noy-db/issues/211) (deferred).
+- Removed `@noy-db/on-shamir`'s spurious `peer`+`dev` dependencies on `@noy-db/hub`. #196 made hub import on-shamir's secret-sharing engine at runtime; combined with on-shamir's (never-imported) hub deps, turbo saw a `hub ↔ on-shamir` build cycle and **`main` failed CI from #196 through #197**. on-shamir is a self-contained primitive _consumed by_ hub, so its hub deps were dead metadata. Properly decoupling hub from the on-shamir package (via injected provider) is tracked in [#211](https://github.com/vLannaAi/noy-db/issues/211) (deferred).
 
 ## 0.1.0-pre.15
 
@@ -249,6 +255,7 @@ A small fast-follow to pre.14's Dim 14 v2: extends `withMaterializedView` along 
 `withMaterializedView` gained a new top-level mode: `unionSources: [{ collection, map }, ...]` reads from multiple sibling collections in one declaration. Per-source `map` is the schema-unification boundary — sibling collections with different schemas project to a single MV row shape (the strategy's `TRow` type parameter). Declarative `groupBy: string | ReadonlyArray<string>` + `aggregate` fields then run on the concatenated stream.
 
 Registration validation (new `MaterializedViewConfigError`):
+
 - Mutually exclusive with `query` — strategy uses one or the other
 - `unionSources.length >= 2` required
 - Distinct collection names across arms required
@@ -277,6 +284,7 @@ The single `any` retained inside the existential body is the established named-e
 ### Niwat-review follow-ups
 
 `5b385e7` adds two registration guards from the niwat review of [#167](https://github.com/vLannaAi/noy-db/pull/167):
+
 - [#169](https://github.com/vLannaAi/noy-db/issues/169) — UNION MV with `aggregate` requires `groupBy` (else the executor silently dropped the reducer)
 - [#170](https://github.com/vLannaAi/noy-db/issues/170) — `predicates` not supported on UNION MVs (predicate hashes weren't folded into `summarizeUnionPlan` and `.wherePredicate` never fired in the executor)
 
@@ -519,7 +527,7 @@ Closes the 5-issue follow-up batch surfaced after Niwat (first production consum
 - **`UpdateUserOptions`** ([#54](https://github.com/vLannaAi/noy-db/issues/54)) — payload for `db.updateUser`.
 - **`UpdateAuthenticatorOptions`** ([#55](https://github.com/vLannaAi/noy-db/issues/55)) — payload for `db.updateAuthenticator`.
 - **`DeepPartialOrNull<T>`** ([#57](https://github.com/vLannaAi/noy-db/issues/57)) — recursive partial with `| null` at every level.
-- **`SlotRewrapContext`** + **`SlotRewrapCeremony`** ([#56](https://github.com/vLannaAi/noy-db/issues/56)) — previously package-internal, now public so `@noy-db/on-webauthn` (and future on-* packages) can type their `slotCeremonies` helpers without re-declaring the shapes.
+- **`SlotRewrapContext`** + **`SlotRewrapCeremony`** ([#56](https://github.com/vLannaAi/noy-db/issues/56)) — previously package-internal, now public so `@noy-db/on-webauthn` (and future on-\* packages) can type their `slotCeremonies` helpers without re-declaring the shapes.
 
 #### Policy DSL extensions
 
@@ -538,7 +546,7 @@ Closes the 12-issue auth-review filed at the start of this milestone. Driven by 
 
 #### New public APIs
 
-- **`db.getKeyring(vault)`** ([#28](https://github.com/vLannaAi/noy-db/issues/28)) — public accessor for the live `UnlockedKeyring`. Required by `@noy-db/on-*` ceremonies that need the DEK set (paper-recovery mint, tier-3 PIN enrol, custom on-* primitives). Previously private; consumers reached in via `(db as unknown as ...).getKeyring`.
+- **`db.getKeyring(vault)`** ([#28](https://github.com/vLannaAi/noy-db/issues/28)) — public accessor for the live `UnlockedKeyring`. Required by `@noy-db/on-*` ceremonies that need the DEK set (paper-recovery mint, tier-3 PIN enrol, custom on-\* primitives). Previously private; consumers reached in via `(db as unknown as ...).getKeyring`.
 
 - **`db.recoverUser(vault, options, factors?)`** ([#33](https://github.com/vLannaAi/noy-db/issues/33), [#34](https://github.com/vLannaAi/noy-db/issues/34)) — atomic peer-recovery primitive. Single `store.put` rewraps a target user's keyring under a fresh temp passphrase. Owner→owner natively allowed (closes #33's hard block on the two-co-owner case); gated by new `peer-recover-user` policy gate (`STRICT_POLICY` requires recovery / TOTP / email-OTP / roaming WebAuthn factor proof). No key rotation, identity preserved, tier-2 slots dropped. Closes the partial-failure window of the previous `revoke + grant` compose-from-primitives pattern.
 

@@ -38,6 +38,7 @@
  * @module
  */
 import type { Collection } from '../collection.js'
+import type { Query } from '../query/builder.js'
 import type { Vault } from '../vault.js'
 import type { LocaleReadOptions } from '../types.js'
 import { ReadOnlyFrameError } from '../errors.js'
@@ -93,8 +94,13 @@ export class CollectionFrame<T = unknown> {
    * `.first()`, `.count()`, `.aggregate()` all work; the builder has
    * no write surface of its own, so exposing it directly is safe.
    */
-  query(...args: Parameters<Collection<T>['query']>): ReturnType<Collection<T>['query']> {
-    return this.inner.query(...args)
+  query(): Query<T>
+  query(predicate: (record: T) => boolean): T[]
+  query(predicate?: (record: T) => boolean): Query<T> | T[] {
+    // Explicit overloads mirror Collection.query's two signatures. A
+    // `Parameters<>`/`ReturnType<>` forward collapses to the *last* overload
+    // only (`(predicate) => T[]`), losing the no-arg `() => Query<T>` form.
+    return predicate !== undefined ? this.inner.query(predicate) : this.inner.query()
   }
 
   /** History reads — allowed (history is read-only by nature). */

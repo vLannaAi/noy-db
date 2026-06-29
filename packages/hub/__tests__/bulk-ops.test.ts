@@ -14,7 +14,6 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, ChangeEvent } from '
 import { ConflictError, createNoydb } from '../src/index.js'
 import { withHistory } from '../src/history/index.js'
 import type { Noydb } from '../src/index.js'
-import { withHistory } from '../src/history/index.js'
 
 function memoryStore(): NoydbStore {
   const data = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -71,7 +70,7 @@ describe('Collection.putMany / getMany / deleteMany', () => {
         ['inv-3', { amount: 300, status: 'draft' }],
       ])
       expect(result.ok).toBe(true)
-      expect(result.success.sort()).toEqual(['inv-1', 'inv-2', 'inv-3'])
+      expect([...result.success].sort()).toEqual(['inv-1', 'inv-2', 'inv-3'])
       expect(result.failures).toEqual([])
 
       expect(await invoices.get('inv-1')).toEqual({ amount: 100, status: 'draft' })
@@ -130,7 +129,7 @@ describe('Collection.putMany / getMany / deleteMany', () => {
 
       const result = await invoices.deleteMany(['inv-1', 'inv-2'])
       expect(result.ok).toBe(true)
-      expect(result.success.sort()).toEqual(['inv-1', 'inv-2'])
+      expect([...result.success].sort()).toEqual(['inv-1', 'inv-2'])
       expect(await invoices.get('inv-1')).toBeNull()
       expect(await invoices.get('inv-2')).toBeNull()
     })
@@ -142,7 +141,7 @@ describe('Collection.putMany / getMany / deleteMany', () => {
 
       const result = await invoices.deleteMany(['inv-1', 'never-existed', 'also-never'])
       expect(result.ok).toBe(true)
-      expect(result.success.sort()).toEqual(['also-never', 'inv-1', 'never-existed'])
+      expect([...result.success].sort()).toEqual(['also-never', 'inv-1', 'never-existed'])
       expect(result.failures).toEqual([])
     })
   })
@@ -159,7 +158,7 @@ describe('Collection.putMany / getMany / deleteMany', () => {
         { atomic: true },
       )
       expect(result.ok).toBe(true)
-      expect(result.success.sort()).toEqual(['inv-1', 'inv-2'])
+      expect([...result.success].sort()).toEqual(['inv-1', 'inv-2'])
       expect(await invoices.get('inv-1')).toEqual({ amount: 100, status: 'draft' })
       expect(await invoices.get('inv-2')).toEqual({ amount: 200, status: 'draft' })
     })

@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/in-devtools-tui",
-  "version": "0.2.0-pre.25",
+  "version": "0.2.0-pre.31",
   "description": "Interactive terminal inspector for a live noy-db (ink TUI over @noy-db/in-devtools).",
   "license": "MIT",
   "type": "module",
@@ -32,5 +32,8 @@
     "ink-testing-library": "^4.0.0",
     "@types/node": "^22.0.0",
     "@types/react": "^18.3.12"
+  },
+  "engines": {
+    "node": ">=22.0.0"
   }
 }

@@ -52,7 +52,7 @@ function memoryStore(): NoydbStore {
 
 async function freshVault() {
   const db = await createNoydb({ store: memoryStore(), secret: 'pw', user: 'owner' })
-  const vault = await db.openVault('v1', { passphrase: 'pw' })
+  const vault = await db.openVault('v1')
   return { db, vault }
 }
 

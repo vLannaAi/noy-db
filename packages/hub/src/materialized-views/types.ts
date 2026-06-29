@@ -1,6 +1,7 @@
 import type { Query } from '../query/builder.js'
 import type { Collection } from '../collection.js'
-import type { AggregateSpec } from '../aggregate/aggregation.js'
+import type { AggregateSpec, Aggregation } from '../aggregate/aggregation.js'
+import type { GroupedAggregation } from '../aggregate/groupby.js'
 import type { JoinStrategy } from '../query/join.js'
 import type { MoneyDescriptor } from '../money/descriptor.js'
 import type { I18nTextDescriptor } from '../i18n/core.js'
@@ -148,7 +149,7 @@ export interface MaterializedViewStrategy<TRow extends Record<string, unknown>> 
    * (multi-source UNION). Registration throws
    * `MaterializedViewConfigError` if both are set or neither is set.
    */
-  query?: (db: MVQueryContext) => Query<TRow>
+  query?: (db: MVQueryContext) => Query<TRow> | Aggregation<TRow> | GroupedAggregation<TRow>
   /**
    * UNION-form sources: an explicit list of sibling collections
    * that contribute rows to a single MV. Each arm's `map` projects a

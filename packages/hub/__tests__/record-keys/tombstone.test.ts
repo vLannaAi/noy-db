@@ -26,7 +26,7 @@ describe('buildTombstone', () => {
     expect(t._iv).toBe('')
     expect(t._data).toBe('')
     expect(t._cek).toBeUndefined()
-    expect((t as Record<string, unknown>)._det).toBeUndefined()
+    expect(t._det).toBeUndefined()
     expect(t._by).toBe('alice')
     expect(t._noydb).toBe(NOYDB_FORMAT_VERSION)
     expect(typeof t._ts).toBe('string')
@@ -44,7 +44,8 @@ describe('buildTombstone', () => {
 
 describe('isTombstone', () => {
   it('is true for a no-body, no-_cek envelope on an encrypted collection', () => {
-    expect(isTombstone({ ...live, _iv: '', _data: '', _cek: undefined }, true)).toBe(true)
+    const { _cek, ...liveNoCek } = { ...live, _iv: '', _data: '' }
+    expect(isTombstone(liveNoCek, true)).toBe(true)
   })
 
   it('is false for a live encrypted record (has _data + _cek)', () => {
@@ -57,6 +58,7 @@ describe('isTombstone', () => {
   })
 
   it('is always false on an unencrypted collection', () => {
-    expect(isTombstone({ ...live, _iv: '', _data: '', _cek: undefined }, false)).toBe(false)
+    const { _cek, ...liveNoCek2 } = { ...live, _iv: '', _data: '' }
+    expect(isTombstone(liveNoCek2, false)).toBe(false)
   })
 })

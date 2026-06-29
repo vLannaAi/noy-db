@@ -1,5 +1,12 @@
 # Changelog — in-pinia
 
+## 0.2.0-pre.31
+
+### Patch Changes
+
+- Updated dependencies
+  - @noy-db/hub@0.2.0-pre.31
+
 ## 0.2.0-pre.8
 
 ### Feature: reactive i18n binding ([#284](https://github.com/vLannaAi/noy-db/pull/284), resolves [#286](https://github.com/vLannaAi/noy-db/issues/286))
@@ -62,6 +69,7 @@ Version-only lockstep bump; no source changes since pre.4.
 
 - Updated dependencies
   - @noy-db/hub@0.1.0-pre.15
+
 ## 0.1.0-pre.14
 
 ### Patch Changes
@@ -76,7 +84,6 @@ Version-only lockstep bump; no source changes since pre.4.
 - Updated dependencies
   - @noy-db/hub@0.1.0-pre.12
 
-
 ## 0.1.0-pre.11
 
 ### Patch Changes
@@ -84,13 +91,11 @@ Version-only lockstep bump; no source changes since pre.4.
 - Updated dependencies
   - @noy-db/hub@0.1.0-pre.11
 
-
 ## 0.1.0-pre.9
 
 ### Patch Changes
 
 - Updated dependencies — @noy-db/hub@0.1.0-pre.9
-
 
 ## 0.1.0-pre.8
 

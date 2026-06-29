@@ -6,6 +6,7 @@ import {
   MaterializedViewTooLargeError,
   withGuard,
   RecordLockedError,
+  GroupedAggregation,
 } from '../../src/index.js'
 import { withAggregate } from '../../src/aggregate/index.js'
 import { sum, count } from '../../src/aggregate/reducers.js'
@@ -16,7 +17,7 @@ function memory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
-    capabilities: { casAtomic: true, auth: { kind: 'none' } },
+    capabilities: { casAtomic: true, auth: { kind: 'none', required: false, flow: 'static' } },
     async get(v, c, i) { return data.get(k(v, c, i)) ?? null },
     async put(v, c, i, env) { data.set(k(v, c, i), env) },
     async delete(v, c, i) { data.delete(k(v, c, i)) },
@@ -29,16 +30,16 @@ function memory(): NoydbStore {
       for (const [key, env] of data) {
         const [vname, cname, id] = key.split('/')
         if (vname === v) {
-          out[cname] = out[cname] ?? {}
-          out[cname][id] = env
+          out[cname!] = out[cname!] ?? {}
+          out[cname!]![id!] = env
         }
       }
       return out
     },
     async saveAll(v, payload) {
       for (const c of Object.keys(payload)) {
-        for (const i of Object.keys(payload[c])) {
-          data.set(k(v, c, i), payload[c][i])
+        for (const i of Object.keys(payload[c]!)) {
+          data.set(k(v, c, i), payload[c]![i]!)
         }
       }
     },
@@ -365,7 +366,7 @@ describe('MV correctness (#152)', () => {
         query: (db) => db.collection<Compensation>('compensations')
           .query()
           .groupBy('clientId')
-          .aggregate({ taxTotal: sum<Compensation>('taxAmount') }),
+          .aggregate({ taxTotal: sum('taxAmount') }) as GroupedAggregation<ClientTotalRow>,
         rowKey: (r) => r.clientId,
         refresh: 'eager',
       })
@@ -397,7 +398,7 @@ describe('MV correctness (#152)', () => {
         sources: ['items'],
         query: (db) => db.collection<Item>('items')
           .query()
-          .aggregate({ totalAmount: sum<Item>('n'), n: count<Item>() }),
+          .aggregate({ totalAmount: sum('n'), n: count() }),
         rowKey: () => 'grand-total',
         refresh: 'eager',
       })

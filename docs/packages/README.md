@@ -4,7 +4,7 @@
 
 | Prefix | Reads as | Catalog | Count |
 |---|---|---|---:|
-| `to-` | *"data goes **to** a backend"* | [to-stores.md](./to-stores.md) | 20 |
+| `to-` | *"data goes **to** a backend"* | [to-stores.md](./to-stores.md) | 5 here + 16 in [noy-db-to](https://github.com/vLannaAi/noy-db-to) |
 | `in-` | *"runs **in** a framework"* | [in-integrations.md](./in-integrations.md) | 10 |
 | `on-` | *"you get **on** via this method"* | [on-auth.md](./on-auth.md) | 9 |
 | `as-` | *"export **as** XLSX / JSON / …"* | [as-exports.md](./as-exports.md) | 9 |
@@ -15,7 +15,7 @@
 
 ### `to-*` — Storage destinations
 
-The only piece that touches ciphertext on the wire. File, browser, SQL, cloud, remote FS, iCloud, Drive, metrics, diagnostics.
+The only piece that touches ciphertext on the wire. Five essentials (`to-file`, `to-memory`, `to-browser-idb`, `to-probe`, `to-meter`) ship in this repo. Extended cloud, SQL, and remote-FS backends live in [noy-db-to](https://github.com/vLannaAi/noy-db-to) under the same `@noy-db` npm names.
 
 → **[to-stores.md](./to-stores.md)**
 

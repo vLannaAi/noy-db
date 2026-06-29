@@ -5,6 +5,7 @@
  * mutated. This makes plans safe to share, cache, and serialize.
  */
 
+import type { QueryField } from '../types.js'
 import type { Clause, CrossJoinClause, FieldClause, FilterClause, GroupClause, Operator, WherePredicateClause } from './predicate.js'
 import { evaluateClause, hasFnClause } from './predicate.js'
 import type { CollectionIndexes } from '../indexing/eager-indexes.js'
@@ -14,6 +15,8 @@ import { CrossJoinTooLargeError, CrossJoinSourceUnknownError } from '../errors.j
 import type { LiveQuery, LiveUpstream } from './live.js'
 import { buildLiveQuery } from './live.js'
 import type { AggregateSpec, AggregateResult, AggregationUpstream, Aggregation } from '../aggregate/aggregation.js'
+import type { ReducerBuilder } from '../aggregate/reducers.js'
+import { reducerBuilder } from '../aggregate/reducers.js'
 import type { GroupedQuery, GroupedQueryN } from '../aggregate/groupby.js'
 import { NO_AGGREGATE, type AggregateStrategy } from '../aggregate/strategy.js'
 import type { MoneyDescriptor } from '../money/descriptor.js'
@@ -93,6 +96,11 @@ export interface QuerySource<T> {
    * `sum`/`min`/`max` over money fields into exact BigInt reducers.
    */
   moneyFields?: Record<string, MoneyDescriptor>
+  /**
+   * #308 L3 — id-paired snapshot for `Query._idArray()` (the `retrieve({within})`
+   * id projection). Optional: only collection-backed queries supply it.
+   */
+  snapshotEntries?(): readonly { id: string; record: T }[]
 }
 
 interface InternalSource {
@@ -101,6 +109,7 @@ interface InternalSource {
   getIndexes?(): CollectionIndexes | null
   lookupById?(id: string): unknown
   moneyFields?: Record<string, MoneyDescriptor>
+  snapshotEntries?(): readonly { id: string; record: unknown }[]
 }
 
 /**
@@ -129,7 +138,7 @@ export interface DeclaredPredicate {
   fn: (record: unknown, ctx?: unknown) => boolean
 }
 
-export class Query<T> {
+export class Query<T, S extends keyof T = never, Q extends keyof T & string = never, M extends keyof T & string = never> {
   private readonly source: InternalSource
   private readonly plan: QueryPlan
   private readonly joinContext: JoinContext | undefined
@@ -174,14 +183,48 @@ export class Query<T> {
    * `.wherePredicate(name, ctx?)` for the MV's query callback.
    * Consumers don't call this directly.
    */
-  _withPredicates(predicates: ReadonlyMap<string, DeclaredPredicate>): Query<T> {
-    return new Query<T>(
+  _withPredicates(predicates: ReadonlyMap<string, DeclaredPredicate>): Query<T, S, Q, M> {
+    return new Query<T, S, Q, M>(
       this.source as QuerySource<T>,
       this.plan,
       this.joinContext,
       this.aggregateStrategy,
       predicates,
     )
+  }
+
+  /**
+   * @internal — #308 L3. The ids of records matching this query's plan,
+   * recovered by reference identity: `executePlanWithSource` returns the
+   * ORIGINAL snapshot record references (money-decode and joins are applied
+   * later, in `toArray`), so each matched record is found in the id-paired
+   * `snapshotEntries()` map. Used by `collection.retrieve({ within })`.
+   * Throws if the source is not collection-backed (no `snapshotEntries`).
+   */
+  _idArray(): string[] {
+    const entries = this.source.snapshotEntries?.()
+    if (entries === undefined) {
+      throw new Error(
+        'Query._idArray(): the query source has no snapshotEntries(); ' +
+          'retrieve({ within }) requires a collection-backed query (collection.query()).',
+      )
+    }
+    if (this.plan.clauses.some(c => c.type === 'crossJoin')) {
+      throw new Error(
+        'Query._idArray(): retrieve({ within }) does not support crossJoin queries ' +
+          '(cross-join produces new row objects, breaking id recovery). ' +
+          'Use where/filter/and/or, or a projection .join().',
+      )
+    }
+    const refToId = new Map<unknown, string>()
+    for (const { id, record } of entries) refToId.set(record, id)
+    const matched = executePlanWithSource(this.source, this.plan, this.joinContext)
+    const ids: string[] = []
+    for (const r of matched) {
+      const id = refToId.get(r)
+      if (id !== undefined) ids.push(id)
+    }
+    return ids
   }
 
   /**
@@ -195,7 +238,7 @@ export class Query<T> {
    * canonical-JSON hash of `ctx` fold into the MV's `queryHash`, so
    * either changing forces refresh on next visit.
    */
-  wherePredicate(name: string, ctx?: unknown): Query<T> {
+  wherePredicate(name: string, ctx?: unknown): Query<T, S, Q, M> {
     if (!this.predicates) {
       throw new Error(
         `.wherePredicate("${name}"): no predicates registered on this Query. ` +
@@ -219,7 +262,7 @@ export class Query<T> {
       ctxHash: canonicalCtxHash(ctx),
       fn: decl.fn,
     }
-    return new Query<T>(
+    return new Query<T, S, Q, M>(
       this.source as QuerySource<T>,
       { ...this.plan, clauses: [...this.plan.clauses, clause] },
       this.joinContext,
@@ -237,12 +280,12 @@ export class Query<T> {
    * BigInt-exact per record. A malformed operand or a string operator
    * (`contains`/`startsWith`) throws here, at the call site.
    */
-  where(field: string, op: Operator, value: unknown): Query<T> {
+  where(field: QueryField<T, S, Q>, op: Operator, value: unknown): Query<T, S, Q, M> {
     const desc = this.source.moneyFields?.[field]
     const clause: FieldClause = desc
       ? moneyFieldClause(field, op, value, desc)
       : { type: 'field', field, op, value }
-    return new Query<T>(
+    return new Query<T, S, Q, M>(
       this.source as QuerySource<T>,
       { ...this.plan, clauses: [...this.plan.clauses, clause] },
       this.joinContext,
@@ -256,16 +299,16 @@ export class Query<T> {
    * Each clause inside the callback is OR-combined; the group itself
    * joins the parent plan with AND.
    */
-  or(builder: (q: Query<T>) => Query<T>): Query<T> {
+  or(builder: (q: Query<T, S, Q, M>) => Query<T, S, Q, M>): Query<T, S, Q, M> {
     const sub = builder(
-      new Query<T>(this.source as QuerySource<T>, EMPTY_PLAN, this.joinContext, this.aggregateStrategy, this.predicates),
+      new Query<T, S, Q, M>(this.source as QuerySource<T>, EMPTY_PLAN, this.joinContext, this.aggregateStrategy, this.predicates),
     )
     const group: GroupClause = {
       type: 'group',
       op: 'or',
       clauses: sub.plan.clauses,
     }
-    return new Query<T>(
+    return new Query<T, S, Q, M>(
       this.source as QuerySource<T>,
       { ...this.plan, clauses: [...this.plan.clauses, group] },
       this.joinContext,
@@ -278,16 +321,16 @@ export class Query<T> {
    * Logical AND group. Same shape as `or()` but every clause inside the group
    * must match. Useful for explicit grouping inside a larger OR.
    */
-  and(builder: (q: Query<T>) => Query<T>): Query<T> {
+  and(builder: (q: Query<T, S, Q, M>) => Query<T, S, Q, M>): Query<T, S, Q, M> {
     const sub = builder(
-      new Query<T>(this.source as QuerySource<T>, EMPTY_PLAN, this.joinContext, this.aggregateStrategy, this.predicates),
+      new Query<T, S, Q, M>(this.source as QuerySource<T>, EMPTY_PLAN, this.joinContext, this.aggregateStrategy, this.predicates),
     )
     const group: GroupClause = {
       type: 'group',
       op: 'and',
       clauses: sub.plan.clauses,
     }
-    return new Query<T>(
+    return new Query<T, S, Q, M>(
       this.source as QuerySource<T>,
       { ...this.plan, clauses: [...this.plan.clauses, group] },
       this.joinContext,
@@ -297,12 +340,12 @@ export class Query<T> {
   }
 
   /** Escape hatch: add an arbitrary predicate function. Not serializable. */
-  filter(fn: (record: T) => boolean): Query<T> {
+  filter(fn: (record: T) => boolean): Query<T, S, Q, M> {
     const clause: FilterClause = {
       type: 'filter',
       fn: fn as (record: unknown) => boolean,
     }
-    return new Query<T>(
+    return new Query<T, S, Q, M>(
       this.source as QuerySource<T>,
       { ...this.plan, clauses: [...this.plan.clauses, clause] },
       this.joinContext,
@@ -316,9 +359,9 @@ export class Query<T> {
    * `{ by: 'label' }` to sort a `dictKey`/`staticDict` field by its resolved
    * label at the query locale instead of the stored code (#285).
    */
-  orderBy(field: string, direction: 'asc' | 'desc' = 'asc', opts?: { by?: 'value' | 'label' }): Query<T> {
+  orderBy(field: QueryField<T, S>, direction: 'asc' | 'desc' = 'asc', opts?: { by?: 'value' | 'label' }): Query<T, S, Q, M> {
     const entry: OrderBy = opts?.by === 'label' ? { field, direction, by: 'label' } : { field, direction }
-    return new Query<T>(
+    return new Query<T, S, Q, M>(
       this.source as QuerySource<T>,
       { ...this.plan, orderBy: [...this.plan.orderBy, entry] },
       this.joinContext,
@@ -328,8 +371,8 @@ export class Query<T> {
   }
 
   /** Cap the result size. */
-  limit(n: number): Query<T> {
-    return new Query<T>(
+  limit(n: number): Query<T, S, Q, M> {
+    return new Query<T, S, Q, M>(
       this.source as QuerySource<T>,
       { ...this.plan, limit: n },
       this.joinContext,
@@ -339,8 +382,8 @@ export class Query<T> {
   }
 
   /** Skip the first N matching records (after ordering). */
-  offset(n: number): Query<T> {
-    return new Query<T>(
+  offset(n: number): Query<T, S, Q, M> {
+    return new Query<T, S, Q, M>(
       this.source as QuerySource<T>,
       { ...this.plan, offset: n },
       this.joinContext,
@@ -408,9 +451,9 @@ export class Query<T> {
    * `.join()`.
    */
   join<As extends string, R = unknown>(
-    field: string,
+    field: QueryField<T, S>,
     opts: { as: As; strategy?: JoinStrategy; maxRows?: number },
-  ): Query<T & Record<As, R | null>> {
+  ): Query<T & Record<As, R | null>, S, Q, M> {
     if (!this.joinContext) {
       throw new Error(
         `Query.join() requires a join context. Use collection.query() ` +
@@ -452,7 +495,7 @@ export class Query<T> {
           partitionScope: 'all',
           isDictJoin: true,
         }
-    return new Query<T & Record<As, R | null>>(
+    return new Query<T & Record<As, R | null>, S, Q, M>(
       this.source as unknown as QuerySource<T & Record<As, R | null>>,
       { ...this.plan, joins: [...this.plan.joins, leg] },
       this.joinContext,
@@ -491,7 +534,7 @@ export class Query<T> {
         | { readonly predicate: string }
       maxRows?: number
     },
-  ): Query<T & { [K in As]: TTarget }> {
+  ): Query<T & { [K in As]: TTarget }, S, Q, M> {
     if (!this.joinContext) {
       throw new Error(
         `Query.crossJoin("${target}"): requires a join context. ` +
@@ -548,7 +591,7 @@ export class Query<T> {
       ...(opts.maxRows !== undefined && { maxRows: opts.maxRows }),
     }
 
-    return new Query<T & { [K in As]: TTarget }>(
+    return new Query<T & { [K in As]: TTarget }, S, Q, M>(
       this.source as unknown as QuerySource<T & { [K in As]: TTarget }>,
       { ...this.plan, clauses: [...this.plan.clauses, clause] },
       this.joinContext,
@@ -677,10 +720,28 @@ export class Query<T> {
    * executor — that's  constraint #2. When partition-aware
    * aggregation lands, the seed will carry running state across
    * partition boundaries without an API break.
+   *
+   * KNOWN GAP (sealed fields, bare-spec form): `where`/`orderBy`/`groupBy`
+   * refuse a `sensitive` field at compile time, but a reducer over a sensitive
+   * field in the BARE-SPEC form (e.g. `aggregate({ x: sum('ssn') })`) is NOT
+   * refused — the reducer factories (`sum`/`min`/`max`/…) are standalone
+   * `(field: string)` functions with no collection-type context. This form is
+   * preserved as-is for backward compatibility.
+   *
+   * The BUILDER form closes this gap: `aggregate(b => ({ x: b.sum('field') }))`
+   * types the builder's field parameter as `QueryField<T, S>`, refusing any
+   * `sensitive` field at compile time. Use the builder form for new code that
+   * aggregates over a collection with sensitive fields.
+   *
    */
+  aggregate<Spec extends AggregateSpec>(spec: Spec): Aggregation<AggregateResult<Spec>>
+  aggregate<Spec extends AggregateSpec>(build: (b: ReducerBuilder<T, S, M>) => Spec): Aggregation<AggregateResult<Spec>>
   aggregate<Spec extends AggregateSpec>(
-    spec: Spec,
+    specOrBuild: Spec | ((b: ReducerBuilder<T, S, M>) => Spec),
   ): Aggregation<AggregateResult<Spec>> {
+    let spec = typeof specOrBuild === 'function'
+      ? (specOrBuild as (b: ReducerBuilder<T, S, M>) => Spec)((reducerBuilder as unknown) as ReducerBuilder<T, S, M>)
+      : specOrBuild
     // Rewrite sum/min/max over money fields into exact BigInt reducers
     // before the strategy runs (covers static run() and live/MV paths).
     const moneyFields = this.source.moneyFields
@@ -765,11 +826,14 @@ export class Query<T> {
    * The performance caveat is the same: filter clauses cost O(N)
    * per record and can't be index-accelerated.
    */
-  groupBy<F extends string>(field: F): GroupedQuery<T, F>
-  groupBy<F extends readonly [string, string, ...string[]]>(
+  // The `field` param is `QueryField<T, S>` so a sealed (`sensitive`) field is
+  // refused — grouping BY a sensitive field leaks its value distribution as
+  // group-key labels. With `S = never` this is exactly `string` (zero churn).
+  groupBy<F extends QueryField<T, S>>(field: F): GroupedQuery<T, F, S>
+  groupBy<F extends readonly [QueryField<T, S>, QueryField<T, S>, ...QueryField<T, S>[]]>(
     ...fields: F
-  ): GroupedQueryN<T, F>
-  groupBy(...fields: readonly string[]): GroupedQuery<T, string> | GroupedQueryN<T, readonly string[]> {
+  ): GroupedQueryN<T, F, S>
+  groupBy(...fields: readonly string[]): GroupedQuery<T, string, S> | GroupedQueryN<T, readonly string[], S> {
     if (fields.length === 0) {
       throw new Error('.groupBy() requires at least one field')
     }
@@ -803,7 +867,7 @@ export class Query<T> {
     if (fields.length === 1) {
       const field = fields[0]!
       const dictLabelResolver = buildDictLabelResolver(this.joinContext, field)
-      return this.aggregateStrategy.groupBy<T, string>(
+      return this.aggregateStrategy.groupBy<T, string, S>(
         executeRecords,
         field,
         upstreams,
@@ -811,7 +875,7 @@ export class Query<T> {
         this.source.moneyFields,
       )
     }
-    return this.aggregateStrategy.groupByN<T, readonly string[]>(
+    return this.aggregateStrategy.groupByN<T, readonly string[], S>(
       executeRecords,
       fields,
       upstreams,

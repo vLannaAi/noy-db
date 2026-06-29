@@ -12,6 +12,7 @@ export type {
   VaultSchemaSnapshot,
   DumpSchemaOptions,
   CollectionDescriptor,
+  CollectionConfig,
   CollectionStats,
   FieldDescriptor,
   FieldSource,

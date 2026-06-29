@@ -8,6 +8,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.
 import { ConflictError } from '../src/errors.js'
 import { PolicyDeniedError } from '../src/policy/errors.js'
 import { createNoydb } from '../src/noydb.js'
+import type { VaultPolicy } from '../src/policy/types.js'
 import { readNoydbBundle } from '../src/bundle/bundle.js'
 
 function makeStore(): NoydbStore {
@@ -28,11 +29,12 @@ function makeStore(): NoydbStore {
   }
 }
 
-const GATE_ON = { gates: { 'client-unilateral-withdraw': { enabled: true, minTier: 1 } } }
+const GATE_ON = { gates: { 'client-unilateral-withdraw': { enabled: true, minTier: 1 } } } as const satisfies VaultPolicy
 
 /** Owner-provisioned vault with one member granted `mode` on `invoices`. */
-async function setup(store: NoydbStore, role: 'operator' | 'client', mode: 'rw' | 'ro', policy?: unknown) {
-  const owner = await createNoydb({ store, user: 'firm', secret: 'owner-pw-long-enough', ...(policy ? { policy } : {}) })
+async function setup(store: NoydbStore, role: 'operator' | 'client', mode: 'rw' | 'ro', policy?: VaultPolicy) {
+  const base = { store, user: 'firm', secret: 'owner-pw-long-enough' }
+  const owner = await createNoydb(policy ? { ...base, policy } : base)
   const ov = await owner.openVault('acme')
   await ov.collection<{ id: string; total: number }>('invoices').put('i1', { id: 'i1', total: 100 })
   await ov.collection<{ id: string; total: number }>('invoices').put('i2', { id: 'i2', total: 50 })

@@ -32,7 +32,13 @@ export function App({ inspector, vault, vaultName, initial }: AppProps) {
   const [offset, setOffset] = useState(0)
   const [page, setPage] = useState<RecordPage | null>(null)
   const [recErr, setRecErr] = useState<string | undefined>(undefined)
+  const [revealAll, setRevealAll] = useState(false)
   const current = collections[selectedIdx]
+
+  // Reset reveal-all when the viewed collection changes so PII doesn't linger.
+  useEffect(() => {
+    setRevealAll(false)
+  }, [selectedIdx])
 
   const [view, setView] = useState<View>('structure')
   const [feed, setFeed] = useState<ReadonlyArray<FeedRow>>([])
@@ -96,6 +102,7 @@ export function App({ inspector, vault, vaultName, initial }: AppProps) {
     if (tab === 'records') {
       if (input === 'n' && (!page || offset + PAGE < page.total)) setOffset((o) => o + PAGE)
       if (input === 'p' && offset - PAGE >= 0) setOffset((o) => o - PAGE)
+      if (input === 'r') setRevealAll((v) => !v)
     }
   })
 
@@ -105,10 +112,10 @@ export function App({ inspector, vault, vaultName, initial }: AppProps) {
     <Box flexDirection="column">
       <Text bold>noy-db inspector — {vaultName} <Text dimColor>(↑/↓ · ↵ drill · ⇥ tab · q quit)</Text></Text>
       <Box marginTop={1}>
-        <VaultList vaults={vaults} activeName={vaultName} />
+        <VaultList vaults={vaults} activeName={vaultName} {...(snapshot !== undefined ? { snapshot } : {})} />
         <CollectionList snapshot={snapshot ?? { vault: vaultName, collections: [] }} selectedIdx={selectedIdx} />
         {drilled && tab === 'records' && current
-          ? <RecordsPane collection={current} page={page} {...(recErr !== undefined ? { error: recErr } : {})} />
+          ? <RecordsPane collection={current} page={page} revealAll={revealAll} {...(recErr !== undefined ? { error: recErr } : {})} />
           : <DetailPane collection={drilled ? current : undefined} />}
       </Box>
     </Box>

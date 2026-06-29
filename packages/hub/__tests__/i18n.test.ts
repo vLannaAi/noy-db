@@ -204,7 +204,7 @@ describe('i18nText — Collection integration', () => {
       description: { en: 'Consulting hours', th: 'ค่าที่ปรึกษา' },
     })
 
-    const result = await items.get('li-1', { locale: 'th' }) as { id: string; description: string }
+    const result = await items.get('li-1', { locale: 'th' })
     expect(result?.description).toBe('ค่าที่ปรึกษา')
   })
 
@@ -223,7 +223,7 @@ describe('i18nText — Collection integration', () => {
       description: { en: 'Consulting hours', th: 'ค่าที่ปรึกษา' },
     })
 
-    const result = await items.get('li-1', { locale: 'en' }) as { id: string; description: string }
+    const result = await items.get('li-1', { locale: 'en' })
     expect(result?.description).toBe('Consulting hours')
   })
 
@@ -321,7 +321,7 @@ describe('i18nText — Collection integration', () => {
       description: { en: 'Design', th: 'ออกแบบ' },
     })
 
-    const results = await items.list({ locale: 'th' }) as Array<{ id: string; description: string }>
+    const results = await items.list({ locale: 'th' })
     const li1 = results.find(r => r.id === 'li-1')
     const li2 = results.find(r => r.id === 'li-2')
     expect(li1?.description).toBe('ที่ปรึกษา')
@@ -344,7 +344,7 @@ describe('i18nText — Collection integration', () => {
     })
 
     // No locale on get() — uses vault default 'th'
-    const result = await items.get('li-1') as { id: string; description: string }
+    const result = await items.get('li-1')
     expect(result?.description).toBe('ที่ปรึกษา')
   })
 
@@ -364,7 +364,7 @@ describe('i18nText — Collection integration', () => {
     })
 
     // Per-call 'en' overrides vault default 'th'
-    const result = await items.get('li-1', { locale: 'en' }) as { id: string; description: string }
+    const result = await items.get('li-1', { locale: 'en' })
     expect(result?.description).toBe('Consulting')
   })
 
@@ -384,7 +384,7 @@ describe('i18nText — Collection integration', () => {
     })
 
     // Thai not present, falls back to English
-    const result = await items.get('li-1', { locale: 'th', fallback: 'en' }) as { id: string; description: string }
+    const result = await items.get('li-1', { locale: 'th', fallback: 'en' })
     expect(result?.description).toBe('Only English')
   })
 
@@ -448,8 +448,8 @@ describe('applyI18nLocale — nested paths (unit)', () => {
       'en',
     )
     const contacts = result.contacts as Array<Record<string, unknown>>
-    expect(contacts[0].title).toBe('Mrs.')
-    expect(contacts[1].title).toBe('Mr.')
+    expect(contacts[0]!.title).toBe('Mrs.')
+    expect(contacts[1]!.title).toBe('Mr.')
   })
 
   it('leaves unrelated fields unchanged for dot-path record', () => {
@@ -523,7 +523,7 @@ describe('i18nText — nested field paths (Collection integration)', () => {
       id: string
       contacts: Array<{ name: string; title: string }>
     }
-    expect(row?.contacts[0].title).toBe('Mrs.')
-    expect(row?.contacts[1].title).toBe('Mr.')
+    expect(row?.contacts[0]!.title).toBe('Mrs.')
+    expect(row?.contacts[1]!.title).toBe('Mr.')
   })
 })

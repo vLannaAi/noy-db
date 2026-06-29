@@ -17,6 +17,15 @@ export { reduceRecords } from '../aggregate/aggregation.js'
 export { groupAndReduce } from '../aggregate/groupby.js'
 export { generateULID } from '../bundle/ulid.js'
 export { sha256Hex } from '../crypto.js'
+// #469 coordination port — the stable drain-barrier seam an outward
+// orchestrator (@klum-db/lobby) or a `by-*` transport binds to. The pure
+// helpers are runtime; the port + presence/fence shapes are types only
+// (see the `types` group below). `StoreCoordinationProvider` is hub-internal
+// and intentionally NOT exported here — consumers inject their own.
+export { isQuorum, runDrainBarrier } from '../coordination/index.js'
+// #308 L3 — rank-fusion reducer: an outward orchestrator (@klum-db/lobby)
+// fuses per-vault retrieve() result-sets with the SAME primitive hybrid uses.
+export { fuseRetrieval } from '../search/fuse.js'
 
 // ─── error classes ────────────────────────────────────────────────
 export {
@@ -35,6 +44,7 @@ export {
 // against these will not work from `@noy-db/hub/kernel`. Consumers needing a
 // runtime class value must import it from `@noy-db/hub` directly.
 // ─── types ────────────────────────────────────────────────────────
+export type { CollectionMeta, VaultMeta } from '../introspection/meta.js'
 export type { ChangeEvent } from '../types.js'
 export type { Vault } from '../vault.js'
 export type { Collection } from '../collection.js'
@@ -49,3 +59,14 @@ export type {
   LiveAggregation,
 } from '../aggregate/aggregation.js'
 export type { IndexDef } from '../indexing/eager-indexes.js'
+// #308 L3 — rank-fusion types
+export type { FuseOptions } from '../search/fuse.js'
+export type { RetrieveHit, RetrieveOptions } from '../search/retrieve-types.js'
+// #469 coordination port types — the implementable contract surface for an
+// injected drain-barrier transport (runtime helpers are in the group above).
+export type {
+  CoordinationProvider,
+  WriterPresence,
+  FenceState,
+  DrainBarrierOptions,
+} from '../coordination/index.js'

@@ -4,7 +4,7 @@
 
 ## Why subsystems
 
-NOYDB is built as a **minimalist core + opt-in subsystems**. A consumer who calls only `createNoydb({ store, user })` gets a fully working zero-knowledge encrypted document store and pays for nothing else. Every other capability — history, blobs, sync, joins, CRDT — is a subsystem the developer opts into by passing a strategy factory:
+NOYDB is built as a **minimalist core + opt-in subsystems**. A consumer who calls only `createNoydb({ user })` — no `store`, since the kernel ships a built-in in-memory default — gets a fully working zero-knowledge encrypted document store and pays for nothing else. Every other capability — history, blobs, sync, joins, CRDT — is a subsystem the developer opts into by passing a strategy factory:
 
 ```ts
 import { createNoydb } from '@noy-db/hub'

@@ -52,6 +52,12 @@ import type { OverlayedViewStrategyHandle } from './overlay-views/types.js'
 import type { SealingKeyProvider } from './team/managed-passphrase.js'
 import type { ShamirRecoveryProvider } from './team/shamir-recovery-provider.js'
 import type { ObjectProjection } from './blobs/object-projection.js'
+// Import the port type from the leaf module (not the barrel) — the barrel
+// re-exports `StoreCoordinationProvider`, which imports `NoydbStore` from this
+// file, so going through it would create an import cycle.
+import type { CoordinationProvider } from './coordination/types.js'
+import type { ScriptWarning } from './i18n/script.js'
+import type { MoneyDescriptor } from './money/descriptor.js'
 
 /** Format version for encrypted record envelopes. */
 export const NOYDB_FORMAT_VERSION = 1 as const
@@ -155,6 +161,18 @@ export interface EncryptedEnvelope {
    */
   readonly _det?: Record<string, string>
   /**
+   * Structural group-encryption (#503). Map of sensitive field name →
+   * per-field sealed ciphertext in `iv:data` form (same shape as a `_det`
+   * slot). Present only when the collection declares `sensitive` fields and
+   * at least one is present on the record. Each field is encrypted under its
+   * own HKDF-derived per-field key (`deriveSealedFieldKey`, domain-separated
+   * by `<collection>/sealed/<field>`), and is kept OUT of the open `_data`
+   * blob — so a reader who can open `_data` still cannot see sealed fields
+   * without re-deriving each field key. With no sensitive fields declared the
+   * map is absent and `_data` is unchanged (byte-identical to legacy output).
+   */
+  readonly _sealed?: Record<string, string>
+  /**
    * Per-record content-encryption key (CEK), base64 AES-KW-wrapped under
    * the collection (or tier) DEK. Present only on records written by a
    * collection opened with `perRecordKeys: true`. When present, the body
@@ -185,6 +203,146 @@ export interface EncryptedEnvelope {
    * debug envelope self-describing, so a classic plaintext reader handles it too.
    */
   readonly _debug?: typeof NOYDB_FORMAT_VERSION
+}
+
+/**
+ * Opaque access gate for a sealed (`sensitive`) field returned by a public
+ * read (#503 access layer). The handle carries only the per-field
+ * **ciphertext** — the plaintext is never materialised into the working-set
+ * cache. Call {@link Sealed.reveal} to decrypt the value on demand.
+ *
+ * A handle is intentionally NOT usable as `V`: it serialises to a non-leaking
+ * marker (`JSON.stringify` / structured logging emit `'[sealed]'`, never the
+ * value) and exposes no synchronous accessor.
+ */
+export interface Sealed<V> {
+  /** Discriminant — always `true`, lets callers narrow a field to a handle. */
+  readonly sealed: true
+  /** Decrypt and return the underlying value. */
+  reveal(): Promise<V>
+}
+
+/**
+ * The shape a public read returns for a collection that declares `sensitive`
+ * fields `S`: every sealed field becomes an opaque {@link Sealed} handle while
+ * the rest of the record is unchanged. The `[S] extends [never]` guard collapses
+ * `SealedView<T, never>` to exactly `T`, so collections with no sensitive fields
+ * are unaffected — a plain `Omit<T, never>` is *not* a faithful identity for
+ * generic intersection record types (it can degrade intersection-only members to
+ * `unknown`), which would break consumers like the derivation/MV `_derivedFrom` /
+ * `_materializedFrom` reads.
+ */
+export type SealedView<T, S extends keyof T> = [S] extends [never]
+  ? T
+  : Omit<T, S> & {
+      readonly [K in S]: Sealed<T[K]>
+    }
+
+/**
+ * The type of a field-name argument to the query/scan DSL (`where`, `orderBy`,
+ * …) for a collection whose sealed (`sensitive`) fields are `S`.
+ *
+ * Guarded so the common case is unchanged: with **no** sensitive fields
+ * (`S = never`) it is exactly `string` — collections that don't opt into
+ * `sensitive` keep today's permissive DSL, zero churn. Once a field is
+ * declared `sensitive`, the DSL narrows to the non-sensitive field names, so
+ * `where('ssn', …)` becomes a compile error. TypeScript cannot subtract a
+ * literal from `string`, so refusing a sensitive name necessarily means
+ * narrowing to the known field-name union — this is intentional and only
+ * affects collections that opted in.
+ *
+ * When `Q` (the indexed-field set) is given, `where()` is additionally
+ * restricted to `Q` minus any sensitive fields — the escape hatch for
+ * non-indexed filters is `scan()`. `Q = never` (the default) preserves the
+ * existing 2-param behaviour exactly (zero churn).
+ */
+export type QueryField<T, S extends keyof T = never, Q extends keyof T & string = never> =
+  [Q] extends [never]
+    ? ([S] extends [never] ? string : Exclude<keyof T & string, S>)
+    : Exclude<Q, S>
+
+/**
+ * The type of a field-name reference in a collection's index-declaration
+ * options (`indexes`, `deterministicFields`, `textIndexes`). Same guarded
+ * narrowing as {@link QueryField}: permissive `string` until a field is
+ * declared `sensitive`, then the sensitive names are refused (a plaintext
+ * secondary index over a sealed field defeats non-residency — previously only
+ * a runtime `console.warn`). Kept distinct from `QueryField` so the two DSL
+ * surfaces can diverge later without coupling.
+ *
+ * When `Q` (the indexed-field set) is given, the `indexes` option is
+ * additionally restricted to `Q` minus any sensitive fields — declaring `Q`
+ * but listing a different field in `indexes` becomes a compile error.
+ * `Q = never` (the default) preserves the existing 2-param behaviour.
+ */
+export type IndexFieldName<T, S extends keyof T = never, Q extends keyof T & string = never> =
+  [Q] extends [never]
+    ? ([S] extends [never] ? string : Exclude<keyof T & string, S>)
+    : Exclude<Q, S>
+
+/**
+ * Generic form of the runtime `IndexDef` (see `indexing/eager-indexes.ts`)
+ * parameterised by the allowed field-name set `F`. Used to refuse `sensitive`
+ * fields in the `indexes` collection option at compile time while leaving the
+ * runtime `IndexDef` (string-based) untouched. `IndexDefFor<string>` is
+ * structurally identical to `IndexDef`, which is why `vault.collection` can cast
+ * the narrowed public option to `IndexDef[]` at the runtime boundary (through
+ * `unknown`, solely to drop the `readonly`).
+ * **Keep this in sync with `IndexDef`** — if `IndexDef` gains a new union member,
+ * add it here too, or that boundary cast will silently admit shapes the runtime
+ * machinery does not narrow.
+ */
+export type IndexDefFor<F extends string> =
+  | F
+  | { readonly fields: readonly F[]; readonly unique?: boolean }
+  | readonly F[]
+
+/**
+ * The type of the `sensitive` collection option, conditional on whether the
+ * caller opted into compile-time refusal via an explicit second generic.
+ * With no 2nd generic (`S = never`) it accepts any field array — runtime
+ * sealing only, no compile refusal, non-breaking. With `S` given, it is
+ * `readonly S[]`, which ties the runtime array to the declared sensitive
+ * union so the two cannot drift.
+ */
+export type SensitiveOpt<T, S extends keyof T> = [S] extends [never]
+  ? readonly (keyof T & string)[]
+  : readonly S[]
+
+/**
+ * The type of the `moneyFields` collection option, conditional on whether the
+ * caller opted into compile-time money-field typing via the 4th generic `M`.
+ * With no `M` (`M = never`) it accepts any `Record<string, MoneyDescriptor>` —
+ * runtime money only, no compile-level narrowing, non-breaking. With `M` given,
+ * it is `Record<M, MoneyDescriptor>`, tying the runtime map to the declared
+ * money-field union so the two cannot drift.
+ */
+export type MoneyFieldsOpt<T, M extends keyof T & string = never> =
+  [M] extends [never] ? Record<string, MoneyDescriptor> : Record<M, MoneyDescriptor>
+
+/**
+ * Concrete {@link Sealed} handle. Holds the reveal closure (which captures the
+ * field's ciphertext blob and the unseal routine) in a private field, so it is
+ * invisible to `JSON.stringify`, `util.inspect`, and `Object.keys`. `toJSON`
+ * returns the marker `'[sealed]'` — a handle can never leak its value through
+ * serialisation or logging because the plaintext is not stored on it at all.
+ */
+export class SealedHandle<V> implements Sealed<V> {
+  readonly sealed = true as const
+  readonly #reveal: () => Promise<V>
+
+  constructor(reveal: () => Promise<V>) {
+    this.#reveal = reveal
+  }
+
+  reveal(): Promise<V> {
+    return this.#reveal()
+  }
+
+  /** Non-leaking serialisation marker — never the underlying value. */
+  toJSON(): string {
+    return '[sealed]'
+  }
 }
 
 /**
@@ -1068,6 +1226,19 @@ export interface NoydbEventMap {
   'history:save': { vault: string; collection: string; id: string; version: number }
   'history:prune': { vault: string; collection: string; id: string; pruned: number }
   /**
+   * A non-fatal i18n script violation under `onScriptViolation: 'warn' | 'filter'`.
+   * 'warn' stored the value as-is; 'filter' stripped disallowed characters
+   * (the event is the only signal the stored data was mutated). 'reject'
+   * throws `ScriptViolationError` and emits nothing. (#435)
+   */
+  'i18n:script-violation': {
+    vault: string
+    collection: string
+    id: string
+    mode: 'warn' | 'filter'
+    warning: ScriptWarning
+  }
+  /**
    * Emitted when a persisted-index side-car put/delete fails after the
    * main record write already succeeded. The main record is durable; the
    * index mirror may have drifted. Operators reconcile via
@@ -1660,6 +1831,13 @@ export interface BlobPutOptions {
   compress?: boolean
   /** User ID to record as `uploadedBy`. Defaults to the Noydb session user. */
   uploadedBy?: string
+  /**
+   * User-visible filename to store on the slot. Defaults to the slot name.
+   * Differs from the slot name when the caller wants a display/download name
+   * (e.g. slot `attachment` holding `invoice-2024.pdf`); this is the value
+   * that the L1 lexical index (#308) tokenizes for blob fields.
+   */
+  filename?: string
 }
 
 /** Options for `BlobSet.response()` and `BlobSet.responseVersion()`. */
@@ -1747,8 +1925,8 @@ export interface StoreCapabilities {
 // ─── Factory Options ───────────────────────────────────────────────────
 
 export interface NoydbOptions {
-  /** Primary store (local storage). */
-  readonly store: NoydbStore
+  /** The ciphertext store. Optional — defaults to the built-in `memoryStore()` (non-persistent). */
+  readonly store?: NoydbStore
   /**
    * tree-shake seam — optional blob strategy. Pass `withBlobs()`
    * from `@noy-db/hub/blobs` to enable `collection.blob(id)` storage.
@@ -2160,6 +2338,25 @@ export interface NoydbOptions {
    * Defaults to `'anonymous'` when not supplied.
    */
   readonly plaintextTranslatorName?: string
+  /**
+   * Drain-barrier coordination transport for the schema fence (#469).
+   * When omitted, the kernel uses a {@link CoordinationProvider} backed by the
+   * primary store (`StoreCoordinationProvider`), reproducing today's
+   * store-polling fence behavior byte-for-byte. `@noy-db/by-tabs` /
+   * `@noy-db/by-peer` inject a real-time push transport here; an external
+   * orchestrator (`@klum-db/lobby`) drives it through the `Noydb` handle.
+   *
+   * @internal
+   */
+  readonly coordinationStrategy?: CoordinationProvider
+  /**
+   * Stable id for the session that owns this instance's writers (one user's
+   * writers across vaults). Tags every {@link WriterPresence} the fence
+   * watcher reports. Defaults to a fresh ULID per `Noydb` instance.
+   *
+   * @internal
+   */
+  readonly sessionId?: string
 }
 
 // ─── History / Audit Trail ─────────────────────────────────────────────

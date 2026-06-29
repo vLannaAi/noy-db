@@ -252,9 +252,9 @@ features:
     related: [schema-and-refs, money-field]
 
   - id: search-index
-    name: Scan-mode full-text search (collection.search)
+    name: Full-text scan + L1/L1.5 lexical retrieval (collection.search / collection.retrieve / textIndexPersist)
     cluster: core
-    spec: docs/subsystems/search.md
+    spec: docs/superpowers/specs/2026-06-22-ai-retrieval-l1.5-persisted-index-design.md
     subsystem_doc: docs/subsystems/search.md
     package: '@noy-db/hub'
     factory: null
@@ -263,15 +263,62 @@ features:
     showcases:
       - id: 111-scan-search
         path: showcases/src/111-scan-search.showcase.test.ts
+      - id: 122-with-retrieve
+        path: showcases/src/122-with-retrieve.showcase.test.ts
+      - id: 123-persisted-index
+        path: showcases/src/123-persisted-index.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
     invariants:
-      - 'collection.search(field, query, opts) is SCAN mode: decrypts in-memory + ranks by BM25 — ZERO added store leakage (eager mode only); returns {id,score,record} desc by score'
-      - 'opts.match any(OR,default)/all(AND); opts.prefix → last query term is a prefix (typeahead); opts.limit → top-N'
-      - 'default tokenizer = NFKC + lowercase + Unicode word-boundary split — does NOT segment Thai/CJK (no inter-word spaces); pluggable tokenizer + a store-usable blind index (SSE; leaks term-frequency/co-occurrence) are gated follow-ups per the #308 design note'
+      - 'collection.search(field, query, opts) is SCAN mode (L0): decrypts in-memory + ranks by BM25 — ZERO added store leakage (eager mode only); returns {id,score,record} desc by score'
+      - 'collection.retrieve(query, opts) is INDEXED mode (L1): client-side in-memory inverted index with Intl.Segmenter i18n tokenizer; multi-field BM25 + max-field scoring; returns RetrieveHit{id,score,rank,field,snippet,locale?,record?} — ZERO store leakage (never written to the store)'
+      - 'textIndexes: string[] collection opt-in selects which fields enter the inverted index; collections with no textIndexes pay zero overhead'
+      - 'i18nText fields: ALL locale values indexed; hit carries matched locale; locale-agnostic query matches any locale'
+      - 'dictKey fields: resolved labels (all locales) indexed; opaque key is NOT text-indexed (use where() for key equality)'
+      - 'blob fields: filename indexed via listSlots() (async per-record); bytes never tokenized'
+      - 'money/number/date/boolean fields: NOT indexed — use where() (text-formatting variance makes full-text wrong)'
+      - 'warmIndexOnOpen:true pre-builds on collection open; warmIndex() pre-builds on demand; both require eager mode'
+      - 'textIndexPersist:true (L1.5): opt-in persists the index as ONE opaque encrypted blob (_ftindex/<collection>) under the collection DEK — ZERO added leakage; warm cross-session load (no rebuild when fingerprint {count,maxVersion} matches); default false → MemoryIndexStore (no blob written)'
+      - 'fingerprint {count,maxVersion}: recomputed from eager cache on load; mismatch → rebuild + re-persist (self-healing cross-session staleness)'
+      - 'debounced flush after put/delete; flushIndex() forces immediate persist; db.close() best-effort close-flush'
+      - 'forget() teardown: removes the _ftindex blob (markDirty + remove); index would otherwise decrypt forgotten subject terms under the collection DEK'
+      - 'RetrieveHit.rank: 1-based, monotonic with score order; federation-ready for Reciprocal Rank Fusion across vaults (klum Lobby) and across modalities (L3 hybrid fuseRetrieval) without sharing corpus-relative BM25 scores'
+      - 'opts.match any(OR,default)/all(AND); opts.prefix → last query term is a prefix (typeahead); opts.limit → top-N; opts.includeRecord → attach full decrypted record'
       - 'deleted / forgotten records never appear (eager cache eviction on delete / _writeTombstone)'
-    related: [schema-and-refs]
+    related: [schema-and-refs, i18n]
+
+  - id: vector-search
+    name: Semantic / vector + hybrid retrieval — encrypted-local L2/L3 (collection.retrieve / collection.similarTo / fuseRetrieval)
+    cluster: core
+    spec: docs/superpowers/specs/2026-06-23-ai-retrieval-l3-hybrid-design.md
+    subsystem_doc: docs/subsystems/embeddings.md
+    package: '@noy-db/hub'
+    factory: null
+    status: preview
+    experimental: true
+    showcases:
+      - id: 124-semantic-retrieve
+        path: showcases/src/124-semantic-retrieve.showcase.test.ts
+      - id: 125-hybrid-retrieve
+        path: showcases/src/125-hybrid-retrieve.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'encrypted-local model: vectors encrypted at rest under the collection DEK (_vec sidecar); decrypted only in the trusted tier for in-memory cosine — zero store leakage of vector values or source text (managed/plaintext vector backends deferred/gated — the blind-index twin)'
+      - 'embeddings config on collection(): { source: string|string[], encode: (text) => Promise<Float32Array>, dim: number, model: string } — no bundled model; encode hook is host/remote (call any embedding API)'
+      - 'retrieve(q, { mode: "lexical" }) is the default L1 path; retrieve(q, { mode: "semantic", k?, minScore? }) is the L2 cosine path; retrieve(q, { mode: "hybrid" }) (L3) runs both and fuses by Reciprocal Rank Fusion (RRF, k=60) — the fused score is an RRF score, NOT BM25 or cosine'
+      - 'retrieve(q, { mode: "hybrid" }) requires a collection configured with embeddings — throws if no embeddings descriptor is present'
+      - 'within: Query<T> option on retrieve() (all modes, L3): retrieve ∩ where — intersects hits with a structured query().where(…) predicate; eager-mode only; re-ranks 1-based within the filtered set; ZERO store writes (pure in-memory intersection over the eager cache)'
+      - 'fuseRetrieval(lists, opts?) — pure RRF reducer exported from @noy-db/hub AND @noy-db/hub/kernel; arity-generic over any RetrieveHit[]; one primitive for both modality fusion (lexical+semantic) and cross-vault federation (klum Lobby fans out per-vault retrieve(), qualifies ids, calls fuseRetrieval to merge)'
+      - 'L3 adds ZERO store artifacts: hybrid retrieval is pure in-trusted-tier compute over L1 in-memory index, L2 in-memory VectorSet, and the eager cache — zero new store leakage'
+      - 'collection.similarTo(vector, { k?, minScore? }) accepts a raw Float32Array (caller embeds the query)'
+      - 'model-version guard: each stored vector tagged with model; EmbeddingModelMismatchError when stored model != descriptor model — invalidation is hard (the embedding space changes); vault.embeddings.reindex() is DEFERRED (v1: re-put records to re-derive)'
+      - 'EmbeddingDimMismatchError on write when encode() returns a vector whose length != descriptor dim'
+      - 'forget() purges the _vec/<id> sidecar (resilient try/catch + ForgetResult residue, mirroring _ftindex); marks VectorSet dirty — forgotten vectors (source-invertible) must not survive crypto-shred'
+      - 'brute-force cosine, Float32Array, zero external dep — adequate at SME/pilot scale (~10k vectors); HNSW/IVF deferred'
+    related: [search-index]
 
   - id: persisted-json-schema
     name: Persisted JSON Schema (opt-in)
@@ -334,6 +381,77 @@ features:
       - '--with-stats opts into counters + internal-collection breakdown'
       - 'exit codes: 0 ok, 1 internal, 2 usage, 3 auth failure'
     related: [persisted-json-schema, dump-schema-introspection]
+
+  - id: field-metadata
+    name: Consumer-neutral field descriptors — collection.describe() + fieldMeta (#483)
+    cluster: core
+    spec: docs/superpowers/specs/2026-06-25-field-metadata-foundation-design.md
+    subsystem_doc: docs/subsystems/field-metadata.md
+    package: '@noy-db/hub'
+    factory: null
+    status: preview
+    experimental: true
+    showcases:
+      - id: 126-describe-field-metadata
+        path: showcases/src/126-describe-field-metadata.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'collection.describe() — sync overload (zero args): config-only, zero store I/O, returns CollectionDescription synchronously; async overload (opts arg): adds validator-derived exact types (deriveZodFields, lazy import), zod-4 .meta() merge, and optional dynamic-dict label resolution (resolveDictLabels: true)'
+      - 'fieldMeta collection option: Record<string, FieldMeta> — the primary validator-agnostic authoring channel; keys: label (required), description, semanticType, unit, sensitivity (public|pii|secret), aggregate, aliases, displayFor'
+      - 'merge precedence (fixed): channel (fieldMeta) > zod-4 .meta() (async path only) > inferred-from-config (money→currency, ref→entity, dictKey→enum)'
+      - 'descriptive-not-prescriptive: DescribedField carries meaning (label/unit/sensitivity/semanticType/aggregate/aliases/displayFor) — never layout, styling, or locale selection; those stay app-side'
+      - 'sync = zero store I/O: describe() (no args) reads only in-memory config assembled at collection registration — no store.get / store.list / decryption ever triggered'
+      - 'public exports from @noy-db/hub only (not from kernel): FieldMeta, SemanticType, CollectionDescription, DescribedField, DescribeOptions'
+      - 'fieldMeta key guard (async path): when zodFields is non-empty, unknown fieldMeta keys throw FieldMetaUnknownFieldError — typo protection; sync path skips this check (schema fields not knowable without async derivation)'
+      - 'validator-agnostic: works without zod; non-zod validators get structural type inference from config only on the sync path'
+    related: [dump-schema-introspection, cli-describe, money-field, schema-and-refs, i18n, metadata-ladder]
+
+  - id: metadata-ladder
+    name: Metadata ladder — collectionMeta/vaultMeta + devtools schema surfacing (#483)
+    cluster: core
+    spec: docs/superpowers/specs/2026-06-25-metadata-ladder-and-schema-surfacing-design.md
+    subsystem_doc: docs/subsystems/field-metadata.md
+    package: '@noy-db/hub'
+    factory: null
+    status: preview
+    experimental: true
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'collectionMeta option (meta?: CollectionMeta): label/description/icon/pluralLabel on vault.collection(); first-wins reconciler (_applyMeta) on MV-pre-created collections; surfaced in describe() meta block and dumpSchema() CollectionDescriptor.meta'
+      - 'vaultMeta option (meta?: VaultMeta): label/description/icon on openVault(); first-wins: re-opening a cached vault keeps its meta; surfaced in dumpSchema() VaultSchemaSnapshot.meta'
+      - 'describe() enhancements: i18n block (locales/densify) for i18nText fields; widget derived from semanticType+type (overridable via fieldMeta.widget); editable:false for computed/id/provenance-stamped fields, true otherwise'
+      - 'dumpSchema() config block (CollectionConfig): textIndexes/embeddings/i18nFields/crdt/provenance/archive/tiers/tierMode/perRecordKeys/history/schemaUpdate surfaced from live collection; omitted on bundle-reconstructed collections; function-valued options surface as booleans (presence only)'
+      - 'in-devtools snapshot(): InspectorCollection gains meta/described/config; InspectorSnapshot gains meta (VaultMeta); rich fields from describe() populates described[]'
+      - 'TUI (in-devtools-tui): DetailPane shows collection meta.label heading + DescribedField list with label/type/widget/<sensitivity>/[i18n]/[ro] markers + compact config strip; CollectionList shows meta.label; VaultList shows vault meta.label for active vault'
+      - 'CollectionMeta/VaultMeta exported from @noy-db/hub (src/index.ts) AND @noy-db/hub/kernel (kernel/index.ts) for klum-db federation contract'
+    related: [field-metadata, dump-schema-introspection, in-devtools, in-devtools-nuxt]
+
+  - id: metadata-riders
+    name: Metadata riders — toJSONSchema + dictKey inline labels + devtools PII masking (#484 #485)
+    cluster: core
+    spec: docs/superpowers/specs/2026-06-25-metadata-riders-design.md
+    subsystem_doc: docs/subsystems/field-metadata.md
+    package: '@noy-db/hub'
+    factory: null
+    status: preview
+    experimental: true
+    showcases: []
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'collection.toJSONSchema() — async; pipelines derivePersistedSchema(schema) as base then overlays describe() metadata as x- extension keys per property: x-label, x-unit, x-semanticType, x-sensitivity, x-widget, x-readonly (when editable:false), x-money, x-ref, x-enumLabels (value→label map from dict.values)'
+      - 'toJSONSchema() validator-agnostic fallback: when derivePersistedSchema yields no jsonSchema (non-zod validator), builds a minimal { type:"object", properties } from field types derived by describe(); x- metadata still applied; no throw, no zod required'
+      - 'dictKey inline labels (#485): dictKey() 2nd arg may now be a plain object (value→label map; keys inferred) or retain existing array form with optional { labels: Record<string,string> } option; DictKeyDescriptor gains readonly labels?: Record<string,string>'
+      - 'dictKey inline labels surface in sync describe() — dict.values[].label populated from code-provided defaults with no store I/O; describe({ resolveDictLabels: true }) overrides from _dict_ collection and falls back to inline label; toJSONSchema() x-enumLabels reflects inline labels'
+      - 'devtools PII masking (Nuxt + TUI): RecordsPane masks cells for fields where sensitivity !== "public" as •••• by default; a reveal toggle (per-field reveal in Nuxt, pane-level "r" key in TUI) un-masks; public and unclassified fields always shown; collection without described → no masking (back-compat)'
+      - 'TUI reveal-all resets on collection navigation (selectedIdx change) so revealed PII does not linger when switching to another collection'
+    related: [field-metadata, metadata-ladder, in-devtools, in-devtools-nuxt]
 
   - id: query-basics
     name: Always-on query DSL
@@ -581,6 +699,46 @@ features:
       - 'static dicts resolve under a locale-less read via displayLocale; plain dictKey does not (locale gate preserved)'
       - 'static dict names are read-only: put/rename/delete throw StaticDictReadonlyError'
     related: [vault-and-collections]
+
+  - id: i18n-densify-on-write
+    name: densifyOnWrite — eager-fill empty i18n locale slots at write time
+    cluster: data-shape
+    spec: docs/superpowers/specs/2026-06-20-i18n-v1x-tail-design.md
+    subsystem_doc: docs/subsystems/i18n.md
+    package: '@noy-db/hub/i18n'
+    factory: withI18n
+    status: preview
+    showcases:
+      - id: 121-with-i18n-densify
+        path: showcases/src/121-with-i18n-densify.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'densifyOnWrite: opt-in flag on withI18n; when true, every put/save eagerly fills empty locale slots by walking the substitute chain at write time'
+      - 'Provenance is a single top-level marker _i18nFilled: { <field>: [<locales>] } mapping each densify field to the locales it filled; slots the caller explicitly provided are never overwritten. The marker is internal — stripped from every user-facing read; read provenance via i18nProvenance(id)'
+      - 'Incompatible with an EXPLICIT onMissing:"throw" (scalar or any per-layer value): i18nText() throws a plain Error at field-construction time. The default onMissing is undefined (NOT "throw"), so the default case is allowed'
+    related: [i18n]
+
+  - id: i18n-script-violation-event
+    name: i18n:script-violation typed event channel for script-enforcement warnings
+    cluster: data-shape
+    spec: docs/superpowers/specs/2026-06-20-i18n-v1x-tail-design.md
+    subsystem_doc: docs/subsystems/i18n.md
+    package: '@noy-db/hub/i18n'
+    factory: withI18n
+    status: preview
+    showcases:
+      - id: 121-with-i18n-densify
+        path: showcases/src/121-with-i18n-densify.showcase.test.ts
+    recipes: []
+    playground_pages: []
+    diagrams: []
+    invariants:
+      - 'Script-enforcement in warn or filter mode emits typed events on the i18n:script-violation channel (observable via vault.on("i18n:script-violation", handler))'
+      - 'Event payload: { vault, collection, id, mode: "warn"|"filter", warning } where warning: ScriptWarning = { field, locale, expected, sample } — expected is the allowed-script list, sample is a short offending-character excerpt. There is NO value or violatingChars[] field'
+      - 'warn mode: the value is stored as-is and a warning event is emitted; filter mode: violating chars are stripped and an event is emitted; reject mode (default): throws ScriptViolationError synchronously (no event)'
+    related: [i18n]
 
   - id: aggregate
     name: Aggregate query terminals (sum/count/avg/groupBy)
@@ -1104,8 +1262,6 @@ features:
         path: showcases/src/93-with-snapshots.showcase.test.ts
       - id: 96-snapshots-auto-cadence
         path: showcases/src/96-snapshots-auto-cadence.showcase.test.ts
-      - id: 97-snapshots-s3-bundle
-        path: showcases/src/97-snapshots-s3-bundle.showcase.test.ts
     recipes: []
     playground_pages: []
     diagrams: []
@@ -1457,345 +1613,6 @@ adapters:
       - 'Records hosted as IDB objects keyed by {vault}/{collection}/{id}'
       - 'Available in every modern browser; polyfilled by fake-indexeddb in tests'
     related: [stores-contract]
-
-  - id: to-aws-dynamo
-    name: DynamoDB single-table store
-    package: '@noy-db/to-aws-dynamo'
-    cas_atomic: true
-    use_case: cloud-serverless
-    capabilities:
-      record: true
-      vault: false
-    status: stable
-    showcases:
-      - id: 04-storage-cloud
-        path: showcases/src/04-storage-cloud.showcase.test.ts
-    recipes: []
-    playground_pages: []
-    diagrams: []
-    invariants:
-      - 'casAtomic: true (DynamoDB ConditionExpression on attribute_not_exists / _v match)'
-      - 'Schema: pk = vaultName, sk = "{collection}#{id}"'
-      - 'Pairs naturally with @noy-db/to-aws-s3 via routeStore for blob offload'
-    related: [stores-contract, to-aws-s3]
-
-  - id: to-aws-s3
-    name: S3 object store
-    package: '@noy-db/to-aws-s3'
-    cas_atomic: true
-    use_case: cloud-blob-storage
-    capabilities:
-      record: true
-      vault: true
-    status: stable
-    showcases:
-      - id: 57-storage-aws-s3
-        path: showcases/src/57-storage-aws-s3.showcase.test.ts
-    recipes: []
-    playground_pages: []
-    diagrams: []
-    invariants:
-      - 'casAtomic: true (IfNoneMatch: * for creates; IfMatch: etag for updates — atomic at S3 write layer)'
-      - 'serverWriteTime: true (object LastModified via sentinel; store-authoritative; ε default 5 000 ms)'
-      - 'Each envelope stored as one object keyed by full path'
-      - 'Bodies are AES-GCM ciphertext — bucket reads do NOT leak plaintext (keyspace structure is visible by design)'
-    related: [stores-contract, to-aws-dynamo]
-
-  - id: to-browser-local
-    name: localStorage store (browser)
-    package: '@noy-db/to-browser-local'
-    cas_atomic: false
-    use_case: simple-pwa-cache
-    capabilities:
-      record: true
-      vault: false
-    status: stable
-    showcases:
-      - id: 53-storage-browser-local
-        path: showcases/src/53-storage-browser-local.showcase.test.ts
-    recipes: []
-    playground_pages: []
-    diagrams: []
-    invariants:
-      - 'casAtomic: false (single-tab: synchronous and atomic; cross-tab: no serialization)'
-      - 'serverWriteTime: true (browser clock; same-tab only; ε = 0 ms default)'
-      - 'Capacity-limited (5-10 MB); use to-browser-idb for larger vaults'
-      - 'obfuscate mode hides vault / collection / id from the keyspace (not encryption — _data stays AES-GCM)'
-    related: [stores-contract, to-browser-idb]
-
-  - id: to-cloudflare-r2
-    name: Cloudflare R2 object store
-    package: '@noy-db/to-cloudflare-r2'
-    cas_atomic: true
-    use_case: edge-blob-storage
-    capabilities:
-      record: true
-      vault: false
-    status: stable
-    showcases:
-      - id: 60-storage-cloudflare-r2
-        path: showcases/src/60-storage-cloudflare-r2.showcase.test.ts
-    recipes: []
-    playground_pages: []
-    diagrams: []
-    invariants:
-      - 'S3-compatible API; zero egress fees'
-      - 'casAtomic: true (inherits to-aws-s3 IfMatch/IfNoneMatch conditional CAS — R2 supports both)'
-      - 'serverWriteTime: true (object LastModified via to-aws-s3 sentinel; ε default 5 000 ms)'
-      - 'Delegates to to-aws-s3 internally — endpoint = https://<accountId>.r2.cloudflarestorage.com, region = "auto"'
-      - 'Bodies are AES-GCM ciphertext — Cloudflare staff with full bucket access cannot read plaintext'
-    related: [stores-contract, to-cloudflare-d1, to-aws-s3]
-
-  - id: to-cloudflare-d1
-    name: Cloudflare D1 (edge SQLite)
-    package: '@noy-db/to-cloudflare-d1'
-    cas_atomic: true
-    use_case: edge-serverless
-    capabilities:
-      record: true
-      vault: false
-    status: stable
-    showcases:
-      - id: 61-storage-cloudflare-d1
-        path: showcases/src/61-storage-cloudflare-d1.showcase.test.ts
-    recipes: []
-    playground_pages: []
-    diagrams: []
-    invariants:
-      - 'casAtomic: true (SQLite transactions inside Cloudflare Workers)'
-      - 'Replicated across edge locations; reads stay near the user'
-      - 'Duck-typed against env.DB binding (Worker) or a small REST shim (Node) — same surface either way'
-    related: [stores-contract, to-cloudflare-r2, to-sqlite]
-
-  - id: to-supabase
-    name: Supabase Postgres store
-    package: '@noy-db/to-supabase'
-    cas_atomic: true
-    use_case: hosted-postgres
-    capabilities:
-      record: true
-      vault: false
-    status: stable
-    showcases:
-      - id: 64-storage-supabase
-        path: showcases/src/64-storage-supabase.showcase.test.ts
-    recipes: []
-    playground_pages: []
-    diagrams: []
-    invariants:
-      - 'casAtomic: true (UPDATE … WHERE _v = $expectedVersion)'
-      - 'Thin factory over @noy-db/to-postgres; package does NOT embed @supabase/supabase-js — bring your own pg client'
-      - 'Service-role key required for write paths; row-level security is the consumer''s responsibility'
-      - 'Inherits the entire to-postgres feature set (txAtomic, listPage, ping)'
-    related: [stores-contract, to-postgres]
-
-  - id: to-postgres
-    name: PostgreSQL store
-    package: '@noy-db/to-postgres'
-    cas_atomic: true
-    use_case: self-hosted-sql
-    capabilities:
-      record: true
-      vault: false
-    status: stable
-    showcases:
-      - id: 58-storage-postgres
-        path: showcases/src/58-storage-postgres.showcase.test.ts
-    recipes: []
-    playground_pages: []
-    diagrams: []
-    invariants:
-      - 'casAtomic: true (UPDATE … WHERE _v = $expectedVersion)'
-      - 'Stores envelope JSON in a jsonb column for native indexing'
-      - 'Driver-agnostic — any client with `query(sql, params?) → { rows }` works (pg, postgres.js, drizzle, neon, vercel)'
-      - 'Even a Postgres superuser sees only AES-GCM ciphertext in the envelope column'
-    related: [stores-contract, to-supabase, to-mysql]
-
-  - id: to-mysql
-    name: MySQL store
-    package: '@noy-db/to-mysql'
-    cas_atomic: true
-    use_case: self-hosted-sql
-    capabilities:
-      record: true
-      vault: false
-    status: stable
-    showcases:
-      - id: 73-storage-mysql
-        path: showcases/src/73-storage-mysql.showcase.test.ts
-    recipes: []
-    playground_pages: []
-    diagrams: []
-    invariants:
-      - 'casAtomic: true (UPDATE … WHERE _v = $expectedVersion)'
-      - 'Uses the JSON column type — MySQL 5.7.8+'
-      - 'Real-provider showcase exercises the JSON column write path + idempotent schema creation against a docker-compose MySQL 8 container (issue #69)'
-    related: [stores-contract, to-postgres]
-
-  - id: to-sqlite
-    name: SQLite store (native / embedded)
-    package: '@noy-db/to-sqlite'
-    cas_atomic: true
-    use_case: embedded-sql
-    capabilities:
-      record: true
-      vault: false
-    status: stable
-    showcases:
-      - id: 54-storage-sqlite
-        path: showcases/src/54-storage-sqlite.showcase.test.ts
-    recipes: []
-    playground_pages: []
-    diagrams: []
-    invariants:
-      - 'casAtomic: true (SQLite transactions)'
-      - 'Driver-agnostic: better-sqlite3 / node:sqlite / bun:sqlite'
-      - 'Persistence across handle close+reopen — same passphrase recovers the keyring'
-    related: [stores-contract, to-cloudflare-d1, to-turso]
-
-  - id: to-turso
-    name: Turso (hosted libSQL)
-    package: '@noy-db/to-turso'
-    cas_atomic: true
-    use_case: hosted-edge-sqlite
-    capabilities:
-      record: true
-      vault: false
-    status: stable
-    showcases:
-      - id: 67-storage-turso
-        path: showcases/src/67-storage-turso.showcase.test.ts
-    recipes: []
-    playground_pages: []
-    diagrams: []
-    invariants:
-      - 'casAtomic: true (atomic UPDATE … WHERE v=? RETURNING — serialized at libSQL writer; no read-check-write race)'
-      - 'serverWriteTime: true (SELECT unixepoch("now","subsec") — server-authoritative; ε default 1 000 ms)'
-      - 'Replicated SQLite across regions; ideal for edge runtimes'
-      - 'Duck-typed against @libsql/client — same client surface works in Workers, Node, and Bun'
-      - 'Even a Turso DB administrator sees only AES-GCM ciphertext in the envelope column'
-    related: [stores-contract, to-sqlite, to-cloudflare-d1]
-
-  - id: to-webdav
-    name: WebDAV store (Nextcloud / ownCloud / DriveHQ / NAS)
-    package: '@noy-db/to-webdav'
-    cas_atomic: false
-    use_case: byo-cloud
-    capabilities:
-      record: true
-      vault: false
-    status: stable
-    showcases:
-      - id: 68-storage-webdav
-        path: showcases/src/68-storage-webdav.showcase.test.ts
-    recipes: []
-    playground_pages: []
-    diagrams: []
-    invariants:
-      - 'Pure fetch() — works in browser, Node, Workers'
-      - 'casAtomic: false (no atomic CAS in WebDAV — last-writer-wins)'
-      - 'Server-side path semantics vary — DriveHQ flattens deep paths to root; Nextcloud preserves them. Round-trip works on both because put/get use the same URL'
-      - 'Best paired as `routeStore({ blobs: webdav })` — blob chunks tolerate the slower HTTP-per-op profile, hot records do not'
-    related: [stores-contract, to-icloud, to-drive]
-
-  - id: to-ssh
-    name: SFTP / SSH store
-    package: '@noy-db/to-ssh'
-    cas_atomic: false
-    use_case: remote-disk
-    capabilities:
-      record: true
-      vault: false
-    status: stable
-    showcases:
-      - id: 74-storage-ssh
-        path: showcases/src/74-storage-ssh.showcase.test.ts
-    recipes: []
-    playground_pages: []
-    diagrams: []
-    invariants:
-      - 'Public-key auth only (passwords explicitly rejected)'
-      - 'casAtomic: false (no atomic CAS over SFTP)'
-      - 'Real-provider showcase exercises the put-then-rename atomic-write pattern against a docker-compose OpenSSH container (issue #70)'
-    related: [stores-contract, to-file, to-smb, to-nfs]
-
-  - id: to-smb
-    name: SMB / CIFS store
-    package: '@noy-db/to-smb'
-    cas_atomic: false
-    use_case: enterprise-fileshare
-    capabilities:
-      record: true
-      vault: false
-    status: stable
-    showcases:
-      - id: 75-storage-smb
-        path: showcases/src/75-storage-smb.showcase.test.ts
-    recipes: []
-    playground_pages: []
-    diagrams: []
-    invariants:
-      - 'NTLM or Kerberos auth'
-      - 'casAtomic: false (best-effort lockfile only)'
-      - 'Real-provider showcase exercises NTLM auth + put-then-rename against a docker-compose Samba container; Kerberos is out-of-scope at the showcase level (issue #71)'
-    related: [stores-contract, to-ssh, to-nfs]
-
-  - id: to-nfs
-    name: NFS mount store
-    package: '@noy-db/to-nfs'
-    cas_atomic: false
-    use_case: enterprise-fileshare
-    capabilities:
-      record: true
-      vault: false
-    status: stable
-    showcases:
-      - id: 76-storage-nfs
-        path: showcases/src/76-storage-nfs.showcase.test.ts
-    recipes: []
-    playground_pages: []
-    diagrams: []
-    invariants:
-      - 'Operates on a pre-mounted NFS path; diagnostic pre-flight checks the mount'
-      - 'casAtomic: false (NFS rename/atomic-write semantics are kernel-dependent)'
-      - 'Real-provider showcase verifies the diagnostic pre-flight against a real NFSv4.2 mount and against a non-NFS plain dir (issue #72; Linux-only host-side mount required)'
-    related: [stores-contract, to-smb, to-file]
-
-  - id: to-icloud
-    name: iCloud Drive store
-    package: '@noy-db/to-icloud'
-    cas_atomic: false
-    use_case: apple-ecosystem-sync
-    capabilities:
-      record: false
-      vault: true
-    status: stable
-    showcases: []
-    recipes: []
-    playground_pages: []
-    diagrams: []
-    invariants:
-      - 'Handles .icloud stub files (download-on-demand)'
-      - 'casAtomic: false; relies on iCloud''s eventual-consistency sync'
-    related: [stores-contract, to-drive, to-webdav]
-
-  - id: to-drive
-    name: Google Drive store
-    package: '@noy-db/to-drive'
-    cas_atomic: false
-    use_case: cloud-bundle-storage
-    capabilities:
-      record: false
-      vault: true
-    status: stable
-    showcases: []
-    recipes: []
-    playground_pages: []
-    diagrams: []
-    invariants:
-      - 'Uses the appDataFolder for hidden, app-scoped storage'
-      - 'casAtomic: false (no native CAS in Drive API)'
-    related: [stores-contract, to-icloud, to-webdav]
 
   - id: to-probe
     name: Diagnostic probe (companion, not a backend)
@@ -2642,177 +2459,6 @@ topologies:
     playground_pages: []
     diagrams: []
 
-  - id: accounting-stack
-    name: Accounting application stack
-    status: stable
-    composes:
-      features:
-        - vault-and-collections
-        - encryption
-        - permissions
-        - schema-and-refs
-        - query-basics
-        - history
-        - periods
-        - blobs
-        - i18n
-        - consent
-        - aggregate
-        - team
-      adapters: [to-postgres, to-aws-dynamo, to-aws-s3]
-      auths: [on-passphrase, on-webauthn, on-recovery]
-      exports: [as-csv, as-xlsx, as-noydb]
-    showcases: []
-    recipes: [accounting-app]
-    playground_pages: []
-    diagrams: []
-
-  - id: realtime-crdt-stack
-    name: Real-time collaborative app stack
-    status: stable
-    composes:
-      features:
-        - vault-and-collections
-        - encryption
-        - permissions
-        - query-basics
-        - crdt
-        - sync
-        - live
-        - team
-        - session
-      adapters: [to-browser-idb, to-cloudflare-r2]
-      frameworks: [in-yjs, in-react, in-vue]
-      auths: [on-passphrase, on-webauthn, on-magic-link]
-    showcases: []
-    recipes: [realtime-crdt-app]
-    playground_pages: []
-    diagrams: []
-
-  - id: analytics-stack
-    name: Analytics-heavy querying stack
-    status: stable
-    composes:
-      features:
-        - vault-and-collections
-        - encryption
-        - permissions
-        - schema-and-refs
-        - query-basics
-        - indexing
-        - aggregate
-        - joins
-        - routing
-        - session
-      adapters: [to-postgres, to-aws-dynamo]
-      frameworks: [in-tanstack-query, in-tanstack-table]
-      auths: [on-passphrase]
-      exports: [as-csv, as-xlsx, as-json]
-    showcases: []
-    recipes: [analytics-app]
-    playground_pages: []
-    diagrams: []
-
-  - id: aws-offline-tablet
-    name: AWS cloud team with offline-edit tablets
-    status: stable
-    composes:
-      features:
-        - vault-and-collections
-        - encryption
-        - permissions
-        - query-basics
-        - blobs
-        - sync
-      adapters: [to-aws-dynamo, to-aws-s3, to-memory, to-meter]
-      auths: [on-passphrase]
-    showcases:
-      - id: 59-topology-aws-offline-online
-        path: showcases/src/59-topology-aws-offline-online.showcase.test.ts
-    recipes: []
-    playground_pages: []
-    diagrams: []
-
-  - id: byo-blob-webdav
-    name: Hot records + WebDAV blobs (BYO-cloud / NAS / managed-storage)
-    status: stable
-    composes:
-      features:
-        - vault-and-collections
-        - encryption
-        - permissions
-        - query-basics
-        - blobs
-      adapters: [to-memory, to-webdav, to-meter]
-      auths: [on-passphrase]
-    showcases:
-      - id: 69-topology-webdav-blobs
-        path: showcases/src/69-topology-webdav-blobs.showcase.test.ts
-    recipes: []
-    playground_pages: []
-    diagrams: []
-
-  - id: cloudflare-edge-team
-    name: Cloudflare edge team with offline-edit tablets
-    status: stable
-    composes:
-      features:
-        - vault-and-collections
-        - encryption
-        - permissions
-        - query-basics
-        - blobs
-        - sync
-      adapters: [to-cloudflare-d1, to-cloudflare-r2, to-memory, to-meter]
-      auths: [on-passphrase]
-    showcases:
-      - id: 62-topology-cloudflare-offline-online
-        path: showcases/src/62-topology-cloudflare-offline-online.showcase.test.ts
-    recipes: []
-    playground_pages: []
-    diagrams: []
-
-  - id: supabase-team
-    name: Supabase Postgres + Storage (records + blobs, single-vendor)
-    status: stable
-    composes:
-      features:
-        - vault-and-collections
-        - encryption
-        - permissions
-        - query-basics
-        - blobs
-        - sync
-      adapters: [to-supabase, to-memory, to-meter]
-      auths: [on-passphrase]
-    showcases:
-      - id: 65-topology-supabase-records-blobs
-        path: showcases/src/65-topology-supabase-records-blobs.showcase.test.ts
-      - id: 66-topology-supabase-offline-online
-        path: showcases/src/66-topology-supabase-offline-online.showcase.test.ts
-    recipes: []
-    playground_pages: []
-    diagrams: []
-
-  - id: cloudflare-worker-bindings
-    name: Cloudflare Worker with native D1 + R2 bindings (in-process, sub-ms)
-    status: preview
-    composes:
-      features:
-        - vault-and-collections
-        - encryption
-        - permissions
-        - query-basics
-        - blobs
-      adapters: [to-cloudflare-d1, to-meter]
-      auths: [on-passphrase]
-    showcases:
-      - id: 63-topology-cloudflare-bindings
-        path: showcases/src/63-topology-cloudflare-bindings.workers.test.ts
-    recipes: []
-    playground_pages: []
-    diagrams: []
-
 # ─── Recipes (phase 8) — runnable starter applications ───────────────
 #
 # Each recipe is a doc page in docs/recipes/ + (usually) a runnable test
@@ -2828,15 +2474,6 @@ recipes:
     exercises:
       features: [vault-and-collections, encryption, query-basics]
       adapters: [to-memory, to-browser-idb, to-file]
-
-  - id: accounting-app
-    name: Accounting application
-    doc: docs/recipes/accounting-app.md
-    showcase_path: showcases/src/recipe-accounting-app.recipe.test.ts
-    status: stable
-    exercises:
-      features: [history, periods, blobs, i18n, consent, aggregate, team]
-      adapters: [to-postgres, to-aws-dynamo]
 
   - id: realtime-crdt-app
     name: Real-time collaborative app

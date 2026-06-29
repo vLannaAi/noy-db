@@ -31,8 +31,8 @@ function memory(): NoydbStore {
       for (const [key, env] of data) {
         const [vname, cname, id] = key.split('/')
         if (vname === v) {
-          out[cname] = out[cname] ?? {}
-          out[cname][id] = env
+          out[cname!] = out[cname!] ?? {}
+          out[cname!]![id!] = env
         }
       }
       return out
@@ -79,7 +79,7 @@ function monthsCovered(periods: ReadonlyArray<{ from: string; to: string }>): st
 }
 
 async function buildDb() {
-  const strategy = withDerivation<Worker, { activeInPeriod: ActivePeriod }>({
+  const strategy = withDerivation<Worker, { activeInPeriod: ActivePeriod[] }>({
     source: 'workers',
     deterministic: true,
     outputs: {
@@ -215,7 +215,7 @@ describe('shape: array — basic fanout (#200)', () => {
 
 describe('shape: array — validation', () => {
   it('rejects lifecycle "lazy" + shape "array"', () => {
-    expect(() => withDerivation<Worker, { activeInPeriod: ActivePeriod }>({
+    expect(() => withDerivation<Worker, { activeInPeriod: ActivePeriod[] }>({
       source: 'workers',
       deterministic: true,
       outputs: {
@@ -231,7 +231,7 @@ describe('shape: array — validation', () => {
   })
 
   it('rejects array output without a key extractor', () => {
-    expect(() => withDerivation<Worker, { activeInPeriod: ActivePeriod }>({
+    expect(() => withDerivation<Worker, { activeInPeriod: ActivePeriod[] }>({
       source: 'workers',
       deterministic: true,
       outputs: {
@@ -244,7 +244,7 @@ describe('shape: array — validation', () => {
   })
 
   it('rejects negative or zero maxFanout', () => {
-    expect(() => withDerivation<Worker, { activeInPeriod: ActivePeriod }>({
+    expect(() => withDerivation<Worker, { activeInPeriod: ActivePeriod[] }>({
       source: 'workers',
       deterministic: true,
       outputs: {
@@ -263,7 +263,7 @@ describe('shape: array — validation', () => {
 
 describe('shape: array — runtime errors', () => {
   it('throws DerivationCapExceededError when array exceeds maxFanout', async () => {
-    const strategy = withDerivation<Worker, { activeInPeriod: ActivePeriod }>({
+    const strategy = withDerivation<Worker, { activeInPeriod: ActivePeriod[] }>({
       source: 'workers',
       deterministic: true,
       outputs: {
@@ -305,7 +305,7 @@ describe('shape: array — runtime errors', () => {
   })
 
   it('throws DerivationOutputShapeError on duplicate keys', async () => {
-    const strategy = withDerivation<Worker, { dup: { id: string; v: number } }>({
+    const strategy = withDerivation<Worker, { dup: { id: string; v: number }[] }>({
       source: 'workers',
       deterministic: true,
       outputs: {

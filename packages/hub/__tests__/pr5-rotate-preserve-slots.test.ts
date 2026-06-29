@@ -217,7 +217,7 @@ describe('rotatePassphrase slot preservation (#29)', () => {
         id: 'pin-resume',
         method: 'password', // tier-3 PIN slots also use the 'password' method
         enrolled_at: '2026-01-03T00:00:00Z',
-        enrolled_via_tier: 3,
+        enrolled_via_tier: 2,
         wrapKind: 'deks',
         wrapped_deks: 'PINWRAPPEDDEKS',
         iv: 'PINIV',

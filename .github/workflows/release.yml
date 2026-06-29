@@ -82,6 +82,11 @@ concurrency:
 permissions:
   contents: read
 
+# Hub's dts build (28 subpath entries, large type surface) needs more than
+# the default heap or tsup's rollup-dts worker dies with ERR_WORKER_OUT_OF_MEMORY.
+env:
+  NODE_OPTIONS: --max-old-space-size=8192
+
 jobs:
   # ── Gate 1: strict verification ──────────────────────────────────────
   verify:

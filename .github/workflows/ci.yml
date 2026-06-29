@@ -16,6 +16,13 @@ concurrency:
 permissions:
   contents: read
 
+# Hub ships dts for 28 subpath entries off a very large type surface
+# (field-metadata epic); tsup's rollup-dts worker needs more than the
+# default heap or it dies with ERR_WORKER_OUT_OF_MEMORY. Applies to every
+# job that builds (build, lint+typecheck, test, interop).
+env:
+  NODE_OPTIONS: --max-old-space-size=8192
+
 jobs:
   # ── Architecture invariants ──────────────────────────────────────────
   # Enforces the design contract: peer-dep convention, zero crypto deps,
@@ -132,7 +139,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['20', '22']
+        node: ['22', '24']
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5

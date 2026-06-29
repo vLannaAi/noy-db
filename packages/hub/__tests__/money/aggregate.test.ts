@@ -10,7 +10,7 @@ function memory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
-    capabilities: { casAtomic: true, auth: { kind: 'none' } },
+    capabilities: { casAtomic: true, auth: { kind: 'none', required: false, flow: 'static' } },
     async get(v, c, i) { return data.get(k(v, c, i)) ?? null },
     async put(v, c, i, env) { data.set(k(v, c, i), env) },
     async delete(v, c, i) { data.delete(k(v, c, i)) },
@@ -22,19 +22,19 @@ function memory(): NoydbStore {
       const out: Record<string, Record<string, EncryptedEnvelope>> = {}
       for (const [key, env] of data) {
         const [vname, cname, id] = key.split('/')
-        if (vname === v) { out[cname] = out[cname] ?? {}; out[cname][id] = env }
+        if (vname === v) { out[cname!] = out[cname!] ?? {}; out[cname!]![id!] = env }
       }
       return out
     },
     async saveAll(v, payload) {
       for (const c of Object.keys(payload)) {
-        for (const i of Object.keys(payload[c])) { data.set(k(v, c, i), payload[c][i]) }
+        for (const i of Object.keys(payload[c]!)) { data.set(k(v, c, i), payload[c]![i]!) }
       }
     },
   }
 }
 
-interface Line extends Record<string, unknown> { id: string; total: number | string }
+interface Line extends Record<string, unknown> { id: string; total: number | string | { amount: number | string; currency: string } }
 
 async function vaultWith(moneyField: ReturnType<typeof money>) {
   const db = await createNoydb({

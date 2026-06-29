@@ -27,6 +27,7 @@ import type { Clause, FieldClause, Operator } from '../query/predicate.js'
 import { evaluateClause, readPath } from '../query/predicate.js'
 import type { PersistedCollectionIndex } from './persisted-indexes.js'
 import { IndexRequiredError } from '../errors.js'
+import type { QueryField } from '../types.js'
 
 export interface LazyOrderBy {
   readonly field: string
@@ -60,7 +61,7 @@ const EMPTY_PLAN: LazyPlan = {
   offset: 0,
 }
 
-export class LazyQuery<T> {
+export class LazyQuery<T, S extends keyof T = never, Q extends keyof T & string = never> {
   private readonly source: LazyQuerySource<T>
   private readonly plan: LazyPlan
 
@@ -69,27 +70,27 @@ export class LazyQuery<T> {
     this.plan = plan
   }
 
-  where<V>(field: string, op: Operator, value: V): LazyQuery<T> {
+  where<V>(field: QueryField<T, S, Q>, op: Operator, value: V): LazyQuery<T, S, Q> {
     const clause: FieldClause = { type: 'field', field, op, value }
-    return new LazyQuery<T>(this.source, {
+    return new LazyQuery<T, S, Q>(this.source, {
       ...this.plan,
       clauses: [...this.plan.clauses, clause],
     })
   }
 
-  orderBy(field: string, direction: 'asc' | 'desc' = 'asc'): LazyQuery<T> {
-    return new LazyQuery<T>(this.source, {
+  orderBy(field: QueryField<T, S>, direction: 'asc' | 'desc' = 'asc'): LazyQuery<T, S, Q> {
+    return new LazyQuery<T, S, Q>(this.source, {
       ...this.plan,
       orderBy: [...this.plan.orderBy, { field, direction }],
     })
   }
 
-  limit(n: number): LazyQuery<T> {
-    return new LazyQuery<T>(this.source, { ...this.plan, limit: n })
+  limit(n: number): LazyQuery<T, S, Q> {
+    return new LazyQuery<T, S, Q>(this.source, { ...this.plan, limit: n })
   }
 
-  offset(n: number): LazyQuery<T> {
-    return new LazyQuery<T>(this.source, { ...this.plan, offset: n })
+  offset(n: number): LazyQuery<T, S, Q> {
+    return new LazyQuery<T, S, Q>(this.source, { ...this.plan, offset: n })
   }
 
   async toArray(): Promise<T[]> {

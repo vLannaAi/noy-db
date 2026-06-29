@@ -14,13 +14,18 @@ export interface ClientDoc {
   readonly clientId: string
   readonly lastSeen: number
   readonly quiescedAtVersion: number | null
+  /**
+   * Session that owns this writer (one user's writers across vaults). Additive
+   * and optional so pre-#469 client docs keep parsing; readers default it.
+   */
+  readonly sessionId?: string
 }
 
 export async function writeClientDoc(
   store: NoydbStore,
   vault: string,
   clientId: string,
-  doc: { lastSeen: number; quiescedAtVersion: number | null },
+  doc: { lastSeen: number; quiescedAtVersion: number | null; sessionId?: string },
 ): Promise<void> {
   const envelope: EncryptedEnvelope = {
     _noydb: NOYDB_FORMAT_VERSION,
@@ -70,4 +75,5 @@ function isClientDoc(x: unknown): x is ClientDoc {
   return typeof o['clientId'] === 'string'
     && typeof o['lastSeen'] === 'number'
     && (o['quiescedAtVersion'] === null || typeof o['quiescedAtVersion'] === 'number')
+    && (o['sessionId'] === undefined || typeof o['sessionId'] === 'string')
 }
