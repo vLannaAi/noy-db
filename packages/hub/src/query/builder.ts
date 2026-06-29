@@ -718,6 +718,14 @@ export class Query<T, S extends keyof T = never> {
    * executor — that's  constraint #2. When partition-aware
    * aggregation lands, the seed will carry running state across
    * partition boundaries without an API break.
+   *
+   * KNOWN GAP (sealed fields): `where`/`orderBy`/`groupBy` refuse a
+   * `sensitive` field at compile time, but a reducer over a sensitive field
+   * (e.g. `aggregate({ x: sum('ssn') })`) is NOT refused — the reducer
+   * factories (`sum`/`min`/`max`/…) are standalone `(field: string)` functions
+   * with no collection-type context, so `aggregate(spec)` cannot see which
+   * field is inside each reducer. Closing this requires a typed spec-builder
+   * redesign (tracked separately); avoid aggregating sensitive fields.
    */
   aggregate<Spec extends AggregateSpec>(
     spec: Spec,
@@ -806,8 +814,11 @@ export class Query<T, S extends keyof T = never> {
    * The performance caveat is the same: filter clauses cost O(N)
    * per record and can't be index-accelerated.
    */
-  groupBy<F extends string>(field: F): GroupedQuery<T, F>
-  groupBy<F extends readonly [string, string, ...string[]]>(
+  // The `field` param is `QueryField<T, S>` so a sealed (`sensitive`) field is
+  // refused — grouping BY a sensitive field leaks its value distribution as
+  // group-key labels. With `S = never` this is exactly `string` (zero churn).
+  groupBy<F extends QueryField<T, S>>(field: F): GroupedQuery<T, F>
+  groupBy<F extends readonly [QueryField<T, S>, QueryField<T, S>, ...QueryField<T, S>[]]>(
     ...fields: F
   ): GroupedQueryN<T, F>
   groupBy(...fields: readonly string[]): GroupedQuery<T, string> | GroupedQueryN<T, readonly string[]> {
