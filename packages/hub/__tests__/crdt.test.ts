@@ -63,10 +63,10 @@ describe('CRDT mode (v0.9)', () => {
 
       const raw = await notes.getRaw('n1') as LwwMapState
       expect(raw._crdt).toBe('lww-map')
-      expect(raw.fields.title.v).toBe('Hello')
-      expect(raw.fields.body.v).toBe('World')
-      expect(raw.fields.priority.v).toBe(1)
-      expect(typeof raw.fields.title.ts).toBe('string')
+      expect(raw.fields.title!.v).toBe('Hello')
+      expect(raw.fields.body!.v).toBe('World')
+      expect(raw.fields.priority!.v).toBe(1)
+      expect(typeof raw.fields.title!.ts).toBe('string')
     })
 
     it('getRaw() returns null for non-existent record', async () => {

@@ -27,13 +27,13 @@ function memory(): NoydbStore {
       const out: Record<string, Record<string, EncryptedEnvelope>> = {}
       for (const [key, env] of data) {
         const [vname, cname, id] = key.split('/')
-        if (vname === v) { out[cname] = out[cname] ?? {}; out[cname][id] = env }
+        if (vname === v) { out[cname!] = out[cname!] ?? {}; out[cname!]![id!] = env }
       }
       return out
     },
     async saveAll(v, payload) {
       for (const c of Object.keys(payload)) {
-        for (const i of Object.keys(payload[c])) { data.set(k(v, c, i), payload[c][i]) }
+        for (const i of Object.keys(payload[c]!)) { data.set(k(v, c, i), payload[c]![i]!) }
       }
     },
   }

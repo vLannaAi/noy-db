@@ -151,10 +151,10 @@ describe('collection.retrieve() — string fields (#308 L1)', () => {
     const hits = await c.retrieve('TCM')
     expect(hits.length).toBe(2)
     // Hits are returned in score order (highest first)
-    expect(hits[0].id).toBe('a') // description match scores higher
-    expect(hits[1].id).toBe('b') // notes match scores lower
+    expect(hits[0]!.id).toBe('a') // description match scores higher
+    expect(hits[1]!.id).toBe('b') // notes match scores lower
     // Verify rank is 1-based and monotonic
-    expect(hits[0].rank).toBe(1)
-    expect(hits[1].rank).toBe(2)
+    expect(hits[0]!.rank).toBe(1)
+    expect(hits[1]!.rank).toBe(2)
   })
 })

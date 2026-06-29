@@ -23,6 +23,6 @@ describe('Reducer.merge', () => {
   it('associativity (sum)', () => {
     const r = sum('v')
     const a = stateOf(r, [{v:1}]), b = stateOf(r, [{v:2}]), c = stateOf(r, [{v:3}])
-    expect(r.finalize(r.merge(r.merge(a, b), c))).toEqual(r.finalize(r.merge(a, r.merge(b, c))))
+    expect(r.finalize(r.merge!(r.merge!(a, b), c))).toEqual(r.finalize(r.merge!(a, r.merge!(b, c))))
   })
 })

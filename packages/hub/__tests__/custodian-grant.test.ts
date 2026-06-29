@@ -51,7 +51,7 @@ describe('FR-6 Task 4 — grantCustodian / revokeCustodian (owner-only custody A
       'grant-custodian': { enabled: true, minTier: 1 },
       'revoke-user': { enabled: true, minTier: 1 },
     },
-  }
+  } as const
 
   let adapter: NoydbStore
   let ownerDb: Noydb

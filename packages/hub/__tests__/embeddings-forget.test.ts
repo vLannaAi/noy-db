@@ -72,7 +72,7 @@ const enc = (dim: number, model = 'stub') => ({
   dim, model, source: 'text' as const,
   encode: async (t: string) => {
     const v = new Float32Array(dim)
-    for (let i = 0; i < t.length; i++) v[t.charCodeAt(i) % dim] += 1
+    for (let i = 0; i < t.length; i++) { const ci = t.charCodeAt(i) % dim; v[ci] = (v[ci] ?? 0) + 1 }
     return v
   },
 })

@@ -25,7 +25,7 @@ import {
   type PaperRecoveryEntry,
 } from '../src/index.js'
 import { STRICT_POLICY } from '../src/policy/presets.js'
-import { PolicyDeniedError } from '../src/errors.js'
+import { PolicyDeniedError } from '../src/policy/errors.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -106,7 +106,7 @@ describe('db.rotateRecovery (#121)', () => {
     // A new code DOES recover.
     const recovered = await db.recoverPassphrase('acme', {
       newPassphrase: 'fresh passphrase after rotation today morning glass tower',
-      recoveryProof: { profile: 'paper', payload: { code: result.newCodes[0]! } },
+      recoveryProof: { profile: 'paper', payload: { code: result.newCodes![0]! } },
     })
     expect(recovered).toBeDefined()
   }, 180_000)

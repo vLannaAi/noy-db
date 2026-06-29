@@ -100,7 +100,7 @@ interface Invoice {
  */
 async function seedAdapterAndReopen(n: number): Promise<{
   db: Noydb
-  store: ReturnType<typeof memory>
+  adapter: ReturnType<typeof memory>
   comp: Awaited<ReturnType<Noydb['openVault']>>
 }> {
   const adapter = memory()

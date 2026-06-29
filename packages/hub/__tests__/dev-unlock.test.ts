@@ -47,8 +47,9 @@ async function makeKeyring(overrides?: Partial<UnlockedKeyring>): Promise<Unlock
     deks: new Map([['invoices', dek]]),
     kek: null,
     salt: new Uint8Array(32).fill(7),
+    authenticators: [],
     ...overrides,
-  }
+  } as UnlockedKeyring
 }
 
 // ─── Setup / teardown ─────────────────────────────────────────────────────────

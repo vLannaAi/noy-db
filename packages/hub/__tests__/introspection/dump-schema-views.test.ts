@@ -99,7 +99,7 @@ describe('vault.dumpSchema() — materialized views', () => {
     const snap = await vault.dumpSchema()
     const mv = snap.materializedViews['monthly-vat']
     expect(mv).toBeDefined()
-    expect(mv!.sources.sort()).toEqual(['credit-notes', 'receipts'])
+    expect([...mv!.sources].sort()).toEqual(['credit-notes', 'receipts'])
     expect(mv!.groupBy).toEqual(['client_id', 'period'])
     expect(mv!.aggregate).toBeDefined()
     expect(typeof mv!.aggregate!.vat).toBe('string')

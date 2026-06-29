@@ -121,6 +121,7 @@ describe('vault.user.* — write-self', () => {
     // Explicitly set undefined — should be a no-op, NOT a delete. This
     // is the contract distinction from `null`.
     await vault.user.updateMe<TestProfile>({
+      // @ts-expect-error — exactOptionalPropertyTypes: explicit undefined is not assignable to locale?: string | null, but the implementation handles it as a no-op
       profile: { locale: undefined },
     })
     const me = await vault.user.me<TestProfile>()
@@ -274,7 +275,7 @@ describe('vault.user.* — reactive (subscribe / live)', () => {
     const vault = await db.openVault('demo')
     const fired: Array<{ name?: string }> = []
     const unsub = vault.user.subscribe<TestProfile>('alice', (env) => {
-      fired.push({ name: env?.data.profile?.displayName })
+      fired.push({ name: env?.data.profile?.displayName! })
     })
 
     await vault.user.updateMe<TestProfile>({ profile: { displayName: 'A' } })

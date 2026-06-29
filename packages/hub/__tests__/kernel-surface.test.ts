@@ -33,6 +33,6 @@ describe('@noy-db/hub/kernel surface', () => {
 
 // Compile-time assertion that the type surface is present (no runtime cost).
 type _TypeSurface = [
-  ChangeEvent, Vault, Collection, Noydb, Operator, Query, JoinStrategy,
-  LiveQuery, AggregateResult, AggregateSpec, LiveAggregation, IndexDef,
+  ChangeEvent, Vault, Collection<Record<string, unknown>>, Noydb, Operator, Query<Record<string, unknown>>, JoinStrategy,
+  LiveQuery<Record<string, unknown>>, AggregateResult<AggregateSpec>, AggregateSpec, LiveAggregation<Record<string, unknown>>, IndexDef,
 ]

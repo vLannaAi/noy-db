@@ -12,11 +12,11 @@ describe('fuseRetrieval (RRF)', () => {
     const out = fuseRetrieval([lex, sem])
     // b is in both: 1/(60+2) + 1/(60+1) = highest; a: 1/61; c: 1/62
     expect(out.map(h => h.id)).toEqual(['b', 'a', 'c'])
-    expect(out[0].rank).toBe(1)
-    expect(out[1].rank).toBe(2)
-    expect(out[2].rank).toBe(3)
+    expect(out[0]!.rank).toBe(1)
+    expect(out[1]!.rank).toBe(2)
+    expect(out[2]!.rank).toBe(3)
     // RRF score, not BM25/cosine
-    expect(out[0].score).toBeCloseTo(1 / 62 + 1 / 61, 10)
+    expect(out[0]!.score).toBeCloseTo(1 / 62 + 1 / 61, 10)
   })
 
   it('single list is a rank-restamped passthrough (order preserved)', () => {
@@ -33,7 +33,7 @@ describe('fuseRetrieval (RRF)', () => {
   it('respects a custom k', () => {
     // with k=0, rank-1 contribution is 1/1=1, dominating
     const out = fuseRetrieval([[hit('a', 2)], [hit('b', 1)]], { k: 0 })
-    expect(out[0].id).toBe('b')
+    expect(out[0]!.id).toBe('b')
   })
 
   it('breaks ties deterministically by id ascending', () => {
@@ -46,15 +46,15 @@ describe('fuseRetrieval (RRF)', () => {
     const lex = [hit('a', 2, 'description', 'invoice for X')]
     const sem = [hit('a', 1, '(vector)', '')]
     const out = fuseRetrieval([lex, sem])
-    expect(out[0].field).toBe('description')
-    expect(out[0].snippet).toBe('invoice for X')
+    expect(out[0]!.field).toBe('description')
+    expect(out[0]!.snippet).toBe('invoice for X')
   })
 
   it('a merged hit recovers record from whichever list carried it', () => {
     const lex: RetrieveHit<{ n: number }>[] = [{ id: 'a', score: 0.5, rank: 1, field: 'text', snippet: 's' }]
     const sem: RetrieveHit<{ n: number }>[] = [{ id: 'a', score: 0.9, rank: 1, field: '(vector)', snippet: '', record: { n: 7 } }]
     const out = fuseRetrieval([lex, sem])
-    expect(out[0].record).toEqual({ n: 7 })
+    expect(out[0]!.record).toEqual({ n: 7 })
   })
 
   it('empty input yields empty output', () => {

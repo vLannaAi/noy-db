@@ -124,7 +124,7 @@ describe('MV i18n — §1 display (resolve-at-output)', () => {
     interface Label extends Record<string, unknown> { id: string; label: Record<string, string> }
     const mv = withMaterializedView<Label>({
       name: 'productLabels',
-      unionSources: [{ collection: 'products', map: (r) => ({ id: r.id as string, label: r.category }) }],
+      unionSources: [{ collection: 'products', map: (r) => ({ id: r.id as string, label: r.category as Record<string, string> }) }],
       rowKey: (row) => row.id,
       refresh: 'manual',
     })

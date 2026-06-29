@@ -43,10 +43,10 @@ describe('SubsystemBus integration — afterPut fires from put()', () => {
     await docs.put('a', { id: 'a', n: 1 })
 
     expect(seen).toHaveLength(1)
-    expect(seen[0].op).toBe('create')
-    expect(seen[0].collection).toBe('docs')
-    expect(seen[0].docId).toBe('a')
-    expect(seen[0].after).toEqual({ id: 'a', n: 1 })
+    expect(seen[0]!.op).toBe('create')
+    expect(seen[0]!.collection).toBe('docs')
+    expect(seen[0]!.docId).toBe('a')
+    expect(seen[0]!.after).toEqual({ id: 'a', n: 1 })
   })
 
   it('does not dispatch when no handler is registered', async () => {
@@ -69,11 +69,11 @@ describe('SubsystemBus integration — afterPut fires from put()', () => {
     await docs.delete('a')
 
     expect(seen).toHaveLength(1)
-    expect(seen[0].op).toBe('delete')
-    expect(seen[0].collection).toBe('docs')
-    expect(seen[0].docId).toBe('a')
-    expect(seen[0].before).toEqual({ id: 'a', n: 1 })
-    expect(seen[0].after).toBeNull()
+    expect(seen[0]!.op).toBe('delete')
+    expect(seen[0]!.collection).toBe('docs')
+    expect(seen[0]!.docId).toBe('a')
+    expect(seen[0]!.before).toEqual({ id: 'a', n: 1 })
+    expect(seen[0]!.after).toBeNull()
   })
 
   it('does not fire afterDelete when no afterDelete handler is registered (zero-cost)', async () => {

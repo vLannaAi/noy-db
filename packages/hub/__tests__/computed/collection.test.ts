@@ -11,7 +11,7 @@ function memory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
-    capabilities: { casAtomic: true, auth: { kind: 'none' } },
+    capabilities: { casAtomic: true, auth: { kind: 'none', required: false, flow: 'static' } },
     async get(v, c, i) { return data.get(k(v, c, i)) ?? null },
     async put(v, c, i, env) { data.set(k(v, c, i), env) },
     async delete(v, c, i) { data.delete(k(v, c, i)) },
@@ -23,13 +23,13 @@ function memory(): NoydbStore {
       const out: Record<string, Record<string, EncryptedEnvelope>> = {}
       for (const [key, env] of data) {
         const [vname, cname, id] = key.split('/')
-        if (vname === v) { out[cname] = out[cname] ?? {}; out[cname][id] = env }
+        if (vname === v) { out[cname!] = out[cname!] ?? {}; out[cname!]![id!] = env }
       }
       return out
     },
     async saveAll(v, payload) {
       for (const c of Object.keys(payload)) {
-        for (const i of Object.keys(payload[c])) { data.set(k(v, c, i), payload[c][i]) }
+        for (const i of Object.keys(payload[c]!)) { data.set(k(v, c, i), payload[c]![i]!) }
       }
     },
   }
@@ -37,7 +37,7 @@ function memory(): NoydbStore {
 
 interface Line extends Record<string, unknown> {
   id: string; unitPrice: number; qty: number
-  netAmount?: number; taxAmount?: number; total?: number
+  netAmount?: number | undefined; taxAmount?: number | undefined; total?: number | undefined
 }
 
 async function vault(extra?: { aggregate?: boolean }) {
@@ -103,7 +103,7 @@ describe('computed scalar fields — collection integration', () => {
   })
 
   it('a computed money field aggregates exactly (computed + money interplay)', async () => {
-    interface SaleLine extends Record<string, unknown> { id: string; unitPrice: number; qty: number; total?: string }
+    interface SaleLine extends Record<string, unknown> { id: string; unitPrice: number; qty: number; total?: string | number | undefined }
     const v = await vault({ aggregate: true })
     v.collection<SaleLine>('lines', {
       schema: z.object({

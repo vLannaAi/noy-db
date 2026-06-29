@@ -62,7 +62,7 @@ describe('enforceScript — filter / warn', () => {
       languages: ['en'], required: 'any', script: 'auto', onScriptViolation: 'filter',
     })
     const { value, warnings } = enforceScript({ en: 'John สมชาย' }, 'name', desc)
-    expect(value.en.trim()).toBe('John')
+    expect((value.en as string).trim()).toBe('John')
     expect(warnings).toHaveLength(1)
   })
   it("warn keeps the value and records a warning", () => {

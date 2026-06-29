@@ -85,7 +85,7 @@ describe('collection — group-encryption (_sealed)', () => {
   it('round-trips a record with a sensitive field', async () => {
     const store = memoryStore()
     const db = await createNoydb({ store, secret: 'pw', user: 'owner' })
-    const v = await db.openVault('v1', { passphrase: 'pw' })
+    const v = await db.openVault('v1')
     const people = v.collection<Person>('people', { sensitive: ['ssn'] })
 
     const original: Person = { id: 'p1', name: 'Alice', ssn: '123-45-6789' }
@@ -104,7 +104,7 @@ describe('collection — group-encryption (_sealed)', () => {
   it('stores the sensitive field in _sealed, out of the open _data blob', async () => {
     const store = memoryStore()
     const db = await createNoydb({ store, secret: 'pw', user: 'owner' })
-    const v = await db.openVault('v1', { passphrase: 'pw' })
+    const v = await db.openVault('v1')
     const people = v.collection<Person>('people', { sensitive: ['ssn'] })
 
     await people.put('p1', { id: 'p1', name: 'Alice', ssn: '123-45-6789' })
@@ -125,7 +125,7 @@ describe('collection — group-encryption (_sealed)', () => {
     store._data.get('v1')!.get('people')!.set('p1', stripped as unknown as EncryptedEnvelope)
 
     const db2 = await createNoydb({ store, secret: 'pw', user: 'owner' })
-    const v2 = await db2.openVault('v1', { passphrase: 'pw' })
+    const v2 = await db2.openVault('v1')
     const people2 = v2.collection<Person>('people', { sensitive: ['ssn'] })
     const partial = await people2.get('p1')
     expect(partial).not.toBeNull()
@@ -136,7 +136,7 @@ describe('collection — group-encryption (_sealed)', () => {
   it('seals every present sensitive field under its own key', async () => {
     const store = memoryStore()
     const db = await createNoydb({ store, secret: 'pw', user: 'owner' })
-    const v = await db.openVault('v1', { passphrase: 'pw' })
+    const v = await db.openVault('v1')
     const people = v.collection<Person>('people', { sensitive: ['ssn', 'dob'] })
 
     const original: Person = { id: 'p1', name: 'Alice', ssn: '111', dob: '1990-01-01' }
@@ -157,7 +157,7 @@ describe('collection — group-encryption (_sealed)', () => {
   it('omits absent sensitive fields from _sealed', async () => {
     const store = memoryStore()
     const db = await createNoydb({ store, secret: 'pw', user: 'owner' })
-    const v = await db.openVault('v1', { passphrase: 'pw' })
+    const v = await db.openVault('v1')
     const people = v.collection<Person>('people', { sensitive: ['ssn', 'dob'] })
 
     const original: Person = { id: 'p1', name: 'Bob' }
@@ -172,7 +172,7 @@ describe('collection — group-encryption (_sealed)', () => {
   it('default-off: no sensitive option → no _sealed key, classic envelope shape', async () => {
     const store = memoryStore()
     const db = await createNoydb({ store, secret: 'pw', user: 'owner' })
-    const v = await db.openVault('v1', { passphrase: 'pw' })
+    const v = await db.openVault('v1')
     const people = v.collection<Person>('people')
 
     await people.put('p1', { id: 'p1', name: 'Alice', ssn: '123-45-6789' })

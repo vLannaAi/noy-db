@@ -27,8 +27,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
-import { ConflictError, PermissionDeniedError, ReadOnlyError } from '../src/errors.js'
-import { PartitionExtractionError } from '../src/bundle/extract-partition.js'
+import { ConflictError, PermissionDeniedError, ReadOnlyError, PartitionExtractionError } from '../src/errors.js'
 import { extractPartition } from '../src/bundle/extract-partition.js'
 import { createNoydb } from '../src/noydb.js'
 import type { Noydb } from '../src/noydb.js'
@@ -60,10 +59,10 @@ const VAULT = 'C600'
 // `client-unilateral-withdraw` gate (used to stage the prior withdrawal entry).
 const POLICY = {
   gates: {
-    'grant-custodian': { enabled: true, minTier: 1 },
-    'liberate-vault': { enabled: true, minTier: 1 },
-    'revoke-user': { enabled: true, minTier: 1 },
-    'client-unilateral-withdraw': { enabled: true, minTier: 1 },
+    'grant-custodian': { enabled: true, minTier: 1 as const },
+    'liberate-vault': { enabled: true, minTier: 1 as const },
+    'revoke-user': { enabled: true, minTier: 1 as const },
+    'client-unilateral-withdraw': { enabled: true, minTier: 1 as const },
   },
 }
 
@@ -134,7 +133,7 @@ describe('FR-6 Task 6 — vault.custody.* end-to-end acceptance walkthrough', ()
       firmDb.grant(VAULT, { userId: 'mole-01', displayName: 'Mole', role: 'admin', passphrase: 'mole-pass-long' }),
     ).rejects.toThrow(PermissionDeniedError)
     // rotate: denied (re-key is an owner meta-capability).
-    await expect(firmDb.rotate(VAULT)).rejects.toThrow(PermissionDeniedError)
+    await expect(firmDb.rotate(VAULT, [])).rejects.toThrow(PermissionDeniedError)
     // destructive sever via vault.user.unilateralWithdrawal: denied (must liberate).
     await expect(
       firmVault.user.unilateralWithdrawal({ legalBasis: 'sneaky-sever' }),

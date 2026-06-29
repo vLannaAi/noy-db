@@ -27,13 +27,13 @@ function clockStore(epsilon = 0): NoydbStore {
     async loadAll(v) {
       const out: VaultSnapshot = {}
       for (const [key, env] of data) {
-        const [vn, cn, id] = key.split('/')
+        const [vn, cn, id] = key.split('/') as [string, string, string]
         if (vn === v && !cn.startsWith('_')) { out[cn] = out[cn] ?? {}; out[cn][id] = env }
       }
       return out
     },
     async saveAll(v, payload) {
-      for (const c of Object.keys(payload)) for (const i of Object.keys(payload[c])) data.set(k(v, c, i), payload[c][i])
+      for (const c of Object.keys(payload)) for (const i of Object.keys(payload[c]!)) data.set(k(v, c, i), payload[c]![i]!)
     },
     async getStoreTime() { const n = ++clock; return { earliest: n - epsilon, latest: n + epsilon } },
   }

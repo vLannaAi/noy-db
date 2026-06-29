@@ -91,7 +91,7 @@ describe('vault.dumpSchema() — baseline', () => {
   it('emits a field block sourced from the LIVE validator when no persisted snapshot exists', async () => {
     const Invoice = z.object({ id: z.string(), amount: z.number() })
     const comp = await db.openVault(COMP)
-    comp.collection<Invoice>('invoices', { schema: Invoice }) // no persistJsonSchema
+    comp.collection('invoices', { schema: Invoice }) // no persistJsonSchema
     await comp.collection<Invoice>('invoices').put('i1', { id: 'i1', amount: 100, status: 'draft' })
 
     const snap = await comp.dumpSchema()
@@ -137,7 +137,7 @@ describe('vault.dumpSchema() — baseline', () => {
       tiers: [1, 2],
     })
     const dump = await comp.dumpSchema()
-    const cfg = dump.collections['docs'].config!
+    const cfg = dump.collections['docs']!.config!
     expect(cfg.textIndexes).toContain('body')
     expect(cfg.provenance).toBe(true)
     expect(cfg.tiers).toEqual([1, 2])
@@ -148,7 +148,7 @@ describe('vault.dumpSchema() — baseline', () => {
     const comp = await db.openVault(COMP)
     comp.collection<Invoice>('plain')
     const dump = await comp.dumpSchema()
-    expect(dump.collections['plain'].config).toBeUndefined()
+    expect(dump.collections['plain']!.config).toBeUndefined()
   })
 })
 
@@ -168,7 +168,7 @@ describe('vault.dumpSchema() — archive + schemaUpdate config', () => {
       archive: { archiveWhen: (r) => r.status === 'paid' },
     })
     const dump = await comp.dumpSchema()
-    const cfg = dump.collections['invoices'].config
+    const cfg = dump.collections['invoices']!.config
     expect(cfg).toBeDefined()
     expect(cfg!.archive).toBe(true)
   })
@@ -179,6 +179,7 @@ describe('vault.dumpSchema() — archive + schemaUpdate config', () => {
       name: 'addDueDate',
       detect: async () => false as const,
       transform: async (r: unknown) => r,
+      onSchemaDelta: () => ({ action: 'allow' as const }),
     }
     comp.collection<Invoice>('invoices', {
       schema: z.object({ id: z.string(), amount: z.number(), status: z.string() }),
@@ -188,7 +189,7 @@ describe('vault.dumpSchema() — archive + schemaUpdate config', () => {
     await comp.collection<Invoice>('invoices').put('i1', { id: 'i1', amount: 100, status: 'draft' })
     await comp._drainPendingSchemaWrites()
     const dump = await comp.dumpSchema()
-    const cfg = dump.collections['invoices'].config!
+    const cfg = dump.collections['invoices']!.config!
     expect(cfg.schemaUpdate).toContain('addDueDate')
   })
 
@@ -199,7 +200,7 @@ describe('vault.dumpSchema() — archive + schemaUpdate config', () => {
       archive: { archiveWhen: () => false },
     })
     const dump = await comp.dumpSchema()
-    const cfg = dump.collections['docs'].config!
+    const cfg = dump.collections['docs']!.config!
     expect(cfg.textIndexes).toContain('body')
     expect(cfg.archive).toBe(true)
   })
@@ -210,7 +211,7 @@ describe('vault.dumpSchema() — archive + schemaUpdate config', () => {
       historyConfig: { maxVersions: 10 },
     })
     const dump = await comp.dumpSchema()
-    const cfg = dump.collections['invoices'].config!
+    const cfg = dump.collections['invoices']!.config!
     expect(cfg.history).toBe(true)
   })
 
@@ -219,6 +220,6 @@ describe('vault.dumpSchema() — archive + schemaUpdate config', () => {
     comp.collection<Invoice>('plain')
     const dump = await comp.dumpSchema()
     // A plain collection has no explicit historyConfig — history must not appear.
-    expect(dump.collections['plain'].config?.history).toBeUndefined()
+    expect(dump.collections['plain']!.config?.history).toBeUndefined()
   })
 })

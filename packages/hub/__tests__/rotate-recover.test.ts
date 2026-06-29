@@ -17,6 +17,7 @@ import { createOwnerKeyring, loadKeyring } from '../src/team/keyring.js'
 import {
   rotatePassphrase,
   recoverPassphrase,
+  type RecoveryProof,
 } from '../src/team/rotate-recover.js'
 import {
   savePaperRecoveryEntries,
@@ -52,7 +53,7 @@ function inlineMemory(): NoydbStore {
       }
       return out
     },
-    async saveAll(c, data) {
+    async saveAll(c, data: Record<string, Record<string, EncryptedEnvelope>>) {
       const comp = new Map<string, Map<string, EncryptedEnvelope>>()
       for (const [col, recs] of Object.entries(data)) {
         comp.set(col, new Map(Object.entries(recs)))
@@ -264,14 +265,14 @@ describe('recoverPassphrase (paper profile)', () => {
     await expect(
       recoverPassphrase(undefined, store, 'acme', 'alice', {
         newPassphrase: STRONG_NEW,
-        recoveryProof: { profile: 'multi-channel', payload: { proofs: [] } },
+        recoveryProof: { profile: 'multi-channel', payload: { proofs: [] } } as unknown as RecoveryProof,
       }),
     ).rejects.toBeInstanceOf(RecoveryProfileNotImplementedError)
 
     await expect(
       recoverPassphrase(undefined, store, 'acme', 'alice', {
         newPassphrase: STRONG_NEW,
-        recoveryProof: { profile: 'admin-mediated', payload: { token: 'x' } },
+        recoveryProof: { profile: 'admin-mediated', payload: { token: 'x' } } as unknown as RecoveryProof,
       }),
     ).rejects.toBeInstanceOf(RecoveryProfileNotImplementedError)
   })

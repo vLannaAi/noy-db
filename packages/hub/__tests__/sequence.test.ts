@@ -15,7 +15,7 @@ function memory(casAtomic = true): NoydbStore {
   }
   return {
     name: 'memory',
-    capabilities: { casAtomic, auth: { kind: 'none' } },
+    capabilities: { casAtomic, auth: { kind: 'none', required: false, flow: 'static' } },
     async get(v, c, id) { return store.get(v)?.get(c)?.get(id) ?? null },
     async put(v, c, id, env, ev) {
       const cm = gc(v, c); const ex = cm.get(id)
@@ -61,7 +61,7 @@ function memoryFaithful(casAtomic = true): NoydbStore {
   }
   return {
     name: 'memory',
-    capabilities: { casAtomic, auth: { kind: 'none' } },
+    capabilities: { casAtomic, auth: { kind: 'none', required: false, flow: 'static' } },
     async get(v, c, id) { return store.get(v)?.get(c)?.get(id) ?? null },
     async put(v, c, id, env, ev) {
       const cm = gc(v, c); const ex = cm.get(id)

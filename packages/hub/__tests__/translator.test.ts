@@ -57,8 +57,8 @@ async function makeDb(translator?: (ctx: { text: string; from: string; to: strin
     store: adapter,
     user: 'alice', i18nStrategy: withI18n(),
     encrypt: false,
-    plaintextTranslator: translator,
-    plaintextTranslatorName: translatorName,
+    ...(translator !== undefined && { plaintextTranslator: translator }),
+    ...(translatorName !== undefined && { plaintextTranslatorName: translatorName }),
   })
 }
 

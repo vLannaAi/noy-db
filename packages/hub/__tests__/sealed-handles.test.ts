@@ -60,8 +60,8 @@ describe('Sealed<V> access gate — public reads return handles', () => {
   it('get() returns a Sealed handle for a sensitive field, plain value otherwise', async () => {
     const store = memoryStore()
     const db = await createNoydb({ store, secret: 'pw', user: 'owner' })
-    const v = await db.openVault('v1', { passphrase: 'pw' })
-    const people = v.collection<Person>('people', { sensitive: ['ssn'] })
+    const v = await db.openVault('v1')
+    const people = v.collection<Person, 'ssn'>('people', { sensitive: ['ssn'] })
 
     await people.put('p1', { id: 'p1', name: 'Alice', ssn: SSN })
 
@@ -69,15 +69,15 @@ describe('Sealed<V> access gate — public reads return handles', () => {
     expect(r).not.toBeNull()
     expect(r!.name).toBe('Alice')
     expect(isSealed(r!.ssn)).toBe(true)
-    expect((r!.ssn as Sealed<string>).sealed).toBe(true)
+    expect(r!.ssn!.sealed).toBe(true)
     // reveal() decrypts on demand
-    expect(await (r!.ssn as Sealed<string>).reveal()).toBe(SSN)
+    expect(await r!.ssn!.reveal()).toBe(SSN)
   })
 
   it('Sealed handle does NOT leak the plaintext through JSON or logging', async () => {
     const store = memoryStore()
     const db = await createNoydb({ store, secret: 'pw', user: 'owner' })
-    const v = await db.openVault('v1', { passphrase: 'pw' })
+    const v = await db.openVault('v1')
     const people = v.collection<Person>('people', { sensitive: ['ssn'] })
 
     await people.put('p1', { id: 'p1', name: 'Alice', ssn: SSN })
@@ -95,7 +95,7 @@ describe('Sealed<V> access gate — public reads return handles', () => {
   it('non-residency: the working-set cache holds a handle, never the plaintext', async () => {
     const store = memoryStore()
     const db = await createNoydb({ store, secret: 'pw', user: 'owner' })
-    const v = await db.openVault('v1', { passphrase: 'pw' })
+    const v = await db.openVault('v1')
     const people = v.collection<Person>('people', { sensitive: ['ssn'] })
 
     await people.put('p1', { id: 'p1', name: 'Alice', ssn: SSN })
@@ -115,7 +115,7 @@ describe('Sealed<V> access gate — public reads return handles', () => {
   it('query() / scan() / first() / toArray() return handles for sensitive fields', async () => {
     const store = memoryStore()
     const db = await createNoydb({ store, secret: 'pw', user: 'owner' })
-    const v = await db.openVault('v1', { passphrase: 'pw' })
+    const v = await db.openVault('v1')
     const people = v.collection<Person>('people', { sensitive: ['ssn'] })
 
     await people.put('p1', { id: 'p1', name: 'Alice', ssn: SSN })
@@ -143,21 +143,21 @@ describe('Sealed<V> access gate — public reads return handles', () => {
   it('multiple sensitive fields each become independent handles', async () => {
     const store = memoryStore()
     const db = await createNoydb({ store, secret: 'pw', user: 'owner' })
-    const v = await db.openVault('v1', { passphrase: 'pw' })
-    const people = v.collection<Person>('people', { sensitive: ['ssn', 'dob'] })
+    const v = await db.openVault('v1')
+    const people = v.collection<Person, 'ssn' | 'dob'>('people', { sensitive: ['ssn', 'dob'] })
 
     await people.put('p1', { id: 'p1', name: 'Alice', ssn: SSN, dob: '1990-01-01' })
     const r = await people.get('p1')
     expect(isSealed(r!.ssn)).toBe(true)
     expect(isSealed(r!.dob)).toBe(true)
-    expect(await (r!.ssn as Sealed<string>).reveal()).toBe(SSN)
-    expect(await (r!.dob as Sealed<string>).reveal()).toBe('1990-01-01')
+    expect(await r!.ssn!.reveal()).toBe(SSN)
+    expect(await r!.dob!.reveal()).toBe('1990-01-01')
   })
 
   it('default-off: no sensitive option → plain values, no handles', async () => {
     const store = memoryStore()
     const db = await createNoydb({ store, secret: 'pw', user: 'owner' })
-    const v = await db.openVault('v1', { passphrase: 'pw' })
+    const v = await db.openVault('v1')
     const people = v.collection<Person>('people')
 
     await people.put('p1', { id: 'p1', name: 'Alice', ssn: SSN })
@@ -191,9 +191,9 @@ describe('Sealed<V> gate — lazy cache + sealed field + rollup derivation (regr
         }),
       ],
     })
-    const v = await db.openVault('v1', { passphrase: 'pw' })
+    const v = await db.openVault('v1')
     // Parent is LAZY (prefetch:false + bounded cache) AND seals `ssn`.
-    const buyers = v.collection<Buyer>('buyers', {
+    const buyers = v.collection<Buyer, 'ssn'>('buyers', {
       sensitive: ['ssn'], prefetch: false, cache: { maxRecords: 16 },
     })
     const sales = v.collection<Sale>('sales')
@@ -213,10 +213,10 @@ describe('Sealed<V> gate — lazy cache + sealed field + rollup derivation (regr
     const r = await buyers.get('b1')
     expect(r!.totalSpent).toBe(350)
     expect(isSealed(r!.ssn)).toBe(true)
-    expect(await (r!.ssn as Sealed<string>).reveal()).toBe(SSN)
+    expect(await r!.ssn!.reveal()).toBe(SSN)
 
     // (3) public get() returns a handle for ssn → gate intact.
-    expect((r!.ssn as Sealed<string>).sealed).toBe(true)
+    expect(r!.ssn!.sealed).toBe(true)
 
     // (2) the LRU entry carries a handle, not sealed plaintext.
     const peeked = (buyers as unknown as { _peekCached(id: string): Buyer | null })._peekCached('b1')
@@ -237,7 +237,7 @@ describe('Sealed<V> gate — lazy cache + sealed field + rollup derivation (regr
 
     const r = await buyers.get('b1')
     expect(isSealed(r!.ssn)).toBe(true)
-    expect(await (r!.ssn as Sealed<string>).reveal()).toBe(SSN)
+    expect(await r!.ssn!.reveal()).toBe(SSN)
     expect(r!.totalSpent).toBe(42)
   })
 })

@@ -4,7 +4,7 @@ import { withGuard } from '../../src/guards/with-guard.js'
 import { FieldFrozenError, InvariantError } from '../../src/errors.js'
 import type { GuardContext } from '../../src/guards/types.js'
 
-interface Invoice {
+interface Invoice extends Record<string, unknown> {
   total: number
   notes: string
   status: 'draft' | 'issued'
@@ -12,7 +12,7 @@ interface Invoice {
 
 const ctx = (existing: Invoice | null = null): GuardContext<Invoice> => ({
   existing,
-  vault: { collection: () => ({ get: async () => null, list: async () => [] }) },
+  vault: { collection: () => ({ get: async () => null, list: async () => [], query: () => { throw new Error('not used') } }) },
   userId: 'u',
   role: 'owner',
 })

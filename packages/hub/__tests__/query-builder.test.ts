@@ -331,6 +331,7 @@ describe('executePlan > pure function', () => {
       orderBy: [{ field: 'amount', direction: 'desc' }],
       limit: 1,
       offset: 0,
+      joins: [],
     }
     executePlan(records, plan)
     expect(records).toEqual(before)
@@ -342,6 +343,7 @@ describe('executePlan > pure function', () => {
       orderBy: [],
       limit: undefined,
       offset: 0,
+      joins: [],
     }
     expect(executePlan([], plan)).toEqual([])
   })

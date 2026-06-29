@@ -158,7 +158,7 @@ describe('custodian role', () => {
       // assertTierAccess + the elevate tier-reach check both treat custodian as
       // admin-rank, so writing at a tier whose DEK does not yet exist succeeds.
       await expect(docs.putAtTier('d1', { id: 'd1', body: 'secret' }, 2)).resolves.not.toThrow()
-      expect((await docs.getAtTier('d1'))?.body).toBe('secret')
+      expect(((await docs.getAtTier('d1')) as { body?: string } | null)?.body).toBe('secret')
     })
   })
 })
@@ -170,7 +170,7 @@ describe('FR-6 Task 2 — custodian blocked from rotate / sever / extract', () =
   const COMP = 'C201'
   // The withdrawal path is itself gated by `client-unilateral-withdraw`; enable
   // it so the role guard (not the gate) is what rejects the custodian.
-  const POLICY = { gates: { 'client-unilateral-withdraw': { enabled: true, minTier: 1 } } }
+  const POLICY = { gates: { 'client-unilateral-withdraw': { enabled: true, minTier: 1 } } } as const
 
   interface Inv { id: string; amount: number; status: string }
   let adapter: NoydbStore
