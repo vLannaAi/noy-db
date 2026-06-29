@@ -170,7 +170,7 @@ function warnOnceFallback(adapterName: string): void {
 }
 
 /** A typed collection of records within a vault. */
-export class Collection<T, S extends keyof T = never, Q extends keyof T & string = never> {
+export class Collection<T, S extends keyof T = never, Q extends keyof T & string = never, M extends keyof T & string = never> {
   private readonly adapter: NoydbStore
   private readonly vault: string
   private readonly name: string
@@ -3613,9 +3613,9 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * const drafts = invoices.query(i => i.status === 'draft');
    * ```
    */
-  query(): Query<T, S, Q>
+  query(): Query<T, S, Q, M>
   query(predicate: (record: T) => boolean): T[]
-  query(predicate?: (record: T) => boolean): Query<T, S, Q> | T[] {
+  query(predicate?: (record: T) => boolean): Query<T, S, Q, M> | T[] {
     if (this.lazy) {
       throw new Error(
         `Collection "${this.name}": query() is not available in lazy mode (prefetch: false). ` +
@@ -3667,7 +3667,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
             : {}),
         }
       : undefined
-    return new Query<T, S, Q>(source, undefined, joinContext, this.aggregateStrategy)
+    return new Query<T, S, Q, M>(source, undefined, joinContext, this.aggregateStrategy)
   }
 
   /**
