@@ -91,8 +91,14 @@ describe('collection — group-encryption (_sealed)', () => {
     const original: Person = { id: 'p1', name: 'Alice', ssn: '123-45-6789' }
     await people.put('p1', original)
 
+    // Public reads return sensitive fields as opaque Sealed handles (#503
+    // access gate); non-sensitive fields stay plain. reveal() round-trips.
     const got = await people.get('p1')
-    expect(got).toEqual(original)
+    expect(got).not.toBeNull()
+    expect(got!.id).toBe('p1')
+    expect(got!.name).toBe('Alice')
+    expect((got!.ssn as unknown as { sealed: boolean }).sealed).toBe(true)
+    expect(await (got!.ssn as unknown as { reveal(): Promise<string> }).reveal()).toBe('123-45-6789')
   })
 
   it('stores the sensitive field in _sealed, out of the open _data blob', async () => {
@@ -142,7 +148,10 @@ describe('collection — group-encryption (_sealed)', () => {
     // distinct ciphertext per field
     expect(env!._sealed!.ssn).not.toBe(env!._sealed!.dob)
 
-    expect(await people.get('p1')).toEqual(original)
+    // Both sensitive fields come back as handles that reveal their values.
+    const got = await people.get('p1')
+    expect(await (got!.ssn as unknown as { reveal(): Promise<string> }).reveal()).toBe('111')
+    expect(await (got!.dob as unknown as { reveal(): Promise<string> }).reveal()).toBe('1990-01-01')
   })
 
   it('omits absent sensitive fields from _sealed', async () => {
