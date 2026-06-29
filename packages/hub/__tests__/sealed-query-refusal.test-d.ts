@@ -173,3 +173,15 @@ describe('aggregate() builder-form sensitive refusal', () => {
     q.aggregate({ total: sum('age') })
   })
 })
+
+describe('scan().aggregate() builder-form sensitive refusal', () => {
+  it('refuses a sensitive field in the scan builder form; bare-spec unchanged', async () => {
+    const vault = await typedVault()
+    const people = vault.collection<Person, 'ssn'>('people', { sensitive: ['ssn'] })
+    const s = people.scan()
+    s.aggregate(b => ({ total: b.sum('age'), n: b.count() }))   // ok
+    // @ts-expect-error — sensitive field refused in the typed scan builder form
+    s.aggregate(b => ({ bad: b.sum('ssn') }))
+    s.aggregate({ total: sum('age') })   // bare-spec still compiles
+  })
+})
