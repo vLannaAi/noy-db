@@ -31,7 +31,7 @@ import { OverlayedCollection } from './overlay-views/virtual-collection.js'
 import type { PublicEnvelope } from './meta/public-envelope/types.js'
 import { buildRecipientKeyringFile } from './team/keyring.js'
 import { ensureCollectionDEK, hasAccess, hasExportCapability, hasImportCapability } from './team/keyring.js'
-import type { ExportFormat, KeyringFile, SensitiveOpt, IndexFieldName, IndexDefFor } from './types.js'
+import type { ExportFormat, KeyringFile, SensitiveOpt, IndexFieldName, IndexDefFor, MoneyFieldsOpt } from './types.js'
 import {
   ExportCapabilityError,
   ImportCapabilityError,
@@ -91,7 +91,6 @@ import { LinkSet, isLinkCollectionName, linkCollectionName, linkRowKey, LinkInte
 import type { EmbeddingDescriptor } from './embeddings/index.js'
 import type { I18nTextDescriptor } from './i18n/core.js'
 import { getAtPath } from './i18n/core.js'
-import type { MoneyDescriptor } from './money/descriptor.js'
 import type { ComputedFields } from './computed/index.js'
 import { NO_I18N, type I18nStrategy } from './i18n/strategy.js'
 import { NO_SYNC, type SyncStrategy } from './team/sync-strategy.js'
@@ -681,7 +680,7 @@ export class Vault {
    * Lazy mode + indexes is rejected at construction time — see the
    * Collection constructor for the rationale.
    */
-  collection<T, S extends keyof T & string = never, Q extends keyof T & string = never>(collectionName: string, options?: {
+  collection<T, S extends keyof T & string = never, Q extends keyof T & string = never, M extends keyof T & string = never>(collectionName: string, options?: {
     indexes?: readonly IndexDefFor<IndexFieldName<T, S, Q>>[]
     /** — auto-reconcile policy for persisted-index drift. */
     reconcileOnOpen?: 'off' | 'dry-run' | 'auto'
@@ -706,7 +705,7 @@ export class Vault {
     /** The collection's own descriptive metadata (label/description/icon). See collection.describe(). */
     meta?: CollectionMeta
     /** — declare money() fields for currency-safe decimal storage/formatting. */
-    moneyFields?: Record<string, MoneyDescriptor>
+    moneyFields?: MoneyFieldsOpt<T, M>
     /** — declare computed scalar fields, evaluated on write (schema-owned). */
     computed?: ComputedFields<T>
     /** — per-collection conflict resolution policy. */
@@ -791,7 +790,7 @@ export class Vault {
      * Default false — the working set is plaintext.
      */
     ramCiphertext?: boolean
-  }): Collection<T, S, Q> {
+  }): Collection<T, S, Q, M> {
     // Overlay intercept. When the requested collection name
     // matches a registered `withOverlayedView`, return the virtual
     // proxy that merges base + overlay on read and routes writes to
@@ -809,7 +808,7 @@ export class Vault {
         const overlay = this.collection<T>(spec.overlay)
         const baseRowKey = overlayRegistry.resolveBaseRowKey(collectionName, this.materializedViewRegistry)
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return new OverlayedCollection<any>(spec, base, overlay, baseRowKey) as unknown as Collection<T, S, Q>
+        return new OverlayedCollection<any>(spec, base, overlay, baseRowKey) as unknown as Collection<T, S, Q, M>
       }
     }
     // Guard: reject reserved _dict_* names
@@ -1153,7 +1152,7 @@ export class Vault {
         this._pendingSchemaWrites.push(work)
       }
     }
-    return coll as unknown as Collection<T, S, Q>
+    return coll as unknown as Collection<T, S, Q, M>
   }
 
   /**
