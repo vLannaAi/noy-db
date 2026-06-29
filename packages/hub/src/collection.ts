@@ -4023,7 +4023,7 @@ export class Collection<T, S extends keyof T = never> {
    * to the synthetic pagination path with the same one-time
    * warning (`listPage()` routes through that fallback internally).
    */
-  scan(opts: { pageSize?: number } = {}): ScanBuilder<T> {
+  scan(opts: { pageSize?: number } = {}): ScanBuilder<T, S> {
     const pageSize = opts.pageSize ?? 100
     // Build a JoinContext if the vault passed a join resolver
     // — same machinery as `query()`. Without one, `.join()`
@@ -4051,7 +4051,7 @@ export class Collection<T, S extends keyof T = never> {
     // coupling. Rebinding through the arrow keeps the unbound-
     // method lint rule happy — matches the pattern used in
     // builder.ts's candidateRecords helper.
-    return new ScanBuilder<T>(
+    return new ScanBuilder<T, S>(
       {
         listPage: (listOpts) => this.listPage(listOpts),
       },

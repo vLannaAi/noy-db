@@ -46,3 +46,20 @@ describe('Query sensitive-field refusal (real vault.collection API)', () => {
     expectTypeOf(plain.query().where).parameter(0).toEqualTypeOf<string>()
   })
 })
+
+describe('ScanBuilder sensitive-field refusal', () => {
+  it('refuses scan().where() on a sensitive field', async () => {
+    const vault = await typedVault()
+    const people = vault.collection<Person, 'ssn'>('people', { sensitive: ['ssn'] })
+    const s = people.scan()
+    // @ts-expect-error — sealed field refused in scan
+    s.where('ssn', '==', 'x')
+    s.where('age', '>', 18)  // ok
+  })
+
+  it('keeps scan().where() permissive without sensitive fields', async () => {
+    const vault = await typedVault()
+    const plain = vault.collection<Person>('plain')
+    plain.scan().where('any-string', '==', 1)  // still `string`
+  })
+})
