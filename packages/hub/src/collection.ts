@@ -16,7 +16,7 @@ import type { ComputedFields } from './computed/index.js'
 import { evalComputedFields } from './computed/index.js'
 import { NO_I18N, type I18nStrategy } from './i18n/strategy.js'
 import { resolvePolicy } from './i18n/policy.js'
-import { encrypt, decrypt, encryptDeterministic, deriveSealedFieldKey } from './crypto.js'
+import { encrypt, decrypt, encryptDeterministic, deriveSealedFieldKey, deriveSealedFieldKeyFromCek } from './crypto.js'
 import {
   wrapCek,
   unwrapCek,
@@ -1084,18 +1084,6 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // are tiny CryptoKey handles, so a generous entry budget is cheap.
     this.perRecordCek = opts.perRecordKeys === true
     this.cekCache = this.perRecordCek ? new Lru<string, CryptoKey>({ maxRecords: 4096 }) : null
-
-    // Fix 1: guard the forget-cascade / per-record-CEK incompatibility with
-    // sealed sensitive fields (#304 × #503). Sealed-field keys derive off the
-    // collection DEK (getDEK), not the per-record CEK, so crypto-shredding a
-    // record erases _data but leaves _sealed[field] recoverable.
-    if (this.sensitiveFields.size > 0 && this.perRecordCek) {
-      console.warn(
-        `[noy-db] collection "${opts.name}": sealed \`sensitive\` fields derive off the ` +
-        `collection DEK and are NOT covered by per-record crypto-shred (#304) until ` +
-        `record-scoped sealing (#306) — forgetting a record leaves its sealed fields recoverable.`,
-      )
-    }
 
     // Fix 3: warn when `sensitive` is a no-op in debug-plaintext mode. When
     // storeCiphertext is false the sealing path is skipped entirely, so
@@ -2172,13 +2160,13 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     if (this.lazy && this.lru) {
       // Cache the handle-form (sealed fields → Sealed handles) so plaintext
       // for sensitive fields is never resident in the working set.
-      this.lru.set(id, { record: this.toCacheRecord(record, envelope), version }, estimateRecordBytes(record))
+      this.lru.set(id, { record: await this.toCacheRecord(record, envelope, id), version }, estimateRecordBytes(record))
       // Maintain persisted-index side-cars. Lazy mode is the
       // only place `persistedIndexes` is populated; eager mode uses the
       // in-memory `CollectionIndexes` above.
       await this.maintainPersistedIndexesOnPut(id, record, existing ? existing.record : null, version)
     } else {
-      this.cache.set(id, { record: this.toCacheRecord(record, envelope), version })
+      this.cache.set(id, { record: await this.toCacheRecord(record, envelope, id), version })
       // Update secondary indexes incrementally — no-op if no indexes are
       // declared. Pass the previous record (if any) so old buckets are
       // cleaned up before the new value is added.
@@ -2295,7 +2283,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         raw = await this.decryptRecord(env, { id })
         if (raw === null) return null
         if (!cached) {
-          this.lru.set(id, { record: this.toCacheRecord(raw, env), version: env._v }, estimateRecordBytes(raw))
+          this.lru.set(id, { record: await this.toCacheRecord(raw, env, id), version: env._v }, estimateRecordBytes(raw))
         }
       } else {
         const cached = this.lru.get(id)
@@ -5092,7 +5080,9 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         if (!(field in src)) continue
         const value = src[field]
         if (value === undefined) continue
-        const fieldKey = await deriveSealedFieldKey(dek, this.name, field)
+        const fieldKey = cek !== undefined
+          ? await deriveSealedFieldKeyFromCek(cek, this.name, field)
+          : await deriveSealedFieldKey(dek, this.name, field)
         const { iv, data } = await encrypt(JSON.stringify(value), fieldKey)
         slots[field] = `${iv}:${data}`
         delete open[field]
@@ -5485,6 +5475,24 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   }
 
   /**
+   * Resolve the per-record CEK for a stored envelope, or `undefined` for a
+   * legacy (`_cek`-absent) envelope. Unwraps `_cek` under the collection DEK and
+   * memoises it in the CEK cache under `id` (when supplied) so repeated reads of
+   * the same record skip the unwrap. Shared by the body-decrypt path
+   * ({@link decryptJsonString}) and the sealed-field path ({@link decryptRecord}
+   * / {@link toCacheRecord}) so both agree on the record's key.
+   */
+  private async resolveEnvelopeCek(envelope: EncryptedEnvelope, id?: string): Promise<CryptoKey | undefined> {
+    if (envelope._cek === undefined) return undefined
+    const cached = id !== undefined ? this.cekCache?.get(id) : undefined
+    if (cached !== undefined) return cached
+    const dek = await this.getDEK(this.name)
+    const cek = await unwrapCek(envelope._cek, dek)
+    if (id !== undefined) this.cekCache?.set(id, cek, 1)
+    return cek
+  }
+
+  /**
    * Low-level: decrypt an envelope and return the raw JSON string.
    *
    * `_cek` presence is the format discriminant (NOT `this.perRecordCek`),
@@ -5520,13 +5528,9 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       }
       return envelope._data
     }
+    const cek = await this.resolveEnvelopeCek(envelope, id)
+    if (cek !== undefined) return decrypt(envelope._iv, envelope._data, cek)
     const dek = await this.getDEK(this.name)
-    if (envelope._cek !== undefined) {
-      const cached = id !== undefined ? this.cekCache?.get(id) : undefined
-      const cek = cached ?? (await unwrapCek(envelope._cek, dek))
-      if (cached === undefined && id !== undefined) this.cekCache?.set(id, cek, 1)
-      return decrypt(envelope._iv, envelope._data, cek)
-    }
     return decrypt(envelope._iv, envelope._data, dek)
   }
 
@@ -5552,11 +5556,24 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * {@link Sealed} handle's `reveal()` — so the on-demand reveal and the eager
    * materialisation always agree byte-for-byte.
    */
-  private async unsealField(field: string, blob: string): Promise<unknown> {
-    const dek = await this.getDEK(this.name)
+  private async unsealField(field: string, blob: string, cek?: CryptoKey): Promise<unknown> {
     const sep = blob.indexOf(':')
     const iv = blob.slice(0, sep)
     const data = blob.slice(sep + 1)
+    // #306 dual-read. Current writes seal under a key derived from the record's
+    // per-record CEK; records sealed BEFORE #306 (even ones whose body is
+    // CEK-encrypted) are sealed under the collection-DEK key. Try the CEK key
+    // first; on its AES-GCM auth failure, fall back to the DEK key. Without this
+    // fallback every pre-#306 `_sealed` record would throw TamperedError (data loss).
+    if (cek !== undefined) {
+      try {
+        const fieldKey = await deriveSealedFieldKeyFromCek(cek, this.name, field)
+        return JSON.parse(await decrypt(iv, data, fieldKey))
+      } catch {
+        // fall through to the legacy collection-DEK derivation
+      }
+    }
+    const dek = await this.getDEK(this.name)
     const fieldKey = await deriveSealedFieldKey(dek, this.name, field)
     return JSON.parse(await decrypt(iv, data, fieldKey))
   }
@@ -5568,8 +5585,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * may sit in the working-set cache (or be logged/serialised) without
    * exposing the value, which decrypts only on `reveal()`.
    */
-  private makeSealedHandle(field: string, blob: string): SealedHandle<unknown> {
-    return new SealedHandle(() => this.unsealField(field, blob))
+  private makeSealedHandle(field: string, blob: string, cek?: CryptoKey): SealedHandle<unknown> {
+    return new SealedHandle(() => this.unsealField(field, blob, cek))
   }
 
   /**
@@ -5579,14 +5596,15 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * write path without ever materialising sealed plaintext into it. Returns
    * `record` untouched when the collection seals nothing.
    */
-  private toCacheRecord(record: T, envelope: EncryptedEnvelope): T {
+  private async toCacheRecord(record: T, envelope: EncryptedEnvelope, id?: string): Promise<T> {
     const sealed = envelope._sealed
     if (sealed === undefined || !this.storeCiphertext || this.sensitiveFields.size === 0) {
       return record
     }
+    const cek = await this.resolveEnvelopeCek(envelope, id)
     const clone = { ...(record as unknown as Record<string, unknown>) }
     for (const [field, blob] of Object.entries(sealed)) {
-      clone[field] = this.makeSealedHandle(field, blob)
+      clone[field] = this.makeSealedHandle(field, blob, cek)
     }
     return clone as unknown as T
   }
@@ -5616,11 +5634,12 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // public / cache path) yields an opaque {@link Sealed} handle so the
     // plaintext is never materialised into the working-set cache.
     if (envelope._sealed !== undefined && this.storeCiphertext) {
+      const sealedCek = await this.resolveEnvelopeCek(envelope, opts.id)
       const target = record as unknown as Record<string, unknown>
       for (const [field, blob] of Object.entries(envelope._sealed)) {
         target[field] = opts.sealedAsHandles
-          ? this.makeSealedHandle(field, blob)
-          : await this.unsealField(field, blob)
+          ? this.makeSealedHandle(field, blob, sealedCek)
+          : await this.unsealField(field, blob, sealedCek)
       }
     }
 

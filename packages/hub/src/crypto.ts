@@ -492,6 +492,47 @@ export async function deriveSealedFieldKey(
   )
 }
 
+/**
+ * Derive a per-record sealed-field key from the record's **per-record CEK**
+ * (#306) rather than the collection DEK. Same HKDF construction as
+ * {@link deriveSealedFieldKey} but with salt `'noydb-sealed-cek'` (distinct
+ * from `'noydb-sealed'`), so a CEK-derived key can never collide with a
+ * DEK-derived one for the same `{collection, field}`.
+ *
+ * The point: the sealed ciphertext's only key now flows from the record's CEK.
+ * Dropping the record's wrapped `_cek` (crypto-shred / `forget`) makes the key
+ * — and thus `_sealed[field]` — unrecoverable, giving sealed fields the same
+ * erasure guarantee `_data` already has. The CEK must be extractable (it is —
+ * `unwrapCek`/`generateDEK` mint extractable keys).
+ *
+ * @param cek            The record's AES-256-GCM CEK (extractable).
+ * @param collectionName Part of the HKDF `info` for domain separation.
+ * @param field          Sensitive field name — the rest of the `info`.
+ * @returns A non-extractable AES-256-GCM key for that field's sealed slot.
+ */
+export async function deriveSealedFieldKeyFromCek(
+  cek: CryptoKey,
+  collectionName: string,
+  field: string,
+): Promise<CryptoKey> {
+  const rawCek = await subtle.exportKey('raw', cek)
+  const hkdfKey = await subtle.importKey('raw', rawCek, 'HKDF', false, ['deriveBits'])
+  const salt = new TextEncoder().encode('noydb-sealed-cek')
+  const info = new TextEncoder().encode(JSON.stringify(['noydb-sealed-cek', collectionName, field]))
+  const bits = await subtle.deriveBits(
+    { name: 'HKDF', hash: 'SHA-256', salt, info },
+    hkdfKey,
+    KEY_BITS,
+  )
+  return subtle.importKey(
+    'raw',
+    bits,
+    { name: 'AES-GCM', length: KEY_BITS },
+    false,
+    ['encrypt', 'decrypt'],
+  )
+}
+
 // ─── Deterministic Encryption ────────────────────────────
 
 /**

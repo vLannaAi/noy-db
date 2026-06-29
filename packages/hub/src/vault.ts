@@ -2615,6 +2615,7 @@ export class Vault {
     let blobsShredded = 0
     let blobsRetainedShared = 0
     let indexPostingsPurged = 0
+    let sealedFieldsShredded = 0
     const indexResidue: string[] = []
     const blobsEnabled = this.blobStrategy !== undefined
     const actor = this.keyring.userId
@@ -2632,6 +2633,7 @@ export class Vault {
       if (perRecordKeys && live && live._data && live._cek === undefined) {
         unmigratedRecords.push(`${ref.collection}:${ref.id}`)
       }
+      if (live?._sealed !== undefined) sealedFieldsShredded += Object.keys(live._sealed).length
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const shred = await (coll as any)._writeTombstone(ref.id, actor) as { previousVersion: number } | null
@@ -2728,6 +2730,7 @@ export class Vault {
         blobResidueCollections: [...blobResidueCollections],
         indexPostingsPurged,
         indexResidueCount: indexResidue.length,
+        sealedFieldsShredded,
       }),
     })
 
@@ -2742,6 +2745,7 @@ export class Vault {
       blobResidueCollections: [...blobResidueCollections],
       indexPostingsPurged,
       indexResidue,
+      sealedFieldsShredded,
       ledgerEntry,
     }
   }
