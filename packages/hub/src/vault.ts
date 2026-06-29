@@ -31,7 +31,7 @@ import { OverlayedCollection } from './overlay-views/virtual-collection.js'
 import type { PublicEnvelope } from './meta/public-envelope/types.js'
 import { buildRecipientKeyringFile } from './team/keyring.js'
 import { ensureCollectionDEK, hasAccess, hasExportCapability, hasImportCapability } from './team/keyring.js'
-import type { ExportFormat, KeyringFile } from './types.js'
+import type { ExportFormat, KeyringFile, SensitiveOpt } from './types.js'
 import {
   ExportCapabilityError,
   ImportCapabilityError,
@@ -681,7 +681,7 @@ export class Vault {
    * Lazy mode + indexes is rejected at construction time — see the
    * Collection constructor for the rationale.
    */
-  collection<T, const S extends readonly (keyof T & string)[] = readonly []>(collectionName: string, options?: {
+  collection<T, S extends keyof T & string = never>(collectionName: string, options?: {
     indexes?: IndexDef[]
     /** — auto-reconcile policy for persisted-index drift. */
     reconcileOnOpen?: 'off' | 'dry-run' | 'auto'
@@ -726,7 +726,7 @@ export class Vault {
      * `_sealed[field]` envelope slot (per-field key), kept out of the open
      * `_data` blob. Default-off; byte-identical output when absent.
      */
-    sensitive?: S
+    sensitive?: SensitiveOpt<T, S>
     /**
      * — per-record content-encryption keys. When `true`, every record
      * body is encrypted under a fresh per-record CEK wrapped under the
@@ -791,7 +791,7 @@ export class Vault {
      * Default false — the working set is plaintext.
      */
     ramCiphertext?: boolean
-  }): Collection<T, S[number]> {
+  }): Collection<T, S> {
     // Overlay intercept. When the requested collection name
     // matches a registered `withOverlayedView`, return the virtual
     // proxy that merges base + overlay on read and routes writes to
@@ -809,7 +809,7 @@ export class Vault {
         const overlay = this.collection<T>(spec.overlay)
         const baseRowKey = overlayRegistry.resolveBaseRowKey(collectionName, this.materializedViewRegistry)
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return new OverlayedCollection<any>(spec, base, overlay, baseRowKey) as unknown as Collection<T, S[number]>
+        return new OverlayedCollection<any>(spec, base, overlay, baseRowKey) as unknown as Collection<T, S>
       }
     }
     // Guard: reject reserved _dict_* names
@@ -1153,7 +1153,7 @@ export class Vault {
         this._pendingSchemaWrites.push(work)
       }
     }
-    return coll as unknown as Collection<T, S[number]>
+    return coll as unknown as Collection<T, S>
   }
 
   /**

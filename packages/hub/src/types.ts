@@ -268,6 +268,18 @@ export type IndexFieldName<T, S extends keyof T = never> = [S] extends [never]
   : Exclude<keyof T & string, S>
 
 /**
+ * The type of the `sensitive` collection option, conditional on whether the
+ * caller opted into compile-time refusal via an explicit second generic.
+ * With no 2nd generic (`S = never`) it accepts any field array — runtime
+ * sealing only, no compile refusal, non-breaking. With `S` given, it is
+ * `readonly S[]`, which ties the runtime array to the declared sensitive
+ * union so the two cannot drift.
+ */
+export type SensitiveOpt<T, S extends keyof T> = [S] extends [never]
+  ? readonly (keyof T & string)[]
+  : readonly S[]
+
+/**
  * Concrete {@link Sealed} handle. Holds the reveal closure (which captures the
  * field's ciphertext blob and the unseal routine) in a private field, so it is
  * invisible to `JSON.stringify`, `util.inspect`, and `Object.keys`. `toJSON`
