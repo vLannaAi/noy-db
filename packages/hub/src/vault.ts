@@ -31,7 +31,7 @@ import { OverlayedCollection } from './overlay-views/virtual-collection.js'
 import type { PublicEnvelope } from './meta/public-envelope/types.js'
 import { buildRecipientKeyringFile } from './team/keyring.js'
 import { ensureCollectionDEK, hasAccess, hasExportCapability, hasImportCapability } from './team/keyring.js'
-import type { ExportFormat, KeyringFile, SensitiveOpt } from './types.js'
+import type { ExportFormat, KeyringFile, SensitiveOpt, IndexFieldName, IndexDefFor } from './types.js'
 import {
   ExportCapabilityError,
   ImportCapabilityError,
@@ -682,7 +682,7 @@ export class Vault {
    * Collection constructor for the rationale.
    */
   collection<T, S extends keyof T & string = never>(collectionName: string, options?: {
-    indexes?: IndexDef[]
+    indexes?: readonly IndexDefFor<IndexFieldName<T, S>>[]
     /** — auto-reconcile policy for persisted-index drift. */
     reconcileOnOpen?: 'off' | 'dry-run' | 'auto'
     prefetch?: boolean
@@ -694,7 +694,7 @@ export class Vault {
     /** — #308 L2: embedding config for write-time vector derivation + semantic retrieval. */
     embeddings?: EmbeddingDescriptor
     /** — #308 L1: string fields exposed to client-side `retrieve()`. */
-    textIndexes?: readonly string[]
+    textIndexes?: readonly IndexFieldName<T, S>[]
     /** — #308 L1: pre-build the lexical index on open (eager-only). */
     warmIndexOnOpen?: boolean
     /** — #308 L1.5: persist the lexical index as an opaque encrypted blob at `_ftindex/<name>`. */
@@ -718,7 +718,7 @@ export class Vault {
      * equality search. See `Collection` constructor docs for the full
      * trade-off. Requires `acknowledgeDeterministicRisk: true`.
      */
-    deterministicFields?: readonly string[]
+    deterministicFields?: readonly IndexFieldName<T, S>[]
     /** — explicit ack that deterministic encryption leaks equality. */
     acknowledgeDeterministicRisk?: boolean
     /**
@@ -1013,7 +1013,7 @@ export class Vault {
             }
           : {}),
       }
-      if (options?.indexes !== undefined) collOpts.indexes = options.indexes
+      if (options?.indexes !== undefined) collOpts.indexes = options.indexes as unknown as IndexDef[]
       if (options?.reconcileOnOpen !== undefined) collOpts.reconcileOnOpen = options.reconcileOnOpen
       if (options?.prefetch !== undefined) collOpts.prefetch = options.prefetch
       if (options?.cache !== undefined) collOpts.cache = options.cache

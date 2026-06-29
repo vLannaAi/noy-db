@@ -268,6 +268,17 @@ export type IndexFieldName<T, S extends keyof T = never> = [S] extends [never]
   : Exclude<keyof T & string, S>
 
 /**
+ * Generic form of the runtime `IndexDef` (see `indexing/eager-indexes.ts`)
+ * parameterised by the allowed field-name set `F`. Used to refuse `sensitive`
+ * fields in the `indexes` collection option at compile time while leaving the
+ * runtime `IndexDef` (string-based) untouched.
+ */
+export type IndexDefFor<F extends string> =
+  | F
+  | { readonly fields: readonly F[]; readonly unique?: boolean }
+  | readonly F[]
+
+/**
  * The type of the `sensitive` collection option, conditional on whether the
  * caller opted into compile-time refusal via an explicit second generic.
  * With no 2nd generic (`S = never`) it accepts any field array — runtime

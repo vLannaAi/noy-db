@@ -77,3 +77,31 @@ describe('LazyQuery sensitive-field refusal', () => {
     lq.orderBy('ssn')
   })
 })
+
+describe('index-declaration sensitive-field refusal', () => {
+  it('refuses indexing / det-encrypting / text-indexing a sensitive field', async () => {
+    const vault = await typedVault()
+    vault.collection<Person, 'ssn'>('a', {
+      sensitive: ['ssn'],
+      // @ts-expect-error — cannot put a sealed field in a plaintext index
+      indexes: ['ssn'],
+    })
+    vault.collection<Person, 'ssn'>('b', {
+      sensitive: ['ssn'],
+      // @ts-expect-error — cannot put a sealed field in a composite index
+      indexes: [{ fields: ['name', 'ssn'] }],
+    })
+    vault.collection<Person, 'ssn'>('c', {
+      sensitive: ['ssn'],
+      // @ts-expect-error — sealed field cannot be deterministically encrypted here
+      deterministicFields: ['ssn'],
+    })
+    // Non-sensitive fields index fine on the same collection:
+    vault.collection<Person, 'ssn'>('d', { sensitive: ['ssn'], indexes: ['name', 'age'] })
+  })
+
+  it('keeps index options permissive without sensitive fields', async () => {
+    const vault = await typedVault()
+    vault.collection<Person>('e', { indexes: ['anything', { fields: ['x', 'y'] }] })
+  })
+})
