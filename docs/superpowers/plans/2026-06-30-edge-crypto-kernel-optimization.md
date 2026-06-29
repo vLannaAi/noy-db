@@ -16,6 +16,22 @@
 - Security review findings are folded in before P2 implementation.
 - No Claude attribution in commits.
 
+## Security gates (from the 2026-06-30 security review — HARD requirements)
+
+The review's verdict: the flip does **not** inherently weaken at-rest/at-network confidentiality, but it relocates the invariant from one greppable chokepoint to "all egress paths." These are non-negotiable for P2+:
+
+1. **Type-level `StoreEdgeCodec`.** An un-encoded persistent/network/export egress must be **unrepresentable in the type system**, not merely grep-guarded. If it can't be made build-time-unbypassable, **P2 stops**. (The existing `stores-ciphertext-only` guard is already weaker than it claims — L-5 — so it cannot be the safety net here.)
+2. **Sealed-field non-residency preserved.** A plaintext working set must keep `sensitive` fields as `SealedHandle`/ciphertext even in RAM, or the flip silently undoes #306/#503. Explicit invariant + test.
+3. **`forget()` RAM-scrubs.** Once plaintext is resident, key-destruction no longer suffices — `forget()` must scrub the working-set copy + plaintext derived structures. V8 can't zero strings; design around it (typed-array-backed buffers for sensitive material, drop+GC the rest, document the residual). **Prerequisite: H-1 + M-1 `forget()` fixes land first** (review §🔴) so the erasure path is correct before it gains RAM-scrub duties.
+4. **Swap/core-dump is the sharp edge.** Treat host RAM as the new TCB; `mlock`/secure-buffer where available; document the threat.
+5. **Bank the silver lining:** make the edge codec **re-encrypt** indexes/derived structures (randomized) rather than pass them through — this *removes* the persisted `_det` equality side-channel and metadata-in-envelope leaks (L-3/L-4/L-11) at the store. Explicit design goal, not an accident.
+
+---
+
+## P0 — `record-codec.ts` extraction (shared with the reorg prerequisite)
+
+P2's "store-edge codec seam" IS the `record-codec.ts` extraction the reorg plan also requires. Do it **once**, first: pull envelope-build + encrypt/decrypt/CEK + the deduped #306 sealed dual-read out of `Collection` into a named module. It serves the reorg (no scattered copies), the architecture honesty ("encryption-in-the-hub" is now a module), and this spec's P2 (the codec to graft the edge logic onto). See the reorg plan's Prerequisite section.
+
 ---
 
 ## P1 — Built-in store (DONE — landed `e1f5ba90`)
