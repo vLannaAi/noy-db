@@ -59,6 +59,8 @@
  */
 
 import type { QueryField } from '../types.js'
+import type { ReducerBuilder } from '../aggregate/reducers.js'
+import { reducerBuilder } from '../aggregate/reducers.js'
 import type { Clause, FieldClause, Operator } from './predicate.js'
 import { evaluateClause, hasFnClause, readPath } from './predicate.js'
 import type {
@@ -579,9 +581,17 @@ export class ScanBuilder<T, S extends keyof T = never> implements AsyncIterable<
    * narrow with `.where()` enough to fit in the 50k `query()`
    * limit and use `query().aggregate().live()` instead.
    */
+  async aggregate<Spec extends AggregateSpec>(spec: Spec): Promise<AggregateResult<Spec>>
+  async aggregate<Spec extends AggregateSpec>(build: (b: ReducerBuilder<T, S>) => Spec): Promise<AggregateResult<Spec>>
   async aggregate<Spec extends AggregateSpec>(
-    spec: Spec,
+    specOrBuild: Spec | ((b: ReducerBuilder<T, S>) => Spec),
   ): Promise<AggregateResult<Spec>> {
+    // Opt-in builder form `aggregate(b => spec)`: `b`'s field args are
+    // `QueryField<T, S>`, refusing sensitive fields (the standalone-spec form
+    // stays unrefused for back-compat). Mirrors `Query.aggregate`.
+    const spec: Spec = typeof specOrBuild === 'function'
+      ? (specOrBuild as (b: ReducerBuilder<T, S>) => Spec)(reducerBuilder as unknown as ReducerBuilder<T, S>)
+      : specOrBuild
     const keys = Object.keys(spec)
     // Per-reducer state. Exactly |keys| entries, never grows with
     // the record count — that's the O(reducers) memory guarantee.
