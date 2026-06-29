@@ -238,6 +238,65 @@ export type SealedView<T, S extends keyof T> = [S] extends [never]
     }
 
 /**
+ * The type of a field-name argument to the query/scan DSL (`where`, `orderBy`,
+ * …) for a collection whose sealed (`sensitive`) fields are `S`.
+ *
+ * Guarded so the common case is unchanged: with **no** sensitive fields
+ * (`S = never`) it is exactly `string` — collections that don't opt into
+ * `sensitive` keep today's permissive DSL, zero churn. Once a field is
+ * declared `sensitive`, the DSL narrows to the non-sensitive field names, so
+ * `where('ssn', …)` becomes a compile error. TypeScript cannot subtract a
+ * literal from `string`, so refusing a sensitive name necessarily means
+ * narrowing to the known field-name union — this is intentional and only
+ * affects collections that opted in.
+ */
+export type QueryField<T, S extends keyof T = never> = [S] extends [never]
+  ? string
+  : Exclude<keyof T & string, S>
+
+/**
+ * The type of a field-name reference in a collection's index-declaration
+ * options (`indexes`, `deterministicFields`, `textIndexes`). Same guarded
+ * narrowing as {@link QueryField}: permissive `string` until a field is
+ * declared `sensitive`, then the sensitive names are refused (a plaintext
+ * secondary index over a sealed field defeats non-residency — previously only
+ * a runtime `console.warn`). Kept distinct from `QueryField` so the two DSL
+ * surfaces can diverge later without coupling.
+ */
+export type IndexFieldName<T, S extends keyof T = never> = [S] extends [never]
+  ? string
+  : Exclude<keyof T & string, S>
+
+/**
+ * Generic form of the runtime `IndexDef` (see `indexing/eager-indexes.ts`)
+ * parameterised by the allowed field-name set `F`. Used to refuse `sensitive`
+ * fields in the `indexes` collection option at compile time while leaving the
+ * runtime `IndexDef` (string-based) untouched. `IndexDefFor<string>` is
+ * structurally identical to `IndexDef`, which is why `vault.collection` can cast
+ * the narrowed public option to `IndexDef[]` at the runtime boundary (through
+ * `unknown`, solely to drop the `readonly`).
+ * **Keep this in sync with `IndexDef`** — if `IndexDef` gains a new union member,
+ * add it here too, or that boundary cast will silently admit shapes the runtime
+ * machinery does not narrow.
+ */
+export type IndexDefFor<F extends string> =
+  | F
+  | { readonly fields: readonly F[]; readonly unique?: boolean }
+  | readonly F[]
+
+/**
+ * The type of the `sensitive` collection option, conditional on whether the
+ * caller opted into compile-time refusal via an explicit second generic.
+ * With no 2nd generic (`S = never`) it accepts any field array — runtime
+ * sealing only, no compile refusal, non-breaking. With `S` given, it is
+ * `readonly S[]`, which ties the runtime array to the declared sensitive
+ * union so the two cannot drift.
+ */
+export type SensitiveOpt<T, S extends keyof T> = [S] extends [never]
+  ? readonly (keyof T & string)[]
+  : readonly S[]
+
+/**
  * Concrete {@link Sealed} handle. Holds the reveal closure (which captures the
  * field's ciphertext blob and the unseal routine) in a private field, so it is
  * invisible to `JSON.stringify`, `util.inspect`, and `Object.keys`. `toJSON`

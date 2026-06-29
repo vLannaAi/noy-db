@@ -1057,6 +1057,9 @@ export type {
   ScanPageProvider,
 } from './query/index.js'
 
+// Query DSL helpers (escape-hatch types for consumers with dynamic field names)
+export type { QueryField, IndexFieldName } from './types.js'
+
 // Scan-mode full-text search (#308)
 export { tokenize } from './search/index.js'
 export type { Tokenizer, SearchOptions, SearchResult, SearchEntry } from './search/index.js'

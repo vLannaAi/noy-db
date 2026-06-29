@@ -3613,9 +3613,9 @@ export class Collection<T, S extends keyof T = never> {
    * const drafts = invoices.query(i => i.status === 'draft');
    * ```
    */
-  query(): Query<T>
+  query(): Query<T, S>
   query(predicate: (record: T) => boolean): T[]
-  query(predicate?: (record: T) => boolean): Query<T> | T[] {
+  query(predicate?: (record: T) => boolean): Query<T, S> | T[] {
     if (this.lazy) {
       throw new Error(
         `Collection "${this.name}": query() is not available in lazy mode (prefetch: false). ` +
@@ -3667,7 +3667,7 @@ export class Collection<T, S extends keyof T = never> {
             : {}),
         }
       : undefined
-    return new Query<T>(source, undefined, joinContext, this.aggregateStrategy)
+    return new Query<T, S>(source, undefined, joinContext, this.aggregateStrategy)
   }
 
   /**
@@ -4023,7 +4023,7 @@ export class Collection<T, S extends keyof T = never> {
    * to the synthetic pagination path with the same one-time
    * warning (`listPage()` routes through that fallback internally).
    */
-  scan(opts: { pageSize?: number } = {}): ScanBuilder<T> {
+  scan(opts: { pageSize?: number } = {}): ScanBuilder<T, S> {
     const pageSize = opts.pageSize ?? 100
     // Build a JoinContext if the vault passed a join resolver
     // — same machinery as `query()`. Without one, `.join()`
@@ -4051,7 +4051,7 @@ export class Collection<T, S extends keyof T = never> {
     // coupling. Rebinding through the arrow keeps the unbound-
     // method lint rule happy — matches the pattern used in
     // builder.ts's candidateRecords helper.
-    return new ScanBuilder<T>(
+    return new ScanBuilder<T, S>(
       {
         listPage: (listOpts) => this.listPage(listOpts),
       },
@@ -4925,7 +4925,7 @@ export class Collection<T, S extends keyof T = never> {
    * `query()` there. Throws if no index is declared, because a lazy
    * query with no index would need to enumerate the whole collection.
    */
-  lazyQuery(): LazyQuery<T> {
+  lazyQuery(): LazyQuery<T, S> {
     if (!this.lazy) {
       throw new Error(
         `Collection "${this.name}": lazyQuery() is only available in lazy mode ` +
@@ -4953,7 +4953,7 @@ export class Collection<T, S extends keyof T = never> {
       ensurePersistedIndexesLoaded: () => this.ensurePersistedIndexesLoaded(),
       getRecord: (id: string) => this.get(id) as unknown as Promise<T | null>,
     }
-    return new LazyQuery<T>(source)
+    return new LazyQuery<T, S>(source)
   }
 
   /**

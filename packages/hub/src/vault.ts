@@ -31,7 +31,7 @@ import { OverlayedCollection } from './overlay-views/virtual-collection.js'
 import type { PublicEnvelope } from './meta/public-envelope/types.js'
 import { buildRecipientKeyringFile } from './team/keyring.js'
 import { ensureCollectionDEK, hasAccess, hasExportCapability, hasImportCapability } from './team/keyring.js'
-import type { ExportFormat, KeyringFile } from './types.js'
+import type { ExportFormat, KeyringFile, SensitiveOpt, IndexFieldName, IndexDefFor } from './types.js'
 import {
   ExportCapabilityError,
   ImportCapabilityError,
@@ -681,8 +681,8 @@ export class Vault {
    * Lazy mode + indexes is rejected at construction time — see the
    * Collection constructor for the rationale.
    */
-  collection<T, const S extends readonly (keyof T & string)[] = readonly []>(collectionName: string, options?: {
-    indexes?: IndexDef[]
+  collection<T, S extends keyof T & string = never>(collectionName: string, options?: {
+    indexes?: readonly IndexDefFor<IndexFieldName<T, S>>[]
     /** — auto-reconcile policy for persisted-index drift. */
     reconcileOnOpen?: 'off' | 'dry-run' | 'auto'
     prefetch?: boolean
@@ -694,7 +694,7 @@ export class Vault {
     /** — #308 L2: embedding config for write-time vector derivation + semantic retrieval. */
     embeddings?: EmbeddingDescriptor
     /** — #308 L1: string fields exposed to client-side `retrieve()`. */
-    textIndexes?: readonly string[]
+    textIndexes?: readonly IndexFieldName<T, S>[]
     /** — #308 L1: pre-build the lexical index on open (eager-only). */
     warmIndexOnOpen?: boolean
     /** — #308 L1.5: persist the lexical index as an opaque encrypted blob at `_ftindex/<name>`. */
@@ -718,7 +718,7 @@ export class Vault {
      * equality search. See `Collection` constructor docs for the full
      * trade-off. Requires `acknowledgeDeterministicRisk: true`.
      */
-    deterministicFields?: readonly string[]
+    deterministicFields?: readonly IndexFieldName<T, S>[]
     /** — explicit ack that deterministic encryption leaks equality. */
     acknowledgeDeterministicRisk?: boolean
     /**
@@ -726,7 +726,7 @@ export class Vault {
      * `_sealed[field]` envelope slot (per-field key), kept out of the open
      * `_data` blob. Default-off; byte-identical output when absent.
      */
-    sensitive?: S
+    sensitive?: SensitiveOpt<T, S>
     /**
      * — per-record content-encryption keys. When `true`, every record
      * body is encrypted under a fresh per-record CEK wrapped under the
@@ -791,7 +791,7 @@ export class Vault {
      * Default false — the working set is plaintext.
      */
     ramCiphertext?: boolean
-  }): Collection<T, S[number]> {
+  }): Collection<T, S> {
     // Overlay intercept. When the requested collection name
     // matches a registered `withOverlayedView`, return the virtual
     // proxy that merges base + overlay on read and routes writes to
@@ -809,7 +809,7 @@ export class Vault {
         const overlay = this.collection<T>(spec.overlay)
         const baseRowKey = overlayRegistry.resolveBaseRowKey(collectionName, this.materializedViewRegistry)
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return new OverlayedCollection<any>(spec, base, overlay, baseRowKey) as unknown as Collection<T, S[number]>
+        return new OverlayedCollection<any>(spec, base, overlay, baseRowKey) as unknown as Collection<T, S>
       }
     }
     // Guard: reject reserved _dict_* names
@@ -1013,7 +1013,7 @@ export class Vault {
             }
           : {}),
       }
-      if (options?.indexes !== undefined) collOpts.indexes = options.indexes
+      if (options?.indexes !== undefined) collOpts.indexes = options.indexes as unknown as IndexDef[]
       if (options?.reconcileOnOpen !== undefined) collOpts.reconcileOnOpen = options.reconcileOnOpen
       if (options?.prefetch !== undefined) collOpts.prefetch = options.prefetch
       if (options?.cache !== undefined) collOpts.cache = options.cache
@@ -1153,7 +1153,7 @@ export class Vault {
         this._pendingSchemaWrites.push(work)
       }
     }
-    return coll as unknown as Collection<T, S[number]>
+    return coll as unknown as Collection<T, S>
   }
 
   /**
