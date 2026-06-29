@@ -122,12 +122,15 @@ export interface LedgerEntry {
   readonly actor: string
 
   /**
-   * Hex-encoded sha256 of the encrypted envelope's `_data` field.
-   * For `put`, this is the hash of the new ciphertext. For `delete`,
-   * it's the hash of the last visible ciphertext at deletion time,
-   * or the empty string if nothing was there to delete. Hashing the
-   * ciphertext (not the plaintext) preserves zero-knowledge — see
-   * the file docstring.
+   * Hex-encoded sha256 over the encrypted envelope's `_data` field, plus its
+   * sealed-field ciphertext map (`_sealed`) when the record carries one (#306
+   * Slice C) — so the ledger attests to both the open body and every sealed
+   * value. A record with no `_sealed` hashes `_data` alone, byte-identically to
+   * before. For `put`, this is the hash of the new ciphertext. For `delete`,
+   * it's the hash of the last visible ciphertext at deletion time, or the empty
+   * string if nothing was there to delete. Hashing the ciphertext (not the
+   * plaintext) preserves zero-knowledge — see the file docstring. The exact
+   * recipe lives in `envelopePayloadHash` (`hash.ts`).
    */
   readonly payloadHash: string
 
