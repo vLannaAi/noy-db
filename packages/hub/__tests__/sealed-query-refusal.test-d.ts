@@ -110,3 +110,24 @@ describe('index-declaration sensitive-field refusal', () => {
     vault.collection<Person>('e', { indexes: ['anything', { fields: ['x', 'y'] }] })
   })
 })
+
+describe('groupBy sensitive-field refusal', () => {
+  it('refuses groupBy on a sensitive field; allows non-sensitive', async () => {
+    const vault = await typedVault()
+    const people = vault.collection<Person, 'ssn'>('people', { sensitive: ['ssn'] })
+    const q = people.query()
+    // @ts-expect-error — grouping BY a sealed field leaks its values as group keys
+    q.groupBy('ssn')
+    q.groupBy('name')              // ok
+    // @ts-expect-error — multi-field groupBy also refuses a sealed field
+    q.groupBy('name', 'ssn')
+    q.groupBy('name', 'age')       // ok
+  })
+
+  it('keeps groupBy permissive without sensitive fields', async () => {
+    const vault = await typedVault()
+    const plain = vault.collection<Person>('plain')
+    plain.query().groupBy('ssn')           // S = never -> any field
+    plain.query().groupBy('name', 'age')
+  })
+})
