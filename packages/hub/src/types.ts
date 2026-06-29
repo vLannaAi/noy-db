@@ -271,7 +271,12 @@ export type IndexFieldName<T, S extends keyof T = never> = [S] extends [never]
  * Generic form of the runtime `IndexDef` (see `indexing/eager-indexes.ts`)
  * parameterised by the allowed field-name set `F`. Used to refuse `sensitive`
  * fields in the `indexes` collection option at compile time while leaving the
- * runtime `IndexDef` (string-based) untouched.
+ * runtime `IndexDef` (string-based) untouched. `IndexDefFor<string>` is
+ * structurally identical to `IndexDef`, which is why `vault.collection` can cast
+ * the narrowed public option straight to `IndexDef[]` at the runtime boundary.
+ * **Keep this in sync with `IndexDef`** — if `IndexDef` gains a new union member,
+ * add it here too, or that boundary cast will silently admit shapes the runtime
+ * machinery does not narrow.
  */
 export type IndexDefFor<F extends string> =
   | F

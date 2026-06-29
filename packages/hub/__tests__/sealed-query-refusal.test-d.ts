@@ -96,6 +96,11 @@ describe('index-declaration sensitive-field refusal', () => {
       // @ts-expect-error — sealed field cannot be deterministically encrypted here
       deterministicFields: ['ssn'],
     })
+    vault.collection<Person, 'ssn'>('ct', {
+      sensitive: ['ssn'],
+      // @ts-expect-error — sealed field cannot be lexically (text-)indexed here
+      textIndexes: ['ssn'],
+    })
     // Non-sensitive fields index fine on the same collection:
     vault.collection<Person, 'ssn'>('d', { sensitive: ['ssn'], indexes: ['name', 'age'] })
   })
