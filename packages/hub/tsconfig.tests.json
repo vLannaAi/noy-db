@@ -13,7 +13,5 @@
     "src",
     "__tests__/**/*.test.ts"
   ],
-  "exclude": [
-    "__tests__/money/mv-and-live.test.ts"
-  ]
+  "exclude": []
 }
