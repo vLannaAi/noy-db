@@ -63,3 +63,17 @@ describe('ScanBuilder sensitive-field refusal', () => {
     plain.scan().where('any-string', '==', 1)  // still `string`
   })
 })
+
+describe('LazyQuery sensitive-field refusal', () => {
+  it('refuses lazyQuery().where()/orderBy() on a sensitive field', async () => {
+    const vault = await typedVault()
+    // lazyQuery requires lazy mode (prefetch: false)
+    const people = vault.collection<Person, 'ssn'>('people', { sensitive: ['ssn'], prefetch: false })
+    const lq = people.lazyQuery()
+    // @ts-expect-error — sealed field refused in lazy where
+    lq.where('ssn', '==', 'x')
+    lq.where('name', '==', 'Ada')   // ok
+    // @ts-expect-error — sealed field refused in lazy orderBy
+    lq.orderBy('ssn')
+  })
+})

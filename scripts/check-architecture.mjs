@@ -353,6 +353,8 @@ const STRATEGY_GATED_APIS = [
 // but always throws regardless of indexStrategy).
 const STRATEGY_OPT_IN_EXEMPT = new Set([
   'packages/hub/__tests__/overlay-views/overlay.test.ts',
+  // Type-only test; `.lazyQuery()` is never executed — tsc-only gate.
+  'packages/hub/__tests__/sealed-query-refusal.test-d.ts',
 ])
 
 function checkStrategyOptIns() {
