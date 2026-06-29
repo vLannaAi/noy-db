@@ -1063,6 +1063,14 @@ export type {
 // Query DSL helpers (escape-hatch types for consumers with dynamic field names)
 export type { QueryField, IndexFieldName } from './types.js'
 
+// Sealed-field access surface (#504): `Sealed<V>` is the opaque handle a public
+// read returns for a `sensitive` field; `SealedView<T, S>` is the record shape
+// `get()` returns (sealed fields → handles); `SealedHandle` is the concrete
+// class (exported for `instanceof` narrowing — the `Sealed.sealed` discriminant
+// also narrows structurally).
+export type { Sealed, SealedView } from './types.js'
+export { SealedHandle } from './types.js'
+
 // Scan-mode full-text search (#308)
 export { tokenize } from './search/index.js'
 export type { Tokenizer, SearchOptions, SearchResult, SearchEntry } from './search/index.js'
