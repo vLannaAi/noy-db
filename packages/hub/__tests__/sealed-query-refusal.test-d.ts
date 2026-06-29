@@ -243,3 +243,44 @@ describe('money-field generic M — aggregate builder auto-types money fields', 
     expectTypeOf<Result['paid']>().toEqualTypeOf<number>()
   })
 })
+
+describe('money-field generic M — scan() & groupBy() aggregate builders auto-type money fields', () => {
+  interface Sale { id: string; amount: number; tax: number; qty: number }
+
+  it('scan().aggregate(b => …): money field → MoneyString, non-money → number', async () => {
+    const vault = await typedVault()
+    const sales = vault.collection<Sale, never, never, 'amount' | 'tax'>('sales-scan', {
+      moneyFields: { amount: money({ currency: 'EUR', scale: 2 }), tax: money({ currency: 'EUR', scale: 2 }) },
+    })
+    // ScanBuilder.aggregate is async → Promise<AggregateResult<Spec>>; Awaited unwraps it.
+    const moneyAgg = sales.scan().aggregate(b => ({ paid: b.sum('amount') }))
+    const nonMoneyAgg = sales.scan().aggregate(b => ({ qty: b.sum('qty') }))
+    expectTypeOf<Awaited<typeof moneyAgg>['paid']>().toMatchTypeOf<string>()   // MoneyString (branded string)
+    expectTypeOf<Awaited<typeof nonMoneyAgg>['qty']>().toEqualTypeOf<number>()
+  })
+
+  it('groupBy().aggregate(b => …): money field → MoneyString, non-money → number', async () => {
+    const vault = await typedVault()
+    const sales = vault.collection<Sale, never, never, 'amount' | 'tax'>('sales-grp', {
+      moneyFields: { amount: money({ currency: 'EUR', scale: 2 }), tax: money({ currency: 'EUR', scale: 2 }) },
+    })
+    // groupBy by a non-money key; the aggregate fields are intersected onto each
+    // GroupedRow, so run()[number]['paid'] exposes the narrowed money type. Avoid
+    // naming an aggregate field after the group key (it would intersect to never).
+    const moneyAgg = sales.query().groupBy('qty').aggregate(b => ({ paid: b.sum('amount') }))
+    const nonMoneyAgg = sales.query().groupBy('amount').aggregate(b => ({ tot: b.sum('qty') }))
+    expectTypeOf<ReturnType<typeof moneyAgg.run>[number]['paid']>().toMatchTypeOf<string>()
+    expectTypeOf<ReturnType<typeof nonMoneyAgg.run>[number]['tot']>().toEqualTypeOf<number>()
+  })
+
+  it('no M (default) keeps scan()/groupBy() b.sum as number (zero churn)', async () => {
+    const vault = await typedVault()
+    const sales = vault.collection<Sale>('sales-default', {
+      moneyFields: { amount: money({ currency: 'EUR', scale: 2 }) },
+    })
+    const scanAgg = sales.scan().aggregate(b => ({ paid: b.sum('amount') }))
+    const grpAgg = sales.query().groupBy('qty').aggregate(b => ({ paid: b.sum('amount') }))
+    expectTypeOf<Awaited<typeof scanAgg>['paid']>().toEqualTypeOf<number>()
+    expectTypeOf<ReturnType<typeof grpAgg.run>[number]['paid']>().toEqualTypeOf<number>()
+  })
+})
