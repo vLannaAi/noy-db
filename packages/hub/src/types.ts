@@ -249,10 +249,16 @@ export type SealedView<T, S extends keyof T> = [S] extends [never]
  * literal from `string`, so refusing a sensitive name necessarily means
  * narrowing to the known field-name union — this is intentional and only
  * affects collections that opted in.
+ *
+ * When `Q` (the indexed-field set) is given, `where()` is additionally
+ * restricted to `Q` minus any sensitive fields — the escape hatch for
+ * non-indexed filters is `scan()`. `Q = never` (the default) preserves the
+ * existing 2-param behaviour exactly (zero churn).
  */
-export type QueryField<T, S extends keyof T = never> = [S] extends [never]
-  ? string
-  : Exclude<keyof T & string, S>
+export type QueryField<T, S extends keyof T = never, Q extends keyof T & string = never> =
+  [Q] extends [never]
+    ? ([S] extends [never] ? string : Exclude<keyof T & string, S>)
+    : Exclude<Q, S>
 
 /**
  * The type of a field-name reference in a collection's index-declaration
@@ -262,10 +268,16 @@ export type QueryField<T, S extends keyof T = never> = [S] extends [never]
  * secondary index over a sealed field defeats non-residency — previously only
  * a runtime `console.warn`). Kept distinct from `QueryField` so the two DSL
  * surfaces can diverge later without coupling.
+ *
+ * When `Q` (the indexed-field set) is given, the `indexes` option is
+ * additionally restricted to `Q` minus any sensitive fields — declaring `Q`
+ * but listing a different field in `indexes` becomes a compile error.
+ * `Q = never` (the default) preserves the existing 2-param behaviour.
  */
-export type IndexFieldName<T, S extends keyof T = never> = [S] extends [never]
-  ? string
-  : Exclude<keyof T & string, S>
+export type IndexFieldName<T, S extends keyof T = never, Q extends keyof T & string = never> =
+  [Q] extends [never]
+    ? ([S] extends [never] ? string : Exclude<keyof T & string, S>)
+    : Exclude<Q, S>
 
 /**
  * Generic form of the runtime `IndexDef` (see `indexing/eager-indexes.ts`)
