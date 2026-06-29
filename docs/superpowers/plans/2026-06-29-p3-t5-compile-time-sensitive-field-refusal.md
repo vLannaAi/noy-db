@@ -4,7 +4,9 @@
 
 **Goal:** Make `@noy-db/hub` refuse a collection's declared `sensitive` fields at **compile time** in the query/scan/index DSLs (`Query.where`/`.orderBy`, `ScanBuilder.where`, `LazyQuery.where`/`.orderBy`, and the `indexes`/`deterministicFields`/`textIndexes` collection options), turning today's silent runtime-seal into a `tsc` error.
 
-**Architecture:** Type-only change. The runtime already seals `sensitive` fields out of `_data`/`_det`, so `where('ssn', …)` already returns nothing — this plan adds the compile-time gate. We thread the existing `S` (the sensitive-field union, already on `Collection<T, S>`) through the three query builders (`Query<T, S>`, `ScanBuilder<T, S>`, `LazyQuery<T, S>`), and narrow each field-name parameter to a new `QueryField<T, S>` type. The narrowing is **guarded** — `[S] extends [never] ? string : Exclude<keyof T & string, S>` — so collections that declare **no** sensitive fields keep the permissive `field: string` signature unchanged (zero churn for existing consumers); only collections that opt into `sensitive: [...]` get strict field typing.
+**Architecture:** Type-only change. The runtime already seals `sensitive` fields out of `_data`/`_det`, so `where('ssn', …)` already returns nothing — this plan adds the compile-time gate. We thread the existing `S` (the sensitive-field union, already on `Collection<T, S>`) through the three query builders (`Query<T, S>`, `ScanBuilder<T, S>`, `LazyQuery<T, S>`), and narrow each field-name parameter to a new `QueryField<T, S>` type. The narrowing is **guarded** — `[S] extends [never] ? string : Exclude<keyof T & string, S>` — so collections that declare **no** sensitive fields keep the permissive `field: string` signature unchanged (zero churn for existing consumers); only collections that opt into compile-time refusal get strict field typing.
+
+**Opt-in 2nd generic (DECIDED — read carefully).** TypeScript's all-or-nothing type-argument rule means `vault.collection<Person>('p', { sensitive: ['ssn'] })` cannot *infer* `S='ssn'` (supplying `<Person>` pins the second param `S` to its default). So compile-time refusal is **opt-in via an explicit second generic**: `vault.collection<Person, 'ssn'>('people', { sensitive: ['ssn'] })` engages refusal (`S='ssn'`), while the single-generic `vault.collection<Person>('people', { sensitive: ['ssn'] })` keeps compiling and gets **runtime sealing only** (`S=never`, no compile refusal). `vault.collection`'s second generic is therefore a **union** `S extends keyof T & string = never` (NOT a tuple), and `Collection<T, S>` is returned directly (not `Collection<T, S[number]>`). The `sensitive` option is typed `SensitiveOpt<T, S> = [S] extends [never] ? readonly (keyof T & string)[] : readonly S[]` so the single-generic form accepts any field array (runtime-only) while the 2-generic form **ties** the runtime array to `S` (writing `sensitive: ['dob']` under `<Person, 'ssn'>` is a compile error — no drift). This design is verified.
 
 **Tech Stack:** TypeScript 5.9 (`*.test-d.ts` type-tests enforced by `tsc --noEmit -p tsconfig.typetest.json`, run via `pnpm --filter @noy-db/hub typecheck:types`), tsup (DTS build), pnpm + turbo.
 
@@ -14,6 +16,7 @@
 
 - **Type-only.** No runtime behavior change. Do not touch any `.where()`/`.orderBy()`/`new Query()` runtime body except to change a parameter's TYPE annotation. Runtime sealing already exists; this is purely the compile-time gate.
 - **`S` defaults to `never` everywhere.** Every builder generic is `<T, S extends keyof T = never>`. Every existing single-arg reference (`Query<T>`, `ScanBuilder<T>`, `LazyQuery<T>`, `Collection<T>`) MUST keep compiling unchanged — there are ~26 `Query<T>` references in `builder.ts` alone and ~446 consumer call sites that must be untouched.
+- **Opt-in refusal via the 2nd generic; single-generic stays permissive.** Refusal fires only for `vault.collection<T, S>(…)` (explicit union `S`). `vault.collection<T>(…, { sensitive: [...] })` (single generic) MUST still compile and behave exactly as today (runtime sealing, `field: string`). A type-test MUST assert this non-breaking guarantee. `vault.collection`'s second generic is a union `S extends keyof T & string = never` returning `Collection<T, S>`; the `sensitive` option uses `SensitiveOpt<T, S> = [S] extends [never] ? readonly (keyof T & string)[] : readonly S[]`.
 - **Guarded narrowing.** `QueryField<T, S> = [S] extends [never] ? string : Exclude<keyof T & string, S>`. A collection with no `sensitive` declaration (S = never) gets `string` — byte-identical DX to today. Verify this property with a type-test in every task.
 - **No new public method.** The escape hatch for a sensitive collection that genuinely needs a dynamic field string is a documented cast: `where(field as QueryField<T, S>, …)`. Do not add a `whereDynamic`/`whereUnchecked` method.
 - **Run `node scripts/check-architecture.mjs` before every commit** (kernel-surface line-count ratchet on `collection.ts`/`vault.ts`/`noydb.ts`; bump a ceiling only with a `// Bumped X→Y (reason)` comment if a genuine core line is added).
@@ -154,7 +157,7 @@ async function typedVault() {
 describe('Query sensitive-field refusal', () => {
   it('refuses where() on a sensitive field, allows non-sensitive', async () => {
     const vault = await typedVault()
-    const people = vault.collection<Person>('people', { sensitive: ['ssn'] })
+    const people = vault.collection<Person, 'ssn'>('people', { sensitive: ['ssn'] })
     const q = people.query()
     // @ts-expect-error — 'ssn' is sealed; refused at compile time
     q.where('ssn', '==', 'x')
@@ -245,7 +248,119 @@ git commit -m "feat(hub): thread S through Query<T,S>; refuse sealed fields in w
 
 ---
 
-### Task 3: Thread `S` through `ScanBuilder<T, S>` and narrow `where`
+### Task 3: Reshape `vault.collection` to opt-in union-`S` and rewrite the Query type-test to the real API
+
+> **Why this task exists:** TypeScript cannot infer `S` from the `sensitive` argument when `T` is given explicitly (`vault.collection<Person>(…)`), so refusal must be opt-in via an explicit second generic. Task 2 threaded `S` through `Query` and its type-test used a workaround (`null! as Query<Person,'ssn'>` / a tuple 2nd generic) because the real `vault.collection` could not yet produce a refusing `Query`. This task makes `vault.collection<Person, 'ssn'>('people', { sensitive: ['ssn'] }).query()` produce `Query<Person, 'ssn'>` end-to-end, and rewrites the Query type-test to that real call pattern.
+
+**Files:**
+- Modify: `packages/hub/src/vault.ts` — the public `collection<T, const S …>(…)` signature (generic header ~line 684; `sensitive?:` line ~729; return type `}): Collection<T, S[number]>` ~line 794; the overlay-intercept cast `as Collection<T, S[number]>` ~lines 808–812)
+- Modify: `packages/hub/src/types.ts` — add the `SensitiveOpt<T, S>` helper next to `QueryField` (Task 1)
+- Test: rewrite `packages/hub/__tests__/sealed-query-refusal.test-d.ts` (the Query `describe` blocks from Task 2) to use the real `vault.collection<Person, 'ssn'>(…)` API, and add the non-breaking permissive-case assertion
+
+**Interfaces:**
+- Consumes: `Collection<T, S extends keyof T = never>` (unchanged), `QueryField<T, S>` / `Query<T, S>` (Tasks 1–2).
+- Produces:
+  - `export type SensitiveOpt<T, S extends keyof T> = [S] extends [never] ? readonly (keyof T & string)[] : readonly S[]` (in `types.ts`)
+  - `collection<T, S extends keyof T & string = never>(collectionName: string, options?: { …; sensitive?: SensitiveOpt<T, S>; … }): Collection<T, S>` — second generic is now a **union** (was `const S extends readonly (keyof T & string)[]`), return is `Collection<T, S>` (was `Collection<T, S[number]>`).
+
+**Design note (verified):** with this signature, `vault.collection<Person, 'ssn'>('p', { sensitive: ['ssn'] })` ⇒ `Collection<Person, 'ssn'>` (refusal engages); `vault.collection<Person>('p', { sensitive: ['ssn'] })` ⇒ `Collection<Person, never>` and the `sensitive` array is still accepted (runtime-only, no refusal); `vault.collection<Person, 'ssn'>('p', { sensitive: ['dob'] })` is a compile error (the `readonly S[]` ties the runtime list to the type).
+
+- [ ] **Step 1: Rewrite the Query type-test to the real API (RED)**
+
+Replace the two Query `describe` blocks in `packages/hub/__tests__/sealed-query-refusal.test-d.ts` (the ones Task 2 wrote with `null! as Query<…>` / tuple workarounds) with the real call pattern. The `typedVault()` helper stays. Use exactly:
+
+```ts
+describe('Query sensitive-field refusal (real vault.collection API)', () => {
+  it('refuses where()/orderBy() on a sensitive field when opted in via the 2nd generic', async () => {
+    const vault = await typedVault()
+    const people = vault.collection<Person, 'ssn'>('people', { sensitive: ['ssn'] })
+    const q = people.query()
+    // @ts-expect-error — 'ssn' is sealed; refused at compile time
+    q.where('ssn', '==', 'x')
+    q.where('name', '==', 'Ada')        // ok
+    q.orderBy('age', 'desc')            // ok
+    // @ts-expect-error — orderBy on a sealed field is refused
+    q.orderBy('ssn')
+  })
+
+  it('single-generic + sensitive still compiles (runtime-only, no refusal) — non-breaking', async () => {
+    const vault = await typedVault()
+    // No 2nd generic → S = never → field stays `string`, sensitive array still accepted.
+    const people = vault.collection<Person>('people', { sensitive: ['ssn'] })
+    people.query().where('ssn', '==', 'x').orderBy('whatever-string')
+  })
+
+  it('ties the runtime sensitive array to the 2nd generic (no drift)', async () => {
+    const vault = await typedVault()
+    // @ts-expect-error — declared sensitive 'ssn' but runtime array lists a different field
+    vault.collection<Person, 'ssn'>('people', { sensitive: ['name'] })
+  })
+
+  it('plain collection (no sensitive) keeps where() permissive', async () => {
+    const vault = await typedVault()
+    const plain = vault.collection<Person>('plain')
+    plain.query().where('anything', '==', 1).orderBy('whatever')
+    expectTypeOf(plain.query().where).parameter(0).toEqualTypeOf<string>()
+  })
+})
+```
+
+Run: `pnpm --filter @noy-db/hub typecheck:types`
+Expected: FAIL — `vault.collection<Person, 'ssn'>('people', { sensitive: ['ssn'] })` does not yet typecheck (today the 2nd generic is a tuple `const S extends readonly (keyof T & string)[]`, so `'ssn'` is not a valid 2nd argument), and the drift `@ts-expect-error` is unused. This is RED.
+
+- [ ] **Step 2: Add `SensitiveOpt<T, S>` to `types.ts`**
+
+After `IndexFieldName` (Task 1) in `packages/hub/src/types.ts`:
+
+```ts
+/**
+ * The type of the `sensitive` collection option, conditional on whether the
+ * caller opted into compile-time refusal via an explicit second generic.
+ * With no 2nd generic (`S = never`) it accepts any field array — runtime
+ * sealing only, no compile refusal, non-breaking. With `S` given, it is
+ * `readonly S[]`, which ties the runtime array to the declared sensitive
+ * union so the two cannot drift.
+ */
+export type SensitiveOpt<T, S extends keyof T> = [S] extends [never]
+  ? readonly (keyof T & string)[]
+  : readonly S[]
+```
+
+- [ ] **Step 3: Reshape the `vault.collection` signature**
+
+In `packages/hub/src/vault.ts`:
+1. Change the generic header (line ~684) from
+   `collection<T, const S extends readonly (keyof T & string)[] = readonly []>(collectionName: string, options?: {`
+   to
+   `collection<T, S extends keyof T & string = never>(collectionName: string, options?: {`
+2. Change the `sensitive?:` option (line ~729) from `sensitive?: S` to `sensitive?: SensitiveOpt<T, S>`.
+3. Change the return type (line ~794) from `}): Collection<T, S[number]> {` to `}): Collection<T, S> {`.
+4. Change the overlay-intercept return cast (lines ~808–812) from `as unknown as Collection<T, S[number]>` to `as unknown as Collection<T, S>`.
+5. Add `SensitiveOpt` to the existing `import type { … } from './types.js'` in `vault.ts`.
+
+Leave every internal `this.collection<T>(name)` call unchanged — they supply only `T`, so `S` defaults to `never` (runtime behaviour identical). The runtime body that reads `opts.sensitive` into a `Set<string>` is unchanged (it accepts any string array at runtime).
+
+- [ ] **Step 4: Run the type-test to verify it passes (GREEN)**
+
+Run: `pnpm --filter @noy-db/hub typecheck:types`
+Expected: PASS — the refusal `@ts-expect-error`s and the drift `@ts-expect-error` are all used; the permissive single-generic and plain cases compile.
+
+- [ ] **Step 5: Zero-churn proof — full hub typecheck**
+
+Run: `pnpm --filter @noy-db/hub typecheck`
+Expected: PASS. Every existing `vault.collection<T>(name, opts)` call inside hub still resolves (`S=never`). If a hub-internal call that passed `sensitive` with a tuple-expectation breaks, that is the signal — but no internal call supplies a 2nd generic, so none should break.
+
+- [ ] **Step 6: Architecture check + commit**
+
+```bash
+node scripts/check-architecture.mjs
+git add packages/hub/src/vault.ts packages/hub/src/types.ts packages/hub/__tests__/sealed-query-refusal.test-d.ts
+git commit -m "feat(hub): opt-in union-S 2nd generic on vault.collection; end-to-end where/orderBy refusal"
+```
+
+---
+
+### Task 4: Thread `S` through `ScanBuilder<T, S>` and narrow `where`
 
 **Files:**
 - Modify: `packages/hub/src/query/scan-builder.ts` (class header line 99; `where` line 170; `filter` line 193; `join` line 286; every internal `new ScanBuilder<T>(...)`)
@@ -267,7 +382,7 @@ Append to `packages/hub/__tests__/sealed-query-refusal.test-d.ts`:
 describe('ScanBuilder sensitive-field refusal', () => {
   it('refuses scan().where() on a sensitive field', async () => {
     const vault = await typedVault()
-    const people = vault.collection<Person>('people', { sensitive: ['ssn'] })
+    const people = vault.collection<Person, 'ssn'>('people', { sensitive: ['ssn'] })
     const s = people.scan()
     // @ts-expect-error — sealed field refused in scan
     s.where('ssn', '==', 'x')
@@ -317,7 +432,7 @@ git commit -m "feat(hub): thread S through ScanBuilder<T,S>; refuse sealed field
 
 ---
 
-### Task 4: Thread `S` through `LazyQuery<T, S>` and narrow `where`/`orderBy`
+### Task 5: Thread `S` through `LazyQuery<T, S>` and narrow `where`/`orderBy`
 
 **Files:**
 - Modify: `packages/hub/src/indexing/lazy-builder.ts` (class header line 63; `where` line 72; `orderBy` line 80; every internal `new LazyQuery<T>(...)`)
@@ -342,7 +457,7 @@ describe('LazyQuery sensitive-field refusal', () => {
     const db = createNoydb({ store: memoryStore() })
     const vault = await db.openVault('lz', { passphrase: 'x'.repeat(12) })
     // lazyQuery requires lazy mode (prefetch: false)
-    const people = vault.collection<Person>('people', { sensitive: ['ssn'], prefetch: false })
+    const people = vault.collection<Person, 'ssn'>('people', { sensitive: ['ssn'], prefetch: false })
     const lq = people.lazyQuery()
     // @ts-expect-error — sealed field refused in lazy where
     lq.where('ssn', '==', 'x')
@@ -386,7 +501,7 @@ git commit -m "feat(hub): thread S through LazyQuery<T,S>; refuse sealed fields 
 
 ---
 
-### Task 5: Narrow the `indexes` / `deterministicFields` / `textIndexes` collection options
+### Task 6: Narrow the `indexes` / `deterministicFields` / `textIndexes` collection options
 
 **Files:**
 - Modify: `packages/hub/src/vault.ts` (the `collection<T, const S …>({ … })` option object, ~lines 684–794 — specifically `indexes`, `deterministicFields`, `textIndexes`)
@@ -397,8 +512,8 @@ git commit -m "feat(hub): thread S through LazyQuery<T,S>; refuse sealed fields 
 - Consumes: `IndexFieldName<T, S>` (Task 1), and the runtime `IndexDef` shape from `packages/hub/src/indexing/eager-indexes.ts:34` (`string | { fields: readonly string[]; unique?: boolean } | readonly string[]`).
 - Produces:
   - `export type IndexDefFor<F extends string> = F | { readonly fields: readonly F[]; readonly unique?: boolean } | readonly F[]`
-  - `vault.collection`'s `indexes?: readonly IndexDefFor<IndexFieldName<T, S[number]>>[]`, `deterministicFields?: readonly IndexFieldName<T, S[number]>[]`, `textIndexes?: readonly IndexFieldName<T, S[number]>[]`.
-  - Because `S[number]` is `never` when no `sensitive` option is given, all three stay `IndexDefFor<string>` / `readonly string[]` — unchanged for non-sensitive collections.
+  - `vault.collection`'s `indexes?: readonly IndexDefFor<IndexFieldName<T, S>>[]`, `deterministicFields?: readonly IndexFieldName<T, S>[]`, `textIndexes?: readonly IndexFieldName<T, S>[]`.
+  - Because `S` is `never` when no `sensitive` option is given, all three stay `IndexDefFor<string>` / `readonly string[]` — unchanged for non-sensitive collections.
 
 - [ ] **Step 1: Add the failing type-test (append)**
 
@@ -408,23 +523,23 @@ Append to `packages/hub/__tests__/sealed-query-refusal.test-d.ts`:
 describe('index-declaration sensitive-field refusal', () => {
   it('refuses indexing / det-encrypting / text-indexing a sensitive field', async () => {
     const vault = await typedVault()
-    vault.collection<Person>('a', {
+    vault.collection<Person, 'ssn'>('a', {
       sensitive: ['ssn'],
       // @ts-expect-error — cannot put a sealed field in a plaintext index
       indexes: ['ssn'],
     })
-    vault.collection<Person>('b', {
+    vault.collection<Person, 'ssn'>('b', {
       sensitive: ['ssn'],
       // @ts-expect-error — cannot put a sealed field in a composite index
       indexes: [{ fields: ['name', 'ssn'] }],
     })
-    vault.collection<Person>('c', {
+    vault.collection<Person, 'ssn'>('c', {
       sensitive: ['ssn'],
       // @ts-expect-error — sealed field cannot be deterministically encrypted here
       deterministicFields: ['ssn'],
     })
     // Non-sensitive fields index fine on the same collection:
-    vault.collection<Person>('d', { sensitive: ['ssn'], indexes: ['name', 'age'] })
+    vault.collection<Person, 'ssn'>('d', { sensitive: ['ssn'], indexes: ['name', 'age'] })
   })
 
   it('keeps index options permissive without sensitive fields', async () => {
@@ -457,9 +572,9 @@ export type IndexDefFor<F extends string> =
 ```
 
 In `packages/hub/src/vault.ts`, in the `collection<T, const S …>` option object:
-- `indexes?: readonly IndexDefFor<IndexFieldName<T, S[number]>>[]` (was `IndexDef[]`)
-- `deterministicFields?: readonly IndexFieldName<T, S[number]>[]` (was `readonly string[]`)
-- `textIndexes?: readonly IndexFieldName<T, S[number]>[]` (was `readonly string[]`)
+- `indexes?: readonly IndexDefFor<IndexFieldName<T, S>>[]` (was `IndexDef[]`)
+- `deterministicFields?: readonly IndexFieldName<T, S>[]` (was `readonly string[]`)
+- `textIndexes?: readonly IndexFieldName<T, S>[]` (was `readonly string[]`)
 
 Add `IndexFieldName, IndexDefFor` to the existing `import type { … } from './types.js'` in `vault.ts`. Keep the runtime body that reads `opts.indexes` unchanged (it already handles `string | string[] | { fields }`).
 
@@ -481,7 +596,7 @@ git commit -m "feat(hub): refuse sealed fields in indexes/deterministicFields/te
 
 ---
 
-### Task 6: Full-monorepo verification + consumer fixups + runtime regression check
+### Task 7: Full-monorepo verification + consumer fixups + runtime regression check
 
 **Files:**
 - Modify: `packages/hub/src/index.ts` (add `QueryField` / `IndexFieldName` to the public barrel — see Step 0).
