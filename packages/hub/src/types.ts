@@ -57,6 +57,7 @@ import type { ObjectProjection } from './blobs/object-projection.js'
 // file, so going through it would create an import cycle.
 import type { CoordinationProvider } from './coordination/types.js'
 import type { ScriptWarning } from './i18n/script.js'
+import type { MoneyDescriptor } from './money/descriptor.js'
 
 /** Format version for encrypted record envelopes. */
 export const NOYDB_FORMAT_VERSION = 1 as const
@@ -307,6 +308,17 @@ export type IndexDefFor<F extends string> =
 export type SensitiveOpt<T, S extends keyof T> = [S] extends [never]
   ? readonly (keyof T & string)[]
   : readonly S[]
+
+/**
+ * The type of the `moneyFields` collection option, conditional on whether the
+ * caller opted into compile-time money-field typing via the 4th generic `M`.
+ * With no `M` (`M = never`) it accepts any `Record<string, MoneyDescriptor>` —
+ * runtime money only, no compile-level narrowing, non-breaking. With `M` given,
+ * it is `Record<M, MoneyDescriptor>`, tying the runtime map to the declared
+ * money-field union so the two cannot drift.
+ */
+export type MoneyFieldsOpt<T, M extends keyof T & string = never> =
+  [M] extends [never] ? Record<string, MoneyDescriptor> : Record<M, MoneyDescriptor>
 
 /**
  * Concrete {@link Sealed} handle. Holds the reveal closure (which captures the

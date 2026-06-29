@@ -374,12 +374,12 @@ export function moneyMax(field: string, opts?: ReducerOptions<number>): Reducer<
  * combinations — the field narrowing is type-only; the methods delegate
  * directly to the standalone factories.
  */
-export interface ReducerBuilder<T, S extends keyof T = never> {
+export interface ReducerBuilder<T, S extends keyof T = never, M extends keyof T & string = never> {
   count(opts?: ReducerOptions<number>): Reducer<number>
-  sum(field: QueryField<T, S>, opts?: ReducerOptions<number>): Reducer<number>
+  sum<F extends QueryField<T, S>>(field: F, opts?: ReducerOptions<number>): [F] extends [M] ? Reducer<MoneyString> : Reducer<number>
   avg(field: QueryField<T, S>, opts?: ReducerOptions<{ sum: number; count: number }>): ReturnType<typeof avg>
-  min(field: QueryField<T, S>, opts?: ReducerOptions<number>): ReturnType<typeof min>
-  max(field: QueryField<T, S>, opts?: ReducerOptions<number>): ReturnType<typeof max>
+  min<F extends QueryField<T, S>>(field: F, opts?: ReducerOptions<number>): [F] extends [M] ? Reducer<MoneyString | null> : ReturnType<typeof min>
+  max<F extends QueryField<T, S>>(field: F, opts?: ReducerOptions<number>): [F] extends [M] ? Reducer<MoneyString | null> : ReturnType<typeof max>
   moneySum(field: QueryField<T, S>, opts?: ReducerOptions<number>): Reducer<MoneyString>
   moneyMin(field: QueryField<T, S>, opts?: ReducerOptions<number>): Reducer<MoneyString | null>
   moneyMax(field: QueryField<T, S>, opts?: ReducerOptions<number>): Reducer<MoneyString | null>
@@ -394,7 +394,17 @@ export interface ReducerBuilder<T, S extends keyof T = never> {
  * parameter-contravariance, so this single instance works for all `T`/`S`.
  */
 export const reducerBuilder: ReducerBuilder<Record<string, unknown>> = {
-  count, sum, avg, min, max, moneySum, moneyMin, moneyMax,
+  count,
+  // The generic F parameter on sum/min/max in the interface is type-only; the
+  // standalone factories are plain `(field: string)` functions. With M=never the
+  // conditional return collapses to the numeric branch, matching the factories'
+  // return type, but TypeScript cannot verify that collapse for a generic method
+  // signature — so each factory is cast directly to the method's type.
+  sum: sum as ReducerBuilder<Record<string, unknown>>['sum'],
+  avg,
+  min: min as ReducerBuilder<Record<string, unknown>>['min'],
+  max: max as ReducerBuilder<Record<string, unknown>>['max'],
+  moneySum, moneyMin, moneyMax,
 }
 
 // ---------------------------------------------------------------------------

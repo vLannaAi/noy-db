@@ -3,7 +3,7 @@
  * Validated by `pnpm --filter @noy-db/hub typecheck:types` (tsc only; never executed).
  */
 import { describe, it, expectTypeOf } from 'vitest'
-import { createNoydb, sum } from '../src/index.js'
+import { createNoydb, sum, money } from '../src/index.js'
 import { memoryStore } from '../src/store/memory-store.js'
 
 interface Person { id: string; name: string; ssn: string; age: number }
@@ -213,5 +213,33 @@ describe('Q = indexed-only lazyQuery().where() refusal', () => {
     const vault = await typedVault()
     const c = vault.collection<LRec>('lc2', { indexes: ['status'], prefetch: false })
     c.lazyQuery().where('anything', '==', 'x')   // Q = never -> string
+  })
+})
+
+describe('money-field generic M — aggregate builder auto-types money fields', () => {
+  interface Sale { id: string; amount: number; tax: number; qty: number }
+  it('b.sum on a money field is MoneyString; non-money is number; opt-in via 4th generic', async () => {
+    const vault = await typedVault()
+    const sales = vault.collection<Sale, never, never, 'amount' | 'tax'>('sales', {
+      moneyFields: { amount: money({ currency: 'EUR', scale: 2 }), tax: money({ currency: 'EUR', scale: 2 }) },
+    })
+    const q = sales.query()
+    // AggregateResult maps Reducer<R> → R, so run() exposes the narrowed types.
+    const moneyAgg = q.aggregate(b => ({ paid: b.sum('amount') }))
+    const nonMoneyAgg = q.aggregate(b => ({ qty: b.sum('qty') }))
+    type MoneyResult = ReturnType<typeof moneyAgg.run>
+    type NumberResult = ReturnType<typeof nonMoneyAgg.run>
+    // b.sum on a declared money field returns Reducer<MoneyString>;
+    // MoneyString is a branded string, so it satisfies string.
+    expectTypeOf<MoneyResult['paid']>().toMatchTypeOf<string>()
+    // Non-money field stays number.
+    expectTypeOf<NumberResult['qty']>().toEqualTypeOf<number>()
+  })
+  it('no M (default) keeps b.sum as number (zero churn)', async () => {
+    const vault = await typedVault()
+    const sales = vault.collection<Sale>('s2', { moneyFields: { amount: money({ currency: 'EUR', scale: 2 }) } })
+    const r = sales.query().aggregate(b => ({ paid: b.sum('amount') }))
+    type Result = ReturnType<typeof r.run>
+    expectTypeOf<Result['paid']>().toEqualTypeOf<number>()
   })
 })
