@@ -733,10 +733,6 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    * `sensitive` field at compile time. Use the builder form for new code that
    * aggregates over a collection with sensitive fields.
    *
-   * Follow-ups (out of scope for this change):
-   *   - `GroupedQuery.aggregate` dropped `S` and cannot be retrofitted here;
-   *     a separate builder form is needed.
-   *   - `ScanBuilder.aggregate` similarly has no `S` context.
    */
   aggregate<Spec extends AggregateSpec>(spec: Spec): Aggregation<AggregateResult<Spec>>
   aggregate<Spec extends AggregateSpec>(build: (b: ReducerBuilder<T, S>) => Spec): Aggregation<AggregateResult<Spec>>
@@ -833,11 +829,11 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
   // The `field` param is `QueryField<T, S>` so a sealed (`sensitive`) field is
   // refused — grouping BY a sensitive field leaks its value distribution as
   // group-key labels. With `S = never` this is exactly `string` (zero churn).
-  groupBy<F extends QueryField<T, S>>(field: F): GroupedQuery<T, F>
+  groupBy<F extends QueryField<T, S>>(field: F): GroupedQuery<T, F, S>
   groupBy<F extends readonly [QueryField<T, S>, QueryField<T, S>, ...QueryField<T, S>[]]>(
     ...fields: F
-  ): GroupedQueryN<T, F>
-  groupBy(...fields: readonly string[]): GroupedQuery<T, string> | GroupedQueryN<T, readonly string[]> {
+  ): GroupedQueryN<T, F, S>
+  groupBy(...fields: readonly string[]): GroupedQuery<T, string, S> | GroupedQueryN<T, readonly string[], S> {
     if (fields.length === 0) {
       throw new Error('.groupBy() requires at least one field')
     }
@@ -871,7 +867,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     if (fields.length === 1) {
       const field = fields[0]!
       const dictLabelResolver = buildDictLabelResolver(this.joinContext, field)
-      return this.aggregateStrategy.groupBy<T, string>(
+      return this.aggregateStrategy.groupBy<T, string, S>(
         executeRecords,
         field,
         upstreams,
@@ -879,7 +875,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
         this.source.moneyFields,
       )
     }
-    return this.aggregateStrategy.groupByN<T, readonly string[]>(
+    return this.aggregateStrategy.groupByN<T, readonly string[], S>(
       executeRecords,
       fields,
       upstreams,
