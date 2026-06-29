@@ -280,7 +280,8 @@ describe('MemoryRecipientSealer', () => {
 
     // Flip a byte in the ciphertext region (after the version + wrapped CEK + IV header).
     const tampered = new Uint8Array(sealed)
-    tampered[1 + 256 + 12 + 1] ^= 0x01
+    const tamperedIdx = 1 + 256 + 12 + 1
+    tampered[tamperedIdx] = tampered[tamperedIdx]! ^ 0x01
 
     await expect(recipient.unseal(tampered)).rejects.toThrow()
   })

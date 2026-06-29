@@ -14,18 +14,6 @@
     "__tests__/**/*.test.ts"
   ],
   "exclude": [
-    "__tests__/coordinated-cutover-integration.test.ts",
-    "__tests__/managed-mode-adoption.test.ts",
-    "__tests__/managed-mode-strong-recovery.test.ts",
-    "__tests__/managed-passphrase.test.ts",
-    "__tests__/money/mv-and-live.test.ts",
-    "__tests__/no-self-provision.test.ts",
-    "__tests__/schema-introspection.test.ts",
-    "__tests__/schema-update-integration.test.ts",
-    "__tests__/schema-update/apply-cutover.test.ts",
-    "__tests__/shamir-recovery.test.ts",
-    "__tests__/snapshots.test.ts",
-    "__tests__/transaction.test.ts",
-    "__tests__/write-hooks-integration.test.ts"
+    "__tests__/money/mv-and-live.test.ts"
   ]
 }
