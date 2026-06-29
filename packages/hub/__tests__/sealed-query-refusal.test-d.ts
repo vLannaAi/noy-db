@@ -131,3 +131,32 @@ describe('groupBy sensitive-field refusal', () => {
     plain.query().groupBy('name', 'age')
   })
 })
+
+describe('Q = indexed-only where() refusal (opt-in 3rd generic)', () => {
+  interface Rec { id: string; name: string; ssn: string; status: string }
+  it('restricts where() to indexed fields; orderBy stays free', async () => {
+    const vault = await typedVault()
+    const c = vault.collection<Rec, never, 'status'>('c', { indexes: ['status'] })
+    c.query().where('status', '==', 'x')          // ok — indexed
+    // @ts-expect-error — 'name' is not indexed; use .scan()
+    c.query().where('name', '==', 'x')
+    c.query().orderBy('name')                      // ok — orderBy NOT Q-restricted
+  })
+  it('single-generic / no-Q stays permissive (zero churn)', async () => {
+    const vault = await typedVault()
+    const c = vault.collection<Rec>('c2', { indexes: ['status'] })
+    c.query().where('anything', '==', 'x')         // Q = never -> string
+  })
+  it('Q composes with S: where = indexed minus sensitive', async () => {
+    const vault = await typedVault()
+    const c = vault.collection<Rec, 'ssn', 'status' | 'ssn'>('c3', { sensitive: ['ssn'], indexes: ['status'] })
+    c.query().where('status', '==', 'x')           // ok
+    // @ts-expect-error — ssn is indexed-declared but sensitive -> still refused
+    c.query().where('ssn', '==', 'x')
+  })
+  it('ties the indexes array to Q (no drift)', async () => {
+    const vault = await typedVault()
+    // @ts-expect-error — 'region' not in declared Q 'status'
+    vault.collection<Rec, never, 'status'>('c4', { indexes: ['region'] })
+  })
+})

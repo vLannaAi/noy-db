@@ -681,8 +681,8 @@ export class Vault {
    * Lazy mode + indexes is rejected at construction time — see the
    * Collection constructor for the rationale.
    */
-  collection<T, S extends keyof T & string = never>(collectionName: string, options?: {
-    indexes?: readonly IndexDefFor<IndexFieldName<T, S>>[]
+  collection<T, S extends keyof T & string = never, Q extends keyof T & string = never>(collectionName: string, options?: {
+    indexes?: readonly IndexDefFor<IndexFieldName<T, S, Q>>[]
     /** — auto-reconcile policy for persisted-index drift. */
     reconcileOnOpen?: 'off' | 'dry-run' | 'auto'
     prefetch?: boolean
@@ -791,7 +791,7 @@ export class Vault {
      * Default false — the working set is plaintext.
      */
     ramCiphertext?: boolean
-  }): Collection<T, S> {
+  }): Collection<T, S, Q> {
     // Overlay intercept. When the requested collection name
     // matches a registered `withOverlayedView`, return the virtual
     // proxy that merges base + overlay on read and routes writes to
@@ -809,7 +809,7 @@ export class Vault {
         const overlay = this.collection<T>(spec.overlay)
         const baseRowKey = overlayRegistry.resolveBaseRowKey(collectionName, this.materializedViewRegistry)
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return new OverlayedCollection<any>(spec, base, overlay, baseRowKey) as unknown as Collection<T, S>
+        return new OverlayedCollection<any>(spec, base, overlay, baseRowKey) as unknown as Collection<T, S, Q>
       }
     }
     // Guard: reject reserved _dict_* names
@@ -1153,7 +1153,7 @@ export class Vault {
         this._pendingSchemaWrites.push(work)
       }
     }
-    return coll as unknown as Collection<T, S>
+    return coll as unknown as Collection<T, S, Q>
   }
 
   /**
