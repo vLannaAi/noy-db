@@ -185,8 +185,8 @@ describe('SnapshotEngine.listSnapshots()', () => {
 
     const list = await engine.listSnapshots('v1')
     expect(list).toHaveLength(2)
-    expect(list[0].version).toBe(m2.version) // newest first
-    expect(list[1].version).toBe(m1.version)
+    expect(list[0]!.version).toBe(m2.version) // newest first
+    expect(list[1]!.version).toBe(m1.version)
   })
 })
 
@@ -210,8 +210,8 @@ describe('SnapshotEngine retention', () => {
 
     const list = await engine.listSnapshots('v1')
     expect(list).toHaveLength(2)
-    expect(list[0].version).toBe(m3.version)
-    expect(list[1].version).toBe(m2.version)
+    expect(list[0]!.version).toBe(m3.version)
+    expect(list[1]!.version).toBe(m2.version)
   })
 
   it('prune:false — never deletes even when keepLast exceeded', async () => {
@@ -247,8 +247,8 @@ describe('SnapshotEngine retention', () => {
 
     expect(toDelete).toEqual(['v1__snap_000001'])
     expect(index.snapshots).toHaveLength(2)
-    expect(index.snapshots[0].version).toBe('v1__snap_000002')
-    expect(index.snapshots[1].version).toBe('v1__snap_000003')
+    expect(index.snapshots[0]!.version).toBe('v1__snap_000002')
+    expect(index.snapshots[1]!.version).toBe('v1__snap_000003')
   })
 
   it('applyRetention directly — prune:false returns empty even with excess', () => {

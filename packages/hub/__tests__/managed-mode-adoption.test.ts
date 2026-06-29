@@ -109,7 +109,7 @@ describe('managed-mode adoption', () => {
         userId: 'belle',
         passphraseMode: 'managed',
         sealingKey: new MemorySealingKeyProvider({ id: 'belle-keychain' }),
-        recovery: [{ profile: 'paper', count: 6 }], // paper alone is not strong
+        recovery: [{ profile: 'paper', entries: [] }], // paper alone is not strong
         shamirRecovery: shamirRecoveryProvider(),
         transferKey,
       }),

@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { createNoydb } from '../../src/noydb.js'
 import { memory } from '../../../to-memory/src/index.js'
 
-interface Inv extends Record<string, unknown> { id: string; total?: number; amount?: { gross: number } }
+interface Inv extends Record<string, unknown> { id: string; total?: number | undefined; amount?: { gross: number } | undefined }
 
 describe('Collection._applyCutoverTransform', () => {
   it('rewrites every record through the transform, bumping _v', async () => {
@@ -16,7 +16,6 @@ describe('Collection._applyCutoverTransform', () => {
     await invoices.put('i1', { id: 'i1', total: 100 })
     await invoices.put('i2', { id: 'i2', total: 200 })
 
-    // @ts-expect-error internal method
     const count = await invoices._applyCutoverTransform((d) => ({ id: d['id'], amount: { gross: d['total'] } }))
     expect(count).toBe(2)
     expect((await invoices.get('i1'))?.amount?.gross).toBe(100)

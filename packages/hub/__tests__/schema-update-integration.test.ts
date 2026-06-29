@@ -11,7 +11,7 @@ import { additiveOnly, lockSchema } from '../src/schema-update/index.js'
 import { NonAdditiveSchemaChangeError, SchemaLockedError } from '../src/errors.js'
 import type { NoydbStore } from '../src/types.js'
 
-interface Invoice extends Record<string, unknown> { id: string; amount?: number }
+interface Invoice extends Record<string, unknown> { id: string; amount?: number | undefined }
 
 async function reopen(store: NoydbStore) {
   const db = await createNoydb({ store, user: 'alice', secret: 'schema-update-test-pass-1234' })

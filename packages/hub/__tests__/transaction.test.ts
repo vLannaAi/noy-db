@@ -18,7 +18,6 @@ import { ConflictError, createNoydb, SyncTransaction } from '../src/index.js'
 import { withSync } from '../src/sync/index.js'
 import { withTransactions } from '../src/tx/index.js'
 import type { Noydb } from '../src/index.js'
-import { withSync } from '../src/sync/index.js'
 
 interface Invoice { amount: number; status: string }
 interface Payment { invoiceId: string; amount: number; paidAt: string }
