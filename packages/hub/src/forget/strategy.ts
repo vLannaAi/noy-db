@@ -126,6 +126,17 @@ export interface ForgetResult {
    * purge the side-car out of band.
    */
   readonly indexResidue: readonly string[]
+  /**
+   * Count of `_sealed[field]` slots dropped from the live store across the
+   * shredded records (#306). For slots written under `sensitive` +
+   * `perRecordKeys` (the current path), the key derives off the per-record CEK,
+   * so tombstoning the record — which drops `_cek` and `_sealed` — also
+   * crypto-shreds the value. A slot left over from a pre-#306 write keys off the
+   * collection DEK instead, so dropping it removes it from the live store but a
+   * pre-forget backup remains recoverable by a DEK holder (same caveat `_data`
+   * carries); migrate by re-`put`ting before forgetting for full crypto-shred.
+   */
+  readonly sealedFieldsShredded: number
   /** The single `op:'forget'` ledger entry appended for this erasure. */
   readonly ledgerEntry: LedgerEntry
 }

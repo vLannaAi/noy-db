@@ -14,7 +14,7 @@
  * `sealed-record/`, so the host-side subpath stays DEK-free — they import only
  * the wire *types* from there.
  */
-import { encrypt, decrypt, generateDEK, wrapCek, unwrapCek, bufferToBase64 } from '../crypto.js'
+import { encrypt, decrypt, generateDEK, wrapCek, unwrapCek, bufferToBase64, deriveSealedFieldKey, deriveSealedFieldKeyFromCek } from '../crypto.js'
 import { NOYDB_FORMAT_VERSION, type EncryptedEnvelope, type NoydbStore } from '../types.js'
 import { RecordCekNotFoundError, ValidationError } from '../errors.js'
 import type { RecipientSealer } from '../team/managed-passphrase.js'
@@ -142,6 +142,30 @@ export async function rotateRecordCek(
   const newCek = await generateDEK()
   const { iv, data } = await encrypt(json, newCek)
 
+  // #306: sealed fields are now keyed off the per-record CEK, so a rotation
+  // must RE-ENCRYPT each `_sealed[field]` under the new CEK (Slice A's
+  // carry-forward would orphan them — the old CEK is gone after this rotate).
+  // Dual-read the old slot: try the old-CEK-derived key (#306 records), fall
+  // back to the collection-DEK key (legacy / pre-#306), then re-seal under newCek.
+  let sealedOut: Record<string, string> | undefined
+  if (live._sealed !== undefined) {
+    const out: Record<string, string> = {}
+    for (const [field, slot] of Object.entries(live._sealed)) {
+      const sep = slot.indexOf(':')
+      const sIv = slot.slice(0, sep)
+      const sData = slot.slice(sep + 1)
+      let plaintext: string
+      try {
+        plaintext = await decrypt(sIv, sData, await deriveSealedFieldKeyFromCek(oldCek, collection, field))
+      } catch {
+        plaintext = await decrypt(sIv, sData, await deriveSealedFieldKey(dek, collection, field))
+      }
+      const resealed = await encrypt(plaintext, await deriveSealedFieldKeyFromCek(newCek, collection, field))
+      out[field] = `${resealed.iv}:${resealed.data}`
+    }
+    sealedOut = out
+  }
+
   const env: EncryptedEnvelope = {
     _noydb: NOYDB_FORMAT_VERSION,
     _v: live._v + 1,
@@ -152,12 +176,12 @@ export async function rotateRecordCek(
     ...(ctx.actor ? { _by: ctx.actor } : {}),
     ...(live._tier !== undefined ? { _tier: live._tier } : {}),
     ...(live._det !== undefined ? { _det: live._det } : {}),
-    // Carry sealed (`sensitive`) fields forward verbatim. They are keyed off the
-    // collection DEK (`deriveSealedFieldKey`), NOT the per-record CEK, so a CEK
-    // rotation does not invalidate them — dropping them here silently lost the
-    // sealed values (data-loss bug). When record-scoped sealing (#306) lands and
-    // sealed keys derive off the CEK, this must instead re-encrypt under the new CEK.
-    ...(live._sealed !== undefined ? { _sealed: live._sealed } : {}),
+    // Re-encrypt sealed (`sensitive`) fields under the new CEK (#306). Sealed
+    // keys now derive off the per-record CEK, so the rotated record's old CEK is
+    // destroyed here — carrying the old `_sealed` slots forward verbatim would
+    // orphan them (unreadable under the new CEK). `sealedOut` holds the slots
+    // dual-read from the old CEK (or the legacy DEK) and re-sealed under newCek.
+    ...(sealedOut !== undefined ? { _sealed: sealedOut } : {}),
   }
   await ctx.adapter.put(ctx.vault, collection, id, env)
 

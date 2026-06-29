@@ -514,7 +514,8 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 5566→5593 (P3 safety fixes): three constructor guards — forget-cascade/perRecordCek incompatibility warn, debug-plaintext no-op warn, doc-comment note on #306. All are defensive one-time console.warn calls; no behavior change to default-off paths.
   // Bumped 5593→5680 (P3 Sealed<V> access gate): the sealed-field handle layer is genuine crypto/cache core. Adds `unsealField` (shared by inline-decrypt + handle reveal()), `makeSealedHandle`/`toCacheRecord` (build non-leaking handles for the working-set cache so sealed plaintext is never resident), `resolvePriorValues` (eager write/delete paths re-decrypt real values rather than re-encrypt cache handles), and `sealedAsHandles` routing through decryptRecord + the cache/public read paths. Sits directly on the existing `_sealed` seam; the per-field key derivation still lives in crypto.ts.
   // Bumped 5680→5721 (P3 lazy-mode Sealed-field corruption/leak fix): mirrors the eager `resolvePriorValues` for the lazy `_getStoredRecord` patch base — on a sealed collection it re-decrypts the stored envelope to REAL values (never re-encrypting a cache handle into the marker `'[sealed]'`) and populates the LRU in handle form via `toCacheRecord` (never sealed plaintext). Plus a one-time constructor `console.warn` when a `sensitive` field also appears in `indexes` (plaintext index defeats non-residency). Both are core crypto/cache correctness on the existing `_sealed`/LRU seams.
-  'packages/hub/src/collection.ts': 5721,
+  // Bumped 5721→5740 (#306 Slice B record-scoped sealing): sealed-field keys now derive off the per-record CEK so `forget()` crypto-shreds them. Adds the shared `resolveEnvelopeCek` helper (one unwrap+cache path for both body and sealed decryption), the dual-read fallback in `unsealField` (CEK-derived key first, collection-DEK key on auth failure — the data-loss guard for pre-#306 records), and threads the CEK through `makeSealedHandle`/`decryptRecord`/`toCacheRecord`. Net of removing the now-obsolete forget-cascade `console.warn`. Core crypto on the existing `_sealed`/`_cek` seams.
+  'packages/hub/src/collection.ts': 5740,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
@@ -593,7 +594,8 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 4650→4659 (#483 review follow-up): historyConfigExplicit threading + archive/schemaUpdate accessors in _introspectState()
   // Bumped 4659→4665 (storage-arch P2 foundation): plumb ramCiphertext through vault.collection() to collOpts (TS declaration + pass-through) so the opt-in flag is reachable/testable. Minimal necessary plumbing.
   // Bumped 4665→4674 (#503 structural group-encryption): plumb the `sensitive` collection option through vault.collection() to collOpts (TS declaration + doc-comment + pass-through), mirroring deterministicFields. Minimal necessary plumbing; the sealing crypto lives in collection.ts/crypto.ts.
-  'packages/hub/src/vault.ts': 4674,
+  // Bumped 4674→4677 (#306 Slice B record-scoped sealing): forget() counts and reports `sealedFieldsShredded` (read each shredded record's live `_sealed` slot count before tombstoning) on the existing forget orchestration. +3 lines; the sealing crypto lives in collection.ts/crypto.ts.
+  'packages/hub/src/vault.ts': 4677,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
