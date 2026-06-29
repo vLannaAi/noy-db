@@ -335,7 +335,11 @@ export function moneySum(field: string, opts?: ReducerOptions<number>): Reducer<
 
 /**
  * `min()` for a declared money field, typed `Reducer<MoneyString | null>`
- * (null on an empty result set, mirroring `min()`). See {@link moneySum}.
+ * (null on an empty result set in fixed-currency mode, mirroring `min()`). See
+ * {@link moneySum} for the late-binding rewrite. Note: `convertTo`/`fx` on
+ * `opts` have no effect on min/max (cross-currency min/max is unsupported — use
+ * {@link moneySum} for currency conversion). In multi-currency mode the runtime
+ * returns a per-currency map and an empty result is `{}` rather than `null`.
  */
 export function moneyMin(field: string, opts?: ReducerOptions<number>): Reducer<MoneyString | null> {
   return min(field, opts) as unknown as Reducer<MoneyString | null>
@@ -343,7 +347,8 @@ export function moneyMin(field: string, opts?: ReducerOptions<number>): Reducer<
 
 /**
  * `max()` for a declared money field, typed `Reducer<MoneyString | null>`
- * (null on an empty result set, mirroring `max()`). See {@link moneySum}.
+ * (null on an empty result set in fixed-currency mode, mirroring `max()`). See
+ * {@link moneyMin} for the `convertTo`/`fx` and multi-currency caveats.
  */
 export function moneyMax(field: string, opts?: ReducerOptions<number>): Reducer<MoneyString | null> {
   return max(field, opts) as unknown as Reducer<MoneyString | null>
