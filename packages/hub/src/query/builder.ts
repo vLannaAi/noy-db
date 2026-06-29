@@ -829,11 +829,11 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
   // The `field` param is `QueryField<T, S>` so a sealed (`sensitive`) field is
   // refused — grouping BY a sensitive field leaks its value distribution as
   // group-key labels. With `S = never` this is exactly `string` (zero churn).
-  groupBy<F extends QueryField<T, S>>(field: F): GroupedQuery<T, F, S>
+  groupBy<F extends QueryField<T, S>>(field: F): GroupedQuery<T, F, S, M>
   groupBy<F extends readonly [QueryField<T, S>, QueryField<T, S>, ...QueryField<T, S>[]]>(
     ...fields: F
-  ): GroupedQueryN<T, F, S>
-  groupBy(...fields: readonly string[]): GroupedQuery<T, string, S> | GroupedQueryN<T, readonly string[], S> {
+  ): GroupedQueryN<T, F, S, M>
+  groupBy(...fields: readonly string[]): GroupedQuery<T, string, S, M> | GroupedQueryN<T, readonly string[], S, M> {
     if (fields.length === 0) {
       throw new Error('.groupBy() requires at least one field')
     }
@@ -867,7 +867,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     if (fields.length === 1) {
       const field = fields[0]!
       const dictLabelResolver = buildDictLabelResolver(this.joinContext, field)
-      return this.aggregateStrategy.groupBy<T, string, S>(
+      return this.aggregateStrategy.groupBy<T, string, S, M>(
         executeRecords,
         field,
         upstreams,
@@ -875,7 +875,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
         this.source.moneyFields,
       )
     }
-    return this.aggregateStrategy.groupByN<T, readonly string[], S>(
+    return this.aggregateStrategy.groupByN<T, readonly string[], S, M>(
       executeRecords,
       fields,
       upstreams,
