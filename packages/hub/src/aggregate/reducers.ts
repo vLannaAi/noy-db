@@ -146,6 +146,14 @@ export function count(opts?: ReducerOptions<number>): Reducer<number> {
  * at the field path are coerced to 0 — consumers who want a different
  * behavior (throw, skip, treat as NaN) should filter upstream via
  * `.where()` or write a custom reducer.
+ *
+ * KNOWN LIMITATION (type imprecision): the declared result type is `number`,
+ * but when `field` is a **money** field the runtime returns a decimal *string*
+ * (e.g. `'0.30'`, or `{ EUR: '0.30' }` in multi-currency mode) — money sums are
+ * BigInt-exact in scaled space and never collapse to a float. The `number` type
+ * is therefore a lie for money fields; narrow the result yourself at the call
+ * site. A precise fix requires threading money-field declarations into the type
+ * system (tracked separately).
  */
 export function sum(
   field: string,

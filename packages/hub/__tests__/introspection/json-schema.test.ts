@@ -68,8 +68,8 @@ interface Order {
 
 // ─── Shared fixtures ──────────────────────────────────────────────────────────
 
-let orders: ReturnType<ReturnType<Awaited<ReturnType<typeof createNoydb>>['openVault']>['collection']>
-let stubColl: ReturnType<ReturnType<Awaited<ReturnType<typeof createNoydb>>['openVault']>['collection']>
+let orders: ReturnType<Awaited<ReturnType<Awaited<ReturnType<typeof createNoydb>>['openVault']>>['collection']>
+let stubColl: ReturnType<Awaited<ReturnType<Awaited<ReturnType<typeof createNoydb>>['openVault']>>['collection']>
 
 describe('collection.toJSONSchema()', async () => {
   const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-json-schema-1' })
@@ -85,12 +85,12 @@ describe('collection.toJSONSchema()', async () => {
   })
 
   orders = v.collection<Order>('orders_js', {
-    schema: ordersSchema as unknown as import('../../src/schema.js').StandardSchemaV1,
+    schema: ordersSchema as import('../../src/schema.js').StandardSchemaV1<unknown, Order>,
     moneyFields: { total: money({ currency: 'EUR' }) },
     refs: { buyerId: ref('buyers') },
     dictKeyFields: { status: dictKey('saleStatus', { draft: 'Draft', to_verify: 'To Verify' }) },
     fieldMeta: {
-      buyerVat: { sensitivity: 'pii' },
+      buyerVat: { sensitivity: 'pii', label: 'Buyer VAT' },
     },
   })
 
@@ -109,15 +109,15 @@ describe('collection.toJSONSchema()', async () => {
 
   it('emits JSON Schema with x- metadata extensions', async () => {
     const js = await orders.toJSONSchema() as { properties: Record<string, Record<string, unknown>> }
-    expect(js.properties.total['x-semanticType']).toBe('currency')
-    expect(js.properties.total['x-money']).toMatchObject({ currency: 'EUR' })
-    expect(js.properties.status['x-enumLabels']).toMatchObject({ to_verify: 'To Verify' })
-    expect(js.properties.buyerVat['x-sensitivity']).toBe('pii')
+    expect(js.properties.total!['x-semanticType']).toBe('currency')
+    expect(js.properties.total!['x-money']).toMatchObject({ currency: 'EUR' })
+    expect(js.properties.status!['x-enumLabels']).toMatchObject({ to_verify: 'To Verify' })
+    expect(js.properties.buyerVat!['x-sensitivity']).toBe('pii')
   })
 
   it('non-zod validator → minimal schema from field types, no throw', async () => {
     const js = await stubColl.toJSONSchema() as { type: string; properties: Record<string, Record<string, unknown>> }
     expect(js.type).toBe('object')
-    expect(js.properties.total['x-semanticType']).toBe('currency')
+    expect(js.properties.total!['x-semanticType']).toBe('currency')
   })
 })

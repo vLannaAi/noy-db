@@ -121,11 +121,13 @@ export type OutputSpec = RecordOutputSpec | ArrayOutputSpec
  * Registration shape passed to `withDerivation()`.
  *
  * @typeParam TSource - the source record type
- * @typeParam TOutputs - map of output-key → output record type
+ * @typeParam TOutputs - map of output-key → output record type. An output
+ *   value may be a single record, or — for `shape: 'array'` outputs — an
+ *   array of records (the fanout sidecar upserts/deletes each row).
  */
 export interface DerivationStrategy<
   TSource extends Record<string, unknown>,
-  TOutputs extends Record<string, Record<string, unknown>>,
+  TOutputs extends Record<string, Record<string, unknown> | ReadonlyArray<Record<string, unknown>>>,
 > {
   /** Source collection name. */
   source: string

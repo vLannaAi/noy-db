@@ -15,14 +15,9 @@
   ],
   "exclude": [
     "__tests__/coordinated-cutover-integration.test.ts",
-    "__tests__/derivations/array-shape.test.ts",
-    "__tests__/introspection/dump-schema-views.test.ts",
-    "__tests__/introspection/json-schema.test.ts",
     "__tests__/managed-mode-adoption.test.ts",
     "__tests__/managed-mode-strong-recovery.test.ts",
     "__tests__/managed-passphrase.test.ts",
-    "__tests__/materialized-views/correctness.test.ts",
-    "__tests__/materialized-views/multikey.test.ts",
     "__tests__/money/mv-and-live.test.ts",
     "__tests__/no-self-provision.test.ts",
     "__tests__/schema-introspection.test.ts",
@@ -31,7 +26,6 @@
     "__tests__/shamir-recovery.test.ts",
     "__tests__/snapshots.test.ts",
     "__tests__/transaction.test.ts",
-    "__tests__/vault-frame.test.ts",
     "__tests__/write-hooks-integration.test.ts"
   ]
 }
