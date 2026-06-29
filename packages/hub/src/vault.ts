@@ -4246,7 +4246,7 @@ export class Vault {
             `but the adapter has no envelope for it.`,
         }
       }
-      const actualHash = await sha256Hex(envelope._data)
+      const actualHash = await this.historyStrategy.envelopePayloadHash(envelope)
       if (actualHash !== expectedHash) {
         return {
           ok: false,
