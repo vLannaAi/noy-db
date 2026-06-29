@@ -186,6 +186,18 @@ describe('scan().aggregate() builder-form sensitive refusal', () => {
   })
 })
 
+describe('groupBy().aggregate() builder-form sensitive refusal', () => {
+  it('refuses a sensitive reducer field in a grouped aggregate', async () => {
+    const vault = await typedVault()
+    const people = vault.collection<Person, 'ssn'>('people', { sensitive: ['ssn'] })
+    const g = people.query().groupBy('name')          // group field already S-refused (#512)
+    g.aggregate(b => ({ total: b.sum('age'), n: b.count() }))   // ok
+    // @ts-expect-error — sensitive reducer field refused in the grouped builder form
+    g.aggregate(b => ({ bad: b.sum('ssn') }))
+    g.aggregate({ total: sum('age') })   // bare-spec still compiles (sum already imported in this file)
+  })
+})
+
 describe('Q = indexed-only lazyQuery().where() refusal', () => {
   interface LRec { id: string; name: string; status: string }
   it('restricts lazyQuery().where() to indexed fields; orderBy stays free', async () => {
