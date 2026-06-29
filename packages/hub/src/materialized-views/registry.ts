@@ -93,8 +93,11 @@ export class MaterializedViewRegistry {
       qAny = q as any
       isQuery = typeof qAny._plan === 'function'
       if (isQuery) {
-        dependencies = analyzeDependencies(q)
-        queryPlanSummary = summarizeQueryPlan(q)
+        // `q` is the `Query` arm of the union here (runtime-confirmed via
+        // `qAny._plan` above); reuse the already-`any` `qAny` the block uses
+        // for `_plan()` rather than re-narrowing.
+        dependencies = analyzeDependencies(qAny)
+        queryPlanSummary = summarizeQueryPlan(qAny)
         // Fold `.wherePredicate(name, ctx)` references into the plan
         // summary so predicate function or ctx changes (signalled by
         // bumping `hash` or supplying a different ctx) propagate into

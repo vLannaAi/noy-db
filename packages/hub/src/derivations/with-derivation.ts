@@ -11,7 +11,7 @@ import type { DerivationStrategy, DerivationStrategyHandle } from './types.js'
  */
 export function withDerivation<
   TSource extends Record<string, unknown>,
-  TOutputs extends Record<string, Record<string, unknown>>,
+  TOutputs extends Record<string, Record<string, unknown> | ReadonlyArray<Record<string, unknown>>>,
 >(spec: DerivationStrategy<TSource, TOutputs>): DerivationStrategyHandle {
   if (!spec.source || spec.source.length === 0) {
     throw new ValidationError('withDerivation: source collection name is required')
