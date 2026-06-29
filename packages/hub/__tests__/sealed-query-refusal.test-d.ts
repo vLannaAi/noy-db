@@ -185,3 +185,21 @@ describe('scan().aggregate() builder-form sensitive refusal', () => {
     s.aggregate({ total: sum('age') })   // bare-spec still compiles
   })
 })
+
+describe('Q = indexed-only lazyQuery().where() refusal', () => {
+  interface LRec { id: string; name: string; status: string }
+  it('restricts lazyQuery().where() to indexed fields; orderBy stays free', async () => {
+    const vault = await typedVault()
+    const c = vault.collection<LRec, never, 'status'>('lc', { indexes: ['status'], prefetch: false })
+    const lq = c.lazyQuery()
+    lq.where('status', '==', 'x')           // ok — indexed
+    // @ts-expect-error — 'name' not indexed; lazy where requires an index
+    lq.where('name', '==', 'x')
+    lq.orderBy('name')                      // ok — orderBy NOT Q-restricted
+  })
+  it('no-Q lazyQuery stays permissive', async () => {
+    const vault = await typedVault()
+    const c = vault.collection<LRec>('lc2', { indexes: ['status'], prefetch: false })
+    c.lazyQuery().where('anything', '==', 'x')   // Q = never -> string
+  })
+})
