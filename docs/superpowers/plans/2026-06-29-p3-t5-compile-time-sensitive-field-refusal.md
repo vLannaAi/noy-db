@@ -484,12 +484,23 @@ git commit -m "feat(hub): refuse sealed fields in indexes/deterministicFields/te
 ### Task 6: Full-monorepo verification + consumer fixups + runtime regression check
 
 **Files:**
+- Modify: `packages/hub/src/index.ts` (add `QueryField` / `IndexFieldName` to the public barrel — see Step 0).
 - Modify (only as needed): `packages/in-rest/src/query-params.ts:64,67` and any other consumer the full typecheck flags.
 - Modify (only if a real core line was added): `scripts/check-architecture.mjs` (kernel-surface ceiling — with a justification comment).
 - Docs: `packages/hub/docs/subsystems/` is NOT in scope; add a short note to the existing sealed/sensitive doc if one exists (see Step 4).
 
 **Interfaces:**
 - Consumes: everything from Tasks 1–5.
+
+- [ ] **Step 0: Export `QueryField` / `IndexFieldName` from the public barrel**
+
+`packages/hub/src/index.ts` uses **explicit named re-exports** from `./types.js` (there is no `export *`). The new types are NOT yet on the public surface, so the consumer cast in Step 3 (`import type { QueryField } from '@noy-db/hub'`) would not resolve. Add them to an existing `export type { … } from './types.js'` block in `packages/hub/src/index.ts` (e.g. next to the other DSL/query type exports):
+
+```ts
+export type { QueryField, IndexFieldName } from './types.js'
+```
+
+(`SealedView`/`Sealed`/`SealedHandle` being absent from the barrel is a separate pre-existing gap from #504 — do NOT add those here; out of scope.)
 
 - [ ] **Step 1: Build hub DTS (needed so sibling packages resolve the new types)**
 
