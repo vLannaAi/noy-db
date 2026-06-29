@@ -152,6 +152,12 @@ export async function rotateRecordCek(
     ...(ctx.actor ? { _by: ctx.actor } : {}),
     ...(live._tier !== undefined ? { _tier: live._tier } : {}),
     ...(live._det !== undefined ? { _det: live._det } : {}),
+    // Carry sealed (`sensitive`) fields forward verbatim. They are keyed off the
+    // collection DEK (`deriveSealedFieldKey`), NOT the per-record CEK, so a CEK
+    // rotation does not invalidate them — dropping them here silently lost the
+    // sealed values (data-loss bug). When record-scoped sealing (#306) lands and
+    // sealed keys derive off the CEK, this must instead re-encrypt under the new CEK.
+    ...(live._sealed !== undefined ? { _sealed: live._sealed } : {}),
   }
   await ctx.adapter.put(ctx.vault, collection, id, env)
 
