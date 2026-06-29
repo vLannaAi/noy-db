@@ -25,6 +25,7 @@
  */
 
 import { readPath } from '../query/predicate.js'
+import type { MoneyString } from '../money/branded.js'
 
 /**
  * A single reducer: factory-produced, ready to plug into an
@@ -305,6 +306,52 @@ export function max(
     },
     merge: (a, b) => ({ values: [...a.values, ...b.values] }),
   }
+}
+
+// ---------------------------------------------------------------------------
+// Money-typed reducer constructors
+// ---------------------------------------------------------------------------
+
+/**
+ * `sum()` for a **declared money field**, typed to match the runtime.
+ *
+ * `sum()` returns `Reducer<number>`, but `wrapMoneyReducers` (applied at
+ * `query.aggregate()` time, once `moneyFields` is known) rewrites any
+ * `sum`/`min`/`max` over a money field to a money reducer that finalizes to a
+ * `MoneyString` decimal — so the `number` type is a lie for money fields and
+ * consumers need a cast at every read site. `moneySum` is the same reducer with
+ * the correct `Reducer<MoneyString>` return type, so no read-site cast is
+ * needed. It is the caller's assertion that `field` is a money field; use plain
+ * `sum()` for non-money fields. (For a multi-currency money field WITHOUT
+ * `convertTo`, the runtime returns a per-currency `Record<string, MoneyString>`
+ * rather than a single `MoneyString` — pass `convertTo` to collapse to one
+ * currency, or read the map at the boundary.)
+ */
+export function moneySum(field: string, opts?: ReducerOptions<number>): Reducer<MoneyString> {
+  // The constructed reducer is the plain numeric `sum`; `wrapMoneyReducers`
+  // swaps in the MoneyString-producing money reducer at aggregate() time.
+  return sum(field, opts) as unknown as Reducer<MoneyString>
+}
+
+/**
+ * `min()` for a declared money field, typed `Reducer<MoneyString | null>`
+ * (null on an empty result set in fixed-currency mode, mirroring `min()`). See
+ * {@link moneySum} for the late-binding rewrite. Note: `convertTo`/`fx` on
+ * `opts` have no effect on min/max (cross-currency min/max is unsupported — use
+ * {@link moneySum} for currency conversion). In multi-currency mode the runtime
+ * returns a per-currency map and an empty result is `{}` rather than `null`.
+ */
+export function moneyMin(field: string, opts?: ReducerOptions<number>): Reducer<MoneyString | null> {
+  return min(field, opts) as unknown as Reducer<MoneyString | null>
+}
+
+/**
+ * `max()` for a declared money field, typed `Reducer<MoneyString | null>`
+ * (null on an empty result set in fixed-currency mode, mirroring `max()`). See
+ * {@link moneyMin} for the `convertTo`/`fx` and multi-currency caveats.
+ */
+export function moneyMax(field: string, opts?: ReducerOptions<number>): Reducer<MoneyString | null> {
+  return max(field, opts) as unknown as Reducer<MoneyString | null>
 }
 
 // ---------------------------------------------------------------------------
