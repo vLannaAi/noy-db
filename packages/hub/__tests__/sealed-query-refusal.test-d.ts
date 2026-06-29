@@ -3,7 +3,7 @@
  * Validated by `pnpm --filter @noy-db/hub typecheck:types` (tsc only; never executed).
  */
 import { describe, it, expectTypeOf } from 'vitest'
-import { createNoydb } from '../src/index.js'
+import { createNoydb, sum } from '../src/index.js'
 import { memoryStore } from '../src/store/memory-store.js'
 
 interface Person { id: string; name: string; ssn: string; age: number }
@@ -158,5 +158,18 @@ describe('Q = indexed-only where() refusal (opt-in 3rd generic)', () => {
     const vault = await typedVault()
     // @ts-expect-error — 'region' not in declared Q 'status'
     vault.collection<Rec, never, 'status'>('c4', { indexes: ['region'] })
+  })
+})
+
+describe('aggregate() builder-form sensitive refusal', () => {
+  it('refuses a sensitive field in the builder form; bare-spec form unchanged', async () => {
+    const vault = await typedVault()
+    const people = vault.collection<Person, 'ssn'>('people', { sensitive: ['ssn'] })
+    const q = people.query()
+    q.aggregate(b => ({ total: b.sum('age'), n: b.count() }))   // ok
+    // @ts-expect-error — sensitive field refused in the typed builder form
+    q.aggregate(b => ({ bad: b.sum('ssn') }))
+    // bare-spec form still compiles (unrefused, back-compat):
+    q.aggregate({ total: sum('age') })
   })
 })

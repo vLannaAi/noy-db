@@ -26,6 +26,7 @@
 
 import { readPath } from '../query/predicate.js'
 import type { MoneyString } from '../money/branded.js'
+import type { QueryField } from '../types.js'
 
 /**
  * A single reducer: factory-produced, ready to plug into an
@@ -352,6 +353,48 @@ export function moneyMin(field: string, opts?: ReducerOptions<number>): Reducer<
  */
 export function moneyMax(field: string, opts?: ReducerOptions<number>): Reducer<MoneyString | null> {
   return max(field, opts) as unknown as Reducer<MoneyString | null>
+}
+
+// ---------------------------------------------------------------------------
+// Builder (typed spec-builder for aggregate())
+// ---------------------------------------------------------------------------
+
+/**
+ * Typed builder passed to the `aggregate(b => spec)` overload.
+ *
+ * Each field-taking method narrows `field` to `QueryField<T, S>`, which
+ * excludes any field listed in the collection's `sensitive` option at
+ * compile time. `count()` carries no field argument and is always allowed.
+ *
+ * The type parameters match the `Query<T, S>` they come from:
+ *   - `T` — the record type of the collection
+ *   - `S` — the union of sensitive field keys (defaults to `never`)
+ *
+ * ONE shared runtime instance (`reducerBuilder`) serves all `T`/`S`
+ * combinations — the field narrowing is type-only; the methods delegate
+ * directly to the standalone factories.
+ */
+export interface ReducerBuilder<T, S extends keyof T = never> {
+  count(opts?: ReducerOptions<number>): Reducer<number>
+  sum(field: QueryField<T, S>, opts?: ReducerOptions<number>): Reducer<number>
+  avg(field: QueryField<T, S>, opts?: ReducerOptions<{ sum: number; count: number }>): ReturnType<typeof avg>
+  min(field: QueryField<T, S>, opts?: ReducerOptions<number>): ReturnType<typeof min>
+  max(field: QueryField<T, S>, opts?: ReducerOptions<number>): ReturnType<typeof max>
+  moneySum(field: QueryField<T, S>, opts?: ReducerOptions<number>): Reducer<MoneyString>
+  moneyMin(field: QueryField<T, S>, opts?: ReducerOptions<number>): Reducer<MoneyString | null>
+  moneyMax(field: QueryField<T, S>, opts?: ReducerOptions<number>): Reducer<MoneyString | null>
+}
+
+/**
+ * Shared runtime instance for the `aggregate(b => spec)` builder form.
+ *
+ * The field-narrowing to `QueryField<T, S>` is type-only — each method
+ * delegates directly to its standalone factory. A `(field: string) => R`
+ * factory is assignable to a `(field: QueryField<T,S>) => R` method by
+ * parameter-contravariance, so this single instance works for all `T`/`S`.
+ */
+export const reducerBuilder: ReducerBuilder<Record<string, unknown>> = {
+  count, sum, avg, min, max, moneySum, moneyMin, moneyMax,
 }
 
 // ---------------------------------------------------------------------------
