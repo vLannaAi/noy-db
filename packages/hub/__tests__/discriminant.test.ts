@@ -29,25 +29,25 @@ const receipts: Receipt[] = [
 
 describe('isDiscriminant()', () => {
   it('returns true when the record matches the discriminant value', () => {
-    expect(isDiscriminant(receipts[0], 'kind', 'IV')).toBe(true)
-    expect(isDiscriminant(receipts[1], 'kind', 'RE')).toBe(true)
-    expect(isDiscriminant(receipts[3], 'kind', 'DP')).toBe(true)
-    expect(isDiscriminant(receipts[4], 'kind', 'RD')).toBe(true)
+    expect(isDiscriminant(receipts[0]!, 'kind', 'IV')).toBe(true)
+    expect(isDiscriminant(receipts[1]!, 'kind', 'RE')).toBe(true)
+    expect(isDiscriminant(receipts[3]!, 'kind', 'DP')).toBe(true)
+    expect(isDiscriminant(receipts[4]!, 'kind', 'RD')).toBe(true)
   })
 
   it('returns false when the record does not match the discriminant value', () => {
-    expect(isDiscriminant(receipts[0], 'kind', 'RE')).toBe(false)
-    expect(isDiscriminant(receipts[1], 'kind', 'IV')).toBe(false)
-    expect(isDiscriminant(receipts[3], 'kind', 'IV')).toBe(false)
+    expect(isDiscriminant(receipts[0]!, 'kind', 'RE')).toBe(false)
+    expect(isDiscriminant(receipts[1]!, 'kind', 'IV')).toBe(false)
+    expect(isDiscriminant(receipts[3]!, 'kind', 'IV')).toBe(false)
   })
 
   it('filters a union array to a single member type and field is accessible', () => {
     const ivs = receipts.filter(r => isDiscriminant(r, 'kind', 'IV'))
     expect(ivs).toHaveLength(2)
     // Runtime field-value assertion (type-level assertion is in .test-d.ts)
-    expect(ivs[0].invoiceNo).toBe('INV-001')
-    expect(ivs[1].invoiceNo).toBe('INV-002')
-    expect(ivs[0].amount).toBe(1200)
+    expect(ivs[0]!.invoiceNo).toBe('INV-001')
+    expect(ivs[1]!.invoiceNo).toBe('INV-002')
+    expect(ivs[0]!.amount).toBe(1200)
   })
 
   it('returns empty array when no records match', () => {
@@ -70,12 +70,12 @@ describe('isDiscriminant()', () => {
 
     const aOnly = docs.filter(d => isDiscriminant(d, 'type', 'A'))
     expect(aOnly).toHaveLength(2)
-    expect(aOnly[0].aField).toBe('hello')
-    expect(aOnly[1].aField).toBe('world')
+    expect(aOnly[0]!.aField).toBe('hello')
+    expect(aOnly[1]!.aField).toBe('world')
   })
 
   it('works as a standalone if-branch (not just filter)', () => {
-    const r = receipts[0]
+    const r = receipts[0]!
     if (isDiscriminant(r, 'kind', 'IV')) {
       expect(r.invoiceNo).toBe('INV-001')
     } else {

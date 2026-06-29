@@ -7,7 +7,7 @@ function memory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
-    capabilities: { casAtomic: true, auth: { kind: 'none' } },
+    capabilities: { casAtomic: true, auth: { kind: 'none', required: false, flow: 'static' } },
     async get(v, c, i) { return data.get(k(v, c, i)) ?? null },
     async put(v, c, i, env) { data.set(k(v, c, i), env) },
     async delete(v, c, i) { data.delete(k(v, c, i)) },
@@ -20,16 +20,16 @@ function memory(): NoydbStore {
       for (const [key, env] of data) {
         const [vname, cname, id] = key.split('/')
         if (vname === v) {
-          out[cname] = out[cname] ?? {}
-          out[cname][id] = env
+          out[cname!] = out[cname!] ?? {}
+          out[cname!]![id!] = env
         }
       }
       return out
     },
     async saveAll(v, payload) {
       for (const c of Object.keys(payload)) {
-        for (const i of Object.keys(payload[c])) {
-          data.set(k(v, c, i), payload[c][i])
+        for (const i of Object.keys(payload[c]!)) {
+          data.set(k(v, c, i), payload[c]![i]!)
         }
       }
     },
@@ -141,7 +141,6 @@ describe('withGuard.onDelete (#145)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      role: 'owner',
       secret: 'guards-ondelete-amendment-passphrase-2026',
       guardStrategies: [guard],
       txStrategy: withTransactions(),
@@ -156,7 +155,7 @@ describe('withGuard.onDelete (#145)', () => {
 
     // Amendment delete: onDelete skipped, invariant runs at commit
     await db.transaction(
-      { vault: 'demo', amendment: true, reason: 'historical correction' },
+      { amendment: true, reason: 'historical correction' },
       async (tx) => {
         await tx.vault('demo').collection('invoices').delete('inv1')
       },
@@ -201,7 +200,6 @@ describe('withGuard.onDelete (#145)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      role: 'owner',
       secret: 'guards-ondelete-unconditional-passphrase-2026',
       guardStrategies: [guard],
       txStrategy: withTransactions(),
@@ -221,7 +219,7 @@ describe('withGuard.onDelete (#145)', () => {
     // GuardExecutor.runInvariant — the message survives.
     await expect(
       db.transaction(
-        { vault: 'demo', amendment: true, reason: 'attempt to delete' },
+        { amendment: true, reason: 'attempt to delete' },
         async (tx) => {
           await tx.vault('demo').collection('receipts').delete('r1')
         },

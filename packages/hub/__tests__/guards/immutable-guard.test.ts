@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb, RecordLockedError, ValidationError, InvariantError } from '../../src/index.js'
+import type { GuardStrategyHandle } from '../../src/index.js'
 import { immutableGuard } from '../../src/guards/immutable-guard.js'
 import { withTransactions } from '../../src/tx/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
@@ -8,7 +9,7 @@ function memory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
-    capabilities: { casAtomic: true, auth: { kind: 'none' } },
+    capabilities: { casAtomic: true, auth: { kind: 'none', required: false, flow: 'static' } },
     async get(v, c, i) { return data.get(k(v, c, i)) ?? null },
     async put(v, c, i, env) { data.set(k(v, c, i), env) },
     async delete(v, c, i) { data.delete(k(v, c, i)) },
@@ -49,7 +50,7 @@ describe('immutableGuard — factory validation', () => {
   })
 })
 
-async function vaultWith(...guards: ReturnType<typeof immutableGuard>[]) {
+async function vaultWith(...guards: GuardStrategyHandle<Invoice>[]) {
   const db = await createNoydb({
     store: memory(), user: 'alice', secret: 'immutable-guard-passphrase-2026-pilot3',
     guardStrategies: guards, txStrategy: withTransactions(),

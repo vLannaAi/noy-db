@@ -99,27 +99,27 @@ describe('collection.describe() — sync path', () => {
     expect(d.collection).toBe('sales')
 
     // money field: inferred semanticType/aggregate + fieldMeta unit
-    expect(byKey.total.semanticType).toBe('currency')
-    expect(byKey.total.aggregate).toBe('sum')
-    expect(byKey.total.unit).toBe('€')
-    expect(byKey.total.money).toMatchObject({ mode: 'fixed', currency: 'EUR' })
-    expect(byKey.total.type).toBe('number')
+    expect(byKey.total!.semanticType).toBe('currency')
+    expect(byKey.total!.aggregate).toBe('sum')
+    expect(byKey.total!.unit).toBe('€')
+    expect(byKey.total!.money).toMatchObject({ mode: 'fixed', currency: 'EUR' })
+    expect(byKey.total!.type).toBe('number')
 
     // ref field: inferred entity + fieldMeta displayFor
-    expect(byKey.buyerId.semanticType).toBe('entity')
-    expect(byKey.buyerId.ref).toMatchObject({ target: 'buyers' })
-    expect(byKey.buyerId.displayFor).toBe('buyerName')
-    expect(byKey.buyerId.type).toBe('string')
+    expect(byKey.buyerId!.semanticType).toBe('entity')
+    expect(byKey.buyerId!.ref).toMatchObject({ target: 'buyers' })
+    expect(byKey.buyerId!.displayFor).toBe('buyerName')
+    expect(byKey.buyerId!.type).toBe('string')
 
     // staticDict: dict block + values with labels
-    expect(byKey.status.dict).toMatchObject({ name: 'saleStatus', static: true })
-    expect(byKey.status.dict?.values).toEqual(
+    expect(byKey.status!.dict).toMatchObject({ name: 'saleStatus', static: true })
+    expect(byKey.status!.dict?.values).toEqual(
       expect.arrayContaining([{ value: 'to_verify', label: 'To Verify' }]),
     )
-    expect(byKey.status.type).toBe('enum')
+    expect(byKey.status!.type).toBe('enum')
 
     // fieldMeta label override
-    expect(byKey.saleDate.label).toBe('Date')
+    expect(byKey.saleDate!.label).toBe('Date')
   })
 
   it('zero store I/O: describe() does not touch the store', async () => {
@@ -167,9 +167,9 @@ describe('collection.describe() — sync path', () => {
 
     const d = orders.describe()
     const byKey = Object.fromEntries(d.fields.map((f) => [f.key, f]))
-    expect(byKey.phase.dict).toMatchObject({ name: 'phase', static: false })
+    expect(byKey.phase!.dict).toMatchObject({ name: 'phase', static: false })
     // dynamic: values have no label
-    expect(byKey.phase.dict?.values).toEqual(
+    expect(byKey.phase!.dict?.values).toEqual(
       expect.arrayContaining([{ value: 'open' }, { value: 'closed' }]),
     )
   })
@@ -185,8 +185,8 @@ describe('collection.describe() — sync path', () => {
 
     const d = tasks.describe()
     const byKey = Object.fromEntries(d.fields.map((f) => [f.key, f]))
-    expect(byKey.tagIds.ref?.isArray).toBe(true)
-    expect(byKey.tagIds.type).toBe('array')
+    expect(byKey.tagIds!.ref?.isArray).toBe(true)
+    expect(byKey.tagIds!.type).toBe('array')
   })
 
   it('sync describe surfaces inline dictKey labels (#485)', async () => {
@@ -238,11 +238,11 @@ describe('collection.describe(opts) — async path', () => {
     const byKey = Object.fromEntries(d.fields.map((f) => [f.key, f]))
 
     // Validator-derived types — not 'unknown'
-    expect(byKey.saleDate.type).toBe('string')
-    expect(byKey.total.type).toBe('number')
+    expect(byKey.saleDate!.type).toBe('string')
+    expect(byKey.total!.type).toBe('number')
     // optional: saleDate is optional in zod schema, total/id are required
-    expect(byKey.saleDate.optional).toBe(true)
-    expect(byKey.total.optional).toBe(false)
+    expect(byKey.saleDate!.optional).toBe(true)
+    expect(byKey.total!.optional).toBe(false)
   })
 
   it('async describe merges zod-4 .meta() when channel is silent', async () => {
@@ -425,11 +425,11 @@ describe('collection.describe() — Task 3: i18n, widget, editable', () => {
     // sales: total (money), saleDate (semanticType:date), name (i18nText), subtotal (computed)
     const d = sales.describe()
     const by = Object.fromEntries(d.fields.map(f => [f.key, f]))
-    expect(by.total.widget).toBe('money')
-    expect(by.saleDate.widget).toBe('date')
-    expect(by.name.i18n).toBeDefined()            // i18n block present
-    expect(by.subtotal.editable).toBe(false)      // computed → read-only
-    expect(by.total.editable).toBe(true)
+    expect(by.total!.widget).toBe('money')
+    expect(by.saleDate!.widget).toBe('date')
+    expect(by.name!.i18n).toBeDefined()            // i18n block present
+    expect(by.subtotal!.editable).toBe(false)      // computed → read-only
+    expect(by.total!.editable).toBe(true)
   })
 
   it('fieldMeta.widget overrides the derived widget', async () => {
@@ -458,8 +458,8 @@ describe('collection.describe() — Task 3: i18n, widget, editable', () => {
     })
     const d = c.describe()
     const by = Object.fromEntries(d.fields.map(f => [f.key, f]))
-    expect(by.id.editable).toBe(false)
-    expect(by.name.editable).toBe(true)
+    expect(by.id!.editable).toBe(false)
+    expect(by.name!.editable).toBe(true)
   })
 
   it('widget derivation table: dict→select, default→text', async () => {
@@ -477,9 +477,9 @@ describe('collection.describe() — Task 3: i18n, widget, editable', () => {
     const d = c.describe()
     const by = Object.fromEntries(d.fields.map(f => [f.key, f]))
     // dict field → select
-    expect(by.status.widget).toBe('select')
+    expect(by.status!.widget).toBe('select')
     // non-special fieldMeta-only → text
-    expect(by.note.widget).toBe('text')
+    expect(by.note!.widget).toBe('text')
   })
 
   // Regression: i18nFields keys must be included in the async knownFields set so

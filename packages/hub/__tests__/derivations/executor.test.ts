@@ -1,11 +1,25 @@
 import { describe, it, expect } from 'vitest'
 import { DerivationExecutor } from '../../src/derivations/executor.js'
+import type { RecordOutputResult } from '../../src/derivations/executor.js'
 import { withDerivation } from '../../src/derivations/with-derivation.js'
 import { DerivationOutputShapeError } from '../../src/errors.js'
+import type { DerivationContext } from '../../src/derivations/types.js'
 
-interface Source { id: string; body: string }
-interface Meta { len: number }
-interface Text { content: string }
+interface Source extends Record<string, unknown> { id: string; body: string }
+
+const mockCtx: DerivationContext = {
+  vault: {
+    collection(_name) {
+      return {
+        get: async () => null,
+        list: async () => [],
+        query: () => { throw new Error('not used in derivation tests') },
+      }
+    },
+  },
+}
+interface Meta extends Record<string, unknown> { len: number }
+interface Text extends Record<string, unknown> { content: string }
 
 describe('DerivationExecutor.run', () => {
   it('runs derive, returns per-output success/failure', async () => {
@@ -19,11 +33,11 @@ describe('DerivationExecutor.run', () => {
       derive: (s) => ({ meta: { len: s.body.length }, text: { content: s.body.toUpperCase() } }),
       lifecycle: 'eager',
     }).spec
-    const result = await DerivationExecutor.run(strategy, { id: 'p1', body: 'hi' }, 1, 'hash')
-    expect(result.outputs.meta.ok).toBe(true)
-    expect(result.outputs.text.ok).toBe(true)
+    const result = await DerivationExecutor.run(strategy, { id: 'p1', body: 'hi' }, 1, 'hash', mockCtx)
+    expect(result.outputs.meta!.ok).toBe(true)
+    expect(result.outputs.text!.ok).toBe(true)
     // value contains both the derived data AND the _derivedFrom stamp
-    const metaVal = result.outputs.meta.value as Meta & { _derivedFrom: any }
+    const metaVal = (result.outputs.meta! as RecordOutputResult).value as Meta & { _derivedFrom: any }
     expect(metaVal.len).toBe(2)
     expect(metaVal._derivedFrom).toBeDefined()
   })
@@ -39,9 +53,9 @@ describe('DerivationExecutor.run', () => {
       derive: () => { throw new Error('boom') },
       lifecycle: 'eager',
     }).spec
-    const result = await DerivationExecutor.run(strategy, { id: 'p1', body: '' }, 1, 'hash')
+    const result = await DerivationExecutor.run(strategy, { id: 'p1', body: '' }, 1, 'hash', mockCtx)
     expect(result.failed).toBe(true)
-    expect(result.outputs.good.ok).toBe(false)
+    expect(result.outputs.good!.ok).toBe(false)
   })
 
   it('throws DerivationOutputShapeError when derive returns missing keys', async () => {
@@ -57,7 +71,7 @@ describe('DerivationExecutor.run', () => {
       lifecycle: 'eager',
     }).spec
     await expect(
-      DerivationExecutor.run(strategy, { id: 'p1', body: 'x' }, 1, 'h'),
+      DerivationExecutor.run(strategy, { id: 'p1', body: 'x' }, 1, 'h', mockCtx),
     ).rejects.toBeInstanceOf(DerivationOutputShapeError)
   })
 
@@ -69,8 +83,8 @@ describe('DerivationExecutor.run', () => {
       derive: (s) => ({ meta: { len: s.body.length } }),
       lifecycle: 'eager',
     }).spec
-    const result = await DerivationExecutor.run(strategy, { id: 'p1', body: 'hi' }, 3, 'STRAT')
-    const out = result.outputs.meta.value as Meta & { _derivedFrom: any }
+    const result = await DerivationExecutor.run(strategy, { id: 'p1', body: 'hi' }, 3, 'STRAT', mockCtx)
+    const out = (result.outputs.meta! as RecordOutputResult).value as Meta & { _derivedFrom: any }
     expect(out._derivedFrom.source).toBe('pdfs')
     expect(out._derivedFrom.sourceId).toBe('p1')
     expect(out._derivedFrom.sourceVersion).toBe(3)

@@ -16,7 +16,6 @@ import { ConflictError, ReadOnlyFrameError, createNoydb } from '../src/index.js'
 import { withHistory } from '../src/history/index.js'
 import { withShadow } from '../src/shadow/index.js'
 import type { Noydb } from '../src/index.js'
-import { withHistory } from '../src/history/index.js'
 
 function memoryStore(): NoydbStore {
   const data = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -120,7 +119,7 @@ describe('vault.frame() — read-only shadow view', () => {
     })
 
     it('history reads still work (history is inherently read-only)', async () => {
-      const vault = await db.openVault('acme', { historyConfig: { enabled: true } })
+      const vault = await db.openVault('acme')
       const invoices = vault.collection<Invoice>('invoices')
       await invoices.put('inv-1', { amount: 100, status: 'draft' })
       await invoices.put('inv-1', { amount: 100, status: 'sent' })
@@ -174,7 +173,7 @@ describe('vault.frame() — read-only shadow view', () => {
     })
 
     it('revert() throws', async () => {
-      const vault = await db.openVault('acme', { historyConfig: { enabled: true } })
+      const vault = await db.openVault('acme')
       const invoices = vault.collection<Invoice>('invoices')
       await invoices.put('inv-1', { amount: 1, status: 'x' })
       await invoices.put('inv-1', { amount: 2, status: 'x' })

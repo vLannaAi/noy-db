@@ -67,6 +67,10 @@ class MockProvider implements CoordinationProvider {
     this.fences.push(fence)
   }
 
+  async readFence(_vault: string): Promise<FenceState> {
+    return this.fences.at(-1) ?? { currentSchemaVersion: 0, fenceState: 'normal' }
+  }
+
   observeFence(): () => void {
     return () => {}
   }
@@ -80,7 +84,7 @@ class MockProvider implements CoordinationProvider {
     return () => this.presenceListeners.delete(onChange)
   }
 
-  async reachableWriters(): Promise<readonly WriterPresence[]> {
+  async reachableWriters(_vault: string, _o: { staleMs: number; now: number }): Promise<readonly WriterPresence[]> {
     return this.writers
   }
 
@@ -127,7 +131,7 @@ describe('runDrainBarrier', () => {
     expect(provider.fences[0]).toEqual({ currentSchemaVersion: 7, fenceState: 'draining' })
     expect(run).toHaveBeenCalledTimes(1)
     // run() fires only after quorum.
-    expect(run.mock.invocationCallOrder[0]).toBeGreaterThan(onFlush.mock.invocationCallOrder[0])
+    expect(run.mock.invocationCallOrder[0]).toBeGreaterThan(onFlush.mock.invocationCallOrder[0]!)
   })
 
   it('resolves immediately when the seeded writer set is already a quorum', async () => {
