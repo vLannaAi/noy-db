@@ -4925,7 +4925,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * `query()` there. Throws if no index is declared, because a lazy
    * query with no index would need to enumerate the whole collection.
    */
-  lazyQuery(): LazyQuery<T, S> {
+  lazyQuery(): LazyQuery<T, S, Q> {
     if (!this.lazy) {
       throw new Error(
         `Collection "${this.name}": lazyQuery() is only available in lazy mode ` +
@@ -4953,7 +4953,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       ensurePersistedIndexesLoaded: () => this.ensurePersistedIndexesLoaded(),
       getRecord: (id: string) => this.get(id) as unknown as Promise<T | null>,
     }
-    return new LazyQuery<T, S>(source)
+    return new LazyQuery<T, S, Q>(source)
   }
 
   /**

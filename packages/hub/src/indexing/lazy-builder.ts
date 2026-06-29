@@ -61,7 +61,7 @@ const EMPTY_PLAN: LazyPlan = {
   offset: 0,
 }
 
-export class LazyQuery<T, S extends keyof T = never> {
+export class LazyQuery<T, S extends keyof T = never, Q extends keyof T & string = never> {
   private readonly source: LazyQuerySource<T>
   private readonly plan: LazyPlan
 
@@ -70,27 +70,27 @@ export class LazyQuery<T, S extends keyof T = never> {
     this.plan = plan
   }
 
-  where<V>(field: QueryField<T, S>, op: Operator, value: V): LazyQuery<T, S> {
+  where<V>(field: QueryField<T, S, Q>, op: Operator, value: V): LazyQuery<T, S, Q> {
     const clause: FieldClause = { type: 'field', field, op, value }
-    return new LazyQuery<T, S>(this.source, {
+    return new LazyQuery<T, S, Q>(this.source, {
       ...this.plan,
       clauses: [...this.plan.clauses, clause],
     })
   }
 
-  orderBy(field: QueryField<T, S>, direction: 'asc' | 'desc' = 'asc'): LazyQuery<T, S> {
-    return new LazyQuery<T, S>(this.source, {
+  orderBy(field: QueryField<T, S>, direction: 'asc' | 'desc' = 'asc'): LazyQuery<T, S, Q> {
+    return new LazyQuery<T, S, Q>(this.source, {
       ...this.plan,
       orderBy: [...this.plan.orderBy, { field, direction }],
     })
   }
 
-  limit(n: number): LazyQuery<T, S> {
-    return new LazyQuery<T, S>(this.source, { ...this.plan, limit: n })
+  limit(n: number): LazyQuery<T, S, Q> {
+    return new LazyQuery<T, S, Q>(this.source, { ...this.plan, limit: n })
   }
 
-  offset(n: number): LazyQuery<T, S> {
-    return new LazyQuery<T, S>(this.source, { ...this.plan, offset: n })
+  offset(n: number): LazyQuery<T, S, Q> {
+    return new LazyQuery<T, S, Q>(this.source, { ...this.plan, offset: n })
   }
 
   async toArray(): Promise<T[]> {
