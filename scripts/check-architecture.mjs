@@ -353,8 +353,6 @@ const STRATEGY_GATED_APIS = [
 // but always throws regardless of indexStrategy).
 const STRATEGY_OPT_IN_EXEMPT = new Set([
   'packages/hub/__tests__/overlay-views/overlay.test.ts',
-  // Type-only test; `.lazyQuery()` is never executed — tsc-only gate.
-  'packages/hub/__tests__/sealed-query-refusal.test-d.ts',
 ])
 
 function checkStrategyOptIns() {
@@ -365,6 +363,11 @@ function checkStrategyOptIns() {
 }
 
 function scanFileForStrategyOptIn(file, content) {
+  // Type-only tests (`*.test-d.ts`) are consumed by tsc and NEVER executed, so
+  // the runtime "gated API throws without its strategy" hazard this check guards
+  // against cannot occur in them. Skip the whole class (covers any current/future
+  // type-test that references a gated API like `.lazyQuery()` for type assertions).
+  if (file.endsWith('.test-d.ts')) return
   if (STRATEGY_OPT_IN_EXEMPT.has(relative(ROOT, file))) return
   // Use the stronger strip — error-message strings legitimately mention
   // method names like ".dictionary()" inside hint text, which the
