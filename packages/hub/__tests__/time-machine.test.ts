@@ -21,7 +21,6 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.
 import { ConflictError, ReadOnlyAtInstantError, createNoydb } from '../src/index.js'
 import { withHistory } from '../src/history/index.js'
 import type { Noydb } from '../src/index.js'
-import { withHistory } from '../src/history/index.js'
 
 function memoryStore(): NoydbStore {
   const data = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

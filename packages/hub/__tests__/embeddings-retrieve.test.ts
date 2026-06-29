@@ -51,7 +51,7 @@ interface Doc { id: string; text: string }
 // produce meaningfully different vectors, making similarity reproducible.
 const enc = (dim: number, model = 'stub') => ({
   dim, model, source: 'text' as const,
-  encode: async (t: string) => { const v = new Float32Array(dim); for (let i = 0; i < t.length; i++) v[t.charCodeAt(i) % dim] += 1; return v },
+  encode: async (t: string) => { const v = new Float32Array(dim); for (let i = 0; i < t.length; i++) { const idx = t.charCodeAt(i) % dim; v[idx] = (v[idx] ?? 0) + 1 } return v },
 })
 
 describe('semantic retrieval (#308 L2)', () => {

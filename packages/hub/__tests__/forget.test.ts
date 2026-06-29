@@ -220,7 +220,7 @@ describe('forget — group 4: un-migrated record reported + still tombstoned', (
     // Now overwrite the live envelope with a legacy (no-_cek) body to model an
     // un-migrated record, keeping the subject index ref intact.
     const live = store.raw('v', 'legacy_invoices', 'i-1')!
-    await store.put('v', 'legacy_invoices', 'i-1', { ...live, _cek: undefined } as EncryptedEnvelope)
+    await store.put('v', 'legacy_invoices', 'i-1', { ...live, _cek: undefined } as unknown as EncryptedEnvelope)
 
     const result = await vault.forget('buyer-1')
     expect(result.unmigratedRecords).toContain('legacy_invoices:i-1')

@@ -62,7 +62,6 @@ describe('money()', () => {
   })
 
   it('currency + currencies together throws', () => {
-    // @ts-expect-error mutually exclusive
     expect(() => money({ currency: 'EUR', currencies: 'any' })).toThrow()
   })
 

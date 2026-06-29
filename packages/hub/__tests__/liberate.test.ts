@@ -76,6 +76,7 @@ describe('FR-6 Task 5 — liberateVault (audited custodian ownership claim)', ()
    * two collections, then grant a custodian.
    */
   async function provisionWithCustodian(policy: unknown = POLICY): Promise<void> {
+    // @ts-expect-error — policy is typed as unknown in this test helper; the spread resolves correctly at runtime
     ownerDb = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass', historyStrategy: withHistory(), ...(policy ? { policy } : {}) })
     const comp = await ownerDb.openVault(VAULT)
     await comp.collection<Invoice>('invoices').put('inv-001', { amount: 5000, status: 'draft' })

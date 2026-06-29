@@ -12,7 +12,7 @@ function fileStore(dir: string): NoydbStore {
   const recPath = (v: string, c: string, i: string) => join(dir, v, c, `${i}.json`)
   const colDir = (v: string, c: string) => join(dir, v, c)
   return {
-    capabilities: { casAtomic: false, auth: { kind: 'none' } },
+    capabilities: { casAtomic: false, auth: { kind: 'none', required: false, flow: 'static' } },
     async get(v, c, i) {
       try {
         return JSON.parse(await readFile(recPath(v, c, i), 'utf-8')) as EncryptedEnvelope
@@ -60,8 +60,8 @@ function fileStore(dir: string): NoydbStore {
     async saveAll(v, payload) {
       for (const c of Object.keys(payload)) {
         await mkdir(colDir(v, c), { recursive: true })
-        for (const i of Object.keys(payload[c])) {
-          await writeFile(recPath(v, c, i), JSON.stringify(payload[c][i]), 'utf-8')
+        for (const i of Object.keys(payload[c]!)) {
+          await writeFile(recPath(v, c, i), JSON.stringify(payload[c]![i]!), 'utf-8')
         }
       }
     },

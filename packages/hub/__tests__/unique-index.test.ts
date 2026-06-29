@@ -65,7 +65,7 @@ function memory(): NoydbStore {
 let db: Noydb
 
 beforeEach(async () => {
-  db = await createNoydb({ store: memory(), indexStrategy: withIndexing(), secret: 'unique-index-test-pass' })
+  db = await createNoydb({ store: memory(), indexStrategy: withIndexing(), secret: 'unique-index-test-pass', user: 'owner' })
 })
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -301,6 +301,7 @@ describe('hydration rebuild (two-session path)', () => {
       store: sharedStore,
       indexStrategy: withIndexing(),
       secret: 'unique-index-test-pass',
+      user: 'owner',
     })
     const vault1 = await db1.openVault('shared-v')
     const col1 = vault1.collection<{ taxId: string }>('employees', {
@@ -315,6 +316,7 @@ describe('hydration rebuild (two-session path)', () => {
       store: sharedStore,
       indexStrategy: withIndexing(),
       secret: 'unique-index-test-pass',
+      user: 'owner',
     })
     const vault2 = await db2.openVault('shared-v')
     const col2 = vault2.collection<{ taxId: string }>('employees', {

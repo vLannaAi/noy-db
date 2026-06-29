@@ -101,7 +101,7 @@ describe('sealDeks', () => {
     expect(seal.alg).toBe('aes-256-gcm-pre-shared')
     expect(seal.sealId.length).toBeGreaterThan(0)
 
-    const key = await crypto.subtle.importKey('raw', transferKey, 'AES-GCM', false, ['decrypt'])
+    const key = await crypto.subtle.importKey('raw', transferKey.slice(), 'AES-GCM', false, ['decrypt'])
     const rawBytes = base64ToBuffer(seal.payload)
     const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: rawBytes.slice(0, 12) }, key, rawBytes.slice(12))
     const map = JSON.parse(new TextDecoder().decode(pt)) as Record<string, string>
@@ -173,7 +173,7 @@ describe('extractPartition end-to-end', () => {
     expect(Object.keys(backup.keyrings)).toEqual([])
 
     // Unseal the DEK set with the transfer key.
-    const key = await crypto.subtle.importKey('raw', transferKey, 'AES-GCM', false, ['decrypt'])
+    const key = await crypto.subtle.importKey('raw', transferKey.slice(), 'AES-GCM', false, ['decrypt'])
     const rawBytes = base64ToBuffer(seal.payload)
     const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: rawBytes.slice(0, 12) }, key, rawBytes.slice(12))
     const dekMap = JSON.parse(new TextDecoder().decode(pt)) as Record<string, string>

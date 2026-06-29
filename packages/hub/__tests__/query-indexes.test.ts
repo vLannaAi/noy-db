@@ -354,7 +354,7 @@ describe('Collection.query() — index-aware execution', () => {
     expect(invoices2.query().where('status', '==', 'open').count()).toBe(1)
   })
 
-  it('22. indexed query is materially faster than a linear scan on 10K records (DoD)', { retry: 2 }, async () => {
+  it('22. indexed query is materially faster than a linear scan on 10K records (DoD)', { retry: 2, timeout: 60_000 }, async () => {
     const localDb = await createNoydb({
       store: memory(),
       user: 'owner',
@@ -419,5 +419,5 @@ describe('Collection.query() — index-aware execution', () => {
     // would weaken the assertion's signal-to-noise; retry is the
     // honest tool for "good test, occasional CPU pressure."
     expect(speedup).toBeGreaterThan(2)
-  }, 60_000) // generous timeout for the seeding phase
+  }) // generous timeout for the seeding phase
 })

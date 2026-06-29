@@ -68,7 +68,7 @@ describe('db.enrollWebAuthn() (#16)', () => {
       // (AES-GCM-encrypted keyring summary under a WebAuthn-derived
       // wrapping key). Hub does not validate the contents — it just
       // persists the slot — so a placeholder is fine for this test.
-      receivedKeyring = { userId: keyring.userId, kek: keyring.kek, deks: keyring.deks }
+      receivedKeyring = { userId: keyring.userId, kek: keyring.kek!, deks: keyring.deks }
       return {
         id: 'webauthn-test-1',
         method: 'webauthn',

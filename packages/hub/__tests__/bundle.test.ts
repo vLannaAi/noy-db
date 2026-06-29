@@ -462,7 +462,7 @@ describe('bundle > integrity tampering', () => {
     const bodyStart = NOYDB_BUNDLE_PREFIX_BYTES + headerLength
     const tampered = new Uint8Array(bytes)
     // XOR a non-zero pattern to guarantee the byte changed.
-    tampered[bodyStart + 5] ^= 0xff
+    tampered[bodyStart + 5] = tampered[bodyStart + 5]! ^ 0xff
 
     let threw: unknown = null
     try {

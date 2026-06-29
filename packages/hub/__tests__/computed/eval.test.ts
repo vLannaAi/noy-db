@@ -12,7 +12,7 @@ describe('evalComputedFields', () => {
   })
 
   it('evaluates in declaration order — later fields read earlier ones', () => {
-    const out = evalComputedFields(
+    const out: Record<string, unknown> = evalComputedFields(
       { unitPrice: 10, qty: 2 },
       {
         netAmount: (r) => (r.unitPrice as number) * (r.qty as number),

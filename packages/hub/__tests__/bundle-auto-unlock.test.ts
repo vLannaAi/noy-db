@@ -59,7 +59,7 @@ function memory(): NoydbStore {
     async saveAll(v, data) {
       for (const [n, recs] of Object.entries(data)) {
         const coll = gc(v, n)
-        for (const [id, e] of Object.entries(recs)) coll.set(id, e)
+        for (const [id, e] of Object.entries(recs!)) coll.set(id, e!)
       }
     },
   } as unknown as NoydbStore
@@ -777,6 +777,6 @@ describe('recipient-target sealedCredentials — round-trip', () => {
     expect(read.autoUnlock?.kind).toBe('sealed')
     expect(read.autoUnlock?.perUser.alice).toMatchObject({ kind: 'passphrase', value: 'alice-pass-bundled' })
     // Self-target entries omit the hint field
-    expect((read.autoUnlock?.perUser.alice as Record<string, unknown>).hint).toBeUndefined()
+    expect((read.autoUnlock?.perUser.alice as unknown as Record<string, unknown>).hint).toBeUndefined()
   })
 })

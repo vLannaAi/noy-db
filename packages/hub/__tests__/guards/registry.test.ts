@@ -5,7 +5,7 @@ import type { GuardContext } from '../../src/guards/types.js'
 
 const ctx = (existing: unknown = null): GuardContext<any> => ({
   existing: existing as any,
-  vault: { collection: () => ({ get: async () => null, list: async () => [] }) },
+  vault: { collection: () => ({ get: async () => null, list: async () => [], query: (): never => { throw new Error('not called') } }) },
   userId: 'u1',
   role: 'owner',
 })

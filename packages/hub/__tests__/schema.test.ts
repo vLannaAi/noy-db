@@ -28,7 +28,6 @@ import { z } from 'zod'
 import { createNoydb } from '../src/noydb.js'
 import { withHistory } from '../src/history/index.js'
 import type { Noydb } from '../src/noydb.js'
-import { withHistory } from '../src/history/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError, SchemaValidationError } from '../src/errors.js'
 import type { StandardSchemaV1, InferOutput } from '../src/schema.js'
@@ -318,7 +317,7 @@ describe('schema validation.', () => {
     const invoices = company.collection<Invoice>('invoices', {
       schema: InvoiceSchema,
       historyConfig: { enabled: true },
-    } as unknown as Parameters<typeof company.collection>[1])
+    })
 
     // Write and update to create a history entry.
     await invoices.put('inv-h', {

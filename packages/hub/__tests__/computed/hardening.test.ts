@@ -16,7 +16,7 @@ function memory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
-    capabilities: { casAtomic: true, auth: { kind: 'none' } },
+    capabilities: { casAtomic: true, auth: { kind: 'none', required: false, flow: 'static' } },
     async get(v, c, i) { return data.get(k(v, c, i)) ?? null },
     async put(v, c, i, env) { data.set(k(v, c, i), env) },
     async delete(v, c, i) { data.delete(k(v, c, i)) },
@@ -91,7 +91,7 @@ describe('evalComputedFields — hardening edges (#378)', () => {
 })
 
 describe('computed money field — rounding policy (#378)', () => {
-  interface Line extends Record<string, unknown> { id: string; net: number; vat?: string }
+  interface Line extends Record<string, unknown> { id: string; net: number; vat?: string | number | undefined }
 
   it('FAILS LOUD when a computed money value has sub-scale precision and no rounding mode', async () => {
     // Fiscal-safety default: an ambiguous rounding is an error, not a silent

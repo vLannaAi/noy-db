@@ -47,7 +47,7 @@ function memory(): NoydbStore {
 // Deterministic stub encoder: bag-of-chars hash → Float32Array of given dim.
 const enc = (dim: number, model = 'stub') => ({
   dim, model, source: 'text' as const,
-  encode: async (t: string) => { const v = new Float32Array(dim); for (let i = 0; i < t.length; i++) v[t.charCodeAt(i) % dim] += 1; return v },
+  encode: async (t: string) => { const v = new Float32Array(dim); for (let i = 0; i < t.length; i++) v[t.charCodeAt(i) % dim] = v[t.charCodeAt(i) % dim]! + 1; return v },
 })
 
 interface Doc { id: string; text: string }
@@ -70,7 +70,7 @@ describe("retrieve({ mode: 'hybrid' })", () => {
     const c = await seed()
     const hits = await c.retrieve('revenue', { mode: 'hybrid' })
     expect(hits.length).toBeGreaterThan(0)
-    expect(hits[0].rank).toBe(1)
+    expect(hits[0]!.rank).toBe(1)
     expect(hits.map(h => h.rank)).toEqual(hits.map((_, i) => i + 1))
   })
 
@@ -78,7 +78,7 @@ describe("retrieve({ mode: 'hybrid' })", () => {
     const c = await seed()
     const hits = await c.retrieve('revenue report', { mode: 'hybrid' })
     // d1 contains both 'revenue' and 'report' (lexical) and is close semantically
-    expect(hits[0].id).toBe('d1')
+    expect(hits[0]!.id).toBe('d1')
   })
 
   it('honors limit', async () => {

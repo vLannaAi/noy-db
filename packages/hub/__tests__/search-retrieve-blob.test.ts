@@ -71,8 +71,8 @@ describe('retrieve() indexes blob filenames (#308 L1)', () => {
       blobFields: { attachment: {} },
     })
 
-    await docs.put('d-001', { ref: 'R1' })
-    await docs.put('d-002', { ref: 'R2' })
+    await docs.put('d-001', { id: 'd-001', ref: 'R1' })
+    await docs.put('d-002', { id: 'd-002', ref: 'R2' })
 
     // Attach a blob into the `attachment` slot with a known filename.
     await docs.blob('d-001').put('attachment', textBytes('pdf bytes'), { filename: 'invoice-2024.pdf' })
@@ -92,7 +92,7 @@ describe('retrieve() indexes blob filenames (#308 L1)', () => {
       prefetch: true,
       textIndexes: ['ref'],
     })
-    await docs.put('d-001', { ref: 'plain text only' })
+    await docs.put('d-001', { id: 'd-001', ref: 'plain text only' })
 
     const hits = await docs.retrieve('plain')
     expect(hits).toHaveLength(1)
