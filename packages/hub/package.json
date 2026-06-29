@@ -143,8 +143,9 @@
     "build": "tsup",
     "test": "vitest run",
     "lint": "eslint src/",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.typetest.json",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.typetest.json && tsc --noEmit -p tsconfig.tests.json",
     "typecheck:types": "tsc --noEmit -p tsconfig.typetest.json",
+    "typecheck:tests": "tsc --noEmit -p tsconfig.tests.json",
     "bundle-check": "node scripts/check-bundle.mjs"
   },
   "dependencies": {
