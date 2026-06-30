@@ -7,10 +7,24 @@
  * @module
  */
 import type { Vault } from '../../vault.js'
-import type { EncryptedEnvelope } from '../../types.js'
+import type { EncryptedEnvelope, BlobObject, SlotRecord, VersionRecord } from '../../types.js'
 import { NOYDB_BACKUP_VERSION } from '../../types.js'
-import { decrypt, encrypt, generateDEK, bufferToBase64 } from '../../crypto.js'
+import {
+  decrypt,
+  encrypt,
+  generateDEK,
+  bufferToBase64,
+  encryptBytesWithAAD,
+  decryptBytesWithAAD,
+} from '../../crypto.js'
 import { unwrapCek, wrapCek } from '../../record-keys/index.js'
+import {
+  BLOB_COLLECTION,
+  BLOB_INDEX_COLLECTION,
+  BLOB_CHUNKS_COLLECTION,
+  BLOB_SLOTS_PREFIX,
+  BLOB_VERSIONS_PREFIX,
+} from '../../with-shape/blobs/blob-set.js'
 import { PartitionExtractionError } from '../../errors.js'
 import { walkClosure, type WalkClosureOptions } from './walk-closure.js'
 import { generateULID } from './ulid.js'
@@ -218,6 +232,188 @@ export async function reKeyLedger(
   }
 }
 
+/** Build the AAD binding for chunk integrity: "{eTag}:{chunkIndex}:{chunkCount}".
+ * Mirrors `chunkAAD` in blob-set.ts — the eTag is preserved verbatim across
+ * the transfer (see `reKeyBlobs`), so the same AAD that bound a chunk in the
+ * source keeps binding it in the bundle. */
+function chunkAAD(eTag: string, chunkIndex: number, chunkCount: number): Uint8Array {
+  return new TextEncoder().encode(`${eTag}:${chunkIndex}:${chunkCount}`)
+}
+
+/** Carried blob internals + the fresh transfer `_blob` DEK (present only when
+ * the closure references at least one chunk-based blob). */
+export interface ReKeyBlobsResult {
+  /** `_blob_slots_<C>` / `_blob_versions_<C>` / `_blob_index` / `_blob_chunks`
+   * envelopes for the bundle's `_internal` map. */
+  readonly internal: Record<string, Record<string, EncryptedEnvelope>>
+  /** Fresh transfer `_blob` DEK — seal it so owner-creation wraps it under the
+   * recipient KEK. Undefined when no blob travels (source keyring untouched). */
+  readonly blobDek?: CryptoKey
+}
+
+/**
+ * Carry the FK-closed slice's blobs — HARDENED key handling (no master-key leak).
+ *
+ * The source vault's shared `_blob` DEK decrypts (or unwraps the content CEK of)
+ * EVERY blob in the source. Sealing it into the transfer would hand the recipient
+ * a key to blobs far outside their slice. Instead we mint a **fresh transfer
+ * `_blob` DEK** and arrange every carried blob into per-blob-CEK mode under it:
+ *
+ *  - **erasable blob** (`_cek` present): unwrap the per-blob content CEK under the
+ *    SOURCE `_blob` DEK, re-wrap it under the FRESH transfer DEK. Chunks travel
+ *    **verbatim** (still ciphertext under that same content CEK — passthrough).
+ *  - **legacy blob** (no `_cek`, chunks under the shared `_blob` DEK): promote it
+ *    IN-BUNDLE — mint a fresh content CEK, decrypt each chunk under the source
+ *    `_blob` DEK and re-encrypt under the content CEK (same AAD, so the eTag-bound
+ *    integrity holds), then wrap the content CEK under the transfer DEK. The
+ *    SOURCE is never mutated (non-destructive), and the bundle never holds
+ *    plaintext blob bytes (zero-knowledge preserved).
+ *
+ * **eTag identity is preserved** (not re-HMAC'd). eTags are HMAC-keyed off the
+ * `_blob` DEK, but they are stored as OPAQUE keys (`_blob_index/<eTag>`,
+ * `_blob_chunks/<eTag>_<i>`) and never recomputed on read — only on a `put()`
+ * for dedup. Keeping them verbatim keeps every slot/version/index/chunk key and
+ * the chunk AAD coherent with zero chunk-key churn. The only consequence: a
+ * future `put()` of identical bytes in the adopted vault computes a different
+ * eTag (HMAC under the fresh DEK) and will NOT dedup against the carried blob —
+ * an accepted, documented trade for hardened key isolation.
+ *
+ * Slots/versions are re-keyed under their parent collection's destination DEK
+ * (honoring `fieldProjection` — projected-out blob fields' slots never travel);
+ * `BlobObject.refCount` is recomputed from carried references only.
+ *
+ * `external` slots reference an unencrypted shared-bucket object that is not in
+ * the bundle — their slot metadata travels (so the catalog entry survives) but
+ * the bytes do not (a documented v1 limitation; their eTag is `''`).
+ */
+export async function reKeyBlobs(
+  vault: Vault,
+  closure: Map<string, Set<string>>,
+  destDeks: Map<string, CryptoKey>,
+  fieldProjection?: Record<string, readonly string[]>,
+): Promise<ReKeyBlobsResult> {
+  const { name: vaultName, adapter, getDEK } = vault._introspectState()
+  const internal: Record<string, Record<string, EncryptedEnvelope>> = {}
+
+  // travel set: eTag → number of carried references (slots + versions) within
+  // the closure. Recomputed refCount, NOT the source's (which may count
+  // out-of-slice referrers, leaving the adopted blob un-GC-able).
+  const carriedRefs = new Map<string, number>()
+  const addRef = (eTag: string): void => {
+    if (!eTag) return // external slot — no chunk-based blob to carry
+    carriedRefs.set(eTag, (carriedRefs.get(eTag) ?? 0) + 1)
+  }
+
+  const place = (collection: string, id: string, env: EncryptedEnvelope): void => {
+    let bucket = internal[collection]
+    if (!bucket) { bucket = {}; internal[collection] = bucket }
+    bucket[id] = env
+  }
+
+  // ── Slots + versions (parent-collection-DEK keyed) ─────────────────
+  for (const [collectionName, ids] of closure) {
+    const destDek = destDeks.get(collectionName)
+    if (!destDek) continue
+    const srcDek = await getDEK(collectionName)
+    const projList = fieldProjection?.[collectionName]
+    const proj = projList ? new Set(projList) : undefined
+
+    // Slots: one envelope per record, a `{ slotName: SlotRecord }` map.
+    const slotsCollection = `${BLOB_SLOTS_PREFIX}${collectionName}`
+    for (const id of ids) {
+      const env = await adapter.get(vaultName, slotsCollection, id)
+      if (!env) continue
+      const slots = JSON.parse(await decrypt(env._iv, env._data, srcDek)) as Record<string, SlotRecord>
+      // FR-7: drop projected-out blob fields' slots (slot names are blob field
+      // names) — their eTags then never enter the travel set.
+      const kept: Record<string, SlotRecord> = {}
+      for (const [slotName, slot] of Object.entries(slots)) {
+        if (proj && !proj.has(slotName)) continue
+        kept[slotName] = slot
+        addRef(slot.eTag)
+      }
+      if (Object.keys(kept).length === 0) continue
+      const { iv, data } = await encrypt(JSON.stringify(kept), destDek)
+      place(slotsCollection, id, { ...env, _iv: iv, _data: data })
+    }
+
+    // Versions: key = `${recordId}::${slotName}::${label}`; each an independent
+    // refCount hold on its eTag.
+    const versionsCollection = `${BLOB_VERSIONS_PREFIX}${collectionName}`
+    const versionKeys = await adapter.list(vaultName, versionsCollection)
+    for (const key of versionKeys) {
+      const [recordId, slotName] = key.split('::')
+      if (recordId === undefined || !ids.has(recordId)) continue
+      if (proj && slotName !== undefined && !proj.has(slotName)) continue
+      const env = await adapter.get(vaultName, versionsCollection, key)
+      if (!env) continue
+      const record = JSON.parse(await decrypt(env._iv, env._data, srcDek)) as VersionRecord
+      addRef(record.eTag)
+      const { iv, data } = await encrypt(JSON.stringify(record), destDek)
+      place(versionsCollection, key, { ...env, _iv: iv, _data: data })
+    }
+  }
+
+  // No chunk-based blob in the closure → carry nothing, mint nothing. Guarded
+  // so `getDEK('_blob')` does not auto-mint + persist a phantom DEK on the
+  // source keyring (mirrors the carryLedger non-destructive guard).
+  if (carriedRefs.size === 0) return { internal }
+
+  // ── Index + chunks (re-keyed under a FRESH transfer `_blob` DEK) ────
+  const srcBlobDek = await getDEK(BLOB_COLLECTION)
+  const transferBlobDek = await generateDEK()
+
+  for (const [eTag, refCount] of carriedRefs) {
+    const idxEnv = await adapter.get(vaultName, BLOB_INDEX_COLLECTION, eTag)
+    if (!idxEnv) continue // dangling slot reference — nothing to carry
+    const blob = JSON.parse(await decrypt(idxEnv._iv, idxEnv._data, srcBlobDek)) as BlobObject
+
+    // Resolve the per-blob content CEK; passthrough vs. in-bundle promotion.
+    let contentCek: CryptoKey
+    let chunksPassthrough: boolean
+    if (blob._cek !== undefined) {
+      contentCek = await unwrapCek(blob._cek, srcBlobDek)
+      chunksPassthrough = true
+    } else {
+      // Legacy: promote to per-blob-CEK for the bundle (source untouched).
+      contentCek = await generateDEK()
+      chunksPassthrough = false
+    }
+
+    // Chunks: verbatim for an already-erasable blob; decrypt-then-re-encrypt
+    // under the fresh content CEK for a legacy blob (same eTag-bound AAD).
+    for (let i = 0; i < blob.chunkCount; i++) {
+      const chunkId = `${eTag}_${i}`
+      const chunkEnv = await adapter.get(vaultName, BLOB_CHUNKS_COLLECTION, chunkId)
+      if (!chunkEnv) {
+        throw new PartitionExtractionError(
+          `reKeyBlobs: blob chunk ${i}/${blob.chunkCount} missing for eTag "${eTag}"; `
+          + `cannot carry an incomplete blob into the partition.`,
+        )
+      }
+      if (chunksPassthrough) {
+        place(BLOB_CHUNKS_COLLECTION, chunkId, chunkEnv)
+      } else {
+        const aad = chunkAAD(eTag, i, blob.chunkCount)
+        const plain = await decryptBytesWithAAD(chunkEnv._iv, chunkEnv._data, srcBlobDek, aad)
+        const { iv, data } = await encryptBytesWithAAD(plain, contentCek, aad)
+        place(BLOB_CHUNKS_COLLECTION, chunkId, { ...chunkEnv, _iv: iv, _data: data })
+      }
+    }
+
+    // Index: per-blob-CEK mode under the transfer DEK, refCount corrected.
+    // Drop any transient `_cekPending` (never set on a settled blob — possible
+    // only if the source is mid-migration; we set a fresh settled `_cek`).
+    const { _cekPending, ...rest } = blob
+    void _cekPending
+    const carried: BlobObject = { ...rest, refCount, _cek: await wrapCek(contentCek, transferBlobDek) }
+    const { iv, data } = await encrypt(JSON.stringify(carried), transferBlobDek)
+    place(BLOB_INDEX_COLLECTION, eTag, { ...idxEnv, _iv: iv, _data: data })
+  }
+
+  return { internal, blobDek: transferBlobDek }
+}
+
 /** A minted transfer key (raw 32 bytes) + the seal carrying the DEK set. */
 export interface SealResult {
   readonly seal: TransferSealPayload
@@ -330,12 +526,20 @@ export async function extractPartition(
     }
   }
 
-  // Build _internal (schemas + ledger). reKeySchemas reads data-
+  // Carry the slice's blobs — re-keyed under a FRESH transfer `_blob` DEK
+  // (HARDENED: never carries the source's shared blob DEK). Runs BEFORE
+  // sealDeks so the fresh DEK is sealed alongside the data DEKs; non-destructive
+  // on the source (mints + reads `_blob` only when the closure has blobs).
+  const blobs = await reKeyBlobs(vault, closure, deks, opts.fieldProjection)
+  if (blobs.blobDek) deks.set(BLOB_COLLECTION, blobs.blobDek)
+
+  // Build _internal (schemas + ledger + blobs). reKeySchemas reads data-
   // collection DEKs only, so it is unaffected by the _ledger DEK added above.
   const internalSchemas = opts.carrySchemas ? await reKeySchemas(vault, closure, deks, opts.fieldProjection) : {}
   const internal: Record<string, Record<string, EncryptedEnvelope>> = {}
   if (Object.keys(internalSchemas).length > 0) internal[SCHEMAS_COLLECTION] = internalSchemas
   if (ledgerEntries) internal[LEDGER_COLLECTION] = ledgerEntries
+  for (const [collection, records] of Object.entries(blobs.internal)) internal[collection] = records
   const hasInternal = Object.keys(internal).length > 0
 
   const { seal, transferKey } = await sealDeks(deks)
