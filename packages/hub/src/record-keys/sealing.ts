@@ -23,7 +23,7 @@ import type { SealedCekBinding, SealedCekDeliveryEnvelope } from '../sealed-reco
 const subtle = globalThis.crypto.subtle
 
 /** The `_sealed_cek` delivery namespace (one envelope per `collection/id/pid`). */
-const SEALED_CEK_NS = '_sealed_cek'
+export const SEALED_CEK_NS = '_sealed_cek'
 
 /** What the grantor functions need from their `Vault`. */
 export interface SealingContext {

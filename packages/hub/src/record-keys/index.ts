@@ -29,5 +29,6 @@ export {
   sealRecordToHost,
   revokeSealedRecord,
   rotateRecordCek,
+  SEALED_CEK_NS,
   type SealingContext,
 } from './sealing.js'

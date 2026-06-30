@@ -119,6 +119,7 @@ import {
   sealRecordToHost as sealRecordToHostImpl,
   revokeSealedRecord as revokeSealedRecordImpl,
   rotateRecordCek as rotateRecordCekImpl,
+  SEALED_CEK_NS,
   type SealingContext,
 } from './record-keys/index.js'
 import type { RecipientSealer } from './team/managed-passphrase.js'
@@ -2616,6 +2617,9 @@ export class Vault {
     let blobsRetainedShared = 0
     let indexPostingsPurged = 0
     let sealedFieldsShredded = 0
+    let sealedCekEnvelopesPurged = 0
+    const sealedCekResidue: string[] = []
+    const sealedResidue: string[] = []
     const indexResidue: string[] = []
     const blobsEnabled = this.blobStrategy !== undefined
     const actor = this.keyring.userId
@@ -2633,7 +2637,43 @@ export class Vault {
       if (perRecordKeys && live && live._data && live._cek === undefined) {
         unmigratedRecords.push(`${ref.collection}:${ref.id}`)
       }
-      if (live?._sealed !== undefined) sealedFieldsShredded += Object.keys(live._sealed).length
+      // Classify each `_sealed` slot BEFORE tombstoning (#M-1, security
+      // review). A slot keyed off the per-record CEK is genuinely shredded when
+      // `_cek` drops; a pre-#306 collection-DEK-derived slot is NOT (the DEK is
+      // retained → synced/backup copies stay decryptable). Count only the
+      // former as shredded; report the latter as residue.
+      if (live?._sealed !== undefined) {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const cls = await (coll as any)._classifySealedShred(live) as { shreddable: string[]; dekResidue: string[] }
+          sealedFieldsShredded += cls.shreddable.length
+          for (const field of cls.dekResidue) sealedResidue.push(`${ref.collection}:${ref.id}:${field}`)
+        } catch {
+          // Classification unwraps `_cek`; if that fails (corrupt/unreadable
+          // envelope) do NOT abort the whole erasure mid-loop. Report every
+          // sealed field as residue (conservatively un-shredded) and continue
+          // tombstoning — mirrors the H-1 block's defensive posture below.
+          for (const field of Object.keys(live._sealed)) sealedResidue.push(`${ref.collection}:${ref.id}:${field}`)
+        }
+      }
+
+      // Purge the record's sealed-CEK delivery envelopes (#H-1, security
+      // review). sealRecordToHost persisted the raw CEK sealed to at-* hosts at
+      // `_sealed_cek/<collection>/<id>/<pid>`; crypto-shred must destroy them
+      // too, or a granted host + a synced pre-forget body recovers an "erased"
+      // record. Mirrors rotateRecordCek's prefix-delete.
+      const cekPrefix = `${ref.collection}/${ref.id}/`
+      try {
+        const cekKeys = await this.adapter.list(this.name, SEALED_CEK_NS)
+        for (const key of cekKeys) {
+          if (key.startsWith(cekPrefix)) {
+            await this.adapter.delete(this.name, SEALED_CEK_NS, key)
+            sealedCekEnvelopesPurged++
+          }
+        }
+      } catch {
+        sealedCekResidue.push(`${ref.collection}:${ref.id}`)
+      }
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const shred = await (coll as any)._writeTombstone(ref.id, actor) as { previousVersion: number } | null
@@ -2731,6 +2771,9 @@ export class Vault {
         indexPostingsPurged,
         indexResidueCount: indexResidue.length,
         sealedFieldsShredded,
+        sealedCekEnvelopesPurged,
+        sealedCekResidueCount: sealedCekResidue.length,
+        sealedResidueCount: sealedResidue.length,
       }),
     })
 
@@ -2746,6 +2789,9 @@ export class Vault {
       indexPostingsPurged,
       indexResidue,
       sealedFieldsShredded,
+      sealedCekEnvelopesPurged,
+      sealedCekResidue,
+      sealedResidue,
       ledgerEntry,
     }
   }

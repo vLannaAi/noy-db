@@ -137,6 +137,14 @@ export interface ForgetResult {
    * carries); migrate by re-`put`ting before forgetting for full crypto-shred.
    */
   readonly sealedFieldsShredded: number
+  /** Count of `_sealed_cek` host-delivery envelopes deleted (#H-1). A record sealed to an
+   * at-* host via sealRecordToHost persists its raw CEK there; forget() must destroy them. */
+  readonly sealedCekEnvelopesPurged: number
+  /** `collection:id` whose `_sealed_cek` purge failed (residue — the host-recoverable CEK may survive). */
+  readonly sealedCekResidue: readonly string[]
+  /** `collection:id:field` sealed slots that were DEK-derived (pre-#306) and thus NOT crypto-shredded
+   * by dropping `_cek` — the collection DEK is retained, so synced/backup copies stay decryptable (#M-1). */
+  readonly sealedResidue: readonly string[]
   /** The single `op:'forget'` ledger entry appended for this erasure. */
   readonly ledgerEntry: LedgerEntry
 }
