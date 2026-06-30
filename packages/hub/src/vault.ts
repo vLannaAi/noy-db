@@ -38,7 +38,6 @@ import {
   ValidationError,
   AlreadyElevatedError,
   TierNotGrantedError,
-  AttestationError,
 } from './errors.js'
 import { ElevatedHandle, ELEVATION_AUDIT_COLLECTION } from './with-commit/tx/elevated-handle.js'
 import type { NoydbEventEmitter } from './events.js'
@@ -147,8 +146,7 @@ import { loadFence, type FenceDoc } from './with-shape/schema-update/fence.js'
 import type { SchemaUpdateStrategy, UpdateDecision, TransformFn } from './with-shape/schema-update/types.js'
 import { SCHEMAS_COLLECTION } from './with-shape/persisted-schemas/storage.js'
 import type { AttestationFieldSchema, RevocationList } from '@noy-db/attestation'
-import type { IssueContext } from './with-audit/attestation/issue.js'
-import type { RevokeContext } from './with-audit/attestation/revoke.js'
+import { VaultAttestation } from './with-audit/attestation/vault-facade.js'
 import type { DumpSchemaOptions, VaultSchemaSnapshot, SchemaIntrospection } from './with-shape/introspection/types.js'
 import { dumpVaultSchema, type VaultIntrospectState } from './with-shape/introspection/walk.js'
 import type { FieldMeta } from './with-shape/introspection/field-meta.js'
@@ -329,11 +327,10 @@ export class Vault {
   private readonly blobFieldsRegistry = new Map<string, BlobFieldsConfig<unknown>>()
 
   /**
-   * Per-collection attestation field-schema (issue side). Populated on
-   * `collection({ attestation })` and read by `issueAttestation()`.
-   * Indexed by collection name.
+   * Attestation facade (issue/revoke + the per-collection field-schema
+   * registry). Lifted off this class in Phase 5 A2; built in the constructor.
    */
-  private readonly attestationRegistry = new Map<string, AttestationFieldSchema>()
+  private readonly attestation!: VaultAttestation
 
   /**
    * Per-vault ledger store. Lazy-initialized on first
@@ -603,6 +600,17 @@ export class Vault {
     // ensureCollectionDEK runs again against the freshly-loaded
     // wrapped DEKs.
     this.getDEK = this.makeGetDEK()
+
+    // Attestation facade — holds the per-collection field-schema registry and
+    // the issue/revoke entry points; built once getDEK is wired.
+    this.attestation = new VaultAttestation({
+      adapter: this.adapter,
+      vault: this.name,
+      getDEK: this.getDEK,
+      role: () => this.keyring.role,
+      getRawRecord: async (collection, recId) =>
+        (await this.collection(collection).get(recId, { locale: 'raw' })) as Record<string, unknown> | null,
+    })
 
     // User envelope API — frozen writerKeyringId, dynamic DEK resolver
     // (so a post-load() keyring refresh transparently rotates the DEK
@@ -877,7 +885,7 @@ export class Vault {
 
       // register the per-collection attestation field-schema
       if (options?.attestation !== undefined) {
-        this.attestationRegistry.set(collectionName, options.attestation)
+        this.attestation.register(collectionName, options.attestation)
       }
 
       // Register dictKey / staticDict fields. Plain dictKey fields go into
@@ -1997,76 +2005,28 @@ export class Vault {
     )
   }
 
-  async issueAttestation(collectionName: string, id: string): Promise<{ docId: string; qr: string; keyId: string; publicKeyB64: string }> {
-    const fieldSchema = this.attestationRegistry.get(collectionName)
-    if (!fieldSchema) {
-      throw new AttestationError(`issueAttestation: collection '${collectionName}' has no attestation field-schema. Declare it via vault.collection('${collectionName}', { attestation: { fields: [...] } }).`)
-    }
-    const { issueAttestationCore } = await import('./with-audit/attestation/issue.js')
-    const out = await issueAttestationCore(this.makeIssueContext(), { collection: collectionName, id, fieldSchema })
-    return { docId: out.docId, qr: out.qr, keyId: out.keyId, publicKeyB64: out.publicKeyB64 }
+  issueAttestation(collectionName: string, id: string): Promise<{ docId: string; qr: string; keyId: string; publicKeyB64: string }> {
+    return this.attestation.issue(collectionName, id)
   }
 
-  async getDocumentSigningPublicKey(): Promise<{ keyId: string; publicKeyB64: string }> {
-    const { loadSigner, loadOrCreateSigner } = await import('./with-audit/attestation/signer.js')
-    // Reading an existing public key is open to any role that holds the
-    // _attestations DEK — the public key is not secret. But MINTING the
-    // signer is the firm's identity operation (same rule as issueAttestation):
-    // a non-owner read must not silently create it.
-    const existing = await loadSigner(this.adapter, this.name, this.getDEK)
-    if (existing) return { keyId: existing.keyId, publicKeyB64: existing.publicKeyB64 }
-    if (this.keyring.role !== 'owner') {
-      throw new AttestationError(`getDocumentSigningPublicKey: no document-signing key exists yet; only the 'owner' may mint it. Caller is '${this.keyring.role}'. Have the owner issue an attestation (or call this) first.`)
-    }
-    const signer = await loadOrCreateSigner(this.adapter, this.name, this.getDEK)
-    return { keyId: signer.keyId, publicKeyB64: signer.publicKeyB64 }
+  getDocumentSigningPublicKey(): Promise<{ keyId: string; publicKeyB64: string }> {
+    return this.attestation.getDocumentSigningPublicKey()
   }
 
-  private makeIssueContext(): IssueContext {
-    const adapter = this.adapter, vaultName = this.name, getDEK = this.getDEK
-    return {
-      store: adapter,
-      vault: vaultName,
-      role: this.keyring.role,
-      getDEK: async () => getDEK('_attestations'),
-      readRecord: async (collection: string, recId: string) => {
-        const env = await adapter.get(vaultName, collection, recId)
-        if (!env) return null
-        const record = (await this.collection(collection).get(recId, { locale: 'raw' })) as Record<string, unknown> | null
-        if (record === null) return null
-        return { record, version: env._v }
-      },
-    }
+  revokeAttestation(docId: string): Promise<void> {
+    return this.attestation.revoke(docId)
   }
 
-  async revokeAttestation(docId: string): Promise<void> {
-    const { revokeDocCore } = await import('./with-audit/attestation/revoke.js')
-    await revokeDocCore(this.makeRevokeContext(), docId)
+  unrevokeAttestation(docId: string): Promise<void> {
+    return this.attestation.unrevoke(docId)
   }
 
-  async unrevokeAttestation(docId: string): Promise<void> {
-    const { unrevokeDocCore } = await import('./with-audit/attestation/revoke.js')
-    await unrevokeDocCore(this.makeRevokeContext(), docId)
+  getRevokedDocIds(): Promise<string[]> {
+    return this.attestation.getRevokedDocIds()
   }
 
-  async getRevokedDocIds(): Promise<string[]> {
-    const { getRevokedDocIdsCore } = await import('./with-audit/attestation/revoke.js')
-    return getRevokedDocIdsCore(this.makeRevokeContext())
-  }
-
-  async publishRevocationList(): Promise<RevocationList> {
-    const { publishRevocationListCore } = await import('./with-audit/attestation/revoke.js')
-    return publishRevocationListCore(this.makeRevokeContext())
-  }
-
-  private makeRevokeContext(): RevokeContext {
-    const adapter = this.adapter, vaultName = this.name, getDEK = this.getDEK
-    return {
-      store: adapter,
-      vault: vaultName,
-      role: this.keyring.role,
-      getDEK: async () => getDEK('_attestations'),
-    }
+  publishRevocationList(): Promise<RevocationList> {
+    return this.attestation.publishRevocationList()
   }
 
   private async writeExportAudit(entry: ExportBlobsAuditEntry): Promise<void> {
