@@ -599,7 +599,8 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 4665→4674 (#503 structural group-encryption): plumb the `sensitive` collection option through vault.collection() to collOpts (TS declaration + doc-comment + pass-through), mirroring deterministicFields. Minimal necessary plumbing; the sealing crypto lives in collection.ts/crypto.ts.
   // Bumped 4674→4677 (#306 Slice B record-scoped sealing): forget() counts and reports `sealedFieldsShredded` (read each shredded record's live `_sealed` slot count before tombstoning) on the existing forget orchestration. +3 lines; the sealing crypto lives in collection.ts/crypto.ts.
   // Bumped 4677→4723 (#H-1/#M-1 forget erasure fixes, 2026-06-30 security review): forget() now (H-1) prefix-deletes the record's `_sealed_cek` host-delivery envelopes — mirroring rotateRecordCek, so a granted at-* host can't recover an "erased" record from a synced body + surviving sealed CEK — and (M-1) classifies `_sealed` slots via the collection helper, counting only CEK-derived slots as shredded and reporting legacy DEK-derived slots as residue, with a defensive try/catch so a corrupt `_cek` reports residue instead of aborting erasure mid-loop. +3 result/ledger fields + 3 counters. The classification crypto lives in collection.ts (`_classifySealedShred`); vault.ts holds only the forget-loop orchestration.
-  'packages/hub/src/vault.ts': 4723,
+  // Lowered 4723→4627 (Phase 5 A6: ElevatedHandle extraction): the inner `ElevatedHandle` class + `ELEVATION_AUDIT_COLLECTION` const moved to `with-commit/tx/elevated-handle.ts`; vault.ts imports them (elevate() / _elevatedPut) and index.ts re-exports from the new module.
+  'packages/hub/src/vault.ts': 4627,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
