@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Internal: microkernel refactor — god-object decomposition (no public API change)
+
+The three always-on hub files were decomposed behind named folder seams, taking the kernel from ~13,525 LOC to ~10,400 (−23%) with the public surface byte-identical (the `/kernel` + `/adapter` golden-surface tests guard it). No behavior change; the full suite stayed green throughout.
+
+- **Optional subsystems** are now grouped into eight `with-*` dimension folders (`with-lookup`/`with-commit`/`with-formula`/`with-shape`/`with-audit`/`with-fork`/`with-share`/`with-party`); each cohesive cluster moved behind a small deps interface with the kernel keeping thin delegators. Shared caches/registries (the per-record CEK `Lru`, eager-index caches, the subsystem bus) stay kernel-resident and pass **by reference**.
+- **`collection.ts`** 5774→4300, **`vault.ts`** 4722→3824, **`noydb.ts`** 3110→2274. Examples: envelope/CEK crypto → `record-keys/record-codec.ts`; auth/recovery/enrollment → `with-party/team/`; backup/dump-load → `vault-backup.ts`; tiers/search/index-maintenance → `with-audit/tiers` + `with-lookup/{search,indexing}`; the Collection constructor → a pure `resolveCollectionConfig()` + thin wiring.
+- **Additive only at the seams:** new `@noy-db/hub/describe` subpath (the UI contract); `bundle` moved to the `with-share` dimension (subpath unchanged); `vault.dump()`/`.noydb` bundles now include the `_blob_*` collections so blob covers travel sealed inside the artifact; `extractPartition` carries a slice's blobs re-keyed under a fresh transfer DEK (no master-key leak).
+
 Record-scoped sealing (epic [#306](https://github.com/vLannaAi/noy-db/issues/306)) — sealed `sensitive` fields now participate in crypto-shred and tamper-evidence end to end — plus money-typing parity across the aggregate builders.
 
 ### Feature: record-scoped sealing — `forget()` erases sealed fields + the ledger attests them ([#306](https://github.com/vLannaAi/noy-db/issues/306))
