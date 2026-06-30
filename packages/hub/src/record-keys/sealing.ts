@@ -55,6 +55,13 @@ export async function sealRecordToHost(
   // matches `${collection}/${id}/`) ambiguous and could over- or under-match.
   if (collection.includes('/')) throw new ValidationError(`sealRecordToHost: collection "${collection}" must not contain "/"`)
   if (id.includes('/')) throw new ValidationError(`sealRecordToHost: id "${id}" must not contain "/"`)
+  // M-4: reject a malformed/empty expiry at seal time. `Date.parse('')` (and any
+  // non-ISO string) is NaN, and the open-time check `NaN <= now` is `false` — so
+  // a malformed expiry would silently mint an ETERNAL grant. A *past* (but valid)
+  // timestamp is still allowed: it seals, then fails closed at open time.
+  if (Number.isNaN(Date.parse(opts.expiresAt))) {
+    throw new ValidationError(`sealRecordToHost: expiresAt "${opts.expiresAt}" is not a valid ISO 8601 timestamp`)
+  }
 
   const live = await ctx.adapter.get(ctx.vault, collection, id)
   if (!live || live._cek === undefined) {
