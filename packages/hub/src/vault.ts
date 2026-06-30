@@ -1,8 +1,6 @@
 import type {
   NoydbStore,
   EncryptedEnvelope,
-  VaultBackup,
-  VaultSnapshot,
   HistoryConfig,
   ExportStreamOptions,
   ExportChunk,
@@ -11,9 +9,17 @@ import type {
   TierMode,
   Role,
 } from './types.js'
+import {
+  dumpVault,
+  loadVault,
+  verifyBackupIntegrity,
+  exportVaultJSON,
+  type BackupContext,
+  type VerifyBackupResult,
+} from './vault-backup.js'
 import type { Noydb } from './noydb.js'
 import type { IssueDelegationOptions, DelegationToken } from './with-party/team/delegation.js'
-import { NOYDB_BACKUP_VERSION, NOYDB_FORMAT_VERSION } from './types.js'
+import { NOYDB_FORMAT_VERSION } from './types.js'
 import { Collection } from './collection.js'
 import type { CacheOptions } from './collection.js'
 import type { IndexDef } from './with-lookup/indexing/eager-indexes.js'
@@ -45,7 +51,6 @@ import {
 } from './errors.js'
 import { ElevatedHandle, ELEVATION_AUDIT_COLLECTION } from './with-commit/tx/elevated-handle.js'
 import type { NoydbEventEmitter } from './events.js'
-import { BackupLedgerError, BackupCorruptedError } from './errors.js'
 import type { StandardSchemaV1 } from './schema.js'
 import type { BlobStrategy } from './with-shape/blobs/strategy.js'
 import type { ObjectProjection } from './with-shape/blobs/object-projection.js'
@@ -63,7 +68,6 @@ import type { CrdtStrategy } from './with-commit/crdt/strategy.js'
 // bundle. The leaf files hold pure constants + a tiny hash helper;
 // the class lives behind the history strategy seam.
 import type { LedgerStore } from './with-commit/history/ledger/store.js'
-import { LEDGER_COLLECTION, LEDGER_DELTAS_COLLECTION } from './with-commit/history/ledger/constants.js'
 import { sha256Hex } from './with-commit/history/ledger/entry.js'
 import type { VaultInstant } from './with-commit/history/time-machine.js'
 import { NO_HISTORY, type HistoryStrategy } from './with-commit/history/strategy.js'
@@ -148,7 +152,6 @@ import { SchemaFenceController } from './with-shape/schema-update/fence-controll
 import { FenceWatcher } from './with-shape/schema-update/fence-watcher.js'
 import { loadFence, type FenceDoc } from './with-shape/schema-update/fence.js'
 import type { SchemaUpdateStrategy, UpdateDecision, TransformFn } from './with-shape/schema-update/types.js'
-import { SCHEMAS_COLLECTION } from './with-shape/persisted-schemas/storage.js'
 import type { AttestationFieldSchema, RevocationList } from '@noy-db/attestation'
 import { VaultAttestation } from './with-audit/attestation/vault-facade.js'
 import type { DumpSchemaOptions, VaultSchemaSnapshot, SchemaIntrospection } from './with-shape/introspection/types.js'
@@ -3775,77 +3778,35 @@ export class Vault {
    * both modes round-trip cleanly.
    */
   async dump(): Promise<string> {
-    const snapshot = await this.adapter.loadAll(this.name)
+    return dumpVault(this.backupContext())
+  }
 
-    // Load keyrings (separate path because loadAll filters them out
-    // along with all other underscore-prefixed internal collections).
-    const keyringIds = await this.adapter.list(this.name, '_keyring')
-    const keyrings: Record<string, unknown> = {}
-    for (const keyringId of keyringIds) {
-      const envelope = await this.adapter.get(this.name, '_keyring', keyringId)
-      if (envelope) {
-        keyrings[keyringId] = JSON.parse(envelope._data)
-      }
+  /**
+   * Build the {@link BackupContext} the extracted backup module (`vault-backup.ts`)
+   * binds to: the read paths + the post-load mutation seams (`reloadKeyring`,
+   * collection-cache clear, ledger-store reset) that `load()` performs on this
+   * Vault's private state.
+   */
+  private backupContext(): BackupContext {
+    return {
+      adapter: this.adapter,
+      vault: this.name,
+      userId: () => this.keyring.userId,
+      getLedgerOrNull: () => this.getLedgerOrNull(),
+      envelopePayloadHash: (envelope) => this.historyStrategy.envelopePayloadHash(envelope),
+      reloadKeyringAndRebuildDEK: async () => {
+        if (this.reloadKeyring) {
+          this.keyring = await this.reloadKeyring()
+          // Rebuild the DEK resolver against the refreshed keyring so
+          // the next ensureCollectionDEK call sees the loaded wrapped
+          // DEKs, not the cached pre-load ones.
+          this.getDEK = this.makeGetDEK()
+        }
+      },
+      clearCollectionCache: () => this.collectionCache.clear(),
+      resetLedgerStore: () => { this.ledgerStore = null },
+      exportStream: (opts) => this.exportStream(opts),
     }
-
-    // Load the ledger entries + deltas so the receiver can replay
-    // the chain after restore. Without this, `load()` would have an
-    // empty ledger and `verifyBackupIntegrity()` would have nothing
-    // to compare against.
-    //
-    // Also enumerate the blob collections so blob content ("covers")
-    // travels in the bundle (the blob DEK already travels in `_keyring`).
-    // Literals are inlined (not imported from blobs/blob-set.ts) to keep
-    // the blob runtime out of this kernel hot path — they mirror
-    // BLOB_INDEX/CHUNKS/EVICTION_AUDIT_COLLECTION and SLOTS/VERSIONS_PREFIX.
-    // The collect-loop skips empty ids, so this no-ops without blobs.
-    const internalSnapshot: VaultSnapshot = {}
-    const internalNames = [
-      LEDGER_COLLECTION, LEDGER_DELTAS_COLLECTION, SCHEMAS_COLLECTION, SEQUENCE_COLLECTION,
-      '_blob_index', '_blob_chunks', '_blob_eviction_audit',
-      ...Object.keys(snapshot).flatMap((c) => [`_blob_slots_${c}`, `_blob_versions_${c}`]),
-    ]
-    for (const internalName of internalNames) {
-      const ids = await this.adapter.list(this.name, internalName)
-      if (ids.length === 0) continue
-      const records: Record<string, EncryptedEnvelope> = {}
-      for (const id of ids) {
-        const envelope = await this.adapter.get(this.name, internalName, id)
-        if (envelope) records[id] = envelope
-      }
-      internalSnapshot[internalName] = records
-    }
-
-    // Embed the ledger head if there's a chain. An empty ledger
-    // (fresh vault) leaves `ledgerHead` undefined, which
-    // load() treats the same as a legacy backup (no integrity
-    // check, console warning). If history is not opted in,
-    // `getLedgerOrNull` returns null and we skip embedding entirely
-    // — the backup is still valid, just without the integrity head.
-    const ledgerForHead = this.getLedgerOrNull()
-    const head = ledgerForHead ? await ledgerForHead.head() : null
-    const backup: VaultBackup = {
-      _noydb_backup: NOYDB_BACKUP_VERSION,
-      _compartment: this.name,
-      _exported_at: new Date().toISOString(),
-      _exported_by: this.keyring.userId,
-      keyrings: keyrings as VaultBackup['keyrings'],
-      collections: snapshot,
-      ...(Object.keys(internalSnapshot).length > 0
-        ? { _internal: internalSnapshot }
-        : {}),
-      ...(head
-        ? {
-            ledgerHead: {
-              hash: head.hash,
-              index: head.entry.index,
-              ts: head.entry.ts,
-            },
-          }
-        : {}),
-    }
-
-    return JSON.stringify(backup)
   }
 
   /**
@@ -3871,90 +3832,7 @@ export class Vault {
    * — there's no chain to verify against.
    */
   async load(backupJson: string): Promise<void> {
-    const backup = JSON.parse(backupJson) as VaultBackup
-
-    // 1. Restore data collections.
-    await this.adapter.saveAll(this.name, backup.collections)
-
-    // 2. Restore keyrings.
-    for (const [userId, keyringFile] of Object.entries(backup.keyrings)) {
-      const envelope = {
-        _noydb: 1 as const,
-        _v: 1,
-        _ts: new Date().toISOString(),
-        _iv: '',
-        _data: JSON.stringify(keyringFile),
-      }
-      await this.adapter.put(this.name, '_keyring', userId, envelope)
-    }
-
-    // 3. Restore internal collections (`_ledger`, `_ledger_deltas`).
-    //    Required so verifyBackupIntegrity has the chain to walk.
-    if (backup._internal) {
-      for (const [internalName, records] of Object.entries(backup._internal)) {
-        for (const [id, envelope] of Object.entries(records)) {
-          await this.adapter.put(this.name, internalName, id, envelope)
-        }
-      }
-    }
-
-    // 4. Refresh the in-memory keyring from the freshly-loaded
-    //    keyring file. Without this, the Vault's getDEK
-    //    closure still holds the OLD session's DEKs, and every
-    //    decrypt of a loaded ledger entry / data envelope fails
-    //    with TamperedError because the DEK doesn't match the
-    //    ciphertext that was encrypted with the SOURCE user's DEK.
-    //    Skipped for plaintext vaults and for tests that
-    //    construct Vault without a reloadKeyring callback.
-    if (this.reloadKeyring) {
-      this.keyring = await this.reloadKeyring()
-      // Rebuild the DEK resolver against the refreshed keyring so
-      // the next ensureCollectionDEK call sees the loaded wrapped
-      // DEKs, not the cached pre-load ones.
-      this.getDEK = this.makeGetDEK()
-    }
-
-    // 5. Clear collection cache + reset the ledger store so the
-    //    next ledger() call rebuilds its head cache from the
-    //    freshly-loaded entries.
-    this.collectionCache.clear()
-    this.ledgerStore = null
-
-    // 5. Run the verification gate. Legacy backups (no ledgerHead)
-    //    skip this with a one-line warning so existing consumers can
-    //    still read them while migrating.
-    if (!backup.ledgerHead) {
-      console.warn(
-        `[noy-db] Loaded a legacy backup with no ledgerHead — ` +
-        `verifiable-backup integrity check skipped. ` +
-        `Re-export with a ledger-aware build to get tamper detection.`,
-      )
-      return
-    }
-
-    const result = await this.verifyBackupIntegrity()
-    if (!result.ok) {
-      // Surface the most specific error class we can. The result
-      // shape carries enough info for callers to inspect.
-      if (result.kind === 'data') {
-        throw new BackupCorruptedError(
-          result.collection,
-          result.id,
-          result.message,
-        )
-      }
-      throw new BackupLedgerError(result.message, result.divergedAt)
-    }
-
-    // 6. Cross-check: the freshly-verified head must match the
-    //    value embedded at dump time. A mismatch means someone
-    //    truncated or extended the chain after dump.
-    if (result.head !== backup.ledgerHead.hash) {
-      throw new BackupLedgerError(
-        `Backup ledger head mismatch: embedded "${backup.ledgerHead.hash}" ` +
-        `but reconstructed "${result.head}".`,
-      )
-    }
+    return loadVault(this.backupContext(), backupJson)
   }
 
   /**
@@ -3985,115 +3863,8 @@ export class Vault {
    * during `load()`. A scheduled background check is the simplest
    * way to detect tampering of an in-place vault.
    */
-  async verifyBackupIntegrity(): Promise<
-    | { readonly ok: true; readonly head: string; readonly length: number }
-    | {
-        readonly ok: false
-        readonly kind: 'chain'
-        readonly divergedAt: number
-        readonly message: string
-      }
-    | {
-        readonly ok: false
-        readonly kind: 'data'
-        readonly collection: string
-        readonly id: string
-        readonly message: string
-      }
-  > {
-    // Step 1: chain verification. Without the history strategy there
-    // is no ledger; an unaudited backup verifies trivially as `ok`
-    // because there's nothing to diverge from.
-    const ledgerForVerify = this.getLedgerOrNull()
-    if (!ledgerForVerify) {
-      return { ok: true, head: '', length: 0 }
-    }
-    const chainResult = await ledgerForVerify.verify()
-    if (!chainResult.ok) {
-      return {
-        ok: false,
-        kind: 'chain',
-        divergedAt: chainResult.divergedAt,
-        message:
-          `Ledger chain diverged at index ${chainResult.divergedAt}: ` +
-          `expected prevHash "${chainResult.expected}" but found "${chainResult.actual}".`,
-      }
-    }
-
-    // Step 2: data envelope cross-check. Walk every entry in the
-    // ledger and, for the LATEST `put` per (collection, id), recompute
-    // the data envelope's payloadHash and compare. Earlier puts of the
-    // same id are skipped because the data collection only holds the
-    // current version — historical envelopes live in the deltas
-    // collection (which is itself protected by the chain).
-    // Reuse the ledger we already resolved in step 1.
-    const allEntries = await ledgerForVerify.loadAllEntries()
-
-    // Find the latest non-delete entry per (collection, id). Walk
-    // the entries in reverse so we hit the latest first; mark each
-    // (collection, id) as seen and skip subsequent entries.
-    const seen = new Set<string>()
-    const latest = new Map<
-      string,
-      { collection: string; id: string; expectedHash: string }
-    >()
-    for (let i = allEntries.length - 1; i >= 0; i--) {
-      const entry = allEntries[i]
-      if (!entry) continue
-      // Amendment entries are multi-record audit entries whose
-      // `collection` and `id` are empty strings — building a `"/"`
-      // key here would mark that synthetic slot as seen and falsely
-      // trip the data check on a record that never existed. Skip
-      // them BEFORE the key/seen bookkeeping so they neither
-      // tombstone real entries nor enter the latest map.
-      if (entry.op === 'amendment' || entry.op === 'lifecycle') continue
-      const key = `${entry.collection}/${entry.id}`
-      if (seen.has(key)) continue
-      seen.add(key)
-      // For deletes the data collection should NOT have the record,
-      // so we skip — there's nothing to cross-check. Marking the key
-      // as seen above ensures any earlier `put` of the same id is
-      // also skipped (the record was subsequently deleted).
-      if (entry.op === 'delete') continue
-      latest.set(key, {
-        collection: entry.collection,
-        id: entry.id,
-        expectedHash: entry.payloadHash,
-      })
-    }
-
-    for (const { collection, id, expectedHash } of latest.values()) {
-      const envelope = await this.adapter.get(this.name, collection, id)
-      if (!envelope) {
-        return {
-          ok: false,
-          kind: 'data',
-          collection,
-          id,
-          message:
-            `Ledger expects data record "${collection}/${id}" to exist, ` +
-            `but the adapter has no envelope for it.`,
-        }
-      }
-      const actualHash = await this.historyStrategy.envelopePayloadHash(envelope)
-      if (actualHash !== expectedHash) {
-        return {
-          ok: false,
-          kind: 'data',
-          collection,
-          id,
-          message:
-            `Data envelope "${collection}/${id}" has been tampered with: ` +
-            `expected payloadHash "${expectedHash}", got "${actualHash}".`,
-        }
-      }
-    }
-
-    return {
-      ok: true,
-      head: chainResult.head,
-      length: chainResult.length,
-    }
+  async verifyBackupIntegrity(): Promise<VerifyBackupResult> {
+    return verifyBackupIntegrity(this.backupContext())
   }
 
   /**
@@ -4358,52 +4129,6 @@ export class Vault {
    * is the live validator object, not a serialization of it).
    */
   async exportJSON(opts: ExportStreamOptions = {}): Promise<string> {
-    // Force per-collection granularity regardless of caller setting:
-    // record-by-record output doesn't make sense in a single string.
-    const collections: Record<
-      string,
-      {
-        schema: null
-        refs: Record<string, { target: string; mode: 'strict' | 'warn' | 'cascade' }>
-        records: unknown[]
-      }
-    > = {}
-    let ledgerHead: ExportChunk['ledgerHead'] | undefined
-    // Merged dictionary snapshot across all collections.
-    // Only populated when `resolveLabels` is not set.
-    const allDictionaries: Record<
-      string, // collection name
-      Record<string, Record<string, Record<string, string>>>
-    > = {}
-
-    for await (const chunk of this.exportStream({
-      granularity: 'collection',
-      withLedgerHead: opts.withLedgerHead === true,
-      // #285 export layer: thread the export locale so records are read at the
-      // `export` layer (i18nText collapsed + dictKey/staticDict labels resolved).
-      ...(opts.resolveLabels !== undefined ? { resolveLabels: opts.resolveLabels } : {}),
-    })) {
-      collections[chunk.collection] = {
-        schema: null, // Standard Schema validators are not JSON-serializable
-        refs: chunk.refs,
-        records: chunk.records,
-      }
-      if (chunk.ledgerHead) ledgerHead = chunk.ledgerHead
-      // Collect dictionary snapshots unless resolveLabels is set
-      if (!opts.resolveLabels && chunk.dictionaries) {
-        allDictionaries[chunk.collection] = chunk.dictionaries
-      }
-    }
-
-    const hasDictionaries = Object.keys(allDictionaries).length > 0
-    return JSON.stringify({
-      _noydb_export: 1,
-      _compartment: this.name,
-      _exported_at: new Date().toISOString(),
-      _exported_by: this.keyring.userId,
-      collections,
-      ...(hasDictionaries ? { _dictionaries: allDictionaries } : {}),
-      ...(ledgerHead ? { ledgerHead } : {}),
-    })
+    return exportVaultJSON(this.backupContext(), opts)
   }
 }
