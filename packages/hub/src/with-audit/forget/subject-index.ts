@@ -8,9 +8,17 @@
  * which records share a subject. Instead we keep a reserved `_subject_index`
  * collection, encrypted under its OWN DEK (`getDEK('_subject_index')`):
  *
- *   - record id  = `sha256Hex(subjectId)` — the raw subject id never appears
- *     as a key, so the store can't correlate index entries to a known subject.
- *   - record body = AES-GCM(JSON `[{ collection, id }]`) under the index DEK.
+ *   - record id  = `HMAC-SHA256(indexDEK, subjectId)` (M-2). A bare
+ *     `sha256Hex(subjectId)` would be offline-computable: an attacker with
+ *     store access and a candidate list (emails / customer ids are low-entropy)
+ *     could dictionary the hash to confirm "subject X is present here." Keying
+ *     the id with the vault-only index DEK removes that capability — without the
+ *     DEK the id cannot be derived. (Legacy entries written before M-2 used the
+ *     bare sha256 id; the read/remove paths dual-look-up both forms.)
+ *   - record body = AES-GCM(JSON `{ r: [{ collection, id }], p }`) under the
+ *     index DEK, where `p` pads the plaintext to a bucketed length so the
+ *     ciphertext `_data` length does not leak the approximate record count.
+ *     Legacy bodies were a bare `[{ collection, id }]` array; reads accept both.
  *
  * ## Concurrency (RISK #3 — known v1 limitation)
  *
@@ -24,12 +32,19 @@
  *
  * @module
  */
-import { encrypt, decrypt } from '../../crypto.js'
+import { encrypt, decrypt, hmacSha256Hex } from '../../crypto.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../types.js'
 import { NOYDB_FORMAT_VERSION } from '../../types.js'
 
 /** Reserved collection holding the encrypted subject → records index. */
 export const SUBJECT_INDEX_COLLECTION = '_subject_index'
+
+/**
+ * Bucket (bytes) the encrypted ref-list plaintext is padded up to, so the
+ * ciphertext `_data` length leaks only `count` rounded up to a bucket — not the
+ * exact record count. 256 keeps small subjects (the common case) indistinguishable.
+ */
+const REF_LIST_BUCKET = 256
 
 /** A single record reference held in a subject's index entry. */
 export interface SubjectRef {
@@ -39,7 +54,7 @@ export interface SubjectRef {
 
 type GetDEK = (collectionName: string) => Promise<CryptoKey>
 
-/** SHA-256 hex of a UTF-8 string. The subject-index record key derivation. */
+/** SHA-256 hex of a UTF-8 string. The LEGACY (pre-M-2) subject-index key. */
 async function sha256HexString(input: string): Promise<string> {
   const bytes = new TextEncoder().encode(input)
   const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes)
@@ -48,12 +63,42 @@ async function sha256HexString(input: string): Promise<string> {
     .join('')
 }
 
-/** Stable subject-index record id for a subject id. */
-export async function subjectKey(subjectId: string): Promise<string> {
-  return sha256HexString(subjectId)
+/**
+ * The subject-index record id(s) to consult for a subject, most-current first.
+ *
+ * - Encrypted vault: the PRIMARY id is `HMAC-SHA256(indexDEK, subjectId)` (M-2)
+ *   — not offline-computable. The LEGACY `sha256Hex(subjectId)` id is also
+ *   returned so reads/removes still find entries written before M-2 (dual-lookup).
+ * - Plaintext/debug vault: no DEK to key with, so the only id is the legacy
+ *   sha256 form (unchanged behaviour — plaintext mode is not zero-knowledge anyway).
+ */
+async function subjectKeys(getDEK: GetDEK, encrypted: boolean, subjectId: string): Promise<string[]> {
+  const legacy = await sha256HexString(subjectId)
+  if (!encrypted) return [legacy]
+  const dek = await getDEK(SUBJECT_INDEX_COLLECTION)
+  const keyed = await hmacSha256Hex(dek, new TextEncoder().encode(subjectId))
+  return keyed === legacy ? [keyed] : [keyed, legacy]
 }
 
-/** Read + decrypt the ref list for a subject. Returns `[]` when absent. */
+/** The id new writes land under (keyed when encrypted, else legacy sha256). */
+async function primarySubjectKey(getDEK: GetDEK, encrypted: boolean, subjectId: string): Promise<string> {
+  return (await subjectKeys(getDEK, encrypted, subjectId))[0]!
+}
+
+/** Parse a stored ref-list body: new padded `{ r, p }` wrapper OR legacy bare array. */
+function parseRefs(json: string): SubjectRef[] {
+  const parsed = JSON.parse(json) as SubjectRef[] | { r: SubjectRef[] }
+  return Array.isArray(parsed) ? parsed : parsed.r
+}
+
+/** Serialize + pad the ref list to a bucket boundary (encrypted vaults only). */
+function serializeRefs(refs: SubjectRef[]): string {
+  const base = JSON.stringify({ r: refs, p: '' })
+  const pad = Math.ceil(base.length / REF_LIST_BUCKET) * REF_LIST_BUCKET - base.length
+  return JSON.stringify({ r: refs, p: ' '.repeat(pad) })
+}
+
+/** Read + decrypt the ref list at a SINGLE index key. Returns `[]` when absent. */
 async function readRefs(
   adapter: NoydbStore,
   vault: string,
@@ -63,10 +108,10 @@ async function readRefs(
 ): Promise<SubjectRef[]> {
   const env = await adapter.get(vault, SUBJECT_INDEX_COLLECTION, key)
   if (!env || !env._data) return []
-  if (!encrypted) return JSON.parse(env._data) as SubjectRef[]
+  if (!encrypted) return parseRefs(env._data)
   const dek = await getDEK(SUBJECT_INDEX_COLLECTION)
   const json = await decrypt(env._iv, env._data, dek)
-  return JSON.parse(json) as SubjectRef[]
+  return parseRefs(json)
 }
 
 /** Encrypt + write a ref list for a subject under its derived key. */
@@ -78,13 +123,13 @@ async function writeRefs(
   key: string,
   refs: SubjectRef[],
 ): Promise<void> {
-  const json = JSON.stringify(refs)
   let env: EncryptedEnvelope
   if (!encrypted) {
-    env = { _noydb: NOYDB_FORMAT_VERSION, _v: 1, _ts: new Date().toISOString(), _iv: '', _data: json }
+    // Plaintext/debug vault: keep the legacy bare-array form (no padding needed).
+    env = { _noydb: NOYDB_FORMAT_VERSION, _v: 1, _ts: new Date().toISOString(), _iv: '', _data: JSON.stringify(refs) }
   } else {
     const dek = await getDEK(SUBJECT_INDEX_COLLECTION)
-    const { iv, data } = await encrypt(json, dek)
+    const { iv, data } = await encrypt(serializeRefs(refs), dek)
     env = { _noydb: NOYDB_FORMAT_VERSION, _v: 1, _ts: new Date().toISOString(), _iv: iv, _data: data }
   }
   await adapter.put(vault, SUBJECT_INDEX_COLLECTION, key, env)
@@ -103,7 +148,7 @@ export async function addSubjectRef(
   subjectId: string,
   ref: SubjectRef,
 ): Promise<void> {
-  const key = await subjectKey(subjectId)
+  const key = await primarySubjectKey(getDEK, encrypted, subjectId)
   const refs = await readRefs(adapter, vault, getDEK, encrypted, key)
   if (refs.some((r) => r.collection === ref.collection && r.id === ref.id)) return
   refs.push(ref)
@@ -123,18 +168,25 @@ export async function removeSubjectRef(
   subjectId: string,
   ref: SubjectRef,
 ): Promise<void> {
-  const key = await subjectKey(subjectId)
-  const refs = await readRefs(adapter, vault, getDEK, encrypted, key)
-  const next = refs.filter((r) => !(r.collection === ref.collection && r.id === ref.id))
-  if (next.length === refs.length) return
-  if (next.length === 0) {
-    await adapter.delete(vault, SUBJECT_INDEX_COLLECTION, key)
-    return
+  // Dual-lookup: drop the ref from BOTH the keyed (M-2) and the legacy sha256
+  // entry, so a pre-M-2 subject is still fully erased.
+  for (const key of await subjectKeys(getDEK, encrypted, subjectId)) {
+    const refs = await readRefs(adapter, vault, getDEK, encrypted, key)
+    const next = refs.filter((r) => !(r.collection === ref.collection && r.id === ref.id))
+    if (next.length === refs.length) continue
+    if (next.length === 0) {
+      await adapter.delete(vault, SUBJECT_INDEX_COLLECTION, key)
+    } else {
+      await writeRefs(adapter, vault, getDEK, encrypted, key, next)
+    }
   }
-  await writeRefs(adapter, vault, getDEK, encrypted, key, next)
 }
 
-/** Look up every record ref for a subject. Returns `[]` when none exist. */
+/**
+ * Look up every record ref for a subject. Returns `[]` when none exist. Unions
+ * the keyed (M-2) and legacy sha256 entries (dual-lookup), deduplicated, so a
+ * subject indexed before M-2 is still fully found.
+ */
 export async function lookupSubject(
   adapter: NoydbStore,
   vault: string,
@@ -142,8 +194,18 @@ export async function lookupSubject(
   encrypted: boolean,
   subjectId: string,
 ): Promise<SubjectRef[]> {
-  const key = await subjectKey(subjectId)
-  return readRefs(adapter, vault, getDEK, encrypted, key)
+  const keys = await subjectKeys(getDEK, encrypted, subjectId)
+  const seen = new Set<string>()
+  const out: SubjectRef[] = []
+  for (const key of keys) {
+    for (const ref of await readRefs(adapter, vault, getDEK, encrypted, key)) {
+      const dedup = `${ref.collection} ${ref.id}`
+      if (seen.has(dedup)) continue
+      seen.add(dedup)
+      out.push(ref)
+    }
+  }
+  return out
 }
 
 /**
@@ -192,7 +254,7 @@ export async function rebuildSubjectIndex(
 
   let entries = 0
   for (const [subjectId, refs] of bySubject) {
-    const key = await subjectKey(subjectId)
+    const key = await primarySubjectKey(getDEK, encrypted, subjectId)
     await writeRefs(adapter, vault, getDEK, encrypted, key, refs)
     entries++
   }
