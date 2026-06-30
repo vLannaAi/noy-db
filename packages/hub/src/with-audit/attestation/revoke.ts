@@ -1,7 +1,7 @@
-import type { NoydbStore, EncryptedEnvelope } from '../types.js'
-import { NOYDB_FORMAT_VERSION } from '../types.js'
-import { encrypt, decrypt } from '../crypto.js'
-import { AttestationError, ConflictError } from '../errors.js'
+import type { NoydbStore, EncryptedEnvelope } from '../../types.js'
+import { NOYDB_FORMAT_VERSION } from '../../types.js'
+import { encrypt, decrypt } from '../../crypto.js'
+import { AttestationError, ConflictError } from '../../errors.js'
 import { loadOrCreateSigner, ATTESTATIONS_COLLECTION, REVOKED_RECORD_ID } from './signer.js'
 import { signRevocationList, type RevocationList } from '@noy-db/attestation'
 

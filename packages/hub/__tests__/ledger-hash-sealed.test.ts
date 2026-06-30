@@ -14,11 +14,11 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
 import { ConflictError } from '../src/errors.js'
-import { withHistory } from '../src/history/index.js'
+import { withHistory } from '../src/with-commit/history/index.js'
 import { NOYDB_FORMAT_VERSION } from '../src/types.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
-import { envelopePayloadHash } from '../src/history/ledger/hash.js'
-import { sha256Hex } from '../src/history/ledger/entry.js'
+import { envelopePayloadHash } from '../src/with-commit/history/ledger/hash.js'
+import { sha256Hex } from '../src/with-commit/history/ledger/entry.js'
 
 interface Person {
   id: string

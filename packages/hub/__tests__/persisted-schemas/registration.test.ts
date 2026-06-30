@@ -3,8 +3,8 @@ import { z } from 'zod'
 import { generateDEK } from '../../src/crypto.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/types.js'
 import { ConflictError } from '../../src/errors.js'
-import { persistSchemaIfNeeded } from '../../src/persisted-schemas/register.js'
-import { loadPersistedSchema } from '../../src/persisted-schemas/storage.js'
+import { persistSchemaIfNeeded } from '../../src/with-shape/persisted-schemas/register.js'
+import { loadPersistedSchema } from '../../src/with-shape/persisted-schemas/storage.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

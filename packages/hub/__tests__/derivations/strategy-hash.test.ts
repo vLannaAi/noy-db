@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { computeStrategyHash } from '../../src/derivations/strategy-hash.js'
+import { computeStrategyHash } from '../../src/with-formula/derivations/strategy-hash.js'
 
 describe('computeStrategyHash', () => {
   it('returns identical hash for identical inputs', async () => {

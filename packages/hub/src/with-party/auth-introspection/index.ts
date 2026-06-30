@@ -17,9 +17,9 @@
  *
  * @module
  */
-import type { NoydbStore, KeyringFile, KeyringAuthenticator } from '../types.js'
-import type { VaultPolicy, GatePolicy } from '../policy/types.js'
-import { loadVaultPolicy } from '../policy/storage.js'
+import type { NoydbStore, KeyringFile, KeyringAuthenticator } from '../../types.js'
+import type { VaultPolicy, GatePolicy } from '../../policy/types.js'
+import { loadVaultPolicy } from '../../policy/storage.js'
 import { loadPaperRecoveryEntries } from '../team/recovery.js'
 
 /** Vault-wide English summary of the configured authentication graph. */

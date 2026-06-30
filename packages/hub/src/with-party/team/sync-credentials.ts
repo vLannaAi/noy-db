@@ -37,12 +37,12 @@
  * against the caller's keyring role at call time.
  */
 
-import type { NoydbStore, EncryptedEnvelope } from '../types.js'
-import { NOYDB_FORMAT_VERSION } from '../types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../../types.js'
+import { NOYDB_FORMAT_VERSION } from '../../types.js'
 import type { UnlockedKeyring } from './keyring.js'
-import { encrypt, decrypt } from '../crypto.js'
+import { encrypt, decrypt } from '../../crypto.js'
 import { ensureCollectionDEK } from './keyring.js'
-import { PermissionDeniedError } from '../errors.js'
+import { PermissionDeniedError } from '../../errors.js'
 
 /** The reserved collection name. Never collides with user collections. */
 export const SYNC_CREDENTIALS_COLLECTION = '_sync_credentials'

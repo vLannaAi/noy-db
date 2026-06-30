@@ -59,7 +59,7 @@ export type {
   CreateOwnerStandardOptions,
   CreateOwnerManagedOptions,
 } from './adopt-partition.js'
-export { TransferSealError, AdoptionStateError } from '../errors.js'
+export { TransferSealError, AdoptionStateError } from '../../errors.js'
 
 // ─── Bundle / backup errors ─────────────────────────────
 // Re-exported from the central errors module so subpath consumers can
@@ -71,4 +71,4 @@ export {
   BackupLedgerError,
   BackupCorruptedError,
   PartitionExtractionError,
-} from '../errors.js'
+} from '../../errors.js'

@@ -12,7 +12,7 @@
  * real-time push transports.
  */
 import { type FenceState } from './fence.js'
-import type { CoordinationProvider } from '../coordination/index.js'
+import type { CoordinationProvider } from '../../coordination/index.js'
 
 export interface FenceWatcherEvent {
   readonly currentSchemaVersion: number

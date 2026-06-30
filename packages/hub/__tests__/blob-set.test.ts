@@ -2,14 +2,14 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, NoydbBundleStore } from '../src/types.js'
 import { ConflictError, BundleVersionConflictError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
-import { withBlobs } from '../src/blobs/index.js'
+import { withBlobs } from '../src/with-shape/blobs/index.js'
 import {
   BLOB_INDEX_COLLECTION,
   BLOB_CHUNKS_COLLECTION,
   BLOB_SLOTS_PREFIX,
   BLOB_VERSIONS_PREFIX,
   DEFAULT_CHUNK_SIZE,
-} from '../src/blobs/blob-set.js'
+} from '../src/with-shape/blobs/blob-set.js'
 
 // ─── Minimal in-memory store (same shape used by other tests) ─────────
 
@@ -706,43 +706,43 @@ describe('wrapBundleStore', () => {
 
 describe('detectMimeType', () => {
   it('detects PDF from magic bytes', async () => {
-    const { detectMimeType } = await import('../src/blobs/mime-magic.js')
+    const { detectMimeType } = await import('../src/with-shape/blobs/mime-magic.js')
     const header = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34, 0, 0, 0, 0, 0, 0, 0, 0])
     expect(detectMimeType(header)).toBe('application/pdf')
   })
 
   it('detects PNG from magic bytes', async () => {
-    const { detectMimeType } = await import('../src/blobs/mime-magic.js')
+    const { detectMimeType } = await import('../src/with-shape/blobs/mime-magic.js')
     const header = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0, 0, 0, 0, 0])
     expect(detectMimeType(header)).toBe('image/png')
   })
 
   it('detects JPEG from magic bytes', async () => {
-    const { detectMimeType } = await import('../src/blobs/mime-magic.js')
+    const { detectMimeType } = await import('../src/with-shape/blobs/mime-magic.js')
     const header = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
     expect(detectMimeType(header)).toBe('image/jpeg')
   })
 
   it('detects ZIP from magic bytes', async () => {
-    const { detectMimeType } = await import('../src/blobs/mime-magic.js')
+    const { detectMimeType } = await import('../src/with-shape/blobs/mime-magic.js')
     const header = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
     expect(detectMimeType(header)).toBe('application/zip')
   })
 
   it('detects GZIP from magic bytes', async () => {
-    const { detectMimeType } = await import('../src/blobs/mime-magic.js')
+    const { detectMimeType } = await import('../src/with-shape/blobs/mime-magic.js')
     const header = new Uint8Array([0x1f, 0x8b, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
     expect(detectMimeType(header)).toBe('application/gzip')
   })
 
   it('returns octet-stream for unknown', async () => {
-    const { detectMimeType } = await import('../src/blobs/mime-magic.js')
+    const { detectMimeType } = await import('../src/with-shape/blobs/mime-magic.js')
     const header = new Uint8Array([0x00, 0x00, 0x00, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
     expect(detectMimeType(header)).toBe('application/octet-stream')
   })
 
   it('marks compressed formats as pre-compressed', async () => {
-    const { isPreCompressed } = await import('../src/blobs/mime-magic.js')
+    const { isPreCompressed } = await import('../src/with-shape/blobs/mime-magic.js')
     expect(isPreCompressed('image/jpeg')).toBe(true)
     expect(isPreCompressed('image/png')).toBe(true)
     expect(isPreCompressed('application/zip')).toBe(true)

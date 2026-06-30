@@ -6,7 +6,7 @@
  * tree-shakeable through it.
  */
 
-import { evaluateMoneyClause, type MoneyWhereOperand } from '../money/where.js'
+import { evaluateMoneyClause, type MoneyWhereOperand } from '../with-shape/money/where.js'
 
 /** Comparison operators supported by the where() builder. */
 export type Operator =

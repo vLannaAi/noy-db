@@ -1,4 +1,4 @@
-import { DerivationCycleError } from '../errors.js'
+import { DerivationCycleError } from '../../errors.js'
 import { computeStrategyHash } from './strategy-hash.js'
 import type { DerivationStrategy } from './types.js'
 

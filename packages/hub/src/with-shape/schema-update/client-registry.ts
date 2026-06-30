@@ -4,8 +4,8 @@
  * liveness (`lastSeen`) and the fence generation it has quiesced for
  * (`quiescedAtVersion`). Plaintext envelope, like the fence doc.
  */
-import type { NoydbStore, EncryptedEnvelope } from '../types.js'
-import { NOYDB_FORMAT_VERSION } from '../types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../../types.js'
+import { NOYDB_FORMAT_VERSION } from '../../types.js'
 
 const META_COLLECTION = '_meta'
 const CLIENT_PREFIX = 'schema-fence:client:'

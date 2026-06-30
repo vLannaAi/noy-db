@@ -54,10 +54,10 @@
  * @module
  */
 
-import type { NoydbStore, EncryptedEnvelope } from '../types.js'
-import type { LedgerStore } from '../history/ledger/index.js'
-import { sha256Hex, canonicalJson } from '../history/ledger/index.js'
-import { PeriodClosedError, ValidationError } from '../errors.js'
+import type { NoydbStore, EncryptedEnvelope } from '../../types.js'
+import type { LedgerStore } from '../../with-commit/history/ledger/index.js'
+import { sha256Hex, canonicalJson } from '../../with-commit/history/ledger/index.js'
+import { PeriodClosedError, ValidationError } from '../../errors.js'
 
 /** The reserved collection name holding closed-period metadata. */
 export const PERIODS_COLLECTION = '_periods'
@@ -322,7 +322,7 @@ export async function appendPeriodLedgerEntry(
   name: string,
 ): Promise<void> {
   if (!ledger) return
-  const { envelopePayloadHash } = await import('../history/ledger/index.js')
+  const { envelopePayloadHash } = await import('../../with-commit/history/ledger/index.js')
   await ledger.append({
     op: 'put',
     collection: PERIODS_COLLECTION,

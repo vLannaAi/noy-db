@@ -8,11 +8,11 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
 import { ConflictError } from '../src/errors.js'
-import { MemorySealingKeyProvider } from '../src/team/managed-passphrase.js'
+import { MemorySealingKeyProvider } from '../src/with-party/team/managed-passphrase.js'
 import { shamirRecoveryProvider } from '@noy-db/on-shamir'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
-import { extractPartition } from '../src/bundle/extract-partition.js'
-import { adoptPartition, createOwnerOnAdoptedPartition } from '../src/bundle/adopt-partition.js'
+import { extractPartition } from '../src/with-fork/bundle/extract-partition.js'
+import { adoptPartition, createOwnerOnAdoptedPartition } from '../src/with-fork/bundle/adopt-partition.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

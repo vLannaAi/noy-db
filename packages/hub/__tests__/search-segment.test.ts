@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { segmentTokens, segmentTokenizer } from '../src/search/segment.js'
+import { segmentTokens, segmentTokenizer } from '../src/with-lookup/search/segment.js'
 
 describe('segmentTokenizer (#308 L1)', () => {
   it('segments Latin words and lowercases + NFKC-normalizes the term', () => {

@@ -4,7 +4,7 @@
  * raw-object path (#413): write raw bytes as one native object + get a URL.
  */
 import { describe, it, expect } from 'vitest'
-import { memoryObjectProjection } from '../src/blobs/object-projection.js'
+import { memoryObjectProjection } from '../src/with-shape/blobs/object-projection.js'
 
 describe('#412 — ObjectProjection (memory reference impl)', () => {
   it('round-trips raw bytes through put/get/head/delete', async () => {

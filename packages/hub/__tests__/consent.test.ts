@@ -13,7 +13,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError, createNoydb, CONSENT_AUDIT_COLLECTION } from '../src/index.js'
-import { withConsent } from '../src/consent/index.js'
+import { withConsent } from '../src/with-audit/consent/index.js'
 import type { Noydb } from '../src/index.js'
 
 function memoryStore(): { store: NoydbStore; data: Map<string, Map<string, Map<string, EncryptedEnvelope>>> } {

@@ -18,8 +18,8 @@ import { encrypt, decrypt, generateDEK, wrapCek, unwrapCek, bufferToBase64, deri
 import { NOYDB_FORMAT_VERSION, type EncryptedEnvelope, type NoydbStore } from '../types.js'
 import { dualReadSealedSlot } from './sealed-slot.js'
 import { RecordCekNotFoundError, ValidationError } from '../errors.js'
-import type { RecipientSealer } from '../team/managed-passphrase.js'
-import type { SealedCekBinding, SealedCekDeliveryEnvelope } from '../sealed-record/types.js'
+import type { RecipientSealer } from '../with-party/team/managed-passphrase.js'
+import type { SealedCekBinding, SealedCekDeliveryEnvelope } from '../with-audit/sealed-record/types.js'
 
 const subtle = globalThis.crypto.subtle
 

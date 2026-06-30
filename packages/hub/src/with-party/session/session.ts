@@ -41,11 +41,11 @@
  * even if the session key is still in the Map.
  */
 
-import { bufferToBase64, base64ToBuffer } from '../crypto.js'
-import { generateULID } from '../bundle/ulid.js'
-import type { Role } from '../types.js'
+import { bufferToBase64, base64ToBuffer } from '../../crypto.js'
+import { generateULID } from '../../with-fork/bundle/ulid.js'
+import type { Role } from '../../types.js'
 import type { UnlockedKeyring } from '../team/keyring.js'
-import { SessionExpiredError, SessionNotFoundError } from '../errors.js'
+import { SessionExpiredError, SessionNotFoundError } from '../../errors.js'
 
 const subtle = globalThis.crypto.subtle
 

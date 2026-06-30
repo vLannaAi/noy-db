@@ -12,25 +12,25 @@ import type {
   Role,
 } from './types.js'
 import type { Noydb } from './noydb.js'
-import type { IssueDelegationOptions, DelegationToken } from './team/delegation.js'
+import type { IssueDelegationOptions, DelegationToken } from './with-party/team/delegation.js'
 import { NOYDB_BACKUP_VERSION, NOYDB_FORMAT_VERSION } from './types.js'
 import { Collection } from './collection.js'
 import type { CacheOptions } from './collection.js'
-import type { IndexDef } from './indexing/eager-indexes.js'
+import type { IndexDef } from './with-lookup/indexing/eager-indexes.js'
 import type { JoinableSource } from './query/index.js'
 import type { OnDirtyCallback } from './collection.js'
-import type { UnlockedKeyring, BundleRecipient } from './team/keyring.js'
-import { exportAccessibleData } from './bundle/export-accessible.js'
-import { withdrawAccessibleData } from './bundle/withdraw-accessible.js'
-import { requestWithdrawal, listWithdrawalRequests, approveWithdrawal, rejectWithdrawal } from './bundle/request-withdrawal.js'
-import type { MaterializedViewRegistry } from './materialized-views/registry.js'
-import type { MaterializedViewStrategyHandle, MVQueryContext } from './materialized-views/types.js'
-import type { OverlayedViewRegistry } from './overlay-views/registry.js'
-import type { OverlayedViewStrategyHandle } from './overlay-views/types.js'
-import { OverlayedCollection } from './overlay-views/virtual-collection.js'
+import type { UnlockedKeyring, BundleRecipient } from './with-party/team/keyring.js'
+import { exportAccessibleData } from './with-fork/bundle/export-accessible.js'
+import { withdrawAccessibleData } from './with-fork/bundle/withdraw-accessible.js'
+import { requestWithdrawal, listWithdrawalRequests, approveWithdrawal, rejectWithdrawal } from './with-fork/bundle/request-withdrawal.js'
+import type { MaterializedViewRegistry } from './with-formula/materialized-views/registry.js'
+import type { MaterializedViewStrategyHandle, MVQueryContext } from './with-formula/materialized-views/types.js'
+import type { OverlayedViewRegistry } from './with-formula/overlay-views/registry.js'
+import type { OverlayedViewStrategyHandle } from './with-formula/overlay-views/types.js'
+import { OverlayedCollection } from './with-formula/overlay-views/virtual-collection.js'
 import type { PublicEnvelope } from './meta/public-envelope/types.js'
-import { buildRecipientKeyringFile } from './team/keyring.js'
-import { ensureCollectionDEK, hasAccess, hasExportCapability, hasImportCapability } from './team/keyring.js'
+import { buildRecipientKeyringFile } from './with-party/team/keyring.js'
+import { ensureCollectionDEK, hasAccess, hasExportCapability, hasImportCapability } from './with-party/team/keyring.js'
 import type { ExportFormat, KeyringFile, SensitiveOpt, IndexFieldName, IndexDefFor, MoneyFieldsOpt } from './types.js'
 import {
   ExportCapabilityError,
@@ -44,40 +44,40 @@ import {
 import type { NoydbEventEmitter } from './events.js'
 import { BackupLedgerError, BackupCorruptedError } from './errors.js'
 import type { StandardSchemaV1 } from './schema.js'
-import type { BlobStrategy } from './blobs/strategy.js'
-import type { ObjectProjection } from './blobs/object-projection.js'
-import type { ArchiveStrategy } from './archive/index.js'
-import type { ArchivePolicy, ArchiveContext, ArchiveResult, ArchiveRunOptions } from './archive/index.js'
-import { runArchive, runRestore, runListArchived } from './archive/index.js'
-import { SequenceStore, type SequenceHandle, type FormattedSequenceHandle, type SequenceOptions, resolveSequenceKey, compileSequenceFormat, SEQUENCE_COLLECTION } from './sequence/index.js'
-import { DeferredNumberingStore, type Assignment } from './numbering/index.js'
-import type { DeferredNumberingConfig } from './numbering/descriptor.js'
-import type { IndexStrategy } from './indexing/strategy.js'
-import type { AggregateStrategy } from './aggregate/strategy.js'
-import type { CrdtStrategy } from './crdt/strategy.js'
+import type { BlobStrategy } from './with-shape/blobs/strategy.js'
+import type { ObjectProjection } from './with-shape/blobs/object-projection.js'
+import type { ArchiveStrategy } from './with-fork/archive/index.js'
+import type { ArchivePolicy, ArchiveContext, ArchiveResult, ArchiveRunOptions } from './with-fork/archive/index.js'
+import { runArchive, runRestore, runListArchived } from './with-fork/archive/index.js'
+import { SequenceStore, type SequenceHandle, type FormattedSequenceHandle, type SequenceOptions, resolveSequenceKey, compileSequenceFormat, SEQUENCE_COLLECTION } from './with-commit/sequence/index.js'
+import { DeferredNumberingStore, type Assignment } from './with-commit/numbering/index.js'
+import type { DeferredNumberingConfig } from './with-commit/numbering/descriptor.js'
+import type { IndexStrategy } from './with-lookup/indexing/strategy.js'
+import type { AggregateStrategy } from './with-lookup/aggregate/strategy.js'
+import type { CrdtStrategy } from './with-commit/crdt/strategy.js'
 //  — import from leaf modules (NOT from ./history/ledger/index.js
 // or store.js) so the LedgerStore class never reaches the floor
 // bundle. The leaf files hold pure constants + a tiny hash helper;
 // the class lives behind the history strategy seam.
-import type { LedgerStore } from './history/ledger/store.js'
-import { LEDGER_COLLECTION, LEDGER_DELTAS_COLLECTION } from './history/ledger/constants.js'
-import { sha256Hex } from './history/ledger/entry.js'
-import type { VaultInstant } from './history/time-machine.js'
-import { NO_HISTORY, type HistoryStrategy } from './history/strategy.js'
-import { NO_FORGET, type ForgetStrategy, type ForgetResult } from './forget/strategy.js'
+import type { LedgerStore } from './with-commit/history/ledger/store.js'
+import { LEDGER_COLLECTION, LEDGER_DELTAS_COLLECTION } from './with-commit/history/ledger/constants.js'
+import { sha256Hex } from './with-commit/history/ledger/entry.js'
+import type { VaultInstant } from './with-commit/history/time-machine.js'
+import { NO_HISTORY, type HistoryStrategy } from './with-commit/history/strategy.js'
+import { NO_FORGET, type ForgetStrategy, type ForgetResult } from './with-audit/forget/strategy.js'
 import {
   addSubjectRef,
   removeSubjectRef,
   lookupSubject,
   rebuildSubjectIndex as rebuildSubjectIndexImpl,
   type SubjectRef,
-} from './forget/subject-index.js'
+} from './with-audit/forget/subject-index.js'
 import { ForgetStrategyNotConfiguredError } from './errors.js'
-import type { VaultFrame } from './shadow/vault-frame.js'
-import { NO_SHADOW, type ShadowStrategy } from './shadow/strategy.js'
-import type { ConsentContext, ConsentAuditEntry, ConsentAuditFilter, ConsentOp } from './consent/consent.js'
-import { NO_CONSENT, type ConsentStrategy } from './consent/strategy.js'
-import { NO_PERIODS, type PeriodsStrategy } from './periods/strategy.js'
+import type { VaultFrame } from './with-fork/shadow/vault-frame.js'
+import { NO_SHADOW, type ShadowStrategy } from './with-fork/shadow/strategy.js'
+import type { ConsentContext, ConsentAuditEntry, ConsentAuditFilter, ConsentOp } from './with-audit/consent/consent.js'
+import { NO_CONSENT, type ConsentStrategy } from './with-audit/consent/strategy.js'
+import { NO_PERIODS, type PeriodsStrategy } from './with-audit/periods/strategy.js'
 import {
   RefRegistry,
   RefIntegrityError,
@@ -85,35 +85,35 @@ import {
   type RefDescriptor,
   type RefViolation,
 } from './refs.js'
-import type { DictionaryHandle, DictionaryOptions, DictKeyDescriptor, StaticDictDescriptor } from './i18n/dictionary.js'
-import { isDictCollectionName, isStaticDictDescriptor } from './i18n/dictionary.js'
-import { LinkSet, isLinkCollectionName, linkCollectionName, linkRowKey, LinkIntegrityError, type LinkSpec, type LinkSetHandle } from './links/link-set.js'
-import type { EmbeddingDescriptor } from './embeddings/index.js'
-import type { I18nTextDescriptor } from './i18n/core.js'
-import { getAtPath } from './i18n/core.js'
-import type { ComputedFields } from './computed/index.js'
-import { NO_I18N, type I18nStrategy } from './i18n/strategy.js'
-import { NO_SYNC, type SyncStrategy } from './team/sync-strategy.js'
+import type { DictionaryHandle, DictionaryOptions, DictKeyDescriptor, StaticDictDescriptor } from './with-shape/i18n/dictionary.js'
+import { isDictCollectionName, isStaticDictDescriptor } from './with-shape/i18n/dictionary.js'
+import { LinkSet, isLinkCollectionName, linkCollectionName, linkRowKey, LinkIntegrityError, type LinkSpec, type LinkSetHandle } from './with-shape/links/link-set.js'
+import type { EmbeddingDescriptor } from './with-lookup/embeddings/index.js'
+import type { I18nTextDescriptor } from './with-shape/i18n/core.js'
+import { getAtPath } from './with-shape/i18n/core.js'
+import type { ComputedFields } from './with-formula/computed/index.js'
+import { NO_I18N, type I18nStrategy } from './with-shape/i18n/strategy.js'
+import { NO_SYNC, type SyncStrategy } from './with-party/team/sync-strategy.js'
 // Type-only imports for the guard + derivation subsystems. The
 // runtime classes are loaded on demand via `await import(...)` inside
 // `_initGuards` / `_initDerivations` (and the read-only-facade
 // accessor below) so consumers that never register a guard or
 // derivation strategy don't pay the chunk cost. This seam prevents
 // the bundle regression that motivated the lazy-import pattern.
-import type { GuardRegistry } from './guards/registry.js'
-import type { GuardStrategyHandleAny } from './guards/types.js'
-import type { ReadOnlyVaultFacade } from './guards/read-only-facade.js'
-import type { DerivationRegistry } from './derivations/registry.js'
-import type { DerivationStrategyHandle } from './derivations/types.js'
+import type { GuardRegistry } from './with-audit/guards/registry.js'
+import type { GuardStrategyHandleAny } from './with-audit/guards/types.js'
+import type { ReadOnlyVaultFacade } from './with-audit/guards/read-only-facade.js'
+import type { DerivationRegistry } from './with-formula/derivations/registry.js'
+import type { DerivationStrategyHandle } from './with-formula/derivations/types.js'
 import type { LocaleReadOptions, ConflictPolicy } from './types.js'
-import type { CrdtMode } from './crdt/crdt.js'
+import type { CrdtMode } from './with-commit/crdt/crdt.js'
 import { ReservedCollectionNameError, StaticDictReadonlyError, UnknownDictCodeError } from './errors.js'
 import {
   PERIODS_COLLECTION,
   type PeriodRecord,
   type ClosePeriodOptions,
   type OpenPeriodOptions,
-} from './periods/index.js'
+} from './with-audit/periods/index.js'
 import { encrypt, decrypt } from './crypto.js'
 import {
   sealRecordToHost as sealRecordToHostImpl,
@@ -122,37 +122,37 @@ import {
   SEALED_CEK_NS,
   type SealingContext,
 } from './record-keys/index.js'
-import type { RecipientSealer } from './team/managed-passphrase.js'
+import type { RecipientSealer } from './with-party/team/managed-passphrase.js'
 import {
   createExportBlobsHandle,
   EXPORT_AUDIT_COLLECTION,
   type ExportBlobsOptions,
   type ExportBlobsHandle,
   type ExportBlobsAuditEntry,
-} from './blobs/export-blobs.js'
-import { runCompaction, type BlobFieldsConfig, type CompactRunOptions, type CompactionResult } from './blobs/blob-compaction.js'
+} from './with-shape/blobs/export-blobs.js'
+import { runCompaction, type BlobFieldsConfig, type CompactRunOptions, type CompactionResult } from './with-shape/blobs/blob-compaction.js'
 import {
   writeMagicLinkGrant,
   type IssueMagicLinkGrantOptions,
   type MagicLinkGrantRecord,
-} from './team/magic-link-grant.js'
+} from './with-party/team/magic-link-grant.js'
 import { UserApi } from './meta/user-envelope/api.js'
-import { CustodyApi } from './custody/index.js'
-import { liberateVault } from './custody/liberate.js'
-import { persistSchemaIfNeeded } from './persisted-schemas/register.js'
-import { SchemaUpdateGate } from './schema-update/gate.js'
-import { SchemaFenceController } from './schema-update/fence-controller.js'
-import { FenceWatcher } from './schema-update/fence-watcher.js'
-import { loadFence, type FenceDoc } from './schema-update/fence.js'
-import type { SchemaUpdateStrategy, UpdateDecision, TransformFn } from './schema-update/types.js'
-import { SCHEMAS_COLLECTION } from './persisted-schemas/storage.js'
+import { CustodyApi } from './with-party/custody/index.js'
+import { liberateVault } from './with-party/custody/liberate.js'
+import { persistSchemaIfNeeded } from './with-shape/persisted-schemas/register.js'
+import { SchemaUpdateGate } from './with-shape/schema-update/gate.js'
+import { SchemaFenceController } from './with-shape/schema-update/fence-controller.js'
+import { FenceWatcher } from './with-shape/schema-update/fence-watcher.js'
+import { loadFence, type FenceDoc } from './with-shape/schema-update/fence.js'
+import type { SchemaUpdateStrategy, UpdateDecision, TransformFn } from './with-shape/schema-update/types.js'
+import { SCHEMAS_COLLECTION } from './with-shape/persisted-schemas/storage.js'
 import type { AttestationFieldSchema, RevocationList } from '@noy-db/attestation'
-import type { IssueContext } from './attestation/issue.js'
-import type { RevokeContext } from './attestation/revoke.js'
-import type { DumpSchemaOptions, VaultSchemaSnapshot, SchemaIntrospection } from './introspection/types.js'
-import { dumpVaultSchema, type VaultIntrospectState } from './introspection/walk.js'
-import type { FieldMeta } from './introspection/field-meta.js'
-import type { CollectionMeta, VaultMeta } from './introspection/meta.js'
+import type { IssueContext } from './with-audit/attestation/issue.js'
+import type { RevokeContext } from './with-audit/attestation/revoke.js'
+import type { DumpSchemaOptions, VaultSchemaSnapshot, SchemaIntrospection } from './with-shape/introspection/types.js'
+import { dumpVaultSchema, type VaultIntrospectState } from './with-shape/introspection/walk.js'
+import type { FieldMeta } from './with-shape/introspection/field-meta.js'
+import type { CollectionMeta, VaultMeta } from './with-shape/introspection/meta.js'
 import { USER_ENVELOPE_COLLECTION } from './meta/user-envelope/types.js'
 
 /**
@@ -2002,13 +2002,13 @@ export class Vault {
     if (!fieldSchema) {
       throw new AttestationError(`issueAttestation: collection '${collectionName}' has no attestation field-schema. Declare it via vault.collection('${collectionName}', { attestation: { fields: [...] } }).`)
     }
-    const { issueAttestationCore } = await import('./attestation/issue.js')
+    const { issueAttestationCore } = await import('./with-audit/attestation/issue.js')
     const out = await issueAttestationCore(this.makeIssueContext(), { collection: collectionName, id, fieldSchema })
     return { docId: out.docId, qr: out.qr, keyId: out.keyId, publicKeyB64: out.publicKeyB64 }
   }
 
   async getDocumentSigningPublicKey(): Promise<{ keyId: string; publicKeyB64: string }> {
-    const { loadSigner, loadOrCreateSigner } = await import('./attestation/signer.js')
+    const { loadSigner, loadOrCreateSigner } = await import('./with-audit/attestation/signer.js')
     // Reading an existing public key is open to any role that holds the
     // _attestations DEK — the public key is not secret. But MINTING the
     // signer is the firm's identity operation (same rule as issueAttestation):
@@ -2040,22 +2040,22 @@ export class Vault {
   }
 
   async revokeAttestation(docId: string): Promise<void> {
-    const { revokeDocCore } = await import('./attestation/revoke.js')
+    const { revokeDocCore } = await import('./with-audit/attestation/revoke.js')
     await revokeDocCore(this.makeRevokeContext(), docId)
   }
 
   async unrevokeAttestation(docId: string): Promise<void> {
-    const { unrevokeDocCore } = await import('./attestation/revoke.js')
+    const { unrevokeDocCore } = await import('./with-audit/attestation/revoke.js')
     await unrevokeDocCore(this.makeRevokeContext(), docId)
   }
 
   async getRevokedDocIds(): Promise<string[]> {
-    const { getRevokedDocIdsCore } = await import('./attestation/revoke.js')
+    const { getRevokedDocIdsCore } = await import('./with-audit/attestation/revoke.js')
     return getRevokedDocIdsCore(this.makeRevokeContext())
   }
 
   async publishRevocationList(): Promise<RevocationList> {
-    const { publishRevocationListCore } = await import('./attestation/revoke.js')
+    const { publishRevocationListCore } = await import('./with-audit/attestation/revoke.js')
     return publishRevocationListCore(this.makeRevokeContext())
   }
 
@@ -2898,8 +2898,8 @@ export class Vault {
   async _initGuards(handles: ReadonlyArray<GuardStrategyHandleAny>): Promise<void> {
     if (handles.length === 0) return
     const [{ GuardRegistry }, { ReadOnlyVaultFacade }] = await Promise.all([
-      import('./guards/registry.js'),
-      import('./guards/read-only-facade.js'),
+      import('./with-audit/guards/registry.js'),
+      import('./with-audit/guards/read-only-facade.js'),
     ])
     const registry = new GuardRegistry()
     for (const h of handles) registry.register(h.spec)
@@ -2928,8 +2928,8 @@ export class Vault {
   async _initDerivations(handles: ReadonlyArray<DerivationStrategyHandle>): Promise<void> {
     if (handles.length === 0) return
     const [{ DerivationRegistry }, { ReadOnlyVaultFacade }] = await Promise.all([
-      import('./derivations/registry.js'),
-      import('./guards/read-only-facade.js'),
+      import('./with-formula/derivations/registry.js'),
+      import('./with-audit/guards/read-only-facade.js'),
     ])
     const registry = new DerivationRegistry()
     for (const h of handles) {
@@ -2968,7 +2968,7 @@ export class Vault {
     handles: ReadonlyArray<MaterializedViewStrategyHandle>,
   ): Promise<void> {
     if (handles.length === 0) return
-    const { MaterializedViewRegistry } = await import('./materialized-views/registry.js')
+    const { MaterializedViewRegistry } = await import('./with-formula/materialized-views/registry.js')
     const registry = new MaterializedViewRegistry()
     // Phase 1: publish the (empty) registry on `this` BEFORE
     // registering any spec. The user's `query(db)` callback runs at
@@ -3011,7 +3011,7 @@ export class Vault {
     handles: ReadonlyArray<OverlayedViewStrategyHandle>,
   ): Promise<void> {
     if (handles.length === 0) return
-    const { OverlayedViewRegistry } = await import('./overlay-views/registry.js')
+    const { OverlayedViewRegistry } = await import('./with-formula/overlay-views/registry.js')
     const registry = new OverlayedViewRegistry()
     const mvRegistry = this.materializedViewRegistry
     // Build the predicate set for registration validation:
@@ -3063,7 +3063,7 @@ export class Vault {
     if (!reg) {
       throw new Error(`refreshView: no MV registered with name "${name}"`)
     }
-    const { MaterializedViewExecutor } = await import('./materialized-views/executor.js')
+    const { MaterializedViewExecutor } = await import('./with-formula/materialized-views/executor.js')
     const result = await MaterializedViewExecutor.refresh(reg, {
       getCollection: (n) => this.collection(n),
       getActiveTxContext: () => this.noydb._activeTxContextOrNull,
@@ -3071,7 +3071,7 @@ export class Vault {
     })
     // Manual refresh clears any pending stale bit — the post-refresh
     // state matches the registered strategy.
-    const { clearMVStale } = await import('./materialized-views/stale.js')
+    const { clearMVStale } = await import('./with-formula/materialized-views/stale.js')
     clearMVStale(registry, name)
     return result
   }
@@ -3089,7 +3089,7 @@ export class Vault {
     const strategies = registry.strategiesForSource(sourceCollection)
     if (strategies.length === 0) return { derived: 0, failed: 0 }
 
-    const { DerivationExecutor } = await import('./derivations/executor.js')
+    const { DerivationExecutor } = await import('./with-formula/derivations/executor.js')
 
     const sourceColl = this.collection<Record<string, unknown>>(sourceCollection)
     const records = await sourceColl.list()
@@ -3097,7 +3097,7 @@ export class Vault {
     // for the closure-captured ctx. Falls back to a fresh `derivation`-layer
     // facade on the sync-fallback path (Noydb.vault() without await) for the
     // same defensive reason `_ensureReadOnlyFacade` exists.
-    const ctx = { vault: this.derivationFacade ?? new (await import('./guards/read-only-facade.js')).ReadOnlyVaultFacade(this, 'derivation') }
+    const ctx = { vault: this.derivationFacade ?? new (await import('./with-audit/guards/read-only-facade.js')).ReadOnlyVaultFacade(this, 'derivation') }
     let derived = 0
     let failed = 0
     for (const record of records) {
@@ -3119,7 +3119,7 @@ export class Vault {
           // Array-shape branch — diff against the fanout sidecar.
           if (out.kind === 'array') {
             const { loadFanoutSidecar, saveFanoutSidecar } =
-              await import('./derivations/fanout-sidecar.js')
+              await import('./with-formula/derivations/fanout-sidecar.js')
             const prior = await loadFanoutSidecar(this.adapter, this.name, spec.source, id, key)
             const prevKeys = new Set<string>(prior?.keys ?? [])
             const newKeysList = out.entries.map(e => e.key)
@@ -3371,7 +3371,7 @@ export class Vault {
    * collection.
    */
   async delegate(opts: IssueDelegationOptions): Promise<DelegationToken> {
-    const { issueDelegation, DELEGATIONS_COLLECTION } = await import('./team/delegation.js')
+    const { issueDelegation, DELEGATIONS_COLLECTION } = await import('./with-party/team/delegation.js')
     // The target user's KEK is derived from THEIR keyring — we read
     // the keyring file to pick up the wrapped DEKs and their KEK salt,
     // but we cannot derive their KEK from our side (we don't have
@@ -3402,7 +3402,7 @@ export class Vault {
    * if the id does not exist.
    */
   async revokeDelegation(id: string): Promise<void> {
-    const { revokeDelegation, DELEGATIONS_COLLECTION } = await import('./team/delegation.js')
+    const { revokeDelegation, DELEGATIONS_COLLECTION } = await import('./with-party/team/delegation.js')
     await revokeDelegation(this.adapter, this.name, id)
     // Trigger store to note the delete.
     void DELEGATIONS_COLLECTION
@@ -3959,7 +3959,7 @@ export class Vault {
     // import from bundle/* without forming a cycle. The dynamic
     // import is invoked once per fresh handle generation, which
     // is rare enough that the cost doesn't matter.
-    const { generateULID } = await import('./bundle/ulid.js')
+    const { generateULID } = await import('./with-fork/bundle/ulid.js')
     const handle = generateULID()
     const envelope: EncryptedEnvelope = {
       _noydb: NOYDB_FORMAT_VERSION,

@@ -23,7 +23,7 @@ import {
   reduceRecords,
   type QuerySource,
 } from '../src/query/index.js'
-import { withAggregate } from '../src/aggregate/index.js'
+import { withAggregate } from '../src/with-lookup/aggregate/index.js'
 const AGG = withAggregate()
 
 interface Invoice {

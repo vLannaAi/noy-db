@@ -19,7 +19,7 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError, ReadOnlyAtInstantError, createNoydb } from '../src/index.js'
-import { withHistory } from '../src/history/index.js'
+import { withHistory } from '../src/with-commit/history/index.js'
 import type { Noydb } from '../src/index.js'
 
 function memoryStore(): NoydbStore {

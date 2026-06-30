@@ -24,9 +24,9 @@
  * source change" that ships.
  */
 
-import { readPath } from '../query/predicate.js'
-import type { MoneyString } from '../money/branded.js'
-import type { QueryField } from '../types.js'
+import { readPath } from '../../query/predicate.js'
+import type { MoneyString } from '../../with-shape/money/branded.js'
+import type { QueryField } from '../../types.js'
 
 /**
  * A single reducer: factory-produced, ready to plug into an

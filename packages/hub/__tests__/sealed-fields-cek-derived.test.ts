@@ -26,8 +26,8 @@ import {
 } from '../src/crypto.js'
 import { NOYDB_FORMAT_VERSION } from '../src/types.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
-import { withHistory } from '../src/history/index.js'
-import { withForgetCascade } from '../src/forget/index.js'
+import { withHistory } from '../src/with-commit/history/index.js'
+import { withForgetCascade } from '../src/with-audit/forget/index.js'
 
 interface Person {
   id: string

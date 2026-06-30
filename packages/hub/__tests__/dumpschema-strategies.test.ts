@@ -17,7 +17,7 @@ import {
   sum,
   count,
 } from '../src/index.js'
-import { withAggregate } from '../src/aggregate/index.js'
+import { withAggregate } from '../src/with-lookup/aggregate/index.js'
 
 function memory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()

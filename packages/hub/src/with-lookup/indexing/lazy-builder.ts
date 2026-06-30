@@ -23,11 +23,11 @@
  * indexes exist to prevent (see `docs/architecture.md` §indexes).
  */
 
-import type { Clause, FieldClause, Operator } from '../query/predicate.js'
-import { evaluateClause, readPath } from '../query/predicate.js'
+import type { Clause, FieldClause, Operator } from '../../query/predicate.js'
+import { evaluateClause, readPath } from '../../query/predicate.js'
 import type { PersistedCollectionIndex } from './persisted-indexes.js'
-import { IndexRequiredError } from '../errors.js'
-import type { QueryField } from '../types.js'
+import { IndexRequiredError } from '../../errors.js'
+import type { QueryField } from '../../types.js'
 
 export interface LazyOrderBy {
   readonly field: string

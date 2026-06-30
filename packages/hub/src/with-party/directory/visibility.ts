@@ -19,8 +19,8 @@
  *
  * @module
  */
-import type { NoydbStore, EncryptedEnvelope } from '../types.js'
-import { NOYDB_FORMAT_VERSION } from '../types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../../types.js'
+import { NOYDB_FORMAT_VERSION } from '../../types.js'
 import type { UserVisibility } from './types.js'
 import { META_COLLECTION } from './storage.js'
 

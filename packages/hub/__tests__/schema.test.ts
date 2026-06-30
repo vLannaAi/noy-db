@@ -26,7 +26,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { z } from 'zod'
 import { createNoydb } from '../src/noydb.js'
-import { withHistory } from '../src/history/index.js'
+import { withHistory } from '../src/with-commit/history/index.js'
 import type { Noydb } from '../src/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError, SchemaValidationError } from '../src/errors.js'

@@ -37,11 +37,11 @@
  *
  * @module
  */
-import type { Collection } from '../collection.js'
-import type { Query } from '../query/builder.js'
-import type { Vault } from '../vault.js'
-import type { LocaleReadOptions } from '../types.js'
-import { ReadOnlyFrameError } from '../errors.js'
+import type { Collection } from '../../collection.js'
+import type { Query } from '../../query/builder.js'
+import type { Vault } from '../../vault.js'
+import type { LocaleReadOptions } from '../../types.js'
+import { ReadOnlyFrameError } from '../../errors.js'
 
 /**
  * A read-only view of a vault's current state. Produced by

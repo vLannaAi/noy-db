@@ -1,7 +1,7 @@
-import type { NoydbStore, EncryptedEnvelope } from '../types.js'
-import { NOYDB_FORMAT_VERSION } from '../types.js'
-import { encrypt, decrypt } from '../crypto.js'
-import { ConflictError } from '../errors.js'
+import type { NoydbStore, EncryptedEnvelope } from '../../types.js'
+import { NOYDB_FORMAT_VERSION } from '../../types.js'
+import { encrypt, decrypt } from '../../crypto.js'
+import { ConflictError } from '../../errors.js'
 import { generateDocSigningKeyPair } from '@noy-db/attestation'
 
 export const ATTESTATIONS_COLLECTION = '_attestations'

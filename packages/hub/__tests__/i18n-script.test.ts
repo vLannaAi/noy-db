@@ -6,8 +6,8 @@
  * - onScriptViolation: reject (default) / filter / warn
  */
 import { describe, it, expect } from 'vitest'
-import { i18nText } from '../src/i18n/core.js'
-import { inferScripts, enforceScript } from '../src/i18n/script.js'
+import { i18nText } from '../src/with-shape/i18n/core.js'
+import { inferScripts, enforceScript } from '../src/with-shape/i18n/script.js'
 import { ScriptViolationError } from '../src/errors.js'
 
 describe('inferScripts — asymmetric Latin (#283)', () => {

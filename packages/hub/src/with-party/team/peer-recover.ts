@@ -33,11 +33,11 @@
  *
  * @module
  */
-import type { NoydbStore, KeyringFile, Role } from '../types.js'
-import { NOYDB_KEYRING_VERSION } from '../types.js'
-import { deriveKey, generateSalt, wrapKey, bufferToBase64 } from '../crypto.js'
-import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError } from '../errors.js'
-import { assertStrongPassphrase, type PassphrasePolicy } from '../validation.js'
+import type { NoydbStore, KeyringFile, Role } from '../../types.js'
+import { NOYDB_KEYRING_VERSION } from '../../types.js'
+import { deriveKey, generateSalt, wrapKey, bufferToBase64 } from '../../crypto.js'
+import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError } from '../../errors.js'
+import { assertStrongPassphrase, type PassphrasePolicy } from '../../validation.js'
 import type { UnlockedKeyring } from './keyring.js'
 import { mintKeyringCanary } from './keyring.js'
 

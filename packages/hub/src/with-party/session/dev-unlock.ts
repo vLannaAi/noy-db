@@ -65,10 +65,10 @@
  * ```
  */
 
-import { bufferToBase64, base64ToBuffer } from '../crypto.js'
-import { ValidationError } from '../errors.js'
+import { bufferToBase64, base64ToBuffer } from '../../crypto.js'
+import { ValidationError } from '../../errors.js'
 import type { UnlockedKeyring } from '../team/keyring.js'
-import type { Role } from '../types.js'
+import type { Role } from '../../types.js'
 
 // The exact acknowledgement string callers must pass
 const REQUIRED_ACKNOWLEDGE = 'I-UNDERSTAND-THIS-DISABLES-UNLOCK-SECURITY'

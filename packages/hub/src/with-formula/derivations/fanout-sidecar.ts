@@ -18,8 +18,8 @@
  *
  * @module
  */
-import type { NoydbStore, EncryptedEnvelope } from '../types.js'
-import { NOYDB_FORMAT_VERSION } from '../types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../../types.js'
+import { NOYDB_FORMAT_VERSION } from '../../types.js'
 
 /** Magic-prefixed JSON payload at `_meta/<recordId>`. */
 export interface FanoutSidecar {

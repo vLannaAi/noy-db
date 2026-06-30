@@ -3,7 +3,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb, ConflictError, SequenceOfflineError, SequenceContentionError, ReservedCollectionNameError, ValidationError } from '../src/index.js'
-import { withHistory } from '../src/history/index.js'
+import { withHistory } from '../src/with-commit/history/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/index.js'
 
 function memory(casAtomic = true): NoydbStore {
@@ -389,7 +389,7 @@ describe('#375 vault.sequence — format', () => {
   })
 
   it('rejects format on a deferred-numbering series', async () => {
-    const { withDeferredNumbering } = await import('../src/numbering/descriptor.js')
+    const { withDeferredNumbering } = await import('../src/with-commit/numbering/descriptor.js')
     const db = await createNoydb({
       store: memory(), user: 'owner', secret: 'pw',
       numbering: [withDeferredNumbering({ series: 'def', collection: 'docs', field: 'serial' })],

@@ -1,4 +1,4 @@
-import { MaterializedViewConfigError, ValidationError } from '../errors.js'
+import { MaterializedViewConfigError, ValidationError } from '../../errors.js'
 import type { MaterializedViewStrategy, MaterializedViewStrategyHandle } from './types.js'
 
 /**

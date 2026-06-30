@@ -28,12 +28,12 @@ import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
 import { ConflictError, ForgetStrategyNotConfiguredError } from '../src/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
-import { withHistory } from '../src/history/index.js'
-import { withForgetCascade } from '../src/forget/index.js'
-import { withIndexing } from '../src/indexing/index.js'
-import { withCrdt } from '../src/crdt/index.js'
-import { withSync } from '../src/sync/index.js'
-import { sha256Hex } from '../src/history/ledger/entry.js'
+import { withHistory } from '../src/with-commit/history/index.js'
+import { withForgetCascade } from '../src/with-audit/forget/index.js'
+import { withIndexing } from '../src/with-lookup/indexing/index.js'
+import { withCrdt } from '../src/with-commit/crdt/index.js'
+import { withSync } from '../src/with-party/sync/index.js'
+import { sha256Hex } from '../src/with-commit/history/ledger/entry.js'
 
 /** In-memory store exposing raw envelopes + a list helper for reserved cols. */
 function memory(): NoydbStore & {

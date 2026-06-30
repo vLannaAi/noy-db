@@ -134,7 +134,7 @@ describe('record provenance — _source/_sourceTs envelope fields (FR-5 Task 1)'
   })
 
   it('history snapshot of prior version does NOT carry _source from the new write', async () => {
-    const { withHistory } = await import('../src/history/index.js')
+    const { withHistory } = await import('../src/with-commit/history/index.js')
     const store = memory()
     const db = await createNoydb({
       store,
@@ -165,7 +165,7 @@ describe('record provenance — _source/_sourceTs envelope fields (FR-5 Task 1)'
   })
 
   it('the reason option still works alongside source', async () => {
-    const { withHistory } = await import('../src/history/index.js')
+    const { withHistory } = await import('../src/with-commit/history/index.js')
     const store = memory()
     const db = await createNoydb({
       store,

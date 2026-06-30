@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb, withMaterializedView } from '../../src/index.js'
-import { isMVStale } from '../../src/materialized-views/stale.js'
+import { isMVStale } from '../../src/with-formula/materialized-views/stale.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
 
 function memory(): NoydbStore {

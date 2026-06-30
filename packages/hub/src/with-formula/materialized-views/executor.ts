@@ -1,13 +1,13 @@
-import type { Collection } from '../collection.js'
-import type { TxContext } from '../tx/transaction.js'
-import type { EncryptedEnvelope } from '../types.js'
-import { MaterializedViewTooLargeError, LocaleNotSpecifiedError } from '../errors.js'
+import type { Collection } from '../../collection.js'
+import type { TxContext } from '../../with-commit/tx/transaction.js'
+import type { EncryptedEnvelope } from '../../types.js'
+import { MaterializedViewTooLargeError, LocaleNotSpecifiedError } from '../../errors.js'
 import type { MaterializedFromMeta, MVQueryContext, MaterializedViewStrategy } from './types.js'
 import type { RegisteredMV } from './registry.js'
 import { wrapDbWithPredicates } from './registry.js'
-import { groupAndReduce } from '../aggregate/groupby.js'
-import { canonicalGroupKey } from '../aggregate/canonical-key.js'
-import { applyI18nLocale, type I18nTextDescriptor } from '../i18n/core.js'
+import { groupAndReduce } from '../../with-lookup/aggregate/groupby.js'
+import { canonicalGroupKey } from '../../with-lookup/aggregate/canonical-key.js'
+import { applyI18nLocale, type I18nTextDescriptor } from '../../with-shape/i18n/core.js'
 
 /**
  * Accessor shape passed in from the owning Vault. Mirrors v1's

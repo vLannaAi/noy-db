@@ -11,9 +11,9 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
 import { ConflictError } from '../src/errors.js'
-import { withHistory } from '../src/history/index.js'
-import { withForgetCascade } from '../src/forget/index.js'
-import { withI18n } from '../src/i18n/index.js'
+import { withHistory } from '../src/with-commit/history/index.js'
+import { withForgetCascade } from '../src/with-audit/forget/index.js'
+import { withI18n } from '../src/with-shape/i18n/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 
 /** In-memory store exposing raw envelopes + a get helper for reserved cols. */

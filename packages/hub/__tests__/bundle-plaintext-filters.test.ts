@@ -15,7 +15,7 @@
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/index.js'
 import { ConflictError, createNoydb, writeNoydbBundle, readNoydbBundle } from '../src/index.js'
-import { withHistory } from '../src/history/index.js'
+import { withHistory } from '../src/with-commit/history/index.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

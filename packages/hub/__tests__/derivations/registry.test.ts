@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { DerivationRegistry } from '../../src/derivations/registry.js'
-import { withDerivation } from '../../src/derivations/with-derivation.js'
+import { DerivationRegistry } from '../../src/with-formula/derivations/registry.js'
+import { withDerivation } from '../../src/with-formula/derivations/with-derivation.js'
 import { DerivationCycleError } from '../../src/errors.js'
 
 describe('DerivationRegistry', () => {

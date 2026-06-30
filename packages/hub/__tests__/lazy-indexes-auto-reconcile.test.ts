@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
-import { withIndexing } from '../src/indexing/index.js'
+import { withIndexing } from '../src/with-lookup/indexing/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 
 function memory(): NoydbStore {

@@ -17,7 +17,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { memory } from '../../to-memory/src/index.js'
 import { ValidationError, PeriodClosedError, createNoydb } from '../src/index.js'
-import { withPeriods } from '../src/periods/index.js'
+import { withPeriods } from '../src/with-audit/periods/index.js'
 import type { Noydb } from '../src/index.js'
 
 interface Invoice { amount: number; status: string; date: string }

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
-import { GuardRegistry } from '../../src/guards/registry.js'
-import { withGuard } from '../../src/guards/with-guard.js'
-import type { GuardContext } from '../../src/guards/types.js'
+import { GuardRegistry } from '../../src/with-audit/guards/registry.js'
+import { withGuard } from '../../src/with-audit/guards/with-guard.js'
+import type { GuardContext } from '../../src/with-audit/guards/types.js'
 
 const ctx = (existing: unknown = null): GuardContext<any> => ({
   existing: existing as any,

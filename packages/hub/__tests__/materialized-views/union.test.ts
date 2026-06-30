@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb, withMaterializedView, sum } from '../../src/index.js'
-import { withAggregate } from '../../src/aggregate/index.js'
+import { withAggregate } from '../../src/with-lookup/aggregate/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
 
 function memory(): NoydbStore {
@@ -467,7 +467,7 @@ describe('UNION MV — queryHash sensitivity (#165 niwat review)', () => {
     })
 
     // Import summarizeUnionPlan directly to compare hashes
-    const { summarizeUnionPlan } = await import('../../src/materialized-views/dependency-analyzer.js')
+    const { summarizeUnionPlan } = await import('../../src/with-formula/materialized-views/dependency-analyzer.js')
     const planA = summarizeUnionPlan(stratA.spec)
     const planB = summarizeUnionPlan(stratB.spec)
     expect(planA).not.toBe(planB)
@@ -498,7 +498,7 @@ describe('UNION MV — queryHash sensitivity (#165 niwat review)', () => {
       rowKey: row => `${row.a}|${row.b}`,
       refresh: 'eager',
     })
-    const { summarizeUnionPlan } = await import('../../src/materialized-views/dependency-analyzer.js')
+    const { summarizeUnionPlan } = await import('../../src/with-formula/materialized-views/dependency-analyzer.js')
     expect(summarizeUnionPlan(stratA.spec)).toBe(summarizeUnionPlan(stratB.spec))
   })
 })

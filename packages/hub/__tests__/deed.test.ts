@@ -14,14 +14,14 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope } from '../src/types.js'
 import { ConflictError } from '../src/errors.js'
-import { MemorySealingKeyProvider } from '../src/team/managed-passphrase.js'
+import { MemorySealingKeyProvider } from '../src/with-party/team/managed-passphrase.js'
 import {
   createDeedOwner,
   loadDeedMarker,
   isDeedVault,
   DEED_RECORD_ID,
   type DeedMarker,
-} from '../src/team/deed.js'
+} from '../src/with-party/team/deed.js'
 
 function inlineMemory(): NoydbStore {
   const data = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -105,7 +105,7 @@ describe('FR-6 Deed — sealed/latent owner provisioning', () => {
 
     // Re-resolve the sealed passphrase through the SAME provider — no human
     // ever typed it. This is the latent-owner proof.
-    const { resolveManagedSecret } = await import('../src/team/managed-passphrase.js')
+    const { resolveManagedSecret } = await import('../src/with-party/team/managed-passphrase.js')
     const reopenProvider = new MemorySealingKeyProvider({ id: 'client-kms' })
     const passphrase = await resolveManagedSecret(store, 'deed-vault', reopenProvider)
     expect(typeof passphrase).toBe('string')
@@ -113,7 +113,7 @@ describe('FR-6 Deed — sealed/latent owner provisioning', () => {
 
     // Re-derive the owner KEK from the unsealed passphrase + persisted salt
     // and confirm it unlocks the same keyring (canary verifies).
-    const { loadKeyring } = await import('../src/team/keyring.js')
+    const { loadKeyring } = await import('../src/with-party/team/keyring.js')
     const reopened = await loadKeyring(store, 'deed-vault', 'client-01', passphrase)
     expect(reopened.userId).toBe('client-01')
     expect(reopened.role).toBe('owner')
@@ -123,7 +123,7 @@ describe('FR-6 Deed — sealed/latent owner provisioning', () => {
   it('a non-firm provider is the only anchor — a different provider id cannot re-resolve', async () => {
     await createDeedOwner(store, 'deed-vault', 'client-01', provider)
     const firmProvider = new MemorySealingKeyProvider({ id: 'firm-kms' })
-    const { resolveManagedSecret } = await import('../src/team/managed-passphrase.js')
+    const { resolveManagedSecret } = await import('../src/with-party/team/managed-passphrase.js')
     await expect(
       resolveManagedSecret(store, 'deed-vault', firmProvider),
     ).rejects.toThrow()

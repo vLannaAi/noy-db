@@ -7,16 +7,16 @@
  *
  * @module
  */
-import { base64ToBuffer, wrapKey } from '../crypto.js'
-import { TransferSealError, AdoptionStateError, ValidationError } from '../errors.js'
-import type { NoydbStore, VaultSnapshot, KeyringFile } from '../types.js'
-import { createOwnerKeyring } from '../team/keyring.js'
-import { resolveManagedSecret } from '../team/managed-passphrase.js'
-import type { SealingKeyProvider } from '../team/managed-passphrase.js'
-import type { ShamirRecoveryProvider } from '../team/shamir-recovery-provider.js'
-import type { RecoveryEnrollmentInput } from '../team/rotate-recover.js'
-import { LedgerStore } from '../history/ledger/store.js'
-import { LEDGER_COLLECTION } from '../history/ledger/constants.js'
+import { base64ToBuffer, wrapKey } from '../../crypto.js'
+import { TransferSealError, AdoptionStateError, ValidationError } from '../../errors.js'
+import type { NoydbStore, VaultSnapshot, KeyringFile } from '../../types.js'
+import { createOwnerKeyring } from '../../with-party/team/keyring.js'
+import { resolveManagedSecret } from '../../with-party/team/managed-passphrase.js'
+import type { SealingKeyProvider } from '../../with-party/team/managed-passphrase.js'
+import type { ShamirRecoveryProvider } from '../../with-party/team/shamir-recovery-provider.js'
+import type { RecoveryEnrollmentInput } from '../../with-party/team/rotate-recover.js'
+import { LedgerStore } from '../../with-commit/history/ledger/store.js'
+import { LEDGER_COLLECTION } from '../../with-commit/history/ledger/constants.js'
 import type { TransferSealPayload } from './bundle.js'
 import { readNoydbBundleHeader, readNoydbBundle, parseExtractedPartitionBody } from './bundle.js'
 
@@ -337,7 +337,7 @@ export async function createOwnerOnAdoptedPartition(
   //    out of the @noy-db/hub/bundle static graph. Runs BEFORE seal destruction
   //    so a failure here leaves the seal intact and the call retryable.
   if (isManaged(opts)) {
-    const { createNoydb } = await import('../noydb.js')
+    const { createNoydb } = await import('../../noydb.js')
     const db = await createNoydb({
       store,
       user: userId,

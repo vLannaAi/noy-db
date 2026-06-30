@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { memory } from '../../../to-memory/src/index.js'
-import { writeClientDoc, listClientDocs, activeQuiesced } from '../../src/schema-update/client-registry.js'
+import { writeClientDoc, listClientDocs, activeQuiesced } from '../../src/with-shape/schema-update/client-registry.js'
 
 describe('client registry', () => {
   it('writes and lists per-client docs', async () => {

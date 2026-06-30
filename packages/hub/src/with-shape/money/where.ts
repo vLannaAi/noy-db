@@ -26,7 +26,7 @@
 
 import { parseToScaledInt } from './fixed-point.js'
 import { MoneyUnsupportedError, type MoneyDescriptor } from './descriptor.js'
-import type { FieldClause, Operator } from '../query/predicate.js'
+import type { FieldClause, Operator } from '../../query/predicate.js'
 
 /** One quantized operand value: scaled digit string + its currency. */
 interface MoneyOperandEntry {

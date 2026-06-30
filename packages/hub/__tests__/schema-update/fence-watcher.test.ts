@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { memory } from '../../../to-memory/src/index.js'
-import { FenceWatcher } from '../../src/schema-update/fence-watcher.js'
-import { saveFence } from '../../src/schema-update/fence.js'
-import { listClientDocs } from '../../src/schema-update/client-registry.js'
+import { FenceWatcher } from '../../src/with-shape/schema-update/fence-watcher.js'
+import { saveFence } from '../../src/with-shape/schema-update/fence.js'
+import { listClientDocs } from '../../src/with-shape/schema-update/client-registry.js'
 import { StoreCoordinationProvider } from '../../src/coordination/index.js'
 
 function mkWatcher(store = memory(), onFlush = async () => {}) {

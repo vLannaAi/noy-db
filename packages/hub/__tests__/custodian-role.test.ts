@@ -15,8 +15,8 @@ import { ConflictError, PermissionDeniedError, ReadOnlyError } from '../src/erro
 import { createNoydb } from '../src/noydb.js'
 import type { Noydb } from '../src/noydb.js'
 import { checkGate, PolicyDeniedError } from '../src/policy/index.js'
-import { putCredential } from '../src/team/sync-credentials.js'
-import { extractPartition } from '../src/bundle/extract-partition.js'
+import { putCredential } from '../src/with-party/team/sync-credentials.js'
+import { extractPartition } from '../src/with-fork/bundle/extract-partition.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

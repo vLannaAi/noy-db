@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
 import { createNoydb } from '../../src/index.js'
-import { withAggregate } from '../../src/aggregate/index.js'
-import { sum } from '../../src/aggregate/reducers.js'
-import { money } from '../../src/money/descriptor.js'
+import { withAggregate } from '../../src/with-lookup/aggregate/index.js'
+import { sum } from '../../src/with-lookup/aggregate/reducers.js'
+import { money } from '../../src/with-shape/money/descriptor.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
 
 // #322 — money fields read back differently via get() (decimal) vs

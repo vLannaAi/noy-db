@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { extractSnippet } from '../src/search/snippet.js'
+import { extractSnippet } from '../src/with-lookup/search/snippet.js'
 
 describe('extractSnippet (#308 L1)', () => {
   it('returns the whole text when shorter than the window', () => {

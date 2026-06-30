@@ -16,9 +16,9 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../../src/noydb.js'
-import { withHistory } from '../../src/history/index.js'
+import { withHistory } from '../../src/with-commit/history/index.js'
 import { ConflictError } from '../../src/errors.js'
-import type { LedgerEntry } from '../../src/history/ledger/entry.js'
+import type { LedgerEntry } from '../../src/with-commit/history/ledger/entry.js'
 import type {
   NoydbStore,
   EncryptedEnvelope,

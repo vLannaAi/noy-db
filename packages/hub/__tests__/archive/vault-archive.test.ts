@@ -3,7 +3,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb, withArchive, withGuard, RecordLockedError } from '../../src/index.js'
-import { withTransactions } from '../../src/tx/index.js'
+import { withTransactions } from '../../src/with-commit/tx/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/index.js'
 import { ConflictError } from '../../src/index.js'
 

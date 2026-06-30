@@ -8,8 +8,8 @@ import { createNoydb } from '../src/noydb.js'
 import { ref } from '../src/refs.js'
 import { ConflictError, AdoptionStateError } from '../src/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
-import { extractPartition } from '../src/bundle/extract-partition.js'
-import { adoptPartition, createOwnerOnAdoptedPartition } from '../src/bundle/adopt-partition.js'
+import { extractPartition } from '../src/with-fork/bundle/extract-partition.js'
+import { adoptPartition, createOwnerOnAdoptedPartition } from '../src/with-fork/bundle/adopt-partition.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -146,7 +146,7 @@ describe('full ceremony end-to-end', () => {
 
 describe('bundle subpath export', () => {
   it('is exported from the @noy-db/hub/bundle subpath', async () => {
-    const mod = await import('../src/bundle/index.js')
+    const mod = await import('../src/with-fork/bundle/index.js')
     expect(typeof mod.createOwnerOnAdoptedPartition).toBe('function')
   })
 })

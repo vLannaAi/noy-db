@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
 import { createNoydb } from '../../src/index.js'
-import { withAggregate } from '../../src/aggregate/index.js'
-import { sum, min, max, count, avg } from '../../src/aggregate/reducers.js'
-import { money, MoneyUnsupportedError } from '../../src/money/descriptor.js'
+import { withAggregate } from '../../src/with-lookup/aggregate/index.js'
+import { sum, min, max, count, avg } from '../../src/with-lookup/aggregate/reducers.js'
+import { money, MoneyUnsupportedError } from '../../src/with-shape/money/descriptor.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
 
 function memory(): NoydbStore {

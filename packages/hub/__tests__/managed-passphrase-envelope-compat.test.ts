@@ -21,7 +21,7 @@ import {
   saveSealedPassphrase,
   parseSealedEnvelope,
   SEALED_PASSPHRASE_RECORD_ID,
-} from '../src/team/managed-passphrase.js'
+} from '../src/with-party/team/managed-passphrase.js'
 
 function inlineMemory(): NoydbStore {
   const data = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

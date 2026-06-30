@@ -12,7 +12,7 @@
 import { describe, it, expect } from 'vitest'
 import { memory } from '../../to-memory/src/index.js'
 import { PeriodClosedError, createNoydb } from '../src/index.js'
-import { withPeriods } from '../src/periods/index.js'
+import { withPeriods } from '../src/with-audit/periods/index.js'
 
 describe('periods gate migration (Track A slice 3a)', () => {
   it('plain Noydb has no gate handlers for beforePut or beforeDelete', async () => {

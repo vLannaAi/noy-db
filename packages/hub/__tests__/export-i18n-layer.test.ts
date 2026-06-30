@@ -8,9 +8,9 @@ import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
-import { withI18n } from '../src/i18n/index.js'
-import { dictKey } from '../src/i18n/dictionary.js'
-import { i18nText } from '../src/i18n/core.js'
+import { withI18n } from '../src/with-shape/i18n/index.js'
+import { dictKey } from '../src/with-shape/i18n/dictionary.js'
+import { i18nText } from '../src/with-shape/i18n/core.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

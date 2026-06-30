@@ -57,21 +57,21 @@
  * @module
  */
 
-import type { Noydb } from '../noydb.js'
-import type { Vault } from '../vault.js'
-import type { Collection } from '../collection.js'
-import type { EncryptedEnvelope } from '../types.js'
+import type { Noydb } from '../../noydb.js'
+import type { Vault } from '../../vault.js'
+import type { Collection } from '../../collection.js'
+import type { EncryptedEnvelope } from '../../types.js'
 import {
   AmendmentForbiddenError,
   ConflictError,
   InvariantError,
   ValidationError,
-} from '../errors.js'
-import { generateULID } from '../bundle/ulid.js'
-import type { GuardExecutor as GuardExecutorModule } from '../guards/executor.js'
+} from '../../errors.js'
+import { generateULID } from '../../with-fork/bundle/ulid.js'
+import type { GuardExecutor as GuardExecutorModule } from '../../with-audit/guards/executor.js'
 import type { LedgerEntry } from '../history/ledger/entry.js'
 import type { TransactionInvariant } from './invariants.js'
-import type { GuardChange, GuardContext, ReadOnlyVaultFacade } from '../guards/types.js'
+import type { GuardChange, GuardContext, ReadOnlyVaultFacade } from '../../with-audit/guards/types.js'
 
 /** One op buffered inside a running `TxContext`. @internal */
 export interface StagedOp {
@@ -435,7 +435,7 @@ export async function runTransaction<T>(
     // Lazy-load GuardExecutor at the dispatch site — keeps the floor
     // bundle free of the guards subsystem when amendments aren't used.
     // Mirrors the deferred-load pattern from elsewhere in this module.
-    const { GuardExecutor } = (await import('../guards/executor.js')) as {
+    const { GuardExecutor } = (await import('../../with-audit/guards/executor.js')) as {
       GuardExecutor: typeof GuardExecutorModule
     }
     try {

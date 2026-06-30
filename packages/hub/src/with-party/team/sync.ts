@@ -12,12 +12,12 @@ import type {
   EncryptedEnvelope,
   SyncMetadata,
   SyncTargetRole,
-} from '../types.js'
-import { NOYDB_SYNC_VERSION } from '../types.js'
-import { ConflictError } from '../errors.js'
-import type { NoydbEventEmitter } from '../events.js'
-import type { SyncPolicy } from '../store/sync-policy.js'
-import { SyncScheduler } from '../store/sync-policy.js'
+} from '../../types.js'
+import { NOYDB_SYNC_VERSION } from '../../types.js'
+import { ConflictError } from '../../errors.js'
+import type { NoydbEventEmitter } from '../../events.js'
+import type { SyncPolicy } from '../../store/sync-policy.js'
+import { SyncScheduler } from '../../store/sync-policy.js'
 
 /** Sync engine: dirty tracking, push, pull, conflict resolution, scheduling. */
 export class SyncEngine {

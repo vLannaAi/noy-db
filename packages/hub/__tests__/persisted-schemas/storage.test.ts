@@ -6,8 +6,8 @@ import {
   SCHEMAS_COLLECTION,
   loadPersistedSchema,
   savePersistedSchema,
-} from '../../src/persisted-schemas/storage.js'
-import type { PersistedSchemaEnvelope } from '../../src/persisted-schemas/types.js'
+} from '../../src/with-shape/persisted-schemas/storage.js'
+import type { PersistedSchemaEnvelope } from '../../src/with-shape/persisted-schemas/types.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

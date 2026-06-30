@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { fuseRetrieval } from '../src/search/fuse.js'
-import type { RetrieveHit } from '../src/search/retrieve-types.js'
+import { fuseRetrieval } from '../src/with-lookup/search/fuse.js'
+import type { RetrieveHit } from '../src/with-lookup/search/retrieve-types.js'
 
 const hit = (id: string, rank: number, field = 'text', snippet = 's'): RetrieveHit<unknown> =>
   ({ id, score: 1 / rank, rank, field, snippet })

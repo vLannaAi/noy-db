@@ -13,7 +13,7 @@
  */
 
 import type { BlobSet } from './blob-set.js'
-import type { NoydbStore } from '../types.js'
+import type { NoydbStore } from '../../types.js'
 import type { ObjectProjection } from './object-projection.js'
 import type { BlobFieldsConfig } from './blob-compaction.js'
 

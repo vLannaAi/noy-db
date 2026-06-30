@@ -11,7 +11,7 @@ import {
   ensureCollectionDEK,
   persistKeyring,
   buildRecipientKeyringFile,
-} from '../src/team/keyring.js'
+} from '../src/with-party/team/keyring.js'
 import { encrypt, decrypt } from '../src/crypto.js'
 
 function inlineMemory(): NoydbStore {

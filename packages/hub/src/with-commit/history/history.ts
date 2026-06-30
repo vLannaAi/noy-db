@@ -1,5 +1,5 @@
-import type { NoydbStore, EncryptedEnvelope, HistoryOptions, PruneOptions } from '../types.js'
-import { NOYDB_FORMAT_VERSION } from '../types.js'
+import type { NoydbStore, EncryptedEnvelope, HistoryOptions, PruneOptions } from '../../types.js'
+import { NOYDB_FORMAT_VERSION } from '../../types.js'
 
 /**
  * History storage convention:

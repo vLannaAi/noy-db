@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { memory } from '../../../to-memory/src/index.js'
-import { loadFence, saveFence, DEFAULT_FENCE } from '../../src/schema-update/fence.js'
+import { loadFence, saveFence, DEFAULT_FENCE } from '../../src/with-shape/schema-update/fence.js'
 
 describe('fence storage', () => {
   it('returns DEFAULT_FENCE when none persisted', async () => {

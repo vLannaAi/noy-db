@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb, withMaterializedView, ref } from '../../src/index.js'
-import { sum } from '../../src/aggregate/reducers.js'
-import { withAggregate } from '../../src/aggregate/index.js'
+import { sum } from '../../src/with-lookup/aggregate/reducers.js'
+import { withAggregate } from '../../src/with-lookup/aggregate/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
 
 function memory(): NoydbStore {
@@ -283,7 +283,7 @@ describe('UNION MV — per-arm join (#347 / AU+031)', () => {
       refresh: 'eager',
     })
 
-    const { summarizeUnionPlan } = await import('../../src/materialized-views/dependency-analyzer.js')
+    const { summarizeUnionPlan } = await import('../../src/with-formula/materialized-views/dependency-analyzer.js')
     const planNoJoin = summarizeUnionPlan(noJoin.spec)
     const planWithJoin = summarizeUnionPlan(withJoin.spec)
     expect(planNoJoin).not.toBe(planWithJoin)

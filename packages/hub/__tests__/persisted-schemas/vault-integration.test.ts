@@ -4,7 +4,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/typ
 import { ConflictError } from '../../src/errors.js'
 import { createNoydb } from '../../src/noydb.js'
 import type { Noydb } from '../../src/noydb.js'
-import { SCHEMAS_COLLECTION } from '../../src/persisted-schemas/storage.js'
+import { SCHEMAS_COLLECTION } from '../../src/with-shape/persisted-schemas/storage.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

@@ -27,7 +27,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
 import type { Noydb } from '../src/noydb.js'
-import { withHistory } from '../src/history/index.js'
+import { withHistory } from '../src/with-commit/history/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError } from '../src/errors.js'
 import {
@@ -36,7 +36,7 @@ import {
   hashEntry,
   LedgerStore,
   type LedgerEntry,
-} from '../src/history/ledger/index.js'
+} from '../src/with-commit/history/ledger/index.js'
 
 // ─── Inline memory adapter (unchanged from other test files) ─────────
 

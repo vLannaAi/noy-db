@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../../src/index.js'
-import { withDerivation } from '../../src/derivations/index.js'
-import { withTransactions } from '../../src/tx/index.js'
+import { withDerivation } from '../../src/with-formula/derivations/index.js'
+import { withTransactions } from '../../src/with-commit/tx/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
 
 function memory(): NoydbStore {

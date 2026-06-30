@@ -1,7 +1,7 @@
 // packages/hub/__tests__/search-persisted-index-store.test.ts
 import { describe, it, expect } from 'vitest'
-import { PersistedIndexStore, type Fingerprint } from '../src/search/persisted-index-store.js'
-import type { IndexDoc } from '../src/search/inverted-index.js'
+import { PersistedIndexStore, type Fingerprint } from '../src/with-lookup/search/persisted-index-store.js'
+import type { IndexDoc } from '../src/with-lookup/search/inverted-index.js'
 
 const docs: IndexDoc[] = [{ id: 'a', fields: [{ field: 'd', text: 'invoice' }] }]
 

@@ -8,9 +8,9 @@ import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
-import { withBlobs } from '../src/blobs/index.js'
-import { memoryObjectProjection } from '../src/blobs/object-projection.js'
-import { importExternalObjects } from '../src/blobs/import-external.js'
+import { withBlobs } from '../src/with-shape/blobs/index.js'
+import { memoryObjectProjection } from '../src/with-shape/blobs/object-projection.js'
+import { importExternalObjects } from '../src/with-shape/blobs/import-external.js'
 
 function makeStore(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

@@ -9,7 +9,7 @@
  */
 
 import type { PersistedSchemaKind } from '../persisted-schemas/types.js'
-import type { Permission } from '../types.js'
+import type { Permission } from '../../types.js'
 import type { CollectionMeta, VaultMeta } from './meta.js'
 
 /** Flat snapshot of a vault's registered schema. */

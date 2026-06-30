@@ -59,7 +59,7 @@
  * delegates to the reducer protocol for all per-bucket state.
  */
 
-import { readPath } from '../query/predicate.js'
+import { readPath } from '../../query/predicate.js'
 import type {
   AggregateSpec,
   AggregateResult,
@@ -70,10 +70,10 @@ import { buildLiveAggregation } from './aggregation.js'
 import type { ReducerBuilder } from './reducers.js'
 import { reducerBuilder } from './reducers.js'
 import { canonicalGroupKey } from './canonical-key.js'
-import { GroupCardinalityError } from '../errors.js'
-import type { MoneyDescriptor } from '../money/descriptor.js'
-import { wrapMoneyReducers } from '../money/money-reducer.js'
-import { applyI18nLocale, type I18nTextDescriptor } from '../i18n/core.js'
+import { GroupCardinalityError } from '../../errors.js'
+import type { MoneyDescriptor } from '../../with-shape/money/descriptor.js'
+import { wrapMoneyReducers } from '../../with-shape/money/money-reducer.js'
+import { applyI18nLocale, type I18nTextDescriptor } from '../../with-shape/i18n/core.js'
 
 /**
  * Cardinality thresholds for `.groupBy()`. The warn threshold gives

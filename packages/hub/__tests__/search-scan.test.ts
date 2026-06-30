@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
 import { ConflictError } from '../src/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
-import { tokenize, searchScan } from '../src/search/index.js'
+import { tokenize, searchScan } from '../src/with-lookup/search/index.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

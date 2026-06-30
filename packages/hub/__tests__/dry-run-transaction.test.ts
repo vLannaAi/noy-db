@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createNoydb, type Noydb } from '../src/noydb.js'
-import { withTransactions } from '../src/tx/index.js'
-import { withGuard } from '../src/guards/with-guard.js'
+import { withTransactions } from '../src/with-commit/tx/index.js'
+import { withGuard } from '../src/with-audit/guards/with-guard.js'
 import { memory } from '../../to-memory/src/index.js'
 
 interface Inv extends Record<string, unknown> { id: string; amount: number }

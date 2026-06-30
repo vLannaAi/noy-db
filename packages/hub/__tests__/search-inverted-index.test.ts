@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { InvertedIndex, type IndexDoc } from '../src/search/inverted-index.js'
+import { InvertedIndex, type IndexDoc } from '../src/with-lookup/search/inverted-index.js'
 
 const docs: IndexDoc[] = [
   { id: 'a', fields: [{ field: 'desc', text: 'overdue invoice for TCM' }] },

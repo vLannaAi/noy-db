@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { createNoydb } from '../../src/noydb.js'
 import { memory } from '../../../to-memory/src/index.js'
-import { coordinatedCutover } from '../../src/schema-update/index.js'
+import { coordinatedCutover } from '../../src/with-shape/schema-update/index.js'
 import type { NoydbStore } from '../../src/types.js'
 
 const oldS = z.object({ id: z.string(), total: z.number() })

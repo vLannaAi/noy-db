@@ -19,21 +19,21 @@ export { evaluateClause, evaluateFieldClause, readPath } from './predicate.js'
 // subpath refactor. Re-export from the new home for backward compat
 // with consumers reaching into `@noy-db/hub/query`; `@noy-db/hub/indexing`
 // is now the preferred import path.
-export { CollectionIndexes } from '../indexing/eager-indexes.js'
-export type { IndexDef, HashIndex } from '../indexing/eager-indexes.js'
+export { CollectionIndexes } from '../with-lookup/indexing/eager-indexes.js'
+export type { IndexDef, HashIndex } from '../with-lookup/indexing/eager-indexes.js'
 export { applyJoins, DEFAULT_JOIN_MAX_ROWS, resetJoinWarnings } from './join.js'
 export type { JoinLeg, JoinContext, JoinableSource, JoinStrategy } from './join.js'
 export { buildLiveQuery } from './live.js'
 export type { LiveQuery, LiveUpstream } from './live.js'
-export { count, sum, avg, min, max, moneySum, moneyMin, moneyMax, reducerBuilder } from '../aggregate/reducers.js'
-export type { Reducer, ReducerOptions, ReducerBuilder } from '../aggregate/reducers.js'
-export { Aggregation, reduceRecords, buildLiveAggregation } from '../aggregate/aggregation.js'
+export { count, sum, avg, min, max, moneySum, moneyMin, moneyMax, reducerBuilder } from '../with-lookup/aggregate/reducers.js'
+export type { Reducer, ReducerOptions, ReducerBuilder } from '../with-lookup/aggregate/reducers.js'
+export { Aggregation, reduceRecords, buildLiveAggregation } from '../with-lookup/aggregate/aggregation.js'
 export type {
   AggregateSpec,
   AggregateResult,
   AggregationUpstream,
   LiveAggregation,
-} from '../aggregate/aggregation.js'
+} from '../with-lookup/aggregate/aggregation.js'
 export {
   GroupedQuery,
   GroupedQueryN,
@@ -42,8 +42,8 @@ export {
   resetGroupByWarnings,
   GROUPBY_WARN_CARDINALITY,
   GROUPBY_MAX_CARDINALITY,
-} from '../aggregate/groupby.js'
-export type { GroupedRow, GroupedRowN } from '../aggregate/groupby.js'
+} from '../with-lookup/aggregate/groupby.js'
+export type { GroupedRow, GroupedRowN } from '../with-lookup/aggregate/groupby.js'
 export { ScanBuilder } from './scan-builder.js'
 export type { ScanPageProvider } from './scan-builder.js'
 

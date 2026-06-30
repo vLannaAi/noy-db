@@ -27,10 +27,10 @@ import type { UserEnvelope } from './types.js'
 import {
   persistUserVisibility,
   readUserVisibility,
-} from '../../directory/visibility.js'
-import type { UserVisibility } from '../../directory/types.js'
-import type { ExportAccessibleOptions } from '../../bundle/export-accessible.js'
-import type { WithdrawAccessibleOptions, WithdrawResult } from '../../bundle/withdraw-accessible.js'
+} from '../../with-party/directory/visibility.js'
+import type { UserVisibility } from '../../with-party/directory/types.js'
+import type { ExportAccessibleOptions } from '../../with-fork/bundle/export-accessible.js'
+import type { WithdrawAccessibleOptions, WithdrawResult } from '../../with-fork/bundle/withdraw-accessible.js'
 import type {
   RequestWithdrawalOptions,
   RequestWithdrawalResult,
@@ -38,7 +38,7 @@ import type {
   WithdrawalRequestStatus,
   ApproveWithdrawalOptions,
   RejectWithdrawalOptions,
-} from '../../bundle/request-withdrawal.js'
+} from '../../with-fork/bundle/request-withdrawal.js'
 
 /**
  * Recursive partial. Used for `updateMe(patch)` so callers can hand in

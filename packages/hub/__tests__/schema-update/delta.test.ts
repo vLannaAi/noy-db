@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { computeSchemaDelta } from '../../src/schema-update/delta.js'
+import { computeSchemaDelta } from '../../src/with-shape/schema-update/delta.js'
 
 const obj = (props: Record<string, unknown>, required: string[] = []) =>
   ({ type: 'object', properties: props, required })

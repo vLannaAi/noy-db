@@ -22,7 +22,7 @@ import {
 } from '../src/index.js'
 import { ConflictError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
-import type { UnlockedKeyring } from '../src/team/keyring.js'
+import type { UnlockedKeyring } from '../src/with-party/team/keyring.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { coordinatedCutover } from '../../src/schema-update/cutover.js'
-import type { SchemaDelta } from '../../src/schema-update/types.js'
+import { coordinatedCutover } from '../../src/with-shape/schema-update/cutover.js'
+import type { SchemaDelta } from '../../src/with-shape/schema-update/types.js'
 
 const delta = (kind: SchemaDelta['kind']): SchemaDelta =>
   ({ collection: 'invoices', kind, added: [], removed: [], changed: [] })

@@ -33,9 +33,9 @@ import { ConflictError, PermissionDeniedError } from '../src/errors.js'
 import { PolicyDeniedError } from '../src/policy/errors.js'
 import { createNoydb } from '../src/noydb.js'
 import type { Noydb } from '../src/noydb.js'
-import { withHistory } from '../src/history/index.js'
-import { saveDeedMarker, loadDeedMarker } from '../src/team/deed.js'
-import { liberateVault } from '../src/custody/liberate.js'
+import { withHistory } from '../src/with-commit/history/index.js'
+import { saveDeedMarker, loadDeedMarker } from '../src/with-party/team/deed.js'
+import { liberateVault } from '../src/with-party/custody/liberate.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

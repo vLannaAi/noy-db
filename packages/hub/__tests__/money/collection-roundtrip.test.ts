@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
 import { createNoydb } from '../../src/index.js'
-import { money, MoneyPrecisionError } from '../../src/money/descriptor.js'
+import { money, MoneyPrecisionError } from '../../src/with-shape/money/descriptor.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
 
 function memory(): NoydbStore {

@@ -156,8 +156,8 @@ export type {
   BlobPutOptions,
   BlobResponseOptions,
 } from './types.js'
-export { BlobSet } from './blobs/blob-set.js'
-export { memoryObjectProjection } from './blobs/object-projection.js'
+export { BlobSet } from './with-shape/blobs/blob-set.js'
+export { memoryObjectProjection } from './with-shape/blobs/object-projection.js'
 export type {
   ObjectProjection,
   ObjectMeta,
@@ -165,13 +165,13 @@ export type {
   PutObjectOptions,
   ObjectUrlOptions,
   PutUrlOptions,
-} from './blobs/object-projection.js'
-export { importExternalObjects } from './blobs/import-external.js'
+} from './with-shape/blobs/object-projection.js'
+export { importExternalObjects } from './with-shape/blobs/import-external.js'
 export type {
   ImportableCollection,
   ImportExternalOptions,
   ImportExternalResult,
-} from './blobs/import-external.js'
+} from './with-shape/blobs/import-external.js'
 export {
   BLOB_COLLECTION,
   BLOB_INDEX_COLLECTION,
@@ -179,8 +179,8 @@ export {
   BLOB_SLOTS_PREFIX,
   BLOB_VERSIONS_PREFIX,
   DEFAULT_CHUNK_SIZE,
-} from './blobs/blob-set.js'
-export { detectMimeType, detectMagic, isPreCompressed } from './blobs/mime-magic.js'
+} from './with-shape/blobs/blob-set.js'
+export { detectMimeType, detectMagic, isPreCompressed } from './with-shape/blobs/mime-magic.js'
 export { wrapBundleStore, createBundleStore } from './store/bundle-store.js'
 export type { WrappedBundleNoydbStore, WrapBundleStoreOptions } from './store/bundle-store.js'
 export { readPlaintextRecord } from './debug.js'
@@ -192,15 +192,15 @@ export type { WriteQueue } from './write-queue.js'
 export type { WriteEvent, WriteHook } from './write-hooks.js'
 
 // Runtime schema introspection
-export type { SchemaIntrospection } from './introspection/types.js'
+export type { SchemaIntrospection } from './with-shape/introspection/types.js'
 
 // Field metadata (#483)
-export type { FieldMeta, SemanticType } from './introspection/field-meta.js'
-export type { CollectionMeta, VaultMeta } from './introspection/meta.js'
-export type { CollectionDescription, DescribedField, DescribeOptions } from './introspection/describe.js'
+export type { FieldMeta, SemanticType } from './with-shape/introspection/field-meta.js'
+export type { CollectionMeta, VaultMeta } from './with-shape/introspection/meta.js'
+export type { CollectionDescription, DescribedField, DescribeOptions } from './with-shape/introspection/describe.js'
 
 // Dry-run transactions
-export type { DryRunResult, AffectedDocument, GuardViolation } from './tx/dry-run.js'
+export type { DryRunResult, AffectedDocument, GuardViolation } from './with-commit/tx/dry-run.js'
 
 // Multi-tab coordination
 export type { TabRole, TabPresence, TabCoordinationOptions, TabLockManager, TabChannel } from './tab-coordination.js'
@@ -214,9 +214,9 @@ export type {
   UpdateContext,
   UpdateDecision,
   SchemaUpdateStrategy,
-} from './schema-update/index.js'
-export { blindUpdate, additiveOnly, lockSchema, coordinatedCutover } from './schema-update/index.js'
-export type { FenceState, FenceDoc } from './schema-update/fence.js'
+} from './with-shape/schema-update/index.js'
+export { blindUpdate, additiveOnly, lockSchema, coordinatedCutover } from './with-shape/schema-update/index.js'
+export type { FenceState, FenceDoc } from './with-shape/schema-update/fence.js'
 
 // Sync policy
 export type { SyncPolicy, PushPolicy, PullPolicy, PushMode, PullMode, SyncSchedulerStatus } from './store/sync-policy.js'
@@ -298,26 +298,26 @@ export {
 
 // ─── Snapshot errors ─────────────────────────────────────────────────────────
 export { SnapshotNotFoundError } from './errors.js'
-export type { SnapshotMeta, RetentionPolicy } from './snapshots/strategy.js'
+export type { SnapshotMeta, RetentionPolicy } from './with-fork/snapshots/strategy.js'
 
 // ─── Record cold-storage archival (#307) ───────────────────────────────────────
-export { withArchive } from './archive/index.js'
+export { withArchive } from './with-fork/archive/index.js'
 export type {
   ArchiveStrategy,
   WithArchiveOptions,
   ArchivePolicy,
   ArchiveResult,
   ArchiveRunOptions,
-} from './archive/index.js'
+} from './with-fork/archive/index.js'
 
 // ─── Atomic sequence (#303) ─────────────────────────────────────────────────────
-export { SequenceStore, resolveSequenceKey, compileSequenceFormat } from './sequence/index.js'
-export type { SequenceHandle, FormattedSequenceHandle, NextOptions, SequenceOptions } from './sequence/index.js'
+export { SequenceStore, resolveSequenceKey, compileSequenceFormat } from './with-commit/sequence/index.js'
+export type { SequenceHandle, FormattedSequenceHandle, NextOptions, SequenceOptions } from './with-commit/sequence/index.js'
 
 // Deferred numbering — store-clock-ordered serials for non-CAS stores.
-export { withDeferredNumbering } from './numbering/descriptor.js'
-export type { DeferredNumberingConfig } from './numbering/descriptor.js'
-export type { Assignment as NumberingAssignment } from './numbering/index.js'
+export { withDeferredNumbering } from './with-commit/numbering/descriptor.js'
+export type { DeferredNumberingConfig } from './with-commit/numbering/descriptor.js'
+export type { Assignment as NumberingAssignment } from './with-commit/numbering/index.js'
 export { NumberingUncertaintyError } from './errors.js'
 export type { StoreTime } from './types.js'
 
@@ -333,18 +333,18 @@ export {
   readNoydbBundle,
   readNoydbBundleHeader,
   resetBrotliSupportCache,
-} from './bundle/bundle.js'
-export { exportAccessibleData } from './bundle/export-accessible.js'
-export type { ExportAccessibleOptions } from './bundle/export-accessible.js'
-export { withdrawAccessibleData } from './bundle/withdraw-accessible.js'
-export type { WithdrawAccessibleOptions, WithdrawResult, FrozenSnapshotRef } from './bundle/withdraw-accessible.js'
+} from './with-fork/bundle/bundle.js'
+export { exportAccessibleData } from './with-fork/bundle/export-accessible.js'
+export type { ExportAccessibleOptions } from './with-fork/bundle/export-accessible.js'
+export { withdrawAccessibleData } from './with-fork/bundle/withdraw-accessible.js'
+export type { WithdrawAccessibleOptions, WithdrawResult, FrozenSnapshotRef } from './with-fork/bundle/withdraw-accessible.js'
 export {
   requestWithdrawal,
   listWithdrawalRequests,
   approveWithdrawal,
   rejectWithdrawal,
   WithdrawalRequestError,
-} from './bundle/request-withdrawal.js'
+} from './with-fork/bundle/request-withdrawal.js'
 export type {
   RequestWithdrawalOptions,
   RequestWithdrawalResult,
@@ -352,27 +352,27 @@ export type {
   WithdrawalRequestStatus,
   ApproveWithdrawalOptions,
   RejectWithdrawalOptions,
-} from './bundle/request-withdrawal.js'
+} from './with-fork/bundle/request-withdrawal.js'
 export type {
   NoydbBundleHeader,
   CompressionAlgo,
-} from './bundle/format.js'
+} from './with-fork/bundle/format.js'
 export type {
   WriteNoydbBundleOptions,
   ReadNoydbBundleOptions,
   NoydbBundleReadResult,
   AutoCredentialKind,
   AutoCredential,
-} from './bundle/bundle.js'
+} from './with-fork/bundle/bundle.js'
 export {
   NOYDB_BUNDLE_MAGIC,
   NOYDB_BUNDLE_PREFIX_BYTES,
   NOYDB_BUNDLE_FORMAT_VERSION,
   hasNoydbBundleMagic,
-} from './bundle/format.js'
-export { generateULID, isULID } from './bundle/ulid.js'
-export { decryptExtractedPartition } from './bundle/decrypt-partition.js'
-export type { DecryptedRecord } from './bundle/decrypt-partition.js'
+} from './with-fork/bundle/format.js'
+export { generateULID, isULID } from './with-fork/bundle/ulid.js'
+export { decryptExtractedPartition } from './with-fork/bundle/decrypt-partition.js'
+export type { DecryptedRecord } from './with-fork/bundle/decrypt-partition.js'
 
 // Schema validation — Standard Schema v1 integration
 export type {
@@ -398,7 +398,7 @@ export type {
   OverlayViewDescriptor,
   DerivationDescriptor,
   InternalCollectionStats,
-} from './introspection/index.js'
+} from './with-shape/introspection/index.js'
 
 // Persisted JSON Schema — opt-in per-collection encrypted snapshot
 // of the developer's Zod (or other Standard Schema) validator. Powers
@@ -407,7 +407,7 @@ export type {
   PersistedSchemaEnvelope,
   PersistedSchemaKind,
   PersistSchemaResult,
-} from './persisted-schemas/index.js'
+} from './with-shape/persisted-schemas/index.js'
 export {
   SCHEMAS_COLLECTION,
   derivePersistedSchema,
@@ -415,26 +415,26 @@ export {
   loadPersistedSchema,
   savePersistedSchema,
   persistSchemaIfNeeded,
-} from './persisted-schemas/index.js'
+} from './with-shape/persisted-schemas/index.js'
 
 // Time-machine queries — vault.at(ts) method lives on
 // Vault; these classes are the return types.
-export { VaultInstant, CollectionInstant } from './history/time-machine.js'
-export type { VaultEngine } from './history/time-machine.js'
+export { VaultInstant, CollectionInstant } from './with-commit/history/time-machine.js'
+export type { VaultEngine } from './with-commit/history/time-machine.js'
 
 // Shadow vaults — vault.frame() method lives on Vault;
 // these classes are the return types.
-export { VaultFrame, CollectionFrame } from './shadow/vault-frame.js'
+export { VaultFrame, CollectionFrame } from './with-fork/shadow/vault-frame.js'
 
 // Consent boundaries — vault.withConsent() / .consentAudit()
 // live on Vault; these are the types + constants.
-export { CONSENT_AUDIT_COLLECTION } from './consent/consent.js'
+export { CONSENT_AUDIT_COLLECTION } from './with-audit/consent/consent.js'
 export type {
   ConsentContext,
   ConsentOp,
   ConsentAuditEntry,
   ConsentAuditFilter,
-} from './consent/consent.js'
+} from './with-audit/consent/consent.js'
 
 // Hash-chained ledger
 export {
@@ -449,14 +449,14 @@ export {
   parseIndex,
   computePatch,
   applyPatch,
-} from './history/ledger/index.js'
+} from './with-commit/history/ledger/index.js'
 export type {
   LedgerEntry,
   AppendInput,
   VerifyResult,
   JsonPatch,
   JsonPatchOp,
-} from './history/ledger/index.js'
+} from './with-commit/history/ledger/index.js'
 
 // Foreign-key references via ref()
 export {
@@ -478,39 +478,39 @@ export {
   isLinkCollectionName,
   LinkEndpointError,
   LinkIntegrityError,
-} from './links/link-set.js'
+} from './with-shape/links/link-set.js'
 export type {
   LinkSpec,
   LinkRow,
   LinkOnDelete,
   LinkSetHandle,
-} from './links/link-set.js'
+} from './with-shape/links/link-set.js'
 
 // Keyring types
-export type { UnlockedKeyring } from './team/keyring.js'
+export type { UnlockedKeyring } from './with-party/team/keyring.js'
 
 // Tier-2 authenticator slots
 export {
   enrollAuthenticator,
   removeAuthenticator,
   findAuthenticator,
-} from './team/authenticators.js'
+} from './with-party/team/authenticators.js'
 export type {
   EnrollAuthenticatorOptions,
   EnrollAuthenticatorWrappingKEKOptions,
   EnrollAuthenticatorWrappingDEKsOptions,
   UpdateAuthenticatorOptions,
-} from './team/authenticators.js'
+} from './with-party/team/authenticators.js'
 
 // Tier-3 quick-unlock state
-export { QuickUnlockStore } from './session/unlock-state.js'
-export type { QuickUnlockState } from './session/unlock-state.js'
+export { QuickUnlockStore } from './with-party/session/unlock-state.js'
+export type { QuickUnlockState } from './with-party/session/unlock-state.js'
 
 // Tier-1 change flows
 export {
   rotatePassphrase as keyringRotatePassphrase,
   recoverPassphrase as keyringRecoverPassphrase,
-} from './team/rotate-recover.js'
+} from './with-party/team/rotate-recover.js'
 export type {
   RotatePassphraseInput,
   RecoverPassphraseInput,
@@ -518,7 +518,7 @@ export type {
   RecoveryProof,
   SlotRewrapContext,
   SlotRewrapCeremony,
-} from './team/rotate-recover.js'
+} from './with-party/team/rotate-recover.js'
 
 // Public envelope (docs/subsystems/public-envelope.md)
 export {
@@ -540,7 +540,7 @@ export type {
   ResolvedPublicEnvelopeSchema,
   SetPublicEnvelopeInput,
 } from './meta/public-envelope/index.js'
-export { readNoydbBundlePublicEnvelope } from './bundle/bundle.js'
+export { readNoydbBundlePublicEnvelope } from './with-fork/bundle/bundle.js'
 
 // User envelope (docs/superpowers/specs/2026-05-05-user-envelope-design.md)
 export {
@@ -564,12 +564,12 @@ export type {
 export { UserApi } from './meta/user-envelope/api.js'
 
 // FR-6 sovereign custody — Deed / Custodian / Liberate.
-export { CustodyApi } from './custody/index.js'
-export type { GrantCustodianOptions } from './custody/index.js'
-export { liberateVault } from './custody/liberate.js'
-export type { LiberateOptions, LiberateResult } from './custody/liberate.js'
-export { createDeedOwner, loadDeedMarker, isDeedVault, DEED_RECORD_ID } from './team/deed.js'
-export type { DeedMarker } from './team/deed.js'
+export { CustodyApi } from './with-party/custody/index.js'
+export type { GrantCustodianOptions } from './with-party/custody/index.js'
+export { liberateVault } from './with-party/custody/liberate.js'
+export type { LiberateOptions, LiberateResult } from './with-party/custody/liberate.js'
+export { createDeedOwner, loadDeedMarker, isDeedVault, DEED_RECORD_ID } from './with-party/team/deed.js'
+export type { DeedMarker } from './with-party/team/deed.js'
 
 // Auth introspection
 export {
@@ -577,7 +577,7 @@ export {
   diagramAuthConfig,
   describeUserAuth,
   describeAllUsersAuth,
-} from './auth-introspection/index.js'
+} from './with-party/auth-introspection/index.js'
 
 // Recovery storage — paper and Shamir profiles.
 export {
@@ -591,13 +591,13 @@ export {
   saveShamirRecoveryEntries,
   mintShamirRecoveryEntry,
   unwrapDeksFromShamirEntry,
-} from './team/recovery.js'
+} from './with-party/team/recovery.js'
 export type {
   PaperRecoveryEntry,
   PaperRecoveryDoc,
   ShamirRecoveryEntry,
   ShamirRecoveryDoc,
-} from './team/recovery.js'
+} from './with-party/team/recovery.js'
 
 // Recovery dispatch types — discriminated
 // unions for the polymorphic enroll/rotate paths. (RecoveryProof /
@@ -607,22 +607,22 @@ export type {
   EnrollRecoveryResult,
   RotateRecoveryOptions,
   RotateRecoveryResult,
-} from './team/rotate-recover.js'
+} from './with-party/team/rotate-recover.js'
 
 // Canonical wrap-DEKs primitive — shared crypto for tier-0
 // (paper recovery), tier-2 wrap-DEKs (password), tier-3 (on-pin).
 // `mintPaperRecoveryEntry` and `enrollPasswordAuthenticator` both
 // delegate to these helpers.
-export { mintWrappedDeksBlob, unwrapDeksFromBlob } from './team/wrapped-deks.js'
-export type { WrappedDeksBlob } from './team/wrapped-deks.js'
+export { mintWrappedDeksBlob, unwrapDeksFromBlob } from './with-party/team/wrapped-deks.js'
+export type { WrappedDeksBlob } from './with-party/team/wrapped-deks.js'
 
 // Managed-passphrase mode — rubber-hose-resistant vaults where
 // hub generates the passphrase and seals it under a developer-provided
 // SealingKeyProvider. The interface lives here; concrete providers
 // (macOS Keychain, Windows Credential Manager, libsecret, AWS KMS)
 // ship as separate packages.
-export type { SealingKeyProvider, SealedPassphrase, SealedEnvelope, RecipientHint, RecipientSealer } from './team/managed-passphrase.js'
-export type { ShamirRecoveryProvider } from './team/shamir-recovery-provider.js'
+export type { SealingKeyProvider, SealedPassphrase, SealedEnvelope, RecipientHint, RecipientSealer } from './with-party/team/managed-passphrase.js'
+export type { ShamirRecoveryProvider } from './with-party/team/shamir-recovery-provider.js'
 export {
   MemorySealingKeyProvider,
   MemoryRecipientSealer,
@@ -633,28 +633,28 @@ export {
   saveSealedPassphrase,
   parseSealedEnvelope,
   SEALED_PASSPHRASE_RECORD_ID,
-} from './team/managed-passphrase.js'
+} from './with-party/team/managed-passphrase.js'
 
 // Peer-recovery — atomic db.recoverUser primitive.
 // The team/peer-recover module also runs through Noydb.recoverUser for
 // the policy-gated path; consumers can use the lower-level function
 // directly when they don't want hub-level gating (e.g. in tests).
-export { recoverUser } from './team/peer-recover.js'
-export type { RecoverUserOptions } from './team/peer-recover.js'
+export { recoverUser } from './with-party/team/peer-recover.js'
+export type { RecoverUserOptions } from './with-party/team/peer-recover.js'
 
 // Export-capability helpers
-export { hasExportCapability, evaluateExportCapability } from './team/keyring.js'
-export { hasImportCapability, evaluateImportCapability } from './team/keyring.js'
+export { hasExportCapability, evaluateExportCapability } from './with-party/team/keyring.js'
+export { hasImportCapability, evaluateImportCapability } from './with-party/team/keyring.js'
 
 // Bundle recipients
-export type { BundleRecipient } from './team/keyring.js'
-export { buildRecipientKeyringFile } from './team/keyring.js'
+export type { BundleRecipient } from './with-party/team/keyring.js'
+export { buildRecipientKeyringFile } from './with-party/team/keyring.js'
 
 // Team enumeration — joined view of keyrings and their user envelopes.
 // Useful for admin UIs that want to render team-member lists
 // with profile data in a single pass.
-export { listUsers, listUsersWithEnvelopes } from './team/keyring.js'
-export type { ListUsersOptions } from './team/keyring.js'
+export { listUsers, listUsersWithEnvelopes } from './with-party/team/keyring.js'
+export type { ListUsersOptions } from './with-party/team/keyring.js'
 
 // Directory visibility — vault-level user-list toggle +
 // per-user opt-out.
@@ -667,8 +667,8 @@ export {
   visibilityRecordId,
   DIRECTORY_RECORD_ID,
   VISIBILITY_RECORD_PREFIX,
-} from './directory/index.js'
-export type { DirectoryConfig, UserVisibility } from './directory/index.js'
+} from './with-party/directory/index.js'
+export type { DirectoryConfig, UserVisibility } from './with-party/directory/index.js'
 export { DirectoryDisabledError } from './errors.js'
 
 // Core classes
@@ -678,38 +678,38 @@ export { Collection } from './collection.js'
 export type { CacheOptions, CacheStats, CollectionChangeEvent } from './collection.js'
 
 // CRDT mode
-export type { CrdtMode, CrdtState, LwwMapState, RgaState, YjsState } from './crdt/crdt.js'
-export { resolveCrdtSnapshot, mergeCrdtStates } from './crdt/crdt.js'
+export type { CrdtMode, CrdtState, LwwMapState, RgaState, YjsState } from './with-commit/crdt/crdt.js'
+export { resolveCrdtSnapshot, mergeCrdtStates } from './with-commit/crdt/crdt.js'
 
 // Presence
-export { PresenceHandle } from './team/presence.js'
+export { PresenceHandle } from './with-party/team/presence.js'
 export type { PresencePeer } from './types.js'
 export { derivePresenceKey } from './crypto.js'
-export { SyncEngine } from './team/sync.js'
-export { SyncTransaction } from './team/sync-transaction.js'
+export { SyncEngine } from './with-party/team/sync.js'
+export { SyncTransaction } from './with-party/team/sync-transaction.js'
 
 // Multi-record transactions
-export { TxContext, TxVault, TxCollection, runTransaction } from './tx/transaction.js'
+export { TxContext, TxVault, TxCollection, runTransaction } from './with-commit/tx/transaction.js'
 export type { TxOp } from './types.js'
-export type { TransactionInvariant } from './tx/invariants.js'
-export type { TransactionStrategyOptions } from './tx/active.js'
+export type { TransactionInvariant } from './with-commit/tx/invariants.js'
+export type { TransactionStrategyOptions } from './with-commit/tx/active.js'
 
 // Guards (record lock + field freeze + amendment invariant) — see docs/superpowers/specs/2026-05-18-guards-design.md
-export { withGuard } from './guards/index.js'
-export { immutableGuard } from './guards/index.js'
-export type { ImmutableGuardConfig } from './guards/index.js'
-export { transitionGuard } from './guards/index.js'
-export type { TransitionGuardConfig } from './guards/index.js'
+export { withGuard } from './with-audit/guards/index.js'
+export { immutableGuard } from './with-audit/guards/index.js'
+export type { ImmutableGuardConfig } from './with-audit/guards/index.js'
+export { transitionGuard } from './with-audit/guards/index.js'
+export type { TransitionGuardConfig } from './with-audit/guards/index.js'
 export type {
   GuardStrategy,
   GuardStrategyHandle,
   GuardContext,
   GuardChange,
-} from './guards/index.js'
+} from './with-audit/guards/index.js'
 
 // Derivations (Dim 14) — see docs/superpowers/specs/2026-05-01-dim14-derivation-v1-design.md
-export { withDerivation } from './derivations/index.js'
-export { withRollup } from './derivations/index.js'
+export { withDerivation } from './with-formula/derivations/index.js'
+export { withRollup } from './with-formula/derivations/index.js'
 export type {
   DerivationStrategy,
   DerivationStrategyHandle,
@@ -717,7 +717,7 @@ export type {
   OutputSpec,
   RecordOutputSpec,
   ArrayOutputSpec,
-} from './derivations/index.js'
+} from './with-formula/derivations/index.js'
 export {
   DerivationCycleError,
   DerivationDepthError,
@@ -727,7 +727,7 @@ export {
 } from './errors.js'
 
 // Materialized views (Dim 14 v2) — see docs/superpowers/specs/2026-05-20-dim14-mv-v2-design.md
-export { withMaterializedView } from './materialized-views/index.js'
+export { withMaterializedView } from './with-formula/materialized-views/index.js'
 export type {
   MaterializedViewStrategy,
   MaterializedViewStrategyHandle,
@@ -735,7 +735,7 @@ export type {
   MaterializedFromMeta,
   UnionSource,
   UnionArmJoin,
-} from './materialized-views/index.js'
+} from './with-formula/materialized-views/index.js'
 export {
   MaterializedViewCycleError,
   MaterializedViewConfigError,
@@ -744,13 +744,13 @@ export {
 } from './errors.js'
 
 // Overlay views (Dim 14 v2) — see docs/superpowers/specs/2026-05-20-dim14-mv-v2-design.md § Composition with operator-editable lifecycle
-export { withOverlayedView } from './overlay-views/index.js'
+export { withOverlayedView } from './with-formula/overlay-views/index.js'
 export type {
   OverlayedViewStrategy,
   OverlayedViewStrategyHandle,
   OverlayFieldMergeRule,
   OverlayFieldMergeMode,
-} from './overlay-views/index.js'
+} from './with-formula/overlay-views/index.js'
 export {
   OverlayBaseIsVirtualError,
   OverlayCollectionUnavailableError,
@@ -759,12 +759,12 @@ export {
 } from './errors.js'
 
 // Accounting periods
-export { PERIODS_COLLECTION } from './periods/index.js'
+export { PERIODS_COLLECTION } from './with-audit/periods/index.js'
 export type {
   PeriodRecord,
   ClosePeriodOptions,
   OpenPeriodOptions,
-} from './periods/index.js'
+} from './with-audit/periods/index.js'
 export { PeriodClosedError } from './errors.js'
 
 // Cache module — LRU + byte budget parsing
@@ -785,13 +785,13 @@ export {
   dictCollectionName,
   DictionaryHandle,
   DICT_COLLECTION_PREFIX,
-} from './i18n/dictionary.js'
+} from './with-shape/i18n/dictionary.js'
 export type {
   DictKeyDescriptor,
   StaticDictDescriptor,
   DictEntry,
   DictionaryOptions,
-} from './i18n/dictionary.js'
+} from './with-shape/i18n/dictionary.js'
 
 // i18n — i18nText
 export {
@@ -800,8 +800,8 @@ export {
   validateI18nTextValue,
   resolveI18nText,
   applyI18nLocale,
-} from './i18n/core.js'
-export type { I18nTextOptions, I18nTextDescriptor, ResolveI18nOptions, I18nMap } from './i18n/core.js'
+} from './with-shape/i18n/core.js'
+export type { I18nTextOptions, I18nTextDescriptor, ResolveI18nOptions, I18nMap } from './with-shape/i18n/core.js'
 
 // money — currency-safe decimal field descriptor
 export {
@@ -816,7 +816,7 @@ export {
   asMoney,
   isMoneyString,
   moneyNumber,
-} from './money/index.js'
+} from './with-shape/money/index.js'
 export type {
   MoneyDescriptor,
   MoneyOptions,
@@ -827,17 +827,17 @@ export type {
   MulRateOptions,
   AllocateOptions,
   MoneyString,
-} from './money/index.js'
+} from './with-shape/money/index.js'
 
 // computed — schema-owned computed scalar fields (#302)
-export { evalComputedFields, ComputedFieldError } from './computed/index.js'
-export type { ComputedFields, ComputedFn } from './computed/index.js'
+export { evalComputedFields, ComputedFieldError } from './with-formula/computed/index.js'
+export type { ComputedFields, ComputedFn } from './with-formula/computed/index.js'
 
 // i18n — resolution policy + script enforcement
-export { resolvePolicy } from './i18n/policy.js'
-export type { OnMissing, Layer, OnMissingPolicy } from './i18n/policy.js'
-export { inferScripts, enforceScript } from './i18n/script.js'
-export type { ScriptWarning } from './i18n/script.js'
+export { resolvePolicy } from './with-shape/i18n/policy.js'
+export type { OnMissing, Layer, OnMissingPolicy } from './with-shape/i18n/policy.js'
+export { inferScripts, enforceScript } from './with-shape/i18n/script.js'
+export type { ScriptWarning } from './with-shape/i18n/script.js'
 
 // i18n errors
 export {
@@ -863,8 +863,8 @@ export {
   listCredentials,
   credentialStatus,
   SYNC_CREDENTIALS_COLLECTION,
-} from './team/sync-credentials.js'
-export type { SyncCredential } from './team/sync-credentials.js'
+} from './with-party/team/sync-credentials.js'
+export type { SyncCredential } from './with-party/team/sync-credentials.js'
 
 // Magic-link unlock — `@noy-db/on-magic-link` provides the high-level
 // invite / peer-recovery flows. The lower-level `MagicLinkGrant*`
@@ -872,7 +872,7 @@ export type { SyncCredential } from './team/sync-credentials.js'
 // direct use is supported but uncommon.
 
 // Session policies —
-export { PolicyEnforcer, createEnforcer, validateSessionPolicy } from './session/session-policy.js'
+export { PolicyEnforcer, createEnforcer, validateSessionPolicy } from './with-party/session/session-policy.js'
 
 // Session tokens —
 export {
@@ -882,12 +882,12 @@ export {
   revokeAllSessions,
   isSessionAlive,
   activeSessionCount,
-} from './session/session.js'
+} from './with-party/session/session.js'
 export type {
   SessionToken,
   CreateSessionResult,
   CreateSessionOptions,
-} from './session/session.js'
+} from './with-party/session/session.js'
 
 // Dev-mode persistent unlock —
 export {
@@ -895,8 +895,8 @@ export {
   loadDevUnlock,
   clearDevUnlock,
   isDevUnlockActive,
-} from './session/dev-unlock.js'
-export type { DevUnlockOptions } from './session/dev-unlock.js'
+} from './with-party/session/dev-unlock.js'
+export type { DevUnlockOptions } from './with-party/session/dev-unlock.js'
 
 // Discriminated-union narrowing helper
 export { isDiscriminant } from './util/discriminant.js'
@@ -912,22 +912,22 @@ export { TierNotGrantedError, TierDemoteDeniedError, DelegationTargetMissingErro
 // lazy-mode index errors
 export { IndexRequiredError, IndexWriteFailureError } from './errors.js'
 // #308 L3 — hybrid-retrieval rank fusion (also the klum federation primitive)
-export { fuseRetrieval, type FuseOptions } from './search/fuse.js'
+export { fuseRetrieval, type FuseOptions } from './with-lookup/search/fuse.js'
 // unique-index enforcement error
 export { UniqueConstraintError, UnsupportedIndexOptionError } from './errors.js'
 // embeddings / semantic-retrieval (L2)
 export { EmbeddingDimMismatchError, EmbeddingModelMismatchError } from './errors.js'
-export type { EmbeddingDescriptor } from './embeddings/index.js'
-export { dekKey, effectiveClearance, assertTierAccess } from './team/tiers.js'
-export type { DelegationToken, IssueDelegationOptions } from './team/delegation.js'
-export { DELEGATIONS_COLLECTION, issueDelegation, loadActiveDelegations, revokeDelegation } from './team/delegation.js'
+export type { EmbeddingDescriptor } from './with-lookup/embeddings/index.js'
+export { dekKey, effectiveClearance, assertTierAccess } from './with-party/team/tiers.js'
+export type { DelegationToken, IssueDelegationOptions } from './with-party/team/delegation.js'
+export { DELEGATIONS_COLLECTION, issueDelegation, loadActiveDelegations, revokeDelegation } from './with-party/team/delegation.js'
 
 // magic-link-bridged cross-user KEK delegation
 export type {
   MagicLinkGrantPayload,
   MagicLinkGrantRecord,
   IssueMagicLinkGrantOptions,
-} from './team/magic-link-grant.js'
+} from './with-party/team/magic-link-grant.js'
 export {
   MAGIC_LINK_GRANTS_COLLECTION,
   MAGIC_LINK_CONTENT_INFO_PREFIX,
@@ -940,11 +940,11 @@ export {
   revokeMagicLinkGrant,
   magicLinkGrantRecordId,
   isMagicLinkGrantExpired,
-} from './team/magic-link-grant.js'
+} from './with-party/team/magic-link-grant.js'
 
 // Diff
-export { diff, formatDiff } from './history/diff.js'
-export type { DiffEntry, ChangeType } from './history/diff.js'
+export { diff, formatDiff } from './with-commit/history/diff.js'
+export type { DiffEntry, ChangeType } from './with-commit/history/diff.js'
 
 // Vault-level diff
 export { diffVault } from './vault-diff.js'
@@ -1074,6 +1074,6 @@ export type { Sealed, SealedView } from './types.js'
 export { SealedHandle } from './types.js'
 
 // Scan-mode full-text search (#308)
-export { tokenize } from './search/index.js'
-export type { Tokenizer, SearchOptions, SearchResult, SearchEntry } from './search/index.js'
-export type { RetrieveOptions, RetrieveHit } from './search/index.js'
+export { tokenize } from './with-lookup/search/index.js'
+export type { Tokenizer, SearchOptions, SearchResult, SearchEntry } from './with-lookup/search/index.js'
+export type { RetrieveOptions, RetrieveHit } from './with-lookup/search/index.js'

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { withGuard } from '../../src/guards/with-guard.js'
+import { withGuard } from '../../src/with-audit/guards/with-guard.js'
 
 describe('withGuard factory', () => {
   it('returns a handle with __noydb_strategy: "guard"', () => {

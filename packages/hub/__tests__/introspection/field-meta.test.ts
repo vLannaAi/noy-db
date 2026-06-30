@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { validateFieldMetaKeys, resolveFieldMeta, humanizeFieldKey } from '../../src/introspection/field-meta.js'
+import { validateFieldMetaKeys, resolveFieldMeta, humanizeFieldKey } from '../../src/with-shape/introspection/field-meta.js'
 
 describe('FieldMeta key validation', () => {
   it('passes when every fieldMeta key is a known field', () => {

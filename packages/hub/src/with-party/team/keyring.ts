@@ -1,5 +1,5 @@
-import type { NoydbStore, KeyringFile, KeyringAuthenticator, Role, Permissions, GrantOptions, RevokeOptions, UpdateUserOptions, UserInfo, EncryptedEnvelope, ExportCapability, ExportFormat, ImportCapability, VaultPolicyOnDisk } from '../types.js'
-import { NOYDB_KEYRING_VERSION, NOYDB_FORMAT_VERSION } from '../types.js'
+import type { NoydbStore, KeyringFile, KeyringAuthenticator, Role, Permissions, GrantOptions, RevokeOptions, UpdateUserOptions, UserInfo, EncryptedEnvelope, ExportCapability, ExportFormat, ImportCapability, VaultPolicyOnDisk } from '../../types.js'
+import { NOYDB_KEYRING_VERSION, NOYDB_FORMAT_VERSION } from '../../types.js'
 import {
   deriveKey,
   generateDEK,
@@ -10,18 +10,18 @@ import {
   decrypt,
   bufferToBase64,
   base64ToBuffer,
-} from '../crypto.js'
-import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, KeyringExpiredError, KeyringCorruptError, InvalidKeyError, ValidationError, DirectoryDisabledError } from '../errors.js'
+} from '../../crypto.js'
+import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, KeyringExpiredError, KeyringCorruptError, InvalidKeyError, ValidationError, DirectoryDisabledError } from '../../errors.js'
 import { readDirectoryConfig } from '../directory/storage.js'
 import { readUserVisibility, deleteUserVisibility } from '../directory/visibility.js'
-import { assertStrongPassphrase, type PassphrasePolicy } from '../validation.js'
+import { assertStrongPassphrase, type PassphrasePolicy } from '../../validation.js'
 import {
   saveUserEnvelope,
   loadUserEnvelope as loadUserEnvelopeFn,
   deleteUserEnvelope,
   USER_ENVELOPE_COLLECTION,
   type UserEnvelope as UserEnvelopeReader,
-} from '../meta/user-envelope/index.js'
+} from '../../meta/user-envelope/index.js'
 
 // ─── Roles that can grant/revoke ───────────────────────────────────────
 
@@ -1150,7 +1150,7 @@ export async function listUsers(
  * - `includeHidden` — when true, principals with `_meta/visibility/<id>`
  *   set to `{ hidden: true }` are returned alongside everyone else.
  *   Requires `owner` or `admin` callerRole; lower roles get
- *   {@link import('../errors.js').PermissionDeniedError}.
+ *   {@link import('../../errors.js').PermissionDeniedError}.
  */
 export interface ListUsersOptions {
   readonly includeHidden?: boolean
@@ -1169,7 +1169,7 @@ export interface ListUsersOptions {
  *
  *  - When the vault's `_meta/directory` document has `enabled: false`,
  *    only `owner` and `admin` callers may enumerate; anyone else gets
- *    {@link import('../errors.js').DirectoryDisabledError}.
+ *    {@link import('../../errors.js').DirectoryDisabledError}.
  *  - Principals with `_meta/visibility/<id>` set to `{ hidden: true }`
  *    are filtered out by default. `owner`/`admin` callers can pass
  *    `{ includeHidden: true }` to see them; lower roles passing that

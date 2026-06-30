@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { sum, count, avg, min, max } from '../src/aggregate/reducers.js'
+import { sum, count, avg, min, max } from '../src/with-lookup/aggregate/reducers.js'
 
 function stateOf(r: any, records: unknown[]) { let s = r.init(); for (const rec of records) s = r.step(s, rec); return s }
 

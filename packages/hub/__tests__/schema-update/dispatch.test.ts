@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { evaluateStrategies } from '../../src/schema-update/dispatch.js'
-import { additiveOnly, lockSchema, blindUpdate } from '../../src/schema-update/strategies.js'
-import type { SchemaDelta } from '../../src/schema-update/types.js'
+import { evaluateStrategies } from '../../src/with-shape/schema-update/dispatch.js'
+import { additiveOnly, lockSchema, blindUpdate } from '../../src/with-shape/schema-update/strategies.js'
+import type { SchemaDelta } from '../../src/with-shape/schema-update/types.js'
 
 const ctx = { collection: 'invoices' }
 const nonAdditive: SchemaDelta = { collection: 'invoices', kind: 'non-additive', added: [], removed: ['amount'], changed: [] }

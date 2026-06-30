@@ -10,8 +10,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
-import { withI18n } from '../src/i18n/index.js'
-import { i18nText } from '../src/i18n/core.js'
+import { withI18n } from '../src/with-shape/i18n/index.js'
+import { i18nText } from '../src/with-shape/i18n/core.js'
 import { TranslatorNotConfiguredError } from '../src/errors.js'
 
 function memory(): NoydbStore {

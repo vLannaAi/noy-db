@@ -34,7 +34,7 @@ import type {
   NoydbStore,
   HistoryOptions,
   PruneOptions,
-} from '../types.js'
+} from '../../types.js'
 import type { LedgerStore } from './ledger/store.js'
 import type { JsonPatch } from './ledger/patch.js'
 import type { DiffEntry } from './diff.js'

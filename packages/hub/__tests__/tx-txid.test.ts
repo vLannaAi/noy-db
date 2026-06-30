@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
-import { withTransactions } from '../src/tx/index.js'
+import { withTransactions } from '../src/with-commit/tx/index.js'
 import { memory } from '../../to-memory/src/index.js'
 
 describe('TxContext.txId', () => {

@@ -1,4 +1,4 @@
-import { DerivationCapExceededError, DerivationOutputShapeError } from '../errors.js'
+import { DerivationCapExceededError, DerivationOutputShapeError } from '../../errors.js'
 import type { DerivationContext, DerivationStrategy, DerivedFromMeta } from './types.js'
 
 export interface RunResult {

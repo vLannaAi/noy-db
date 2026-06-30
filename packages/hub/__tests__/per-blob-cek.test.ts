@@ -13,10 +13,10 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
-import { withBlobs } from '../src/blobs/index.js'
-import { withHistory } from '../src/history/index.js'
-import { withForgetCascade } from '../src/forget/index.js'
-import { BLOB_INDEX_COLLECTION, BLOB_CHUNKS_COLLECTION } from '../src/blobs/blob-set.js'
+import { withBlobs } from '../src/with-shape/blobs/index.js'
+import { withHistory } from '../src/with-commit/history/index.js'
+import { withForgetCascade } from '../src/with-audit/forget/index.js'
+import { BLOB_INDEX_COLLECTION, BLOB_CHUNKS_COLLECTION } from '../src/with-shape/blobs/blob-set.js'
 
 function makeStore(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

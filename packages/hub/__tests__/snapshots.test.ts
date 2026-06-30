@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { NO_SNAPSHOTS } from '../src/snapshots/strategy.js'
-import type { SnapshotMeta, RetentionPolicy, SnapshotIndex } from '../src/snapshots/strategy.js'
+import { NO_SNAPSHOTS } from '../src/with-fork/snapshots/strategy.js'
+import type { SnapshotMeta, RetentionPolicy, SnapshotIndex } from '../src/with-fork/snapshots/strategy.js'
 import { SnapshotNotFoundError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
 import { memory } from '../../to-memory/src/index.js'
-import { SnapshotEngine } from '../src/snapshots/engine.js'
-import { withSnapshots } from '../src/snapshots/active.js'
+import { SnapshotEngine } from '../src/with-fork/snapshots/engine.js'
+import { withSnapshots } from '../src/with-fork/snapshots/active.js'
 import type { NoydbBundleStore } from '../src/types.js'
 
 function makeMockStore(): NoydbBundleStore & { blobs: Map<string, Uint8Array> } {

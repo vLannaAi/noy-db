@@ -17,8 +17,8 @@ import {
   InvariantError,
   ValidationError,
 } from '../../src/index.js'
-import { withTransactions } from '../../src/tx/index.js'
-import { withHistory } from '../../src/history/index.js'
+import { withTransactions } from '../../src/with-commit/tx/index.js'
+import { withHistory } from '../../src/with-commit/history/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
 
 function memory(): NoydbStore {

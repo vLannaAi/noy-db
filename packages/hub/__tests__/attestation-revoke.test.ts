@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest'
 import {
   revokeDocCore, unrevokeDocCore, getRevokedDocIdsCore, publishRevocationListCore,
   type RevokeContext,
-} from '../src/attestation/revoke.js'
-import { loadOrCreateSigner } from '../src/attestation/signer.js'
+} from '../src/with-audit/attestation/revoke.js'
+import { loadOrCreateSigner } from '../src/with-audit/attestation/signer.js'
 import { generateDEK } from '../src/crypto.js'
 import { verifyRevocationList, isRevoked } from '@noy-db/attestation'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
