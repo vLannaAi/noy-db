@@ -2444,14 +2444,14 @@ export class Vault {
   }
 
   /**
-   * Revoke a single sealed-CEK delivery envelope by deleting it from the store.
-   * A soft revocation: it removes the host's copy of the sealed CEK, but a host
-   * that already fetched the envelope keeps whatever it cached. For a hard
-   * revocation that makes the live record undecryptable to every prior grant,
-   * use {@link rotateRecordCek}.
+   * Revoke a sealed-CEK grant. **Default is SOFT**: deletes the `pid` delivery
+   * envelope, but a host that already fetched it KEEPS decrypt capability (stops
+   * new fetches, not a cryptographic cutoff). Pass **`{ hard: true }`** to rotate
+   * the record CEK ({@link rotateRecordCek}) so any prior sealed CEK can no
+   * longer open the record. See `revokeSealedRecord` in `record-keys/sealing.ts`.
    */
-  async revokeSealedRecord(collection: string, id: string, pid: string): Promise<void> {
-    return revokeSealedRecordImpl(this.sealingContext(), collection, id, pid)
+  async revokeSealedRecord(collection: string, id: string, pid: string, opts?: { hard?: boolean }): Promise<void> {
+    return revokeSealedRecordImpl(this.sealingContext(), collection, id, pid, opts)
   }
 
   /**
