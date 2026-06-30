@@ -2730,7 +2730,7 @@ export class Vault {
           if (out.kind === 'array') {
             const { loadFanoutSidecar, saveFanoutSidecar } =
               await import('./with-formula/derivations/fanout-sidecar.js')
-            const prior = await loadFanoutSidecar(this.adapter, this.name, spec.source, id, key)
+            const prior = await loadFanoutSidecar(this.adapter, this.name, spec.source, id, key, this.getDEK, this.encrypted)
             const prevKeys = new Set<string>(prior?.keys ?? [])
             const newKeysList = out.entries.map(e => e.key)
             const newKeysSet = new Set<string>(newKeysList)
@@ -2747,7 +2747,7 @@ export class Vault {
               outputKey: key,
               outputCollection: outSpec.collection,
               keys: newKeysList,
-            })
+            }, this.getDEK, this.encrypted)
             continue
           }
 

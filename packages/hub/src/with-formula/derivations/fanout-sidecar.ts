@@ -11,15 +11,23 @@
  * read prior keys, compute `toDelete = prev \ new`, write new, persist
  * back.
  *
- * Stored as plain JSON with AES-GCM bypassed (same pattern as
- * `_meta/policy`, `_meta/recovery-paper`, `_meta/sealed-passphrase`,
- * etc.): the sidecar is system metadata, not user data, and the
- * derived outputs themselves carry their own encryption envelopes.
+ * The body is encrypted (AES-GCM under the `_meta` collection DEK) when
+ * the vault is encrypted — the `keys[]` are derived-row ids produced by a
+ * user-supplied key extractor and can be content-bearing (SKU, tag, email),
+ * so a ciphertext-only store must not read them, the derivation graph, or
+ * `emittedAt`. Back-compat: sidecars written before this fix are plaintext
+ * (`_iv === ''`); `loadFanoutSidecar` dual-reads them.
  *
  * @module
  */
 import type { NoydbStore, EncryptedEnvelope } from '../../types.js'
 import { NOYDB_FORMAT_VERSION } from '../../types.js'
+import { encrypt, decrypt } from '../../crypto.js'
+
+type GetDEK = (collectionName: string) => Promise<CryptoKey>
+
+/** The `_meta` collection name whose DEK encrypts the sidecar body. */
+const FANOUT_DEK_COLLECTION = '_meta'
 
 /** Magic-prefixed JSON payload at `_meta/<recordId>`. */
 export interface FanoutSidecar {
@@ -55,18 +63,30 @@ function recordId(source: string, sourceId: string, outputKey: string): string {
   return `derivations-fanout/${source}/${sourceId}/${outputKey}`
 }
 
-/** Read the sidecar; returns empty if absent. */
+/**
+ * Read the sidecar; returns empty if absent.
+ *
+ * Dual-reads for back-compat: an envelope with `_iv === ''` is a legacy
+ * plaintext sidecar (parse `_data` directly); otherwise the body was
+ * encrypted under the `_meta` DEK and is decrypted first.
+ */
 export async function loadFanoutSidecar(
   store: NoydbStore,
   vault: string,
   source: string,
   sourceId: string,
   outputKey: string,
+  getDEK: GetDEK,
+  encrypted: boolean,
 ): Promise<FanoutSidecar | undefined> {
   const envelope = await store.get(vault, '_meta', recordId(source, sourceId, outputKey))
   if (!envelope) return undefined
   try {
-    const parsed = JSON.parse(envelope._data) as FanoutSidecar
+    // Legacy plaintext (`_iv === ''`) reads directly; encrypted bodies decrypt.
+    const json = (!encrypted || envelope._iv === '')
+      ? envelope._data
+      : await decrypt(envelope._iv, envelope._data, await getDEK(FANOUT_DEK_COLLECTION))
+    const parsed = JSON.parse(json) as FanoutSidecar
     if (parsed._noydb_fanout !== 1) return undefined
     if (!Array.isArray(parsed.keys)) return undefined
     return parsed
@@ -75,7 +95,11 @@ export async function loadFanoutSidecar(
   }
 }
 
-/** Persist (insert/replace) the sidecar with a fresh key set. */
+/**
+ * Persist (insert/replace) the sidecar with a fresh key set. The body is
+ * encrypted under the `_meta` DEK when the vault is encrypted (the `keys[]`
+ * can be content-bearing); plaintext only in debug/unencrypted vaults.
+ */
 export async function saveFanoutSidecar(
   store: NoydbStore,
   vault: string,
@@ -86,6 +110,8 @@ export async function saveFanoutSidecar(
     readonly outputCollection: string
     readonly keys: ReadonlyArray<string>
   },
+  getDEK: GetDEK,
+  encrypted: boolean,
 ): Promise<void> {
   const doc: FanoutSidecar = {
     _noydb_fanout: 1,
@@ -98,13 +124,25 @@ export async function saveFanoutSidecar(
   }
   const id = recordId(payload.source, payload.sourceId, payload.outputKey)
   const prior = await store.get(vault, '_meta', id)
-  const envelope: EncryptedEnvelope = {
-    _noydb: NOYDB_FORMAT_VERSION,
-    _v: (prior?._v ?? 0) + 1,
-    _ts: new Date().toISOString(),
-    // AES-GCM bypassed — sidecar is system metadata, no user data inside.
-    _iv: '',
-    _data: JSON.stringify(doc),
+  const json = JSON.stringify(doc)
+  let envelope: EncryptedEnvelope
+  if (!encrypted) {
+    envelope = {
+      _noydb: NOYDB_FORMAT_VERSION,
+      _v: (prior?._v ?? 0) + 1,
+      _ts: new Date().toISOString(),
+      _iv: '',
+      _data: json,
+    }
+  } else {
+    const { iv, data } = await encrypt(json, await getDEK(FANOUT_DEK_COLLECTION))
+    envelope = {
+      _noydb: NOYDB_FORMAT_VERSION,
+      _v: (prior?._v ?? 0) + 1,
+      _ts: new Date().toISOString(),
+      _iv: iv,
+      _data: data,
+    }
   }
   await store.put(vault, '_meta', id, envelope)
 }
