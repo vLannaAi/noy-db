@@ -113,16 +113,34 @@ export async function sealRecordToHost(
 }
 
 /**
- * Soft-revoke one sealed-CEK delivery envelope (delete it from the store). A
- * host that already fetched the envelope keeps whatever it cached; for a hard
- * revocation use {@link rotateRecordCek}.
+ * Revoke one sealed-CEK grant.
+ *
+ * **Default (`{ hard: false }`) is SOFT** — it only deletes the delivery
+ * envelope from the store. A host that already fetched (or cached the unsealed
+ * CEK from) that envelope KEEPS decrypt capability for the record; soft revoke
+ * is a "stop new fetches" control, not a cryptographic cutoff.
+ *
+ * **`{ hard: true }`** additionally rotates the record's CEK (via
+ * {@link rotateRecordCek}): the live body is re-encrypted under a fresh CEK and
+ * EVERY sealed-CEK delivery envelope for the record (all pids) is deleted, so
+ * any previously-sealed CEK fails the AES-GCM auth tag on the rotated body —
+ * future opens are cryptographically denied. (PRE-rotation history versions,
+ * which keep their old `_cek`, remain openable — same semantics as
+ * `rotateRecordCek`.)
  */
 export async function revokeSealedRecord(
   ctx: SealingContext,
   collection: string,
   id: string,
   pid: string,
+  opts?: { hard?: boolean },
 ): Promise<void> {
+  if (opts?.hard === true) {
+    // Hard revocation supersedes the single-pid soft delete: rotateRecordCek
+    // re-keys the record and drops every delivery envelope for it.
+    await rotateRecordCek(ctx, collection, id)
+    return
+  }
   await ctx.adapter.delete(ctx.vault, SEALED_CEK_NS, `${collection}/${id}/${pid}`)
 }
 
