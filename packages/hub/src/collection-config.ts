@@ -202,6 +202,7 @@ export interface CollectionOpts<T> {
     | {
         resolveSource(collectionName: string): JoinableSource | null
         resolveRef(leftCollection: string, field: string): RefDescriptor | null
+        resolveDictSource?: (leftCollection: string, field: string) => JoinableSource | null
       }
     | undefined
   /** — i18nText field descriptors for locale-aware reads. */

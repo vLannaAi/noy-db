@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
 import { verifyAttestation } from '@noy-db/attestation'
 import { withI18n } from '../src/with-shape/i18n/index.js'
+import { withHistory } from '../src/with-commit/history/index.js'
 import { i18nText } from '../src/with-shape/i18n/core.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError, AttestationError } from '../src/errors.js'
@@ -154,5 +155,45 @@ describe('vault.getDocumentSigningPublicKey (mint-on-read role gate)', () => {
     expect(result.keyId).toBe(minted.keyId)
     expect(result.publicKeyB64).toBe(minted.publicKeyB64)
     expect(after).toEqual(before) // read did not mint or mutate
+  })
+
+  // Guards the late-bound `getDEK` wiring on the attestation facade
+  // (vault.ts: `getDEK: (collection) => this.getDEK(collection)`). `load()`
+  // rebuilds `this.getDEK` against the reloaded keyring; the facade reads the
+  // current field per call rather than a frozen ctor-time closure, so
+  // attestation issuance/verification keeps working across a backup round-trip.
+  it('issues + verifies attestations across a dump/load round-trip', async () => {
+    const adapter = memory()
+    const db = await createNoydb({ store: adapter, user: 'firm', secret: 'firm-passphrase-2026', historyStrategy: withHistory() })
+    const vault = await db.openVault('books')
+    const invoices = vault.collection<Invoice>('invoices', { attestation })
+    await invoices.put('inv-1', { id: 'inv-1', invoiceNo: 'INV-1', total: 1234.5, issueDate: '2026-05-29' })
+
+    // Issue BEFORE the round-trip so the attestation facade's getDEK
+    // resolver memoizes the `_attestations` DEK; load() then rebuilds
+    // `this.getDEK` underneath it.
+    const issued = await vault.issueAttestation('invoices', 'inv-1')
+    const before = await vault.getDocumentSigningPublicKey()
+
+    const backup = await vault.dump()
+    await vault.load(backup)
+
+    // After load(), reading the signer routes through the rebuilt resolver.
+    const after = await vault.getDocumentSigningPublicKey()
+    expect(after.keyId).toBe(before.keyId)
+    expect(after.publicKeyB64).toBe(before.publicKeyB64)
+
+    const r = await verifyAttestation({
+      qr: issued.qr,
+      claimedFields: { invoiceNo: 'INV-1', total: 1234.5, issueDate: '2026-05-29' },
+      fieldSchema: attestation,
+      publicKeys: { [after.keyId]: after.publicKeyB64 },
+    })
+    expect(r.valid).toBe(true)
+
+    // And a fresh issuance still works post-load (new signer read path).
+    await vault.collection<Invoice>('invoices').put('inv-2', { id: 'inv-2', invoiceNo: 'INV-2', total: 5, issueDate: '2026-05-29' })
+    const reissued = await vault.issueAttestation('invoices', 'inv-2')
+    expect(reissued.keyId).toBe(before.keyId)
   })
 })
