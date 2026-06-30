@@ -1,7 +1,6 @@
 import type { NoydbStore, EncryptedEnvelope, ChangeEvent, HistoryConfig, HistoryOptions, HistoryEntry, PruneOptions, ListPageResult, LocaleReadOptions, ConflictPolicy, CollectionConflictResolver, PutManyItemOptions, PutManyOptions, PutManyResult, DeleteManyResult, SealedView } from './types.js'
 import type { FieldMeta } from './with-shape/introspection/field-meta.js'
 import type { CollectionMeta } from './with-shape/introspection/meta.js'
-import { NOYDB_FORMAT_VERSION } from './types.js'
 import type { CrdtMode, CrdtState, LwwMapState, RgaState } from './with-commit/crdt/crdt.js'
 import { NO_CRDT, type CrdtStrategy } from './with-commit/crdt/strategy.js'
 import type { I18nTextDescriptor } from './with-shape/i18n/core.js'
@@ -15,20 +14,25 @@ import type { ComputedFields } from './with-formula/computed/index.js'
 import { evalComputedFields } from './with-formula/computed/index.js'
 import { NO_I18N, type I18nStrategy } from './with-shape/i18n/strategy.js'
 import { resolvePolicy } from './with-shape/i18n/policy.js'
-import { encrypt, decrypt } from './crypto.js'
 import {
-  unwrapCek,
   isTombstone,
   buildTombstone,
   resolveStableCek,
-  rewrapBodyToDek,
   findByDet,
   queryByDet,
   type DeterministicContext,
 } from './record-keys/index.js'
 import { RecordCodec } from './record-keys/record-codec.js'
-import { ConflictError, ReadOnlyError, TranslatorNotConfiguredError, TierDemoteDeniedError, LocaleNotSpecifiedError } from './errors.js'
-import { dekKey, assertTierAccess } from './with-party/team/tiers.js'
+import {
+  putAtTier as putAtTierImpl,
+  getAtTier as getAtTierImpl,
+  listAtTier as listAtTierImpl,
+  elevate as elevateImpl,
+  demote as demoteImpl,
+  classifySealedShred as classifySealedShredImpl,
+  type TiersContext,
+} from './with-audit/tiers/index.js'
+import { ConflictError, ReadOnlyError, TranslatorNotConfiguredError, LocaleNotSpecifiedError } from './errors.js'
 import type { GhostRecord, TierMode, CrossTierAccessEvent } from './types.js'
 import type { UnlockedKeyring } from './with-party/team/keyring.js'
 import { hasWritePermission } from './with-party/team/keyring.js'
@@ -5031,281 +5035,41 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
   // ─── Hierarchical Access ──────────────────────────
 
-  private assertTiersEnabled(): void {
-    if (!this.tiers) {
-      throw new Error(
-        `Collection "${this.name}": hierarchical tiers are not enabled. ` +
-        `Pass { tiers: [0, 1, 2, …] } to vault.collection() to opt in.`,
-      )
-    }
-  }
-
-  private assertDeclaredTier(tier: number): void {
-    if (tier < 0 || !Number.isInteger(tier)) {
-      throw new Error(`Collection "${this.name}": tier must be a non-negative integer, got ${tier}`)
-    }
-    if (tier === 0) return
-    if (!this.tiers || !this.tiers.has(tier)) {
-      throw new Error(
-        `Collection "${this.name}": tier ${tier} is not declared in { tiers: [...] }`,
-      )
-    }
-  }
-
-  /**
-   * tier-aware put. Encrypts the record with the
-   * collection's tier-N DEK and stamps `_tier: N` on the envelope. The
-   * caller's keyring must hold the tier-N DEK (directly, by
-   * delegation, or by virtue of being the grantor); otherwise throws
-   * `TierNotGrantedError`.
-   *
-   * accepts an optional `elevation` context. When
-   * present, the emitted cross-tier event is stamped with
-   * `authorization: 'elevation'`, the elevation's reason, and the
-   * caller's pre-elevation tier. `vault.elevate(...).collection().put`
-   * threads this through; direct `putAtTier` calls leave it undefined
-   * and fall back to the inherent-write event shape.
-   */
-  async putAtTier(
+  /** tier-aware put — see {@link putAtTierImpl}. */
+  putAtTier(
     id: string,
     record: T,
     tier: number,
     opts?: { elevation?: { reason: string; fromTier: number }; source?: string; sourceTs?: string },
   ): Promise<void> {
-    this.assertTiersEnabled()
-    this.assertDeclaredTier(tier)
-    assertTierAccess(this.keyring, this.name, tier)
+    return putAtTierImpl(this.tiersContext(), id, record, tier, opts)
+  }
 
-    const key = dekKey(this.name, tier)
-    const dek = await this.getDEK(key)
+  /** tier-aware get — see {@link getAtTierImpl}. */
+  getAtTier(id: string): Promise<T | GhostRecord | null> {
+    return getAtTierImpl(this.tiersContext(), id)
+  }
 
-    const existing = await this.adapter.get(this.vault, this.name, id)
-    const version = existing ? existing._v + 1 : 1
-    const json = JSON.stringify(record)
-    const { iv, data } = await encrypt(json, dek)
-    const envelope: EncryptedEnvelope = {
-      _noydb: NOYDB_FORMAT_VERSION,
-      _v: version,
-      _ts: new Date().toISOString(),
-      _iv: iv,
-      _data: data,
-      _by: this.keyring.userId,
-      ...(tier > 0 && { _tier: tier }),
-      ...(this.provenance && opts?.source !== undefined ? { _source: opts.source, _sourceTs: opts.sourceTs ?? new Date().toISOString() } : {}),
-    }
+  /** list ids grouped by the caller's readability — see {@link listAtTierImpl}. */
+  listAtTier(): Promise<Array<{ id: string; tier: number; readable: boolean }>> {
+    return listAtTierImpl(this.tiersContext())
+  }
 
-    await this.adapter.put(this.vault, this.name, id, envelope)
+  /** elevate a record to a higher tier — see {@link elevateImpl}. */
+  elevate(id: string, toTier: number): Promise<void> {
+    return elevateImpl(this.tiersContext(), id, toTier)
+  }
 
-    if (tier > 0) {
-      this.emitCrossTierEvent({
-        actor: this.keyring.userId,
-        collection: this.name,
-        id,
-        tier,
-        authorization: opts?.elevation ? 'elevation' : 'inherent',
-        op: 'put',
-        ts: envelope._ts,
-        ...(opts?.elevation && {
-          reason: opts.elevation.reason,
-          elevatedFrom: opts.elevation.fromTier,
-        }),
-      })
-    }
+  /** demote a record to a lower tier — see {@link demoteImpl}. */
+  demote(id: string, toTier: number): Promise<void> {
+    return demoteImpl(this.tiersContext(), id, toTier)
   }
 
   /**
-   * tier-aware get. When the stored record is at a
-   * tier the caller cannot decrypt:
-   *   - `'invisibility'` mode (default) → returns `null`.
-   *   - `'ghost'` mode → returns a `GhostRecord` placeholder with the
-   *     tier and the record id (the record exists but contents are
-   *     withheld).
-   *
-   * Fully-cleared reads return the plaintext record and fire a
-   * cross-tier event when `_tier > 0`.
+   * Emit a cross-tier access event. The subscriber sink stays collection-
+   * resident (it captures `onCrossTierAccess`); the tiers module reaches it
+   * via the {@link TiersContext.emitCrossTierEvent} callback.
    */
-  async getAtTier(id: string): Promise<T | GhostRecord | null> {
-    this.assertTiersEnabled()
-    const envelope = await this.adapter.get(this.vault, this.name, id)
-    if (!envelope) return null
-    const tier = envelope._tier ?? 0
-    if (tier === 0) {
-      return this.codec.decryptRecord(envelope)
-    }
-
-    const key = dekKey(this.name, tier)
-    if (!this.keyring.deks.has(key)) {
-      if (this.tierMode === 'ghost') {
-        return { _ghost: true, _tier: tier } as GhostRecord
-      }
-      return null
-    }
-
-    const dek = await this.getDEK(key)
-    // A tiered record may carry a per-record CEK (e.g. a CEK record
-    // elevated via `elevate()`): the CEK is wrapped under the TIER DEK, so
-    // unwrap under the tier DEK then decrypt the body under the CEK. Legacy
-    // tiered records decrypt directly under the tier DEK.
-    let plaintext: string
-    if (envelope._cek !== undefined) {
-      const cek = await unwrapCek(envelope._cek, dek)
-      this.cekCache?.set(id, cek, 1)
-      plaintext = await decrypt(envelope._iv, envelope._data, cek)
-    } else {
-      plaintext = await decrypt(envelope._iv, envelope._data, dek)
-    }
-    const record = JSON.parse(plaintext) as T
-
-    this.emitCrossTierEvent({
-      actor: this.keyring.userId,
-      collection: this.name,
-      id,
-      tier,
-      authorization: this.isElevatorOrOwner() ? 'inherent' : 'delegation',
-      op: 'get',
-      ts: new Date().toISOString(),
-    })
-
-    return record
-  }
-
-  /**
-   * list ids grouped by the caller's readability.
-   * Returns only ids whose tier the caller can read. Above-tier ids
-   * are omitted in `'invisibility'` mode and included (with tier
-   * metadata) in `'ghost'` mode.
-   */
-  async listAtTier(): Promise<Array<{ id: string; tier: number; readable: boolean }>> {
-    this.assertTiersEnabled()
-    const ids = await this.adapter.list(this.vault, this.name)
-    const out: Array<{ id: string; tier: number; readable: boolean }> = []
-    for (const id of ids) {
-      const env = await this.adapter.get(this.vault, this.name, id)
-      if (!env) continue
-      const tier = env._tier ?? 0
-      const readable = tier === 0 || this.keyring.deks.has(dekKey(this.name, tier))
-      if (!readable && this.tierMode === 'invisibility') continue
-      out.push({ id, tier, readable })
-    }
-    return out
-  }
-
-  /**
-   * elevate a record to a higher tier. Re-encrypts with
-   * the target tier's DEK. The caller must hold DEKs for both the
-   * current tier (to decrypt) and the target tier (to re-encrypt).
-   * Stamps `_elevatedBy` with the caller id so `demote()` can check
-   * the reverse operation.
-   */
-  async elevate(id: string, toTier: number): Promise<void> {
-    this.assertTiersEnabled()
-    this.assertDeclaredTier(toTier)
-    assertTierAccess(this.keyring, this.name, toTier)
-
-    const envelope = await this.adapter.get(this.vault, this.name, id)
-    if (!envelope) throw new Error(`Record "${id}" not found in collection "${this.name}"`)
-    const fromTier = envelope._tier ?? 0
-    if (toTier === fromTier) return
-    if (toTier < fromTier) {
-      throw new Error(`Use demote() to lower the tier of "${id}" from ${fromTier} to ${toTier}`)
-    }
-    // Caller must have access at the existing tier to decrypt.
-    if (fromTier > 0) assertTierAccess(this.keyring, this.name, fromTier)
-
-    const fromKey = dekKey(this.name, fromTier)
-    const toKey = dekKey(this.name, toTier)
-    const fromDek = await this.getDEK(fromKey)
-    const toDek = await this.getDEK(toKey)
-
-    // Per-record CEK composes with tiers: the body key is unchanged (history
-    // chain identity preserved); only the wrapping key moves with the tier.
-    // Legacy (no `_cek`) records take the direct-DEK path unchanged.
-    const now = new Date().toISOString()
-    const body = await rewrapBodyToDek(envelope, fromDek, toDek)
-    if (body.cek) this.cekCache?.set(id, body.cek, 1)
-    const next: EncryptedEnvelope = {
-      _noydb: NOYDB_FORMAT_VERSION,
-      _v: envelope._v + 1,
-      _ts: now,
-      _iv: body._iv,
-      _data: body._data,
-      _by: this.keyring.userId,
-      _tier: toTier,
-      _elevatedBy: this.keyring.userId,
-      ...(body._cek !== undefined ? { _cek: body._cek } : {}),
-    }
-    await this.adapter.put(this.vault, this.name, id, next)
-
-    this.emitCrossTierEvent({
-      actor: this.keyring.userId,
-      collection: this.name,
-      id,
-      tier: toTier,
-      authorization: 'elevation',
-      op: 'elevate',
-      ts: now,
-    })
-  }
-
-  /**
-   * demote a record to a lower tier. Allowed only for
-   * the user who performed the last elevation or an owner.
-   */
-  async demote(id: string, toTier: number): Promise<void> {
-    this.assertTiersEnabled()
-    if (toTier < 0) throw new Error(`Cannot demote to negative tier ${toTier}`)
-
-    const envelope = await this.adapter.get(this.vault, this.name, id)
-    if (!envelope) throw new Error(`Record "${id}" not found in collection "${this.name}"`)
-    const fromTier = envelope._tier ?? 0
-    if (toTier === fromTier) return
-    if (toTier > fromTier) {
-      throw new Error(`Use elevate() to raise the tier of "${id}" from ${fromTier} to ${toTier}`)
-    }
-    const isOwner = this.keyring.role === 'owner'
-    const isOriginalElevator = envelope._elevatedBy === this.keyring.userId
-    if (!isOwner && !isOriginalElevator) {
-      throw new TierDemoteDeniedError(id, fromTier)
-    }
-    // Caller must still hold the DEK of the current tier to decrypt.
-    assertTierAccess(this.keyring, this.name, fromTier)
-    if (toTier > 0) this.assertDeclaredTier(toTier)
-
-    const fromDek = await this.getDEK(dekKey(this.name, fromTier))
-    const toDek = await this.getDEK(dekKey(this.name, toTier))
-
-    // CEK re-wrap on demote — same body key, moved from the source tier
-    // DEK to the target tier DEK. Legacy records take the direct-DEK path.
-    const now = new Date().toISOString()
-    const body = await rewrapBodyToDek(envelope, fromDek, toDek)
-    if (body.cek) this.cekCache?.set(id, body.cek, 1)
-    const next: EncryptedEnvelope = {
-      _noydb: NOYDB_FORMAT_VERSION,
-      _v: envelope._v + 1,
-      _ts: now,
-      _iv: body._iv,
-      _data: body._data,
-      _by: this.keyring.userId,
-      ...(toTier > 0 && { _tier: toTier }),
-      ...(body._cek !== undefined ? { _cek: body._cek } : {}),
-    }
-    await this.adapter.put(this.vault, this.name, id, next)
-
-    this.emitCrossTierEvent({
-      actor: this.keyring.userId,
-      collection: this.name,
-      id,
-      tier: fromTier,
-      authorization: 'elevation',
-      op: 'demote',
-      ts: now,
-    })
-  }
-
-  private isElevatorOrOwner(): boolean {
-    return this.keyring.role === 'owner' || this.keyring.role === 'admin'
-  }
-
   private emitCrossTierEvent(event: CrossTierAccessEvent): void {
     try {
       this.onCrossTierAccess?.(event)
@@ -5316,14 +5080,34 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
   /**
    * Classify a live envelope's `_sealed` slots for crypto-shred completeness
-   * (#M-1, 2026-06-30 security review). Thin delegate to
-   * {@link RecordCodec.classifySealedShred}; kept as a `_`-prefixed method on
+   * (#M-1, 2026-06-30 security review). Kept as a `_`-prefixed method on
    * Collection because `vault.ts` forget() reaches in via this name.
    */
-  async _classifySealedShred(
+  _classifySealedShred(
     live: EncryptedEnvelope,
   ): Promise<{ shreddable: string[]; dekResidue: string[] }> {
-    return this.codec.classifySealedShred(live)
+    return classifySealedShredImpl(this.tiersContext(), live)
+  }
+
+  /**
+   * Bind the {@link TiersContext} the tier ops need. The `cekCache` is passed
+   * by reference (the SAME `Lru` the kernel's read/write path owns) so an
+   * elevate/demote CEK re-wrap stays synchronous with cache eviction.
+   */
+  private tiersContext(): TiersContext<T> {
+    return {
+      name: this.name,
+      vault: this.vault,
+      adapter: this.adapter,
+      keyring: this.keyring,
+      codec: this.codec,
+      cekCache: this.cekCache,
+      provenance: this.provenance,
+      tiers: this.tiers,
+      tierMode: this.tierMode,
+      getDEK: (key: string) => this.getDEK(key),
+      emitCrossTierEvent: (event) => this.emitCrossTierEvent(event),
+    }
   }
 }
 
