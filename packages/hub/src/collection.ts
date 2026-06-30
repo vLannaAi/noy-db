@@ -2179,13 +2179,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
           if (out.kind === 'array') {
             // Load the prior key set from the fanout sidecar.
             const { loadFanoutSidecar, saveFanoutSidecar } = await import('./with-formula/derivations/fanout-sidecar.js')
-            const prior = await loadFanoutSidecar(
-              this.adapter,
-              this.vault,
-              spec.source,
-              run.runId,
-              key,
-            )
+            const prior = await loadFanoutSidecar(this.adapter, this.vault, spec.source, run.runId, key, this.getDEK, this.storeCiphertext)
             const prevKeys = new Set<string>(prior?.keys ?? [])
             const newKeysList = out.entries.map(e => e.key)
             const newKeysSet = new Set<string>(newKeysList)
@@ -2223,7 +2217,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
               outputKey: key,
               outputCollection: outSpec.collection,
               keys: newKeysList,
-            })
+            }, this.getDEK, this.storeCiphertext)
             continue
           }
 
@@ -2662,13 +2656,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         if (helpers === null) {
           helpers = await import('./with-formula/derivations/fanout-sidecar.js')
         }
-        const sidecar = await helpers.loadFanoutSidecar(
-          this.adapter,
-          this.vault,
-          spec.source,
-          id,
-          outputKey,
-        )
+        const sidecar = await helpers.loadFanoutSidecar(this.adapter, this.vault, spec.source, id, outputKey, this.getDEK, this.storeCiphertext)
         if (!sidecar) continue
         const outputCollection = this.derivationSource.getCollection(outSpec.collection)
         for (const derivedId of sidecar.keys) {
