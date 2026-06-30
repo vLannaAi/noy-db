@@ -10,13 +10,13 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, NoydbBundleStore } from '../src/types.js'
 import { ConflictError, BundleVersionConflictError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
-import { withBlobs } from '../src/blobs/index.js'
+import { withBlobs } from '../src/with-shape/blobs/index.js'
 import {
   BLOB_INDEX_COLLECTION,
   BLOB_CHUNKS_COLLECTION,
   BLOB_SLOTS_PREFIX,
   DEFAULT_CHUNK_SIZE,
-} from '../src/blobs/blob-set.js'
+} from '../src/with-shape/blobs/blob-set.js'
 
 // ─── Minimal in-memory store ─────────────────────────────────────────
 

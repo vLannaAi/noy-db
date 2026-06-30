@@ -20,7 +20,7 @@
  * declaration and the data model disagree.
  */
 
-import { ValidationError } from '../errors.js'
+import { ValidationError } from '../../errors.js'
 
 export type MoneyPathSegment =
   | { readonly kind: 'key'; readonly key: string; readonly array: boolean }

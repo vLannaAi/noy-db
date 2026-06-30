@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/types.js'
 import { ConflictError } from '../../src/errors.js'
 import { createNoydb, withMaterializedView, sum, GroupedAggregation } from '../../src/index.js'
-import { withAggregate } from '../../src/aggregate/index.js'
+import { withAggregate } from '../../src/with-lookup/aggregate/index.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

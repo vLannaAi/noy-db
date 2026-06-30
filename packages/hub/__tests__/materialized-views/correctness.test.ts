@@ -8,9 +8,9 @@ import {
   RecordLockedError,
   GroupedAggregation,
 } from '../../src/index.js'
-import { withAggregate } from '../../src/aggregate/index.js'
-import { sum, count } from '../../src/aggregate/reducers.js'
-import { withTransactions } from '../../src/tx/index.js'
+import { withAggregate } from '../../src/with-lookup/aggregate/index.js'
+import { sum, count } from '../../src/with-lookup/aggregate/reducers.js'
+import { withTransactions } from '../../src/with-commit/tx/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
 
 function memory(): NoydbStore {

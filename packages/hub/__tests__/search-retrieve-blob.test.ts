@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
-import { withBlobs } from '../src/blobs/index.js'
+import { withBlobs } from '../src/with-shape/blobs/index.js'
 import { ConflictError } from '../src/errors.js'
 import type { Noydb } from '../src/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'

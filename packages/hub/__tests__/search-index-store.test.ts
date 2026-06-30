@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { MemoryIndexStore } from '../src/search/index-store.js'
-import type { IndexDoc } from '../src/search/inverted-index.js'
+import { MemoryIndexStore } from '../src/with-lookup/search/index-store.js'
+import type { IndexDoc } from '../src/with-lookup/search/inverted-index.js'
 
 const docs: IndexDoc[] = [{ id: 'a', fields: [{ field: 'desc', text: 'invoice' }] }]
 

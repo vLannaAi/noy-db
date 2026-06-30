@@ -7,7 +7,7 @@
  *   layerDefault(other)   = undefined
  */
 import { describe, it, expect } from 'vitest'
-import { resolvePolicy } from '../src/i18n/policy.js'
+import { resolvePolicy } from '../src/with-shape/i18n/policy.js'
 
 describe('resolvePolicy', () => {
   it('undefined onMissing → throw for every layer except guard', () => {

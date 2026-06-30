@@ -7,7 +7,7 @@
  */
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createNoydb, type Noydb } from '../src/noydb.js'
-import { withHistory } from '../src/history/index.js'
+import { withHistory } from '../src/with-commit/history/index.js'
 import { memory } from '../../to-memory/src/index.js'
 
 interface Invoice extends Record<string, unknown> {

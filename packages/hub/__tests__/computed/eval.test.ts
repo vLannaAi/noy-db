@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { evalComputedFields, ComputedFieldError } from '../../src/computed/index.js'
+import { evalComputedFields, ComputedFieldError } from '../../src/with-formula/computed/index.js'
 
 describe('evalComputedFields', () => {
   it('injects a computed value derived from input fields', () => {

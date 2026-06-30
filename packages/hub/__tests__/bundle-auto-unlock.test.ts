@@ -27,7 +27,7 @@ import {
   NOYDB_BUNDLE_PREFIX_BYTES,
   readUint32BE,
   writeUint32BE,
-} from '../src/bundle/format.js'
+} from '../src/with-fork/bundle/format.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { memory } from '../../../to-memory/src/index.js'
-import { SchemaFenceController } from '../../src/schema-update/fence-controller.js'
-import { saveFence, loadFence } from '../../src/schema-update/fence.js'
+import { SchemaFenceController } from '../../src/with-shape/schema-update/fence-controller.js'
+import { saveFence, loadFence } from '../../src/with-shape/schema-update/fence.js'
 import { StoreCoordinationProvider } from '../../src/coordination/index.js'
 import { SchemaFenceError, MigrationRequiredError } from '../../src/errors.js'
 

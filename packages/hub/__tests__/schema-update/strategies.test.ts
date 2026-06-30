@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { blindUpdate, lockSchema, additiveOnly } from '../../src/schema-update/strategies.js'
+import { blindUpdate, lockSchema, additiveOnly } from '../../src/with-shape/schema-update/strategies.js'
 import { NonAdditiveSchemaChangeError, SchemaLockedError } from '../../src/errors.js'
-import type { SchemaDelta } from '../../src/schema-update/types.js'
+import type { SchemaDelta } from '../../src/with-shape/schema-update/types.js'
 
 const delta = (over: Partial<SchemaDelta>): SchemaDelta => ({
   collection: 'invoices', kind: 'additive', added: [], removed: [], changed: [], ...over,

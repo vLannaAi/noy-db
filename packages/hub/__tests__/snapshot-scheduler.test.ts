@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { SnapshotScheduler } from '../src/snapshots/scheduler.js'
+import { SnapshotScheduler } from '../src/with-fork/snapshots/scheduler.js'
 
 beforeEach(() => { vi.useFakeTimers() })
 afterEach(() => { vi.useRealTimers() })

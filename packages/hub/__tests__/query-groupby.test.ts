@@ -20,7 +20,7 @@ import {
   GROUPBY_MAX_CARDINALITY,
   type QuerySource,
 } from '../src/query/index.js'
-import { withAggregate } from '../src/aggregate/index.js'
+import { withAggregate } from '../src/with-lookup/aggregate/index.js'
 const AGG = withAggregate()
 import { GroupCardinalityError } from '../src/errors.js'
 

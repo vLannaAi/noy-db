@@ -13,8 +13,8 @@
  *
  * @module
  */
-import type { NoydbStore, KeyringAuthenticator } from '../types.js'
-import { NoAccessError, ValidationError } from '../errors.js'
+import type { NoydbStore, KeyringAuthenticator } from '../../types.js'
+import { NoAccessError, ValidationError } from '../../errors.js'
 import type { UnlockedKeyring } from './keyring.js'
 import { persistKeyring } from './keyring.js'
 

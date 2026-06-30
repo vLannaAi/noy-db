@@ -1,20 +1,20 @@
 import type { NoydbStore, EncryptedEnvelope, ChangeEvent, HistoryConfig, HistoryOptions, HistoryEntry, PruneOptions, ListPageResult, LocaleReadOptions, ConflictPolicy, CollectionConflictResolver, PutManyItemOptions, PutManyOptions, PutManyResult, DeleteManyResult, SealedView } from './types.js'
-import type { FieldMeta } from './introspection/field-meta.js'
-import type { CollectionMeta } from './introspection/meta.js'
+import type { FieldMeta } from './with-shape/introspection/field-meta.js'
+import type { CollectionMeta } from './with-shape/introspection/meta.js'
 import { NOYDB_FORMAT_VERSION } from './types.js'
-import type { CrdtMode, CrdtState, LwwMapState, RgaState } from './crdt/crdt.js'
-import { NO_CRDT, type CrdtStrategy } from './crdt/strategy.js'
-import type { I18nTextDescriptor } from './i18n/core.js'
-import { getAtPath, setAtPathInPlace, stripI18nFilled } from './i18n/core.js'
-import type { DictKeyDescriptor, StaticDictDescriptor, DictionaryHandle } from './i18n/dictionary.js'
-import { isStaticDictDescriptor } from './i18n/dictionary.js'
-import type { MoneyDescriptor } from './money/descriptor.js'
-import { quantizeMoneyFields, decodeMoneyFields, canonicalizeStoredMoney, canonicalizeIncomingMoney } from './money/normalize.js'
-import { validateMoneyFieldPaths } from './money/paths.js'
-import type { ComputedFields } from './computed/index.js'
-import { evalComputedFields } from './computed/index.js'
-import { NO_I18N, type I18nStrategy } from './i18n/strategy.js'
-import { resolvePolicy } from './i18n/policy.js'
+import type { CrdtMode, CrdtState, LwwMapState, RgaState } from './with-commit/crdt/crdt.js'
+import { NO_CRDT, type CrdtStrategy } from './with-commit/crdt/strategy.js'
+import type { I18nTextDescriptor } from './with-shape/i18n/core.js'
+import { getAtPath, setAtPathInPlace, stripI18nFilled } from './with-shape/i18n/core.js'
+import type { DictKeyDescriptor, StaticDictDescriptor, DictionaryHandle } from './with-shape/i18n/dictionary.js'
+import { isStaticDictDescriptor } from './with-shape/i18n/dictionary.js'
+import type { MoneyDescriptor } from './with-shape/money/descriptor.js'
+import { quantizeMoneyFields, decodeMoneyFields, canonicalizeStoredMoney, canonicalizeIncomingMoney } from './with-shape/money/normalize.js'
+import { validateMoneyFieldPaths } from './with-shape/money/paths.js'
+import type { ComputedFields } from './with-formula/computed/index.js'
+import { evalComputedFields } from './with-formula/computed/index.js'
+import { NO_I18N, type I18nStrategy } from './with-shape/i18n/strategy.js'
+import { resolvePolicy } from './with-shape/i18n/policy.js'
 import { encrypt, decrypt, encryptDeterministic } from './crypto.js'
 import {
   unwrapCek,
@@ -25,71 +25,71 @@ import {
 } from './record-keys/index.js'
 import { RecordCodec } from './record-keys/record-codec.js'
 import { ConflictError, ReadOnlyError, TranslatorNotConfiguredError, TierDemoteDeniedError, LocaleNotSpecifiedError } from './errors.js'
-import { dekKey, assertTierAccess } from './team/tiers.js'
+import { dekKey, assertTierAccess } from './with-party/team/tiers.js'
 import type { GhostRecord, TierMode, CrossTierAccessEvent } from './types.js'
-import type { UnlockedKeyring } from './team/keyring.js'
-import { hasWritePermission } from './team/keyring.js'
+import type { UnlockedKeyring } from './with-party/team/keyring.js'
+import { hasWritePermission } from './with-party/team/keyring.js'
 import type { NoydbEventEmitter } from './events.js'
 import type { WriteQueueTracker } from './write-queue.js'
 import type { WriteHookRegistry, WriteEvent } from './write-hooks.js'
 import type { SubsystemBus, GatePutEvent } from './subsystem-bus.js'
-import type { SchemaUpdateGate } from './schema-update/gate.js'
-import type { SchemaFenceController } from './schema-update/fence-controller.js'
+import type { SchemaUpdateGate } from './with-shape/schema-update/gate.js'
+import type { SchemaFenceController } from './with-shape/schema-update/fence-controller.js'
 import type { StandardSchemaV1 } from './schema.js'
 import { validateSchemaInput } from './schema.js'
-import { derivePersistedSchema } from './persisted-schemas/derive.js'
-import type { LedgerStore } from './history/ledger/index.js'
-import type { DiffEntry } from './history/diff.js'
-import { NO_HISTORY, type HistoryStrategy } from './history/strategy.js'
+import { derivePersistedSchema } from './with-shape/persisted-schemas/derive.js'
+import type { LedgerStore } from './with-commit/history/ledger/index.js'
+import type { DiffEntry } from './with-commit/history/diff.js'
+import { NO_HISTORY, type HistoryStrategy } from './with-commit/history/strategy.js'
 import { Query, ScanBuilder } from './query/index.js'
 import type { QuerySource, JoinContext, JoinableSource } from './query/index.js'
-import type { CollectionIndexes, IndexDef } from './indexing/eager-indexes.js'
-import { encodeIdxId, decodeIdxId } from './indexing/persisted-indexes.js'
-import type { PersistedCollectionIndex, PersistedIndexDef } from './indexing/persisted-indexes.js'
-import { LazyQuery } from './indexing/lazy-builder.js'
-import type { LazyQuerySource } from './indexing/lazy-builder.js'
-import { NO_INDEXING, type IndexStrategy, type IndexState } from './indexing/strategy.js'
-import { searchScan, fuseRetrieval, type SearchOptions, type SearchResult } from './search/index.js'
-import { MemoryIndexStore, type IndexStore } from './search/index-store.js'
-import { PersistedIndexStore, type PersistedIndexCallbacks } from './search/persisted-index-store.js'
-import { extractSnippet } from './search/snippet.js'
-import { buildStringFieldEntries, buildI18nFieldEntries, buildDictKeyFieldEntries, buildBlobFieldEntries } from './search/build-docs.js'
-import type { IndexDoc, IndexHit } from './search/inverted-index.js'
-import type { RetrieveOptions, RetrieveHit } from './search/retrieve-types.js'
+import type { CollectionIndexes, IndexDef } from './with-lookup/indexing/eager-indexes.js'
+import { encodeIdxId, decodeIdxId } from './with-lookup/indexing/persisted-indexes.js'
+import type { PersistedCollectionIndex, PersistedIndexDef } from './with-lookup/indexing/persisted-indexes.js'
+import { LazyQuery } from './with-lookup/indexing/lazy-builder.js'
+import type { LazyQuerySource } from './with-lookup/indexing/lazy-builder.js'
+import { NO_INDEXING, type IndexStrategy, type IndexState } from './with-lookup/indexing/strategy.js'
+import { searchScan, fuseRetrieval, type SearchOptions, type SearchResult } from './with-lookup/search/index.js'
+import { MemoryIndexStore, type IndexStore } from './with-lookup/search/index-store.js'
+import { PersistedIndexStore, type PersistedIndexCallbacks } from './with-lookup/search/persisted-index-store.js'
+import { extractSnippet } from './with-lookup/search/snippet.js'
+import { buildStringFieldEntries, buildI18nFieldEntries, buildDictKeyFieldEntries, buildBlobFieldEntries } from './with-lookup/search/build-docs.js'
+import type { IndexDoc, IndexHit } from './with-lookup/search/inverted-index.js'
+import type { RetrieveOptions, RetrieveHit } from './with-lookup/search/retrieve-types.js'
 import { IndexWriteFailureError, DerivationCapExceededError, EmbeddingDimMismatchError } from './errors.js'
-import { embeddingSourceText, VectorSet, type EmbeddingDescriptor, type StoredVector } from './embeddings/index.js'
-import { buildUniqueConstraintSet, type UniqueConstraintSet } from './indexing/unique-constraints.js'
+import { embeddingSourceText, VectorSet, type EmbeddingDescriptor, type StoredVector } from './with-lookup/embeddings/index.js'
+import { buildUniqueConstraintSet, type UniqueConstraintSet } from './with-lookup/indexing/unique-constraints.js'
 import type { RefDescriptor } from './refs.js'
-import { buildDescription, deriveZodFields, type CollectionDescription, type DescribeOptions } from './introspection/describe.js'
-import { buildJsonSchema } from './introspection/json-schema.js'
-import type { CollectionConfig } from './introspection/types.js'
+import { buildDescription, deriveZodFields, type CollectionDescription, type DescribeOptions } from './with-shape/introspection/describe.js'
+import { buildJsonSchema } from './with-shape/introspection/json-schema.js'
+import type { CollectionConfig } from './with-shape/introspection/types.js'
 import { Lru, parseBytes, estimateRecordBytes, type LruStats } from './cache/index.js'
-import { generateULID } from './bundle/ulid.js'
-import type { PresenceHandle, PresenceHandleOpts } from './team/presence.js'
-import { NO_SYNC, type SyncStrategy } from './team/sync-strategy.js'
-import type { BlobSet } from './blobs/blob-set.js'
-import { NO_BLOBS, type BlobStrategy } from './blobs/strategy.js'
-import type { ObjectProjection } from './blobs/object-projection.js'
-import type { BlobFieldsConfig } from './blobs/blob-compaction.js'
-import { NO_AGGREGATE, type AggregateStrategy } from './aggregate/strategy.js'
-import type { ReadOnlyVaultFacade } from './guards/types.js'
-import type { DerivationRegistry } from './derivations/registry.js'
-import type { TxContext, ExecutedOp } from './tx/transaction.js'
-import { revertExecuted } from './tx/transaction.js'
+import { generateULID } from './with-fork/bundle/ulid.js'
+import type { PresenceHandle, PresenceHandleOpts } from './with-party/team/presence.js'
+import { NO_SYNC, type SyncStrategy } from './with-party/team/sync-strategy.js'
+import type { BlobSet } from './with-shape/blobs/blob-set.js'
+import { NO_BLOBS, type BlobStrategy } from './with-shape/blobs/strategy.js'
+import type { ObjectProjection } from './with-shape/blobs/object-projection.js'
+import type { BlobFieldsConfig } from './with-shape/blobs/blob-compaction.js'
+import { NO_AGGREGATE, type AggregateStrategy } from './with-lookup/aggregate/strategy.js'
+import type { ReadOnlyVaultFacade } from './with-audit/guards/types.js'
+import type { DerivationRegistry } from './with-formula/derivations/registry.js'
+import type { TxContext, ExecutedOp } from './with-commit/tx/transaction.js'
+import { revertExecuted } from './with-commit/tx/transaction.js'
 // Type-only — runtime class loaded via dynamic import in
 // `dispatchDerivations` when an eager-mode strategy fires. Keeps the
 // derivation executor chunk out of the floor bundle.
-import type { DerivationExecutor as DerivationExecutorType } from './derivations/executor.js'
+import type { DerivationExecutor as DerivationExecutorType } from './with-formula/derivations/executor.js'
 import type {
   loadFanoutSidecar as LoadFanoutSidecarType,
   deleteFanoutSidecar as DeleteFanoutSidecarType,
   saveFanoutSidecar as SaveFanoutSidecarType,
-} from './derivations/fanout-sidecar.js'
-import { markStale, resolveStaleOnRead } from './derivations/stale.js'
-import type { MaterializedViewRegistry } from './materialized-views/registry.js'
-import type { MVQueryContext } from './materialized-views/types.js'
-import type { MaterializedViewExecutor as MVExecutorType } from './materialized-views/executor.js'
-import type * as MVStaleModule from './materialized-views/stale.js'
+} from './with-formula/derivations/fanout-sidecar.js'
+import { markStale, resolveStaleOnRead } from './with-formula/derivations/stale.js'
+import type { MaterializedViewRegistry } from './with-formula/materialized-views/registry.js'
+import type { MVQueryContext } from './with-formula/materialized-views/types.js'
+import type { MaterializedViewExecutor as MVExecutorType } from './with-formula/materialized-views/executor.js'
+import type * as MVStaleModule from './with-formula/materialized-views/stale.js'
 
 /** Callback for dirty tracking (sync engine integration). */
 export type OnDirtyCallback = (collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>
@@ -1501,7 +1501,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // pending stale flag, run the executor before returning. No-op
     // when nothing is pending.
     if (this.materializedViewSource !== undefined) {
-      const { resolveStaleMVOnRead } = await import('./materialized-views/stale.js')
+      const { resolveStaleMVOnRead } = await import('./with-formula/materialized-views/stale.js')
       await resolveStaleMVOnRead(this.materializedViewSource, this.name)
     }
 
@@ -2256,7 +2256,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       const mode = reg.spec.refresh
       if (mode === 'eager') {
         if (executor === null) {
-          ;({ MaterializedViewExecutor: executor } = await import('./materialized-views/executor.js'))
+          ;({ MaterializedViewExecutor: executor } = await import('./with-formula/materialized-views/executor.js'))
         }
         await executor.refresh(reg, {
           getCollection: (name) => this.materializedViewSource!.getCollection(name),
@@ -2265,7 +2265,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         })
       } else if (mode === 'lazy') {
         if (staleHelpers === null) {
-          staleHelpers = await import('./materialized-views/stale.js')
+          staleHelpers = await import('./with-formula/materialized-views/stale.js')
         }
         staleHelpers.markMVStale(registry, reg.spec.name)
       }
@@ -2510,7 +2510,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       }
 
       if (DerivationExecutor === null) {
-        ({ DerivationExecutor } = (await import('./derivations/executor.js')) as { DerivationExecutor: typeof DerivationExecutorType })
+        ({ DerivationExecutor } = (await import('./with-formula/derivations/executor.js')) as { DerivationExecutor: typeof DerivationExecutorType })
       }
 
       for (const run of runs) {
@@ -2540,7 +2540,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
           // ── Array-shape branch ─────────────────────────────────
           if (out.kind === 'array') {
             // Load the prior key set from the fanout sidecar.
-            const { loadFanoutSidecar, saveFanoutSidecar } = await import('./derivations/fanout-sidecar.js')
+            const { loadFanoutSidecar, saveFanoutSidecar } = await import('./with-formula/derivations/fanout-sidecar.js')
             const prior = await loadFanoutSidecar(
               this.adapter,
               this.vault,
@@ -3022,7 +3022,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       for (const [outputKey, outSpec] of Object.entries(spec.outputs)) {
         if (outSpec.shape !== 'array') continue
         if (helpers === null) {
-          helpers = await import('./derivations/fanout-sidecar.js')
+          helpers = await import('./with-formula/derivations/fanout-sidecar.js')
         }
         const sidecar = await helpers.loadFanoutSidecar(
           this.adapter,
@@ -3062,7 +3062,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       const mode = reg.spec.refresh
       if (mode === 'eager') {
         if (executor === null) {
-          ;({ MaterializedViewExecutor: executor } = await import('./materialized-views/executor.js'))
+          ;({ MaterializedViewExecutor: executor } = await import('./with-formula/materialized-views/executor.js'))
         }
         await executor.refresh(reg, {
           getCollection: (name) => this.materializedViewSource!.getCollection(name),
@@ -3071,7 +3071,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         })
       } else if (mode === 'lazy') {
         if (staleHelpers === null) {
-          staleHelpers = await import('./materialized-views/stale.js')
+          staleHelpers = await import('./with-formula/materialized-views/stale.js')
         }
         staleHelpers.markMVStale(registry, reg.spec.name)
       }
@@ -3101,7 +3101,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // the executor before returning so callers see fresh data. No-op
     // when nothing is pending — keeps the read path negligible.
     if (this.materializedViewSource !== undefined) {
-      const { resolveStaleMVOnRead } = await import('./materialized-views/stale.js')
+      const { resolveStaleMVOnRead } = await import('./with-formula/materialized-views/stale.js')
       await resolveStaleMVOnRead(this.materializedViewSource, this.name)
     }
     await this.ensureHydrated()

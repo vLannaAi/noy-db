@@ -3,8 +3,8 @@ import { evaluateClause, type Clause, type CrossJoinClause } from '../src/query/
 import { Query, executePlan, type QueryPlan, count } from '../src/query/index.js'
 import { CrossJoinTooLargeError, CrossJoinSourceUnknownError } from '../src/errors.js'
 import type { QuerySource, JoinContext, JoinableSource } from '../src/query/index.js'
-import { withAggregate } from '../src/aggregate/index.js'
-import { analyzeDependencies, summarizeQueryPlan } from '../src/materialized-views/index.js'
+import { withAggregate } from '../src/with-lookup/aggregate/index.js'
+import { analyzeDependencies, summarizeQueryPlan } from '../src/with-formula/materialized-views/index.js'
 
 const AGG = withAggregate()
 

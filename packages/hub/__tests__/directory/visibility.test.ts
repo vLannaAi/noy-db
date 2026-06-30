@@ -10,7 +10,7 @@ import {
   DirectoryDisabledError,
   PermissionDeniedError,
 } from '../../src/errors.js'
-import { listUsersWithEnvelopes } from '../../src/team/keyring.js'
+import { listUsersWithEnvelopes } from '../../src/with-party/team/keyring.js'
 import { USER_ENVELOPE_COLLECTION } from '../../src/meta/user-envelope/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
 

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { InvertedIndex, type IndexDoc } from '../src/search/inverted-index.js'
-import { serializeIndex, deserializeIndex } from '../src/search/serialize.js'
+import { InvertedIndex, type IndexDoc } from '../src/with-lookup/search/inverted-index.js'
+import { serializeIndex, deserializeIndex } from '../src/with-lookup/search/serialize.js'
 
 const docs: IndexDoc[] = [
   { id: 'a', fields: [{ field: 'desc', text: 'overdue invoice TCM' }] },

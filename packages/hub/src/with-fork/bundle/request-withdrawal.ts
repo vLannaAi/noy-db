@@ -19,10 +19,10 @@
  * approval time and conveyed to the requester out-of-band, so no secret is
  * stored at rest.
  */
-import type { Vault } from '../vault.js'
-import type { EncryptedEnvelope } from '../types.js'
-import { NOYDB_FORMAT_VERSION } from '../types.js'
-import { NoydbError } from '../errors.js'
+import type { Vault } from '../../vault.js'
+import type { EncryptedEnvelope } from '../../types.js'
+import { NOYDB_FORMAT_VERSION } from '../../types.js'
+import { NoydbError } from '../../errors.js'
 import { resolveAccessibleCollections, buildAccessibleBundle } from './export-accessible.js'
 import { freezeAndDeleteClosure, randomId, type FrozenSnapshotRef, type WithdrawResult } from './withdraw-accessible.js'
 

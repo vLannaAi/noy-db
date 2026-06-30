@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
-import { GuardExecutor } from '../../src/guards/executor.js'
-import { withGuard } from '../../src/guards/with-guard.js'
+import { GuardExecutor } from '../../src/with-audit/guards/executor.js'
+import { withGuard } from '../../src/with-audit/guards/with-guard.js'
 import { FieldFrozenError, InvariantError } from '../../src/errors.js'
-import type { GuardContext } from '../../src/guards/types.js'
+import type { GuardContext } from '../../src/with-audit/guards/types.js'
 
 interface Invoice extends Record<string, unknown> {
   total: number

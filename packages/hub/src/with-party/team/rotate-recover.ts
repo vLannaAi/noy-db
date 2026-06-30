@@ -16,8 +16,8 @@
  *
  * @module
  */
-import type { NoydbStore, KeyringFile } from '../types.js'
-import { NOYDB_KEYRING_VERSION } from '../types.js'
+import type { NoydbStore, KeyringFile } from '../../types.js'
+import { NOYDB_KEYRING_VERSION } from '../../types.js'
 import {
   deriveKey,
   generateSalt,
@@ -25,11 +25,11 @@ import {
   unwrapKey,
   bufferToBase64,
   base64ToBuffer,
-} from '../crypto.js'
-import { InvalidKeyError, NoAccessError } from '../errors.js'
+} from '../../crypto.js'
+import { InvalidKeyError, NoAccessError } from '../../errors.js'
 import {
   RecoveryProfileNotImplementedError,
-} from '../policy/errors.js'
+} from '../../policy/errors.js'
 import {
   loadPaperRecoveryEntries,
   burnPaperRecoveryEntry,
@@ -40,12 +40,12 @@ import {
   type ShamirRecoveryEntry,
 } from './recovery.js'
 import type { ShamirRecoveryProvider } from './shamir-recovery-provider.js'
-import { assertStrongPassphrase, type PassphrasePolicy } from '../validation.js'
+import { assertStrongPassphrase, type PassphrasePolicy } from '../../validation.js'
 import type { UnlockedKeyring } from './keyring.js'
 import { mintKeyringCanary } from './keyring.js'
-import type { KeyringAuthenticator } from '../types.js'
+import type { KeyringAuthenticator } from '../../types.js'
 import type { EnrollAuthenticatorOptions } from './authenticators.js'
-import { ValidationError } from '../errors.js'
+import { ValidationError } from '../../errors.js'
 
 /**
  * Context handed to a {@link SlotRewrapCeremony} when `rotatePassphrase`

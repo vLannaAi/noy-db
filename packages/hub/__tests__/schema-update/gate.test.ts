@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { SchemaUpdateGate } from '../../src/schema-update/gate.js'
+import { SchemaUpdateGate } from '../../src/with-shape/schema-update/gate.js'
 
 describe('SchemaUpdateGate', () => {
   it('assertWritable resolves when the decision is allow', async () => {

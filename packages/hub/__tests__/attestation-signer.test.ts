@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { loadOrCreateSigner, loadSigner, SIGNER_RECORD_ID, ATTESTATIONS_COLLECTION, type DocSigner } from '../src/attestation/signer.js'
+import { loadOrCreateSigner, loadSigner, SIGNER_RECORD_ID, ATTESTATIONS_COLLECTION, type DocSigner } from '../src/with-audit/attestation/signer.js'
 import { generateDEK, encrypt } from '../src/crypto.js'
 import { ed25519Verify, signPayloadCore, generateDocSigningKeyPair } from '@noy-db/attestation'
 import { NOYDB_FORMAT_VERSION } from '../src/types.js'

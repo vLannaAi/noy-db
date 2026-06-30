@@ -50,7 +50,7 @@ export type {
   VersionRecord,
   BlobPutOptions,
   BlobResponseOptions,
-} from '../types.js'
+} from '../../types.js'
 
 export { detectMimeType, detectMagic, isPreCompressed } from './mime-magic.js'
 

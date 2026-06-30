@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { cosine } from '../src/embeddings/cosine.js'
+import { cosine } from '../src/with-lookup/embeddings/cosine.js'
 
 describe('cosine (#308 L2)', () => {
   it('identical vectors → 1', () => { expect(cosine([1, 2, 3], [1, 2, 3])).toBeCloseTo(1, 6) })

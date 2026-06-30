@@ -46,7 +46,7 @@
  * ```
  */
 
-import type { GuardChange, GuardContext } from '../guards/types.js'
+import type { GuardChange, GuardContext } from '../../with-audit/guards/types.js'
 
 /**
  * A commit-time set-level invariant for ordinary (and amendment)

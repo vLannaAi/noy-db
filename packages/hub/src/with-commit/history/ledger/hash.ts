@@ -8,7 +8,7 @@
  * @internal
  */
 
-import type { EncryptedEnvelope } from '../../types.js'
+import type { EncryptedEnvelope } from '../../../types.js'
 import { sha256Hex, canonicalJson } from './entry.js'
 
 /**

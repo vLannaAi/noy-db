@@ -13,8 +13,8 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb, InvariantError, withGuard } from '../../src/index.js'
-import { withTransactions } from '../../src/tx/index.js'
-import type { TransactionInvariant } from '../../src/tx/index.js'
+import { withTransactions } from '../../src/with-commit/tx/index.js'
+import type { TransactionInvariant } from '../../src/with-commit/tx/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
 
 function memory(): NoydbStore {

@@ -13,8 +13,8 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError, ReadOnlyFrameError, createNoydb } from '../src/index.js'
-import { withHistory } from '../src/history/index.js'
-import { withShadow } from '../src/shadow/index.js'
+import { withHistory } from '../src/with-commit/history/index.js'
+import { withShadow } from '../src/with-fork/shadow/index.js'
 import type { Noydb } from '../src/index.js'
 
 function memoryStore(): NoydbStore {

@@ -1,5 +1,5 @@
 /** Bundled light update strategies. */
-import { NonAdditiveSchemaChangeError, SchemaLockedError } from '../errors.js'
+import { NonAdditiveSchemaChangeError, SchemaLockedError } from '../../errors.js'
 import type { SchemaUpdateStrategy, SchemaDelta } from './types.js'
 
 /** Allow any schema change. Explicit blind / back-compat. */

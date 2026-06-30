@@ -41,7 +41,7 @@
  */
 
 import type { Vault } from './vault.js'
-import { diff as fieldDiff, type DiffEntry as FieldDiffEntry } from './history/diff.js'
+import { diff as fieldDiff, type DiffEntry as FieldDiffEntry } from './with-commit/history/diff.js'
 
 // ─── Public types ──────────────────────────────────────────────────────
 

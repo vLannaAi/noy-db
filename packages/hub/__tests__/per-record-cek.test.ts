@@ -17,9 +17,9 @@ import { createNoydb } from '../src/noydb.js'
 import { ConflictError } from '../src/errors.js'
 import { NOYDB_FORMAT_VERSION } from '../src/types.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
-import { withHistory } from '../src/history/index.js'
-import { extractPartition } from '../src/bundle/extract-partition.js'
-import { adoptPartition, createOwnerOnAdoptedPartition } from '../src/bundle/adopt-partition.js'
+import { withHistory } from '../src/with-commit/history/index.js'
+import { extractPartition } from '../src/with-fork/bundle/extract-partition.js'
+import { adoptPartition, createOwnerOnAdoptedPartition } from '../src/with-fork/bundle/adopt-partition.js'
 
 /** In-memory store that also exposes the raw stored envelopes for assertions. */
 function memory(): NoydbStore & { raw(c: string, col: string, id: string): EncryptedEnvelope | undefined } {

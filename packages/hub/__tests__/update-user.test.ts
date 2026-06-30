@@ -22,7 +22,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, KeyringFile, KeyringAuthenticator } from '../src/types.js'
-import { createOwnerKeyring, loadKeyring, grant, persistKeyring, updateKeyringIdentity } from '../src/team/keyring.js'
+import { createOwnerKeyring, loadKeyring, grant, persistKeyring, updateKeyringIdentity } from '../src/with-party/team/keyring.js'
 import { generateDEK } from '../src/crypto.js'
 import { createNoydb } from '../src/noydb.js'
 import { NoAccessError, PermissionDeniedError, ValidationError } from '../src/errors.js'

@@ -10,11 +10,11 @@ import {
   listCredentials,
   credentialStatus,
   SYNC_CREDENTIALS_COLLECTION,
-} from '../src/team/sync-credentials.js'
+} from '../src/with-party/team/sync-credentials.js'
 import { PermissionDeniedError } from '../src/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
-import type { UnlockedKeyring } from '../src/team/keyring.js'
-import { createOwnerKeyring, grant } from '../src/team/keyring.js'
+import type { UnlockedKeyring } from '../src/with-party/team/keyring.js'
+import { createOwnerKeyring, grant } from '../src/with-party/team/keyring.js'
 import { ConflictError } from '../src/errors.js'
 
 // ─── Inline memory adapter ─────────────────────────────────────────────────
@@ -200,7 +200,7 @@ describe('_sync_credentials', () => {
       role: 'viewer',
       passphrase: 'viewer-pw',
     })
-    const { loadKeyring } = await import('../src/team/keyring.js')
+    const { loadKeyring } = await import('../src/with-party/team/keyring.js')
     const viewerKeyring = await loadKeyring(adapter, COMPARTMENT, 'viewer1', 'viewer-pw')
 
     await expect(
@@ -222,7 +222,7 @@ describe('_sync_credentials', () => {
       passphrase: 'op-pw',
       permissions: { invoices: 'rw' },
     })
-    const { loadKeyring } = await import('../src/team/keyring.js')
+    const { loadKeyring } = await import('../src/with-party/team/keyring.js')
     const opKeyring = await loadKeyring(adapter, COMPARTMENT, 'op1', 'op-pw')
 
     await expect(
@@ -237,7 +237,7 @@ describe('_sync_credentials', () => {
       role: 'admin',
       passphrase: 'admin-pw',
     })
-    const { loadKeyring } = await import('../src/team/keyring.js')
+    const { loadKeyring } = await import('../src/with-party/team/keyring.js')
     const adminKeyring = await loadKeyring(adapter, COMPARTMENT, 'admin1', 'admin-pw')
 
     await putCredential(adapter, COMPARTMENT, adminKeyring, gdriveToken)

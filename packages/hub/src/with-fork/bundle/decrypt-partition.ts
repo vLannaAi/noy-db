@@ -7,9 +7,9 @@
  * (wrong key throws).
  * @module
  */
-import type { EncryptedEnvelope } from '../types.js'
-import { decrypt } from '../crypto.js'
-import { unwrapCek } from '../record-keys/index.js'
+import type { EncryptedEnvelope } from '../../types.js'
+import { decrypt } from '../../crypto.js'
+import { unwrapCek } from '../../record-keys/index.js'
 import { readNoydbBundleHeader, readNoydbBundle, parseExtractedPartitionBody } from './bundle.js'
 import { unsealDeks } from './adopt-partition.js'
 

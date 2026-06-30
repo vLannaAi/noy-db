@@ -4,9 +4,9 @@
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/index.js'
 import { ConflictError, ExportCapabilityError, createNoydb } from '../src/index.js'
-import { withBlobs } from '../src/blobs/index.js'
+import { withBlobs } from '../src/with-shape/blobs/index.js'
 import type { Noydb, Vault } from '../src/index.js'
-import { ExportBlobsAbortedError, EXPORT_AUDIT_COLLECTION } from '../src/blobs/export-blobs.js'
+import { ExportBlobsAbortedError, EXPORT_AUDIT_COLLECTION } from '../src/with-shape/blobs/export-blobs.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

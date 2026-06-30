@@ -14,18 +14,18 @@
  * @module
  */
 
-import { decrypt, base64ToBuffer } from '../crypto.js'
+import { decrypt, base64ToBuffer } from '../../crypto.js'
 import {
   SealedRecordExpiredError,
   SealedRecordMismatchError,
-} from '../errors.js'
+} from '../../errors.js'
 import type {
   SealedCekDeliveryEnvelope,
   SealedCekBinding,
 } from './types.js'
 
 export type { SealedCekDeliveryEnvelope, SealedCekBinding } from './types.js'
-export { SealedRecordExpiredError, SealedRecordMismatchError } from '../errors.js'
+export { SealedRecordExpiredError, SealedRecordMismatchError } from '../../errors.js'
 
 const subtle = globalThis.crypto.subtle
 

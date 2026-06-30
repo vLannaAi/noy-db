@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { withDeferredNumbering } from '../../src/numbering/descriptor.js'
+import { withDeferredNumbering } from '../../src/with-commit/numbering/descriptor.js'
 import { NumberingUncertaintyError, ConflictError } from '../../src/errors.js'
-import { DeferredNumberingStore } from '../../src/numbering/index.js'
+import { DeferredNumberingStore } from '../../src/with-commit/numbering/index.js'
 import { createNoydb } from '../../src/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/types.js'
 

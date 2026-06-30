@@ -16,7 +16,7 @@
  *
  * @module
  */
-import type { LedgerEntry } from '../history/ledger/entry.js'
+import type { LedgerEntry } from '../../with-commit/history/ledger/entry.js'
 
 /**
  * User-supplied declaration passed to {@link withForgetCascade}. Maps a

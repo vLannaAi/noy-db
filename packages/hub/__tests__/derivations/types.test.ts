@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import type { DerivedFromMeta, DerivationStrategy, OutputSpec } from '../../src/derivations/types.js'
+import type { DerivedFromMeta, DerivationStrategy, OutputSpec } from '../../src/with-formula/derivations/types.js'
 
 describe('Derivation types', () => {
   it('DerivedFromMeta has the documented fields', () => {

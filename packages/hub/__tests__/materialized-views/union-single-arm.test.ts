@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb, withMaterializedView, sum, count } from '../../src/index.js'
-import { withAggregate } from '../../src/aggregate/index.js'
+import { withAggregate } from '../../src/with-lookup/aggregate/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
 
 // #331 — single-arm union: map→group→aggregate over ONE collection with a

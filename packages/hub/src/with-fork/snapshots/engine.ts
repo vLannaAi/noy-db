@@ -1,7 +1,7 @@
 import { writeNoydbBundle, readNoydbBundle } from '../bundle/bundle.js'
-import { SnapshotNotFoundError } from '../errors.js'
-import type { NoydbBundleStore } from '../types.js'
-import type { Vault } from '../vault.js'
+import { SnapshotNotFoundError } from '../../errors.js'
+import type { NoydbBundleStore } from '../../types.js'
+import type { Vault } from '../../vault.js'
 import type { SnapshotMeta, RetentionPolicy, SnapshotIndex } from './strategy.js'
 
 export class SnapshotEngine {

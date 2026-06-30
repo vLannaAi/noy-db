@@ -29,13 +29,13 @@ import type {
   NoydbStore,
   ConflictStrategy,
   SyncTargetRole,
-} from '../types.js'
-import type { NoydbEventEmitter } from '../events.js'
-import type { SyncPolicy } from '../store/sync-policy.js'
+} from '../../types.js'
+import type { NoydbEventEmitter } from '../../events.js'
+import type { SyncPolicy } from '../../store/sync-policy.js'
 import type { SyncEngine } from './sync.js'
 import type { SyncTransaction } from './sync-transaction.js'
 import type { PresenceHandle, PresenceHandleOpts } from './presence.js'
-import type { Vault } from '../vault.js'
+import type { Vault } from '../../vault.js'
 
 /**
  * Options accepted by `SyncStrategy.buildSyncEngine`. Mirrors the

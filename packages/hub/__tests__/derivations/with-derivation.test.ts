@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { withDerivation } from '../../src/derivations/with-derivation.js'
+import { withDerivation } from '../../src/with-formula/derivations/with-derivation.js'
 
 describe('withDerivation factory', () => {
   it('returns a handle with __noydb_strategy: "derivation"', () => {

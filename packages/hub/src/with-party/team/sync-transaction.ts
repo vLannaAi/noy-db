@@ -1,6 +1,6 @@
-import type { SyncTransactionResult } from '../types.js'
+import type { SyncTransactionResult } from '../../types.js'
 import type { SyncEngine } from './sync.js'
-import type { Vault } from '../vault.js'
+import type { Vault } from '../../vault.js'
 
 interface TxOp {
   readonly type: 'put' | 'delete'

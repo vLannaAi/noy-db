@@ -1,4 +1,4 @@
-import type { ReadOnlyVaultFacade } from '../guards/types.js'
+import type { ReadOnlyVaultFacade } from '../../with-audit/guards/types.js'
 
 /**
  * Runtime context handed to `derive(source, ctx)`. Mirrors `GuardContext`'s

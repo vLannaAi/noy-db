@@ -16,7 +16,7 @@
  *
  * @public
  */
-import { ScriptViolationError } from '../errors.js'
+import { ScriptViolationError } from '../../errors.js'
 import type { I18nTextDescriptor } from './core.js'
 
 /** Locales whose base language is written in the Latin script. */

@@ -11,7 +11,7 @@
  */
 
 import { canonicalize } from './canonicalize.js'
-import { sha256Hex } from '../crypto.js'
+import { sha256Hex } from '../../crypto.js'
 import type { PersistedSchemaEnvelope, PersistedSchemaKind } from './types.js'
 
 /**

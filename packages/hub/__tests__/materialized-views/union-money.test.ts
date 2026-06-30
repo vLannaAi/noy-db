@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
 import { createNoydb, withMaterializedView } from '../../src/index.js'
-import { withAggregate } from '../../src/aggregate/index.js'
-import { sum, min, max } from '../../src/aggregate/reducers.js'
-import { money } from '../../src/money/descriptor.js'
+import { withAggregate } from '../../src/with-lookup/aggregate/index.js'
+import { sum, min, max } from '../../src/with-lookup/aggregate/reducers.js'
+import { money } from '../../src/with-shape/money/descriptor.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
 
 function memory(): NoydbStore {
@@ -355,7 +355,7 @@ describe('UNION MV — queryHash sensitivity to moneyFields (#350)', () => {
     })
     const withoutMoney = withMaterializedView<{ period: string; total: string }>({ ...base })
 
-    const { summarizeUnionPlan } = await import('../../src/materialized-views/dependency-analyzer.js')
+    const { summarizeUnionPlan } = await import('../../src/with-formula/materialized-views/dependency-analyzer.js')
     const planWith = summarizeUnionPlan(withMoney.spec)
     const planWithout = summarizeUnionPlan(withoutMoney.spec)
     expect(planWith).not.toBe(planWithout)

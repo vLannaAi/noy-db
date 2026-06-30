@@ -9,8 +9,8 @@ import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
-import { loadKeyring } from '../src/team/keyring.js'
-import type { UnlockedKeyring } from '../src/team/keyring.js'
+import { loadKeyring } from '../src/with-party/team/keyring.js'
+import type { UnlockedKeyring } from '../src/with-party/team/keyring.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

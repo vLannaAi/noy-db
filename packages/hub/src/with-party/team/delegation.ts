@@ -39,12 +39,12 @@
  * @module
  */
 
-import type { NoydbStore, EncryptedEnvelope } from '../types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../../types.js'
 import type { UnlockedKeyring } from './keyring.js'
-import { encrypt, decrypt, wrapKey, unwrapKey } from '../crypto.js'
+import { encrypt, decrypt, wrapKey, unwrapKey } from '../../crypto.js'
 import { dekKey } from './tiers.js'
-import { DelegationTargetMissingError } from '../errors.js'
-import { generateULID } from '../bundle/ulid.js'
+import { DelegationTargetMissingError } from '../../errors.js'
+import { generateULID } from '../../with-fork/bundle/ulid.js'
 
 export const DELEGATIONS_COLLECTION = '_delegations'
 

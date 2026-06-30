@@ -24,8 +24,8 @@ import { isTombstone } from './tombstone.js'
 import { parseSealedSlot, dualReadSealedSlot } from './sealed-slot.js'
 import { DebugReservedFieldError } from '../errors.js'
 import { validateSchemaOutput, type StandardSchemaV1 } from '../schema.js'
-import type { CrdtMode, CrdtState } from '../crdt/crdt.js'
-import type { CrdtStrategy } from '../crdt/strategy.js'
+import type { CrdtMode, CrdtState } from '../with-commit/crdt/crdt.js'
+import type { CrdtStrategy } from '../with-commit/crdt/strategy.js'
 import type { Lru } from '../cache/index.js'
 
 /** Everything the moving crypto methods touched on `this.*`, as a flat context. */

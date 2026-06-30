@@ -22,4 +22,4 @@ export {
   IllegalTransitionError,
   InvariantError,
   AmendmentForbiddenError,
-} from '../errors.js'
+} from '../../errors.js'

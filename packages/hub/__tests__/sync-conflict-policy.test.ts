@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, Conflict } from '../src/types.js'
 import { ConflictError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
-import { withSync } from '../src/sync/index.js'
+import { withSync } from '../src/with-party/sync/index.js'
 
 // ─── Inline memory adapter (same as sync.test.ts) ─────────────────────────
 

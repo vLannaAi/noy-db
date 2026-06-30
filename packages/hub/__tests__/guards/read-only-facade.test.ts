@@ -2,9 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { createNoydb, withGuard, InvariantError } from '../../src/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/types.js'
 import { ConflictError } from '../../src/errors.js'
-import { ReadOnlyVaultFacade } from '../../src/guards/read-only-facade.js'
-import { sum } from '../../src/aggregate/reducers.js'
-import { withAggregate } from '../../src/aggregate/index.js'
+import { ReadOnlyVaultFacade } from '../../src/with-audit/guards/read-only-facade.js'
+import { sum } from '../../src/with-lookup/aggregate/reducers.js'
+import { withAggregate } from '../../src/with-lookup/aggregate/index.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

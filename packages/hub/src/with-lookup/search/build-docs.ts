@@ -5,9 +5,9 @@
  * record — the collection pre-resolves them (one listSlots() per record, the
  * heaviest source) and feeds them to {@link buildBlobFieldEntries}.
  */
-import { getAtPath } from '../i18n/core.js'
-import type { I18nTextDescriptor } from '../i18n/core.js'
-import type { DictKeyDescriptor, StaticDictDescriptor } from '../i18n/dictionary.js'
+import { getAtPath } from '../../with-shape/i18n/core.js'
+import type { I18nTextDescriptor } from '../../with-shape/i18n/core.js'
+import type { DictKeyDescriptor, StaticDictDescriptor } from '../../with-shape/i18n/dictionary.js'
 import type { IndexDoc } from './inverted-index.js'
 
 type FieldEntry = IndexDoc['fields'][number]

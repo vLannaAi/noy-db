@@ -6,20 +6,20 @@
  *
  * @module
  */
-import type { Vault } from '../vault.js'
-import type { EncryptedEnvelope } from '../types.js'
-import { NOYDB_BACKUP_VERSION } from '../types.js'
-import { decrypt, encrypt, generateDEK, bufferToBase64 } from '../crypto.js'
-import { unwrapCek, wrapCek } from '../record-keys/index.js'
-import { PartitionExtractionError } from '../errors.js'
+import type { Vault } from '../../vault.js'
+import type { EncryptedEnvelope } from '../../types.js'
+import { NOYDB_BACKUP_VERSION } from '../../types.js'
+import { decrypt, encrypt, generateDEK, bufferToBase64 } from '../../crypto.js'
+import { unwrapCek, wrapCek } from '../../record-keys/index.js'
+import { PartitionExtractionError } from '../../errors.js'
 import { walkClosure, type WalkClosureOptions } from './walk-closure.js'
 import { generateULID } from './ulid.js'
-import { SCHEMAS_COLLECTION } from '../persisted-schemas/storage.js'
-import { NOYDB_FORMAT_VERSION } from '../types.js'
-import { LEDGER_COLLECTION } from '../history/ledger/constants.js'
-import { canonicalJson, hashEntry } from '../history/ledger/entry.js'
-import type { LedgerEntry } from '../history/ledger/entry.js'
-import { envelopePayloadHash } from '../history/ledger/hash.js'
+import { SCHEMAS_COLLECTION } from '../../with-shape/persisted-schemas/storage.js'
+import { NOYDB_FORMAT_VERSION } from '../../types.js'
+import { LEDGER_COLLECTION } from '../../with-commit/history/ledger/constants.js'
+import { canonicalJson, hashEntry } from '../../with-commit/history/ledger/entry.js'
+import type { LedgerEntry } from '../../with-commit/history/ledger/entry.js'
+import { envelopePayloadHash } from '../../with-commit/history/ledger/hash.js'
 import {
   assembleBundleContainer,
   buildExtractedPartitionWrapper,

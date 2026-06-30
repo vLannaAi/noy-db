@@ -1,4 +1,4 @@
-import { FieldFrozenError, InvariantError } from '../errors.js'
+import { FieldFrozenError, InvariantError } from '../../errors.js'
 import type { GuardStrategy, GuardContext, GuardChange } from './types.js'
 
 /**

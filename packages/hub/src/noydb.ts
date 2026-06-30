@@ -25,7 +25,7 @@ import { ValidationError, NoAccessError, InvalidKeyError, KeyringCorruptError, S
 import {
   readDirectoryConfig,
   persistDirectoryConfig,
-} from './directory/storage.js'
+} from './with-party/directory/storage.js'
 import type { PassphrasePolicy } from './validation.js'
 import {
   rotatePassphrase as keyringRotatePassphrase,
@@ -38,11 +38,11 @@ import {
   type EnrollRecoveryResult,
   type RecoveryEnrollmentInput,
   type RecoveryProof,
-} from './team/rotate-recover.js'
+} from './with-party/team/rotate-recover.js'
 import {
   recoverUser as keyringRecoverUser,
   type RecoverUserOptions,
-} from './team/peer-recover.js'
+} from './with-party/team/peer-recover.js'
 import {
   loadPaperRecoveryEntries,
   savePaperRecoveryEntries,
@@ -54,10 +54,10 @@ import {
   saveShamirRecoveryEntries,
   mintShamirRecoveryEntry,
   type ShamirRecoveryEntry,
-} from './team/recovery.js'
-import { resolveManagedSecret, saveSealedPassphrase } from './team/managed-passphrase.js'
-import type { ShamirRecoveryProvider } from './team/shamir-recovery-provider.js'
-import { generateULID } from './bundle/ulid.js'
+} from './with-party/team/recovery.js'
+import { resolveManagedSecret, saveSealedPassphrase } from './with-party/team/managed-passphrase.js'
+import type { ShamirRecoveryProvider } from './with-party/team/shamir-recovery-provider.js'
+import { generateULID } from './with-fork/bundle/ulid.js'
 import { StoreCoordinationProvider, type CoordinationProvider } from './coordination/index.js'
 import { RecoveryNotEnrolledError, RecoveryProfileNotImplementedError, ManagedRecoveryNotEnrolledError, PolicyDeniedError } from './policy/errors.js'
 import {
@@ -65,7 +65,7 @@ import {
   diagramAuthConfig as fnDiagramAuthConfig,
   describeUserAuth as fnDescribeUserAuth,
   describeAllUsersAuth as fnDescribeAllUsersAuth,
-} from './auth-introspection/index.js'
+} from './with-party/auth-introspection/index.js'
 import {
   loadPublicEnvelope,
   savePublicEnvelope,
@@ -77,7 +77,7 @@ import {
   type ResolvedPublicEnvelopeSchema,
 } from './meta/public-envelope/index.js'
 import { Vault } from './vault.js'
-import type { VaultMeta } from './introspection/meta.js'
+import type { VaultMeta } from './with-shape/introspection/meta.js'
 import { NoydbEventEmitter } from './events.js'
 import { WriteQueueTracker, type WriteQueue } from './write-queue.js'
 import { WriteHookRegistry, type WriteHook, type Unsubscribe } from './write-hooks.js'
@@ -94,8 +94,8 @@ import {
   changeSecret as keyringChangeSecret,
   listUsers as keyringListUsers,
   updateKeyringIdentity,
-} from './team/keyring.js'
-import type { UnlockedKeyring } from './team/keyring.js'
+} from './with-party/team/keyring.js'
+import type { UnlockedKeyring } from './with-party/team/keyring.js'
 import {
   enrollAuthenticator as keyringEnrollAuthenticator,
   removeAuthenticator as keyringRemoveAuthenticator,
@@ -103,24 +103,24 @@ import {
   findAuthenticator,
   type EnrollAuthenticatorOptions,
   type UpdateAuthenticatorOptions,
-} from './team/authenticators.js'
-import { QuickUnlockStore, type QuickUnlockState } from './session/unlock-state.js'
+} from './with-party/team/authenticators.js'
+import { QuickUnlockStore, type QuickUnlockState } from './with-party/session/unlock-state.js'
 import type { KeyringAuthenticator } from './types.js'
-import type { SyncEngine } from './team/sync.js'
-import type { SyncTransaction } from './team/sync-transaction.js'
-import { NO_SYNC, type SyncStrategy } from './team/sync-strategy.js'
-import { NO_SNAPSHOTS, type SnapshotStrategy, type SnapshotMeta } from './snapshots/strategy.js'
-import { SnapshotScheduler } from './snapshots/scheduler.js'
-import type { AmendmentTxOptions } from './tx/transaction.js'
-import { TxContext } from './tx/transaction.js'
-import type { DryRunResult } from './tx/dry-run.js'
-import { NO_TX, type TxStrategy } from './tx/strategy.js'
-import { NO_FORGET, type ForgetStrategy } from './forget/strategy.js'
-import { readDottedPath, coerceSubjectId } from './forget/subject-index.js'
+import type { SyncEngine } from './with-party/team/sync.js'
+import type { SyncTransaction } from './with-party/team/sync-transaction.js'
+import { NO_SYNC, type SyncStrategy } from './with-party/team/sync-strategy.js'
+import { NO_SNAPSHOTS, type SnapshotStrategy, type SnapshotMeta } from './with-fork/snapshots/strategy.js'
+import { SnapshotScheduler } from './with-fork/snapshots/scheduler.js'
+import type { AmendmentTxOptions } from './with-commit/tx/transaction.js'
+import { TxContext } from './with-commit/tx/transaction.js'
+import type { DryRunResult } from './with-commit/tx/dry-run.js'
+import { NO_TX, type TxStrategy } from './with-commit/tx/strategy.js'
+import { NO_FORGET, type ForgetStrategy } from './with-audit/forget/strategy.js'
+import { readDottedPath, coerceSubjectId } from './with-audit/forget/subject-index.js'
 import { INDEXED_STORE_POLICY } from './store/sync-policy.js'
 import { memoryStore } from './store/memory-store.js'
-import type { PolicyEnforcer } from './session/session-policy.js'
-import { NO_SESSION, type SessionStrategy } from './session/strategy.js'
+import type { PolicyEnforcer } from './with-party/session/session-policy.js'
+import { NO_SESSION, type SessionStrategy } from './with-party/session/strategy.js'
 import {
   checkGate as policyCheckGate,
   loadVaultPolicy,
@@ -377,7 +377,7 @@ export class Noydb {
       if (!facade) return
       const ctx = { existing, vault: facade, userId: e.userId, role: e.role }
       await registry.runChecks(e.collection, incoming, ctx)
-      const { GuardExecutor } = await import('./guards/executor.js')
+      const { GuardExecutor } = await import('./with-audit/guards/executor.js')
       for (const g of guards) {
         await GuardExecutor.checkFrozenFields(g, e.docId, existing, incoming, e.computedFieldNames)
       }

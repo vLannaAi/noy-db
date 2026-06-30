@@ -1,10 +1,10 @@
-import type { Query } from '../query/builder.js'
-import type { Collection } from '../collection.js'
-import type { AggregateSpec, Aggregation } from '../aggregate/aggregation.js'
-import type { GroupedAggregation } from '../aggregate/groupby.js'
-import type { JoinStrategy } from '../query/join.js'
-import type { MoneyDescriptor } from '../money/descriptor.js'
-import type { I18nTextDescriptor } from '../i18n/core.js'
+import type { Query } from '../../query/builder.js'
+import type { Collection } from '../../collection.js'
+import type { AggregateSpec, Aggregation } from '../../with-lookup/aggregate/aggregation.js'
+import type { GroupedAggregation } from '../../with-lookup/aggregate/groupby.js'
+import type { JoinStrategy } from '../../query/join.js'
+import type { MoneyDescriptor } from '../../with-shape/money/descriptor.js'
+import type { I18nTextDescriptor } from '../../with-shape/i18n/core.js'
 
 /**
  * Minimal vault-shaped accessor passed to the MV `query()` callback.

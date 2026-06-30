@@ -11,7 +11,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb, withMaterializedView, sum } from '../src/index.js'
-import { withAggregate } from '../src/aggregate/index.js'
+import { withAggregate } from '../src/with-lookup/aggregate/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../src/types.js'
 
 function memory(): NoydbStore {

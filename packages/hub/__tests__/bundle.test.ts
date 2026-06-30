@@ -20,7 +20,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
-import { withHistory } from '../src/history/index.js'
+import { withHistory } from '../src/with-commit/history/index.js'
 import type { Noydb } from '../src/noydb.js'
 import type {
   NoydbStore,
@@ -41,7 +41,7 @@ import {
   NOYDB_BUNDLE_PREFIX_BYTES,
   NOYDB_BUNDLE_FORMAT_VERSION,
 } from '../src/index.js'
-import { validateBundleHeader, decodeBundleHeader, encodeBundleHeader } from '../src/bundle/format.js'
+import { validateBundleHeader, decodeBundleHeader, encodeBundleHeader } from '../src/with-fork/bundle/format.js'
 
 /** Inline memory adapter — same shape as other integration tests. */
 function memory(): NoydbStore {

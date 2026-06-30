@@ -15,8 +15,8 @@ import { ref } from '../src/refs.js'
 import { ConflictError } from '../src/errors.js'
 import { decrypt, base64ToBuffer, generateDEK } from '../src/crypto.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
-import { reKeyClosure, sealDeks, extractPartition } from '../src/bundle/extract-partition.js'
-import { readNoydbBundle, readNoydbBundleHeader, parseExtractedPartitionBody } from '../src/bundle/bundle.js'
+import { reKeyClosure, sealDeks, extractPartition } from '../src/with-fork/bundle/extract-partition.js'
+import { readNoydbBundle, readNoydbBundleHeader, parseExtractedPartitionBody } from '../src/with-fork/bundle/bundle.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

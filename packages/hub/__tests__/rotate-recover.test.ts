@@ -13,19 +13,19 @@
  */
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope } from '../src/types.js'
-import { createOwnerKeyring, loadKeyring } from '../src/team/keyring.js'
+import { createOwnerKeyring, loadKeyring } from '../src/with-party/team/keyring.js'
 import {
   rotatePassphrase,
   recoverPassphrase,
   type RecoveryProof,
-} from '../src/team/rotate-recover.js'
+} from '../src/with-party/team/rotate-recover.js'
 import {
   savePaperRecoveryEntries,
   mintPaperRecoveryEntry,
   loadPaperRecoveryEntries,
-} from '../src/team/recovery.js'
+} from '../src/with-party/team/recovery.js'
 import { generateDEK } from '../src/crypto.js'
-import { persistKeyring } from '../src/team/keyring.js'
+import { persistKeyring } from '../src/with-party/team/keyring.js'
 import { WeakPassphraseError } from '../src/validation.js'
 import { InvalidKeyError } from '../src/errors.js'
 import { RecoveryProfileNotImplementedError } from '../src/policy/errors.js'
@@ -245,7 +245,7 @@ describe('recoverPassphrase (paper profile)', () => {
     const keyring = await createOwnerKeyring(store, 'acme', 'alice', STRONG_OLD)
     keyring.deks.set('invoices', await generateDEK())
     await persistKeyring(store, 'acme', keyring)
-    const { mintPaperRecoveryEntry } = await import('../src/team/recovery.js')
+    const { mintPaperRecoveryEntry } = await import('../src/with-party/team/recovery.js')
     const entry = await mintPaperRecoveryEntry(keyring.deks, 'TESTCODE12345', 'entry-001')
     await savePaperRecoveryEntries(store, 'acme', [entry])
 

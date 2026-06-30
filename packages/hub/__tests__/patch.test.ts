@@ -18,7 +18,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { computePatch, applyPatch, type JsonPatch } from '../src/history/ledger/patch.js'
+import { computePatch, applyPatch, type JsonPatch } from '../src/with-commit/history/ledger/patch.js'
 
 function roundtrip<T>(prev: T, next: T): void {
   const patch = computePatch(prev, next)

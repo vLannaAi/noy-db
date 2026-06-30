@@ -3,8 +3,8 @@ import { z } from 'zod'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/types.js'
 import { ConflictError } from '../../src/errors.js'
 import { createNoydb, writeNoydbBundle, readNoydbBundle } from '../../src/index.js'
-import { withHistory } from '../../src/history/index.js'
-import { SCHEMAS_COLLECTION } from '../../src/persisted-schemas/storage.js'
+import { withHistory } from '../../src/with-commit/history/index.js'
+import { SCHEMAS_COLLECTION } from '../../src/with-shape/persisted-schemas/storage.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { canonicalize } from '../../src/persisted-schemas/canonicalize.js'
+import { canonicalize } from '../../src/with-shape/persisted-schemas/canonicalize.js'
 
 describe('canonicalize', () => {
   it('sorts object keys lexicographically at every depth', () => {

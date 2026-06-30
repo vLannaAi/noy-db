@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { issueAttestationCore } from '../src/attestation/issue.js'
+import { issueAttestationCore } from '../src/with-audit/attestation/issue.js'
 import { verifyAttestation } from '@noy-db/attestation'
 import type { AttestationFieldSchema } from '@noy-db/attestation'
 import { generateDEK, decrypt } from '../src/crypto.js'

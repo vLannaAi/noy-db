@@ -40,7 +40,7 @@
  * merging.
  */
 
-import { MissingTranslationError, LocaleNotSpecifiedError } from '../errors.js'
+import { MissingTranslationError, LocaleNotSpecifiedError } from '../../errors.js'
 import type { OnMissing, OnMissingPolicy, Layer } from './policy.js'
 import { resolvePolicy } from './policy.js'
 import { inferScripts } from './script.js'

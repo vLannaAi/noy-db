@@ -3,8 +3,8 @@
  * state, stored at `_meta/schema-fence` using the plaintext-envelope
  * pattern of `_meta/policy` (no PII — a counter + a state enum).
  */
-import type { NoydbStore, EncryptedEnvelope } from '../types.js'
-import { NOYDB_FORMAT_VERSION } from '../types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../../types.js'
+import { NOYDB_FORMAT_VERSION } from '../../types.js'
 
 export type FenceState = 'normal' | 'draining' | 'migrating' | 'complete'
 

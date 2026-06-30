@@ -48,8 +48,8 @@
  * @module
  */
 
-import type { NoydbStore, EncryptedEnvelope } from '../types.js'
-import { NOYDB_FORMAT_VERSION } from '../types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../../types.js'
+import { NOYDB_FORMAT_VERSION } from '../../types.js'
 
 /**
  * The contract concrete providers (per-platform key stores) implement

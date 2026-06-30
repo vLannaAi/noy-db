@@ -17,7 +17,7 @@ import { ConflictError, NoAccessError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
 import {
   MemorySealingKeyProvider,
-} from '../src/team/managed-passphrase.js'
+} from '../src/with-party/team/managed-passphrase.js'
 import { shamirRecoveryProvider } from '@noy-db/on-shamir'
 
 // Inline memory adapter (same shape as cross-vault.test.ts)

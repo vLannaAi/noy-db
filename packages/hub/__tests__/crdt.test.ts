@@ -2,9 +2,9 @@ import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
-import { withSync } from '../src/sync/index.js'
-import type { LwwMapState, RgaState } from '../src/crdt/crdt.js'
-import { withCrdt } from '../src/crdt/index.js'
+import { withSync } from '../src/with-party/sync/index.js'
+import type { LwwMapState, RgaState } from '../src/with-commit/crdt/crdt.js'
+import { withCrdt } from '../src/with-commit/crdt/index.js'
 
 // ─── Inline memory adapter ─────────────────────────────────────────────────
 

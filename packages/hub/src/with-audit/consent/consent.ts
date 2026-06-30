@@ -48,9 +48,9 @@
  *
  * @module
  */
-import type { EncryptedEnvelope, NoydbStore } from '../types.js'
-import { encrypt, decrypt } from '../crypto.js'
-import { generateULID } from '../bundle/ulid.js'
+import type { EncryptedEnvelope, NoydbStore } from '../../types.js'
+import { encrypt, decrypt } from '../../crypto.js'
+import { generateULID } from '../../with-fork/bundle/ulid.js'
 
 /** Reserved collection for consent-audit entries. */
 export const CONSENT_AUDIT_COLLECTION = '_consent_audit'

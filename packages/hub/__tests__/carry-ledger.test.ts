@@ -8,17 +8,17 @@
 
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
-import { withHistory } from '../src/history/index.js'
+import { withHistory } from '../src/with-commit/history/index.js'
 import { ref } from '../src/refs.js'
 import { ConflictError } from '../src/errors.js'
 import { generateDEK, decrypt } from '../src/crypto.js'
-import { hashEntry } from '../src/history/ledger/entry.js'
-import { envelopePayloadHash } from '../src/history/ledger/hash.js'
-import type { LedgerEntry } from '../src/history/ledger/entry.js'
+import { hashEntry } from '../src/with-commit/history/ledger/entry.js'
+import { envelopePayloadHash } from '../src/with-commit/history/ledger/hash.js'
+import type { LedgerEntry } from '../src/with-commit/history/ledger/entry.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
-import { reKeyLedger, reKeyClosure, extractPartition } from '../src/bundle/extract-partition.js'
-import { adoptPartition, createOwnerOnAdoptedPartition } from '../src/bundle/adopt-partition.js'
-import { readNoydbBundle, parseExtractedPartitionBody } from '../src/bundle/bundle.js'
+import { reKeyLedger, reKeyClosure, extractPartition } from '../src/with-fork/bundle/extract-partition.js'
+import { adoptPartition, createOwnerOnAdoptedPartition } from '../src/with-fork/bundle/adopt-partition.js'
+import { readNoydbBundle, parseExtractedPartitionBody } from '../src/with-fork/bundle/bundle.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

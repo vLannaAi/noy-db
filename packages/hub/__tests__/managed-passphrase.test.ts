@@ -23,7 +23,7 @@ import {
   saveSealedPassphrase,
   SEALED_PASSPHRASE_RECORD_ID,
   type SealingKeyProvider,
-} from '../src/team/managed-passphrase.js'
+} from '../src/with-party/team/managed-passphrase.js'
 import { shamirRecoveryProvider } from '@noy-db/on-shamir'
 
 function inlineMemory(): NoydbStore {

@@ -26,10 +26,10 @@
  * @internal
  */
 
-import type { NoydbStore } from '../types.js'
-import type { LedgerStore } from '../history/ledger/store.js'
-import type { UnlockedKeyring } from '../team/keyring.js'
-import type { NoydbEventEmitter } from '../events.js'
+import type { NoydbStore } from '../../types.js'
+import type { LedgerStore } from '../../with-commit/history/ledger/store.js'
+import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
+import type { NoydbEventEmitter } from '../../events.js'
 import type { I18nTextDescriptor } from './core.js'
 import type { Layer } from './policy.js'
 import type { ScriptWarning } from './script.js'

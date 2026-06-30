@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { GuardRegistry } from '../../src/guards/registry.js'
+import { GuardRegistry } from '../../src/with-audit/guards/registry.js'
 
 // Minimal guard strategies (only `collection` matters for summary()).
 const g = (collection: string) => ({ collection }) as never

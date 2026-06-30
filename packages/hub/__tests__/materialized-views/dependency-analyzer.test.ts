@@ -13,7 +13,7 @@ interface TestRow extends Record<string, unknown> {
 
 describe('analyzeDependencies', () => {
   it('captures the root collection from JoinContext', async () => {
-    const { analyzeDependencies } = await import('../../src/materialized-views/dependency-analyzer.js')
+    const { analyzeDependencies } = await import('../../src/with-formula/materialized-views/dependency-analyzer.js')
     const joinContext: JoinContext = {
       leftCollection: 'invoices',
       resolveRef: () => null,
@@ -26,7 +26,7 @@ describe('analyzeDependencies', () => {
   })
 
   it('captures FK join targets from plan.joins', async () => {
-    const { analyzeDependencies } = await import('../../src/materialized-views/dependency-analyzer.js')
+    const { analyzeDependencies } = await import('../../src/with-formula/materialized-views/dependency-analyzer.js')
     const joinContext: JoinContext = {
       leftCollection: 'invoices',
       resolveRef: (field) => {
@@ -45,7 +45,7 @@ describe('analyzeDependencies', () => {
   })
 
   it('returns empty deps when no JoinContext is attached (ad-hoc Query)', async () => {
-    const { analyzeDependencies } = await import('../../src/materialized-views/dependency-analyzer.js')
+    const { analyzeDependencies } = await import('../../src/with-formula/materialized-views/dependency-analyzer.js')
     const q = new Query<TestRow>(emptySource<TestRow>())
     const deps = analyzeDependencies(q)
     expect(deps.size).toBe(0)
@@ -54,7 +54,7 @@ describe('analyzeDependencies', () => {
 
 describe('summarizeQueryPlan', () => {
   it('is deterministic for the same plan', async () => {
-    const { summarizeQueryPlan } = await import('../../src/materialized-views/dependency-analyzer.js')
+    const { summarizeQueryPlan } = await import('../../src/with-formula/materialized-views/dependency-analyzer.js')
     const joinContext: JoinContext = {
       leftCollection: 'invoices',
       resolveRef: () => null,
@@ -66,7 +66,7 @@ describe('summarizeQueryPlan', () => {
   })
 
   it('differs when where-clause value changes', async () => {
-    const { summarizeQueryPlan } = await import('../../src/materialized-views/dependency-analyzer.js')
+    const { summarizeQueryPlan } = await import('../../src/with-formula/materialized-views/dependency-analyzer.js')
     const joinContext: JoinContext = {
       leftCollection: 'invoices',
       resolveRef: () => null,

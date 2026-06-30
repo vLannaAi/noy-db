@@ -28,12 +28,12 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError, PermissionDeniedError, ReadOnlyError, PartitionExtractionError } from '../src/errors.js'
-import { extractPartition } from '../src/bundle/extract-partition.js'
+import { extractPartition } from '../src/with-fork/bundle/extract-partition.js'
 import { createNoydb } from '../src/noydb.js'
 import type { Noydb } from '../src/noydb.js'
-import { withHistory } from '../src/history/index.js'
-import { MemorySealingKeyProvider, resolveManagedSecret } from '../src/team/managed-passphrase.js'
-import { createDeedOwner, loadDeedMarker } from '../src/team/deed.js'
+import { withHistory } from '../src/with-commit/history/index.js'
+import { MemorySealingKeyProvider, resolveManagedSecret } from '../src/with-party/team/managed-passphrase.js'
+import { createDeedOwner, loadDeedMarker } from '../src/with-party/team/deed.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

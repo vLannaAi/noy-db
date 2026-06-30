@@ -24,9 +24,9 @@
  *
  * @module
  */
-import { encrypt, decrypt } from '../crypto.js'
-import type { NoydbStore, EncryptedEnvelope } from '../types.js'
-import { NOYDB_FORMAT_VERSION } from '../types.js'
+import { encrypt, decrypt } from '../../crypto.js'
+import type { NoydbStore, EncryptedEnvelope } from '../../types.js'
+import { NOYDB_FORMAT_VERSION } from '../../types.js'
 
 /** Reserved collection holding the encrypted subject → records index. */
 export const SUBJECT_INDEX_COLLECTION = '_subject_index'

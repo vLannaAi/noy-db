@@ -13,9 +13,9 @@
  * `by-tabs` / `by-peer` swap in real-time push transports.
  */
 import { type FenceState } from './fence.js'
-import { SchemaFenceError, MigrationRequiredError } from '../errors.js'
+import { SchemaFenceError, MigrationRequiredError } from '../../errors.js'
 import type { TransformFn } from './types.js'
-import { runDrainBarrier, type CoordinationProvider } from '../coordination/index.js'
+import { runDrainBarrier, type CoordinationProvider } from '../../coordination/index.js'
 
 /** Runs one collection's transform; supplied by the Vault (binds to a Collection). */
 export type RunTransform = (collection: string, transform: TransformFn) => Promise<void>

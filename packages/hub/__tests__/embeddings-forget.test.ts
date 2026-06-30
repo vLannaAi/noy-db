@@ -16,8 +16,8 @@ import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError } from '../src/errors.js'
-import { withHistory } from '../src/history/index.js'
-import { withForgetCascade } from '../src/forget/index.js'
+import { withHistory } from '../src/with-commit/history/index.js'
+import { withForgetCascade } from '../src/with-audit/forget/index.js'
 
 // ── in-memory store with raw-envelope inspection (from forget.test.ts) ──────
 

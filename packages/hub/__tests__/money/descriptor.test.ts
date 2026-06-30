@@ -5,7 +5,7 @@ import {
   MoneyCurrencyError,
   MoneyPrecisionError,
   MoneyUnsupportedError,
-} from '../../src/money/descriptor.js'
+} from '../../src/with-shape/money/descriptor.js'
 import { NoydbError } from '../../src/errors.js'
 
 describe('money()', () => {

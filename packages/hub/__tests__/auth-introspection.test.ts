@@ -12,7 +12,7 @@ import {
   describeAuthConfig,
   diagramAuthConfig,
   describeUserAuth,
-} from '../src/auth-introspection/index.js'
+} from '../src/with-party/auth-introspection/index.js'
 import {
   saveVaultPolicy,
   PERSONAL_POLICY,

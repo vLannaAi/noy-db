@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { canonicalGroupKey } from '../src/aggregate/canonical-key.js'
+import { canonicalGroupKey } from '../src/with-lookup/aggregate/canonical-key.js'
 
 describe('canonicalGroupKey', () => {
   it('returns a single-field encoding for one key', () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { embeddingSourceText } from '../src/embeddings/descriptor.js'
+import { embeddingSourceText } from '../src/with-lookup/embeddings/descriptor.js'
 import { EmbeddingDimMismatchError, EmbeddingModelMismatchError } from '../src/errors.js'
 
 describe('embeddingSourceText (#308 L2)', () => {

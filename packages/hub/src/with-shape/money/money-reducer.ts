@@ -22,13 +22,13 @@
  * exactly like the generic reducers they replace.
  */
 
-import { readPath } from '../query/predicate.js'
+import { readPath } from '../../query/predicate.js'
 import { formatScaledInt, parseToScaledInt } from './fixed-point.js'
 import { scaleForCurrency } from './iso4217.js'
 import { MoneyUnsupportedError } from './descriptor.js'
 import type { MoneyDescriptor } from './descriptor.js'
-import type { Reducer } from '../aggregate/reducers.js'
-import type { AggregateSpec } from '../aggregate/aggregation.js'
+import type { Reducer } from '../../with-lookup/aggregate/reducers.js'
+import type { AggregateSpec } from '../../with-lookup/aggregate/aggregation.js'
 
 export type FxRates = Record<string, number | string>
 

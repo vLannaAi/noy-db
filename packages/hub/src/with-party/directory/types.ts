@@ -25,7 +25,7 @@
  * - `enabled: true` (default when no document exists) — every authenticated
  *   caller can enumerate users via `listUsersWithEnvelopes`.
  * - `enabled: false` — only `owner` and `admin` callers can enumerate;
- *   anyone else gets {@link import('../errors.js').DirectoryDisabledError}.
+ *   anyone else gets {@link import('../../errors.js').DirectoryDisabledError}.
  */
 export interface DirectoryConfig {
   readonly enabled: boolean

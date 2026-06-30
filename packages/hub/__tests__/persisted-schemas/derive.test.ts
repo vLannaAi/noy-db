@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
-import { derivePersistedSchema, isZod4Schema, isZodSchema } from '../../src/persisted-schemas/derive.js'
+import { derivePersistedSchema, isZod4Schema, isZodSchema } from '../../src/with-shape/persisted-schemas/derive.js'
 
 describe('isZodSchema', () => {
   it('identifies a Zod schema via ~standard.vendor (v4) with _def.typeName (v3) fallback', () => {

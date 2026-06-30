@@ -48,11 +48,11 @@
  * @module
  */
 
-import type { NoydbStore, EncryptedEnvelope } from '../types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../../types.js'
 import type { UnlockedKeyring } from './keyring.js'
-import { encrypt, decrypt, wrapKey, unwrapKey } from '../crypto.js'
+import { encrypt, decrypt, wrapKey, unwrapKey } from '../../crypto.js'
 import { dekKey } from './tiers.js'
-import { DelegationTargetMissingError } from '../errors.js'
+import { DelegationTargetMissingError } from '../../errors.js'
 
 /** Reserved collection holding magic-link grant envelopes. */
 export const MAGIC_LINK_GRANTS_COLLECTION = '_magic_link_grants'

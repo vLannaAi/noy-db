@@ -22,8 +22,8 @@
  */
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, KeyringFile, KeyringAuthenticator } from '../src/types.js'
-import { createOwnerKeyring, loadKeyring, grant, persistKeyring } from '../src/team/keyring.js'
-import { recoverUser } from '../src/team/peer-recover.js'
+import { createOwnerKeyring, loadKeyring, grant, persistKeyring } from '../src/with-party/team/keyring.js'
+import { recoverUser } from '../src/with-party/team/peer-recover.js'
 import { generateDEK } from '../src/crypto.js'
 import { createNoydb } from '../src/noydb.js'
 import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, InvalidKeyError } from '../src/errors.js'

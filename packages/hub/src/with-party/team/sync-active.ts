@@ -32,7 +32,7 @@
 
 import type { SyncStrategy, BuildSyncEngineOptions } from './sync-strategy.js'
 import type { PresenceHandleOpts } from './presence.js'
-import type { Vault } from '../vault.js'
+import type { Vault } from '../../vault.js'
 import { SyncEngine } from './sync.js'
 import { SyncTransaction } from './sync-transaction.js'
 import { PresenceHandle } from './presence.js'

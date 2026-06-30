@@ -16,8 +16,8 @@
  */
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, KeyringAuthenticator } from '../src/types.js'
-import { createOwnerKeyring, loadKeyring, persistKeyring } from '../src/team/keyring.js'
-import { enrollAuthenticator } from '../src/team/authenticators.js'
+import { createOwnerKeyring, loadKeyring, persistKeyring } from '../src/with-party/team/keyring.js'
+import { enrollAuthenticator } from '../src/with-party/team/authenticators.js'
 import { generateDEK } from '../src/crypto.js'
 
 function inlineMemory(): NoydbStore {

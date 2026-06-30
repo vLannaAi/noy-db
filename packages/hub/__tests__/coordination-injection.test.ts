@@ -12,7 +12,7 @@ import { describe, expect, it, expectTypeOf } from 'vitest'
 import { z } from 'zod'
 import { createNoydb } from '../src/noydb.js'
 import { memory } from '../../to-memory/src/index.js'
-import { coordinatedCutover, additiveOnly } from '../src/schema-update/index.js'
+import { coordinatedCutover, additiveOnly } from '../src/with-shape/schema-update/index.js'
 import {
   StoreCoordinationProvider,
   type CoordinationProvider,

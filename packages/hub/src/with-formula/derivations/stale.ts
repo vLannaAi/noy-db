@@ -1,6 +1,6 @@
-import type { Collection } from '../collection.js'
-import type { ReadOnlyVaultFacade } from '../guards/types.js'
-import type { TxContext } from '../tx/transaction.js'
+import type { Collection } from '../../collection.js'
+import type { ReadOnlyVaultFacade } from '../../with-audit/guards/types.js'
+import type { TxContext } from '../../with-commit/tx/transaction.js'
 import type { DerivationRegistry } from './registry.js'
 // Type-only — runtime class loaded via dynamic import in
 // `resolveStaleOnRead` only when a stale flag actually fires. Keeps

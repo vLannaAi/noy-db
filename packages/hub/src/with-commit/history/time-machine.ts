@@ -46,11 +46,11 @@
  *
  * @module
  */
-import type { EncryptedEnvelope, NoydbStore } from '../types.js'
+import type { EncryptedEnvelope, NoydbStore } from '../../types.js'
 import type { LedgerStore } from './ledger/store.js'
 import { getHistory } from './history.js'
-import { decrypt } from '../crypto.js'
-import { ReadOnlyAtInstantError } from '../errors.js'
+import { decrypt } from '../../crypto.js'
+import { ReadOnlyAtInstantError } from '../../errors.js'
 
 /**
  * Narrow view of a {@link Vault}'s internals that
