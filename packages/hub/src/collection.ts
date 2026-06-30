@@ -5579,6 +5579,40 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   }
 
   /**
+   * Classify a live envelope's `_sealed` slots for crypto-shred completeness
+   * (#M-1, 2026-06-30 security review). `forget()` drops `_cek`/`_sealed` but
+   * RETAINS the collection DEK, so only a slot keyed off the per-record CEK is
+   * genuinely shredded by the tombstone; a pre-#306 slot keyed off the
+   * collection DEK survives in any synced/backup copy.
+   *
+   * Mirrors {@link unsealField}'s dual-read split: try the CEK-derived key per
+   * slot — success → `shreddable`, AES-GCM auth failure → `dekResidue`. With no
+   * `_cek` (pure legacy collection-DEK sealing) ALL slots are residue.
+   */
+  async _classifySealedShred(
+    live: EncryptedEnvelope,
+  ): Promise<{ shreddable: string[]; dekResidue: string[] }> {
+    const shreddable: string[] = []
+    const dekResidue: string[] = []
+    const sealed = live._sealed
+    if (sealed === undefined) return { shreddable, dekResidue }
+    const cek = await this.resolveEnvelopeCek(live)
+    for (const [field, blob] of Object.entries(sealed)) {
+      if (cek === undefined) { dekResidue.push(field); continue }
+      const sep = blob.indexOf(':')
+      const iv = blob.slice(0, sep)
+      const data = blob.slice(sep + 1)
+      try {
+        await decrypt(iv, data, await deriveSealedFieldKeyFromCek(cek, this.name, field))
+        shreddable.push(field)
+      } catch {
+        dekResidue.push(field)
+      }
+    }
+    return { shreddable, dekResidue }
+  }
+
+  /**
    * Build a non-leaking {@link Sealed} handle over a sealed field's ciphertext.
    * The handle captures only the ciphertext `blob` and a closure to
    * {@link unsealField}; the plaintext is never stored on it — so the handle
