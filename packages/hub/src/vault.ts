@@ -30,11 +30,15 @@ import type { OverlayedViewStrategyHandle } from './with-formula/overlay-views/t
 import { OverlayedCollection } from './with-formula/overlay-views/virtual-collection.js'
 import type { PublicEnvelope } from './meta/public-envelope/types.js'
 import { buildRecipientKeyringFile } from './with-party/team/keyring.js'
-import { ensureCollectionDEK, hasAccess, hasExportCapability, hasImportCapability } from './with-party/team/keyring.js'
+import { ensureCollectionDEK, hasAccess } from './with-party/team/keyring.js'
+import {
+  assertCanExport as assertCanExportCapability,
+  assertCanImport as assertCanImportCapability,
+  canExport as canExportCapability,
+  canImport as canImportCapability,
+} from './capabilities.js'
 import type { ExportFormat, KeyringFile, SensitiveOpt, IndexFieldName, IndexDefFor, MoneyFieldsOpt } from './types.js'
 import {
-  ExportCapabilityError,
-  ImportCapabilityError,
   ValidationError,
   AlreadyElevatedError,
   TierNotGrantedError,
@@ -1701,25 +1705,7 @@ export class Vault {
   assertCanExport(tier: 'plaintext', format: ExportFormat): void
   assertCanExport(tier: 'bundle'): void
   assertCanExport(tier: 'plaintext' | 'bundle', format?: ExportFormat): void {
-    if (tier === 'plaintext') {
-      if (format === undefined) {
-        throw new Error('vault.assertCanExport: plaintext tier requires a format')
-      }
-      if (!hasExportCapability(this.keyring, 'plaintext', format)) {
-        throw new ExportCapabilityError({
-          tier: 'plaintext',
-          userId: this.keyring.userId,
-          format,
-        })
-      }
-      return
-    }
-    if (!hasExportCapability(this.keyring, 'bundle')) {
-      throw new ExportCapabilityError({
-        tier: 'bundle',
-        userId: this.keyring.userId,
-      })
-    }
+    assertCanExportCapability(this.keyring, tier, format)
   }
 
   /**
@@ -1742,25 +1728,7 @@ export class Vault {
   assertCanImport(tier: 'plaintext', format: ExportFormat): void
   assertCanImport(tier: 'bundle'): void
   assertCanImport(tier: 'plaintext' | 'bundle', format?: ExportFormat): void {
-    if (tier === 'plaintext') {
-      if (format === undefined) {
-        throw new Error('vault.assertCanImport: plaintext tier requires a format')
-      }
-      if (!hasImportCapability(this.keyring, 'plaintext', format)) {
-        throw new ImportCapabilityError({
-          tier: 'plaintext',
-          userId: this.keyring.userId,
-          format,
-        })
-      }
-      return
-    }
-    if (!hasImportCapability(this.keyring, 'bundle')) {
-      throw new ImportCapabilityError({
-        tier: 'bundle',
-        userId: this.keyring.userId,
-      })
-    }
+    assertCanImportCapability(this.keyring, tier, format)
   }
 
   /**
@@ -2049,11 +2017,7 @@ export class Vault {
   canExport(tier: 'plaintext', format: ExportFormat): boolean
   canExport(tier: 'bundle'): boolean
   canExport(tier: 'plaintext' | 'bundle', format?: ExportFormat): boolean {
-    if (tier === 'plaintext') {
-      if (format === undefined) return false
-      return hasExportCapability(this.keyring, 'plaintext', format)
-    }
-    return hasExportCapability(this.keyring, 'bundle')
+    return canExportCapability(this.keyring, tier, format)
   }
 
   /**
@@ -2084,11 +2048,7 @@ export class Vault {
   canImport(tier: 'plaintext', format: ExportFormat): boolean
   canImport(tier: 'bundle'): boolean
   canImport(tier: 'plaintext' | 'bundle', format?: ExportFormat): boolean {
-    if (tier === 'plaintext') {
-      if (format === undefined) return false
-      return hasImportCapability(this.keyring, 'plaintext', format)
-    }
-    return hasImportCapability(this.keyring, 'bundle')
+    return canImportCapability(this.keyring, tier, format)
   }
 
   /**
