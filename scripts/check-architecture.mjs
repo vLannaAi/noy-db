@@ -603,7 +603,8 @@ const KERNEL_SURFACE_BUDGET = {
   // Lowered 4627→4587 (Phase 5 A2: attestation extraction): the issue/revoke methods + `make*Context` closures + the field-schema registry moved to `with-audit/attestation/vault-facade.ts` (`VaultAttestation`); vault.ts holds a facade instance + thin delegators.
   // Lowered 4587→4547 (Phase 5 A7: capability gating extraction): `assertCanExport`/`assertCanImport`/`canExport`/`canImport` predicate bodies moved to `capabilities.ts` (pure keyring predicates); vault.ts keeps the typed public overloads + thin delegators.
   // Bumped 4547→4559 (bundle includes blobs): dump() now enumerates the blob collections (global _blob_index/_blob_chunks/_blob_eviction_audit + per-collection _blob_slots_*/_blob_versions_*) so blob "covers" travel in the .noydb bundle; +12 lines (inlined name literals + computed internalNames array + explanatory comment), no blob runtime pulled into the hot path.
-  'packages/hub/src/vault.ts': 4559,
+  // Lowered 4559→4410 (Phase 5 A3: periods extraction): the close/open/list/get methods + `_assertTsWritable` guard + `_loadPeriodsCache`/`_writePeriodRecord`/`_decryptPeriodRecord` helpers + the `periodCache` field moved to `with-audit/periods/vault-facade.ts` (`VaultPeriods`); vault.ts holds a facade instance + thin delegators (`_assertTsWritable` still the gate-bus entry point).
+  'packages/hub/src/vault.ts': 4410,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
