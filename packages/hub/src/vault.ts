@@ -610,7 +610,7 @@ export class Vault {
     this.attestation = new VaultAttestation({
       adapter: this.adapter,
       vault: this.name,
-      getDEK: this.getDEK,
+      getDEK: (collection) => this.getDEK(collection),
       role: () => this.keyring.role,
       getRawRecord: async (collection, recId) =>
         (await this.collection(collection).get(recId, { locale: 'raw' })) as Record<string, unknown> | null,
