@@ -601,7 +601,8 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 4677→4723 (#H-1/#M-1 forget erasure fixes, 2026-06-30 security review): forget() now (H-1) prefix-deletes the record's `_sealed_cek` host-delivery envelopes — mirroring rotateRecordCek, so a granted at-* host can't recover an "erased" record from a synced body + surviving sealed CEK — and (M-1) classifies `_sealed` slots via the collection helper, counting only CEK-derived slots as shredded and reporting legacy DEK-derived slots as residue, with a defensive try/catch so a corrupt `_cek` reports residue instead of aborting erasure mid-loop. +3 result/ledger fields + 3 counters. The classification crypto lives in collection.ts (`_classifySealedShred`); vault.ts holds only the forget-loop orchestration.
   // Lowered 4723→4627 (Phase 5 A6: ElevatedHandle extraction): the inner `ElevatedHandle` class + `ELEVATION_AUDIT_COLLECTION` const moved to `with-commit/tx/elevated-handle.ts`; vault.ts imports them (elevate() / _elevatedPut) and index.ts re-exports from the new module.
   // Lowered 4627→4587 (Phase 5 A2: attestation extraction): the issue/revoke methods + `make*Context` closures + the field-schema registry moved to `with-audit/attestation/vault-facade.ts` (`VaultAttestation`); vault.ts holds a facade instance + thin delegators.
-  'packages/hub/src/vault.ts': 4587,
+  // Lowered 4587→4547 (Phase 5 A7: capability gating extraction): `assertCanExport`/`assertCanImport`/`canExport`/`canImport` predicate bodies moved to `capabilities.ts` (pure keyring predicates); vault.ts keeps the typed public overloads + thin delegators.
+  'packages/hub/src/vault.ts': 4547,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
