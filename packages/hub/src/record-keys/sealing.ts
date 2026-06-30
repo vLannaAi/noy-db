@@ -14,8 +14,9 @@
  * `sealed-record/`, so the host-side subpath stays DEK-free — they import only
  * the wire *types* from there.
  */
-import { encrypt, decrypt, generateDEK, wrapCek, unwrapCek, bufferToBase64, deriveSealedFieldKey, deriveSealedFieldKeyFromCek } from '../crypto.js'
+import { encrypt, decrypt, generateDEK, wrapCek, unwrapCek, bufferToBase64, deriveSealedFieldKeyFromCek } from '../crypto.js'
 import { NOYDB_FORMAT_VERSION, type EncryptedEnvelope, type NoydbStore } from '../types.js'
+import { dualReadSealedSlot } from './sealed-slot.js'
 import { RecordCekNotFoundError, ValidationError } from '../errors.js'
 import type { RecipientSealer } from '../team/managed-passphrase.js'
 import type { SealedCekBinding, SealedCekDeliveryEnvelope } from '../sealed-record/types.js'
@@ -151,15 +152,7 @@ export async function rotateRecordCek(
   if (live._sealed !== undefined) {
     const out: Record<string, string> = {}
     for (const [field, slot] of Object.entries(live._sealed)) {
-      const sep = slot.indexOf(':')
-      const sIv = slot.slice(0, sep)
-      const sData = slot.slice(sep + 1)
-      let plaintext: string
-      try {
-        plaintext = await decrypt(sIv, sData, await deriveSealedFieldKeyFromCek(oldCek, collection, field))
-      } catch {
-        plaintext = await decrypt(sIv, sData, await deriveSealedFieldKey(dek, collection, field))
-      }
+      const plaintext = await dualReadSealedSlot(slot, field, collection, oldCek, dek)
       const resealed = await encrypt(plaintext, await deriveSealedFieldKeyFromCek(newCek, collection, field))
       out[field] = `${resealed.iv}:${resealed.data}`
     }
