@@ -81,6 +81,7 @@ import { NO_SHADOW, type ShadowStrategy } from './with-fork/shadow/strategy.js'
 import type { ConsentContext, ConsentAuditEntry, ConsentAuditFilter, ConsentOp } from './with-audit/consent/consent.js'
 import { NO_CONSENT, type ConsentStrategy } from './with-audit/consent/strategy.js'
 import { NO_PERIODS, type PeriodsStrategy } from './with-audit/periods/strategy.js'
+import { VaultPeriods } from './with-audit/periods/vault-facade.js'
 import {
   RefRegistry,
   RefIntegrityError,
@@ -112,7 +113,6 @@ import type { LocaleReadOptions, ConflictPolicy } from './types.js'
 import type { CrdtMode } from './with-commit/crdt/crdt.js'
 import { ReservedCollectionNameError, StaticDictReadonlyError, UnknownDictCodeError } from './errors.js'
 import {
-  PERIODS_COLLECTION,
   type PeriodRecord,
   type ClosePeriodOptions,
   type OpenPeriodOptions,
@@ -228,7 +228,7 @@ export class Vault {
   private readonly aggregateStrategy: AggregateStrategy | undefined
   private readonly crdtStrategy: CrdtStrategy | undefined
   private readonly consentStrategy: ConsentStrategy
-  private readonly periodsStrategy: PeriodsStrategy
+  private readonly periods: VaultPeriods
   private readonly shadowStrategy: ShadowStrategy
   private readonly historyStrategy: HistoryStrategy
   private readonly forgetStrategy: ForgetStrategy
@@ -412,18 +412,6 @@ export class Vault {
    */
   private consentContext: ConsentContext | null = null
 
-  /**
-   * Cache of closed/opened accounting periods.
-   * Populated on first `closePeriod` / `openPeriod` / `listPeriods` /
-   * per-collection write call. Kept in memory as an ordered list (by
-   * `closedAt`) so period checks run fast when the gate bus fires.
-   *
-   * Sentinel `null` means "not yet loaded" — the first consumer
-   * triggers a one-time `loadPeriods()` pass. Every subsequent
-   * closure/opening pushes into the cache in-place so the next write
-   * sees the updated chain without re-reading the adapter.
-   */
-  private periodCache: PeriodRecord[] | null = null
 
   /**
    * Registry of dictKey fields declared across all collections in this
@@ -576,7 +564,16 @@ export class Vault {
     this.aggregateStrategy = opts.aggregateStrategy
     this.crdtStrategy = opts.crdtStrategy
     this.consentStrategy = opts.consentStrategy ?? NO_CONSENT
-    this.periodsStrategy = opts.periodsStrategy ?? NO_PERIODS
+    this.periods = new VaultPeriods({
+      strategy: opts.periodsStrategy ?? NO_PERIODS,
+      adapter: this.adapter,
+      vault: this.name,
+      encrypted: this.encrypted,
+      userId: () => this.keyring.userId,
+      getDEK: (collection) => this.getDEK(collection),
+      getLedgerOrNull: () => this.getLedgerOrNull(),
+      collection: (name) => this.collection(name),
+    })
     this.shadowStrategy = opts.shadowStrategy ?? NO_SHADOW
     this.historyStrategy = opts.historyStrategy ?? NO_HISTORY
     this.forgetStrategy = opts.forgetStrategy ?? NO_FORGET
@@ -3523,27 +3520,7 @@ export class Vault {
    *.
    */
   async closePeriod(options: ClosePeriodOptions): Promise<PeriodRecord> {
-    const existing = await this._loadPeriodsCache()
-    this.periodsStrategy.validatePeriodName(options.name, existing)
-    if (typeof options.endDate !== 'string' || options.endDate.length === 0) {
-      throw new ValidationError('closePeriod: endDate must be a non-empty ISO string.')
-    }
-    const anchor = await this.periodsStrategy.chainAnchor(existing)
-    const record: PeriodRecord = {
-      name: options.name,
-      kind: 'closed',
-      endDate: options.endDate,
-      closedAt: new Date().toISOString(),
-      closedBy: this.keyring.userId,
-      priorPeriodHash: anchor.priorPeriodHash,
-      ...(anchor.priorPeriodName !== undefined && { priorPeriodName: anchor.priorPeriodName }),
-      ...(options.dateField !== undefined && { dateField: options.dateField }),
-    }
-    const envelope = await this._writePeriodRecord(record)
-    await this.periodsStrategy.appendPeriodLedgerEntry(this.getLedgerOrNull(), this.keyring.userId, envelope, record.name)
-    existing.push(record)
-    this.periodCache = existing
-    return record
+    return this.periods.closePeriod(options)
   }
 
   /**
@@ -3564,82 +3541,17 @@ export class Vault {
   async openPeriod<TCollections extends Record<string, Record<string, unknown>>>(
     options: OpenPeriodOptions<TCollections>,
   ): Promise<PeriodRecord> {
-    const existing = await this._loadPeriodsCache()
-    this.periodsStrategy.validatePeriodName(options.name, existing)
-    const prior = existing.find((p) => p.name === options.fromPeriod)
-    if (!prior) {
-      throw new ValidationError(
-        `openPeriod: fromPeriod "${options.fromPeriod}" does not exist in this vault.`,
-      )
-    }
-    if (prior.kind !== 'closed') {
-      throw new ValidationError(
-        `openPeriod: fromPeriod "${options.fromPeriod}" is of kind "${prior.kind}" — only closed periods can be carried forward.`,
-      )
-    }
-
-    // Build a read-only facade over CURRENT state + the prior
-    // period's endDate; after close, records dated <= endDate are
-    // frozen so current state equals closing state. The caller
-    // filters by business date via their own query against this
-    // facade.
-    const ctx = {
-      priorEndDate: prior.endDate,
-      collection: <T = unknown>(name: string) => {
-        const c = this.collection<T>(name)
-        return {
-          get: (id: string) => c.get(id),
-          list: () => c.list(),
-        }
-      },
-    }
-    const openings = await options.carryForward(ctx)
-
-    // Write opening entries via the normal Collection path so they
-    // get encryption, ledger entries, and change events. Each record
-    // is timestamped NOW (outside every closed period) — that's why
-    // the guard permits them.
-    const openingCollections: string[] = []
-    for (const [collName, records] of Object.entries(openings)) {
-      if (!records || typeof records !== 'object') continue
-      const recordEntries = Object.entries(records)
-      if (recordEntries.length === 0) continue
-      const coll = this.collection(collName)
-      for (const [id, record] of recordEntries) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await coll.put(id, record as any)
-      }
-      openingCollections.push(collName)
-    }
-
-    const anchor = await this.periodsStrategy.chainAnchor(existing)
-    const record: PeriodRecord = {
-      name: options.name,
-      kind: 'opened',
-      startDate: options.startDate,
-      endDate: prior.endDate, // sealing boundary inherited from prior close
-      closedAt: new Date().toISOString(),
-      closedBy: this.keyring.userId,
-      priorPeriodHash: anchor.priorPeriodHash,
-      priorPeriodName: anchor.priorPeriodName ?? prior.name,
-      ...(openingCollections.length > 0 && { openingCollections }),
-    }
-    const envelope = await this._writePeriodRecord(record)
-    await this.periodsStrategy.appendPeriodLedgerEntry(this.getLedgerOrNull(), this.keyring.userId, envelope, record.name)
-    existing.push(record)
-    this.periodCache = existing
-    return record
+    return this.periods.openPeriod(options)
   }
 
   /** Return every closed / opened period in `closedAt` order. */
   async listPeriods(): Promise<readonly PeriodRecord[]> {
-    return [...(await this._loadPeriodsCache())]
+    return this.periods.listPeriods()
   }
 
   /** Look up a single period by name. Returns `null` if not found. */
   async getPeriod(name: string): Promise<PeriodRecord | null> {
-    const all = await this._loadPeriodsCache()
-    return all.find((p) => p.name === name) ?? null
+    return this.periods.getPeriod(name)
   }
 
   /** @internal — called by the gate bus before put/delete. */
@@ -3647,68 +3559,7 @@ export class Vault {
     existing: { ts: string | null; record: Record<string, unknown> | null } | null,
     incoming: Record<string, unknown> | null,
   ): Promise<void> {
-    // Fast path: nothing to check, and no periods ever touched this
-    // vault — avoid a full adapter scan for every put.
-    if (existing === null && incoming === null) return
-    if (this.periodCache === null) {
-      this.periodCache = await this.periodsStrategy.loadPeriods(
-        this.adapter,
-        this.name,
-        (env) => this._decryptPeriodRecord(env),
-      )
-    }
-    if (this.periodCache.length === 0) return
-    this.periodsStrategy.assertTsWritable(existing, incoming, this.periodCache)
-  }
-
-  private async _loadPeriodsCache(): Promise<PeriodRecord[]> {
-    if (this.periodCache !== null) return this.periodCache
-    const loaded = await this.periodsStrategy.loadPeriods(
-      this.adapter,
-      this.name,
-      (env: EncryptedEnvelope) => this._decryptPeriodRecord(env),
-    )
-    this.periodCache = loaded
-    return loaded
-  }
-
-  private async _writePeriodRecord(record: PeriodRecord): Promise<EncryptedEnvelope> {
-    const json = JSON.stringify(record)
-    let envelope: EncryptedEnvelope
-    if (this.encrypted) {
-      const dek = await this.getDEK(PERIODS_COLLECTION)
-      const { iv, data } = await encrypt(json, dek)
-      envelope = {
-        _noydb: NOYDB_FORMAT_VERSION,
-        _v: 1,
-        _ts: new Date().toISOString(),
-        _iv: iv,
-        _data: data,
-        _by: this.keyring.userId,
-      }
-    } else {
-      envelope = {
-        _noydb: NOYDB_FORMAT_VERSION,
-        _v: 1,
-        _ts: new Date().toISOString(),
-        _iv: '',
-        _data: json,
-        _by: this.keyring.userId,
-      }
-    }
-    await this.adapter.put(this.name, PERIODS_COLLECTION, record.name, envelope)
-    return envelope
-  }
-
-  private async _decryptPeriodRecord(envelope: EncryptedEnvelope): Promise<PeriodRecord> {
-    let json: string
-    if (this.encrypted) {
-      const dek = await this.getDEK(PERIODS_COLLECTION)
-      json = await decrypt(envelope._iv, envelope._data, dek)
-    } else {
-      json = envelope._data
-    }
-    return JSON.parse(json) as PeriodRecord
+    return this.periods.assertTsWritable(existing, incoming)
   }
 
   /** List all collection names in this vault. */
