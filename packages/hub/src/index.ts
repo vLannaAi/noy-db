@@ -673,7 +673,8 @@ export { DirectoryDisabledError } from './errors.js'
 
 // Core classes
 export { Noydb, createNoydb } from './noydb.js'
-export { Vault, ElevatedHandle, ELEVATION_AUDIT_COLLECTION } from './vault.js'
+export { Vault } from './vault.js'
+export { ElevatedHandle, ELEVATION_AUDIT_COLLECTION } from './with-commit/tx/elevated-handle.js'
 export { Collection } from './collection.js'
 export type { CacheOptions, CacheStats, CollectionChangeEvent } from './collection.js'
 
