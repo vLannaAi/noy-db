@@ -602,7 +602,8 @@ const KERNEL_SURFACE_BUDGET = {
   // Lowered 4723→4627 (Phase 5 A6: ElevatedHandle extraction): the inner `ElevatedHandle` class + `ELEVATION_AUDIT_COLLECTION` const moved to `with-commit/tx/elevated-handle.ts`; vault.ts imports them (elevate() / _elevatedPut) and index.ts re-exports from the new module.
   // Lowered 4627→4587 (Phase 5 A2: attestation extraction): the issue/revoke methods + `make*Context` closures + the field-schema registry moved to `with-audit/attestation/vault-facade.ts` (`VaultAttestation`); vault.ts holds a facade instance + thin delegators.
   // Lowered 4587→4547 (Phase 5 A7: capability gating extraction): `assertCanExport`/`assertCanImport`/`canExport`/`canImport` predicate bodies moved to `capabilities.ts` (pure keyring predicates); vault.ts keeps the typed public overloads + thin delegators.
-  'packages/hub/src/vault.ts': 4547,
+  // Bumped 4547→4559 (bundle includes blobs): dump() now enumerates the blob collections (global _blob_index/_blob_chunks/_blob_eviction_audit + per-collection _blob_slots_*/_blob_versions_*) so blob "covers" travel in the .noydb bundle; +12 lines (inlined name literals + computed internalNames array + explanatory comment), no blob runtime pulled into the hot path.
+  'packages/hub/src/vault.ts': 4559,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
