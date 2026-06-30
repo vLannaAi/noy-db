@@ -109,8 +109,8 @@ import type { KeyringAuthenticator } from './types.js'
 import type { SyncEngine } from './with-party/team/sync.js'
 import type { SyncTransaction } from './with-party/team/sync-transaction.js'
 import { NO_SYNC, type SyncStrategy } from './with-party/team/sync-strategy.js'
-import { NO_SNAPSHOTS, type SnapshotStrategy, type SnapshotMeta } from './with-fork/snapshots/strategy.js'
-import { SnapshotScheduler } from './with-fork/snapshots/scheduler.js'
+import { type SnapshotMeta } from './with-fork/snapshots/strategy.js'
+import { NoydbSnapshots, NO_SNAPSHOTS } from './with-fork/snapshots/noydb-facade.js'
 import type { AmendmentTxOptions } from './with-commit/tx/transaction.js'
 import { TxContext } from './with-commit/tx/transaction.js'
 import type { DryRunResult } from './with-commit/tx/dry-run.js'
@@ -227,9 +227,7 @@ export class Noydb {
   private readonly forgetStrategy: ForgetStrategy
   private readonly sessionStrategy: SessionStrategy
   private readonly syncStrategy: SyncStrategy
-  private readonly snapshotStrategy: SnapshotStrategy
-  private snapshotScheduler: SnapshotScheduler | null = null
-  private readonly dirtySnapshotVaults = new Set<string>()
+  private readonly snapshots: NoydbSnapshots
   /**
    * Currently-running multi-record transaction, set by
    * `runTransaction` at the start of Phase 2 (commit) and cleared in
@@ -273,8 +271,13 @@ export class Noydb {
     this.forgetStrategy = options.forgetStrategy ?? NO_FORGET
     this.sessionStrategy = options.sessionStrategy ?? NO_SESSION
     this.syncStrategy = options.syncStrategy ?? NO_SYNC
-    this.snapshotStrategy = options.snapshotStrategy ?? NO_SNAPSHOTS
-    this.initSnapshotCadence()
+    this.snapshots = new NoydbSnapshots({
+      strategy: options.snapshotStrategy ?? NO_SNAPSHOTS,
+      user: options.user,
+      isClosed: () => this.closed,
+      getVault: (name) => this.vaultCache.get(name),
+      onAfterWrite: (h) => this.onAfterWrite(h),
+    })
     this.publicEnvelopeSchema = resolvePublicEnvelopeSchema(options.publicEnvelope)
     // Validate sessionPolicy at construction time (developer error if invalid).
     // The strategy's stub throws with a pointer at the subpath if the
@@ -1620,8 +1623,7 @@ export class Noydb {
 
   close(): void {
     this.closed = true
-    this.snapshotScheduler?.stop()
-    this.snapshotScheduler = null
+    this.snapshots.stop()
     if (this.sessionTimer) {
       clearTimeout(this.sessionTimer)
       this.sessionTimer = null
@@ -2969,56 +2971,7 @@ export class Noydb {
    * @throws ValidationError when the vault is not open
    */
   async snapshot(vault: string, opts?: { label?: string; note?: string }): Promise<SnapshotMeta> {
-    if (this.closed) throw new ValidationError('Instance is closed')
-    const v = this.vaultCache.get(vault)
-    if (!v) {
-      throw new ValidationError(
-        `Vault "${vault}" is not open. Call openVault() first.`,
-      )
-    }
-    return this.snapshotStrategy.snapshot(v, this.options.user, opts)
-  }
-
-  /**
-   * Wire the automatic-snapshot cadence when a non-manual `snapshotPolicy` is
-   * configured. Subscribes to `onAfterWrite` to mark the written vault dirty and
-   * nudge the scheduler; the scheduler fires `autoSnapshot()` per dirty vault.
-   * No-op for `mode:'manual'` or no policy.
-   */
-  private initSnapshotCadence(): void {
-    const policy = this.snapshotStrategy.policy
-    if (!policy || !policy.mode || policy.mode === 'manual') return
-
-    const scheduler = new SnapshotScheduler(policy, {
-      fire: async () => {
-        const names = [...this.dirtySnapshotVaults]
-        this.dirtySnapshotVaults.clear()
-        for (const name of names) {
-          const v = this.vaultCache.get(name)
-          if (!v) continue
-          try {
-            await this.snapshotStrategy.autoSnapshot(v, this.options.user)
-          } catch (err) {
-            // Keep the vault pending so a later cadence tick (interval) or the
-            // next write (debounce) retries; a failed auto-snapshot is logged,
-            // never thrown (it runs inside the after-write hook contract).
-            this.dirtySnapshotVaults.add(name)
-            console.warn(
-              `[noy-db] auto-snapshot failed for vault "${name}": ` +
-              (err instanceof Error ? err.message : String(err)),
-            )
-          }
-        }
-      },
-      pendingCount: () => this.dirtySnapshotVaults.size,
-    })
-
-    this.onAfterWrite((event) => {
-      this.dirtySnapshotVaults.add(event.vault)
-      scheduler.notifyChange()
-    })
-    scheduler.start()
-    this.snapshotScheduler = scheduler
+    return this.snapshots.snapshot(vault, opts)
   }
 
   /**
@@ -3026,8 +2979,7 @@ export class Noydb {
    * Reads only the sidecar index — does not download snapshot bytes.
    */
   async listSnapshots(vault: string): Promise<SnapshotMeta[]> {
-    if (this.closed) throw new ValidationError('Instance is closed')
-    return this.snapshotStrategy.listSnapshots(vault)
+    return this.snapshots.listSnapshots(vault)
   }
 
   /**
@@ -3037,14 +2989,7 @@ export class Noydb {
    * @throws ValidationError when the vault is not open
    */
   async restoreSnapshot(vault: string, version: string): Promise<void> {
-    if (this.closed) throw new ValidationError('Instance is closed')
-    const v = this.vaultCache.get(vault)
-    if (!v) {
-      throw new ValidationError(
-        `Vault "${vault}" is not open. Call openVault() first.`,
-      )
-    }
-    return this.snapshotStrategy.restoreSnapshot(v, version)
+    return this.snapshots.restoreSnapshot(vault, version)
   }
 }
 

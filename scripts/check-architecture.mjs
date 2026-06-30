@@ -633,7 +633,11 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 3095→3140 (2026-06-17, FR-6 Task 4): grantCustodian/revokeCustodian —
   // the genuinely-core owner-only custody grant/revoke surface (defended in
   // depth by gate + explicit keyring.role !== 'owner' check).
-  'packages/hub/src/noydb.ts': 3140,
+  // Lowered 3140→3085 (Phase 5 A9: snapshot extraction): `snapshot`/`listSnapshots`/
+  // `restoreSnapshot`/`initSnapshotCadence` + the dirty-vault set + cadence scheduler
+  // field moved to `with-fork/snapshots/noydb-facade.ts` (`NoydbSnapshots`); noydb.ts
+  // holds a facade instance + thin delegators and `close()` calls `snapshots.stop()`.
+  'packages/hub/src/noydb.ts': 3085,
 }
 
 function checkKernelSurface() {
