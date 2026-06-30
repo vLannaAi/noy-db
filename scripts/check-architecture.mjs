@@ -640,7 +640,8 @@ const KERNEL_SURFACE_BUDGET = {
   // `restoreSnapshot`/`initSnapshotCadence` + the dirty-vault set + cadence scheduler
   // field moved to `with-fork/snapshots/noydb-facade.ts` (`NoydbSnapshots`); noydb.ts
   // holds a facade instance + thin delegators and `close()` calls `snapshots.stop()`.
-  'packages/hub/src/noydb.ts': 3085,
+  // Lowered 3085→3019 (Phase 5 A10: policy/session extraction): `attachPolicyEnforcer`/`touchPolicy`/`checkPolicyOperation`/`getPolicy`/`updatePolicy`/`bootstrapPolicy` bodies moved to `policy/noydb-facade.ts` (`NoydbPolicy`); noydb.ts holds a facade instance + thin delegators (the dead, never-called `attachPolicyEnforcer` is dropped, its body lives on the facade). The session *timer* (`resetSessionTimer` + `sessionTimer` field) and the managed-recovery enrolment check (`assertRecoveryEnrolled`) stay kernel-resident and arrive as callbacks; the policy cache + enforcer map stay noydb-resident (touched by openVault/close) and arrive by reference.
+  'packages/hub/src/noydb.ts': 3019,
 }
 
 function checkKernelSurface() {

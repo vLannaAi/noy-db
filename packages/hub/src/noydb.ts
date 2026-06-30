@@ -123,15 +123,12 @@ import type { PolicyEnforcer } from './with-party/session/session-policy.js'
 import { NO_SESSION, type SessionStrategy } from './with-party/session/strategy.js'
 import {
   checkGate as policyCheckGate,
-  loadVaultPolicy,
-  saveVaultPolicy,
-  PERSONAL_POLICY,
-  mergePolicy,
   type ActiveTier,
   type FactorProofBundle,
   type GateName,
   type VaultPolicy,
 } from './policy/index.js'
+import { NoydbPolicy } from './policy/noydb-facade.js'
 
 /**
  * Privilege rank used by `listAccessibleVaults({ minRole })` to
@@ -228,6 +225,7 @@ export class Noydb {
   private readonly sessionStrategy: SessionStrategy
   private readonly syncStrategy: SyncStrategy
   private readonly snapshots: NoydbSnapshots
+  private readonly policyManager: NoydbPolicy
   /**
    * Currently-running multi-record transaction, set by
    * `runTransaction` at the start of Phase 2 (commit) and cleared in
@@ -277,6 +275,23 @@ export class Noydb {
       isClosed: () => this.closed,
       getVault: (name) => this.vaultCache.get(name),
       onAfterWrite: (h) => this.onAfterWrite(h),
+    })
+    this.policyManager = new NoydbPolicy({
+      policyCache: this.policyCache,
+      policyEnforcers: this.policyEnforcers,
+      sessionStrategy: this.sessionStrategy,
+      store: this.options.store,
+      encrypted: this.options.encrypt !== false,
+      sessionPolicy: this.options.sessionPolicy,
+      policyOption: this.options.policy,
+      isClosed: () => this.closed,
+      resetSessionTimer: () => this.resetSessionTimer(),
+      assertRecoveryEnrolled: (vault, policy, opts) =>
+        this.assertRecoveryEnrolled(vault, policy, opts),
+      onSessionRevoke: (vault) => {
+        this.keyringCache.delete(vault)
+        this.vaultCache.delete(vault)
+      },
     })
     this.publicEnvelopeSchema = resolvePublicEnvelopeSchema(options.publicEnvelope)
     // Validate sessionPolicy at construction time (developer error if invalid).
@@ -455,38 +470,11 @@ export class Noydb {
   }
 
   /**
-   * Attach a policy enforcer for a vault.
-   * Called internally when a session is started for a vault; the
-   * enforcer handles idle/absolute timeouts and background-lock behavior.
-   */
-  private attachPolicyEnforcer(vault: string, sessionId: string): void {
-    const policy = this.options.sessionPolicy
-    if (!policy) return
-
-    // Tear down any previous enforcer for this vault
-    this.policyEnforcers.get(vault)?.destroy()
-
-    const enforcer = this.sessionStrategy.createEnforcer({
-      policy,
-      sessionId,
-      onRevoke: (_reason) => {
-        this.keyringCache.delete(vault)
-        this.vaultCache.delete(vault)
-        this.policyEnforcers.delete(vault)
-      },
-    })
-    this.policyEnforcers.set(vault, enforcer)
-  }
-
-  /**
    * Touch the policy enforcer for a vault (records activity, resets
    * idle timer). Also touches the legacy session timer. No-op if no enforcer.
    */
   private touchPolicy(vault?: string): void {
-    this.resetSessionTimer()
-    if (vault) {
-      this.policyEnforcers.get(vault)?.touch()
-    }
+    this.policyManager.touchPolicy(vault)
   }
 
   /**
@@ -494,7 +482,7 @@ export class Noydb {
    * Throws `SessionPolicyError` if re-auth is required.
    */
   private checkPolicyOperation(vault: string, op: ReAuthOperation): void {
-    this.policyEnforcers.get(vault)?.checkOperation(op)
+    this.policyManager.checkPolicyOperation(vault, op)
   }
 
   /**
@@ -1719,11 +1707,7 @@ export class Noydb {
    * `ValidationError` if the vault has not been opened.
    */
   async getPolicy(vault: string): Promise<VaultPolicy> {
-    if (this.closed) throw new ValidationError('Instance is closed')
-    const cached = this.policyCache.get(vault)
-    if (cached) return cached
-    await this.bootstrapPolicy(vault)
-    return this.policyCache.get(vault) ?? PERSONAL_POLICY
+    return this.policyManager.getPolicy(vault)
   }
 
   /**
@@ -1732,14 +1716,7 @@ export class Noydb {
    * change is fundamentally a privilege-management action).
    */
   async updatePolicy(vault: string, override: Partial<VaultPolicy>): Promise<VaultPolicy> {
-    if (this.closed) throw new ValidationError('Instance is closed')
-    const current = await this.getPolicy(vault)
-    const merged = mergePolicy(current, override)
-    if (this.options.encrypt !== false) {
-      await saveVaultPolicy(this.options.store, vault, merged)
-    }
-    this.policyCache.set(vault, merged)
-    return merged
+    return this.policyManager.updatePolicy(vault, override)
   }
 
   /**
@@ -1809,21 +1786,7 @@ export class Noydb {
     vault: string,
     opts?: { skipManagedCheck?: boolean },
   ): Promise<void> {
-    const onDisk = await loadVaultPolicy(this.options.store, vault)
-    if (onDisk) {
-      // Honour the on-disk document; developer overrides cannot
-      // weaken what the vault committed to at creation time.
-      this.policyCache.set(vault, onDisk)
-      await this.assertRecoveryEnrolled(vault, onDisk, opts)
-      return
-    }
-    // First time — persist the developer's policy (or default preset).
-    const initial = this.options.policy
-      ? mergePolicy(PERSONAL_POLICY, this.options.policy)
-      : PERSONAL_POLICY
-    await saveVaultPolicy(this.options.store, vault, initial)
-    this.policyCache.set(vault, initial)
-    await this.assertRecoveryEnrolled(vault, initial, opts)
+    return this.policyManager.bootstrapPolicy(vault, opts)
   }
 
   /**
