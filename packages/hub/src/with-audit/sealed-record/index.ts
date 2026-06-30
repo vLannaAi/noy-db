@@ -64,8 +64,11 @@ export async function openSealedRecord(
   expectedCollection: string,
   expectedId: string,
 ): Promise<string> {
-  // (1) Fast-path expiry on the (unauthenticated) delivery envelope.
-  if (Date.parse(sealedCekEnvelope.expiresAt) <= Date.now()) {
+  // (1) Fast-path expiry on the (unauthenticated) delivery envelope. Fail
+  // CLOSED (M-4): a malformed/empty `expiresAt` parses to NaN — treat it as
+  // expired rather than letting `NaN <= now` (which is `false`) skip the check.
+  const fastT = Date.parse(sealedCekEnvelope.expiresAt)
+  if (!Number.isFinite(fastT) || fastT <= Date.now()) {
     throw new SealedRecordExpiredError(sealedCekEnvelope.expiresAt)
   }
 
@@ -83,7 +86,9 @@ export async function openSealedRecord(
   }
 
   // (4) Authoritative expiry — the copy that cannot be forged on the envelope.
-  if (Date.parse(binding.expiresAt) <= Date.now()) {
+  // Fail CLOSED (M-4): a malformed/empty `expiresAt` → NaN → treat as expired.
+  const t = Date.parse(binding.expiresAt)
+  if (!Number.isFinite(t) || t <= Date.now()) {
     throw new SealedRecordExpiredError(binding.expiresAt)
   }
 
