@@ -13,8 +13,8 @@ import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError } from '../src/errors.js'
-import { extractPartition } from '../src/with-fork/bundle/extract-partition.js'
-import { decryptExtractedPartition } from '../src/with-fork/bundle/decrypt-partition.js'
+import { extractPartition } from '../src/with-share/bundle/extract-partition.js'
+import { decryptExtractedPartition } from '../src/with-share/bundle/decrypt-partition.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

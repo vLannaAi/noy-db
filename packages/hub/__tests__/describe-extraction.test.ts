@@ -14,7 +14,7 @@ import type { Noydb } from '../src/noydb.js'
 import { ref } from '../src/refs.js'
 import { ConflictError } from '../src/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
-import { describeExtraction } from '../src/with-fork/bundle/describe-extraction.js'
+import { describeExtraction } from '../src/with-share/bundle/describe-extraction.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -141,7 +141,7 @@ describe('describeExtraction', () => {
   })
 
   it('is exported from the @noy-db/hub/bundle subpath', async () => {
-    const mod = await import('../src/with-fork/bundle/index.js')
+    const mod = await import('../src/with-share/bundle/index.js')
     expect(typeof mod.describeExtraction).toBe('function')
   })
 })

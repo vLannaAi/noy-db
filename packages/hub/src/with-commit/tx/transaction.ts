@@ -67,7 +67,7 @@ import {
   InvariantError,
   ValidationError,
 } from '../../errors.js'
-import { generateULID } from '../../with-fork/bundle/ulid.js'
+import { generateULID } from '../../with-share/bundle/ulid.js'
 import type { GuardExecutor as GuardExecutorModule } from '../../with-audit/guards/executor.js'
 import type { LedgerEntry } from '../history/ledger/entry.js'
 import type { TransactionInvariant } from './invariants.js'

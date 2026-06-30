@@ -1,4 +1,4 @@
-import { writeNoydbBundle, readNoydbBundle } from '../bundle/bundle.js'
+import { writeNoydbBundle, readNoydbBundle } from '../../with-share/bundle/bundle.js'
 import { SnapshotNotFoundError } from '../../errors.js'
 import type { NoydbBundleStore } from '../../types.js'
 import type { Vault } from '../../vault.js'

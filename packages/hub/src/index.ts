@@ -333,18 +333,18 @@ export {
   readNoydbBundle,
   readNoydbBundleHeader,
   resetBrotliSupportCache,
-} from './with-fork/bundle/bundle.js'
-export { exportAccessibleData } from './with-fork/bundle/export-accessible.js'
-export type { ExportAccessibleOptions } from './with-fork/bundle/export-accessible.js'
-export { withdrawAccessibleData } from './with-fork/bundle/withdraw-accessible.js'
-export type { WithdrawAccessibleOptions, WithdrawResult, FrozenSnapshotRef } from './with-fork/bundle/withdraw-accessible.js'
+} from './with-share/bundle/bundle.js'
+export { exportAccessibleData } from './with-share/bundle/export-accessible.js'
+export type { ExportAccessibleOptions } from './with-share/bundle/export-accessible.js'
+export { withdrawAccessibleData } from './with-share/bundle/withdraw-accessible.js'
+export type { WithdrawAccessibleOptions, WithdrawResult, FrozenSnapshotRef } from './with-share/bundle/withdraw-accessible.js'
 export {
   requestWithdrawal,
   listWithdrawalRequests,
   approveWithdrawal,
   rejectWithdrawal,
   WithdrawalRequestError,
-} from './with-fork/bundle/request-withdrawal.js'
+} from './with-share/bundle/request-withdrawal.js'
 export type {
   RequestWithdrawalOptions,
   RequestWithdrawalResult,
@@ -352,27 +352,27 @@ export type {
   WithdrawalRequestStatus,
   ApproveWithdrawalOptions,
   RejectWithdrawalOptions,
-} from './with-fork/bundle/request-withdrawal.js'
+} from './with-share/bundle/request-withdrawal.js'
 export type {
   NoydbBundleHeader,
   CompressionAlgo,
-} from './with-fork/bundle/format.js'
+} from './with-share/bundle/format.js'
 export type {
   WriteNoydbBundleOptions,
   ReadNoydbBundleOptions,
   NoydbBundleReadResult,
   AutoCredentialKind,
   AutoCredential,
-} from './with-fork/bundle/bundle.js'
+} from './with-share/bundle/bundle.js'
 export {
   NOYDB_BUNDLE_MAGIC,
   NOYDB_BUNDLE_PREFIX_BYTES,
   NOYDB_BUNDLE_FORMAT_VERSION,
   hasNoydbBundleMagic,
-} from './with-fork/bundle/format.js'
-export { generateULID, isULID } from './with-fork/bundle/ulid.js'
-export { decryptExtractedPartition } from './with-fork/bundle/decrypt-partition.js'
-export type { DecryptedRecord } from './with-fork/bundle/decrypt-partition.js'
+} from './with-share/bundle/format.js'
+export { generateULID, isULID } from './with-share/bundle/ulid.js'
+export { decryptExtractedPartition } from './with-share/bundle/decrypt-partition.js'
+export type { DecryptedRecord } from './with-share/bundle/decrypt-partition.js'
 
 // Schema validation — Standard Schema v1 integration
 export type {
@@ -540,7 +540,7 @@ export type {
   ResolvedPublicEnvelopeSchema,
   SetPublicEnvelopeInput,
 } from './meta/public-envelope/index.js'
-export { readNoydbBundlePublicEnvelope } from './with-fork/bundle/bundle.js'
+export { readNoydbBundlePublicEnvelope } from './with-share/bundle/bundle.js'
 
 // User envelope (docs/superpowers/specs/2026-05-05-user-envelope-design.md)
 export {
