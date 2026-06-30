@@ -32,6 +32,15 @@ import {
   classifySealedShred as classifySealedShredImpl,
   type TiersContext,
 } from './with-audit/tiers/index.js'
+import {
+  search as searchImpl,
+  flushIndex as flushIndexImpl,
+  warmIndex as warmIndexImpl,
+  retrieve as retrieveImpl,
+  similarTo as similarToImpl,
+  buildPersistedIndexCallbacks as buildPersistedIndexCallbacksImpl,
+  type SearchContext,
+} from './with-lookup/search/collection-facade.js'
 import { ConflictError, ReadOnlyError, TranslatorNotConfiguredError, LocaleNotSpecifiedError } from './errors.js'
 import type { GhostRecord, TierMode, CrossTierAccessEvent } from './types.js'
 import type { UnlockedKeyring } from './with-party/team/keyring.js'
@@ -56,15 +65,12 @@ import type { PersistedCollectionIndex, PersistedIndexDef } from './with-lookup/
 import { LazyQuery } from './with-lookup/indexing/lazy-builder.js'
 import type { LazyQuerySource } from './with-lookup/indexing/lazy-builder.js'
 import { NO_INDEXING, type IndexStrategy, type IndexState } from './with-lookup/indexing/strategy.js'
-import { searchScan, fuseRetrieval, type SearchOptions, type SearchResult } from './with-lookup/search/index.js'
+import type { SearchOptions, SearchResult } from './with-lookup/search/index.js'
 import { MemoryIndexStore, type IndexStore } from './with-lookup/search/index-store.js'
-import { PersistedIndexStore, type PersistedIndexCallbacks } from './with-lookup/search/persisted-index-store.js'
-import { extractSnippet } from './with-lookup/search/snippet.js'
-import { buildStringFieldEntries, buildI18nFieldEntries, buildDictKeyFieldEntries, buildBlobFieldEntries } from './with-lookup/search/build-docs.js'
-import type { IndexDoc, IndexHit } from './with-lookup/search/inverted-index.js'
+import { PersistedIndexStore } from './with-lookup/search/persisted-index-store.js'
 import type { RetrieveOptions, RetrieveHit } from './with-lookup/search/retrieve-types.js'
 import { IndexWriteFailureError, DerivationCapExceededError, EmbeddingDimMismatchError } from './errors.js'
-import { embeddingSourceText, VectorSet, type EmbeddingDescriptor, type StoredVector } from './with-lookup/embeddings/index.js'
+import { embeddingSourceText, VectorSet, type EmbeddingDescriptor } from './with-lookup/embeddings/index.js'
 import { buildUniqueConstraintSet, type UniqueConstraintSet } from './with-lookup/indexing/unique-constraints.js'
 import type { RefDescriptor } from './refs.js'
 import { buildDescription, deriveZodFields, type CollectionDescription, type DescribeOptions } from './with-shape/introspection/describe.js'
@@ -1029,7 +1035,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     this.searchIndexStore =
       opts.textIndexes && opts.textIndexes.length > 0
         ? opts.textIndexPersist
-          ? new PersistedIndexStore(this.buildPersistedIndexCallbacks())
+          ? new PersistedIndexStore(buildPersistedIndexCallbacksImpl(() => this.searchContext()))
           : new MemoryIndexStore()
         : undefined
     // #435 — precompute the densify-enabled subset (undefined when none opt in)
@@ -3146,283 +3152,54 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * ranked by descending score. The default tokenizer is word-boundary based —
    * see `src/search/tokenize.ts` for the Thai/CJK caveat.
    */
-  async search(field: string, query: string, opts: SearchOptions = {}): Promise<SearchResult<T>[]> {
-    if (this.lazy) {
-      throw new Error(
-        `Collection "${this.name}": search() (scan mode) requires eager mode (prefetch: true). ` +
-          `A store-usable blind index for lazy / at-scale search is a separate gated opt-in (#308).`,
-      )
-    }
-    await this.ensureHydrated()
-    const entries: { id: string; record: T }[] = []
-    // #435 — strip the internal densify marker from the user-facing records.
-    // Non-mutating: never touches the cached record object. The search index
-    // is built over the same (marker-free) record, which is fine — the marker
-    // is never a searchable field.
-    for (const [id, e] of this.cache) entries.push({ id, record: stripI18nFilled(e.record as Record<string, unknown>) as T })
-    return searchScan(entries, field, query, opts)
+  search(field: string, query: string, opts: SearchOptions = {}): Promise<SearchResult<T>[]> {
+    return searchImpl(this.searchContext(), field, query, opts)
   }
 
-  /** #308 L1 — build IndexDoc[] for the configured text fields over the live cache. */
-  private buildRetrievalDocs(
-    labelMaps: Map<string, Map<string, Record<string, string>>>,
-    blobFilenames: Map<string, Map<string, string[]>>,
-    only?: readonly string[],
-  ): IndexDoc[] {
-    const docs: IndexDoc[] = []
-    for (const [id, e] of this.cache) {
-      const rec = stripI18nFilled(e.record as Record<string, unknown>)
-      const fields = buildStringFieldEntries(rec, this.textIndexes ?? [], only)
-      if (this.i18nFields) fields.push(...buildI18nFieldEntries(rec, this.i18nFields, this.textIndexes ?? [], only))
-      if (this.dictKeyFields) fields.push(...buildDictKeyFieldEntries(rec, this.dictKeyFields, labelMaps, this.textIndexes ?? [], only))
-      const blobNames = blobFilenames.get(id)
-      if (blobNames) fields.push(...buildBlobFieldEntries(blobNames))
-      if (fields.length > 0) docs.push({ id, fields })
-    }
-    return docs
+  /** #308 L1.5 — force-persist the lexical index now — see {@link flushIndexImpl}. */
+  flushIndex(): Promise<void> {
+    return flushIndexImpl(this.searchContext())
   }
 
-  /** #308 L1 — true iff any configured text index is also a blob field (gates ALL slot I/O). */
-  private hasIndexedBlobFields(only?: readonly string[]): boolean {
-    if (!this.blobFields || !this.textIndexes) return false
-    const fields = only ? this.textIndexes.filter((f) => only.includes(f)) : this.textIndexes
-    return fields.some((f) => f in this.blobFields!)
+  /** #308 L1 — pre-build the lexical index — see {@link warmIndexImpl}. */
+  warmIndex(): Promise<void> {
+    return warmIndexImpl(this.searchContext())
+  }
+
+  /** #308 — retrieval (lexical | semantic | hybrid) — see {@link retrieveImpl}. */
+  retrieve(query: string, opts: RetrieveOptions<T> = {}): Promise<RetrieveHit<T>[]> {
+    return retrieveImpl(this.searchContext(), query, opts)
+  }
+
+  /** #308 L2 — raw-vector kNN — see {@link similarToImpl}. */
+  similarTo(vector: Float32Array, opts: { k?: number; minScore?: number; includeRecord?: boolean } = {}): Promise<RetrieveHit<T>[]> {
+    return similarToImpl(this.searchContext(), vector, opts)
   }
 
   /**
-   * #308 L1 — resolve `recordId -> (blobField -> filenames[])` by listing slots
-   * for the configured blob fields of each cached record. Blob slot metadata is
-   * NOT inline on the record: it lives in a separate `_blob_slots_*` collection,
-   * so this costs ONE `blob(id).list()` (a `listSlots`) per record at build time
-   * — the heaviest indexing source. Fully gated by {@link hasIndexedBlobFields};
-   * non-blob (and blob-but-not-indexed) collections do ZERO slot I/O.
+   * Bind the {@link SearchContext} the search/retrieval surface needs. The
+   * `cache` is the SAME `Map` reference the eager read/write path owns (passed
+   * by reference, never copied) so the index always builds over the live set.
    */
-  private async resolveBlobFilenames(only?: readonly string[]): Promise<Map<string, Map<string, string[]>>> {
-    const out = new Map<string, Map<string, string[]>>()
-    if (!this.hasIndexedBlobFields(only)) return out
-    const indexed = (only ? this.textIndexes!.filter((f) => only.includes(f)) : this.textIndexes!)
-      .filter((f) => f in this.blobFields!)
-    const indexedSet = new Set(indexed)
-    for (const id of this.cache.keys()) {
-      let slots
-      try {
-        slots = await this.blob(id).list()
-      } catch {
-        continue
-      }
-      let byField: Map<string, string[]> | undefined
-      for (const slot of slots) {
-        if (!indexedSet.has(slot.name) || !slot.filename) continue
-        if (!byField) { byField = new Map(); out.set(id, byField) }
-        const names = byField.get(slot.name)
-        if (names) names.push(slot.filename)
-        else byField.set(slot.name, [slot.filename])
-      }
-    }
-    return out
-  }
-
-  /** #308 L1 — field -> (key -> {locale->label}) for dictKey fields; static from table, dynamic via getDictionary().list(). */
-  private async resolveDictLabelMaps(): Promise<Map<string, Map<string, Record<string, string>>>> {
-    const maps = new Map<string, Map<string, Record<string, string>>>()
-    if (!this.dictKeyFields || !this.textIndexes) return maps
-    for (const field of this.textIndexes) {
-      const desc = this.dictKeyFields[field]
-      if (!desc) continue
-      const m = new Map<string, Record<string, string>>()
-      if (isStaticDictDescriptor(desc)) {
-        for (const [key, labels] of Object.entries(desc.table)) m.set(key, labels as Record<string, string>)
-      } else {
-        if (this.getDictionary) {
-          const handle = await this.getDictionary(desc.name)
-          for (const e of await handle.list()) m.set(e.key, e.labels)
-        }
-      }
-      maps.set(field, m)
-    }
-    return maps
-  }
-
-  /** #308 L1.5 — force-persist the lexical index now (e.g. on save/idle). Persists only when textIndexPersist is enabled; a no-op otherwise. */
-  async flushIndex(): Promise<void> {
-    if (!this.searchIndexStore) return
-    await this.ensureHydrated()
-    const labelMaps = await this.resolveDictLabelMaps()
-    const blobFilenames = await this.resolveBlobFilenames()
-    await this.searchIndexStore.ensureBuilt(() => this.buildRetrievalDocs(labelMaps, blobFilenames))
-    await this.searchIndexStore.flush?.()
-  }
-
-  /** #308 L2 — load + decrypt all _vec sidecars into StoredVector[] for the VectorSet. */
-  private buildVectorLoad(): () => Promise<StoredVector[]> {
-    return async () => {
-      const ids = await this.adapter.list(this.vault, '_vec')
-      const out: StoredVector[] = []
-      for (const id of ids) {
-        const env = await this.adapter.get(this.vault, '_vec', id)
-        if (!env) continue
-        const body = await this.codec.decryptJsonString(env)
-        if (body === null) continue
-        const parsed = JSON.parse(body) as { vec: number[]; model: string }
-        out.push({ id, vec: new Float32Array(parsed.vec), model: parsed.model })
-      }
-      return out
-    }
-  }
-
-  /**
-   * #308 L1.5 — build the PersistedIndexCallbacks bridge: crypto lives here
-   * (collection has getDEK / encryptJsonString / decryptJsonString / adapter),
-   * the index store itself is crypto-free.
-   *
-   * Fingerprint encoding: body-wrap approach — save(json, fp) stores
-   * JSON.stringify({ fp, idx: json }) as the encrypted body so the standard
-   * EncryptedEnvelope shape is never extended. load() decrypts and JSON.parses
-   * the wrapper back out.
-   *
-   * Cache shape: this.cache stores { record, version } — currentFingerprint()
-   * iterates over e.version.
-   */
-  private buildPersistedIndexCallbacks(): PersistedIndexCallbacks {
-    const FT = '_ftindex'
+  private searchContext(): SearchContext<T> {
     return {
-      load: async () => {
-        const env = await this.adapter.get(this.vault, FT, this.name)
-        if (!env) return null
-        const body = await this.codec.decryptJsonString(env)
-        if (body === null) return null
-        try {
-          const wrapped = JSON.parse(body) as { fp: { count: number; maxVersion: number }; idx: string }
-          return { json: wrapped.idx, fingerprint: wrapped.fp }
-        } catch {
-          return null
-        }
-      },
-      save: async (json, fp) => {
-        const body = JSON.stringify({ fp, idx: json })
-        const env = await this.codec.encryptJsonString(body, fp.count)
-        await this.adapter.put(this.vault, FT, this.name, env)
-      },
-      remove: async () => { await this.adapter.delete(this.vault, FT, this.name) },
-      currentFingerprint: () => {
-        let maxVersion = 0
-        for (const e of this.cache.values()) if (e.version > maxVersion) maxVersion = e.version
-        return { count: this.cache.size, maxVersion }
-      },
+      name: this.name,
+      vault: this.vault,
+      adapter: this.adapter,
+      codec: this.codec,
+      cache: this.cache,
+      lazy: this.lazy,
+      textIndexes: this.textIndexes,
+      i18nFields: this.i18nFields,
+      dictKeyFields: this.dictKeyFields,
+      blobFields: this.blobFields,
+      getDictionary: this.getDictionary,
+      searchIndexStore: this.searchIndexStore,
+      vectorSet: this.vectorSet,
+      embeddings: this.embeddings,
+      ensureHydrated: () => this.ensureHydrated(),
+      blob: (id) => this.blob(id),
     }
-  }
-
-  /** #308 L1 — pre-build the lexical index (e.g. on open) so the first retrieve() pays no build scan. */
-  async warmIndex(): Promise<void> {
-    if (!this.searchIndexStore) return
-    if (this.lazy) {
-      throw new Error(
-        `Collection "${this.name}": warmIndex() requires eager mode (prefetch: true).`,
-      )
-    }
-    await this.ensureHydrated()
-    const built = this.searchIndexStore.built
-    const labelMaps = built ? new Map() : await this.resolveDictLabelMaps()
-    const blobFilenames = built ? new Map() : await this.resolveBlobFilenames()
-    await this.searchIndexStore.ensureBuilt(() => this.buildRetrievalDocs(labelMaps, blobFilenames))
-  }
-
-  /** #308 — retrieval. mode: 'lexical' (default) | 'semantic' (L2) | 'hybrid' (L3). */
-  async retrieve(query: string, opts: RetrieveOptions<T> = {}): Promise<RetrieveHit<T>[]> {
-    const hits =
-      opts.mode === 'semantic' ? await this.retrieveSemantic(query, opts)
-      : opts.mode === 'hybrid' ? await this.retrieveHybrid(query, opts)
-      : await this.retrieveLexical(query, opts)
-    return opts.within ? this.applyWithin(hits, opts.within) : hits
-  }
-
-  /** #308 L3 — keep only hits whose id matches the structured query, re-rank 1-based. */
-  private applyWithin(hits: RetrieveHit<T>[], within: Query<T>): RetrieveHit<T>[] {
-    const ids = new Set(within._idArray())
-    return hits.filter(h => ids.has(h.id)).map((h, i) => ({ ...h, rank: i + 1 }))
-  }
-
-  /** #308 L1 — client-side lexical retrieval; ranked { id, score, field, snippet, locale? }. */
-  private async retrieveLexical(query: string, opts: RetrieveOptions<T>): Promise<RetrieveHit<T>[]> {
-    if (!this.searchIndexStore) {
-      throw new Error(`Collection "${this.name}": retrieve() requires a textIndexes config.`)
-    }
-    if (this.lazy) {
-      throw new Error(
-        `Collection "${this.name}": retrieve() requires eager mode (prefetch: true).`,
-      )
-    }
-    await this.ensureHydrated()
-    const built = this.searchIndexStore.built
-    const labelMaps = built ? new Map() : await this.resolveDictLabelMaps()
-    const blobFilenames = built ? new Map() : await this.resolveBlobFilenames()
-    const index = await this.searchIndexStore.ensureBuilt(() => this.buildRetrievalDocs(labelMaps, blobFilenames))
-    const hits = index.query(query, {
-      ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
-      ...(opts.match ? { match: opts.match } : {}),
-      ...(opts.prefix ? { prefix: opts.prefix } : {}),
-      ...(opts.fields ? { fields: opts.fields } : {}),
-    })
-    const window = opts.snippetWindow ?? 80
-    return hits.map((h: IndexHit, i: number) => {
-      const base: RetrieveHit<T> = {
-        id: h.id,
-        score: h.score,
-        rank: i + 1,
-        field: h.field,
-        snippet: extractSnippet(h.text, h.offset, window),
-        ...(h.locale !== undefined ? { locale: h.locale } : {}),
-        ...(opts.includeRecord
-          ? (() => {
-              const e = this.cache.get(h.id)
-              return e ? { record: stripI18nFilled(e.record as Record<string, unknown>) as T } : {}
-            })()
-          : {}),
-      }
-      return base
-    })
-  }
-
-  /** #308 L3 — hybrid: fuse lexical (L1) + semantic (L2) by RRF. Requires embeddings. */
-  private async retrieveHybrid(query: string, opts: RetrieveOptions<T>): Promise<RetrieveHit<T>[]> {
-    if (!this.embeddings) {
-      throw new Error(`Collection "${this.name}": retrieve({mode:'hybrid'}) requires an embeddings config.`)
-    }
-    const [lex, sem] = await Promise.all([
-      this.retrieveLexical(query, opts),
-      this.retrieveSemantic(query, opts),
-    ])
-    return fuseRetrieval([lex, sem], opts.limit !== undefined ? { limit: opts.limit } : {})
-  }
-
-  /** #308 L2 — semantic branch of retrieve(): encode query → similarTo(). */
-  private async retrieveSemantic(query: string, opts: RetrieveOptions<T>): Promise<RetrieveHit<T>[]> {
-    if (!this.embeddings) throw new Error(`Collection "${this.name}": retrieve({mode:'semantic'}) requires an embeddings config.`)
-    if (this.lazy) throw new Error(`Collection "${this.name}": retrieve() requires eager mode (prefetch: true).`)
-    const qVec = await this.embeddings.encode(query)
-    return this.similarTo(qVec, {
-      ...(opts.limit !== undefined ? { k: opts.limit } : {}),
-      ...(opts.minScore !== undefined ? { minScore: opts.minScore } : {}),
-      ...(opts.includeRecord ? { includeRecord: true } : {}),
-    })
-  }
-
-  /** #308 L2 — raw-vector kNN over the encrypted vector set (decrypted in the trusted tier).
-   *  Snippet is '' for vector hits in v1 (semantic match isn't span-located). */
-  async similarTo(vector: Float32Array, opts: { k?: number; minScore?: number; includeRecord?: boolean } = {}): Promise<RetrieveHit<T>[]> {
-    if (!this.embeddings || !this.vectorSet) throw new Error(`Collection "${this.name}": similarTo() requires an embeddings config.`)
-    if (this.lazy) throw new Error(`Collection "${this.name}": similarTo() requires eager mode (prefetch: true).`)
-    await this.ensureHydrated()
-    await this.vectorSet.ensureLoaded(this.buildVectorLoad())
-    const hits = this.vectorSet.cosineTopK(vector, opts.k ?? 10, {
-      ...(opts.minScore !== undefined ? { minScore: opts.minScore } : {}),
-      expectModel: this.embeddings.model,
-    })
-    return hits.map((h, i) => {
-      const base: RetrieveHit<T> = { id: h.id, score: h.score, rank: i + 1, field: '(vector)', snippet: '' }
-      if (opts.includeRecord) { const e = this.cache.get(h.id); if (e) (base as { record?: T }).record = stripI18nFilled(e.record as Record<string, unknown>) as T }
-      return base
-    })
   }
 
   // ─── Bulk operations ─────────────────────────────────────
