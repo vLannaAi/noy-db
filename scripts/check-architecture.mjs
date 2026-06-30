@@ -641,7 +641,18 @@ const KERNEL_SURFACE_BUDGET = {
   // field moved to `with-fork/snapshots/noydb-facade.ts` (`NoydbSnapshots`); noydb.ts
   // holds a facade instance + thin delegators and `close()` calls `snapshots.stop()`.
   // Lowered 3085→3019 (Phase 5 A10: policy/session extraction): `attachPolicyEnforcer`/`touchPolicy`/`checkPolicyOperation`/`getPolicy`/`updatePolicy`/`bootstrapPolicy` bodies moved to `policy/noydb-facade.ts` (`NoydbPolicy`); noydb.ts holds a facade instance + thin delegators (the dead, never-called `attachPolicyEnforcer` is dropped, its body lives on the facade). The session *timer* (`resetSessionTimer` + `sessionTimer` field) and the managed-recovery enrolment check (`assertRecoveryEnrolled`) stay kernel-resident and arrive as callbacks; the policy cache + enforcer map stay noydb-resident (touched by openVault/close) and arrive by reference.
-  'packages/hub/src/noydb.ts': 3019,
+  // Lowered 3019→2275 (Phase 5 A8: auth/recovery/enrollment extraction): the
+  // tier-2 authenticator enroll/remove/update/unlock wrappers, WebAuthn enrollment,
+  // auth-config introspection, tier-1 passphrase rotate/recover, paper/Shamir recovery
+  // rotate/enroll, managed-passphrase recovery, peer-recover, tier-3 PIN unlock, and the
+  // public `getKeyring` accessor moved verbatim to `with-party/team/noydb-facade.ts`
+  // (`TeamFacade`); noydb.ts holds a facade instance + thin delegators. Pure relocation —
+  // the near-parallel rotate/recover variants are NOT consolidated. The keyring/active-tier/
+  // quick-unlock/policy caches stay noydb-resident and arrive by reference; the keyring-unlock
+  // path (`getKeyringInternal`), policy gate (`checkGate`), managed-recovery enrolment check
+  // (`assertRecoveryEnrolled`), `openVault`, and the one-shot managed-recovery skip flag stay
+  // kernel-resident and arrive as callbacks.
+  'packages/hub/src/noydb.ts': 2275,
 }
 
 function checkKernelSurface() {

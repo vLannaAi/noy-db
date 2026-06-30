@@ -28,8 +28,6 @@ import {
 } from './with-party/directory/storage.js'
 import type { PassphrasePolicy } from './validation.js'
 import {
-  rotatePassphrase as keyringRotatePassphrase,
-  recoverPassphrase as keyringRecoverPassphrase,
   type RotatePassphraseInput,
   type RecoverPassphraseInput,
   type RecoverPassphraseResult,
@@ -39,33 +37,17 @@ import {
   type RecoveryEnrollmentInput,
   type RecoveryProof,
 } from './with-party/team/rotate-recover.js'
+import type { RecoverUserOptions } from './with-party/team/peer-recover.js'
 import {
-  recoverUser as keyringRecoverUser,
-  type RecoverUserOptions,
-} from './with-party/team/peer-recover.js'
-import {
-  loadPaperRecoveryEntries,
-  savePaperRecoveryEntries,
   hasRecoveryEnrolled,
   hasStrongRecoveryEnrolled,
-  mintPaperRecoveryEntry,
   type PaperRecoveryEntry,
-  loadShamirRecoveryEntries,
-  saveShamirRecoveryEntries,
-  mintShamirRecoveryEntry,
   type ShamirRecoveryEntry,
 } from './with-party/team/recovery.js'
-import { resolveManagedSecret, saveSealedPassphrase } from './with-party/team/managed-passphrase.js'
-import type { ShamirRecoveryProvider } from './with-party/team/shamir-recovery-provider.js'
+import { resolveManagedSecret } from './with-party/team/managed-passphrase.js'
 import { generateULID } from './with-share/bundle/ulid.js'
 import { StoreCoordinationProvider, type CoordinationProvider } from './coordination/index.js'
-import { RecoveryNotEnrolledError, RecoveryProfileNotImplementedError, ManagedRecoveryNotEnrolledError, PolicyDeniedError } from './policy/errors.js'
-import {
-  describeAuthConfig as fnDescribeAuthConfig,
-  diagramAuthConfig as fnDiagramAuthConfig,
-  describeUserAuth as fnDescribeUserAuth,
-  describeAllUsersAuth as fnDescribeAllUsersAuth,
-} from './with-party/auth-introspection/index.js'
+import { RecoveryNotEnrolledError, ManagedRecoveryNotEnrolledError } from './policy/errors.js'
 import {
   loadPublicEnvelope,
   savePublicEnvelope,
@@ -97,10 +79,6 @@ import {
 } from './with-party/team/keyring.js'
 import type { UnlockedKeyring } from './with-party/team/keyring.js'
 import {
-  enrollAuthenticator as keyringEnrollAuthenticator,
-  removeAuthenticator as keyringRemoveAuthenticator,
-  updateAuthenticator as keyringUpdateAuthenticator,
-  findAuthenticator,
   type EnrollAuthenticatorOptions,
   type UpdateAuthenticatorOptions,
 } from './with-party/team/authenticators.js'
@@ -129,6 +107,7 @@ import {
   type VaultPolicy,
 } from './policy/index.js'
 import { NoydbPolicy } from './policy/noydb-facade.js'
+import { TeamFacade } from './with-party/team/noydb-facade.js'
 
 /**
  * Privilege rank used by `listAccessibleVaults({ minRole })` to
@@ -226,6 +205,7 @@ export class Noydb {
   private readonly syncStrategy: SyncStrategy
   private readonly snapshots: NoydbSnapshots
   private readonly policyManager: NoydbPolicy
+  private readonly team: TeamFacade
   /**
    * Currently-running multi-record transaction, set by
    * `runTransaction` at the start of Phase 2 (commit) and cleared in
@@ -291,6 +271,21 @@ export class Noydb {
       onSessionRevoke: (vault) => {
         this.keyringCache.delete(vault)
         this.vaultCache.delete(vault)
+      },
+    })
+    this.team = new TeamFacade({
+      options: this.options,
+      keyringCache: this.keyringCache,
+      activeTier: this.activeTier,
+      quickUnlock: this.quickUnlock,
+      policyCache: this.policyCache,
+      checkGate: (vault, gate, factors) => this.checkGate(vault, gate, factors),
+      getKeyringInternal: (vault, opts) => this.getKeyringInternal(vault, opts),
+      assertRecoveryEnrolled: (vault, policy, opts) =>
+        this.assertRecoveryEnrolled(vault, policy, opts),
+      openVault: (vault, opts) => this.openVault(vault, opts),
+      setSkipNextManagedRecoveryCheck: (value) => {
+        this._skipNextManagedRecoveryCheck = value
       },
     })
     this.publicEnvelopeSchema = resolvePublicEnvelopeSchema(options.publicEnvelope)
@@ -1402,17 +1397,6 @@ export class Noydb {
     return engine.status()
   }
 
-  private requireShamirProvider(): ShamirRecoveryProvider {
-    const p = this.options.shamirRecovery
-    if (!p) {
-      throw new Error(
-        "shamir recovery requires a ShamirRecoveryProvider — pass "
-        + "shamirRecovery: shamirRecoveryProvider() from '@noy-db/on-shamir' to createNoydb()",
-      )
-    }
-    return p
-  }
-
   private getSyncEngine(vault: string): SyncEngine {
     const engine = this.syncEngines.get(vault)
     if (!engine) {
@@ -1844,210 +1828,64 @@ export class Noydb {
   }
 
   // ─── Tier-2 enroll / remove ─────────────────────────────────────
-  /**
-   * Add a tier-2 authenticator slot to the calling user's keyring.
-   * Each slot independently wraps the SAME KEK under a method-specific
-   * key — adding a slot is a constant-time keyring write.
-   *
-   * The wrapping ciphertext is produced by the corresponding
-   * `@noy-db/on-*` package (e.g. `enrollPasswordAuthenticator` from
-   * `@noy-db/on-password`); the hub persists the result.
-   *
-   * Gated by `enroll-authenticator`; `presented` carries any factor
-   * proofs the active policy demands.
-   */
+  /** Add a tier-2 authenticator slot — see {@link TeamFacade.enrollAuthenticator}. */
   async enrollAuthenticator(
     vault: string,
     options: EnrollAuthenticatorOptions,
     factors?: FactorProofBundle,
   ): Promise<void> {
-    await this.checkGate(vault, 'enroll-authenticator', factors)
-    const keyring = await this.getKeyringInternal(vault)
-    const next = await keyringEnrollAuthenticator(this.options.store, vault, keyring, options)
-    this.keyringCache.set(vault, next)
+    return this.team.enrollAuthenticator(vault, options, factors)
   }
 
-  /**
-   * Remove a tier-2 authenticator slot. Idempotent — removing a
-   * non-existent slot is a successful no-op. Gated by
-   * `remove-authenticator`.
-   */
+  /** Remove a tier-2 authenticator slot — see {@link TeamFacade.removeAuthenticator}. */
   async removeAuthenticator(
     vault: string,
     slotId: string,
     factors?: FactorProofBundle,
   ): Promise<void> {
-    await this.checkGate(vault, 'remove-authenticator', factors)
-    const keyring = await this.getKeyringInternal(vault)
-    const next = await keyringRemoveAuthenticator(this.options.store, vault, keyring, slotId)
-    this.keyringCache.set(vault, next)
+    return this.team.removeAuthenticator(vault, slotId, factors)
   }
 
-  /** Read the slot list for a vault. Internal — `describeAuthConfig` consumes this. */
+  /** Read the slot list for a vault — see {@link TeamFacade.listAuthenticators}. */
   async listAuthenticators(vault: string): Promise<ReadonlyArray<KeyringAuthenticator>> {
-    const keyring = await this.getKeyringInternal(vault)
-    return keyring.authenticators
+    return this.team.listAuthenticators(vault)
   }
 
-  /**
-   * Mutate the `meta` blob on an existing authenticator slot — slot
-   * rename, label change, attachment of UI hints. The slot's `id`,
-   * `method`, and wrap material (`wrapped_kek` / `wrapped_deks` + `iv`)
-   * are immutable through this method. Anti-slot-swap is structural,
-   * not gate-driven.
-   *
-   * `meta` patch semantics (top-level merge):
-   *   - Top-level merge — absent keys preserved
-   *   - `null` value — delete that meta key
-   *   - Other values — replace verbatim
-   *
-   * Use case: per-slot nickname for "iPhone Touch ID" vs "MacBook
-   * Touch ID" disambiguation in admin UIs. The slot id (auto-derived
-   * from credentialId prefix) is not human-friendly; `meta.nickname`
-   * is.
-   *
-   * Gated by `update-authenticator`. PERSONAL_POLICY: tier-1 unlock
-   * alone (matches enroll/remove). STRICT_POLICY: tier-1 +
-   * TOTP/email-OTP factor proof — a malicious rename on a shared
-   * workstation could mislead the user about which device a slot
-   * corresponds to, so STRICT requires fresh factor binding.
-   *
-   * @throws `NoAccessError` when no slot with the given id exists.
-   * @throws `ValidationError` when no patch field is provided.
-   */
+  /** Mutate an authenticator slot's `meta` — see {@link TeamFacade.updateAuthenticator}. */
   async updateAuthenticator(
     vault: string,
     slotId: string,
     options: UpdateAuthenticatorOptions,
     factors?: FactorProofBundle,
   ): Promise<void> {
-    await this.checkGate(vault, 'update-authenticator', factors)
-    const keyring = await this.getKeyringInternal(vault)
-    const next = await keyringUpdateAuthenticator(this.options.store, vault, keyring, slotId, options)
-    this.keyringCache.set(vault, next)
+    return this.team.updateAuthenticator(vault, slotId, options, factors)
   }
 
-  /**
-   * Native WebAuthn enrollment using the **real** internal keyring.
-   *
-   * Why this exists: when a consumer is using `createNoydb({ secret })`,
-   * they cannot reach the live `UnlockedKeyring` to feed it to
-   * `enrollWebAuthn(keyring, vault, opts)` from `@noy-db/on-webauthn`.
-   * Constructing a synthetic keyring (the previous workaround) produces
-   * a slot whose `wrapped_kek` references the synthetic payload, not
-   * the live session — so `unlockViaAuthenticator()` later replaces the
-   * live DEK map with stale wrapped DEKs and every decrypt fails.
-   *
-   * This method runs `ceremony` with the REAL keyring (still in
-   * `keyringCache`). The ceremony performs the WebAuthn enrollment and
-   * returns the slot options that hub then persists via the standard
-   * tier-2 enrollAuthenticator path.
-   *
-   * Layering note: hub does not import `@noy-db/on-webauthn` (that
-   * would invert the dep graph). The consumer wires it in:
-   *
-   * ```ts
-   * import { enrollWebAuthn } from '@noy-db/on-webauthn'
-   *
-   * await db.enrollWebAuthn('demo', async (keyring) => {
-   *   const e = await enrollWebAuthn(keyring, 'demo', { rp: {...} })
-   *   return {
-   *     id: `webauthn-${e.credentialId.slice(0, 8)}`,
-   *     method: 'webauthn',
-   *     wrapped_kek: e.wrappedPayload,
-   *     meta: {
-   *       credentialId: e.credentialId,
-   *       wrapIv: e.wrapIv,
-   *       prfUsed: e.prfUsed,
-   *       beFlag: e.beFlag,
-   *       requireSingleDevice: e.requireSingleDevice,
-   *     },
-   *   }
-   * })
-   * ```
-   *
-   * Returns the WebAuthn `credentialId` (extracted from `meta.credentialId`)
-   * for the caller's lookup index (a bootstrap vault, a PublicEnvelope,
-   * a server-side allowlist).
-   *
-   * Gated by `enroll-authenticator` like `enrollAuthenticator()` itself.
-   */
+  /** Native WebAuthn enrollment — see {@link TeamFacade.enrollWebAuthn}. */
   async enrollWebAuthn(
     vault: string,
     ceremony: (keyring: UnlockedKeyring) => Promise<EnrollAuthenticatorOptions>,
     factors?: FactorProofBundle,
   ): Promise<{ credentialId: string }> {
-    await this.checkGate(vault, 'enroll-authenticator', factors)
-    const keyring = await this.getKeyringInternal(vault)
-    const slotOptions = await ceremony(keyring)
-    if (slotOptions.method !== 'webauthn') {
-      throw new ValidationError(
-        `enrollWebAuthn: ceremony returned method "${slotOptions.method}"; expected "webauthn". ` +
-          'Use db.enrollAuthenticator() for non-webauthn methods.',
-      )
-    }
-    const credentialId = (slotOptions.meta as { credentialId?: unknown }).credentialId
-    if (typeof credentialId !== 'string' || credentialId.length === 0) {
-      throw new ValidationError(
-        'enrollWebAuthn: ceremony result must include `meta.credentialId` (base64 string). ' +
-          'See @noy-db/on-webauthn enrollWebAuthn() return shape.',
-      )
-    }
-    const next = await keyringEnrollAuthenticator(this.options.store, vault, keyring, slotOptions)
-    this.keyringCache.set(vault, next)
-    return { credentialId }
+    return this.team.enrollWebAuthn(vault, ceremony, factors)
   }
 
-  /**
-   * Filter the slot list to webauthn-method slots only. Useful for
-   * "you have N WebAuthn credentials enrolled" UI surfaces and for
-   * deciding when a new device prompt should appear. Identity is
-   * `id` + `enrolled_at`; the `meta.credentialId` (base64) is used by
-   * `allowCredentials` at unlock time.
-   */
+  /** List webauthn-method slots — see {@link TeamFacade.listWebAuthnSlots}. */
   async listWebAuthnSlots(vault: string): Promise<ReadonlyArray<{
     id: string
     enrolledAt: string
     credentialId: string
   }>> {
-    const keyring = await this.getKeyringInternal(vault)
-    return keyring.authenticators
-      .filter((a) => a.method === 'webauthn')
-      .map((a) => {
-        const credentialId = (a.meta as { credentialId?: unknown }).credentialId
-        return {
-          id: a.id,
-          enrolledAt: a.enrolled_at,
-          credentialId: typeof credentialId === 'string' ? credentialId : '',
-        }
-      })
+    return this.team.listWebAuthnSlots(vault)
   }
 
-  /**
-   * Resolve a slot by id, then hand the wrapped-KEK ciphertext + meta
-   * to the caller-supplied verifier. The verifier is the
-   * `unlockWith*` function from the corresponding `@noy-db/on-*`
-   * package, e.g. `unlockWithPassword(slot, password)`.
-   *
-   * On success, mark the active session tier as 2 — subsequent
-   * `checkGate` calls see a tier-2 unlock.
-   */
+  /** Unlock via a tier-2 authenticator slot — see {@link TeamFacade.unlockViaAuthenticator}. */
   async unlockViaAuthenticator(
     vault: string,
     slotId: string,
     verify: (slot: KeyringAuthenticator) => Promise<UnlockedKeyring>,
   ): Promise<UnlockedKeyring> {
-    const keyring = await this.getKeyringInternal(vault)
-    const slot = findAuthenticator(keyring, slotId)
-    if (!slot) {
-      throw new ValidationError(
-        `unlockViaAuthenticator: no slot with id "${slotId}" in vault "${vault}".`,
-      )
-    }
-    const unlocked = await verify(slot)
-    this.keyringCache.set(vault, unlocked)
-    this.activeTier.set(vault, 2)
-    return unlocked
+    return this.team.unlockViaAuthenticator(vault, slotId, verify)
   }
 
   // ─── Public envelope (docs/subsystems/public-envelope.md) ──────
@@ -2108,332 +1946,62 @@ export class Noydb {
   }
 
   // ─── Auth introspection ─────────────────────────────────────────
-  /** English summary of the configured auth model. */
+  /** English summary of the configured auth model — see {@link TeamFacade.describeAuthConfig}. */
   async describeAuthConfig(vault: string): Promise<string> {
-    return fnDescribeAuthConfig(this.options.store, vault)
+    return this.team.describeAuthConfig(vault)
   }
 
-  /** Mermaid `flowchart TB` source for the auth graph. */
+  /** Mermaid `flowchart TB` source for the auth graph — see {@link TeamFacade.diagramAuthConfig}. */
   async diagramAuthConfig(vault: string): Promise<string> {
-    return fnDiagramAuthConfig(this.options.store, vault)
+    return this.team.diagramAuthConfig(vault)
   }
 
-  /**
-   * Per-user enrollment summary. Gated by `view-user-auth` (default:
-   * disabled). Sanitization is allowlist-based — never renders cred
-   * ids, password hashes, secrets, or any field outside the allowlist.
-   */
+  /** Per-user enrollment summary — see {@link TeamFacade.describeUserAuth}. */
   async describeUserAuth(
     vault: string,
     userId: string,
     factors?: FactorProofBundle,
   ): Promise<string> {
-    await this.checkGate(vault, 'view-user-auth', factors)
-    return fnDescribeUserAuth(this.options.store, vault, userId)
+    return this.team.describeUserAuth(vault, userId, factors)
   }
 
-  /** Bulk variant for owner dashboards. Gated by `view-user-auth`. */
+  /** Bulk per-user enrollment summary — see {@link TeamFacade.describeAllUsersAuth}. */
   async describeAllUsersAuth(
     vault: string,
     factors?: FactorProofBundle,
   ): Promise<Array<{ userId: string; description: string }>> {
-    await this.checkGate(vault, 'view-user-auth', factors)
-    return fnDescribeAllUsersAuth(this.options.store, vault)
+    return this.team.describeAllUsersAuth(vault, factors)
   }
 
   // ─── Tier-1 change flows ────────────────────────────────────────
-  /**
-   * Rotate the user's passphrase (user remembers old). Validates the
-   * new phrase against the configured `passphrase` policy, runs the
-   * `rotate-passphrase` gate, then re-derives + re-wraps every DEK.
-   *
-   * Tier-2 authenticator slots are dropped — each slot wraps the old
-   * KEK and would need its derivation key to be re-presented. Re-enrol
-   * via `db.enrollAuthenticator` after rotation.
-   *
-   * @throws `WeakPassphraseError` on a weak new phrase.
-   * @throws `PolicyDeniedError` when the gate denies (missing factor, …).
-   * @throws `InvalidKeyError` when `oldPassphrase` is wrong.
-   */
+  /** Rotate the user's passphrase (user remembers old) — see {@link TeamFacade.rotatePassphrase}. */
   async rotatePassphrase(
     vault: string,
     input: RotatePassphraseInput,
     factors?: FactorProofBundle,
   ): Promise<void> {
-    // Managed-passphrase mode: the user does NOT know the
-    // current passphrase (hub generated it and sealed it under the
-    // provider). Manual rotation via this method is impossible by
-    // construction — surface a clear error rather than fail mid-way
-    // with InvalidKeyError once `oldPassphrase` doesn't match the
-    // hub-generated one. Recovery-under-managed (which mints a fresh
-    // sealed passphrase via the provider) is the supported path; it
-    // lands in a follow-up.
-    if (this.options.passphraseMode === 'managed') {
-      throw new PolicyDeniedError(
-        'rotate-passphrase',
-        'disabled',
-        { minTier: 1, enabled: false },
-        'Managed-passphrase mode (#14): the passphrase is hub-generated '
-        + 'and sealed under the SealingKeyProvider — there is no '
-        + 'plaintext to rotate. Use the recovery flow (follow-up issue) '
-        + 'to mint a fresh sealed passphrase.',
-      )
-    }
-    await this.checkGate(vault, 'rotate-passphrase', factors)
-    const userId = this.options.user
-    const next = await keyringRotatePassphrase(this.options.store, vault, userId, input)
-    this.keyringCache.set(vault, next)
+    return this.team.rotatePassphrase(vault, input, factors)
   }
 
-  /**
-   * Reset the passphrase using a recovery proof (user forgot the old).
-   * Currently supports the `'paper'` profile end-to-end; the
-   * other profiles throw {@link RecoveryProfileNotImplementedError}.
-   *
-   * Burns the used recovery entry on success.
-   */
+  /** Reset the passphrase using a recovery proof — see {@link TeamFacade.recoverPassphrase}. */
   async recoverPassphrase(
     vault: string,
     input: RecoverPassphraseInput,
     factors?: FactorProofBundle,
   ): Promise<RecoverPassphraseResult> {
-    await this.checkGate(vault, 'recover-passphrase', factors)
-    const userId = this.options.user
-
-    // Snapshot the entries BEFORE recovery — the team function burns
-    // exactly one entry, so post-recovery `_meta/recovery-paper`
-    // contains `entriesBeforeRecovery.length - 1` entries (the ones
-    // the user did NOT just consume). Those are what we replace
-    // under the auto-rotation logic.
-    const entriesBeforeRecovery = await loadPaperRecoveryEntries(this.options.store, vault)
-
-    const next = await keyringRecoverPassphrase(this.options.shamirRecovery, this.options.store, vault, userId, input)
-    this.keyringCache.set(vault, next)
-
-    const rotateRemaining = input.rotateRemainingCodes ?? true
-    const remainingAfterBurn = Math.max(0, entriesBeforeRecovery.length - 1)
-    if (!rotateRemaining || remainingAfterBurn === 0) {
-      return { newCodes: [] }
-    }
-
-    // Auto-rotate: replace the remaining entries with a fresh set
-    // minted under the new keyring's DEKs. Wraps the same DEK set the
-    // recovered keyring just got, so the new codes round-trip through
-    // a future `db.recoverPassphrase` cleanly.
-    //
-    // If this step fails (store error mid-mint), we leave the existing
-    // post-burn entries in place — the user falls back to the
-    // fall back to prior behavior (remaining N-1 codes still valid). Strictly
-    // safer than wiping then failing.
-    const codeGen = input.codeGenerator ?? generateULID
-    const newCodeCount = input.newCodeCount ?? remainingAfterBurn
-    const codes: string[] = []
-    const newEntries: PaperRecoveryEntry[] = []
-    for (let i = 0; i < newCodeCount; i++) {
-      const rawCode = codeGen()
-      const entry = await mintPaperRecoveryEntry(next.deks, rawCode, generateULID())
-      codes.push(rawCode)
-      newEntries.push(entry)
-    }
-    // Single replace-all write — `savePaperRecoveryEntries` overwrites
-    // `_meta/recovery-paper` atomically (one envelope `put`).
-    await savePaperRecoveryEntries(this.options.store, vault, newEntries)
-
-    return { newCodes: codes }
+    return this.team.recoverPassphrase(vault, input, factors)
   }
 
-  /**
-   * Deliberate paper-recovery-code regeneration. User knows their
-   * passphrase but wants a fresh sheet — they lost the printout or
-   * suspect compromise of the off-site copy.
-   *
-   * Symmetric to {@link rotatePassphrase} for the recovery profile:
-   * gated, audit-trackable, ergonomic. Replaces (not appends) the
-   * paper sheet under `_meta/recovery-paper` in a single envelope `put`.
-   *
-   * Gated by the `rotate-recovery` policy gate:
-   *   - PERSONAL_POLICY: `{ minTier: 1 }` — knowing the passphrase
-   *     suffices, matching the lower-level flow's bar.
-   *   - STRICT_POLICY: `{ minTier: 1, factors: [{ anyOf: ['totp',
-   *     'email-otp', 'webauthn-roaming'] }] }` — rotation is an
-   *     off-site-trust event; require an off-device factor so a
-   *     stolen unlocked laptop cannot silently mint a sheet for the
-   *     attacker.
-   *
-   * Defaults `count` to the existing sheet size so consumers aren't
-   * surprised by a different code count. Explicit `count` overrides.
-   *
-   * @throws {@link RecoveryProfileNotImplementedError} when `profile`
-   *         is anything other than `'paper'` (v1 dispatch limit).
-   * @throws {@link PolicyDeniedError} when the gate denies (missing
-   *         factor, tier mismatch, ...).
-   * @throws on missing paper sheet — "nothing to rotate" surfaces as
-   *         an error rather than silently minting an entire new sheet.
-   *
-   * @example Default count + show-once UI
-   * ```ts
-   * const { newCodes } = await db.rotateRecovery('acme', { profile: 'paper' })
-   * showCodesToUser(newCodes)
-   * ```
-   *
-   * @example STRICT-policy site with TOTP factor proof
-   * ```ts
-   * await db.rotateRecovery(
-   *   'acme',
-   *   { profile: 'paper', count: 10 },
-   *   { factors: [{ kind: 'totp', proof: '123456' }] },
-   * )
-   * ```
-   */
+  /** Deliberate paper/Shamir recovery-code regeneration — see {@link TeamFacade.rotateRecovery}. */
   async rotateRecovery(
     vault: string,
     options: RotateRecoveryOptions,
     factors?: FactorProofBundle,
   ): Promise<RotateRecoveryResult> {
-    if (options.profile === 'paper') {
-      return this.rotateRecoveryPaper(vault, options, factors)
-    }
-    if (options.profile === 'shamir') {
-      return this.rotateRecoveryShamir(vault, options, factors)
-    }
-    // Defense-in-depth for `as unknown as ...` bypass.
-    throw new RecoveryProfileNotImplementedError(
-      (options as { profile: string }).profile,
-      '#196',
-    )
+    return this.team.rotateRecovery(vault, options, factors)
   }
 
-  private async rotateRecoveryPaper(
-    vault: string,
-    options: Extract<RotateRecoveryOptions, { profile: 'paper' }>,
-    factors?: FactorProofBundle,
-  ): Promise<RotateRecoveryResult> {
-    await this.checkGate(vault, 'rotate-recovery', factors)
-
-    const existing = await loadPaperRecoveryEntries(this.options.store, vault)
-    if (existing.length === 0) {
-      throw new Error(
-        `db.rotateRecovery: no recovery codes are enrolled for vault "${vault}". ` +
-        `Call db.enrollRecovery({ profile: 'paper', entries }) first; ` +
-        `rotateRecovery replaces an existing sheet rather than minting one from scratch.`,
-      )
-    }
-
-    const keyring = await this.getKeyring(vault)
-    const codeGen = options.codeGenerator ?? generateULID
-    const count = options.count ?? existing.length
-
-    const codes: string[] = []
-    const newEntries: PaperRecoveryEntry[] = []
-    for (let i = 0; i < count; i++) {
-      const rawCode = codeGen()
-      const entry = await mintPaperRecoveryEntry(keyring.deks, rawCode, generateULID())
-      codes.push(rawCode)
-      newEntries.push(entry)
-    }
-    // Atomic replace — `savePaperRecoveryEntries` overwrites
-    // `_meta/recovery-paper` in a single envelope `put`.
-    await savePaperRecoveryEntries(this.options.store, vault, newEntries)
-
-    return { newCodes: codes, entryId: 'paper-batch' }
-  }
-
-  private async rotateRecoveryShamir(
-    vault: string,
-    options: Extract<RotateRecoveryOptions, { profile: 'shamir' }>,
-    factors?: FactorProofBundle,
-  ): Promise<RotateRecoveryResult> {
-    await this.checkGate(vault, 'rotate-recovery', factors)
-
-    const existing = await loadShamirRecoveryEntries(this.options.store, vault)
-    if (existing.length === 0) {
-      throw new Error(
-        `db.rotateRecovery: no Shamir recovery entry is enrolled for vault "${vault}". ` +
-        `Call db.enrollRecovery({ profile: 'shamir', k, n }) first; ` +
-        `rotateRecovery replaces an existing entry rather than minting one from scratch.`,
-      )
-    }
-
-    // Pick which entry to rotate.
-    let targetEntryId: string
-    if (options.entryId !== undefined) {
-      const found = existing.find(e => e.entryId === options.entryId)
-      if (!found) {
-        throw new Error(
-          `db.rotateRecovery: no Shamir entry with entryId="${options.entryId}" found `
-          + `in vault "${vault}". Available: ${existing.map(e => `"${e.entryId}"`).join(', ')}.`,
-        )
-      }
-      targetEntryId = options.entryId
-    } else {
-      if (existing.length > 1) {
-        throw new Error(
-          `db.rotateRecovery: vault "${vault}" has ${existing.length} Shamir entries `
-          + `enrolled (${existing.map(e => `"${e.entryId}"`).join(', ')}). `
-          + `Pass \`entryId\` to disambiguate which one to rotate; ambiguous rotation `
-          + `would risk replacing the wrong entry.`,
-        )
-      }
-      targetEntryId = existing[0]!.entryId
-    }
-
-    const keyring = await this.getKeyring(vault)
-    const { entry, shareStrings } = await mintShamirRecoveryEntry(
-      this.requireShamirProvider(),
-      keyring.deks,
-      targetEntryId,
-      options.k,
-      options.n,
-      options.label,
-    )
-
-    // Atomic single-doc replace: drop the old entry, insert the new one.
-    const next: ShamirRecoveryEntry[] = existing
-      .filter(e => e.entryId !== targetEntryId)
-      .concat(entry)
-    await saveShamirRecoveryEntries(this.options.store, vault, next)
-
-    return { newShares: shareStrings, entryId: targetEntryId }
-  }
-
-  /**
-   * **Atomic create-and-enroll for managed-mode vaults.**
-   *
-   * Bootstraps a managed-mode vault and enrolls strong recovery in
-   * a single ceremony. Under `passphraseMode: 'managed'`, every
-   * `openVault` call requires a strong recovery profile (Shamir
-   * today) to be enrolled — otherwise it throws
-   * {@link ManagedRecoveryNotEnrolledError}. This method bypasses
-   * the check temporarily so the keyring can be created, enrolls
-   * the supplied recovery profile(s), then returns the vault.
-   *
-   * For Shamir enrollments, the show-once share strings come back
-   * in `recoveryEnrollments[i].shares`. The hub never retains them
-   * — the caller MUST display them to the user (once) before any
-   * subsequent operation.
-   *
-   * Paper alone is NOT a strong profile under managed mode; passing
-   * `{ profile: 'paper', ... }` without an accompanying shamir entry
-   * is rejected at validation time.
-   *
-   * ```ts
-   * const db = await createNoydb({
-   *   store, user: 'alice',
-   *   passphraseMode: 'managed',
-   *   sealingKey: macosKeychainSealingProvider({ ... }),
-   * })
-   *
-   * const { vault, recoveryEnrollments } = await db.openVaultAndEnrollRecovery('acme', {
-   *   recovery: [{ profile: 'shamir', k: 2, n: 3 }],
-   * })
-   * for (const r of recoveryEnrollments) {
-   *   if (r.shares) showSharesToUser(r.shares)  // ONCE
-   * }
-   * ```
-   *
-   * @throws ValidationError if recovery is empty, or contains no
-   *   strong profile under managed mode.
-   */
+  /** Atomic create-and-enroll for managed-mode vaults — see {@link TeamFacade.openVaultAndEnrollRecovery}. */
   async openVaultAndEnrollRecovery(
     vault: string,
     opts: {
@@ -2444,75 +2012,10 @@ export class Noydb {
     readonly vault: Vault
     readonly recoveryEnrollments: ReadonlyArray<EnrollRecoveryResult>
   }> {
-    if (opts.recovery.length === 0) {
-      throw new ValidationError(
-        'openVaultAndEnrollRecovery: at least one recovery enrollment is required.',
-      )
-    }
-
-    // Validate "at least one strong" when managed mode is on.
-    if (this.options.passphraseMode === 'managed') {
-      const hasStrong = opts.recovery.some(r => r.profile === 'shamir')
-      if (!hasStrong) {
-        throw new ValidationError(
-          'openVaultAndEnrollRecovery: managed-mode vaults require at least one strong '
-          + 'recovery profile in the `recovery` array. Paper alone is not strong under '
-          + 'managed mode (no user passphrase to fall back on). Include '
-          + '{ profile: "shamir", k, n } in `recovery`.',
-        )
-      }
-    }
-
-    // Temporarily bypass the managed-mode strong-recovery check so
-    // openVault can create the keyring. Recovery enrollment happens
-    // inside this window; the check is restored at the end.
-    this._skipNextManagedRecoveryCheck = true
-    let vaultHandle: Vault
-    try {
-      vaultHandle = await this.openVault(vault, opts.locale !== undefined ? { locale: opts.locale } : undefined)
-    } finally {
-      this._skipNextManagedRecoveryCheck = false
-    }
-
-    // Enroll each recovery profile.
-    const recoveryEnrollments: EnrollRecoveryResult[] = []
-    for (const enrollment of opts.recovery) {
-      recoveryEnrollments.push(await this.enrollRecovery(vault, enrollment))
-    }
-
-    // Belt-and-braces final check — by now, strong recovery must be on disk.
-    if (this.options.passphraseMode === 'managed') {
-      const policy = this.policyCache.get(vault)
-      if (policy) {
-        await this.assertRecoveryEnrolled(vault, policy)
-      }
-    }
-
-    return { vault: vaultHandle, recoveryEnrollments }
+    return this.team.openVaultAndEnrollRecovery(vault, opts)
   }
 
-  /**
-   * **Recovery flow under managed-passphrase mode.**
-   *
-   * Replaces the sealed passphrase of a managed-mode vault with a
-   * fresh 256-bit random, sealed under the configured
-   * `SealingKeyProvider`. The user never sees the new passphrase.
-   *
-   * Internally:
-   *   1. Verify the recovery proof (Shamir today) and unwrap the
-   *      DEK set.
-   *   2. Mint a fresh 256-bit random as the new effective passphrase.
-   *   3. Rewrap the DEK set under a fresh KEK derived from the new
-   *      passphrase (via the existing `recoverPassphrase` path).
-   *   4. Seal the random bytes under the provider and overwrite
-   *      `_meta/sealed-passphrase`.
-   *   5. Drop the keyring cache so the next operation re-derives.
-   *
-   * The vault's strong-recovery enrollment is preserved across
-   * recovery (Shamir entries are not burned on use).
-   *
-   * @throws ValidationError if the Noydb instance is not in managed mode.
-   */
+  /** Recovery flow under managed-passphrase mode — see {@link TeamFacade.recoverManagedPassphrase}. */
   async recoverManagedPassphrase(
     vault: string,
     options: {
@@ -2520,309 +2023,62 @@ export class Noydb {
       readonly passphrasePolicy?: PassphrasePolicy
     },
   ): Promise<void> {
-    if (this.options.passphraseMode !== 'managed') {
-      throw new ValidationError(
-        'recoverManagedPassphrase: this method only applies to vaults opened '
-        + 'in managed-passphrase mode. For standard mode, use db.recoverPassphrase.',
-      )
-    }
-    const provider = this.options.sealingKey
-    if (!provider) {
-      throw new ValidationError(
-        'recoverManagedPassphrase: createNoydb({ passphraseMode: "managed" }) requires '
-        + '`sealingKey` to be supplied; without it the new sealed passphrase cannot '
-        + 'be persisted.',
-      )
-    }
-
-    // Mint fresh 256-bit random; base64 it for use as the new
-    // effective passphrase. AES-GCM auth-tag failures in the
-    // managed-mode envelope catch tampering.
-    const randomBytes = new Uint8Array(32)
-    globalThis.crypto.getRandomValues(randomBytes)
-    let binary = ''
-    for (let i = 0; i < randomBytes.length; i++) binary += String.fromCharCode(randomBytes[i]!)
-    const newPassphrase = btoa(binary)
-
-    try {
-      // Seal first; if the provider fails (KMS down, keychain locked),
-      // we don't touch the keyring. Then run recoverPassphrase which
-      // rewraps DEKs under the new KEK derived from the random bytes.
-      const sealed = await provider.seal(randomBytes)
-      await keyringRecoverPassphrase(
-        this.options.shamirRecovery,
-        this.options.store,
-        vault,
-        this.options.user,
-        {
-          newPassphrase,
-          recoveryProof: options.recoveryProof,
-          // The new passphrase IS 256 bits of random; policy gates on
-          // length/entropy don't apply.
-          allowWeakPassphrase: true,
-          ...(options.passphrasePolicy !== undefined
-            ? { passphrasePolicy: options.passphrasePolicy }
-            : {}),
-        },
-      )
-      // Update _meta/sealed-passphrase with the freshly sealed random.
-      // The previous envelope is overwritten by saveSealedPassphrase.
-      await saveSealedPassphrase(this.options.store, vault, {
-        providerId: provider.id,
-        sealed,
-      })
-    } finally {
-      // Best-effort zero of the in-memory random buffer.
-      randomBytes.fill(0)
-    }
-
-    // Drop the keyring cache so the next openVault re-derives from
-    // the new sealed envelope.
-    this.keyringCache.delete(vault)
+    return this.team.recoverManagedPassphrase(vault, options)
   }
 
-  /**
-   * Atomic peer-recovery — re-wraps an EXISTING user's keyring under
-   * a fresh temp passphrase in a single store write. Closes the
-   * partial-failure window (the previous compose-from-primitives
-   * pattern was `db.revoke + db.grant`, two writes — if the issuer
-   * cancelled between them the target was locked out entirely).
-   *
-   * Different from `db.revoke + db.grant`:
-   *
-   *   - Same `userId`, role, permissions, capabilities preserved.
-   *   - DEKs unchanged → every other principal in the vault keeps
-   *     access. No key rotation.
-   *   - Allows owner→owner natively. The existing
-   *     `db.revoke` retains its block — peer-recovery is a separate,
-   *     intentionally-named operation.
-   *   - Tier-2 slots dropped (they wrap the old KEK).
-   *
-   * Gated by `peer-recover-user`; `STRICT_POLICY` requires a
-   * recovery / TOTP / email-OTP factor proof at the moment of
-   * recovery, so the issuer affirmatively re-asserts identity.
-   *
-   * The recipient should call `db.rotatePassphrase` on first session
-   * to choose their own phrase — the temp acts as a single-use
-   * bridge.
-   *
-   * ```ts
-   * await db.recoverUser('acme', {
-   *   userId: 'bob',
-   *   passphrase: 'temporary-correct-horse-battery-staple-printer',
-   * }, { factors: [{ kind: 'recovery' }] })
-   * // Bob opens createNoydb({ user: 'bob', secret: tempPhrase })
-   * // and immediately calls db.rotatePassphrase to set his own.
-   * ```
-   *
-   * @throws `NoAccessError` when no keyring exists for the target.
-   * @throws `PermissionDeniedError` when the caller's role can't
-   *         recover the target's role (admin→owner is blocked even
-   *         under recovery).
-   * @throws `PrivilegeEscalationError` when the caller lacks a DEK
-   *         the target previously had access to.
-   *
-   */
+  /** Atomic peer-recovery of an existing user's keyring — see {@link TeamFacade.recoverUser}. */
   async recoverUser(
     vault: string,
     options: RecoverUserOptions,
     factors?: FactorProofBundle,
   ): Promise<void> {
-    await this.checkGate(vault, 'peer-recover-user', factors)
-    const callerKeyring = await this.getKeyringInternal(vault)
-    await keyringRecoverUser(this.options.store, vault, callerKeyring, options)
-    // If the caller is recovering THEIR OWN keyring (rare but
-    // possible — e.g. a self-recovery flow that bypasses the password
-    // ceremony), the keyringCache entry is now stale. Drop it so the
-    // next access reloads with the fresh wrapping.
-    if (options.userId === this.options.user) {
-      this.keyringCache.delete(vault)
-    }
+    return this.team.recoverUser(vault, options, factors)
   }
 
-  /**
-   * Persist a recovery enrollment. Accepts the `'paper'`
-   * profile.
-   *
-   * The hub wraps the user's DEK set (not the KEK) under a code-derived
-   * AES-GCM key — see `team/recovery.ts` for the rationale. The mint
-   * helper {@link mintPaperRecoveryEntry} is the canonical primitive;
-   * pair it with `db.getKeyring(vault)` to obtain the live DEK set:
-   *
-   * ```ts
-   * import { mintPaperRecoveryEntry } from '@noy-db/hub'
-   *
-   * const keyring = await db.getKeyring('acme')
-   * const codes: string[] = ['CORRECT-HORSE-1', 'BATTERY-STAPLE-2', ...]
-   * const entries = await Promise.all(
-   *   codes.map((code, i) => mintPaperRecoveryEntry(keyring.deks, code, `code-${i}`)),
-   * )
-   * await db.enrollRecovery('acme', { profile: 'paper', entries })
-   * showCodesToUser(codes)
-   * ```
-   *
-   * `@noy-db/on-recovery`'s `generateRecoveryCodeSet`
-   * delegates to `mintPaperRecoveryEntry` internally — its output is
-   * fed directly to this API. Pick whichever fits your code-gen layer:
-   *
-   * ```ts
-   * import { generateRecoveryCodeSet } from '@noy-db/on-recovery'
-   * const { codes, entries } = await generateRecoveryCodeSet({ deks: keyring.deks, count: 8 })
-   * await db.enrollRecovery('acme', { profile: 'paper', entries })
-   * ```
-   */
+  /** Persist a recovery enrollment (paper or Shamir) — see {@link TeamFacade.enrollRecovery}. */
   async enrollRecovery(
     vault: string,
     enrollment: RecoveryEnrollmentInput,
   ): Promise<EnrollRecoveryResult> {
-    if (enrollment.profile === 'paper') {
-      const existing = await loadPaperRecoveryEntries(this.options.store, vault)
-      await savePaperRecoveryEntries(this.options.store, vault, [
-        ...existing,
-        ...enrollment.entries,
-      ])
-      // Paper enrollments don't have a single entryId — callers
-      // pre-mint with their own ids. Return a stable sentinel so the
-      // result type is consistent for both profiles.
-      return { entryId: 'paper-batch' }
-    }
-    if (enrollment.profile === 'shamir') {
-      const keyring = await this.getKeyring(vault)
-      const entryId = enrollment.entryId ?? generateULID()
-      const { entry, shareStrings } = await mintShamirRecoveryEntry(
-        this.requireShamirProvider(),
-        keyring.deks,
-        entryId,
-        enrollment.k,
-        enrollment.n,
-        enrollment.label,
-      )
-      const existing = await loadShamirRecoveryEntries(this.options.store, vault)
-      // If a Shamir entry with this id already exists, replace it
-      // (allows callers to be idempotent on `entryId`); otherwise append.
-      const next: ShamirRecoveryEntry[] = existing.filter(e => e.entryId !== entryId).concat(entry)
-      await saveShamirRecoveryEntries(this.options.store, vault, next)
-      return { entryId, shares: shareStrings }
-    }
-    // Defense-in-depth for `as unknown as ...` bypass at the call site.
-    throw new RecoveryProfileNotImplementedError(
-      (enrollment as { profile: string }).profile,
-      '#196',
-    )
+    return this.team.enrollRecovery(vault, enrollment)
   }
 
-  /** Read the persisted recovery entries (paper + Shamir). Used by `describeAuthConfig`. */
+  /** Read the persisted recovery entries (paper + Shamir) — see {@link TeamFacade.listRecoveryEntries}. */
   async listRecoveryEntries(
     vault: string,
   ): Promise<{
     paper: ReadonlyArray<PaperRecoveryEntry>
     shamir: ReadonlyArray<ShamirRecoveryEntry>
   }> {
-    const paper = await loadPaperRecoveryEntries(this.options.store, vault)
-    const shamir = await loadShamirRecoveryEntries(this.options.store, vault)
-    return { paper, shamir }
+    return this.team.listRecoveryEntries(vault)
   }
 
   // ─── Tier-3 enroll / unlock ─────────────────────────────────────
-  /**
-   * Register a tier-3 quick-unlock state for the vault. The state is
-   * an opaque blob produced by `@noy-db/on-pin/enrollPin` (or any
-   * compatible primitive). It is held in memory only — never persisted
-   * — and auto-clears when its `expiresAt` elapses.
-   *
-   * Gated by `rotate-unlock` (the same gate covers "set" and "rotate"
-   * because tier-3 is a single-slot rolling secret).
-   */
+  /** Register a tier-3 quick-unlock state — see {@link TeamFacade.enrollUnlock}. */
   async enrollUnlock(
     vault: string,
     state: QuickUnlockState,
     factors?: FactorProofBundle,
   ): Promise<void> {
-    await this.checkGate(vault, 'rotate-unlock', factors)
-    this.quickUnlock.set(vault, state)
+    return this.team.enrollUnlock(vault, state, factors)
   }
 
-  /**
-   * Resume a session via the registered tier-3 state. The verifier is
-   * `@noy-db/on-pin/resumePin` (or compatible). On success, mark the
-   * active session tier as 3 — every operation must re-authenticate at
-   * tier 2 to elevate.
-   *
-   * Returns `undefined` (caller should fall back to tier 2) when no
-   * tier-3 state is registered.
-   */
+  /** Resume a session via the registered tier-3 state — see {@link TeamFacade.unlockViaPin}. */
   async unlockViaPin(
     vault: string,
     resume: (state: QuickUnlockState) => Promise<UnlockedKeyring>,
   ): Promise<UnlockedKeyring | undefined> {
-    const state = this.quickUnlock.get(vault)
-    if (!state) return undefined
-    const keyring = await resume(state)
-    this.keyringCache.set(vault, keyring)
-    this.activeTier.set(vault, 3)
-    return keyring
+    return this.team.unlockViaPin(vault, resume)
   }
 
-  /** Drop the tier-3 state for a vault — explicit logout. */
+  /** Drop the tier-3 state for a vault — see {@link TeamFacade.clearQuickUnlock}. */
   clearQuickUnlock(vault: string): void {
-    this.quickUnlock.delete(vault)
+    this.team.clearQuickUnlock(vault)
   }
 
-  /**
-   * Public accessor for the unlocked keyring of a vault.
-   *
-   * Returns a **defensive shallow copy** so consumers can read the DEK
-   * map and authenticator list without the risk of mutating the hub's
-   * internal cache. Internal hub code paths use a live reference
-   * via `getKeyringInternal`; ceremonies and external consumers always
-   * get a snapshot.
-   *
-   * The CryptoKey values inside `deks` are not cloned — Web Crypto
-   * keys are opaque handles, and a shared handle is intentional
-   * (encrypt / decrypt go through the same key the cache holds).
-   * Only the container Map / authenticator array is fresh.
-   *
-   * Used by `@noy-db/on-*` ceremonies that need the live DEK set
-   * (paper recovery via {@link mintPaperRecoveryEntry}, tier-3 PIN
-   * enrolment via on-pin's `enrollPin`, custom on-* ceremonies that
-   * don't have a hub-side wrapper).
-   *
-   * No new permission gate — this is an accessor over already-unlocked
-   * state. The keyring is materialized only after the calling session
-   * has unlocked the vault at tier 1, 2, or 3, so exposing it does not
-   * widen access. Throws `ValidationError` when encryption is enabled
-   * and no `secret` / `getKeyring` is configured.
-   *
-   * ```ts
-   * const keyring = await db.getKeyring('acme')
-   * // keyring.deks: Map<collection, CryptoKey>
-   * // keyring.kek:  CryptoKey | null   (null for tier-3 / wrap-DEKs sessions)
-   * // keyring.role / .permissions / .authenticators
-   * ```
-   */
+  /** Public defensive-copy accessor for the unlocked keyring — see {@link TeamFacade.getKeyring}. */
   async getKeyring(vault: string): Promise<UnlockedKeyring> {
-    const live = await this.getKeyringInternal(vault)
-    // Deep-ish defensive copy. Each container the consumer might
-    // reasonably mutate is freshly cloned. CryptoKey handles inside
-    // `deks` are intentionally shared — they're opaque references that
-    // both encrypt and decrypt go through. `salt` (Uint8Array) is left
-    // as-is: no realistic mutation path.
-    return {
-      ...live,
-      deks: new Map(live.deks),
-      permissions: { ...live.permissions },
-      authenticators: live.authenticators.map((a) => ({
-        ...a,
-        meta: { ...a.meta },
-      })),
-      ...(live.policy !== undefined ? { policy: { ...live.policy } } : {}),
-      ...(live.exportCapability !== undefined
-        ? { exportCapability: { ...live.exportCapability } }
-        : {}),
-      ...(live.importCapability !== undefined
-        ? { importCapability: { ...live.importCapability } }
-        : {}),
-    }
+    return this.team.getKeyring(vault)
   }
 
   /**
