@@ -1,0 +1,20 @@
+{
+  "subpath": "@noy-db/hub/adapter",
+  "source": "src/adapter/index.ts",
+  "values": [
+    "BundleVersionConflictError",
+    "ConflictError",
+    "NetworkError",
+    "StoreCapabilityError"
+  ],
+  "types": [
+    "EncryptedEnvelope",
+    "ListPageResult",
+    "NoydbBundleStore",
+    "NoydbStore",
+    "StoreCapabilities",
+    "StoreTime",
+    "TxOp",
+    "VaultSnapshot"
+  ]
+}

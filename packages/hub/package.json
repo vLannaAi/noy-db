@@ -127,6 +127,10 @@
     "./adapter": {
       "types": "./dist/adapter/index.d.ts",
       "default": "./dist/adapter/index.js"
+    },
+    "./describe": {
+      "types": "./dist/describe.d.ts",
+      "default": "./dist/describe.js"
     }
   },
   "module": "./dist/index.js",
