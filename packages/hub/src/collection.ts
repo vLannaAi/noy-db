@@ -15,13 +15,16 @@ import type { ComputedFields } from './with-formula/computed/index.js'
 import { evalComputedFields } from './with-formula/computed/index.js'
 import { NO_I18N, type I18nStrategy } from './with-shape/i18n/strategy.js'
 import { resolvePolicy } from './with-shape/i18n/policy.js'
-import { encrypt, decrypt, encryptDeterministic } from './crypto.js'
+import { encrypt, decrypt } from './crypto.js'
 import {
   unwrapCek,
   isTombstone,
   buildTombstone,
   resolveStableCek,
   rewrapBodyToDek,
+  findByDet,
+  queryByDet,
+  type DeterministicContext,
 } from './record-keys/index.js'
 import { RecordCodec } from './record-keys/record-codec.js'
 import { ConflictError, ReadOnlyError, TranslatorNotConfiguredError, TierDemoteDeniedError, LocaleNotSpecifiedError } from './errors.js'
@@ -5001,64 +5004,29 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * typo fails loudly at the call site rather than silently returning
    * null forever.
    */
-  async findByDet(field: string, value: unknown): Promise<T | null> {
-    if (!this.deterministicFields || !this.deterministicFields.has(field)) {
-      throw new Error(
-        `Collection "${this.name}": field "${field}" is not declared in deterministicFields`,
-      )
-    }
-    if (!this.storeCiphertext) {
-      throw new Error(
-        `Collection "${this.name}": findByDet is only meaningful on encrypted collections`,
-      )
-    }
-    const dek = await this.getDEK(this.name)
-    const plaintext = typeof value === 'string' ? value : JSON.stringify(value)
-    const { iv, data } = await encryptDeterministic(plaintext, dek, `${this.name}/${field}`)
-    const target = `${iv}:${data}`
-
-    const ids = await this.adapter.list(this.vault, this.name)
-    for (const id of ids) {
-      const env = await this.adapter.get(this.vault, this.name, id)
-      if (!env || !env._det) continue
-      if (env._det[field] === target) {
-        return this.codec.decryptRecord(env)
-      }
-    }
-    return null
+  findByDet(field: string, value: unknown): Promise<T | null> {
+    return findByDet(this.detContext(), field, value)
   }
 
   /**
    * return every record whose deterministic field matches.
    * Same semantics as {@link findByDet} but without the short-circuit.
    */
-  async queryByDet(field: string, value: unknown): Promise<T[]> {
-    if (!this.deterministicFields || !this.deterministicFields.has(field)) {
-      throw new Error(
-        `Collection "${this.name}": field "${field}" is not declared in deterministicFields`,
-      )
-    }
-    if (!this.storeCiphertext) {
-      throw new Error(
-        `Collection "${this.name}": queryByDet is only meaningful on encrypted collections`,
-      )
-    }
-    const dek = await this.getDEK(this.name)
-    const plaintext = typeof value === 'string' ? value : JSON.stringify(value)
-    const { iv, data } = await encryptDeterministic(plaintext, dek, `${this.name}/${field}`)
-    const target = `${iv}:${data}`
+  queryByDet(field: string, value: unknown): Promise<T[]> {
+    return queryByDet(this.detContext(), field, value)
+  }
 
-    const ids = await this.adapter.list(this.vault, this.name)
-    const matches: T[] = []
-    for (const id of ids) {
-      const env = await this.adapter.get(this.vault, this.name, id)
-      if (!env || !env._det) continue
-      if (env._det[field] === target) {
-        const rec = await this.codec.decryptRecord(env)
-        if (rec !== null) matches.push(rec) // skip tombstone (defensive)
-      }
+  /** Bind the {@link DeterministicContext} this collection's det lookups need. */
+  private detContext(): DeterministicContext<T> {
+    return {
+      name: this.name,
+      vault: this.vault,
+      adapter: this.adapter,
+      deterministicFields: this.deterministicFields,
+      storeCiphertext: this.storeCiphertext,
+      getDEK: () => this.getDEK(this.name),
+      codec: this.codec,
     }
-    return matches
   }
 
   // ─── Hierarchical Access ──────────────────────────

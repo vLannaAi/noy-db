@@ -32,3 +32,4 @@ export {
   SEALED_CEK_NS,
   type SealingContext,
 } from './sealing.js'
+export { findByDet, queryByDet, type DeterministicContext } from './deterministic.js'
