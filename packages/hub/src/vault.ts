@@ -20,9 +20,9 @@ import type { IndexDef } from './with-lookup/indexing/eager-indexes.js'
 import type { JoinableSource } from './query/index.js'
 import type { OnDirtyCallback } from './collection.js'
 import type { UnlockedKeyring, BundleRecipient } from './with-party/team/keyring.js'
-import { exportAccessibleData } from './with-fork/bundle/export-accessible.js'
-import { withdrawAccessibleData } from './with-fork/bundle/withdraw-accessible.js'
-import { requestWithdrawal, listWithdrawalRequests, approveWithdrawal, rejectWithdrawal } from './with-fork/bundle/request-withdrawal.js'
+import { exportAccessibleData } from './with-share/bundle/export-accessible.js'
+import { withdrawAccessibleData } from './with-share/bundle/withdraw-accessible.js'
+import { requestWithdrawal, listWithdrawalRequests, approveWithdrawal, rejectWithdrawal } from './with-share/bundle/request-withdrawal.js'
 import type { MaterializedViewRegistry } from './with-formula/materialized-views/registry.js'
 import type { MaterializedViewStrategyHandle, MVQueryContext } from './with-formula/materialized-views/types.js'
 import type { OverlayedViewRegistry } from './with-formula/overlay-views/registry.js'
@@ -3879,7 +3879,7 @@ export class Vault {
     // import from bundle/* without forming a cycle. The dynamic
     // import is invoked once per fresh handle generation, which
     // is rare enough that the cost doesn't matter.
-    const { generateULID } = await import('./with-fork/bundle/ulid.js')
+    const { generateULID } = await import('./with-share/bundle/ulid.js')
     const handle = generateULID()
     const envelope: EncryptedEnvelope = {
       _noydb: NOYDB_FORMAT_VERSION,

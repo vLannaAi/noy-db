@@ -42,7 +42,7 @@
  */
 
 import { bufferToBase64, base64ToBuffer } from '../../crypto.js'
-import { generateULID } from '../../with-fork/bundle/ulid.js'
+import { generateULID } from '../../with-share/bundle/ulid.js'
 import type { Role } from '../../types.js'
 import type { UnlockedKeyring } from '../team/keyring.js'
 import { SessionExpiredError, SessionNotFoundError } from '../../errors.js'

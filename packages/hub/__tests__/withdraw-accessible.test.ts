@@ -9,7 +9,7 @@ import { ConflictError } from '../src/errors.js'
 import { PolicyDeniedError } from '../src/policy/errors.js'
 import { createNoydb } from '../src/noydb.js'
 import type { VaultPolicy } from '../src/policy/types.js'
-import { readNoydbBundle } from '../src/with-fork/bundle/bundle.js'
+import { readNoydbBundle } from '../src/with-share/bundle/bundle.js'
 
 function makeStore(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

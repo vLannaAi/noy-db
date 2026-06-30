@@ -15,12 +15,12 @@ import {
   validateBundleHeader,
   NOYDB_BUNDLE_FORMAT_VERSION,
   type NoydbBundleHeader,
-} from '../src/with-fork/bundle/format.js'
+} from '../src/with-share/bundle/format.js'
 import {
   buildExtractedPartitionWrapper,
   parseExtractedPartitionBody,
   type ExtractedPartitionBody,
-} from '../src/with-fork/bundle/bundle.js'
+} from '../src/with-share/bundle/bundle.js'
 
 const base = {
   formatVersion: NOYDB_BUNDLE_FORMAT_VERSION,

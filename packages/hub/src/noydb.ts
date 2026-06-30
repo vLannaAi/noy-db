@@ -57,7 +57,7 @@ import {
 } from './with-party/team/recovery.js'
 import { resolveManagedSecret, saveSealedPassphrase } from './with-party/team/managed-passphrase.js'
 import type { ShamirRecoveryProvider } from './with-party/team/shamir-recovery-provider.js'
-import { generateULID } from './with-fork/bundle/ulid.js'
+import { generateULID } from './with-share/bundle/ulid.js'
 import { StoreCoordinationProvider, type CoordinationProvider } from './coordination/index.js'
 import { RecoveryNotEnrolledError, RecoveryProfileNotImplementedError, ManagedRecoveryNotEnrolledError, PolicyDeniedError } from './policy/errors.js'
 import {

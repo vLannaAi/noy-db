@@ -48,8 +48,8 @@ import type { KeyringFile } from '../../types.js'
 import { PermissionDeniedError } from '../../errors.js'
 import { wrapKey } from '../../crypto.js'
 import { createOwnerKeyring } from '../team/keyring.js'
-import type { FrozenSnapshotRef } from '../../with-fork/bundle/withdraw-accessible.js'
-import { freezeSnapshotOnly } from '../../with-fork/bundle/withdraw-accessible.js'
+import type { FrozenSnapshotRef } from '../../with-share/bundle/withdraw-accessible.js'
+import { freezeSnapshotOnly } from '../../with-share/bundle/withdraw-accessible.js'
 import { loadDeedMarker, saveDeedMarker } from '../team/deed.js'
 
 export interface LiberateOptions {

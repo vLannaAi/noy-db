@@ -32,7 +32,7 @@ const ENTRIES = {
   'indexing/index': 'src/with-lookup/indexing/index.ts',
   'aggregate/index': 'src/with-lookup/aggregate/index.ts',
   'crdt/index': 'src/with-commit/crdt/index.ts',
-  'bundle/index': 'src/with-fork/bundle/index.ts',
+  'bundle/index': 'src/with-share/bundle/index.ts',
   'consent/index': 'src/with-audit/consent/index.ts',
   'periods/index': 'src/with-audit/periods/index.ts',
   'guards/index': 'src/with-audit/guards/index.ts',
