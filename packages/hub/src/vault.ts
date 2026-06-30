@@ -3941,8 +3941,20 @@ export class Vault {
     // the chain after restore. Without this, `load()` would have an
     // empty ledger and `verifyBackupIntegrity()` would have nothing
     // to compare against.
+    //
+    // Also enumerate the blob collections so blob content ("covers")
+    // travels in the bundle (the blob DEK already travels in `_keyring`).
+    // Literals are inlined (not imported from blobs/blob-set.ts) to keep
+    // the blob runtime out of this kernel hot path — they mirror
+    // BLOB_INDEX/CHUNKS/EVICTION_AUDIT_COLLECTION and SLOTS/VERSIONS_PREFIX.
+    // The collect-loop skips empty ids, so this no-ops without blobs.
     const internalSnapshot: VaultSnapshot = {}
-    for (const internalName of [LEDGER_COLLECTION, LEDGER_DELTAS_COLLECTION, SCHEMAS_COLLECTION, SEQUENCE_COLLECTION]) {
+    const internalNames = [
+      LEDGER_COLLECTION, LEDGER_DELTAS_COLLECTION, SCHEMAS_COLLECTION, SEQUENCE_COLLECTION,
+      '_blob_index', '_blob_chunks', '_blob_eviction_audit',
+      ...Object.keys(snapshot).flatMap((c) => [`_blob_slots_${c}`, `_blob_versions_${c}`]),
+    ]
+    for (const internalName of internalNames) {
       const ids = await this.adapter.list(this.name, internalName)
       if (ids.length === 0) continue
       const records: Record<string, EncryptedEnvelope> = {}
