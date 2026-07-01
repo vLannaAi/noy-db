@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { memoryStore } from '../src/store/memory-store.js'
+import { memoryStore } from '../src/kernel/store/memory-store.js'
 import type { EncryptedEnvelope } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
 

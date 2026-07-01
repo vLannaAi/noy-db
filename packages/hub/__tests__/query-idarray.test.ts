@@ -3,8 +3,8 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb, money } from '../src/index.js'
-import { Query } from '../src/query/builder.js'
-import type { QuerySource, JoinContext, JoinableSource } from '../src/query/index.js'
+import { Query } from '../src/kernel/query/builder.js'
+import type { QuerySource, JoinContext, JoinableSource } from '../src/kernel/query/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
 
@@ -93,7 +93,7 @@ describe('Query._idArray()', () => {
   })
 
   it('throws on a source without snapshotEntries', async () => {
-    const { Query } = await import('../src/query/builder.js')
+    const { Query } = await import('../src/kernel/query/builder.js')
     const raw = new Query<{ x: number }>({ snapshot: () => [{ x: 1 }] })
     expect(() => (raw as unknown as { _idArray(): string[] })._idArray()).toThrow(/snapshotEntries/)
   })

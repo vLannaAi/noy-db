@@ -23,7 +23,7 @@ import type {
   ListPageResult,
 } from '../src/kernel/types.js'
 import { ConflictError, DanglingReferenceError } from '../src/kernel/errors.js'
-import { ScanBuilder, count, sum, type ScanPageProvider, type JoinContext } from '../src/query/index.js'
+import { ScanBuilder, count, sum, type ScanPageProvider, type JoinContext } from '../src/kernel/query/index.js'
 import { ref } from '../src/kernel/refs.js'
 
 /** Inline memory adapter — same shape as the existing integration tests. */

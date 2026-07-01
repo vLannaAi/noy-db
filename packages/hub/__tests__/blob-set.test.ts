@@ -517,7 +517,7 @@ describe('wrapBundleStore', () => {
     // Inline bundle backend with version tracking
     const storage = new Map<string, { bytes: Uint8Array; version: string }>()
     let versionCounter = 0
-    const { wrapBundleStore } = await import('../src/store/bundle-store.js')
+    const { wrapBundleStore } = await import('../src/kernel/store/bundle-store.js')
 
     const bundleBackend: NoydbBundleStore = {
       kind: 'bundle',
@@ -578,7 +578,7 @@ describe('wrapBundleStore', () => {
     let flushCount = 0
     const storage = new Map<string, { bytes: Uint8Array; version: string }>()
     let versionCounter = 0
-    const { wrapBundleStore } = await import('../src/store/bundle-store.js')
+    const { wrapBundleStore } = await import('../src/kernel/store/bundle-store.js')
 
     const bundleBackend: NoydbBundleStore = {
       kind: 'bundle',
@@ -624,7 +624,7 @@ describe('wrapBundleStore', () => {
     let flushCount = 0
     const storage = new Map<string, { bytes: Uint8Array; version: string }>()
     let versionCounter = 0
-    const { wrapBundleStore } = await import('../src/store/bundle-store.js')
+    const { wrapBundleStore } = await import('../src/kernel/store/bundle-store.js')
 
     const bundleBackend: NoydbBundleStore = {
       kind: 'bundle',
@@ -661,7 +661,7 @@ describe('wrapBundleStore', () => {
   it('conflict check: expectedVersion throws ConflictError on mismatch', async () => {
     const storage = new Map<string, { bytes: Uint8Array; version: string }>()
     let versionCounter = 0
-    const { wrapBundleStore } = await import('../src/store/bundle-store.js')
+    const { wrapBundleStore } = await import('../src/kernel/store/bundle-store.js')
 
     const bundleBackend: NoydbBundleStore = {
       kind: 'bundle',

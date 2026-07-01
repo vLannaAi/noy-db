@@ -16,8 +16,8 @@ import type {
 import { NOYDB_SYNC_VERSION } from '../../kernel/types.js'
 import { ConflictError } from '../../kernel/errors.js'
 import type { NoydbEventEmitter } from '../../kernel/events.js'
-import type { SyncPolicy } from '../../store/sync-policy.js'
-import { SyncScheduler } from '../../store/sync-policy.js'
+import type { SyncPolicy } from '../../kernel/store/sync-policy.js'
+import { SyncScheduler } from '../../kernel/store/sync-policy.js'
 
 /** Sync engine: dirty tracking, push, pull, conflict resolution, scheduling. */
 export class SyncEngine {

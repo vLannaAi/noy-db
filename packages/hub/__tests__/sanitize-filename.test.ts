@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { sanitizeFilename, type FilenameProfile } from '../src/util/sanitize-filename.js'
+import { sanitizeFilename, type FilenameProfile } from '../src/kernel/util/sanitize-filename.js'
 import { FilenameSanitizationError } from '../src/kernel/errors.js'
 
 const utf8 = new TextEncoder()

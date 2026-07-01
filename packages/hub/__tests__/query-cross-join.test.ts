@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { evaluateClause, type Clause, type CrossJoinClause } from '../src/query/predicate.js'
-import { Query, executePlan, type QueryPlan, count } from '../src/query/index.js'
+import { evaluateClause, type Clause, type CrossJoinClause } from '../src/kernel/query/predicate.js'
+import { Query, executePlan, type QueryPlan, count } from '../src/kernel/query/index.js'
 import { CrossJoinTooLargeError, CrossJoinSourceUnknownError } from '../src/kernel/errors.js'
-import type { QuerySource, JoinContext, JoinableSource } from '../src/query/index.js'
+import type { QuerySource, JoinContext, JoinableSource } from '../src/kernel/query/index.js'
 import { withAggregate } from '../src/with-lookup/aggregate/index.js'
 import { analyzeDependencies, summarizeQueryPlan } from '../src/with-formula/materialized-views/index.js'
 

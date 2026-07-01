@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
-import { routeStore } from '../src/store/route-store.js'
+import { routeStore } from '../src/kernel/store/route-store.js'
 import { ConflictError } from '../src/kernel/errors.js'
 
 // ─── Minimal in-memory store factory ────────────────────────────────

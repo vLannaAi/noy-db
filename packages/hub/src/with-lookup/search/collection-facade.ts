@@ -29,7 +29,7 @@ import { stripI18nFilled, type I18nTextDescriptor } from '../../with-shape/i18n/
 import { isStaticDictDescriptor, type DictKeyDescriptor, type StaticDictDescriptor, type DictionaryHandle } from '../../with-shape/i18n/dictionary.js'
 import type { BlobSet } from '../../with-shape/blobs/blob-set.js'
 import type { BlobFieldsConfig } from '../../with-shape/blobs/blob-compaction.js'
-import type { Query } from '../../query/index.js'
+import type { Query } from '../../kernel/query/index.js'
 import type { VectorSet, EmbeddingDescriptor, StoredVector } from '../embeddings/index.js'
 import { searchScan, fuseRetrieval, type SearchOptions, type SearchResult } from './index.js'
 import type { IndexStore } from './index-store.js'

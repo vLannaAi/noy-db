@@ -22,7 +22,7 @@
  * exactly like the generic reducers they replace.
  */
 
-import { readPath } from '../../query/predicate.js'
+import { readPath } from '../../kernel/query/predicate.js'
 import { formatScaledInt, parseToScaledInt } from './fixed-point.js'
 import { scaleForCurrency } from './iso4217.js'
 import { MoneyUnsupportedError } from './descriptor.js'

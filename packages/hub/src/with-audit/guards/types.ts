@@ -1,5 +1,5 @@
 import type { Role } from '../../kernel/types.js'
-import type { Query } from '../../query/builder.js'
+import type { Query } from '../../kernel/query/builder.js'
 
 /**
  * Minimum read surface exposed to guard `check` functions. Intentionally
