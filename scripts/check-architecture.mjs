@@ -626,7 +626,12 @@ const KERNEL_SURFACE_BUDGET = {
   // three grantor methods route through it (existing lines) and the now-orphaned record-keys impl
   // imports were dropped (import block shrank 7→4 lines), so the net is +1. The grantor engine is
   // reached only via the lazy `with-audit/sealed-record/active.ts` chunk.
-  'packages/hub/src/kernel/vault.ts': 3833,
+  // Bumped 3833→3834 (S4 Task 4: gate portability behind withPortability()): vault.ts gains a
+  // `portabilityStrategy` field + ctor option-type field + a `?? NO_PORTABILITY` assignment; the six
+  // `UserApi` closures route through it (existing lines) and the three direct portability fn imports
+  // were replaced by one strategy import (import block shrank 3→1), so the net is +1. The
+  // export/withdraw/request engines are reached only via the lazy `with-audit/portability/active.ts` chunk.
+  'packages/hub/src/kernel/vault.ts': 3834,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
@@ -684,7 +689,10 @@ const KERNEL_SURFACE_BUDGET = {
   // `sealedRecordStrategy` into the two Vault-construction option spreads (async openVault + sync
   // vault() encrypt===false path), mirroring attestationStrategy. Grantor engine in the lazy
   // `with-audit/sealed-record/active.ts` chunk.
-  'packages/hub/src/kernel/noydb.ts': 2282,
+  // Bumped 2282→2284 (S4 Task 4: gate portability behind withPortability()): thread the opt-in
+  // `portabilityStrategy` into the two Vault-construction option spreads (async openVault + sync
+  // vault() encrypt===false path). Engine in the lazy `with-audit/portability/active.ts` chunk.
+  'packages/hub/src/kernel/noydb.ts': 2284,
 }
 
 function checkKernelSurface() {

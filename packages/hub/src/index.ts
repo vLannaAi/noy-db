@@ -290,6 +290,7 @@ export {
   AttestationError,
   AttestationNotEnabledError,
   TiersNotEnabledError,
+  PortabilityNotEnabledError,
   SchemaUpdateError,
   NonAdditiveSchemaChangeError,
   SchemaLockedError,

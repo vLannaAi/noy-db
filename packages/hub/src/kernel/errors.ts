@@ -1693,6 +1693,25 @@ export class SealedRecordNotEnabledError extends NoydbError {
   }
 }
 
+/**
+ * Thrown when a portability capability method (`exportMyAccessibleData`,
+ * `unilateralWithdrawal`, `requestWithdrawal`, `listWithdrawalRequests`,
+ * `approveWithdrawal`, `rejectWithdrawal`) is called without opting into the
+ * portability capability (the default `NO_PORTABILITY` stub). Portability is an
+ * opt-in, tree-shakeable capability: enable it with
+ * `portabilityStrategy: withPortability()` from "@noy-db/hub/portability" in
+ * createNoydb().
+ */
+export class PortabilityNotEnabledError extends NoydbError {
+  constructor(
+    message = 'Data portability (export/withdrawal) requires the portability capability. Pass ' +
+      '`portabilityStrategy: withPortability()` from "@noy-db/hub/portability" to createNoydb().',
+  ) {
+    super('PORTABILITY_NOT_ENABLED', message)
+    this.name = 'PortabilityNotEnabledError'
+  }
+}
+
 // ─── Session Errors ───────────────────────────────────────
 
 /**

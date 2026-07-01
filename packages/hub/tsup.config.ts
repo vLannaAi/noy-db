@@ -47,6 +47,7 @@ const ENTRIES = {
   'util/index': 'src/kernel/util/index.ts',
   'attestation/index': 'src/with-audit/attestation/index.ts',
   'tiers/index': 'src/with-audit/tiers/index.ts',
+  'portability/index': 'src/with-audit/portability/index.ts',
   'kernel/index': 'src/kernel/index.ts',
   'cargo/index': 'src/with-cargo/index.ts',
   'adapter/index': 'src/kernel/adapter/index.ts',

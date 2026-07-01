@@ -124,6 +124,10 @@
       "types": "./dist/tiers/index.d.ts",
       "default": "./dist/tiers/index.js"
     },
+    "./portability": {
+      "types": "./dist/portability/index.d.ts",
+      "default": "./dist/portability/index.js"
+    },
     "./kernel": {
       "types": "./dist/kernel/index.d.ts",
       "default": "./dist/kernel/index.js"
