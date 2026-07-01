@@ -1,8 +1,8 @@
-import type { Query } from '../../query/builder.js'
+import type { Query } from '../../kernel/query/builder.js'
 import type { Collection } from '../../kernel/collection.js'
 import type { AggregateSpec, Aggregation } from '../../with-lookup/aggregate/aggregation.js'
 import type { GroupedAggregation } from '../../with-lookup/aggregate/groupby.js'
-import type { JoinStrategy } from '../../query/join.js'
+import type { JoinStrategy } from '../../kernel/query/join.js'
 import type { MoneyDescriptor } from '../../with-shape/money/descriptor.js'
 import type { I18nTextDescriptor } from '../../with-shape/i18n/core.js'
 

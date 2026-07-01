@@ -24,7 +24,7 @@
  * source change" that ships.
  */
 
-import { readPath } from '../../query/predicate.js'
+import { readPath } from '../../kernel/query/predicate.js'
 import type { MoneyString } from '../../with-shape/money/branded.js'
 import type { QueryField } from '../../kernel/types.js'
 

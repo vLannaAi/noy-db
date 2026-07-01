@@ -7,7 +7,7 @@
  * (validated by `pnpm --filter @noy-db/hub run typecheck`).
  */
 import { describe, it, expect } from 'vitest'
-import { isDiscriminant } from '../src/util/discriminant.js'
+import { isDiscriminant } from '../src/kernel/util/discriminant.js'
 
 // ─── Fixture ─────────────────────────────────────────────────────────────────
 

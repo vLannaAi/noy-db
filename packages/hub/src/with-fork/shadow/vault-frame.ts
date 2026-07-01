@@ -38,7 +38,7 @@
  * @module
  */
 import type { Collection } from '../../kernel/collection.js'
-import type { Query } from '../../query/builder.js'
+import type { Query } from '../../kernel/query/builder.js'
 import type { Vault } from '../../kernel/vault.js'
 import type { LocaleReadOptions } from '../../kernel/types.js'
 import { ReadOnlyFrameError } from '../../kernel/errors.js'

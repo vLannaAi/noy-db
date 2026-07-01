@@ -1,5 +1,5 @@
-import type { Query, QueryPlan } from '../../query/builder.js'
-import type { JoinContext } from '../../query/join.js'
+import type { Query, QueryPlan } from '../../kernel/query/builder.js'
+import type { JoinContext } from '../../kernel/query/join.js'
 import type { MaterializedViewStrategy } from './types.js'
 
 /**

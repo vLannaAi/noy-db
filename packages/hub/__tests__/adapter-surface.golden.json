@@ -1,6 +1,6 @@
 {
   "subpath": "@noy-db/hub/adapter",
-  "source": "src/adapter/index.ts",
+  "source": "src/kernel/adapter/index.ts",
   "values": [
     "BundleVersionConflictError",
     "ConflictError",

@@ -5,7 +5,7 @@ import {
   readPath,
   type FieldClause,
   type Clause,
-} from '../src/query/predicate.js'
+} from '../src/kernel/query/predicate.js'
 
 // Note: Clause is non-parametric — it operates on `unknown` records at runtime.
 // The Query<T> public API keeps T at its surface; predicates carry no type tag.

@@ -13,7 +13,7 @@ import { createNoydb } from '../src/kernel/noydb.js'
 import { withI18n } from '../src/with-shape/i18n/index.js'
 import { withAggregate } from '../src/with-lookup/aggregate/index.js'
 import { dictKey } from '../src/with-shape/i18n/dictionary.js'
-import { sum, count } from '../src/query/index.js'
+import { sum, count } from '../src/kernel/query/index.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

@@ -22,7 +22,7 @@ import {
   max,
   reduceRecords,
   type QuerySource,
-} from '../src/query/index.js'
+} from '../src/kernel/query/index.js'
 import { withAggregate } from '../src/with-lookup/aggregate/index.js'
 const AGG = withAggregate()
 

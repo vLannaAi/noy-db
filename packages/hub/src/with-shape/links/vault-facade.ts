@@ -25,7 +25,7 @@ import {
   type LinkSpec,
   type LinkSetHandle,
 } from './link-set.js'
-import type { JoinableSource } from '../../query/index.js'
+import type { JoinableSource } from '../../kernel/query/index.js'
 import type { Collection } from '../../kernel/collection.js'
 import type { NoydbStore } from '../../kernel/types.js'
 import type { TxContext } from '../../with-commit/tx/transaction.js'
