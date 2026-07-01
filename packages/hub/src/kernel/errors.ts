@@ -1674,6 +1674,25 @@ export class TiersNotEnabledError extends NoydbError {
   }
 }
 
+/**
+ * Thrown when a sealed-record grantor method (`sealRecordToHost`,
+ * `revokeSealedRecord`, `rotateRecordCek`) is called without opting into the
+ * sealed-record capability (the default `NO_SEALED_RECORD` stub). Sealed-record
+ * is an opt-in, tree-shakeable capability: enable it with
+ * `sealedRecordStrategy: withSealedRecord()` from "@noy-db/hub/sealed-record" in
+ * createNoydb(). (The host-side `openSealedRecord` opener is ungated.)
+ */
+export class SealedRecordNotEnabledError extends NoydbError {
+  constructor(
+    message = 'Record-scoped CEK sealing requires the sealed-record capability. Pass ' +
+      '`sealedRecordStrategy: withSealedRecord()` from "@noy-db/hub/sealed-record" ' +
+      'to createNoydb().',
+  ) {
+    super('SEALED_RECORD_NOT_ENABLED', message)
+    this.name = 'SealedRecordNotEnabledError'
+  }
+}
+
 // ─── Session Errors ───────────────────────────────────────
 
 /**

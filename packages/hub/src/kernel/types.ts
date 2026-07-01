@@ -40,6 +40,7 @@ import type { ForgetStrategy } from '../with-audit/forget/strategy.js'
 import type { SnapshotStrategy } from '../with-fork/snapshots/strategy.js'
 import type { AttestationStrategy } from '../with-audit/attestation/strategy.js'
 import type { TiersStrategy } from '../with-audit/tiers/strategy.js'
+import type { SealedRecordStrategy } from '../with-audit/sealed-record/strategy.js'
 import type { Layer } from '../with-shape/i18n/policy.js'
 import type { I18nStrategy } from '../with-shape/i18n/strategy.js'
 import type { SessionStrategy } from '../with-party/session/strategy.js'
@@ -2109,6 +2110,15 @@ export interface NoydbOptions {
    * signer engines are tree-shaken out.
    */
   readonly attestationStrategy?: AttestationStrategy
+  /**
+   * Tree-shake seam — optional sealed-record (grantor-side) capability. Pass
+   * `withSealedRecord()` from `@noy-db/hub/sealed-record` to enable
+   * `vault.sealRecordToHost()`, `vault.revokeSealedRecord()`, and
+   * `vault.rotateRecordCek()`. When omitted, all three throw
+   * `SealedRecordNotEnabledError` and the record-keys grantor engine is reached
+   * only via opt-in. The host-side `openSealedRecord` opener stays ungated.
+   */
+  readonly sealedRecordStrategy?: SealedRecordStrategy
   /**
    * Optional guard strategies — collection-level write guards. Each
    * handle is the output of `withGuard()` from `@noy-db/hub/guards`.

@@ -621,7 +621,12 @@ const KERNEL_SURFACE_BUDGET = {
   // + a field + a `this.tiersStrategy = opts.tiersStrategy` assignment + the one collection()-opts
   // spread line (mirrors the crdtStrategy seam). The tier read/write/re-key engine stays in the
   // lazy `with-audit/tiers/active.ts` chunk; only the strategy pass-through is here.
-  'packages/hub/src/kernel/vault.ts': 3832,
+  // Bumped 3832→3833 (S4 Task 3: gate sealed-record behind withSealedRecord()): vault.ts gains a
+  // `sealedRecordStrategy` field + ctor option-type field + a `?? NO_SEALED_RECORD` assignment; the
+  // three grantor methods route through it (existing lines) and the now-orphaned record-keys impl
+  // imports were dropped (import block shrank 7→4 lines), so the net is +1. The grantor engine is
+  // reached only via the lazy `with-audit/sealed-record/active.ts` chunk.
+  'packages/hub/src/kernel/vault.ts': 3833,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
@@ -675,7 +680,11 @@ const KERNEL_SURFACE_BUDGET = {
   // from createNoydb options into the three Vault-construction option spreads (async openVault +
   // both sync vault() paths). Public opt-in API surface; the engine lives in the lazy
   // `with-audit/tiers/active.ts` chunk.
-  'packages/hub/src/kernel/noydb.ts': 2280,
+  // Bumped 2280→2282 (S4 Task 3: gate sealed-record behind withSealedRecord()): thread the opt-in
+  // `sealedRecordStrategy` into the two Vault-construction option spreads (async openVault + sync
+  // vault() encrypt===false path), mirroring attestationStrategy. Grantor engine in the lazy
+  // `with-audit/sealed-record/active.ts` chunk.
+  'packages/hub/src/kernel/noydb.ts': 2282,
 }
 
 function checkKernelSurface() {

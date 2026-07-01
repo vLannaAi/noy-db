@@ -11,7 +11,7 @@ import { createNoydb } from '../src/kernel/noydb.js'
 import { ConflictError, SealedRecordExpiredError, ValidationError } from '../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { MemoryRecipientSealer } from '../src/with-party/team/managed-passphrase.js'
-import { openSealedRecord } from '../src/with-audit/sealed-record/index.js'
+import { openSealedRecord, withSealedRecord } from '../src/with-audit/sealed-record/index.js'
 import { bufferToBase64 } from '../src/kernel/enclave/crypto.js'
 import type { SealedCekDeliveryEnvelope, SealedCekBinding } from '../src/with-audit/sealed-record/types.js'
 
@@ -67,7 +67,7 @@ const HOUR = 60 * 60 * 1000
 
 async function setup() {
   const store = memory()
-  const db = await createNoydb({ store, user: 'alice', secret: SECRET })
+  const db = await createNoydb({ store, user: 'alice', secret: SECRET, sealedRecordStrategy: withSealedRecord() })
   const vault = await db.openVault('v')
   const docs = vault.collection<Doc>('docs', { perRecordKeys: true })
   return { store, vault, docs }

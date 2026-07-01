@@ -14,6 +14,7 @@
  */
 import { describe, it, expect, vi } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
+import { withSealedRecord } from '../src/with-audit/sealed-record/index.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import {
   generateDEK,
@@ -204,7 +205,7 @@ describe('#306 Slice B — sealed fields keyed off the per-record CEK', () => {
 
   it('Test 5 — rotateRecordCek re-encrypts `_sealed` under the new CEK', async () => {
     const store = memoryStore()
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET })
+    const db = await createNoydb({ store, user: 'alice', secret: SECRET, sealedRecordStrategy: withSealedRecord() })
     const vault = await db.openVault('v')
     const people = vault.collection<Person, 'ssn'>('people', { perRecordKeys: true, sensitive: ['ssn'] })
     await people.put('p1', { id: 'p1', name: 'Ada', ssn: '123-45-6789' })

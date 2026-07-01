@@ -326,7 +326,7 @@ export type { StoreTime } from './kernel/types.js'
 export { STATE_VAULT_NAME } from './kernel/constants.js'
 export { UnknownShardError, ShardProvisioningError, VaultTemplateNotFoundError, ReservedVaultNameError, DataResidencyError } from './kernel/errors.js'
 export { ForgetStrategyNotConfiguredError } from './kernel/errors.js'
-export { SealedRecordExpiredError, SealedRecordMismatchError, RecordCekNotFoundError } from './kernel/errors.js'
+export { SealedRecordExpiredError, SealedRecordMismatchError, RecordCekNotFoundError, SealedRecordNotEnabledError } from './kernel/errors.js'
 export { DebugPlaintextError, DebugReservedFieldError } from './kernel/errors.js'
 
 // Bundle format — `.noydb` container

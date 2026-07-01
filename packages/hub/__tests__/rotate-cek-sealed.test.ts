@@ -10,12 +10,13 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { memoryStore } from '../src/kernel/store/memory-store.js'
+import { withSealedRecord } from '../src/with-audit/sealed-record/index.js'
 
 interface Person { id: string; name: string; ssn: string }
 
 describe('rotateRecordCek preserves sealed fields (#306 data-loss fix)', () => {
   it('a sealed field survives a CEK rotation', async () => {
-    const db = await createNoydb({ store: memoryStore(), user: 'alice', secret: 'rotate-sealed-passphrase-2026-pilot' })
+    const db = await createNoydb({ store: memoryStore(), user: 'alice', secret: 'rotate-sealed-passphrase-2026-pilot', sealedRecordStrategy: withSealedRecord() })
     const vault = await db.openVault('v')
     // 2nd generic types `ssn` as a Sealed<string> handle on reads.
     const people = vault.collection<Person, 'ssn'>('people', { perRecordKeys: true, sensitive: ['ssn'] })

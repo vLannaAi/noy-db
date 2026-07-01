@@ -28,7 +28,7 @@ import {
 import { NOYDB_FORMAT_VERSION } from '../src/kernel/types.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { MemoryRecipientSealer } from '../src/with-party/team/managed-passphrase.js'
-import { openSealedRecord } from '../src/with-audit/sealed-record/index.js'
+import { openSealedRecord, withSealedRecord } from '../src/with-audit/sealed-record/index.js'
 import type { SealedCekDeliveryEnvelope } from '../src/with-audit/sealed-record/types.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { withForgetCascade } from '../src/with-audit/forget/index.js'
@@ -106,6 +106,7 @@ async function setup() {
     store, user: 'alice', secret: SECRET,
     historyStrategy: withHistory(),
     forgetStrategy: withForgetCascade({ subjects: { people: 'subjectId' } }),
+    sealedRecordStrategy: withSealedRecord(),
   })
   const vault = await db.openVault('v')
   const people = vault.collection<Person, 'ssn'>('people', { perRecordKeys: true, sensitive: ['ssn'] })
