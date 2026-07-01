@@ -1,0 +1,29 @@
+{
+  "subpath": "@noy-db/hub/pod",
+  "source": "src/with-pod/index.ts",
+  "values": [
+    "COMPRESSION_BROTLI",
+    "COMPRESSION_GZIP",
+    "COMPRESSION_NONE",
+    "FLAG_COMPRESSED",
+    "FLAG_HAS_INTEGRITY_HASH",
+    "NOYDB_BUNDLE_FORMAT_VERSION",
+    "NOYDB_BUNDLE_MAGIC",
+    "NOYDB_BUNDLE_PREFIX_BYTES",
+    "encodeBundleHeader",
+    "generateULID",
+    "isULID",
+    "readNoydbBundle",
+    "readNoydbBundleHeader",
+    "resetBrotliSupportCache",
+    "validateBundleHeader",
+    "writeNoydbBundle"
+  ],
+  "types": [
+    "CompressionAlgo",
+    "NoydbBundleHeader",
+    "NoydbBundleReadResult",
+    "ReadNoydbBundleOptions",
+    "WriteNoydbBundleOptions"
+  ]
+}

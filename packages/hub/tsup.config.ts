@@ -32,7 +32,8 @@ const ENTRIES = {
   'indexing/index': 'src/with-lookup/indexing/index.ts',
   'aggregate/index': 'src/with-lookup/aggregate/index.ts',
   'crdt/index': 'src/with-commit/crdt/index.ts',
-  'bundle/index': 'src/with-share/bundle/index.ts',
+  'bundle/index': 'src/bundle/index.ts',
+  'pod/index': 'src/with-pod/index.ts',
   'consent/index': 'src/with-audit/consent/index.ts',
   'periods/index': 'src/with-audit/periods/index.ts',
   'guards/index': 'src/with-audit/guards/index.ts',
@@ -46,7 +47,7 @@ const ENTRIES = {
   'util/index': 'src/util/index.ts',
   'attestation/index': 'src/with-audit/attestation/index.ts',
   'kernel/index': 'src/kernel/index.ts',
-  'cargo/index': 'src/cargo/index.ts',
+  'cargo/index': 'src/with-cargo/index.ts',
   'adapter/index': 'src/adapter/index.ts',
   describe: 'src/describe.ts',
 }

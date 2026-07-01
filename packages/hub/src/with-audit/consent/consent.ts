@@ -50,7 +50,7 @@
  */
 import type { EncryptedEnvelope, NoydbStore } from '../../types.js'
 import { encrypt, decrypt } from '../../crypto.js'
-import { generateULID } from '../../with-share/bundle/ulid.js'
+import { generateULID } from '../../with-pod/ulid.js'
 
 /** Reserved collection for consent-audit entries. */
 export const CONSENT_AUDIT_COLLECTION = '_consent_audit'

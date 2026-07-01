@@ -44,7 +44,7 @@ import type { UnlockedKeyring } from './keyring.js'
 import { encrypt, decrypt, wrapKey, unwrapKey } from '../../crypto.js'
 import { dekKey } from './tiers.js'
 import { DelegationTargetMissingError } from '../../errors.js'
-import { generateULID } from '../../with-share/bundle/ulid.js'
+import { generateULID } from '../../with-pod/ulid.js'
 
 export const DELEGATIONS_COLLECTION = '_delegations'
 

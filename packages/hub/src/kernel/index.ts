@@ -15,7 +15,7 @@
 export { readPath } from '../query/predicate.js'
 export { reduceRecords } from '../with-lookup/aggregate/aggregation.js'
 export { groupAndReduce } from '../with-lookup/aggregate/groupby.js'
-export { generateULID } from '../with-share/bundle/ulid.js'
+export { generateULID } from '../with-pod/ulid.js'
 export { sha256Hex } from '../crypto.js'
 // #469 coordination port — the stable drain-barrier seam an outward
 // orchestrator (@klum-db/lobby) or a `by-*` transport binds to. The pure

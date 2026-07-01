@@ -41,7 +41,7 @@ import {
   NOYDB_BUNDLE_PREFIX_BYTES,
   NOYDB_BUNDLE_FORMAT_VERSION,
 } from '../src/index.js'
-import { validateBundleHeader, decodeBundleHeader, encodeBundleHeader } from '../src/with-share/bundle/format.js'
+import { validateBundleHeader, decodeBundleHeader, encodeBundleHeader } from '../src/with-pod/format.js'
 
 /** Inline memory adapter — same shape as other integration tests. */
 function memory(): NoydbStore {
