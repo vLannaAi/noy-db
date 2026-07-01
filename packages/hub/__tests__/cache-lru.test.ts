@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { Lru, parseBytes } from '../src/cache/index.js'
+import { Lru, parseBytes } from '../src/kernel/cache/index.js'
 
 // ─── LRU class ─────────────────────────────────────────────────────
 
