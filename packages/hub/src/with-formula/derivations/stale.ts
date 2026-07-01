@@ -1,4 +1,4 @@
-import type { Collection } from '../../collection.js'
+import type { Collection } from '../../kernel/collection.js'
 import type { ReadOnlyVaultFacade } from '../../with-audit/guards/types.js'
 import type { TxContext } from '../../with-commit/tx/transaction.js'
 import type { DerivationRegistry } from './registry.js'

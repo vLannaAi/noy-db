@@ -7,7 +7,7 @@
  * @internal
  */
 
-import type { Noydb } from '../../noydb.js'
+import type { Noydb } from '../../kernel/noydb.js'
 import type { TxContext, AmendmentTxOptions } from './transaction.js'
 import type { DryRunResult } from './dry-run.js'
 import type { TransactionInvariant } from './invariants.js'

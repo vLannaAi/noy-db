@@ -18,7 +18,7 @@
  *
  * @module
  */
-import type { Vault } from '../vault.js'
+import type { Vault } from '../kernel/vault.js'
 import { PartitionExtractionError } from '../kernel/errors.js'
 
 /** Seed predicate per collection. Records that return true become roots. */

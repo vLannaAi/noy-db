@@ -19,7 +19,7 @@
  * approval time and conveyed to the requester out-of-band, so no secret is
  * stored at rest.
  */
-import type { Vault } from '../../vault.js'
+import type { Vault } from '../../kernel/vault.js'
 import type { EncryptedEnvelope } from '../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import { NoydbError } from '../../kernel/errors.js'

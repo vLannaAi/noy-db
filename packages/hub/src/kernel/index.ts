@@ -46,9 +46,9 @@ export {
 // ─── types ────────────────────────────────────────────────────────
 export type { CollectionMeta, VaultMeta } from '../with-shape/introspection/meta.js'
 export type { ChangeEvent } from './types.js'
-export type { Vault } from '../vault.js'
-export type { Collection } from '../collection.js'
-export type { Noydb } from '../noydb.js'
+export type { Vault } from './vault.js'
+export type { Collection } from './collection.js'
+export type { Noydb } from './noydb.js'
 export type { Operator } from '../query/predicate.js'
 export type { Query } from '../query/builder.js'
 export type { JoinStrategy } from '../query/join.js'

@@ -1,4 +1,4 @@
-import type { Vault } from '../../vault.js'
+import type { Vault } from '../../kernel/vault.js'
 import type { Query } from '../../query/builder.js'
 import type { Layer } from '../../with-shape/i18n/policy.js'
 import type { ReadOnlyVaultFacade as ReadOnlyVaultFacadeContract } from './types.js'

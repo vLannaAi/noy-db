@@ -10,7 +10,7 @@
  * type).
  */
 import { ElevationExpiredError } from '../../kernel/errors.js'
-import type { Vault } from '../../vault.js'
+import type { Vault } from '../../kernel/vault.js'
 
 /**
  * Reserved collection that holds the audit ledger of elevation

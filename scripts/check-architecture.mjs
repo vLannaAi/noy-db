@@ -522,7 +522,7 @@ const KERNEL_SURFACE_BUDGET = {
   // Lowered 5185→4962 (Phase 5 A14: search/retrieval extraction): `search`/`flushIndex`/`warmIndex`/`retrieve`/`similarTo` + the build/resolve/retrieveLexical/Semantic/Hybrid helpers moved to `with-lookup/search/collection-facade.ts` behind a `SearchContext`; Collection keeps thin public delegators + a `searchContext()` binder. The eager `cache` Map is passed by reference; `buildPersistedIndexCallbacks` takes a context THUNK (ctor-invoked before `codec` exists, resolved lazily per callback).
   // Lowered 4962→4686 (Phase 5 A15: index-maintenance extraction): `rebuildEagerIndexesFromCache`/`rebuildUniqueConstraintsFromCache`/`rebuildIndexes`/`reconcileIndex`/`maintainPersistedIndexesOnPut`/`OnDelete`/`_purgePersistedIndexes` + the readPersistedValue/serializeIndexValue/extractIndexValue/valuesMatch helpers moved to `with-lookup/indexing/collection-facade.ts` behind an `IndexingContext`; Collection keeps thin delegators + an `indexingContext()` binder. The eager `cache` Map + the index/unique/persisted mirrors are passed by reference; `persistedIndexesLoaded` flag + `ensure*` hydration stay collection-resident, reached via callbacks. putInternal/the write path is untouched (still calls the same delegator names).
   // Lowered 4686→4301 (Phase 5 A11: constructor → resolveCollectionConfig): the inline opts type literal + the pure opts-resolution half (every `?? default`, the derived `Set`/`VectorSet`/CEK-`Lru`, the embeddings-on-CRDT / money-path / deterministic-risk validations) moved to `collection-config.ts`; the constructor becomes thin wiring (resolve → assign → searchIndexStore/codec/conflict-resolver registration → lazy/index cluster). searchIndexStore + the conflict-resolver registration + the lazy/index cluster stay constructor-resident: searchIndexStore for the persisted-index thunk ordering (built before codec), the conflict resolvers because their closures capture private `this` state AND `conflictPolicy: ConflictPolicy<T>` (invariant in T — a method param would break `Collection<T>`→`Collection<unknown>`), and the lazy/index cluster to preserve the registration→validation side-effect order.
-  'packages/hub/src/collection.ts': 4301,
+  'packages/hub/src/kernel/collection.ts': 4301,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
@@ -610,7 +610,7 @@ const KERNEL_SURFACE_BUDGET = {
   // Lowered 4559→4410 (Phase 5 A3: periods extraction): the close/open/list/get methods + `_assertTsWritable` guard + `_loadPeriodsCache`/`_writePeriodRecord`/`_decryptPeriodRecord` helpers + the `periodCache` field moved to `with-audit/periods/vault-facade.ts` (`VaultPeriods`); vault.ts holds a facade instance + thin delegators (`_assertTsWritable` still the gate-bus entry point).
   // Lowered 4410→4135 (Phase 5 A4: backup extraction): `dump`/`load`/`verifyBackupIntegrity`/`exportJSON` (incl. the blob-collection enumeration in dump() and the branchy chain+data-envelope integrity walk) moved to `vault-backup.ts`; vault.ts holds thin delegators + a `backupContext()` builder exposing the read paths and the post-load mutation seams (reloadKeyring/cache-clear/ledger-reset).
   // Lowered 4135→3824 (Phase 5 A5: refs/links enforcement extraction): `enforceRefsOnPut`/`enforceRefsOnDelete`/`enforceLinksOnDelete`/`resolveRef`/`resolveSource`/`checkIntegrity` bodies + the `cascadeInProgress` cycle-breaker set moved to `with-shape/links/vault-facade.ts` (`VaultLinks`); vault.ts holds a facade instance + thin delegators (the `refEnforcer`/`joinResolver` ctor seam is unchanged — Collection still passes `this`). The ref/link registries stay vault-resident (populated by collection()/link(), read by the backup path) and arrive by reference.
-  'packages/hub/src/vault.ts': 3825,
+  'packages/hub/src/kernel/vault.ts': 3825,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
@@ -656,7 +656,7 @@ const KERNEL_SURFACE_BUDGET = {
   // path (`getKeyringInternal`), policy gate (`checkGate`), managed-recovery enrolment check
   // (`assertRecoveryEnrolled`), `openVault`, and the one-shot managed-recovery skip flag stay
   // kernel-resident and arrive as callbacks.
-  'packages/hub/src/noydb.ts': 2275,
+  'packages/hub/src/kernel/noydb.ts': 2275,
 }
 
 function checkKernelSurface() {

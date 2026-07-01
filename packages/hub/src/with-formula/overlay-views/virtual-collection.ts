@@ -1,5 +1,5 @@
 import { OverlayIdMismatchError } from '../../kernel/errors.js'
-import type { Collection } from '../../collection.js'
+import type { Collection } from '../../kernel/collection.js'
 import type { OverlayedViewStrategy } from './types.js'
 
 /**

@@ -6,7 +6,7 @@
  *
  * @module
  */
-import type { Vault } from '../vault.js'
+import type { Vault } from '../kernel/vault.js'
 import { walkClosure, type WalkClosureOptions } from './walk-closure.js'
 
 export interface ExtractionPreview {

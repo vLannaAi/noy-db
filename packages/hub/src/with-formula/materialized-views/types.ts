@@ -1,5 +1,5 @@
 import type { Query } from '../../query/builder.js'
-import type { Collection } from '../../collection.js'
+import type { Collection } from '../../kernel/collection.js'
 import type { AggregateSpec, Aggregation } from '../../with-lookup/aggregate/aggregation.js'
 import type { GroupedAggregation } from '../../with-lookup/aggregate/groupby.js'
 import type { JoinStrategy } from '../../query/join.js'

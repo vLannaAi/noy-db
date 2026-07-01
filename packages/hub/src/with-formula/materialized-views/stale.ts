@@ -1,4 +1,4 @@
-import type { Collection } from '../../collection.js'
+import type { Collection } from '../../kernel/collection.js'
 import type { TxContext } from '../../with-commit/tx/transaction.js'
 import type { MaterializedViewRegistry } from './registry.js'
 // Type-only — runtime class loaded via dynamic import in

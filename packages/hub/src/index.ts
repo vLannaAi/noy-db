@@ -672,11 +672,11 @@ export type { DirectoryConfig, UserVisibility } from './with-party/directory/ind
 export { DirectoryDisabledError } from './kernel/errors.js'
 
 // Core classes
-export { Noydb, createNoydb } from './noydb.js'
-export { Vault } from './vault.js'
+export { Noydb, createNoydb } from './kernel/noydb.js'
+export { Vault } from './kernel/vault.js'
 export { ElevatedHandle, ELEVATION_AUDIT_COLLECTION } from './with-commit/tx/elevated-handle.js'
-export { Collection } from './collection.js'
-export type { CacheOptions, CacheStats, CollectionChangeEvent } from './collection.js'
+export { Collection } from './kernel/collection.js'
+export type { CacheOptions, CacheStats, CollectionChangeEvent } from './kernel/collection.js'
 
 // CRDT mode
 export type { CrdtMode, CrdtState, LwwMapState, RgaState, YjsState } from './with-commit/crdt/crdt.js'

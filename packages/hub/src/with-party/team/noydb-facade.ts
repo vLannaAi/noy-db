@@ -59,7 +59,7 @@ import {
   describeUserAuth as fnDescribeUserAuth,
   describeAllUsersAuth as fnDescribeAllUsersAuth,
 } from '../auth-introspection/index.js'
-import type { Vault } from '../../vault.js'
+import type { Vault } from '../../kernel/vault.js'
 import type { UnlockedKeyring } from './keyring.js'
 import {
   enrollAuthenticator as keyringEnrollAuthenticator,

@@ -5,7 +5,7 @@
 
 import { VaultFrame } from './vault-frame.js'
 import type { ShadowStrategy } from './strategy.js'
-import type { Vault } from '../../vault.js'
+import type { Vault } from '../../kernel/vault.js'
 
 export function withShadow(): ShadowStrategy {
   return {

@@ -16,7 +16,7 @@
  * The `freezeAndDeleteClosure` core is shared with the two-party approval path
  * (#199 P3, `bundle/request-withdrawal.ts`).
  */
-import type { Vault } from '../../vault.js'
+import type { Vault } from '../../kernel/vault.js'
 import { sha256Hex } from '../../kernel/enclave/crypto.js'
 import { ReadOnlyError } from '../../kernel/errors.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'

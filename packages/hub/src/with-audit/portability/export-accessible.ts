@@ -9,7 +9,7 @@
  * record outside the caller's keys can never enter the bundle. Re-keying to a
  * new owner reuses `writeNoydbBundle`'s `exportPassphrase` shorthand.
  */
-import type { Vault } from '../../vault.js'
+import type { Vault } from '../../kernel/vault.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
 import { writeNoydbBundle } from '../../with-pod/bundle.js'
 
