@@ -3,6 +3,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
+import { withSearch } from '../src/index.js'
 import { withI18n } from '../src/with-shape/i18n/index.js'
 import type { Noydb } from '../src/kernel/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
@@ -55,7 +56,7 @@ describe('persisted lexical index (#308 L1.5)', () => {
     const wrapped: NoydbStore = { ...store, async put(c, col, id, e, ev) { puts.push(`${col}/${id}`); return store.put(c, col, id, e, ev) } }
 
     // session 1 — build + persist
-    const db1 = await createNoydb({ store: wrapped, user: 'a', secret: 'pw-l15', i18nStrategy: withI18n() })
+    const db1 = await createNoydb({ store: wrapped, user: 'a', secret: 'pw-l15', i18nStrategy: withI18n(), searchStrategy: withSearch() })
     const v1 = await db1.openVault('v')
     const c1 = v1.collection<Inv>('inv', { textIndexes: ['description'], textIndexPersist: true })
     await c1.put('a', { id: 'a', description: 'overdue invoice TCM' })
@@ -66,7 +67,7 @@ describe('persisted lexical index (#308 L1.5)', () => {
     expect(JSON.stringify(blob)).not.toContain('invoice')
 
     // session 2 — fresh db over the SAME store: retrieve must work WITHOUT a rebuild
-    const db2 = await createNoydb({ store: wrapped, user: 'a', secret: 'pw-l15', i18nStrategy: withI18n() })
+    const db2 = await createNoydb({ store: wrapped, user: 'a', secret: 'pw-l15', i18nStrategy: withI18n(), searchStrategy: withSearch() })
     const v2 = await db2.openVault('v')
     const c2 = v2.collection<Inv>('inv', { textIndexes: ['description'], textIndexPersist: true })
     const hits = await c2.retrieve('invoice')
@@ -74,7 +75,7 @@ describe('persisted lexical index (#308 L1.5)', () => {
   })
 
   it('the index blob is NOT hydrated as a record', async () => {
-    const db = await createNoydb({ store: memory(), user: 'a', secret: 'pw', i18nStrategy: withI18n() })
+    const db = await createNoydb({ store: memory(), user: 'a', secret: 'pw', i18nStrategy: withI18n(), searchStrategy: withSearch() })
     const v = await db.openVault('v')
     const c = v.collection<Inv>('inv', { textIndexes: ['description'], textIndexPersist: true })
     await c.put('a', { id: 'a', description: 'invoice' })
@@ -91,14 +92,14 @@ describe('persisted lexical index (#308 L1.5)', () => {
     }
 
     // session 1 — build + persist the index
-    const db1 = await createNoydb({ store: wrapped, user: 'a', secret: 'pw-l15', i18nStrategy: withI18n() })
+    const db1 = await createNoydb({ store: wrapped, user: 'a', secret: 'pw-l15', i18nStrategy: withI18n(), searchStrategy: withSearch() })
     const v1 = await db1.openVault('v')
     const c1 = v1.collection<Inv>('inv', { textIndexes: ['description'], textIndexPersist: true })
     await c1.put('r1', { id: 'r1', description: 'overdue invoice TCM' })
     await c1.flushIndex()
 
     // session 2 — fresh db on same store
-    const db2 = await createNoydb({ store: wrapped, user: 'a', secret: 'pw-l15', i18nStrategy: withI18n() })
+    const db2 = await createNoydb({ store: wrapped, user: 'a', secret: 'pw-l15', i18nStrategy: withI18n(), searchStrategy: withSearch() })
     const v2 = await db2.openVault('v')
     const c2 = v2.collection<Inv>('inv', { textIndexes: ['description'], textIndexPersist: true })
 
@@ -134,7 +135,7 @@ describe('persisted lexical index (#308 L1.5)', () => {
     }
 
     // collection WITHOUT textIndexPersist
-    const db = await createNoydb({ store: wrapped, user: 'a', secret: 'pw-nocost', i18nStrategy: withI18n() })
+    const db = await createNoydb({ store: wrapped, user: 'a', secret: 'pw-nocost', i18nStrategy: withI18n(), searchStrategy: withSearch() })
     const v = await db.openVault('v')
     const c = v.collection<Inv>('inv', { textIndexes: ['description'] /* no textIndexPersist */ })
     await c.put('r1', { id: 'r1', description: 'overdue invoice TCM' })

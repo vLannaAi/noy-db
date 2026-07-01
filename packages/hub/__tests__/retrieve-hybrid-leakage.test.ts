@@ -7,6 +7,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
+import { withSearch } from '../src/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
 
@@ -69,7 +70,7 @@ describe('hybrid retrieve leakage (#308 L3 privacy invariant)', () => {
       },
     }
 
-    const db = await createNoydb({ store: wrapped, user: 'a', secret: 'pw-leak-test' })
+    const db = await createNoydb({ store: wrapped, user: 'a', secret: 'pw-leak-test', searchStrategy: withSearch() })
     const v = await db.openVault('v')
     const c = v.collection<Doc>('docs', { textIndexes: ['text'], embeddings: enc(16) })
 
@@ -100,7 +101,7 @@ describe('hybrid retrieve leakage (#308 L3 privacy invariant)', () => {
       },
     }
 
-    const db = await createNoydb({ store: wrapped, user: 'a', secret: 'pw-leak-lex' })
+    const db = await createNoydb({ store: wrapped, user: 'a', secret: 'pw-leak-lex', searchStrategy: withSearch() })
     const v = await db.openVault('v')
     const c = v.collection<Doc>('docs', { textIndexes: ['text'], embeddings: enc(16) })
 
@@ -127,7 +128,7 @@ describe('hybrid retrieve leakage (#308 L3 privacy invariant)', () => {
       },
     }
 
-    const db = await createNoydb({ store: wrapped, user: 'a', secret: 'pw-leak-sem' })
+    const db = await createNoydb({ store: wrapped, user: 'a', secret: 'pw-leak-sem', searchStrategy: withSearch() })
     const v = await db.openVault('v')
     const c = v.collection<Doc>('docs', { textIndexes: ['text'], embeddings: enc(16) })
 

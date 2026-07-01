@@ -1748,6 +1748,27 @@ export class CustodyNotEnabledError extends NoydbError {
   }
 }
 
+/**
+ * Thrown when a search / retrieval capability method — `collection.search`,
+ * `collection.retrieve`, `collection.similarTo`, `collection.warmIndex`,
+ * `collection.flushIndex`, or the put()-time embedding-vector compute for a
+ * collection declaring `embeddings` — is called without opting into the search
+ * capability (the default `NO_SEARCH` stub). Search is an opt-in,
+ * tree-shakeable capability: enable it with `searchStrategy: withSearch()` from
+ * "@noy-db/hub" in createNoydb(). Opting in also enables embedding compute (a
+ * vector no gated retrieval could read would be dead weight).
+ */
+export class SearchNotEnabledError extends NoydbError {
+  constructor(
+    message = 'Search / retrieval (search, retrieve, similarTo, warmIndex, flushIndex, and ' +
+      'embedding compute) requires the search capability. Pass ' +
+      '`searchStrategy: withSearch()` to createNoydb().',
+  ) {
+    super('SEARCH_NOT_ENABLED', message)
+    this.name = 'SearchNotEnabledError'
+  }
+}
+
 // ─── Session Errors ───────────────────────────────────────
 
 /**

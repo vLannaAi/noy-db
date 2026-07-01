@@ -10,6 +10,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
+import { withSearch } from '../src/index.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { withForgetCascade } from '../src/with-audit/forget/index.js'
@@ -94,6 +95,7 @@ describe('forget — _ftindex purge failure is resilient (#308 L1.5)', () => {
       store,
       user: 'alice',
       secret: SECRET,
+      searchStrategy: withSearch(),
       historyStrategy: withHistory(),
       forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } }),
       i18nStrategy: withI18n(),
@@ -128,6 +130,7 @@ describe('forget — persisted _ftindex blob is purged (#308 L1.5)', () => {
       store,
       user: 'alice',
       secret: SECRET,
+      searchStrategy: withSearch(),
       historyStrategy: withHistory(),
       forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } }),
       i18nStrategy: withI18n(),

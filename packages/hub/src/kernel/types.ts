@@ -44,6 +44,7 @@ import type { SealedRecordStrategy } from '../with-audit/sealed-record/strategy.
 import type { PortabilityStrategy } from '../with-audit/portability/strategy.js'
 import type { SequenceStrategy } from '../with-commit/sequence/strategy.js'
 import type { CustodyStrategy } from '../with-party/custody/strategy.js'
+import type { SearchStrategy } from '../with-lookup/search/strategy.js'
 import type { Layer } from '../with-shape/i18n/policy.js'
 import type { I18nStrategy } from '../with-shape/i18n/strategy.js'
 import type { SessionStrategy } from '../with-party/session/strategy.js'
@@ -2151,6 +2152,16 @@ export interface NoydbOptions {
    * stays ungated (it has no createNoydb instance to gate against).
    */
   readonly custodyStrategy?: CustodyStrategy
+  /**
+   * Tree-shake seam — optional search / retrieval capability (#308). Pass
+   * `withSearch()` from `@noy-db/hub` to enable a collection's `search`
+   * / `retrieve` / `similarTo` / `warmIndex` / `flushIndex` methods and the
+   * put()-time embedding-vector compute for collections declaring `embeddings`.
+   * When omitted, those throw `SearchNotEnabledError` and the search/retrieval
+   * engine is reached only via opt-in. Embedding compute is paired with search
+   * (a vector no gated retrieval could read would be dead weight).
+   */
+  readonly searchStrategy?: SearchStrategy
   /**
    * Optional guard strategies — collection-level write guards. Each
    * handle is the output of `withGuard()` from `@noy-db/hub/guards`.

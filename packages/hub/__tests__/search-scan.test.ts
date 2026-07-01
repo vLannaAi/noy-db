@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
-import { tokenize, searchScan } from '../src/with-lookup/search/index.js'
+import { tokenize, searchScan, withSearch } from '../src/with-lookup/search/index.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -71,7 +71,7 @@ describe('searchScan (pure, #308)', () => {
 describe('collection.search() (#308)', () => {
   let coll: Awaited<ReturnType<typeof open>>
   async function open() {
-    const db = await createNoydb({ store: memory(), user: 'u', secret: 'search-pass-123456' })
+    const db = await createNoydb({ store: memory(), user: 'u', secret: 'search-pass-123456', searchStrategy: withSearch() })
     const vault = await db.openVault('v')
     const c = vault.collection<Doc>('docs')
     await c.put('a', { id: 'a', title: 'overdue invoice for acme' })
@@ -100,7 +100,7 @@ describe('collection.search() (#308)', () => {
   })
 
   it('throws in lazy mode (scan needs eager)', async () => {
-    const db = await createNoydb({ store: memory(), user: 'u', secret: 'search-pass-123456' })
+    const db = await createNoydb({ store: memory(), user: 'u', secret: 'search-pass-123456', searchStrategy: withSearch() })
     const vault = await db.openVault('v2')
     const lazy = vault.collection<Doc>('docs', { prefetch: false, cache: { maxRecords: 100 } })
     await lazy.put('a', { id: 'a', title: 'x' })

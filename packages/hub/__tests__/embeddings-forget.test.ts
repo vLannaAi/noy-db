@@ -14,6 +14,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
+import { withSearch } from '../src/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import { withHistory } from '../src/with-commit/history/index.js'
@@ -88,6 +89,7 @@ describe('embeddings forget — case 1: _vec purged + excluded from retrieve', (
     const store = memory()
     const db = await createNoydb({
       store, user: 'alice', secret: SECRET,
+      searchStrategy: withSearch(),
       historyStrategy: withHistory(),
       forgetStrategy: withForgetCascade({ subjects: { docs: 'ownerId' } }),
     })
@@ -117,6 +119,7 @@ describe('embeddings forget — case 1: _vec purged + excluded from retrieve', (
     // Open a fresh vault so the in-memory vectorSet is cold and rebuilt from store.
     const db2 = await createNoydb({
       store, user: 'alice', secret: SECRET,
+      searchStrategy: withSearch(),
       historyStrategy: withHistory(),
       forgetStrategy: withForgetCascade({ subjects: { docs: 'ownerId' } }),
     })
@@ -143,6 +146,7 @@ describe('embeddings forget — case 2: resilience (delete throws for _vec)', ()
     }
     const db = await createNoydb({
       store: faultyStore, user: 'alice', secret: SECRET,
+      searchStrategy: withSearch(),
       historyStrategy: withHistory(),
       forgetStrategy: withForgetCascade({ subjects: { docs: 'ownerId' } }),
     })
@@ -168,6 +172,7 @@ describe('embeddings forget — case 3: idempotent second forget', () => {
     const store = memory()
     const db = await createNoydb({
       store, user: 'alice', secret: SECRET,
+      searchStrategy: withSearch(),
       historyStrategy: withHistory(),
       forgetStrategy: withForgetCascade({ subjects: { docs: 'ownerId' } }),
     })
