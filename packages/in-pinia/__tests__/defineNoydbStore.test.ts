@@ -3,6 +3,7 @@ import { setActivePinia, createPinia, storeToRefs } from 'pinia'
 import { effectScope, ref } from 'vue'
 import { createNoydb, additiveOnly, i18nText, type Noydb, type NoydbStore, type EncryptedEnvelope, type VaultSnapshot, type StandardSchemaV1, ConflictError, Query } from '@noy-db/hub'
 import { withI18n } from '@noy-db/hub/i18n'
+import { withAttestation } from '@noy-db/hub/attestation'
 import { defineNoydbStore, setActiveNoydb, useNoydbI18n } from '../src/index.js'
 
 const tick = (ms = 0): Promise<void> => new Promise((r) => setTimeout(r, ms))
@@ -69,6 +70,7 @@ async function makeNoydb(): Promise<Noydb> {
     store: memory(),
     user: 'owner',
     secret: 'pinia-test-passphrase-2026',
+    attestationStrategy: withAttestation(),
   })
 }
 

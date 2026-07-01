@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { verifyRevocationList, isRevoked, type AttestationFieldSchema } from '@noy-db/attestation'
+import { withAttestation } from '../src/with-audit/attestation/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
 
@@ -28,7 +29,7 @@ const attestation: AttestationFieldSchema = {
 }
 
 async function ownerVault() {
-  const db = await createNoydb({ store: memory(), user: 'firm', secret: 'firm-passphrase-2026' })
+  const db = await createNoydb({ store: memory(), user: 'firm', secret: 'firm-passphrase-2026', attestationStrategy: withAttestation() })
   const vault = await db.openVault('books')
   await vault.collection<Invoice>('invoices', { attestation }).put('inv-1', { id: 'inv-1', invoiceNo: 'INV-1', total: 1234.5, issueDate: '2026-05-29' })
   return vault

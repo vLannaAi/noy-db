@@ -3,6 +3,7 @@ import { createNoydb } from '../src/kernel/noydb.js'
 import { verifyAttestation } from '@noy-db/attestation'
 import { withI18n } from '../src/with-shape/i18n/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
+import { withAttestation } from '../src/with-audit/attestation/index.js'
 import { i18nText } from '../src/with-shape/i18n/core.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError, AttestationError } from '../src/kernel/errors.js'
@@ -29,7 +30,7 @@ const attestation = { fields: [
 ] }
 
 async function ownerVault() {
-  const db = await createNoydb({ store: memory(), user: 'firm', secret: 'firm-passphrase-2026' })
+  const db = await createNoydb({ store: memory(), user: 'firm', secret: 'firm-passphrase-2026', attestationStrategy: withAttestation() })
   const vault = await db.openVault('books')
   const invoices = vault.collection<Invoice>('invoices', { attestation })
   await invoices.put('inv-1', { id: 'inv-1', invoiceNo: 'INV-1', total: 1234.5, issueDate: '2026-05-29' })
@@ -61,7 +62,7 @@ describe('vault.issueAttestation (integration)', () => {
   })
 
   it('throws AttestationError when the collection has no attestation schema declared', async () => {
-    const db = await createNoydb({ store: memory(), user: 'firm', secret: 'pw-123456' })
+    const db = await createNoydb({ store: memory(), user: 'firm', secret: 'pw-123456', attestationStrategy: withAttestation() })
     const vault = await db.openVault('books')
     await vault.collection<Invoice>('plain').put('x', { id: 'x', invoiceNo: 'A', total: 1, issueDate: '2026-05-29' })
     await expect(vault.issueAttestation('plain', 'x')).rejects.toThrow(AttestationError)
@@ -83,7 +84,7 @@ describe('vault.issueAttestation (integration)', () => {
       { path: 'issueDate', normalize: 'iso-date' as const },
       { path: 'vendorName', normalize: 'trim' as const },
     ] }
-    const db = await createNoydb({ store: memory(), user: 'firm', secret: 'firm-passphrase-2026', i18nStrategy: withI18n() })
+    const db = await createNoydb({ store: memory(), user: 'firm', secret: 'firm-passphrase-2026', i18nStrategy: withI18n(), attestationStrategy: withAttestation() })
     // Default locale 'en' would collapse vendorName to 'ACME Co' on a plain get().
     const vault = await db.openVault('books', { locale: 'en' })
     const invoices = vault.collection<I18nInvoice>('invoices', {
@@ -110,7 +111,7 @@ describe('vault.issueAttestation (integration)', () => {
 
 describe('vault.getDocumentSigningPublicKey (mint-on-read role gate)', () => {
   it('owner: mints the signing key on first read and returns it', async () => {
-    const db = await createNoydb({ store: memory(), user: 'firm', secret: 'firm-passphrase-2026' })
+    const db = await createNoydb({ store: memory(), user: 'firm', secret: 'firm-passphrase-2026', attestationStrategy: withAttestation() })
     const vault = await db.openVault('books')
 
     const { keyId, publicKeyB64 } = await vault.getDocumentSigningPublicKey()
@@ -124,11 +125,11 @@ describe('vault.getDocumentSigningPublicKey (mint-on-read role gate)', () => {
 
   it('non-owner on a fresh vault: refuses to mint and throws AttestationError (no signer written)', async () => {
     const adapter = memory()
-    const ownerDb = await createNoydb({ store: adapter, user: 'firm', secret: 'firm-passphrase-2026' })
+    const ownerDb = await createNoydb({ store: adapter, user: 'firm', secret: 'firm-passphrase-2026', attestationStrategy: withAttestation() })
     await ownerDb.openVault('books')
     await ownerDb.grant('books', { userId: 'viewer-01', displayName: 'Viewer', role: 'viewer', passphrase: 'viewer-pass' })
 
-    const viewerDb = await createNoydb({ store: adapter, user: 'viewer-01', secret: 'viewer-pass' })
+    const viewerDb = await createNoydb({ store: adapter, user: 'viewer-01', secret: 'viewer-pass', attestationStrategy: withAttestation() })
     const viewerVault = await viewerDb.openVault('books')
 
     await expect(viewerVault.getDocumentSigningPublicKey()).rejects.toThrow(AttestationError)
@@ -138,12 +139,12 @@ describe('vault.getDocumentSigningPublicKey (mint-on-read role gate)', () => {
 
   it('non-owner after the owner has minted: the read does NOT mint (gate only guards minting)', async () => {
     const adapter = memory()
-    const ownerDb = await createNoydb({ store: adapter, user: 'firm', secret: 'firm-passphrase-2026' })
+    const ownerDb = await createNoydb({ store: adapter, user: 'firm', secret: 'firm-passphrase-2026', attestationStrategy: withAttestation() })
     const ownerVault = await ownerDb.openVault('books')
     const minted = await ownerVault.getDocumentSigningPublicKey() // owner mints
     await ownerDb.grant('books', { userId: 'viewer-01', displayName: 'Viewer', role: 'viewer', passphrase: 'viewer-pass' })
 
-    const viewerDb = await createNoydb({ store: adapter, user: 'viewer-01', secret: 'viewer-pass' })
+    const viewerDb = await createNoydb({ store: adapter, user: 'viewer-01', secret: 'viewer-pass', attestationStrategy: withAttestation() })
     const viewerVault = await viewerDb.openVault('books')
 
     // The signer already exists, so loadSigner short-circuits before the gate —
@@ -164,7 +165,7 @@ describe('vault.getDocumentSigningPublicKey (mint-on-read role gate)', () => {
   // attestation issuance/verification keeps working across a backup round-trip.
   it('issues + verifies attestations across a dump/load round-trip', async () => {
     const adapter = memory()
-    const db = await createNoydb({ store: adapter, user: 'firm', secret: 'firm-passphrase-2026', historyStrategy: withHistory() })
+    const db = await createNoydb({ store: adapter, user: 'firm', secret: 'firm-passphrase-2026', historyStrategy: withHistory(), attestationStrategy: withAttestation() })
     const vault = await db.openVault('books')
     const invoices = vault.collection<Invoice>('invoices', { attestation })
     await invoices.put('inv-1', { id: 'inv-1', invoiceNo: 'INV-1', total: 1234.5, issueDate: '2026-05-29' })

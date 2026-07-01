@@ -152,7 +152,7 @@ import { FenceWatcher } from '../with-shape/schema-update/fence-watcher.js'
 import { loadFence, type FenceDoc } from '../with-shape/schema-update/fence.js'
 import type { SchemaUpdateStrategy, UpdateDecision, TransformFn } from '../with-shape/schema-update/types.js'
 import type { AttestationFieldSchema, RevocationList } from '@noy-db/attestation'
-import { VaultAttestation } from '../with-audit/attestation/vault-facade.js'
+import { VaultAttestation, NO_ATTESTATION, type AttestationStrategy } from '../with-audit/attestation/vault-facade.js'
 import type { DumpSchemaOptions, VaultSchemaSnapshot, SchemaIntrospection } from '../with-shape/introspection/types.js'
 import { dumpVaultSchema, type VaultIntrospectState } from '../with-shape/introspection/walk.js'
 import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
@@ -529,6 +529,7 @@ export class Vault {
     guardStrategies?: ReadonlyArray<GuardStrategyHandleAny> | undefined
     numberingConfigs?: ReadonlyArray<DeferredNumberingConfig> | undefined
     forgetStrategy?: ForgetStrategy | undefined
+    attestationStrategy?: AttestationStrategy | undefined
     /** Vault-level descriptive metadata — set once at construction (first-wins). */
     meta?: VaultMeta | undefined
   }) {
@@ -605,8 +606,9 @@ export class Vault {
     // wrapped DEKs.
     this.getDEK = this.makeGetDEK()
 
-    // Attestation facade — holds the per-collection field-schema registry and
-    // the issue/revoke entry points; built once getDEK is wired.
+    // Attestation facade — always built (holds the per-collection field-schema
+    // registry); the capability itself is gated by the injected strategy
+    // (NO_ATTESTATION default throws until `attestationStrategy: withAttestation()`).
     this.attestation = new VaultAttestation({
       adapter: this.adapter,
       vault: this.name,
@@ -614,7 +616,7 @@ export class Vault {
       role: () => this.keyring.role,
       getRawRecord: async (collection, recId) =>
         (await this.collection(collection).get(recId, { locale: 'raw' })) as Record<string, unknown> | null,
-    })
+    }, opts.attestationStrategy ?? NO_ATTESTATION)
 
     // User envelope API — frozen writerKeyringId, dynamic DEK resolver
     // (so a post-load() keyring refresh transparently rotates the DEK
