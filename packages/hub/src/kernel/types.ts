@@ -2164,13 +2164,13 @@ export interface NoydbOptions {
    */
   readonly searchStrategy?: SearchStrategy
   /**
-   * Tree-shake seam — optional cargo (partition extraction / vault diff)
-   * capability (FR-6/FR-7). Pass `withCargo()` from `@noy-db/hub/cargo` to
-   * enable the source-side `extractPartition(vault, …)` and `diffVault(vault,
-   * …)` free functions. When omitted, those throw `CargoNotEnabledError` and the
-   * extraction crypto + diff walk are reached only via opt-in. The recipient-
-   * side `adoptPartition` / `decryptExtractedPartition` free functions operate
-   * on raw bundle bytes and stay ungated host-side tooling.
+   * Tree-shake seam — optional cargo (partition extraction) capability
+   * (FR-6/FR-7). Pass `withCargo()` from `@noy-db/hub/cargo` to enable the
+   * source-side `extractPartition(vault, …)` free function. When omitted, it
+   * throws `CargoNotEnabledError` and the extraction crypto is reached only via
+   * opt-in. The recipient-side `adoptPartition` / `decryptExtractedPartition`
+   * free functions — and `diffVault` (shared import/merge infra) — operate
+   * without a gated source instance and stay ungated.
    */
   readonly cargoStrategy?: CargoStrategy
   /**

@@ -1,11 +1,11 @@
 /**
- * Enable the cargo (partition extraction / vault diff) capability.
+ * Enable the cargo (partition extraction) capability.
  * Pass to `createNoydb({ cargoStrategy: withCargo() })` to make the source-side
- * `extractPartition(vault, ...)` and `diffVault(vault, ...)` free functions
- * live. The extraction crypto engine and the diff walk are dynamically imported
- * here, so they stay out of the floor bundle until opted in. The recipient-side
- * `adoptPartition` / `decryptExtractedPartition` free functions are ungated
- * host-side tooling (no source instance to gate against) and are unaffected.
+ * `extractPartition(vault, ...)` free function live. The extraction crypto
+ * engine is dynamically imported here, so it stays out of the floor bundle
+ * until opted in. The recipient-side `adoptPartition` /
+ * `decryptExtractedPartition` free functions — and `diffVault` (shared
+ * import/merge infra) — are ungated and unaffected.
  */
 import type { CargoStrategy } from './strategy.js'
 
@@ -14,10 +14,6 @@ export function withCargo(): CargoStrategy {
     async extractPartition(vault, opts) {
       const { extractPartitionCore } = await import('./extract-partition.js')
       return extractPartitionCore(vault, opts)
-    },
-    async diffVault(vault, candidate, options) {
-      const { diffVaultCore } = await import('./vault-diff.js')
-      return diffVaultCore(vault, candidate, options)
     },
   }
 }

@@ -231,9 +231,9 @@ export class Vault {
   private readonly tiersStrategy: TiersStrategy | undefined
   private readonly searchStrategy: SearchStrategy | undefined
   /**
-   * Cargo (partition extraction / vault diff) strategy — `NO_CARGO` (throwing)
-   * unless `withCargo()` was passed. Public so the `extractPartition` /
-   * `diffVault` free functions (which take a `Vault`) route through it.
+   * Cargo (partition extraction) strategy — `NO_CARGO` (throwing) unless
+   * `withCargo()` was passed. Public so the `extractPartition` free function
+   * (which takes a `Vault`) routes through it.
    */
   readonly cargoStrategy: CargoStrategy
   private readonly sealedRecordStrategy: SealedRecordStrategy
