@@ -127,7 +127,7 @@ import {
   rotateRecordCek as rotateRecordCekImpl,
   SEALED_CEK_NS,
   type SealingContext,
-} from './record-keys/index.js'
+} from './kernel/enclave/record-keys/index.js'
 import type { RecipientSealer } from './with-party/team/managed-passphrase.js'
 import {
   createExportBlobsHandle,

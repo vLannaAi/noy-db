@@ -7,7 +7,7 @@
  * subject index) is covered by forget.test.ts — here we pin the primitives.
  */
 import { describe, it, expect } from 'vitest'
-import { isTombstone, buildTombstone } from '../../src/record-keys/index.js'
+import { isTombstone, buildTombstone } from '../../src/kernel/enclave/record-keys/index.js'
 import { NOYDB_FORMAT_VERSION, type EncryptedEnvelope } from '../../src/types.js'
 
 const live: EncryptedEnvelope = {

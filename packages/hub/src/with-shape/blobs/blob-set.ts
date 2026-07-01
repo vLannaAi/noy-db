@@ -21,7 +21,7 @@ import {
   base64ToBuffer,
   generateDEK,
 } from '../../kernel/enclave/crypto.js'
-import { wrapCek, unwrapCek } from '../../record-keys/index.js'
+import { wrapCek, unwrapCek } from '../../kernel/enclave/record-keys/index.js'
 import { ConflictError, NotFoundError } from '../../errors.js'
 import { detectMagic, isPreCompressed } from './mime-magic.js'
 
