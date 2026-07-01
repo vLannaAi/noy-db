@@ -15,7 +15,7 @@
  *
  * @module
  */
-import type { NoydbStore } from '../../kernel/types.js'
+import type { NoydbStore } from '../../types.js'
 import { PolicyDeniedError } from '../../policy/errors.js'
 import type { FactorProof } from '../../policy/types.js'
 import {
@@ -27,10 +27,10 @@ import type { UserEnvelope } from './types.js'
 import {
   persistUserVisibility,
   readUserVisibility,
-} from '../../with-party/directory/visibility.js'
-import type { UserVisibility } from '../../with-party/directory/types.js'
-import type { ExportAccessibleOptions } from '../../with-audit/portability/export-accessible.js'
-import type { WithdrawAccessibleOptions, WithdrawResult } from '../../with-audit/portability/withdraw-accessible.js'
+} from '../../../with-party/directory/visibility.js'
+import type { UserVisibility } from '../../../with-party/directory/types.js'
+import type { ExportAccessibleOptions } from '../../../with-audit/portability/export-accessible.js'
+import type { WithdrawAccessibleOptions, WithdrawResult } from '../../../with-audit/portability/withdraw-accessible.js'
 import type {
   RequestWithdrawalOptions,
   RequestWithdrawalResult,
@@ -38,7 +38,7 @@ import type {
   WithdrawalRequestStatus,
   ApproveWithdrawalOptions,
   RejectWithdrawalOptions,
-} from '../../with-audit/portability/request-withdrawal.js'
+} from '../../../with-audit/portability/request-withdrawal.js'
 
 /**
  * Recursive partial. Used for `updateMe(patch)` so callers can hand in
