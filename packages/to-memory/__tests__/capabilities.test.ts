@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { createNoydb } from '@noy-db/hub'
+import { createNoydb, withSequence } from '@noy-db/hub'
 import { memory } from '../src/index.js'
 
 // Regression for #321 — the factory documented `casAtomic: true` in its
@@ -16,7 +16,7 @@ describe('memory() capabilities (#321)', () => {
   })
 
   it('vault.sequence().next() works end-to-end against the real adapter (no SequenceOfflineError)', async () => {
-    const db = await createNoydb({ store: memory(), user: 'op', encrypt: false })
+    const db = await createNoydb({ store: memory(), user: 'op', encrypt: false, sequenceStrategy: withSequence() })
     const v = await db.openVault('v')
     const seq = v.sequence('invoice-2026')
     expect(await seq.next()).toBe(1)
