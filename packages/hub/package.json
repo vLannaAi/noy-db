@@ -72,6 +72,10 @@
       "types": "./dist/bundle/index.d.ts",
       "default": "./dist/bundle/index.js"
     },
+    "./pod": {
+      "types": "./dist/pod/index.d.ts",
+      "default": "./dist/pod/index.js"
+    },
     "./consent": {
       "types": "./dist/consent/index.d.ts",
       "default": "./dist/consent/index.js"
