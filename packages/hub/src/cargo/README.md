@@ -9,6 +9,14 @@ orchestration delta klum previously pulled from the bare `@noy-db/hub` root
 barrel, so an outward orchestrator binds **one** narrow subpath instead of
 reaching into hub internals.
 
+The **partition / interchange** ops — `extractPartition`, `adoptPartition`,
+`decryptExtractedPartition`, `walkClosure`, `describeExtraction`, `unsealDeks`,
+`createOwnerOnAdoptedPartition` (and `TransferSealError` / `AdoptionStateError` /
+`PartitionExtractionError`) — live on `/cargo`: extracting, adopting and
+transferring re-keyed slices between vaults **is** managing pods & slices. The
+`.noydb` artifact format itself (serialize a vault ⇄ a pod) is the separate
+`@noy-db/hub/pod` seam.
+
 `/kernel` (`src/kernel/index.ts`) remains as a **deprecated alias** for existing
 pins and will **not be removed** without a coordinated version bump. New
 orchestration consumers should bind `/cargo`. The export surface is frozen by
