@@ -22,7 +22,7 @@
  * Internal subsystem — not exported as a `@noy-db/hub/*` subpath.
  */
 import type { NoydbStore } from '../../types.js'
-import type { RecordCodec } from '../../record-keys/record-codec.js'
+import type { RecordCodec } from '../../kernel/enclave/record-keys/record-codec.js'
 import type { NoydbEventEmitter } from '../../events.js'
 import { IndexWriteFailureError } from '../../errors.js'
 import type { CollectionIndexes } from './eager-indexes.js'

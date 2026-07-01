@@ -9,7 +9,7 @@
  */
 import type { EncryptedEnvelope } from '../types.js'
 import { decrypt } from '../kernel/enclave/crypto.js'
-import { unwrapCek } from '../record-keys/index.js'
+import { unwrapCek } from '../kernel/enclave/record-keys/index.js'
 import { readNoydbBundleHeader, readNoydbBundle, parseExtractedPartitionBody } from '../with-pod/bundle.js'
 import { unsealDeks } from './adopt-partition.js'
 

@@ -14,7 +14,7 @@ import {
   rewrapBodyToDek,
   wrapCek,
   unwrapCek,
-} from '../../src/record-keys/index.js'
+} from '../../src/kernel/enclave/record-keys/index.js'
 import { Lru } from '../../src/cache/index.js'
 import { NOYDB_FORMAT_VERSION, type EncryptedEnvelope } from '../../src/types.js'
 

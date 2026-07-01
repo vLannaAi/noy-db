@@ -10,7 +10,7 @@
  * object — so `sealing.ts` (which holds only the DEK) can import them without
  * pulling in the whole codec, avoiding a codec↔sealing dependency cycle.
  */
-import { decrypt, deriveSealedFieldKey, deriveSealedFieldKeyFromCek } from '../kernel/enclave/crypto.js'
+import { decrypt, deriveSealedFieldKey, deriveSealedFieldKeyFromCek } from '../crypto.js'
 
 /** Parse an `iv:data` sealed slot (split on the FIRST `:`). */
 export function parseSealedSlot(blob: string): { iv: string; data: string } {

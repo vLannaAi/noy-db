@@ -15,7 +15,7 @@
  * (`_writeTombstone`) and drives `vault.forget()` lives with the collection /
  * vault; it calls into these.
  */
-import { NOYDB_FORMAT_VERSION, type EncryptedEnvelope } from '../types.js'
+import { NOYDB_FORMAT_VERSION, type EncryptedEnvelope } from '../../../types.js'
 
 /**
  * Is this envelope a crypto-shred tombstone?

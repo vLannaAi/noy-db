@@ -21,8 +21,8 @@ import {
   findByDet,
   queryByDet,
   type DeterministicContext,
-} from './record-keys/index.js'
-import { RecordCodec } from './record-keys/record-codec.js'
+} from './kernel/enclave/record-keys/index.js'
+import { RecordCodec } from './kernel/enclave/record-keys/record-codec.js'
 import {
   putAtTier as putAtTierImpl,
   getAtTier as getAtTierImpl,
