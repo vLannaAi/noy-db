@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { ConflictError } from '../src/errors.js'
-import { isQuorum, StoreCoordinationProvider } from '../src/coordination/index.js'
-import type { FenceState, WriterPresence } from '../src/coordination/index.js'
+import { isQuorum, StoreCoordinationProvider } from '../src/kernel/coordination/index.js'
+import type { FenceState, WriterPresence } from '../src/kernel/coordination/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 
 function memStore(): NoydbStore {

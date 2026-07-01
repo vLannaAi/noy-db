@@ -22,7 +22,7 @@ export { sha256Hex } from './enclave/crypto.js'
 // helpers are runtime; the port + presence/fence shapes are types only
 // (see the `types` group below). `StoreCoordinationProvider` is hub-internal
 // and intentionally NOT exported here — consumers inject their own.
-export { isQuorum, runDrainBarrier } from '../coordination/index.js'
+export { isQuorum, runDrainBarrier } from './coordination/index.js'
 // #308 L3 — rank-fusion reducer: an outward orchestrator (@klum-db/lobby)
 // fuses per-vault retrieve() result-sets with the SAME primitive hybrid uses.
 export { fuseRetrieval } from '../with-lookup/search/fuse.js'
@@ -69,4 +69,4 @@ export type {
   WriterPresence,
   FenceState,
   DrainBarrierOptions,
-} from '../coordination/index.js'
+} from './coordination/index.js'

@@ -5,7 +5,7 @@ import {
   type CoordinationProvider,
   type FenceState,
   type WriterPresence,
-} from '../src/coordination/index.js'
+} from '../src/kernel/coordination/index.js'
 import { QuiesceTimeoutError } from '../src/errors.js'
 
 const writer = (over: Partial<WriterPresence> = {}): WriterPresence => ({

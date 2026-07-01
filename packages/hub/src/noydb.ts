@@ -46,7 +46,7 @@ import {
 } from './with-party/team/recovery.js'
 import { resolveManagedSecret } from './with-party/team/managed-passphrase.js'
 import { generateULID } from './with-pod/ulid.js'
-import { StoreCoordinationProvider, type CoordinationProvider } from './coordination/index.js'
+import { StoreCoordinationProvider, type CoordinationProvider } from './kernel/coordination/index.js'
 import { RecoveryNotEnrolledError, ManagedRecoveryNotEnrolledError } from './policy/errors.js'
 import {
   loadPublicEnvelope,
