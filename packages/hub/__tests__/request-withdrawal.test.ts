@@ -7,8 +7,8 @@ import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
-import { readNoydbBundle } from '../src/with-share/bundle/bundle.js'
-import { WithdrawalRequestError } from '../src/with-share/bundle/request-withdrawal.js'
+import { readNoydbBundle } from '../src/with-pod/bundle.js'
+import { WithdrawalRequestError } from '../src/with-audit/portability/request-withdrawal.js'
 
 function makeStore(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

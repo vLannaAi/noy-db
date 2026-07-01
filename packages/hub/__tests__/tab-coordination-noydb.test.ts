@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
 import { memory } from '../../to-memory/src/index.js'
-import type { TabLockManager, TabChannel } from '../src/tab-coordination.js'
+import type { TabLockManager, TabChannel } from '../src/with-party/tab-coordination.js'
 
 describe('db.enableTabCoordination (#228)', () => {
   it('no-op outside a browser: returns a disposer; role stays unknown', async () => {

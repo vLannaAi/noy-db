@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { CrossTabWriteRelay } from '../src/tab-write-relay.js'
-import type { TabChannel } from '../src/tab-coordination.js'
+import { CrossTabWriteRelay } from '../src/with-party/tab-write-relay.js'
+import type { TabChannel } from '../src/with-party/tab-coordination.js'
 import type { WriteEvent } from '../src/write-hooks.js'
 
 /** In-memory broadcast bus: each channel's send() reaches all OTHER channels. */
