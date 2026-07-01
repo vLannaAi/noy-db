@@ -595,6 +595,7 @@ export class Noydb {
       ...(this.options.guardStrategies !== undefined ? { guardStrategies: this.options.guardStrategies } : {}),
       ...(this.options.numbering !== undefined ? { numberingConfigs: this.options.numbering } : {}),
       forgetStrategy: this.forgetStrategy,
+      ...(this.options.attestationStrategy !== undefined ? { attestationStrategy: this.options.attestationStrategy } : {}),
       locale: opts?.locale,
       ...(opts?.meta !== undefined ? { meta: opts.meta } : {}),
       // Thread the translator hook so Collection.put() can invoke it
@@ -671,6 +672,7 @@ export class Noydb {
       ...(this.options.guardStrategies !== undefined ? { guardStrategies: this.options.guardStrategies } : {}),
       ...(this.options.numbering !== undefined ? { numberingConfigs: this.options.numbering } : {}),
       forgetStrategy: this.forgetStrategy,
+      ...(this.options.attestationStrategy !== undefined ? { attestationStrategy: this.options.attestationStrategy } : {}),
       })
       this.vaultCache.set(name, comp)
       return comp

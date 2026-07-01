@@ -610,7 +610,13 @@ const KERNEL_SURFACE_BUDGET = {
   // Lowered 4559→4410 (Phase 5 A3: periods extraction): the close/open/list/get methods + `_assertTsWritable` guard + `_loadPeriodsCache`/`_writePeriodRecord`/`_decryptPeriodRecord` helpers + the `periodCache` field moved to `with-audit/periods/vault-facade.ts` (`VaultPeriods`); vault.ts holds a facade instance + thin delegators (`_assertTsWritable` still the gate-bus entry point).
   // Lowered 4410→4135 (Phase 5 A4: backup extraction): `dump`/`load`/`verifyBackupIntegrity`/`exportJSON` (incl. the blob-collection enumeration in dump() and the branchy chain+data-envelope integrity walk) moved to `vault-backup.ts`; vault.ts holds thin delegators + a `backupContext()` builder exposing the read paths and the post-load mutation seams (reloadKeyring/cache-clear/ledger-reset).
   // Lowered 4135→3824 (Phase 5 A5: refs/links enforcement extraction): `enforceRefsOnPut`/`enforceRefsOnDelete`/`enforceLinksOnDelete`/`resolveRef`/`resolveSource`/`checkIntegrity` bodies + the `cascadeInProgress` cycle-breaker set moved to `with-shape/links/vault-facade.ts` (`VaultLinks`); vault.ts holds a facade instance + thin delegators (the `refEnforcer`/`joinResolver` ctor seam is unchanged — Collection still passes `this`). The ref/link registries stay vault-resident (populated by collection()/link(), read by the backup path) and arrive by reference.
-  'packages/hub/src/kernel/vault.ts': 3825,
+  // Bumped 3824→3825 then 3825→3826 (S4 Task 1: gate attestation behind withAttestation()):
+  // vault.ts threads the opt-in `attestationStrategy` — a single option-type field on the
+  // Vault ctor + a `?? NO_ATTESTATION` fallback into the always-built VaultAttestation facade
+  // (imported off the existing vault-facade re-export, so no new import line). The issue/revoke/
+  // signer engines stay in the lazy `with-audit/attestation/active.ts` chunk; only the strategy
+  // seam is here.
+  'packages/hub/src/kernel/vault.ts': 3827,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
@@ -656,7 +662,11 @@ const KERNEL_SURFACE_BUDGET = {
   // path (`getKeyringInternal`), policy gate (`checkGate`), managed-recovery enrolment check
   // (`assertRecoveryEnrolled`), `openVault`, and the one-shot managed-recovery skip flag stay
   // kernel-resident and arrive as callbacks.
-  'packages/hub/src/kernel/noydb.ts': 2275,
+  // Bumped 2275→2276 (S4 Task 1: gate attestation behind withAttestation()): thread the opt-in
+  // `attestationStrategy` from createNoydb options into the two Vault-construction option spreads
+  // (async openVault + sync vault()). Public opt-in API surface; the engine lives in the lazy
+  // `with-audit/attestation/active.ts` chunk.
+  'packages/hub/src/kernel/noydb.ts': 2277,
 }
 
 function checkKernelSurface() {

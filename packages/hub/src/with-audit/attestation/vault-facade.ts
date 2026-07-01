@@ -18,6 +18,8 @@ import type { NoydbStore } from '../../kernel/types.js'
 import type { AttestationFieldSchema, RevocationList } from '@noy-db/attestation'
 import type { IssueContext } from './issue.js'
 import type { RevokeContext } from './revoke.js'
+import type { AttestationStrategy } from './strategy.js'
+export { NO_ATTESTATION, type AttestationStrategy } from './strategy.js'
 
 /** Everything the moving attestation methods touched on the vault's `this.*`. */
 export interface VaultAttestationDeps {
@@ -41,7 +43,17 @@ export class VaultAttestation {
    */
   private readonly registry = new Map<string, AttestationFieldSchema>()
 
-  constructor(private readonly deps: VaultAttestationDeps) {}
+  constructor(
+    private readonly deps: VaultAttestationDeps,
+    /**
+     * Opt-in capability gate. `NO_ATTESTATION` when
+     * `createNoydb({ attestationStrategy })` was omitted — every issue/revoke/
+     * signer call then throws `AttestationNotEnabledError`. The facade always
+     * exists (it holds the per-collection field-schema registry populated at
+     * `collection()` time); only the capability methods are gated.
+     */
+    private readonly strategy: AttestationStrategy,
+  ) {}
 
   /** Register a collection's attestation field-schema (from `vault.collection`). */
   register(collection: string, schema: AttestationFieldSchema): void {
@@ -53,24 +65,17 @@ export class VaultAttestation {
     if (!fieldSchema) {
       throw new AttestationError(`issueAttestation: collection '${collectionName}' has no attestation field-schema. Declare it via vault.collection('${collectionName}', { attestation: { fields: [...] } }).`)
     }
-    const { issueAttestationCore } = await import('./issue.js')
-    const out = await issueAttestationCore(this.makeIssueContext(), { collection: collectionName, id, fieldSchema })
+    const out = await this.strategy.issueAttestation(this.makeIssueContext(), { collection: collectionName, id, fieldSchema })
     return { docId: out.docId, qr: out.qr, keyId: out.keyId, publicKeyB64: out.publicKeyB64 }
   }
 
   async getDocumentSigningPublicKey(): Promise<{ keyId: string; publicKeyB64: string }> {
-    const { loadSigner, loadOrCreateSigner } = await import('./signer.js')
-    // Reading an existing public key is open to any role that holds the
-    // _attestations DEK — the public key is not secret. But MINTING the
-    // signer is the firm's identity operation (same rule as issueAttestation):
-    // a non-owner read must not silently create it.
-    const existing = await loadSigner(this.deps.adapter, this.deps.vault, this.deps.getDEK)
-    if (existing) return { keyId: existing.keyId, publicKeyB64: existing.publicKeyB64 }
-    if (this.deps.role() !== 'owner') {
-      throw new AttestationError(`getDocumentSigningPublicKey: no document-signing key exists yet; only the 'owner' may mint it. Caller is '${this.deps.role()}'. Have the owner issue an attestation (or call this) first.`)
-    }
-    const signer = await loadOrCreateSigner(this.deps.adapter, this.deps.vault, this.deps.getDEK)
-    return { keyId: signer.keyId, publicKeyB64: signer.publicKeyB64 }
+    return this.strategy.getDocumentSigningPublicKey({
+      adapter: this.deps.adapter,
+      vault: this.deps.vault,
+      role: this.deps.role(),
+      getDEK: this.deps.getDEK,
+    })
   }
 
   private makeIssueContext(): IssueContext {
@@ -91,23 +96,19 @@ export class VaultAttestation {
   }
 
   async revoke(docId: string): Promise<void> {
-    const { revokeDocCore } = await import('./revoke.js')
-    await revokeDocCore(this.makeRevokeContext(), docId)
+    await this.strategy.revokeAttestation(this.makeRevokeContext(), docId)
   }
 
   async unrevoke(docId: string): Promise<void> {
-    const { unrevokeDocCore } = await import('./revoke.js')
-    await unrevokeDocCore(this.makeRevokeContext(), docId)
+    await this.strategy.unrevokeAttestation(this.makeRevokeContext(), docId)
   }
 
   async getRevokedDocIds(): Promise<string[]> {
-    const { getRevokedDocIdsCore } = await import('./revoke.js')
-    return getRevokedDocIdsCore(this.makeRevokeContext())
+    return this.strategy.getRevokedDocIds(this.makeRevokeContext())
   }
 
   async publishRevocationList(): Promise<RevocationList> {
-    const { publishRevocationListCore } = await import('./revoke.js')
-    return publishRevocationListCore(this.makeRevokeContext())
+    return this.strategy.publishRevocationList(this.makeRevokeContext())
   }
 
   private makeRevokeContext(): RevokeContext {

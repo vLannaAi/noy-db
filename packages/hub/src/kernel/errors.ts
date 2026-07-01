@@ -1637,6 +1637,26 @@ export class AttestationError extends NoydbError {
   }
 }
 
+/**
+ * Thrown when an attestation capability method (`issueAttestation`,
+ * `getDocumentSigningPublicKey`, `revokeAttestation`, `unrevokeAttestation`,
+ * `getRevokedDocIds`, `publishRevocationList`) is called without opting into
+ * the attestation capability (the default `NO_ATTESTATION` stub). Attestation
+ * is an opt-in, tree-shakeable capability: enable it with
+ * `attestationStrategy: withAttestation()` from "@noy-db/hub/attestation" in
+ * createNoydb().
+ */
+export class AttestationNotEnabledError extends NoydbError {
+  constructor(
+    message = 'Attestation requires the attestation capability. Pass ' +
+      '`attestationStrategy: withAttestation()` from "@noy-db/hub/attestation" ' +
+      'to createNoydb().',
+  ) {
+    super('ATTESTATION_NOT_ENABLED', message)
+    this.name = 'AttestationNotEnabledError'
+  }
+}
+
 // ─── Session Errors ───────────────────────────────────────
 
 /**

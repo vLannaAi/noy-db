@@ -288,6 +288,7 @@ export {
   InvariantError,
   AmendmentForbiddenError,
   AttestationError,
+  AttestationNotEnabledError,
   SchemaUpdateError,
   NonAdditiveSchemaChangeError,
   SchemaLockedError,

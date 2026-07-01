@@ -38,6 +38,7 @@ import type { TxStrategy } from '../with-commit/tx/strategy.js'
 import type { HistoryStrategy } from '../with-commit/history/strategy.js'
 import type { ForgetStrategy } from '../with-audit/forget/strategy.js'
 import type { SnapshotStrategy } from '../with-fork/snapshots/strategy.js'
+import type { AttestationStrategy } from '../with-audit/attestation/strategy.js'
 import type { Layer } from '../with-shape/i18n/policy.js'
 import type { I18nStrategy } from '../with-shape/i18n/strategy.js'
 import type { SessionStrategy } from '../with-party/session/strategy.js'
@@ -2086,6 +2087,16 @@ export interface NoydbOptions {
    * When omitted, all three methods throw with a pointer at the subpath.
    */
   readonly snapshotStrategy?: SnapshotStrategy
+  /**
+   * Tree-shake seam — optional attestation capability. Pass
+   * `withAttestation()` from `@noy-db/hub/attestation` to enable
+   * `vault.issueAttestation()`, `vault.getDocumentSigningPublicKey()`,
+   * `vault.revokeAttestation()`, `vault.unrevokeAttestation()`,
+   * `vault.getRevokedDocIds()`, and `vault.publishRevocationList()`. When
+   * omitted, all six throw `AttestationNotEnabledError` and the issue/revoke/
+   * signer engines are tree-shaken out.
+   */
+  readonly attestationStrategy?: AttestationStrategy
   /**
    * Optional guard strategies — collection-level write guards. Each
    * handle is the output of `withGuard()` from `@noy-db/hub/guards`.
