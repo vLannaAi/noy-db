@@ -21,10 +21,8 @@
  *
  * @module
  */
-export {
-  withForgetCascade,
-  NO_FORGET,
-} from './strategy.js'
+export { withForgetCascade } from './active.js'
+export { NO_FORGET } from './strategy.js'
 export type {
   SubjectDeclaration,
   ForgetStrategy,
