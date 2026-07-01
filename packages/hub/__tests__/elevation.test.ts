@@ -23,6 +23,7 @@ import {
   type VaultSnapshot,
   type CrossTierAccessEvent,
 } from '../src/index.js'
+import { withTiers } from '../src/with-audit/tiers/index.js'
 
 interface Doc {
   id: string
@@ -69,7 +70,7 @@ function memoryStore(): NoydbStore {
 }
 
 async function ownerVault() {
-  const db = await createNoydb({ store: memoryStore(), secret: 'pw', user: 'owner' })
+  const db = await createNoydb({ store: memoryStore(), secret: 'pw', user: 'owner', tiersStrategy: withTiers() })
   const vault = await db.openVault('v1')
   return { db, vault }
 }

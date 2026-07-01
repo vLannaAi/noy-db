@@ -34,6 +34,7 @@ import { NO_I18N, type I18nStrategy } from '../with-shape/i18n/strategy.js'
 import { NO_SYNC, type SyncStrategy } from '../with-party/team/sync-strategy.js'
 import { NO_BLOBS, type BlobStrategy } from '../with-shape/blobs/strategy.js'
 import { NO_AGGREGATE, type AggregateStrategy } from '../with-lookup/aggregate/strategy.js'
+import { NO_TIERS, type TiersStrategy } from '../with-audit/tiers/strategy.js'
 import type { ObjectProjection } from '../with-shape/blobs/object-projection.js'
 import type { BlobFieldsConfig } from '../with-shape/blobs/blob-compaction.js'
 import type { IndexStrategy } from '../with-lookup/indexing/strategy.js'
@@ -359,6 +360,13 @@ export interface CollectionOpts<T> {
    */
   tiers?: readonly number[] | undefined
   /**
+   * tree-shake seam — strategy for the collection-level tier operations
+   * (`putAtTier`/`getAtTier`/`listAtTier`/`elevate`/`demote`). When omitted,
+   * every tier operation throws `TiersNotEnabledError`. Enable by passing
+   * `withTiers()` from `@noy-db/hub/tiers` at `createNoydb` time.
+   */
+  tiersStrategy?: TiersStrategy | undefined
+  /**
    * what a lower-tier caller sees for above-tier
    * records. Default `'invisibility'`.
    */
@@ -529,6 +537,7 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     derivationSource: opts.derivationSource,
     materializedViewSource: opts.materializedViewSource,
     tiers: opts.tiers && opts.tiers.length > 0 ? new Set(opts.tiers) : null,
+    tiersStrategy: opts.tiersStrategy ?? NO_TIERS,
     tierMode: opts.tierMode ?? 'invisibility',
     onCrossTierAccess: opts.onCrossTierAccess,
     deterministicFields,

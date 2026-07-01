@@ -63,6 +63,7 @@ import type { DeferredNumberingConfig } from '../with-commit/numbering/descripto
 import type { IndexStrategy } from '../with-lookup/indexing/strategy.js'
 import type { AggregateStrategy } from '../with-lookup/aggregate/strategy.js'
 import type { CrdtStrategy } from '../with-commit/crdt/strategy.js'
+import type { TiersStrategy } from '../with-audit/tiers/strategy.js'
 //  — import from leaf modules (NOT from ./history/ledger/index.js
 // or store.js) so the LedgerStore class never reaches the floor
 // bundle. The leaf files hold pure constants + a tiny hash helper;
@@ -229,6 +230,7 @@ export class Vault {
   private readonly indexStrategy: IndexStrategy | undefined
   private readonly aggregateStrategy: AggregateStrategy | undefined
   private readonly crdtStrategy: CrdtStrategy | undefined
+  private readonly tiersStrategy: TiersStrategy | undefined
   private readonly consentStrategy: ConsentStrategy
   private readonly periods: VaultPeriods
   private readonly linksEnforcer: VaultLinks
@@ -520,6 +522,7 @@ export class Vault {
     indexStrategy?: IndexStrategy | undefined
     aggregateStrategy?: AggregateStrategy | undefined
     crdtStrategy?: CrdtStrategy | undefined
+    tiersStrategy?: TiersStrategy | undefined
     consentStrategy?: ConsentStrategy | undefined
     periodsStrategy?: PeriodsStrategy | undefined
     shadowStrategy?: ShadowStrategy | undefined
@@ -557,6 +560,7 @@ export class Vault {
     this.indexStrategy = opts.indexStrategy
     this.aggregateStrategy = opts.aggregateStrategy
     this.crdtStrategy = opts.crdtStrategy
+    this.tiersStrategy = opts.tiersStrategy
     this.consentStrategy = opts.consentStrategy ?? NO_CONSENT
     this.periods = new VaultPeriods({
       strategy: opts.periodsStrategy ?? NO_PERIODS,
@@ -982,6 +986,7 @@ export class Vault {
         ...(this.indexStrategy !== undefined ? { indexStrategy: this.indexStrategy } : {}),
         ...(this.aggregateStrategy !== undefined ? { aggregateStrategy: this.aggregateStrategy } : {}),
         ...(this.crdtStrategy !== undefined ? { crdtStrategy: this.crdtStrategy } : {}),
+        ...(this.tiersStrategy !== undefined ? { tiersStrategy: this.tiersStrategy } : {}),
         historyStrategy: this.historyStrategy,
         i18nStrategy: this.i18nStrategy,
         syncStrategy: this.syncStrategy,

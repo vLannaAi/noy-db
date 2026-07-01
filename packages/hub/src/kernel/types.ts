@@ -39,6 +39,7 @@ import type { HistoryStrategy } from '../with-commit/history/strategy.js'
 import type { ForgetStrategy } from '../with-audit/forget/strategy.js'
 import type { SnapshotStrategy } from '../with-fork/snapshots/strategy.js'
 import type { AttestationStrategy } from '../with-audit/attestation/strategy.js'
+import type { TiersStrategy } from '../with-audit/tiers/strategy.js'
 import type { Layer } from '../with-shape/i18n/policy.js'
 import type { I18nStrategy } from '../with-shape/i18n/strategy.js'
 import type { SessionStrategy } from '../with-party/session/strategy.js'
@@ -1980,6 +1981,17 @@ export interface NoydbOptions {
    * @internal
    */
   readonly crdtStrategy?: CrdtStrategy
+  /**
+   * tree-shake seam — strategy for the collection-level hierarchical-tier
+   * operations. Pass `withTiers()` from `@noy-db/hub/tiers` to enable
+   * `putAtTier`/`getAtTier`/`listAtTier`/`elevate`/`demote` on collections
+   * declared with `{ tiers: [...] }`. When omitted, all five throw
+   * `TiersNotEnabledError` and the tier read/write/re-key engine never
+   * reaches the bundle.
+   *
+   * @internal
+   */
+  readonly tiersStrategy?: TiersStrategy
   /**
    * tree-shake seam — optional consent-audit strategy. Pass
    * `withConsent()` from `@noy-db/hub/consent` to enable per-op audit

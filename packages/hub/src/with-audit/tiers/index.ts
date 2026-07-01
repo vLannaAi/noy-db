@@ -21,6 +21,9 @@
  *
  * Internal subsystem — not exported as a `@noy-db/hub/*` subpath.
  */
+export { withTiers } from './active.js'
+export { NO_TIERS, type TiersStrategy } from './strategy.js'
+export { TiersNotEnabledError } from '../../kernel/errors.js'
 import { encrypt, decrypt } from '../../kernel/enclave/crypto.js'
 import { unwrapCek, rewrapBodyToDek } from '../../kernel/enclave/record-keys/index.js'
 import type { RecordCodec } from '../../kernel/enclave/record-keys/record-codec.js'

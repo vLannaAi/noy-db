@@ -616,7 +616,12 @@ const KERNEL_SURFACE_BUDGET = {
   // (imported off the existing vault-facade re-export, so no new import line). The issue/revoke/
   // signer engines stay in the lazy `with-audit/attestation/active.ts` chunk; only the strategy
   // seam is here.
-  'packages/hub/src/kernel/vault.ts': 3827,
+  // Bumped 3827→3832 (S4 Task 2: gate tiers behind withTiers()): vault.ts threads the opt-in
+  // `tiersStrategy` into every Collection it builds — a type-only import + a ctor option-type field
+  // + a field + a `this.tiersStrategy = opts.tiersStrategy` assignment + the one collection()-opts
+  // spread line (mirrors the crdtStrategy seam). The tier read/write/re-key engine stays in the
+  // lazy `with-audit/tiers/active.ts` chunk; only the strategy pass-through is here.
+  'packages/hub/src/kernel/vault.ts': 3832,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
@@ -666,7 +671,11 @@ const KERNEL_SURFACE_BUDGET = {
   // `attestationStrategy` from createNoydb options into the two Vault-construction option spreads
   // (async openVault + sync vault()). Public opt-in API surface; the engine lives in the lazy
   // `with-audit/attestation/active.ts` chunk.
-  'packages/hub/src/kernel/noydb.ts': 2277,
+  // Bumped 2277→2280 (S4 Task 2: gate tiers behind withTiers()): thread the opt-in `tiersStrategy`
+  // from createNoydb options into the three Vault-construction option spreads (async openVault +
+  // both sync vault() paths). Public opt-in API surface; the engine lives in the lazy
+  // `with-audit/tiers/active.ts` chunk.
+  'packages/hub/src/kernel/noydb.ts': 2280,
 }
 
 function checkKernelSurface() {

@@ -4,6 +4,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb, ConflictError, TierNotGrantedError, TierDemoteDeniedError } from '../src/index.js'
+import { withTiers } from '../src/with-audit/tiers/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, GhostRecord, CrossTierAccessEvent } from '../src/index.js'
 
 interface Doc {
@@ -51,7 +52,7 @@ function memoryStore(): NoydbStore {
 }
 
 async function freshVault() {
-  const db = await createNoydb({ store: memoryStore(), secret: 'pw', user: 'owner' })
+  const db = await createNoydb({ store: memoryStore(), secret: 'pw', user: 'owner', tiersStrategy: withTiers() })
   const vault = await db.openVault('v1')
   return { db, vault }
 }

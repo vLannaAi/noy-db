@@ -14,6 +14,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel
 import { ConflictError, PermissionDeniedError, ReadOnlyError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import type { Noydb } from '../src/kernel/noydb.js'
+import { withTiers } from '../src/with-audit/tiers/index.js'
 import { checkGate, PolicyDeniedError } from '../src/kernel/policy/index.js'
 import { putCredential } from '../src/with-party/team/sync-credentials.js'
 import { extractPartition } from '../src/with-cargo/extract-partition.js'
@@ -68,7 +69,7 @@ describe('custodian role', () => {
         userId: 'cust-01', displayName: 'Custodian', role: 'custodian',
         passphrase: 'cust-pass',
       })
-      custodianDb = await createNoydb({ store: adapter, user: 'cust-01', secret: 'cust-pass' })
+      custodianDb = await createNoydb({ store: adapter, user: 'cust-01', secret: 'cust-pass', tiersStrategy: withTiers() })
     })
 
     it('reads every collection (no explicit permissions needed)', async () => {
@@ -98,7 +99,7 @@ describe('custodian role', () => {
       })
       // a separate user the custodian might try to revoke
       await ownerDb.grant(COMP, { userId: 'viewer-01', displayName: 'V', role: 'viewer', passphrase: 'p' })
-      custodianDb = await createNoydb({ store: adapter, user: 'cust-01', secret: 'cust-pass' })
+      custodianDb = await createNoydb({ store: adapter, user: 'cust-01', secret: 'cust-pass', tiersStrategy: withTiers() })
     })
 
     it('cannot grant any role', async () => {
@@ -141,7 +142,7 @@ describe('custodian role', () => {
         userId: 'cust-01', displayName: 'Custodian', role: 'custodian',
         passphrase: 'cust-pass',
       })
-      custodianDb = await createNoydb({ store: adapter, user: 'cust-01', secret: 'cust-pass' })
+      custodianDb = await createNoydb({ store: adapter, user: 'cust-01', secret: 'cust-pass', tiersStrategy: withTiers() })
     })
 
     it('sync-credentials.ts: custodian CANNOT issue sync credentials (firm infra, not operational scope)', async () => {

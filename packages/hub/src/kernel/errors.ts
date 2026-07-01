@@ -1657,6 +1657,23 @@ export class AttestationNotEnabledError extends NoydbError {
   }
 }
 
+/**
+ * Thrown when a hierarchical-tiers capability method (`putAtTier`, `getAtTier`,
+ * `listAtTier`, `elevate`, `demote`) is called without opting into the tiers
+ * capability (the default `NO_TIERS` stub). Tiers is an opt-in, tree-shakeable
+ * capability: enable it with `tiersStrategy: withTiers()` from
+ * "@noy-db/hub/tiers" in createNoydb().
+ */
+export class TiersNotEnabledError extends NoydbError {
+  constructor(
+    message = 'Hierarchical tiers require the tiers capability. Pass ' +
+      '`tiersStrategy: withTiers()` from "@noy-db/hub/tiers" to createNoydb().',
+  ) {
+    super('TIERS_NOT_ENABLED', message)
+    this.name = 'TiersNotEnabledError'
+  }
+}
+
 // ─── Session Errors ───────────────────────────────────────
 
 /**
