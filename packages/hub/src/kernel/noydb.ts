@@ -20,13 +20,13 @@ import type {
   ReAuthOperation,
   TranslatorAuditEntry,
   WriteConflict,
-} from './kernel/types.js'
-import { ValidationError, NoAccessError, InvalidKeyError, KeyringCorruptError, StoreCapabilityError, PermissionDeniedError, DebugPlaintextError } from './kernel/errors.js'
+} from './types.js'
+import { ValidationError, NoAccessError, InvalidKeyError, KeyringCorruptError, StoreCapabilityError, PermissionDeniedError, DebugPlaintextError } from './errors.js'
 import {
   readDirectoryConfig,
   persistDirectoryConfig,
-} from './with-party/directory/storage.js'
-import type { PassphrasePolicy } from './kernel/validation.js'
+} from '../with-party/directory/storage.js'
+import type { PassphrasePolicy } from './validation.js'
 import {
   type RotatePassphraseInput,
   type RecoverPassphraseInput,
@@ -36,18 +36,18 @@ import {
   type EnrollRecoveryResult,
   type RecoveryEnrollmentInput,
   type RecoveryProof,
-} from './with-party/team/rotate-recover.js'
-import type { RecoverUserOptions } from './with-party/team/peer-recover.js'
+} from '../with-party/team/rotate-recover.js'
+import type { RecoverUserOptions } from '../with-party/team/peer-recover.js'
 import {
   hasRecoveryEnrolled,
   hasStrongRecoveryEnrolled,
   type PaperRecoveryEntry,
   type ShamirRecoveryEntry,
-} from './with-party/team/recovery.js'
-import { resolveManagedSecret } from './with-party/team/managed-passphrase.js'
-import { generateULID } from './with-pod/ulid.js'
-import { StoreCoordinationProvider, type CoordinationProvider } from './kernel/coordination/index.js'
-import { RecoveryNotEnrolledError, ManagedRecoveryNotEnrolledError } from './kernel/policy/errors.js'
+} from '../with-party/team/recovery.js'
+import { resolveManagedSecret } from '../with-party/team/managed-passphrase.js'
+import { generateULID } from '../with-pod/ulid.js'
+import { StoreCoordinationProvider, type CoordinationProvider } from './coordination/index.js'
+import { RecoveryNotEnrolledError, ManagedRecoveryNotEnrolledError } from './policy/errors.js'
 import {
   loadPublicEnvelope,
   savePublicEnvelope,
@@ -57,15 +57,15 @@ import {
   type PublicEnvelope,
   type SetPublicEnvelopeInput,
   type ResolvedPublicEnvelopeSchema,
-} from './kernel/meta/public-envelope/index.js'
+} from './meta/public-envelope/index.js'
 import { Vault } from './vault.js'
-import type { VaultMeta } from './with-shape/introspection/meta.js'
-import { NoydbEventEmitter } from './kernel/events.js'
-import { WriteQueueTracker, type WriteQueue } from './kernel/write-queue.js'
-import { WriteHookRegistry, type WriteHook, type Unsubscribe } from './kernel/write-hooks.js'
-import { SubsystemBus } from './kernel/subsystem-bus.js'
-import { TabCoordinator, defaultLockManager, defaultChannel, type TabCoordinationOptions, type TabRole, type TabPresence } from './with-party/tab-coordination.js'
-import { CrossTabWriteRelay } from './with-party/tab-write-relay.js'
+import type { VaultMeta } from '../with-shape/introspection/meta.js'
+import { NoydbEventEmitter } from './events.js'
+import { WriteQueueTracker, type WriteQueue } from './write-queue.js'
+import { WriteHookRegistry, type WriteHook, type Unsubscribe } from './write-hooks.js'
+import { SubsystemBus } from './subsystem-bus.js'
+import { TabCoordinator, defaultLockManager, defaultChannel, type TabCoordinationOptions, type TabRole, type TabPresence } from '../with-party/tab-coordination.js'
+import { CrossTabWriteRelay } from '../with-party/tab-write-relay.js'
 import {
   loadKeyring,
   createOwnerKeyring,
@@ -76,38 +76,38 @@ import {
   changeSecret as keyringChangeSecret,
   listUsers as keyringListUsers,
   updateKeyringIdentity,
-} from './with-party/team/keyring.js'
-import type { UnlockedKeyring } from './with-party/team/keyring.js'
+} from '../with-party/team/keyring.js'
+import type { UnlockedKeyring } from '../with-party/team/keyring.js'
 import {
   type EnrollAuthenticatorOptions,
   type UpdateAuthenticatorOptions,
-} from './with-party/team/authenticators.js'
-import { QuickUnlockStore, type QuickUnlockState } from './with-party/session/unlock-state.js'
-import type { KeyringAuthenticator } from './kernel/types.js'
-import type { SyncEngine } from './with-party/team/sync.js'
-import type { SyncTransaction } from './with-party/team/sync-transaction.js'
-import { NO_SYNC, type SyncStrategy } from './with-party/team/sync-strategy.js'
-import { type SnapshotMeta } from './with-fork/snapshots/strategy.js'
-import { NoydbSnapshots, NO_SNAPSHOTS } from './with-fork/snapshots/noydb-facade.js'
-import type { AmendmentTxOptions } from './with-commit/tx/transaction.js'
-import { TxContext } from './with-commit/tx/transaction.js'
-import type { DryRunResult } from './with-commit/tx/dry-run.js'
-import { NO_TX, type TxStrategy } from './with-commit/tx/strategy.js'
-import { NO_FORGET, type ForgetStrategy } from './with-audit/forget/strategy.js'
-import { readDottedPath, coerceSubjectId } from './with-audit/forget/subject-index.js'
-import { INDEXED_STORE_POLICY } from './store/sync-policy.js'
-import { memoryStore } from './store/memory-store.js'
-import type { PolicyEnforcer } from './with-party/session/session-policy.js'
-import { NO_SESSION, type SessionStrategy } from './with-party/session/strategy.js'
+} from '../with-party/team/authenticators.js'
+import { QuickUnlockStore, type QuickUnlockState } from '../with-party/session/unlock-state.js'
+import type { KeyringAuthenticator } from './types.js'
+import type { SyncEngine } from '../with-party/team/sync.js'
+import type { SyncTransaction } from '../with-party/team/sync-transaction.js'
+import { NO_SYNC, type SyncStrategy } from '../with-party/team/sync-strategy.js'
+import { type SnapshotMeta } from '../with-fork/snapshots/strategy.js'
+import { NoydbSnapshots, NO_SNAPSHOTS } from '../with-fork/snapshots/noydb-facade.js'
+import type { AmendmentTxOptions } from '../with-commit/tx/transaction.js'
+import { TxContext } from '../with-commit/tx/transaction.js'
+import type { DryRunResult } from '../with-commit/tx/dry-run.js'
+import { NO_TX, type TxStrategy } from '../with-commit/tx/strategy.js'
+import { NO_FORGET, type ForgetStrategy } from '../with-audit/forget/strategy.js'
+import { readDottedPath, coerceSubjectId } from '../with-audit/forget/subject-index.js'
+import { INDEXED_STORE_POLICY } from '../store/sync-policy.js'
+import { memoryStore } from '../store/memory-store.js'
+import type { PolicyEnforcer } from '../with-party/session/session-policy.js'
+import { NO_SESSION, type SessionStrategy } from '../with-party/session/strategy.js'
 import {
   checkGate as policyCheckGate,
   type ActiveTier,
   type FactorProofBundle,
   type GateName,
   type VaultPolicy,
-} from './kernel/policy/index.js'
-import { NoydbPolicy } from './kernel/policy/noydb-facade.js'
-import { TeamFacade } from './with-party/team/noydb-facade.js'
+} from './policy/index.js'
+import { NoydbPolicy } from './policy/noydb-facade.js'
+import { TeamFacade } from '../with-party/team/noydb-facade.js'
 
 /**
  * Privilege rank used by `listAccessibleVaults({ minRole })` to
@@ -390,7 +390,7 @@ export class Noydb {
       if (!facade) return
       const ctx = { existing, vault: facade, userId: e.userId, role: e.role }
       await registry.runChecks(e.collection, incoming, ctx)
-      const { GuardExecutor } = await import('./with-audit/guards/executor.js')
+      const { GuardExecutor } = await import('../with-audit/guards/executor.js')
       for (const g of guards) {
         await GuardExecutor.checkFrozenFields(g, e.docId, existing, incoming, e.computedFieldNames)
       }
@@ -1719,7 +1719,7 @@ export class Noydb {
   /**
    * Toggle the vault's user-directory listing on or off.
    * Owner-only. When disabled, `listUsersWithEnvelopes()` throws
-   * {@link import('./kernel/errors.js').DirectoryDisabledError} for callers
+   * {@link import('./errors.js').DirectoryDisabledError} for callers
    * whose role is neither `owner` nor `admin`.
    *
    * Honest caveat: this is a UX flag, not a privacy guarantee. The

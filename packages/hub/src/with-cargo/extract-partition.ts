@@ -6,7 +6,7 @@
  *
  * @module
  */
-import type { Vault } from '../vault.js'
+import type { Vault } from '../kernel/vault.js'
 import type { EncryptedEnvelope, BlobObject, SlotRecord, VersionRecord } from '../kernel/types.js'
 import { NOYDB_BACKUP_VERSION } from '../kernel/types.js'
 import {

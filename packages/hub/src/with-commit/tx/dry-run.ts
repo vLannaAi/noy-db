@@ -6,7 +6,7 @@
  * cascade is NOT simulated (v2). Mirrors the guard loop in
  * `Collection.putInternal` — keep the two in sync.
  */
-import type { Noydb } from '../../noydb.js'
+import type { Noydb } from '../../kernel/noydb.js'
 import { TxContext, type StagedOp } from './transaction.js'
 import type { GuardExecutor as GuardExecutorType } from '../../with-audit/guards/executor.js'
 

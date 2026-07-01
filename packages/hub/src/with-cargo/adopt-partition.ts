@@ -337,7 +337,7 @@ export async function createOwnerOnAdoptedPartition(
   //    out of the @noy-db/hub/bundle static graph. Runs BEFORE seal destruction
   //    so a failure here leaves the seal intact and the call retryable.
   if (isManaged(opts)) {
-    const { createNoydb } = await import('../noydb.js')
+    const { createNoydb } = await import('../kernel/noydb.js')
     const db = await createNoydb({
       store,
       user: userId,

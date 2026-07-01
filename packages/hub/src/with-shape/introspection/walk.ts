@@ -20,7 +20,7 @@ import type {
   DerivationDescriptor,
   VaultSchemaSnapshot,
 } from './types.js'
-import type { Collection } from '../../collection.js'
+import type { Collection } from '../../kernel/collection.js'
 import type { NoydbStore } from '../../kernel/types.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
 import type { RefRegistry } from '../../kernel/refs.js'

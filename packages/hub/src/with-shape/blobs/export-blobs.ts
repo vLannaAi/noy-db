@@ -32,7 +32,7 @@
  * @module
  */
 
-import type { Collection } from '../../collection.js'
+import type { Collection } from '../../kernel/collection.js'
 import type { SlotInfo } from '../../kernel/types.js'
 
 // ─── Types ──────────────────────────────────────────────────────────────

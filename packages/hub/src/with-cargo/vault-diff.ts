@@ -40,7 +40,7 @@
  * @module
  */
 
-import type { Vault } from '../vault.js'
+import type { Vault } from '../kernel/vault.js'
 import { diff as fieldDiff, type DiffEntry as FieldDiffEntry } from '../with-commit/history/diff.js'
 
 // ─── Public types ──────────────────────────────────────────────────────
