@@ -1,4 +1,4 @@
-import type { NoydbEventMap } from './kernel/types.js'
+import type { NoydbEventMap } from './types.js'
 
 type EventHandler<T> = (data: T) => void
 

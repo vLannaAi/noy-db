@@ -19,7 +19,7 @@ import type { DictKeyDescriptor, StaticDictDescriptor } from '../i18n/dictionary
 import { isStaticDictDescriptor } from '../i18n/dictionary.js'
 import type { I18nTextDescriptor } from '../i18n/core.js'
 import type { ComputedFields } from '../../with-formula/computed/index.js'
-import type { RefDescriptor } from '../../refs.js'
+import type { RefDescriptor } from '../../kernel/refs.js'
 import { derivePersistedSchema, isZod4Schema } from '../persisted-schemas/derive.js'
 import { jsonSchemaToFields } from './fields.js'
 

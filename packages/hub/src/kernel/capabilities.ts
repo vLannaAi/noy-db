@@ -13,10 +13,10 @@
  *
  * Internal — reached through `vault.assertCanExport(...)` etc.
  */
-import { ExportCapabilityError, ImportCapabilityError } from './kernel/errors.js'
-import { hasExportCapability, hasImportCapability } from './with-party/team/keyring.js'
-import type { UnlockedKeyring } from './with-party/team/keyring.js'
-import type { ExportFormat } from './kernel/types.js'
+import { ExportCapabilityError, ImportCapabilityError } from './errors.js'
+import { hasExportCapability, hasImportCapability } from '../with-party/team/keyring.js'
+import type { UnlockedKeyring } from '../with-party/team/keyring.js'
+import type { ExportFormat } from './types.js'
 
 /**
  * Authorize an `@noy-db/as-*` export against the keyring's `exportCapability`.

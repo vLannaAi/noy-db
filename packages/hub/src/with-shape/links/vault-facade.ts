@@ -16,7 +16,7 @@
  *
  * Internal subsystem — reached through `vault.enforceRefsOnPut(...)` etc.
  */
-import { RefIntegrityError, isRefArray, type RefDescriptor, type RefViolation, type RefRegistry } from '../../refs.js'
+import { RefIntegrityError, isRefArray, type RefDescriptor, type RefViolation, type RefRegistry } from '../../kernel/refs.js'
 import {
   linkCollectionName,
   linkRowKey,

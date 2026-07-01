@@ -26,8 +26,8 @@ import { createOwnerKeyring, loadKeyring, grant, persistKeyring, updateKeyringId
 import { generateDEK } from '../src/kernel/enclave/crypto.js'
 import { createNoydb } from '../src/noydb.js'
 import { NoAccessError, PermissionDeniedError, ValidationError } from '../src/kernel/errors.js'
-import { PolicyDeniedError } from '../src/policy/errors.js'
-import { STRICT_POLICY } from '../src/policy/presets.js'
+import { PolicyDeniedError } from '../src/kernel/policy/errors.js'
+import { STRICT_POLICY } from '../src/kernel/policy/presets.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

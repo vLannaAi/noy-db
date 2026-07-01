@@ -29,7 +29,7 @@ import {
 import { InvalidKeyError, NoAccessError } from '../../kernel/errors.js'
 import {
   RecoveryProfileNotImplementedError,
-} from '../../policy/errors.js'
+} from '../../kernel/policy/errors.js'
 import {
   loadPaperRecoveryEntries,
   burnPaperRecoveryEntry,
@@ -40,7 +40,7 @@ import {
   type ShamirRecoveryEntry,
 } from './recovery.js'
 import type { ShamirRecoveryProvider } from './shamir-recovery-provider.js'
-import { assertStrongPassphrase, type PassphrasePolicy } from '../../validation.js'
+import { assertStrongPassphrase, type PassphrasePolicy } from '../../kernel/validation.js'
 import type { UnlockedKeyring } from './keyring.js'
 import { mintKeyringCanary } from './keyring.js'
 import type { KeyringAuthenticator } from '../../kernel/types.js'

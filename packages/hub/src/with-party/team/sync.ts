@@ -15,7 +15,7 @@ import type {
 } from '../../kernel/types.js'
 import { NOYDB_SYNC_VERSION } from '../../kernel/types.js'
 import { ConflictError } from '../../kernel/errors.js'
-import type { NoydbEventEmitter } from '../../events.js'
+import type { NoydbEventEmitter } from '../../kernel/events.js'
 import type { SyncPolicy } from '../../store/sync-policy.js'
 import { SyncScheduler } from '../../store/sync-policy.js'
 

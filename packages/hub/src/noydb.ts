@@ -26,7 +26,7 @@ import {
   readDirectoryConfig,
   persistDirectoryConfig,
 } from './with-party/directory/storage.js'
-import type { PassphrasePolicy } from './validation.js'
+import type { PassphrasePolicy } from './kernel/validation.js'
 import {
   type RotatePassphraseInput,
   type RecoverPassphraseInput,
@@ -47,7 +47,7 @@ import {
 import { resolveManagedSecret } from './with-party/team/managed-passphrase.js'
 import { generateULID } from './with-pod/ulid.js'
 import { StoreCoordinationProvider, type CoordinationProvider } from './kernel/coordination/index.js'
-import { RecoveryNotEnrolledError, ManagedRecoveryNotEnrolledError } from './policy/errors.js'
+import { RecoveryNotEnrolledError, ManagedRecoveryNotEnrolledError } from './kernel/policy/errors.js'
 import {
   loadPublicEnvelope,
   savePublicEnvelope,
@@ -57,13 +57,13 @@ import {
   type PublicEnvelope,
   type SetPublicEnvelopeInput,
   type ResolvedPublicEnvelopeSchema,
-} from './meta/public-envelope/index.js'
+} from './kernel/meta/public-envelope/index.js'
 import { Vault } from './vault.js'
 import type { VaultMeta } from './with-shape/introspection/meta.js'
-import { NoydbEventEmitter } from './events.js'
-import { WriteQueueTracker, type WriteQueue } from './write-queue.js'
-import { WriteHookRegistry, type WriteHook, type Unsubscribe } from './write-hooks.js'
-import { SubsystemBus } from './subsystem-bus.js'
+import { NoydbEventEmitter } from './kernel/events.js'
+import { WriteQueueTracker, type WriteQueue } from './kernel/write-queue.js'
+import { WriteHookRegistry, type WriteHook, type Unsubscribe } from './kernel/write-hooks.js'
+import { SubsystemBus } from './kernel/subsystem-bus.js'
 import { TabCoordinator, defaultLockManager, defaultChannel, type TabCoordinationOptions, type TabRole, type TabPresence } from './with-party/tab-coordination.js'
 import { CrossTabWriteRelay } from './with-party/tab-write-relay.js'
 import {
@@ -105,8 +105,8 @@ import {
   type FactorProofBundle,
   type GateName,
   type VaultPolicy,
-} from './policy/index.js'
-import { NoydbPolicy } from './policy/noydb-facade.js'
+} from './kernel/policy/index.js'
+import { NoydbPolicy } from './kernel/policy/noydb-facade.js'
 import { TeamFacade } from './with-party/team/noydb-facade.js'
 
 /**

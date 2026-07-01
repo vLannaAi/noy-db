@@ -26,7 +26,7 @@ import { ConflictError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/noydb.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import type { Noydb } from '../src/noydb.js'
-import { ref } from '../src/refs.js'
+import { ref } from '../src/kernel/refs.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

@@ -15,7 +15,7 @@ import { createNoydb } from '../../src/noydb.js'
 import { money } from '../../src/with-shape/money/descriptor.js'
 import { staticDict, dictKey } from '../../src/with-shape/i18n/dictionary.js'
 import { i18nText } from '../../src/with-shape/i18n/core.js'
-import { ref } from '../../src/refs.js'
+import { ref } from '../../src/kernel/refs.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/kernel/types.js'
 import { ConflictError } from '../../src/kernel/errors.js'
 import { FieldMetaUnknownFieldError } from '../../src/with-shape/introspection/field-meta.js'
@@ -177,7 +177,7 @@ describe('collection.describe() — sync path', () => {
   it('refArray field has isArray:true in ref block and type:array', async () => {
     const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-describe-5' })
     const v = await db.openVault('v3')
-    const { refArray } = await import('../../src/refs.js')
+    const { refArray } = await import('../../src/kernel/refs.js')
 
     const tasks = v.collection('tasks', {
       refs: { tagIds: refArray('tags') },
@@ -231,7 +231,7 @@ describe('collection.describe(opts) — async path', () => {
     })
 
     const sales = v.collection('sales_async', {
-      schema: salesSchema as unknown as import('../../src/schema.js').StandardSchemaV1,
+      schema: salesSchema as unknown as import('../../src/kernel/schema.js').StandardSchemaV1,
     })
 
     const d = await sales.describe({})
@@ -256,7 +256,7 @@ describe('collection.describe(opts) — async path', () => {
     })
 
     const weights = v.collection('weights_async', {
-      schema: weightsSchema as unknown as import('../../src/schema.js').StandardSchemaV1,
+      schema: weightsSchema as unknown as import('../../src/kernel/schema.js').StandardSchemaV1,
     })
 
     const d = await weights.describe({})
@@ -296,7 +296,7 @@ describe('collection.describe(opts) — async path', () => {
 
     // 'totl' is a typo — not a real field in the schema or any config
     const c = v.collection('typo_coll', {
-      schema: schema as unknown as import('../../src/schema.js').StandardSchemaV1,
+      schema: schema as unknown as import('../../src/kernel/schema.js').StandardSchemaV1,
       fieldMeta: {
         totl: { label: 'Total (typo)' },
       },
@@ -310,7 +310,7 @@ describe('collection.describe(opts) — async path', () => {
     const v = await db.openVault('av5')
 
     // Hand-rolled Standard Schema v1 stub — vendor is NOT 'zod'
-    const stubValidator: import('../../src/schema.js').StandardSchemaV1 = {
+    const stubValidator: import('../../src/kernel/schema.js').StandardSchemaV1 = {
       '~standard': {
         version: 1,
         vendor: 'stub',

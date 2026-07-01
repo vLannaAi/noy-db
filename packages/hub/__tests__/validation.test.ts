@@ -4,7 +4,7 @@ import {
   assertStrongPassphrase,
   estimateEntropy,
   WeakPassphraseError,
-} from '../src/validation.js'
+} from '../src/kernel/validation.js'
 import {
   NoydbError,
   DecryptionError,

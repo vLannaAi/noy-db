@@ -6,9 +6,9 @@
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
-import { PolicyDeniedError } from '../src/policy/errors.js'
+import { PolicyDeniedError } from '../src/kernel/policy/errors.js'
 import { createNoydb } from '../src/noydb.js'
-import type { VaultPolicy } from '../src/policy/types.js'
+import type { VaultPolicy } from '../src/kernel/policy/types.js'
 import { readNoydbBundle } from '../src/with-pod/bundle.js'
 
 function makeStore(): NoydbStore {

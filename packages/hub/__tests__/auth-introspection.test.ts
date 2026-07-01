@@ -16,7 +16,7 @@ import {
 import {
   saveVaultPolicy,
   PERSONAL_POLICY,
-} from '../src/policy/index.js'
+} from '../src/kernel/policy/index.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

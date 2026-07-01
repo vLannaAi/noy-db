@@ -31,7 +31,7 @@ import {
   RefIntegrityError,
   RefScopeError,
   RefRegistry,
-} from '../src/refs.js'
+} from '../src/kernel/refs.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

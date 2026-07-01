@@ -16,7 +16,7 @@ import {
   isPublicEnvelope,
   PUBLIC_ENVELOPE_FIELDS,
   type PublicEnvelope,
-} from '../src/meta/public-envelope/index.js'
+} from '../src/kernel/meta/public-envelope/index.js'
 import { createNoydb } from '../src/noydb.js'
 
 function inlineMemory(): NoydbStore {

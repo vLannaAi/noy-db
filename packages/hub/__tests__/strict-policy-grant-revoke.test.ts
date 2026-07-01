@@ -10,8 +10,8 @@
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 import { createNoydb } from '../src/noydb.js'
-import { PolicyDeniedError } from '../src/policy/errors.js'
-import { STRICT_POLICY } from '../src/policy/presets.js'
+import { PolicyDeniedError } from '../src/kernel/policy/errors.js'
+import { STRICT_POLICY } from '../src/kernel/policy/presets.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

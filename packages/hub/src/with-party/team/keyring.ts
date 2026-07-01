@@ -14,14 +14,14 @@ import {
 import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, KeyringExpiredError, KeyringCorruptError, InvalidKeyError, ValidationError, DirectoryDisabledError } from '../../kernel/errors.js'
 import { readDirectoryConfig } from '../directory/storage.js'
 import { readUserVisibility, deleteUserVisibility } from '../directory/visibility.js'
-import { assertStrongPassphrase, type PassphrasePolicy } from '../../validation.js'
+import { assertStrongPassphrase, type PassphrasePolicy } from '../../kernel/validation.js'
 import {
   saveUserEnvelope,
   loadUserEnvelope as loadUserEnvelopeFn,
   deleteUserEnvelope,
   USER_ENVELOPE_COLLECTION,
   type UserEnvelope as UserEnvelopeReader,
-} from '../../meta/user-envelope/index.js'
+} from '../../kernel/meta/user-envelope/index.js'
 
 // ─── Roles that can grant/revoke ───────────────────────────────────────
 

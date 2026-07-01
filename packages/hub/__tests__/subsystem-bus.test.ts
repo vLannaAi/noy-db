@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { SubsystemBus } from '../src/subsystem-bus.js'
-import type { WriteEvent } from '../src/write-hooks.js'
+import { SubsystemBus } from '../src/kernel/subsystem-bus.js'
+import type { WriteEvent } from '../src/kernel/write-hooks.js'
 
 function ev(over: Partial<WriteEvent> = {}): WriteEvent {
   return {

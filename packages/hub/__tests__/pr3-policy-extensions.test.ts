@@ -25,13 +25,13 @@ import {
   STRICT_POLICY,
   type FactorKind,
   type FactorProof,
-} from '../src/policy/index.js'
+} from '../src/kernel/policy/index.js'
 import {
   validatePassphrase,
   assertStrongPassphrase,
   WeakPassphraseError,
   type PassphraseValidationResult,
-} from '../src/validation.js'
+} from '../src/kernel/validation.js'
 
 describe('FactorKind extension (#30)', () => {
   it('TypeScript accepts the three new kinds in FactorProof.kind', () => {

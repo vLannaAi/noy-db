@@ -27,11 +27,11 @@ export type { SealingKeyProvider } from '../with-party/team/managed-passphrase.j
 
 // Interchange & addressing.
 export { diffVault } from './vault-diff.js'
-export { STATE_VAULT_NAME } from '../constants.js'
+export { STATE_VAULT_NAME } from '../kernel/constants.js'
 
 // Change observation.
-export type { WriteHook } from '../write-hooks.js'
-export type { WriteQueue } from '../write-queue.js'
+export type { WriteHook } from '../kernel/write-hooks.js'
+export type { WriteQueue } from '../kernel/write-queue.js'
 export type { WriteConflict } from '../kernel/types.js'
 export type { AccessibleVault } from '../kernel/types.js'
-export type { Unsubscribe } from '../meta/user-envelope/api.js'
+export type { Unsubscribe } from '../kernel/meta/user-envelope/api.js'

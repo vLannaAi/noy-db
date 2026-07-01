@@ -16,7 +16,7 @@ import type {
 } from '../src/kernel/types.js'
 import { ConflictError, JoinTooLargeError } from '../src/kernel/errors.js'
 import { resetJoinWarnings } from '../src/query/index.js'
-import { ref } from '../src/refs.js'
+import { ref } from '../src/kernel/refs.js'
 
 /** Same memory adapter shape used in query-integration / query-join tests. */
 function memory(): NoydbStore {
