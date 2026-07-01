@@ -1,5 +1,5 @@
-import type { NoydbStore, VaultSnapshot, EncryptedEnvelope, StoreTime, ListPageResult } from '../kernel/types.js'
-import { ConflictError } from '../kernel/errors.js'
+import type { NoydbStore, VaultSnapshot, EncryptedEnvelope, StoreTime, ListPageResult } from '../types.js'
+import { ConflictError } from '../errors.js'
 
 /**
  * Built-in in-memory store — the kernel's zero-config default.

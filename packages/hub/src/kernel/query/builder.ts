@@ -5,24 +5,24 @@
  * mutated. This makes plans safe to share, cache, and serialize.
  */
 
-import type { QueryField } from '../kernel/types.js'
+import type { QueryField } from '../types.js'
 import type { Clause, CrossJoinClause, FieldClause, FilterClause, GroupClause, Operator, WherePredicateClause } from './predicate.js'
 import { evaluateClause, hasFnClause } from './predicate.js'
-import type { CollectionIndexes } from '../with-lookup/indexing/eager-indexes.js'
+import type { CollectionIndexes } from '../../with-lookup/indexing/eager-indexes.js'
 import type { JoinableSource, JoinContext, JoinLeg, JoinStrategy } from './join.js'
 import { applyJoins } from './join.js'
-import { CrossJoinTooLargeError, CrossJoinSourceUnknownError } from '../kernel/errors.js'
+import { CrossJoinTooLargeError, CrossJoinSourceUnknownError } from '../errors.js'
 import type { LiveQuery, LiveUpstream } from './live.js'
 import { buildLiveQuery } from './live.js'
-import type { AggregateSpec, AggregateResult, AggregationUpstream, Aggregation } from '../with-lookup/aggregate/aggregation.js'
-import type { ReducerBuilder } from '../with-lookup/aggregate/reducers.js'
-import { reducerBuilder } from '../with-lookup/aggregate/reducers.js'
-import type { GroupedQuery, GroupedQueryN } from '../with-lookup/aggregate/groupby.js'
-import { NO_AGGREGATE, type AggregateStrategy } from '../with-lookup/aggregate/strategy.js'
-import type { MoneyDescriptor } from '../with-shape/money/descriptor.js'
-import { wrapMoneyReducers } from '../with-shape/money/money-reducer.js'
-import { decodeMoneyFields, moneyScaledValue } from '../with-shape/money/normalize.js'
-import { moneyFieldClause } from '../with-shape/money/where.js'
+import type { AggregateSpec, AggregateResult, AggregationUpstream, Aggregation } from '../../with-lookup/aggregate/aggregation.js'
+import type { ReducerBuilder } from '../../with-lookup/aggregate/reducers.js'
+import { reducerBuilder } from '../../with-lookup/aggregate/reducers.js'
+import type { GroupedQuery, GroupedQueryN } from '../../with-lookup/aggregate/groupby.js'
+import { NO_AGGREGATE, type AggregateStrategy } from '../../with-lookup/aggregate/strategy.js'
+import type { MoneyDescriptor } from '../../with-shape/money/descriptor.js'
+import { wrapMoneyReducers } from '../../with-shape/money/money-reducer.js'
+import { decodeMoneyFields, moneyScaledValue } from '../../with-shape/money/normalize.js'
+import { moneyFieldClause } from '../../with-shape/money/where.js'
 
 export interface OrderBy {
   readonly field: string
