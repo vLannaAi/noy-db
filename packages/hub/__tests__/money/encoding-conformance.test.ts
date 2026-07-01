@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
 import { createNoydb, withGuard, withMaterializedView, withDerivation, withOverlayedView, money, sum } from '../../src/index.js'
 import { withAggregate } from '../../src/with-lookup/aggregate/index.js'
-import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
 // #335 — ONE canonical money encoding at every extension point. This is
 // the conformance sweep: a single record with totalPaid = 10000 THB is

@@ -9,7 +9,7 @@ import { describe, it, expect } from 'vitest'
 import { createNoydb, withGuard, FieldFrozenError, NoydbError, RecordLockedError } from '../../src/index.js'
 import { immutableGuard } from '../../src/with-audit/guards/immutable-guard.js'
 import { withTransactions } from '../../src/with-commit/tx/index.js'
-import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
 function memory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()

@@ -21,7 +21,7 @@
  *      gate before the team function.
  */
 import { describe, it, expect } from 'vitest'
-import type { NoydbStore, EncryptedEnvelope, KeyringFile, KeyringAuthenticator } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, KeyringFile, KeyringAuthenticator } from '../src/kernel/types.js'
 import { createOwnerKeyring, loadKeyring, grant, persistKeyring } from '../src/with-party/team/keyring.js'
 import { recoverUser } from '../src/with-party/team/peer-recover.js'
 import { generateDEK } from '../src/kernel/enclave/crypto.js'

@@ -21,7 +21,7 @@
  *
  * Internal subsystem — reached through `noydb.rotatePassphrase(...)` etc.
  */
-import type { NoydbOptions, NoydbStore, KeyringAuthenticator } from '../../types.js'
+import type { NoydbOptions, NoydbStore, KeyringAuthenticator } from '../../kernel/types.js'
 import { ValidationError } from '../../errors.js'
 import {
   rotatePassphrase as keyringRotatePassphrase,

@@ -1,5 +1,5 @@
 import { describe, it, expectTypeOf } from 'vitest'
-import type { QueryField, IndexFieldName } from '../src/types.js'
+import type { QueryField, IndexFieldName } from '../src/kernel/types.js'
 
 interface Person { id: string; name: string; ssn: string; age: number }
 

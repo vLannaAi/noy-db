@@ -28,7 +28,7 @@
  * test below asserts the live records SURVIVE the ceremony.
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError, PermissionDeniedError } from '../src/errors.js'
 import { PolicyDeniedError } from '../src/policy/errors.js'
 import { createNoydb } from '../src/noydb.js'

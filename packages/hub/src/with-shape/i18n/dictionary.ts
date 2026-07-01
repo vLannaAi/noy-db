@@ -31,9 +31,9 @@
  *   `DictionaryHandle.put/putAll/get/delete/rename/list` — CRUD
  */
 
-import type { NoydbStore, EncryptedEnvelope } from '../../types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import type { NoydbEventEmitter } from '../../events.js'
-import { NOYDB_FORMAT_VERSION } from '../../types.js'
+import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
 import { encrypt, decrypt } from '../../kernel/enclave/crypto.js'
 import { ensureCollectionDEK } from '../../with-party/team/keyring.js'

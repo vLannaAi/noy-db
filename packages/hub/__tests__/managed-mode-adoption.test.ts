@@ -10,7 +10,7 @@ import { createNoydb } from '../src/noydb.js'
 import { ConflictError } from '../src/errors.js'
 import { MemorySealingKeyProvider } from '../src/with-party/team/managed-passphrase.js'
 import { shamirRecoveryProvider } from '@noy-db/on-shamir'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { extractPartition } from '../src/with-cargo/extract-partition.js'
 import { adoptPartition, createOwnerOnAdoptedPartition } from '../src/with-cargo/adopt-partition.js'
 

@@ -12,7 +12,7 @@
  *     `recover-passphrase` gate is enabled (default)
  */
 import { describe, it, expect } from 'vitest'
-import type { NoydbStore, EncryptedEnvelope } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 import { createOwnerKeyring, loadKeyring } from '../src/with-party/team/keyring.js'
 import {
   rotatePassphrase,

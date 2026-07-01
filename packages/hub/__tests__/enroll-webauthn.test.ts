@@ -11,7 +11,7 @@
  * KEK and method-specific `meta`. No actual WebAuthn API needed.
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import type { NoydbStore, EncryptedEnvelope } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 import { createNoydb, type Noydb } from '../src/noydb.js'
 import { ValidationError } from '../src/errors.js'
 

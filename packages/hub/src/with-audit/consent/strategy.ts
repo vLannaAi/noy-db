@@ -11,7 +11,7 @@
  * @internal
  */
 
-import type { NoydbStore } from '../../types.js'
+import type { NoydbStore } from '../../kernel/types.js'
 import type {
   ConsentAuditEntry,
   ConsentAuditFilter,

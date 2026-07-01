@@ -6,8 +6,8 @@
  *
  * @module
  */
-import type { NoydbStore, EncryptedEnvelope } from '../../types.js'
-import { NOYDB_FORMAT_VERSION } from '../../types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
+import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import type { PublicEnvelope } from './types.js'
 import { isPublicEnvelope } from './schema.js'
 

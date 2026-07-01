@@ -29,8 +29,8 @@
  * @module
  */
 
-import type { NoydbStore, EncryptedEnvelope } from '../../types.js'
-import { NOYDB_FORMAT_VERSION } from '../../types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
+import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import type { UnlockedKeyring } from './keyring.js'
 import { createOwnerKeyring } from './keyring.js'
 import type { SealingKeyProvider } from './managed-passphrase.js'

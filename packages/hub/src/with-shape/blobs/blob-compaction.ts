@@ -29,8 +29,8 @@
  * @module
  */
 
-import type { NoydbStore, EncryptedEnvelope, SlotInfo } from '../../types.js'
-import { NOYDB_FORMAT_VERSION } from '../../types.js'
+import type { NoydbStore, EncryptedEnvelope, SlotInfo } from '../../kernel/types.js'
+import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import { encrypt } from '../../kernel/enclave/crypto.js'
 
 // ─── Config types ───────────────────────────────────────────────────────

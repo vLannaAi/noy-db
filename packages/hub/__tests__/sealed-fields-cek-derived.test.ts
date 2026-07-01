@@ -24,8 +24,8 @@ import {
   deriveSealedFieldKeyFromCek,
   decrypt,
 } from '../src/kernel/enclave/crypto.js'
-import { NOYDB_FORMAT_VERSION } from '../src/types.js'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
+import { NOYDB_FORMAT_VERSION } from '../src/kernel/types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { withForgetCascade } from '../src/with-audit/forget/index.js'
 

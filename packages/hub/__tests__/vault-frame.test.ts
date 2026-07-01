@@ -11,7 +11,7 @@
  *   - Error message references the attempted operation for diagnostics
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError, ReadOnlyFrameError, createNoydb } from '../src/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { withShadow } from '../src/with-fork/shadow/index.js'

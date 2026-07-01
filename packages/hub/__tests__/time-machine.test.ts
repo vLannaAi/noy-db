@@ -17,7 +17,7 @@
  *   - plaintext (encrypt: false) vault round-trips correctly
  */
 import { describe, expect, it, beforeEach } from 'vitest'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError, ReadOnlyAtInstantError, createNoydb } from '../src/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import type { Noydb } from '../src/index.js'

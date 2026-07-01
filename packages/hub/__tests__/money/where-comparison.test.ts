@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
 import { createNoydb, money, MoneyUnsupportedError } from '../../src/index.js'
-import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
 // #336 — where() on a declared money field accepts MAJOR-unit operands
 // and compares BigInt-exact in scaled-integer space. Before this,

@@ -4,7 +4,7 @@
  * fail-closed built-in `client-unilateral-withdraw` policy.
  */
 import { describe, it, expect } from 'vitest'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/errors.js'
 import { PolicyDeniedError } from '../src/policy/errors.js'
 import { createNoydb } from '../src/noydb.js'

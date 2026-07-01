@@ -23,7 +23,7 @@ import type {
   NoydbStore,
   EncryptedEnvelope,
   VaultSnapshot,
-} from '../../src/types.js'
+} from '../../src/kernel/types.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

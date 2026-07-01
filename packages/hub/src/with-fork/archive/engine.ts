@@ -16,7 +16,7 @@
  * eligible records.
  */
 
-import type { NoydbStore, EncryptedEnvelope } from '../../types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 
 export interface ArchivePolicy<T = unknown> {
   /** Select records eligible for archival — typically a business-date / period test. */

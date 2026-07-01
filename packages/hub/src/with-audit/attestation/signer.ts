@@ -1,5 +1,5 @@
-import type { NoydbStore, EncryptedEnvelope } from '../../types.js'
-import { NOYDB_FORMAT_VERSION } from '../../types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
+import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import { encrypt, decrypt } from '../../kernel/enclave/crypto.js'
 import { ConflictError } from '../../errors.js'
 import { generateDocSigningKeyPair } from '@noy-db/attestation'

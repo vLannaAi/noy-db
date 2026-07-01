@@ -35,7 +35,7 @@ import {
   type GhostRecord,
   type TierMode,
   type CrossTierAccessEvent,
-} from '../../types.js'
+} from '../../kernel/types.js'
 
 /** Everything the moving tier methods touched on `this.*`, as a flat context. */
 export interface TiersContext<T> {

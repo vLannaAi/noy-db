@@ -10,7 +10,7 @@ import { createNoydb } from '../src/noydb.js'
 import { withBlobs } from '../src/with-shape/blobs/index.js'
 import { ConflictError } from '../src/errors.js'
 import type { Noydb } from '../src/noydb.js'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

@@ -27,7 +27,7 @@ import type { Clause, FieldClause, Operator } from '../../query/predicate.js'
 import { evaluateClause, readPath } from '../../query/predicate.js'
 import type { PersistedCollectionIndex } from './persisted-indexes.js'
 import { IndexRequiredError } from '../../errors.js'
-import type { QueryField } from '../../types.js'
+import type { QueryField } from '../../kernel/types.js'
 
 export interface LazyOrderBy {
   readonly field: string

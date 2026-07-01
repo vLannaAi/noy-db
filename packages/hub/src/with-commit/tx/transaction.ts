@@ -60,7 +60,7 @@
 import type { Noydb } from '../../noydb.js'
 import type { Vault } from '../../vault.js'
 import type { Collection } from '../../collection.js'
-import type { EncryptedEnvelope } from '../../types.js'
+import type { EncryptedEnvelope } from '../../kernel/types.js'
 import {
   AmendmentForbiddenError,
   ConflictError,

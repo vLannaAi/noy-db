@@ -19,7 +19,7 @@
 import type { Vault } from '../../vault.js'
 import { sha256Hex } from '../../kernel/enclave/crypto.js'
 import { ReadOnlyError } from '../../errors.js'
-import { NOYDB_FORMAT_VERSION } from '../../types.js'
+import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import { resolveAccessibleCollections, buildAccessibleBundle } from './export-accessible.js'
 
 export const FROZEN_SNAPSHOTS_COLLECTION = '_frozen_snapshots'

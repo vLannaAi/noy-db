@@ -4,7 +4,7 @@ import type {
   NoydbStore,
   EncryptedEnvelope,
   VaultSnapshot,
-} from '../src/types.js'
+} from '../src/kernel/types.js'
 import {
   ConflictError,
   JoinTooLargeError,

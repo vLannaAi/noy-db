@@ -6,7 +6,7 @@ import {
   decrypt,
 } from '../src/kernel/enclave/crypto.js'
 import { createNoydb } from '../src/index.js'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/index.js'
 
 interface Person {

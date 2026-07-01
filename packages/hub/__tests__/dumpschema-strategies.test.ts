@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import type { NoydbStore, EncryptedEnvelope } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 import {
   createNoydb,
   withDerivation,

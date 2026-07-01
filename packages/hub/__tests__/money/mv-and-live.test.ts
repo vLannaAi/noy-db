@@ -4,7 +4,7 @@ import { createNoydb, withMaterializedView } from '../../src/index.js'
 import { withAggregate } from '../../src/with-lookup/aggregate/index.js'
 import { moneySum } from '../../src/with-lookup/aggregate/reducers.js'
 import { money } from '../../src/with-shape/money/descriptor.js'
-import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
 function memory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()

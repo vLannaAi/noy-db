@@ -54,7 +54,7 @@
  * @module
  */
 
-import type { NoydbStore, EncryptedEnvelope } from '../../types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import type { LedgerStore } from '../../with-commit/history/ledger/index.js'
 import { sha256Hex, canonicalJson } from '../../with-commit/history/ledger/index.js'
 import { PeriodClosedError, ValidationError } from '../../errors.js'

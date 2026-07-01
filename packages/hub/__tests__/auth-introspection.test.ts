@@ -6,8 +6,8 @@
  * fields in places the renderer might otherwise touch.
  */
 import { describe, it, expect } from 'vitest'
-import type { NoydbStore, EncryptedEnvelope, KeyringFile } from '../src/types.js'
-import { NOYDB_KEYRING_VERSION } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, KeyringFile } from '../src/kernel/types.js'
+import { NOYDB_KEYRING_VERSION } from '../src/kernel/types.js'
 import {
   describeAuthConfig,
   diagramAuthConfig,

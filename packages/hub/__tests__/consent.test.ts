@@ -11,7 +11,7 @@
  *   - Error inside withConsent still restores the prior context
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError, createNoydb, CONSENT_AUDIT_COLLECTION } from '../src/index.js'
 import { withConsent } from '../src/with-audit/consent/index.js'
 import type { Noydb } from '../src/index.js'

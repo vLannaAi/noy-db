@@ -23,41 +23,41 @@
  * @module
  */
 
-import type { StandardSchemaV1 } from './schema.js'
-import type { DeferredNumberingConfig } from './with-commit/numbering/descriptor.js'
-import type { SyncPolicy } from './store/sync-policy.js'
-import type { BlobStrategy } from './with-shape/blobs/strategy.js'
-import type { ArchiveStrategy } from './with-fork/archive/index.js'
-import type { IndexStrategy } from './with-lookup/indexing/strategy.js'
-import type { AggregateStrategy } from './with-lookup/aggregate/strategy.js'
-import type { CrdtStrategy } from './with-commit/crdt/strategy.js'
-import type { ConsentStrategy } from './with-audit/consent/strategy.js'
-import type { PeriodsStrategy } from './with-audit/periods/strategy.js'
-import type { ShadowStrategy } from './with-fork/shadow/strategy.js'
-import type { TxStrategy } from './with-commit/tx/strategy.js'
-import type { HistoryStrategy } from './with-commit/history/strategy.js'
-import type { ForgetStrategy } from './with-audit/forget/strategy.js'
-import type { SnapshotStrategy } from './with-fork/snapshots/strategy.js'
-import type { Layer } from './with-shape/i18n/policy.js'
-import type { I18nStrategy } from './with-shape/i18n/strategy.js'
-import type { SessionStrategy } from './with-party/session/strategy.js'
-import type { SyncStrategy } from './with-party/team/sync-strategy.js'
-import type { GuardStrategyHandleAny } from './with-audit/guards/types.js'
-import type { DerivationStrategyHandle } from './with-formula/derivations/types.js'
-import type { UnlockedKeyring } from './with-party/team/keyring.js'
-import type { VaultPolicy } from './policy/types.js'
-import type { PublicEnvelopeSchema } from './meta/public-envelope/types.js'
-import type { MaterializedViewStrategyHandle } from './with-formula/materialized-views/types.js'
-import type { OverlayedViewStrategyHandle } from './with-formula/overlay-views/types.js'
-import type { SealingKeyProvider } from './with-party/team/managed-passphrase.js'
-import type { ShamirRecoveryProvider } from './with-party/team/shamir-recovery-provider.js'
-import type { ObjectProjection } from './with-shape/blobs/object-projection.js'
+import type { StandardSchemaV1 } from '../schema.js'
+import type { DeferredNumberingConfig } from '../with-commit/numbering/descriptor.js'
+import type { SyncPolicy } from '../store/sync-policy.js'
+import type { BlobStrategy } from '../with-shape/blobs/strategy.js'
+import type { ArchiveStrategy } from '../with-fork/archive/index.js'
+import type { IndexStrategy } from '../with-lookup/indexing/strategy.js'
+import type { AggregateStrategy } from '../with-lookup/aggregate/strategy.js'
+import type { CrdtStrategy } from '../with-commit/crdt/strategy.js'
+import type { ConsentStrategy } from '../with-audit/consent/strategy.js'
+import type { PeriodsStrategy } from '../with-audit/periods/strategy.js'
+import type { ShadowStrategy } from '../with-fork/shadow/strategy.js'
+import type { TxStrategy } from '../with-commit/tx/strategy.js'
+import type { HistoryStrategy } from '../with-commit/history/strategy.js'
+import type { ForgetStrategy } from '../with-audit/forget/strategy.js'
+import type { SnapshotStrategy } from '../with-fork/snapshots/strategy.js'
+import type { Layer } from '../with-shape/i18n/policy.js'
+import type { I18nStrategy } from '../with-shape/i18n/strategy.js'
+import type { SessionStrategy } from '../with-party/session/strategy.js'
+import type { SyncStrategy } from '../with-party/team/sync-strategy.js'
+import type { GuardStrategyHandleAny } from '../with-audit/guards/types.js'
+import type { DerivationStrategyHandle } from '../with-formula/derivations/types.js'
+import type { UnlockedKeyring } from '../with-party/team/keyring.js'
+import type { VaultPolicy } from '../policy/types.js'
+import type { PublicEnvelopeSchema } from '../meta/public-envelope/types.js'
+import type { MaterializedViewStrategyHandle } from '../with-formula/materialized-views/types.js'
+import type { OverlayedViewStrategyHandle } from '../with-formula/overlay-views/types.js'
+import type { SealingKeyProvider } from '../with-party/team/managed-passphrase.js'
+import type { ShamirRecoveryProvider } from '../with-party/team/shamir-recovery-provider.js'
+import type { ObjectProjection } from '../with-shape/blobs/object-projection.js'
 // Import the port type from the leaf module (not the barrel) — the barrel
 // re-exports `StoreCoordinationProvider`, which imports `NoydbStore` from this
 // file, so going through it would create an import cycle.
-import type { CoordinationProvider } from './kernel/coordination/types.js'
-import type { ScriptWarning } from './with-shape/i18n/script.js'
-import type { MoneyDescriptor } from './with-shape/money/descriptor.js'
+import type { CoordinationProvider } from './coordination/types.js'
+import type { ScriptWarning } from '../with-shape/i18n/script.js'
+import type { MoneyDescriptor } from '../with-shape/money/descriptor.js'
 
 /** Format version for encrypted record envelopes. */
 export const NOYDB_FORMAT_VERSION = 1 as const
@@ -1650,7 +1650,7 @@ export interface PresencePeer<P> {
 // ─── CRDT ─────────────────────────────────────────────────
 
 // Re-exported from crdt.ts so consumers only need one import path.
-export type { CrdtMode, CrdtState, LwwMapState, RgaState, YjsState } from './with-commit/crdt/crdt.js'
+export type { CrdtMode, CrdtState, LwwMapState, RgaState, YjsState } from '../with-commit/crdt/crdt.js'
 
 // ─── Blob / Attachment Store ────────────────────────
 

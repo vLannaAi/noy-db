@@ -19,7 +19,7 @@ import {
   loadVaultPolicy,
   saveVaultPolicy,
 } from '../src/policy/index.js'
-import type { NoydbStore, EncryptedEnvelope } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

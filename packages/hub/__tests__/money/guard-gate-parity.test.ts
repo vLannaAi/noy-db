@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
 import { createNoydb, withGuard, money, FieldFrozenError } from '../../src/index.js'
 import { withTransactions } from '../../src/with-commit/tx/index.js'
-import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
 // #332 — guard gate context must present money() fields in the SAME
 // canonical decoded encoding on both sides. Before the fix, `existing`

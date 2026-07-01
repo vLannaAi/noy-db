@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb, withGuard, RecordLockedError } from '../src/index.js'
-import type { NoydbStore, EncryptedEnvelope } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 
 // Minimal in-test memory store — follows the hub convention (see __tests__/guards/*.test.ts)
 function memory(): NoydbStore {

@@ -23,7 +23,7 @@
  * @internal
  */
 
-import type { SessionPolicy } from '../../types.js'
+import type { SessionPolicy } from '../../kernel/types.js'
 import type { PolicyEnforcer, PolicyEnforcerOptions } from './session-policy.js'
 
 /**

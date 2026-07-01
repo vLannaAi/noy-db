@@ -7,8 +7,8 @@
  * @module
  */
 import type { Vault } from '../vault.js'
-import type { EncryptedEnvelope, BlobObject, SlotRecord, VersionRecord } from '../types.js'
-import { NOYDB_BACKUP_VERSION } from '../types.js'
+import type { EncryptedEnvelope, BlobObject, SlotRecord, VersionRecord } from '../kernel/types.js'
+import { NOYDB_BACKUP_VERSION } from '../kernel/types.js'
 import {
   decrypt,
   encrypt,
@@ -29,7 +29,7 @@ import { PartitionExtractionError } from '../errors.js'
 import { walkClosure, type WalkClosureOptions } from './walk-closure.js'
 import { generateULID } from '../with-pod/ulid.js'
 import { SCHEMAS_COLLECTION } from '../with-shape/persisted-schemas/storage.js'
-import { NOYDB_FORMAT_VERSION } from '../types.js'
+import { NOYDB_FORMAT_VERSION } from '../kernel/types.js'
 import { LEDGER_COLLECTION } from '../with-commit/history/ledger/constants.js'
 import { canonicalJson, hashEntry } from '../with-commit/history/ledger/entry.js'
 import type { LedgerEntry } from '../with-commit/history/ledger/entry.js'

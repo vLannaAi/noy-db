@@ -1,4 +1,4 @@
-import type { NoydbStore, EncryptedEnvelope, ChangeEvent, HistoryConfig, HistoryOptions, HistoryEntry, PruneOptions, ListPageResult, LocaleReadOptions, CollectionConflictResolver, PutManyItemOptions, PutManyOptions, PutManyResult, DeleteManyResult, SealedView } from './types.js'
+import type { NoydbStore, EncryptedEnvelope, ChangeEvent, HistoryConfig, HistoryOptions, HistoryEntry, PruneOptions, ListPageResult, LocaleReadOptions, CollectionConflictResolver, PutManyItemOptions, PutManyOptions, PutManyResult, DeleteManyResult, SealedView } from './kernel/types.js'
 import type { FieldMeta } from './with-shape/introspection/field-meta.js'
 import type { CollectionMeta } from './with-shape/introspection/meta.js'
 import type { CrdtMode, CrdtState, LwwMapState, RgaState } from './with-commit/crdt/crdt.js'
@@ -52,7 +52,7 @@ import {
   type IndexingContext,
 } from './with-lookup/indexing/collection-facade.js'
 import { ConflictError, ReadOnlyError, TranslatorNotConfiguredError, LocaleNotSpecifiedError } from './errors.js'
-import type { GhostRecord, TierMode, CrossTierAccessEvent } from './types.js'
+import type { GhostRecord, TierMode, CrossTierAccessEvent } from './kernel/types.js'
 import type { UnlockedKeyring } from './with-party/team/keyring.js'
 import { hasWritePermission } from './with-party/team/keyring.js'
 import type { NoydbEventEmitter } from './events.js'

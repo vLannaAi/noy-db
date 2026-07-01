@@ -1,4 +1,4 @@
-import type { NoydbStore, VaultSnapshot, EncryptedEnvelope, StoreTime, ListPageResult } from '../types.js'
+import type { NoydbStore, VaultSnapshot, EncryptedEnvelope, StoreTime, ListPageResult } from '../kernel/types.js'
 import { ConflictError } from '../errors.js'
 
 /**

@@ -12,8 +12,8 @@ import type {
   EncryptedEnvelope,
   SyncMetadata,
   SyncTargetRole,
-} from '../../types.js'
-import { NOYDB_SYNC_VERSION } from '../../types.js'
+} from '../../kernel/types.js'
+import { NOYDB_SYNC_VERSION } from '../../kernel/types.js'
 import { ConflictError } from '../../errors.js'
 import type { NoydbEventEmitter } from '../../events.js'
 import type { SyncPolicy } from '../../store/sync-policy.js'

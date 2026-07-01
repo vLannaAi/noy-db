@@ -6,7 +6,7 @@ import { createNoydb } from '../src/noydb.js'
 import { memory } from '../../to-memory/src/index.js'
 import { SnapshotEngine } from '../src/with-fork/snapshots/engine.js'
 import { withSnapshots } from '../src/with-fork/snapshots/active.js'
-import type { NoydbBundleStore } from '../src/types.js'
+import type { NoydbBundleStore } from '../src/kernel/types.js'
 
 function makeMockStore(): NoydbBundleStore & { blobs: Map<string, Uint8Array> } {
   const blobs = new Map<string, Uint8Array>()

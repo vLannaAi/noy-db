@@ -5,7 +5,7 @@ import { describe, it, expect } from 'vitest'
 import { createNoydb, money } from '../src/index.js'
 import { Query } from '../src/query/builder.js'
 import type { QuerySource, JoinContext, JoinableSource } from '../src/query/index.js'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/errors.js'
 
 function staticSourceWithEntries<T extends object>(

@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
 import { createNoydb } from '../src/noydb.js'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/errors.js'
 
 // ─── Inline memory adapter (mirrored from schema.test.ts) ─────────────

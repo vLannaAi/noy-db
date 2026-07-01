@@ -22,7 +22,7 @@
  *   9. Ceremony exception aborts the entire rotation.
  */
 import { describe, it, expect } from 'vitest'
-import type { NoydbStore, EncryptedEnvelope, KeyringAuthenticator } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, KeyringAuthenticator } from '../src/kernel/types.js'
 import { createOwnerKeyring, loadKeyring, persistKeyring } from '../src/with-party/team/keyring.js'
 import { rotatePassphrase, type SlotRewrapCeremony } from '../src/with-party/team/rotate-recover.js'
 import { generateDEK } from '../src/kernel/enclave/crypto.js'

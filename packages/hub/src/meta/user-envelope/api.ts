@@ -15,7 +15,7 @@
  *
  * @module
  */
-import type { NoydbStore } from '../../types.js'
+import type { NoydbStore } from '../../kernel/types.js'
 import { PolicyDeniedError } from '../../policy/errors.js'
 import type { FactorProof } from '../../policy/types.js'
 import {

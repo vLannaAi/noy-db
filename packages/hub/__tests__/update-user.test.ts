@@ -21,7 +21,7 @@
  *      caller sees their own updated header on subsequent reads.
  */
 import { describe, it, expect } from 'vitest'
-import type { NoydbStore, EncryptedEnvelope, KeyringFile, KeyringAuthenticator } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, KeyringFile, KeyringAuthenticator } from '../src/kernel/types.js'
 import { createOwnerKeyring, loadKeyring, grant, persistKeyring, updateKeyringIdentity } from '../src/with-party/team/keyring.js'
 import { generateDEK } from '../src/kernel/enclave/crypto.js'
 import { createNoydb } from '../src/noydb.js'

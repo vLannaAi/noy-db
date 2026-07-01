@@ -13,7 +13,7 @@
  *   - Concrete providers (macOS Keychain, etc.) live outside hub.
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import type { NoydbStore, EncryptedEnvelope } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 import { createNoydb } from '../src/noydb.js'
 import { ConflictError, ValidationError } from '../src/errors.js'
 import {

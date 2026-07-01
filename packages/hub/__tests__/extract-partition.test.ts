@@ -14,7 +14,7 @@ import type { Noydb } from '../src/noydb.js'
 import { ref } from '../src/refs.js'
 import { ConflictError } from '../src/errors.js'
 import { decrypt, base64ToBuffer, generateDEK } from '../src/kernel/enclave/crypto.js'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { reKeyClosure, sealDeks, extractPartition } from '../src/with-cargo/extract-partition.js'
 import { readNoydbBundle, readNoydbBundleHeader, parseExtractedPartitionBody } from '../src/with-pod/bundle.js'
 

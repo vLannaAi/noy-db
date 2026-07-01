@@ -14,9 +14,9 @@
  * Internal subsystem — reached through `vault.closePeriod(...)` etc.
  */
 import { ValidationError } from '../../errors.js'
-import { NOYDB_FORMAT_VERSION } from '../../types.js'
+import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import { encrypt, decrypt } from '../../kernel/enclave/crypto.js'
-import type { EncryptedEnvelope, NoydbStore } from '../../types.js'
+import type { EncryptedEnvelope, NoydbStore } from '../../kernel/types.js'
 import type { LedgerStore } from '../../with-commit/history/ledger/store.js'
 import type { Collection } from '../../collection.js'
 import type { PeriodsStrategy } from './strategy.js'

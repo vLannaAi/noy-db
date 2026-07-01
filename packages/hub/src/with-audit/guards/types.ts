@@ -1,4 +1,4 @@
-import type { Role } from '../../types.js'
+import type { Role } from '../../kernel/types.js'
 import type { Query } from '../../query/builder.js'
 
 /**

@@ -13,7 +13,7 @@
  *
  * Internal — reached through `vault.dump()` / `vault.load()` / etc.
  */
-import { NOYDB_BACKUP_VERSION } from './types.js'
+import { NOYDB_BACKUP_VERSION } from './kernel/types.js'
 import { BackupLedgerError, BackupCorruptedError } from './errors.js'
 import { LEDGER_COLLECTION, LEDGER_DELTAS_COLLECTION } from './with-commit/history/ledger/constants.js'
 import { SCHEMAS_COLLECTION } from './with-shape/persisted-schemas/storage.js'
@@ -25,7 +25,7 @@ import type {
   VaultSnapshot,
   ExportStreamOptions,
   ExportChunk,
-} from './types.js'
+} from './kernel/types.js'
 import type { LedgerStore } from './with-commit/history/ledger/store.js'
 
 /** Everything the moving backup methods touched on the vault's `this.*`. */

@@ -8,7 +8,7 @@
  * enforce TOTP / email-OTP requirements.
  */
 import { describe, it, expect } from 'vitest'
-import type { NoydbStore, EncryptedEnvelope } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 import { createNoydb } from '../src/noydb.js'
 import { PolicyDeniedError } from '../src/policy/errors.js'
 import { STRICT_POLICY } from '../src/policy/presets.js'

@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { isTombstone, buildTombstone } from '../../src/kernel/enclave/record-keys/index.js'
-import { NOYDB_FORMAT_VERSION, type EncryptedEnvelope } from '../../src/types.js'
+import { NOYDB_FORMAT_VERSION, type EncryptedEnvelope } from '../../src/kernel/types.js'
 
 const live: EncryptedEnvelope = {
   _noydb: NOYDB_FORMAT_VERSION,

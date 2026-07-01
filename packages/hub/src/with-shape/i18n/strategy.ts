@@ -26,7 +26,7 @@
  * @internal
  */
 
-import type { NoydbStore } from '../../types.js'
+import type { NoydbStore } from '../../kernel/types.js'
 import type { LedgerStore } from '../../with-commit/history/ledger/store.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
 import type { NoydbEventEmitter } from '../../events.js'

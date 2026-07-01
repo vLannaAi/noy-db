@@ -19,7 +19,7 @@
  * Internal subsystem — not exported as a `@noy-db/hub/*` subpath.
  */
 import { encrypt, decrypt, encryptDeterministic, wrapCek, unwrapCek, deriveSealedFieldKey, deriveSealedFieldKeyFromCek } from '../crypto.js'
-import { NOYDB_FORMAT_VERSION, SealedHandle, type EncryptedEnvelope } from '../../../types.js'
+import { NOYDB_FORMAT_VERSION, SealedHandle, type EncryptedEnvelope } from '../../types.js'
 import { isTombstone } from './tombstone.js'
 import { parseSealedSlot, dualReadSealedSlot } from './sealed-slot.js'
 import { DebugReservedFieldError } from '../../../errors.js'

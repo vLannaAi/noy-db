@@ -7,8 +7,8 @@ import type {
   VersionRecord,
   BlobPutOptions,
   BlobResponseOptions,
-} from '../../types.js'
-import { NOYDB_FORMAT_VERSION } from '../../types.js'
+} from '../../kernel/types.js'
+import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import type { ObjectProjection } from './object-projection.js'
 import type { BlobFieldsConfig } from './blob-compaction.js'
 import {

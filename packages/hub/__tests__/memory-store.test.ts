@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { memoryStore } from '../src/store/memory-store.js'
-import type { EncryptedEnvelope } from '../src/types.js'
+import type { EncryptedEnvelope } from '../src/kernel/types.js'
 import { ConflictError } from '../src/errors.js'
 
 const env = (v: number): EncryptedEnvelope =>

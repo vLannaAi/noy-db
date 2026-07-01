@@ -12,7 +12,7 @@ import {
   NOYDB_BUNDLE_FORMAT_VERSION,
 } from '../src/with-pod/format.js'
 import type { NoydbBundleHeader } from '../src/with-pod/format.js'
-import type { NoydbStore, EncryptedEnvelope } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 import { createNoydb } from '../src/noydb.js'
 import {
   writeNoydbBundle,

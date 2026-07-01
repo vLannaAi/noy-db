@@ -16,8 +16,8 @@
  *
  * @module
  */
-import type { NoydbStore, KeyringFile } from '../../types.js'
-import { NOYDB_KEYRING_VERSION } from '../../types.js'
+import type { NoydbStore, KeyringFile } from '../../kernel/types.js'
+import { NOYDB_KEYRING_VERSION } from '../../kernel/types.js'
 import {
   deriveKey,
   generateSalt,
@@ -43,7 +43,7 @@ import type { ShamirRecoveryProvider } from './shamir-recovery-provider.js'
 import { assertStrongPassphrase, type PassphrasePolicy } from '../../validation.js'
 import type { UnlockedKeyring } from './keyring.js'
 import { mintKeyringCanary } from './keyring.js'
-import type { KeyringAuthenticator } from '../../types.js'
+import type { KeyringAuthenticator } from '../../kernel/types.js'
 import type { EnrollAuthenticatorOptions } from './authenticators.js'
 import { ValidationError } from '../../errors.js'
 

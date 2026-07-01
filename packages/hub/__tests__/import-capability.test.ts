@@ -19,7 +19,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import {
   ImportCapabilityError,
   evaluateImportCapability,

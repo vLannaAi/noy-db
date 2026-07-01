@@ -26,7 +26,7 @@
  * rather than impersonating the latent one.
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError, PermissionDeniedError, ReadOnlyError, PartitionExtractionError } from '../src/errors.js'
 import { extractPartition } from '../src/with-cargo/extract-partition.js'
 import { createNoydb } from '../src/noydb.js'

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { ConflictError } from '../src/errors.js'
 import { isQuorum, StoreCoordinationProvider } from '../src/kernel/coordination/index.js'
 import type { FenceState, WriterPresence } from '../src/kernel/coordination/index.js'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 
 function memStore(): NoydbStore {
   const s = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

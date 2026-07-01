@@ -12,7 +12,7 @@
  * sealed — the owner *credential* is.
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import type { NoydbStore, EncryptedEnvelope } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 import { ConflictError } from '../src/errors.js'
 import { MemorySealingKeyProvider } from '../src/with-party/team/managed-passphrase.js'
 import {

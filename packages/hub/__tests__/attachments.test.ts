@@ -7,7 +7,7 @@
  * still works end-to-end with the new naming and interfaces.
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, NoydbBundleStore } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, NoydbBundleStore } from '../src/kernel/types.js'
 import { ConflictError, BundleVersionConflictError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
 import { withBlobs } from '../src/with-shape/blobs/index.js'

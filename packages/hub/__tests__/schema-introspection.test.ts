@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { createNoydb } from '../src/noydb.js'
-import type { NoydbStore } from '../src/types.js'
+import type { NoydbStore } from '../src/kernel/types.js'
 import { memory } from '../../to-memory/src/index.js'
 import { withGuard } from '../src/with-audit/guards/with-guard.js'
 import { additiveOnly, coordinatedCutover } from '../src/with-shape/schema-update/index.js'

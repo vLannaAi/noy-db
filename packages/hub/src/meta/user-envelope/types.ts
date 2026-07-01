@@ -9,7 +9,7 @@ import { NoydbError } from '../../errors.js'
 
 /**
  * Thin reader view of a user envelope. The on-disk shape is the standard
- * {@link import('../../types.js').EncryptedEnvelope}; this is what callers
+ * {@link import('../../kernel/types.js').EncryptedEnvelope}; this is what callers
  * see after the storage layer has decrypted the payload.
  *
  * Hub commits to the `keyringId` ⇔ `userId` identity and the `_v` / `_ts`

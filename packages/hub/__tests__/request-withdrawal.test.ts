@@ -4,7 +4,7 @@
  * reviews and approves (extract-and-dispose under firm authority) or rejects.
  */
 import { describe, it, expect } from 'vitest'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/errors.js'
 import { createNoydb } from '../src/noydb.js'
 import { readNoydbBundle } from '../src/with-pod/bundle.js'

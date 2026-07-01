@@ -33,8 +33,8 @@
  *
  * @module
  */
-import type { NoydbStore, KeyringFile, Role } from '../../types.js'
-import { NOYDB_KEYRING_VERSION } from '../../types.js'
+import type { NoydbStore, KeyringFile, Role } from '../../kernel/types.js'
+import { NOYDB_KEYRING_VERSION } from '../../kernel/types.js'
 import { deriveKey, generateSalt, wrapKey, bufferToBase64 } from '../../kernel/enclave/crypto.js'
 import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError } from '../../errors.js'
 import { assertStrongPassphrase, type PassphrasePolicy } from '../../validation.js'

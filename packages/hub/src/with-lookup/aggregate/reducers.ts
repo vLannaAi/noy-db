@@ -26,7 +26,7 @@
 
 import { readPath } from '../../query/predicate.js'
 import type { MoneyString } from '../../with-shape/money/branded.js'
-import type { QueryField } from '../../types.js'
+import type { QueryField } from '../../kernel/types.js'
 
 /**
  * A single reducer: factory-produced, ready to plug into an

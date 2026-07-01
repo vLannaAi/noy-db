@@ -20,7 +20,7 @@ import { ValidationError } from '../errors.js'
 import { PERSONAL_POLICY, mergePolicy } from './presets.js'
 import { loadVaultPolicy, saveVaultPolicy } from './storage.js'
 import type { VaultPolicy } from './types.js'
-import type { NoydbStore, ReAuthOperation, SessionPolicy } from '../types.js'
+import type { NoydbStore, ReAuthOperation, SessionPolicy } from '../kernel/types.js'
 import type { PolicyEnforcer } from '../with-party/session/session-policy.js'
 import type { SessionStrategy } from '../with-party/session/strategy.js'
 
