@@ -1,13 +1,14 @@
 /**
  * Gate test for the cargo capability (S4). The source-side, owner-level
- * partition operations that take a live Vault — `extractPartition(vault, …)`
- * and `diffVault(vault, …)` — throw `CargoNotEnabledError` unless
- * `cargoStrategy: withCargo()` is passed to createNoydb; opting in makes them
- * live.
+ * partition operation that takes a live Vault — `extractPartition(vault, …)` —
+ * throws `CargoNotEnabledError` unless `cargoStrategy: withCargo()` is passed to
+ * createNoydb; opting in makes it live.
  *
  * Carve-out (openSealedRecord/liberateVault mirror): the recipient-side
  * `adoptPartition` / `decryptExtractedPartition` free functions operate on raw
  * bundle bytes (no source instance) and stay ungated — not covered here.
+ * `diffVault` is likewise ungated: it's shared import/merge infra the `as-*`
+ * exporters call internally, so it works WITHOUT opt-in (asserted below).
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb, ConflictError, CargoNotEnabledError, withCargo } from '../src/index.js'
@@ -56,18 +57,27 @@ function memory(): NoydbStore {
 }
 
 describe('cargo opt-in gate (S4)', () => {
-  it('throws CargoNotEnabledError for extractPartition / diffVault when not opted in', async () => {
+  it('throws CargoNotEnabledError for extractPartition when not opted in', async () => {
     const db = await createNoydb({ store: memory(), user: 'alice', secret: 'test-passphrase-1234' })
     const v = await db.openVault('co')
     const clients = v.collection<Client>('clients')
     await clients.put('c-1', { id: 'c-1', name: 'Acme' })
     await expect(extractPartition(v, { seeds: { clients: (r) => r['id'] === 'c-1' } }))
       .rejects.toThrow(CargoNotEnabledError)
-    await expect(diffVault(v, { clients: [{ id: 'c-1', name: 'Acme' }] }))
-      .rejects.toThrow(CargoNotEnabledError)
   })
 
-  it('works when opted in via withCargo()', async () => {
+  it('diffVault works WITHOUT opt-in (shared import/merge infra, not a gated cargo capability)', async () => {
+    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'test-passphrase-1234' })
+    const v = await db.openVault('co')
+    const clients = v.collection<Client>('clients')
+    await clients.put('c-1', { id: 'c-1', name: 'Acme' })
+
+    const diff = await diffVault(v, { clients: [{ id: 'c-1', name: 'Acme Corp' }] })
+    expect(diff).toBeDefined()
+    expect(diff.summary.modify).toBe(1)
+  })
+
+  it('extractPartition works when opted in via withCargo()', async () => {
     const db = await createNoydb({ store: memory(), user: 'alice', secret: 'test-passphrase-1234', cargoStrategy: withCargo() })
     const v = await db.openVault('co')
     const clients = v.collection<Client>('clients')
@@ -76,8 +86,5 @@ describe('cargo opt-in gate (S4)', () => {
     const extracted = await extractPartition(v, { seeds: { clients: (r) => r['id'] === 'c-1' } })
     expect(extracted.bundleBytes.byteLength).toBeGreaterThan(0)
     expect(extracted.transferKey.byteLength).toBe(32)
-
-    const diff = await diffVault(v, { clients: [{ id: 'c-1', name: 'Acme' }] })
-    expect(diff).toBeDefined()
   })
 })

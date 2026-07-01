@@ -1770,17 +1770,17 @@ export class SearchNotEnabledError extends NoydbError {
 }
 
 /**
- * Thrown when a source-side cargo operation — `extractPartition(vault, …)` or
- * `diffVault(vault, …)` — is called without opting into the cargo capability
- * (the default `NO_CARGO` stub). Cargo is an opt-in, tree-shakeable capability:
- * enable it with `cargoStrategy: withCargo()` from "@noy-db/hub/cargo" in
- * createNoydb(). The recipient-side `adoptPartition` / `decryptExtractedPartition`
- * free functions operate on raw bundle bytes (no source instance) and stay
- * ungated host-side tooling.
+ * Thrown when the source-side cargo operation — `extractPartition(vault, …)` —
+ * is called without opting into the cargo capability (the default `NO_CARGO`
+ * stub). Cargo is an opt-in, tree-shakeable capability: enable it with
+ * `cargoStrategy: withCargo()` from "@noy-db/hub/cargo" in createNoydb(). The
+ * recipient-side `adoptPartition` / `decryptExtractedPartition` free functions —
+ * and `diffVault` (shared import/merge infra) — operate without a gated source
+ * instance and stay ungated.
  */
 export class CargoNotEnabledError extends NoydbError {
   constructor(
-    message = 'Partition extraction / vault diff (extractPartition, diffVault) requires the ' +
+    message = 'Partition extraction (extractPartition) requires the ' +
       'cargo capability. Pass `cargoStrategy: withCargo()` from "@noy-db/hub/cargo" to createNoydb().',
   ) {
     super('CARGO_NOT_ENABLED', message)
