@@ -58,20 +58,20 @@
  *   - `scan().join(...)` — tracked under  (streaming join)
  */
 
-import type { QueryField } from '../kernel/types.js'
-import type { ReducerBuilder } from '../with-lookup/aggregate/reducers.js'
-import { reducerBuilder } from '../with-lookup/aggregate/reducers.js'
+import type { QueryField } from '../types.js'
+import type { ReducerBuilder } from '../../with-lookup/aggregate/reducers.js'
+import { reducerBuilder } from '../../with-lookup/aggregate/reducers.js'
 import type { Clause, FieldClause, Operator } from './predicate.js'
 import { evaluateClause, hasFnClause, readPath } from './predicate.js'
 import type {
   AggregateSpec,
   AggregateResult,
-} from '../with-lookup/aggregate/aggregation.js'
+} from '../../with-lookup/aggregate/aggregation.js'
 import type { JoinContext, JoinLeg, JoinableSource } from './join.js'
-import { DanglingReferenceError } from '../kernel/errors.js'
-import type { MoneyDescriptor } from '../with-shape/money/descriptor.js'
-import { decodeMoneyFields } from '../with-shape/money/normalize.js'
-import { moneyFieldClause } from '../with-shape/money/where.js'
+import { DanglingReferenceError } from '../errors.js'
+import type { MoneyDescriptor } from '../../with-shape/money/descriptor.js'
+import { decodeMoneyFields } from '../../with-shape/money/normalize.js'
+import { moneyFieldClause } from '../../with-shape/money/where.js'
 
 /**
  * Page provider — the Collection-shaped hook the builder calls to
