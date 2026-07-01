@@ -49,30 +49,9 @@ export interface ForgetStrategy {
  */
 export const NO_FORGET: ForgetStrategy = { subjects: {} }
 
-/**
- * Declare GDPR crypto-shred for one or more collections.
- *
- * Each declared collection is forced to `perRecordKeys: true` (a shred can
- * only guarantee erasure of a record whose body is keyed off a per-record
- * CEK). On write, Noydb extracts `record[subjectField]` and maintains an
- * encrypted `_subject_index` mapping `subject → [{collection, id}]`, so
- * `vault.forget(subjectId)` can find every record for a subject and rewrite
- * each to a tombstone (body + history permanently undecryptable) while the
- * collection DEK and every other record stay intact.
- *
- * @example
- * ```ts
- * createNoydb({
- *   secret, user,
- *   forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } }),
- * })
- * const result = await vault.forget('buyer-123')
- * // → { subject, recordsShredded, historyVersionsShredded, collections, … }
- * ```
- */
-export function withForgetCascade(opts: SubjectDeclaration): ForgetStrategy {
-  return { subjects: { ...opts.subjects } }
-}
+// The `withForgetCascade` factory lives in `active.ts` (canonical
+// strategy.ts/active.ts/index.ts split); this file holds only the
+// declaration shape + disabled sentinel.
 
 /**
  * The outcome of a `vault.forget(subjectId)` call.
