@@ -41,6 +41,7 @@ import type { SnapshotStrategy } from '../with-fork/snapshots/strategy.js'
 import type { AttestationStrategy } from '../with-audit/attestation/strategy.js'
 import type { TiersStrategy } from '../with-audit/tiers/strategy.js'
 import type { SealedRecordStrategy } from '../with-audit/sealed-record/strategy.js'
+import type { PortabilityStrategy } from '../with-audit/portability/strategy.js'
 import type { Layer } from '../with-shape/i18n/policy.js'
 import type { I18nStrategy } from '../with-shape/i18n/strategy.js'
 import type { SessionStrategy } from '../with-party/session/strategy.js'
@@ -2119,6 +2120,16 @@ export interface NoydbOptions {
    * only via opt-in. The host-side `openSealedRecord` opener stays ungated.
    */
   readonly sealedRecordStrategy?: SealedRecordStrategy
+  /**
+   * Tree-shake seam — optional portability (data-sovereignty) capability. Pass
+   * `withPortability()` from `@noy-db/hub/portability` to enable the
+   * `vault.user.*` export/withdrawal surface (`exportMyAccessibleData`,
+   * `unilateralWithdrawal`, `requestWithdrawal`, `listWithdrawalRequests`,
+   * `approveWithdrawal`, `rejectWithdrawal`). When omitted, all six throw
+   * `PortabilityNotEnabledError` and the export/withdraw/request engines are
+   * reached only via opt-in.
+   */
+  readonly portabilityStrategy?: PortabilityStrategy
   /**
    * Optional guard strategies — collection-level write guards. Each
    * handle is the output of `withGuard()` from `@noy-db/hub/guards`.

@@ -7,6 +7,7 @@ import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
+import { withPortability } from '../src/with-audit/portability/index.js'
 import { readNoydbBundle } from '../src/with-pod/bundle.js'
 
 function makeStore(): NoydbStore {
@@ -36,7 +37,7 @@ describe('#199 P1 — exportMyAccessibleData', () => {
   it('a client exports only their accessible collections, re-keyed', async () => {
     const store = makeStore()
     // Owner sets up two collections + grants a client RO on invoices only.
-    const owner = await createNoydb({ store, user: 'firm', secret: 'owner-pw-long-enough' })
+    const owner = await createNoydb({ store, user: 'firm', secret: 'owner-pw-long-enough', portabilityStrategy: withPortability() })
     const ov = await owner.openVault('acme')
     await ov.collection<{ id: string; total: number }>('invoices').put('i1', { id: 'i1', total: 100 })
     await ov.collection<{ id: string; note: string }>('secrets').put('s1', { id: 's1', note: 'internal' })
@@ -47,7 +48,7 @@ describe('#199 P1 — exportMyAccessibleData', () => {
     owner.close()
 
     // Client opens + exports their accessible scope, re-keyed to a new passphrase.
-    const client = await createNoydb({ store, user: 'client1', secret: 'client-pw-long-enough' })
+    const client = await createNoydb({ store, user: 'client1', secret: 'client-pw-long-enough', portabilityStrategy: withPortability() })
     const cv = await client.openVault('acme')
     const bytes = await cv.user.exportMyAccessibleData({ reKey: { passphrase: 'new-owner-pw' } })
 
@@ -59,7 +60,7 @@ describe('#199 P1 — exportMyAccessibleData', () => {
 
   it('owner export includes everything; scope.collections narrows it', async () => {
     const store = makeStore()
-    const owner = await createNoydb({ store, user: 'firm', secret: 'owner-pw-long-enough' })
+    const owner = await createNoydb({ store, user: 'firm', secret: 'owner-pw-long-enough', portabilityStrategy: withPortability() })
     const ov = await owner.openVault('acme')
     await ov.collection<{ id: string }>('invoices').put('i1', { id: 'i1' })
     await ov.collection<{ id: string }>('secrets').put('s1', { id: 's1' })

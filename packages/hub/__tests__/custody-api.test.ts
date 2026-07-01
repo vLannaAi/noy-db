@@ -30,6 +30,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel
 import { ConflictError, PermissionDeniedError, ReadOnlyError, PartitionExtractionError } from '../src/kernel/errors.js'
 import { extractPartition } from '../src/with-cargo/extract-partition.js'
 import { createNoydb } from '../src/kernel/noydb.js'
+import { withPortability } from '../src/with-audit/portability/index.js'
 import type { Noydb } from '../src/kernel/noydb.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { MemorySealingKeyProvider, resolveManagedSecret } from '../src/with-party/team/managed-passphrase.js'
@@ -120,7 +121,7 @@ describe('FR-6 Task 6 — vault.custody.* end-to-end acceptance walkthrough', ()
     ).resolves.not.toThrow()
 
     // ── 2. The custodian opens + reads/writes ALL collections ────────────────
-    const firmDb = await createNoydb({ store: adapter, user: 'firm-01', secret: 'firm-pass-long', historyStrategy: withHistory(), policy: POLICY })
+    const firmDb = await createNoydb({ store: adapter, user: 'firm-01', secret: 'firm-pass-long', historyStrategy: withHistory(), policy: POLICY, portabilityStrategy: withPortability() })
     const firmVault = await firmDb.openVault(VAULT)
     expect((await firmVault.collection<Invoice>('invoices').get('inv-001'))?.amount).toBe(5000)
     expect((await firmVault.collection<Invoice>('payments').get('pay-001'))?.amount).toBe(3000)
@@ -169,13 +170,13 @@ describe('FR-6 Task 6 — vault.custody.* end-to-end acceptance walkthrough', ()
     // collection — this writes a `user-unilateral-withdrawal:...` entry into the
     // SAME `vault.ledger()` the liberation later appends to.
     await ownerDb.grant(VAULT, { userId: 'op-01', displayName: 'Op', role: 'operator', passphrase: 'op-pass-long', permissions: { archive: 'rw' } })
-    const opDb = await createNoydb({ store: adapter, user: 'op-01', secret: 'op-pass-long', historyStrategy: withHistory(), policy: POLICY })
+    const opDb = await createNoydb({ store: adapter, user: 'op-01', secret: 'op-pass-long', historyStrategy: withHistory(), policy: POLICY, portabilityStrategy: withPortability() })
     const opVault = await opDb.openVault(VAULT)
     await opVault.user.unilateralWithdrawal({ legalBasis: 'partial-handover', disposition: 'freeze', scope: { collections: ['archive'] } })
 
     // Now mint the custodian + liberate via vault.custody.liberate.
     await ownerVault.custody.grantCustodian({ userId: 'firm-01', displayName: 'Firm', passphrase: 'firm-pass-long' })
-    const firmDb = await createNoydb({ store: adapter, user: 'firm-01', secret: 'firm-pass-long', historyStrategy: withHistory(), policy: POLICY })
+    const firmDb = await createNoydb({ store: adapter, user: 'firm-01', secret: 'firm-pass-long', historyStrategy: withHistory(), policy: POLICY, portabilityStrategy: withPortability() })
     const firmVault = await firmDb.openVault(VAULT)
 
     const result = await firmVault.custody.liberate({

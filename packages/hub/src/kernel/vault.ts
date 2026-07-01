@@ -26,9 +26,7 @@ import type { IndexDef } from '../with-lookup/indexing/eager-indexes.js'
 import type { JoinableSource } from './query/index.js'
 import type { OnDirtyCallback } from './collection.js'
 import type { UnlockedKeyring, BundleRecipient } from '../with-party/team/keyring.js'
-import { exportAccessibleData } from '../with-audit/portability/export-accessible.js'
-import { withdrawAccessibleData } from '../with-audit/portability/withdraw-accessible.js'
-import { requestWithdrawal, listWithdrawalRequests, approveWithdrawal, rejectWithdrawal } from '../with-audit/portability/request-withdrawal.js'
+import { NO_PORTABILITY, type PortabilityStrategy } from '../with-audit/portability/strategy.js'
 import type { MaterializedViewRegistry } from '../with-formula/materialized-views/registry.js'
 import type { MaterializedViewStrategyHandle, MVQueryContext } from '../with-formula/materialized-views/types.js'
 import type { OverlayedViewRegistry } from '../with-formula/overlay-views/registry.js'
@@ -230,6 +228,7 @@ export class Vault {
   private readonly crdtStrategy: CrdtStrategy | undefined
   private readonly tiersStrategy: TiersStrategy | undefined
   private readonly sealedRecordStrategy: SealedRecordStrategy
+  private readonly portabilityStrategy: PortabilityStrategy
   private readonly consentStrategy: ConsentStrategy
   private readonly periods: VaultPeriods
   private readonly linksEnforcer: VaultLinks
@@ -533,6 +532,7 @@ export class Vault {
     forgetStrategy?: ForgetStrategy | undefined
     attestationStrategy?: AttestationStrategy | undefined
     sealedRecordStrategy?: SealedRecordStrategy | undefined
+    portabilityStrategy?: PortabilityStrategy | undefined
     /** Vault-level descriptive metadata — set once at construction (first-wins). */
     meta?: VaultMeta | undefined
   }) {
@@ -562,6 +562,7 @@ export class Vault {
     this.crdtStrategy = opts.crdtStrategy
     this.tiersStrategy = opts.tiersStrategy
     this.sealedRecordStrategy = opts.sealedRecordStrategy ?? NO_SEALED_RECORD
+    this.portabilityStrategy = opts.portabilityStrategy ?? NO_PORTABILITY
     this.consentStrategy = opts.consentStrategy ?? NO_CONSENT
     this.periods = new VaultPeriods({
       strategy: opts.periodsStrategy ?? NO_PERIODS,
@@ -634,12 +635,12 @@ export class Vault {
       this.keyring.userId,
       () => this.getDEK(USER_ENVELOPE_COLLECTION),
       (gate, presented) => this.noydb.checkGate(this.name, gate, presented),
-      (opts) => exportAccessibleData(this, opts),
-      (opts) => withdrawAccessibleData(this, opts),
-      (opts) => requestWithdrawal(this, opts),
-      (opts) => listWithdrawalRequests(this, opts),
-      (requestId, opts) => approveWithdrawal(this, requestId, opts),
-      (requestId, opts) => rejectWithdrawal(this, requestId, opts),
+      (opts) => this.portabilityStrategy.exportAccessibleData(this, opts),
+      (opts) => this.portabilityStrategy.withdrawAccessibleData(this, opts),
+      (opts) => this.portabilityStrategy.requestWithdrawal(this, opts),
+      (opts) => this.portabilityStrategy.listWithdrawalRequests(this, opts),
+      (requestId, opts) => this.portabilityStrategy.approveWithdrawal(this, requestId, opts),
+      (requestId, opts) => this.portabilityStrategy.rejectWithdrawal(this, requestId, opts),
     )
 
     // FR-6 custody API — mirrors the UserApi injection pattern: vault-bound

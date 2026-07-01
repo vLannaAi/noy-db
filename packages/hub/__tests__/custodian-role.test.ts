@@ -15,6 +15,7 @@ import { ConflictError, PermissionDeniedError, ReadOnlyError } from '../src/kern
 import { createNoydb } from '../src/kernel/noydb.js'
 import type { Noydb } from '../src/kernel/noydb.js'
 import { withTiers } from '../src/with-audit/tiers/index.js'
+import { withPortability } from '../src/with-audit/portability/index.js'
 import { checkGate, PolicyDeniedError } from '../src/kernel/policy/index.js'
 import { putCredential } from '../src/with-party/team/sync-credentials.js'
 import { extractPartition } from '../src/with-cargo/extract-partition.js'
@@ -187,7 +188,7 @@ describe('FR-6 Task 2 — custodian blocked from rotate / sever / extract', () =
     await ownerDb.grant(COMP, {
       userId: 'cust-01', displayName: 'Custodian', role: 'custodian', passphrase: 'cust-pass',
     })
-    custodianDb = await createNoydb({ store: adapter, user: 'cust-01', secret: 'cust-pass' })
+    custodianDb = await createNoydb({ store: adapter, user: 'cust-01', secret: 'cust-pass', portabilityStrategy: withPortability() })
   })
 
   it('(a) custodian cannot rotate keys', async () => {
