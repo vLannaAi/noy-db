@@ -390,6 +390,108 @@ function scanFileForStrategyOptIn(file, content) {
   }
 }
 
+// ─── Check 5b: every service ships a withX() gate ──────────────────────
+//
+// The STRUCTURAL companion to the per-file scan above. That scan checks
+// that a consumer references `withX()`; this one guarantees the withX()
+// actually exists — i.e. every archetype-①/② service folder under
+// packages/hub/src/with-*/ ships an opt-in gate. Without it a service
+// could quietly go always-on (no factory at all) and the per-file scan
+// would never fire because there'd be nothing to look for.
+//
+// Rule: every `with-<dim>/<service>/` sub-folder — and every `with-<dim>`
+// dim that has NO sub-folders (the dim IS the service, e.g. with-cargo) —
+// must export a `with*()` factory, UNLESS it is on the exempt list below.
+//
+// Exemptions (verified 2026-07-02) fall in three buckets:
+//   ③ schema features — declared on `collection({ … })`, not a global
+//     strategy; the collection IS the opt-in unit, impl lazy-imported
+//     from the schema declaration (see docs/subsystems/<x>.md):
+//       with-formula/computed          computed({…}) field evaluator
+//       with-shape/introspection       describe()/dumpVaultSchema — read-only schema surface
+//       with-shape/links               link()/backlink schema refs
+//       with-shape/money               money() field descriptor
+//       with-shape/persisted-schemas   schema-persistence infra behind collection()
+//       with-shape/schema-update       per-collection migration strategies
+//   always-on infra — no discrete capability to gate:
+//       with-party/directory           user directory; defaults ON, called unconditionally in core keyring flows
+//       with-pod                       writeNoydbBundle/vault.dump — internal backup primitive used by snapshots/portability/cargo/backup
+//   sub-parts of an already-gated service (covered by another withX):
+//       with-lookup/embeddings         vector compute folded into withSearch()
+//       with-party/sync                sync impl behind team's withSync()
+//       with-party/auth-introspection  read-only describe/diagram surface (no instance to gate)
+//
+// NOTE — the ungated host-side free-function carve-outs (openSealedRecord,
+// adoptPartition, decryptExtractedPartition, liberateVault, diffVault) take
+// raw bytes / are shared import-merge infra with no live vault instance to
+// gate, so they intentionally have no withX(). They aren't their own
+// with-* service folder, so this scan never sees them — noted here for the
+// reader who wonders why they're absent from the list.
+const SCHEMA_DECLARED_OR_INFRA_EXEMPT = new Set([
+  'with-formula/computed',
+  'with-shape/introspection',
+  'with-shape/links',
+  'with-shape/money',
+  'with-shape/persisted-schemas',
+  'with-shape/schema-update',
+  'with-party/directory',
+  'with-pod',
+  'with-lookup/embeddings',
+  'with-party/sync',
+  'with-party/auth-introspection',
+])
+
+// Does any .ts file in `dir` (recursively) export a `with*()` factory —
+// as a function/const declaration or a re-export? `with[A-Z]` requires the
+// lowercase-`with` factory spelling, so it won't match a `WithXOptions`
+// type. Recursion is intentional: a service's factory may live in an
+// `active.ts` or a nested helper (e.g. with-commit/history/ledger).
+function exportsWithFactory(dir) {
+  let found = false
+  walkTsFiles(dir, (_file, content) => {
+    if (found) return
+    const code = stripComments(content)
+    if (
+      /export\s+(?:async\s+)?function\s+with[A-Z]\w*/.test(code) ||
+      /export\s+const\s+with[A-Z]\w*\s*[:=]/.test(code) ||
+      /export\s*(?:type\s*)?\{[^}]*\bwith[A-Z]\w*\b[^}]*\}/.test(code)
+    ) {
+      found = true
+    }
+  })
+  return found
+}
+
+function requireServiceGate(id, dir) {
+  if (SCHEMA_DECLARED_OR_INFRA_EXEMPT.has(id)) return
+  if (exportsWithFactory(dir)) return
+  fail(
+    'strategy-opt-in',
+    `service '${id}' exports no with*() factory. Every archetype-①/② service must ship a withX() opt-in gate (see the recipe in with-fork/snapshots). If it is genuinely a ③ schema feature or always-on infra, add it to SCHEMA_DECLARED_OR_INFRA_EXEMPT with a one-line reason.`,
+    dir,
+  )
+}
+
+function checkEveryServiceGated() {
+  const hubSrc = join(PACKAGES_DIR, 'hub', 'src')
+  const dims = readdirSync(hubSrc, { withFileTypes: true })
+    .filter(e => e.isDirectory() && e.name.startsWith('with-'))
+  for (const dim of dims) {
+    const dimPath = join(hubSrc, dim.name)
+    const subFolders = readdirSync(dimPath, { withFileTypes: true })
+      .filter(e => e.isDirectory() && e.name !== 'node_modules' && e.name !== 'dist')
+    if (subFolders.length === 0) {
+      // The dim itself is the service (e.g. with-cargo, with-pod).
+      requireServiceGate(dim.name, dimPath)
+    } else {
+      // A namespace dim — each leaf sub-folder is a service.
+      for (const sub of subFolders) {
+        requireServiceGate(`${dim.name}/${sub.name}`, join(dimPath, sub.name))
+      }
+    }
+  }
+}
+
 // ─── Check 6: kernel-surface ceiling ───────────────────────────────────
 
 // The always-on orchestration files (loaded by every `createNoydb`) must not
@@ -819,6 +921,7 @@ checkNoCryptoDeps()
 checkHubPortable()
 checkStoresCiphertextOnly()
 checkStrategyOptIns()
+checkEveryServiceGated()
 checkKernelSurface()
 checkNoDebugPlaintextInSource()
 checkNoOutboundKlumImport()
