@@ -6,6 +6,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
+import { withCargo } from '../src/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
@@ -64,7 +65,7 @@ function memory(): NoydbStore {
 interface Client { id: string; name: string; operatorUserId: string }
 
 async function srcVault() {
-  const db = await createNoydb({ store: memory(), user: 'alice', secret: 'pw-1234', historyStrategy: withHistory() })
+  const db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'pw-1234', historyStrategy: withHistory() })
   const c = await db.openVault('demo-co')
   await c.collection<Client>('clients').put('c-1', { id: 'c-1', name: 'Hotel', operatorUserId: 'belle' })
   return c
@@ -79,7 +80,7 @@ describe('destination lifecycle ledger entries (#226)', () => {
     await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'acme' })
     await createOwnerOnAdoptedPartition(dest, 'acme', { userId: 'belle', passphrase: 'belle-2026', transferKey })
 
-    const db = await createNoydb({ store: dest, user: 'belle', secret: 'belle-2026', historyStrategy: withHistory() })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store: dest, user: 'belle', secret: 'belle-2026', historyStrategy: withHistory() })
     const vault = await db.openVault('acme')
     const entries = await vault._getLedgerOrNull()!.loadAllEntries()
 
@@ -120,7 +121,7 @@ describe('destination lifecycle ledger entries (#226)', () => {
     armed = false
     await createOwnerOnAdoptedPartition(flakyDest, 'acme', { userId: 'belle', passphrase: 'belle-2026', transferKey })
 
-    const db = await createNoydb({ store: dest, user: 'belle', secret: 'belle-2026', historyStrategy: withHistory() })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store: dest, user: 'belle', secret: 'belle-2026', historyStrategy: withHistory() })
     const vault = await db.openVault('acme')
     const entries = await vault._getLedgerOrNull()!.loadAllEntries()
 

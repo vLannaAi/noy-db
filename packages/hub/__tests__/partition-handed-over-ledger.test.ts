@@ -5,6 +5,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
+import { withCargo } from '../src/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
@@ -63,7 +64,7 @@ interface Client { id: string; name: string; operatorUserId: string }
 
 describe('lifecycle ledger op', () => {
   it('a lifecycle entry does not break verifyBackupIntegrity', async () => {
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'pw-1234', historyStrategy: withHistory() })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'pw-1234', historyStrategy: withHistory() })
     const vault = await db.openVault('demo')
     await vault.collection<{ id: string }>('items').put('i-1', { id: 'i-1' })
 
@@ -77,7 +78,7 @@ describe('lifecycle ledger op', () => {
 
 describe('extractPartition source ledger audit', () => {
   it('appends partition-handed-over:<sealId> to the source ledger', async () => {
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'pw-1234', historyStrategy: withHistory() })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'pw-1234', historyStrategy: withHistory() })
     const company = await db.openVault('demo-co')
     await company.collection<Client>('clients').put('c-1', { id: 'c-1', name: 'Hotel', operatorUserId: 'belle' })
 
@@ -93,7 +94,7 @@ describe('extractPartition source ledger audit', () => {
   })
 
   it('is a no-op when the source vault has no history strategy', async () => {
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'pw-1234' })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'pw-1234' })
     const company = await db.openVault('demo-co')
     await company.collection<Client>('clients').put('c-1', { id: 'c-1', name: 'A', operatorUserId: 'belle' })
 

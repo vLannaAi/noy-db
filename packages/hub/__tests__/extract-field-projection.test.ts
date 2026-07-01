@@ -11,6 +11,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
+import { withCargo } from '../src/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import { extractPartition } from '../src/with-cargo/extract-partition.js'
@@ -70,7 +71,7 @@ interface Note { id: string; title: string; body: string }
 
 describe('extractPartition — fieldProjection (structural redaction)', () => {
   it('drops non-listed fields from a projected collection; keeps all fields on a non-projected one', async () => {
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'test-passphrase-1234' })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'test-passphrase-1234' })
     const company = await db.openVault('demo-co')
 
     const clients = company.collection<Client>('clients')
@@ -104,7 +105,7 @@ describe('extractPartition — fieldProjection (structural redaction)', () => {
   })
 
   it('applies projection on the per-record-CEK branch (perRecordKeys: true)', async () => {
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'test-passphrase-1234' })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'test-passphrase-1234' })
     const company = await db.openVault('demo-co')
 
     const clients = company.collection<Client>('clients', { perRecordKeys: true })
@@ -126,7 +127,7 @@ describe('extractPartition — fieldProjection (structural redaction)', () => {
   })
 
   it('always preserves id even when id is not listed in the projection', async () => {
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'test-passphrase-1234' })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'test-passphrase-1234' })
     const company = await db.openVault('demo-co')
 
     const clients = company.collection<Client>('clients')

@@ -3,9 +3,11 @@
   "source": "src/with-cargo/index.ts",
   "floor": "src/kernel/index.ts (re-exported via `export *`)",
   "values": [
+    "CargoNotEnabledError",
     "CrossShardJoinError",
     "CustodyApi",
     "DataResidencyError",
+    "NO_CARGO",
     "NoAccessError",
     "ReservedVaultNameError",
     "STATE_VAULT_NAME",
@@ -25,12 +27,14 @@
     "readPath",
     "reduceRecords",
     "runDrainBarrier",
-    "sha256Hex"
+    "sha256Hex",
+    "withCargo"
   ],
   "types": [
     "AccessibleVault",
     "AggregateResult",
     "AggregateSpec",
+    "CargoStrategy",
     "ChangeEvent",
     "Collection",
     "CollectionMeta",

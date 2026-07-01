@@ -6,6 +6,7 @@
 import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
 import { createNoydb } from '../src/kernel/noydb.js'
+import { withCargo } from '../src/index.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import { generateDEK, decrypt } from '../src/kernel/enclave/crypto.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
@@ -68,7 +69,7 @@ const ClientSchema = z.object({ id: z.string(), name: z.string(), operatorUserId
 
 /** A vault with a schema-persisting `clients` collection holding one record. */
 async function vaultWithSchema() {
-  const db = await createNoydb({ store: memory(), user: 'alice', secret: 'test-passphrase-1234' })
+  const db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'test-passphrase-1234' })
   const c = await db.openVault('demo-co')
   c.collection<Client>('clients', { schema: ClientSchema, persistJsonSchema: true })
   await c.collection<Client>('clients').put('c-1', { id: 'c-1', name: 'Hotel', operatorUserId: 'belle' })
@@ -102,7 +103,7 @@ function delayedSchemaMemory(): NoydbStore {
 
 describe('extractPartition({ carrySchemas: true })', () => {
   it('drains pending persisted-schema writes so the bundle never misses an in-flight schema', async () => {
-    const db = await createNoydb({ store: delayedSchemaMemory(), user: 'alice', secret: 'test-passphrase-1234' })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store: delayedSchemaMemory(), user: 'alice', secret: 'test-passphrase-1234' })
     const c = await db.openVault('demo-co')
     c.collection<Client>('clients', { schema: ClientSchema, persistJsonSchema: true })
     await c.collection<Client>('clients').put('c-1', { id: 'c-1', name: 'Hotel', operatorUserId: 'belle' })
@@ -127,7 +128,7 @@ describe('reKeySchemas', () => {
   })
 
   it('returns an empty map when no closure collection has a persisted schema', async () => {
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'test-passphrase-1234' })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'test-passphrase-1234' })
     const company = await db.openVault('demo-co')
     await company.collection<Client>('clients').put('c-1', { id: 'c-1', name: 'A', operatorUserId: 'belle' })
     const schemas = await reKeySchemas(company, new Map([['clients', new Set(['c-1'])]]), new Map([['clients', await generateDEK()]]))
@@ -178,7 +179,7 @@ describe('carrySchemas full ceremony', () => {
     await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'acme' })
     await createOwnerOnAdoptedPartition(dest, 'acme', { userId: 'belle', passphrase: 'belle-2026', transferKey })
 
-    const recipientDb = await createNoydb({ store: dest, user: 'belle', secret: 'belle-2026' })
+    const recipientDb = await createNoydb({ cargoStrategy: withCargo(), store: dest, user: 'belle', secret: 'belle-2026' })
     const vault = await recipientDb.openVault('acme')
     const clientsDek = await vault._introspectState().getDEK('clients')
     const schema = await loadPersistedSchema(dest, 'acme', 'clients', clientsDek)

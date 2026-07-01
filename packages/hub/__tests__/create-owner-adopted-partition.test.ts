@@ -5,6 +5,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
+import { withCargo } from '../src/index.js'
 import { ref } from '../src/kernel/refs.js'
 import { ConflictError, AdoptionStateError } from '../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
@@ -63,7 +64,7 @@ function memory(): NoydbStore {
 interface Client { id: string; name: string; operatorUserId: string }
 
 async function makeExtractedBundle() {
-  const db = await createNoydb({ store: memory(), user: 'alice', secret: 'test-passphrase-1234' })
+  const db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'test-passphrase-1234' })
   const company = await db.openVault('demo-co')
   const clients = company.collection<Client>('clients')
   const bills = company.collection<{ id: string; clientId: string }>('bills', { refs: { clientId: ref('clients') } })
@@ -133,7 +134,7 @@ describe('full ceremony end-to-end', () => {
       userId: 'belle', passphrase: 'belle-hotel-dept-2026', transferKey,
     })
 
-    const recipientDb = await createNoydb({ store: dest, user: 'belle', secret: 'belle-hotel-dept-2026' })
+    const recipientDb = await createNoydb({ cargoStrategy: withCargo(), store: dest, user: 'belle', secret: 'belle-hotel-dept-2026' })
     const vault = await recipientDb.openVault('acme')
 
     const client = await vault.collection<Client>('clients').get('c-1')

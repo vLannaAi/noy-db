@@ -12,6 +12,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
+import { withCargo } from '../src/index.js'
 import type { Noydb } from '../src/kernel/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
@@ -77,7 +78,7 @@ describe('decryptExtractedPartition', () => {
   let transferKey: Uint8Array
 
   beforeEach(async () => {
-    db = await createNoydb({ store: memory(), user: 'alice', secret: 'test-passphrase-1234' })
+    db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'test-passphrase-1234' })
     const company = await db.openVault('demo-co')
 
     const clients = company.collection<Client>('clients')
@@ -147,7 +148,7 @@ describe('decryptExtractedPartition — per-record CEK branch', () => {
    * body — this test proves the full round-trip.
    */
   it('decrypts a per-record-CEK record alongside a normal record', async () => {
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'test-passphrase-1234' })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'test-passphrase-1234' })
     const company = await db.openVault('demo-co')
 
     // CEK collection: each record stores a wrapped _cek in its envelope.
@@ -192,7 +193,7 @@ describe('decryptExtractedPartition — per-record CEK branch', () => {
 
 describe('decryptExtractedPartition — provenance source surfacing (FR-5 Task 3b)', () => {
   it('DecryptedRecord carries source/sourceTs when the source record was put with a source', async () => {
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'test-passphrase-1234' })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'test-passphrase-1234' })
     const company = await db.openVault('demo-co')
 
     const clients = company.collection<Client>('clients', { provenance: true })

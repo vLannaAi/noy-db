@@ -12,6 +12,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
+import { withCargo } from '../src/index.js'
 import { ref } from '../src/kernel/refs.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, KeyringFile } from '../src/kernel/types.js'
@@ -93,7 +94,7 @@ describe('extractPartition blob carriage — round-trip', () => {
   for (const erasable of [true, false] as const) {
     it(`cover survives extract → adopt → own, byte-identical (${erasable ? 'erasable' : 'legacy'})`, async () => {
       const src = memory()
-      const db = await createNoydb({ store: src, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+      const db = await createNoydb({ cargoStrategy: withCargo(), store: src, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
       const company = await db.openVault('demo-co')
       const docs = company.collection<Doc>('docs', erasable ? { perRecordKeys: true } : {})
       await docs.put('d1', { id: 'd1', title: 'Report' })
@@ -110,7 +111,7 @@ describe('extractPartition blob carriage — round-trip', () => {
         userId: 'belle', passphrase: 'belle-pass-phrase-2026', transferKey,
       })
 
-      const recipientDb = await createNoydb({ store: dest, user: 'belle', secret: 'belle-pass-phrase-2026', blobStrategy: withBlobs() })
+      const recipientDb = await createNoydb({ cargoStrategy: withCargo(), store: dest, user: 'belle', secret: 'belle-pass-phrase-2026', blobStrategy: withBlobs() })
       const vault = await recipientDb.openVault('fresh')
       const got = await vault.collection<Doc>('docs', erasable ? { perRecordKeys: true } : {}).blob('d1').get('cover.png')
       expect(got).not.toBeNull()
@@ -124,7 +125,7 @@ describe('extractPartition blob carriage — round-trip', () => {
 describe('extractPartition blob carriage — HARDENED isolation property', () => {
   it('the sealed transfer `_blob` DEK decrypts ONLY the carried slice, NOT a source blob outside the slice', async () => {
     const src = memory()
-    const db = await createNoydb({ store: src, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store: src, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
     const company = await db.openVault('demo-co')
     const docs = company.collection<Doc>('docs', { perRecordKeys: true })
     await docs.put('d1', { id: 'd1', title: 'In slice' })
@@ -184,7 +185,7 @@ describe('extractPartition blob carriage — HARDENED isolation property', () =>
 describe('extractPartition blob carriage — selective carriage', () => {
   it('fieldProjection drops a projected-out blob field (its blob does not travel)', async () => {
     const src = memory()
-    const db = await createNoydb({ store: src, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store: src, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
     const company = await db.openVault('demo-co')
     const docs = company.collection<Doc>('docs', { perRecordKeys: true })
     await docs.put('d1', { id: 'd1', title: 'Report' })
@@ -203,7 +204,7 @@ describe('extractPartition blob carriage — selective carriage', () => {
       userId: 'belle', passphrase: 'belle-pass-phrase-2026', transferKey,
     })
 
-    const recipientDb = await createNoydb({ store: dest, user: 'belle', secret: 'belle-pass-phrase-2026', blobStrategy: withBlobs() })
+    const recipientDb = await createNoydb({ cargoStrategy: withCargo(), store: dest, user: 'belle', secret: 'belle-pass-phrase-2026', blobStrategy: withBlobs() })
     const vault = await recipientDb.openVault('fresh')
     const slot = vault.collection<Doc>('docs', { perRecordKeys: true }).blob('d1')
     expect(decode((await slot.get('cover'))!)).toBe('kept cover bytes')
@@ -216,7 +217,7 @@ describe('extractPartition blob carriage — selective carriage', () => {
 
   it('a blob referenced only by an out-of-closure record does not travel', async () => {
     const src = memory()
-    const db = await createNoydb({ store: src, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store: src, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
     const company = await db.openVault('demo-co')
     const docs = company.collection<Doc>('docs', { perRecordKeys: true })
     await docs.put('d1', { id: 'd1', title: 'In' })
@@ -235,7 +236,7 @@ describe('extractPartition blob carriage — selective carriage', () => {
       userId: 'belle', passphrase: 'belle-pass-phrase-2026', transferKey,
     })
 
-    const recipientDb = await createNoydb({ store: dest, user: 'belle', secret: 'belle-pass-phrase-2026', blobStrategy: withBlobs() })
+    const recipientDb = await createNoydb({ cargoStrategy: withCargo(), store: dest, user: 'belle', secret: 'belle-pass-phrase-2026', blobStrategy: withBlobs() })
     const vault = await recipientDb.openVault('fresh')
     const docsR = vault.collection<Doc>('docs', { perRecordKeys: true })
     expect(decode((await docsR.blob('d1').get('cover.png'))!)).toBe('in-slice cover')
@@ -251,7 +252,7 @@ describe('extractPartition blob carriage — selective carriage', () => {
 describe('extractPartition blob carriage — refCount + no-blob', () => {
   it('the carried BlobObject refCount reflects carried references only', async () => {
     const src = memory()
-    const db = await createNoydb({ store: src, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store: src, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
     const company = await db.openVault('demo-co')
     const docs = company.collection<Doc>('docs', { perRecordKeys: true })
     // Two records share identical bytes → source refCount 2; only d1 is carried.
@@ -278,7 +279,7 @@ describe('extractPartition blob carriage — refCount + no-blob', () => {
 
   it('a no-blob partition extracts/adopts cleanly and mints no `_blob` DEK (source keyring untouched)', async () => {
     const src = memory()
-    const db = await createNoydb({ store: src, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store: src, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
     const company = await db.openVault('demo-co')
     const docs = company.collection<Doc>('docs')
     const lines = company.collection<Line>('lines', { refs: { docId: ref('docs') } })
@@ -308,7 +309,7 @@ describe('extractPartition blob carriage — refCount + no-blob', () => {
     await createOwnerOnAdoptedPartition(dest, 'fresh', {
       userId: 'belle', passphrase: 'belle-pass-phrase-2026', transferKey,
     })
-    const recipientDb = await createNoydb({ store: dest, user: 'belle', secret: 'belle-pass-phrase-2026', blobStrategy: withBlobs() })
+    const recipientDb = await createNoydb({ cargoStrategy: withCargo(), store: dest, user: 'belle', secret: 'belle-pass-phrase-2026', blobStrategy: withBlobs() })
     const vault = await recipientDb.openVault('fresh')
     expect(await vault.collection<Doc>('docs').get('d1')).toMatchObject({ id: 'd1', title: 'No blobs here' })
     expect(await vault.collection<Doc>('docs').blob('d1').get('cover.png')).toBeNull()

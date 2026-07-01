@@ -45,6 +45,7 @@ import type { PortabilityStrategy } from '../with-audit/portability/strategy.js'
 import type { SequenceStrategy } from '../with-commit/sequence/strategy.js'
 import type { CustodyStrategy } from '../with-party/custody/strategy.js'
 import type { SearchStrategy } from '../with-lookup/search/strategy.js'
+import type { CargoStrategy } from '../with-cargo/strategy.js'
 import type { Layer } from '../with-shape/i18n/policy.js'
 import type { I18nStrategy } from '../with-shape/i18n/strategy.js'
 import type { SessionStrategy } from '../with-party/session/strategy.js'
@@ -2162,6 +2163,16 @@ export interface NoydbOptions {
    * (a vector no gated retrieval could read would be dead weight).
    */
   readonly searchStrategy?: SearchStrategy
+  /**
+   * Tree-shake seam — optional cargo (partition extraction / vault diff)
+   * capability (FR-6/FR-7). Pass `withCargo()` from `@noy-db/hub/cargo` to
+   * enable the source-side `extractPartition(vault, …)` and `diffVault(vault,
+   * …)` free functions. When omitted, those throw `CargoNotEnabledError` and the
+   * extraction crypto + diff walk are reached only via opt-in. The recipient-
+   * side `adoptPartition` / `decryptExtractedPartition` free functions operate
+   * on raw bundle bytes and stay ungated host-side tooling.
+   */
+  readonly cargoStrategy?: CargoStrategy
   /**
    * Optional guard strategies — collection-level write guards. Each
    * handle is the output of `withGuard()` from `@noy-db/hub/guards`.

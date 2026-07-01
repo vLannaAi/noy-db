@@ -644,7 +644,13 @@ const KERNEL_SURFACE_BUDGET = {
   // `searchStrategy` field + ctor option-type field + a plain assignment + one import line + one
   // pass-into-collection spread (+5). The search/retrieval engine + the embedding write-hook are
   // reached only via the lazy `with-lookup/search/active.ts` chunk (dynamic import of the facade).
-  'packages/hub/src/kernel/vault.ts': 3846,
+  // Bumped 3846→3855 (S4 Task 9: gate cargo behind withCargo()): the `extractPartition` /
+  // `diffVault` free functions take a `Vault`, so the Vault carries a PUBLIC `cargoStrategy` field
+  // they route through — a `?? NO_CARGO` assignment + ctor option-type field + one import + the
+  // field's doc comment (+9). The extraction crypto + diff walk are reached only via the lazy
+  // `with-cargo/active.ts` chunk (which dynamically imports `extractPartitionCore`/`diffVaultCore`;
+  // the crypto body is unchanged).
+  'packages/hub/src/kernel/vault.ts': 3855,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
@@ -719,7 +725,10 @@ const KERNEL_SURFACE_BUDGET = {
   // `searchStrategy` from createNoydb options into the three Vault-construction option spreads
   // (async openVault + both sync vault() paths). Public opt-in API surface; the search/retrieval
   // engine + embedding write-hook live in the lazy `with-lookup/search/active.ts` chunk.
-  'packages/hub/src/kernel/noydb.ts': 2318,
+  // Bumped 2318→2321 (S4 Task 9: gate cargo behind withCargo()): thread the opt-in `cargoStrategy`
+  // from createNoydb options into the three Vault-construction option spreads. Public opt-in API
+  // surface; the extraction crypto + diff walk live in the lazy `with-cargo/active.ts` chunk.
+  'packages/hub/src/kernel/noydb.ts': 2321,
 }
 
 function checkKernelSurface() {
