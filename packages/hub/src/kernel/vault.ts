@@ -123,9 +123,6 @@ import {
 } from '../with-audit/periods/index.js'
 import { encrypt, decrypt } from './enclave/crypto.js'
 import {
-  sealRecordToHost as sealRecordToHostImpl,
-  revokeSealedRecord as revokeSealedRecordImpl,
-  rotateRecordCek as rotateRecordCekImpl,
   SEALED_CEK_NS,
   type SealingContext,
 } from './enclave/record-keys/index.js'
@@ -154,6 +151,7 @@ import { loadFence, type FenceDoc } from '../with-shape/schema-update/fence.js'
 import type { SchemaUpdateStrategy, UpdateDecision, TransformFn } from '../with-shape/schema-update/types.js'
 import type { AttestationFieldSchema, RevocationList } from '@noy-db/attestation'
 import { VaultAttestation, NO_ATTESTATION, type AttestationStrategy } from '../with-audit/attestation/vault-facade.js'
+import { NO_SEALED_RECORD, type SealedRecordStrategy } from '../with-audit/sealed-record/strategy.js'
 import type { DumpSchemaOptions, VaultSchemaSnapshot, SchemaIntrospection } from '../with-shape/introspection/types.js'
 import { dumpVaultSchema, type VaultIntrospectState } from '../with-shape/introspection/walk.js'
 import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
@@ -231,6 +229,7 @@ export class Vault {
   private readonly aggregateStrategy: AggregateStrategy | undefined
   private readonly crdtStrategy: CrdtStrategy | undefined
   private readonly tiersStrategy: TiersStrategy | undefined
+  private readonly sealedRecordStrategy: SealedRecordStrategy
   private readonly consentStrategy: ConsentStrategy
   private readonly periods: VaultPeriods
   private readonly linksEnforcer: VaultLinks
@@ -533,6 +532,7 @@ export class Vault {
     numberingConfigs?: ReadonlyArray<DeferredNumberingConfig> | undefined
     forgetStrategy?: ForgetStrategy | undefined
     attestationStrategy?: AttestationStrategy | undefined
+    sealedRecordStrategy?: SealedRecordStrategy | undefined
     /** Vault-level descriptive metadata — set once at construction (first-wins). */
     meta?: VaultMeta | undefined
   }) {
@@ -561,6 +561,7 @@ export class Vault {
     this.aggregateStrategy = opts.aggregateStrategy
     this.crdtStrategy = opts.crdtStrategy
     this.tiersStrategy = opts.tiersStrategy
+    this.sealedRecordStrategy = opts.sealedRecordStrategy ?? NO_SEALED_RECORD
     this.consentStrategy = opts.consentStrategy ?? NO_CONSENT
     this.periods = new VaultPeriods({
       strategy: opts.periodsStrategy ?? NO_PERIODS,
@@ -2447,7 +2448,7 @@ export class Vault {
     hostSealer: RecipientSealer,
     opts: { expiresAt: string },
   ): Promise<{ pid: string; envelopeKey: string }> {
-    return sealRecordToHostImpl(this.sealingContext(), collection, id, hostSealer, opts)
+    return this.sealedRecordStrategy.sealRecordToHost(this.sealingContext(), collection, id, hostSealer, opts)
   }
 
   /**
@@ -2458,7 +2459,7 @@ export class Vault {
    * longer open the record. See `revokeSealedRecord` in `record-keys/sealing.ts`.
    */
   async revokeSealedRecord(collection: string, id: string, pid: string, opts?: { hard?: boolean }): Promise<void> {
-    return revokeSealedRecordImpl(this.sealingContext(), collection, id, pid, opts)
+    return this.sealedRecordStrategy.revokeSealedRecord(this.sealingContext(), collection, id, pid, opts)
   }
 
   /**
@@ -2479,7 +2480,7 @@ export class Vault {
    * @throws {@link RecordCekNotFoundError} if the record is missing or has no `_cek`.
    */
   async rotateRecordCek(collection: string, id: string): Promise<void> {
-    return rotateRecordCekImpl(this.sealingContext(), collection, id)
+    return this.sealedRecordStrategy.rotateRecordCek(this.sealingContext(), collection, id)
   }
 
   /**

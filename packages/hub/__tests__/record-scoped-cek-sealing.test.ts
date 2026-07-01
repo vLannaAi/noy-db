@@ -18,7 +18,7 @@ import {
 } from '../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { MemoryRecipientSealer } from '../src/with-party/team/managed-passphrase.js'
-import { openSealedRecord } from '../src/with-audit/sealed-record/index.js'
+import { openSealedRecord, withSealedRecord } from '../src/with-audit/sealed-record/index.js'
 import type { SealedCekDeliveryEnvelope } from '../src/with-audit/sealed-record/types.js'
 
 /** In-memory store exposing raw stored envelopes for assertions. */
@@ -90,7 +90,7 @@ function readDelivery(
 
 async function setup() {
   const store = memory()
-  const db = await createNoydb({ store, user: 'alice', secret: SECRET })
+  const db = await createNoydb({ store, user: 'alice', secret: SECRET, sealedRecordStrategy: withSealedRecord() })
   const vault = await db.openVault('v')
   const docs = vault.collection<Doc>('docs', { perRecordKeys: true })
   return { store, db, vault, docs }

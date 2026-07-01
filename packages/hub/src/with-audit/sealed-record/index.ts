@@ -26,6 +26,9 @@ import type {
 
 export type { SealedCekDeliveryEnvelope, SealedCekBinding } from './types.js'
 export { SealedRecordExpiredError, SealedRecordMismatchError } from '../../kernel/errors.js'
+export { withSealedRecord } from './active.js'
+export { NO_SEALED_RECORD, type SealedRecordStrategy } from './strategy.js'
+export { SealedRecordNotEnabledError } from '../../kernel/errors.js'
 
 const subtle = globalThis.crypto.subtle
 
