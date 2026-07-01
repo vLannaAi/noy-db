@@ -99,6 +99,12 @@ jobs:
           restore-keys: ${{ runner.os }}-pnpm-
       - name: Install
         run: pnpm install --frozen-lockfile
+      - name: Turbo cache
+        uses: actions/cache@v5
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-${{ github.sha }}
+          restore-keys: ${{ runner.os }}-turbo-
       - name: Lint
         run: pnpm turbo lint
       - name: Typecheck
@@ -128,6 +134,12 @@ jobs:
           restore-keys: ${{ runner.os }}-pnpm-
       - name: Install
         run: pnpm install --frozen-lockfile
+      - name: Turbo cache
+        uses: actions/cache@v5
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-${{ github.sha }}
+          restore-keys: ${{ runner.os }}-turbo-
       - name: Build
         run: pnpm turbo build
 
@@ -159,6 +171,14 @@ jobs:
           restore-keys: ${{ runner.os }}-node${{ matrix.node }}-pnpm-
       - name: Install
         run: pnpm install --frozen-lockfile
+      # Restores the build job's .turbo cache (same commit sha) so this
+      # step is a cache hit instead of a full cold rebuild per matrix leg.
+      - name: Turbo cache
+        uses: actions/cache@v5
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-${{ github.sha }}
+          restore-keys: ${{ runner.os }}-turbo-
       - name: Build
         run: pnpm turbo build
       # Concurrency=1 avoids cross-package temp-dir / port collisions
@@ -175,9 +195,15 @@ jobs:
   # Shells out to 7z and unar on 3 OS runners to validate that our
   # WinZip-AES-256 writer/reader is compatible with real archive tools.
   # continue-on-error: true until the matrix is green for the first time.
+  #
+  # Runs on push-to-main only (`github.event_name == 'push'`), NOT on PRs:
+  # the macOS/Windows runners + brew/choco tool installs are the slowest
+  # leg by far, and since it's advisory (continue-on-error) it should not
+  # sit on the PR-merge critical path. Post-merge on main still exercises it.
   interop:
     name: Interop (${{ matrix.os }})
     needs: [quality, build]
+    if: github.event_name == 'push'
     runs-on: ${{ matrix.os }}
     continue-on-error: true
     strategy:
