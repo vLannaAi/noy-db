@@ -94,6 +94,7 @@ import { TxContext } from '../with-commit/tx/transaction.js'
 import type { DryRunResult } from '../with-commit/tx/dry-run.js'
 import { NO_TX, type TxStrategy } from '../with-commit/tx/strategy.js'
 import { NO_FORGET, type ForgetStrategy } from '../with-audit/forget/strategy.js'
+import { NO_CUSTODY, type CustodyStrategy, type CustodyHost } from '../with-party/custody/strategy.js'
 import { readDottedPath, coerceSubjectId } from '../with-audit/forget/subject-index.js'
 import { INDEXED_STORE_POLICY } from './store/sync-policy.js'
 import { memoryStore } from './store/memory-store.js'
@@ -201,6 +202,12 @@ export class Noydb {
   private readonly policyEnforcers = new Map<string, PolicyEnforcer>()
   private readonly txStrategy: TxStrategy
   private readonly forgetStrategy: ForgetStrategy
+  /**
+   * Opt-in sovereign-custody (FR-6) strategy — `NO_CUSTODY` (throwing) unless
+   * `withCustody()` was passed. Public so `Vault` routes `vault.custody.liberate`
+   * through it; grant/revoke route through it from this class. @internal
+   */
+  readonly custodyStrategy: CustodyStrategy
   private readonly sessionStrategy: SessionStrategy
   private readonly syncStrategy: SyncStrategy
   private readonly snapshots: NoydbSnapshots
@@ -247,6 +254,7 @@ export class Noydb {
     this.coordinationProvider = options.coordinationStrategy ?? new StoreCoordinationProvider(options.store)
     this.txStrategy = options.txStrategy ?? NO_TX
     this.forgetStrategy = options.forgetStrategy ?? NO_FORGET
+    this.custodyStrategy = options.custodyStrategy ?? NO_CUSTODY
     this.sessionStrategy = options.sessionStrategy ?? NO_SESSION
     this.syncStrategy = options.syncStrategy ?? NO_SYNC
     this.snapshots = new NoydbSnapshots({
@@ -777,6 +785,17 @@ export class Noydb {
     options: Omit<GrantOptions, 'role'>,
     factors?: FactorProofBundle,
   ): Promise<void> {
+    // Opt-in gate (S4): NO_CUSTODY throws CustodyNotEnabledError unless
+    // `custodyStrategy: withCustody()` was passed; withCustody() runs the impl.
+    return this.custodyStrategy.grantCustodian(this as CustodyHost, vault, options, factors)
+  }
+
+  /** @internal — the grant-custodian engine, reached only when withCustody() is opted in. */
+  async _grantCustodianImpl(
+    vault: string,
+    options: Omit<GrantOptions, 'role'>,
+    factors?: FactorProofBundle,
+  ): Promise<void> {
     this.checkPolicyOperation(vault, 'grant')
     await this.checkGate(vault, 'grant-custodian', factors)
     const keyring = await this.getKeyringInternal(vault)
@@ -792,6 +811,16 @@ export class Noydb {
    * 'owner'` check, so an admin cannot unwind a custodianship.
    */
   async revokeCustodian(
+    vault: string,
+    options: RevokeOptions,
+    factors?: FactorProofBundle,
+  ): Promise<void> {
+    // Opt-in gate (S4): NO_CUSTODY throws unless withCustody() was opted in.
+    return this.custodyStrategy.revokeCustodian(this as CustodyHost, vault, options, factors)
+  }
+
+  /** @internal — the revoke-custodian engine, reached only when withCustody() is opted in. */
+  async _revokeCustodianImpl(
     vault: string,
     options: RevokeOptions,
     factors?: FactorProofBundle,

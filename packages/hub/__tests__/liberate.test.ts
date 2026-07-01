@@ -36,6 +36,7 @@ import type { Noydb } from '../src/kernel/noydb.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { saveDeedMarker, loadDeedMarker } from '../src/with-party/team/deed.js'
 import { liberateVault } from '../src/with-party/custody/liberate.js'
+import { withCustody } from '../src/with-party/custody/index.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -77,7 +78,7 @@ describe('FR-6 Task 5 — liberateVault (audited custodian ownership claim)', ()
    */
   async function provisionWithCustodian(policy: unknown = POLICY): Promise<void> {
     // @ts-expect-error — policy is typed as unknown in this test helper; the spread resolves correctly at runtime
-    ownerDb = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass', historyStrategy: withHistory(), ...(policy ? { policy } : {}) })
+    ownerDb = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass', historyStrategy: withHistory(), custodyStrategy: withCustody(), ...(policy ? { policy } : {}) })
     const comp = await ownerDb.openVault(VAULT)
     await comp.collection<Invoice>('invoices').put('inv-001', { amount: 5000, status: 'draft' })
     await comp.collection<Invoice>('payments').put('pay-001', { amount: 3000, status: 'paid' })

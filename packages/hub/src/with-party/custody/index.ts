@@ -30,6 +30,12 @@ import type { LiberateOptions, LiberateResult } from './liberate.js'
 /** Options for `vault.custody.grantCustodian` — a grant with the role fixed to `custodian`. */
 export type GrantCustodianOptions = Omit<GrantOptions, 'role'>
 
+// Capability opt-in seam (S4): grant/revoke custodian + liberate throw
+// CustodyNotEnabledError unless `custodyStrategy: withCustody()` is opted in.
+export { withCustody } from './active.js'
+export { NO_CUSTODY, type CustodyStrategy, type CustodyHost } from './strategy.js'
+export { CustodyNotEnabledError } from '../../kernel/errors.js'
+
 /**
  * Implementation behind `vault.custody`. Constructed once per Vault. Holds the
  * injected, vault-bound implementations in closure; every method delegates with

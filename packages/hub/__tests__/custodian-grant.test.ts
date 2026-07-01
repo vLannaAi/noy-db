@@ -12,6 +12,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel
 import { ConflictError, PermissionDeniedError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import type { Noydb } from '../src/kernel/noydb.js'
+import { withCustody } from '../src/with-party/custody/index.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -58,7 +59,7 @@ describe('FR-6 Task 4 — grantCustodian / revokeCustodian (owner-only custody A
 
   beforeEach(async () => {
     adapter = inlineMemory()
-    ownerDb = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass', policy: POLICY })
+    ownerDb = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass', policy: POLICY, custodyStrategy: withCustody() })
     const comp = await ownerDb.openVault(COMP)
     await comp.collection<Invoice>('invoices').put('inv-001', { amount: 5000, status: 'draft' })
     await comp.collection<Invoice>('payments').put('pay-001', { amount: 3000, status: 'paid' })
@@ -88,7 +89,7 @@ describe('FR-6 Task 4 — grantCustodian / revokeCustodian (owner-only custody A
     // is unconfigured, so it must fail closed even for the owner. (Using a
     // separate vault avoids reading C400's persisted gate-enabled policy.)
     const NO_GATE_COMP = 'C400-nogate'
-    const noGateDb = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const noGateDb = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass', custodyStrategy: withCustody() })
     const comp = await noGateDb.openVault(NO_GATE_COMP)
     await comp.collection<Invoice>('invoices').put('inv-001', { amount: 1, status: 'x' })
     await expect(
@@ -98,7 +99,7 @@ describe('FR-6 Task 4 — grantCustodian / revokeCustodian (owner-only custody A
 
   it('(b) grantCustodian FAILS when the caller is NOT the owner (admin tries)', async () => {
     await ownerDb.grant(COMP, { userId: 'admin-01', displayName: 'Admin', role: 'admin', passphrase: 'admin-pass' })
-    const adminDb = await createNoydb({ store: adapter, user: 'admin-01', secret: 'admin-pass', policy: POLICY })
+    const adminDb = await createNoydb({ store: adapter, user: 'admin-01', secret: 'admin-pass', policy: POLICY, custodyStrategy: withCustody() })
     await adminDb.openVault(COMP)
     await expect(
       adminDb.grantCustodian(COMP, { userId: 'firm-03', displayName: 'Firm', passphrase: 'firm-pass-long' }),
@@ -123,7 +124,7 @@ describe('FR-6 Task 4 — grantCustodian / revokeCustodian (owner-only custody A
   it('revokeCustodian FAILS when the caller is NOT the owner (admin tries)', async () => {
     await ownerDb.grantCustodian(COMP, { userId: 'firm-01', displayName: 'Firm', passphrase: 'firm-pass-long' })
     await ownerDb.grant(COMP, { userId: 'admin-01', displayName: 'Admin', role: 'admin', passphrase: 'admin-pass' })
-    const adminDb = await createNoydb({ store: adapter, user: 'admin-01', secret: 'admin-pass', policy: POLICY })
+    const adminDb = await createNoydb({ store: adapter, user: 'admin-01', secret: 'admin-pass', policy: POLICY, custodyStrategy: withCustody() })
     await adminDb.openVault(COMP)
     await expect(
       adminDb.revokeCustodian(COMP, { userId: 'firm-01' }),

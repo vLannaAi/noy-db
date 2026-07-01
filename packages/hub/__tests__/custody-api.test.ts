@@ -31,6 +31,7 @@ import { ConflictError, PermissionDeniedError, ReadOnlyError, PartitionExtractio
 import { extractPartition } from '../src/with-cargo/extract-partition.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { withPortability } from '../src/with-audit/portability/index.js'
+import { withCustody } from '../src/with-party/custody/index.js'
 import type { Noydb } from '../src/kernel/noydb.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { MemorySealingKeyProvider, resolveManagedSecret } from '../src/with-party/team/managed-passphrase.js'
@@ -91,7 +92,7 @@ describe('FR-6 Task 6 — vault.custody.* end-to-end acceptance walkthrough', ()
     const passphrase = await resolveManagedSecret(adapter, VAULT, sealing)
     return createNoydb({
       store: adapter, user: 'owner-01', secret: passphrase,
-      historyStrategy: withHistory(), policy: POLICY,
+      historyStrategy: withHistory(), policy: POLICY, custodyStrategy: withCustody(),
     })
   }
 
@@ -176,7 +177,7 @@ describe('FR-6 Task 6 — vault.custody.* end-to-end acceptance walkthrough', ()
 
     // Now mint the custodian + liberate via vault.custody.liberate.
     await ownerVault.custody.grantCustodian({ userId: 'firm-01', displayName: 'Firm', passphrase: 'firm-pass-long' })
-    const firmDb = await createNoydb({ store: adapter, user: 'firm-01', secret: 'firm-pass-long', historyStrategy: withHistory(), policy: POLICY, portabilityStrategy: withPortability() })
+    const firmDb = await createNoydb({ store: adapter, user: 'firm-01', secret: 'firm-pass-long', historyStrategy: withHistory(), policy: POLICY, portabilityStrategy: withPortability(), custodyStrategy: withCustody() })
     const firmVault = await firmDb.openVault(VAULT)
 
     const result = await firmVault.custody.liberate({
@@ -204,7 +205,7 @@ describe('FR-6 Task 6 — vault.custody.* end-to-end acceptance walkthrough', ()
   it('vault.custody.grantCustodian is owner-only (an admin caller is denied)', async () => {
     const ownerDb = await provisionDeed()
     await ownerDb.grant(VAULT, { userId: 'admin-01', displayName: 'Admin', role: 'admin', passphrase: 'admin-pass-long' })
-    const adminDb = await createNoydb({ store: adapter, user: 'admin-01', secret: 'admin-pass-long', policy: POLICY })
+    const adminDb = await createNoydb({ store: adapter, user: 'admin-01', secret: 'admin-pass-long', policy: POLICY, custodyStrategy: withCustody() })
     const adminVault = await adminDb.openVault(VAULT)
     await expect(
       adminVault.custody.grantCustodian({ userId: 'firm-99', displayName: 'Firm', passphrase: 'firm-pass-long' }),
