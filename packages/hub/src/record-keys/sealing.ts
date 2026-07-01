@@ -14,7 +14,7 @@
  * `sealed-record/`, so the host-side subpath stays DEK-free — they import only
  * the wire *types* from there.
  */
-import { encrypt, decrypt, generateDEK, wrapCek, unwrapCek, bufferToBase64, deriveSealedFieldKeyFromCek } from '../crypto.js'
+import { encrypt, decrypt, generateDEK, wrapCek, unwrapCek, bufferToBase64, deriveSealedFieldKeyFromCek } from '../kernel/enclave/crypto.js'
 import { NOYDB_FORMAT_VERSION, type EncryptedEnvelope, type NoydbStore } from '../types.js'
 import { dualReadSealedSlot } from './sealed-slot.js'
 import { RecordCekNotFoundError, ValidationError } from '../errors.js'

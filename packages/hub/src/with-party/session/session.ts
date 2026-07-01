@@ -41,7 +41,7 @@
  * even if the session key is still in the Map.
  */
 
-import { bufferToBase64, base64ToBuffer } from '../../crypto.js'
+import { bufferToBase64, base64ToBuffer } from '../../kernel/enclave/crypto.js'
 import { generateULID } from '../../with-pod/ulid.js'
 import type { Role } from '../../types.js'
 import type { UnlockedKeyring } from '../team/keyring.js'

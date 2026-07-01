@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import { z } from 'zod'
-import { generateDEK } from '../../src/crypto.js'
+import { generateDEK } from '../../src/kernel/enclave/crypto.js'
 import { memory } from '../../../to-memory/src/index.js'
 import { persistSchemaIfNeeded } from '../../src/with-shape/persisted-schemas/register.js'
 import { SCHEMAS_COLLECTION } from '../../src/with-shape/persisted-schemas/storage.js'

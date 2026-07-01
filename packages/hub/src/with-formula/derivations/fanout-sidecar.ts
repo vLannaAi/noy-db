@@ -22,7 +22,7 @@
  */
 import type { NoydbStore, EncryptedEnvelope } from '../../types.js'
 import { NOYDB_FORMAT_VERSION } from '../../types.js'
-import { encrypt, decrypt } from '../../crypto.js'
+import { encrypt, decrypt } from '../../kernel/enclave/crypto.js'
 
 type GetDEK = (collectionName: string) => Promise<CryptoKey>
 

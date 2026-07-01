@@ -24,7 +24,7 @@ import {
   wrapCek,
   encrypt,
   deriveSealedFieldKey,
-} from '../src/crypto.js'
+} from '../src/kernel/enclave/crypto.js'
 import { NOYDB_FORMAT_VERSION } from '../src/types.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { MemoryRecipientSealer } from '../src/with-party/team/managed-passphrase.js'

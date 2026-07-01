@@ -21,7 +21,7 @@
  *
  * Internal subsystem — not exported as a `@noy-db/hub/*` subpath.
  */
-import { encrypt, decrypt } from '../../crypto.js'
+import { encrypt, decrypt } from '../../kernel/enclave/crypto.js'
 import { unwrapCek, rewrapBodyToDek } from '../../record-keys/index.js'
 import type { RecordCodec } from '../../record-keys/record-codec.js'
 import { TierDemoteDeniedError } from '../../errors.js'

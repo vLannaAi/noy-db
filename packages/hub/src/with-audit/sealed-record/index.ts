@@ -14,7 +14,7 @@
  * @module
  */
 
-import { decrypt, base64ToBuffer } from '../../crypto.js'
+import { decrypt, base64ToBuffer } from '../../kernel/enclave/crypto.js'
 import {
   SealedRecordExpiredError,
   SealedRecordMismatchError,

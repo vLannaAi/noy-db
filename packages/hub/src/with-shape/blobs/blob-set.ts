@@ -20,7 +20,7 @@ import {
   bufferToBase64,
   base64ToBuffer,
   generateDEK,
-} from '../../crypto.js'
+} from '../../kernel/enclave/crypto.js'
 import { wrapCek, unwrapCek } from '../../record-keys/index.js'
 import { ConflictError, NotFoundError } from '../../errors.js'
 import { detectMagic, isPreCompressed } from './mime-magic.js'
@@ -1268,7 +1268,7 @@ export class BlobSet {
 
     // Decrypt the single chunk
     const aad = chunkAAD(slot.eTag, 0, result.blob.chunkCount)
-    const { decryptBytesWithAAD: decryptAAD } = await import('../../crypto.js')
+    const { decryptBytesWithAAD: decryptAAD } = await import('../../kernel/enclave/crypto.js')
     const decrypted = await decryptAAD(envelope._iv, envelope._data, blobDEK, aad)
     const plaintext = result.blob.compression === 'gzip'
       ? await decompressBytes(decrypted)
@@ -1334,7 +1334,7 @@ export class BlobSet {
 
 // ─── Fallback for unencrypted mode ──────────────────────────────────────
 
-import { sha256Hex } from '../../crypto.js'
+import { sha256Hex } from '../../kernel/enclave/crypto.js'
 
 async function plainSha256Hex(data: Uint8Array): Promise<string> {
   return sha256Hex(data)

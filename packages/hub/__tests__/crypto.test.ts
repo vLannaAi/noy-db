@@ -9,7 +9,7 @@ import {
   generateIV,
   generateSalt,
   bufferToBase64,
-} from '../src/crypto.js'
+} from '../src/kernel/enclave/crypto.js'
 import { TamperedError, InvalidKeyError } from '../src/errors.js'
 
 describe('crypto', () => {

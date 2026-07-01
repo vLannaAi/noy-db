@@ -13,7 +13,7 @@ import { createNoydb } from '../src/noydb.js'
 import { ConflictError } from '../src/errors.js'
 import { withForgetCascade } from '../src/with-audit/forget/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
-import { generateDEK } from '../src/crypto.js'
+import { generateDEK } from '../src/kernel/enclave/crypto.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import {
   addSubjectRef,
@@ -140,7 +140,7 @@ describe('M-2 — subject index keyed id + bucketed ref list', () => {
     const getDEK = async () => dek
     // Hand-write a legacy entry: sha256 key + bare-array body encrypted under DEK.
     const legacyId = await sha256HexUtf8('buyer-L')
-    const { encrypt } = await import('../src/crypto.js')
+    const { encrypt } = await import('../src/kernel/enclave/crypto.js')
     const { iv, data } = await encrypt(JSON.stringify([{ collection: 'invoices', id: 'i-L' }]), dek)
     await store.put('v', '_subject_index', legacyId, {
       _noydb: 1, _v: 1, _ts: new Date().toISOString(), _iv: iv, _data: data,

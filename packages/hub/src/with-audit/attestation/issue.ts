@@ -1,6 +1,6 @@
 import type { NoydbStore, EncryptedEnvelope } from '../../types.js'
 import { NOYDB_FORMAT_VERSION } from '../../types.js'
-import { encrypt } from '../../crypto.js'
+import { encrypt } from '../../kernel/enclave/crypto.js'
 import { AttestationError } from '../../errors.js'
 import { generateULID } from '../../with-pod/ulid.js'
 import { loadOrCreateSigner, ATTESTATIONS_COLLECTION } from './signer.js'

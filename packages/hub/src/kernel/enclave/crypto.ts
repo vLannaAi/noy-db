@@ -36,7 +36,7 @@
  * @module
  */
 
-import { DecryptionError, InvalidKeyError, TamperedError } from './errors.js'
+import { DecryptionError, InvalidKeyError, TamperedError } from '../../errors.js'
 
 const PBKDF2_ITERATIONS = 600_000
 const SALT_BYTES = 32

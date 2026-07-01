@@ -22,7 +22,7 @@
  *
  * Internal subsystem — not exported as a `@noy-db/hub/*` subpath.
  */
-export { wrapCek, unwrapCek } from '../crypto.js'
+export { wrapCek, unwrapCek } from '../kernel/enclave/crypto.js'
 export { isTombstone, buildTombstone } from './tombstone.js'
 export { resolveStableCek, rewrapBodyToDek, type StableCekDeps, type RewrappedBody } from './lifecycle.js'
 export {

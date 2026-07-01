@@ -21,7 +21,7 @@
 
 import type { NoydbStore, EncryptedEnvelope } from '../../types.js'
 import { NOYDB_FORMAT_VERSION } from '../../types.js'
-import { encrypt, decrypt } from '../../crypto.js'
+import { encrypt, decrypt } from '../../kernel/enclave/crypto.js'
 import { ConflictError, SequenceContentionError, SequenceOfflineError, ValidationError } from '../../errors.js'
 
 export const SEQUENCE_COLLECTION = '_sequences'

@@ -12,7 +12,7 @@ import {
   persistKeyring,
   buildRecipientKeyringFile,
 } from '../src/with-party/team/keyring.js'
-import { encrypt, decrypt } from '../src/crypto.js'
+import { encrypt, decrypt } from '../src/kernel/enclave/crypto.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

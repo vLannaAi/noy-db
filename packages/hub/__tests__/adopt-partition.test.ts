@@ -10,7 +10,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
 import { ref } from '../src/refs.js'
-import { decrypt, generateDEK, base64ToBuffer } from '../src/crypto.js'
+import { decrypt, generateDEK, base64ToBuffer } from '../src/kernel/enclave/crypto.js'
 import { TransferSealError, AdoptionStateError } from '../src/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError } from '../src/errors.js'

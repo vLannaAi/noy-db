@@ -10,7 +10,7 @@ import {
   decrypt,
   bufferToBase64,
   base64ToBuffer,
-} from '../../crypto.js'
+} from '../../kernel/enclave/crypto.js'
 import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, KeyringExpiredError, KeyringCorruptError, InvalidKeyError, ValidationError, DirectoryDisabledError } from '../../errors.js'
 import { readDirectoryConfig } from '../directory/storage.js'
 import { readUserVisibility, deleteUserVisibility } from '../directory/visibility.js'

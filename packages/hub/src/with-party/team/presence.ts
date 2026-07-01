@@ -16,7 +16,7 @@
  */
 
 import type { NoydbStore, PresencePeer } from '../../types.js'
-import { encrypt, decrypt, generateIV, bufferToBase64, derivePresenceKey } from '../../crypto.js'
+import { encrypt, decrypt, generateIV, bufferToBase64, derivePresenceKey } from '../../kernel/enclave/crypto.js'
 
 /** Options for constructing a PresenceHandle. @internal */
 export interface PresenceHandleOpts {

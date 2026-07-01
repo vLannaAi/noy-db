@@ -16,7 +16,7 @@ import {
   bufferToBase64,
   encryptBytesWithAAD,
   decryptBytesWithAAD,
-} from '../crypto.js'
+} from '../kernel/enclave/crypto.js'
 import { unwrapCek, wrapCek } from '../record-keys/index.js'
 import {
   BLOB_COLLECTION,
