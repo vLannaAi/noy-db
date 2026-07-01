@@ -21,7 +21,7 @@
  */
 import { encrypt, decrypt, generateDEK, wrapCek, unwrapCek } from '../crypto.js'
 import type { EncryptedEnvelope } from '../../../types.js'
-import type { Lru } from '../../../cache/index.js'
+import type { Lru } from '../../cache/index.js'
 
 /** Dependencies {@link resolveStableCek} needs from its collection. */
 export interface StableCekDeps {

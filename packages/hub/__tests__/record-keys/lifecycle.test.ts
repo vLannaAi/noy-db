@@ -15,7 +15,7 @@ import {
   wrapCek,
   unwrapCek,
 } from '../../src/kernel/enclave/record-keys/index.js'
-import { Lru } from '../../src/cache/index.js'
+import { Lru } from '../../src/kernel/cache/index.js'
 import { NOYDB_FORMAT_VERSION, type EncryptedEnvelope } from '../../src/types.js'
 
 async function cekEnvelope(body: string, dek: CryptoKey): Promise<{ env: EncryptedEnvelope; cek: CryptoKey }> {

@@ -769,8 +769,8 @@ export type {
 export { PeriodClosedError } from './errors.js'
 
 // Cache module — LRU + byte budget parsing
-export { Lru, parseBytes, estimateRecordBytes } from './cache/index.js'
-export type { LruOptions, LruStats } from './cache/index.js'
+export { Lru, parseBytes, estimateRecordBytes } from './kernel/cache/index.js'
+export type { LruOptions, LruStats } from './kernel/cache/index.js'
 
 // Biometric — removed in as redundant with @noy-db/on-webauthn
 // (which supports PRF + rawId fallback + BE-flag guard). Legacy consumers

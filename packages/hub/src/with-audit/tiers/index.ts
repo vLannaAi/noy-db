@@ -27,7 +27,7 @@ import type { RecordCodec } from '../../kernel/enclave/record-keys/record-codec.
 import { TierDemoteDeniedError } from '../../errors.js'
 import { dekKey, assertTierAccess } from '../../with-party/team/tiers.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
-import type { Lru } from '../../cache/index.js'
+import type { Lru } from '../../kernel/cache/index.js'
 import {
   NOYDB_FORMAT_VERSION,
   type NoydbStore,
