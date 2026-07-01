@@ -254,8 +254,9 @@ const vault = await db.openVault('ledger', {
 - `vault.dumpSchema()` → `VaultSchemaSnapshot.meta`
 - `in-devtools` `snapshot()` → `InspectorSnapshot.meta`
 
-**Kernel export.** `CollectionMeta` and `VaultMeta` are also exported from
-`@noy-db/hub/kernel` so that klum-db's federation layer can reuse `VaultMeta`
+**Cargo export.** `CollectionMeta` and `VaultMeta` are also exported from
+`@noy-db/hub/cargo` (the klum orchestration seam; `@noy-db/hub/kernel` is a
+deprecated alias) so that klum-db's federation layer can reuse `VaultMeta`
 for `groupMeta` without taking a full hub dep.
 
 ---
