@@ -16,7 +16,7 @@
  *
  * Internal subsystem — not exported as a `@noy-db/hub/*` subpath.
  */
-import { encryptDeterministic } from '../crypto.js'
+import { encryptDeterministic } from '../kernel/enclave/crypto.js'
 import type { NoydbStore } from '../types.js'
 import type { RecordCodec } from './record-codec.js'
 

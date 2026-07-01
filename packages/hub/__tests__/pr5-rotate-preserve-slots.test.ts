@@ -25,7 +25,7 @@ import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, KeyringAuthenticator } from '../src/types.js'
 import { createOwnerKeyring, loadKeyring, persistKeyring } from '../src/with-party/team/keyring.js'
 import { rotatePassphrase, type SlotRewrapCeremony } from '../src/with-party/team/rotate-recover.js'
-import { generateDEK } from '../src/crypto.js'
+import { generateDEK } from '../src/kernel/enclave/crypto.js'
 import { ValidationError } from '../src/errors.js'
 import type { EnrollAuthenticatorOptions } from '../src/with-party/team/authenticators.js'
 

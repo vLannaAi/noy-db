@@ -49,7 +49,7 @@
  * @module
  */
 import type { EncryptedEnvelope, NoydbStore } from '../../types.js'
-import { encrypt, decrypt } from '../../crypto.js'
+import { encrypt, decrypt } from '../../kernel/enclave/crypto.js'
 import { generateULID } from '../../with-pod/ulid.js'
 
 /** Reserved collection for consent-audit entries. */

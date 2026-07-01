@@ -32,7 +32,7 @@
  *
  * @module
  */
-import { encrypt, decrypt, hmacSha256Hex } from '../../crypto.js'
+import { encrypt, decrypt, hmacSha256Hex } from '../../kernel/enclave/crypto.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../types.js'
 import { NOYDB_FORMAT_VERSION } from '../../types.js'
 

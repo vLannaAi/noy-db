@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { z } from 'zod'
-import { generateDEK } from '../../src/crypto.js'
+import { generateDEK } from '../../src/kernel/enclave/crypto.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/types.js'
 import { ConflictError } from '../../src/errors.js'
 import { persistSchemaIfNeeded } from '../../src/with-shape/persisted-schemas/register.js'

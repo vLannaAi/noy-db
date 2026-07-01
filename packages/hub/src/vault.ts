@@ -120,7 +120,7 @@ import {
   type ClosePeriodOptions,
   type OpenPeriodOptions,
 } from './with-audit/periods/index.js'
-import { encrypt, decrypt } from './crypto.js'
+import { encrypt, decrypt } from './kernel/enclave/crypto.js'
 import {
   sealRecordToHost as sealRecordToHostImpl,
   revokeSealedRecord as revokeSealedRecordImpl,

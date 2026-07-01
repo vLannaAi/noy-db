@@ -19,7 +19,7 @@
  * the collection (its lifetime is tied to `load()`), so callers cache the
  * returned key themselves.
  */
-import { encrypt, decrypt, generateDEK, wrapCek, unwrapCek } from '../crypto.js'
+import { encrypt, decrypt, generateDEK, wrapCek, unwrapCek } from '../kernel/enclave/crypto.js'
 import type { EncryptedEnvelope } from '../types.js'
 import type { Lru } from '../cache/index.js'
 

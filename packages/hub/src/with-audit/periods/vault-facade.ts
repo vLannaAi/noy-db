@@ -15,7 +15,7 @@
  */
 import { ValidationError } from '../../errors.js'
 import { NOYDB_FORMAT_VERSION } from '../../types.js'
-import { encrypt, decrypt } from '../../crypto.js'
+import { encrypt, decrypt } from '../../kernel/enclave/crypto.js'
 import type { EncryptedEnvelope, NoydbStore } from '../../types.js'
 import type { LedgerStore } from '../../with-commit/history/ledger/store.js'
 import type { Collection } from '../../collection.js'
