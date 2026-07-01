@@ -141,7 +141,6 @@ import {
 } from '../with-party/team/magic-link-grant.js'
 import { UserApi } from './meta/user-envelope/api.js'
 import { CustodyApi } from '../with-party/custody/index.js'
-import { liberateVault } from '../with-party/custody/liberate.js'
 import { persistSchemaIfNeeded } from '../with-shape/persisted-schemas/register.js'
 import { SchemaUpdateGate } from '../with-shape/schema-update/gate.js'
 import { SchemaFenceController } from '../with-shape/schema-update/fence-controller.js'
@@ -648,13 +647,15 @@ export class Vault {
     )
 
     // FR-6 custody API — mirrors the UserApi injection pattern: vault-bound
-    // closures over Noydb.grantCustodian/revokeCustodian (owner-only, gated)
-    // and the liberateVault ceremony (custodian-only). No logic here — the
-    // CustodyApi is a pure delegation shell (see custody/index.ts).
+    // closures over Noydb.grantCustodian/revokeCustodian (owner-only) and the
+    // liberate ceremony (custodian-only). All three route through the opt-in
+    // custodyStrategy (S4): grant/revoke via the gated Noydb methods, liberate
+    // via `noydb.custodyStrategy` (which lazily imports the liberateVault
+    // engine). No logic here — CustodyApi is a pure delegation shell.
     this.custody = new CustodyApi(
       (options, factors) => this.noydb.grantCustodian(this.name, options, factors),
       (options, factors) => this.noydb.revokeCustodian(this.name, options, factors),
-      (opts) => liberateVault(this, opts),
+      (opts) => this.noydb.custodyStrategy.liberate(this, opts),
     )
   }
 

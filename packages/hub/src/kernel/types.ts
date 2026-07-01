@@ -43,6 +43,7 @@ import type { TiersStrategy } from '../with-audit/tiers/strategy.js'
 import type { SealedRecordStrategy } from '../with-audit/sealed-record/strategy.js'
 import type { PortabilityStrategy } from '../with-audit/portability/strategy.js'
 import type { SequenceStrategy } from '../with-commit/sequence/strategy.js'
+import type { CustodyStrategy } from '../with-party/custody/strategy.js'
 import type { Layer } from '../with-shape/i18n/policy.js'
 import type { I18nStrategy } from '../with-shape/i18n/strategy.js'
 import type { SessionStrategy } from '../with-party/session/strategy.js'
@@ -2140,6 +2141,16 @@ export interface NoydbOptions {
    * [withDeferredNumbering(...)]`) are a separate capability and stay live.
    */
   readonly sequenceStrategy?: SequenceStrategy
+  /**
+   * Tree-shake seam — optional sovereign-custody (FR-6) capability. Pass
+   * `withCustody()` from `@noy-db/hub` to enable minting / removing a
+   * `custodian` (`db.grantCustodian` / `db.revokeCustodian` and the
+   * `vault.custody.*` facade) plus the `vault.custody.liberate()` ceremony.
+   * When omitted, those throw `CustodyNotEnabledError` and the liberate engine
+   * is reached only via opt-in. The lower-level `liberateVault` free function
+   * stays ungated (it has no createNoydb instance to gate against).
+   */
+  readonly custodyStrategy?: CustodyStrategy
   /**
    * Optional guard strategies — collection-level write guards. Each
    * handle is the output of `withGuard()` from `@noy-db/hub/guards`.

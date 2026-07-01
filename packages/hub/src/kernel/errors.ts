@@ -1729,6 +1729,25 @@ export class PortabilityNotEnabledError extends NoydbError {
   }
 }
 
+/**
+ * Thrown when a sovereign-custody (FR-6) operation — `db.grantCustodian`,
+ * `db.revokeCustodian`, or `vault.custody.liberate()` (and the `vault.custody.*`
+ * facade that composes them) — is called without opting into the custody
+ * capability (the default `NO_CUSTODY` stub). Custody is an opt-in,
+ * tree-shakeable capability: enable it with `custodyStrategy: withCustody()`
+ * from "@noy-db/hub" in createNoydb(). (The lower-level `liberateVault` free
+ * function stays ungated.)
+ */
+export class CustodyNotEnabledError extends NoydbError {
+  constructor(
+    message = 'Sovereign custody (grant/revoke custodian, liberate) requires the custody ' +
+      'capability. Pass `custodyStrategy: withCustody()` to createNoydb().',
+  ) {
+    super('CUSTODY_NOT_ENABLED', message)
+    this.name = 'CustodyNotEnabledError'
+  }
+}
+
 // ─── Session Errors ───────────────────────────────────────
 
 /**

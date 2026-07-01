@@ -636,7 +636,11 @@ const KERNEL_SURFACE_BUDGET = {
   // line + a 2-line opt-in comment where `vault.sequence()` builds its store through the strategy
   // (`new SequenceStore(...)` → `this.sequenceStrategy.createStore(...)`). The CAS SequenceStore
   // engine is reached only via the opt-in `with-commit/sequence/active.ts` chunk.
-  'packages/hub/src/kernel/vault.ts': 3840,
+  // Bumped 3840→3841 (S4 Task 5: gate custody behind withCustody()): net +1 — the static
+  // `liberateVault` import was dropped (-1, now reached only via the lazy
+  // `with-party/custody/active.ts` chunk) and the custody-closure comment expanded (+2) where
+  // `vault.custody.liberate` now routes through `this.noydb.custodyStrategy.liberate(this, ...)`.
+  'packages/hub/src/kernel/vault.ts': 3841,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
@@ -700,7 +704,14 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 2284→2286 (S4 Task 8: gate sequence behind withSequence()): thread the opt-in
   // `sequenceStrategy` into the two Vault-construction option spreads (async openVault + sync
   // vault() path). Engine in the opt-in `with-commit/sequence/active.ts` chunk.
-  'packages/hub/src/kernel/noydb.ts': 2286,
+  // Bumped 2286→2315 (S4 Task 5: gate custody behind withCustody()): custody is gated at the
+  // Noydb PRIMITIVE (not just the vault.custody facade) so the gate can't be bypassed via the
+  // public `db.grantCustodian`/`db.revokeCustodian`. That requires splitting each into a gated
+  // public wrapper (routes through `custodyStrategy`) + a private `_{grant,revoke}CustodianImpl`
+  // engine (the original body, reached only when withCustody() is opted in) — the duplicated
+  // signatures + `CustodyHost` field + assignment + import account for the +29. The liberate
+  // ceremony engine stays in the lazy `with-party/custody/active.ts` chunk.
+  'packages/hub/src/kernel/noydb.ts': 2315,
 }
 
 function checkKernelSurface() {
