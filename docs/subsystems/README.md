@@ -68,6 +68,32 @@ See [SUBSYSTEMS.md](../../SUBSYSTEMS.md) for the catalog overview, dependency gr
 |---|---|
 | [routing](./routing.md) | Multi-store routing, middleware, sync-policy, lazy-mode + LRU cache |
 
+## Schema-declared features (archetype ③) — no `with*()`
+
+These are **not** opt-in `with*()` subsystems and so have no factory and no
+`<name>Strategy` option. They are **declared on the collection itself** via
+`collection({ … })` — the collection is their opt-in unit. There is nothing to
+pass to `createNoydb`; a collection that doesn't declare the field simply
+doesn't get the behavior. `check-architecture`'s `strategy-opt-in` check exempts
+each of these (see `SCHEMA_DECLARED_OR_INFRA_EXEMPT`).
+
+| Feature | Declared as | What it adds |
+|---|---|---|
+| computed | `collection({ computed: { … } })` | Per-record derived fields evaluated on read |
+| money | `collection({ money: { … } })` | Fixed-point money field descriptors (quantize-on-write / decode-on-read) |
+| links | `collection({ links: { … } })` (`link()` refs) | Typed cross-collection references + backlinks |
+| introspection | always available on any typed collection | `collection.describe()` / `vault.dumpSchema()` read-only schema surface |
+| schema-update | `collection({ schemaUpdate: … })` | Per-collection migration strategies (blind / additive / locked / coordinated) |
+
+> **Follow-up (out of scope here):** unlike the `with*()` subsystems, these ③
+> impls are currently **kernel-resident — eagerly imported into the floor** as
+> inline write/read-path hooks (e.g. `with-shape/money/normalize`,
+> `with-formula/computed`, `with-shape/links`, `with-shape/schema-update`,
+> `with-shape/introspection/walk`). They are *not* lazy-imported from the schema
+> declaration today, so they are not tree-shaken out when unused. Moving the
+> heavy paths behind a schema-triggered `await import(...)` is tracked as a
+> follow-up; it does not change the schema-declared opt-in model above.
+
 ## Doc page template
 
 Every entry follows the same shape — see [_template.md](./_template.md). If you're adding a new subsystem, copy the template and fill it out top-to-bottom.
