@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
-import { createNoydb } from '../src/noydb.js'
+import { createNoydb } from '../src/kernel/noydb.js'
 import type { NoydbStore } from '../src/kernel/types.js'
 import { memory } from '../../to-memory/src/index.js'
 import { withGuard } from '../src/with-audit/guards/with-guard.js'

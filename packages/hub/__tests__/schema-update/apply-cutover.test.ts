@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
-import { createNoydb } from '../../src/noydb.js'
+import { createNoydb } from '../../src/kernel/noydb.js'
 import { memory } from '../../../to-memory/src/index.js'
 
 interface Inv extends Record<string, unknown> { id: string; total?: number | undefined; amount?: { gross: number } | undefined }

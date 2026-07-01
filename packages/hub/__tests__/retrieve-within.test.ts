@@ -2,7 +2,7 @@
  * retrieve({ within }) — retrieve ∩ where payload filter (#308 L3 Task 4).
  */
 import { describe, it, expect } from 'vitest'
-import { createNoydb } from '../src/noydb.js'
+import { createNoydb } from '../src/kernel/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
 

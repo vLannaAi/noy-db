@@ -6,7 +6,7 @@
  * Spec: #1 (feat(as-*): ledger entry tagged 'import:<format>' on apply)
  */
 import { beforeEach, describe, expect, it } from 'vitest'
-import { createNoydb, type Noydb } from '../src/noydb.js'
+import { createNoydb, type Noydb } from '../src/kernel/noydb.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { memory } from '../../to-memory/src/index.js'
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { createNoydb } from '../src/noydb.js'
-import type { Noydb } from '../src/noydb.js'
+import { createNoydb } from '../src/kernel/noydb.js'
+import type { Noydb } from '../src/kernel/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, ListPageResult } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
 
@@ -86,7 +86,7 @@ interface Invoice {
   amount: number
 }
 
-async function seed(invoices: import('../src/collection.js').Collection<Invoice>, n: number): Promise<void> {
+async function seed(invoices: import('../src/kernel/collection.js').Collection<Invoice>, n: number): Promise<void> {
   for (let i = 0; i < n; i++) {
     await invoices.put(`inv-${String(i).padStart(4, '0')}`, {
       id: `inv-${String(i).padStart(4, '0')}`,

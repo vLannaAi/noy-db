@@ -12,7 +12,7 @@
  * slice — that behavior did NOT exist before.
  */
 import { describe, it, expect } from 'vitest'
-import { createNoydb } from '../src/noydb.js'
+import { createNoydb } from '../src/kernel/noydb.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { NOYDB_FORMAT_VERSION } from '../src/kernel/types.js'

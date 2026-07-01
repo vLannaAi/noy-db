@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { createNoydb } from '../src/noydb.js'
+import { createNoydb } from '../src/kernel/noydb.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { withForgetCascade } from '../src/with-audit/forget/index.js'

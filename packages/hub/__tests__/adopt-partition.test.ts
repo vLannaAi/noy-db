@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { createNoydb } from '../src/noydb.js'
+import { createNoydb } from '../src/kernel/noydb.js'
 import { ref } from '../src/kernel/refs.js'
 import { decrypt, generateDEK, base64ToBuffer } from '../src/kernel/enclave/crypto.js'
 import { TransferSealError, AdoptionStateError } from '../src/kernel/errors.js'

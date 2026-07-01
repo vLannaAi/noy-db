@@ -235,7 +235,7 @@ describe('withHealthCheck', () => {
 
 describe('wrapStore + createNoydb integration', () => {
   it('opens a vault, writes, and reads back after session close/reopen', async () => {
-    const { createNoydb } = await import('../src/noydb.js')
+    const { createNoydb } = await import('../src/kernel/noydb.js')
     const inner = makeStore()
     let putCount = 0
     const counted = wrapStore(inner, (next) => ({

@@ -17,7 +17,7 @@ import {
   PUBLIC_ENVELOPE_FIELDS,
   type PublicEnvelope,
 } from '../src/kernel/meta/public-envelope/index.js'
-import { createNoydb } from '../src/noydb.js'
+import { createNoydb } from '../src/kernel/noydb.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

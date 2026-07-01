@@ -1,7 +1,7 @@
 /** E2E single-client coordinatedCutover (#232 sub-slice 3a). */
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
-import { createNoydb } from '../src/noydb.js'
+import { createNoydb } from '../src/kernel/noydb.js'
 import { memory } from '../../to-memory/src/index.js'
 import { coordinatedCutover, additiveOnly } from '../src/with-shape/schema-update/index.js'
 import { SchemaFenceError, MigrationRequiredError } from '../src/kernel/errors.js'

@@ -9,7 +9,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
-import { createNoydb } from '../src/noydb.js'
+import { createNoydb } from '../src/kernel/noydb.js'
 import { PolicyDeniedError } from '../src/kernel/policy/errors.js'
 import { STRICT_POLICY } from '../src/kernel/policy/presets.js'
 

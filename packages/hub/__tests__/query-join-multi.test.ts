@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
-import { createNoydb, type Noydb } from '../src/noydb.js'
+import { createNoydb, type Noydb } from '../src/kernel/noydb.js'
 import type {
   NoydbStore,
   EncryptedEnvelope,

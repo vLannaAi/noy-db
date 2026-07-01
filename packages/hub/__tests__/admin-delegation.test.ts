@@ -31,8 +31,8 @@ import {
   PrivilegeEscalationError,
   PermissionDeniedError,
 } from '../src/kernel/errors.js'
-import { createNoydb } from '../src/noydb.js'
-import type { Noydb } from '../src/noydb.js'
+import { createNoydb } from '../src/kernel/noydb.js'
+import type { Noydb } from '../src/kernel/noydb.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

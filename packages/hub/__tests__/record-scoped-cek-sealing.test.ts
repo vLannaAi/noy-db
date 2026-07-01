@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { createNoydb } from '../src/noydb.js'
+import { createNoydb } from '../src/kernel/noydb.js'
 import { ConflictError, TamperedError } from '../src/kernel/errors.js'
 import {
   SealedRecordExpiredError,

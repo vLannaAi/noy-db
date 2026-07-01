@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { createNoydb } from '../src/noydb.js'
+import { createNoydb } from '../src/kernel/noydb.js'
 import { verifyAttestation } from '@noy-db/attestation'
 import { withI18n } from '../src/with-shape/i18n/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'

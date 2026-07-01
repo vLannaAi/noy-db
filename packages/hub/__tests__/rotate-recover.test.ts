@@ -227,7 +227,7 @@ describe('recoverPassphrase (paper profile)', () => {
   })
 
   it('createNoydb({ requireRecovery: true }) throws when no recovery is enrolled', async () => {
-    const { createNoydb } = await import('../src/noydb.js')
+    const { createNoydb } = await import('../src/kernel/noydb.js')
     const store = inlineMemory()
     const db = await createNoydb({
       store,
@@ -239,7 +239,7 @@ describe('recoverPassphrase (paper profile)', () => {
   })
 
   it('createNoydb({ requireRecovery: true }) accepts when paper recovery is pre-enrolled', async () => {
-    const { createNoydb } = await import('../src/noydb.js')
+    const { createNoydb } = await import('../src/kernel/noydb.js')
     const store = inlineMemory()
     // Pre-enrol paper-recovery entries directly via the storage helper.
     const keyring = await createOwnerKeyring(store, 'acme', 'alice', STRONG_OLD)

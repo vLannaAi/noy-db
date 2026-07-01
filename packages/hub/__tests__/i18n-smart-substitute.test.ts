@@ -5,7 +5,7 @@
  * of an arbitrary first-non-empty value.
  */
 import { describe, it, expect } from 'vitest'
-import { createNoydb } from '../src/noydb.js'
+import { createNoydb } from '../src/kernel/noydb.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { resolveI18nText, i18nText } from '../src/with-shape/i18n/core.js'

@@ -9,7 +9,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
-import { createNoydb } from '../src/noydb.js'
+import { createNoydb } from '../src/kernel/noydb.js'
 import { withI18n } from '../src/with-shape/i18n/index.js'
 import { i18nText } from '../src/with-shape/i18n/core.js'
 import { TranslatorNotConfiguredError } from '../src/kernel/errors.js'
