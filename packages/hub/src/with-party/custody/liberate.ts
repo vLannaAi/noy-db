@@ -43,7 +43,7 @@
  */
 
 import type { Vault } from '../../vault.js'
-import type { FactorProofBundle } from '../../policy/types.js'
+import type { FactorProofBundle } from '../../kernel/policy/types.js'
 import type { KeyringFile } from '../../kernel/types.js'
 import { PermissionDeniedError } from '../../kernel/errors.js'
 import { wrapKey } from '../../kernel/enclave/crypto.js'

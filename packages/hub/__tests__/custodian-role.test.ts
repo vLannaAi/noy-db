@@ -14,7 +14,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel
 import { ConflictError, PermissionDeniedError, ReadOnlyError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/noydb.js'
 import type { Noydb } from '../src/noydb.js'
-import { checkGate, PolicyDeniedError } from '../src/policy/index.js'
+import { checkGate, PolicyDeniedError } from '../src/kernel/policy/index.js'
 import { putCredential } from '../src/with-party/team/sync-credentials.js'
 import { extractPartition } from '../src/with-cargo/extract-partition.js'
 

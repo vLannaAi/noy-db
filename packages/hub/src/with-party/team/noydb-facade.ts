@@ -52,7 +52,7 @@ import {
 import { saveSealedPassphrase } from './managed-passphrase.js'
 import type { ShamirRecoveryProvider } from './shamir-recovery-provider.js'
 import { generateULID } from '../../with-pod/ulid.js'
-import { RecoveryProfileNotImplementedError, PolicyDeniedError } from '../../policy/errors.js'
+import { RecoveryProfileNotImplementedError, PolicyDeniedError } from '../../kernel/policy/errors.js'
 import {
   describeAuthConfig as fnDescribeAuthConfig,
   diagramAuthConfig as fnDiagramAuthConfig,
@@ -70,13 +70,13 @@ import {
   type UpdateAuthenticatorOptions,
 } from './authenticators.js'
 import type { QuickUnlockStore, QuickUnlockState } from '../session/unlock-state.js'
-import type { PassphrasePolicy } from '../../validation.js'
+import type { PassphrasePolicy } from '../../kernel/validation.js'
 import type {
   ActiveTier,
   FactorProofBundle,
   GateName,
   VaultPolicy,
-} from '../../policy/index.js'
+} from '../../kernel/policy/index.js'
 
 /** NoydbOptions with the store resolved to a non-optional value (internal use only). */
 type ResolvedNoydbOptions = NoydbOptions & { readonly store: NoydbStore }

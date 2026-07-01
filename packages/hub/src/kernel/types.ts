@@ -23,7 +23,7 @@
  * @module
  */
 
-import type { StandardSchemaV1 } from '../schema.js'
+import type { StandardSchemaV1 } from './schema.js'
 import type { DeferredNumberingConfig } from '../with-commit/numbering/descriptor.js'
 import type { SyncPolicy } from '../store/sync-policy.js'
 import type { BlobStrategy } from '../with-shape/blobs/strategy.js'
@@ -45,8 +45,8 @@ import type { SyncStrategy } from '../with-party/team/sync-strategy.js'
 import type { GuardStrategyHandleAny } from '../with-audit/guards/types.js'
 import type { DerivationStrategyHandle } from '../with-formula/derivations/types.js'
 import type { UnlockedKeyring } from '../with-party/team/keyring.js'
-import type { VaultPolicy } from '../policy/types.js'
-import type { PublicEnvelopeSchema } from '../meta/public-envelope/types.js'
+import type { VaultPolicy } from './policy/types.js'
+import type { PublicEnvelopeSchema } from './meta/public-envelope/types.js'
 import type { MaterializedViewStrategyHandle } from '../with-formula/materialized-views/types.js'
 import type { OverlayedViewStrategyHandle } from '../with-formula/overlay-views/types.js'
 import type { SealingKeyProvider } from '../with-party/team/managed-passphrase.js'

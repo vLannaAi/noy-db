@@ -11,7 +11,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
 import type { Noydb } from '../src/noydb.js'
-import { ref } from '../src/refs.js'
+import { ref } from '../src/kernel/refs.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { describeExtraction } from '../src/with-cargo/describe-extraction.js'

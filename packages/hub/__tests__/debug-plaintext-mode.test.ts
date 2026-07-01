@@ -9,7 +9,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel
 import { ConflictError, DebugPlaintextError, DebugReservedFieldError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/noydb.js'
 import { withBlobs } from '../src/with-shape/blobs/index.js'
-import { readPlaintextRecord } from '../src/debug.js'
+import { readPlaintextRecord } from '../src/kernel/debug.js'
 
 function makeStore(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

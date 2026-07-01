@@ -24,8 +24,8 @@ import {
   loadPaperRecoveryEntries,
   type PaperRecoveryEntry,
 } from '../src/index.js'
-import { STRICT_POLICY } from '../src/policy/presets.js'
-import { PolicyDeniedError } from '../src/policy/errors.js'
+import { STRICT_POLICY } from '../src/kernel/policy/presets.js'
+import { PolicyDeniedError } from '../src/kernel/policy/errors.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

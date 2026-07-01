@@ -19,7 +19,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 import { createNoydb, type Noydb } from '../src/noydb.js'
 import { listUsersWithEnvelopes } from '../src/with-party/team/keyring.js'
-import { USER_ENVELOPE_COLLECTION } from '../src/meta/user-envelope/index.js'
+import { USER_ENVELOPE_COLLECTION } from '../src/kernel/meta/user-envelope/index.js'
 
 interface TestProfile {
   profile?: { displayName?: string; locale?: string }

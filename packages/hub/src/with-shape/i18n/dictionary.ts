@@ -32,7 +32,7 @@
  */
 
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
-import type { NoydbEventEmitter } from '../../events.js'
+import type { NoydbEventEmitter } from '../../kernel/events.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
 import { encrypt, decrypt } from '../../kernel/enclave/crypto.js'

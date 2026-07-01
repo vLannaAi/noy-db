@@ -45,7 +45,7 @@
  * including joined reads.
  */
 
-import type { RefDescriptor, RefMode } from '../refs.js'
+import type { RefDescriptor, RefMode } from '../kernel/refs.js'
 import { readPath } from './predicate.js'
 import { JoinTooLargeError, DanglingReferenceError } from '../kernel/errors.js'
 import { applyI18nLocale, type I18nTextDescriptor } from '../with-shape/i18n/core.js'

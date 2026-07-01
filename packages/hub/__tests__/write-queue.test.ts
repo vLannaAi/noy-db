@@ -3,7 +3,7 @@
  * write counter behind hub.writeQueue (#227, M12 Slice 1).
  */
 import { describe, expect, it, vi } from 'vitest'
-import { WriteQueueTracker } from '../src/write-queue.js'
+import { WriteQueueTracker } from '../src/kernel/write-queue.js'
 
 describe('WriteQueueTracker', () => {
   it('starts empty', () => {

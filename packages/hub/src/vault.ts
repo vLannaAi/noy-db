@@ -16,7 +16,7 @@ import {
   exportVaultJSON,
   type BackupContext,
   type VerifyBackupResult,
-} from './vault-backup.js'
+} from './kernel/vault-backup.js'
 import type { Noydb } from './noydb.js'
 import type { IssueDelegationOptions, DelegationToken } from './with-party/team/delegation.js'
 import { NOYDB_FORMAT_VERSION } from './kernel/types.js'
@@ -34,7 +34,7 @@ import type { MaterializedViewStrategyHandle, MVQueryContext } from './with-form
 import type { OverlayedViewRegistry } from './with-formula/overlay-views/registry.js'
 import type { OverlayedViewStrategyHandle } from './with-formula/overlay-views/types.js'
 import { OverlayedCollection } from './with-formula/overlay-views/virtual-collection.js'
-import type { PublicEnvelope } from './meta/public-envelope/types.js'
+import type { PublicEnvelope } from './kernel/meta/public-envelope/types.js'
 import { buildRecipientKeyringFile } from './with-party/team/keyring.js'
 import { ensureCollectionDEK, hasAccess } from './with-party/team/keyring.js'
 import {
@@ -42,7 +42,7 @@ import {
   assertCanImport as assertCanImportCapability,
   canExport as canExportCapability,
   canImport as canImportCapability,
-} from './capabilities.js'
+} from './kernel/capabilities.js'
 import type { ExportFormat, KeyringFile, SensitiveOpt, IndexFieldName, IndexDefFor, MoneyFieldsOpt } from './kernel/types.js'
 import {
   ValidationError,
@@ -50,8 +50,8 @@ import {
   TierNotGrantedError,
 } from './kernel/errors.js'
 import { ElevatedHandle, ELEVATION_AUDIT_COLLECTION } from './with-commit/tx/elevated-handle.js'
-import type { NoydbEventEmitter } from './events.js'
-import type { StandardSchemaV1 } from './schema.js'
+import type { NoydbEventEmitter } from './kernel/events.js'
+import type { StandardSchemaV1 } from './kernel/schema.js'
 import type { BlobStrategy } from './with-shape/blobs/strategy.js'
 import type { ObjectProjection } from './with-shape/blobs/object-projection.js'
 import type { ArchiveStrategy } from './with-fork/archive/index.js'
@@ -91,7 +91,7 @@ import {
   RefRegistry,
   type RefDescriptor,
   type RefViolation,
-} from './refs.js'
+} from './kernel/refs.js'
 import type { DictionaryHandle, DictionaryOptions, DictKeyDescriptor, StaticDictDescriptor } from './with-shape/i18n/dictionary.js'
 import { isDictCollectionName, isStaticDictDescriptor } from './with-shape/i18n/dictionary.js'
 import { LinkSet, isLinkCollectionName, type LinkSpec, type LinkSetHandle } from './with-shape/links/link-set.js'
@@ -142,7 +142,7 @@ import {
   type IssueMagicLinkGrantOptions,
   type MagicLinkGrantRecord,
 } from './with-party/team/magic-link-grant.js'
-import { UserApi } from './meta/user-envelope/api.js'
+import { UserApi } from './kernel/meta/user-envelope/api.js'
 import { CustodyApi } from './with-party/custody/index.js'
 import { liberateVault } from './with-party/custody/liberate.js'
 import { persistSchemaIfNeeded } from './with-shape/persisted-schemas/register.js'
@@ -157,7 +157,7 @@ import type { DumpSchemaOptions, VaultSchemaSnapshot, SchemaIntrospection } from
 import { dumpVaultSchema, type VaultIntrospectState } from './with-shape/introspection/walk.js'
 import type { FieldMeta } from './with-shape/introspection/field-meta.js'
 import type { CollectionMeta, VaultMeta } from './with-shape/introspection/meta.js'
-import { USER_ENVELOPE_COLLECTION } from './meta/user-envelope/types.js'
+import { USER_ENVELOPE_COLLECTION } from './kernel/meta/user-envelope/types.js'
 
 /**
  * Resolve a label from an in-memory `{ locale → label }` map, walking the
@@ -3452,7 +3452,7 @@ export class Vault {
   async getPublicEnvelope(
     opts: { readonly locale?: string } = {},
   ): Promise<PublicEnvelope | undefined> {
-    const { readPublicEnvelope } = await import('./meta/public-envelope/index.js')
+    const { readPublicEnvelope } = await import('./kernel/meta/public-envelope/index.js')
     return readPublicEnvelope(this.adapter, this.name, opts)
   }
 

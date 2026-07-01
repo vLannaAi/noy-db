@@ -23,7 +23,7 @@
  */
 import type { NoydbStore } from '../../kernel/types.js'
 import type { RecordCodec } from '../../kernel/enclave/record-keys/record-codec.js'
-import type { NoydbEventEmitter } from '../../events.js'
+import type { NoydbEventEmitter } from '../../kernel/events.js'
 import { IndexWriteFailureError } from '../../kernel/errors.js'
 import type { CollectionIndexes } from './eager-indexes.js'
 import type { UniqueConstraintSet } from './unique-constraints.js'

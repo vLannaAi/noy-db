@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { WriteHookRegistry, type WriteEvent } from '../src/write-hooks.js'
+import { WriteHookRegistry, type WriteEvent } from '../src/kernel/write-hooks.js'
 
 const evt = (over: Partial<WriteEvent> = {}): WriteEvent => ({
   op: 'create', vault: 'v1', collection: 'invoices', docId: 'i1',

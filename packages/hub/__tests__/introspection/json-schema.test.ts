@@ -12,7 +12,7 @@ import { z } from 'zod'
 import { createNoydb } from '../../src/noydb.js'
 import { money } from '../../src/with-shape/money/descriptor.js'
 import { dictKey } from '../../src/with-shape/i18n/dictionary.js'
-import { ref } from '../../src/refs.js'
+import { ref } from '../../src/kernel/refs.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/kernel/types.js'
 import { ConflictError } from '../../src/kernel/errors.js'
 
@@ -85,7 +85,7 @@ describe('collection.toJSONSchema()', async () => {
   })
 
   orders = v.collection<Order>('orders_js', {
-    schema: ordersSchema as import('../../src/schema.js').StandardSchemaV1<unknown, Order>,
+    schema: ordersSchema as import('../../src/kernel/schema.js').StandardSchemaV1<unknown, Order>,
     moneyFields: { total: money({ currency: 'EUR' }) },
     refs: { buyerId: ref('buyers') },
     dictKeyFields: { status: dictKey('saleStatus', { draft: 'Draft', to_verify: 'To Verify' }) },
@@ -103,7 +103,7 @@ describe('collection.toJSONSchema()', async () => {
   const v2 = await db2.openVault('vjs2')
 
   stubColl = v2.collection('orders_stub', {
-    schema: stubValidator as unknown as import('../../src/schema.js').StandardSchemaV1,
+    schema: stubValidator as unknown as import('../../src/kernel/schema.js').StandardSchemaV1,
     moneyFields: { total: money({ currency: 'USD' }) },
   })
 

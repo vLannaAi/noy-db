@@ -7,7 +7,7 @@ import {
   USER_ENVELOPE_COLLECTION,
   USER_ENVELOPE_MAX_BYTES,
   UserEnvelopeOversizedError,
-} from '../src/meta/user-envelope/index.js'
+} from '../src/kernel/meta/user-envelope/index.js'
 import { generateDEK } from '../src/kernel/enclave/crypto.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'

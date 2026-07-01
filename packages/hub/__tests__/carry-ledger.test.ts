@@ -9,7 +9,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
 import { withHistory } from '../src/with-commit/history/index.js'
-import { ref } from '../src/refs.js'
+import { ref } from '../src/kernel/refs.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import { generateDEK, decrypt } from '../src/kernel/enclave/crypto.js'
 import { hashEntry } from '../src/with-commit/history/ledger/entry.js'

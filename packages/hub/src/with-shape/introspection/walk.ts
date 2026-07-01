@@ -23,7 +23,7 @@ import type {
 import type { Collection } from '../../collection.js'
 import type { NoydbStore } from '../../kernel/types.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
-import type { RefRegistry } from '../../refs.js'
+import type { RefRegistry } from '../../kernel/refs.js'
 import type { VaultMeta } from './meta.js'
 
 /**

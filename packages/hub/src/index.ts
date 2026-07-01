@@ -72,7 +72,7 @@
  */
 
 // Environment check — throws if Node <18 or crypto.subtle missing
-import './env-check.js'
+import './kernel/env-check.js'
 
 // Types
 export type {
@@ -183,13 +183,13 @@ export {
 export { detectMimeType, detectMagic, isPreCompressed } from './with-shape/blobs/mime-magic.js'
 export { wrapBundleStore, createBundleStore } from './store/bundle-store.js'
 export type { WrappedBundleNoydbStore, WrapBundleStoreOptions } from './store/bundle-store.js'
-export { readPlaintextRecord } from './debug.js'
+export { readPlaintextRecord } from './kernel/debug.js'
 
 // Observable write-queue
-export type { WriteQueue } from './write-queue.js'
+export type { WriteQueue } from './kernel/write-queue.js'
 
 // Write lifecycle hooks
-export type { WriteEvent, WriteHook } from './write-hooks.js'
+export type { WriteEvent, WriteHook } from './kernel/write-hooks.js'
 
 // Runtime schema introspection
 export type { SchemaIntrospection } from './with-shape/introspection/types.js'
@@ -321,7 +321,7 @@ export type { Assignment as NumberingAssignment } from './with-commit/numbering/
 export { NumberingUncertaintyError } from './kernel/errors.js'
 export type { StoreTime } from './kernel/types.js'
 
-export { STATE_VAULT_NAME } from './constants.js'
+export { STATE_VAULT_NAME } from './kernel/constants.js'
 export { UnknownShardError, ShardProvisioningError, VaultTemplateNotFoundError, ReservedVaultNameError, DataResidencyError } from './kernel/errors.js'
 export { ForgetStrategyNotConfiguredError } from './kernel/errors.js'
 export { SealedRecordExpiredError, SealedRecordMismatchError, RecordCekNotFoundError } from './kernel/errors.js'
@@ -380,8 +380,8 @@ export type {
   StandardSchemaV1SyncResult,
   StandardSchemaV1Issue,
   InferOutput,
-} from './schema.js'
-export { validateSchemaInput, validateSchemaOutput } from './schema.js'
+} from './kernel/schema.js'
+export { validateSchemaInput, validateSchemaOutput } from './kernel/schema.js'
 
 // Introspection — vault.dumpSchema() returns a structured snapshot.
 // The CLI `noydb describe` command consumes this; programmatic callers
@@ -466,12 +466,12 @@ export {
   RefRegistry,
   RefIntegrityError,
   RefScopeError,
-} from './refs.js'
+} from './kernel/refs.js'
 export type {
   RefMode,
   RefDescriptor,
   RefViolation,
-} from './refs.js'
+} from './kernel/refs.js'
 
 // Managed many-to-many link sets via vault.link() / vault.links() (#377-B)
 export {
@@ -531,7 +531,7 @@ export {
   PUBLIC_ENVELOPE_FIELDS,
   DEFAULT_PUBLIC_ENVELOPE_SCHEMA,
   PUBLIC_ENVELOPE_RECORD_ID,
-} from './meta/public-envelope/index.js'
+} from './kernel/meta/public-envelope/index.js'
 export type {
   PublicEnvelope,
   PublicEnvelopeText,
@@ -539,7 +539,7 @@ export type {
   PublicEnvelopeField,
   ResolvedPublicEnvelopeSchema,
   SetPublicEnvelopeInput,
-} from './meta/public-envelope/index.js'
+} from './kernel/meta/public-envelope/index.js'
 export { readNoydbBundlePublicEnvelope } from './with-pod/bundle.js'
 
 // User envelope (docs/superpowers/specs/2026-05-05-user-envelope-design.md)
@@ -551,8 +551,8 @@ export {
   saveUserEnvelope,
   deleteUserEnvelope,
   listUserEnvelopeIds,
-} from './meta/user-envelope/index.js'
-export type { UserEnvelope } from './meta/user-envelope/index.js'
+} from './kernel/meta/user-envelope/index.js'
+export type { UserEnvelope } from './kernel/meta/user-envelope/index.js'
 export type {
   DeepPartial,
   DeepPartialOrNull,
@@ -560,8 +560,8 @@ export type {
   LiveUserEnvelope,
   UserEnvelopePresented,
   UserEnvelopeCheckGate,
-} from './meta/user-envelope/api.js'
-export { UserApi } from './meta/user-envelope/api.js'
+} from './kernel/meta/user-envelope/api.js'
+export { UserApi } from './kernel/meta/user-envelope/api.js'
 
 // FR-6 sovereign custody — Deed / Custodian / Liberate.
 export { CustodyApi } from './with-party/custody/index.js'
@@ -973,7 +973,7 @@ export {
   saveVaultPolicy,
   META_COLLECTION,
   POLICY_RECORD_ID,
-} from './policy/index.js'
+} from './kernel/policy/index.js'
 export type {
   VaultPolicy,
   GatePolicy,
@@ -987,7 +987,7 @@ export type {
   ActiveTier,
   PolicyDenyReason,
   CheckGateContext,
-} from './policy/index.js'
+} from './kernel/policy/index.js'
 
 // Validation — phrase format (#7)
 export {
@@ -995,12 +995,12 @@ export {
   assertStrongPassphrase,
   estimateEntropy,
   WeakPassphraseError,
-} from './validation.js'
+} from './kernel/validation.js'
 export type {
   PassphrasePolicy,
   PassphraseValidationResult,
   WeakPassphraseReason,
-} from './validation.js'
+} from './kernel/validation.js'
 
 // Query DSL
 export {
