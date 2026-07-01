@@ -3,6 +3,7 @@ import { withDeferredNumbering } from '../../src/with-commit/numbering/descripto
 import { NumberingUncertaintyError, ConflictError } from '../../src/kernel/errors.js'
 import { DeferredNumberingStore } from '../../src/with-commit/numbering/index.js'
 import { createNoydb } from '../../src/index.js'
+import { withSequence } from '../../src/with-commit/sequence/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/kernel/types.js'
 
 // In-memory store with a monotonic clock — the engine's full backend under test.
@@ -175,7 +176,7 @@ describe('vault deferred-numbering integration', () => {
   })
 
   it('next() without a deferred config still uses the CAS counter', async () => {
-    const db = await createNoydb({ store: clockStore(), user: 'op', encrypt: false })
+    const db = await createNoydb({ store: clockStore(), user: 'op', encrypt: false, sequenceStrategy: withSequence() })
     const v = await db.openVault('v')
     expect(await v.sequence('plain').next()).toBe(1)
     expect(await v.sequence('plain').next()).toBe(2)

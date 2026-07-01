@@ -4,6 +4,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb, ConflictError, SequenceOfflineError, SequenceContentionError, ReservedCollectionNameError, ValidationError } from '../src/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
+import { withSequence } from '../src/with-commit/sequence/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/index.js'
 
 function memory(casAtomic = true): NoydbStore {
@@ -94,7 +95,7 @@ function memoryFaithful(casAtomic = true): NoydbStore {
 }
 
 async function vault(store: NoydbStore) {
-  const db = await createNoydb({ store, user: 'owner', secret: 'pw' })
+  const db = await createNoydb({ store, user: 'owner', secret: 'pw', sequenceStrategy: withSequence() })
   return db.openVault('books')
 }
 
@@ -150,7 +151,7 @@ describe('#303 vault.sequence', () => {
     // withHistory() so the backup also carries a verifiable ledger head —
     // exercising the full dump()/load() round-trip end to end.
     const srcStore = memoryFaithful()
-    const srcDb = await createNoydb({ store: srcStore, user: 'owner', secret: 'passphrase', historyStrategy: withHistory() })
+    const srcDb = await createNoydb({ store: srcStore, user: 'owner', secret: 'passphrase', historyStrategy: withHistory(), sequenceStrategy: withSequence() })
     const srcVault = await srcDb.openVault('acme')
     const seq = srcVault.sequence('invoice-2026')
     expect(await seq.next()).toBe(1)
@@ -160,7 +161,7 @@ describe('#303 vault.sequence', () => {
 
     // Target vault: restore from backup, then next() must continue at 4.
     const tgtStore = memoryFaithful()
-    const tgtDb = await createNoydb({ store: tgtStore, user: 'owner', secret: 'passphrase', historyStrategy: withHistory() })
+    const tgtDb = await createNoydb({ store: tgtStore, user: 'owner', secret: 'passphrase', historyStrategy: withHistory(), sequenceStrategy: withSequence() })
     const tgtVault = await tgtDb.openVault('acme')
     await tgtVault.load(backupJson)
     // Counter must resume from 3, not reset to 0.
@@ -180,7 +181,7 @@ describe('#303 vault.sequence', () => {
         return base.put(v, c, id, env, ev)
       },
     }
-    const db = await createNoydb({ store: conflicting, user: 'owner', secret: 'pw' })
+    const db = await createNoydb({ store: conflicting, user: 'owner', secret: 'pw', sequenceStrategy: withSequence() })
     const v = await db.openVault('books')
     await expect(v.sequence('x').next()).rejects.toBeInstanceOf(SequenceContentionError)
   })

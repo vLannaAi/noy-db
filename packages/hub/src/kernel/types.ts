@@ -42,6 +42,7 @@ import type { AttestationStrategy } from '../with-audit/attestation/strategy.js'
 import type { TiersStrategy } from '../with-audit/tiers/strategy.js'
 import type { SealedRecordStrategy } from '../with-audit/sealed-record/strategy.js'
 import type { PortabilityStrategy } from '../with-audit/portability/strategy.js'
+import type { SequenceStrategy } from '../with-commit/sequence/strategy.js'
 import type { Layer } from '../with-shape/i18n/policy.js'
 import type { I18nStrategy } from '../with-shape/i18n/strategy.js'
 import type { SessionStrategy } from '../with-party/session/strategy.js'
@@ -2130,6 +2131,15 @@ export interface NoydbOptions {
    * reached only via opt-in.
    */
   readonly portabilityStrategy?: PortabilityStrategy
+  /**
+   * Tree-shake seam — optional atomic-sequence capability. Pass
+   * `withSequence()` from `@noy-db/hub` to enable `vault.sequence(name)`
+   * (`.next()` / `.peek()` / `.seedTo()`). When omitted, `vault.sequence()`
+   * throws `SequenceNotEnabledError` and the CAS `SequenceStore` engine is
+   * reached only via opt-in. Deferred-numbering series (`numbering:
+   * [withDeferredNumbering(...)]`) are a separate capability and stay live.
+   */
+  readonly sequenceStrategy?: SequenceStrategy
   /**
    * Optional guard strategies — collection-level write guards. Each
    * handle is the output of `withGuard()` from `@noy-db/hub/guards`.

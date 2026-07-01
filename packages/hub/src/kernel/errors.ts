@@ -862,6 +862,23 @@ export class SequenceOfflineError extends NoydbError {
   }
 }
 
+/**
+ * Thrown by `vault.sequence()` when the atomic-sequence capability was not
+ * opted into (the default `NO_SEQUENCE` stub). Sequence is an opt-in,
+ * tree-shakeable capability: enable it with `sequenceStrategy: withSequence()`
+ * from "@noy-db/hub" in createNoydb(). Deferred-numbering series
+ * (`withDeferredNumbering`) are a separate capability and are unaffected.
+ */
+export class SequenceNotEnabledError extends NoydbError {
+  constructor(
+    message = 'vault.sequence() requires the sequence capability. Pass ' +
+      '`sequenceStrategy: withSequence()` to createNoydb().',
+  ) {
+    super('SEQUENCE_NOT_ENABLED', message)
+    this.name = 'SequenceNotEnabledError'
+  }
+}
+
 /** Thrown by a deferred-numbering pass when the store clock is unavailable or its uncertainty cannot be resolved. */
 export class NumberingUncertaintyError extends NoydbError {
   readonly series: string

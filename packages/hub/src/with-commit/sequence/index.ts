@@ -24,6 +24,12 @@ import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import { encrypt, decrypt } from '../../kernel/enclave/crypto.js'
 import { ConflictError, SequenceContentionError, SequenceOfflineError, ValidationError } from '../../kernel/errors.js'
 
+// Capability opt-in seam (S4): `vault.sequence()` builds its CAS store through
+// the sequenceStrategy, so it throws SequenceNotEnabledError unless opted in.
+export { withSequence } from './active.js'
+export { NO_SEQUENCE, type SequenceStrategy } from './strategy.js'
+export { SequenceNotEnabledError } from '../../kernel/errors.js'
+
 export const SEQUENCE_COLLECTION = '_sequences'
 // A sequence is a single hot CAS row — higher contention than a ledger
 // append. A larger budget + jittered backoff absorbs moderate concurrency;
@@ -191,6 +197,15 @@ async function sleepBackoff(attempt: number): Promise<void> {
   await new Promise((r) => setTimeout(r, ms))
 }
 
+/** Per-call context the vault assembles to build a {@link SequenceStore}. */
+export interface SequenceStoreOptions {
+  adapter: NoydbStore
+  vault: string
+  encrypted: boolean
+  getDEK: (collectionName: string) => Promise<CryptoKey>
+  actor: string
+}
+
 export class SequenceStore {
   private readonly adapter: NoydbStore
   private readonly vault: string
@@ -206,13 +221,7 @@ export class SequenceStore {
    */
   private dekPromise: Promise<CryptoKey> | null = null
 
-  constructor(opts: {
-    adapter: NoydbStore
-    vault: string
-    encrypted: boolean
-    getDEK: (collectionName: string) => Promise<CryptoKey>
-    actor: string
-  }) {
+  constructor(opts: SequenceStoreOptions) {
     this.adapter = opts.adapter
     this.vault = opts.vault
     this.encrypted = opts.encrypted

@@ -55,7 +55,8 @@ import type { ObjectProjection } from '../with-shape/blobs/object-projection.js'
 import type { ArchiveStrategy } from '../with-fork/archive/index.js'
 import type { ArchivePolicy, ArchiveContext, ArchiveResult, ArchiveRunOptions } from '../with-fork/archive/index.js'
 import { runArchive, runRestore, runListArchived } from '../with-fork/archive/index.js'
-import { SequenceStore, type SequenceHandle, type FormattedSequenceHandle, type SequenceOptions, resolveSequenceKey, compileSequenceFormat, SEQUENCE_COLLECTION } from '../with-commit/sequence/index.js'
+import { type SequenceStore, type SequenceHandle, type FormattedSequenceHandle, type SequenceOptions, resolveSequenceKey, compileSequenceFormat, SEQUENCE_COLLECTION } from '../with-commit/sequence/index.js'
+import { NO_SEQUENCE, type SequenceStrategy } from '../with-commit/sequence/strategy.js'
 import { DeferredNumberingStore, type Assignment } from '../with-commit/numbering/index.js'
 import type { DeferredNumberingConfig } from '../with-commit/numbering/descriptor.js'
 import type { IndexStrategy } from '../with-lookup/indexing/strategy.js'
@@ -229,6 +230,7 @@ export class Vault {
   private readonly tiersStrategy: TiersStrategy | undefined
   private readonly sealedRecordStrategy: SealedRecordStrategy
   private readonly portabilityStrategy: PortabilityStrategy
+  private readonly sequenceStrategy: SequenceStrategy
   private readonly consentStrategy: ConsentStrategy
   private readonly periods: VaultPeriods
   private readonly linksEnforcer: VaultLinks
@@ -533,6 +535,7 @@ export class Vault {
     attestationStrategy?: AttestationStrategy | undefined
     sealedRecordStrategy?: SealedRecordStrategy | undefined
     portabilityStrategy?: PortabilityStrategy | undefined
+    sequenceStrategy?: SequenceStrategy | undefined
     /** Vault-level descriptive metadata — set once at construction (first-wins). */
     meta?: VaultMeta | undefined
   }) {
@@ -563,6 +566,7 @@ export class Vault {
     this.tiersStrategy = opts.tiersStrategy
     this.sealedRecordStrategy = opts.sealedRecordStrategy ?? NO_SEALED_RECORD
     this.portabilityStrategy = opts.portabilityStrategy ?? NO_PORTABILITY
+    this.sequenceStrategy = opts.sequenceStrategy ?? NO_SEQUENCE
     this.consentStrategy = opts.consentStrategy ?? NO_CONSENT
     this.periods = new VaultPeriods({
       strategy: opts.periodsStrategy ?? NO_PERIODS,
@@ -1840,7 +1844,9 @@ export class Vault {
       }
     }
     if (!this.sequenceStore) {
-      this.sequenceStore = new SequenceStore({
+      // Opt-in gate (S4): NO_SEQUENCE.createStore throws SequenceNotEnabledError
+      // unless `sequenceStrategy: withSequence()` was passed to createNoydb.
+      this.sequenceStore = this.sequenceStrategy.createStore({
         adapter: this.adapter,
         vault: this.name,
         encrypted: this.encrypted,

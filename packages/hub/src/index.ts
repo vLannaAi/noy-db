@@ -271,6 +271,7 @@ export {
   LedgerContentionError,
   SequenceContentionError,
   SequenceOfflineError,
+  SequenceNotEnabledError,
   BundleIntegrityError,
   BundleSealMismatchError,
   BundleVersionConflictError,
@@ -315,7 +316,9 @@ export type {
 
 // ─── Atomic sequence (#303) ─────────────────────────────────────────────────────
 export { SequenceStore, resolveSequenceKey, compileSequenceFormat } from './with-commit/sequence/index.js'
-export type { SequenceHandle, FormattedSequenceHandle, NextOptions, SequenceOptions } from './with-commit/sequence/index.js'
+export type { SequenceHandle, FormattedSequenceHandle, NextOptions, SequenceOptions, SequenceStoreOptions } from './with-commit/sequence/index.js'
+export { withSequence, NO_SEQUENCE } from './with-commit/sequence/index.js'
+export type { SequenceStrategy } from './with-commit/sequence/index.js'
 
 // Deferred numbering — store-clock-ordered serials for non-CAS stores.
 export { withDeferredNumbering } from './with-commit/numbering/descriptor.js'
