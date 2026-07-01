@@ -1,7 +1,9 @@
 name: CI
 
-# Standard CI — runs on every PR and push to main.
-# Jobs: architecture → spec-coverage → lint/typecheck → build → test (matrix).
+# Dev CI — fast feedback on every PR and push to main.
+# Jobs: architecture → spec-coverage → lint/typecheck → build → test (node 24).
+# Single flake-free runtime for speed; the full node 22+24 test matrix and
+# the cross-OS interop run pre-publish as a hard gate in release.yml.
 
 on:
   push:
@@ -143,20 +145,19 @@ jobs:
       - name: Build
         run: pnpm turbo build
 
-  # ── Test matrix (runtime-supported Node versions) ────────────────────
+  # ── Test (dev CI) ────────────────────────────────────────────────────
+  # Single flake-free runtime (node 24) for fast PR feedback. The full
+  # node 22 + 24 matrix AND the cross-OS interop run pre-publish in
+  # release.yml — the hard gate before anything reaches npm.
   test:
-    name: Test (node ${{ matrix.node }})
+    name: Test (node 24)
     needs: [quality, build]
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node: ['22', '24']
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: ${{ matrix.node }}
+          node-version: '24'
           package-manager-cache: false
       - name: Enable corepack (pnpm)
         run: corepack enable
@@ -167,8 +168,8 @@ jobs:
       - uses: actions/cache@v5
         with:
           path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-node${{ matrix.node }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: ${{ runner.os }}-node${{ matrix.node }}-pnpm-
+          key: ${{ runner.os }}-node24-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-node24-pnpm-
       - name: Install
         run: pnpm install --frozen-lockfile
       # Restores the build job's .turbo cache (same commit sha) so this
@@ -191,59 +192,8 @@ jobs:
       - name: Test
         run: pnpm turbo test --concurrency=1 --filter '!@noy-db/showcases'
 
-  # ── WinZip-AES-256 cross-tool interop ────────────────────────────────
-  # Shells out to 7z and unar on 3 OS runners to validate that our
-  # WinZip-AES-256 writer/reader is compatible with real archive tools.
-  # continue-on-error: true until the matrix is green for the first time.
-  #
-  # Runs on push-to-main only (`github.event_name == 'push'`), NOT on PRs:
-  # the macOS/Windows runners + brew/choco tool installs are the slowest
-  # leg by far, and since it's advisory (continue-on-error) it should not
-  # sit on the PR-merge critical path. Post-merge on main still exercises it.
-  interop:
-    name: Interop (${{ matrix.os }})
-    needs: [quality, build]
-    if: github.event_name == 'push'
-    runs-on: ${{ matrix.os }}
-    continue-on-error: true
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: '22'
-          package-manager-cache: false
-      - name: Enable corepack (pnpm)
-        run: corepack enable
-      - name: Get pnpm store path
-        id: pnpm-store
-        shell: bash
-        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v5
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: ${{ runner.os }}-pnpm-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      # Ubuntu's apt `unar` package is too old to read modern WinZip-AES-256;
-      # skip unar on Linux. Tests auto-skip via hasTool('unar') check.
-      - name: Install 7-Zip (Ubuntu)
-        if: runner.os == 'Linux'
-        run: sudo apt-get install -y p7zip-full
-
-      - name: Install 7-Zip + unar (macOS)
-        if: runner.os == 'macOS'
-        run: brew install sevenzip unar
-
-      - name: Install 7-Zip (Windows)
-        if: runner.os == 'Windows'
-        run: choco install 7zip -y
-
-      - name: Run interop tests
-        working-directory: packages/as-zip
-        run: pnpm vitest run __tests__/interop.test.ts --reporter=verbose
+  # ── Interop moved to the pre-publish gate ────────────────────────────
+  # The cross-OS WinZip-AES-256 interop matrix (ubuntu/macOS/windows +
+  # 7z/unar/choco installs) is the slowest, advisory leg, so it no longer
+  # runs on PRs or main. It now runs in release.yml as part of the full
+  # pre-publish gate, alongside the node 22 + 24 test matrix.

@@ -90,9 +90,15 @@ env:
 jobs:
   # ── Gate 1: strict verification ──────────────────────────────────────
   verify:
-    name: Verify (strict)
+    name: Verify (strict, node ${{ matrix.node }})
     runs-on: ubuntu-latest
     if: github.event_name == 'release' || github.event.inputs.confirm == 'PUBLISH' || github.event_name == 'push'
+    # Full runtime matrix — the node 22 + 24 coverage that dev CI (ci.yml)
+    # trades away for PR speed runs here, as a hard gate before publish.
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22', '24']
     steps:
       - uses: actions/checkout@v5
         with:
@@ -100,7 +106,7 @@ jobs:
 
       - uses: actions/setup-node@v5
         with:
-          node-version: '22'
+          node-version: ${{ matrix.node }}
           package-manager-cache: false
           registry-url: 'https://registry.npmjs.org'
 
@@ -132,9 +138,10 @@ jobs:
 
       # @noy-db/showcases topology tests need real-cloud credentials
       # (private workspace; runnable locally with .env populated).
+      # HARD GATE: unlike dev CI, a failing test here BLOCKS the publish
+      # (this is the last line of defence before npm), on both node 22 + 24.
       - name: Test
         run: pnpm turbo test --concurrency=1 --filter '!@noy-db/showcases'
-        continue-on-error: true
 
       - name: Verify package.json versions match release tag
         if: github.event_name == 'release'
@@ -147,6 +154,55 @@ jobs:
             exit 1
           fi
           echo "✅ @noy-db/hub@$HUB_VERSION matches release tag v$VERSION"
+
+  # ── Gate 1b: cross-OS interop (advisory) ─────────────────────────────
+  # WinZip-AES-256 interop across ubuntu/macOS/windows (7z/unar/choco).
+  # Moved here from dev CI: it's the slowest leg, so it runs only at
+  # release time. Advisory (continue-on-error) — it does NOT gate publish
+  # (never been first-green); it surfaces cross-tool regressions to the
+  # maintainer at release without blocking. Flip to a hard gate once green.
+  interop:
+    name: Interop (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    if: github.event_name == 'release' || github.event.inputs.confirm == 'PUBLISH'
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.release.tag_name || github.ref }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Enable corepack (pnpm)
+        run: corepack enable
+      - name: Get pnpm store path
+        id: pnpm-store
+        shell: bash
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v5
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+      - name: Install 7-Zip (Ubuntu)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y p7zip-full
+      - name: Install 7-Zip + unar (macOS)
+        if: runner.os == 'macOS'
+        run: brew install sevenzip unar
+      - name: Install 7-Zip (Windows)
+        if: runner.os == 'Windows'
+        run: choco install 7zip -y
+      - name: Run interop tests
+        working-directory: packages/as-zip
+        run: pnpm vitest run __tests__/interop.test.ts --reporter=verbose
 
   # ── Gate 2: publish with provenance ──────────────────────────────────
   #
