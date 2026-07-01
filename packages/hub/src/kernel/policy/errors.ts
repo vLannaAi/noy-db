@@ -1,4 +1,4 @@
-import { NoydbError } from '../kernel/errors.js'
+import { NoydbError } from '../errors.js'
 import type { GateName, GatePolicy } from './types.js'
 
 /**
