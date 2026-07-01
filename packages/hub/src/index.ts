@@ -203,7 +203,7 @@ export type { CollectionDescription, DescribedField, DescribeOptions } from './w
 export type { DryRunResult, AffectedDocument, GuardViolation } from './with-commit/tx/dry-run.js'
 
 // Multi-tab coordination
-export type { TabRole, TabPresence, TabCoordinationOptions, TabLockManager, TabChannel } from './tab-coordination.js'
+export type { TabRole, TabPresence, TabCoordinationOptions, TabLockManager, TabChannel } from './with-party/tab-coordination.js'
 // Cross-tab write conflict
 export type { WriteConflict } from './types.js'
 
@@ -333,18 +333,18 @@ export {
   readNoydbBundle,
   readNoydbBundleHeader,
   resetBrotliSupportCache,
-} from './with-share/bundle/bundle.js'
-export { exportAccessibleData } from './with-share/bundle/export-accessible.js'
-export type { ExportAccessibleOptions } from './with-share/bundle/export-accessible.js'
-export { withdrawAccessibleData } from './with-share/bundle/withdraw-accessible.js'
-export type { WithdrawAccessibleOptions, WithdrawResult, FrozenSnapshotRef } from './with-share/bundle/withdraw-accessible.js'
+} from './with-pod/bundle.js'
+export { exportAccessibleData } from './with-audit/portability/export-accessible.js'
+export type { ExportAccessibleOptions } from './with-audit/portability/export-accessible.js'
+export { withdrawAccessibleData } from './with-audit/portability/withdraw-accessible.js'
+export type { WithdrawAccessibleOptions, WithdrawResult, FrozenSnapshotRef } from './with-audit/portability/withdraw-accessible.js'
 export {
   requestWithdrawal,
   listWithdrawalRequests,
   approveWithdrawal,
   rejectWithdrawal,
   WithdrawalRequestError,
-} from './with-share/bundle/request-withdrawal.js'
+} from './with-audit/portability/request-withdrawal.js'
 export type {
   RequestWithdrawalOptions,
   RequestWithdrawalResult,
@@ -352,27 +352,27 @@ export type {
   WithdrawalRequestStatus,
   ApproveWithdrawalOptions,
   RejectWithdrawalOptions,
-} from './with-share/bundle/request-withdrawal.js'
+} from './with-audit/portability/request-withdrawal.js'
 export type {
   NoydbBundleHeader,
   CompressionAlgo,
-} from './with-share/bundle/format.js'
+} from './with-pod/format.js'
 export type {
   WriteNoydbBundleOptions,
   ReadNoydbBundleOptions,
   NoydbBundleReadResult,
   AutoCredentialKind,
   AutoCredential,
-} from './with-share/bundle/bundle.js'
+} from './with-pod/bundle.js'
 export {
   NOYDB_BUNDLE_MAGIC,
   NOYDB_BUNDLE_PREFIX_BYTES,
   NOYDB_BUNDLE_FORMAT_VERSION,
   hasNoydbBundleMagic,
-} from './with-share/bundle/format.js'
-export { generateULID, isULID } from './with-share/bundle/ulid.js'
-export { decryptExtractedPartition } from './with-share/bundle/decrypt-partition.js'
-export type { DecryptedRecord } from './with-share/bundle/decrypt-partition.js'
+} from './with-pod/format.js'
+export { generateULID, isULID } from './with-pod/ulid.js'
+export { decryptExtractedPartition } from './with-cargo/decrypt-partition.js'
+export type { DecryptedRecord } from './with-cargo/decrypt-partition.js'
 
 // Schema validation — Standard Schema v1 integration
 export type {
@@ -540,7 +540,7 @@ export type {
   ResolvedPublicEnvelopeSchema,
   SetPublicEnvelopeInput,
 } from './meta/public-envelope/index.js'
-export { readNoydbBundlePublicEnvelope } from './with-share/bundle/bundle.js'
+export { readNoydbBundlePublicEnvelope } from './with-pod/bundle.js'
 
 // User envelope (docs/superpowers/specs/2026-05-05-user-envelope-design.md)
 export {
@@ -948,14 +948,14 @@ export { diff, formatDiff } from './with-commit/history/diff.js'
 export type { DiffEntry, ChangeType } from './with-commit/history/diff.js'
 
 // Vault-level diff
-export { diffVault } from './vault-diff.js'
+export { diffVault } from './with-cargo/vault-diff.js'
 export type {
   VaultDiff,
   VaultDiffEntry,
   VaultDiffModifiedEntry,
   DiffOptions,
   DiffCandidate,
-} from './vault-diff.js'
+} from './with-cargo/vault-diff.js'
 
 // Policy gates DSL — issue #9
 export {

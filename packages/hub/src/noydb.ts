@@ -45,7 +45,7 @@ import {
   type ShamirRecoveryEntry,
 } from './with-party/team/recovery.js'
 import { resolveManagedSecret } from './with-party/team/managed-passphrase.js'
-import { generateULID } from './with-share/bundle/ulid.js'
+import { generateULID } from './with-pod/ulid.js'
 import { StoreCoordinationProvider, type CoordinationProvider } from './coordination/index.js'
 import { RecoveryNotEnrolledError, ManagedRecoveryNotEnrolledError } from './policy/errors.js'
 import {
@@ -64,8 +64,8 @@ import { NoydbEventEmitter } from './events.js'
 import { WriteQueueTracker, type WriteQueue } from './write-queue.js'
 import { WriteHookRegistry, type WriteHook, type Unsubscribe } from './write-hooks.js'
 import { SubsystemBus } from './subsystem-bus.js'
-import { TabCoordinator, defaultLockManager, defaultChannel, type TabCoordinationOptions, type TabRole, type TabPresence } from './tab-coordination.js'
-import { CrossTabWriteRelay } from './tab-write-relay.js'
+import { TabCoordinator, defaultLockManager, defaultChannel, type TabCoordinationOptions, type TabRole, type TabPresence } from './with-party/tab-coordination.js'
+import { CrossTabWriteRelay } from './with-party/tab-write-relay.js'
 import {
   loadKeyring,
   createOwnerKeyring,
