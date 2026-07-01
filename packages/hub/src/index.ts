@@ -289,6 +289,7 @@ export {
   AmendmentForbiddenError,
   AttestationError,
   AttestationNotEnabledError,
+  TiersNotEnabledError,
   SchemaUpdateError,
   NonAdditiveSchemaChangeError,
   SchemaLockedError,

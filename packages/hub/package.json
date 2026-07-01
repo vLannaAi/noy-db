@@ -120,6 +120,10 @@
       "types": "./dist/attestation/index.d.ts",
       "default": "./dist/attestation/index.js"
     },
+    "./tiers": {
+      "types": "./dist/tiers/index.d.ts",
+      "default": "./dist/tiers/index.js"
+    },
     "./kernel": {
       "types": "./dist/kernel/index.d.ts",
       "default": "./dist/kernel/index.js"

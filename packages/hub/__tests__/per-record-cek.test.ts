@@ -14,6 +14,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
+import { withTiers } from '../src/with-audit/tiers/index.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import { NOYDB_FORMAT_VERSION } from '../src/kernel/types.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
@@ -199,7 +200,7 @@ describe('per-record CEK — slice 1/2: update reuses CEK + history', () => {
 describe('per-record CEK — slice 4: tiers', () => {
   it('elevate then demote a CEK record preserves decryptability at each tier', async () => {
     const store = memory()
-    const db = await createNoydb({ store, user: 'alice', secret: 'test-passphrase-1234' })
+    const db = await createNoydb({ store, user: 'alice', secret: 'test-passphrase-1234', tiersStrategy: withTiers() })
     const vault = await db.openVault('v')
     const cek = vault.collection<Doc>('cek', { perRecordKeys: true, tiers: [1] })
 

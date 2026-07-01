@@ -24,14 +24,10 @@ import {
 } from './enclave/record-keys/index.js'
 import { RecordCodec } from './enclave/record-keys/record-codec.js'
 import {
-  putAtTier as putAtTierImpl,
-  getAtTier as getAtTierImpl,
-  listAtTier as listAtTierImpl,
-  elevate as elevateImpl,
-  demote as demoteImpl,
   classifySealedShred as classifySealedShredImpl,
   type TiersContext,
 } from '../with-audit/tiers/index.js'
+import type { TiersStrategy } from '../with-audit/tiers/strategy.js'
 import {
   search as searchImpl,
   flushIndex as flushIndexImpl,
@@ -227,6 +223,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   private readonly blobFields: BlobFieldsConfig | undefined
   private readonly aggregateStrategy: AggregateStrategy
   private readonly crdtStrategy: CrdtStrategy
+  private readonly tiersStrategy: TiersStrategy
   private readonly historyStrategy: HistoryStrategy
   private readonly i18nStrategy: I18nStrategy
   private readonly syncStrategy: SyncStrategy
@@ -673,6 +670,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     this.blobFields = cfg.blobFields
     this.aggregateStrategy = cfg.aggregateStrategy
     this.crdtStrategy = cfg.crdtStrategy
+    this.tiersStrategy = cfg.tiersStrategy
     this.historyStrategy = cfg.historyStrategy
     this.i18nStrategy = cfg.i18nStrategy
     this.syncStrategy = cfg.syncStrategy
@@ -4186,34 +4184,34 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
   // ─── Hierarchical Access ──────────────────────────
 
-  /** tier-aware put — see {@link putAtTierImpl}. */
+  /** tier-aware put — gated behind `tiersStrategy: withTiers()`. */
   putAtTier(
     id: string,
     record: T,
     tier: number,
     opts?: { elevation?: { reason: string; fromTier: number }; source?: string; sourceTs?: string },
   ): Promise<void> {
-    return putAtTierImpl(this.tiersContext(), id, record, tier, opts)
+    return this.tiersStrategy.putAtTier(this.tiersContext(), id, record, tier, opts)
   }
 
-  /** tier-aware get — see {@link getAtTierImpl}. */
+  /** tier-aware get — gated behind `tiersStrategy: withTiers()`. */
   getAtTier(id: string): Promise<T | GhostRecord | null> {
-    return getAtTierImpl(this.tiersContext(), id)
+    return this.tiersStrategy.getAtTier(this.tiersContext(), id)
   }
 
-  /** list ids grouped by the caller's readability — see {@link listAtTierImpl}. */
+  /** list ids grouped by the caller's readability — gated behind `withTiers()`. */
   listAtTier(): Promise<Array<{ id: string; tier: number; readable: boolean }>> {
-    return listAtTierImpl(this.tiersContext())
+    return this.tiersStrategy.listAtTier(this.tiersContext())
   }
 
-  /** elevate a record to a higher tier — see {@link elevateImpl}. */
+  /** elevate a record to a higher tier — gated behind `withTiers()`. */
   elevate(id: string, toTier: number): Promise<void> {
-    return elevateImpl(this.tiersContext(), id, toTier)
+    return this.tiersStrategy.elevate(this.tiersContext(), id, toTier)
   }
 
-  /** demote a record to a lower tier — see {@link demoteImpl}. */
+  /** demote a record to a lower tier — gated behind `withTiers()`. */
   demote(id: string, toTier: number): Promise<void> {
-    return demoteImpl(this.tiersContext(), id, toTier)
+    return this.tiersStrategy.demote(this.tiersContext(), id, toTier)
   }
 
   /**
