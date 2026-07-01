@@ -235,7 +235,8 @@ If the `within` query matches no records, the result is an empty array.
 
 ```ts
 import { fuseRetrieval } from '@noy-db/hub'
-// also available from '@noy-db/hub/kernel' (federation seam)
+// also available from '@noy-db/hub/cargo' (the klum orchestration seam;
+// '@noy-db/hub/kernel' is a deprecated alias)
 
 const fused = fuseRetrieval([lexicalHits, semanticHits])
 // → RetrieveHit[] — best first by RRF score
@@ -253,8 +254,9 @@ const top5 = fuseRetrieval([listA, listB], { k: 60, limit: 5 })
   - **Cross-vault federation** — klum-db Lobby fans out per-vault `retrieve()` calls, collects the results as separate lists, then calls `fuseRetrieval` to merge. The fused result is vault-rank-agnostic (no corpus-relative BM25 scores cross vault boundaries).
 
 `fuseRetrieval` is exported from both `@noy-db/hub` (the package entry, for
-consumers) and `@noy-db/hub/kernel` (the federation seam, for klum-db Lobby
-and other integrators that compose the primitive without a full DB instance).
+consumers) and `@noy-db/hub/cargo` (the klum orchestration seam, for klum-db
+Lobby and other integrators that compose the primitive without a full DB
+instance; `@noy-db/hub/kernel` remains as a deprecated alias).
 
 **`FuseOptions`:**
 
