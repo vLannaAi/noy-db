@@ -35,3 +35,33 @@ export type { WriteQueue } from '../write-queue.js'
 export type { WriteConflict } from '../types.js'
 export type { AccessibleVault } from '../types.js'
 export type { Unsubscribe } from '../meta/user-envelope/api.js'
+
+// Partition / interchange — extract, adopt & transfer re-keyed slices
+// between vaults (managing pods & slices is cargo's job; the artifact
+// format itself lives on the `/pod` seam). See the architecture lexicon.
+export { walkClosure } from '../with-share/bundle/walk-closure.js'
+export type { WalkClosureOptions, ClosureResult } from '../with-share/bundle/walk-closure.js'
+export { describeExtraction } from '../with-share/bundle/describe-extraction.js'
+export type { ExtractionPreview } from '../with-share/bundle/describe-extraction.js'
+export { extractPartition } from '../with-share/bundle/extract-partition.js'
+export type { ExtractPartitionResult } from '../with-share/bundle/extract-partition.js'
+export {
+  adoptPartition,
+  unsealDeks,
+  createOwnerOnAdoptedPartition,
+} from '../with-share/bundle/adopt-partition.js'
+export type {
+  AdoptPartitionOptions,
+  AdoptPartitionResult,
+  CreateOwnerResult,
+  CreateOwnerOptions,
+  CreateOwnerStandardOptions,
+  CreateOwnerManagedOptions,
+} from '../with-share/bundle/adopt-partition.js'
+export { decryptExtractedPartition } from '../with-share/bundle/decrypt-partition.js'
+export type { DecryptedRecord } from '../with-share/bundle/decrypt-partition.js'
+export {
+  TransferSealError,
+  AdoptionStateError,
+  PartitionExtractionError,
+} from '../errors.js'

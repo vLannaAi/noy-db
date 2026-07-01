@@ -24,12 +24,15 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import * as cargo from '../src/cargo/index.js'
 import type {
-  AccessibleVault, AggregateResult, AggregateSpec, ChangeEvent, Collection,
-  CollectionMeta, CoordinationProvider, DeedMarker, DrainBarrierOptions,
-  FenceState, FuseOptions, GrantCustodianOptions, IndexDef, JoinStrategy,
-  LiberateOptions, LiberateResult, LiveAggregation, LiveQuery, Noydb, Operator,
-  Query, RetrieveHit, RetrieveOptions, SealingKeyProvider, Unsubscribe, Vault,
-  VaultMeta, WriteConflict, WriteHook, WriteQueue, WriterPresence,
+  AccessibleVault, AdoptPartitionOptions, AdoptPartitionResult, AggregateResult,
+  AggregateSpec, ChangeEvent, ClosureResult, Collection, CollectionMeta,
+  CoordinationProvider, CreateOwnerManagedOptions, CreateOwnerOptions,
+  CreateOwnerResult, CreateOwnerStandardOptions, DecryptedRecord, DeedMarker,
+  DrainBarrierOptions, ExtractionPreview, ExtractPartitionResult, FenceState,
+  FuseOptions, GrantCustodianOptions, IndexDef, JoinStrategy, LiberateOptions,
+  LiberateResult, LiveAggregation, LiveQuery, Noydb, Operator, Query, RetrieveHit,
+  RetrieveOptions, SealingKeyProvider, Unsubscribe, Vault, VaultMeta,
+  WalkClosureOptions, WriteConflict, WriteHook, WriteQueue, WriterPresence,
 } from '../src/cargo/index.js'
 
 interface Surface {
@@ -93,12 +96,15 @@ describe('@noy-db/hub/cargo — golden export surface', () => {
 // Compile-time exhaustiveness: every baselined type must still be exported.
 // A removal/rename breaks `typecheck` here in addition to the source-parse test.
 type _FrozenTypes = [
-  AccessibleVault, AggregateResult<AggregateSpec>, AggregateSpec, ChangeEvent,
+  AccessibleVault, AdoptPartitionOptions, AdoptPartitionResult,
+  AggregateResult<AggregateSpec>, AggregateSpec, ChangeEvent, ClosureResult,
   Collection<Record<string, unknown>>, CollectionMeta, CoordinationProvider,
-  DeedMarker, DrainBarrierOptions, FenceState, FuseOptions, GrantCustodianOptions,
-  IndexDef, JoinStrategy, LiberateOptions, LiberateResult,
+  CreateOwnerManagedOptions, CreateOwnerOptions, CreateOwnerResult,
+  CreateOwnerStandardOptions, DecryptedRecord, DeedMarker, DrainBarrierOptions,
+  ExtractionPreview, ExtractPartitionResult, FenceState, FuseOptions,
+  GrantCustodianOptions, IndexDef, JoinStrategy, LiberateOptions, LiberateResult,
   LiveAggregation<Record<string, unknown>>, LiveQuery<Record<string, unknown>>,
   Noydb, Operator, Query<Record<string, unknown>>, RetrieveHit<Record<string, unknown>>,
   RetrieveOptions, SealingKeyProvider, Unsubscribe, Vault, VaultMeta,
-  WriteConflict, WriteHook, WriteQueue, WriterPresence,
+  WalkClosureOptions, WriteConflict, WriteHook, WriteQueue, WriterPresence,
 ]
