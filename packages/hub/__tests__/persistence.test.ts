@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError, InvalidKeyError, KeyringCorruptError } from '../src/kernel/errors.js'
-import { createNoydb } from '../src/noydb.js'
+import { createNoydb } from '../src/kernel/noydb.js'
 
 /** Shared memory adapter — persists across createNoydb calls. */
 function persistentMemory(): NoydbStore {

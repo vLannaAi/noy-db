@@ -15,7 +15,7 @@
  *      filtered out of the data cross-check.
  */
 import { describe, it, expect } from 'vitest'
-import { createNoydb } from '../../src/noydb.js'
+import { createNoydb } from '../../src/kernel/noydb.js'
 import { withHistory } from '../../src/with-commit/history/index.js'
 import { ConflictError } from '../../src/kernel/errors.js'
 import type { LedgerEntry } from '../../src/with-commit/history/ledger/entry.js'

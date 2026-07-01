@@ -13,7 +13,7 @@
  * pre-#306 code (CEK-encrypted body, DEK-derived `_sealed`) MUST still read.
  */
 import { describe, it, expect, vi } from 'vitest'
-import { createNoydb } from '../src/noydb.js'
+import { createNoydb } from '../src/kernel/noydb.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import {
   generateDEK,

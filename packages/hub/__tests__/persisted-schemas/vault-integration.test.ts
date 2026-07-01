@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { z } from 'zod'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/kernel/types.js'
 import { ConflictError } from '../../src/kernel/errors.js'
-import { createNoydb } from '../../src/noydb.js'
-import type { Noydb } from '../../src/noydb.js'
+import { createNoydb } from '../../src/kernel/noydb.js'
+import type { Noydb } from '../../src/kernel/noydb.js'
 import { SCHEMAS_COLLECTION } from '../../src/with-shape/persisted-schemas/storage.js'
 
 function inlineMemory(): NoydbStore {

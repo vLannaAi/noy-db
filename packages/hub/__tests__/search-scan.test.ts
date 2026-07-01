@@ -3,7 +3,7 @@
  * Zero-leakage client-side BM25 scan; eager mode only.
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import { createNoydb } from '../src/noydb.js'
+import { createNoydb } from '../src/kernel/noydb.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { tokenize, searchScan } from '../src/with-lookup/search/index.js'

@@ -8,7 +8,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
-import { createNoydb, type Noydb } from '../src/noydb.js'
+import { createNoydb, type Noydb } from '../src/kernel/noydb.js'
 
 interface TestProfile {
   profile: { displayName?: string; locale?: string }

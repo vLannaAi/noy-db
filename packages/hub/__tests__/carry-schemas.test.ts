@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
-import { createNoydb } from '../src/noydb.js'
+import { createNoydb } from '../src/kernel/noydb.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import { generateDEK, decrypt } from '../src/kernel/enclave/crypto.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'

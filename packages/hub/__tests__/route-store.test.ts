@@ -618,7 +618,7 @@ describe('routeStore', () => {
 
 describe('routeStore + createNoydb integration', () => {
   it('opens a vault, writes, and reads back after session close/reopen', async () => {
-    const { createNoydb } = await import('../src/noydb.js')
+    const { createNoydb } = await import('../src/kernel/noydb.js')
     const primary = makeStore('primary')
     const store = routeStore({ default: primary })
 

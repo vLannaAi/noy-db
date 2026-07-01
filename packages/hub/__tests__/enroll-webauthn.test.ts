@@ -12,7 +12,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
-import { createNoydb, type Noydb } from '../src/noydb.js'
+import { createNoydb, type Noydb } from '../src/kernel/noydb.js'
 import { ValidationError } from '../src/kernel/errors.js'
 
 /**

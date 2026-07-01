@@ -25,7 +25,7 @@ import type { NoydbStore, EncryptedEnvelope, KeyringFile, KeyringAuthenticator }
 import { createOwnerKeyring, loadKeyring, grant, persistKeyring } from '../src/with-party/team/keyring.js'
 import { recoverUser } from '../src/with-party/team/peer-recover.js'
 import { generateDEK } from '../src/kernel/enclave/crypto.js'
-import { createNoydb } from '../src/noydb.js'
+import { createNoydb } from '../src/kernel/noydb.js'
 import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, InvalidKeyError } from '../src/kernel/errors.js'
 import { PolicyDeniedError } from '../src/kernel/policy/errors.js'
 import { STRICT_POLICY } from '../src/kernel/policy/presets.js'

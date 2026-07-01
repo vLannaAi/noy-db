@@ -2,7 +2,7 @@
  * Semantic retrieval — retrieve(mode:'semantic') + collection.similarTo() (#308 L2).
  */
 import { describe, it, expect } from 'vitest'
-import { createNoydb } from '../src/noydb.js'
+import { createNoydb } from '../src/kernel/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError, EmbeddingModelMismatchError } from '../src/kernel/errors.js'
 

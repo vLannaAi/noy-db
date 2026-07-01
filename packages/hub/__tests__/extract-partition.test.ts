@@ -9,8 +9,8 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest'
-import { createNoydb } from '../src/noydb.js'
-import type { Noydb } from '../src/noydb.js'
+import { createNoydb } from '../src/kernel/noydb.js'
+import type { Noydb } from '../src/kernel/noydb.js'
 import { ref } from '../src/kernel/refs.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import { decrypt, base64ToBuffer, generateDEK } from '../src/kernel/enclave/crypto.js'

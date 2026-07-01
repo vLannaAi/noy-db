@@ -4,7 +4,7 @@
  * (per-call `toArray({locale})` or the vault default); locale-less → raw map.
  */
 import { describe, it, expect } from 'vitest'
-import { createNoydb } from '../src/noydb.js'
+import { createNoydb } from '../src/kernel/noydb.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ref } from '../src/kernel/refs.js'

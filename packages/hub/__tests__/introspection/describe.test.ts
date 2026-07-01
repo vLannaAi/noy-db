@@ -11,7 +11,7 @@
 
 import { describe, it, expect, vi } from 'vitest'
 import { z } from 'zod'
-import { createNoydb } from '../../src/noydb.js'
+import { createNoydb } from '../../src/kernel/noydb.js'
 import { money } from '../../src/with-shape/money/descriptor.js'
 import { staticDict, dictKey } from '../../src/with-shape/i18n/dictionary.js'
 import { i18nText } from '../../src/with-shape/i18n/core.js'

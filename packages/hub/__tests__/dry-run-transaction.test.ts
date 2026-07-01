@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createNoydb, type Noydb } from '../src/noydb.js'
+import { createNoydb, type Noydb } from '../src/kernel/noydb.js'
 import { withTransactions } from '../src/with-commit/tx/index.js'
 import { withGuard } from '../src/with-audit/guards/with-guard.js'
 import { memory } from '../../to-memory/src/index.js'

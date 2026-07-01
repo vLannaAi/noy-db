@@ -8,7 +8,7 @@
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
-import { createNoydb } from '../src/noydb.js'
+import { createNoydb } from '../src/kernel/noydb.js'
 import { loadKeyring } from '../src/with-party/team/keyring.js'
 import type { UnlockedKeyring } from '../src/with-party/team/keyring.js'
 

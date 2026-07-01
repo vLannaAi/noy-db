@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
-import { createNoydb, type Noydb } from '../src/noydb.js'
+import { createNoydb, type Noydb } from '../src/kernel/noydb.js'
 import type {
   NoydbStore,
   EncryptedEnvelope,
@@ -119,8 +119,8 @@ async function seedCompartment(
   db: Noydb,
   opts: { refMode?: 'strict' | 'warn' | 'cascade' } = {},
 ): Promise<{
-  invoices: import('../src/collection.js').Collection<Invoice>
-  clients: import('../src/collection.js').Collection<Client>
+  invoices: import('../src/kernel/collection.js').Collection<Invoice>
+  clients: import('../src/kernel/collection.js').Collection<Client>
 }> {
   const mode = opts.refMode ?? 'strict'
   const c = await db.openVault('TEST')

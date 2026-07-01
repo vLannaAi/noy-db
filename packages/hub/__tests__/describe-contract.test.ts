@@ -14,7 +14,7 @@
  * config-only sync path — zero store I/O).
  */
 import { describe, it, expect } from 'vitest'
-import { createNoydb } from '../src/noydb.js'
+import { createNoydb } from '../src/kernel/noydb.js'
 import { money } from '../src/with-shape/money/descriptor.js'
 import { staticDict } from '../src/with-shape/i18n/dictionary.js'
 import { i18nText } from '../src/with-shape/i18n/core.js'

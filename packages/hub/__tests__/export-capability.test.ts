@@ -21,7 +21,7 @@ import {
   hasExportCapability,
 } from '../src/index.js'
 import { ConflictError } from '../src/kernel/errors.js'
-import { createNoydb } from '../src/noydb.js'
+import { createNoydb } from '../src/kernel/noydb.js'
 import type { UnlockedKeyring } from '../src/with-party/team/keyring.js'
 
 function memory(): NoydbStore {

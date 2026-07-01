@@ -2,8 +2,8 @@
  * Write-time embedding derivation — encrypted _vec sidecar (#308 L2).
  */
 import { describe, it, expect } from 'vitest'
-import { createNoydb } from '../src/noydb.js'
-import type { Noydb } from '../src/noydb.js'
+import { createNoydb } from '../src/kernel/noydb.js'
+import type { Noydb } from '../src/kernel/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError, EmbeddingDimMismatchError } from '../src/kernel/errors.js'
 

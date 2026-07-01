@@ -4,7 +4,7 @@
  * in flight and observe depth/pending/onFlush deterministically.
  */
 import { describe, expect, it } from 'vitest'
-import { createNoydb, type Noydb } from '../src/noydb.js'
+import { createNoydb, type Noydb } from '../src/kernel/noydb.js'
 import { memory } from '../../to-memory/src/index.js'
 import type { NoydbStore } from '../src/kernel/types.js'
 

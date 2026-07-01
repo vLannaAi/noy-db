@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createNoydb } from '../src/noydb.js'
+import { createNoydb } from '../src/kernel/noydb.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { memory } from '../../to-memory/src/index.js'
 import type { TabChannel } from '../src/with-party/tab-coordination.js'
