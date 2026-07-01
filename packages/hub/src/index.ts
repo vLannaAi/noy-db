@@ -294,10 +294,10 @@ export {
   SchemaFenceError,
   MigrationRequiredError,
   QuiesceTimeoutError,
-} from './errors.js'
+} from './kernel/errors.js'
 
 // ─── Snapshot errors ─────────────────────────────────────────────────────────
-export { SnapshotNotFoundError } from './errors.js'
+export { SnapshotNotFoundError } from './kernel/errors.js'
 export type { SnapshotMeta, RetentionPolicy } from './with-fork/snapshots/strategy.js'
 
 // ─── Record cold-storage archival (#307) ───────────────────────────────────────
@@ -318,14 +318,14 @@ export type { SequenceHandle, FormattedSequenceHandle, NextOptions, SequenceOpti
 export { withDeferredNumbering } from './with-commit/numbering/descriptor.js'
 export type { DeferredNumberingConfig } from './with-commit/numbering/descriptor.js'
 export type { Assignment as NumberingAssignment } from './with-commit/numbering/index.js'
-export { NumberingUncertaintyError } from './errors.js'
+export { NumberingUncertaintyError } from './kernel/errors.js'
 export type { StoreTime } from './kernel/types.js'
 
 export { STATE_VAULT_NAME } from './constants.js'
-export { UnknownShardError, ShardProvisioningError, VaultTemplateNotFoundError, ReservedVaultNameError, DataResidencyError } from './errors.js'
-export { ForgetStrategyNotConfiguredError } from './errors.js'
-export { SealedRecordExpiredError, SealedRecordMismatchError, RecordCekNotFoundError } from './errors.js'
-export { DebugPlaintextError, DebugReservedFieldError } from './errors.js'
+export { UnknownShardError, ShardProvisioningError, VaultTemplateNotFoundError, ReservedVaultNameError, DataResidencyError } from './kernel/errors.js'
+export { ForgetStrategyNotConfiguredError } from './kernel/errors.js'
+export { SealedRecordExpiredError, SealedRecordMismatchError, RecordCekNotFoundError } from './kernel/errors.js'
+export { DebugPlaintextError, DebugReservedFieldError } from './kernel/errors.js'
 
 // Bundle format — `.noydb` container
 export {
@@ -669,7 +669,7 @@ export {
   VISIBILITY_RECORD_PREFIX,
 } from './with-party/directory/index.js'
 export type { DirectoryConfig, UserVisibility } from './with-party/directory/index.js'
-export { DirectoryDisabledError } from './errors.js'
+export { DirectoryDisabledError } from './kernel/errors.js'
 
 // Core classes
 export { Noydb, createNoydb } from './noydb.js'
@@ -725,7 +725,7 @@ export {
   DerivationOutputUnknownError,
   DerivationOutputShapeError,
   DerivationCapExceededError,
-} from './errors.js'
+} from './kernel/errors.js'
 
 // Materialized views (Dim 14 v2) — see docs/superpowers/specs/2026-05-20-dim14-mv-v2-design.md
 export { withMaterializedView } from './with-formula/materialized-views/index.js'
@@ -742,7 +742,7 @@ export {
   MaterializedViewConfigError,
   MaterializedViewSourceUnknownError,
   MaterializedViewTooLargeError,
-} from './errors.js'
+} from './kernel/errors.js'
 
 // Overlay views (Dim 14 v2) — see docs/superpowers/specs/2026-05-20-dim14-mv-v2-design.md § Composition with operator-editable lifecycle
 export { withOverlayedView } from './with-formula/overlay-views/index.js'
@@ -757,7 +757,7 @@ export {
   OverlayCollectionUnavailableError,
   OverlayNameCollisionError,
   OverlayIdMismatchError,
-} from './errors.js'
+} from './kernel/errors.js'
 
 // Accounting periods
 export { PERIODS_COLLECTION } from './with-audit/periods/index.js'
@@ -766,7 +766,7 @@ export type {
   ClosePeriodOptions,
   OpenPeriodOptions,
 } from './with-audit/periods/index.js'
-export { PeriodClosedError } from './errors.js'
+export { PeriodClosedError } from './kernel/errors.js'
 
 // Cache module — LRU + byte budget parsing
 export { Lru, parseBytes, estimateRecordBytes } from './kernel/cache/index.js'
@@ -851,7 +851,7 @@ export {
   ScriptViolationError,
   StaticDictReadonlyError,
   UnknownDictCodeError,
-} from './errors.js'
+} from './kernel/errors.js'
 
 // Locale read options + translator audit log
 export type { LocaleReadOptions } from './kernel/types.js'
@@ -908,16 +908,16 @@ export { encryptDeterministic, decryptDeterministic } from './kernel/enclave/cry
 
 // hierarchical access
 export type { GhostRecord, TierMode, CrossTierAccessEvent } from './kernel/types.js'
-export { TierNotGrantedError, TierDemoteDeniedError, DelegationTargetMissingError } from './errors.js'
+export { TierNotGrantedError, TierDemoteDeniedError, DelegationTargetMissingError } from './kernel/errors.js'
 
 // lazy-mode index errors
-export { IndexRequiredError, IndexWriteFailureError } from './errors.js'
+export { IndexRequiredError, IndexWriteFailureError } from './kernel/errors.js'
 // #308 L3 — hybrid-retrieval rank fusion (also the klum federation primitive)
 export { fuseRetrieval, type FuseOptions } from './with-lookup/search/fuse.js'
 // unique-index enforcement error
-export { UniqueConstraintError, UnsupportedIndexOptionError } from './errors.js'
+export { UniqueConstraintError, UnsupportedIndexOptionError } from './kernel/errors.js'
 // embeddings / semantic-retrieval (L2)
-export { EmbeddingDimMismatchError, EmbeddingModelMismatchError } from './errors.js'
+export { EmbeddingDimMismatchError, EmbeddingModelMismatchError } from './kernel/errors.js'
 export type { EmbeddingDescriptor } from './with-lookup/embeddings/index.js'
 export { dekKey, effectiveClearance, assertTierAccess } from './with-party/team/tiers.js'
 export type { DelegationToken, IssueDelegationOptions } from './with-party/team/delegation.js'

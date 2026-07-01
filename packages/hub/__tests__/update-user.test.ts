@@ -25,7 +25,7 @@ import type { NoydbStore, EncryptedEnvelope, KeyringFile, KeyringAuthenticator }
 import { createOwnerKeyring, loadKeyring, grant, persistKeyring, updateKeyringIdentity } from '../src/with-party/team/keyring.js'
 import { generateDEK } from '../src/kernel/enclave/crypto.js'
 import { createNoydb } from '../src/noydb.js'
-import { NoAccessError, PermissionDeniedError, ValidationError } from '../src/errors.js'
+import { NoAccessError, PermissionDeniedError, ValidationError } from '../src/kernel/errors.js'
 import { PolicyDeniedError } from '../src/policy/errors.js'
 import { STRICT_POLICY } from '../src/policy/presets.js'
 

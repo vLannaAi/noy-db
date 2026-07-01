@@ -17,7 +17,7 @@
 
 import { readPath } from '../../query/predicate.js'
 import { canonicalGroupKey } from '../aggregate/canonical-key.js'
-import { UniqueConstraintError, UnsupportedIndexOptionError } from '../../errors.js'
+import { UniqueConstraintError, UnsupportedIndexOptionError } from '../../kernel/errors.js'
 import type { IndexDef } from './eager-indexes.js'
 
 interface Constraint {

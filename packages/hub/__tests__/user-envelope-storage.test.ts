@@ -9,7 +9,7 @@ import {
   UserEnvelopeOversizedError,
 } from '../src/meta/user-envelope/index.js'
 import { generateDEK } from '../src/kernel/enclave/crypto.js'
-import { ConflictError } from '../src/errors.js'
+import { ConflictError } from '../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 
 function inlineMemory(): NoydbStore {

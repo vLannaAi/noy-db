@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { IndexRequiredError, IndexWriteFailureError, NoydbError } from '../src/errors.js'
+import { IndexRequiredError, IndexWriteFailureError, NoydbError } from '../src/kernel/errors.js'
 import { encodeIdxId, decodeIdxId, isIdxId } from '../src/with-lookup/indexing/persisted-indexes.js'
 
 describe('IndexRequiredError', () => {

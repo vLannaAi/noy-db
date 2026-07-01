@@ -17,14 +17,14 @@ import { createNoydb } from '../src/noydb.js'
 import { withI18n } from '../src/with-shape/i18n/index.js'
 import type { Noydb } from '../src/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
-import { ConflictError } from '../src/errors.js'
+import { ConflictError } from '../src/kernel/errors.js'
 import {
   ReservedCollectionNameError,
   DictKeyMissingError,
   PermissionDeniedError,
   StaticDictReadonlyError,
   UnknownDictCodeError,
-} from '../src/errors.js'
+} from '../src/kernel/errors.js'
 import { dictKey, staticDict } from '../src/with-shape/i18n/dictionary.js'
 import { withAggregate, count } from '../src/with-lookup/aggregate/index.js'
 

@@ -19,7 +19,7 @@ import {
   isSessionAlive,
   activeSessionCount,
 } from '../src/with-party/session/session.js'
-import { SessionExpiredError, SessionNotFoundError } from '../src/errors.js'
+import { SessionExpiredError, SessionNotFoundError } from '../src/kernel/errors.js'
 import type { UnlockedKeyring } from '../src/with-party/team/keyring.js'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

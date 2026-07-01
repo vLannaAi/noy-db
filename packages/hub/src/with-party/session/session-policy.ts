@@ -23,7 +23,7 @@
  */
 
 import type { SessionPolicy, ReAuthOperation } from '../../kernel/types.js'
-import { SessionExpiredError, SessionPolicyError } from '../../errors.js'
+import { SessionExpiredError, SessionPolicyError } from '../../kernel/errors.js'
 import { revokeSession } from './session.js'
 
 // ─── PolicyEnforcer ────────────────────────────────────────────────────

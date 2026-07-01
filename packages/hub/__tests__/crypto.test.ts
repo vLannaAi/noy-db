@@ -10,7 +10,7 @@ import {
   generateSalt,
   bufferToBase64,
 } from '../src/kernel/enclave/crypto.js'
-import { TamperedError, InvalidKeyError } from '../src/errors.js'
+import { TamperedError, InvalidKeyError } from '../src/kernel/errors.js'
 
 describe('crypto', () => {
   // ─── Key Derivation ────────────────────────────────────────────────

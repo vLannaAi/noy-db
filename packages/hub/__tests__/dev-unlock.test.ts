@@ -22,7 +22,7 @@ import {
   clearDevUnlock,
   isDevUnlockActive,
 } from '../src/with-party/session/dev-unlock.js'
-import { ValidationError } from '../src/errors.js'
+import { ValidationError } from '../src/kernel/errors.js'
 import type { UnlockedKeyring } from '../src/with-party/team/keyring.js'
 
 const ACK = 'I-UNDERSTAND-THIS-DISABLES-UNLOCK-SECURITY'

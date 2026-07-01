@@ -56,4 +56,4 @@ export {
   SessionExpiredError,
   SessionNotFoundError,
   SessionPolicyError,
-} from '../../errors.js'
+} from '../../kernel/errors.js'

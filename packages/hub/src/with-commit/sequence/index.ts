@@ -22,7 +22,7 @@
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import { encrypt, decrypt } from '../../kernel/enclave/crypto.js'
-import { ConflictError, SequenceContentionError, SequenceOfflineError, ValidationError } from '../../errors.js'
+import { ConflictError, SequenceContentionError, SequenceOfflineError, ValidationError } from '../../kernel/errors.js'
 
 export const SEQUENCE_COLLECTION = '_sequences'
 // A sequence is a single hot CAS row — higher contention than a ledger

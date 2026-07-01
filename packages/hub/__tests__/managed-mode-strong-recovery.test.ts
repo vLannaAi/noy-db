@@ -24,7 +24,7 @@ import {
   MemorySealingKeyProvider,
   loadSealedPassphrase,
 } from '../src/index.js'
-import { ConflictError, ValidationError } from '../src/errors.js'
+import { ConflictError, ValidationError } from '../src/kernel/errors.js'
 import { ManagedRecoveryNotEnrolledError } from '../src/policy/errors.js'
 import { shamirRecoveryProvider } from '@noy-db/on-shamir'
 

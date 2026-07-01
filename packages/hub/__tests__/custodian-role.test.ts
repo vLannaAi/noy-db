@@ -11,7 +11,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
-import { ConflictError, PermissionDeniedError, ReadOnlyError } from '../src/errors.js'
+import { ConflictError, PermissionDeniedError, ReadOnlyError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/noydb.js'
 import type { Noydb } from '../src/noydb.js'
 import { checkGate, PolicyDeniedError } from '../src/policy/index.js'

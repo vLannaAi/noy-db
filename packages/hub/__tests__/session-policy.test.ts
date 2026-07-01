@@ -4,7 +4,7 @@
 
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { PolicyEnforcer, validateSessionPolicy } from '../src/with-party/session/session-policy.js'
-import { SessionExpiredError, SessionPolicyError } from '../src/errors.js'
+import { SessionExpiredError, SessionPolicyError } from '../src/kernel/errors.js'
 import { revokeAllSessions } from '../src/with-party/session/session.js'
 
 afterEach(() => {

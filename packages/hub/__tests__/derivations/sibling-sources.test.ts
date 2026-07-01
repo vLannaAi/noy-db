@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb, withDerivation, DerivationCycleError } from '../../src/index.js'
-import { ValidationError } from '../../src/errors.js'
+import { ValidationError } from '../../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
 function memory(): NoydbStore {

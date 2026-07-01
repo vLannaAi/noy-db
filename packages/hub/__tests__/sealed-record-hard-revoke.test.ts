@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
-import { ConflictError, TamperedError } from '../src/errors.js'
+import { ConflictError, TamperedError } from '../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { MemoryRecipientSealer } from '../src/with-party/team/managed-passphrase.js'
 import { openSealedRecord } from '../src/with-audit/sealed-record/index.js'

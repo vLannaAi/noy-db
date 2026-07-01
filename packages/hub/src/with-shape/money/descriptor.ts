@@ -16,7 +16,7 @@
 
 import type { RoundingMode } from './fixed-point.js'
 import { scaleForCurrency } from './iso4217.js'
-import { NoydbError } from '../../errors.js'
+import { NoydbError } from '../../kernel/errors.js'
 
 export interface MoneyOptionsFixed {
   currency: string

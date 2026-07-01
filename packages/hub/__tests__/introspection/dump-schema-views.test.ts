@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/kernel/types.js'
-import { ConflictError } from '../../src/errors.js'
+import { ConflictError } from '../../src/kernel/errors.js'
 import { createNoydb, withMaterializedView, sum, GroupedAggregation } from '../../src/index.js'
 import { withAggregate } from '../../src/with-lookup/aggregate/index.js'
 

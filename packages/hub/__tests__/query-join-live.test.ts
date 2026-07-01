@@ -10,7 +10,7 @@ import type {
   EncryptedEnvelope,
   VaultSnapshot,
 } from '../src/kernel/types.js'
-import { ConflictError } from '../src/errors.js'
+import { ConflictError } from '../src/kernel/errors.js'
 import { resetJoinWarnings } from '../src/query/index.js'
 import { ref } from '../src/refs.js'
 

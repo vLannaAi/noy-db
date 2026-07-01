@@ -15,7 +15,7 @@
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../src/kernel/types.js'
-import { ConflictError } from '../src/errors.js'
+import { ConflictError } from '../src/kernel/errors.js'
 import {
   loadSealedPassphrase,
   saveSealedPassphrase,

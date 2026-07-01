@@ -30,7 +30,7 @@ import {
   ConflictError,
   PrivilegeEscalationError,
   PermissionDeniedError,
-} from '../src/errors.js'
+} from '../src/kernel/errors.js'
 import { createNoydb } from '../src/noydb.js'
 import type { Noydb } from '../src/noydb.js'
 

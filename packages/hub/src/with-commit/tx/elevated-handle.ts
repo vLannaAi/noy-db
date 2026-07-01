@@ -9,7 +9,7 @@
  * imports this module for the value; this module imports vault.ts only for the
  * type).
  */
-import { ElevationExpiredError } from '../../errors.js'
+import { ElevationExpiredError } from '../../kernel/errors.js'
 import type { Vault } from '../../vault.js'
 
 /**

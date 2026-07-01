@@ -45,7 +45,7 @@
 
 import { withGuard } from './with-guard.js'
 import type { GuardStrategy, GuardStrategyHandle, GuardContext, GuardChange } from './types.js'
-import { IllegalTransitionError, ValidationError } from '../../errors.js'
+import { IllegalTransitionError, ValidationError } from '../../kernel/errors.js'
 
 export interface TransitionGuardConfig<T extends Record<string, unknown>> {
   /** The collection whose state field is governed. */

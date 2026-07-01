@@ -51,7 +51,7 @@ import {
   purgePersistedIndexes as purgePersistedIndexesImpl,
   type IndexingContext,
 } from './with-lookup/indexing/collection-facade.js'
-import { ConflictError, ReadOnlyError, TranslatorNotConfiguredError, LocaleNotSpecifiedError } from './errors.js'
+import { ConflictError, ReadOnlyError, TranslatorNotConfiguredError, LocaleNotSpecifiedError } from './kernel/errors.js'
 import type { GhostRecord, TierMode, CrossTierAccessEvent } from './kernel/types.js'
 import type { UnlockedKeyring } from './with-party/team/keyring.js'
 import { hasWritePermission } from './with-party/team/keyring.js'
@@ -79,7 +79,7 @@ import type { SearchOptions, SearchResult } from './with-lookup/search/index.js'
 import { MemoryIndexStore, type IndexStore } from './with-lookup/search/index-store.js'
 import { PersistedIndexStore } from './with-lookup/search/persisted-index-store.js'
 import type { RetrieveOptions, RetrieveHit } from './with-lookup/search/retrieve-types.js'
-import { DerivationCapExceededError, EmbeddingDimMismatchError } from './errors.js'
+import { DerivationCapExceededError, EmbeddingDimMismatchError } from './kernel/errors.js'
 import { embeddingSourceText, type VectorSet, type EmbeddingDescriptor } from './with-lookup/embeddings/index.js'
 import { buildUniqueConstraintSet, type UniqueConstraintSet } from './with-lookup/indexing/unique-constraints.js'
 import type { RefDescriptor } from './refs.js'

@@ -43,7 +43,7 @@ import { envelopePayloadHash } from '../../with-commit/history/ledger/hash.js'
 import {
   PermissionDeniedError,
   DictKeyMissingError,
-} from '../../errors.js'
+} from '../../kernel/errors.js'
 
 /** Reserved collection name prefix. Never collides with user collections. */
 export const DICT_COLLECTION_PREFIX = '_dict_'

@@ -6,7 +6,7 @@ import { createNoydb, money } from '../src/index.js'
 import { Query } from '../src/query/builder.js'
 import type { QuerySource, JoinContext, JoinableSource } from '../src/query/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
-import { ConflictError } from '../src/errors.js'
+import { ConflictError } from '../src/kernel/errors.js'
 
 function staticSourceWithEntries<T extends object>(
   records: T[],

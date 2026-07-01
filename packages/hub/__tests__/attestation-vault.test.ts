@@ -5,7 +5,7 @@ import { withI18n } from '../src/with-shape/i18n/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { i18nText } from '../src/with-shape/i18n/core.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
-import { ConflictError, AttestationError } from '../src/errors.js'
+import { ConflictError, AttestationError } from '../src/kernel/errors.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

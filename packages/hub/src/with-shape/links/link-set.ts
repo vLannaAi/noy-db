@@ -22,7 +22,7 @@ import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import type { NoydbEventEmitter } from '../../events.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import { encrypt, decrypt } from '../../kernel/enclave/crypto.js'
-import { NoydbError } from '../../errors.js'
+import { NoydbError } from '../../kernel/errors.js'
 
 export const LINK_COLLECTION_PREFIX = '_links_'
 

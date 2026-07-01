@@ -13,7 +13,7 @@
  * `by-tabs` / `by-peer` swap in real-time push transports.
  */
 import { type FenceState } from './fence.js'
-import { SchemaFenceError, MigrationRequiredError } from '../../errors.js'
+import { SchemaFenceError, MigrationRequiredError } from '../../kernel/errors.js'
 import type { TransformFn } from './types.js'
 import { runDrainBarrier, type CoordinationProvider } from '../../kernel/coordination/index.js'
 

@@ -10,7 +10,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
-import { ConflictError } from '../src/errors.js'
+import { ConflictError } from '../src/kernel/errors.js'
 import { withForgetCascade } from '../src/with-audit/forget/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { generateDEK } from '../src/kernel/enclave/crypto.js'

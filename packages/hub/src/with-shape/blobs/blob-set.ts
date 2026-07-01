@@ -22,7 +22,7 @@ import {
   generateDEK,
 } from '../../kernel/enclave/crypto.js'
 import { wrapCek, unwrapCek } from '../../kernel/enclave/record-keys/index.js'
-import { ConflictError, NotFoundError } from '../../errors.js'
+import { ConflictError, NotFoundError } from '../../kernel/errors.js'
 import { detectMagic, isPreCompressed } from './mime-magic.js'
 
 // ─── Internal collection names ─────────────────────────────────────────

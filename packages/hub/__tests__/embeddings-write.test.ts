@@ -5,7 +5,7 @@ import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
 import type { Noydb } from '../src/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
-import { ConflictError, EmbeddingDimMismatchError } from '../src/errors.js'
+import { ConflictError, EmbeddingDimMismatchError } from '../src/kernel/errors.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

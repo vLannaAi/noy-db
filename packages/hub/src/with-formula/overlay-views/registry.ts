@@ -2,7 +2,7 @@ import {
   OverlayBaseIsVirtualError,
   OverlayCollectionUnavailableError,
   OverlayNameCollisionError,
-} from '../../errors.js'
+} from '../../kernel/errors.js'
 import type { MaterializedViewRegistry } from '../materialized-views/registry.js'
 import type { OverlayedViewStrategy } from './types.js'
 

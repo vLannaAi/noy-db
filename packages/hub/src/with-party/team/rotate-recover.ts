@@ -26,7 +26,7 @@ import {
   bufferToBase64,
   base64ToBuffer,
 } from '../../kernel/enclave/crypto.js'
-import { InvalidKeyError, NoAccessError } from '../../errors.js'
+import { InvalidKeyError, NoAccessError } from '../../kernel/errors.js'
 import {
   RecoveryProfileNotImplementedError,
 } from '../../policy/errors.js'
@@ -45,7 +45,7 @@ import type { UnlockedKeyring } from './keyring.js'
 import { mintKeyringCanary } from './keyring.js'
 import type { KeyringAuthenticator } from '../../kernel/types.js'
 import type { EnrollAuthenticatorOptions } from './authenticators.js'
-import { ValidationError } from '../../errors.js'
+import { ValidationError } from '../../kernel/errors.js'
 
 /**
  * Context handed to a {@link SlotRewrapCeremony} when `rotatePassphrase`

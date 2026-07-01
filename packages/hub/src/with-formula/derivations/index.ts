@@ -20,4 +20,4 @@ export {
   DerivationOutputUnknownError,
   DerivationOutputShapeError,
   DerivationCapExceededError,
-} from '../../errors.js'
+} from '../../kernel/errors.js'

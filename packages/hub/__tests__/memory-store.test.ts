@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { memoryStore } from '../src/store/memory-store.js'
 import type { EncryptedEnvelope } from '../src/kernel/types.js'
-import { ConflictError } from '../src/errors.js'
+import { ConflictError } from '../src/kernel/errors.js'
 
 const env = (v: number): EncryptedEnvelope =>
   ({ _noydb: 1, _v: v, _ts: '2026-01-01T00:00:00.000Z', _iv: '', _data: `d${v}` }) as unknown as EncryptedEnvelope

@@ -42,7 +42,7 @@ import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import type { UnlockedKeyring } from './keyring.js'
 import { encrypt, decrypt } from '../../kernel/enclave/crypto.js'
 import { ensureCollectionDEK } from './keyring.js'
-import { PermissionDeniedError } from '../../errors.js'
+import { PermissionDeniedError } from '../../kernel/errors.js'
 
 /** The reserved collection name. Never collides with user collections. */
 export const SYNC_CREDENTIALS_COLLECTION = '_sync_credentials'

@@ -25,7 +25,7 @@ import {
   BLOB_SLOTS_PREFIX,
   BLOB_VERSIONS_PREFIX,
 } from '../with-shape/blobs/blob-set.js'
-import { PartitionExtractionError } from '../errors.js'
+import { PartitionExtractionError } from '../kernel/errors.js'
 import { walkClosure, type WalkClosureOptions } from './walk-closure.js'
 import { generateULID } from '../with-pod/ulid.js'
 import { SCHEMAS_COLLECTION } from '../with-shape/persisted-schemas/storage.js'

@@ -18,7 +18,7 @@
  *
  * @module
  */
-import { NoydbError, ValidationError } from './errors.js'
+import { NoydbError, ValidationError } from './kernel/errors.js'
 
 /** All reasons a phrase can be rejected. */
 export type WeakPassphraseReason =

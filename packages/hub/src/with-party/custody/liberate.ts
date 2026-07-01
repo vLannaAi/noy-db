@@ -45,7 +45,7 @@
 import type { Vault } from '../../vault.js'
 import type { FactorProofBundle } from '../../policy/types.js'
 import type { KeyringFile } from '../../kernel/types.js'
-import { PermissionDeniedError } from '../../errors.js'
+import { PermissionDeniedError } from '../../kernel/errors.js'
 import { wrapKey } from '../../kernel/enclave/crypto.js'
 import { createOwnerKeyring } from '../team/keyring.js'
 import type { FrozenSnapshotRef } from '../../with-audit/portability/withdraw-accessible.js'

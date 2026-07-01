@@ -18,14 +18,14 @@ import { decrypt, base64ToBuffer } from '../../kernel/enclave/crypto.js'
 import {
   SealedRecordExpiredError,
   SealedRecordMismatchError,
-} from '../../errors.js'
+} from '../../kernel/errors.js'
 import type {
   SealedCekDeliveryEnvelope,
   SealedCekBinding,
 } from './types.js'
 
 export type { SealedCekDeliveryEnvelope, SealedCekBinding } from './types.js'
-export { SealedRecordExpiredError, SealedRecordMismatchError } from '../../errors.js'
+export { SealedRecordExpiredError, SealedRecordMismatchError } from '../../kernel/errors.js'
 
 const subtle = globalThis.crypto.subtle
 

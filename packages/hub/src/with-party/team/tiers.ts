@@ -18,7 +18,7 @@
  */
 
 import type { UnlockedKeyring } from './keyring.js'
-import { TierNotGrantedError } from '../../errors.js'
+import { TierNotGrantedError } from '../../kernel/errors.js'
 
 /** Canonical DEK key for a given collection + tier. Tier 0 → bare name. */
 export function dekKey(collection: string, tier: number): string {

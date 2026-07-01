@@ -1,7 +1,7 @@
 /** In-memory vector set for L2 semantic retrieval (#308). Loaded once per session from
  *  decrypted _vec sidecars (injected loader), brute-force cosine kNN, model-guarded. */
 import { cosine } from './cosine.js'
-import { EmbeddingModelMismatchError } from '../../errors.js'
+import { EmbeddingModelMismatchError } from '../../kernel/errors.js'
 
 export interface StoredVector { readonly id: string; readonly vec: Float32Array; readonly model: string }
 export interface VectorHit { readonly id: string; readonly score: number }

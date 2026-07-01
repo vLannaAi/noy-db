@@ -41,7 +41,7 @@
  * @module
  */
 
-import { FilenameSanitizationError } from '../errors.js'
+import { FilenameSanitizationError } from '../kernel/errors.js'
 
 /**
  * One of seven storage destinations the sanitizer knows how to defang

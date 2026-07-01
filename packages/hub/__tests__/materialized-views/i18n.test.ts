@@ -13,7 +13,7 @@ import { withAggregate } from '../../src/with-lookup/aggregate/index.js'
 import { sum, count } from '../../src/with-lookup/aggregate/reducers.js'
 import { i18nText } from '../../src/with-shape/i18n/core.js'
 import { withI18n } from '../../src/with-shape/i18n/index.js'
-import { LocaleNotSpecifiedError, MaterializedViewConfigError } from '../../src/errors.js'
+import { LocaleNotSpecifiedError, MaterializedViewConfigError } from '../../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
 function memory(): NoydbStore {

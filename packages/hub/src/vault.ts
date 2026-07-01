@@ -48,7 +48,7 @@ import {
   ValidationError,
   AlreadyElevatedError,
   TierNotGrantedError,
-} from './errors.js'
+} from './kernel/errors.js'
 import { ElevatedHandle, ELEVATION_AUDIT_COLLECTION } from './with-commit/tx/elevated-handle.js'
 import type { NoydbEventEmitter } from './events.js'
 import type { StandardSchemaV1 } from './schema.js'
@@ -79,7 +79,7 @@ import {
   rebuildSubjectIndex as rebuildSubjectIndexImpl,
   type SubjectRef,
 } from './with-audit/forget/subject-index.js'
-import { ForgetStrategyNotConfiguredError } from './errors.js'
+import { ForgetStrategyNotConfiguredError } from './kernel/errors.js'
 import type { VaultFrame } from './with-fork/shadow/vault-frame.js'
 import { NO_SHADOW, type ShadowStrategy } from './with-fork/shadow/strategy.js'
 import type { ConsentContext, ConsentAuditEntry, ConsentAuditFilter, ConsentOp } from './with-audit/consent/consent.js'
@@ -114,7 +114,7 @@ import type { DerivationRegistry } from './with-formula/derivations/registry.js'
 import type { DerivationStrategyHandle } from './with-formula/derivations/types.js'
 import type { LocaleReadOptions, ConflictPolicy } from './kernel/types.js'
 import type { CrdtMode } from './with-commit/crdt/crdt.js'
-import { ReservedCollectionNameError, StaticDictReadonlyError, UnknownDictCodeError } from './errors.js'
+import { ReservedCollectionNameError, StaticDictReadonlyError, UnknownDictCodeError } from './kernel/errors.js'
 import {
   type PeriodRecord,
   type ClosePeriodOptions,

@@ -38,4 +38,4 @@ export {
   ScriptViolationError,
   StaticDictReadonlyError,
   UnknownDictCodeError,
-} from '../../errors.js'
+} from '../../kernel/errors.js'

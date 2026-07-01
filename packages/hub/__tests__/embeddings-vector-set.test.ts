@@ -1,7 +1,7 @@
 // packages/hub/__tests__/embeddings-vector-set.test.ts
 import { describe, it, expect } from 'vitest'
 import { VectorSet, type StoredVector } from '../src/with-lookup/embeddings/vector-set.js'
-import { EmbeddingModelMismatchError } from '../src/errors.js'
+import { EmbeddingModelMismatchError } from '../src/kernel/errors.js'
 
 const vecs: StoredVector[] = [
   { id: 'a', vec: new Float32Array([1, 0, 0]), model: 'm1' },

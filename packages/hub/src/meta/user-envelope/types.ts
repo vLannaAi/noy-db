@@ -5,7 +5,7 @@
  *
  * @module
  */
-import { NoydbError } from '../../errors.js'
+import { NoydbError } from '../../kernel/errors.js'
 
 /**
  * Thin reader view of a user envelope. The on-disk shape is the standard
