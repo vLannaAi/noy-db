@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import * as cargo from '../src/cargo/index.js'
+import * as cargo from '../src/with-cargo/index.js'
 
 describe('@noy-db/hub/cargo surface', () => {
   it('re-exports the /kernel runtime floor', () => {

@@ -22,7 +22,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import * as cargo from '../src/cargo/index.js'
+import * as cargo from '../src/with-cargo/index.js'
 import type {
   AccessibleVault, AggregateResult, AggregateSpec, ChangeEvent, Collection,
   CollectionMeta, CoordinationProvider, DeedMarker, DrainBarrierOptions,
@@ -30,7 +30,7 @@ import type {
   LiberateOptions, LiberateResult, LiveAggregation, LiveQuery, Noydb, Operator,
   Query, RetrieveHit, RetrieveOptions, SealingKeyProvider, Unsubscribe, Vault,
   VaultMeta, WriteConflict, WriteHook, WriteQueue, WriterPresence,
-} from '../src/cargo/index.js'
+} from '../src/with-cargo/index.js'
 
 interface Surface {
   readonly values: readonly string[]
@@ -66,7 +66,7 @@ const uniqSort = (xs: string[]): string[] => [...new Set(xs)].sort()
 
 const baseline: Surface = JSON.parse(read('./cargo-surface.golden.json')) as Surface
 // `export *` from /kernel means the cargo surface = cargo-source delta ∪ kernel floor.
-const cargoSrc = parseExports(read('../src/cargo/index.ts'))
+const cargoSrc = parseExports(read('../src/with-cargo/index.ts'))
 const kernelSrc = parseExports(read('../src/kernel/index.ts'))
 const parsed = {
   values: uniqSort([...cargoSrc.values, ...kernelSrc.values]),
