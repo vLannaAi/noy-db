@@ -3,7 +3,7 @@ import { memory } from '../../../to-memory/src/index.js'
 import { SchemaFenceController } from '../../src/with-shape/schema-update/fence-controller.js'
 import { saveFence, loadFence } from '../../src/with-shape/schema-update/fence.js'
 import { StoreCoordinationProvider } from '../../src/kernel/coordination/index.js'
-import { SchemaFenceError, MigrationRequiredError } from '../../src/errors.js'
+import { SchemaFenceError, MigrationRequiredError } from '../../src/kernel/errors.js'
 
 function ctrl(store = memory()) {
   // Default coordination = StoreCoordinationProvider over the same store, so the

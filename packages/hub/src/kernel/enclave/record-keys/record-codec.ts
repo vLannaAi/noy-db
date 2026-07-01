@@ -22,7 +22,7 @@ import { encrypt, decrypt, encryptDeterministic, wrapCek, unwrapCek, deriveSeale
 import { NOYDB_FORMAT_VERSION, SealedHandle, type EncryptedEnvelope } from '../../types.js'
 import { isTombstone } from './tombstone.js'
 import { parseSealedSlot, dualReadSealedSlot } from './sealed-slot.js'
-import { DebugReservedFieldError } from '../../../errors.js'
+import { DebugReservedFieldError } from '../../errors.js'
 import { validateSchemaOutput, type StandardSchemaV1 } from '../../../schema.js'
 import type { CrdtMode, CrdtState } from '../../../with-commit/crdt/crdt.js'
 import type { CrdtStrategy } from '../../../with-commit/crdt/strategy.js'

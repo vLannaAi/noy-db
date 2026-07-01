@@ -4,7 +4,7 @@ import { generateDEK, encrypt } from '../src/kernel/enclave/crypto.js'
 import { ed25519Verify, signPayloadCore, generateDocSigningKeyPair } from '@noy-db/attestation'
 import { NOYDB_FORMAT_VERSION } from '../src/kernel/types.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
-import { ConflictError } from '../src/errors.js'
+import { ConflictError } from '../src/kernel/errors.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

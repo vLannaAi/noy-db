@@ -65,7 +65,7 @@ export type {
 // ─── Store errors ────────────────────────────────────────────
 // Re-exported from the central errors module so subpath consumers can
 // `instanceof StoreCapabilityError` without falling back to the root barrel.
-export { StoreCapabilityError } from '../errors.js'
+export { StoreCapabilityError } from '../kernel/errors.js'
 
 // ─── Blob primitives relocated to packages/hub/src/blobs/ ──────────
 //

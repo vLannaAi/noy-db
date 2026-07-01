@@ -3,7 +3,7 @@ import { createNoydb } from '../src/noydb.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import type { Noydb } from '../src/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
-import { ConflictError } from '../src/errors.js'
+import { ConflictError } from '../src/kernel/errors.js'
 
 /** Inline memory adapter to avoid circular workspace dependency. */
 function memory(): NoydbStore {

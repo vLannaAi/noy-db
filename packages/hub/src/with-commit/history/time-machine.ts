@@ -50,7 +50,7 @@ import type { EncryptedEnvelope, NoydbStore } from '../../kernel/types.js'
 import type { LedgerStore } from './ledger/store.js'
 import { getHistory } from './history.js'
 import { decrypt } from '../../kernel/enclave/crypto.js'
-import { ReadOnlyAtInstantError } from '../../errors.js'
+import { ReadOnlyAtInstantError } from '../../kernel/errors.js'
 
 /**
  * Narrow view of a {@link Vault}'s internals that

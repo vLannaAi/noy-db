@@ -14,7 +14,7 @@
  * Internal — reached through `vault.dump()` / `vault.load()` / etc.
  */
 import { NOYDB_BACKUP_VERSION } from './kernel/types.js'
-import { BackupLedgerError, BackupCorruptedError } from './errors.js'
+import { BackupLedgerError, BackupCorruptedError } from './kernel/errors.js'
 import { LEDGER_COLLECTION, LEDGER_DELTAS_COLLECTION } from './with-commit/history/ledger/constants.js'
 import { SCHEMAS_COLLECTION } from './with-shape/persisted-schemas/storage.js'
 import { SEQUENCE_COLLECTION } from './with-commit/sequence/index.js'

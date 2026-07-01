@@ -37,7 +37,7 @@ export {
   UnknownShardError,
   ValidationError,
   VaultTemplateNotFoundError,
-} from '../errors.js'
+} from './errors.js'
 
 // Types only (erased at emit). NOTE: Vault / Collection / Noydb / Query are
 // runtime classes in hub, but are re-exported here as TYPES — `instanceof`

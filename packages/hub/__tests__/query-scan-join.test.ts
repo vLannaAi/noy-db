@@ -22,7 +22,7 @@ import type {
   VaultSnapshot,
   ListPageResult,
 } from '../src/kernel/types.js'
-import { ConflictError, DanglingReferenceError } from '../src/errors.js'
+import { ConflictError, DanglingReferenceError } from '../src/kernel/errors.js'
 import { ScanBuilder, count, sum, type ScanPageProvider, type JoinContext } from '../src/query/index.js'
 import { ref } from '../src/refs.js'
 

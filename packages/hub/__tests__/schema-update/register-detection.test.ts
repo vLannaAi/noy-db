@@ -5,7 +5,7 @@ import { memory } from '../../../to-memory/src/index.js'
 import { persistSchemaIfNeeded } from '../../src/with-shape/persisted-schemas/register.js'
 import { SCHEMAS_COLLECTION } from '../../src/with-shape/persisted-schemas/storage.js'
 import { additiveOnly } from '../../src/with-shape/schema-update/strategies.js'
-import { NonAdditiveSchemaChangeError } from '../../src/errors.js'
+import { NonAdditiveSchemaChangeError } from '../../src/kernel/errors.js'
 import type { NoydbStore } from '../../src/kernel/types.js'
 
 const VAULT = 'v1'

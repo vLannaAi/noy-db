@@ -1,4 +1,4 @@
-import { MaterializedViewCycleError, MaterializedViewSourceUnknownError } from '../../errors.js'
+import { MaterializedViewCycleError, MaterializedViewSourceUnknownError } from '../../kernel/errors.js'
 import type { DerivationRegistry } from '../derivations/registry.js'
 import type { Clause, FieldClause } from '../../query/predicate.js'
 import type { DeclaredPredicate } from '../../query/builder.js'

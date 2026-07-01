@@ -5,7 +5,7 @@ import {
   FieldFrozenError,
   InvariantError,
   AmendmentForbiddenError,
-} from '../../src/errors.js'
+} from '../../src/kernel/errors.js'
 
 describe('guard errors', () => {
   it('RecordLockedError carries collection + id + reason', () => {

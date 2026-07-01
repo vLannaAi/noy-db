@@ -13,7 +13,7 @@
  *
  * Internal subsystem — reached through `vault.closePeriod(...)` etc.
  */
-import { ValidationError } from '../../errors.js'
+import { ValidationError } from '../../kernel/errors.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import { encrypt, decrypt } from '../../kernel/enclave/crypto.js'
 import type { EncryptedEnvelope, NoydbStore } from '../../kernel/types.js'

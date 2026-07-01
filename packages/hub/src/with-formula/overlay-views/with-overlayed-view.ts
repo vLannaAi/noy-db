@@ -1,4 +1,4 @@
-import { ValidationError } from '../../errors.js'
+import { ValidationError } from '../../kernel/errors.js'
 import type { OverlayedViewStrategy, OverlayedViewStrategyHandle } from './types.js'
 
 /**

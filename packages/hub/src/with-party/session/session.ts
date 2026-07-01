@@ -45,7 +45,7 @@ import { bufferToBase64, base64ToBuffer } from '../../kernel/enclave/crypto.js'
 import { generateULID } from '../../with-pod/ulid.js'
 import type { Role } from '../../kernel/types.js'
 import type { UnlockedKeyring } from '../team/keyring.js'
-import { SessionExpiredError, SessionNotFoundError } from '../../errors.js'
+import { SessionExpiredError, SessionNotFoundError } from '../../kernel/errors.js'
 
 const subtle = globalThis.crypto.subtle
 

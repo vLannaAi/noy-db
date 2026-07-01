@@ -7,7 +7,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
-import { ConflictError } from '../src/errors.js'
+import { ConflictError } from '../src/kernel/errors.js'
 import { MemorySealingKeyProvider } from '../src/with-party/team/managed-passphrase.js'
 import { shamirRecoveryProvider } from '@noy-db/on-shamir'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'

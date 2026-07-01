@@ -4,7 +4,7 @@ import { SchemaFenceController } from '../../src/with-shape/schema-update/fence-
 import { loadFence, saveFence } from '../../src/with-shape/schema-update/fence.js'
 import { writeClientDoc } from '../../src/with-shape/schema-update/client-registry.js'
 import { StoreCoordinationProvider } from '../../src/kernel/coordination/index.js'
-import { QuiesceTimeoutError } from '../../src/errors.js'
+import { QuiesceTimeoutError } from '../../src/kernel/errors.js'
 
 function mkCtrl(store = memory(), quiesceTimeoutMs = 10_000) {
   let t = 1000

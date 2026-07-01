@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { blindUpdate, lockSchema, additiveOnly } from '../../src/with-shape/schema-update/strategies.js'
-import { NonAdditiveSchemaChangeError, SchemaLockedError } from '../../src/errors.js'
+import { NonAdditiveSchemaChangeError, SchemaLockedError } from '../../src/kernel/errors.js'
 import type { SchemaDelta } from '../../src/with-shape/schema-update/types.js'
 
 const delta = (over: Partial<SchemaDelta>): SchemaDelta => ({

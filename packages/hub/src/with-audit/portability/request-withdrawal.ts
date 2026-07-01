@@ -22,7 +22,7 @@
 import type { Vault } from '../../vault.js'
 import type { EncryptedEnvelope } from '../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
-import { NoydbError } from '../../errors.js'
+import { NoydbError } from '../../kernel/errors.js'
 import { resolveAccessibleCollections, buildAccessibleBundle } from './export-accessible.js'
 import { freezeAndDeleteClosure, randomId, type FrozenSnapshotRef, type WithdrawResult } from './withdraw-accessible.js'
 

@@ -62,4 +62,4 @@ export {
   DanglingReferenceError,
   CrossJoinTooLargeError,
   CrossJoinSourceUnknownError,
-} from '../errors.js'
+} from '../kernel/errors.js'

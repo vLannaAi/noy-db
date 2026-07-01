@@ -14,7 +14,7 @@ import { money } from '../../src/with-shape/money/descriptor.js'
 import { dictKey } from '../../src/with-shape/i18n/dictionary.js'
 import { ref } from '../../src/refs.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/kernel/types.js'
-import { ConflictError } from '../../src/errors.js'
+import { ConflictError } from '../../src/kernel/errors.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

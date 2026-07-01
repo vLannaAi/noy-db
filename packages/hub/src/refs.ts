@@ -40,7 +40,7 @@
  * doesn't ship — tracked for.
  */
 
-import { NoydbError } from './errors.js'
+import { NoydbError } from './kernel/errors.js'
 
 /** The three enforcement modes. Default for new refs is `'strict'`. */
 export type RefMode = 'strict' | 'warn' | 'cascade'

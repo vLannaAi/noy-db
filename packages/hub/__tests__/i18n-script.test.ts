@@ -8,7 +8,7 @@
 import { describe, it, expect } from 'vitest'
 import { i18nText } from '../src/with-shape/i18n/core.js'
 import { inferScripts, enforceScript } from '../src/with-shape/i18n/script.js'
-import { ScriptViolationError } from '../src/errors.js'
+import { ScriptViolationError } from '../src/kernel/errors.js'
 
 describe('inferScripts — asymmetric Latin (#283)', () => {
   it('Latin locales stay Latin-only', () => {

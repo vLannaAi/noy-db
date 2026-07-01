@@ -23,4 +23,4 @@ export type {
   ListPageResult,
 } from '../kernel/types.js'
 
-export { ConflictError, NetworkError, StoreCapabilityError, BundleVersionConflictError } from '../errors.js'
+export { ConflictError, NetworkError, StoreCapabilityError, BundleVersionConflictError } from '../kernel/errors.js'

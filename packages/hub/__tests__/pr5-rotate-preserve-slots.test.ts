@@ -26,7 +26,7 @@ import type { NoydbStore, EncryptedEnvelope, KeyringAuthenticator } from '../src
 import { createOwnerKeyring, loadKeyring, persistKeyring } from '../src/with-party/team/keyring.js'
 import { rotatePassphrase, type SlotRewrapCeremony } from '../src/with-party/team/rotate-recover.js'
 import { generateDEK } from '../src/kernel/enclave/crypto.js'
-import { ValidationError } from '../src/errors.js'
+import { ValidationError } from '../src/kernel/errors.js'
 import type { EnrollAuthenticatorOptions } from '../src/with-party/team/authenticators.js'
 
 function inlineMemory(): NoydbStore {

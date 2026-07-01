@@ -28,7 +28,7 @@
 
 import { withGuard } from './with-guard.js'
 import type { GuardStrategy, GuardStrategyHandle, GuardContext, GuardChange } from './types.js'
-import { RecordLockedError, ValidationError } from '../../errors.js'
+import { RecordLockedError, ValidationError } from '../../kernel/errors.js'
 
 export interface ImmutableGuardConfig<T extends Record<string, unknown>> {
   /** The collection to make WORM. */

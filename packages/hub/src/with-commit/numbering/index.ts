@@ -6,7 +6,7 @@
 import type { NoydbStore, EncryptedEnvelope, StoreTime } from '../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import { encrypt, decrypt } from '../../kernel/enclave/crypto.js'
-import { ConflictError, NumberingUncertaintyError } from '../../errors.js'
+import { ConflictError, NumberingUncertaintyError } from '../../kernel/errors.js'
 import type { DeferredNumberingConfig } from './descriptor.js'
 
 export const NUMBERING_HEAD_COLLECTION = '_numbering_head'

@@ -21,7 +21,7 @@ import type {
   TranslatorAuditEntry,
   WriteConflict,
 } from './kernel/types.js'
-import { ValidationError, NoAccessError, InvalidKeyError, KeyringCorruptError, StoreCapabilityError, PermissionDeniedError, DebugPlaintextError } from './errors.js'
+import { ValidationError, NoAccessError, InvalidKeyError, KeyringCorruptError, StoreCapabilityError, PermissionDeniedError, DebugPlaintextError } from './kernel/errors.js'
 import {
   readDirectoryConfig,
   persistDirectoryConfig,
@@ -1719,7 +1719,7 @@ export class Noydb {
   /**
    * Toggle the vault's user-directory listing on or off.
    * Owner-only. When disabled, `listUsersWithEnvelopes()` throws
-   * {@link import('./errors.js').DirectoryDisabledError} for callers
+   * {@link import('./kernel/errors.js').DirectoryDisabledError} for callers
    * whose role is neither `owner` nor `admin`.
    *
    * Honest caveat: this is a UX flag, not a privacy guarantee. The

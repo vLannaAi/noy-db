@@ -29,7 +29,7 @@ import {
   BLOB_CHUNKS_COLLECTION,
   BLOB_SLOTS_PREFIX,
 } from '../src/with-shape/blobs/blob-set.js'
-import { ConflictError } from '../src/errors.js'
+import { ConflictError } from '../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 
 // Realistic in-memory store: `loadAll` filters out underscore-prefixed

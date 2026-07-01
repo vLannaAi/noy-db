@@ -22,7 +22,7 @@ import {
 } from '../src/query/index.js'
 import { withAggregate } from '../src/with-lookup/aggregate/index.js'
 const AGG = withAggregate()
-import { GroupCardinalityError } from '../src/errors.js'
+import { GroupCardinalityError } from '../src/kernel/errors.js'
 
 interface Invoice {
   id: string

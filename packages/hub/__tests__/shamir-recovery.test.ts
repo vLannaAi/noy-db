@@ -14,7 +14,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 import { createNoydb, type Noydb } from '../src/index.js'
-import { ConflictError } from '../src/errors.js'
+import { ConflictError } from '../src/kernel/errors.js'
 import { shamirRecoveryProvider } from '@noy-db/on-shamir'
 
 function inlineMemory(): NoydbStore {

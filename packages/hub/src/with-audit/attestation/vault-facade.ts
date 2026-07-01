@@ -13,7 +13,7 @@
  *
  * Internal subsystem — reached through `vault.issueAttestation(...)` etc.
  */
-import { AttestationError } from '../../errors.js'
+import { AttestationError } from '../../kernel/errors.js'
 import type { NoydbStore } from '../../kernel/types.js'
 import type { AttestationFieldSchema, RevocationList } from '@noy-db/attestation'
 import type { IssueContext } from './issue.js'

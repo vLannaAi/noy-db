@@ -16,7 +16,7 @@
  *
  * Internal subsystem — reached through `noydb.getPolicy(...)` etc.
  */
-import { ValidationError } from '../errors.js'
+import { ValidationError } from '../kernel/errors.js'
 import { PERSONAL_POLICY, mergePolicy } from './presets.js'
 import { loadVaultPolicy, saveVaultPolicy } from './storage.js'
 import type { VaultPolicy } from './types.js'

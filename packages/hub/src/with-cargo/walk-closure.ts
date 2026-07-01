@@ -19,7 +19,7 @@
  * @module
  */
 import type { Vault } from '../vault.js'
-import { PartitionExtractionError } from '../errors.js'
+import { PartitionExtractionError } from '../kernel/errors.js'
 
 /** Seed predicate per collection. Records that return true become roots. */
 export interface WalkClosureOptions {

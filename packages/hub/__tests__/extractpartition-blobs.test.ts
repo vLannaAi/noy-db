@@ -13,7 +13,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
 import { ref } from '../src/refs.js'
-import { ConflictError } from '../src/errors.js'
+import { ConflictError } from '../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, KeyringFile } from '../src/kernel/types.js'
 import { decrypt } from '../src/kernel/enclave/crypto.js'
 import { unwrapCek } from '../src/kernel/enclave/record-keys/index.js'

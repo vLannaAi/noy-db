@@ -50,7 +50,7 @@ import {
   type CompressionAlgo,
   type NoydbBundleHeader,
 } from './format.js'
-import { BundleIntegrityError, BundleSealMismatchError, ValidationError } from '../errors.js'
+import { BundleIntegrityError, BundleSealMismatchError, ValidationError } from '../kernel/errors.js'
 import type { Vault } from '../vault.js'
 import type { BundleRecipient } from '../with-party/team/keyring.js'
 import { pickLocale } from '../meta/public-envelope/storage.js'

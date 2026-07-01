@@ -6,7 +6,7 @@ import {
   MoneyPrecisionError,
   MoneyUnsupportedError,
 } from '../../src/with-shape/money/descriptor.js'
-import { NoydbError } from '../../src/errors.js'
+import { NoydbError } from '../../src/kernel/errors.js'
 
 describe('money()', () => {
   it('fixed mode resolves scale from ISO-4217 when omitted', () => {

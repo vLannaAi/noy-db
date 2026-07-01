@@ -11,7 +11,7 @@ import {
   bufferToBase64,
   base64ToBuffer,
 } from '../../kernel/enclave/crypto.js'
-import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, KeyringExpiredError, KeyringCorruptError, InvalidKeyError, ValidationError, DirectoryDisabledError } from '../../errors.js'
+import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, KeyringExpiredError, KeyringCorruptError, InvalidKeyError, ValidationError, DirectoryDisabledError } from '../../kernel/errors.js'
 import { readDirectoryConfig } from '../directory/storage.js'
 import { readUserVisibility, deleteUserVisibility } from '../directory/visibility.js'
 import { assertStrongPassphrase, type PassphrasePolicy } from '../../validation.js'
@@ -1150,7 +1150,7 @@ export async function listUsers(
  * - `includeHidden` — when true, principals with `_meta/visibility/<id>`
  *   set to `{ hidden: true }` are returned alongside everyone else.
  *   Requires `owner` or `admin` callerRole; lower roles get
- *   {@link import('../../errors.js').PermissionDeniedError}.
+ *   {@link import('../../kernel/errors.js').PermissionDeniedError}.
  */
 export interface ListUsersOptions {
   readonly includeHidden?: boolean
@@ -1169,7 +1169,7 @@ export interface ListUsersOptions {
  *
  *  - When the vault's `_meta/directory` document has `enabled: false`,
  *    only `owner` and `admin` callers may enumerate; anyone else gets
- *    {@link import('../../errors.js').DirectoryDisabledError}.
+ *    {@link import('../../kernel/errors.js').DirectoryDisabledError}.
  *  - Principals with `_meta/visibility/<id>` set to `{ hidden: true }`
  *    are filtered out by default. `owner`/`admin` callers can pass
  *    `{ includeHidden: true }` to see them; lower roles passing that

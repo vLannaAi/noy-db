@@ -17,7 +17,7 @@
 import { encrypt, decrypt, generateDEK, wrapCek, unwrapCek, bufferToBase64, deriveSealedFieldKeyFromCek } from '../crypto.js'
 import { NOYDB_FORMAT_VERSION, type EncryptedEnvelope, type NoydbStore } from '../../types.js'
 import { dualReadSealedSlot } from './sealed-slot.js'
-import { RecordCekNotFoundError, ValidationError } from '../../../errors.js'
+import { RecordCekNotFoundError, ValidationError } from '../../errors.js'
 import type { RecipientSealer } from '../../../with-party/team/managed-passphrase.js'
 import type { SealedCekBinding, SealedCekDeliveryEnvelope } from '../../../with-audit/sealed-record/types.js'
 

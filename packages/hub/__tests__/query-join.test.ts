@@ -9,7 +9,7 @@ import {
   ConflictError,
   JoinTooLargeError,
   DanglingReferenceError,
-} from '../src/errors.js'
+} from '../src/kernel/errors.js'
 import { Query } from '../src/query/index.js'
 import { resetJoinWarnings } from '../src/query/index.js'
 import { ref } from '../src/refs.js'

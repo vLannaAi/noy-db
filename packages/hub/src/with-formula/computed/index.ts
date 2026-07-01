@@ -16,7 +16,7 @@
  * is out of scope here — see the validation subsystem (#299).
  */
 
-import { NoydbError } from '../../errors.js'
+import { NoydbError } from '../../kernel/errors.js'
 
 export type ComputedFn<T = Record<string, unknown>> = (record: T) => unknown
 

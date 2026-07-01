@@ -27,7 +27,7 @@ import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 import { createNoydb, type Noydb } from '../src/noydb.js'
 import { generateULID, mintPaperRecoveryEntry, loadPaperRecoveryEntries, type PaperRecoveryEntry } from '../src/index.js'
-import { InvalidKeyError } from '../src/errors.js'
+import { InvalidKeyError } from '../src/kernel/errors.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

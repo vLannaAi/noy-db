@@ -66,7 +66,7 @@ import {
   ConflictError,
   InvariantError,
   ValidationError,
-} from '../../errors.js'
+} from '../../kernel/errors.js'
 import { generateULID } from '../../with-pod/ulid.js'
 import type { GuardExecutor as GuardExecutorModule } from '../../with-audit/guards/executor.js'
 import type { LedgerEntry } from '../history/ledger/entry.js'

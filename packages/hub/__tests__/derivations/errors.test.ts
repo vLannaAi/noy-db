@@ -5,7 +5,7 @@ import {
   DerivationDepthError,
   DerivationOutputUnknownError,
   DerivationOutputShapeError,
-} from '../../src/errors.js'
+} from '../../src/kernel/errors.js'
 
 describe('derivation errors', () => {
   it('DerivationCycleError lists the cycle path', () => {

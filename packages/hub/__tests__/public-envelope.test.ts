@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
-import { ValidationError } from '../src/errors.js'
+import { ValidationError } from '../src/kernel/errors.js'
 import {
   loadPublicEnvelope,
   savePublicEnvelope,

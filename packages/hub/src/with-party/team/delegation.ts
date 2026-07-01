@@ -43,7 +43,7 @@ import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import type { UnlockedKeyring } from './keyring.js'
 import { encrypt, decrypt, wrapKey, unwrapKey } from '../../kernel/enclave/crypto.js'
 import { dekKey } from './tiers.js'
-import { DelegationTargetMissingError } from '../../errors.js'
+import { DelegationTargetMissingError } from '../../kernel/errors.js'
 import { generateULID } from '../../with-pod/ulid.js'
 
 export const DELEGATIONS_COLLECTION = '_delegations'

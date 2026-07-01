@@ -23,7 +23,7 @@ import { createOwnerKeyring, loadKeyring, persistKeyring } from '../src/with-par
 import { enrollAuthenticator, updateAuthenticator } from '../src/with-party/team/authenticators.js'
 import { generateDEK } from '../src/kernel/enclave/crypto.js'
 import { createNoydb } from '../src/noydb.js'
-import { NoAccessError, ValidationError } from '../src/errors.js'
+import { NoAccessError, ValidationError } from '../src/kernel/errors.js'
 import { PolicyDeniedError } from '../src/policy/errors.js'
 import { STRICT_POLICY } from '../src/policy/presets.js'
 

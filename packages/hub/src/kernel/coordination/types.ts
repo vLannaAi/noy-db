@@ -15,7 +15,7 @@
  * @module
  */
 
-import { QuiesceTimeoutError } from '../../errors.js'
+import { QuiesceTimeoutError } from '../errors.js'
 import type { Unsubscribe } from '../../write-hooks.js'
 
 /** Vault fence state (the existing FenceDoc shape). */

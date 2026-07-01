@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { DerivationExecutor } from '../../src/with-formula/derivations/executor.js'
 import type { RecordOutputResult } from '../../src/with-formula/derivations/executor.js'
 import { withDerivation } from '../../src/with-formula/derivations/with-derivation.js'
-import { DerivationOutputShapeError } from '../../src/errors.js'
+import { DerivationOutputShapeError } from '../../src/kernel/errors.js'
 import type { DerivationContext } from '../../src/with-formula/derivations/types.js'
 
 interface Source extends Record<string, unknown> { id: string; body: string }

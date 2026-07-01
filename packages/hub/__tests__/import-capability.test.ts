@@ -25,7 +25,7 @@ import {
   evaluateImportCapability,
   hasImportCapability,
 } from '../src/index.js'
-import { ConflictError } from '../src/errors.js'
+import { ConflictError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/noydb.js'
 import type { UnlockedKeyring } from '../src/with-party/team/keyring.js'
 

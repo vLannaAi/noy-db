@@ -68,7 +68,7 @@ import type {
   AggregateResult,
 } from '../with-lookup/aggregate/aggregation.js'
 import type { JoinContext, JoinLeg, JoinableSource } from './join.js'
-import { DanglingReferenceError } from '../errors.js'
+import { DanglingReferenceError } from '../kernel/errors.js'
 import type { MoneyDescriptor } from '../with-shape/money/descriptor.js'
 import { decodeMoneyFields } from '../with-shape/money/normalize.js'
 import { moneyFieldClause } from '../with-shape/money/where.js'

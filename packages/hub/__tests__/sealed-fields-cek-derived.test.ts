@@ -14,7 +14,7 @@
  */
 import { describe, it, expect, vi } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
-import { ConflictError } from '../src/errors.js'
+import { ConflictError } from '../src/kernel/errors.js'
 import {
   generateDEK,
   wrapCek,

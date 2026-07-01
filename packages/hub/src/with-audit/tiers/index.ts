@@ -24,7 +24,7 @@
 import { encrypt, decrypt } from '../../kernel/enclave/crypto.js'
 import { unwrapCek, rewrapBodyToDek } from '../../kernel/enclave/record-keys/index.js'
 import type { RecordCodec } from '../../kernel/enclave/record-keys/record-codec.js'
-import { TierDemoteDeniedError } from '../../errors.js'
+import { TierDemoteDeniedError } from '../../kernel/errors.js'
 import { dekKey, assertTierAccess } from '../../with-party/team/tiers.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
 import type { Lru } from '../../kernel/cache/index.js'

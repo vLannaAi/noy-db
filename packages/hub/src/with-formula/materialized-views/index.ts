@@ -23,4 +23,4 @@ export {
   MaterializedViewConfigError,
   MaterializedViewSourceUnknownError,
   MaterializedViewTooLargeError,
-} from '../../errors.js'
+} from '../../kernel/errors.js'

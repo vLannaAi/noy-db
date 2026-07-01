@@ -27,7 +27,7 @@ import {
 import { generateDEK } from '../src/kernel/enclave/crypto.js'
 import { persistKeyring } from '../src/with-party/team/keyring.js'
 import { WeakPassphraseError } from '../src/validation.js'
-import { InvalidKeyError } from '../src/errors.js'
+import { InvalidKeyError } from '../src/kernel/errors.js'
 import { RecoveryProfileNotImplementedError } from '../src/policy/errors.js'
 
 function inlineMemory(): NoydbStore {

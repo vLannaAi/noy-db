@@ -5,7 +5,7 @@
  *
  * @module
  */
-import { ValidationError } from '../../errors.js'
+import { ValidationError } from '../../kernel/errors.js'
 import type {
   PublicEnvelope,
   PublicEnvelopeText,

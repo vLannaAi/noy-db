@@ -18,7 +18,7 @@
  */
 import type { Vault } from '../../vault.js'
 import { sha256Hex } from '../../kernel/enclave/crypto.js'
-import { ReadOnlyError } from '../../errors.js'
+import { ReadOnlyError } from '../../kernel/errors.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import { resolveAccessibleCollections, buildAccessibleBundle } from './export-accessible.js'
 

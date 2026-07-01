@@ -17,7 +17,7 @@ import {
   NetworkError,
   NotFoundError,
   ValidationError,
-} from '../src/errors.js'
+} from '../src/kernel/errors.js'
 
 describe('validatePassphrase (phrase format)', () => {
   it('accepts well-formed 6-word phrases', () => {

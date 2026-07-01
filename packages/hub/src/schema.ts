@@ -34,7 +34,7 @@
  * handling (e.g., rendering field-level messages in a Vue component).
  */
 
-import { SchemaValidationError } from './errors.js'
+import { SchemaValidationError } from './kernel/errors.js'
 
 /**
  * The Standard Schema v1 protocol. A schema is any object that exposes a
