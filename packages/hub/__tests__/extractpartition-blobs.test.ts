@@ -19,13 +19,13 @@ import { decrypt } from '../src/crypto.js'
 import { unwrapCek } from '../src/record-keys/index.js'
 import { withBlobs } from '../src/with-shape/blobs/index.js'
 import { BLOB_INDEX_COLLECTION, BLOB_CHUNKS_COLLECTION } from '../src/with-shape/blobs/blob-set.js'
-import { extractPartition } from '../src/with-share/bundle/extract-partition.js'
+import { extractPartition } from '../src/with-cargo/extract-partition.js'
 import {
   adoptPartition,
   createOwnerOnAdoptedPartition,
   unsealDeks,
-} from '../src/with-share/bundle/adopt-partition.js'
-import { readNoydbBundle, parseExtractedPartitionBody } from '../src/with-share/bundle/bundle.js'
+} from '../src/with-cargo/adopt-partition.js'
+import { readNoydbBundle, parseExtractedPartitionBody } from '../src/with-pod/bundle.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

@@ -9,9 +9,9 @@ import { createNoydb } from '../src/noydb.js'
 import { ConflictError } from '../src/errors.js'
 import { generateDEK, decrypt } from '../src/crypto.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
-import { reKeySchemas, extractPartition } from '../src/with-share/bundle/extract-partition.js'
-import { adoptPartition, createOwnerOnAdoptedPartition } from '../src/with-share/bundle/adopt-partition.js'
-import { readNoydbBundle, parseExtractedPartitionBody } from '../src/with-share/bundle/bundle.js'
+import { reKeySchemas, extractPartition } from '../src/with-cargo/extract-partition.js'
+import { adoptPartition, createOwnerOnAdoptedPartition } from '../src/with-cargo/adopt-partition.js'
+import { readNoydbBundle, parseExtractedPartitionBody } from '../src/with-pod/bundle.js'
 import { loadPersistedSchema } from '../src/with-shape/persisted-schemas/storage.js'
 
 function memory(): NoydbStore {

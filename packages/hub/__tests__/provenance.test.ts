@@ -190,7 +190,7 @@ describe('record provenance — _source/_sourceTs envelope fields (FR-5 Task 1)'
 
 // ─── Task 2: read surface ───────────────────────────────────────────────────
 
-import { diffVault } from '../src/vault-diff.js'
+import { diffVault } from '../src/with-cargo/vault-diff.js'
 
 describe('record provenance — getMetadata (FR-5 Task 2a)', () => {
   it('returns version + timestamp + source + sourceTs for a provenance record', async () => {

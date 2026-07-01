@@ -14,9 +14,9 @@ import { decrypt, generateDEK, base64ToBuffer } from '../src/crypto.js'
 import { TransferSealError, AdoptionStateError } from '../src/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
 import { ConflictError } from '../src/errors.js'
-import { adoptPartition, unsealDeks } from '../src/with-share/bundle/adopt-partition.js'
-import { extractPartition, sealDeks } from '../src/with-share/bundle/extract-partition.js'
-import { writeNoydbBundle, readNoydbBundle, parseExtractedPartitionBody } from '../src/with-share/bundle/bundle.js'
+import { adoptPartition, unsealDeks } from '../src/with-cargo/adopt-partition.js'
+import { extractPartition, sealDeks } from '../src/with-cargo/extract-partition.js'
+import { writeNoydbBundle, readNoydbBundle, parseExtractedPartitionBody } from '../src/with-pod/bundle.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

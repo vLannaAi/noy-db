@@ -1,6 +1,6 @@
 {
   "subpath": "@noy-db/hub/cargo",
-  "source": "src/cargo/index.ts",
+  "source": "src/with-cargo/index.ts",
   "floor": "src/kernel/index.ts (re-exported via `export *`)",
   "values": [
     "CrossShardJoinError",

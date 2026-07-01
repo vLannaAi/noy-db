@@ -16,7 +16,7 @@ import type { Noydb } from '../src/noydb.js'
 import { ref } from '../src/refs.js'
 import { ConflictError, PartitionExtractionError } from '../src/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
-import { walkClosure } from '../src/with-share/bundle/walk-closure.js'
+import { walkClosure } from '../src/with-cargo/walk-closure.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -191,7 +191,7 @@ describe('walkClosure', () => {
   })
 
   it('is exported from the @noy-db/hub/bundle subpath', async () => {
-    const mod = await import('../src/with-share/bundle/index.js')
+    const mod = await import('../src/bundle/index.js')
     expect(typeof mod.walkClosure).toBe('function')
     expect(typeof mod.PartitionExtractionError).toBe('function')
   })
