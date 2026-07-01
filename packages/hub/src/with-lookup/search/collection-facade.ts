@@ -30,7 +30,8 @@ import { isStaticDictDescriptor, type DictKeyDescriptor, type StaticDictDescript
 import type { BlobSet } from '../../with-shape/blobs/blob-set.js'
 import type { BlobFieldsConfig } from '../../with-shape/blobs/blob-compaction.js'
 import type { Query } from '../../kernel/query/index.js'
-import type { VectorSet, EmbeddingDescriptor, StoredVector } from '../embeddings/index.js'
+import { embeddingSourceText, type VectorSet, type EmbeddingDescriptor, type StoredVector } from '../embeddings/index.js'
+import { EmbeddingDimMismatchError } from '../../kernel/errors.js'
 import { searchScan, fuseRetrieval, type SearchOptions, type SearchResult } from './index.js'
 import type { IndexStore } from './index-store.js'
 import type { PersistedIndexCallbacks } from './persisted-index-store.js'
@@ -365,4 +366,23 @@ export async function similarTo<T>(ctx: SearchContext<T>, vector: Float32Array, 
     if (opts.includeRecord) { const e = ctx.cache.get(h.id); if (e) (base as { record?: T }).record = stripI18nFilled(e.record as Record<string, unknown>) as T }
     return base
   })
+}
+
+/**
+ * #308 L2 — the embedding write-hook: derive a record's embedding vector at
+ * write and persist it as the encrypted `_vec` side-car. Routed through the
+ * search strategy so it runs only when `withSearch()` is opted in — computing
+ * vectors that no gated `similarTo` / semantic `retrieve` could query would be
+ * dead weight, so the compute is paired with the search capability. The caller
+ * (`Collection.put`) only invokes this when `embeddings` is declared.
+ */
+export async function embedOnWrite<T>(ctx: SearchContext<T>, id: string, record: T, version: number): Promise<void> {
+  if (!ctx.embeddings) return
+  const text = embeddingSourceText(record as Record<string, unknown>, ctx.embeddings.source)
+  const vec = await ctx.embeddings.encode(text)
+  if (vec.length !== ctx.embeddings.dim) throw new EmbeddingDimMismatchError('embeddings', ctx.embeddings.dim, vec.length)
+  const body = JSON.stringify({ vec: Array.from(vec), model: ctx.embeddings.model, dim: ctx.embeddings.dim })
+  const vecEnv = await ctx.codec.encryptJsonString(body, version)
+  await ctx.adapter.put(ctx.vault, '_vec', id, vecEnv)
+  ctx.vectorSet?.markDirty()
 }

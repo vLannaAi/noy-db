@@ -5,6 +5,7 @@ import { computeExemptFills, densify } from '../src/with-shape/i18n/densify.js'
 import { withI18n } from '../src/with-shape/i18n/index.js'
 import { NO_I18N } from '../src/with-shape/i18n/strategy.js'
 import { createNoydb } from '../src/kernel/noydb.js'
+import { withSearch } from '../src/index.js'
 import type { Noydb } from '../src/kernel/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
@@ -189,7 +190,7 @@ describe('applyI18nLocale strips the _i18nFilled marker (#435)', () => {
 
 interface Co { id: string; name: Record<string, string> }
 async function densDb(): Promise<Noydb> {
-  return createNoydb({ store: memory(), user: 'a', secret: 'pw-densify', i18nStrategy: withI18n() })
+  return createNoydb({ store: memory(), user: 'a', secret: 'pw-densify', i18nStrategy: withI18n(), searchStrategy: withSearch() })
 }
 
 describe('densifyOnWrite (integration)', () => {

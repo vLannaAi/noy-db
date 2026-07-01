@@ -1087,3 +1087,8 @@ export { SealedHandle } from './kernel/types.js'
 export { tokenize } from './with-lookup/search/index.js'
 export type { Tokenizer, SearchOptions, SearchResult, SearchEntry } from './with-lookup/search/index.js'
 export type { RetrieveOptions, RetrieveHit } from './with-lookup/search/index.js'
+// Capability opt-in seam (S4): search / retrieve / similarTo / warmIndex /
+// flushIndex + the embedding write-hook are gated behind withSearch().
+export { withSearch, NO_SEARCH } from './with-lookup/search/index.js'
+export type { SearchStrategy } from './with-lookup/search/index.js'
+export { SearchNotEnabledError } from './kernel/errors.js'

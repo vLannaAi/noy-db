@@ -7,6 +7,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
+import { withSearch } from '../src/index.js'
 import { withBlobs } from '../src/with-shape/blobs/index.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import type { Noydb } from '../src/kernel/noydb.js'
@@ -60,7 +61,7 @@ describe('retrieve() indexes blob filenames (#308 L1)', () => {
   let db: Noydb
 
   beforeEach(async () => {
-    db = await createNoydb({ store: memory(), user: 'a', secret: 'pw-search-blob-long-enough', blobStrategy: withBlobs() })
+    db = await createNoydb({ store: memory(), user: 'a', secret: 'pw-search-blob-long-enough', blobStrategy: withBlobs(), searchStrategy: withSearch() })
   })
 
   it('finds a record by its attached blob filename', async () => {

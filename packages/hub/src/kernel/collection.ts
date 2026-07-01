@@ -29,14 +29,10 @@ import {
 } from '../with-audit/tiers/index.js'
 import type { TiersStrategy } from '../with-audit/tiers/strategy.js'
 import {
-  search as searchImpl,
-  flushIndex as flushIndexImpl,
-  warmIndex as warmIndexImpl,
-  retrieve as retrieveImpl,
-  similarTo as similarToImpl,
   buildPersistedIndexCallbacks as buildPersistedIndexCallbacksImpl,
   type SearchContext,
 } from '../with-lookup/search/collection-facade.js'
+import type { SearchStrategy } from '../with-lookup/search/strategy.js'
 import {
   rebuildEagerIndexesFromCache as rebuildEagerIndexesFromCacheImpl,
   rebuildUniqueConstraintsFromCache as rebuildUniqueConstraintsFromCacheImpl,
@@ -75,8 +71,8 @@ import type { SearchOptions, SearchResult } from '../with-lookup/search/index.js
 import { MemoryIndexStore, type IndexStore } from '../with-lookup/search/index-store.js'
 import { PersistedIndexStore } from '../with-lookup/search/persisted-index-store.js'
 import type { RetrieveOptions, RetrieveHit } from '../with-lookup/search/retrieve-types.js'
-import { DerivationCapExceededError, EmbeddingDimMismatchError } from './errors.js'
-import { embeddingSourceText, type VectorSet, type EmbeddingDescriptor } from '../with-lookup/embeddings/index.js'
+import { DerivationCapExceededError } from './errors.js'
+import type { VectorSet, EmbeddingDescriptor } from '../with-lookup/embeddings/index.js'
 import { buildUniqueConstraintSet, type UniqueConstraintSet } from '../with-lookup/indexing/unique-constraints.js'
 import type { RefDescriptor } from './refs.js'
 import { buildDescription, deriveZodFields, type CollectionDescription, type DescribeOptions } from '../with-shape/introspection/describe.js'
@@ -224,6 +220,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   private readonly aggregateStrategy: AggregateStrategy
   private readonly crdtStrategy: CrdtStrategy
   private readonly tiersStrategy: TiersStrategy
+  private readonly searchStrategy: SearchStrategy
   private readonly historyStrategy: HistoryStrategy
   private readonly i18nStrategy: I18nStrategy
   private readonly syncStrategy: SyncStrategy
@@ -671,6 +668,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     this.aggregateStrategy = cfg.aggregateStrategy
     this.crdtStrategy = cfg.crdtStrategy
     this.tiersStrategy = cfg.tiersStrategy
+    this.searchStrategy = cfg.searchStrategy
     this.historyStrategy = cfg.historyStrategy
     this.i18nStrategy = cfg.i18nStrategy
     this.syncStrategy = cfg.syncStrategy
@@ -1773,14 +1771,10 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // #308 L2 — derive the embedding vector at write (encode → encrypted _vec sidecar).
     // Placed AFTER the main adapter.put so `version` (computed above) is in scope and
     // the record write is committed first. The _vec envelope _v is not OCC-checked.
+    // Gated behind `searchStrategy: withSearch()` (S4): a collection declaring
+    // `embeddings` but not opting into search hits NO_SEARCH's throw here.
     if (this.embeddings) {
-      const text = embeddingSourceText(record as Record<string, unknown>, this.embeddings.source)
-      const vec = await this.embeddings.encode(text)
-      if (vec.length !== this.embeddings.dim) throw new EmbeddingDimMismatchError('embeddings', this.embeddings.dim, vec.length)
-      const body = JSON.stringify({ vec: Array.from(vec), model: this.embeddings.model, dim: this.embeddings.dim })
-      const vecEnv = await this.codec.encryptJsonString(body, version)
-      await this.adapter.put(this.vault, '_vec', id, vecEnv)
-      this.vectorSet?.markDirty()
+      await this.searchStrategy.embedOnWrite(this.searchContext(), id, record, version)
     }
 
     // Ledger append — AFTER the adapter write succeeds so a failed
@@ -2764,27 +2758,27 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * see `src/search/tokenize.ts` for the Thai/CJK caveat.
    */
   search(field: string, query: string, opts: SearchOptions = {}): Promise<SearchResult<T>[]> {
-    return searchImpl(this.searchContext(), field, query, opts)
+    return this.searchStrategy.search(this.searchContext(), field, query, opts)
   }
 
-  /** #308 L1.5 — force-persist the lexical index now — see {@link flushIndexImpl}. */
+  /** #308 L1.5 — force-persist the lexical index now — gated behind `searchStrategy: withSearch()`. */
   flushIndex(): Promise<void> {
-    return flushIndexImpl(this.searchContext())
+    return this.searchStrategy.flushIndex(this.searchContext())
   }
 
-  /** #308 L1 — pre-build the lexical index — see {@link warmIndexImpl}. */
+  /** #308 L1 — pre-build the lexical index — gated behind `searchStrategy: withSearch()`. */
   warmIndex(): Promise<void> {
-    return warmIndexImpl(this.searchContext())
+    return this.searchStrategy.warmIndex(this.searchContext())
   }
 
-  /** #308 — retrieval (lexical | semantic | hybrid) — see {@link retrieveImpl}. */
+  /** #308 — retrieval (lexical | semantic | hybrid) — gated behind `searchStrategy: withSearch()`. */
   retrieve(query: string, opts: RetrieveOptions<T> = {}): Promise<RetrieveHit<T>[]> {
-    return retrieveImpl(this.searchContext(), query, opts)
+    return this.searchStrategy.retrieve(this.searchContext(), query, opts)
   }
 
-  /** #308 L2 — raw-vector kNN — see {@link similarToImpl}. */
+  /** #308 L2 — raw-vector kNN — gated behind `searchStrategy: withSearch()`. */
   similarTo(vector: Float32Array, opts: { k?: number; minScore?: number; includeRecord?: boolean } = {}): Promise<RetrieveHit<T>[]> {
-    return similarToImpl(this.searchContext(), vector, opts)
+    return this.searchStrategy.similarTo(this.searchContext(), vector, opts)
   }
 
   /**

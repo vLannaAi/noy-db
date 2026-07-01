@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
+import { withSearch } from '../src/index.js'
 import { withI18n } from '../src/with-shape/i18n/index.js'
 import type { Noydb } from '../src/kernel/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
@@ -45,7 +46,7 @@ function memory(): NoydbStore {
 
 interface Inv { id: string; description: string; notes: string }
 async function db(): Promise<Noydb> {
-  return createNoydb({ store: memory(), user: 'a', secret: 'pw-retrieve', i18nStrategy: withI18n() })
+  return createNoydb({ store: memory(), user: 'a', secret: 'pw-retrieve', i18nStrategy: withI18n(), searchStrategy: withSearch() })
 }
 
 describe('collection.retrieve() — string fields (#308 L1)', () => {
@@ -130,7 +131,7 @@ describe('collection.retrieve() — string fields (#308 L1)', () => {
     const store = memory()
     const writes: string[] = []
     const wrapped: NoydbStore = { ...store, async put(c, col, id, env, ev) { writes.push(`${c}/${col}/${id}`); return store.put(c, col, id, env, ev) } }
-    const n2 = await createNoydb({ store: wrapped, user: 'a', secret: 'pw', i18nStrategy: withI18n() })
+    const n2 = await createNoydb({ store: wrapped, user: 'a', secret: 'pw', i18nStrategy: withI18n(), searchStrategy: withSearch() })
     const v = await n2.openVault('v')
     const c = v.collection<Inv>('inv', { textIndexes: ['description', 'notes'] })
     await c.put('a', { id: 'a', description: 'overdue invoice', notes: '' })

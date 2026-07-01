@@ -3,6 +3,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
+import { withSearch } from '../src/index.js'
 import type { Noydb } from '../src/kernel/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError, EmbeddingDimMismatchError } from '../src/kernel/errors.js'
@@ -57,7 +58,7 @@ describe('embeddings write derivation (#308 L2)', () => {
     const store = memory()
     const puts: string[] = []
     const wrapped: NoydbStore = { ...store, async put(c, col, id, e, ev) { puts.push(`${col}/${id}`); return store.put(c, col, id, e, ev) } }
-    const db = await createNoydb({ store: wrapped, user: 'a', secret: 'pw-emb' })
+    const db = await createNoydb({ store: wrapped, user: 'a', secret: 'pw-emb', searchStrategy: withSearch() })
     const v = await db.openVault('v')
     const c = v.collection<Doc>('d', { embeddings: enc(8) })
     await c.put('x', { id: 'x', text: 'overdue invoice' })
@@ -68,14 +69,14 @@ describe('embeddings write derivation (#308 L2)', () => {
   })
 
   it('dim mismatch → EmbeddingDimMismatchError', async () => {
-    const db = await createNoydb({ store: memory(), user: 'a', secret: 'pw' })
+    const db = await createNoydb({ store: memory(), user: 'a', secret: 'pw', searchStrategy: withSearch() })
     const v = await db.openVault('v')
     const c = v.collection<Doc>('d', { embeddings: { ...enc(8), encode: async () => new Float32Array(4) } })
     await expect(c.put('x', { id: 'x', text: 'hi' })).rejects.toThrow(EmbeddingDimMismatchError)
   })
 
   it('CRDT + embeddings → throws at construction (guard)', async () => {
-    const db = await createNoydb({ store: memory(), user: 'a', secret: 'pw' })
+    const db = await createNoydb({ store: memory(), user: 'a', secret: 'pw', searchStrategy: withSearch() })
     const v = await db.openVault('v')
     expect(() =>
       v.collection<Doc>('d', { embeddings: enc(8), crdt: 'lww-map' }),

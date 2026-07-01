@@ -1,6 +1,7 @@
 /** i18n-aware lexical retrieval via collection.retrieve() (#308 L1). */
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
+import { withSearch } from '../src/index.js'
 import { withI18n } from '../src/with-shape/i18n/index.js'
 import { i18nText } from '../src/with-shape/i18n/core.js'
 import type { Noydb } from '../src/kernel/noydb.js'
@@ -46,7 +47,7 @@ function memory(): NoydbStore {
 }
 
 interface Person { id: string; name: Record<string, string> }
-async function db(): Promise<Noydb> { return createNoydb({ store: memory(), user: 'a', secret: 'pw-i18n-r', i18nStrategy: withI18n() }) }
+async function db(): Promise<Noydb> { return createNoydb({ store: memory(), user: 'a', secret: 'pw-i18n-r', i18nStrategy: withI18n(), searchStrategy: withSearch() }) }
 
 describe('retrieve() over i18nText (all locales) (#308 L1)', () => {
   let n: Noydb

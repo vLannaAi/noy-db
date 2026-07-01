@@ -14,3 +14,10 @@ export { MemoryIndexStore, type IndexStore } from './index-store.js'
 export { buildStringFieldEntries } from './build-docs.js'
 export type { RetrieveOptions, RetrieveHit } from './retrieve-types.js'
 export { fuseRetrieval, type FuseOptions } from './fuse.js'
+
+// Capability opt-in seam (S4): a collection's search / retrieve / similarTo /
+// warmIndex / flushIndex methods (and the embedding write-hook) route through
+// the searchStrategy, so they throw SearchNotEnabledError unless opted in.
+export { withSearch } from './active.js'
+export { NO_SEARCH, type SearchStrategy } from './strategy.js'
+export { SearchNotEnabledError } from '../../kernel/errors.js'

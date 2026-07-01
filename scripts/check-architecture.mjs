@@ -640,7 +640,11 @@ const KERNEL_SURFACE_BUDGET = {
   // `liberateVault` import was dropped (-1, now reached only via the lazy
   // `with-party/custody/active.ts` chunk) and the custody-closure comment expanded (+2) where
   // `vault.custody.liberate` now routes through `this.noydb.custodyStrategy.liberate(this, ...)`.
-  'packages/hub/src/kernel/vault.ts': 3841,
+  // Bumped 3841→3846 (S4 Task 7: gate search behind withSearch()): vault.ts gains a
+  // `searchStrategy` field + ctor option-type field + a plain assignment + one import line + one
+  // pass-into-collection spread (+5). The search/retrieval engine + the embedding write-hook are
+  // reached only via the lazy `with-lookup/search/active.ts` chunk (dynamic import of the facade).
+  'packages/hub/src/kernel/vault.ts': 3846,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
@@ -711,7 +715,11 @@ const KERNEL_SURFACE_BUDGET = {
   // engine (the original body, reached only when withCustody() is opted in) — the duplicated
   // signatures + `CustodyHost` field + assignment + import account for the +29. The liberate
   // ceremony engine stays in the lazy `with-party/custody/active.ts` chunk.
-  'packages/hub/src/kernel/noydb.ts': 2315,
+  // Bumped 2315→2318 (S4 Task 7: gate search behind withSearch()): thread the opt-in
+  // `searchStrategy` from createNoydb options into the three Vault-construction option spreads
+  // (async openVault + both sync vault() paths). Public opt-in API surface; the search/retrieval
+  // engine + embedding write-hook live in the lazy `with-lookup/search/active.ts` chunk.
+  'packages/hub/src/kernel/noydb.ts': 2318,
 }
 
 function checkKernelSurface() {

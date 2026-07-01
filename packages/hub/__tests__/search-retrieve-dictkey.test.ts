@@ -3,6 +3,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
+import { withSearch } from '../src/index.js'
 import { withI18n } from '../src/with-shape/i18n/index.js'
 import { staticDict } from '../src/with-shape/i18n/dictionary.js'
 import type { Noydb } from '../src/kernel/noydb.js'
@@ -48,7 +49,7 @@ function memory(): NoydbStore {
 }
 
 interface Inv { id: string; status: string }
-async function db(): Promise<Noydb> { return createNoydb({ store: memory(), user: 'a', secret: 'pw-dk-r', i18nStrategy: withI18n() }) }
+async function db(): Promise<Noydb> { return createNoydb({ store: memory(), user: 'a', secret: 'pw-dk-r', i18nStrategy: withI18n(), searchStrategy: withSearch() }) }
 
 describe('retrieve() over dictKey labels (#308 L1)', () => {
   let n: Noydb
