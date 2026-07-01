@@ -6,7 +6,7 @@
  * type so that member-specific fields are accessible without any cast.
  */
 import { describe, it, expectTypeOf } from 'vitest'
-import { isDiscriminant } from '../src/util/discriminant.js'
+import { isDiscriminant } from '../src/kernel/util/discriminant.js'
 
 // ─── Fixture ─────────────────────────────────────────────────────────────────
 

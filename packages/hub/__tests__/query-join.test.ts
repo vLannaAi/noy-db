@@ -10,8 +10,8 @@ import {
   JoinTooLargeError,
   DanglingReferenceError,
 } from '../src/kernel/errors.js'
-import { Query } from '../src/query/index.js'
-import { resetJoinWarnings } from '../src/query/index.js'
+import { Query } from '../src/kernel/query/index.js'
+import { resetJoinWarnings } from '../src/kernel/query/index.js'
 import { ref } from '../src/kernel/refs.js'
 
 /** Inline memory adapter — same shape as the existing integration tests. */

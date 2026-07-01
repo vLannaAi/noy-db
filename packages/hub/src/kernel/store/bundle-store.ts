@@ -1,5 +1,5 @@
-import type { NoydbStore, NoydbBundleStore, VaultSnapshot, EncryptedEnvelope } from '../kernel/types.js'
-import { ConflictError, BundleVersionConflictError } from '../kernel/errors.js'
+import type { NoydbStore, NoydbBundleStore, VaultSnapshot, EncryptedEnvelope } from '../types.js'
+import { ConflictError, BundleVersionConflictError } from '../errors.js'
 
 // ─── Bundle format ─────────────────────────────────────────────────────
 

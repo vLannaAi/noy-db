@@ -3,7 +3,7 @@ import { createNoydb } from '../src/kernel/noydb.js'
 import type { Noydb } from '../src/kernel/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
-import { Query } from '../src/query/index.js'
+import { Query } from '../src/kernel/query/index.js'
 
 /** Inline memory adapter — same pattern as integration.test.ts. */
 function memory(): NoydbStore {

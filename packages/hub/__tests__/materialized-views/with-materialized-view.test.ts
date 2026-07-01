@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { withMaterializedView } from '../../src/with-formula/materialized-views/with-materialized-view.js'
-import type { Query } from '../../src/query/builder.js'
+import type { Query } from '../../src/kernel/query/builder.js'
 
 const dummyQuery = (): Query<Record<string, unknown>> => ({} as Query<Record<string, unknown>>)
 

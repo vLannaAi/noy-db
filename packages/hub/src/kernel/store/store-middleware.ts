@@ -17,7 +17,7 @@
  * @module
  */
 
-import type { NoydbStore, EncryptedEnvelope } from '../kernel/types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../types.js'
 
 // ─── Core composition ───────────────────────────────────────────────────
 

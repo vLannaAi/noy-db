@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { Query, executePlan, type QuerySource, type QueryPlan } from '../src/query/index.js'
+import { Query, executePlan, type QuerySource, type QueryPlan } from '../src/kernel/query/index.js'
 
 interface Invoice {
   id: string

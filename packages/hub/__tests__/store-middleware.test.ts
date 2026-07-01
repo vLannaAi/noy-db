@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
-import { wrapStore, withRetry, withLogging, withMetrics, withCircuitBreaker, withCache, withHealthCheck } from '../src/store/store-middleware.js'
+import { wrapStore, withRetry, withLogging, withMetrics, withCircuitBreaker, withCache, withHealthCheck } from '../src/kernel/store/store-middleware.js'
 
 // ─── Minimal store ──────────────────────────────────────────────────
 

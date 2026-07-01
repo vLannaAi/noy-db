@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { Query } from '../../src/query/builder.js'
-import type { QuerySource } from '../../src/query/builder.js'
-import type { JoinContext } from '../../src/query/join.js'
+import { Query } from '../../src/kernel/query/builder.js'
+import type { QuerySource } from '../../src/kernel/query/builder.js'
+import type { JoinContext } from '../../src/kernel/query/join.js'
 
 function emptySource<T>(): QuerySource<T> {
   return { snapshot: () => [] as readonly T[] }

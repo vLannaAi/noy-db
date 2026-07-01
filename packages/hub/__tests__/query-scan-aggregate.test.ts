@@ -25,7 +25,7 @@ import {
   min,
   max,
   type ScanPageProvider,
-} from '../src/query/index.js'
+} from '../src/kernel/query/index.js'
 
 /** Inline memory adapter — same pattern as the other integration tests. */
 function memory(): NoydbStore {

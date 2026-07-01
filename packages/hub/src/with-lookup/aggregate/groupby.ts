@@ -59,7 +59,7 @@
  * delegates to the reducer protocol for all per-bucket state.
  */
 
-import { readPath } from '../../query/predicate.js'
+import { readPath } from '../../kernel/query/predicate.js'
 import type {
   AggregateSpec,
   AggregateResult,

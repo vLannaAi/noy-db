@@ -11,7 +11,7 @@ import type {
   VaultSnapshot,
 } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
-import { resetJoinWarnings } from '../src/query/index.js'
+import { resetJoinWarnings } from '../src/kernel/query/index.js'
 import { ref } from '../src/kernel/refs.js'
 
 function memory(): NoydbStore {

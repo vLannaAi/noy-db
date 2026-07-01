@@ -4,7 +4,7 @@ import {
   sum,
   MaterializedViewConfigError,
 } from '../../src/index.js'
-import type { Query } from '../../src/query/builder.js'
+import type { Query } from '../../src/kernel/query/builder.js'
 
 const dummyQuery = (): Query<Record<string, unknown>> =>
   ({}) as Query<Record<string, unknown>>

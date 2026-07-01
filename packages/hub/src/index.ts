@@ -181,8 +181,8 @@ export {
   DEFAULT_CHUNK_SIZE,
 } from './with-shape/blobs/blob-set.js'
 export { detectMimeType, detectMagic, isPreCompressed } from './with-shape/blobs/mime-magic.js'
-export { wrapBundleStore, createBundleStore } from './store/bundle-store.js'
-export type { WrappedBundleNoydbStore, WrapBundleStoreOptions } from './store/bundle-store.js'
+export { wrapBundleStore, createBundleStore } from './kernel/store/bundle-store.js'
+export type { WrappedBundleNoydbStore, WrapBundleStoreOptions } from './kernel/store/bundle-store.js'
 export { readPlaintextRecord } from './kernel/debug.js'
 
 // Observable write-queue
@@ -219,26 +219,26 @@ export { blindUpdate, additiveOnly, lockSchema, coordinatedCutover } from './wit
 export type { FenceState, FenceDoc } from './with-shape/schema-update/fence.js'
 
 // Sync policy
-export type { SyncPolicy, PushPolicy, PullPolicy, PushMode, PullMode, SyncSchedulerStatus } from './store/sync-policy.js'
-export { SyncScheduler, INDEXED_STORE_POLICY, BUNDLE_STORE_POLICY } from './store/sync-policy.js'
+export type { SyncPolicy, PushPolicy, PullPolicy, PushMode, PullMode, SyncSchedulerStatus } from './kernel/store/sync-policy.js'
+export { SyncScheduler, INDEXED_STORE_POLICY, BUNDLE_STORE_POLICY } from './kernel/store/sync-policy.js'
 
 // Sync target
 export type { SyncTarget, SyncTargetRole } from './kernel/types.js'
 
 // Store routing
-export { memoryStore } from './store/memory-store.js'
-export { routeStore } from './store/route-store.js'
+export { memoryStore } from './kernel/store/memory-store.js'
+export { routeStore } from './kernel/store/route-store.js'
 export type {
   RouteStoreOptions, RoutedNoydbStore, BlobStoreRoute, AgeRoute,
   BlobLifecyclePolicy, OverrideTarget, OverrideOptions, SuspendOptions, RouteStatus,
-} from './store/route-store.js'
+} from './kernel/store/route-store.js'
 
 // Store middleware
-export { wrapStore, withRetry, withLogging, withMetrics, withCircuitBreaker, withCache, withHealthCheck } from './store/store-middleware.js'
+export { wrapStore, withRetry, withLogging, withMetrics, withCircuitBreaker, withCache, withHealthCheck } from './kernel/store/store-middleware.js'
 export type {
   StoreMiddleware, RetryOptions, LoggingOptions, LogLevel,
   MetricsOptions, StoreOperation, CircuitBreakerOptions, StoreCacheOptions, HealthCheckOptions,
-} from './store/store-middleware.js'
+} from './kernel/store/store-middleware.js'
 
 // Errors
 export {
@@ -900,7 +900,7 @@ export {
 export type { DevUnlockOptions } from './with-party/session/dev-unlock.js'
 
 // Discriminated-union narrowing helper
-export { isDiscriminant } from './util/discriminant.js'
+export { isDiscriminant } from './kernel/util/discriminant.js'
 
 // Crypto utilities (buffer encoding helpers + binary encrypt/hash)
 export { bufferToBase64, base64ToBuffer, encryptBytes, decryptBytes } from './kernel/enclave/crypto.js'
@@ -1033,7 +1033,7 @@ export {
   GROUPBY_WARN_CARDINALITY,
   GROUPBY_MAX_CARDINALITY,
   ScanBuilder,
-} from './query/index.js'
+} from './kernel/query/index.js'
 export type {
   QueryPlan,
   QuerySource,
@@ -1061,7 +1061,7 @@ export type {
   GroupedRow,
   GroupedRowN,
   ScanPageProvider,
-} from './query/index.js'
+} from './kernel/query/index.js'
 
 // Query DSL helpers (escape-hatch types for consumers with dynamic field names)
 export type { QueryField, IndexFieldName } from './kernel/types.js'

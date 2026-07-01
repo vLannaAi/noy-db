@@ -15,7 +15,7 @@
  * so persistence buys nothing measurable.
  */
 
-import { readPath } from '../../query/predicate.js'
+import { readPath } from '../../kernel/query/predicate.js'
 
 /**
  * Index declaration accepted by `Collection`'s constructor.

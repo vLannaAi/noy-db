@@ -3,7 +3,7 @@
  * the search subsystem so collection.ts holds only thin call-sites; re-exported
  * from the search barrel and the hub root.
  */
-import type { Query } from '../../query/builder.js'
+import type { Query } from '../../kernel/query/builder.js'
 
 export interface RetrieveOptions<T = unknown> {
   readonly limit?: number

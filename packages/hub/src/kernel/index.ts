@@ -12,7 +12,7 @@
  */
 
 // ─── runtime helpers ──────────────────────────────────────────────
-export { readPath } from '../query/predicate.js'
+export { readPath } from './query/predicate.js'
 export { reduceRecords } from '../with-lookup/aggregate/aggregation.js'
 export { groupAndReduce } from '../with-lookup/aggregate/groupby.js'
 export { generateULID } from '../with-pod/ulid.js'
@@ -49,10 +49,10 @@ export type { ChangeEvent } from './types.js'
 export type { Vault } from './vault.js'
 export type { Collection } from './collection.js'
 export type { Noydb } from './noydb.js'
-export type { Operator } from '../query/predicate.js'
-export type { Query } from '../query/builder.js'
-export type { JoinStrategy } from '../query/join.js'
-export type { LiveQuery } from '../query/live.js'
+export type { Operator } from './query/predicate.js'
+export type { Query } from './query/builder.js'
+export type { JoinStrategy } from './query/join.js'
+export type { LiveQuery } from './query/live.js'
 export type {
   AggregateResult,
   AggregateSpec,
