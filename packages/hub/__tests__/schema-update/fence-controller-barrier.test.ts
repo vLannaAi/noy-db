@@ -3,7 +3,7 @@ import { memory } from '../../../to-memory/src/index.js'
 import { SchemaFenceController } from '../../src/with-shape/schema-update/fence-controller.js'
 import { loadFence, saveFence } from '../../src/with-shape/schema-update/fence.js'
 import { writeClientDoc } from '../../src/with-shape/schema-update/client-registry.js'
-import { StoreCoordinationProvider } from '../../src/coordination/index.js'
+import { StoreCoordinationProvider } from '../../src/kernel/coordination/index.js'
 import { QuiesceTimeoutError } from '../../src/errors.js'
 
 function mkCtrl(store = memory(), quiesceTimeoutMs = 10_000) {

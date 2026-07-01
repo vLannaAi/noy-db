@@ -55,7 +55,7 @@ import type { ObjectProjection } from './with-shape/blobs/object-projection.js'
 // Import the port type from the leaf module (not the barrel) — the barrel
 // re-exports `StoreCoordinationProvider`, which imports `NoydbStore` from this
 // file, so going through it would create an import cycle.
-import type { CoordinationProvider } from './coordination/types.js'
+import type { CoordinationProvider } from './kernel/coordination/types.js'
 import type { ScriptWarning } from './with-shape/i18n/script.js'
 import type { MoneyDescriptor } from './with-shape/money/descriptor.js'
 

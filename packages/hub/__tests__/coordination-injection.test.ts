@@ -18,7 +18,7 @@ import {
   type CoordinationProvider,
   type FenceState,
   type WriterPresence,
-} from '../src/coordination/index.js'
+} from '../src/kernel/coordination/index.js'
 import type { NoydbStore } from '../src/types.js'
 import type { Unsubscribe } from '../src/write-hooks.js'
 
