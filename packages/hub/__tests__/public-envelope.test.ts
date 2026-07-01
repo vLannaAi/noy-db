@@ -5,7 +5,7 @@
  * @see docs/subsystems/public-envelope.md
  */
 import { describe, it, expect } from 'vitest'
-import type { NoydbStore, EncryptedEnvelope } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 import { ValidationError } from '../src/errors.js'
 import {
   loadPublicEnvelope,

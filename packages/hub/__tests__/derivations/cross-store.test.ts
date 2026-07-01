@@ -3,7 +3,7 @@ import { mkdtemp, rm, mkdir, writeFile, readFile, readdir } from 'node:fs/promis
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { createNoydb, withDerivation } from '../../src/index.js'
-import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
 // Inline file-backed store — same pattern as packages/hub/__tests__/guards/cross-store.test.ts
 function fileStore(dir: string): NoydbStore {

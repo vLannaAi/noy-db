@@ -33,7 +33,7 @@
  */
 
 import type { Collection } from '../../collection.js'
-import type { SlotInfo } from '../../types.js'
+import type { SlotInfo } from '../../kernel/types.js'
 
 // ─── Types ──────────────────────────────────────────────────────────────
 

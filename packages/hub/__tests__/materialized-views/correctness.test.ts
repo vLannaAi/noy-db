@@ -11,7 +11,7 @@ import {
 import { withAggregate } from '../../src/with-lookup/aggregate/index.js'
 import { sum, count } from '../../src/with-lookup/aggregate/reducers.js'
 import { withTransactions } from '../../src/with-commit/tx/index.js'
-import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
 function memory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()

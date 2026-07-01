@@ -46,7 +46,7 @@
  *
  * @module
  */
-import type { EncryptedEnvelope, NoydbStore } from '../../types.js'
+import type { EncryptedEnvelope, NoydbStore } from '../../kernel/types.js'
 import type { LedgerStore } from './ledger/store.js'
 import { getHistory } from './history.js'
 import { decrypt } from '../../kernel/enclave/crypto.js'

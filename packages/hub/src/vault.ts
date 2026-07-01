@@ -8,7 +8,7 @@ import type {
   CrossTierAccessEvent,
   TierMode,
   Role,
-} from './types.js'
+} from './kernel/types.js'
 import {
   dumpVault,
   loadVault,
@@ -19,7 +19,7 @@ import {
 } from './vault-backup.js'
 import type { Noydb } from './noydb.js'
 import type { IssueDelegationOptions, DelegationToken } from './with-party/team/delegation.js'
-import { NOYDB_FORMAT_VERSION } from './types.js'
+import { NOYDB_FORMAT_VERSION } from './kernel/types.js'
 import { Collection } from './collection.js'
 import type { CacheOptions } from './collection.js'
 import type { IndexDef } from './with-lookup/indexing/eager-indexes.js'
@@ -43,7 +43,7 @@ import {
   canExport as canExportCapability,
   canImport as canImportCapability,
 } from './capabilities.js'
-import type { ExportFormat, KeyringFile, SensitiveOpt, IndexFieldName, IndexDefFor, MoneyFieldsOpt } from './types.js'
+import type { ExportFormat, KeyringFile, SensitiveOpt, IndexFieldName, IndexDefFor, MoneyFieldsOpt } from './kernel/types.js'
 import {
   ValidationError,
   AlreadyElevatedError,
@@ -112,7 +112,7 @@ import type { GuardStrategyHandleAny } from './with-audit/guards/types.js'
 import type { ReadOnlyVaultFacade } from './with-audit/guards/read-only-facade.js'
 import type { DerivationRegistry } from './with-formula/derivations/registry.js'
 import type { DerivationStrategyHandle } from './with-formula/derivations/types.js'
-import type { LocaleReadOptions, ConflictPolicy } from './types.js'
+import type { LocaleReadOptions, ConflictPolicy } from './kernel/types.js'
 import type { CrdtMode } from './with-commit/crdt/crdt.js'
 import { ReservedCollectionNameError, StaticDictReadonlyError, UnknownDictCodeError } from './errors.js'
 import {

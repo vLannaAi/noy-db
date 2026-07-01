@@ -12,7 +12,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb, withDerivation } from '../src/index.js'
 import { ConflictError } from '../src/errors.js'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 
 /** Minimal in-memory store that exposes raw envelopes for assertions. */
 function memory(): NoydbStore & { raw(vault: string, col: string, id: string): EncryptedEnvelope | undefined } {

@@ -5,7 +5,7 @@
  * mutated. This makes plans safe to share, cache, and serialize.
  */
 
-import type { QueryField } from '../types.js'
+import type { QueryField } from '../kernel/types.js'
 import type { Clause, CrossJoinClause, FieldClause, FilterClause, GroupClause, Operator, WherePredicateClause } from './predicate.js'
 import { evaluateClause, hasFnClause } from './predicate.js'
 import type { CollectionIndexes } from '../with-lookup/indexing/eager-indexes.js'

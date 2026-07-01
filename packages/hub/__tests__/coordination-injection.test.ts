@@ -19,7 +19,7 @@ import {
   type FenceState,
   type WriterPresence,
 } from '../src/kernel/coordination/index.js'
-import type { NoydbStore } from '../src/types.js'
+import type { NoydbStore } from '../src/kernel/types.js'
 import type { Unsubscribe } from '../src/write-hooks.js'
 
 interface InvOld extends Record<string, unknown> { id: string; total: number }

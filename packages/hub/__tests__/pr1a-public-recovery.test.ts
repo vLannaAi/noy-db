@@ -14,7 +14,7 @@
  * pre.8 ships. Removing either export would break this test.
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import type { NoydbStore, EncryptedEnvelope } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 import {
   createNoydb,
   type Noydb,

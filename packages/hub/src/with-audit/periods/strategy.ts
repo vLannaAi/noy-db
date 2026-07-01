@@ -11,7 +11,7 @@
  * @internal
  */
 
-import type { EncryptedEnvelope, NoydbStore } from '../../types.js'
+import type { EncryptedEnvelope, NoydbStore } from '../../kernel/types.js'
 import type { LedgerStore } from '../../with-commit/history/ledger/store.js'
 import type { PeriodRecord } from './periods.js'
 

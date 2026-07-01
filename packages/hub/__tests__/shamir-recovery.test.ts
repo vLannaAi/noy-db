@@ -12,7 +12,7 @@
  * docs/superpowers/specs/2026-05-23-shamir-recovery-dispatch.md §4.
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import type { NoydbStore, EncryptedEnvelope } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 import { createNoydb, type Noydb } from '../src/index.js'
 import { ConflictError } from '../src/errors.js'
 import { shamirRecoveryProvider } from '@noy-db/on-shamir'

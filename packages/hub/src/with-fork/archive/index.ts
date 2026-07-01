@@ -10,7 +10,7 @@
  * @see ./engine for the relocation logic.
  */
 
-import type { NoydbStore } from '../../types.js'
+import type { NoydbStore } from '../../kernel/types.js'
 
 export interface WithArchiveOptions {
   /** The cold store that holds archived record envelopes. */

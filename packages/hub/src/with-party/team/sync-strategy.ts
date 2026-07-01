@@ -29,7 +29,7 @@ import type {
   NoydbStore,
   ConflictStrategy,
   SyncTargetRole,
-} from '../../types.js'
+} from '../../kernel/types.js'
 import type { NoydbEventEmitter } from '../../events.js'
 import type { SyncPolicy } from '../../store/sync-policy.js'
 import type { SyncEngine } from './sync.js'

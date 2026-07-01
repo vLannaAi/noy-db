@@ -130,7 +130,7 @@ export type {
   ExportCapability,
   ExportFormat,
   ImportCapability,
-} from './types.js'
+} from './kernel/types.js'
 
 export {
   NOYDB_FORMAT_VERSION,
@@ -138,13 +138,13 @@ export {
   NOYDB_BACKUP_VERSION,
   NOYDB_SYNC_VERSION,
   createStore,
-} from './types.js'
+} from './kernel/types.js'
 
 export type {
   StoreAuthKind,
   StoreAuth,
   StoreCapabilities,
-} from './types.js'
+} from './kernel/types.js'
 
 // Blob store
 export type {
@@ -155,7 +155,7 @@ export type {
   VersionRecord,
   BlobPutOptions,
   BlobResponseOptions,
-} from './types.js'
+} from './kernel/types.js'
 export { BlobSet } from './with-shape/blobs/blob-set.js'
 export { memoryObjectProjection } from './with-shape/blobs/object-projection.js'
 export type {
@@ -205,7 +205,7 @@ export type { DryRunResult, AffectedDocument, GuardViolation } from './with-comm
 // Multi-tab coordination
 export type { TabRole, TabPresence, TabCoordinationOptions, TabLockManager, TabChannel } from './with-party/tab-coordination.js'
 // Cross-tab write conflict
-export type { WriteConflict } from './types.js'
+export type { WriteConflict } from './kernel/types.js'
 
 // Schema-update strategies
 export type {
@@ -223,7 +223,7 @@ export type { SyncPolicy, PushPolicy, PullPolicy, PushMode, PullMode, SyncSchedu
 export { SyncScheduler, INDEXED_STORE_POLICY, BUNDLE_STORE_POLICY } from './store/sync-policy.js'
 
 // Sync target
-export type { SyncTarget, SyncTargetRole } from './types.js'
+export type { SyncTarget, SyncTargetRole } from './kernel/types.js'
 
 // Store routing
 export { memoryStore } from './store/memory-store.js'
@@ -319,7 +319,7 @@ export { withDeferredNumbering } from './with-commit/numbering/descriptor.js'
 export type { DeferredNumberingConfig } from './with-commit/numbering/descriptor.js'
 export type { Assignment as NumberingAssignment } from './with-commit/numbering/index.js'
 export { NumberingUncertaintyError } from './errors.js'
-export type { StoreTime } from './types.js'
+export type { StoreTime } from './kernel/types.js'
 
 export { STATE_VAULT_NAME } from './constants.js'
 export { UnknownShardError, ShardProvisioningError, VaultTemplateNotFoundError, ReservedVaultNameError, DataResidencyError } from './errors.js'
@@ -684,14 +684,14 @@ export { resolveCrdtSnapshot, mergeCrdtStates } from './with-commit/crdt/crdt.js
 
 // Presence
 export { PresenceHandle } from './with-party/team/presence.js'
-export type { PresencePeer } from './types.js'
+export type { PresencePeer } from './kernel/types.js'
 export { derivePresenceKey } from './kernel/enclave/crypto.js'
 export { SyncEngine } from './with-party/team/sync.js'
 export { SyncTransaction } from './with-party/team/sync-transaction.js'
 
 // Multi-record transactions
 export { TxContext, TxVault, TxCollection, runTransaction } from './with-commit/tx/transaction.js'
-export type { TxOp } from './types.js'
+export type { TxOp } from './kernel/types.js'
 export type { TransactionInvariant } from './with-commit/tx/invariants.js'
 export type { TransactionStrategyOptions } from './with-commit/tx/active.js'
 
@@ -854,7 +854,7 @@ export {
 } from './errors.js'
 
 // Locale read options + translator audit log
-export type { LocaleReadOptions } from './types.js'
+export type { LocaleReadOptions } from './kernel/types.js'
 
 // _sync_credentials reserved collection —
 export {
@@ -907,7 +907,7 @@ export { bufferToBase64, base64ToBuffer, encryptBytes, decryptBytes } from './ke
 export { encryptDeterministic, decryptDeterministic } from './kernel/enclave/crypto.js'
 
 // hierarchical access
-export type { GhostRecord, TierMode, CrossTierAccessEvent } from './types.js'
+export type { GhostRecord, TierMode, CrossTierAccessEvent } from './kernel/types.js'
 export { TierNotGrantedError, TierDemoteDeniedError, DelegationTargetMissingError } from './errors.js'
 
 // lazy-mode index errors
@@ -1064,15 +1064,15 @@ export type {
 } from './query/index.js'
 
 // Query DSL helpers (escape-hatch types for consumers with dynamic field names)
-export type { QueryField, IndexFieldName } from './types.js'
+export type { QueryField, IndexFieldName } from './kernel/types.js'
 
 // Sealed-field access surface (#504): `Sealed<V>` is the opaque handle a public
 // read returns for a `sensitive` field; `SealedView<T, S>` is the record shape
 // `get()` returns (sealed fields → handles); `SealedHandle` is the concrete
 // class (exported for `instanceof` narrowing — the `Sealed.sealed` discriminant
 // also narrows structurally).
-export type { Sealed, SealedView } from './types.js'
-export { SealedHandle } from './types.js'
+export type { Sealed, SealedView } from './kernel/types.js'
+export { SealedHandle } from './kernel/types.js'
 
 // Scan-mode full-text search (#308)
 export { tokenize } from './with-lookup/search/index.js'

@@ -18,7 +18,7 @@ import { describe, it, expect } from 'vitest'
 import { createNoydb, withGuard, withDerivation } from '../src/index.js'
 import { withI18n } from '../src/with-shape/i18n/index.js'
 import { i18nText } from '../src/with-shape/i18n/core.js'
-import type { NoydbStore, EncryptedEnvelope } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 
 function memory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()

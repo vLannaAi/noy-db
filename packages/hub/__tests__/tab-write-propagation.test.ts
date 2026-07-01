@@ -179,8 +179,8 @@ describe('cross-tab conflict detection (#228c)', () => {
     db2.enableTabCoordination({ writeChannel: wB!, tabId: 'B' })
     await c1.get('seed'); await c2.get('seed') // hydrate both
 
-    const seen1: import('../src/types.js').WriteConflict[] = []
-    const seen2: import('../src/types.js').WriteConflict[] = []
+    const seen1: import('../src/kernel/types.js').WriteConflict[] = []
+    const seen2: import('../src/kernel/types.js').WriteConflict[] = []
     db1.onWriteConflict((cf) => seen1.push(cf))
     db2.onWriteConflict((cf) => seen2.push(cf))
 

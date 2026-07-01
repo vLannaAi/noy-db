@@ -8,8 +8,8 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb, withDerivation } from '../../src/index.js'
 import { generateDEK } from '../../src/kernel/enclave/crypto.js'
-import { NOYDB_FORMAT_VERSION } from '../../src/types.js'
-import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
+import { NOYDB_FORMAT_VERSION } from '../../src/kernel/types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 import {
   saveFanoutSidecar,
   loadFanoutSidecar,

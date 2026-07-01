@@ -27,7 +27,7 @@ import {
 } from './link-set.js'
 import type { JoinableSource } from '../../query/index.js'
 import type { Collection } from '../../collection.js'
-import type { NoydbStore } from '../../types.js'
+import type { NoydbStore } from '../../kernel/types.js'
 import type { TxContext } from '../../with-commit/tx/transaction.js'
 
 /** Everything the moving refs/links methods touched on the vault's `this.*`. */

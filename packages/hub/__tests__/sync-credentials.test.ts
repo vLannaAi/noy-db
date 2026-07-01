@@ -12,7 +12,7 @@ import {
   SYNC_CREDENTIALS_COLLECTION,
 } from '../src/with-party/team/sync-credentials.js'
 import { PermissionDeniedError } from '../src/errors.js'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import type { UnlockedKeyring } from '../src/with-party/team/keyring.js'
 import { createOwnerKeyring, grant } from '../src/with-party/team/keyring.js'
 import { ConflictError } from '../src/errors.js'

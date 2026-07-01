@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { createNoydb } from '../../src/noydb.js'
 import { memory } from '../../../to-memory/src/index.js'
 import { coordinatedCutover } from '../../src/with-shape/schema-update/index.js'
-import type { NoydbStore } from '../../src/types.js'
+import type { NoydbStore } from '../../src/kernel/types.js'
 
 const oldS = z.object({ id: z.string(), total: z.number() })
 const newS = z.object({ id: z.string(), amount: z.object({ gross: z.number() }) })

@@ -30,7 +30,7 @@ import {
   BLOB_SLOTS_PREFIX,
 } from '../src/with-shape/blobs/blob-set.js'
 import { ConflictError } from '../src/errors.js'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 
 // Realistic in-memory store: `loadAll` filters out underscore-prefixed
 // (internal) collections, exactly like the real adapters — so dump()'s

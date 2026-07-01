@@ -48,7 +48,7 @@
  *
  * @module
  */
-import type { EncryptedEnvelope, NoydbStore } from '../../types.js'
+import type { EncryptedEnvelope, NoydbStore } from '../../kernel/types.js'
 import { encrypt, decrypt } from '../../kernel/enclave/crypto.js'
 import { generateULID } from '../../with-pod/ulid.js'
 

@@ -12,7 +12,7 @@ import {
 } from '../../src/errors.js'
 import { listUsersWithEnvelopes } from '../../src/with-party/team/keyring.js'
 import { USER_ENVELOPE_COLLECTION } from '../../src/meta/user-envelope/index.js'
-import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

@@ -1,4 +1,4 @@
-import type { SyncTransactionResult } from '../../types.js'
+import type { SyncTransactionResult } from '../../kernel/types.js'
 import type { SyncEngine } from './sync.js'
 import type { Vault } from '../../vault.js'
 

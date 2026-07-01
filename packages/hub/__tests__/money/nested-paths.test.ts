@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { createNoydb, money, ValidationError } from '../../src/index.js'
 import { quantizeMoneyFields, decodeMoneyFields } from '../../src/with-shape/money/normalize.js'
 import { money as moneyFactory } from '../../src/with-shape/money/descriptor.js'
-import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
 // #334 — nested-path money declarations. The descriptor key is a path:
 // 'lineItems[].amount', 'billing.monthlyServiceFee', 'summary.*'.

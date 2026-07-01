@@ -9,7 +9,7 @@
  */
 import { base64ToBuffer, wrapKey } from '../kernel/enclave/crypto.js'
 import { TransferSealError, AdoptionStateError, ValidationError } from '../errors.js'
-import type { NoydbStore, VaultSnapshot, KeyringFile } from '../types.js'
+import type { NoydbStore, VaultSnapshot, KeyringFile } from '../kernel/types.js'
 import { createOwnerKeyring } from '../with-party/team/keyring.js'
 import { resolveManagedSecret } from '../with-party/team/managed-passphrase.js'
 import type { SealingKeyProvider } from '../with-party/team/managed-passphrase.js'

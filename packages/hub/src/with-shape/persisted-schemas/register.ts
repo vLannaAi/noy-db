@@ -19,7 +19,7 @@ import { loadPersistedSchema, savePersistedSchema } from './storage.js'
 import { computeSchemaDelta } from '../schema-update/delta.js'
 import { evaluateStrategies } from '../schema-update/dispatch.js'
 import type { SchemaUpdateStrategy, UpdateDecision } from '../schema-update/types.js'
-import type { NoydbStore } from '../../types.js'
+import type { NoydbStore } from '../../kernel/types.js'
 import type { PersistedSchemaEnvelope } from './types.js'
 
 export interface PersistSchemaResult {

@@ -4,7 +4,7 @@ import { createNoydb } from '../../src/index.js'
 import { withAggregate } from '../../src/with-lookup/aggregate/index.js'
 import { sum } from '../../src/with-lookup/aggregate/reducers.js'
 import { money } from '../../src/with-shape/money/descriptor.js'
-import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
 // #322 — money fields read back differently via get() (decimal) vs
 // list()/query().toArray() (raw scaled-int cents). The stored scaled-int is

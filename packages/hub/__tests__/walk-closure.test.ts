@@ -15,7 +15,7 @@ import { createNoydb } from '../src/noydb.js'
 import type { Noydb } from '../src/noydb.js'
 import { ref } from '../src/refs.js'
 import { ConflictError, PartitionExtractionError } from '../src/errors.js'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { walkClosure } from '../src/with-cargo/walk-closure.js'
 
 function memory(): NoydbStore {

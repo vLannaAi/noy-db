@@ -13,7 +13,7 @@ import { createNoydb } from '../src/noydb.js'
 import type { Noydb } from '../src/noydb.js'
 import { ref } from '../src/refs.js'
 import { ConflictError } from '../src/errors.js'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { describeExtraction } from '../src/with-cargo/describe-extraction.js'
 
 function memory(): NoydbStore {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb, withRollup } from '../src/index.js'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, Sealed } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, Sealed } from '../src/kernel/types.js'
 import { ConflictError } from '../src/index.js'
 
 interface Person {

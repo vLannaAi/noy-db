@@ -3,8 +3,8 @@
  * Deferred numbering engine — store-clock-ordered, gap-free serials assigned
  * at an explicit numbering pass. See the design spec.
  */
-import type { NoydbStore, EncryptedEnvelope, StoreTime } from '../../types.js'
-import { NOYDB_FORMAT_VERSION } from '../../types.js'
+import type { NoydbStore, EncryptedEnvelope, StoreTime } from '../../kernel/types.js'
+import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import { encrypt, decrypt } from '../../kernel/enclave/crypto.js'
 import { ConflictError, NumberingUncertaintyError } from '../../errors.js'
 import type { DeferredNumberingConfig } from './descriptor.js'

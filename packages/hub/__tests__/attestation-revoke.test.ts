@@ -6,8 +6,8 @@ import {
 import { loadOrCreateSigner } from '../src/with-audit/attestation/signer.js'
 import { generateDEK } from '../src/kernel/enclave/crypto.js'
 import { verifyRevocationList, isRevoked } from '@noy-db/attestation'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
-import { NOYDB_FORMAT_VERSION } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
+import { NOYDB_FORMAT_VERSION } from '../src/kernel/types.js'
 import { ConflictError } from '../src/errors.js'
 
 function memory(): NoydbStore {

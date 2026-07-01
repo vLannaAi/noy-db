@@ -1,7 +1,7 @@
 import { SnapshotEngine } from './engine.js'
 import type { SnapshotStrategy, RetentionPolicy } from './strategy.js'
 import type { SnapshotPolicy } from './policy.js'
-import type { NoydbBundleStore } from '../../types.js'
+import type { NoydbBundleStore } from '../../kernel/types.js'
 import type { Vault } from '../../vault.js'
 
 export interface WithSnapshotsOptions {

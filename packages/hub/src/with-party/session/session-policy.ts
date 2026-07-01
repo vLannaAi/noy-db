@@ -22,7 +22,7 @@
  * non-browser environments (no `document`).
  */
 
-import type { SessionPolicy, ReAuthOperation } from '../../types.js'
+import type { SessionPolicy, ReAuthOperation } from '../../kernel/types.js'
 import { SessionExpiredError, SessionPolicyError } from '../../errors.js'
 import { revokeSession } from './session.js'
 

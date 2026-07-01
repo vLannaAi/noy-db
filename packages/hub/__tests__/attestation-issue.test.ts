@@ -3,7 +3,7 @@ import { issueAttestationCore } from '../src/with-audit/attestation/issue.js'
 import { verifyAttestation } from '@noy-db/attestation'
 import type { AttestationFieldSchema } from '@noy-db/attestation'
 import { generateDEK, decrypt } from '../src/kernel/enclave/crypto.js'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/errors.js'
 
 function memory(): NoydbStore {

@@ -3,7 +3,7 @@ import { withDeferredNumbering } from '../../src/with-commit/numbering/descripto
 import { NumberingUncertaintyError, ConflictError } from '../../src/errors.js'
 import { DeferredNumberingStore } from '../../src/with-commit/numbering/index.js'
 import { createNoydb } from '../../src/index.js'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/kernel/types.js'
 
 // In-memory store with a monotonic clock — the engine's full backend under test.
 function clockStore(epsilon = 0): NoydbStore {

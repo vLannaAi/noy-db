@@ -3,7 +3,7 @@ import { mkdtemp, rm, mkdir, writeFile, readFile, readdir, stat, unlink } from '
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createNoydb, withGuard, RecordLockedError } from '../../src/index.js'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/kernel/types.js'
 
 // Minimal file-backed store — same shape as @noy-db/to-file's `jsonFile()`.
 // Inlined here because hub tests don't depend on sibling @noy-db/to-* packages.

@@ -10,7 +10,7 @@ import {
 } from '../src/meta/user-envelope/index.js'
 import { generateDEK } from '../src/kernel/enclave/crypto.js'
 import { ConflictError } from '../src/errors.js'
-import type { NoydbStore, EncryptedEnvelope } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

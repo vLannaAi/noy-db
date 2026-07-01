@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
 import { ConflictError } from '../src/errors.js'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ref } from '../src/refs.js'
 import { i18nText } from '../src/with-shape/i18n/core.js'
 import { withI18n } from '../src/with-shape/i18n/index.js'

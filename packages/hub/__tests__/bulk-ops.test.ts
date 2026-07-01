@@ -10,7 +10,7 @@
  *   - history is saved per-record on each putMany overwrite
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, ChangeEvent } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, ChangeEvent } from '../src/kernel/types.js'
 import { ConflictError, createNoydb } from '../src/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import type { Noydb } from '../src/index.js'

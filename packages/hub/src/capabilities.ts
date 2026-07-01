@@ -16,7 +16,7 @@
 import { ExportCapabilityError, ImportCapabilityError } from './errors.js'
 import { hasExportCapability, hasImportCapability } from './with-party/team/keyring.js'
 import type { UnlockedKeyring } from './with-party/team/keyring.js'
-import type { ExportFormat } from './types.js'
+import type { ExportFormat } from './kernel/types.js'
 
 /**
  * Authorize an `@noy-db/as-*` export against the keyring's `exportCapability`.

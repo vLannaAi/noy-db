@@ -21,6 +21,6 @@ export type {
   StoreCapabilities,
   StoreTime,
   ListPageResult,
-} from '../types.js'
+} from '../kernel/types.js'
 
 export { ConflictError, NetworkError, StoreCapabilityError, BundleVersionConflictError } from '../errors.js'

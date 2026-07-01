@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/noydb.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { ConflictError } from '../src/errors.js'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { extractPartition } from '../src/with-cargo/extract-partition.js'
 
 function memory(): NoydbStore {

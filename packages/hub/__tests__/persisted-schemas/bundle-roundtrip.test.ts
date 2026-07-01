@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/kernel/types.js'
 import { ConflictError } from '../../src/errors.js'
 import { createNoydb, writeNoydbBundle, readNoydbBundle } from '../../src/index.js'
 import { withHistory } from '../../src/with-commit/history/index.js'

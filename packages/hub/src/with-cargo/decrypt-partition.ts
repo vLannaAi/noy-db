@@ -7,7 +7,7 @@
  * (wrong key throws).
  * @module
  */
-import type { EncryptedEnvelope } from '../types.js'
+import type { EncryptedEnvelope } from '../kernel/types.js'
 import { decrypt } from '../kernel/enclave/crypto.js'
 import { unwrapCek } from '../kernel/enclave/record-keys/index.js'
 import { readNoydbBundleHeader, readNoydbBundle, parseExtractedPartitionBody } from '../with-pod/bundle.js'

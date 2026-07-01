@@ -17,7 +17,7 @@
  * signature can't be exposed via a method without breaking `Collection<T>`
  * assignability to `Collection<unknown>`).
  */
-import type { NoydbStore, ConflictPolicy, CollectionConflictResolver, HistoryConfig, TierMode, CrossTierAccessEvent } from './types.js'
+import type { NoydbStore, ConflictPolicy, CollectionConflictResolver, HistoryConfig, TierMode, CrossTierAccessEvent } from './kernel/types.js'
 import type { UnlockedKeyring } from './with-party/team/keyring.js'
 import type { NoydbEventEmitter } from './events.js'
 import type { WriteQueueTracker } from './write-queue.js'

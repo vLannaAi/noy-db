@@ -4,7 +4,7 @@ import { verifyAttestation } from '@noy-db/attestation'
 import { withI18n } from '../src/with-shape/i18n/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { i18nText } from '../src/with-shape/i18n/core.js'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError, AttestationError } from '../src/errors.js'
 
 function memory(): NoydbStore {

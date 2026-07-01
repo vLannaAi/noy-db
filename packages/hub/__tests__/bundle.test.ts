@@ -27,7 +27,7 @@ import type {
   EncryptedEnvelope,
   VaultSnapshot,
   ListPageResult,
-} from '../src/types.js'
+} from '../src/kernel/types.js'
 import {
   ConflictError,
   BundleIntegrityError,

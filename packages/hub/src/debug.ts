@@ -3,7 +3,7 @@
  * with native tooling — the programmatic core of a `noydb cat`-style unwrap.
  * See the plaintext/debug-store-mode design.
  */
-import type { EncryptedEnvelope } from './types.js'
+import type { EncryptedEnvelope } from './kernel/types.js'
 
 /**
  * Extract the record from a plaintext stored envelope, handling both layouts:

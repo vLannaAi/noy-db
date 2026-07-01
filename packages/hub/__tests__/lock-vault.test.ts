@@ -11,7 +11,7 @@
  *  - Re-unlock paths (tier-1 passphrase via openVault) work after lock.
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import type { NoydbStore, EncryptedEnvelope } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 import { createNoydb, type Noydb } from '../src/noydb.js'
 
 interface TestProfile {

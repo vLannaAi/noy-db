@@ -17,7 +17,7 @@
  * Internal subsystem — not exported as a `@noy-db/hub/*` subpath.
  */
 import { encryptDeterministic } from '../crypto.js'
-import type { NoydbStore } from '../../../types.js'
+import type { NoydbStore } from '../../types.js'
 import type { RecordCodec } from './record-codec.js'
 
 /** Everything the moving deterministic-index methods touched on `this.*`. */

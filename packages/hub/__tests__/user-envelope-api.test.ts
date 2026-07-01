@@ -7,7 +7,7 @@
  * @see docs/superpowers/specs/2026-05-05-user-envelope-design.md
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import type { NoydbStore, EncryptedEnvelope } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 import { createNoydb, type Noydb } from '../src/noydb.js'
 
 interface TestProfile {

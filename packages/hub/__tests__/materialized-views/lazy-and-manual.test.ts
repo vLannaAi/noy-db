@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb, withMaterializedView } from '../../src/index.js'
 import { isMVStale } from '../../src/with-formula/materialized-views/stale.js'
-import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
 function memory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()

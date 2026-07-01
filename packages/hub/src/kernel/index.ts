@@ -45,7 +45,7 @@ export {
 // runtime class value must import it from `@noy-db/hub` directly.
 // ─── types ────────────────────────────────────────────────────────
 export type { CollectionMeta, VaultMeta } from '../with-shape/introspection/meta.js'
-export type { ChangeEvent } from '../types.js'
+export type { ChangeEvent } from './types.js'
 export type { Vault } from '../vault.js'
 export type { Collection } from '../collection.js'
 export type { Noydb } from '../noydb.js'

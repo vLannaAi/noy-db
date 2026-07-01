@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { runArchive, runRestore, runListArchived, type ArchiveContext, type ArchivePolicy } from '../../src/with-fork/archive/engine.js'
-import type { EncryptedEnvelope, NoydbStore } from '../../src/types.js'
+import type { EncryptedEnvelope, NoydbStore } from '../../src/kernel/types.js'
 
 // A minimal in-memory store standing in for the cold archive target.
 function memStore(): NoydbStore {

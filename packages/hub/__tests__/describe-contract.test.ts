@@ -20,7 +20,7 @@ import { staticDict } from '../src/with-shape/i18n/dictionary.js'
 import { i18nText } from '../src/with-shape/i18n/core.js'
 import { ref } from '../src/refs.js'
 import { withI18n } from '../src/with-shape/i18n/active.js'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import type { CollectionDescription } from '@noy-db/hub/describe'
 import { ConflictError } from '../src/errors.js'
 

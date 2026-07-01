@@ -15,7 +15,7 @@
  * pins the hub-level dispatch + persistence shape only.
  */
 import { describe, it, expect } from 'vitest'
-import type { NoydbStore, EncryptedEnvelope, KeyringAuthenticator } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, KeyringAuthenticator } from '../src/kernel/types.js'
 import { createOwnerKeyring, loadKeyring, persistKeyring } from '../src/with-party/team/keyring.js'
 import { enrollAuthenticator } from '../src/with-party/team/authenticators.js'
 import { generateDEK } from '../src/kernel/enclave/crypto.js'

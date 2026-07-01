@@ -14,7 +14,7 @@ import { ConflictError } from '../src/errors.js'
 import { withForgetCascade } from '../src/with-audit/forget/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { generateDEK } from '../src/kernel/enclave/crypto.js'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import {
   addSubjectRef,
   removeSubjectRef,

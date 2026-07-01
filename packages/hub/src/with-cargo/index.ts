@@ -32,6 +32,6 @@ export { STATE_VAULT_NAME } from '../constants.js'
 // Change observation.
 export type { WriteHook } from '../write-hooks.js'
 export type { WriteQueue } from '../write-queue.js'
-export type { WriteConflict } from '../types.js'
-export type { AccessibleVault } from '../types.js'
+export type { WriteConflict } from '../kernel/types.js'
+export type { AccessibleVault } from '../kernel/types.js'
 export type { Unsubscribe } from '../meta/user-envelope/api.js'

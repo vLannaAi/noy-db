@@ -58,7 +58,7 @@
  *   - `scan().join(...)` — tracked under  (streaming join)
  */
 
-import type { QueryField } from '../types.js'
+import type { QueryField } from '../kernel/types.js'
 import type { ReducerBuilder } from '../with-lookup/aggregate/reducers.js'
 import { reducerBuilder } from '../with-lookup/aggregate/reducers.js'
 import type { Clause, FieldClause, Operator } from './predicate.js'

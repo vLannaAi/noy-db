@@ -5,7 +5,7 @@ import { createNoydb } from '../src/noydb.js'
 import { memory } from '../../to-memory/src/index.js'
 import { coordinatedCutover, additiveOnly } from '../src/with-shape/schema-update/index.js'
 import { SchemaFenceError, MigrationRequiredError } from '../src/errors.js'
-import type { NoydbStore } from '../src/types.js'
+import type { NoydbStore } from '../src/kernel/types.js'
 
 interface InvOld extends Record<string, unknown> { id: string; total: number }
 interface InvNew extends Record<string, unknown> { id: string; amount: { gross: number } }

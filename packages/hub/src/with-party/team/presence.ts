@@ -15,7 +15,7 @@
  *     (if available) or local adapter, and polled periodically.
  */
 
-import type { NoydbStore, PresencePeer } from '../../types.js'
+import type { NoydbStore, PresencePeer } from '../../kernel/types.js'
 import { encrypt, decrypt, generateIV, bufferToBase64, derivePresenceKey } from '../../kernel/enclave/crypto.js'
 
 /** Options for constructing a PresenceHandle. @internal */

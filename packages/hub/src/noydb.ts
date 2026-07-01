@@ -20,7 +20,7 @@ import type {
   ReAuthOperation,
   TranslatorAuditEntry,
   WriteConflict,
-} from './types.js'
+} from './kernel/types.js'
 import { ValidationError, NoAccessError, InvalidKeyError, KeyringCorruptError, StoreCapabilityError, PermissionDeniedError, DebugPlaintextError } from './errors.js'
 import {
   readDirectoryConfig,
@@ -83,7 +83,7 @@ import {
   type UpdateAuthenticatorOptions,
 } from './with-party/team/authenticators.js'
 import { QuickUnlockStore, type QuickUnlockState } from './with-party/session/unlock-state.js'
-import type { KeyringAuthenticator } from './types.js'
+import type { KeyringAuthenticator } from './kernel/types.js'
 import type { SyncEngine } from './with-party/team/sync.js'
 import type { SyncTransaction } from './with-party/team/sync-transaction.js'
 import { NO_SYNC, type SyncStrategy } from './with-party/team/sync-strategy.js'

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { hasNoydbBundleMagic, writeNoydbBundle } from '../src/index.js'
 import { createNoydb } from '../src/noydb.js'
 import { ConflictError } from '../src/errors.js'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 
 function memStore(): NoydbStore {
   const s = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

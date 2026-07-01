@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb, withMaterializedView, sum, count } from '../../src/index.js'
 import { withAggregate } from '../../src/with-lookup/aggregate/index.js'
-import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
 // #331 — single-arm union: map→group→aggregate over ONE collection with a
 // COMPUTED bucket key. The query form's .groupBy() accepts stored field

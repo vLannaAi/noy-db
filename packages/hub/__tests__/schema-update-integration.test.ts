@@ -9,7 +9,7 @@ import { createNoydb } from '../src/noydb.js'
 import { memory } from '../../to-memory/src/index.js'
 import { additiveOnly, lockSchema } from '../src/with-shape/schema-update/index.js'
 import { NonAdditiveSchemaChangeError, SchemaLockedError } from '../src/errors.js'
-import type { NoydbStore } from '../src/types.js'
+import type { NoydbStore } from '../src/kernel/types.js'
 
 interface Invoice extends Record<string, unknown> { id: string; amount?: number | undefined }
 

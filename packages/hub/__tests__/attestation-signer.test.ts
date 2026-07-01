@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { loadOrCreateSigner, loadSigner, SIGNER_RECORD_ID, ATTESTATIONS_COLLECTION, type DocSigner } from '../src/with-audit/attestation/signer.js'
 import { generateDEK, encrypt } from '../src/kernel/enclave/crypto.js'
 import { ed25519Verify, signPayloadCore, generateDocSigningKeyPair } from '@noy-db/attestation'
-import { NOYDB_FORMAT_VERSION } from '../src/types.js'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/types.js'
+import { NOYDB_FORMAT_VERSION } from '../src/kernel/types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/errors.js'
 
 function memory(): NoydbStore {

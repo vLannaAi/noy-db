@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
 import { createNoydb, money } from '../../src/index.js'
-import type { NoydbStore, EncryptedEnvelope } from '../../src/types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
 // #390 — orderBy on a money field must compare by the BigInt scaled-int
 // value, not lexically by the stored scaled-int string ('9882' vs '10004'
