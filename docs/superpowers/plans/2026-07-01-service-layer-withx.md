@@ -37,6 +37,12 @@ READ `with-fork/snapshots/strategy.ts` + `noydb-facade.ts` first; each ② servi
 
 Each `withX()` is exported from the service's `index.ts` and the `@noy-db/hub/<x>` subpath.
 
+**VALIDATED by the Task-1 exemplar — apply to every ② service:**
+- **Facade is ALWAYS built; the STRATEGY is swapped** (`NO_X` ↔ `withX()`) — do NOT gate by "construct the facade only when opted in." Per-vault facades hold state (e.g. attestation's field-schema registry) that must survive even when the capability isn't opted in.
+- **Schema/registration methods stay UNGATED** (e.g. attestation's `register()` from `collection({attestation})`); only the **capability methods** (the ones you invoke) delegate through the strategy and hit `NO_X`'s throw.
+- **Strategy methods are stateless and take the per-call context** the facade assembles (mirrors `SnapshotStrategy` taking `vault` per call); `withX()` itself takes only real opts (often none).
+- Expect a **+1 kernel-surface ratchet bump** on `vault.ts` and/or `noydb.ts` per service (the one irreducible wiring line); bump with justification, keep it to one line.
+
 ---
 
 ### Task 1: Gate exemplar — `withAttestation` (establishes the pattern)
