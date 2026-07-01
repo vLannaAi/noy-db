@@ -124,6 +124,10 @@
       "types": "./dist/kernel/index.d.ts",
       "default": "./dist/kernel/index.js"
     },
+    "./cargo": {
+      "types": "./dist/cargo/index.d.ts",
+      "default": "./dist/cargo/index.js"
+    },
     "./adapter": {
       "types": "./dist/adapter/index.d.ts",
       "default": "./dist/adapter/index.js"
