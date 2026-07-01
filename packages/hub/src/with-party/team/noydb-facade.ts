@@ -51,7 +51,7 @@ import {
 } from './recovery.js'
 import { saveSealedPassphrase } from './managed-passphrase.js'
 import type { ShamirRecoveryProvider } from './shamir-recovery-provider.js'
-import { generateULID } from '../../with-share/bundle/ulid.js'
+import { generateULID } from '../../with-pod/ulid.js'
 import { RecoveryProfileNotImplementedError, PolicyDeniedError } from '../../policy/errors.js'
 import {
   describeAuthConfig as fnDescribeAuthConfig,

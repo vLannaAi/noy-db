@@ -2,7 +2,7 @@ import type { NoydbStore, EncryptedEnvelope } from '../../types.js'
 import { NOYDB_FORMAT_VERSION } from '../../types.js'
 import { encrypt } from '../../crypto.js'
 import { AttestationError } from '../../errors.js'
-import { generateULID } from '../../with-share/bundle/ulid.js'
+import { generateULID } from '../../with-pod/ulid.js'
 import { loadOrCreateSigner, ATTESTATIONS_COLLECTION } from './signer.js'
 import {
   computeFieldHashes, signPayloadCore, encodeQr, bytesToB64url,

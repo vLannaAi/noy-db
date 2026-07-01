@@ -10,8 +10,8 @@ import {
   decodeBundleHeader,
   validateBundleHeader,
   NOYDB_BUNDLE_FORMAT_VERSION,
-} from '../src/with-share/bundle/format.js'
-import type { NoydbBundleHeader } from '../src/with-share/bundle/format.js'
+} from '../src/with-pod/format.js'
+import type { NoydbBundleHeader } from '../src/with-pod/format.js'
 import type { NoydbStore, EncryptedEnvelope } from '../src/types.js'
 import { createNoydb } from '../src/noydb.js'
 import {
@@ -19,7 +19,7 @@ import {
   readNoydbBundle,
   readNoydbBundleHeader,
   readNoydbBundlePublicEnvelope,
-} from '../src/with-share/bundle/bundle.js'
+} from '../src/with-pod/bundle.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

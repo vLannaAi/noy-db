@@ -128,6 +128,10 @@
       "types": "./dist/cargo/index.d.ts",
       "default": "./dist/cargo/index.js"
     },
+    "./pod": {
+      "types": "./dist/pod/index.d.ts",
+      "default": "./dist/pod/index.js"
+    },
     "./adapter": {
       "types": "./dist/adapter/index.d.ts",
       "default": "./dist/adapter/index.js"

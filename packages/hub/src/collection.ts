@@ -87,7 +87,7 @@ import { buildDescription, deriveZodFields, type CollectionDescription, type Des
 import { buildJsonSchema } from './with-shape/introspection/json-schema.js'
 import type { CollectionConfig } from './with-shape/introspection/types.js'
 import { Lru, parseBytes, estimateRecordBytes, type LruStats } from './cache/index.js'
-import { generateULID } from './with-share/bundle/ulid.js'
+import { generateULID } from './with-pod/ulid.js'
 import type { PresenceHandle, PresenceHandleOpts } from './with-party/team/presence.js'
 import type { SyncStrategy } from './with-party/team/sync-strategy.js'
 import type { BlobSet } from './with-shape/blobs/blob-set.js'
