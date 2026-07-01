@@ -10,6 +10,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
+import { withCargo } from '../src/index.js'
 import type { Noydb } from '../src/kernel/noydb.js'
 import { ref } from '../src/kernel/refs.js'
 import { ConflictError } from '../src/kernel/errors.js'
@@ -72,7 +73,7 @@ interface Client { id: string; name: string; operatorUserId: string }
 describe('reKeyClosure', () => {
   let db: Noydb
   beforeEach(async () => {
-    db = await createNoydb({ store: memory(), user: 'alice', secret: 'test-passphrase-1234' })
+    db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'test-passphrase-1234' })
   })
 
   it('re-encrypts each closure record under a fresh DEK that decrypts to the same plaintext', async () => {
@@ -112,7 +113,7 @@ describe('sealDeks', () => {
 describe('extractPartition', () => {
   let db: Noydb
   beforeEach(async () => {
-    db = await createNoydb({ store: memory(), user: 'alice', secret: 'test-passphrase-1234' })
+    db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'test-passphrase-1234' })
   })
 
   it('produces an extracted-partition bundle with bundleKind + transferSeal header', async () => {
@@ -153,7 +154,7 @@ describe('extractPartition', () => {
 
 describe('extractPartition end-to-end', () => {
   it('round-trips: unseal DEKs with the transfer key, decrypt a re-keyed record', async () => {
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'test-passphrase-1234' })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'test-passphrase-1234' })
     const company = await db.openVault('demo-co')
     const clients = company.collection<Client>('clients')
     await clients.put('c-1', { id: 'c-1', name: 'Hotel', operatorUserId: 'belle' })

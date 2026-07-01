@@ -7,6 +7,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
+import { withCargo } from '../src/index.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import { MemorySealingKeyProvider } from '../src/with-party/team/managed-passphrase.js'
 import { shamirRecoveryProvider } from '@noy-db/on-shamir'
@@ -66,7 +67,7 @@ function memory(): NoydbStore {
 interface Client { id: string; name: string; operatorUserId: string }
 
 async function extractAndAdopt() {
-  const db = await createNoydb({ store: memory(), user: 'alice', secret: 'alice-2026' })
+  const db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'alice-2026' })
   const company = await db.openVault('demo-co')
   await company.collection<Client>('clients').put('c-1', { id: 'c-1', name: 'Hotel', operatorUserId: 'belle' })
   const { bundleBytes, transferKey } = await extractPartition(company, { seeds: { clients: () => true } })
@@ -94,7 +95,7 @@ describe('managed-mode adoption', () => {
     // The sealed passphrase is persisted; the recipient opens with NO passphrase
     // — just the same sealing provider (the at-* auto-unlock #198 motivates).
     expect(await dest.get('acme', '_meta', 'sealed-passphrase')).toBeTruthy()
-    const belleDb = await createNoydb({
+    const belleDb = await createNoydb({ cargoStrategy: withCargo(),
       store: dest, user: 'belle', passphraseMode: 'managed',
       sealingKey: provider, shamirRecovery: shamirRecoveryProvider(),
     })
@@ -150,7 +151,7 @@ describe('managed-mode adoption', () => {
     expect(result).toEqual({ vaultName: 'acme', userId: 'belle' })
 
     // Recovery is now enrolled and the partition auto-unlocks for the recipient.
-    const belleDb = await createNoydb({
+    const belleDb = await createNoydb({ cargoStrategy: withCargo(),
       store: dest, user: 'belle', passphraseMode: 'managed',
       sealingKey: provider, shamirRecovery: real,
     })

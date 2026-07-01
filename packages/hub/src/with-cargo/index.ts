@@ -29,6 +29,14 @@ export type { SealingKeyProvider } from '../with-party/team/managed-passphrase.j
 export { diffVault } from './vault-diff.js'
 export { STATE_VAULT_NAME } from '../kernel/constants.js'
 
+// Capability opt-in seam (S4): the source-side `extractPartition` / `diffVault`
+// free functions route through the cargoStrategy, so they throw
+// CargoNotEnabledError unless opted in. adopt/decrypt stay ungated host-side.
+export { withCargo } from './active.js'
+export { NO_CARGO } from './strategy.js'
+export type { CargoStrategy } from './strategy.js'
+export { CargoNotEnabledError } from '../kernel/errors.js'
+
 // Change observation.
 export type { WriteHook } from '../kernel/write-hooks.js'
 export type { WriteQueue } from '../kernel/write-queue.js'

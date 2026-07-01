@@ -462,21 +462,41 @@ export interface ExtractPartitionResult {
  * (invariant 5): producing a standalone re-keyed vault is an
  * ownership operation. Non-destructive on the source.
  */
+export type ExtractPartitionOptions = WalkClosureOptions & {
+  readonly compression?: 'auto' | 'brotli' | 'gzip' | 'none'
+  readonly carrySchemas?: boolean
+  readonly carryLedger?: boolean
+  /**
+   * FR-7 structural field projection: per-collection allow-list of fields
+   * to keep. Non-listed fields are dropped from each record BEFORE
+   * re-encryption (so they never travel in the bundle); `id` is always
+   * preserved. A projected collection's persisted schema is NOT carried.
+   * Absent/empty → un-projected behavior (byte-identical to today).
+   */
+  readonly fieldProjection?: Record<string, readonly string[]>
+}
+
+/**
+ * Public extract-partition entry — gated behind `cargoStrategy: withCargo()`
+ * (S4). Routes through the source vault's cargo strategy so an un-opted-in
+ * caller hits `NO_CARGO`'s throw; `withCargo()` dynamically imports and runs
+ * {@link extractPartitionCore} (the crypto engine, kept out of the floor).
+ */
 export async function extractPartition(
   vault: Vault,
-  opts: WalkClosureOptions & {
-    readonly compression?: 'auto' | 'brotli' | 'gzip' | 'none'
-    readonly carrySchemas?: boolean
-    readonly carryLedger?: boolean
-    /**
-     * FR-7 structural field projection: per-collection allow-list of fields
-     * to keep. Non-listed fields are dropped from each record BEFORE
-     * re-encryption (so they never travel in the bundle); `id` is always
-     * preserved. A projected collection's persisted schema is NOT carried.
-     * Absent/empty → un-projected behavior (byte-identical to today).
-     */
-    readonly fieldProjection?: Record<string, readonly string[]>
-  },
+  opts: ExtractPartitionOptions,
+): Promise<ExtractPartitionResult> {
+  return vault.cargoStrategy.extractPartition(vault, opts)
+}
+
+/**
+ * The extract-partition crypto engine — reached only when `withCargo()` is
+ * opted in (via the lazy `with-cargo/active.ts` chunk). Body unchanged from the
+ * hardened implementation; only the public gate wraps it.
+ */
+export async function extractPartitionCore(
+  vault: Vault,
+  opts: ExtractPartitionOptions,
 ): Promise<ExtractPartitionResult> {
   // FR-6: extract-and-sever is the inalienability-floor half — owner-only. A
   // custodian operates fully but must NEVER produce a standalone re-keyed

@@ -966,6 +966,12 @@ export type {
   DiffCandidate,
 } from './with-cargo/vault-diff.js'
 
+// Capability opt-in seam (S4): source-side extractPartition / diffVault are
+// gated behind withCargo() (adopt/decrypt stay ungated host-side tooling).
+export { withCargo, NO_CARGO } from './with-cargo/index.js'
+export type { CargoStrategy } from './with-cargo/index.js'
+export { CargoNotEnabledError } from './kernel/errors.js'
+
 // Policy gates DSL — issue #9
 export {
   PERSONAL_POLICY,

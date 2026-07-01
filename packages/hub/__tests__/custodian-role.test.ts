@@ -13,6 +13,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError, PermissionDeniedError, ReadOnlyError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
+import { withCargo } from '../src/index.js'
 import type { Noydb } from '../src/kernel/noydb.js'
 import { withTiers } from '../src/with-audit/tiers/index.js'
 import { withPortability } from '../src/with-audit/portability/index.js'
@@ -56,7 +57,7 @@ describe('custodian role', () => {
 
   beforeEach(async () => {
     adapter = inlineMemory()
-    ownerDb = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    ownerDb = await createNoydb({ cargoStrategy: withCargo(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
     const comp = await ownerDb.openVault(COMP)
     await comp.collection<Invoice>('invoices').put('inv-001', { amount: 5000, status: 'draft' })
     await comp.collection<Invoice>('payments').put('pay-001', { amount: 3000, status: 'paid' })
@@ -70,7 +71,7 @@ describe('custodian role', () => {
         userId: 'cust-01', displayName: 'Custodian', role: 'custodian',
         passphrase: 'cust-pass',
       })
-      custodianDb = await createNoydb({ store: adapter, user: 'cust-01', secret: 'cust-pass', tiersStrategy: withTiers() })
+      custodianDb = await createNoydb({ cargoStrategy: withCargo(), store: adapter, user: 'cust-01', secret: 'cust-pass', tiersStrategy: withTiers() })
     })
 
     it('reads every collection (no explicit permissions needed)', async () => {
@@ -100,7 +101,7 @@ describe('custodian role', () => {
       })
       // a separate user the custodian might try to revoke
       await ownerDb.grant(COMP, { userId: 'viewer-01', displayName: 'V', role: 'viewer', passphrase: 'p' })
-      custodianDb = await createNoydb({ store: adapter, user: 'cust-01', secret: 'cust-pass', tiersStrategy: withTiers() })
+      custodianDb = await createNoydb({ cargoStrategy: withCargo(), store: adapter, user: 'cust-01', secret: 'cust-pass', tiersStrategy: withTiers() })
     })
 
     it('cannot grant any role', async () => {
@@ -122,7 +123,7 @@ describe('custodian role', () => {
   describe('(d) admin cannot grant a custodian — only the owner can', () => {
     it('admin → custodian is denied', async () => {
       await ownerDb.grant(COMP, { userId: 'admin-01', displayName: 'Admin', role: 'admin', passphrase: 'admin-pass' })
-      const adminDb = await createNoydb({ store: adapter, user: 'admin-01', secret: 'admin-pass' })
+      const adminDb = await createNoydb({ cargoStrategy: withCargo(), store: adapter, user: 'admin-01', secret: 'admin-pass' })
       await expect(
         adminDb.grant(COMP, { userId: 'cust-from-admin', displayName: 'C', role: 'custodian', passphrase: 'p' }),
       ).rejects.toThrow(PermissionDeniedError)
@@ -143,7 +144,7 @@ describe('custodian role', () => {
         userId: 'cust-01', displayName: 'Custodian', role: 'custodian',
         passphrase: 'cust-pass',
       })
-      custodianDb = await createNoydb({ store: adapter, user: 'cust-01', secret: 'cust-pass', tiersStrategy: withTiers() })
+      custodianDb = await createNoydb({ cargoStrategy: withCargo(), store: adapter, user: 'cust-01', secret: 'cust-pass', tiersStrategy: withTiers() })
     })
 
     it('sync-credentials.ts: custodian CANNOT issue sync credentials (firm infra, not operational scope)', async () => {
@@ -181,14 +182,14 @@ describe('FR-6 Task 2 — custodian blocked from rotate / sever / extract', () =
 
   beforeEach(async () => {
     adapter = inlineMemory()
-    ownerDb = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass', policy: POLICY })
+    ownerDb = await createNoydb({ cargoStrategy: withCargo(), store: adapter, user: 'owner-01', secret: 'owner-pass', policy: POLICY })
     const comp = await ownerDb.openVault(COMP)
     await comp.collection<Inv>('invoices').put('inv-001', { id: 'inv-001', amount: 5000, status: 'draft' })
     await comp.collection<Inv>('payments').put('pay-001', { id: 'pay-001', amount: 3000, status: 'paid' })
     await ownerDb.grant(COMP, {
       userId: 'cust-01', displayName: 'Custodian', role: 'custodian', passphrase: 'cust-pass',
     })
-    custodianDb = await createNoydb({ store: adapter, user: 'cust-01', secret: 'cust-pass', portabilityStrategy: withPortability() })
+    custodianDb = await createNoydb({ cargoStrategy: withCargo(), store: adapter, user: 'cust-01', secret: 'cust-pass', portabilityStrategy: withPortability() })
   })
 
   it('(a) custodian cannot rotate keys', async () => {
@@ -235,7 +236,7 @@ describe('FR-6 Task 2 — custodian blocked from rotate / sever / extract', () =
 
   it('control: an admin CAN rotate (no regression)', async () => {
     await ownerDb.grant(COMP, { userId: 'admin-01', displayName: 'Admin', role: 'admin', passphrase: 'admin-pass' })
-    const adminDb = await createNoydb({ store: adapter, user: 'admin-01', secret: 'admin-pass' })
+    const adminDb = await createNoydb({ cargoStrategy: withCargo(), store: adapter, user: 'admin-01', secret: 'admin-pass' })
     await adminDb.openVault(COMP)
     await expect(adminDb.rotate(COMP, ['invoices'])).resolves.not.toThrow()
   })

@@ -142,14 +142,29 @@ export type DiffCandidate<T = unknown> =
 // ─── Implementation ────────────────────────────────────────────────────
 
 /**
+ * Public vault-diff entry — gated behind `cargoStrategy: withCargo()` (S4).
+ * Routes through the vault's cargo strategy so an un-opted-in caller hits
+ * `NO_CARGO`'s throw; `withCargo()` dynamically imports and runs
+ * {@link diffVaultCore} (kept out of the floor).
+ */
+export async function diffVault<T = unknown>(
+  vault: Vault,
+  candidate: DiffCandidate<T>,
+  options: DiffOptions = {},
+): Promise<VaultDiff<T>> {
+  return vault.cargoStrategy.diffVault(vault, candidate, options)
+}
+
+/**
  * Compute the diff between a live vault and a candidate state.
  *
  * Returns a fully buffered `VaultDiff` — no streaming. Memory cost is
  * O(n + m) in the row count of vault + candidate. For documented
  * 1K-50K-record vaults this is fine; a streaming variant lands as a
- * follow-up if a > 100K-record consumer arrives.
+ * follow-up if a > 100K-record consumer arrives. Reached only when
+ * `withCargo()` is opted in (via the lazy `with-cargo/active.ts` chunk).
  */
-export async function diffVault<T = unknown>(
+export async function diffVaultCore<T = unknown>(
   vault: Vault,
   candidate: DiffCandidate<T>,
   options: DiffOptions = {},

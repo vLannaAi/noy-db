@@ -64,6 +64,7 @@ import type { AggregateStrategy } from '../with-lookup/aggregate/strategy.js'
 import type { CrdtStrategy } from '../with-commit/crdt/strategy.js'
 import type { TiersStrategy } from '../with-audit/tiers/strategy.js'
 import type { SearchStrategy } from '../with-lookup/search/strategy.js'
+import { NO_CARGO, type CargoStrategy } from '../with-cargo/strategy.js'
 //  — import from leaf modules (NOT from ./history/ledger/index.js
 // or store.js) so the LedgerStore class never reaches the floor
 // bundle. The leaf files hold pure constants + a tiny hash helper;
@@ -229,6 +230,12 @@ export class Vault {
   private readonly crdtStrategy: CrdtStrategy | undefined
   private readonly tiersStrategy: TiersStrategy | undefined
   private readonly searchStrategy: SearchStrategy | undefined
+  /**
+   * Cargo (partition extraction / vault diff) strategy — `NO_CARGO` (throwing)
+   * unless `withCargo()` was passed. Public so the `extractPartition` /
+   * `diffVault` free functions (which take a `Vault`) route through it.
+   */
+  readonly cargoStrategy: CargoStrategy
   private readonly sealedRecordStrategy: SealedRecordStrategy
   private readonly portabilityStrategy: PortabilityStrategy
   private readonly sequenceStrategy: SequenceStrategy
@@ -525,6 +532,7 @@ export class Vault {
     crdtStrategy?: CrdtStrategy | undefined
     tiersStrategy?: TiersStrategy | undefined
     searchStrategy?: SearchStrategy | undefined
+    cargoStrategy?: CargoStrategy | undefined
     consentStrategy?: ConsentStrategy | undefined
     periodsStrategy?: PeriodsStrategy | undefined
     shadowStrategy?: ShadowStrategy | undefined
@@ -567,6 +575,7 @@ export class Vault {
     this.crdtStrategy = opts.crdtStrategy
     this.tiersStrategy = opts.tiersStrategy
     this.searchStrategy = opts.searchStrategy
+    this.cargoStrategy = opts.cargoStrategy ?? NO_CARGO
     this.sealedRecordStrategy = opts.sealedRecordStrategy ?? NO_SEALED_RECORD
     this.portabilityStrategy = opts.portabilityStrategy ?? NO_PORTABILITY
     this.sequenceStrategy = opts.sequenceStrategy ?? NO_SEQUENCE
