@@ -56,8 +56,11 @@ both golden-frozen by this cycle. Total: **10 doors + root barrel + enclave**.
 ### Two door kinds
 
 - **Kernel doors** (`to on at in by ui with`) live in `kernel/<name>/`. They may import the
-  kernel spine and their own door-local implementation. They must not import the service
-  layer or each other.
+  kernel spine and their own door-local implementation. They must not import each other.
+  Where a contract's definitions currently live in a service (`UnlockedKeyring` in
+  `with-party/team`, the describe types in `with-shape/introspection`), the door re-exports
+  them from there — a door is a *view*, and importing a door is itself the opt-in, so this
+  costs nothing in tree-shaking. The binding restriction is on the **spine**, not the doors.
 - **Layer doors** (`as cargo pod`) live in the service layer, because their implementation
   is service code (`diffVault` in `with-cargo`, pod format in `with-pod`). They may import
   services and the spine. The kernel never imports them.
