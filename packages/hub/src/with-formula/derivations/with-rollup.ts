@@ -3,7 +3,7 @@ import type { DerivationStrategy, DerivationStrategyHandle } from './types.js'
 
 /**
  * `withRollup` — aggregate many child records onto a single field of their
- * parent (#376 slice 2). The reverse of a join: instead of reading children
+ * parent. The reverse of a join: instead of reading children
  * on demand, the parent carries a maintained summary.
  *
  * ```ts

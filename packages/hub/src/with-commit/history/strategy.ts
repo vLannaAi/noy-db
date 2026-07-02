@@ -122,7 +122,7 @@ export interface HistoryStrategy {
 
   /**
    * Crypto-shred (overwrite-to-tombstone) every `_history` version of a
-   * record for GDPR erasure (#304). Returns the number of versions newly
+   * record for GDPR erasure. Returns the number of versions newly
    * tombstoned, or `0` under `NO_HISTORY` (no history = nothing to shred).
    */
   tombstoneHistory(

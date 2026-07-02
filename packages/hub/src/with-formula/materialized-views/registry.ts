@@ -366,8 +366,8 @@ function extractPredicateRefs(
 }
 
 /**
- * Provability check for the same-collection partition-discriminator
- * (spec § Same-collection-as-source MV). Returns `true` when
+ * Provability check for the same-collection partition-discriminator.
+ * Returns `true` when
  * the captured partition clauses on the MV's query provably exclude
  * the partition's value — meaning the input filter and the output
  * partition are disjoint and the same-collection edge isn't really a

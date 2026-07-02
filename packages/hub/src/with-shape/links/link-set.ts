@@ -1,6 +1,6 @@
 /**
  * `_links_*` reserved collections — managed bidirectional many-to-many
- * junctions (#377 design B).
+ * junctions (design B).
  *
  * Where `refArray` (design A) stores an id-array on one owning record,
  * `vault.link()` creates a first-class junction: a dedicated encrypted

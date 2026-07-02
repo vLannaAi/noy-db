@@ -44,13 +44,13 @@ function quantizeAmount(
 
 /**
  * Canonicalize a STORED-form record's money fields for an internal
- * callback boundary (#332/#335). Gate handlers (guard `check` /
+ * callback boundary. Gate handlers (guard `check` /
  * `frozenFields` / `onDelete`, period guard, amendment invariants) and
  * derivation `derive(source, ctx)` callbacks are user-facing: they must
  * see the same decoded canonical decimal that `get()` returns — the
  * scaled-int storage form never escapes. Decoded with `'raw'` (no
  * `<field>Formatted`/`<field>Number` virtuals): these boundaries carry
- * no locale, and fabricating one would re-create #322's two-read-paths
+ * no locale, and fabricating one would re-create a two-read-paths
  * skew inside comparisons.
  */
 export function canonicalizeStoredMoney(
@@ -64,7 +64,7 @@ export function canonicalizeStoredMoney(
 
 /**
  * Canonicalize an INCOMING record's money fields at the top of the
- * write pipeline (#332/#335). Raw user input (pre-quantize) may hold a
+ * write pipeline. Raw user input (pre-quantize) may hold a
  * number (`10000`), a major-unit string (`'10000.00'`), or a spread of
  * an already-decoded read. Quantize→decode folds all three to the
  * canonical decimal string, so gate handlers, computed-field
@@ -120,7 +120,7 @@ function quantizeValue(field: string, raw: unknown, desc: MoneyDescriptor): unkn
 /**
  * Convert money fields in `record` from user input to their canonical
  * stored form. Returns a shallow clone (deep along declared nested
- * paths — #334). A nested path whose declared shape disagrees with the
+ * paths). A nested path whose declared shape disagrees with the
  * data throws: writing through would store an un-quantized amount.
  */
 export function quantizeMoneyFields<T extends Record<string, unknown>>(
@@ -223,7 +223,7 @@ function decodeValue(
  * Convert money fields in `record` from stored form to the read shape:
  * an exact decimal string, plus `<field>Formatted` / `<field>Number`
  * virtuals when `locale !== 'raw'`. Returns a shallow clone (deep along
- * declared nested paths — #334; virtuals land as siblings inside the
+ * declared nested paths; virtuals land as siblings inside the
  * nested container, e.g. each `lineItems[]` element gains
  * `amountFormatted`, except for values held directly in arrays where a
  * scalar has no sibling slot). The decode walk is LENIENT: stored data

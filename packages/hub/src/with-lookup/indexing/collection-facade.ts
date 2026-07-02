@@ -2,8 +2,7 @@
  * Collection-level index maintenance — the eager/unique rebuild-from-cache
  * helpers, the full `rebuildIndexes` / `reconcileIndex` repair surface, and the
  * persisted `_idx/<field>/<recordId>` side-car maintenance fired from the write
- * path — lifted off the `Collection` god-object (Phase 5 A15 of the microkernel
- * refactoring).
+ * path.
  *
  * Eager mode keeps an in-memory `CollectionIndexes` + `UniqueConstraintSet`;
  * lazy mode keeps durable encrypted side-cars whose in-memory mirror is a
@@ -424,7 +423,7 @@ export async function maintainPersistedIndexesOnDelete<T>(ctx: IndexingContext<T
 
 /**
  * @internal — hard-delete this record's persisted `_idx/<field>/<recordId>`
- * side-cars for the erasure path (#401). `forget()` crypto-shreds the body but
+ * side-cars for the erasure path. `forget()` crypto-shreds the body but
  * keeps the collection DEK, under which these side-cars are encrypted — so
  * without this they leave the indexed field VALUES readable after a "forget".
  *

@@ -1,7 +1,6 @@
 /**
  * Hierarchical access — the collection-level tier operations
- * (`putAtTier` / `getAtTier` / `listAtTier` / `elevate` / `demote`), lifted off
- * the `Collection` god-object (Phase 5 A13 of the microkernel refactoring).
+ * (`putAtTier` / `getAtTier` / `listAtTier` / `elevate` / `demote`).
  *
  * A collection opted into `{ tiers: [...] }` stamps `_tier: N` on each envelope
  * and encrypts its body under the tier-N DEK. These helpers are the read/write

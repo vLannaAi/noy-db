@@ -49,7 +49,7 @@ export interface RecordOutputSpec {
    */
   optional?: boolean
   /**
-   * Field-level provenance for a **self-write** output (#376) — an output
+   * Field-level provenance for a **self-write** output — an output
    * whose `collection` equals the strategy's `source`, used by
    * reverse-denormalization (`triggerBy`) to patch a denormalized field
    * back onto the source record.
@@ -132,8 +132,8 @@ export interface DerivationStrategy<
   /** Source collection name. */
   source: string
   /**
-   * Additional collections whose writes ALSO re-fire this derivation
-   * (issue #344). By default only writes to the single declared
+   * Additional collections whose writes ALSO re-fire this derivation.
+   * By default only writes to the single declared
    * `source` re-trigger a derivation; a `derive` that reads sibling
    * collections via `ctx.vault` therefore goes stale when those
    * siblings change. Declare those sibling collections here to wire
@@ -158,7 +158,7 @@ export interface DerivationStrategy<
    */
   sources?: ReadonlyArray<string>
   /**
-   * Foreign-key-keyed triggers for reverse-denormalization (#376). Unlike
+   * Foreign-key-keyed triggers for reverse-denormalization. Unlike
    * `sources[]` (which re-fires at the SAME id), a `triggerBy` entry fans a
    * write to a PARENT collection OUT to every source record whose FK matches
    * the written parent's id.
@@ -185,7 +185,7 @@ export interface DerivationStrategy<
    */
   triggerBy?: ReadonlyArray<{ collection: string; on: string; maxFanout?: number }>
   /**
-   * @internal — set by `withRollup()` (#376 slice 2). Marks this strategy as
+   * @internal — set by `withRollup()`. Marks this strategy as
    * an aggregate-onto-parent rollup: a write OR delete of a `from` (child)
    * record recomputes `compute(children where child[key] === parentId)` and
    * patches it onto `source[field]` of the parent at `parentId` (= child[key]).
@@ -225,7 +225,7 @@ export interface DerivationStrategy<
    * / undefined is treated as an empty array (clears all prior rows for
    * that source). The *top-level* return must always be a `TOutputs`
    * object; returning `null` for the whole result is not supported.
-   * (#297 — MV `unionSources` map drop-row is the analogous feature for
+   * (MV `unionSources` map drop-row is the analogous feature for
    * materialized views.)
    */
   derive: (source: TSource, ctx: DerivationContext) => Promise<TOutputs> | TOutputs

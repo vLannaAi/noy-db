@@ -1,10 +1,8 @@
 /**
- * The scoped {@link ElevatedHandle} returned by `vault.elevate(...)`, lifted
- * off the `Vault` god-object (Phase 5 A6 of the microkernel refactoring).
+ * The scoped {@link ElevatedHandle} returned by `vault.elevate(...)`.
  *
  * The handle holds only a reference to its issuing {@link Vault} and delegates
- * the single elevated write back to `vault._elevatedPut`. It is a pure move —
- * behaviour is byte-identical to the inner class it replaced. The `Vault` type
+ * the single elevated write back to `vault._elevatedPut`. The `Vault` type
  * is imported `type`-only so the runtime import graph stays acyclic (vault.ts
  * imports this module for the value; this module imports vault.ts only for the
  * type).

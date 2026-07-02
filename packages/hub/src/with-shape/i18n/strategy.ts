@@ -110,7 +110,7 @@ export interface I18nStrategy {
 
   /**
    * Per-field locales that are unchanged round-tripped densify fills (exempt
-   * from write-time script enforcement). Empty under NO_I18N. (#435)
+   * from write-time script enforcement). Empty under NO_I18N.
    */
   computeExemptFills(
     prior: Record<string, unknown> | undefined,
@@ -121,7 +121,7 @@ export interface I18nStrategy {
   /**
    * Eager-fill empty i18n slots from each field's substitute chain and record
    * provenance in `record['_i18nFilled']`. Mutates `record`. No-op under
-   * NO_I18N. (#435)
+   * NO_I18N.
    */
   densify(
     record: Record<string, unknown>,

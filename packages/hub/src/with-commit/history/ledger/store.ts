@@ -681,10 +681,10 @@ export class LedgerStore {
   }
 }
 
-// `envelopePayloadHash` was moved to `./hash.ts` so it can be
+// `envelopePayloadHash` lives in `./hash.ts` so it can be
 // imported by core code without dragging this file's `LedgerStore`
 // class into the floor bundle. The re-export at the top of this
-// file keeps the original `import { envelopePayloadHash } from '.../store.js'`
+// file keeps the `import { envelopePayloadHash } from '.../store.js'`
 // path working.
 
 /**

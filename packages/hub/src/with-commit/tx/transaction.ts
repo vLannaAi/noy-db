@@ -340,7 +340,7 @@ export async function runTransaction<T>(
   const priorEnvelopes = new Map<string, EncryptedEnvelope | null>()
   const store = db._store
 
-  // Commit-time changeset invariants (#342) need PLAINTEXT prior records
+  // Commit-time changeset invariants need PLAINTEXT prior records
   // for `before`, but `priorEnvelopes` holds ENCRYPTED envelopes. So for
   // ops in a watched scope we additionally decrypt the prior record here,
   // in Phase 1, BEFORE Phase 2 overwrites it. Snapshots only the initial
@@ -508,7 +508,7 @@ export async function runTransaction<T>(
     }
   }
 
-  // ─── Commit-time changeset invariant phase (#342) ───────────
+  // ─── Commit-time changeset invariant phase ───────────
   // Runs for BOTH ordinary and amendment transactions (placed after the
   // amendment phase so an amendment commit is still subject to these
   // set-level constraints). Assemble the changeset from the executed

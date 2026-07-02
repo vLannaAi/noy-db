@@ -565,7 +565,7 @@ export async function extractPartitionCore(
 
   const { seal, transferKey } = await sealDeks(deks)
 
-  // Source-side audit (spec §4.2 / invariant 4): record that a partition
+  // Source-side audit: record that a partition
   // was handed over. Non-destructive — an audit append, no record touched.
   // No-op when the source vault has no history strategy. append() fills
   // index/prevHash/ts and (since actor is '') the ledger's configured actor.

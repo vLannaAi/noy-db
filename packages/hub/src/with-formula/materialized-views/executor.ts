@@ -63,7 +63,7 @@ async function materializeQueryResult(
     // and returns either a single object (Aggregation) or an array of
     // rows (GroupedAggregation). Promise.resolve() normalizes both
     // sync and async (future) variants.
-    // #285 query-form MV grouping: when the MV declares i18nLocale, pass it +
+    // Query-form MV grouping: when the MV declares i18nLocale, pass it +
     // i18nFields so a GroupedAggregation resolves i18n group keys before
     // bucketing (the Aggregation path ignores the extra arg).
     const runOpts = i18nLocale !== undefined ? { locale: i18nLocale, i18nFields } : undefined
@@ -127,7 +127,7 @@ async function materializeUnionResult<TRow extends Record<string, unknown>>(
     for (const r of sourceRows) {
       const mapped = arm.map(r)
       // null / undefined means "omit this source row" — skip without
-      // pushing so groupBy/aggregate never see a null entry (#297).
+      // pushing so groupBy/aggregate never see a null entry.
       if (mapped == null) continue
       unified.push(mapped)
     }
@@ -138,7 +138,7 @@ async function materializeUnionResult<TRow extends Record<string, unknown>>(
   const groupFields: readonly string[] =
     typeof spec.groupBy === 'string' ? [spec.groupBy] : spec.groupBy
 
-  // #285 §2/§4 — i18n-aware group keys. An `i18nText` group field carries a raw
+  // i18n-aware group keys. An `i18nText` group field carries a raw
   // `{ locale: string }` map, an unstable object key. When `i18nLocale` is
   // declared (with `i18nFields` describing those fields), resolve the declared
   // group-key i18n fields to it at the `mv` layer FIRST — the same unified-rows

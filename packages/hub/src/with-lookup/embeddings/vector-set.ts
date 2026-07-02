@@ -1,4 +1,4 @@
-/** In-memory vector set for L2 semantic retrieval (#308). Loaded once per session from
+/** In-memory vector set for L2 semantic retrieval. Loaded once per session from
  *  decrypted _vec sidecars (injected loader), brute-force cosine kNN, model-guarded. */
 import { cosine } from './cosine.js'
 import { EmbeddingModelMismatchError } from '../../kernel/errors.js'

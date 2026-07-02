@@ -280,7 +280,7 @@ export interface RoutedNoydbStore extends NoydbStore {
   /**
    * Resolve the physical backend a vault id maps to via the geographic
    * `vaultRoutes` prefix routing (collection-independent), falling back to
-   * the `default` store. Used by the federation data-residency guard (#271)
+   * the `default` store. Used by the federation data-residency guard
    * to read the placement backend's `capabilities.region`.
    */
   resolveBackend(vaultId: string): NoydbStore

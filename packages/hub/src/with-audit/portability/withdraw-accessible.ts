@@ -1,10 +1,10 @@
 /**
- * #199 P2 — `unilateralWithdrawal`: a non-owner extracts their accessible scope
+ * `unilateralWithdrawal`: a non-owner extracts their accessible scope
  * AND disposes of the source copy. Destructive; gated by the default-off
  * fail-closed built-in `client-unilateral-withdraw` policy (checked in the
  * UserApi wrapper).
  *
- * Two source dispositions (see the #199 design spec §9/§9b):
+ * Two source dispositions:
  *  - 'delete'  — delete-closure: the records leave the source vault entirely.
  *  - 'freeze'  — the firm retains a cryptographically-frozen, read-only, write-once
  *                snapshot (hash-pinned in the tamper-evident ledger) while the live
@@ -14,7 +14,7 @@
  * freeze snapshot) are produced BEFORE anything is deleted.
  *
  * The `freezeAndDeleteClosure` core is shared with the two-party approval path
- * (#199 P3, `bundle/request-withdrawal.ts`).
+ * (`request-withdrawal.ts`).
  */
 import type { Vault } from '../../kernel/vault.js'
 import { sha256Hex } from '../../kernel/enclave/index.js'
@@ -60,7 +60,7 @@ export interface WithdrawResult {
  * `collections` WITHOUT touching the live records. Returns the snapshot ref.
  *
  * This is the non-destructive core shared by two callers:
- *  - `freezeAndDeleteClosure` (#199 withdrawal, disposition `'freeze'`) — which
+ *  - `freezeAndDeleteClosure` (withdrawal, disposition `'freeze'`) — which
  *    pins the snapshot and THEN delete-closures the live records.
  *  - FR-6 `liberateVault` (custody) — which pins a PRE-liberation evidence
  *    snapshot but PRESERVES the live data for the new owner (operational

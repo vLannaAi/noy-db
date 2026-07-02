@@ -18,7 +18,7 @@ export async function computeStrategyHash(
     source,
     outputs: [...outputKeys].sort(),
     derive: derive.toString(),
-    // Declared sibling sources (#344) — adding/removing a trigger
+    // Declared sibling sources — adding/removing a trigger
     // collection invalidates cached derived records. Omitted when empty
     // so strategies without siblings keep their existing hash.
     ...(sources?.length ? { sources: [...sources].sort() } : {}),

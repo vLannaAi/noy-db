@@ -1,18 +1,16 @@
 /**
- * Vault-side refs / managed-links enforcement facade, lifted off the `Vault`
- * god-object (Phase 5 A5 of the microkernel refactoring).
+ * Vault-side refs / managed-links enforcement facade.
  *
  * Holds the foreign-key enforcement entry points the collection write path
  * reaches through the `refEnforcer` facade closure (`enforceRefsOnPut` /
  * `enforceRefsOnDelete`), the managed-link `onDelete` policy
  * (`enforceLinksOnDelete`), the `joinResolver` half (`resolveRef` /
- * `resolveSource`), and the `checkIntegrity()` reporter. The cascade-cycle
- * breaker set — `cascadeInProgress`, which used to live on the `Vault`
- * instance — now lives here. The ref/link registries stay vault-resident
- * (they are populated by `vault.collection()` / `vault.link()` and read by the
- * backup path) and arrive by reference through {@link VaultLinksDeps}; behaviour
- * is byte-identical to the inline `Vault` methods it replaced — every other
- * dependency the moving code touched on `this.*` arrives via the deps interface.
+ * `resolveSource`), the `checkIntegrity()` reporter, and the cascade-cycle
+ * breaker set (`cascadeInProgress`). The ref/link registries stay
+ * vault-resident (they are populated by `vault.collection()` / `vault.link()`
+ * and read by the backup path) and arrive by reference through
+ * {@link VaultLinksDeps}; every other `Vault` dependency arrives via the deps
+ * interface.
  *
  * Internal service — reached through `vault.enforceRefsOnPut(...)` etc.
  */
@@ -85,7 +83,7 @@ export class VaultLinks {
       // Standard Schema validator via a non-optional field.
       if (rawId === null || rawId === undefined) continue
 
-      // Array ref (#377-A): validate each element against the target.
+      // Array ref: validate each element against the target.
       if (isRefArray(descriptor)) {
         if (!Array.isArray(rawId)) {
           throw new RefIntegrityError({
@@ -186,7 +184,7 @@ export class VaultLinks {
         const allRecords = await fromCollection.list()
         const matches = allRecords.filter((rec) => {
           const raw = rec[rule.field]
-          // Array ref (#377-A): match when any element equals the deleted id.
+          // Array ref: match when any element equals the deleted id.
           if (rule.isArray) {
             return Array.isArray(raw) && raw.some(
               (el) => (typeof el === 'string' || typeof el === 'number') && String(el) === id,
@@ -214,7 +212,7 @@ export class VaultLinks {
           })
         }
         if (rule.mode === 'cascade') {
-          // Atomicity (#346): if a transaction is active, register each
+          // Atomicity: if a transaction is active, register each
           // child's prior envelope on it BEFORE the delete so a later
           // mid-batch failure rolls the cascade back alongside the
           // parent. Mirrors how derivation outputs self-register on the
@@ -244,7 +242,7 @@ export class VaultLinks {
         }
         // warn: no-op
       }
-      // Managed link sets (#377-B): apply each link's onDelete to its rows
+      // Managed link sets: apply each link's onDelete to its rows
       // touching the deleted endpoint. Runs inside the same cascade guard /
       // before the adapter delete, so a 'strict' link blocks the delete.
       await this.enforceLinksOnDelete(collectionName, id)
@@ -255,7 +253,7 @@ export class VaultLinks {
 
   /**
    * @internal — apply link `onDelete` policy when an endpoint record is
-   * deleted (#377-B). `'strict'` throws (blocks the delete), `'cascade'`
+   * deleted. `'strict'` throws (blocks the delete), `'cascade'`
    * removes the touching link rows (tx-atomic when a transaction is active),
    * `'warn'` leaves orphans for `checkIntegrity()`.
    */
@@ -361,7 +359,7 @@ export class VaultLinks {
           if (rawId === null || rawId === undefined) continue
           const target = this.deps.collection<Record<string, unknown>>(descriptor.target)
 
-          // Array ref (#377-A): report one violation per dangling element.
+          // Array ref: report one violation per dangling element.
           if (isRefArray(descriptor)) {
             if (!Array.isArray(rawId)) {
               violations.push({ collection: collectionName, id: recId, field, refTo: descriptor.target, refId: rawId, mode: descriptor.mode })
@@ -410,7 +408,7 @@ export class VaultLinks {
       }
     }
 
-    // Managed link sets (#377-B): a link row whose endpoint no longer exists
+    // Managed link sets: a link row whose endpoint no longer exists
     // is an orphan (the common 'warn'-mode outcome). Report one violation per
     // dangling endpoint, field 'a'/'b', mode = the link's onDelete policy.
     for (const [name, spec] of this.deps.linkRegistry) {

@@ -1,8 +1,8 @@
 /**
- * Scan-mode full-text search (#308) — ranks **already-decrypted** records by
+ * Scan-mode full-text search — ranks **already-decrypted** records by
  * BM25 against a tokenized query. Pure client-side: nothing is written to the
  * store, so this adds **zero** leakage (unlike a store-usable blind index,
- * which is a separate, gated opt-in — see the #308 design note).
+ * which is a separate, gated opt-in).
  *
  * O(n) over the collection; intended for small/medium collections (the pilot's
  * scale) where moving the existing userland scan into the DB is the win.

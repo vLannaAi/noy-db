@@ -1,5 +1,5 @@
 /**
- * Minimal-disclosure snippet: a char-window around a match offset (#308 L1).
+ * Minimal-disclosure snippet: a char-window around a match offset (L1).
  * Unicode-safe (operates on code points). `…` marks each truncated end.
  */
 export function extractSnippet(text: string, offset: number, window = 80): string {

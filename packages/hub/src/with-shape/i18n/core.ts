@@ -144,7 +144,7 @@ export interface I18nTextOptions {
    */
   readonly substitute?: readonly string[]
   /**
-   * #285 smart-substitute. When `true`, a missing-locale `substitute` walk that
+   * Smart-substitute. When `true`, a missing-locale `substitute` walk that
    * misses the explicit chain prefers the available locale whose script is
    * nearest the target (same script, then Latin) rather than an arbitrary value
    * — e.g. a missing Thai label prefers another Thai (or Latin) translation over
@@ -163,7 +163,7 @@ export interface I18nTextOptions {
    */
   readonly onScriptViolation?: 'reject' | 'filter' | 'warn'
   /**
-   * #435 v1.x — eager-fill empty locale slots from the substitute chain at
+   * Eager-fill empty locale slots from the substitute chain at
    * write time, recording provenance in the internal `_i18nFilled` marker.
    * Mutually exclusive with an EXPLICIT `'throw'` onMissing policy (densify
    * fills every hole, so a throw would be unreachable). Without an explicit
@@ -329,7 +329,7 @@ export interface ResolveI18nOptions {
   /** Declared substitute chain; applied only under policy `'substitute'`. */
   readonly substitute?: readonly string[]
   /**
-   * #285 smart-substitute. When `true` and policy is `'substitute'`, after the
+   * Smart-substitute. When `true` and policy is `'substitute'`, after the
    * explicit chain misses, pick the available locale whose script is nearest the
    * target (same script first, then Latin's broad readability) instead of an
    * arbitrary value. Default `false`.
@@ -406,7 +406,7 @@ export function resolveI18nText(
   if (policy === 'substitute') {
     const subHit = pickFromChain(value, toChain(opts?.substitute))
     if (subHit !== undefined) return subHit
-    // #285 smart-substitute: after the explicit chain, prefer the script-nearest
+    // Smart-substitute: after the explicit chain, prefer the script-nearest
     // available locale over an arbitrary first-non-empty value.
     if (opts?.smartSubstitute) {
       const smartHit = pickNearestScript(value, locale)
@@ -427,7 +427,7 @@ export function resolveI18nText(
 }
 
 /**
- * #285 smart-substitute: among the non-empty locales in `value`, pick the one
+ * Smart-substitute: among the non-empty locales in `value`, pick the one
  * whose primary script is nearest the target `locale` — same script first, then
  * Latin (broadly readable), then any other — so a missing Thai label falls back
  * to another Thai (or Latin) value rather than, say, an Arabic one. First-seen
@@ -588,7 +588,7 @@ export function applyI18nLocale(
     result = applyAtPath(result, field, locale, fallback, opts)
   }
 
-  // #435 — the internal densify provenance marker never leaves the store.
+  // The internal densify provenance marker never leaves the store.
   result = stripI18nFilled(result)
 
   return result
@@ -596,7 +596,7 @@ export function applyI18nLocale(
 
 /**
  * Remove the internal densify provenance marker (`_i18nFilled`) from a
- * read-facing record (#435). NON-mutating: returns the same object when the
+ * read-facing record. NON-mutating: returns the same object when the
  * marker is absent, otherwise a shallow copy without the marker.
  *
  * MUST be applied on every user-facing read return — even locale-less ones,

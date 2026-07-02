@@ -1,5 +1,5 @@
 /**
- * Public option / result types for `collection.retrieve()` (#308 L1). Kept in
+ * Public option / result types for `collection.retrieve()` (L1). Kept in
  * the search service so collection.ts holds only thin call-sites; re-exported
  * from the search barrel and the hub root.
  */
@@ -12,11 +12,11 @@ export interface RetrieveOptions<T = unknown> {
   readonly snippetWindow?: number
   readonly fields?: readonly string[]
   readonly includeRecord?: boolean
-  /** #308 — retrieval strategy; defaults to 'lexical'. 'hybrid' fuses lexical+semantic (L3). */
+  /** Retrieval strategy; defaults to 'lexical'. 'hybrid' fuses lexical+semantic (L3). */
   readonly mode?: 'lexical' | 'semantic' | 'hybrid'
-  /** #308 L2 — minimum cosine score for semantic hits (semantic mode only). */
+  /** L2 — minimum cosine score for semantic hits (semantic mode only). */
   readonly minScore?: number
-  /** #308 L3 — intersect hits with a structured query (retrieve ∩ where). Eager-mode only. */
+  /** L3 — intersect hits with a structured query (retrieve ∩ where). Eager-mode only. */
   readonly within?: Query<T>
 }
 

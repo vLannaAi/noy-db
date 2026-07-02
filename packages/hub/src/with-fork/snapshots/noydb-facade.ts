@@ -1,14 +1,10 @@
 /**
- * Noydb-side snapshot facade, lifted off the `Noydb` god-object (Phase 5 A9 of
- * the microkernel refactoring).
+ * Noydb-side snapshot facade.
  *
  * Holds the on-demand checkpoint (`snapshot`), listing (`listSnapshots`),
- * restore (`restoreSnapshot`), and the automatic-snapshot cadence wiring
- * (`initCadence`, previously `Noydb.initSnapshotCadence`). The dirty-vault set
- * and the cadence scheduler — both lifecycle state that used to live on the
- * `Noydb` instance — now live here; `Noydb.close()` calls {@link stop}.
- * Behaviour is byte-identical to the inline `Noydb` methods it replaced — every
- * dependency the moving code touched on `this.*` arrives via
+ * restore (`restoreSnapshot`), the automatic-snapshot cadence wiring
+ * (`initCadence`), the dirty-vault set, and the cadence scheduler;
+ * `Noydb.close()` calls {@link stop}. Every `Noydb` dependency arrives via
  * {@link NoydbSnapshotsDeps}.
  *
  * Internal service — reached through `noydb.snapshot(...)` etc.

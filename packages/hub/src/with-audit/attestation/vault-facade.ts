@@ -1,15 +1,12 @@
 /**
- * Vault-side attestation facade, lifted off the `Vault` god-object (Phase 5 A2
- * of the microkernel refactoring).
+ * Vault-side attestation facade.
  *
  * Holds the per-collection attestation field-schema registry and the issue/
  * revoke entry points (`issueAttestation` / `getDocumentSigningPublicKey` /
  * `revoke` / `unrevoke` / `getRevokedDocIds` / `publishRevocationList`). The
- * `*Core` implementations already live beside this file; the facade only builds
- * the {@link IssueContext} / {@link RevokeContext} (the `make*Context` closures
- * that used to sit on `Vault`) and delegates. Behaviour is byte-identical to the
- * inline methods it replaced — every dependency the moving code touched on
- * `this.*` arrives via {@link VaultAttestationDeps}.
+ * `*Core` implementations live beside this file; the facade only builds the
+ * {@link IssueContext} / {@link RevokeContext} closures and delegates. Every
+ * `Vault` dependency arrives via {@link VaultAttestationDeps}.
  *
  * Internal service — reached through `vault.issueAttestation(...)` etc.
  */

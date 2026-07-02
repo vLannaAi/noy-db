@@ -1,5 +1,5 @@
 /**
- * #435 v1.x densifyOnWrite — eager-fill empty i18n slots from each field's
+ * `densifyOnWrite` — eager-fill empty i18n slots from each field's
  * substitute chain at write time, recording provenance in the internal
  * `_i18nFilled` marker (decision A: dense map + prior-read).
  *

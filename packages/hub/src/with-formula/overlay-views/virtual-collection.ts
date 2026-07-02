@@ -10,7 +10,7 @@ import type { OverlayedViewStrategy } from './types.js'
  * merge-on-read semantics:
  *   - `get(id)`: overlay row wins iff `overlay[shadowField] === shadowValue`;
  *     when `spec.mergeMode` is set, an intermediate status may instead pull
- *     a declared subset of fields from the overlay over the base (#348)
+ *     a declared subset of fields from the overlay over the base
  *   - `list()` / `.query()`: union of ids, per-id merge applied
  *   - `put(record)` / `put(id, record)`: routes to overlay; id derived
  *     via the base MV's `rowKey` (validated on the two-arg form)

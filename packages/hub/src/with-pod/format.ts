@@ -312,7 +312,7 @@ export function validateBundleHeader(
   }
   // An extracted partition's unlock path IS the transfer seal. A parallel
   // autoUnlock credential would create two unlock paths and weaken the
-  // one-time-seal guarantee (spec §12.3). Reject the combination.
+  // one-time-seal guarantee. Reject the combination.
   if (isExtracted && h['autoUnlock'] !== undefined) {
     throw new Error(
       `.noydb bundle header cannot carry both autoUnlock and bundleKind === 'extracted-partition' — `

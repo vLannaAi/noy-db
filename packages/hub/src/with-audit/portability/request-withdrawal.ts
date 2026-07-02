@@ -1,7 +1,7 @@
 /**
- * #199 P3 — two-party withdrawal ceremony.
+ * Two-party withdrawal ceremony.
  *
- * The conservative counterpart to `unilateralWithdrawal` (P2): a non-owner —
+ * The conservative counterpart to `unilateralWithdrawal`: a non-owner —
  * including a read-only `client`/`viewer` who cannot self-serve a deletion —
  * files a durable REQUEST; an owner/admin reviews it and either APPROVES
  * (extract-and-dispose under firm authority) or REJECTS it. Every step is

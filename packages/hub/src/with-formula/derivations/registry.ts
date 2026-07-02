@@ -29,7 +29,7 @@ export class DerivationRegistry {
     if (fromSource) fromSource.push(reg)
     else this._bySource.set(spec.source, [reg])
 
-    // Declared sibling sources (#344) index the SAME `reg` under each
+    // Declared sibling sources index the SAME `reg` under each
     // extra collection so `strategiesForSource(extra)` returns it and a
     // sibling write re-fires the derivation. Sibling keys also enter
     // `_bySource`, so `validate()`'s cycle DFS walks them automatically.
@@ -39,7 +39,7 @@ export class DerivationRegistry {
       else this._bySource.set(extra, [reg])
     }
 
-    // FK triggers (#376) index the SAME `reg` under each parent collection so
+    // FK triggers index the SAME `reg` under each parent collection so
     // a parent write re-fires the derivation (fanned out to matching source
     // records in `dispatchDerivations`). Like sources[], these keys enter
     // `_bySource` so the cycle DFS walks the trigger→output edge.
@@ -49,7 +49,7 @@ export class DerivationRegistry {
       else this._bySource.set(t.collection, [reg])
     }
 
-    // Rollup (#376 slice 2): a write to the child `from` collection recomputes
+    // Rollup: a write to the child `from` collection recomputes
     // the parent (= spec.source = into) at id child[key]. Index under `from`
     // so a child write fires it; spec.source (into) is already indexed above,
     // so a parent write also recomputes its own aggregate (covers the
@@ -119,7 +119,7 @@ export class DerivationRegistry {
           for (const key of Object.keys(s.spec.outputs)) {
             const output = s.spec.outputs[key]
             if (!output) continue
-            // Self-write reverse-denorm (#376): an output back to its own
+            // Self-write reverse-denorm: an output back to its own
             // source is intentional, not an infinite cycle — the value-equality
             // guard in dispatch terminates it. Skip this edge so it isn't
             // flagged. (Self-write outputs are required to declare `denorm`.)

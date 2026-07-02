@@ -3,7 +3,7 @@
  *
  * Each locale slot's string is validated against an allowed set of
  * Unicode scripts. `'auto'` infers the set from the locale code with
- * **asymmetric Latin tolerance** (#283): every non-Latin-script locale
+ * **asymmetric Latin tolerance**: every non-Latin-script locale
  * also allows `Latin`, because proper names and addresses in those
  * locales routinely embed Latin brand/building/technical names — while
  * Latin-script locales do NOT allow other scripts, so the common error
@@ -71,7 +71,7 @@ export function inferScripts(locale: string): readonly string[] {
   const base = (parts[0] ?? '').toLowerCase()
   if (LATIN_BASE.has(base)) return ['Latin']
   const primary = SCRIPT_TABLE[base]
-  if (primary) return [...primary, 'Latin'] // asymmetric Latin tolerance (#283)
+  if (primary) return [...primary, 'Latin'] // asymmetric Latin tolerance
   return ['Latin']
 }
 

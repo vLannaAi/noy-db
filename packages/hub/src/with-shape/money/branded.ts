@@ -1,5 +1,5 @@
 /**
- * Branded money output type (#338).
+ * Branded money output type.
  *
  * The decoded read shape of a money field is an exact decimal STRING
  * (`'10000.00'`) — but a hand-written schema types it `string | number`,

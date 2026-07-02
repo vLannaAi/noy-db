@@ -1,6 +1,6 @@
 /**
  * Map a decrypted record's configured text fields → IndexDoc field entries
- * (#308 L1). String, i18nText, dictKey, and blob-filename expansion. Uses
+ * (L1). String, i18nText, dictKey, and blob-filename expansion. Uses
  * getAtPath for nested/[]-wildcard paths. Blob filenames are NOT inline on the
  * record — the collection pre-resolves them (one listSlots() per record, the
  * heaviest source) and feeds them to {@link buildBlobFieldEntries}.

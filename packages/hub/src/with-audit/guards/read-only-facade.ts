@@ -9,7 +9,7 @@ import type { ReadOnlyVaultFacade as ReadOnlyVaultFacadeContract } from './types
  * acquiring any write capability.
  *
  * The `layer` tags every `get`/`list` read with the resolution layer it
- * belongs to (#285). A guard-seeded facade reads at `'guard'`, a
+ * belongs to. A guard-seeded facade reads at `'guard'`, a
  * derivation-seeded one at `'derivation'`, so i18nText / dictKey fields
  * resolve under that layer's `onMissing` policy instead of the `'read'`
  * policy — e.g. a guard read can `substitute` a missing locale (lenient
@@ -18,7 +18,7 @@ import type { ReadOnlyVaultFacade as ReadOnlyVaultFacadeContract } from './types
  * `query()` is left untagged: the query/aggregate pipeline reads raw
  * `{locale}` maps (no resolution call site), so a layer tag there would be
  * inert. Routing `mv`/`join` resolution through the pipeline is tracked
- * separately (#285 D2/D3).
+ * separately.
  */
 export class ReadOnlyVaultFacade implements ReadOnlyVaultFacadeContract {
   private readonly _vault: Vault

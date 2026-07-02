@@ -1,5 +1,5 @@
 /**
- * The index persistence seam (#308 L1.5). MemoryIndexStore is session-scoped and
+ * The index persistence seam (L1.5). MemoryIndexStore is session-scoped and
  * lazy; an opaque-blob backend implements the same interface so the
  * collection call-site is unchanged.
  */

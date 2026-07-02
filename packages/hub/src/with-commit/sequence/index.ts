@@ -50,7 +50,7 @@ export interface NextOptions {
 }
 
 /**
- * Partitioning for a CAS sequence (#345). A partitioned sequence is an
+ * Partitioning for a CAS sequence. A partitioned sequence is an
  * independent counter scoped to one tuple of values — e.g.
  * `sequence('invoice', { partition: [2026, 'EU'] })` numbers EU-2026 invoices
  * separately from `[2026, 'US']` and from the bare `invoice` series.
@@ -65,7 +65,7 @@ export interface SequenceOptions {
   /** Partition tuple. Each component is URI-encoded and `'/'`-joined. */
   readonly partition?: readonly (string | number)[]
   /**
-   * Render template for the serial string (#375). When set, `vault.sequence`
+   * Render template for the serial string. When set, `vault.sequence`
    * returns a {@link FormattedSequenceHandle} whose `next()` resolves to
    * `{ serial, formatted }`. Tokens:
    * - `{seq}` — the allocated integer
@@ -80,7 +80,7 @@ export interface SequenceOptions {
 }
 
 /**
- * A formatted sequence handle (#375). Identical to {@link SequenceHandle}
+ * A formatted sequence handle. Identical to {@link SequenceHandle}
  * except `next()` also returns the rendered `formatted` string. `peek()` /
  * `seedTo()` operate on the underlying integer counter, unchanged.
  */

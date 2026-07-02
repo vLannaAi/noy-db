@@ -16,7 +16,8 @@ export interface ClientDoc {
   readonly quiescedAtVersion: number | null
   /**
    * Session that owns this writer (one user's writers across vaults). Additive
-   * and optional so pre-#469 client docs keep parsing; readers default it.
+   * and optional so legacy client docs (written without it) keep parsing;
+   * readers default it.
    */
   readonly sessionId?: string
 }

@@ -1,6 +1,5 @@
 /**
- * Noydb-side auth / recovery / enrollment facade, lifted off the `Noydb`
- * god-object (Phase 5 A8 of the microkernel refactoring).
+ * Noydb-side auth / recovery / enrollment facade.
  *
  * Holds the tier-2 authenticator enrollment/unlock wrappers, WebAuthn
  * enrollment, auth-config introspection, the tier-1 passphrase
@@ -8,16 +7,14 @@
  * managed-passphrase recovery, peer-recovery, tier-3 PIN unlock, and the
  * public `getKeyring` accessor.
  *
- * This is a **pure relocation** — every method body is byte-identical to
- * the inline `Noydb` method it replaced. The near-parallel rotate/recover
- * variants (managed vs user vs paper vs Shamir) are NOT consolidated; each
- * is relocated verbatim. The keyring/active-tier/quick-unlock/policy caches
- * stay `Noydb`-resident (shared by the kernel's unlock path) and arrive
- * **by reference** through {@link TeamFacadeDeps}; the keyring-unlock path
- * (`getKeyringInternal`), the policy gate (`checkGate`), the managed-recovery
- * enrolment check (`assertRecoveryEnrolled`), `openVault`, and the
- * one-shot managed-recovery skip flag stay kernel-resident and arrive as
- * callbacks. Behaviour is identical to the inline `Noydb` methods.
+ * The near-parallel rotate/recover variants (managed vs user vs paper vs
+ * Shamir) are deliberately NOT consolidated. The
+ * keyring/active-tier/quick-unlock/policy caches stay `Noydb`-resident
+ * (shared by the kernel's unlock path) and arrive **by reference** through
+ * {@link TeamFacadeDeps}; the keyring-unlock path (`getKeyringInternal`),
+ * the policy gate (`checkGate`), the managed-recovery enrolment check
+ * (`assertRecoveryEnrolled`), `openVault`, and the one-shot
+ * managed-recovery skip flag stay kernel-resident and arrive as callbacks.
  *
  * Internal service — reached through `noydb.rotatePassphrase(...)` etc.
  */

@@ -159,7 +159,7 @@ export async function hasStrongRecoveryEnrolled(
  * the credential; the user holds them, the hub never sees them
  * again after `enrollRecovery` returns.
  *
- * Per the spec §5: the recovery secret is base64-encoded and
+ * The recovery secret is base64-encoded and
  * passed as the `credential` arg to
  * {@link mintWrappedDeksBlob} / {@link unwrapDeksFromBlob}. The
  * PBKDF2 round over high-entropy input is harmless overhead — it
@@ -358,7 +358,7 @@ export async function unwrapDeksFromPaperEntry(
   return unwrapDeksFromBlob(entry, code)
 }
 
-// Legacy crypto helpers (deriveRecoveryWrappingKey, bytesToBase64,
-// base64ToBytes) were previously inlined here. They now live in the
-// canonical wrap-DEKs primitive at `./wrapped-deks.ts` and are
-// reached via `mintWrappedDeksBlob` / `unwrapDeksFromBlob`.
+// The crypto helpers (deriveRecoveryWrappingKey, bytesToBase64,
+// base64ToBytes) live in the canonical wrap-DEKs primitive at
+// `./wrapped-deks.ts` and are reached via
+// `mintWrappedDeksBlob` / `unwrapDeksFromBlob`.

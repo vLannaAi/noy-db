@@ -73,7 +73,7 @@ async function compressBytes(
   // Pipe through the stream so `readable` is drained CONCURRENTLY with the
   // write. The await-write-then-read form deadlocks once the output exceeds the
   // stream's internal buffer (the writer backpressures waiting for a reader that
-  // hasn't started yet) — see #409.
+  // hasn't started yet).
   const piped = new Response(data as Uint8Array<ArrayBuffer>).body!.pipeThrough(new CompressionStream('gzip'))
   const buf = await new Response(piped).arrayBuffer()
   return { bytes: new Uint8Array(buf), algorithm: 'gzip' }
@@ -86,8 +86,8 @@ async function decompressBytes(data: Uint8Array): Promise<Uint8Array> {
     )
   }
   // Concurrent read via pipeThrough — the await-write-then-read form deadlocks
-  // when the DECOMPRESSED output exceeds the stream buffer (~16 KB), which is
-  // exactly the #409 hang (small compressed input → large output → backpressure).
+  // when the DECOMPRESSED output exceeds the stream buffer (~16 KB): small
+  // compressed input → large output → backpressure.
   const piped = new Response(data as Uint8Array<ArrayBuffer>).body!.pipeThrough(new DecompressionStream('gzip'))
   const buf = await new Response(piped).arrayBuffer()
   return new Uint8Array(buf)
@@ -346,7 +346,7 @@ export class BlobSet {
   }
 
   /**
-   * Release `n` references to a blob and reclaim it at refCount 0 (#365 slice 4).
+   * Release `n` references to a blob and reclaim it at refCount 0.
    *
    * The single reclaim choke point for every reference-drop path — slot
    * delete/overwrite, published-version delete, and `forget()` shred — so the
@@ -383,7 +383,7 @@ export class BlobSet {
   }
 
   /**
-   * Crypto-shred this record's blob attachments (#365 slice 2) — called by
+   * Crypto-shred this record's blob attachments — called by
    * `vault.forget()`.
    *
    * For each distinct eTag the record references (a record may attach the same
@@ -454,8 +454,8 @@ export class BlobSet {
 
   /**
    * Migrate this record's LEGACY blobs (no `_cek`, chunks under the shared
-   * `_blob` DEK) to per-blob content CEKs so they become crypto-shreddable
-   * (#365 slice 3). Returns the eTags migrated vs. already-erasable.
+   * `_blob` DEK) to per-blob content CEKs so they become crypto-shreddable.
+   * Returns the eTags migrated vs. already-erasable.
    *
    * **Explicit maintenance pass** (mirrors the record-CEK migration posture):
    * re-encrypts the existing compressed chunks IN PLACE under a fresh content

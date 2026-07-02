@@ -1,6 +1,6 @@
 /**
- * `@noy-db/hub/forget` — GDPR right-to-erasure via per-record CEK crypto-shred
- * (#304). Import `withForgetCascade` and pass it to `createNoydb`:
+ * `@noy-db/hub/forget` — GDPR right-to-erasure via per-record CEK crypto-shred.
+ * Import `withForgetCascade` and pass it to `createNoydb`:
  *
  * ```ts
  * import { createNoydb } from '@noy-db/hub'

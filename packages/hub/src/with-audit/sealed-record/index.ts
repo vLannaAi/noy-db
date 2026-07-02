@@ -1,6 +1,6 @@
 /**
  * `@noy-db/hub/sealed-record` — host-side opener for record-scoped CEK
- * sealing (#306 slices 2-3).
+ * sealing.
  *
  * The **grantor** side (sealing a record's CEK to a host, revoking, and hard
  * rotation) lives on `Vault` (`vault.sealRecordToHost` /

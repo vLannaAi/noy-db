@@ -1,5 +1,5 @@
 /**
- * Search capability strategy (#308) — the on-demand collection-level retrieval
+ * Search capability strategy — the on-demand collection-level retrieval
  * operations the `Collection` routes through: scan-mode full-text `search`,
  * unified `retrieve` (lexical | semantic | hybrid), raw-vector `similarTo`, and
  * the lexical-index lifecycle (`warmIndex` / `flushIndex`). The active engine
