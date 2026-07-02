@@ -17,21 +17,26 @@
     "isULID",
     "readNoydbBundle",
     "readNoydbBundleHeader",
+    "readPod",
+    "readPodHeader",
     "resetBrotliSupportCache",
     "validateBundleHeader",
     "wrapBundleStore",
     "wrapPodStore",
-    "writeNoydbBundle"
+    "writeNoydbBundle",
+    "writePod"
   ],
   "types": [
     "CompressionAlgo",
     "NoydbBundleHeader",
     "NoydbBundleReadResult",
+    "NoydbPodHeader",
     "ReadNoydbBundleOptions",
     "WrapBundleStoreOptions",
     "WrapPodStoreOptions",
     "WrappedBundleNoydbStore",
     "WrappedPodNoydbStore",
-    "WriteNoydbBundleOptions"
+    "WriteNoydbBundleOptions",
+    "WritePodOptions"
   ]
 }

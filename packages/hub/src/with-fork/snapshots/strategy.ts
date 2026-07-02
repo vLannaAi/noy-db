@@ -8,7 +8,7 @@ export interface SnapshotMeta {
   readonly exportedBy: string
   readonly size: number
   /**
-   * `'verified'` — bundle was produced by `writeNoydbBundle(vault, {})`, which embeds
+   * `'verified'` — bundle was produced by `writePod(vault, {})`, which embeds
    * ledgerHead metadata; `vault.load()` runs `verifyBackupIntegrity()` on restore.
    * `'legacy-unverifiable'` — reserved for v2 import paths that read pre-existing bundles
    * lacking a ledgerHead; not produced by the current engine.

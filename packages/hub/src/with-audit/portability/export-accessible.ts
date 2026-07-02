@@ -7,11 +7,11 @@
  * Reuses the existing bundle machinery: the access boundary is the caller's DEK
  * set (operator/client → `keyring.permissions`; owner/admin/viewer → all), so a
  * record outside the caller's keys can never enter the bundle. Re-keying to a
- * new owner reuses `writeNoydbBundle`'s `exportPassphrase` shorthand.
+ * new owner reuses `writePod`'s `exportPassphrase` shorthand.
  */
 import type { Vault } from '../../kernel/vault.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
-import { writeNoydbBundle } from '../../with-pod/bundle.js'
+import { writePod } from '../../with-pod/bundle.js'
 
 /**
  * Resolve the collections a caller may export/withdraw: operator/client are
@@ -44,7 +44,7 @@ export async function buildAccessibleBundle(
   reKey: { passphrase: string } | undefined,
   compression: 'auto' | 'brotli' | 'gzip' | 'none' = 'auto',
 ): Promise<Uint8Array> {
-  return writeNoydbBundle(vault, {
+  return writePod(vault, {
     compression,
     ...(collections !== undefined ? { collections } : {}),
     ...(reKey ? { exportPassphrase: reKey.passphrase } : {}),

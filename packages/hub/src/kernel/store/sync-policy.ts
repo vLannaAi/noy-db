@@ -14,7 +14,7 @@
  * | Backend type | Recommended policy |
  * |---|---|
  * | Per-record (DynamoDB, S3, IDB) | {@link INDEXED_STORE_POLICY} — `on-change` push, `manual` pull |
- * | Bundle (Drive, WebDAV, Git) | {@link BUNDLE_STORE_POLICY} — `debounce` push, `interval` pull |
+ * | Bundle (Drive, WebDAV, Git) | {@link POD_STORE_POLICY} — `debounce` push, `interval` pull |
  *
  * Consumers can override via `createNoydb({ syncPolicy: { ... } })`:
  *
@@ -99,7 +99,7 @@ export interface PullPolicy {
  *
  * Pass via `createNoydb({ syncPolicy })` to override the default policy
  * derived from the active store type. Pre-built defaults are available
- * as `INDEXED_STORE_POLICY` and `BUNDLE_STORE_POLICY`.
+ * as `INDEXED_STORE_POLICY` and `POD_STORE_POLICY`.
  */
 export interface SyncPolicy {
   readonly push: PushPolicy
@@ -115,10 +115,13 @@ export const INDEXED_STORE_POLICY: SyncPolicy = {
 }
 
 /** Default for bundle stores (Drive, WebDAV, Git). */
-export const BUNDLE_STORE_POLICY: SyncPolicy = {
+export const POD_STORE_POLICY: SyncPolicy = {
   push: { mode: 'debounce', debounceMs: 30_000, minIntervalMs: 120_000, onUnload: true },
   pull: { mode: 'interval', intervalMs: 60_000 },
 }
+
+/** @deprecated Use `POD_STORE_POLICY`. */
+export const BUNDLE_STORE_POLICY = POD_STORE_POLICY
 
 // ─── Sync scheduler ─────────────────────────────────────────────────────
 

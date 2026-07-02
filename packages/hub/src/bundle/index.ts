@@ -11,6 +11,9 @@
 
 // ─── Artifact (.noydb container format) → @noy-db/hub/pod ──
 export {
+  writePod,
+  readPod,
+  readPodHeader,
   writeNoydbBundle,
   readNoydbBundle,
   readNoydbBundleHeader,
@@ -29,10 +32,12 @@ export {
   isULID,
 } from '../with-pod/index.js'
 export type {
+  WritePodOptions,
   WriteNoydbBundleOptions,
   ReadNoydbBundleOptions,
   NoydbBundleReadResult,
   CompressionAlgo,
+  NoydbPodHeader,
   NoydbBundleHeader,
 } from '../with-pod/index.js'
 
@@ -62,6 +67,7 @@ export { TransferSealError, AdoptionStateError } from '../kernel/errors.js'
 export {
   BundleIntegrityError,
   BundleSealMismatchError,
+  PodVersionConflictError,
   BundleVersionConflictError,
   BackupLedgerError,
   BackupCorruptedError,

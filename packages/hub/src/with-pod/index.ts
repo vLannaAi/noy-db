@@ -13,12 +13,16 @@
  */
 
 export {
+  writePod,
+  readPod,
+  readPodHeader,
   writeNoydbBundle,
   readNoydbBundle,
   readNoydbBundleHeader,
   resetBrotliSupportCache,
 } from './bundle.js'
 export type {
+  WritePodOptions,
   WriteNoydbBundleOptions,
   ReadNoydbBundleOptions,
   NoydbBundleReadResult,
@@ -38,6 +42,7 @@ export {
 } from './format.js'
 export type {
   CompressionAlgo,
+  NoydbPodHeader,
   NoydbBundleHeader,
 } from './format.js'
 

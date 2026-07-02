@@ -102,7 +102,7 @@ export type CompressionAlgo = 0 | 1 | 2
  *     could narrow brute-force search space
  *   - any field starting with `_` (reserved by the dump format)
  */
-export interface NoydbBundleHeader {
+export interface NoydbPodHeader {
   /** Bundle format version — bumped on layout changes. */
   readonly formatVersion: number
   /**
@@ -163,6 +163,9 @@ export interface NoydbBundleHeader {
   }
 }
 
+/** @deprecated Use `NoydbPodHeader`. */
+export type NoydbBundleHeader = NoydbPodHeader
+
 /**
  * Allowlist of header keys. Any key not in this set is forbidden
  * and causes `validateBundleHeader` to throw. Kept as a Set for
@@ -197,7 +200,7 @@ const ALLOWED_HEADER_KEYS: ReadonlySet<string> = new Set([
  */
 export function validateBundleHeader(
   parsed: unknown,
-): asserts parsed is NoydbBundleHeader {
+): asserts parsed is NoydbPodHeader {
   if (parsed === null || typeof parsed !== 'object') {
     throw new Error(
       `.noydb bundle header must be a JSON object, got ${parsed === null ? 'null' : typeof parsed}`,
@@ -323,7 +326,7 @@ export function validateBundleHeader(
  * minimum disclosure. Used by the writer to serialize the header
  * region of the container.
  */
-export function encodeBundleHeader(header: NoydbBundleHeader): Uint8Array {
+export function encodeBundleHeader(header: NoydbPodHeader): Uint8Array {
   validateBundleHeader(header)
   // Stable key ordering — JSON.stringify with no replacer uses
   // insertion order, which is fine here because we control the
@@ -346,7 +349,7 @@ export function encodeBundleHeader(header: NoydbBundleHeader): Uint8Array {
  * Parse a bundle header from its UTF-8 JSON bytes. Throws on
  * invalid JSON or any minimum-disclosure violation.
  */
-export function decodeBundleHeader(bytes: Uint8Array): NoydbBundleHeader {
+export function decodeBundleHeader(bytes: Uint8Array): NoydbPodHeader {
   const json = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
   let parsed: unknown
   try {
