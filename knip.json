@@ -8,7 +8,17 @@
       "ignore": ["templates/**"]
     },
     "packages/hub": {
-      "entry": ["src/index.ts", "scripts/*.mjs", "__tests__/**/*.test-d.ts"]
+      "entry": [
+        "src/index.ts",
+        "scripts/*.mjs",
+        "__tests__/**/*.test-d.ts",
+        "src/kernel/{to,on,at,in,by,ui,with}/index.ts",
+        "src/**/active.ts",
+        "src/kernel/util/index.ts",
+        "src/with-fork/snapshots/index.ts",
+        "src/with-party/session/index.ts",
+        "src/with-party/team/index.ts"
+      ]
     },
     "showcases": {
       "entry": [
