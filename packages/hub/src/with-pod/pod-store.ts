@@ -1,12 +1,12 @@
-import type { NoydbStore, NoydbBundleStore, VaultSnapshot, EncryptedEnvelope } from '../types.js'
-import { ConflictError, BundleVersionConflictError } from '../errors.js'
+import type { NoydbStore, NoydbBundleStore, VaultSnapshot, EncryptedEnvelope } from '../kernel/types.js'
+import { ConflictError, BundleVersionConflictError } from '../kernel/errors.js'
 
 // ─── Bundle format ─────────────────────────────────────────────────────
 
 const BUNDLE_STORE_VERSION = 1 as const
 
 /**
- * Wire format written by `wrapBundleStore`. A JSON-serialised object that
+ * Wire format written by `wrapPodStore`. A JSON-serialised object that
  * contains the entire `VaultSnapshot` (all encrypted envelopes) plus a small
  * header for integrity checking. The envelopes inside are already AES-GCM
  * encrypted by core — the bundle bytes themselves are not additionally
@@ -24,7 +24,7 @@ interface BundleStoreData {
 
 // ─── Options ───────────────────────────────────────────────────────────
 
-export interface WrapBundleStoreOptions {
+export interface WrapPodStoreOptions {
   /**
    * When `true` (default), every `put()` and `delete()` flushes the full
    * vault snapshot to the bundle backend. Set to `false` for bulk operations
@@ -35,7 +35,7 @@ export interface WrapBundleStoreOptions {
 
 // ─── Extended NoydbStore with flush/batch ───────────────────────────────
 
-export interface WrappedBundleNoydbStore extends NoydbStore {
+export interface WrappedPodNoydbStore extends NoydbStore {
   /** Manually flush the in-memory snapshot to the bundle backend. */
   flush(vaultId: string): Promise<void>
   /**
@@ -45,7 +45,7 @@ export interface WrappedBundleNoydbStore extends NoydbStore {
   batch(vaultId: string, fn: () => Promise<void>): Promise<void>
 }
 
-// ─── wrapBundleStore ───────────────────────────────────────────────────
+// ─── wrapPodStore ───────────────────────────────────────────────────
 
 const MAX_CONFLICT_RETRIES = 3
 
@@ -71,10 +71,10 @@ const MAX_CONFLICT_RETRIES = 3
  * - `store.batch(vaultId, async () => { ... })` — defers flush until end
  * - Pair with `syncPolicy: { push: { mode: 'debounce' } }` from 
  */
-export function wrapBundleStore(
+export function wrapPodStore(
   bundle: NoydbBundleStore,
-  options?: WrapBundleStoreOptions,
-): WrappedBundleNoydbStore {
+  options?: WrapPodStoreOptions,
+): WrappedPodNoydbStore {
   const autoFlush = options?.autoFlush !== false
 
   // Per-vault state
@@ -145,7 +145,7 @@ export function wrapBundleStore(
     }
   }
 
-  const store: WrappedBundleNoydbStore = {
+  const store: WrappedPodNoydbStore = {
     name: bundle.name ?? 'bundle',
 
     async flush(vaultId: string): Promise<void> {
@@ -253,8 +253,19 @@ function mergeSnapshots(remote: VaultSnapshot, local: VaultSnapshot): VaultSnaps
  * Type-safe factory helper for `NoydbBundleStore` implementations,
  * analogous to `createStore` for KV stores.
  */
-export function createBundleStore<TOptions>(
+export function createPodStore<TOptions>(
   factory: (options: TOptions) => NoydbBundleStore,
 ): (options: TOptions) => NoydbBundleStore {
   return factory
 }
+
+// ─── Deprecated aliases (pre-rename compatibility) ──────────────────────
+
+/** @deprecated Use wrapPodStore. */
+export const wrapBundleStore = wrapPodStore
+/** @deprecated Use createPodStore. */
+export const createBundleStore = createPodStore
+/** @deprecated Use WrappedPodNoydbStore. */
+export type WrappedBundleNoydbStore = WrappedPodNoydbStore
+/** @deprecated Use WrapPodStoreOptions. */
+export type WrapBundleStoreOptions = WrapPodStoreOptions

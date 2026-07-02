@@ -181,8 +181,8 @@ export {
   DEFAULT_CHUNK_SIZE,
 } from './with-shape/blobs/blob-set.js'
 export { detectMimeType, detectMagic, isPreCompressed } from './with-shape/blobs/mime-magic.js'
-export { wrapBundleStore, createBundleStore } from './kernel/store/bundle-store.js'
-export type { WrappedBundleNoydbStore, WrapBundleStoreOptions } from './kernel/store/bundle-store.js'
+export { wrapBundleStore, createBundleStore } from './with-pod/pod-store.js'
+export type { WrappedBundleNoydbStore, WrapBundleStoreOptions } from './with-pod/pod-store.js'
 export { readPlaintextRecord } from './kernel/debug.js'
 
 // Observable write-queue
@@ -227,18 +227,18 @@ export type { SyncTarget, SyncTargetRole } from './kernel/types.js'
 
 // Store routing
 export { memoryStore } from './kernel/store/memory-store.js'
-export { routeStore } from './kernel/store/route-store.js'
+export { routeStore } from './with-store/route-store.js'
 export type {
   RouteStoreOptions, RoutedNoydbStore, BlobStoreRoute, AgeRoute,
   BlobLifecyclePolicy, OverrideTarget, OverrideOptions, SuspendOptions, RouteStatus,
-} from './kernel/store/route-store.js'
+} from './with-store/route-store.js'
 
 // Store middleware
-export { wrapStore, withRetry, withLogging, withMetrics, withCircuitBreaker, withCache, withHealthCheck } from './kernel/store/store-middleware.js'
+export { wrapStore, withRetry, withLogging, withMetrics, withCircuitBreaker, withCache, withHealthCheck } from './with-store/store-middleware.js'
 export type {
   StoreMiddleware, RetryOptions, LoggingOptions, LogLevel,
   MetricsOptions, StoreOperation, CircuitBreakerOptions, StoreCacheOptions, HealthCheckOptions,
-} from './kernel/store/store-middleware.js'
+} from './with-store/store-middleware.js'
 
 // Errors
 export {

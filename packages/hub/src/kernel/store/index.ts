@@ -1,55 +1,14 @@
 /**
- * `@noy-db/hub/store` — subpath export for document-storage plumbing.
+ * `@noy-db/hub/kernel/store` — always-on store primitives.
  *
- * The main `@noy-db/hub` entry still re-exports every symbol from
- * this subpath for backward compatibility through.x. Consumers
- * that opt into the subpath import get ~6-8 KB of bundle savings by
- * excluding routing + middleware + bundle-store machinery they
- * don't use.
- *
- * Named re-exports (not `export *`) so tsup keeps the barrel populated
- * even with `sideEffects: false`. See `tsup.config.ts` entries.
+ * Store routing, middleware, and bundle-store wrapping are opt-in services
+ * that live outside the kernel (`@noy-db/hub/src/with-store/`,
+ * `@noy-db/hub/src/with-pod/pod-store.ts`) — they have zero kernel call
+ * sites. This barrel keeps only what the kernel itself depends on:
+ * the in-memory store used by `createNoydb()` defaults, the sync-policy
+ * types consumed by `kernel/types.ts` and `kernel/noydb.ts`, and the
+ * store-capability error re-export.
  */
-
-// ─── Store routing ─────────────────────────────────────
-export { routeStore } from './route-store.js'
-export type {
-  RouteStoreOptions,
-  RoutedNoydbStore,
-  BlobStoreRoute,
-  AgeRoute,
-  BlobLifecyclePolicy,
-  OverrideTarget,
-  OverrideOptions,
-  SuspendOptions,
-  RouteStatus,
-} from './route-store.js'
-
-// ─── Store middleware ────────────────────────────────────────
-export {
-  wrapStore,
-  withRetry,
-  withLogging,
-  withMetrics,
-  withCircuitBreaker,
-  withCache,
-  withHealthCheck,
-} from './store-middleware.js'
-export type {
-  StoreMiddleware,
-  RetryOptions,
-  LoggingOptions,
-  LogLevel,
-  MetricsOptions,
-  StoreOperation,
-  CircuitBreakerOptions,
-  StoreCacheOptions,
-  HealthCheckOptions,
-} from './store-middleware.js'
-
-// ─── Bundle store ────────────────────────────────────────────
-export { wrapBundleStore, createBundleStore } from './bundle-store.js'
-export type { WrappedBundleNoydbStore, WrapBundleStoreOptions } from './bundle-store.js'
 
 // ─── Sync policy ─────────────────────────────────────────────
 export { SyncScheduler, INDEXED_STORE_POLICY, BUNDLE_STORE_POLICY } from './sync-policy.js'
@@ -62,16 +21,10 @@ export type {
   SyncSchedulerStatus,
 } from './sync-policy.js'
 
+// ─── Memory store ────────────────────────────────────────────
+export { memoryStore } from './memory-store.js'
+
 // ─── Store errors ────────────────────────────────────────────
 // Re-exported from the central errors module so subpath consumers can
 // `instanceof StoreCapabilityError` without falling back to the root barrel.
 export { StoreCapabilityError } from '../errors.js'
-
-// ─── Blob primitives relocated to packages/hub/src/blobs/ ──────────
-//
-// refactor: blob-set, mime-magic, attachments, compaction, and
-// export-blobs moved to `../blobs/` so hub's optional "blob document"
-// subsystem lives in one folder behind the `@noy-db/hub/blobs` subpath
-// export. The root barrel (`../index.ts`) still re-exports `BlobSet`
-// + the MIME helpers for backward compatibility with `@noy-db/as-blob`,
-// `@noy-db/as-zip`, and any consumer reaching into the root namespace.
