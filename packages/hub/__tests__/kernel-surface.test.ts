@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import * as kernel from '../src/kernel/index.js'
+import * as kernel from '../src/legacy/kernel.js'
 // Type-only smoke: fails to compile if any of these types stop being exported.
 import type {
   ChangeEvent, Vault, Collection, Noydb, Operator, Query, JoinStrategy,
   LiveQuery, AggregateResult, AggregateSpec, LiveAggregation, IndexDef,
-} from '../src/kernel/index.js'
+} from '../src/legacy/kernel.js'
 
 describe('@noy-db/hub/kernel surface', () => {
   it('exposes the runtime kernel functions federation needs', () => {

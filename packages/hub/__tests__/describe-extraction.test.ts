@@ -141,7 +141,7 @@ describe('describeExtraction', () => {
   })
 
   it('is exported from the @noy-db/hub/bundle subpath', async () => {
-    const mod = await import('../src/bundle/index.js')
+    const mod = await import('../src/legacy/bundle.js')
     expect(typeof mod.describeExtraction).toBe('function')
   })
 })

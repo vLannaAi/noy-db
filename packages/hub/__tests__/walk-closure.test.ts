@@ -191,7 +191,7 @@ describe('walkClosure', () => {
   })
 
   it('is exported from the @noy-db/hub/bundle subpath', async () => {
-    const mod = await import('../src/bundle/index.js')
+    const mod = await import('../src/legacy/bundle.js')
     expect(typeof mod.walkClosure).toBe('function')
     expect(typeof mod.PartitionExtractionError).toBe('function')
   })
