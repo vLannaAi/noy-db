@@ -199,7 +199,7 @@ export async function lookupSubject(
   const out: SubjectRef[] = []
   for (const key of keys) {
     for (const ref of await readRefs(adapter, vault, getDEK, encrypted, key)) {
-      const dedup = `${ref.collection} ${ref.id}`
+      const dedup = `${ref.collection}\u0000${ref.id}`
       if (seen.has(dedup)) continue
       seen.add(dedup)
       out.push(ref)
