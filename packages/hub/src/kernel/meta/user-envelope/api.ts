@@ -137,17 +137,17 @@ export class UserApi {
      */
     private readonly checkGate?: UserEnvelopeCheckGate,
     /**
-     * Noydb-backed `exportMyAccessibleData` (#199), injected by the Vault
+     * Noydb-backed `exportMyAccessibleData`, injected by the Vault
      * (which holds the keyring + bundle machinery). Omitted in low-level tests.
      */
     private readonly exportAccessible?: (opts: ExportAccessibleOptions) => Promise<Uint8Array>,
     /**
-     * Noydb-backed `unilateralWithdrawal` (#199 P2), injected by the Vault.
+     * Noydb-backed `unilateralWithdrawal`, injected by the Vault.
      * Destructive — extract + dispose (delete | freeze). Omitted in low-level tests.
      */
     private readonly unilateralWithdraw?: (opts: WithdrawAccessibleOptions) => Promise<WithdrawResult>,
     /**
-     * Noydb-backed two-party withdrawal ceremony (#199 P3), injected by the
+     * Noydb-backed two-party withdrawal ceremony, injected by the
      * Vault. requestWithdraw = requester side; the rest = owner side.
      */
     private readonly requestWithdraw?: (opts: RequestWithdrawalOptions) => Promise<RequestWithdrawalResult>,
@@ -157,7 +157,7 @@ export class UserApi {
   ) {}
 
   /**
-   * #199 P3 — file a two-party withdrawal request for the caller's accessible
+   * File a two-party withdrawal request for the caller's accessible
    * scope. Non-destructive (writes a pending request); an owner later approves
    * or rejects. This is the path for read-only roles (`client`/`viewer`) that
    * cannot self-serve a destructive `unilateralWithdrawal`. Gated by
@@ -171,7 +171,7 @@ export class UserApi {
     return this.requestWithdraw(opts)
   }
 
-  /** #199 P3 — owner side: list filed withdrawal requests (optionally by status). */
+  /** Owner side: list filed withdrawal requests (optionally by status). */
   async listWithdrawalRequests(opts: { status?: WithdrawalRequestStatus } = {}): Promise<WithdrawalRequest[]> {
     if (!this.listWithdrawals) {
       throw new Error('listWithdrawalRequests requires a Noydb-backed vault (not a bare UserApi)')
@@ -180,7 +180,7 @@ export class UserApi {
   }
 
   /**
-   * #199 P3 — owner side: approve a pending request. Extracts the requester's
+   * Owner side: approve a pending request. Extracts the requester's
    * recorded scope under firm authority, disposes of the source per the
    * request's disposition, and returns the re-keyed bundle to hand back. Gated
    * by `approve-user-withdrawal` (tier-2 default) + owner/admin role.
@@ -193,7 +193,7 @@ export class UserApi {
     return this.approveWithdraw(requestId, opts)
   }
 
-  /** #199 P3 — owner side: reject a pending request (no data is touched). */
+  /** Owner side: reject a pending request (no data is touched). */
   async rejectWithdrawal(requestId: string, opts: RejectWithdrawalOptions = {}): Promise<WithdrawalRequest> {
     if (this.checkGate) await this.checkGate('approve-user-withdrawal')
     if (!this.rejectWithdraw) {
@@ -203,7 +203,7 @@ export class UserApi {
   }
 
   /**
-   * #199 P2 — single-party withdrawal: export the caller's accessible scope
+   * Single-party withdrawal: export the caller's accessible scope
    * (re-keyed) and dispose of the source (`delete` or `freeze`). Gated by the
    * fail-closed built-in `client-unilateral-withdraw` policy — undefined or
    * disabled → throws (use `requestWithdrawal`). The firm enables it at vault
@@ -218,9 +218,9 @@ export class UserApi {
   }
 
   /**
-   * #199 — export the calling user's accessible scope as a portable, re-keyed
+   * Export the calling user's accessible scope as a portable, re-keyed
    * `.noydb` bundle. Non-destructive and **always allowed** (data sovereignty
-   * by construction, §11.11) but audited. Scope = the caller's DEK access set.
+   * by construction) but audited. Scope = the caller's DEK access set.
    */
   async exportMyAccessibleData(opts: ExportAccessibleOptions = {}): Promise<Uint8Array> {
     if (!this.exportAccessible) {

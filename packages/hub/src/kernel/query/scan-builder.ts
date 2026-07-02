@@ -126,7 +126,7 @@ export class ScanBuilder<T, S extends keyof T = never, M extends keyof T & strin
   /**
    * Money field descriptors for the backing collection. When present, yielded
    * records are decoded (stored scaled-int → canonical decimal) so `scan()`
-   * agrees with `get()`/`list()`/`query().toArray()` — #322. Decoded with
+   * agrees with `get()`/`list()`/`query().toArray()`. Decoded with
    * `'raw'` (canonical decimal, no locale-formatted virtuals) since the scan
    * stream carries no locale context, mirroring `Query.toArray()`.
    */
@@ -172,7 +172,7 @@ export class ScanBuilder<T, S extends keyof T = never, M extends keyof T & strin
    */
   where(field: QueryField<T, S>, op: Operator, value: unknown): ScanBuilder<T, S, M> {
     // Money fields compare in major units, BigInt-exact in scaled space —
-    // same build-time operand rewrite as Query.where() (#336).
+    // same build-time operand rewrite as Query.where().
     const desc = this.moneyFields?.[field as string]
     const clause: FieldClause = desc
       ? moneyFieldClause(field as string, op, value, desc)
@@ -357,7 +357,7 @@ export class ScanBuilder<T, S extends keyof T = never, M extends keyof T & strin
       for (const record of page.items) {
         // Filter on the raw stored record (same order as Query.toArray:
         // clauses first), then decode money to the canonical decimal before
-        // yielding so scan() never leaks the internal scaled-int — #322.
+        // yielding so scan() never leaks the internal scaled-int.
         if (!this.recordMatches(record)) continue
         const decoded = this.decodeMoney(record)
         if (joinResolvers === null) {
@@ -627,9 +627,9 @@ export class ScanBuilder<T, S extends keyof T = never, M extends keyof T & strin
    */
   private recordMatches(record: T): boolean {
     if (this.clauses.length === 0) return true
-    // User-callback clauses (filter) see the DECODED money view (#335);
+    // User-callback clauses (filter) see the DECODED money view;
     // field clauses keep the raw record — their operands are pre-quantized
-    // into stored space (#336). Decoded at most once per record, only
+    // into stored space. Decoded at most once per record, only
     // when a callback clause exists.
     const fnView =
       this.moneyFields && Object.keys(this.moneyFields).length > 0 && hasFnClause(this.clauses)

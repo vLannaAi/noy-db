@@ -1,5 +1,5 @@
 /**
- * Per-record CEK lifecycle helpers for the WRITE path (#356 foundation).
+ * Per-record CEK lifecycle helpers for the WRITE path.
  *
  * These are the collection-coupled CEK operations, lifted off `Collection`
  * behind narrow deps so the kernel file delegates instead of carrying the

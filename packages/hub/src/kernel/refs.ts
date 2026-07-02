@@ -59,7 +59,7 @@ export interface RefDescriptor {
   readonly target: string
   readonly mode: RefMode
   /**
-   * Present and `true` only for an array ref (#377-A, `refArray()`): the
+   * Present and `true` only for an array ref (`refArray()`): the
    * field holds an ARRAY of ids, each validated against `target`
    * independently (M:N). Absent for a scalar `ref()`. The same `mode`
    * semantics apply per element — strict rejects on a missing element at
@@ -148,7 +148,7 @@ export function ref(target: string, mode: RefMode = 'strict'): RefDescriptor {
 }
 
 /**
- * Array reference (#377-A) — the many-to-many soft-FK. The field holds an
+ * Array reference — the many-to-many soft-FK. The field holds an
  * array of ids; each element is validated against `target` independently.
  *
  * ```ts

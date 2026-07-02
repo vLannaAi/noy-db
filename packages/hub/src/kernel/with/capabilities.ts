@@ -1,6 +1,5 @@
 /**
- * Export/import capability gating, lifted off the `Vault` god-object (Phase 5
- * A7 of the microkernel refactoring).
+ * Export/import capability gating.
  *
  * Pure predicates over a keyring's `exportCapability` / `importCapability`: the
  * `assert*` variants throw {@link ExportCapabilityError} / {@link ImportCapabilityError}

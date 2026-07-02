@@ -1,6 +1,6 @@
 /**
  * Kernel coordination port — the injected `CoordinationProvider` seam for the
- * schema-fence drain-barrier (#469).
+ * schema-fence drain-barrier.
  *
  * The kernel defines this port; `@noy-db/by-tabs` / `@noy-db/by-peer` implement
  * it for real-time quorum, and an external orchestrator (`@klum-db/lobby`)

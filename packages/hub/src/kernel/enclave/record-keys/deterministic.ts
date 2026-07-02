@@ -1,6 +1,5 @@
 /**
- * Deterministic-index lookups (`findByDet` / `queryByDet`), lifted off the
- * `Collection` god-object (Phase 5 A1 of the microkernel refactoring).
+ * Deterministic-index lookups (`findByDet` / `queryByDet`).
  *
  * A collection that declares `deterministicFields` stamps a deterministic
  * AES-GCM ciphertext for each such field on the envelope's `_det` slot at write

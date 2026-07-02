@@ -28,7 +28,7 @@ export interface OrderBy {
   readonly field: string
   readonly direction: 'asc' | 'desc'
   /**
-   * Sort key for a `dictKey`/`staticDict` field (#285): `'value'` (default)
+   * Sort key for a `dictKey`/`staticDict` field: `'value'` (default)
    * sorts by the stored code; `'label'` sorts by the code's resolved label at
    * the query locale (`toArray({ locale })`, or a `staticDict` `displayLocale`).
    * Falls back to the code when no label resolves.
@@ -97,7 +97,7 @@ export interface QuerySource<T> {
    */
   moneyFields?: Record<string, MoneyDescriptor>
   /**
-   * #308 L3 — id-paired snapshot for `Query._idArray()` (the `retrieve({within})`
+   * Id-paired snapshot for `Query._idArray()` (the `retrieve({within})`
    * id projection). Optional: only collection-backed queries supply it.
    */
   snapshotEntries?(): readonly { id: string; record: T }[]
@@ -194,7 +194,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
   }
 
   /**
-   * @internal — #308 L3. The ids of records matching this query's plan,
+   * @internal — the ids of records matching this query's plan,
    * recovered by reference identity: `executePlanWithSource` returns the
    * ORIGINAL snapshot record references (money-decode and joins are applied
    * later, in `toArray`), so each matched record is found in the id-paired
@@ -274,7 +274,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
   /**
    * Add a field comparison. Multiple where() calls are AND-combined.
    *
-   * A declared money field compares in MAJOR units (#336): the operand
+   * A declared money field compares in MAJOR units: the operand
    * (`10000`, `'10000.00'`, or `{ amount, currency }` in multi mode) is
    * quantized into stored scaled-int space at build time and evaluated
    * BigInt-exact per record. A malformed operand or a string operator
@@ -357,7 +357,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
   /**
    * Sort by a field. Subsequent calls are tie-breakers. Pass
    * `{ by: 'label' }` to sort a `dictKey`/`staticDict` field by its resolved
-   * label at the query locale instead of the stored code (#285).
+   * label at the query locale instead of the stored code.
    */
   orderBy(field: QueryField<T, S>, direction: 'asc' | 'desc' = 'asc', opts?: { by?: 'value' | 'label' }): Query<T, S, Q, M> {
     const entry: OrderBy = opts?.by === 'label' ? { field, direction, by: 'label' } : { field, direction }
@@ -606,13 +606,13 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    * / `limit` / `offset` narrow the left set. See the `.join()` doc
    * for the ordering rationale.
    *
-   * `opts.locale` (#285 §3) resolves JOINED right-side i18n fields at the
+   * `opts.locale` resolves JOINED right-side i18n fields at the
    * `join` layer to that locale; without it, the owning collection's default
    * locale applies, and a locale-less query leaves joined i18n fields raw.
    * (Left/base i18n fields are resolved by `get`/`list`, not here.)
    */
   toArray(opts?: { locale?: string }): T[] {
-    // #322 — decode money fields (stored scaled-int → canonical decimal) so
+    // Decode money fields (stored scaled-int → canonical decimal) so
     // query().toArray() matches get()/sum(), which already return decimal.
     // Decode the left/base records before joins (right-side aliased fields
     // belong to other collections and are out of this source's money scope).
@@ -639,7 +639,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    * The query layer carries no locale context, so we decode with `'raw'` —
    * canonical decimal, WITHOUT fabricating locale-formatted `<field>Formatted`
    * / `<field>Number` virtuals. Producing a guessed-locale string here would
-   * just reintroduce #322's "two read paths disagree" failure on the virtual
+   * reintroduce a "two read paths disagree" failure on the virtual
    * field (e.g. it-IT via `get()` vs en-US here). Consumers who need formatted
    * money read through `get()`/`list()` with a locale.
    */
@@ -649,7 +649,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     return records.map(r => decodeMoneyFields(r as Record<string, unknown>, moneyFields, 'raw'))
   }
 
-  /** Return the first matching record, or null. Joins are applied. `opts.locale` resolves joined i18n fields (#285 §3). */
+  /** Return the first matching record, or null. Joins are applied. `opts.locale` resolves joined i18n fields. */
   first(opts?: { locale?: string }): T | null {
     const arr = this.limit(1).toArray(opts)
     return arr[0] ?? null
@@ -1048,7 +1048,7 @@ function executePlanWithSource(
   }
 
   if (plan.orderBy.length > 0) {
-    // #285 dictKey label-sort: for any `orderBy(..., { by: 'label' })`, build a
+    // dictKey label-sort: for any `orderBy(..., { by: 'label' })`, build a
     // sync code→label map at the query locale so the sort compares labels.
     const labelMaps = buildOrderLabelMaps(plan.orderBy, joinContext, locale)
     result = sortRecords(result, plan.orderBy, source.moneyFields, labelMaps)
@@ -1099,7 +1099,7 @@ function candidateRecords(source: InternalSource, clauses: readonly Clause[]): C
     // the index stringifies object keys to a no-match sentinel, so a
     // lookup would return an authoritative-empty set and silently drop
     // every record. Fixed-mode money is fine: `value` was rewritten to
-    // the stored digit string at build time (#336).
+    // the stored digit string at build time.
     if (clause.money?.mode === 'multi') continue
 
     let ids: ReadonlySet<string> | null = null
@@ -1172,9 +1172,9 @@ export function executePlan(records: readonly unknown[], plan: QueryPlan): unkno
 /**
  * Build the per-record DECODED view factory for user-callback clauses
  * (`filter` / `wherePredicate`) — those callbacks must see the canonical
- * money shape, never the stored scaled-int (#335). Field clauses are NOT
+ * money shape, never the stored scaled-int. Field clauses are NOT
  * affected: their operands were quantized into raw stored space at build
- * time (#336). Returns undefined when the source declares no money.
+ * time. Returns undefined when the source declares no money.
  */
 function fnViewDecoder(source: InternalSource): ((r: unknown) => unknown) | undefined {
   const mf = source.moneyFields
@@ -1313,7 +1313,7 @@ function sortRecords(
     for (const { field, direction, by } of orderBy) {
       let av = readField(a, field)
       let bv = readField(b, field)
-      // #285 dictKey label-sort: compare resolved labels (fallback to the code
+      // dictKey label-sort: compare resolved labels (fallback to the code
       // when unresolved), so e.g. honorific codes sort by their locale label.
       const labelMap = by === 'label' ? labelMaps?.get(field) : undefined
       if (labelMap) {
@@ -1323,10 +1323,10 @@ function sortRecords(
         if (cmp !== 0) return direction === 'asc' ? cmp : -cmp
         continue
       }
-      // Money fields are stored as scaled-integer strings (#322); the generic
+      // Money fields are stored as scaled-integer strings; the generic
       // string comparator would sort them lexically ('9882' > '10004'). Compare
       // declared money fields by their BigInt scaled value instead — exact, and
-      // consistent with `where` (#336) and `sum` (#390).
+      // consistent with `where` and `sum`.
       const desc = moneyFields?.[field]
       const cmp = desc ? compareMoney(av, bv, desc) : compareValues(av, bv)
       if (cmp !== 0) return direction === 'asc' ? cmp : -cmp
@@ -1336,7 +1336,7 @@ function sortRecords(
 }
 
 /**
- * #285 dictKey label-sort: for each `orderBy(..., { by: 'label' })` field, build
+ * dictKey label-sort: for each `orderBy(..., { by: 'label' })` field, build
  * a sync `code → label` map at the query `locale` (falling back to a
  * `staticDict` `displayLocale`) from the join context's dict source. Fields
  * with no resolvable dict source are skipped — the sort then falls back to the
@@ -1505,7 +1505,7 @@ function buildDictLabelResolver(
   const dictSource = joinCtx.resolveDictSource(field)
   if (!dictSource) return undefined
   const snapshot = dictSource.snapshot()
-  // A staticDict-backed source carries a `displayLocale` (#291); use it as the
+  // A staticDict-backed source carries a `displayLocale`; use it as the
   // locale default when the query is locale-less, so `{ by: 'label' }` still
   // resolves under a locale-less read. Plain _dict_* sources omit it.
   const displayLocale = dictSource.displayLocale

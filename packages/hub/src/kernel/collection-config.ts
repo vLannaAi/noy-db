@@ -1,6 +1,6 @@
 /**
  * Collection construction config — the PURE half of the `Collection`
- * constructor (Phase 5 A11, kernel-shrink).
+ * constructor.
  *
  * `resolveCollectionConfig` takes the raw `CollectionOpts` the Vault threads in
  * and resolves every `?? default`, every normalized/derived field, and runs the
@@ -59,10 +59,8 @@ import type { MVQueryContext } from '../with-formula/materialized-views/types.js
 import type { Collection, OnDirtyCallback, CacheOptions } from './collection.js'
 
 /**
- * Raw options handed to the {@link Collection} constructor by the Vault. This
- * is the verbatim shape that used to live inline on the constructor signature;
- * it was lifted here (Phase 5 A11) so the constructor and the pure resolver can
- * share one named type.
+ * Raw options handed to the {@link Collection} constructor by the Vault.
+ * One named type shared by the constructor and the pure resolver.
  */
 export interface CollectionOpts<T> {
   adapter: NoydbStore
@@ -209,13 +207,13 @@ export interface CollectionOpts<T> {
     | undefined
   /** — i18nText field descriptors for locale-aware reads. */
   i18nFields?: Record<string, I18nTextDescriptor> | undefined
-  /** — #308 L2: embedding config for write-time vector derivation + semantic retrieval. */
+  /** — embedding config for write-time vector derivation + semantic retrieval. */
   embeddings?: EmbeddingDescriptor | undefined
-  /** — #308 L1: string fields exposed to client-side `retrieve()`. */
+  /** — string fields exposed to client-side `retrieve()`. */
   textIndexes?: readonly string[] | undefined
-  /** — #308 L1: pre-build the lexical index on open (eager-only). */
+  /** — pre-build the lexical index on open (eager-only). */
   warmIndexOnOpen?: boolean | undefined
-  /** — #308 L1.5: persist the lexical index as an opaque encrypted blob at `_ftindex/<name>`. */
+  /** — persist the lexical index as an opaque encrypted blob at `_ftindex/<name>`. */
   textIndexPersist?: boolean | undefined
   /** — dictKey field descriptors for label resolution on reads. */
   dictKeyFields?: Record<string, DictKeyDescriptor | StaticDictDescriptor> | undefined
@@ -240,7 +238,7 @@ export interface CollectionOpts<T> {
       ) => Promise<string | undefined>)
     | undefined
   /**
-   * #308 L1 — async callback to open a dynamic dictionary handle.
+   * Async callback to open a dynamic dictionary handle.
    * Provided by the Vault for dynamic-dict label-map resolution in
    * the search index. Static dicts bypass this.
    */
@@ -323,17 +321,16 @@ export interface CollectionOpts<T> {
    */
   acknowledgeDeterministicRisk?: boolean | undefined
   /**
-   * Structural group-encryption (#503). Fields listed here are
+   * Structural group-encryption. Fields listed here are
    * encrypted into their own `_sealed[field]` envelope slot — each under
    * an HKDF-derived per-field key — instead of sitting inside the open
    * `_data` blob. Default-off: with no `sensitive` fields the envelope is
    * byte-identical to today. Read merges them back inline (the
    * `Sealed<V>`/`reveal()` access restriction is a separate follow-up).
    *
-   * **Incompatible with `perRecordKeys`/forget-cascade (#304):** sealed
+   * **Incompatible with `perRecordKeys`/forget-cascade:** sealed
    * field keys derive off the *collection* DEK, not the per-record CEK, so
-   * crypto-shredding a record does not erase its sealed fields. Full
-   * per-record sealing is tracked in #306.
+   * crypto-shredding a record does not erase its sealed fields.
    */
   sensitive?: readonly string[] | undefined
   /**
@@ -341,7 +338,7 @@ export interface CollectionOpts<T> {
    * (and every history version of it) is encrypted under a fresh
    * per-record CEK, AES-KW-wrapped under the collection DEK and stored
    * on the envelope's `_cek`. Off by default. Foundation for per-record
-   * erasure (#304) and record-scoped sealing (#306). `_det` slots stay
+   * erasure and record-scoped sealing. `_det` slots stay
    * keyed to the collection DEK regardless.
    */
   perRecordKeys?: boolean | undefined
@@ -350,7 +347,7 @@ export interface CollectionOpts<T> {
    * supply a `source` option stamp `_source` (opaque source id) and
    * `_sourceTs` (ISO-8601 timestamp) onto the unencrypted envelope
    * metadata. Off by default — zero cost for collections that don't
-   * need lineage tracking. (FR-5, #445)
+   * need lineage tracking.
    */
   provenance?: boolean | undefined
   /**
@@ -368,7 +365,7 @@ export interface CollectionOpts<T> {
    */
   tiersStrategy?: TiersStrategy | undefined
   /**
-   * Search / retrieval capability strategy (#308). When omitted, a collection's
+   * Search / retrieval capability strategy. When omitted, a collection's
    * `search`/`retrieve`/`similarTo`/`warmIndex`/`flushIndex` methods and the
    * embedding write-hook throw `SearchNotEnabledError`. Enable by passing
    * `withSearch()` from `@noy-db/hub` at `createNoydb` time.
@@ -444,9 +441,9 @@ export interface CollectionOpts<T> {
  * instances become the collection's own by reference.
  */
 export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
-  // #308 L2 — Guard: CRDT collections cannot use embeddings (the embedding-derive
+  // Guard: CRDT collections cannot use embeddings (the embedding-derive
   // block is unreachable after the CRDT early-return in putInternal; full
-  // CRDT-derivation is out of L2 scope).
+  // CRDT-derivation is out of scope).
   if (opts.embeddings && opts.crdt) {
     throw new Error(
       `Collection "${opts.name}": embeddings are not supported on CRDT collections (L2). Use a non-CRDT collection for semantic search.`,
@@ -471,7 +468,7 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     deterministicFields = null
   }
 
-  // #435 — precompute the densify-enabled subset (undefined when none opt in)
+  // Precompute the densify-enabled subset (undefined when none opt in)
   // so the write path skips work for non-densify collections.
   const densifyFields = opts.i18nFields
     ? Object.fromEntries(
@@ -481,7 +478,7 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
   const i18nDensifyFields =
     Object.keys(densifyFields).length > 0 ? densifyFields : undefined
 
-  // structural group-encryption wiring (#503): the set of fields sealed
+  // structural group-encryption wiring: the set of fields sealed
   // into `_sealed` per-field slots. Empty when the option is absent.
   const sensitiveFields: ReadonlySet<string> = opts.sensitive && opts.sensitive.length > 0
     ? Object.freeze(new Set(opts.sensitive))

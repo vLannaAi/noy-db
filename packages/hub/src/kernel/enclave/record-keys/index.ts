@@ -6,10 +6,10 @@
  * per-*record* key, AES-KW-wrapped under the collection/tier DEK and stamped on
  * the envelope's `_cek`, so erasure and sealing can act at record granularity:
  *
- *   - **Erase a record** (#304) = drop its CEK everywhere → body + all history
+ *   - **Erase a record** = drop its CEK everywhere → body + all history
  *     versions undecryptable, every other record untouched. The residue is a
  *     {@link buildTombstone tombstone}.
- *   - **Seal one record** to an `at-*` host (#306) = seal that record's CEK,
+ *   - **Seal one record** to an `at-*` host = seal that record's CEK,
  *     not the whole-collection DEK.
  *
  * This module is the home for that policy. The raw AES-KW wrap/unwrap
