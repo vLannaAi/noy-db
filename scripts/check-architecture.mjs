@@ -1036,6 +1036,43 @@ function checkDoorLayering() {
   }
 }
 
+// ─── Check 10: enclave-barrel-only (S5 family doors) ────────────────────
+//
+// kernel/enclave/ (crypto.ts + record-keys/**) is the hub's crypto
+// interior — the piece a forked sister project replaces wholesale,
+// honoring only kernel/enclave/index.ts (the barrel, THE fork-swap
+// contract). A file outside kernel/enclave/** that statically imports an
+// enclave path deeper than the barrel (e.g. './enclave/crypto.js' or
+// '../kernel/enclave/record-keys/index.js') reaches around that contract.
+// Only hub/src is scanned — tests aren't architecture-bound, though they
+// were migrated to the barrel too for consistency. Only static
+// `import`/`export … from` clauses are checked; a dynamic `import()` is
+// not statically analyzable here (same carve-out as door-layering above).
+
+function checkEnclaveBarrelOnly() {
+  const hubSrc = join(PACKAGES_DIR, 'hub', 'src')
+  const enclaveDir = join(hubSrc, 'kernel', 'enclave')
+
+  walkTsFiles(hubSrc, (file, content) => {
+    if (!relative(enclaveDir, file).startsWith('..')) return // inside kernel/enclave/ itself — internal imports stay relative
+
+    const rel = relative(ROOT, file)
+    const code = stripComments(content)
+    for (const m of code.matchAll(STATIC_IMPORT_FROM_RE)) {
+      const spec = m[1]
+      if (!spec.startsWith('.')) continue
+      const target = importTargetRelToHubSrc(file, spec, hubSrc)
+      if (target.startsWith('kernel/enclave/') && target !== 'kernel/enclave/index.js') {
+        fail(
+          'enclave-barrel-only',
+          `${rel} statically imports "${spec}" — reaches past the enclave barrel. Import from kernel/enclave/index.js instead; it is the fork-swap contract a sister project replaces wholesale.`,
+          file,
+        )
+      }
+    }
+  })
+}
+
 // ─── Run ───────────────────────────────────────────────────────────────
 
 const startTime = Date.now()
@@ -1050,6 +1087,7 @@ checkKernelSurface()
 checkNoDebugPlaintextInSource()
 checkNoOutboundKlumImport()
 checkDoorLayering()
+checkEnclaveBarrelOnly()
 
 const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
 

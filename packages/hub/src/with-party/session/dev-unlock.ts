@@ -65,7 +65,7 @@
  * ```
  */
 
-import { bufferToBase64, base64ToBuffer } from '../../kernel/enclave/crypto.js'
+import { bufferToBase64, base64ToBuffer } from '../../kernel/enclave/index.js'
 import { ValidationError } from '../../kernel/errors.js'
 import type { UnlockedKeyring } from '../team/keyring.js'
 import type { Role } from '../../kernel/types.js'

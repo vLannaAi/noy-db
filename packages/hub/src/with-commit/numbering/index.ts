@@ -5,7 +5,7 @@
  */
 import type { NoydbStore, EncryptedEnvelope, StoreTime } from '../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
-import { encrypt, decrypt } from '../../kernel/enclave/crypto.js'
+import { encrypt, decrypt } from '../../kernel/enclave/index.js'
 import { ConflictError, NumberingUncertaintyError } from '../../kernel/errors.js'
 import type { DeferredNumberingConfig } from './descriptor.js'
 

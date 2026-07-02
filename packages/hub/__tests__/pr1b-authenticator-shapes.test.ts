@@ -18,7 +18,7 @@ import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, KeyringAuthenticator } from '../src/kernel/types.js'
 import { createOwnerKeyring, loadKeyring, persistKeyring } from '../src/with-party/team/keyring.js'
 import { enrollAuthenticator } from '../src/with-party/team/authenticators.js'
-import { generateDEK } from '../src/kernel/enclave/crypto.js'
+import { generateDEK } from '../src/kernel/enclave/index.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

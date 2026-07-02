@@ -46,7 +46,7 @@
 
 import type { NoydbStore, EncryptedEnvelope } from '../../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../../kernel/types.js'
-import { encrypt, decrypt } from '../../../kernel/enclave/crypto.js'
+import { encrypt, decrypt } from '../../../kernel/enclave/index.js'
 import { ConflictError, LedgerContentionError } from '../../../kernel/errors.js'
 import {
   canonicalJson,

@@ -4,7 +4,7 @@ import {
   type RevokeContext,
 } from '../src/with-audit/attestation/revoke.js'
 import { loadOrCreateSigner } from '../src/with-audit/attestation/signer.js'
-import { generateDEK } from '../src/kernel/enclave/crypto.js'
+import { generateDEK } from '../src/kernel/enclave/index.js'
 import { verifyRevocationList, isRevoked } from '@noy-db/attestation'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../src/kernel/types.js'

@@ -17,7 +17,7 @@
  * (#199 P3, `bundle/request-withdrawal.ts`).
  */
 import type { Vault } from '../../kernel/vault.js'
-import { sha256Hex } from '../../kernel/enclave/crypto.js'
+import { sha256Hex } from '../../kernel/enclave/index.js'
 import { ReadOnlyError } from '../../kernel/errors.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import { resolveAccessibleCollections, buildAccessibleBundle } from './export-accessible.js'

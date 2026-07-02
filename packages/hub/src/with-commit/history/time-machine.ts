@@ -49,7 +49,7 @@
 import type { EncryptedEnvelope, NoydbStore } from '../../kernel/types.js'
 import type { LedgerStore } from './ledger/store.js'
 import { getHistory } from './history.js'
-import { decrypt } from '../../kernel/enclave/crypto.js'
+import { decrypt } from '../../kernel/enclave/index.js'
 import { ReadOnlyAtInstantError } from '../../kernel/errors.js'
 
 /**

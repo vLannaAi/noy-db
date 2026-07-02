@@ -8,13 +8,15 @@
  * Collection/Vault integration tests; here we exercise the functions directly.
  */
 import { describe, it, expect } from 'vitest'
-import { generateDEK, encrypt, decrypt } from '../../src/kernel/enclave/crypto.js'
 import {
+  generateDEK,
+  encrypt,
+  decrypt,
   resolveStableCek,
   rewrapBodyToDek,
   wrapCek,
   unwrapCek,
-} from '../../src/kernel/enclave/record-keys/index.js'
+} from '../../src/kernel/enclave/index.js'
 import { Lru } from '../../src/kernel/cache/index.js'
 import { NOYDB_FORMAT_VERSION, type EncryptedEnvelope } from '../../src/kernel/types.js'
 

@@ -21,7 +21,7 @@
 
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
-import { encrypt, decrypt } from '../../kernel/enclave/crypto.js'
+import { encrypt, decrypt } from '../../kernel/enclave/index.js'
 import { ConflictError, SequenceContentionError, SequenceOfflineError, ValidationError } from '../../kernel/errors.js'
 
 // Capability opt-in seam (S4): `vault.sequence()` builds its CAS store through

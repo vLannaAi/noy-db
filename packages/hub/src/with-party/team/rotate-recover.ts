@@ -25,7 +25,7 @@ import {
   unwrapKey,
   bufferToBase64,
   base64ToBuffer,
-} from '../../kernel/enclave/crypto.js'
+} from '../../kernel/enclave/index.js'
 import { InvalidKeyError, NoAccessError } from '../../kernel/errors.js'
 import {
   RecoveryProfileNotImplementedError,
