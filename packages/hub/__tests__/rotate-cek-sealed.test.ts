@@ -9,7 +9,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
-import { memoryStore } from '../src/kernel/store/memory-store.js'
+import { memoryStore } from '../src/kernel/to/memory-store.js'
 import { withSealedRecord } from '../src/with-audit/sealed-record/index.js'
 
 interface Person { id: string; name: string; ssn: string }

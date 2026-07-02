@@ -225,14 +225,14 @@ export { blindUpdate, additiveOnly, lockSchema, coordinatedCutover } from './wit
 export type { FenceState, FenceDoc } from './with-shape/schema-update/fence.js'
 
 // Sync policy
-export type { SyncPolicy, PushPolicy, PullPolicy, PushMode, PullMode, SyncSchedulerStatus } from './kernel/store/sync-policy.js'
-export { SyncScheduler, INDEXED_STORE_POLICY, POD_STORE_POLICY, BUNDLE_STORE_POLICY } from './kernel/store/sync-policy.js'
+export type { SyncPolicy, PushPolicy, PullPolicy, PushMode, PullMode, SyncSchedulerStatus } from './kernel/to/sync-policy.js'
+export { SyncScheduler, INDEXED_STORE_POLICY, POD_STORE_POLICY, BUNDLE_STORE_POLICY } from './kernel/to/sync-policy.js'
 
 // Sync target
 export type { SyncTarget, SyncTargetRole } from './kernel/types.js'
 
 // Store routing
-export { memoryStore } from './kernel/store/memory-store.js'
+export { memoryStore } from './kernel/to/memory-store.js'
 export { routeStore } from './with-store/route-store.js'
 export type {
   RouteStoreOptions, RoutedNoydbStore, BlobStoreRoute, AgeRoute,
