@@ -166,7 +166,7 @@ export interface EncryptedEnvelope {
    */
   readonly _det?: Record<string, string>
   /**
-   * Structural group-encryption (#503). Map of sensitive field name →
+   * Structural group-encryption. Map of sensitive field name →
    * per-field sealed ciphertext in `iv:data` form (same shape as a `_det`
    * slot). Present only when the collection declares `sensitive` fields and
    * at least one is present on the record. Each field is encrypted under its
@@ -191,7 +191,7 @@ export interface EncryptedEnvelope {
    * The CEK is stable across every version of a record (insert mints it;
    * updates and history snapshots reuse it), so all `_history` envelopes
    * for a record carry the same `_cek`. This is the foundation for
-   * per-record erasure (#304) and record-scoped sealing (#306).
+   * per-record erasure and record-scoped sealing.
    *
    * `_det` slots are deliberately NOT keyed off the CEK — they remain
    * keyed to the collection DEK so blind-equality search keeps working
@@ -212,7 +212,7 @@ export interface EncryptedEnvelope {
 
 /**
  * Opaque access gate for a sealed (`sensitive`) field returned by a public
- * read (#503 access layer). The handle carries only the per-field
+ * read (the access layer). The handle carries only the per-field
  * **ciphertext** — the plaintext is never materialised into the working-set
  * cache. Call {@link Sealed.reveal} to decrypt the value on demand.
  *
@@ -271,9 +271,8 @@ export type QueryField<T, S extends keyof T = never, Q extends keyof T & string 
  * options (`indexes`, `deterministicFields`, `textIndexes`). Same guarded
  * narrowing as {@link QueryField}: permissive `string` until a field is
  * declared `sensitive`, then the sensitive names are refused (a plaintext
- * secondary index over a sealed field defeats non-residency — previously only
- * a runtime `console.warn`). Kept distinct from `QueryField` so the two DSL
- * surfaces can diverge later without coupling.
+ * secondary index over a sealed field defeats non-residency). Kept distinct
+ * from `QueryField` so the two DSL surfaces can diverge later without coupling.
  *
  * When `Q` (the indexed-field set) is given, the `indexes` option is
  * additionally restricted to `Q` minus any sensitive fields — declaring `Q`
@@ -966,7 +965,7 @@ export interface ExportStreamOptions {
   readonly withLedgerHead?: boolean
   /**
    * Export locale (BCP 47, e.g. `'th'`). When set, records are read at this
-   * locale through the **`export` layer** (#285): `i18nText` fields collapse to
+   * locale through the **`export` layer**: `i18nText` fields collapse to
    * the locale string (honoring each field's `export`-layer `onMissing` policy)
    * and `dictKey`/`staticDict` `<field>Label`s are resolved — a single-locale
    * export. The raw `dictionaries` snapshot is then redundant and omitted. This
@@ -1234,7 +1233,7 @@ export interface NoydbEventMap {
    * A non-fatal i18n script violation under `onScriptViolation: 'warn' | 'filter'`.
    * 'warn' stored the value as-is; 'filter' stripped disallowed characters
    * (the event is the only signal the stored data was mutated). 'reject'
-   * throws `ScriptViolationError` and emits nothing. (#435)
+   * throws `ScriptViolationError` and emits nothing.
    */
   'i18n:script-violation': {
     vault: string
@@ -1568,7 +1567,7 @@ export interface LocaleReadOptions {
    * so `applyI18nLocale` and dictKey `resolvePolicy` select that layer's
    * `onMissing` policy instead of the `'read'` policy. Not part of the
    * public read API — callers select policy via the field's `onMissing`
-   * map, not by setting this. See #285.
+   * map, not by setting this.
    */
   readonly _layer?: Layer
 }
@@ -1740,7 +1739,7 @@ export interface BlobObject {
    */
   readonly _cek?: string
   /**
-   * Transient migration marker (#365 slice 3). Present only while a legacy
+   * Transient migration marker. Present only while a legacy
    * blob is being migrated to a content CEK: it holds the wrapped content CEK
    * BEFORE the chunks have been re-encrypted under it. Readers **ignore**
    * `_cekPending` (they key off `_cek`), so the blob stays readable under the
@@ -1843,7 +1842,7 @@ export interface BlobPutOptions {
    * User-visible filename to store on the slot. Defaults to the slot name.
    * Differs from the slot name when the caller wants a display/download name
    * (e.g. slot `attachment` holding `invoice-2024.pdf`); this is the value
-   * that the L1 lexical index (#308) tokenizes for blob fields.
+   * that the L1 lexical index tokenizes for blob fields.
    */
   filename?: string
 }
@@ -1907,7 +1906,7 @@ export interface StoreCapabilities {
   /**
    * Advisory geographic region this store serves (e.g. `'eu'`, `'us'`).
    * Purely declarative — no behavior change for stores that omit it. The
-   * federation data-residency guard (#271) compares this against a
+   * federation data-residency guard compares this against a
    * `sharding.regionOf(record)` to refuse non-compliant shard placement.
    */
   region?: string
@@ -2049,7 +2048,7 @@ export interface NoydbOptions {
    */
   readonly historyStrategy?: HistoryStrategy
   /**
-   * GDPR right-to-erasure (#304). Pass `withForgetCascade({ subjects })`
+   * GDPR right-to-erasure. Pass `withForgetCascade({ subjects })`
    * from `@noy-db/hub/forget` to declare which collections carry erasable
    * subject data and the record field naming the data subject. Enables
    * `vault.forget(subjectId)` crypto-shred (rewrite-to-tombstone of the live
@@ -2154,7 +2153,7 @@ export interface NoydbOptions {
    */
   readonly custodyStrategy?: CustodyStrategy
   /**
-   * Tree-shake seam — optional search / retrieval capability (#308). Pass
+   * Tree-shake seam — optional search / retrieval capability. Pass
    * `withSearch()` from `@noy-db/hub` to enable a collection's `search`
    * / `retrieve` / `similarTo` / `warmIndex` / `flushIndex` methods and the
    * put()-time embedding-vector compute for collections declaring `embeddings`.
@@ -2426,7 +2425,7 @@ export interface NoydbOptions {
    */
   readonly plaintextTranslatorName?: string
   /**
-   * Drain-barrier coordination transport for the schema fence (#469).
+   * Drain-barrier coordination transport for the schema fence.
    * When omitted, the kernel uses a {@link CoordinationProvider} backed by the
    * primary store (`StoreCoordinationProvider`), reproducing today's
    * store-polling fence behavior byte-for-byte. `@noy-db/by-tabs` /
@@ -2461,7 +2460,7 @@ export interface HistoryConfig {
    * writes from the chain — its puts/deletes leave no ledger entry,
    * confining tamper-evidence to the collections where it carries weight.
    * Independent of `enabled`, which gates per-record snapshots. Has no
-   * effect when `withHistory()` is not active (there is no ledger). See #361.
+   * effect when `withHistory()` is not active (there is no ledger).
    */
   readonly ledger?: boolean
 }

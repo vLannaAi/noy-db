@@ -156,7 +156,7 @@ import { USER_ENVELOPE_COLLECTION } from './meta/user-envelope/types.js'
 
 /**
  * Resolve a label from an in-memory `{ locale → label }` map, walking the
- * same fallback chain semantics as `DictionaryHandle.resolveLabel` (#291).
+ * same fallback chain semantics as `DictionaryHandle.resolveLabel`.
  * Used by the staticDict read-path resolver, which has no `_dict_*` handle.
  */
 function resolveLabelFromMap(
@@ -272,7 +272,7 @@ export class Vault {
   /**
    * Cached read-only facades handed to guard callbacks via `ctx.vault`
    * and to derivation callbacks via `derive(source, ctx)`. Split by
-   * resolution layer (#285): the guard facade reads at `layer:'guard'`,
+   * resolution layer: the guard facade reads at `layer:'guard'`,
    * the derivation facade at `layer:'derivation'`, so i18nText / dictKey
    * fields resolve under that layer's `onMissing` policy. Allocated
    * eagerly inside `_initGuards()` / `_initDerivations()` so read
@@ -341,7 +341,7 @@ export class Vault {
 
   /**
    * Attestation facade (issue/revoke + the per-collection field-schema
-   * registry). Lifted off this class in Phase 5 A2; built in the constructor.
+   * registry). Built in the constructor.
    */
   private readonly attestation!: VaultAttestation
 
@@ -426,7 +426,7 @@ export class Vault {
   >()
 
   /**
-   * Names of dictionaries backed by a `staticDict()` descriptor (#291).
+   * Names of dictionaries backed by a `staticDict()` descriptor.
    * A static dict skips the `dictKeyFieldRegistry` rename machinery, but the
    * vault must still *know* a name is static so `vault.dictionary(name)` can
    * refuse mutation (`StaticDictReadonlyError`). Populated at `collection()`
@@ -435,7 +435,7 @@ export class Vault {
   private readonly staticDictNames = new Set<string>()
 
   /**
-   * Static-dict descriptors keyed by dictionary name (#291). Backs the
+   * Static-dict descriptors keyed by dictionary name. Backs the
    * read-path label resolver (resolve from the in-memory table) and the
    * query-seam `resolveDictSource` snapshot. Last writer wins when the same
    * name is registered by multiple collections (identical-across-vaults by
@@ -444,7 +444,7 @@ export class Vault {
   private readonly staticByName = new Map<string, StaticDictDescriptor>()
 
   /**
-   * Per-collection map of field name → StaticDictDescriptor (#291). Used by
+   * Per-collection map of field name → StaticDictDescriptor. Used by
    * `enforceStaticDictOnPut` to validate stored codes against `desc.keys`.
    */
   private readonly staticDescriptorByField = new Map<
@@ -467,7 +467,7 @@ export class Vault {
   /** Cache of DictionaryHandle instances, one per dictionary name. */
   private readonly dictionaryCache = new Map<string, DictionaryHandle>()
 
-  /** Registered link specs (#377-B), keyed by link name; set by `vault.link()`. */
+  /** Registered link specs, keyed by link name; set by `vault.link()`. */
   private readonly linkRegistry = new Map<string, LinkSpec>()
   /** Cache of LinkSet handles, one per link name. */
   private readonly linkSetCache = new Map<string, LinkSet>()
@@ -725,13 +725,13 @@ export class Vault {
     refs?: Record<string, RefDescriptor>
     /** — declare i18nText fields for locale-aware reads. */
     i18nFields?: Record<string, I18nTextDescriptor>
-    /** — #308 L2: embedding config for write-time vector derivation + semantic retrieval. */
+    /** — embedding config for write-time vector derivation + semantic retrieval. */
     embeddings?: EmbeddingDescriptor
-    /** — #308 L1: string fields exposed to client-side `retrieve()`. */
+    /** — string fields exposed to client-side `retrieve()`. */
     textIndexes?: readonly IndexFieldName<T, S>[]
-    /** — #308 L1: pre-build the lexical index on open (eager-only). */
+    /** — pre-build the lexical index on open (eager-only). */
     warmIndexOnOpen?: boolean
-    /** — #308 L1.5: persist the lexical index as an opaque encrypted blob at `_ftindex/<name>`. */
+    /** — persist the lexical index as an opaque encrypted blob at `_ftindex/<name>`. */
     textIndexPersist?: boolean
     /** — declare dictKey / staticDict fields for label resolution on reads. */
     dictKeyFields?: Record<string, DictKeyDescriptor | StaticDictDescriptor>
@@ -756,7 +756,7 @@ export class Vault {
     /** — explicit ack that deterministic encryption leaks equality. */
     acknowledgeDeterministicRisk?: boolean
     /**
-     * — structural group-encryption (#503). Fields sealed into their own
+     * — structural group-encryption. Fields sealed into their own
      * `_sealed[field]` envelope slot (per-field key), kept out of the open
      * `_data` blob. Default-off; byte-identical output when absent.
      */
@@ -765,14 +765,14 @@ export class Vault {
      * — per-record content-encryption keys. When `true`, every record
      * body is encrypted under a fresh per-record CEK wrapped under the
      * collection DEK (`_cek`), stable across versions. Foundation for
-     * per-record erasure (#304) / record-scoped sealing (#306). Off by
+     * per-record erasure / record-scoped sealing. Off by
      * default; non-adopting collections take the legacy path unchanged.
      */
     perRecordKeys?: boolean
     /**
      * Per-record provenance tracking. When `true`, `put()` calls that
      * supply a `source` option stamp `_source` / `_sourceTs` onto the
-     * unencrypted envelope metadata. Off by default. (FR-5, #445)
+     * unencrypted envelope metadata. Off by default.
      */
     provenance?: boolean
     /**
@@ -817,7 +817,7 @@ export class Vault {
      * hash-chained tamper ledger. Lets you confine version snapshots +
      * tamper-evidence to the few collections where they carry legal weight,
      * without paying snapshot + ledger-entry-per-write across operational /
-     * derived collections. Defaults to the vault-wide `history` config. See #361.
+     * derived collections. Defaults to the vault-wide `history` config.
      */
     historyConfig?: HistoryConfig
     /**
@@ -854,7 +854,7 @@ export class Vault {
     if (collectionName === SEQUENCE_COLLECTION) {
       throw new ReservedCollectionNameError(collectionName)
     }
-    // Guard: reject reserved _links_* names — use vault.link()/vault.links() instead (#377-B).
+    // Guard: reject reserved _links_* names — use vault.link()/vault.links() instead.
     if (isLinkCollectionName(collectionName)) {
       throw new ReservedCollectionNameError(collectionName)
     }
@@ -915,7 +915,7 @@ export class Vault {
       }
 
       // Register dictKey / staticDict fields. Plain dictKey fields go into
-      // the rename-tracking registry; staticDict fields (#291) skip it (no
+      // the rename-tracking registry; staticDict fields skip it (no
       // per-vault pointer rewrite) and instead populate the static
       // registries that back the read-path resolver, the readonly guard, and
       // put-time code validation.
@@ -971,7 +971,7 @@ export class Vault {
         schemaUpdateGate = new SchemaUpdateGate(work)
       }
 
-      // Per-collection history/ledger scoping (#361). A per-call
+      // Per-collection history/ledger scoping. A per-call
       // `historyConfig` overrides the vault-wide config wholesale for this
       // collection; `ledger: false` excludes it from the tamper chain.
       const effectiveHistoryConfig = options?.historyConfig ?? this.historyConfig
@@ -1007,7 +1007,7 @@ export class Vault {
         historyStrategy: this.historyStrategy,
         i18nStrategy: this.i18nStrategy,
         syncStrategy: this.syncStrategy,
-        // Per-collection ledger opt-out (#361): when this collection sets
+        // Per-collection ledger opt-out: when this collection sets
         // `historyConfig.ledger: false`, withhold the ledger reference so all
         // four `if (this.ledger)` append sites in Collection no-op. The chain
         // stays valid — it simply never receives this collection's entries.
@@ -1068,7 +1068,7 @@ export class Vault {
       if (options?.perRecordKeys !== undefined) {
         collOpts.perRecordKeys = options.perRecordKeys
       }
-      // #304 — a collection declared in `withForgetCascade({ subjects })` MUST
+      // A collection declared in `withForgetCascade({ subjects })` MUST
       // use per-record CEKs: crypto-shred can only guarantee erasure of a body
       // keyed off a per-record CEK. Force it on (and warn if the caller
       // explicitly set it false — that would silently defeat erasure).
@@ -1097,7 +1097,7 @@ export class Vault {
       if (options?.computed !== undefined) collOpts.computed = options.computed as ComputedFields
       if (options?.dictKeyFields !== undefined) {
         // Build the label resolver callback for this collection. A static
-        // dict (#291) resolves from its in-memory table — no dictionary()
+        // dict resolves from its in-memory table — no dictionary()
         // lookup, no _dict_* read — while a plain dictKey resolves through
         // the encrypted _dict_* handle as before.
         collOpts.dictLabelResolver = async (dictName, key, locale, fallback) => {
@@ -1109,13 +1109,13 @@ export class Vault {
           const handle = this.dictionary(dictName)
           return handle.resolveLabel(key, locale, fallback)
         }
-        // #308 L1 — provide a handle factory for dynamic dicts so the search
+        // Provide a handle factory for dynamic dicts so the search
         // index can call list() to build the full key→labels map.
         collOpts.getDictionary = async (name: string) => this.dictionary(name)
         collOpts.dictKeyFields = options.dictKeyFields
       }
       // i18n / staticDict validation on put — enforced via the compartment's
-      // put hook. staticDict adds put-time code validation (#291).
+      // put hook. staticDict adds put-time code validation.
       if (
         options?.i18nFields !== undefined ||
         options?.dictKeyFields !== undefined
@@ -1147,7 +1147,7 @@ export class Vault {
       coll = new Collection<T>(collOpts)
       this.collectionCache.set(collectionName, coll)
 
-      // #308 L1 — pre-build the lexical index on open when opted in. Fire-and-forget,
+      // Pre-build the lexical index on open when opted in. Fire-and-forget,
       // eager-only; warmIndex() no-ops when no textIndexes are declared and throws
       // (caught here) in lazy mode, so this stays a single guarded line.
       if (options?.warmIndexOnOpen === true && options.prefetch !== false) {
@@ -1292,7 +1292,7 @@ export class Vault {
     this.#fenceCoordinationStarted = false
   }
 
-  /** @internal #308 L1.5 — best-effort flush of all open collections' persisted
+  /** @internal Best-effort flush of all open collections' persisted
    *  lexical indexes on close(). Called fire-and-forget from noydb.close().
    *  Correctness is backstopped by the fingerprint: a missed flush → rebuild on
    *  next load. Only collections with textIndexPersist have a flush(); others no-op. */
@@ -1330,7 +1330,7 @@ export class Vault {
   }
 
   /**
-   * Validate staticDict codes on a `put()` (#291). For each `staticDict()`
+   * Validate staticDict codes on a `put()`. For each `staticDict()`
    * field, every stored code must be a declared key of the descriptor's
    * table, else `UnknownDictCodeError`. Opt out per descriptor with
    * `{ validateCodes: false }`. Supports scalar, dotted, and `[].`-wildcard
@@ -1373,7 +1373,7 @@ export class Vault {
     const locale = localeOpts.locale ?? this.locale
     const staticFields = this.staticDescriptorByField.get(collectionName)
     // A static dict with `displayLocale` resolves even under a locale-less
-    // read (#291). The early-return relaxes only for that case; an i18nText-
+    // read. The early-return relaxes only for that case; an i18nText-
     // only / plain-dictKey collection still returns the raw record when no
     // locale is active (today's invariant).
     const hasStaticDisplay =
@@ -1411,7 +1411,7 @@ export class Vault {
     }
 
     // 3. staticDict label resolution — resolve from the in-memory table; uses
-    // the field's displayLocale when no locale is active (#291). No
+    // the field's displayLocale when no locale is active. No
     // dictionary() lookup, so no StaticDictReadonlyError from this path.
     if (staticFields && Object.keys(staticFields).length > 0 && locale !== 'raw') {
       const withLabels = { ...result }
@@ -1455,7 +1455,7 @@ export class Vault {
     name: string,
     options: DictionaryOptions = {},
   ): DictionaryHandle<Keys> {
-    // A staticDict (#291) has no _dict_* collection and no mutation surface —
+    // A staticDict has no _dict_* collection and no mutation surface —
     // its labels are code constants. Refuse the handle so put/putAll/rename/
     // delete can never be attempted against a static name.
     if (this.staticDictNames.has(name)) {
@@ -1510,7 +1510,7 @@ export class Vault {
   }
 
   /**
-   * Declare a managed many-to-many link set (#377-B). Registers a
+   * Declare a managed many-to-many link set. Registers a
    * `_links_<name>` junction between two endpoint collections; access its
    * rows via `vault.links(name)`. Idempotent for an identical re-declaration;
    * a conflicting one throws. See {@link links}.
@@ -1549,7 +1549,7 @@ export class Vault {
   }
 
   /**
-   * Access a declared link set (#377-B). Throws if `name` was not first
+   * Access a declared link set. Throws if `name` was not first
    * declared via {@link link}. Returns a cached {@link LinkSetHandle}:
    * `connect(a, b, meta?)`, `disconnect(a, b)`, `has(a, b)`, `of(id)`, `list()`.
    */
@@ -1602,7 +1602,7 @@ export class Vault {
    * Returns `null` when `field` is not a dictKey in `leftCollection`.
    */
   resolveDictSource(leftCollection: string, field: string): JoinableSource | null {
-    // staticDict (#291): a code-table-backed source — snapshot() materialises
+    // staticDict: a code-table-backed source — snapshot() materialises
     // the in-memory table into [{ key, labels, ...labels }] rows, mirroring
     // DictionaryHandle.snapshotEntries(). Carries `displayLocale` so a
     // locale-less { by: 'label' } query has a default locale to resolve at.
@@ -1809,7 +1809,7 @@ export class Vault {
    * const cur = await vault.sequence('invoice-2026').peek()  // current value, no allocation
    * ```
    *
-   * Pass a `format` (#375) to emit a serial string instead of a bare
+   * Pass a `format` to emit a serial string instead of a bare
    * integer — `next()` then returns `{ serial, formatted }`. Per-partition
    * reset is inherent (a new partition tuple starts at 1):
    *
@@ -1823,7 +1823,7 @@ export class Vault {
   sequence(series: string, opts?: SequenceOptions): SequenceHandle | FormattedSequenceHandle {
     // A null byte is the structural partition separator in
     // resolveSequenceKey; a series name carrying one could forge a
-    // partitioned key, so reject it (#345).
+    // partitioned key, so reject it.
     if (series.includes('\x00')) {
       throw new ValidationError(`sequence("${series}"): series name must not contain a null byte (\\x00).`)
     }
@@ -1835,7 +1835,7 @@ export class Vault {
       if (opts?.format !== undefined) {
         // Deferred numbering stamps an auto-assigned serial onto a record
         // field at seal time; a render template there is a separate change
-        // (it would alter the stamped field's type). Not in this slice (#375).
+        // (it would alter the stamped field's type). Not supported here.
         throw new ValidationError(
           `sequence("${series}") is a deferred-numbering series; the format option applies to CAS sequences only.`,
         )
@@ -1867,7 +1867,7 @@ export class Vault {
     }
     const handle = this.sequenceStore.handle(resolveSequenceKey(series, opts))
     if (opts?.format === undefined) return handle
-    // Formatted variant (#375): validate the template now (throws on a bad
+    // Formatted variant: validate the template now (throws on a bad
     // token), then wrap next() to also return the rendered serial string.
     // peek/seedTo operate on the underlying integer counter, unchanged.
     const render = compileSequenceFormat(opts.format, series, opts.partition)
@@ -2181,7 +2181,7 @@ export class Vault {
     return this.ledgerStore
   }
 
-  // ─── GDPR right-to-erasure (#304) ────────────────────────────────
+  // ─── GDPR right-to-erasure ────────────────────────────────────────
 
   /** @internal — add a subject→record ref to the encrypted subject index. */
   async _addSubjectRef(subjectId: string, ref: SubjectRef): Promise<void> {
@@ -2217,7 +2217,7 @@ export class Vault {
   }
 
   /**
-   * GDPR crypto-shred of a data subject (#304). Consults the encrypted subject
+   * GDPR crypto-shred of a data subject. Consults the encrypted subject
    * index and, per matching record:
    *   - rewrites the LIVE envelope to a tombstone (drops `_iv`/`_data`/`_cek`/`_det`),
    *   - tombstones every `_history` version of the record,
@@ -2275,7 +2275,7 @@ export class Vault {
       }
       // Classify each `_sealed` slot BEFORE tombstoning (#M-1, security
       // review). A slot keyed off the per-record CEK is genuinely shredded when
-      // `_cek` drops; a pre-#306 collection-DEK-derived slot is NOT (the DEK is
+      // `_cek` drops; a collection-DEK-derived slot is NOT (the DEK is
       // retained → synced/backup copies stay decryptable). Count only the
       // former as shredded; report the latter as residue.
       if (live?._sealed !== undefined) {
@@ -2323,7 +2323,7 @@ export class Vault {
         this.adapter, this.name, ref.collection, ref.id, actor,
       )
 
-      // Purge the record's persisted `_idx` side-cars (#401): they live under
+      // Purge the record's persisted `_idx` side-cars: they live under
       // the retained collection DEK, so crypto-shred alone leaves the indexed
       // field VALUES readable. Content-free delete; failures → indexResidue.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -2331,7 +2331,7 @@ export class Vault {
       indexPostingsPurged += idxPurge.purged
       for (const field of idxPurge.residue) indexResidue.push(`${ref.collection}:${ref.id}:${field}`)
 
-      // Purge the record's encrypted _vec sidecar (#308 L2): a vector embedding
+      // Purge the record's encrypted _vec sidecar: a vector embedding
       // is text-invertible, so it must not survive crypto-shred of the source record.
       try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -2340,7 +2340,7 @@ export class Vault {
         indexResidue.push(`${ref.collection}:${ref.id}:_vec`)
       }
 
-      // Blob attachments (#365): crypto-shred the record's erasable blobs.
+      // Blob attachments: crypto-shred the record's erasable blobs.
       // An erasable blob's chunks are under a per-blob content CEK whose only
       // copy is the BlobObject's wrapped `_cek`; deleting it at refCount 0
       // shreds the content. Legacy blobs (no `_cek`) or a session without the
@@ -2365,8 +2365,8 @@ export class Vault {
       await this._removeSubjectRef(subjectId, ref)
     }
 
-    // Purge the persisted lexical-index blob for each affected collection
-    // (#308 L1.5): an opaque all-records index must not survive crypto-shred.
+    // Purge the persisted lexical-index blob for each affected collection:
+    // an opaque all-records index must not survive crypto-shred.
     // Failures (transient/permission) must NOT abort forget — an unpurgeable
     // blob is erasure residue surfaced in the returned ForgetResult.
     for (const collName of collections) {
@@ -2432,7 +2432,7 @@ export class Vault {
     }
   }
 
-  // ─── Record-scoped CEK sealing (#306 slices 2-3) ──────────────────────
+  // ─── Record-scoped CEK sealing ─────────────────────────────────────
 
   /**
    * Seal ONE record's content-encryption key (CEK) to an `at-*` host so that
@@ -2573,7 +2573,7 @@ export class Vault {
     }
     registry.validate()
     this.derivationRegistry = registry
-    // Derivation reads resolve at `layer:'derivation'` (#285) — a distinct
+    // Derivation reads resolve at `layer:'derivation'` — a distinct
     // facade from the guard one, so `derive(source, ctx)` gets the
     // derivation `onMissing` policy (e.g. `'null'` → branch explicitly)
     // rather than the lenient guard default.
@@ -3647,7 +3647,7 @@ export class Vault {
    */
   async *exportStream(opts: ExportStreamOptions = {}): AsyncIterableIterator<ExportChunk> {
     const granularity = opts.granularity ?? 'collection'
-    // #285 export layer: when an export locale is set, read each record at that
+    // Export layer: when an export locale is set, read each record at that
     // locale through the `export` layer (`resolvePolicy(onMissing, 'export')`) —
     // collapsing i18nText fields to the locale string and resolving dictKey/
     // staticDict `<field>Label`s — so the export is single-locale and the raw

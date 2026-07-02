@@ -152,7 +152,7 @@ export class Noydb {
   private readonly clientId = generateULID()
   /** Session that owns this instance's writers (one user's writers across vaults). */
   private readonly sessionId: string
-  /** Drain-barrier coordination transport for the schema fence (#469). */
+  /** Drain-barrier coordination transport for the schema fence. */
   private readonly coordinationProvider: CoordinationProvider
   private readonly vaultCache = new Map<string, Vault>()
   private readonly keyringCache = new Map<string, UnlockedKeyring>()
@@ -297,7 +297,7 @@ export class Noydb {
     return this.forgetStrategy
   }
 
-  // #304 — GDPR subject-index maintenance. When `withForgetCascade` declares
+  // GDPR subject-index maintenance. When `withForgetCascade` declares
   // any subject fields, keep the encrypted `_subject_index` in lock-step with
   // writes so `vault.forget(subjectId)` can find every record for a subject.
   //
@@ -1183,7 +1183,7 @@ export class Noydb {
    * @internal — the physical backend store a vault id maps to. A
    * `routeStore` resolves the vault-prefix route via its `resolveBackend`;
    * a plain store is its own backend. Used by the federation data-residency
-   * guard to read the placement backend's `capabilities.region` (#271).
+   * guard to read the placement backend's `capabilities.region`.
    */
   _resolveBackend(vaultId: string): NoydbStore {
     const store = this.options.store as NoydbStore & {
@@ -1572,13 +1572,13 @@ export class Noydb {
     return this.clientId
   }
 
-  /** @internal Session that owns this instance's writers (#469). */
+  /** @internal Session that owns this instance's writers. */
   get _sessionId(): string {
     return this.sessionId
   }
 
   /**
-   * @internal Drain-barrier coordination transport for the schema fence (#469).
+   * @internal Drain-barrier coordination transport for the schema fence.
    * The default store-backed provider reproduces today's fence behavior; a
    * `by-*` real-time transport is injected via `coordinationStrategy`.
    */
@@ -1642,7 +1642,7 @@ export class Noydb {
     }
     this.syncEngines.clear()
     for (const v of this.vaultCache.values()) v._stopFenceCoordination() // stop heartbeat/watcher timers
-    for (const v of this.vaultCache.values()) void v._flushSearchIndexes() // #308 L1.5 best-effort flush
+    for (const v of this.vaultCache.values()) void v._flushSearchIndexes() // best-effort flush
     this.disableTabCoordination() // stop tab lock/heartbeat timers
     this.keyringCache.clear()
     this.vaultCache.clear()
@@ -2141,7 +2141,7 @@ export class Noydb {
       return keyring
     }
 
-    // Pre-gate (#313): refuse to self-provision into a vault held by other
+    // Pre-gate: refuse to self-provision into a vault held by other
     // principals; create-on-open only for a genuinely-new vault. Runs BEFORE
     // resolveManagedSecret (which persists on first open) so a fail-closed open
     // writes nothing. encrypt:false returned a plaintext keyring above, so we're

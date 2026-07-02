@@ -111,7 +111,7 @@ import { resolveCollectionConfig, type CollectionOpts } from './collection-confi
 export type OnDirtyCallback = (collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>
 
 /**
- * Value-equality for a single self-write reverse-denorm field (#376). Scalars
+ * Value-equality for a single self-write reverse-denorm field. Scalars
  * compare by identity; objects by canonical JSON (denorm values should be
  * deterministically shaped). Used as the cycle guard — when every denorm
  * field already matches, no write is issued and the self-write recursion ends.
@@ -348,33 +348,33 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   private readonly i18nFields: Record<string, I18nTextDescriptor> | undefined
 
   /**
-   * #308 L1 — the configured string fields exposed to `retrieve()`. `undefined`
+   * The configured string fields exposed to `retrieve()`. `undefined`
    * for ordinary collections, so the search path costs nothing when unused.
    */
   private readonly textIndexes: readonly string[] | undefined
 
   /**
-   * #308 L1 — the session-scoped lexical index store. `undefined` (so the dirty
+   * The session-scoped lexical index store. `undefined` (so the dirty
    * poke + retrieve are zero-cost) unless `textIndexes` is non-empty.
    */
   private readonly searchIndexStore: IndexStore | undefined
 
   /**
-   * #435 — the densify-enabled subset of {@link i18nFields} (fields whose
+   * The densify-enabled subset of {@link i18nFields} (fields whose
    * descriptor opts in via `densifyOnWrite: true`). `undefined` when none opt
    * in, so the write path skips all densify work for ordinary collections.
    */
   private readonly i18nDensifyFields: Record<string, I18nTextDescriptor> | undefined
 
   /**
-   * #308 L2 — embedding config for write-time vector derivation. `undefined`
+   * Embedding config for write-time vector derivation. `undefined`
    * for ordinary collections (zero cost). When set, `put()` encodes the
    * source field(s) and stores an encrypted `_vec` sidecar.
    */
   private readonly embeddings: EmbeddingDescriptor | undefined
 
   /**
-   * #308 L2 — in-memory vector set, populated lazily from `_vec` sidecars.
+   * In-memory vector set, populated lazily from `_vec` sidecars.
    * `undefined` when no embedding config is declared.
    */
   private vectorSet: VectorSet | undefined
@@ -435,7 +435,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     | undefined
 
   /**
-   * #308 L1 — async callback provided by the Vault to open a dynamic
+   * Async callback provided by the Vault to open a dynamic
    * dictionary handle (for label-map pre-computation in the search index).
    * Only used in `resolveDictLabelMaps()`; static dicts bypass this entirely.
    */
@@ -459,7 +459,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * Declared structural-group-encryption fields (`sensitive`). Each is
    * sealed into its own `_sealed[field]` slot under a per-field key and kept
    * out of the open `_data` blob. Empty set ⇒ feature off (byte-identical
-   * output). See {@link encryptRecord} / {@link decryptRecord}. (#503)
+   * output). See {@link encryptRecord} / {@link decryptRecord}.
    */
   private readonly sensitiveFields: ReadonlySet<string>
 
@@ -478,7 +478,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * Per-record provenance opt-in (`provenance: true`). When set, `put()` calls
    * that supply a `source` option stamp `_source`/`_sourceTs` onto the
    * unencrypted envelope metadata. Off by default — zero cost for collections
-   * that don't need lineage tracking (FR-5, #445).
+   * that don't need lineage tracking.
    */
   private readonly provenance: boolean
 
@@ -682,7 +682,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     this.refEnforcer = cfg.refEnforcer
     this.joinResolver = cfg.joinResolver
     this.i18nFields = cfg.i18nFields
-    // #308 L1 — only spin up an index store when text fields are declared, so
+    // Only spin up an index store when text fields are declared, so
     // ordinary collections pay nothing (the dirty poke + retrieve see undefined).
     this.textIndexes = cfg.textIndexes
     // `searchIndexStore` is `this`-dependent: the persisted-store callback thunk
@@ -775,7 +775,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
     // Build + register this collection's SyncEngine conflict resolvers (the CRDT
     // merge resolver + the per-collection `conflictPolicy` resolver). Kept inline
-    // here (Phase 5 A11): the closures capture private `this` state (this.codec,
+    // here: the closures capture private `this` state (this.codec,
     // this.crdtStrategy, this.resolveRecordCek) AND close over `conflictPolicy:
     // ConflictPolicy<T>`, whose custom-merge `(T, T) => T` is invariant in T —
     // exposing them through a method parameter would break the `Collection<T>` →
@@ -994,9 +994,9 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * Sync overload (no args): merges moneyFields / dictKeyFields / refs /
    * computed / fieldMeta into a {@link CollectionDescription}. Field types are
    * inferred from config (money→'number', ref→'string'/'array', dict→'enum',
-   * others→'unknown'). Validator-derived types require the async overload (Task 4).
+   * others→'unknown'). Validator-derived types require the async overload.
    *
-   * Async overload (Task 4 #483): resolves validator-derived types + dynamic dict
+   * The async overload resolves validator-derived types + dynamic dict
    * labels before building the description.
    */
   describe(): CollectionDescription
@@ -1019,7 +1019,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   }
 
   /**
-   * Async describe implementation (#483 Task 4).
+   * Async describe implementation.
    * Derives validator-exact types via deriveZodFields (lazy, no static zod import),
    * optionally resolves dynamic-dict labels from vault.dictionary(name).list(),
    * then delegates to buildDescription which also runs fieldMeta key-validation.
@@ -1268,7 +1268,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    *                `source` is an opaque source id (e.g. `'crm-sync'`, `'firm-A'`)
    *                stamped onto the envelope as `_source`/`_sourceTs` when
    *                the collection has `provenance: true`. Ignored otherwise
-   *                (zero cost). (FR-5, #445)
+   *                (zero cost).
    *                `sourceTs` is an optional ISO-8601 origin timestamp override;
    *                when supplied together with `source` on a provenance collection,
    *                replaces the machine-stamped `now()` so re-merges preserve the
@@ -1312,7 +1312,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   }
 
   /**
-   * #435 — resolve the prior stored record (with its `_i18nFilled` marker) for
+   * Resolve the prior stored record (with its `_i18nFilled` marker) for
    * densify. Eager: in-memory cache; lazy: LRU then adapter. undefined if absent.
    */
   private async resolveDensifyPrior(id: string): Promise<Record<string, unknown> | undefined> {
@@ -1329,7 +1329,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   }
 
   /**
-   * #435 — densify provenance for a record: which i18n slots were auto-filled,
+   * Densify provenance for a record: which i18n slots were auto-filled,
    * e.g. `{ name: ['en'] }`. undefined when nothing was filled. The marker is
    * stripped from ordinary reads; this is the sanctioned audit accessor.
    */
@@ -1410,7 +1410,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       throw new ReadOnlyError()
     }
 
-    // One canonical money encoding from the FIRST pipeline stage (#335):
+    // One canonical money encoding from the FIRST pipeline stage:
     // gates, computed fields, and schema validation all see the decoded
     // `get()` shape. Best-effort — bad input passes through and the
     // quantize stage below throws the real error.
@@ -1521,7 +1521,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       }
     }
 
-    // #435 densifyOnWrite (decision A): read prior fills so a round-tripped
+    // densifyOnWrite: read prior fills so a round-tripped
     // derived copy is exempt from script enforcement and can be refreshed.
     // `densifyPrior` is read once here and reused by densify() below.
     let densifyPrior: Record<string, unknown> | undefined
@@ -1581,7 +1581,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       this.i18nPutValidator(record)
     }
 
-    // #435 — eager-fill empty slots + record provenance. Runs AFTER the
+    // Eager-fill empty slots + record provenance. Runs AFTER the
     // authored gates (required + script) so only authored slots are validated;
     // filled slots are recorded in the internal `_i18nFilled` marker.
     if (this.i18nDensifyFields) {
@@ -1695,7 +1695,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
       await this.onDirty?.(this.name, id, 'put', version)
       this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action: 'put' } satisfies ChangeEvent)
-      this.searchIndexStore?.markDirty() // #308 L1 — zero-cost for non-search collections
+      this.searchIndexStore?.markDirty() // zero-cost for non-search collections
       await this.onAccess?.('put', id)
       await this.dispatchDerivations(id, record, version)
       await this.dispatchMaterializedViews(id, record)
@@ -1768,10 +1768,10 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     const envelope = await this.codec.encryptRecord(record, version, cek, options?.source, options?.sourceTs)
     await this.adapter.put(this.vault, this.name, id, envelope)
 
-    // #308 L2 — derive the embedding vector at write (encode → encrypted _vec sidecar).
+    // Derive the embedding vector at write (encode → encrypted _vec sidecar).
     // Placed AFTER the main adapter.put so `version` (computed above) is in scope and
     // the record write is committed first. The _vec envelope _v is not OCC-checked.
-    // Gated behind `searchStrategy: withSearch()` (S4): a collection declaring
+    // Gated behind `searchStrategy: withSearch()`: a collection declaring
     // `embeddings` but not opting into search hits NO_SEARCH's throw here.
     if (this.embeddings) {
       await this.searchStrategy.embedOnWrite(this.searchContext(), id, record, version)
@@ -1841,7 +1841,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       id,
       action: 'put',
     } satisfies ChangeEvent)
-    this.searchIndexStore?.markDirty() // #308 L1 — zero-cost for non-search collections
+    this.searchIndexStore?.markDirty() // zero-cost for non-search collections
 
     await this.onAccess?.('put', id)
 
@@ -1916,7 +1916,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * cycle detection.
    */
   /**
-   * @internal #376 — the RAW stored record (canonical-money form, i18n maps
+   * @internal The RAW stored record (canonical-money form, i18n maps
    * intact), WITHOUT the locale resolution `get()` applies. Used as the
    * patch base for self-write reverse-denorm so writing back never clobbers
    * an i18n map or re-quantizes money incorrectly. Returns null for
@@ -1965,7 +1965,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   }
 
   /**
-   * @internal #376 — ids of records whose top-level `field` equals `value`.
+   * @internal Ids of records whose top-level `field` equals `value`.
    * Uses the FK index when the field is indexed (O(matches)); otherwise a
    * linear scan (O(N) — fine for small child sets; index the FK to scale).
    */
@@ -1996,7 +1996,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   }
 
   /**
-   * @internal #376 slice 2 — recompute a rollup aggregate onto the parent.
+   * @internal Recompute a rollup aggregate onto the parent.
    * Gathers every child of `parentId`, runs `compute`, and patches only the
    * rollup `field` onto the parent's raw stored record (value-equality
    * guarded). No-op when the parent record does not exist.
@@ -2037,7 +2037,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   }
 
   /**
-   * @internal #376 slice 2 — fire any rollups for which THIS collection is the
+   * @internal Fire any rollups for which THIS collection is the
    * child `from`, recomputing the affected parent after a child delete. Called
    * from the delete path with the just-removed record's key value. Other
    * derivation kinds do not react to deletes (unchanged).
@@ -2057,7 +2057,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   private async dispatchDerivations(id: string, record: T, version: number): Promise<void> {
     if (this.derivationSource === undefined) return
     // `record` is the stored form here (post-quantize) — decode so
-    // derive(source, ctx) sees the canonical money shape (#335).
+    // derive(source, ctx) sees the canonical money shape.
     const incoming = canonicalizeStoredMoney(record, this.moneyFields) as Record<string, unknown>
     if (incoming && typeof incoming === 'object' && '_derivedFrom' in incoming) return
     const registry = this.derivationSource.registry()
@@ -2072,7 +2072,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     for (const { spec, strategyHash } of strategies) {
       const mode = typeof spec.lifecycle === 'string' ? spec.lifecycle : spec.lifecycle.mode
 
-      // Rollup (#376 slice 2): a write to the child `from` recomputes the
+      // Rollup: a write to the child `from` recomputes the
       // parent at id child[key]; a write to the parent (source = into)
       // recomputes its own aggregate. Handled here (the executor is not run).
       if (spec.rollup) {
@@ -2091,8 +2091,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       // Determine how `this.name` triggers this strategy, and build the list
       // of source records to (re-)derive:
       //   • source     — re-derive the written record itself (same-id).
-      //   • sources[]  — re-derive the PRIMARY source at the same id (#344).
-      //   • triggerBy  — FK fan-out (#376): re-derive every source record
+      //   • sources[]  — re-derive the PRIMARY source at the same id.
+      //   • triggerBy  — FK fan-out: re-derive every source record
       //                  whose `on` field equals the written parent's id.
       // `input` is passed to derive(); `base` is the raw stored source record
       // used as the patch base for a self-write reverse-denorm output.
@@ -2201,8 +2201,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
               await outputCollection.put(entry.key, entry.value, { source: 'derived' })
             }
 
-            // Persist the new key set (last step — see spec §5.1
-            // on failure-mode symmetry).
+            // Persist the new key set last, for failure-mode symmetry.
             await saveFanoutSidecar(this.adapter, this.vault, {
               source: spec.source,
               sourceId: run.runId,
@@ -2227,7 +2226,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
             continue
           }
 
-          // ── Self-write reverse-denorm (#376) ───────────────────
+          // ── Self-write reverse-denorm ───────────────────────────
           // An output back to its own source: patch ONLY the declared
           // `denorm` fields onto the raw stored record, never the whole
           // value (which would clobber user fields / i18n maps and carries
@@ -2283,7 +2282,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   async delete(id: string): Promise<void> {
     await this.schemaUpdateGate?.assertWritable()
     await this.schemaFence?.assertWritable(this.name)
-    // #230 user write-hooks AND the Track A observe bus both need the
+    // User write-hooks AND the Track A observe bus both need the
     // WriteEvent. Build it if EITHER consumer is active so the bus is not
     // coupled to write-hooks being present. Mirrors the put() path.
     const hooksActive = this.#hooksActive()
@@ -2332,9 +2331,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       // an already-CEK record reuses its stable CEK. This is the
       // erasure-completeness pass — once migrated, the record body is keyed
       // off a per-record CEK and a future shred can erase it. Until then it
-      // stays directly under the collection DEK. `forget()`/shred (step 2,
-      // #304) reports un-migrated records explicitly rather than claiming
-      // erasure.
+      // stays directly under the collection DEK. `forget()`/shred reports
+      // un-migrated records explicitly rather than claiming erasure.
       const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
       const newEnv = await this.codec.encryptRecord(next as unknown as T, nextVersion, cek)
       await this.adapter.put(this.vault, this.name, id, newEnv)
@@ -2536,7 +2534,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       id,
       action: 'delete',
     } satisfies ChangeEvent)
-    this.searchIndexStore?.markDirty() // #308 L1 — zero-cost for non-search collections
+    this.searchIndexStore?.markDirty() // zero-cost for non-search collections
 
     await this.onAccess?.('delete', id)
 
@@ -2556,7 +2554,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     if (!internal) {
       await this.dispatchMaterializedViewsOnDelete(id)
       await this.dispatchArrayDerivationsOnDelete(id)
-      // Rollup-on-delete (#376 slice 2): recompute the parent aggregate now
+      // Rollup-on-delete: recompute the parent aggregate now
       // that this child is gone. `existing.record` carries the deleted child's
       // FK; the recompute gathers the REMAINING children (this one already
       // removed from the store/cache above).
@@ -2565,7 +2563,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   }
 
   /**
-   * @internal — GDPR crypto-shred a LIVE record to a tombstone (#304).
+   * @internal — GDPR crypto-shred a LIVE record to a tombstone.
    *
    * Rewrites the on-disk envelope to `{ _noydb, _v, _ts, _by, _iv:'', _data:'' }`,
    * dropping `_iv`/`_data`/`_cek`/`_det`. The wrapped per-record CEK is gone, so
@@ -2588,7 +2586,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    */
   /**
    * @internal — decrypt an envelope to a plain record for subject-index
-   * rebuild (#304). Returns `null` for a tombstone or unreadable envelope.
+   * rebuild. Returns `null` for a tombstone or unreadable envelope.
    * Skips schema validation — the rebuild only reads the subject field.
    */
   async _decodeEnvelope(envelope: EncryptedEnvelope, id: string): Promise<Record<string, unknown> | null> {
@@ -2724,7 +2722,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     }
     await this.ensureHydrated()
     const records = [...this.cache.values()].map(e => e.record)
-    // #322 — money decode (stored scaled-int → canonical decimal) must run
+    // Money decode (stored scaled-int → canonical decimal) must run
     // even with no locale, so list() matches get(). applyLocaleToRecord
     // decodes money regardless of locale and only resolves i18n/dict virtuals
     // when a locale is active. Keep the no-transform fast path.
@@ -2746,11 +2744,11 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   }
 
   /**
-   * Scan-mode full-text search over a plain-text `field` (#308). Decrypts the
+   * Scan-mode full-text search over a plain-text `field`. Decrypts the
    * collection in memory and ranks records by BM25 against the tokenized query.
    * **Zero added store leakage** — pure client-side scan; nothing searchable is
    * written to the store. (A store-usable blind index for at-scale search is a
-   * separate, gated opt-in — see the #308 design note.) Eager mode only.
+   * separate, gated opt-in.) Eager mode only.
    *
    * `opts.match` (`'any'` default | `'all'`), `opts.prefix` (last query term as
    * a prefix → typeahead), `opts.limit` (top-N). Returns `{ id, score, record }`
@@ -2761,22 +2759,22 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     return this.searchStrategy.search(this.searchContext(), field, query, opts)
   }
 
-  /** #308 L1.5 — force-persist the lexical index now — gated behind `searchStrategy: withSearch()`. */
+  /** Force-persist the lexical index now — gated behind `searchStrategy: withSearch()`. */
   flushIndex(): Promise<void> {
     return this.searchStrategy.flushIndex(this.searchContext())
   }
 
-  /** #308 L1 — pre-build the lexical index — gated behind `searchStrategy: withSearch()`. */
+  /** Pre-build the lexical index — gated behind `searchStrategy: withSearch()`. */
   warmIndex(): Promise<void> {
     return this.searchStrategy.warmIndex(this.searchContext())
   }
 
-  /** #308 — retrieval (lexical | semantic | hybrid) — gated behind `searchStrategy: withSearch()`. */
+  /** Retrieval (lexical | semantic | hybrid) — gated behind `searchStrategy: withSearch()`. */
   retrieve(query: string, opts: RetrieveOptions<T> = {}): Promise<RetrieveHit<T>[]> {
     return this.searchStrategy.retrieve(this.searchContext(), query, opts)
   }
 
-  /** #308 L2 — raw-vector kNN — gated behind `searchStrategy: withSearch()`. */
+  /** Raw-vector kNN — gated behind `searchStrategy: withSearch()`. */
   similarTo(vector: Float32Array, opts: { k?: number; minScore?: number; includeRecord?: boolean } = {}): Promise<RetrieveHit<T>[]> {
     return this.searchStrategy.similarTo(this.searchContext(), vector, opts)
   }
@@ -3063,7 +3061,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
           leftCollection,
           resolveRef: (field: string) => resolver.resolveRef(leftCollection, field),
           resolveSource: (collectionName: string) => resolver.resolveSource(collectionName),
-          // #285 §3 — flow the vault/collection default locale to joins so a
+          // Flow the vault/collection default locale to joins so a
           // joined i18n field resolves like get()/list() when no per-call
           // locale is given; toArray({ locale }) overrides it.
           ...(this.defaultLocale !== undefined ? { defaultLocale: this.defaultLocale } : {}),
@@ -3173,7 +3171,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         this.emitter.on('change', handler)
         return () => this.emitter.off('change', handler)
       },
-      // #285 §3 — expose this (right-side) collection's i18nText descriptors so
+      // Expose this (right-side) collection's i18nText descriptors so
       // the join executor can resolve joined i18n fields at the `join` layer.
       ...(this.i18nFields !== undefined ? { i18nFields: this.i18nFields } : {}),
     }
@@ -3442,7 +3440,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
           leftCollection,
           resolveRef: (field: string) => resolver.resolveRef(leftCollection, field),
           resolveSource: (collectionName: string) => resolver.resolveSource(collectionName),
-          // #285 §3 — flow the vault/collection default locale to joins so a
+          // Flow the vault/collection default locale to joins so a
           // joined i18n field resolves like get()/list() when no per-call
           // locale is given; toArray({ locale }) overrides it.
           ...(this.defaultLocale !== undefined ? { defaultLocale: this.defaultLocale } : {}),
@@ -3556,7 +3554,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   async _applyRemoteChange(id: string, action: 'put' | 'delete'): Promise<void> {
     await this._invalidateCacheEntry(id)
     this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action })
-    this.searchIndexStore?.markDirty() // #308 L1 — peer write changed the cache; rebuild on next retrieve
+    this.searchIndexStore?.markDirty() // peer write changed the cache; rebuild on next retrieve
   }
 
   /** @internal — the current in-memory record without a store read (for conflict capture). */
@@ -3775,7 +3773,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
     // i18nText / dictKey resolution require an active locale — EXCEPT a
     // static dict declaring a `displayLocale`, which resolves its
-    // `<field>Label` even under a locale-less read (the #291 hybrid hinge).
+    // `<field>Label` even under a locale-less read (the hybrid hinge).
     // The first early-return (above, `!hasI18n && !hasDict && !hasMoney`) is
     // UNCHANGED; only this second return relaxes, and ONLY for static-display
     // fields — folding `hasI18n` in here would let an i18nText-only
@@ -3787,7 +3785,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       Object.values(this.dictKeyFields).some(
         (d) => isStaticDictDescriptor(d) && d.displayLocale !== undefined,
       )
-    // #435 — strip the internal densify marker even when no locale is active
+    // Strip the internal densify marker even when no locale is active
     // (applyI18nLocale, which normally strips it, is skipped on this path).
     // Non-mutating: never touches the cached/stored record object.
     if (!locale && !hasStaticDisplay) return stripI18nFilled(result) as T
@@ -3795,7 +3793,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // 1. i18nText resolution — guarded on `locale`, because the relaxed gate
     // above can now be entered with `locale === undefined` (static-display).
     // The layer (`'read'` by default; `'guard'`/`'derivation'` when read
-    // through a layer-tagged facade, #285) selects the field's per-layer
+    // through a layer-tagged facade) selects the field's per-layer
     // `onMissing` policy inside applyI18nLocale.
     const layer = localeOpts?._layer ?? 'read'
     if (locale && hasI18n && this.i18nFields) {
@@ -3817,7 +3815,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
             ? (localeOpts?.fallback ?? desc.substitute)
             : localeOpts?.fallback
         // Per-field effective locale: a static dict falls back to its
-        // `displayLocale` when no locale is active (the #291 hybrid hinge);
+        // `displayLocale` when no locale is active (the hybrid hinge);
         // a plain dictKey with no displayLocale gets `undefined` → its
         // <field>Label is omitted on a locale-less read (today's behavior).
         const effLocale =
@@ -3849,7 +3847,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         }
 
         if (field.includes('[].')) {
-          // Wildcard path `arrayKey[].leaf` (#282): add a per-element
+          // Wildcard path `arrayKey[].leaf`: add a per-element
           // sibling `<leaf>Label`. Single level + simple leaf.
           const parts = field.split('[].')
           const arrayKey = parts[0]!
@@ -3888,7 +3886,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       result = withLabels
     }
 
-    // #435 — final guard: the locale-less static-display path skips
+    // Final guard: the locale-less static-display path skips
     // applyI18nLocale's strip, so ensure the densify marker never leaks here
     // either. Non-mutating (no-op when absent or already stripped above).
     return stripI18nFilled(result) as T
@@ -3935,7 +3933,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
   /**
    * @internal — hard-delete this record's persisted `_idx/<field>/<recordId>`
-   * side-cars for the erasure path (#401). `forget()` crypto-shreds the body but
+   * side-cars for the erasure path. `forget()` crypto-shreds the body but
    * keeps the collection DEK, under which these side-cars are encrypted — so
    * without this they leave the indexed field VALUES readable after a "forget".
    *
@@ -3950,14 +3948,14 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     return purgePersistedIndexesImpl(this.indexingContext(), id)
   }
 
-  /** #308 L2 — drop a record's encrypted _vec sidecar on erasure (a vector is text-invertible).
+  /** Drop a record's encrypted _vec sidecar on erasure (a vector is text-invertible).
    *  Called by vault.ts forget() inside a resilient try/catch; residue is reported in ForgetResult. */
   async _purgeVector(id: string): Promise<void> {
     await this.adapter.delete(this.vault, '_vec', id)
     this.vectorSet?.markDirty()
   }
 
-  /** #308 L1.5 — drop the persisted lexical-index blob (forget/erasure): an opaque
+  /** Drop the persisted lexical-index blob (forget/erasure): an opaque
    *  all-records index must not survive crypto-shred. Idempotent; no-op without persist. */
   async _purgeSearchIndex(): Promise<void> {
     const store = this.searchIndexStore

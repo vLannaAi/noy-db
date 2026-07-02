@@ -60,11 +60,11 @@
  *            └─ ComputedFieldError     — computed function threw during a write
  *       └─ Erasure errors
  *            └─ ForgetStrategyNotConfiguredError — vault.forget() with no withForgetCascade
- *       ├─ Sealed-record errors (record-scoped CEK sealing, #306)
+ *       ├─ Sealed-record errors (record-scoped CEK sealing)
  *       │    ├─ SealedRecordExpiredError  — sealed CEK binding past expiresAt
  *       │    ├─ SealedRecordMismatchError — CEK sealed for record A used on record B
  *       │    └─ RecordCekNotFoundError    — record missing or no per-record `_cek`
- *       └─ Embedding errors (#308 L2)
+ *       └─ Embedding errors
  *            ├─ EmbeddingDimMismatchError           — stored vector dim ≠ descriptor dim
  *            └─ EmbeddingModelMismatchError         — stored vector model tag ≠ descriptor model
  * ```
@@ -1490,7 +1490,7 @@ export class ScriptViolationError extends NoydbError {
  * mutation surface — a label change is a code deploy, not a runtime write.
  * Distinct from the other dictionary errors so callers can tell a
  * "this dict is read-only by construction" refusal from a missing-key or
- * key-in-use failure. (#291)
+ * key-in-use failure.
  */
 export class StaticDictReadonlyError extends NoydbError {
   /** The static dictionary name that was the target of the mutation. */
@@ -1516,7 +1516,7 @@ export class StaticDictReadonlyError extends NoydbError {
  * default. Opt out per descriptor with `{ validateCodes: false }`.
  *
  * Distinct from {@link LocaleNotSpecifiedError} (a read-hole) — this is a
- * write-shape error. (#291)
+ * write-shape error.
  */
 export class UnknownDictCodeError extends NoydbError {
   /** The static dictionary name. */
@@ -2378,7 +2378,7 @@ export class ShardProvisioningError extends NoydbError {
  * Thrown by `VaultGroup.createShard` when `sharding.regionOf` resolves a
  * required region that doesn't match the placement backend's
  * `capabilities.region` — the shard would land on a non-compliant backend
- * (data-residency violation, #271). Raised BEFORE provisioning, so no
+ * (a data-residency violation). Raised BEFORE provisioning, so no
  * vault is created.
  */
 export class DataResidencyError extends NoydbError {
@@ -2451,7 +2451,7 @@ export class ForgetStrategyNotConfiguredError extends NoydbError {
   }
 }
 
-// ─── Sealed-record (record-scoped CEK sealing, #306) Errors ─────────────
+// ─── Sealed-record (record-scoped CEK sealing) Errors ───────────────────
 
 /**
  * Thrown by `openSealedRecord()` when the sealed CEK's binding has passed its
@@ -2527,7 +2527,7 @@ export class RecordCekNotFoundError extends NoydbError {
   }
 }
 
-// ─── Embedding Errors (#308 L2) ─────────────────────────────────────────────
+// ─── Embedding Errors ────────────────────────────────────────────────────
 
 /**
  * Thrown when a stored vector's dimension does not match the dimension declared
