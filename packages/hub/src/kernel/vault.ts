@@ -9,14 +9,6 @@ import type {
   TierMode,
   Role,
 } from './types.js'
-import {
-  dumpVault,
-  loadVault,
-  verifyBackupIntegrity,
-  exportVaultJSON,
-  type BackupContext,
-  type VerifyBackupResult,
-} from './vault-backup.js'
 import type { Noydb } from './noydb.js'
 import type { IssueDelegationOptions, DelegationToken } from '../with-party/team/delegation.js'
 import { NOYDB_FORMAT_VERSION } from './types.js'
@@ -3494,22 +3486,23 @@ export class Vault {
    * both modes round-trip cleanly.
    */
   async dump(): Promise<string> {
+    const { dumpVault } = await import('../with-pod/backup.js')
     return dumpVault(this.backupContext())
   }
 
   /**
-   * Build the {@link BackupContext} the extracted backup module (`vault-backup.ts`)
+   * Build the `BackupContext` the extracted backup module (`with-pod/backup.ts`)
    * binds to: the read paths + the post-load mutation seams (`reloadKeyring`,
    * collection-cache clear, ledger-store reset) that `load()` performs on this
    * Vault's private state.
    */
-  private backupContext(): BackupContext {
+  private backupContext() {
     return {
       adapter: this.adapter,
       vault: this.name,
       userId: () => this.keyring.userId,
       getLedgerOrNull: () => this.getLedgerOrNull(),
-      envelopePayloadHash: (envelope) => this.historyStrategy.envelopePayloadHash(envelope),
+      envelopePayloadHash: (envelope: EncryptedEnvelope) => this.historyStrategy.envelopePayloadHash(envelope),
       reloadKeyringAndRebuildDEK: async () => {
         if (this.reloadKeyring) {
           this.keyring = await this.reloadKeyring()
@@ -3521,7 +3514,7 @@ export class Vault {
       },
       clearCollectionCache: () => this.collectionCache.clear(),
       resetLedgerStore: () => { this.ledgerStore = null },
-      exportStream: (opts) => this.exportStream(opts),
+      exportStream: (opts: ExportStreamOptions) => this.exportStream(opts),
     }
   }
 
@@ -3548,6 +3541,7 @@ export class Vault {
    * — there's no chain to verify against.
    */
   async load(backupJson: string): Promise<void> {
+    const { loadVault } = await import('../with-pod/backup.js')
     return loadVault(this.backupContext(), backupJson)
   }
 
@@ -3579,7 +3573,8 @@ export class Vault {
    * during `load()`. A scheduled background check is the simplest
    * way to detect tampering of an in-place vault.
    */
-  async verifyBackupIntegrity(): Promise<VerifyBackupResult> {
+  async verifyBackupIntegrity() {
+    const { verifyBackupIntegrity } = await import('../with-pod/backup.js')
     return verifyBackupIntegrity(this.backupContext())
   }
 
@@ -3845,6 +3840,7 @@ export class Vault {
    * is the live validator object, not a serialization of it).
    */
   async exportJSON(opts: ExportStreamOptions = {}): Promise<string> {
+    const { exportVaultJSON } = await import('../with-pod/backup.js')
     return exportVaultJSON(this.backupContext(), opts)
   }
 }
