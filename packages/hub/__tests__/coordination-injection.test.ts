@@ -14,11 +14,11 @@ import { createNoydb } from '../src/kernel/noydb.js'
 import { memory } from '../../to-memory/src/index.js'
 import { coordinatedCutover, additiveOnly } from '../src/with-shape/schema-update/index.js'
 import {
-  StoreCoordinationProvider,
   type CoordinationProvider,
   type FenceState,
   type WriterPresence,
-} from '../src/kernel/coordination/index.js'
+} from '../src/kernel/by/index.js'
+import { StoreCoordinationProvider } from '../src/with-shape/schema-update/store-coordination-provider.js'
 import type { NoydbStore } from '../src/kernel/types.js'
 import type { Unsubscribe } from '../src/kernel/with/write-hooks.js'
 

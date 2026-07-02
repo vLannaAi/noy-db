@@ -47,7 +47,7 @@
  */
 
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs'
-import { resolve, join, relative } from 'node:path'
+import { resolve, join, relative, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = resolve(fileURLToPath(import.meta.url), '../..')
@@ -912,6 +912,130 @@ function checkNoDebugPlaintextInSource() {
   }
 }
 
+// ─── Check 9: door-layering (S5 family doors) ───────────────────────────
+//
+// Imports point inward only: family → door → service layer → kernel spine.
+// The kernel spine (the always-on orchestration files: noydb.ts, vault.ts,
+// collection.ts, types.ts, errors.ts, schema.ts, refs.ts, validation.ts,
+// collection-config.ts, write-queue.ts, constants.ts, events.ts, debug.ts,
+// env-check.ts, plus query/ enclave/ cache/ util/ meta/ policy/) may import
+// its own `kernel/with/` hook seam freely, but must not statically reach
+// into a `with-*` service package or another kernel door (`to on at in by
+// ui`) — see docs/superpowers/specs/2026-07-02-family-doors-kernel-diet-design.md.
+// A dynamic `import()` is the sanctioned escape hatch (the S4 gate recipe);
+// this check only scans static `import`/`export … from` statements.
+//
+// `on` / `at` / `in` don't exist yet (N2b territory) — the check tolerates
+// their absence; it's a plain path-string test, not a directory walk.
+//
+// PRE_EXISTING_SPINE_SERVICE_IMPORTS grandfathers the with-* call-sites that
+// predate this check: the S4 NO_X-strategy-default / thin-facade-delegator
+// pattern (documented at length in KERNEL_SURFACE_BUDGET above) plus the
+// query DSL's aggregate/money reducers. Retrofitting those ~280 call-sites
+// is its own future extraction effort (see the design doc's "Deferred" list),
+// not this task's job — this is a ratchet against NEW spine→service
+// coupling, not a retroactive fix. A file NOT on this list must stay clean.
+
+const KERNEL_DOORS = ['to', 'on', 'at', 'in', 'by', 'ui'] // `with` is the exception door — never restricted.
+
+const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Set([
+  'packages/hub/src/kernel/collection-config.ts',
+  'packages/hub/src/kernel/collection.ts',
+  'packages/hub/src/kernel/index.ts',
+  'packages/hub/src/kernel/noydb.ts',
+  'packages/hub/src/kernel/types.ts',
+  'packages/hub/src/kernel/vault-backup.ts',
+  'packages/hub/src/kernel/vault.ts',
+  'packages/hub/src/kernel/query/builder.ts',
+  'packages/hub/src/kernel/query/index.ts',
+  'packages/hub/src/kernel/query/join.ts',
+  'packages/hub/src/kernel/query/predicate.ts',
+  'packages/hub/src/kernel/query/scan-builder.ts',
+  'packages/hub/src/kernel/enclave/record-keys/record-codec.ts',
+  'packages/hub/src/kernel/enclave/record-keys/sealing.ts',
+  'packages/hub/src/kernel/meta/user-envelope/api.ts',
+  'packages/hub/src/kernel/policy/noydb-facade.ts',
+])
+
+// Matches a static `import`/`export … from '…'` clause (named `{…}`,
+// `* as x`, or bare `*`); multi-line clauses are fine since `[^}]` already
+// spans newlines. Dynamic `import(…)` calls never match (no `from`).
+const STATIC_IMPORT_FROM_RE =
+  /(?:import|export)\s+(?:type\s+)?(?:\*\s+as\s+\S+|\{[^}]*\}|\*)\s*from\s*['"]([^'"]+)['"]/g
+
+function listDirectTsFiles(dir) {
+  if (!existsSync(dir)) return []
+  return readdirSync(dir, { withFileTypes: true })
+    .filter((e) => e.isFile() && e.name.endsWith('.ts') && !e.name.endsWith('.d.ts'))
+    .map((e) => join(dir, e.name))
+}
+
+/** Path of a resolved import, relative to `hub/src`, POSIX-separated. */
+function importTargetRelToHubSrc(fromFile, spec, hubSrc) {
+  return relative(hubSrc, resolve(dirname(fromFile), spec)).split('\\').join('/')
+}
+
+function checkDoorLayering() {
+  const hubSrc = join(PACKAGES_DIR, 'hub', 'src')
+  const kernelDir = join(hubSrc, 'kernel')
+
+  // Rule 1: the spine must not statically import a with-* service package
+  // or a kernel door.
+  const spineFiles = [
+    ...listDirectTsFiles(kernelDir),
+    ...['query', 'enclave', 'cache', 'util', 'meta', 'policy'].flatMap((d) => {
+      const files = []
+      walkTsFiles(join(kernelDir, d), (file) => files.push(file))
+      return files
+    }),
+  ]
+  for (const file of spineFiles) {
+    const rel = relative(ROOT, file)
+    if (PRE_EXISTING_SPINE_SERVICE_IMPORTS.has(rel)) continue
+    const code = stripComments(readFileSync(file, 'utf8'))
+    for (const m of code.matchAll(STATIC_IMPORT_FROM_RE)) {
+      const spec = m[1]
+      if (!spec.startsWith('.')) continue // only relative imports resolve inside hub/src
+      const target = importTargetRelToHubSrc(file, spec, hubSrc)
+      if (/^with-[^/]+(\/|$)/.test(target)) {
+        fail(
+          'door-layering',
+          `${rel} statically imports service-layer path "${spec}" — the kernel spine may only reach a with-* service via a dynamic import() (the S4 gate recipe).`,
+          file,
+        )
+      } else if (KERNEL_DOORS.some((d) => target.startsWith(`kernel/${d}/`))) {
+        fail(
+          'door-layering',
+          `${rel} statically imports kernel door "${spec}" — the kernel spine may not import a door folder (kernel/with/ is the only exception).`,
+          file,
+        )
+      }
+    }
+  }
+
+  // Rule 2: a kernel door may not import another kernel door. `with` is
+  // exempt both ways (spine→with and door→with are always allowed).
+  for (const doorName of KERNEL_DOORS) {
+    walkTsFiles(join(kernelDir, doorName), (file, content) => {
+      const rel = relative(ROOT, file)
+      const code = stripComments(content)
+      for (const m of code.matchAll(STATIC_IMPORT_FROM_RE)) {
+        const spec = m[1]
+        if (!spec.startsWith('.')) continue
+        const target = importTargetRelToHubSrc(file, spec, hubSrc)
+        const targetDoor = KERNEL_DOORS.find((d) => d !== doorName && target.startsWith(`kernel/${d}/`))
+        if (targetDoor) {
+          fail(
+            'door-layering',
+            `${rel} (kernel/${doorName}/) statically imports kernel/${targetDoor}/ — kernel doors may not import each other.`,
+            file,
+          )
+        }
+      }
+    })
+  }
+}
+
 // ─── Run ───────────────────────────────────────────────────────────────
 
 const startTime = Date.now()
@@ -925,6 +1049,7 @@ checkEveryServiceGated()
 checkKernelSurface()
 checkNoDebugPlaintextInSource()
 checkNoOutboundKlumImport()
+checkDoorLayering()
 
 const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
 
