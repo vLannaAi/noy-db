@@ -145,7 +145,7 @@ export type BuiltInGateName =
   | 'update-user'
   /**
    * Authorize a non-owner's self-service **destructive** withdrawal —
-   * `vault.user.unilateralWithdrawal` (#199). The actor exports their
+   * `vault.user.unilateralWithdrawal`. The actor exports their
    * own re-keyed copy and then removes (delete-closure) or freezes the
    * source records. Because it both egresses data AND destroys the
    * firm's live copy, it MUST fail closed: undefined in a policy = denied.
@@ -154,13 +154,13 @@ export type BuiltInGateName =
   | 'client-unilateral-withdraw'
   /**
    * Authorize FILING a two-party withdrawal request —
-   * `vault.user.requestWithdrawal` (#199 P3). Non-destructive (writes a
+   * `vault.user.requestWithdrawal`. Non-destructive (writes a
    * pending request only); enabled by default so a read-only client can ask.
    */
   | 'user-request-withdrawal'
   /**
    * Authorize DECIDING a two-party withdrawal request (approve/reject) —
-   * `vault.user.approveWithdrawal` / `rejectWithdrawal` (#199 P3). The approve
+   * `vault.user.approveWithdrawal` / `rejectWithdrawal`. The approve
    * path is destructive (extract-and-dispose under firm authority), so it
    * defaults to a tier-2 floor; owner/admin role is enforced structurally.
    */

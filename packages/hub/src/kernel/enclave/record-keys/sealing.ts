@@ -1,5 +1,5 @@
 /**
- * Record-scoped CEK sealing — grantor side (#306 slices 2-3).
+ * Record-scoped CEK sealing — grantor side.
  *
  * The **grantor** holds the collection DEK and seals ONE record's CEK to an
  * `at-*` host so that host — and only that host — can decrypt exactly that
@@ -168,11 +168,11 @@ export async function rotateRecordCek(
   const newCek = await generateDEK()
   const { iv, data } = await encrypt(json, newCek)
 
-  // #306: sealed fields are now keyed off the per-record CEK, so a rotation
-  // must RE-ENCRYPT each `_sealed[field]` under the new CEK (Slice A's
-  // carry-forward would orphan them — the old CEK is gone after this rotate).
-  // Dual-read the old slot: try the old-CEK-derived key (#306 records), fall
-  // back to the collection-DEK key (legacy / pre-#306), then re-seal under newCek.
+  // Sealed fields are keyed off the per-record CEK, so a rotation
+  // must RE-ENCRYPT each `_sealed[field]` under the new CEK (carrying the old
+  // slots forward would orphan them — the old CEK is gone after this rotate).
+  // Dual-read the old slot: try the old-CEK-derived key, fall
+  // back to the collection-DEK key (legacy), then re-seal under newCek.
   let sealedOut: Record<string, string> | undefined
   if (live._sealed !== undefined) {
     const out: Record<string, string> = {}
@@ -194,8 +194,8 @@ export async function rotateRecordCek(
     ...(ctx.actor ? { _by: ctx.actor } : {}),
     ...(live._tier !== undefined ? { _tier: live._tier } : {}),
     ...(live._det !== undefined ? { _det: live._det } : {}),
-    // Re-encrypt sealed (`sensitive`) fields under the new CEK (#306). Sealed
-    // keys now derive off the per-record CEK, so the rotated record's old CEK is
+    // Re-encrypt sealed (`sensitive`) fields under the new CEK. Sealed
+    // keys derive off the per-record CEK, so the rotated record's old CEK is
     // destroyed here — carrying the old `_sealed` slots forward verbatim would
     // orphan them (unreadable under the new CEK). `sealedOut` holds the slots
     // dual-read from the old CEK (or the legacy DEK) and re-sealed under newCek.

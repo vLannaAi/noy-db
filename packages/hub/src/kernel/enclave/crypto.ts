@@ -448,7 +448,7 @@ export async function derivePresenceKey(dek: CryptoKey, collectionName: string):
 /**
  * Derive a **per-field** AES-256-GCM key from a collection DEK using
  * HKDF-SHA256, used to encrypt a single sensitive field into its own
- * `_sealed[field]` envelope slot (structural group-encryption, #503).
+ * `_sealed[field]` envelope slot (structural group-encryption).
  *
  * Domain-separated from the data DEK (and from the presence/deterministic
  * channels) by the fixed salt `'noydb-sealed'` and an `info` of
@@ -494,7 +494,7 @@ export async function deriveSealedFieldKey(
 
 /**
  * Derive a per-record sealed-field key from the record's **per-record CEK**
- * (#306) rather than the collection DEK. Same HKDF construction as
+ * rather than the collection DEK. Same HKDF construction as
  * {@link deriveSealedFieldKey} but with salt `'noydb-sealed-cek'` (distinct
  * from `'noydb-sealed'`), so a CEK-derived key can never collide with a
  * DEK-derived one for the same `{collection, field}`.

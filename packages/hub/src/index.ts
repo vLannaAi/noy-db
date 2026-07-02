@@ -200,7 +200,7 @@ export type { WriteEvent, WriteHook } from './kernel/with/write-hooks.js'
 // Runtime schema introspection
 export type { SchemaIntrospection } from './with-shape/introspection/types.js'
 
-// Field metadata (#483)
+// Field metadata
 export type { FieldMeta, SemanticType } from './with-shape/introspection/field-meta.js'
 export type { CollectionMeta, VaultMeta } from './with-shape/introspection/meta.js'
 export type { CollectionDescription, DescribedField, DescribeOptions } from './with-shape/introspection/describe.js'
@@ -311,7 +311,7 @@ export {
 export { SnapshotNotFoundError } from './kernel/errors.js'
 export type { SnapshotMeta, RetentionPolicy } from './with-fork/snapshots/strategy.js'
 
-// ─── Record cold-storage archival (#307) ───────────────────────────────────────
+// ─── Record cold-storage archival ───────────────────────────────────────
 export { withArchive } from './with-fork/archive/index.js'
 export type {
   ArchiveStrategy,
@@ -321,7 +321,7 @@ export type {
   ArchiveRunOptions,
 } from './with-fork/archive/index.js'
 
-// ─── Atomic sequence (#303) ─────────────────────────────────────────────────────
+// ─── Atomic sequence ─────────────────────────────────────────────────────
 export { SequenceStore, resolveSequenceKey, compileSequenceFormat } from './with-commit/sequence/index.js'
 export type { SequenceHandle, FormattedSequenceHandle, NextOptions, SequenceOptions, SequenceStoreOptions } from './with-commit/sequence/index.js'
 export { withSequence, NO_SEQUENCE } from './with-commit/sequence/index.js'
@@ -491,7 +491,7 @@ export type {
   RefViolation,
 } from './kernel/refs.js'
 
-// Managed many-to-many link sets via vault.link() / vault.links() (#377-B)
+// Managed many-to-many link sets via vault.link() / vault.links()
 export {
   isLinkCollectionName,
   LinkEndpointError,
@@ -851,7 +851,7 @@ export type {
   MoneyString,
 } from './with-shape/money/index.js'
 
-// computed — schema-owned computed scalar fields (#302)
+// computed — schema-owned computed scalar fields
 export { evalComputedFields, ComputedFieldError } from './with-formula/computed/index.js'
 export type { ComputedFields, ComputedFn } from './with-formula/computed/index.js'
 
@@ -933,7 +933,7 @@ export { TierNotGrantedError, TierDemoteDeniedError, DelegationTargetMissingErro
 
 // lazy-mode index errors
 export { IndexRequiredError, IndexWriteFailureError } from './kernel/errors.js'
-// #308 L3 — hybrid-retrieval rank fusion (also the klum federation primitive)
+// Hybrid-retrieval rank fusion (also the klum federation primitive)
 export { fuseRetrieval, type FuseOptions } from './with-lookup/search/fuse.js'
 // unique-index enforcement error
 export { UniqueConstraintError, UnsupportedIndexOptionError } from './kernel/errors.js'
@@ -1093,7 +1093,7 @@ export type {
 // Query DSL helpers (escape-hatch types for consumers with dynamic field names)
 export type { QueryField, IndexFieldName } from './kernel/types.js'
 
-// Sealed-field access surface (#504): `Sealed<V>` is the opaque handle a public
+// Sealed-field access surface: `Sealed<V>` is the opaque handle a public
 // read returns for a `sensitive` field; `SealedView<T, S>` is the record shape
 // `get()` returns (sealed fields → handles); `SealedHandle` is the concrete
 // class (exported for `instanceof` narrowing — the `Sealed.sealed` discriminant
@@ -1101,7 +1101,7 @@ export type { QueryField, IndexFieldName } from './kernel/types.js'
 export type { Sealed, SealedView } from './kernel/types.js'
 export { SealedHandle } from './kernel/types.js'
 
-// Scan-mode full-text search (#308)
+// Scan-mode full-text search
 export { tokenize } from './with-lookup/search/index.js'
 export type { Tokenizer, SearchOptions, SearchResult, SearchEntry } from './with-lookup/search/index.js'
 export type { RetrieveOptions, RetrieveHit } from './with-lookup/search/index.js'

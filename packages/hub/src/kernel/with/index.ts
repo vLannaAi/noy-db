@@ -1,13 +1,12 @@
 /**
- * @noy-db/hub/with — the seam `with*()` services hook into (S5 family doors).
+ * @noy-db/hub/with — the seam `with*()` services hook into.
  *
  * Carries the three primitives every opt-in service is built on top of: the
- * `ServiceBus` (observe/gate lifecycle bus — renamed from `SubsystemBus`, kept
- * as a deprecated alias for source compat), the `WriteHookRegistry`
+ * `ServiceBus` (observe/gate lifecycle bus; `SubsystemBus` is a deprecated
+ * alias kept for source compat), the `WriteHookRegistry`
  * (before/after write hooks), and the export/import capability gate
- * (`assertCanExport`/`assertCanImport`/`canExport`/`canImport`). These were
- * previously loose top-level files under `kernel/`; this subpath is the
- * stable, named door onto them.
+ * (`assertCanExport`/`assertCanImport`/`canExport`/`canImport`). This subpath
+ * is the stable, named door onto them.
  *
  * Named re-exports only (no `export *`) so the published surface is explicit and
  * tsup's per-entry bundling keeps class identity stable across subpaths.

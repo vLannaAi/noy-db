@@ -1,7 +1,7 @@
 /**
  * Tombstone shape + predicate for the per-record-key (CEK) layer.
  *
- * A *tombstone* is the residue a GDPR crypto-shred (`vault.forget()`, #304)
+ * A *tombstone* is the residue a GDPR crypto-shred (`vault.forget()`)
  * leaves on disk: the live envelope rewritten to `{ _noydb, _v, _ts, _by,
  * _iv:'', _data:'' }`, dropping `_iv`/`_data`/`_cek`/`_det`. With the wrapped
  * per-record CEK gone, the body — and every history version under the same

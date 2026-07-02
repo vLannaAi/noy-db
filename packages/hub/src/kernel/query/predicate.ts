@@ -2,7 +2,7 @@
  * Operator implementations for the query DSL.
  *
  * All predicates run client-side, AFTER decryption — they never see ciphertext.
- * The only dependency is the money clause evaluator (#336) — still
+ * The only dependency is the money clause evaluator — still
  * tree-shakeable through it.
  */
 
@@ -31,7 +31,7 @@ export interface FieldClause {
   readonly op: Operator
   readonly value: unknown
   /**
-   * Present when `field` is a declared money field (#336): the operand
+   * Present when `field` is a declared money field: the operand
    * quantized into stored scaled-int space at query BUILD time, so the
    * per-record comparison is BigInt-exact against the raw stored value.
    * Built by `moneyFieldClause` — `Query.where()` attaches it when the
@@ -57,8 +57,7 @@ export interface FilterClause {
  * A declared deterministic predicate reference. The query
  * builder produces this via `.wherePredicate(name, ctx?)` when a
  * Query has been augmented with a predicates map (typically by the
- * materialized-view registry — see MV v2 spec § Function-based
- * source-row predicates).
+ * materialized-view registry).
  *
  * `predicateHash` is the consumer-supplied stable hash for the
  * function body; `ctxHash` is the canonical-JSON SHA-256 of `ctx`.
@@ -139,7 +138,7 @@ export function evaluateFieldClause(record: unknown, clause: FieldClause): boole
   const actual = readPath(record, clause.field)
   const { op, value } = clause
 
-  // Money fields compare BigInt-exact in scaled-integer space (#336) —
+  // Money fields compare BigInt-exact in scaled-integer space —
   // the stored form is a digit string, so the generic paths below would
   // either reject (string vs number is not comparable) or compare
   // lexicographically. The operand was quantized at build time.
@@ -199,9 +198,9 @@ function isComparable(a: unknown, b: unknown): boolean {
  *
  * `fnRecord`, when provided, is the view handed to USER CALLBACK clauses
  * (`filter` / `wherePredicate`) instead of `record` — the executor passes
- * the money-decoded view there (#335) so user code never sees the stored
+ * the money-decoded view there so user code never sees the stored
  * scaled-int form, while field clauses keep evaluating against the raw
- * record (their money operands are pre-quantized to that space, #336).
+ * record (their money operands are pre-quantized to that space).
  */
 export function evaluateClause(record: unknown, clause: Clause, fnRecord?: unknown): boolean {
   switch (clause.type) {

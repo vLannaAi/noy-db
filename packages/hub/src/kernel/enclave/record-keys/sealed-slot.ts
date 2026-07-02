@@ -1,5 +1,5 @@
 /**
- * Sealed-slot (`iv:data`) parsing + the #306 dual-read, factored out so the
+ * Sealed-slot (`iv:data`) parsing + the CEK/DEK dual-read, factored out so the
  * three callers that decrypt a `_sealed[field]` slot share ONE implementation
  * with no coupling between them:
  *
@@ -19,8 +19,8 @@ export function parseSealedSlot(blob: string): { iv: string; data: string } {
 }
 
 /**
- * #306 dual-read: decrypt a sealed slot trying the CEK-derived field key first,
- * falling back to the collection-DEK field key. Records sealed BEFORE #306
+ * Dual-read: decrypt a sealed slot trying the CEK-derived field key first,
+ * falling back to the collection-DEK field key. Legacy records
  * (even ones whose body is CEK-encrypted) are sealed under the collection-DEK
  * key; current writes seal under the per-record CEK. Try the CEK key first; on
  * its AES-GCM auth failure, fall back to the DEK key. Throws only if BOTH fail.

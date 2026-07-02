@@ -1,6 +1,5 @@
 /**
- * Vault backup / restore / integrity, lifted off the `Vault` god-object
- * (Phase 5 A4 of the microkernel refactoring).
+ * Vault backup / restore / integrity.
  *
  * Holds `dump()` (verifiable encrypted JSON backup, including the blob
  * collections so blob "covers" travel in the bundle), `load()` (restore +
@@ -370,7 +369,7 @@ export async function exportVaultJSON(ctx: BackupContext, opts: ExportStreamOpti
   for await (const chunk of ctx.exportStream({
     granularity: 'collection',
     withLedgerHead: opts.withLedgerHead === true,
-    // #285 export layer: thread the export locale so records are read at the
+    // Thread the export locale so records are read at the
     // `export` layer (i18nText collapsed + dictKey/staticDict labels resolved).
     ...(opts.resolveLabels !== undefined ? { resolveLabels: opts.resolveLabels } : {}),
   })) {

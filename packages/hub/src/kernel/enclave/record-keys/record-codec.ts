@@ -1,15 +1,13 @@
 /**
  * RecordCodec — the per-record envelope build + encrypt/decrypt + per-record-CEK
- * + sealed-field crypto, lifted off the `Collection` god-object (Phase 1 of the
- * microkernel refactoring).
+ * + sealed-field crypto.
  *
  * `Collection` holds one `RecordCodec` instance and delegates the crypto write
  * path (`encryptRecord` / `encryptJsonString` / `buildDebugEnvelope`), the read
  * path (`decryptRecord` / `decryptJsonString` / `resolveEnvelopeCek`), and the
  * sealed-field helpers (`unsealField` / `makeSealedHandle` / `toCacheRecord` /
- * `classifySealedShred`) to it. Behaviour is byte-identical to the inline code
- * it replaced — the codec receives every `this.*` dependency the moving methods
- * touched via {@link RecordCodecContext}.
+ * `classifySealedShred`) to it. The codec receives every `this.*` dependency
+ * it needs via {@link RecordCodecContext}.
  *
  * The crux is `cekCache`: it is the SAME `Lru` reference `Collection` owns (not
  * a copy). `resolveEnvelopeCek` reads/writes it, and tier methods +
@@ -64,7 +62,7 @@ export class RecordCodec<T> {
   constructor(private readonly ctx: RecordCodecContext<T>) {}
 
   // ──────────────────────────────────────────────────────────────────────
-  // Low-level literal builders (Phase 1 dedup seed)
+  // Low-level literal builders
   // ──────────────────────────────────────────────────────────────────────
 
   /**
@@ -194,7 +192,7 @@ export class RecordCodec<T> {
       return this.buildDebugEnvelope(record, version, source, sourceTs)
     }
 
-    // Structural group-encryption (#503): peel declared sensitive fields out
+    // Structural group-encryption: peel declared sensitive fields out
     // of the record BEFORE building `_data`, sealing each into its own
     // `_sealed[field]` slot under a per-field key. Default-off — with no
     // sensitive fields the open record is unchanged and no `_sealed` is
@@ -318,20 +316,20 @@ export class RecordCodec<T> {
    * materialisation always agree byte-for-byte.
    */
   async unsealField(field: string, blob: string, cek?: CryptoKey): Promise<unknown> {
-    // #306 dual-read. Current writes seal under a key derived from the record's
-    // per-record CEK; records sealed BEFORE #306 (even ones whose body is
+    // Dual-read. Current writes seal under a key derived from the record's
+    // per-record CEK; legacy records (even ones whose body is
     // CEK-encrypted) are sealed under the collection-DEK key. Try the CEK key
     // first; on its AES-GCM auth failure, fall back to the DEK key. Without this
-    // fallback every pre-#306 `_sealed` record would throw TamperedError (data loss).
+    // fallback every legacy `_sealed` record would throw TamperedError (data loss).
     const dek = await this.ctx.getDEK()
     return JSON.parse(await dualReadSealedSlot(blob, field, this.ctx.name, cek, dek))
   }
 
   /**
-   * Classify a live envelope's `_sealed` slots for crypto-shred completeness
-   * (#M-1, 2026-06-30 security review). `forget()` drops `_cek`/`_sealed` but
+   * Classify a live envelope's `_sealed` slots for crypto-shred completeness.
+   * `forget()` drops `_cek`/`_sealed` but
    * RETAINS the collection DEK, so only a slot keyed off the per-record CEK is
-   * genuinely shredded by the tombstone; a pre-#306 slot keyed off the
+   * genuinely shredded by the tombstone; a legacy slot keyed off the
    * collection DEK survives in any synced/backup copy.
    *
    * Mirrors {@link unsealField}'s dual-read split: try the CEK-derived key per
@@ -423,7 +421,7 @@ export class RecordCodec<T> {
 
     let record = parsed as T
 
-    // Structural group-encryption (#503) + sealed access gate.
+    // Structural group-encryption + sealed access gate.
     // Each `_sealed[field]` slot is restored under its own per-field key.
     // `sealedAsHandles: false` (default — internal callers that compute on
     // real values) inline-decrypts to the plaintext value; `true` (the

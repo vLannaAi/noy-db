@@ -1,6 +1,5 @@
 /**
- * Noydb-side policy / session-policy facade, lifted off the `Noydb`
- * god-object (Phase 5 A10 of the microkernel refactoring).
+ * Noydb-side policy / session-policy facade.
  *
  * Holds the vault-policy read/update/bootstrap logic (`getPolicy`,
  * `updatePolicy`, `bootstrapPolicy`) and the per-vault session-policy

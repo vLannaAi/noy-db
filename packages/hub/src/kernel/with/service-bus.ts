@@ -37,14 +37,14 @@ export interface GatePutEvent {
   readonly docId: string
   /**
    * The record about to be written (pre schema-validation). Money fields
-   * are presented in their canonical decoded form (#332) — equal on both
+   * are presented in their canonical decoded form — equal on both
    * sides for an unchanged value, regardless of how the caller wrote them.
    */
   readonly incoming: unknown
   /**
    * Decrypted prior record, or null on create / when prior is unreadable.
    * Money fields are decoded to the canonical decimal `get()` shape, NOT
-   * the stored scaled-int (#332) — `incoming[f] === existing[f]` holds
+   * the stored scaled-int — `incoming[f] === existing[f]` holds
    * for an unchanged money field.
    */
   readonly existing: unknown
@@ -71,7 +71,7 @@ export interface GateDeleteEvent {
   readonly docId: string
   /** True for system-internal (housekeeping) deletes — handlers branch on this. */
   readonly internal: boolean
-  /** Decrypted prior record; money fields decoded to the canonical `get()` shape (#332). */
+  /** Decrypted prior record; money fields decoded to the canonical `get()` shape. */
   readonly existing: unknown
   readonly existingVersion: number
   readonly existingTs: string | undefined

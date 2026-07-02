@@ -86,12 +86,12 @@ export const PERSONAL_POLICY: VaultPolicy = Object.freeze({
     'edit-own-profile': { minTier: 3 },
     'view-team-profiles': { minTier: 2 },
     // client-unilateral-withdraw: a non-owner's self-service DESTRUCTIVE
-    // withdrawal (export-and-delete/freeze, #199). Fail-closed by default —
+    // withdrawal (export-and-delete/freeze). Fail-closed by default —
     // the firm opts in per jurisdiction/contract (e.g. GDPR Art. 17).
     // Listed explicitly (not just relying on the built-in default) so it is
     // discoverable in describeGate / policy dumps.
     'client-unilateral-withdraw': { minTier: 1, enabled: false },
-    // Two-party withdrawal (#199 P3): filing a request is non-destructive
+    // Two-party withdrawal: filing a request is non-destructive
     // (tier-1, enabled so a read-only client can ask); deciding it is the
     // destructive step (tier-2 floor + owner/admin role, enforced in code).
     'user-request-withdrawal': { minTier: 1 },

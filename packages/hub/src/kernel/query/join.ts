@@ -124,12 +124,12 @@ export interface JoinableSource {
   /**
    * Default locale a label-resolving query falls back to when the query
    * itself is locale-less. Set by a `staticDict()`-backed source from its
-   * `displayLocale` so `{ by: 'label' }` resolves under a locale-less read
-   * (#291). Plain `_dict_*`-backed sources omit it.
+   * `displayLocale` so `{ by: 'label' }` resolves under a locale-less read.
+   * Plain `_dict_*`-backed sources omit it.
    */
   readonly displayLocale?: string
   /**
-   * i18nText descriptors of the right-side collection (#285 §3, `join`
+   * i18nText descriptors of the right-side collection (`join`
    * layer). When present and the query carries a locale, each joined
    * right-side record's i18n fields resolve to that locale at the `join`
    * layer (`resolvePolicy(onMissing, 'join')`) BEFORE it is attached under
@@ -162,7 +162,7 @@ export interface JoinContext {
   /** Name of the left-side (owning) collection. */
   readonly leftCollection: string
   /**
-   * The owning collection's default locale (#285 §3). Used to resolve joined
+   * The owning collection's default locale. Used to resolve joined
    * i18n fields at the `join` layer when a terminal call doesn't pass an
    * explicit locale — so `openVault({ locale })` flows to joins like it does
    * to `get`/`list`. A per-call `toArray({ locale })` overrides it.
@@ -366,7 +366,7 @@ function applyOneJoin(
     warnCeilingApproaching(leg.target, 'right', rightSnapshot.length, maxRows)
   }
 
-  // #285 §3 — `join`-layer i18n. When the query carries a locale (per-call
+  // `join`-layer i18n. When the query carries a locale (per-call
   // or the owning collection's default) and the right side declares i18n
   // fields, resolve each matched right record's i18n fields to that locale
   // at the `join` layer before it's attached. Locale-less → leave raw.
