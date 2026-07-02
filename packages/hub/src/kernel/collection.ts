@@ -1300,8 +1300,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       }
       if (hooksActive) await this.writeHooks!.runBefore(event) // throw → aborts the write
     }
-    if (this.writeQueue) await this.writeQueue.track(() => this.putInternal(id, record, options))
-    else await this.putInternal(id, record, options)
+    if (this.writeQueue) await this.writeQueue.track(() => this._putInternal(id, record, options))
+    else await this._putInternal(id, record, options)
     if (event) {
       // Ordering: user afterWrite hooks run BEFORE observe-bus dispatch in
       // slice 1. Revisit when internal observe services (e.g. MV-refresh
@@ -1361,7 +1361,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
   /**
    * @internal — resolve the prior record for a hook's `before` and
-   * its version. Critically, this uses the SAME basis `putInternal` writes from
+   * its version. Critically, this uses the SAME basis `_putInternal` writes from
    * (the in-memory cache in eager mode; lru-then-adapter in lazy) — NOT a fresh
    * store read — so `baseVersion`/`version` match the version actually written.
    * A separate store read would diverge once another tab has advanced the shared
@@ -1405,7 +1405,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   }
 
   /** @internal Untracked put body — call {@link put}, not this. */
-  private async putInternal(id: string, record: T, options?: { readonly reason?: string; readonly source?: string; readonly sourceTs?: string }): Promise<void> {
+  private async _putInternal(id: string, record: T, options?: { readonly reason?: string; readonly source?: string; readonly sourceTs?: string }): Promise<void> {
     if (!hasWritePermission(this.keyring, this.name)) {
       throw new ReadOnlyError()
     }
@@ -2298,8 +2298,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       }
       if (hooksActive) await this.writeHooks!.runBefore(event)
     }
-    if (this.writeQueue) await this.writeQueue.track(() => this.deleteInternal(id))
-    else await this.deleteInternal(id)
+    if (this.writeQueue) await this.writeQueue.track(() => this._deleteInternal(id))
+    else await this._deleteInternal(id)
     if (event) {
       // Ordering: user afterWrite hooks run before observe-bus dispatch.
       if (hooksActive) await this.writeHooks!.runAfter(event)
@@ -2349,7 +2349,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   }
 
   /** @internal Untracked delete body — call {@link delete}, not this. */
-  private async deleteInternal(id: string): Promise<void> {
+  private async _deleteInternal(id: string): Promise<void> {
     await this._doDelete(id, false)
   }
 

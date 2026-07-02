@@ -277,7 +277,7 @@ export class Noydb {
       quickUnlock: this.quickUnlock,
       policyCache: this.policyCache,
       checkGate: (vault, gate, factors) => this.checkGate(vault, gate, factors),
-      getKeyringInternal: (vault, opts) => this.getKeyringInternal(vault, opts),
+      getKeyringInternal: (vault, opts) => this._getKeyringInternal(vault, opts),
       assertRecoveryEnrolled: (vault, policy, opts) =>
         this.assertRecoveryEnrolled(vault, policy, opts),
       openVault: (vault, opts) => this.openVault(vault, opts),
@@ -502,7 +502,7 @@ export class Noydb {
       return comp
     }
 
-    const keyring = await this.getKeyringInternal(name, { create: opts?.create !== false })
+    const keyring = await this._getKeyringInternal(name, { create: opts?.create !== false })
     // Tier-1 unlock — passphrase / getKeyring callbacks both yield the
     // most-privileged tier. Tier-2 / tier-3 unlocks install
     // a lower tier here when they land.
@@ -740,7 +740,7 @@ export class Noydb {
   ): Promise<void> {
     this.checkPolicyOperation(vault, 'grant')
     await this.checkGate(vault, 'enroll-user', factors)
-    const keyring = await this.getKeyringInternal(vault)
+    const keyring = await this._getKeyringInternal(vault)
     await keyringGrant(this.options.store, vault, keyring, options)
   }
 
@@ -760,7 +760,7 @@ export class Noydb {
   ): Promise<void> {
     this.checkPolicyOperation(vault, 'revoke')
     await this.checkGate(vault, 'revoke-user', factors)
-    const keyring = await this.getKeyringInternal(vault)
+    const keyring = await this._getKeyringInternal(vault)
     await keyringRevoke(this.options.store, vault, keyring, options)
   }
 
@@ -792,7 +792,7 @@ export class Noydb {
   ): Promise<void> {
     this.checkPolicyOperation(vault, 'grant')
     await this.checkGate(vault, 'grant-custodian', factors)
-    const keyring = await this.getKeyringInternal(vault)
+    const keyring = await this._getKeyringInternal(vault)
     if (keyring.role !== 'owner') throw new PermissionDeniedError('only the Deed owner can grant a custodian')
     await keyringGrant(this.options.store, vault, keyring, { ...options, role: 'custodian' })
   }
@@ -821,7 +821,7 @@ export class Noydb {
   ): Promise<void> {
     this.checkPolicyOperation(vault, 'revoke')
     await this.checkGate(vault, 'revoke-user', factors)
-    const keyring = await this.getKeyringInternal(vault)
+    const keyring = await this._getKeyringInternal(vault)
     if (keyring.role !== 'owner') throw new PermissionDeniedError('only the Deed owner can revoke a custodian')
     await keyringRevoke(this.options.store, vault, keyring, options)
   }
@@ -872,7 +872,7 @@ export class Noydb {
     factors?: FactorProofBundle,
   ): Promise<void> {
     await this.checkGate(vault, 'update-user', factors)
-    const keyring = await this.getKeyringInternal(vault)
+    const keyring = await this._getKeyringInternal(vault)
     await updateKeyringIdentity(this.options.store, vault, keyring, options)
     // If the caller updated their own role / permissions, the cached
     // unlocked keyring is stale — drop it so the next access reloads
@@ -903,7 +903,7 @@ export class Noydb {
    */
   async rotate(vault: string, collections: string[]): Promise<void> {
     this.checkPolicyOperation(vault, 'rotate')
-    const keyring = await this.getKeyringInternal(vault)
+    const keyring = await this._getKeyringInternal(vault)
     await keyringRotate(this.options.store, vault, keyring, collections)
     // Refresh the cached keyring so subsequent operations see the
     // freshly-rotated DEKs. Without this, `ensureCollectionDEK` on
@@ -1211,7 +1211,7 @@ export class Noydb {
     options?: PassphrasePolicy & { allowWeakPassphrase?: boolean },
   ): Promise<void> {
     this.checkPolicyOperation(vault, 'changeSecret')
-    const keyring = await this.getKeyringInternal(vault)
+    const keyring = await this._getKeyringInternal(vault)
     const updated = await keyringChangeSecret(
       this.options.store,
       vault,
@@ -1764,7 +1764,7 @@ export class Noydb {
    */
   async setDirectoryEnabled(vault: string, enabled: boolean): Promise<void> {
     if (this.closed) throw new ValidationError('Instance is closed')
-    const keyring = await this.getKeyringInternal(vault)
+    const keyring = await this._getKeyringInternal(vault)
     if (keyring.role !== 'owner') {
       throw new PermissionDeniedError(
         `setDirectoryEnabled requires owner role; caller has role "${keyring.role}"`,
@@ -2126,7 +2126,7 @@ export class Noydb {
    * accesses see them. Not exposed publicly — callers outside hub
    * should use {@link getKeyring}, which returns a defensive copy.
    */
-  private async getKeyringInternal(
+  private async _getKeyringInternal(
     vault: string,
     opts: { create: boolean } = { create: true },
   ): Promise<UnlockedKeyring> {

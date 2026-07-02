@@ -4,7 +4,7 @@
  * after = staged record) and collects guard violations — without executing
  * phase 2. No adapter writes, no write-hooks, no commit. MV/derivation
  * cascade is NOT simulated (v2). Mirrors the guard loop in
- * `Collection.putInternal` — keep the two in sync.
+ * `Collection._putInternal` — keep the two in sync.
  */
 import type { Noydb } from '../../kernel/noydb.js'
 import { TxContext, type StagedOp } from './transaction.js'
@@ -68,7 +68,7 @@ export async function runDryRun(
       after,
     })
 
-    // Guard violations — run the SAME checks Collection.putInternal does,
+    // Guard violations — run the SAME checks Collection._putInternal does,
     // with the SAME ctx (existing + read-only facade + userId + role), but
     // collect the first thrown error instead of aborting.
     const registry = v._getGuardRegistry()
