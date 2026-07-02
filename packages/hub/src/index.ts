@@ -564,22 +564,24 @@ export { readNoydbBundlePublicEnvelope } from './with-pod/bundle.js'
 export {
   USER_ENVELOPE_COLLECTION,
   USER_ENVELOPE_MAX_BYTES,
-  UserEnvelopeOversizedError,
+} from './kernel/constants.js'
+export { UserEnvelopeOversizedError } from './kernel/errors.js'
+export {
   loadUserEnvelope,
   saveUserEnvelope,
   deleteUserEnvelope,
   listUserEnvelopeIds,
-} from './kernel/meta/user-envelope/index.js'
-export type { UserEnvelope } from './kernel/meta/user-envelope/index.js'
+} from './with-party/directory/user-envelope/index.js'
 export type {
+  UserEnvelope,
   DeepPartial,
   DeepPartialOrNull,
   Unsubscribe,
   LiveUserEnvelope,
   UserEnvelopePresented,
   UserEnvelopeCheckGate,
-} from './kernel/meta/user-envelope/api.js'
-export { UserApi } from './kernel/meta/user-envelope/api.js'
+} from './kernel/types.js'
+export { UserApi } from './with-party/directory/user-envelope/api.js'
 
 // FR-6 sovereign custody — Deed / Custodian / Liberate.
 export { CustodyApi } from './with-party/custody/index.js'

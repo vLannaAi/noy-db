@@ -4,12 +4,13 @@ import {
   saveUserEnvelope,
   deleteUserEnvelope,
   listUserEnvelopeIds,
+} from '../src/with-party/directory/user-envelope/index.js'
+import {
   USER_ENVELOPE_COLLECTION,
   USER_ENVELOPE_MAX_BYTES,
-  UserEnvelopeOversizedError,
-} from '../src/kernel/meta/user-envelope/index.js'
+} from '../src/kernel/constants.js'
+import { UserEnvelopeOversizedError, ConflictError } from '../src/kernel/errors.js'
 import { generateDEK } from '../src/kernel/enclave/index.js'
-import { ConflictError } from '../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 
 function inlineMemory(): NoydbStore {

@@ -16,16 +16,14 @@
  *
  * @module
  */
-import type { NoydbStore, EncryptedEnvelope } from '../../types.js'
-import { NOYDB_FORMAT_VERSION } from '../../types.js'
-import { encrypt, decrypt } from '../../enclave/index.js'
-import { ConflictError } from '../../errors.js'
+import type { NoydbStore, EncryptedEnvelope, UserEnvelope } from '../../../kernel/types.js'
+import { NOYDB_FORMAT_VERSION } from '../../../kernel/types.js'
+import { encrypt, decrypt } from '../../../kernel/enclave/index.js'
+import { ConflictError, UserEnvelopeOversizedError } from '../../../kernel/errors.js'
 import {
   USER_ENVELOPE_COLLECTION,
   USER_ENVELOPE_MAX_BYTES,
-  UserEnvelopeOversizedError,
-  type UserEnvelope,
-} from './types.js'
+} from '../../../kernel/constants.js'
 
 /**
  * Read and decrypt the user envelope for `keyringId`. Returns `null`

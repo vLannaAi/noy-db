@@ -15,20 +15,27 @@
  *
  * @module
  */
-import type { NoydbStore } from '../../types.js'
-import { PolicyDeniedError } from '../../policy/errors.js'
-import type { FactorProof } from '../../policy/types.js'
+import { PolicyDeniedError } from '../../../kernel/policy/errors.js'
 import {
   loadUserEnvelope,
   saveUserEnvelope,
   listUserEnvelopeIds,
 } from './storage.js'
-import type { UserEnvelope } from './types.js'
+import type {
+  UserEnvelope,
+  DeepPartialOrNull,
+  Unsubscribe,
+  UserEnvelopePresented,
+  LiveUserEnvelope,
+  VaultUserApi,
+  UserApiDeps,
+  UserApiFactory,
+} from '../../../kernel/types.js'
 import {
   persistUserVisibility,
   readUserVisibility,
-} from '../../../with-party/directory/visibility.js'
-import type { UserVisibility } from '../../../with-party/directory/types.js'
+} from '../visibility.js'
+import type { UserVisibility } from '../types.js'
 import type { ExportAccessibleOptions } from '../../../with-audit/portability/export-accessible.js'
 import type { WithdrawAccessibleOptions, WithdrawResult } from '../../../with-audit/portability/withdraw-accessible.js'
 import type {
@@ -40,121 +47,65 @@ import type {
   RejectWithdrawalOptions,
 } from '../../../with-audit/portability/request-withdrawal.js'
 
-/**
- * Recursive partial. Used for `updateMe(patch)` so callers can hand in
- * deeply-nested partial shapes and have them deep-merged onto the
- * current envelope.
- */
-export type DeepPartial<T> = T extends object
-  ? { [P in keyof T]?: DeepPartial<T[P]> }
-  : T
-
-/**
- * Recursive partial with `null` allowed at every level — used by
- * `updateMe` to express deletion intent in addition to merge.
- *
- * Semantics inside `updateMe`:
- *   - `undefined` (or absent key) — skip; source value preserved
- *   - `null` — delete the key from the resulting envelope
- *   - any other value — overwrite (deep-merge for plain objects,
- *     replace for primitives / arrays)
- *
- * Matches lodash `_.merge` behavior on `null` and Firestore's
- * `FieldValue.delete()` semantics. Loosened from `DeepPartial<T>`.
- * Consumers wanting the original "merge-only" surface can keep
- * importing `DeepPartial` and avoid passing `null`.
- */
-export type DeepPartialOrNull<T> = T extends object
-  ? { [P in keyof T]?: DeepPartialOrNull<T[P]> | null }
-  : T
-
-/** Cancel a previously-registered subscription. */
-export type Unsubscribe = () => void
-
-/**
- * Optional factor-proof bundle threaded into gated user-envelope
- * operations. Same shape as `Noydb.checkGate(vault, gate, presented)`
- * accepts elsewhere — apps that have already presented a TOTP/email-OTP
- * for this session pass it here to satisfy tightened policies.
- */
-export interface UserEnvelopePresented {
-  readonly factors?: readonly FactorProof[]
-  readonly sharedDevice?: boolean
-}
-
-/**
- * Callback used by `UserApi` to validate the active session against a
- * policy gate. Provided by the `Vault` constructor; in production this
- * delegates to `Noydb.checkGate(vault, gate, presented)`. In tests, a
- * no-op stub is fine.
- */
-export type UserEnvelopeCheckGate = (
-  gate:
-    | 'edit-own-profile'
-    | 'view-team-profiles'
-    | 'client-unilateral-withdraw'
-    | 'user-request-withdrawal'
-    | 'approve-user-withdrawal',
-  presented?: UserEnvelopePresented,
-) => Promise<void>
-
-/**
- * Reactive handle returned by `live()`. `current` is the most recently
- * observed value; `subscribe(cb)` fires on subsequent local writes.
- * `stop()` releases the underlying subscription.
- */
-export interface LiveUserEnvelope<T> {
-  current(): UserEnvelope<T> | null
-  subscribe(cb: (env: UserEnvelope<T> | null) => void): Unsubscribe
-  stop(): void
-}
-
 interface ChangeListener<T = unknown> {
   (env: UserEnvelope<T> | null): void
 }
 
 /**
- * Implementation behind `vault.user`. Constructed once per Vault, holds
- * the writer's keyringId in closure so `updateMe`/`setMe` cannot target
- * any other principal — the own-only rule is enforced at the type level
- * (no `set(otherKeyringId, …)` method) AND at runtime (the
- * keyringId argument simply doesn't exist on the write path).
+ * Implementation behind `vault.user`. Constructed once per Vault via
+ * {@link createUserApi}, holds the writer's keyringId in closure so
+ * `updateMe`/`setMe` cannot target any other principal — the own-only
+ * rule is enforced at the type level (no `set(otherKeyringId, …)`
+ * method) AND at runtime (the keyringId argument simply doesn't exist
+ * on the write path).
  */
-export class UserApi {
+export class UserApi implements VaultUserApi {
   /** keyringId → set of listeners. Wildcard '*' fires on every change. */
   private readonly listeners = new Map<string, Set<ChangeListener>>()
 
-  constructor(
-    private readonly adapter: NoydbStore,
-    private readonly vaultName: string,
-    /** The writer's own keyringId. Frozen at construction time. */
-    private readonly writerKeyringId: string,
-    private readonly getDek: () => Promise<CryptoKey>,
-    /**
-     * Policy-gate validator. When omitted, gates are skipped — useful
-     * for low-level tests that exercise the storage layer directly.
-     * Production paths always wire the Noydb-backed implementation.
-     */
-    private readonly checkGate?: UserEnvelopeCheckGate,
-    /**
-     * Noydb-backed `exportMyAccessibleData`, injected by the Vault
-     * (which holds the keyring + bundle machinery). Omitted in low-level tests.
-     */
-    private readonly exportAccessible?: (opts: ExportAccessibleOptions) => Promise<Uint8Array>,
-    /**
-     * Noydb-backed `unilateralWithdrawal`, injected by the Vault.
-     * Destructive — extract + dispose (delete | freeze). Omitted in low-level tests.
-     */
-    private readonly unilateralWithdraw?: (opts: WithdrawAccessibleOptions) => Promise<WithdrawResult>,
-    /**
-     * Noydb-backed two-party withdrawal ceremony, injected by the
-     * Vault. requestWithdraw = requester side; the rest = owner side.
-     */
-    private readonly requestWithdraw?: (opts: RequestWithdrawalOptions) => Promise<RequestWithdrawalResult>,
-    private readonly listWithdrawals?: (opts: { status?: WithdrawalRequestStatus }) => Promise<WithdrawalRequest[]>,
-    private readonly approveWithdraw?: (requestId: string, opts: ApproveWithdrawalOptions) => Promise<WithdrawResult>,
-    private readonly rejectWithdraw?: (requestId: string, opts: RejectWithdrawalOptions) => Promise<WithdrawalRequest>,
-  ) {}
+  private readonly adapter: UserApiDeps['adapter']
+  private readonly vaultName: UserApiDeps['vaultName']
+  /** The writer's own keyringId. Frozen at construction time. */
+  private readonly writerKeyringId: UserApiDeps['writerKeyringId']
+  private readonly getDek: UserApiDeps['getDek']
+  /**
+   * Policy-gate validator. When omitted, gates are skipped — useful
+   * for low-level tests that exercise the storage layer directly.
+   * Production paths always wire the Noydb-backed implementation.
+   */
+  private readonly checkGate?: UserApiDeps['checkGate']
+  /**
+   * Noydb-backed `exportMyAccessibleData`, injected by the Vault
+   * (which holds the keyring + bundle machinery). Omitted in low-level tests.
+   */
+  private readonly exportAccessible?: UserApiDeps['exportAccessible']
+  /**
+   * Noydb-backed `unilateralWithdrawal`, injected by the Vault.
+   * Destructive — extract + dispose (delete | freeze). Omitted in low-level tests.
+   */
+  private readonly unilateralWithdraw?: UserApiDeps['unilateralWithdraw']
+  /**
+   * Noydb-backed two-party withdrawal ceremony, injected by the
+   * Vault. requestWithdraw = requester side; the rest = owner side.
+   */
+  private readonly requestWithdraw?: UserApiDeps['requestWithdraw']
+  private readonly listWithdrawals?: UserApiDeps['listWithdrawals']
+  private readonly approveWithdraw?: UserApiDeps['approveWithdraw']
+  private readonly rejectWithdraw?: UserApiDeps['rejectWithdraw']
+
+  constructor(deps: UserApiDeps) {
+    this.adapter = deps.adapter
+    this.vaultName = deps.vaultName
+    this.writerKeyringId = deps.writerKeyringId
+    this.getDek = deps.getDek
+    this.checkGate = deps.checkGate
+    this.exportAccessible = deps.exportAccessible
+    this.unilateralWithdraw = deps.unilateralWithdraw
+    this.requestWithdraw = deps.requestWithdraw
+    this.listWithdrawals = deps.listWithdrawals
+    this.approveWithdraw = deps.approveWithdraw
+    this.rejectWithdraw = deps.rejectWithdraw
+  }
 
   /**
    * File a two-party withdrawal request for the caller's accessible
@@ -482,6 +433,14 @@ export class UserApi {
     if (wildcard) for (const l of wildcard) l(env)
   }
 }
+
+/**
+ * Build the `vault.user` API implementation from its dependencies. This is
+ * the real {@link UserApiFactory} — `createNoydb()` dynamically imports it
+ * and stashes it on the `Noydb` instance so `Vault`'s constructor can call
+ * it synchronously.
+ */
+export const createUserApi: UserApiFactory = (deps: UserApiDeps): VaultUserApi => new UserApi(deps)
 
 /**
  * Recursive plain-object deep merge with delete intent.

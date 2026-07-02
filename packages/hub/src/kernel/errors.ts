@@ -86,6 +86,8 @@
  * @module
  */
 
+import { USER_ENVELOPE_MAX_BYTES } from './constants.js'
+
 /**
  * Base class for all NOYDB errors.
  *
@@ -2569,5 +2571,27 @@ export class EmbeddingModelMismatchError extends NoydbError {
     this.name = 'EmbeddingModelMismatchError'
     this.expected = expected
     this.found = found
+  }
+}
+
+// ─── User Envelope Errors ────────────────────────────────────────────────
+
+/**
+ * Thrown when a user-envelope payload exceeds {@link USER_ENVELOPE_MAX_BYTES}
+ * after JSON-serialization. The error carries the actual size so callers
+ * can decide whether to trim or split.
+ */
+export class UserEnvelopeOversizedError extends NoydbError {
+  readonly bytes: number
+  readonly limit: number
+  constructor(bytes: number, limit: number = USER_ENVELOPE_MAX_BYTES) {
+    super(
+      'USER_ENVELOPE_OVERSIZED',
+      `User envelope payload is ${bytes} bytes; soft cap is ${limit} bytes. ` +
+        `Move large data into the vault's regular collections.`,
+    )
+    this.name = 'UserEnvelopeOversizedError'
+    this.bytes = bytes
+    this.limit = limit
   }
 }

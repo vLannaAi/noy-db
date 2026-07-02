@@ -1,5 +1,6 @@
-import type { NoydbStore, KeyringFile, KeyringAuthenticator, Role, Permissions, GrantOptions, RevokeOptions, UpdateUserOptions, UserInfo, EncryptedEnvelope, ExportCapability, ExportFormat, ImportCapability, VaultPolicyOnDisk } from '../../kernel/types.js'
+import type { NoydbStore, KeyringFile, KeyringAuthenticator, Role, Permissions, GrantOptions, RevokeOptions, UpdateUserOptions, UserInfo, EncryptedEnvelope, ExportCapability, ExportFormat, ImportCapability, VaultPolicyOnDisk, UserEnvelope as UserEnvelopeReader } from '../../kernel/types.js'
 import { NOYDB_KEYRING_VERSION, NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
+import { USER_ENVELOPE_COLLECTION } from '../../kernel/constants.js'
 import {
   deriveKey,
   generateDEK,
@@ -19,9 +20,7 @@ import {
   saveUserEnvelope,
   loadUserEnvelope as loadUserEnvelopeFn,
   deleteUserEnvelope,
-  USER_ENVELOPE_COLLECTION,
-  type UserEnvelope as UserEnvelopeReader,
-} from '../../kernel/meta/user-envelope/index.js'
+} from '../directory/user-envelope/index.js'
 
 // ─── Roles that can grant/revoke ───────────────────────────────────────
 
