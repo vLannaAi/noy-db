@@ -57,6 +57,10 @@ const ENTRIES = {
   // (the pre-S5 `./describe` subpath) continues to exist. See kernel/ui/index.ts header.
   'describe/index': 'src/kernel/ui/index.ts',
   'by/index': 'src/kernel/by/index.ts',
+  'on/index': 'src/kernel/on/index.ts',
+  'at/index': 'src/kernel/at/index.ts',
+  'in/index': 'src/kernel/in/index.ts',
+  'as/index': 'src/as/index.ts',
 }
 
 // ESM build with code splitting — shared chunks deduplicated so
