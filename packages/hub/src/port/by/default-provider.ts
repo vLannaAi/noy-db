@@ -4,7 +4,7 @@
  * statically import — the dynamic `import()` below is the door-layering
  * law's sanctioned escape hatch for this exact case.
  */
-import type { NoydbStore } from '../types.js'
+import type { NoydbStore } from '../../kernel/types.js'
 export type { CoordinationProvider } from './types.js'
 
 export async function createDefaultCoordinationProvider(store: NoydbStore) {

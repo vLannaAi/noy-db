@@ -25,7 +25,7 @@ export type {
   StoreCapabilities,
   StoreTime,
   ListPageResult,
-} from '../types.js'
+} from '../../kernel/types.js'
 
 export {
   ConflictError,
@@ -33,4 +33,4 @@ export {
   StoreCapabilityError,
   BundleVersionConflictError,
   PodVersionConflictError,
-} from '../errors.js'
+} from '../../kernel/errors.js'

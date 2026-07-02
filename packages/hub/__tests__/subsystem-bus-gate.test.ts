@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { SubsystemBus } from '../src/kernel/with/service-bus.js'
-import type { GatePutEvent, GateDeleteEvent } from '../src/kernel/with/service-bus.js'
+import { SubsystemBus } from '../src/port/with/service-bus.js'
+import type { GatePutEvent, GateDeleteEvent } from '../src/port/with/service-bus.js'
 
 function putEv(over: Partial<GatePutEvent> = {}): GatePutEvent {
   return {

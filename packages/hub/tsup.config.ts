@@ -50,17 +50,17 @@ const ENTRIES = {
   'kernel/index': 'src/kernel/index.ts',
   'cargo/index': 'src/with-cargo/index.ts',
   'adapter/index': 'src/kernel/adapter/index.ts',
-  'to/index': 'src/kernel/to/index.ts',
-  'with/index': 'src/kernel/with/index.ts',
-  'ui/index': 'src/kernel/ui/index.ts',
+  'to/index': 'src/port/to/index.ts',
+  'with/index': 'src/port/with/index.ts',
+  'ui/index': 'src/port/ui/index.ts',
   // Deprecated alias: same source as 'ui/index', kept so `dist/describe/index.js`
-  // (the pre-S5 `./describe` subpath) continues to exist. See kernel/ui/index.ts header.
-  'describe/index': 'src/kernel/ui/index.ts',
-  'by/index': 'src/kernel/by/index.ts',
-  'on/index': 'src/kernel/on/index.ts',
-  'at/index': 'src/kernel/at/index.ts',
-  'in/index': 'src/kernel/in/index.ts',
-  'as/index': 'src/as/index.ts',
+  // (the pre-S5 `./describe` subpath) continues to exist. See port/ui/index.ts header.
+  'describe/index': 'src/port/ui/index.ts',
+  'by/index': 'src/port/by/index.ts',
+  'on/index': 'src/port/on/index.ts',
+  'at/index': 'src/port/at/index.ts',
+  'in/index': 'src/port/in/index.ts',
+  'as/index': 'src/port/as/index.ts',
 }
 
 // ESM build with code splitting — shared chunks deduplicated so

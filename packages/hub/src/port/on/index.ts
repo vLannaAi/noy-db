@@ -22,6 +22,6 @@
 export { mintPaperRecoveryEntry } from '../../with-party/team/recovery.js'
 export type { PaperRecoveryEntry } from '../../with-party/team/recovery.js'
 export type { UnlockedKeyring } from '../../with-party/team/keyring.js'
-export type { Role, Permissions } from '../types.js'
+export type { Role, Permissions } from '../../kernel/types.js'
 export type { SlotRewrapContext } from '../../with-party/team/rotate-recover.js'
 export type { EnrollAuthenticatorOptions } from '../../with-party/team/authenticators.js'

@@ -15,7 +15,7 @@
  * @module
  */
 import type { WriteEvent } from './write-hooks.js'
-import type { Role } from '../types.js'
+import type { Role } from '../../kernel/types.js'
 
 /** Typed map of OBSERVE lifecycle point → event payload. Extend by adding keys. */
 export interface LifecycleEventMap {

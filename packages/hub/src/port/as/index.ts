@@ -19,8 +19,8 @@
  * Named re-exports only (no `export *`) so the published surface is explicit and
  * tsup's per-entry bundling keeps class identity stable across subpaths.
  */
-export { diffVault } from '../with-cargo/vault-diff.js'
-export type { VaultDiff } from '../with-cargo/vault-diff.js'
-export { writePod, readPod, readPodHeader } from '../with-pod/index.js'
-export type { WritePodOptions, NoydbPodHeader } from '../with-pod/index.js'
-export type { Vault } from '../kernel/vault.js'
+export { diffVault } from '../../with-cargo/vault-diff.js'
+export type { VaultDiff } from '../../with-cargo/vault-diff.js'
+export { writePod, readPod, readPodHeader } from '../../with-pod/index.js'
+export type { WritePodOptions, NoydbPodHeader } from '../../with-pod/index.js'
+export type { Vault } from '../../kernel/vault.js'

@@ -16,11 +16,11 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import * as to from '../src/kernel/to/index.js'
+import * as to from '../src/port/to/index.js'
 import type {
   EncryptedEnvelope, ListPageResult, NoydbBundleStore, NoydbPodStore, NoydbStore,
   StoreCapabilities, StoreTime, TxOp, VaultSnapshot,
-} from '../src/kernel/to/index.js'
+} from '../src/port/to/index.js'
 
 interface Surface {
   readonly values: readonly string[]
@@ -53,7 +53,7 @@ function parseExports(src: string): { values: string[]; types: string[] } {
 }
 
 const baseline: Surface = JSON.parse(read('./to-surface.golden.json')) as Surface
-const parsed = parseExports(read('../src/kernel/to/index.ts'))
+const parsed = parseExports(read('../src/port/to/index.ts'))
 
 describe('@noy-db/hub/to — golden export surface', () => {
   it('value exports match the frozen baseline (runtime enumeration)', () => {

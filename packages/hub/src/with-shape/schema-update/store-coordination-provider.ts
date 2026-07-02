@@ -11,10 +11,10 @@
  */
 
 import type { NoydbStore } from '../../kernel/types.js'
-import type { Unsubscribe } from '../../kernel/with/write-hooks.js'
+import type { Unsubscribe } from '../../port/with/write-hooks.js'
 import { loadFence, saveFence, type FenceDoc } from './fence.js'
 import { writeClientDoc, listClientDocs, type ClientDoc } from './client-registry.js'
-import type { CoordinationProvider, FenceState, WriterPresence } from '../../kernel/by/types.js'
+import type { CoordinationProvider, FenceState, WriterPresence } from '../../port/by/types.js'
 
 /**
  * Default poll cadence for the `observe*` fallbacks (ms). Matches the

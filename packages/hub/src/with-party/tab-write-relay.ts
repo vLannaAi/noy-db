@@ -6,7 +6,7 @@
  * re-reading the shared encrypted store. Nothing decrypted crosses the wire.
  */
 import type { TabChannel, Unsubscribe } from './tab-coordination.js'
-import type { WriteEvent } from '../kernel/with/write-hooks.js'
+import type { WriteEvent } from '../port/with/write-hooks.js'
 
 export interface TabWriteMsg {
   readonly kind: 'tab-write'

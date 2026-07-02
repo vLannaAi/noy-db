@@ -13,7 +13,7 @@ import { NO_SNAPSHOTS, type SnapshotStrategy, type SnapshotMeta } from './strate
 import { SnapshotScheduler } from './scheduler.js'
 import { ValidationError } from '../../kernel/errors.js'
 import type { Vault } from '../../kernel/vault.js'
-import type { WriteHook, Unsubscribe } from '../../kernel/with/write-hooks.js'
+import type { WriteHook, Unsubscribe } from '../../port/with/write-hooks.js'
 
 /** Everything the moving snapshot methods touched on the Noydb instance's `this.*`. */
 export interface NoydbSnapshotsDeps {
