@@ -53,8 +53,8 @@ import {
 import { BundleIntegrityError, BundleSealMismatchError, ValidationError } from '../kernel/errors.js'
 import type { Vault } from '../kernel/vault.js'
 import type { BundleRecipient } from '../with-party/team/keyring.js'
-import { pickLocale } from '../kernel/meta/public-envelope/storage.js'
-import type { PublicEnvelope } from '../kernel/meta/public-envelope/types.js'
+import { pickLocale } from '../with-party/directory/public-envelope/storage.js'
+import type { PublicEnvelope } from '../with-party/directory/public-envelope/types.js'
 import type { SealingKeyProvider, RecipientSealer, RecipientHint } from '../with-party/team/managed-passphrase.js'
 
 // ─── Auto-credential types ────────────────────────────────────────────────────

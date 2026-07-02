@@ -549,7 +549,7 @@ export {
   PUBLIC_ENVELOPE_FIELDS,
   DEFAULT_PUBLIC_ENVELOPE_SCHEMA,
   PUBLIC_ENVELOPE_RECORD_ID,
-} from './kernel/meta/public-envelope/index.js'
+} from './with-party/directory/public-envelope/index.js'
 export type {
   PublicEnvelope,
   PublicEnvelopeText,
@@ -557,7 +557,7 @@ export type {
   PublicEnvelopeField,
   ResolvedPublicEnvelopeSchema,
   SetPublicEnvelopeInput,
-} from './kernel/meta/public-envelope/index.js'
+} from './with-party/directory/public-envelope/index.js'
 export { readNoydbBundlePublicEnvelope } from './with-pod/bundle.js'
 
 // User envelope (docs/superpowers/specs/2026-05-05-user-envelope-design.md)
