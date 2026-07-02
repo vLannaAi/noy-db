@@ -2099,7 +2099,7 @@ export interface NoydbOptions {
    */
   readonly syncStrategy?: SyncStrategy
   /**
-   * Tree-shake seam — optional snapshot-lifecycle subsystem. Pass
+   * Tree-shake seam — optional snapshot-lifecycle service. Pass
    * `withSnapshots({ store })` from `@noy-db/hub/snapshots` to enable
    * `db.snapshot()`, `db.listSnapshots()`, and `db.restoreSnapshot()`.
    * When omitted, all three methods throw with a pointer at the subpath.
@@ -2393,7 +2393,7 @@ export interface NoydbOptions {
    */
   readonly onInvalidKey?: 'error' | 'reset'
   /**
-   * Enable the public envelope subsystem (`docs/subsystems/public-envelope.md`).
+   * Enable the public envelope service (`docs/subsystems/public-envelope.md`).
    * Pass `true` for the default schema (every standard field, 256 KB
    * icon cap, 200-char text cap), or a `PublicEnvelopeSchema` to
    * narrow what the owner can set. Off by default — vaults written

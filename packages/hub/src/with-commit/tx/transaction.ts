@@ -433,7 +433,7 @@ export async function runTransaction<T>(
   // revert every executed op and re-throw the InvariantError.
   if (ctx._amendment) {
     // Lazy-load GuardExecutor at the dispatch site — keeps the floor
-    // bundle free of the guards subsystem when amendments aren't used.
+    // bundle free of the guards service when amendments aren't used.
     // Mirrors the deferred-load pattern from elsewhere in this module.
     const { GuardExecutor } = (await import('../../with-audit/guards/executor.js')) as {
       GuardExecutor: typeof GuardExecutorModule

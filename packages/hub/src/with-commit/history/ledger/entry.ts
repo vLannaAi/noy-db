@@ -79,7 +79,7 @@ export interface LedgerEntry {
    * tracked in the epic issue.
    *
    * `'amendment'` is the multi-record audit entry written by the
-   * guards subsystem when an admin/owner uses `withTransactions(...)`
+   * guards service when an admin/owner uses `withTransactions(...)`
    * to repair a constraint-violating state. See `amendment` field
    * below for the structured payload.
    *

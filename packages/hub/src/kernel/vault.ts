@@ -103,7 +103,7 @@ import { getAtPath } from '../with-shape/i18n/core.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
 import { NO_I18N, type I18nStrategy } from '../with-shape/i18n/strategy.js'
 import { NO_SYNC, type SyncStrategy } from '../with-party/team/sync-strategy.js'
-// Type-only imports for the guard + derivation subsystems. The
+// Type-only imports for the guard + derivation services. The
 // runtime classes are loaded on demand via `await import(...)` inside
 // `_initGuards` / `_initDerivations` (and the read-only-facade
 // accessor below) so consumers that never register a guard or
@@ -187,7 +187,7 @@ export class Vault {
   /** The vault's name as passed to `openVault()`. Stable for the instance lifetime. */
   public readonly name: string
   /**
-   * Backreference to the parent `Noydb`. Lets vault-scoped subsystems
+   * Backreference to the parent `Noydb`. Lets vault-scoped services
    * (e.g. `as-*` reader `apply()` paths gating on `withTransactions()`)
    * reach the strategy seam without threading `db` through every API.
    *
@@ -209,7 +209,7 @@ export class Vault {
   private readonly syncAdapter: NoydbStore | undefined
   private readonly historyConfig: HistoryConfig
   /**
-   * tree-shake seam for the optional blob subsystem. Undefined
+   * tree-shake seam for the optional blob service. Undefined
    * means "blobs are off for this vault"; every `collection.blob(id)`
    * call throws with a pointer at `@noy-db/hub/blobs`.
    */
@@ -277,7 +277,7 @@ export class Vault {
    * fields resolve under that layer's `onMissing` policy. Allocated
    * eagerly inside `_initGuards()` / `_initDerivations()` so read
    * accessors stay synchronous (callers in `tx/transaction.ts` rely on
-   * that). Each stays `null` for vaults without that subsystem.
+   * that). Each stays `null` for vaults without that service.
    */
   private guardFacade: ReadOnlyVaultFacade | null = null
   private derivationFacade: ReadOnlyVaultFacade | null = null
@@ -604,7 +604,7 @@ export class Vault {
     // Guard + derivation registries are initialised lazily via
     // `_initGuards()` / `_initDerivations()` from `Noydb.openVault()`.
     // The classes are dynamic-imported there so vaults that never
-    // register a strategy don't pull the subsystem code into the
+    // register a strategy don't pull the service code into the
     // floor bundle. The `opts.guardStrategies` argument is
     // intentionally accepted but unused on the constructor — the sync
     // `vault()` fallback path in `noydb.ts` does NOT call `_initGuards`,
@@ -1022,7 +1022,7 @@ export class Vault {
         // — guards now run via the gate bus in Noydb.#registerGuardGate.
         // Vaults without derivations skip this so `Collection.put`'s
         // `if (this.derivationSource)` branch no-ops without touching the
-        // derivation subsystem code.
+        // derivation service code.
         ...(this.derivationRegistry !== null
           ? {
               derivationSource: {
@@ -2344,7 +2344,7 @@ export class Vault {
       // An erasable blob's chunks are under a per-blob content CEK whose only
       // copy is the BlobObject's wrapped `_cek`; deleting it at refCount 0
       // shreds the content. Legacy blobs (no `_cek`) or a session without the
-      // blob subsystem cannot be shredded → reported as residue.
+      // blob service cannot be shredded → reported as residue.
       if (blobsEnabled) {
         const r = await this.collection<Record<string, unknown>>(ref.collection)
           .blob(ref.id)
@@ -2524,7 +2524,7 @@ export class Vault {
    * @internal — called by `Noydb.openVault` after construction.
    * Dynamic-imports `GuardRegistry` + `ReadOnlyVaultFacade` and seeds
    * the registry with the supplied strategy handles. No-op when the
-   * handles array is empty — keeps the guard subsystem out of the
+   * handles array is empty — keeps the guard service out of the
    * floor bundle for consumers that don't use guards.
    *
    * The read-only facade is eagerly instantiated here so the sync
@@ -2557,7 +2557,7 @@ export class Vault {
    * Dynamic-imports `DerivationRegistry` and registers the supplied
    * derivation strategies (async because `strategyHash` computation
    * goes through `crypto.subtle.digest`). No-op when the handles
-   * array is empty — keeps the derivation subsystem out of the floor
+   * array is empty — keeps the derivation service out of the floor
    * bundle for consumers that don't use derivations. Throws
    * `DerivationCycleError` if a cycle is detected after registration.
    */
@@ -2596,7 +2596,7 @@ export class Vault {
    * MV spec (which invokes its `query()` once for dependency
    * analysis), then runs the unified cycle detection across the MV +
    * derivation graphs. No-op when the handles array is empty — keeps
-   * the MV subsystem out of the floor bundle (mirrors the derivation lazy-import pattern).
+   * the MV service out of the floor bundle (mirrors the derivation lazy-import pattern).
    * Throws `MaterializedViewCycleError` if a cycle is detected.
    */
   async _initMaterializedViews(
@@ -3289,7 +3289,7 @@ export class Vault {
 
   /**
    * Emit a structured introspection snapshot of this vault — vault name,
-   * subsystem opt-in matrix, collections + their fields, materialized
+   * service opt-in matrix, collections + their fields, materialized
    * views, overlay views, derivations. With `withStats: true`, walks
    * every collection's envelopes to compute record counts, byte totals,
    * and oldest/newest timestamps.

@@ -58,6 +58,6 @@ stop()
 
 ## See also
 
-- [SUBSYSTEMS.md](../../SUBSYSTEMS.md)
+- [SERVICES.md](../../SERVICES.md)
 - `__tests__/query-live.test.ts`
 - `packages/in-vue/src/composables.ts`

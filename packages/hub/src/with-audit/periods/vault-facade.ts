@@ -3,7 +3,7 @@
  * (Phase 5 A3 of the microkernel refactoring).
  *
  * Holds the period close/open/list/get entry points, the write-time guard
- * (`assertTsWritable`, called by the subsystem gate bus before put/delete via
+ * (`assertTsWritable`, called by the service gate bus before put/delete via
  * the thin `vault._assertTsWritable` delegator), and the period-record cache —
  * `periodCache`, which used to live on the `Vault` instance now lives here.
  * The encryption/decryption of a `_periods` envelope and the chain-anchor
@@ -11,7 +11,7 @@
  * methods it replaced — every dependency the moving code touched on `this.*`
  * arrives via {@link VaultPeriodsDeps}.
  *
- * Internal subsystem — reached through `vault.closePeriod(...)` etc.
+ * Internal service — reached through `vault.closePeriod(...)` etc.
  */
 import { ValidationError } from '../../kernel/errors.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'

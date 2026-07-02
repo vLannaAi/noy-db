@@ -1,6 +1,6 @@
 /**
  * Strategy seam for the optional history + ledger + time-machine
- * subsystem. Core imports `HistoryStrategy` type-only + `NO_HISTORY`
+ * service. Core imports `HistoryStrategy` type-only + `NO_HISTORY`
  * stub; real implementations of `saveHistory`, `LedgerStore`,
  * `VaultInstant`, `computePatch`, `diff` etc. are only reachable via
  * `withHistory()` in `./active.ts`.

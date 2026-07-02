@@ -38,7 +38,7 @@
  *   6. kernel-surface — the always-on orchestration files
  *                       (collection.ts / vault.ts / noydb.ts) must stay
  *                       under a declared line ceiling. A ratchet: it locks
- *                       in Track A's kernel shrink so subsystems register
+ *                       in Track A's kernel shrink so services register
  *                       on the SubsystemBus instead of hard-coding into
  *                       these files. See KERNEL_SURFACE_BUDGET.
  *
@@ -495,10 +495,10 @@ function checkEveryServiceGated() {
 // ─── Check 6: kernel-surface ceiling ───────────────────────────────────
 
 // The always-on orchestration files (loaded by every `createNoydb`) must not
-// grow back as subsystems are added. Track A moved write-gating subsystems
+// grow back as services are added. Track A moved write-gating services
 // (periods, guards) off these files onto the SubsystemBus; this ceiling locks
 // that in. Each value is a RATCHET: lower it when a slice shrinks the file;
-// raising it requires a conscious, reviewed bump. A subsystem that re-couples
+// raising it requires a conscious, reviewed bump. A service that re-couples
 // itself into the kernel shows up here as a line-count regression — the fix is
 // to register on the bus, not to grow these files.
 const KERNEL_SURFACE_BUDGET = {
@@ -534,7 +534,7 @@ const KERNEL_SURFACE_BUDGET = {
   // CEK threaded through put/CRDT-put/delete-history/migration/dump and the two
   // conflict resolvers, plus the tier elevate/demote/getAtTier CEK re-wrap.
   // This is the per-record-key layer the kernel owns; forget()/shred (#304)
-  // and record-scoped sealing (#306) build on top in their own subsystems.
+  // and record-scoped sealing (#306) build on top in their own services.
   // Bumped 4320→4440 (#304, forget cascade step 2): the tombstone read-path
   // hardening (RISK #1) touches every decrypt choke point — decryptJsonString
   // / decryptRecord now return null on a tombstone and ~15 callsites (get,
@@ -549,7 +549,7 @@ const KERNEL_SURFACE_BUDGET = {
   // so no read returns the stale old-CEK record (the cekCache lives on Collection).
   // The seal/revoke/rotate orchestration + the host-side opener live in vault.ts /
   // src/sealed-record/.
-  // Lowered 4460→4445 (2026-06-13): record-keys subsystem extraction slice 1.
+  // Lowered 4460→4445 (2026-06-13): record-keys service extraction slice 1.
   // The pure tombstone predicate + envelope builder and the CEK-wrap surface
   // moved to src/record-keys/ (isTombstone now takes `encrypted` explicitly;
   // _writeTombstone calls buildTombstone).
@@ -570,7 +570,7 @@ const KERNEL_SURFACE_BUDGET = {
   // them readable). Must be on the collection (owns the adapter + index defs).
   // Bumped 4640→4665 (2026-06-14, #308): the thin `collection.search()`
   // scan-mode entry point (eager-cache iterate + delegate). The tokenizer +
-  // BM25 ranker engine live in the tree-shakeable src/search/ subsystem.
+  // BM25 ranker engine live in the tree-shakeable src/search/ service.
   // Bumped 4665→4675 (2026-06-15, #285 §3): the join-layer i18n seam —
   // querySourceForJoin exposes the right collection's i18nFields, and query()/
   // scan() thread the default locale into the JoinContext. The resolution
@@ -684,7 +684,7 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 4495→4505 (2026-06-15, #412 P3): objectStore field + constructor
   // opt + thread into every Collection (mirrors blobStrategy).
   // Bumped 4505→4510 (2026-06-16, #199 P3): four thin UserApi closures wiring
-  // the two-party withdrawal ceremony to the bundle subsystem (logic lives in
+  // the two-party withdrawal ceremony to the bundle service (logic lives in
   // bundle/request-withdrawal.ts; vault.ts only injects the closures).
   // Bumped 4510→4520 (2026-06-17, FR-5 #445): provenance option + collOpts thread.
   // Bumped 4520→4545 (2026-06-17, FR-6 Task 6): custody surface field + wiring
@@ -847,7 +847,7 @@ function checkKernelSurface() {
     if (lines > ceiling) {
       fail(
         'kernel-surface',
-        `${rel} is ${lines} lines, over its ${ceiling}-line kernel-surface ceiling (+${lines - ceiling}). The always-on kernel must stay lean — move new capability into a subsystem that registers on the SubsystemBus instead of growing this file. If the growth is genuinely core, raise the ceiling in scripts/check-architecture.mjs with justification.`,
+        `${rel} is ${lines} lines, over its ${ceiling}-line kernel-surface ceiling (+${lines - ceiling}). The always-on kernel must stay lean — move new capability into a service that registers on the SubsystemBus instead of growing this file. If the growth is genuinely core, raise the ceiling in scripts/check-architecture.mjs with justification.`,
         file,
       )
     }

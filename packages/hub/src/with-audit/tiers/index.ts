@@ -19,7 +19,7 @@
  * cross-tier event sink stays collection-resident and is reached via the
  * `emitCrossTierEvent` callback.
  *
- * Internal subsystem — not exported as a `@noy-db/hub/*` subpath.
+ * Internal service — not exported as a `@noy-db/hub/*` subpath.
  */
 export { withTiers } from './active.js'
 export { NO_TIERS, type TiersStrategy } from './strategy.js'

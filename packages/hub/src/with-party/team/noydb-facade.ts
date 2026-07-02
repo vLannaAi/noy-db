@@ -19,7 +19,7 @@
  * one-shot managed-recovery skip flag stay kernel-resident and arrive as
  * callbacks. Behaviour is identical to the inline `Noydb` methods.
  *
- * Internal subsystem — reached through `noydb.rotatePassphrase(...)` etc.
+ * Internal service — reached through `noydb.rotatePassphrase(...)` etc.
  */
 import type { NoydbOptions, NoydbStore, KeyringAuthenticator } from '../../kernel/types.js'
 import { ValidationError } from '../../kernel/errors.js'

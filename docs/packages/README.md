@@ -49,17 +49,17 @@ The online complement to offline-first. A host you operate — Lambda, EC2, a wo
 
 → **[at-hosts.md](./at-hosts.md)**
 
-## Vs. subsystems
+## Vs. services
 
 The six families above are **separate npm packages** — `npm install` what you want, omit what you don't. They keep your *dependency graph* small.
 
-The 17 [subsystems](../subsystems/) are **internal opt-ins** within `@noy-db/hub` — gated by `with*()` strategy seams. They keep the *core package's bundle* small.
+The 17 [services](../subsystems/) are **internal opt-ins** within `@noy-db/hub` — gated by `with*()` strategy seams. They keep the *core package's bundle* small.
 
 Both layers compose:
 
 ```ts
 import { createNoydb } from '@noy-db/hub'        // core
-import { withHistory } from '@noy-db/hub/history' // subsystem (internal)
+import { withHistory } from '@noy-db/hub/history' // service (internal)
 import { postgres } from '@noy-db/to-postgres'    // separate package
 import { useCollection } from '@noy-db/in-vue'    // separate package
 import { withWebAuthn } from '@noy-db/on-webauthn'// separate package
@@ -71,6 +71,6 @@ import { tabsChannel } from '@noy-db/by-tabs'     // by-* family (BroadcastChann
 ## Related
 
 - [docs/core/](../core/) — the always-on hub minimum
-- [docs/subsystems/](../subsystems/) — the 17 opt-in capabilities inside the hub
-- [SUBSYSTEMS.md](../../SUBSYSTEMS.md) — the catalog
+- [docs/subsystems/](../subsystems/) — the 17 opt-in services inside the hub
+- [SERVICES.md](../../SERVICES.md) — the catalog
 - [CLAUDE.md](../../CLAUDE.md) — agent / contributor guide

@@ -97,5 +97,5 @@ so invariants see the true prior state.
 
 ## See also
 
-- [SUBSYSTEMS.md](../../SUBSYSTEMS.md)
+- [SERVICES.md](../../SERVICES.md)
 - `__tests__/transaction.test.ts`

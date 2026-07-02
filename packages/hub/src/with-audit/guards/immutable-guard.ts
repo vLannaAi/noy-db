@@ -1,6 +1,6 @@
 /**
  * `immutableGuard` — declarative WORM / append-only sugar over the guard
- * subsystem.
+ * service.
  *
  * Issued fiscal documents (invoices, DDTs) must be immutable after issue.
  * That is expressible today with a hand-rolled `withGuard` (block on

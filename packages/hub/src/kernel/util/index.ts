@@ -1,6 +1,6 @@
 /**
  * `@noy-db/hub/util` — pure helpers that don't belong to any single
- * subsystem and have no dependency on the keyring, ledger, or stores.
+ * service and have no dependency on the keyring, ledger, or stores.
  *
  * Currently:
  *   - {@link sanitizeFilename} — target-profile aware filename safety

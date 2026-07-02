@@ -6,7 +6,7 @@
 
 ## What this gets you
 
-| Subsystem | What it adds |
+| Service | What it adds |
 |---|---|
 | `withHistory()` | Per-record version snapshots, hash-chained audit ledger, `vault.timeMachine()` for point-in-time reads, `vault.verifyBackupIntegrity()` for tamper detection |
 | `withPeriods()` | `vault.closePeriod()` / `openPeriod()` with a write-guard that rejects writes to records inside a closed business date range |
@@ -165,7 +165,7 @@ if (!verdict.ok) {
 
 ## See also
 
-- [SUBSYSTEMS.md](../../SUBSYSTEMS.md) — full catalog
+- [SERVICES.md](../../SERVICES.md) — full catalog
 - [docs/subsystems/history.md](../subsystems/history.md) (TODO)
 - [docs/subsystems/periods.md](../subsystems/periods.md) (TODO)
 - [docs/subsystems/blobs.md](../subsystems/blobs.md) (TODO)

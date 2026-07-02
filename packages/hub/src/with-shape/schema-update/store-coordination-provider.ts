@@ -2,7 +2,7 @@
  * Store-backed default {@link CoordinationProvider}.
  *
  * Maps the five coordination-port methods onto today's `_meta/schema-fence`
- * store ops so that, with no `by-*` provider injected, the fence subsystem
+ * store ops so that, with no `by-*` provider injected, the fence service
  * reproduces its current store-polling behavior byte-for-byte. The `observe*`
  * methods are poll-emit (the legacy {@link FenceWatcher} model); `by-tabs` /
  * `by-peer` override them with real-time push.

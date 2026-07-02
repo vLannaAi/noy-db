@@ -1,4 +1,4 @@
-# <Subsystem Name>
+# <Service Name>
 
 > **Subpath:** `@noy-db/hub/<name>`
 > **Factory:** `with<Name>()`
@@ -28,7 +28,7 @@ const db = await createNoydb({
 
 ## API
 
-The public surface this subsystem adds: methods on `Vault`, `Collection`, query terminals, top-level helpers.
+The public surface this service adds: methods on `Vault`, `Collection`, query terminals, top-level helpers.
 
 ## Behavior when NOT opted in
 
@@ -37,7 +37,7 @@ The public surface this subsystem adds: methods on `Vault`, `Collection`, query 
 
 ## Pairs well with
 
-Cross-references to other subsystems that compose naturally.
+Cross-references to other services that compose naturally.
 
 ## Edge cases & limits
 

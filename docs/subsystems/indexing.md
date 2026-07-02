@@ -64,5 +64,5 @@ vault.collection<Invoice>('invoices', {
 
 ## See also
 
-- [SUBSYSTEMS.md](../../SUBSYSTEMS.md)
+- [SERVICES.md](../../SERVICES.md)
 - `__tests__/query-persisted-indexes.test.ts`

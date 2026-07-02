@@ -16,7 +16,7 @@
  *   throws at `.where()` — not silently filters everything out.
  * - {@link evaluateMoneyClause} runs per record and compares
  *   `BigInt`-exact in scaled space (exact past 2^53, like the rest of
- *   the money subsystem).
+ *   the money service).
  *
  * Currency semantics (multi mode): an operand carries one currency —
  * explicit via `{ amount, currency }`, or the descriptor's sole allowed

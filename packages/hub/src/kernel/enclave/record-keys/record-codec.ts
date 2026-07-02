@@ -16,7 +16,7 @@
  * `vault.invalidateRecordCaches` keep mutating that same object — a copy would
  * silently break the "single CEK delete kills the version chain" invariant.
  *
- * Internal subsystem — not exported as a `@noy-db/hub/*` subpath.
+ * Internal service — not exported as a `@noy-db/hub/*` subpath.
  */
 import { encrypt, decrypt, encryptDeterministic, wrapCek, unwrapCek, deriveSealedFieldKey, deriveSealedFieldKeyFromCek } from '../crypto.js'
 import { NOYDB_FORMAT_VERSION, SealedHandle, type EncryptedEnvelope } from '../../types.js'

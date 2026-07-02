@@ -398,7 +398,7 @@ export interface CollectionOpts<T> {
     /**
      * Read-only vault facade handed to `derive(source, ctx)` so a
      * derivation can fetch sibling records. Same shape and
-     * instance the guards subsystem uses for `check(incoming, ctx)`.
+     * instance the guards service uses for `check(incoming, ctx)`.
      */
     getReadOnlyFacade(): ReadOnlyVaultFacade
     /**

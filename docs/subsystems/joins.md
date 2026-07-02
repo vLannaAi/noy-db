@@ -57,6 +57,6 @@ const enriched = await invoices.query()
 
 ## See also
 
-- [SUBSYSTEMS.md](../../SUBSYSTEMS.md)
+- [SERVICES.md](../../SERVICES.md)
 - `docs/recipes/analytics-app.md`
 - `__tests__/query-join.test.ts`

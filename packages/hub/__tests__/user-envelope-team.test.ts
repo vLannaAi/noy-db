@@ -1,5 +1,5 @@
 /**
- * Team-subsystem integration for user envelopes (#23).
+ * Team-service integration for user envelopes (#23).
  *
  * Verifies the joined enumeration `listUsersWithEnvelopes()` returns
  * keyring summaries paired with their decrypted user envelopes — the

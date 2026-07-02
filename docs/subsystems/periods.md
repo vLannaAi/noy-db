@@ -56,6 +56,6 @@ const db = await createNoydb({
 
 ## See also
 
-- [SUBSYSTEMS.md](../../SUBSYSTEMS.md)
+- [SERVICES.md](../../SERVICES.md)
 - `docs/recipes/accounting-app.md`
 - `__tests__/periods.test.ts`, `showcases/src/15-year-end-closure.showcase.test.ts`

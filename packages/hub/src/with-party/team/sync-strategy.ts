@@ -1,5 +1,5 @@
 /**
- * Strategy seam for the optional sync engine + presence subsystem.
+ * Strategy seam for the optional sync engine + presence service.
  * Core imports `SyncStrategy` type-only + `NO_SYNC` stub; the real
  * `SyncEngine`, `SyncTransaction`, and `PresenceHandle` constructors
  * are only reachable via `withSync()` in `./sync-active.ts`.

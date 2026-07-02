@@ -1,5 +1,5 @@
 /**
- * Strategy seam for the optional multi-record transaction subsystem.
+ * Strategy seam for the optional multi-record transaction service.
  * `runTransaction` is only reachable through `withTransactions()`
  * exported from `@noy-db/hub/tx`. Consumers who don't use
  * `db.transaction(fn)` ship none of the ~288 LOC.

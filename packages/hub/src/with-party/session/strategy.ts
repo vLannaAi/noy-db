@@ -1,5 +1,5 @@
 /**
- * Strategy seam for the optional session-policy subsystem. Core
+ * Strategy seam for the optional session-policy service. Core
  * imports `SessionStrategy` type-only + `NO_SESSION` stub; real
  * `validateSessionPolicy`, `createEnforcer`, and `revokeAllSessions`
  * are only reachable via `withSession()` in `./active.ts`.

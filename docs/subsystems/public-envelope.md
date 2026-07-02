@@ -11,7 +11,7 @@
 
 NOYDB's invariant is that storage backends only ever see ciphertext. The flip side of that guarantee is a UX problem: when a user finds a `.noydb` file on a USB stick, or sees a list of vaults in a multi-tenant picker, there is **nothing readable** — every label, name, and timestamp is encrypted under a key the user must first present.
 
-The `public-envelope` subsystem narrows that gap with a deliberate, opt-in plaintext label. The developer enables the feature in `NoydbOptions`; the owner sets the values per-vault. The result is a small, owner-curated metadata document that travels with the vault on disk and inside `.noydb` bundles, readable **without any key material**.
+The `public-envelope` service narrows that gap with a deliberate, opt-in plaintext label. The developer enables the feature in `NoydbOptions`; the owner sets the values per-vault. The result is a small, owner-curated metadata document that travels with the vault on disk and inside `.noydb` bundles, readable **without any key material**.
 
 The feature is intentionally a *label*, not an *audit surface*. It carries name, description, icon, and creation/update timestamps. It does **not** carry record counts, user counts, user lists, or any field whose value an active adversary would derive over time. Every published field is one the owner positively decided to leak — defense in depth, not breadth.
 
@@ -232,12 +232,12 @@ features:
 
 - **HMAC signature under a KEK-derived key** — lets recipients verify "this label was set by an owner who held the KEK at write time," without the hub leaving zero-knowledge. Probably a separate `publicEnvelope.signature` field, gated by a v2 schema bit.
 - **Per-locale i18n via dictKey** — instead of an inline `I18nTextDescriptor`, point at a row in a public-readable dictionary collection. Useful only if vault descriptions are very long and shared across many vaults; unlikely.
-- **Counts and user lists** — split into a separate `public-summary` subsystem with its own opt-in. Different freshness story (recompute on demand vs snapshot), different threat model (active adversary derives counts over time).
+- **Counts and user lists** — split into a separate `public-summary` service with its own opt-in. Different freshness story (recompute on demand vs snapshot), different threat model (active adversary derives counts over time).
 - **Provenance chain** — sign every envelope update with the hub version + author user-id, build a chain. Useful for compliance scenarios; out of scope for label UX.
 
 ## References
 
 - [`docs/subsystems/session-tiers.md`](./session-tiers.md) — the tier-1/2/3 model the envelope sits *below* (envelope is readable below tier 1).
-- [`docs/subsystems/i18n.md`](./i18n.md) — `i18nText` and `applyI18nLocale` semantics this subsystem reuses.
+- [`docs/subsystems/i18n.md`](./i18n.md) — `i18nText` and `applyI18nLocale` semantics this service reuses.
 - [`docs/subsystems/bundle.md`](./bundle.md) — the `.noydb` bundle format whose header allowlist this widens.
 - [`SPEC.md`](../../SPEC.md) — primary spec; the zero-knowledge invariant the public envelope deliberately narrows for chosen fields.

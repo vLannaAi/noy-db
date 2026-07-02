@@ -1,6 +1,6 @@
 /**
  * Public option / result types for `collection.retrieve()` (#308 L1). Kept in
- * the search subsystem so collection.ts holds only thin call-sites; re-exported
+ * the search service so collection.ts holds only thin call-sites; re-exported
  * from the search barrel and the hub root.
  */
 import type { Query } from '../../kernel/query/builder.js'

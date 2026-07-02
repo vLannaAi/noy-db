@@ -17,7 +17,7 @@ The `.noydb` container format — a binary wrapper around a vault dump that's sa
 
 ## Opt-in
 
-This subsystem doesn't use the strategy pattern — it tree-shakes naturally via direct named imports:
+This service doesn't use the strategy pattern — it tree-shakes naturally via direct named imports:
 
 ```ts
 import { writeNoydbBundle, readNoydbBundle, readNoydbBundleHeader } from '@noy-db/hub/bundle'
@@ -117,5 +117,5 @@ for the full spec.
 
 ## See also
 
-- [SUBSYSTEMS.md](../../SUBSYSTEMS.md)
+- [SERVICES.md](../../SERVICES.md)
 - `__tests__/bundle.test.ts`, `showcases/src/16-email-archive.showcase.test.ts`

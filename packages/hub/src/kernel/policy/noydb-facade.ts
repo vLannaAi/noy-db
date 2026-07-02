@@ -14,7 +14,7 @@
  * replaced — every other dependency the moving code touched on `this.*` arrives
  * via {@link NoydbPolicyDeps}.
  *
- * Internal subsystem — reached through `noydb.getPolicy(...)` etc.
+ * Internal service — reached through `noydb.getPolicy(...)` etc.
  */
 import { ValidationError } from '../errors.js'
 import { PERSONAL_POLICY, mergePolicy } from './presets.js'

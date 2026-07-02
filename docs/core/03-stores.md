@@ -99,10 +99,10 @@ Full list: [docs/packages/to-stores.md](../packages/to-stores.md).
 
 ## Store routing & middleware
 
-Multi-backend routing, retry / circuit-breaker / metrics middleware, lazy-mode caching, and bundle-store wrapping live in the [routing](../subsystems/routing.md) subsystem.
+Multi-backend routing, retry / circuit-breaker / metrics middleware, lazy-mode caching, and bundle-store wrapping live in the [routing](../subsystems/routing.md) service.
 
 ## See also
 
-- [SUBSYSTEMS.md](../../SUBSYSTEMS.md)
+- [SERVICES.md](../../SERVICES.md)
 - [docs/subsystems/routing.md](../subsystems/routing.md)
 - `runStoreConformanceTests()` in `packages/hub/src/__tests__/` — the executable contract

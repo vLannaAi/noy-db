@@ -14,7 +14,7 @@
  * the moving methods touched) instead of `this`, mirroring the `record-keys/`
  * siblings. Behaviour is byte-identical to the inline code they replaced.
  *
- * Internal subsystem — not exported as a `@noy-db/hub/*` subpath.
+ * Internal service — not exported as a `@noy-db/hub/*` subpath.
  */
 import { encryptDeterministic } from '../crypto.js'
 import type { NoydbStore } from '../../types.js'

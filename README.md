@@ -83,7 +83,7 @@ Extended cloud and SQL backends (`@noy-db/to-aws-dynamo`, `@noy-db/to-aws-s3`, `
 
 ---
 
-## The 24-subsystem catalog
+## The 24-service catalog
 
 A minimalist core (~6,500 LOC) plus 24 opt-in capabilities behind `with*()` strategy seams. Apps that don't import a strategy ship none of its code.
 
@@ -103,7 +103,7 @@ const db = await createNoydb({
 })
 ```
 
-| Cluster | Subsystems |
+| Cluster | Services |
 |---|---|
 | **Read & Query** | [indexing](docs/subsystems/indexing.md) · [joins](docs/subsystems/joins.md) · [aggregate](docs/subsystems/aggregate.md) · [live](docs/subsystems/live.md) |
 | **Write & Mutate** | [history](docs/subsystems/history.md) · [transactions](docs/subsystems/transactions.md) · [crdt](docs/subsystems/crdt.md) |
@@ -114,7 +114,7 @@ const db = await createNoydb({
 | **Collaboration & Auth** | [sync](docs/subsystems/sync.md) · [team](docs/subsystems/team.md) · [session](docs/subsystems/session.md) |
 | **Operations** | [routing](docs/subsystems/routing.md) |
 
-→ Full catalog: **[SUBSYSTEMS.md](SUBSYSTEMS.md)**
+→ Full catalog: **[SERVICES.md](SERVICES.md)**
 → Starter recipes: **[docs/recipes/](docs/recipes/)** — personal-notebook · accounting-app · realtime-crdt-app · analytics-app
 
 ---
@@ -123,7 +123,7 @@ const db = await createNoydb({
 
 - **[`playground/cli/`](playground/cli/)** — guided 5-minute CLI walkthrough. `pnpm -C playground/cli demo`. Shows CRUD, multi-user, sync, backup.
 - **[`playground/nuxt/`](playground/nuxt/)** — runnable Nuxt 4 reference app (invoices, multi-tenant, biometric unlock, magic-link client portal).
-- **[`showcases/`](showcases/)** — 50 progressive end-to-end tests that double as tutorials. Numbered 00-49 across storage, multi-user, subsystems, auth, exports, frameworks, and session-share transports — pick a feature and read the runnable code. Plus 4 recipe tests verifying the starter applications.
+- **[`showcases/`](showcases/)** — 50 progressive end-to-end tests that double as tutorials. Numbered 00-49 across storage, multi-user, services, auth, exports, frameworks, and session-share transports — pick a feature and read the runnable code. Plus 4 recipe tests verifying the starter applications.
 
 ```bash
 # Clone, install, run
@@ -310,7 +310,7 @@ noy-db does not inspect your data. It cannot — that is the architectural point
 | **viewer** | all | — | — | — | yes |
 | **client** | granted collections | — | — | — | ACL-scoped |
 
-Every mutation (grant, revoke, rotate, elevate) writes a hash-chained audit ledger entry. Hierarchical per-record classification tiers (`collection.elevate()` / `demote()` / `delegate()` / invisibility / ghost modes) plus scoped tier-elevated handles (`vault.elevate(tier, { ttlMs, reason })` for time-boxed privileged writes) are covered in the [`history`](docs/subsystems/history.md) and [`team`](docs/subsystems/team.md) subsystems.
+Every mutation (grant, revoke, rotate, elevate) writes a hash-chained audit ledger entry. Hierarchical per-record classification tiers (`collection.elevate()` / `demote()` / `delegate()` / invisibility / ghost modes) plus scoped tier-elevated handles (`vault.elevate(tier, { ttlMs, reason })` for time-boxed privileged writes) are covered in the [`history`](docs/subsystems/history.md) and [`team`](docs/subsystems/team.md) services.
 
 ---
 
@@ -340,7 +340,7 @@ Stores **only see ciphertext**. Encryption happens in core before data reaches a
 
 noy-db is an international open-source project. The first production consumer was an enterprise pilot — the library's design assumptions (offline-first, multi-user, sensitive domain data, per-tenant isolation, USB-based workflows for intermittent connectivity) come directly from that real-world deployment.
 
-**Multi-language data is a first-class concern, not an afterthought.** The optional [`i18n`](docs/subsystems/i18n.md) subsystem lets a single field hold values in multiple locales (`i18nText({ languages: ['en', 'th', 'zh'] })`), pairs enum-like fields with shared label dictionaries (`dictKey('status', ['draft', 'paid'])` resolving to per-locale labels), and resolves the right locale at read time without touching ciphertext on the wire. Dictionaries are themselves encrypted and versioned, so even your translation strings stay private. Records, dictionaries, and exports are Unicode-clean — Thai (ภาษาไทย), Chinese (中文), Arabic (العربية), Devanagari (हिंदी), Cyrillic, Hebrew, every script the Web Crypto API and your storage backend can carry. Locale-aware exports round-trip human-readable headers back to stable keys (the `xlsx` reader inverts dictionary labels on import; same for `csv`, `json`, `ndjson`, `xml`).
+**Multi-language data is a first-class concern, not an afterthought.** The optional [`i18n`](docs/subsystems/i18n.md) service lets a single field hold values in multiple locales (`i18nText({ languages: ['en', 'th', 'zh'] })`), pairs enum-like fields with shared label dictionaries (`dictKey('status', ['draft', 'paid'])` resolving to per-locale labels), and resolves the right locale at read time without touching ciphertext on the wire. Dictionaries are themselves encrypted and versioned, so even your translation strings stay private. Records, dictionaries, and exports are Unicode-clean — Thai (ภาษาไทย), Chinese (中文), Arabic (العربية), Devanagari (हिंदी), Cyrillic, Hebrew, every script the Web Crypto API and your storage backend can carry. Locale-aware exports round-trip human-readable headers back to stable keys (the `xlsx` reader inverts dictionary labels on import; same for `csv`, `json`, `ndjson`, `xml`).
 
 ---
 
@@ -358,7 +358,7 @@ The hub package itself uses only `crypto.subtle`, which is built into every targ
 | If you want to… | Read |
 |---|---|
 | see what's always-on (the floor) | [`docs/core/`](docs/core/) |
-| browse the 24 opt-in subsystems | [`docs/subsystems/`](docs/subsystems/) — index + the [SUBSYSTEMS.md](SUBSYSTEMS.md) catalog |
+| browse the 24 opt-in services | [`docs/subsystems/`](docs/subsystems/) — index + the [SERVICES.md](SERVICES.md) catalog |
 | copy a starter recipe | [`docs/recipes/`](docs/recipes/) — personal-notebook · accounting-app · realtime-crdt-app · analytics-app |
 | pick a storage backend | [`docs/packages/to-stores.md`](docs/packages/to-stores.md) |
 | pick a framework integration | [`docs/packages/in-integrations.md`](docs/packages/in-integrations.md) |

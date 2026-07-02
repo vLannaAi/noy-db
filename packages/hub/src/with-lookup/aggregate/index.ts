@@ -1,5 +1,5 @@
 /**
- * @noy-db/hub/aggregate — opt-in aggregation + groupBy subsystem.
+ * @noy-db/hub/aggregate — opt-in aggregation + groupBy service.
  *
  * @category capability
  *

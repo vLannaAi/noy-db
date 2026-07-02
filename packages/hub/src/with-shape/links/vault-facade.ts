@@ -14,7 +14,7 @@
  * is byte-identical to the inline `Vault` methods it replaced — every other
  * dependency the moving code touched on `this.*` arrives via the deps interface.
  *
- * Internal subsystem — reached through `vault.enforceRefsOnPut(...)` etc.
+ * Internal service — reached through `vault.enforceRefsOnPut(...)` etc.
  */
 import { RefIntegrityError, isRefArray, type RefDescriptor, type RefViolation, type RefRegistry } from '../../kernel/refs.js'
 import {

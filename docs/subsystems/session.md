@@ -67,5 +67,5 @@ import { enableDevUnlock, loadDevUnlock, isDevUnlockActive } from '@noy-db/hub'
 
 ## See also
 
-- [SUBSYSTEMS.md](../../SUBSYSTEMS.md)
+- [SERVICES.md](../../SERVICES.md)
 - `__tests__/session-policy.test.ts`, `__tests__/dev-unlock.test.ts`

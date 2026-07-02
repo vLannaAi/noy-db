@@ -1,5 +1,5 @@
 /**
- * Tests for the interaction between computed fields and the guard subsystem.
+ * Tests for the interaction between computed fields and the guard service.
  * Covers the three required scenarios from the review:
  *   1. frozenFields × computed — no false-positive FieldFrozenError
  *   2. computed re-eval on update — stale values not persisted

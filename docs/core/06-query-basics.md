@@ -5,7 +5,7 @@
 
 ## What it is
 
-The chainable query builder for `where` / `orderBy` / `limit` / `offset` and the streaming `scan()` builder. Joins, aggregates, live subscriptions, and indexed dispatch are gated by their respective subsystems; what's here is the always-on read path.
+The chainable query builder for `where` / `orderBy` / `limit` / `offset` and the streaming `scan()` builder. Joins, aggregates, live subscriptions, and indexed dispatch are gated by their respective services; what's here is the always-on read path.
 
 ## Eager queries
 
@@ -56,7 +56,7 @@ const total = await invoices.scan()
 
 ## Subscriptions (live updates)
 
-Reactive queries are documented under [docs/subsystems/live.md](../subsystems/live.md). The base subscribe-on-collection surface (`collection.subscribe(cb)`) is currently always-on but slated to move into the `live` subsystem.
+Reactive queries are documented under [docs/subsystems/live.md](../subsystems/live.md). The base subscribe-on-collection surface (`collection.subscribe(cb)`) is currently always-on but slated to move into the `live` service.
 
 ## Limits
 

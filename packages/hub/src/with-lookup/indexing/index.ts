@@ -1,5 +1,5 @@
 /**
- * @noy-db/hub/indexing — opt-in secondary-index subsystem.
+ * @noy-db/hub/indexing — opt-in secondary-index service.
  *
  * @category capability
  *

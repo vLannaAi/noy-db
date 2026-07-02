@@ -1,5 +1,5 @@
 /**
- * Per-principal user envelope subsystem — storage + types.
+ * Per-principal user envelope service — storage + types.
  *
  * @see docs/superpowers/specs/2026-05-05-user-envelope-design.md
  *

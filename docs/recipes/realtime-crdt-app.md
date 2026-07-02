@@ -1,12 +1,12 @@
 # Recipe 3 — Real-time collaborative app
 
 > **Audience:** apps where two or more users edit the same documents simultaneously and need automatic merge — collaborative editors, live cursors, shared whiteboards, multi-device personal apps.
-> **Bundle:** core + `withCrdt` + `withSync` + `withLive` (n/a yet — see SUBSYSTEMS catalog) + `withTeam` + `withSession` (~10,400 LOC).
+> **Bundle:** core + `withCrdt` + `withSync` + `withLive` (n/a yet — see SERVICES catalog) + `withTeam` + `withSession` (~10,400 LOC).
 > **Verified by:** [showcases/src/recipe-realtime-crdt.recipe.test.ts](../../showcases/src/recipe-realtime-crdt.recipe.test.ts)
 
 ## What this gets you
 
-| Subsystem | What it adds |
+| Service | What it adds |
 |---|---|
 | `withCrdt()` | Conflict-free merge for `lww-map`, `rga`, and `yjs` collection modes |
 | `withSync()` | `db.push()` / `db.pull()` replication, sync engine with conflict resolution, `collection.presence()` |
@@ -134,7 +134,7 @@ CRDT collections (`crdt: 'yjs'` / `'lww-map'` / `'rga'`) bypass envelope-level c
 
 ## See also
 
-- [SUBSYSTEMS.md](../../SUBSYSTEMS.md) — full catalog
+- [SERVICES.md](../../SERVICES.md) — full catalog
 - [docs/subsystems/crdt.md](../subsystems/crdt.md) (TODO)
 - [docs/subsystems/sync.md](../subsystems/sync.md) (TODO)
 - [showcases/src/04-sync-two-offices.showcase.test.ts](../../showcases/src/04-sync-two-offices.showcase.test.ts)

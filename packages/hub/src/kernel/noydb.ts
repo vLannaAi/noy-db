@@ -407,7 +407,7 @@ export class Noydb {
   }
 
   /**
-   * Register closed-period write guards on the subsystem bus when a
+   * Register closed-period write guards on the service bus when a
    * periodsStrategy is configured.  Handlers resolve the live Vault from
    * vaultCache so they always use the up-to-date period cache.
    */
@@ -626,7 +626,7 @@ export class Noydb {
     })
     // Initialise the optional guard + derivation registries via
     // dynamic-import. Both calls are no-ops when the corresponding
-    // strategies array is empty / unset, leaving the subsystem code
+    // strategies array is empty / unset, leaving the service code
     // out of the floor bundle for consumers that don't use it.
     await comp._initGuards(this.options.guardStrategies ?? [])
     await comp._initDerivations(this.options.derivationStrategies ?? [])
