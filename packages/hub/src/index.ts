@@ -181,8 +181,13 @@ export {
   DEFAULT_CHUNK_SIZE,
 } from './with-shape/blobs/blob-set.js'
 export { detectMimeType, detectMagic, isPreCompressed } from './with-shape/blobs/mime-magic.js'
-export { wrapBundleStore, createBundleStore } from './with-pod/pod-store.js'
-export type { WrappedBundleNoydbStore, WrapBundleStoreOptions } from './with-pod/pod-store.js'
+export { wrapPodStore, createPodStore, wrapBundleStore, createBundleStore } from './with-pod/pod-store.js'
+export type {
+  WrappedPodNoydbStore,
+  WrapPodStoreOptions,
+  WrappedBundleNoydbStore,
+  WrapBundleStoreOptions,
+} from './with-pod/pod-store.js'
 export { readPlaintextRecord } from './kernel/debug.js'
 
 // Observable write-queue
