@@ -49,8 +49,8 @@ import type { UnlockedKeyring } from '../with-party/team/keyring.js'
 import { hasWritePermission } from '../with-party/team/keyring.js'
 import type { NoydbEventEmitter } from './events.js'
 import type { WriteQueueTracker } from './write-queue.js'
-import type { WriteHookRegistry, WriteEvent } from './write-hooks.js'
-import type { SubsystemBus, GatePutEvent } from './subsystem-bus.js'
+import type { WriteHookRegistry, WriteEvent } from './with/write-hooks.js'
+import type { ServiceBus, GatePutEvent } from './with/service-bus.js'
 import type { SchemaUpdateGate } from '../with-shape/schema-update/gate.js'
 import type { SchemaFenceController } from '../with-shape/schema-update/fence-controller.js'
 import type { StandardSchemaV1 } from './schema.js'
@@ -197,7 +197,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   private readonly schemaUpdateGate: SchemaUpdateGate | undefined
   private readonly schemaFence: SchemaFenceController | undefined
   private readonly writeHooks: WriteHookRegistry | undefined
-  private readonly subsystemBus: SubsystemBus | undefined
+  private readonly subsystemBus: ServiceBus | undefined
   private readonly activeTxId: (() => string | null) | undefined
   private readonly getDEK: (collectionName: string) => Promise<CryptoKey>
   private readonly onDirty: OnDirtyCallback | undefined

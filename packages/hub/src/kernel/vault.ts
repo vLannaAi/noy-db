@@ -40,7 +40,7 @@ import {
   assertCanImport as assertCanImportCapability,
   canExport as canExportCapability,
   canImport as canImportCapability,
-} from './capabilities.js'
+} from './with/capabilities.js'
 import type { ExportFormat, KeyringFile, SensitiveOpt, IndexFieldName, IndexDefFor, MoneyFieldsOpt } from './types.js'
 import {
   ValidationError,

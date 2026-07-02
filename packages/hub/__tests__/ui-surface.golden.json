@@ -1,0 +1,13 @@
+{
+  "subpath": "@noy-db/hub/ui",
+  "source": "src/kernel/ui/index.ts",
+  "values": [],
+  "types": [
+    "CollectionDescription",
+    "CollectionMeta",
+    "DescribedField",
+    "DescribeOptions",
+    "FieldMeta",
+    "SemanticType"
+  ]
+}

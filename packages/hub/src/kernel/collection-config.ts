@@ -21,8 +21,8 @@ import type { NoydbStore, ConflictPolicy, CollectionConflictResolver, HistoryCon
 import type { UnlockedKeyring } from '../with-party/team/keyring.js'
 import type { NoydbEventEmitter } from './events.js'
 import type { WriteQueueTracker } from './write-queue.js'
-import type { WriteHookRegistry } from './write-hooks.js'
-import type { SubsystemBus } from './subsystem-bus.js'
+import type { WriteHookRegistry } from './with/write-hooks.js'
+import type { ServiceBus } from './with/service-bus.js'
 import type { SchemaUpdateGate } from '../with-shape/schema-update/gate.js'
 import type { SchemaFenceController } from '../with-shape/schema-update/fence-controller.js'
 import type { StandardSchemaV1 } from './schema.js'
@@ -90,7 +90,7 @@ export interface CollectionOpts<T> {
   /** Hub-level write-hook registry; fired around put/delete. */
   writeHooks?: WriteHookRegistry | undefined
   /** The observe bus, threaded from Noydb. */
-  subsystemBus?: SubsystemBus | undefined
+  subsystemBus?: ServiceBus | undefined
   /** Active transaction id supplier (null outside a transaction). */
   activeTxId?: (() => string | null) | undefined
   getDEK: (collectionName: string) => Promise<CryptoKey>
