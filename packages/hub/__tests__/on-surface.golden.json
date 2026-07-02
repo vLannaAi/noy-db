@@ -1,0 +1,15 @@
+{
+  "subpath": "@noy-db/hub/on",
+  "source": "src/kernel/on/index.ts",
+  "values": [
+    "mintPaperRecoveryEntry"
+  ],
+  "types": [
+    "UnlockedKeyring",
+    "Role",
+    "Permissions",
+    "SlotRewrapContext",
+    "EnrollAuthenticatorOptions",
+    "PaperRecoveryEntry"
+  ]
+}

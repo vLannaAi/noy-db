@@ -1,0 +1,16 @@
+{
+  "subpath": "@noy-db/hub/as",
+  "source": "src/as/index.ts",
+  "values": [
+    "diffVault",
+    "readPod",
+    "readPodHeader",
+    "writePod"
+  ],
+  "types": [
+    "VaultDiff",
+    "WritePodOptions",
+    "NoydbPodHeader",
+    "Vault"
+  ]
+}

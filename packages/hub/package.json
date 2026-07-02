@@ -159,6 +159,22 @@
     "./describe": {
       "types": "./dist/describe/index.d.ts",
       "default": "./dist/describe/index.js"
+    },
+    "./on": {
+      "types": "./dist/on/index.d.ts",
+      "default": "./dist/on/index.js"
+    },
+    "./at": {
+      "types": "./dist/at/index.d.ts",
+      "default": "./dist/at/index.js"
+    },
+    "./in": {
+      "types": "./dist/in/index.d.ts",
+      "default": "./dist/in/index.js"
+    },
+    "./as": {
+      "types": "./dist/as/index.d.ts",
+      "default": "./dist/as/index.js"
     }
   },
   "module": "./dist/index.js",
