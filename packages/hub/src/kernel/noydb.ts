@@ -48,16 +48,8 @@ import { resolveManagedSecret } from '../with-party/team/managed-passphrase.js'
 import { generateULID } from '../with-pod/ulid.js'
 import { createDefaultCoordinationProvider, type CoordinationProvider } from './by/default-provider.js'
 import { RecoveryNotEnrolledError, ManagedRecoveryNotEnrolledError } from './policy/errors.js'
-import {
-  loadPublicEnvelope,
-  savePublicEnvelope,
-  readPublicEnvelope as fnReadPublicEnvelope,
-  resolveSchema as resolvePublicEnvelopeSchema,
-  validatePublicEnvelopeInput,
-  type PublicEnvelope,
-  type SetPublicEnvelopeInput,
-  type ResolvedPublicEnvelopeSchema,
-} from './meta/public-envelope/index.js'
+import type { PublicEnvelope } from '../with-party/directory/public-envelope/types.js'
+import type { SetPublicEnvelopeInput } from '../with-party/directory/public-envelope/schema.js'
 import { Vault } from './vault.js'
 import type { VaultMeta } from '../with-shape/introspection/meta.js'
 import { NoydbEventEmitter } from './events.js'
@@ -186,12 +178,6 @@ export class Noydb {
   private _skipNextManagedRecoveryCheck = false
   /** Per-vault tier-3 (PIN / quick-resume) state. */
   private readonly quickUnlock = new QuickUnlockStore()
-  /**
-   * Resolved public-envelope schema. Lazily computed once from
-   * `NoydbOptions.publicEnvelope`; `undefined` when the developer
-   * didn't opt in.
-   */
-  private readonly publicEnvelopeSchema: ResolvedPublicEnvelopeSchema | undefined
   private closed = false
   private sessionTimer: ReturnType<typeof setTimeout> | null = null
   /** Same-device multi-tab coordinator; created on `enableTabCoordination()`. */
@@ -294,7 +280,6 @@ export class Noydb {
         this._skipNextManagedRecoveryCheck = value
       },
     })
-    this.publicEnvelopeSchema = resolvePublicEnvelopeSchema(options.publicEnvelope)
     // Validate sessionPolicy at construction time (developer error if invalid).
     // The strategy's stub throws with a pointer at the subpath if the
     // consumer set a policy without opting in.
@@ -1948,13 +1933,16 @@ export class Noydb {
     vault: string,
     input: SetPublicEnvelopeInput,
   ): Promise<PublicEnvelope> {
-    if (!this.publicEnvelopeSchema) {
+    const { loadPublicEnvelope, savePublicEnvelope, resolveSchema, validatePublicEnvelopeInput } =
+      await import('../with-party/directory/public-envelope/index.js')
+    const schema = resolveSchema(this.options.publicEnvelope)
+    if (!schema) {
       throw new ValidationError(
         'setPublicEnvelope: the public-envelope feature is not enabled. ' +
           'Pass `publicEnvelope: true` (or a schema object) to `createNoydb`.',
       )
     }
-    validatePublicEnvelopeInput(input, this.publicEnvelopeSchema)
+    validatePublicEnvelopeInput(input, schema)
 
     const now = new Date().toISOString()
     const existing = await loadPublicEnvelope(this.options.store, vault)
@@ -1986,7 +1974,8 @@ export class Noydb {
     vault: string,
     opts: { readonly locale?: string } = {},
   ): Promise<PublicEnvelope | undefined> {
-    return fnReadPublicEnvelope(this.options.store, vault, opts)
+    const { readPublicEnvelope } = await import('../with-party/directory/public-envelope/index.js')
+    return readPublicEnvelope(this.options.store, vault, opts)
   }
 
   // ─── Auth introspection ─────────────────────────────────────────

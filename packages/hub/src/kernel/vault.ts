@@ -32,7 +32,7 @@ import type { MaterializedViewStrategyHandle, MVQueryContext } from '../with-for
 import type { OverlayedViewRegistry } from '../with-formula/overlay-views/registry.js'
 import type { OverlayedViewStrategyHandle } from '../with-formula/overlay-views/types.js'
 import { OverlayedCollection } from '../with-formula/overlay-views/virtual-collection.js'
-import type { PublicEnvelope } from './meta/public-envelope/types.js'
+import type { PublicEnvelope } from '../with-party/directory/public-envelope/types.js'
 import { buildRecipientKeyringFile } from '../with-party/team/keyring.js'
 import { ensureCollectionDEK, hasAccess } from '../with-party/team/keyring.js'
 import {
@@ -3482,7 +3482,7 @@ export class Vault {
   async getPublicEnvelope(
     opts: { readonly locale?: string } = {},
   ): Promise<PublicEnvelope | undefined> {
-    const { readPublicEnvelope } = await import('./meta/public-envelope/index.js')
+    const { readPublicEnvelope } = await import('../with-party/directory/public-envelope/index.js')
     return readPublicEnvelope(this.adapter, this.name, opts)
   }
 
