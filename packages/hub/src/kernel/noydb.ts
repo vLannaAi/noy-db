@@ -46,7 +46,7 @@ import {
 } from '../with-party/team/recovery.js'
 import { resolveManagedSecret } from '../with-party/team/managed-passphrase.js'
 import { generateULID } from '../with-pod/ulid.js'
-import { StoreCoordinationProvider, type CoordinationProvider } from './coordination/index.js'
+import { createDefaultCoordinationProvider, type CoordinationProvider } from './by/default-provider.js'
 import { RecoveryNotEnrolledError, ManagedRecoveryNotEnrolledError } from './policy/errors.js'
 import {
   loadPublicEnvelope,
@@ -248,10 +248,8 @@ export class Noydb {
       )
     }
     this.sessionId = options.sessionId ?? generateULID()
-    // Default coordination = store-backed provider over the SAME primary store,
-    // so the fence subsystem reproduces today's store-polling behavior exactly.
-    // `by-*` / klum inject a real-time transport via `coordinationStrategy`.
-    this.coordinationProvider = options.coordinationStrategy ?? new StoreCoordinationProvider(options.store)
+    // createNoydb() always resolves the store-backed default before constructing.
+    this.coordinationProvider = options.coordinationStrategy!
     this.txStrategy = options.txStrategy ?? NO_TX
     this.forgetStrategy = options.forgetStrategy ?? NO_FORGET
     this.custodyStrategy = options.custodyStrategy ?? NO_CUSTODY
@@ -2296,6 +2294,8 @@ export async function createNoydb(options: NoydbOptions): Promise<Noydb> {
   if (encrypted && !managed && !options.secret && !options.getKeyring) {
     throw new ValidationError('A secret (passphrase) or getKeyring callback is required when encryption is enabled')
   }
+
+  if (!options.coordinationStrategy) options = { ...options, coordinationStrategy: await createDefaultCoordinationProvider(options.store!) }
 
   return new Noydb(options as ResolvedNoydbOptions)
 }

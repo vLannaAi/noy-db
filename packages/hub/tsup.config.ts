@@ -56,6 +56,7 @@ const ENTRIES = {
   // Deprecated alias: same source as 'ui/index', kept so `dist/describe/index.js`
   // (the pre-S5 `./describe` subpath) continues to exist. See kernel/ui/index.ts header.
   'describe/index': 'src/kernel/ui/index.ts',
+  'by/index': 'src/kernel/by/index.ts',
 }
 
 // ESM build with code splitting — shared chunks deduplicated so

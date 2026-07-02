@@ -15,7 +15,7 @@
 import { type FenceState } from './fence.js'
 import { SchemaFenceError, MigrationRequiredError } from '../../kernel/errors.js'
 import type { TransformFn } from './types.js'
-import { runDrainBarrier, type CoordinationProvider } from '../../kernel/coordination/index.js'
+import { runDrainBarrier, type CoordinationProvider } from '../../kernel/by/index.js'
 
 /** Runs one collection's transform; supplied by the Vault (binds to a Collection). */
 export type RunTransform = (collection: string, transform: TransformFn) => Promise<void>

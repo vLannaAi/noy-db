@@ -1,0 +1,14 @@
+{
+  "subpath": "@noy-db/hub/by",
+  "source": "src/kernel/by/index.ts",
+  "values": [
+    "isQuorum",
+    "runDrainBarrier"
+  ],
+  "types": [
+    "CoordinationProvider",
+    "WriterPresence",
+    "FenceState",
+    "DrainBarrierOptions"
+  ]
+}

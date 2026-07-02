@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { memory } from '../../../to-memory/src/index.js'
 import { SchemaFenceController } from '../../src/with-shape/schema-update/fence-controller.js'
 import { saveFence, loadFence } from '../../src/with-shape/schema-update/fence.js'
-import { StoreCoordinationProvider } from '../../src/kernel/coordination/index.js'
+import { StoreCoordinationProvider } from '../../src/with-shape/schema-update/store-coordination-provider.js'
 import { SchemaFenceError, MigrationRequiredError } from '../../src/kernel/errors.js'
 
 function ctrl(store = memory()) {

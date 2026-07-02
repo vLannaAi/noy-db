@@ -3,7 +3,7 @@ import { memory } from '../../../to-memory/src/index.js'
 import { FenceWatcher } from '../../src/with-shape/schema-update/fence-watcher.js'
 import { saveFence } from '../../src/with-shape/schema-update/fence.js'
 import { listClientDocs } from '../../src/with-shape/schema-update/client-registry.js'
-import { StoreCoordinationProvider } from '../../src/kernel/coordination/index.js'
+import { StoreCoordinationProvider } from '../../src/with-shape/schema-update/store-coordination-provider.js'
 
 function mkWatcher(store = memory(), onFlush = async () => {}) {
   let t = 1000

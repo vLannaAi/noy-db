@@ -152,6 +152,10 @@
       "types": "./dist/ui/index.d.ts",
       "default": "./dist/ui/index.js"
     },
+    "./by": {
+      "types": "./dist/by/index.d.ts",
+      "default": "./dist/by/index.js"
+    },
     "./describe": {
       "types": "./dist/describe/index.d.ts",
       "default": "./dist/describe/index.js"
