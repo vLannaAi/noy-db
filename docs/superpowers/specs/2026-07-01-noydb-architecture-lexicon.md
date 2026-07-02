@@ -77,3 +77,61 @@ enclave, so it stays in sync with noy-db by construction.
 
 - The exact call shape of `withCargo()` / `withPod()` (injected strategy vs. namespace of functions).
 - Whether services harden from build-time tree-shaken units into runtime plug-ins (the `layer` → plug-in evolution).
+
+## Addendum: Doors (2026-07-02)
+
+S5 ("family doors + kernel diet") gave each satellite **family** exactly one named,
+golden-frozen contract subpath — a **door** — instead of loose root-barrel exports or a
+mislabeled shared subpath. Full design: `2026-07-02-family-doors-kernel-diet-design.md`.
+
+### The door table
+
+| Subpath | Physical home | Bound by (family) | Frozen by (golden) |
+|---|---|---|---|
+| `/to` | `kernel/to/` | `to-*` stores | `to-surface.golden.json` |
+| `/on` | `kernel/on/` | `on-*` unlock | `on-surface.golden.json` |
+| `/at` | `kernel/at/` | `at-*` sealing | `at-surface.golden.json` |
+| `/in` | `kernel/in/` | `in-*` frameworks | `in-surface.golden.json` |
+| `/by` | `kernel/by/` | `by-*` transports | `by-surface.golden.json` |
+| `/ui` | `kernel/ui/` | noy-db-ui (`describe()`) | `ui-surface.golden.json` |
+| `/with` | `kernel/with/` | `with-*` services (internal hook seam) | `with-surface.golden.json` |
+| `/as` | `src/as/` (layer door) | `as-*` exporters | `as-surface.golden.json` |
+| `/cargo` | `src/with-cargo/` (layer door) | klum-db lobby | `cargo-surface.golden.json` |
+| `/pod` | `src/with-pod/` (layer door) | klum-db, backup consumers | `pod-surface.golden.json` |
+
+Plus two contracts that aren't family doors but are golden-frozen the same way:
+the **root barrel** (`src/index.ts`, the flat app-developer API — `root-barrel-surface.golden.json`,
+438 values / 390 types) and the **enclave barrel** (`kernel/enclave/index.ts`, the fork-swap
+contract a sister project like nit-db replaces wholesale — `enclave-surface.golden.json`),
+plus the **kernel API manifest** (`Noydb`/`Vault`/`Collection` public prototype surface —
+`kernel-api.golden.json`: Noydb 75 / Vault 78 / Collection 82 methods).
+
+### The layering law
+
+**Imports point inward only:** `family → door → service layer → kernel spine → enclave`.
+
+- The **kernel spine** (`noydb.ts`, `vault.ts`, `collection.ts`, `query/`, `types.ts`,
+  `errors.ts`, `schema.ts`, `refs.ts`, `validation.ts`, `collection-config.ts`, `cache/`,
+  `util/`, `meta/`, `policy/`, `write-queue.ts`, `constants.ts`, `events.ts`, `debug.ts`,
+  `env-check.ts`) is restricted: it may import `kernel/with/` (the hook seam) and
+  `kernel/enclave/` (only via its barrel), but never another door folder and never a
+  `with-*` service directly (a dynamic `import()` is the sanctioned escape hatch).
+- **Doors are views, not new code paths.** A door may re-export a contract whose
+  implementation lives in a service (e.g. `/on` re-exports `UnlockedKeyring` from
+  `with-party/team`) — importing the door *is* the opt-in, so this costs nothing in
+  tree-shaking. Door folders may not import each other.
+- Enforced mechanically by two new `check:architecture` checks: `door-layering` (the
+  spine/door import-direction rules above) and `enclave-barrel-only` (nothing outside
+  `kernel/enclave/**` reaches past its barrel).
+
+### Deprecated aliases
+
+Three old subpaths/names remain as **deprecated aliases** (kept working, `@deprecated`
+JSDoc naming the replacement, removed only on a coordinated version bump):
+
+- `/adapter` → superseded by `/to` (the store contract).
+- `/describe` → superseded by `/ui` (the `describe()` contract).
+- `/kernel` → superseded by `/cargo` (already deprecated pre-S5; unchanged here).
+
+The old `/store` subpath was **removed outright** (not aliased) — it was internal plumbing
+with no external satellite importer; the code moved to `src/with-store/` (root-barrel-only).
