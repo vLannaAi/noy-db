@@ -6,12 +6,12 @@
  *
  * **Three primitives:**
  *
- *   - `writeNoydbBundle(vault, opts?)` — produces the
+ *   - `writePod(vault, opts?)` — produces the
  *     full container bytes ready to write to disk or upload
- *   - `readNoydbBundleHeader(bytes)` — parses just the header
+ *   - `readPodHeader(bytes)` — parses just the header
  *     without decompressing the body, fast file-type and
  *     metadata read for cloud listing UIs
- *   - `readNoydbBundle(bytes)` — full read: validates magic,
+ *   - `readPod(bytes)` — full read: validates magic,
  *     header, integrity hash, and decompresses the body to
  *     return the original `dump()` JSON string for use with
  *     `vault.load()`
@@ -23,12 +23,12 @@
  * on JSON payloads with repeated keys (which vault dumps
  * are).
  *
- * **Why split read/load?** `readNoydbBundle` returns the
+ * **Why split read/load?** `readPod` returns the
  * *unwrapped JSON string*, not a Vault object. The caller
  * is responsible for piping that JSON into
  * `vault.load(json, passphrase)`. Splitting the layers
  * keeps the bundle module free of any crypto/passphrase
- * concerns — it's purely a format layer. The same `readNoydbBundle`
+ * concerns — it's purely a format layer. The same `readPod`
  * call can also feed verification tools, format inspectors, or
  * archive utilities that don't care about decryption.
  */
@@ -48,7 +48,7 @@ import {
   readUint32BE,
   writeUint32BE,
   type CompressionAlgo,
-  type NoydbBundleHeader,
+  type NoydbPodHeader,
 } from './format.js'
 import { BundleIntegrityError, BundleSealMismatchError, ValidationError } from '../kernel/errors.js'
 import type { Vault } from '../kernel/vault.js'
@@ -82,7 +82,7 @@ export interface AutoCredential {
 }
 
 /**
- * Options accepted by `writeNoydbBundle`.
+ * Options accepted by `writePod`.
  *
  * - `compression: 'auto'` (default) — try brotli, fall back to gzip
  * - `compression: 'brotli'` — force brotli, throw if unsupported
@@ -101,7 +101,7 @@ export interface AutoCredential {
  * Both filters intersect (AND). When neither is provided the bundle is
  * a whole-vault snapshot, identical to today's behaviour.
  */
-export interface WriteNoydbBundleOptions {
+export interface WritePodOptions {
   readonly compression?: 'auto' | 'brotli' | 'gzip' | 'none'
   /** Allowlist of user-collection names to include. */
   readonly collections?: readonly string[]
@@ -255,14 +255,17 @@ export interface WriteNoydbBundleOptions {
   }
 }
 
+/** @deprecated Use `WritePodOptions`. */
+export type WriteNoydbBundleOptions = WritePodOptions
+
 /**
- * Result returned by `readNoydbBundle`. The caller is expected to
+ * Result returned by `readPod`. The caller is expected to
  * pass `dumpJson` into `vault.load(json, passphrase)` to
  * actually restore a vault. Splitting the layers keeps the
  * bundle module free of crypto concerns — see file-level docs.
  */
 export interface NoydbBundleReadResult {
-  readonly header: NoydbBundleHeader
+  readonly header: NoydbPodHeader
   readonly dumpJson: string
   /**
    * Auto-unlock material. Present only when
@@ -330,7 +333,7 @@ interface AutoUnlockBody {
 }
 
 /**
- * Options accepted by {@link readNoydbBundle} for the
+ * Options accepted by {@link readPod} for the
  * auto-unlock paths. Without these the reader behaves exactly as before
  * (header parsed; body returned as `dumpJson`).
  */
@@ -393,7 +396,7 @@ function toAutoCredentials(m: Record<string, string>): Record<string, AutoCreden
  * length, mode, provider presence, kind allowlist) — those are checked
  * in `validateAutoUnlockOptions` after normalization.
  */
-function normalizeAutoUnlock(opts: WriteNoydbBundleOptions): NormalizedAutoUnlock | null {
+function normalizeAutoUnlock(opts: WritePodOptions): NormalizedAutoUnlock | null {
   const set = [
     opts.autoCredentials,
     opts.sealedCredentials,
@@ -403,7 +406,7 @@ function normalizeAutoUnlock(opts: WriteNoydbBundleOptions): NormalizedAutoUnloc
   if (set === 0) return null
   if (set > 1) {
     throw new ValidationError(
-      'writeNoydbBundle: only one of autoCredentials / sealedCredentials / '
+      'writePod: only one of autoCredentials / sealedCredentials / '
       + 'autoPassphrases / sealedPassphrases may be set.',
     )
   }
@@ -438,7 +441,7 @@ function normalizeAutoUnlock(opts: WriteNoydbBundleOptions): NormalizedAutoUnloc
  * `autoUnlock` value (or null when no auto-unlock requested).
  *
  * Takes the pre-computed `NormalizedAutoUnlock` so the caller (i.e.
- * `writeNoydbBundle`) can pass the same object to `buildAutoUnlockWrapper`
+ * `writePod`) can pass the same object to `buildAutoUnlockWrapper`
  * without a second `normalizeAutoUnlock` call.
  *
  * Validation per spec (§3):
@@ -452,7 +455,7 @@ function normalizeAutoUnlock(opts: WriteNoydbBundleOptions): NormalizedAutoUnloc
  * Throws {@link ValidationError} on any violation.
  */
 function validateAutoUnlockOptions(
-  opts: WriteNoydbBundleOptions,
+  opts: WritePodOptions,
   normalized: NormalizedAutoUnlock | null,
 ): 'unsealed' | 'sealed' | null {
   if (normalized === null) return null
@@ -463,7 +466,7 @@ function validateAutoUnlockOptions(
   for (const [userId, cred] of Object.entries(normalized.perUser)) {
     if (!VALID_KINDS.has(cred.kind)) {
       throw new ValidationError(
-        `writeNoydbBundle: credential for user '${userId}' has unsupported kind '${cred.kind}'. `
+        `writePod: credential for user '${userId}' has unsupported kind '${cred.kind}'. `
         + 'auto-unlock supports passphrase/password/pin only; WebAuthn is hardware-bound '
         + 'and cannot be bundled.',
       )
@@ -475,7 +478,7 @@ function validateAutoUnlockOptions(
     const policy = opts.autoCredentials?.policy ?? opts.autoPassphrases?.policy
     if (policy !== 'public-by-design') {
       throw new ValidationError(
-        'writeNoydbBundle: `autoCredentials` (or `autoPassphrases`) requires '
+        'writePod: `autoCredentials` (or `autoPassphrases`) requires '
         + '`policy: "public-by-design"`. '
         + 'This is an explicit opt-in marker — bundling plaintext credentials is '
         + 'safe only when those credentials are intended to be public (demo data, '
@@ -485,7 +488,7 @@ function validateAutoUnlockOptions(
     const userCount = Object.keys(normalized.perUser).length
     if (userCount === 0) {
       throw new ValidationError(
-        'writeNoydbBundle: `autoCredentials.perUser` (or `autoPassphrases.perUser`) '
+        'writePod: `autoCredentials.perUser` (or `autoPassphrases.perUser`) '
         + 'must have at least one entry.',
       )
     }
@@ -498,7 +501,7 @@ function validateAutoUnlockOptions(
     if (provider === undefined || typeof (provider as RecipientSealer).publishRecipientHint !== 'function'
         || typeof (provider as RecipientSealer).sealForRecipient !== 'function') {
       throw new ValidationError(
-        'writeNoydbBundle: `sealedCredentials.provider` for mode \'recipient-target\' must be a '
+        'writePod: `sealedCredentials.provider` for mode \'recipient-target\' must be a '
         + 'RecipientSealer (publishRecipientHint + sealForRecipient). Self-only providers '
         + '(MemorySealingKeyProvider, at-macos-keychain, etc.) do not satisfy this contract.',
       )
@@ -511,22 +514,22 @@ function validateAutoUnlockOptions(
       const hint = hints[userId]
       if (hint === undefined) {
         throw new ValidationError(
-          `writeNoydbBundle: \`sealedCredentials.perUser['${userId}']\` missing required \`hint\` for mode 'recipient-target'.`,
+          `writePod: \`sealedCredentials.perUser['${userId}']\` missing required \`hint\` for mode 'recipient-target'.`,
         )
       }
       if (hint.v !== 1) {
         throw new ValidationError(
-          `writeNoydbBundle: \`sealedCredentials.perUser['${userId}'].hint.v\` must be 1 (got ${String(hint.v)}).`,
+          `writePod: \`sealedCredentials.perUser['${userId}'].hint.v\` must be 1 (got ${String(hint.v)}).`,
         )
       }
       if (typeof hint.pid !== 'string' || hint.pid.length === 0) {
         throw new ValidationError(
-          `writeNoydbBundle: \`sealedCredentials.perUser['${userId}'].hint.pid\` must be a non-empty string identifying the recipient.`,
+          `writePod: \`sealedCredentials.perUser['${userId}'].hint.pid\` must be a non-empty string identifying the recipient.`,
         )
       }
       if (hint.alg !== 'rsa-oaep-sha256') {
         throw new ValidationError(
-          `writeNoydbBundle: \`sealedCredentials.perUser['${userId}'].hint.alg\` must be 'rsa-oaep-sha256' in slice 1 (got '${String(hint.alg)}').`,
+          `writePod: \`sealedCredentials.perUser['${userId}'].hint.alg\` must be 'rsa-oaep-sha256' in slice 1 (got '${String(hint.alg)}').`,
         )
       }
       // Note: hint.pid identifies the recipient, not the sender — no pid===sender.id check here.
@@ -536,7 +539,7 @@ function validateAutoUnlockOptions(
     const userCount = Object.keys(normalized.perUser).length
     if (userCount === 0) {
       throw new ValidationError(
-        'writeNoydbBundle: `sealedCredentials.perUser` must have at least one entry.',
+        'writePod: `sealedCredentials.perUser` must have at least one entry.',
       )
     }
     return 'sealed'
@@ -546,20 +549,20 @@ function validateAutoUnlockOptions(
   const selfTargetMode = opts.sealedCredentials?.mode ?? opts.sealedPassphrases?.mode
   if (selfTargetMode !== 'self-target') {
     throw new ValidationError(
-      `writeNoydbBundle: \`sealedCredentials.mode\` (or \`sealedPassphrases.mode\`) must be `
+      `writePod: \`sealedCredentials.mode\` (or \`sealedPassphrases.mode\`) must be `
       + `'self-target' or 'recipient-target' (got '${String(selfTargetMode)}').`,
     )
   }
   if (normalized.provider === undefined) {
     throw new ValidationError(
-      'writeNoydbBundle: `sealedCredentials.provider` (or `sealedPassphrases.provider`) '
+      'writePod: `sealedCredentials.provider` (or `sealedPassphrases.provider`) '
       + 'is required (a `SealingKeyProvider`).',
     )
   }
   const userCount = Object.keys(normalized.perUser).length
   if (userCount === 0) {
     throw new ValidationError(
-      'writeNoydbBundle: `sealedCredentials.perUser` (or `sealedPassphrases.perUser`) '
+      'writePod: `sealedCredentials.perUser` (or `sealedPassphrases.perUser`) '
       + 'must have at least one entry.',
     )
   }
@@ -892,7 +895,7 @@ export function resetBrotliSupportCache(): void {
  * make the produced bundle smaller-than-expected and confuse
  * size-bound tests.
  */
-function selectCompression(option: WriteNoydbBundleOptions['compression']): {
+function selectCompression(option: WritePodOptions['compression']): {
   format: CompressionAlgo
   streamFormat: CompressionFormat | null
 } {
@@ -902,7 +905,7 @@ function selectCompression(option: WriteNoydbBundleOptions['compression']): {
   if (choice === 'brotli') {
     if (!supportsBrotliCompression()) {
       throw new Error(
-        `writeNoydbBundle({ compression: 'brotli' }) is not supported on this ` +
+        `writePod({ compression: 'brotli' }) is not supported on this ` +
           `runtime. Brotli requires Node 22+, Chrome 124+, or Firefox 122+. ` +
           `Use { compression: 'auto' } to fall back to gzip silently, or ` +
           `{ compression: 'gzip' } to be explicit.`,
@@ -1016,7 +1019,7 @@ function concatBytes(parts: readonly Uint8Array[]): Uint8Array {
 async function applyRecipientRewrap(
   vault: Vault,
   dumpJson: string,
-  opts: WriteNoydbBundleOptions,
+  opts: WritePodOptions,
 ): Promise<string> {
   if (opts.exportPassphrase === undefined && opts.recipients === undefined) {
     return dumpJson
@@ -1055,7 +1058,7 @@ async function applyRecipientRewrap(
  */
 function applySliceFilters(
   dumpJson: string,
-  opts: WriteNoydbBundleOptions,
+  opts: WritePodOptions,
 ): string {
   const collectionsFilter = opts.collections
     ? new Set(opts.collections)
@@ -1112,7 +1115,7 @@ function applySliceFilters(
 async function applyPlaintextFilters(
   vault: Vault,
   dumpJson: string,
-  opts: WriteNoydbBundleOptions,
+  opts: WritePodOptions,
 ): Promise<string> {
   if (opts.where === undefined && opts.tierAtMost === undefined) {
     return dumpJson
@@ -1185,7 +1188,7 @@ async function applyPlaintextFilters(
  */
 /**
  * Assemble the final `.noydb` container bytes from a body JSON string +
- * header extras. Shared by `writeNoydbBundle` and `extractPartition`
+ * header extras. Shared by `writePod` and `extractPartition`
  * so both producers go through one compress/hash/prefix path.
  *
  * @internal
@@ -1193,9 +1196,9 @@ async function applyPlaintextFilters(
 export async function assembleBundleContainer(opts: {
   handle: string
   bodyJsonStr: string
-  compression: WriteNoydbBundleOptions['compression']
+  compression: WritePodOptions['compression']
   /** Header fields beyond the always-present four. */
-  headerExtras?: Partial<Pick<NoydbBundleHeader, 'publicEnvelope' | 'autoUnlock' | 'bundleKind' | 'transferSeal'>>
+  headerExtras?: Partial<Pick<NoydbPodHeader, 'publicEnvelope' | 'autoUnlock' | 'bundleKind' | 'transferSeal'>>
 }): Promise<Uint8Array> {
   const dumpBytes = new TextEncoder().encode(opts.bodyJsonStr)
   const { format, streamFormat } = selectCompression(opts.compression)
@@ -1204,7 +1207,7 @@ export async function assembleBundleContainer(opts: {
     : await pumpThroughStream(dumpBytes, new CompressionStream(streamFormat))
   const bodySha256 = await sha256Hex(body)
 
-  const header: NoydbBundleHeader = {
+  const header: NoydbPodHeader = {
     formatVersion: NOYDB_BUNDLE_FORMAT_VERSION,
     handle: opts.handle,
     bodyBytes: body.length,
@@ -1225,13 +1228,13 @@ export async function assembleBundleContainer(opts: {
   return concatBytes([prefix, headerBytes, body])
 }
 
-export async function writeNoydbBundle(
+export async function writePod(
   vault: Vault,
-  opts: WriteNoydbBundleOptions = {},
+  opts: WritePodOptions = {},
 ): Promise<Uint8Array> {
   if (opts.exportPassphrase !== undefined && opts.recipients !== undefined) {
     throw new Error(
-      'writeNoydbBundle: pass either exportPassphrase or recipients, not both',
+      'writePod: pass either exportPassphrase or recipients, not both',
     )
   }
 
@@ -1279,6 +1282,9 @@ export async function writeNoydbBundle(
   })
 }
 
+/** @deprecated Use `writePod`. */
+export const writeNoydbBundle = writePod
+
 /**
  * Internal helper shared by both readers — parses just the prefix
  * + header region of a bundle without touching the body. Returns
@@ -1290,7 +1296,7 @@ export async function writeNoydbBundle(
  * compression algorithm.
  */
 function parsePrefixAndHeader(bytes: Uint8Array): {
-  header: NoydbBundleHeader
+  header: NoydbPodHeader
   bodyOffset: number
   algo: CompressionAlgo
   flags: number
@@ -1333,7 +1339,7 @@ function parsePrefixAndHeader(bytes: Uint8Array): {
  * integrity verification. Intended for cloud-listing UIs that want
  * to show the handle and size before downloading the full body.
  *
- * Returns the same `NoydbBundleHeader` shape as the writer, with
+ * Returns the same `NoydbPodHeader` shape as the writer, with
  * minimum-disclosure validation already applied.
  *
  * **Cost** — O(prefix + header bytes). The header is normally well
@@ -1342,9 +1348,12 @@ function parsePrefixAndHeader(bytes: Uint8Array): {
  * assumed sub-KB header reads should account for this when sizing
  * range requests against bundles that may carry icons.
  */
-export function readNoydbBundleHeader(bytes: Uint8Array): NoydbBundleHeader {
+export function readPodHeader(bytes: Uint8Array): NoydbPodHeader {
   return parsePrefixAndHeader(bytes).header
 }
+
+/** @deprecated Use `readPodHeader`. */
+export const readNoydbBundleHeader = readPodHeader
 
 /**
  * Read just the bundle's public envelope (`docs/subsystems/public-envelope.md`)
@@ -1392,7 +1401,7 @@ export function readNoydbBundlePublicEnvelope(
  * free of crypto concerns and lets the same code feed format
  * inspectors that never decrypt anything.
  */
-export async function readNoydbBundle(
+export async function readPod(
   bytes: Uint8Array,
   opts: ReadNoydbBundleOptions = {},
 ): Promise<NoydbBundleReadResult> {
@@ -1447,3 +1456,6 @@ export async function readNoydbBundle(
   const autoUnlock = await resolveAutoUnlock(blob, opts)
   return { header, dumpJson: dump, autoUnlock }
 }
+
+/** @deprecated Use `readPod`. */
+export const readNoydbBundle = readPod

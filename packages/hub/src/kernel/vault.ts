@@ -1686,7 +1686,7 @@ export class Vault {
 
   /**
    * Build keyring files for bundle recipients without persisting them
-   * to the source vault. Used by `writeNoydbBundle()` when the bundle
+   * to the source vault. Used by `writePod()` when the bundle
    * is re-keyed for distinct recipients.
    *
    * Each recipient becomes its own `KeyringFile` sealed with that
@@ -1720,7 +1720,7 @@ export class Vault {
    * the invoking keyring is not authorised.
    *
    * `as-*` packages MUST call this before invoking the underlying
-   * export primitive (`exportStream()` / `writeNoydbBundle()` / …).
+   * export primitive (`exportStream()` / `writePod()` / …).
    *
    * - `assertCanExport('plaintext', 'xlsx')` — check plaintext tier
    *   for a specific format. Defaults to empty for every role; owner
@@ -3399,7 +3399,7 @@ export class Vault {
    * Return the stable opaque bundle handle for this vault,
    * generating and persisting a fresh ULID on first call.
    *
-   * used by `writeNoydbBundle()` to identify the
+   * used by `writePod()` to identify the
    * vault in the unencrypted bundle header without
    * exposing the vault name. The handle is persisted in
    * the reserved `_meta` internal collection so subsequent

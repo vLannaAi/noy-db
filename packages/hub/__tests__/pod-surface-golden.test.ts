@@ -21,8 +21,8 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import * as pod from '../src/with-pod/index.js'
 import type {
-  CompressionAlgo, NoydbBundleHeader, NoydbBundleReadResult,
-  ReadNoydbBundleOptions, WriteNoydbBundleOptions,
+  CompressionAlgo, NoydbBundleHeader, NoydbBundleReadResult, NoydbPodHeader,
+  ReadNoydbBundleOptions, WriteNoydbBundleOptions, WritePodOptions,
   WrapBundleStoreOptions, WrapPodStoreOptions,
   WrappedBundleNoydbStore, WrappedPodNoydbStore,
 } from '../src/with-pod/index.js'
@@ -86,8 +86,8 @@ describe('@noy-db/hub/pod — golden export surface', () => {
 // Compile-time exhaustiveness: every baselined type must still be exported.
 // A removal/rename breaks `typecheck` here in addition to the source-parse test.
 type _FrozenTypes = [
-  CompressionAlgo, NoydbBundleHeader, NoydbBundleReadResult,
-  ReadNoydbBundleOptions, WriteNoydbBundleOptions,
+  CompressionAlgo, NoydbBundleHeader, NoydbBundleReadResult, NoydbPodHeader,
+  ReadNoydbBundleOptions, WriteNoydbBundleOptions, WritePodOptions,
   WrapBundleStoreOptions, WrapPodStoreOptions,
   WrappedBundleNoydbStore, WrappedPodNoydbStore,
 ]

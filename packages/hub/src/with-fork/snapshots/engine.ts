@@ -1,12 +1,12 @@
-import { writeNoydbBundle, readNoydbBundle } from '../../with-pod/bundle.js'
+import { writePod, readPod } from '../../with-pod/bundle.js'
 import { SnapshotNotFoundError } from '../../kernel/errors.js'
-import type { NoydbBundleStore } from '../../kernel/types.js'
+import type { NoydbPodStore } from '../../kernel/types.js'
 import type { Vault } from '../../kernel/vault.js'
 import type { SnapshotMeta, RetentionPolicy, SnapshotIndex } from './strategy.js'
 
 export class SnapshotEngine {
   constructor(
-    private readonly store: NoydbBundleStore,
+    private readonly store: NoydbPodStore,
     private readonly retention: RetentionPolicy,
   ) {}
 
@@ -45,7 +45,7 @@ export class SnapshotEngine {
     by: string,
     opts?: { label?: string; note?: string },
   ): Promise<SnapshotMeta> {
-    const bytes = await writeNoydbBundle(vault, {})
+    const bytes = await writePod(vault, {})
     const { index, indexVersion } = await this.readIndex(vault.name)
     const key = this.snapKey(vault.name, index.nextCounter)
 
@@ -91,7 +91,7 @@ export class SnapshotEngine {
     by: string,
     opts?: { label?: string; note?: string },
   ): Promise<SnapshotMeta> {
-    const bytes = await writeNoydbBundle(vault, {})
+    const bytes = await writePod(vault, {})
     const { index, indexVersion } = await this.readIndex(vault.name)
     const key = this.autoKey(vault.name)
 
@@ -124,7 +124,7 @@ export class SnapshotEngine {
     if (!version.startsWith(`${vault.name}__`)) throw new SnapshotNotFoundError(version)
     const result = await this.store.readBundle(version)
     if (!result) throw new SnapshotNotFoundError(version)
-    const { dumpJson } = await readNoydbBundle(result.bytes)
+    const { dumpJson } = await readPod(result.bytes)
     await vault.load(dumpJson)
   }
 

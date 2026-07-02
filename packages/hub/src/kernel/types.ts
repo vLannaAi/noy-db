@@ -884,7 +884,7 @@ export interface KeyringFile {
    *
    * Absent on live keyrings written via `db.grant()` — the field is
    * meaningful for `BundleRecipient` slots produced by
-   * `writeNoydbBundle({ recipients: [...] })`. Setting it on a live
+   * `writePod({ recipients: [...] })`. Setting it on a live
    * keyring is allowed but unusual.
    */
   readonly expires_at?: string
@@ -1670,11 +1670,11 @@ export type { CrdtMode, CrdtState, LwwMapState, RgaState, YjsState } from '../wi
  * contract. Use `wrapBundleStore()` from `@noy-db/hub` to convert to a
  * `NoydbStore` that the rest of the API consumes transparently.
  *
- * Named `NoydbBundleStore` (not `NoydbBundleAdapter`) for consistency
+ * Named `NoydbPodStore` (not `NoydbBundleAdapter`) for consistency
  * with the hub / to-* / in-* rename. Concrete implementations ship
  * in `@noy-db/to-*` packages starting in.
  */
-export interface NoydbBundleStore {
+export interface NoydbPodStore {
   /** Discriminant for engine auto-detection of store shape. */
   readonly kind: 'bundle'
   /** Human-readable name for diagnostics (e.g. `'drive'`, `'webdav'`). */
@@ -1688,7 +1688,7 @@ export interface NoydbBundleStore {
    * Write the entire vault as raw bytes. `expectedVersion` is the version
    * token from the last `readBundle` (or `null` for a first write).
    * Implementations MUST reject the write if the stored version has advanced
-   * past `expectedVersion` — throw `BundleVersionConflictError`.
+   * past `expectedVersion` — throw `PodVersionConflictError`.
    * Returns the new version token on success.
    */
   writeBundle(
@@ -1701,6 +1701,9 @@ export interface NoydbBundleStore {
   /** List all vault bundles managed by this store. */
   listBundles(): Promise<Array<{ vaultId: string; version: string; size: number }>>
 }
+
+/** @deprecated Use `NoydbPodStore`. */
+export type NoydbBundleStore = NoydbPodStore
 
 /**
  * Content-addressed blob object stored in the vault-level blob index.

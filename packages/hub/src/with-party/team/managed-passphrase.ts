@@ -165,7 +165,7 @@ export class MemorySealingKeyProvider implements SealingKeyProvider {
  * Public material a sender uses to seal-for-this-recipient. Published by
  * a recipient's RecipientSealer; transported to the sender out-of-band
  * (email, S3, in-app message). The sender obtains the hint, supplies it
- * to writeNoydbBundle's sealedCredentials.perUser[userId].hint, and the
+ * to writePod's sealedCredentials.perUser[userId].hint, and the
  * hub seals each user's credential against it. Per foundation §11.4.
  */
 export type RecipientHint = {

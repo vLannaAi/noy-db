@@ -10,7 +10,7 @@
 import type { EncryptedEnvelope } from '../kernel/types.js'
 import { decrypt } from '../kernel/enclave/crypto.js'
 import { unwrapCek } from '../kernel/enclave/record-keys/index.js'
-import { readNoydbBundleHeader, readNoydbBundle, parseExtractedPartitionBody } from '../with-pod/bundle.js'
+import { readPodHeader, readPod, parseExtractedPartitionBody } from '../with-pod/bundle.js'
 import { unsealDeks } from './adopt-partition.js'
 
 /** One decrypted record from an extracted-partition compartment. */
@@ -36,11 +36,11 @@ export async function decryptExtractedPartition(
   bundleBytes: Uint8Array,
   transferKey: Uint8Array,
 ): Promise<Record<string, DecryptedRecord[]>> {
-  const header = readNoydbBundleHeader(bundleBytes)
+  const header = readPodHeader(bundleBytes)
   if (header.bundleKind !== 'extracted-partition' || header.transferSeal === undefined) {
     throw new Error('decryptExtractedPartition: bundle is not an extracted-partition.')
   }
-  const { dumpJson } = await readNoydbBundle(bundleBytes)
+  const { dumpJson } = await readPod(bundleBytes)
   const { dump, seal } = parseExtractedPartitionBody(dumpJson)
   const deks = await unsealDeks(seal, transferKey) // throws TransferSealError on wrong key
   const backup = JSON.parse(dump) as { collections: Record<string, Record<string, EncryptedEnvelope>> }

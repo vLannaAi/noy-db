@@ -18,7 +18,7 @@ import type { RecoveryEnrollmentInput } from '../with-party/team/rotate-recover.
 import { LedgerStore } from '../with-commit/history/ledger/store.js'
 import { LEDGER_COLLECTION } from '../with-commit/history/ledger/constants.js'
 import type { TransferSealPayload } from '../with-pod/bundle.js'
-import { readNoydbBundleHeader, readNoydbBundle, parseExtractedPartitionBody } from '../with-pod/bundle.js'
+import { readPodHeader, readPod, parseExtractedPartitionBody } from '../with-pod/bundle.js'
 
 /**
  * Reverse of `sealDeks`. Imports the transfer key, decrypts the
@@ -83,15 +83,15 @@ export async function adoptPartition(
 ): Promise<AdoptPartitionResult> {
   const { transferKey, destinationStore, vaultName } = opts
 
-  const header = readNoydbBundleHeader(bundleBytes)
+  const header = readPodHeader(bundleBytes)
   if (header.bundleKind !== 'extracted-partition' || header.transferSeal === undefined) {
     throw new ValidationError(
       'adoptPartition requires an extracted-partition bundle with a transfer seal. '
-      + 'For ordinary backups use readNoydbBundle + vault.load.',
+      + 'For ordinary backups use readPod + vault.load.',
     )
   }
 
-  const { dumpJson } = await readNoydbBundle(bundleBytes)
+  const { dumpJson } = await readPod(bundleBytes)
   const { dump, seal } = parseExtractedPartitionBody(dumpJson)
 
   // Validate the transfer key by unsealing in memory; throws

@@ -1,5 +1,5 @@
-import type { NoydbStore, NoydbBundleStore, VaultSnapshot, EncryptedEnvelope } from '../kernel/types.js'
-import { ConflictError, BundleVersionConflictError } from '../kernel/errors.js'
+import type { NoydbStore, NoydbPodStore, VaultSnapshot, EncryptedEnvelope } from '../kernel/types.js'
+import { ConflictError, PodVersionConflictError } from '../kernel/errors.js'
 
 // ─── Bundle format ─────────────────────────────────────────────────────
 
@@ -50,7 +50,7 @@ export interface WrappedPodNoydbStore extends NoydbStore {
 const MAX_CONFLICT_RETRIES = 3
 
 /**
- * Convert a `NoydbBundleStore` (blob-oriented read/write with OCC) into the
+ * Convert a `NoydbPodStore` (blob-oriented read/write with OCC) into the
  * standard six-method `NoydbStore` interface expected by `createNoydb({ store })`.
  *
  * Bundle stores operate on the entire vault as a single serialised unit —
@@ -61,7 +61,7 @@ const MAX_CONFLICT_RETRIES = 3
  *
  * The wrapper tracks the `version` token from the last `readBundle` and
  * passes it as `expectedVersion` on every flush. On
- * `BundleVersionConflictError`, it re-reads, merges the remote snapshot
+ * `PodVersionConflictError`, it re-reads, merges the remote snapshot
  * (last-write-wins per record key), and retries (max 3 attempts).
  *
  * ## Flush modes
@@ -72,7 +72,7 @@ const MAX_CONFLICT_RETRIES = 3
  * - Pair with `syncPolicy: { push: { mode: 'debounce' } }` from 
  */
 export function wrapPodStore(
-  bundle: NoydbBundleStore,
+  bundle: NoydbPodStore,
   options?: WrapPodStoreOptions,
 ): WrappedPodNoydbStore {
   const autoFlush = options?.autoFlush !== false
@@ -120,7 +120,7 @@ export function wrapPodStore(
         versions.set(vault, newVersion)
         return
       } catch (err) {
-        if (err instanceof BundleVersionConflictError && attempt < MAX_CONFLICT_RETRIES - 1) {
+        if (err instanceof PodVersionConflictError && attempt < MAX_CONFLICT_RETRIES - 1) {
           // Pull remote, merge (last-write-wins by record key), retry
           const remote = await bundle.readBundle(vault)
           if (remote) {
@@ -250,12 +250,12 @@ function mergeSnapshots(remote: VaultSnapshot, local: VaultSnapshot): VaultSnaps
 // ─── Factory helper ─────────────────────────────────────────────────────
 
 /**
- * Type-safe factory helper for `NoydbBundleStore` implementations,
+ * Type-safe factory helper for `NoydbPodStore` implementations,
  * analogous to `createStore` for KV stores.
  */
 export function createPodStore<TOptions>(
-  factory: (options: TOptions) => NoydbBundleStore,
-): (options: TOptions) => NoydbBundleStore {
+  factory: (options: TOptions) => NoydbPodStore,
+): (options: TOptions) => NoydbPodStore {
   return factory
 }
 

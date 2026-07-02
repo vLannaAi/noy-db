@@ -19,7 +19,7 @@
  *       │    └─ StoreCapabilityError   — optional store method missing
  *       ├─ Sync errors
  *       │    ├─ ConflictError          — optimistic-lock version mismatch
- *       │    ├─ BundleVersionConflictError — bundle push rejected by remote
+ *       │    ├─ PodVersionConflictError — bundle push rejected by remote
  *       │    └─ NetworkError           — push/pull network failure
  *       ├─ Data errors
  *       │    ├─ NotFoundError          — get(id) on missing record
@@ -358,7 +358,7 @@ export class ExportCapabilityError extends NoydbError {
  * of the generic decryption-failure UX.
  *
  * Used predominantly on `BundleRecipient` slots produced by
- * `writeNoydbBundle({ recipients: [...] })` to time-box audit access.
+ * `writePod({ recipients: [...] })` to time-box audit access.
  */
 export class KeyringExpiredError extends NoydbError {
   readonly userId: string
@@ -902,16 +902,21 @@ export class NumberingUncertaintyError extends NoydbError {
  * bundle, merge, and re-push. `remoteVersion` is the handle of the newer
  * remote bundle for use in diagnostics.
  */
-export class BundleVersionConflictError extends NoydbError {
+export class PodVersionConflictError extends NoydbError {
   /** The bundle handle of the newer remote version that rejected the push. */
   readonly remoteVersion: string
 
   constructor(remoteVersion: string, message = 'Bundle version conflict — remote has been updated') {
     super('BUNDLE_VERSION_CONFLICT', message)
-    this.name = 'BundleVersionConflictError'
+    this.name = 'PodVersionConflictError'
     this.remoteVersion = remoteVersion
   }
 }
+
+/** @deprecated Use `PodVersionConflictError`. */
+export const BundleVersionConflictError = PodVersionConflictError
+/** @deprecated Use `PodVersionConflictError`. */
+export type BundleVersionConflictError = PodVersionConflictError
 
 /**
  * Thrown when a sync operation (push or pull) fails due to a network error.
@@ -1225,7 +1230,7 @@ export class IndexWriteFailureError extends NoydbError {
 // ─── Bundle Format Errors ─────────────────────────────────
 
 /**
- * Thrown by `readNoydbBundle()` when the body bytes don't match
+ * Thrown by `readPod()` when the body bytes don't match
  * the integrity hash declared in the bundle header — i.e. someone
  * modified the bytes between write and read.
  *
@@ -1251,7 +1256,7 @@ export class BundleIntegrityError extends NoydbError {
 }
 
 /**
- * Thrown by `readNoydbBundle` when the bundle carries
+ * Thrown by `readPod` when the bundle carries
  * sealed per-user passphrases but no supplied `SealingKeyProvider`
  * has a `.id` (= `pid`) matching the sealed entry's `pid`.
  *
