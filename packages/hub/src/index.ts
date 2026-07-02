@@ -706,7 +706,7 @@ export { resolveCrdtSnapshot, mergeCrdtStates } from './with-commit/crdt/crdt.js
 // Presence
 export { PresenceHandle } from './with-party/team/presence.js'
 export type { PresencePeer } from './kernel/types.js'
-export { derivePresenceKey } from './kernel/enclave/crypto.js'
+export { derivePresenceKey } from './kernel/enclave/index.js'
 export { SyncEngine } from './with-party/team/sync.js'
 export { SyncTransaction } from './with-party/team/sync-transaction.js'
 
@@ -924,8 +924,8 @@ export type { DevUnlockOptions } from './with-party/session/dev-unlock.js'
 export { isDiscriminant } from './kernel/util/discriminant.js'
 
 // Crypto utilities (buffer encoding helpers + binary encrypt/hash)
-export { bufferToBase64, base64ToBuffer, encryptBytes, decryptBytes } from './kernel/enclave/crypto.js'
-export { encryptDeterministic, decryptDeterministic } from './kernel/enclave/crypto.js'
+export { bufferToBase64, base64ToBuffer, encryptBytes, decryptBytes } from './kernel/enclave/index.js'
+export { encryptDeterministic, decryptDeterministic } from './kernel/enclave/index.js'
 
 // hierarchical access
 export type { GhostRecord, TierMode, CrossTierAccessEvent } from './kernel/types.js'

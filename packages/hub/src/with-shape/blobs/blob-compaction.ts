@@ -31,7 +31,7 @@
 
 import type { NoydbStore, EncryptedEnvelope, SlotInfo } from '../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
-import { encrypt } from '../../kernel/enclave/crypto.js'
+import { encrypt } from '../../kernel/enclave/index.js'
 
 // ─── Config types ───────────────────────────────────────────────────────
 

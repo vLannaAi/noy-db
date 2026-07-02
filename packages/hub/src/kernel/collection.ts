@@ -20,9 +20,9 @@ import {
   resolveStableCek,
   findByDet,
   queryByDet,
+  RecordCodec,
   type DeterministicContext,
-} from './enclave/record-keys/index.js'
-import { RecordCodec } from './enclave/record-keys/record-codec.js'
+} from './enclave/index.js'
 import {
   classifySealedShred as classifySealedShredImpl,
   type TiersContext,

@@ -5,7 +5,7 @@ import {
   decryptDeterministic,
   encrypt,
   decrypt,
-} from '../src/kernel/enclave/crypto.js'
+} from '../src/kernel/enclave/index.js'
 import { createNoydb } from '../src/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/index.js'

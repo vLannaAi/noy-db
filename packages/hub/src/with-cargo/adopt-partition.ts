@@ -7,7 +7,7 @@
  *
  * @module
  */
-import { base64ToBuffer, wrapKey } from '../kernel/enclave/crypto.js'
+import { base64ToBuffer, wrapKey } from '../kernel/enclave/index.js'
 import { TransferSealError, AdoptionStateError, ValidationError } from '../kernel/errors.js'
 import type { NoydbStore, VaultSnapshot, KeyringFile } from '../kernel/types.js'
 import { createOwnerKeyring } from '../with-party/team/keyring.js'

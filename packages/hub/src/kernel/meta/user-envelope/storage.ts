@@ -18,7 +18,7 @@
  */
 import type { NoydbStore, EncryptedEnvelope } from '../../types.js'
 import { NOYDB_FORMAT_VERSION } from '../../types.js'
-import { encrypt, decrypt } from '../../enclave/crypto.js'
+import { encrypt, decrypt } from '../../enclave/index.js'
 import { ConflictError } from '../../errors.js'
 import {
   USER_ENVELOPE_COLLECTION,

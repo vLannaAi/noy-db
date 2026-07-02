@@ -8,8 +8,7 @@
  * @module
  */
 import type { EncryptedEnvelope } from '../kernel/types.js'
-import { decrypt } from '../kernel/enclave/crypto.js'
-import { unwrapCek } from '../kernel/enclave/record-keys/index.js'
+import { decrypt, unwrapCek } from '../kernel/enclave/index.js'
 import { readPodHeader, readPod, parseExtractedPartitionBody } from '../with-pod/bundle.js'
 import { unsealDeks } from './adopt-partition.js'
 

@@ -122,11 +122,7 @@ import {
   type ClosePeriodOptions,
   type OpenPeriodOptions,
 } from '../with-audit/periods/index.js'
-import { encrypt, decrypt } from './enclave/crypto.js'
-import {
-  SEALED_CEK_NS,
-  type SealingContext,
-} from './enclave/record-keys/index.js'
+import { encrypt, decrypt, SEALED_CEK_NS, type SealingContext } from './enclave/index.js'
 import type { RecipientSealer } from '../with-party/team/managed-passphrase.js'
 import {
   createExportBlobsHandle,

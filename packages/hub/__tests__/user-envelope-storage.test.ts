@@ -8,7 +8,7 @@ import {
   USER_ENVELOPE_MAX_BYTES,
   UserEnvelopeOversizedError,
 } from '../src/kernel/meta/user-envelope/index.js'
-import { generateDEK } from '../src/kernel/enclave/crypto.js'
+import { generateDEK } from '../src/kernel/enclave/index.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 
