@@ -24,7 +24,7 @@
  * What to read next
  * ─────────────────
  *   - showcase 24-on-oidc (federated unlock with split-key)
- *   - docs/subsystems/auth-webauthn.md
+ *   - docs/services/auth-webauthn.md
  *
  * Spec mapping
  * ────────────

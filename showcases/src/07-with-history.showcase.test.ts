@@ -22,7 +22,7 @@
  * ─────────────────
  *   - showcase 17-with-history-time-machine (`vault.at(t)`)
  *   - showcase 21-with-bundle (`.noydb` archive embedding ledger head)
- *   - docs/subsystems/history.md
+ *   - docs/services/history.md
  *
  * Spec mapping
  * ────────────

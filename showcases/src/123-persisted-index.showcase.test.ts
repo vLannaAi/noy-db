@@ -34,7 +34,7 @@
  *
  * What to read next
  * ─────────────────
- *   - docs/subsystems/search.md — full L1.5 documentation
+ *   - docs/services/search.md — full L1.5 documentation
  *   - docs/superpowers/specs/2026-06-22-ai-retrieval-l1.5-persisted-index-design.md
  *   - Showcase 122 — L1 retrieve() walkthrough
  *   - Showcase 111 — L0 scan-mode search

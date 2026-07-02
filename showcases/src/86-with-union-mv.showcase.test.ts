@@ -23,7 +23,7 @@
  *
  * What to read next
  * ─────────────────
- *   - docs/subsystems/derivations.md (UNION sources section)
+ *   - docs/services/derivations.md (UNION sources section)
  *
  * Spec mapping
  * ────────────

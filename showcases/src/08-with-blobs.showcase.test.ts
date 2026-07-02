@@ -23,7 +23,7 @@
  * What to read next
  * ─────────────────
  *   - showcase 16-as-zip (composite export with blobs)
- *   - docs/subsystems/blobs.md
+ *   - docs/services/blobs.md
  *
  * Spec mapping
  * ────────────

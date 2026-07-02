@@ -39,7 +39,7 @@
  * What to read next
  * ─────────────────
  *   - recipe-user-preferences (the reference profile/preferences shape)
- *   - docs/subsystems/user-envelope.md
+ *   - docs/services/user-envelope.md
  *
  * Spec mapping
  * ────────────

@@ -32,7 +32,7 @@
  *
  * What to read next
  * ─────────────────
- *   - docs/subsystems/derivations.md § Materialized Views
+ *   - docs/services/derivations.md § Materialized Views
  *   - showcases/src/83-with-overlay.showcase.test.ts (operator-editable overlays)
  *   - showcases/src/84-with-mv-predicates.showcase.test.ts (declared predicates)
  *

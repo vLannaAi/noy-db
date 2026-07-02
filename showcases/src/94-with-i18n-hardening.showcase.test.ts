@@ -28,7 +28,7 @@
  *
  * What to read next
  * ─────────────────
- *   - docs/subsystems/i18n.md (§ Hardening)
+ *   - docs/services/i18n.md (§ Hardening)
  *   - docs/superpowers/specs/2026-06-05-i18n-multilingual-field-hardening-design.md
  *
  * Spec mapping

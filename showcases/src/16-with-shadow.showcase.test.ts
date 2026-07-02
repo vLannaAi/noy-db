@@ -23,7 +23,7 @@
  * What to read next
  * ─────────────────
  *   - showcase 17-with-history-time-machine (frames at a past instant)
- *   - docs/subsystems/shadow.md
+ *   - docs/services/shadow.md
  *
  * Spec mapping
  * ────────────

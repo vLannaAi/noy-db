@@ -105,14 +105,14 @@ const db = await createNoydb({
 
 | Cluster | Services |
 |---|---|
-| **Read & Query** | [indexing](docs/subsystems/indexing.md) · [joins](docs/subsystems/joins.md) · [aggregate](docs/subsystems/aggregate.md) · [live](docs/subsystems/live.md) |
-| **Write & Mutate** | [history](docs/subsystems/history.md) · [transactions](docs/subsystems/transactions.md) · [crdt](docs/subsystems/crdt.md) |
-| **Derived data** | [derivations](docs/subsystems/derivations.md) · [materialized-views](docs/subsystems/derivations.md#materialized-views) · [overlay-views](docs/subsystems/derivations.md#overlay-views) |
-| **Data Shape** | [blobs](docs/subsystems/blobs.md) · [i18n](docs/subsystems/i18n.md) |
-| **Time & Audit** | [periods](docs/subsystems/periods.md) · [consent](docs/subsystems/consent.md) · [guards](docs/subsystems/guards.md) |
-| **Snapshot & Portability** | [shadow](docs/subsystems/shadow.md) · [bundle](docs/subsystems/bundle.md) |
-| **Collaboration & Auth** | [sync](docs/subsystems/sync.md) · [team](docs/subsystems/team.md) · [session](docs/subsystems/session.md) |
-| **Operations** | [routing](docs/subsystems/routing.md) |
+| **Read & Query** | [indexing](docs/services/indexing.md) · [joins](docs/services/joins.md) · [aggregate](docs/services/aggregate.md) · [live](docs/services/live.md) |
+| **Write & Mutate** | [history](docs/services/history.md) · [transactions](docs/services/transactions.md) · [crdt](docs/services/crdt.md) |
+| **Derived data** | [derivations](docs/services/derivations.md) · [materialized-views](docs/services/derivations.md#materialized-views) · [overlay-views](docs/services/derivations.md#overlay-views) |
+| **Data Shape** | [blobs](docs/services/blobs.md) · [i18n](docs/services/i18n.md) |
+| **Time & Audit** | [periods](docs/services/periods.md) · [consent](docs/services/consent.md) · [guards](docs/services/guards.md) |
+| **Snapshot & Portability** | [shadow](docs/services/shadow.md) · [bundle](docs/services/bundle.md) |
+| **Collaboration & Auth** | [sync](docs/services/sync.md) · [team](docs/services/team.md) · [session](docs/services/session.md) |
+| **Operations** | [routing](docs/services/routing.md) |
 
 → Full catalog: **[SERVICES.md](SERVICES.md)**
 → Starter recipes: **[docs/recipes/](docs/recipes/)** — personal-notebook · accounting-app · realtime-crdt-app · analytics-app
@@ -310,7 +310,7 @@ noy-db does not inspect your data. It cannot — that is the architectural point
 | **viewer** | all | — | — | — | yes |
 | **client** | granted collections | — | — | — | ACL-scoped |
 
-Every mutation (grant, revoke, rotate, elevate) writes a hash-chained audit ledger entry. Hierarchical per-record classification tiers (`collection.elevate()` / `demote()` / `delegate()` / invisibility / ghost modes) plus scoped tier-elevated handles (`vault.elevate(tier, { ttlMs, reason })` for time-boxed privileged writes) are covered in the [`history`](docs/subsystems/history.md) and [`team`](docs/subsystems/team.md) services.
+Every mutation (grant, revoke, rotate, elevate) writes a hash-chained audit ledger entry. Hierarchical per-record classification tiers (`collection.elevate()` / `demote()` / `delegate()` / invisibility / ghost modes) plus scoped tier-elevated handles (`vault.elevate(tier, { ttlMs, reason })` for time-boxed privileged writes) are covered in the [`history`](docs/services/history.md) and [`team`](docs/services/team.md) services.
 
 ---
 
@@ -340,7 +340,7 @@ Stores **only see ciphertext**. Encryption happens in core before data reaches a
 
 noy-db is an international open-source project. The first production consumer was an enterprise pilot — the library's design assumptions (offline-first, multi-user, sensitive domain data, per-tenant isolation, USB-based workflows for intermittent connectivity) come directly from that real-world deployment.
 
-**Multi-language data is a first-class concern, not an afterthought.** The optional [`i18n`](docs/subsystems/i18n.md) service lets a single field hold values in multiple locales (`i18nText({ languages: ['en', 'th', 'zh'] })`), pairs enum-like fields with shared label dictionaries (`dictKey('status', ['draft', 'paid'])` resolving to per-locale labels), and resolves the right locale at read time without touching ciphertext on the wire. Dictionaries are themselves encrypted and versioned, so even your translation strings stay private. Records, dictionaries, and exports are Unicode-clean — Thai (ภาษาไทย), Chinese (中文), Arabic (العربية), Devanagari (हिंदी), Cyrillic, Hebrew, every script the Web Crypto API and your storage backend can carry. Locale-aware exports round-trip human-readable headers back to stable keys (the `xlsx` reader inverts dictionary labels on import; same for `csv`, `json`, `ndjson`, `xml`).
+**Multi-language data is a first-class concern, not an afterthought.** The optional [`i18n`](docs/services/i18n.md) service lets a single field hold values in multiple locales (`i18nText({ languages: ['en', 'th', 'zh'] })`), pairs enum-like fields with shared label dictionaries (`dictKey('status', ['draft', 'paid'])` resolving to per-locale labels), and resolves the right locale at read time without touching ciphertext on the wire. Dictionaries are themselves encrypted and versioned, so even your translation strings stay private. Records, dictionaries, and exports are Unicode-clean — Thai (ภาษาไทย), Chinese (中文), Arabic (العربية), Devanagari (हिंदी), Cyrillic, Hebrew, every script the Web Crypto API and your storage backend can carry. Locale-aware exports round-trip human-readable headers back to stable keys (the `xlsx` reader inverts dictionary labels on import; same for `csv`, `json`, `ndjson`, `xml`).
 
 ---
 
@@ -358,7 +358,7 @@ The hub package itself uses only `crypto.subtle`, which is built into every targ
 | If you want to… | Read |
 |---|---|
 | see what's always-on (the floor) | [`docs/core/`](docs/core/) |
-| browse the 24 opt-in services | [`docs/subsystems/`](docs/subsystems/) — index + the [SERVICES.md](SERVICES.md) catalog |
+| browse the 24 opt-in services | [`docs/services/`](docs/services/) — index + the [SERVICES.md](SERVICES.md) catalog |
 | copy a starter recipe | [`docs/recipes/`](docs/recipes/) — personal-notebook · accounting-app · realtime-crdt-app · analytics-app |
 | pick a storage backend | [`docs/packages/to-stores.md`](docs/packages/to-stores.md) |
 | pick a framework integration | [`docs/packages/in-integrations.md`](docs/packages/in-integrations.md) |

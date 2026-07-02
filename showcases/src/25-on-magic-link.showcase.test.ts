@@ -24,7 +24,7 @@
  * What to read next
  * ─────────────────
  *   - showcase 26-on-recovery (printable recovery codes)
- *   - docs/subsystems/auth-magic-link.md
+ *   - docs/services/auth-magic-link.md
  *
  * Spec mapping
  * ────────────

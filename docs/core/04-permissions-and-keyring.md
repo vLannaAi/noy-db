@@ -24,7 +24,7 @@ A vault can be opened only by a user whose keyring decrypts (passphrase / passke
 | `viewer` | `*: ro` | No | Yes |
 | `client` | Explicit collections: `ro` | No | ACL-scoped |
 
-Multi-user grant / revoke / rotate / magic-link / delegation / hierarchical tiers live in the [team](../subsystems/team.md) service. Single-owner workflows need none of that — the keyring core is enough.
+Multi-user grant / revoke / rotate / magic-link / delegation / hierarchical tiers live in the [team](../services/team.md) service. Single-owner workflows need none of that — the keyring core is enough.
 
 ## Single-owner flow
 
@@ -57,7 +57,7 @@ await db.revoke('vault-name', { grantee: 'alice@example.com' })
 
 `Collection.get` / `put` / `delete` calls `hasAccess(keyring, collection, op)` before any I/O. A denied op throws `PermissionDeniedError` — the store never sees the request.
 
-`Collection.export*` paths check `hasExportCapability(keyring, format)` — see [Cluster G — Operations](../subsystems/routing.md) and the `as-*` package family.
+`Collection.export*` paths check `hasExportCapability(keyring, format)` — see [Cluster G — Operations](../services/routing.md) and the `as-*` package family.
 
 ## Critical invariants
 
@@ -67,7 +67,7 @@ await db.revoke('vault-name', { grantee: 'alice@example.com' })
 
 ## See also
 
-- [docs/subsystems/team.md](../subsystems/team.md) — multi-user grant/revoke/rotate
-- [docs/subsystems/session.md](../subsystems/session.md) — token sessions on top of keyrings
+- [docs/services/team.md](../services/team.md) — multi-user grant/revoke/rotate
+- [docs/services/session.md](../services/session.md) — token sessions on top of keyrings
 - `packages/on-*/` — unlock methods (passphrase, WebAuthn, OIDC, magic-link, etc.)
 - [SPEC.md § Roles](../../SPEC.md)

@@ -4,7 +4,7 @@
  * `_meta/handle` — the policy document is plain JSON, the envelope's
  * `_iv` field is left empty.
  *
- * @see docs/subsystems/session-tiers.md → Storage location
+ * @see docs/services/session-tiers.md → Storage location
  *
  * @module
  */

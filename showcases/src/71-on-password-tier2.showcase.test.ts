@@ -63,10 +63,10 @@ if (
  * ─────────────────
  *   - showcase 31-on-threat (lockout state-machine — scenario 5 below
  *     uses it for the failed-password lockout test)
- *   - docs/subsystems/auth-landscape.md (the "carries wrap-key
+ *   - docs/services/auth-landscape.md (the "carries wrap-key
  *     material on its own" question that puts on-password in the
  *     same bucket as on-webauthn and excludes on-oidc)
- *   - docs/subsystems/session-tiers.md → "Tier 2 — `on-password`"
+ *   - docs/services/session-tiers.md → "Tier 2 — `on-password`"
  *
  * Spec mapping
  * ────────────

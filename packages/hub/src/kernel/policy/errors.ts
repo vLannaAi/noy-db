@@ -47,7 +47,7 @@ export class RecoveryNotEnrolledError extends NoydbError {
     message =
       'Recovery profile not enrolled. Pass `recovery: [{ profile: "paper", codes: 10 }]` ' +
       'to `createNoydb()`, or set `policy.gates["recover-passphrase"].enabled = false` to ' +
-      'opt out of recovery (passphrase loss = data loss). See docs/subsystems/session-tiers.md.',
+      'opt out of recovery (passphrase loss = data loss). See docs/services/session-tiers.md.',
   ) {
     super('RECOVERY_NOT_ENROLLED', message)
     this.name = 'RecoveryNotEnrolledError'

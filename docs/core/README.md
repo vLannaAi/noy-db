@@ -2,7 +2,7 @@
 
 > The minimalist always-on core. Six areas. ~6,500 LOC. The floor every NOYDB consumer pays.
 
-The core is what NOYDB **is**, not what it **does**. A consumer using only the core gets a fully working zero-knowledge encrypted document store. Everything else is a [service](../subsystems/) you opt into.
+The core is what NOYDB **is**, not what it **does**. A consumer using only the core gets a fully working zero-knowledge encrypted document store. Everything else is a [service](../services/) you opt into.
 
 ## Pages
 
@@ -18,7 +18,7 @@ The core is what NOYDB **is**, not what it **does**. A consumer using only the c
 ## Related
 
 - [SERVICES.md](../../SERVICES.md) — the 17-entry catalog of opt-in capabilities
-- [docs/subsystems/](../subsystems/) — one page per opt-in capability
+- [docs/services/](../services/) — one page per opt-in capability
 - [docs/recipes/](../recipes/) — 4 starter recipes that compose core + services
 - [docs/packages/](../packages/) — the six prefix-family catalogs (`to-*`, `in-*`, `on-*`, `as-*`, `by-*`, `at-*`)
 - [SPEC.md](../../SPEC.md) — placeholder skeleton; full spec rewrite deferred per 

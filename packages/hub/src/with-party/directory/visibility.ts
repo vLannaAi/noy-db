@@ -14,8 +14,8 @@
  *    work even when decryption fails (legacy keyrings predating the
  *    envelope feature, or a corrupted envelope).
  *
- * @see docs/subsystems/user-envelope.md → Directory visibility
- * @see docs/subsystems/plaintext-bypass.md — every `_iv: ''` write site
+ * @see docs/services/user-envelope.md → Directory visibility
+ * @see docs/services/plaintext-bypass.md — every `_iv: ''` write site
  *
  * @module
  */

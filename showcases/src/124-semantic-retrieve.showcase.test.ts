@@ -22,7 +22,7 @@
  *
  * What to read next
  * -----------------
- *   - docs/subsystems/embeddings.md (epic map, privacy model, API reference)
+ *   - docs/services/embeddings.md (epic map, privacy model, API reference)
  *   - docs/superpowers/specs/2026-06-22-ai-retrieval-l2-semantic-vector-design.md
  *   - Showcase 122 (L1 lexical retrieve — collection.retrieve mode:'lexical')
  *   - Showcase 123 (L1.5 persisted index — textIndexPersist)

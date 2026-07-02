@@ -21,7 +21,7 @@
  *
  * What to read next
  * ─────────────────
- *   - docs/subsystems/i18n.md (the full surface)
+ *   - docs/services/i18n.md (the full surface)
  *   - the in-pinia useDictLabel composable (renders with reactive locale)
  *
  * Spec mapping

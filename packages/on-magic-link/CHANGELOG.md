@@ -194,11 +194,11 @@ Version-only lockstep bump; no source changes since pre.2.
 
   ## Forward-compat (documented, not exported in v1)
 
-  The `UserProfileProvider` interface is documented in `docs/subsystems/user-envelope.md` and `docs/superpowers/specs/2026-05-05-user-envelope-design.md`. Implementation lands post-1.0 alongside managed-passphrase mode (#14).
+  The `UserProfileProvider` interface is documented in `docs/services/user-envelope.md` and `docs/superpowers/specs/2026-05-05-user-envelope-design.md`. Implementation lands post-1.0 alongside managed-passphrase mode (#14).
 
   ## Documentation
 
-  - `docs/subsystems/user-envelope.md` — full subsystem reference
+  - `docs/services/user-envelope.md` — full subsystem reference
   - `docs/recipes/user-preferences.md` — reference shape pattern
   - `showcases/src/70-user-envelope.showcase.test.ts` — Hub API end-to-end (vitest)
   - `showcases/src/recipe-user-preferences.recipe.test.ts` — runnable recipe (vitest)
@@ -213,7 +213,7 @@ Version-only lockstep bump; no source changes since pre.2.
 
   ## Breaking changes
 
-  None. All additions are additive; default behavior of pre-existing vaults is unchanged. Pre-existing vaults have a documented one-time DEK-rotate workflow when adopting `vault.user.*` for multi-principal reads (see "Edge cases & limits" in `docs/subsystems/user-envelope.md`).
+  None. All additions are additive; default behavior of pre-existing vaults is unchanged. Pre-existing vaults have a documented one-time DEK-rotate workflow when adopting `vault.user.*` for multi-principal reads (see "Edge cases & limits" in `docs/services/user-envelope.md`).
 
   ## Issues closed
 

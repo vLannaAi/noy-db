@@ -3,7 +3,7 @@
  *
  * features.yaml is the single source of truth: each `adapters[]` entry declares
  * `capabilities: { record, vault }`. This script renders that into a
- * human-readable table at docs/subsystems/storage-capability-matrix.md.
+ * human-readable table at docs/services/storage-capability-matrix.md.
  *
  *   record = per-record KV store   (NoydbStore: get/put/list)
  *   vault  = whole-vault bundle    (NoydbBundleStore: readBundle/writeBundle/listBundles)
@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url'
 import yaml from 'js-yaml'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const OUT = resolve(ROOT, 'docs/subsystems/storage-capability-matrix.md')
+const OUT = resolve(ROOT, 'docs/services/storage-capability-matrix.md')
 
 const reg = yaml.load(readFileSync(resolve(ROOT, 'features.yaml'), 'utf8'))
 const adapters = [...(reg.adapters ?? [])].sort((a, b) => a.id.localeCompare(b.id))

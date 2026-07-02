@@ -22,7 +22,7 @@
  * What to read next
  * ─────────────────
  *   - showcase 13-with-live (reactive joined queries)
- *   - docs/subsystems/joins.md (`(planned: @noy-db/hub/joins)`)
+ *   - docs/services/joins.md (`(planned: @noy-db/hub/joins)`)
  *
  * Spec mapping
  * ────────────

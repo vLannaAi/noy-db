@@ -332,7 +332,7 @@ export class UserApi {
    * Honest caveat: this is a UX flag, not a privacy guarantee. The
    * envelope ciphertext at `_users/<keyringId>` and the keyring file at
    * `_keyring/<userId>` are both still observable to anyone with direct
-   * store read access. See `docs/subsystems/user-envelope.md` →
+   * store read access. See `docs/services/user-envelope.md` →
    * "Directory visibility".
    */
   async setMyVisibility(visibility: UserVisibility): Promise<void> {

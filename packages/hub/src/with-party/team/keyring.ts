@@ -1134,7 +1134,7 @@ export interface ListUsersOptions {
  * strong as the role the calling layer passes in. The hub-level wrapper
  * on `Vault` sources `callerRole` from the unlocked keyring's `role`
  * field, which is signed-by-construction (it lives in the user's own
- * keyring file). See `docs/subsystems/user-envelope.md` →
+ * keyring file). See `docs/services/user-envelope.md` →
  * "Directory visibility".
  *
  * Principals without a persisted envelope (legacy keyrings predating

@@ -1,7 +1,7 @@
 /**
  * Policy gate DSL — barrel export for the `@noy-db/hub/policy` surface.
  *
- * @see docs/subsystems/session-tiers.md → Policy gates DSL
+ * @see docs/services/session-tiers.md → Policy gates DSL
  *
  * @module
  */

@@ -26,7 +26,7 @@
  *
  * What to read next
  * ─────────────────
- *   - docs/subsystems/search.md (epic map, field-type matrix, trusted-tier rationale)
+ *   - docs/services/search.md (epic map, field-type matrix, trusted-tier rationale)
  *   - docs/superpowers/specs/2026-06-22-ai-retrieval-l1-lexical-index-design.md
  *   - Showcase 111 (L0 scan-mode search — collection.search)
  *

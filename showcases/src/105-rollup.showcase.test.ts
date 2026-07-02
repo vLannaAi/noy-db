@@ -24,7 +24,7 @@
  *
  * What to read next
  * ─────────────────
- *   - docs/subsystems/derivations.md
+ *   - docs/services/derivations.md
  *
  * Spec mapping
  * ────────────

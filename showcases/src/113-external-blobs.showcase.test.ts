@@ -32,7 +32,7 @@
  *
  * What to read next
  * ─────────────────
- *   - docs/subsystems/blobs.md
+ *   - docs/services/blobs.md
  *   - docs/superpowers/specs/2026-06-15-as-aws-s3-direct-serve-blobs-design.md
  *
  * Spec mapping

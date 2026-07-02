@@ -27,7 +27,7 @@
  *
  * What to read next
  * -----------------
- *   - docs/subsystems/field-metadata.md (this feature's subsystem doc)
+ *   - docs/services/field-metadata.md (this feature's subsystem doc)
  *   - docs/superpowers/specs/2026-06-25-field-metadata-foundation-design.md
  *   - Showcase 87  (noydb describe CLI command — vault-level describe)
  *   - Showcase 100 (staticDict — code-provided dictionaries)

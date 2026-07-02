@@ -255,7 +255,7 @@ features:
     name: Full-text scan + L1/L1.5 lexical retrieval (collection.search / collection.retrieve / textIndexPersist)
     cluster: core
     spec: docs/superpowers/specs/2026-06-22-ai-retrieval-l1.5-persisted-index-design.md
-    subsystem_doc: docs/subsystems/search.md
+    subsystem_doc: docs/services/search.md
     package: '@noy-db/hub'
     factory: null
     status: preview
@@ -292,7 +292,7 @@ features:
     name: Semantic / vector + hybrid retrieval — encrypted-local L2/L3 (collection.retrieve / collection.similarTo / fuseRetrieval)
     cluster: core
     spec: docs/superpowers/specs/2026-06-23-ai-retrieval-l3-hybrid-design.md
-    subsystem_doc: docs/subsystems/embeddings.md
+    subsystem_doc: docs/services/embeddings.md
     package: '@noy-db/hub'
     factory: null
     status: preview
@@ -386,7 +386,7 @@ features:
     name: Consumer-neutral field descriptors — collection.describe() + fieldMeta (#483)
     cluster: core
     spec: docs/superpowers/specs/2026-06-25-field-metadata-foundation-design.md
-    subsystem_doc: docs/subsystems/field-metadata.md
+    subsystem_doc: docs/services/field-metadata.md
     package: '@noy-db/hub'
     factory: null
     status: preview
@@ -412,7 +412,7 @@ features:
     name: Metadata ladder — collectionMeta/vaultMeta + devtools schema surfacing (#483)
     cluster: core
     spec: docs/superpowers/specs/2026-06-25-metadata-ladder-and-schema-surfacing-design.md
-    subsystem_doc: docs/subsystems/field-metadata.md
+    subsystem_doc: docs/services/field-metadata.md
     package: '@noy-db/hub'
     factory: null
     status: preview
@@ -435,7 +435,7 @@ features:
     name: Metadata riders — toJSONSchema + dictKey inline labels + devtools PII masking (#484 #485)
     cluster: core
     spec: docs/superpowers/specs/2026-06-25-metadata-riders-design.md
-    subsystem_doc: docs/subsystems/field-metadata.md
+    subsystem_doc: docs/services/field-metadata.md
     package: '@noy-db/hub'
     factory: null
     status: preview
@@ -519,8 +519,8 @@ features:
   - id: team
     name: Multi-user grant / revoke / rotate
     cluster: collaboration-and-auth
-    spec: docs/subsystems/team.md#team
-    subsystem_doc: docs/subsystems/team.md
+    spec: docs/services/team.md#team
+    subsystem_doc: docs/services/team.md
     package: '@noy-db/hub'
     factory: null
     status: stable
@@ -539,8 +539,8 @@ features:
   - id: session-tiers
     name: Three-tier authentication / multi-slot keyring / policy gates
     cluster: collaboration-and-auth
-    spec: docs/subsystems/session-tiers.md#session-tiers
-    subsystem_doc: docs/subsystems/session-tiers.md
+    spec: docs/services/session-tiers.md#session-tiers
+    subsystem_doc: docs/services/session-tiers.md
     package: '@noy-db/hub'
     factory: null
     status: planned
@@ -560,8 +560,8 @@ features:
   - id: auth-landscape
     name: Auth / unlock / sealing-key landscape map
     cluster: collaboration-and-auth
-    spec: docs/subsystems/auth-landscape.md#auth-landscape
-    subsystem_doc: docs/subsystems/auth-landscape.md
+    spec: docs/services/auth-landscape.md#auth-landscape
+    subsystem_doc: docs/services/auth-landscape.md
     package: '@noy-db/hub'
     factory: null
     status: stable
@@ -579,8 +579,8 @@ features:
   - id: public-envelope
     name: Public envelope (owner-curated plaintext metadata)
     cluster: meta
-    spec: docs/subsystems/public-envelope.md#public-envelope
-    subsystem_doc: docs/subsystems/public-envelope.md
+    spec: docs/services/public-envelope.md#public-envelope
+    subsystem_doc: docs/services/public-envelope.md
     package: '@noy-db/hub'
     factory: null
     status: preview
@@ -600,8 +600,8 @@ features:
   - id: history
     name: Versioned ledger + time-machine
     cluster: write-and-mutate
-    spec: docs/subsystems/history.md#history
-    subsystem_doc: docs/subsystems/history.md
+    spec: docs/services/history.md#history
+    subsystem_doc: docs/services/history.md
     package: '@noy-db/hub/history'
     factory: withHistory
     status: stable
@@ -623,8 +623,8 @@ features:
   - id: blobs
     name: Binary attachments
     cluster: data-shape
-    spec: docs/subsystems/blobs.md#blobs
-    subsystem_doc: docs/subsystems/blobs.md
+    spec: docs/services/blobs.md#blobs
+    subsystem_doc: docs/services/blobs.md
     package: '@noy-db/hub/blobs'
     factory: withBlobs
     status: stable
@@ -668,8 +668,8 @@ features:
   - id: i18n
     name: Multi-locale dictionaries
     cluster: data-shape
-    spec: docs/subsystems/i18n.md#i18n
-    subsystem_doc: docs/subsystems/i18n.md
+    spec: docs/services/i18n.md#i18n
+    subsystem_doc: docs/services/i18n.md
     package: '@noy-db/hub/i18n'
     factory: withI18n
     status: stable
@@ -704,7 +704,7 @@ features:
     name: densifyOnWrite — eager-fill empty i18n locale slots at write time
     cluster: data-shape
     spec: docs/superpowers/specs/2026-06-20-i18n-v1x-tail-design.md
-    subsystem_doc: docs/subsystems/i18n.md
+    subsystem_doc: docs/services/i18n.md
     package: '@noy-db/hub/i18n'
     factory: withI18n
     status: preview
@@ -724,7 +724,7 @@ features:
     name: i18n:script-violation typed event channel for script-enforcement warnings
     cluster: data-shape
     spec: docs/superpowers/specs/2026-06-20-i18n-v1x-tail-design.md
-    subsystem_doc: docs/subsystems/i18n.md
+    subsystem_doc: docs/services/i18n.md
     package: '@noy-db/hub/i18n'
     factory: withI18n
     status: preview
@@ -743,8 +743,8 @@ features:
   - id: aggregate
     name: Aggregate query terminals (sum/count/avg/groupBy)
     cluster: read-and-query
-    spec: docs/subsystems/aggregate.md#aggregate
-    subsystem_doc: docs/subsystems/aggregate.md
+    spec: docs/services/aggregate.md#aggregate
+    subsystem_doc: docs/services/aggregate.md
     package: '@noy-db/hub/aggregate'
     factory: withAggregate
     status: stable
@@ -765,8 +765,8 @@ features:
   - id: indexing
     name: Hash indexes for fast `==` and `in` queries
     cluster: read-and-query
-    spec: docs/subsystems/indexing.md#indexing
-    subsystem_doc: docs/subsystems/indexing.md
+    spec: docs/services/indexing.md#indexing
+    subsystem_doc: docs/services/indexing.md
     package: '@noy-db/hub/indexing'
     factory: withIndexing
     status: stable
@@ -785,8 +785,8 @@ features:
   - id: joins
     name: Intra-vault joins on declared `ref()` fields
     cluster: read-and-query
-    spec: docs/subsystems/joins.md#joins
-    subsystem_doc: docs/subsystems/joins.md
+    spec: docs/services/joins.md#joins
+    subsystem_doc: docs/services/joins.md
     package: '@noy-db/hub'
     factory: null
     status: stable
@@ -806,7 +806,7 @@ features:
     name: Cartesian-product cross-join query primitive
     cluster: read-and-query
     spec: docs/superpowers/specs/2026-05-20-dim11-cross-join-v1-design.md
-    subsystem_doc: docs/subsystems/cross-join.md
+    subsystem_doc: docs/services/cross-join.md
     package: '@noy-db/hub'
     factory: null
     status: stable
@@ -827,8 +827,8 @@ features:
   - id: live
     name: Reactive query primitive
     cluster: read-and-query
-    spec: docs/subsystems/live.md#live
-    subsystem_doc: docs/subsystems/live.md
+    spec: docs/services/live.md#live
+    subsystem_doc: docs/services/live.md
     package: '@noy-db/hub'
     factory: null
     status: stable
@@ -847,8 +847,8 @@ features:
   - id: crdt
     name: CRDT collections (Yjs interop)
     cluster: write-and-mutate
-    spec: docs/subsystems/crdt.md#crdt
-    subsystem_doc: docs/subsystems/crdt.md
+    spec: docs/services/crdt.md#crdt
+    subsystem_doc: docs/services/crdt.md
     package: '@noy-db/hub/crdt'
     factory: withCrdt
     status: stable
@@ -866,8 +866,8 @@ features:
   - id: sync
     name: Push / pull / conflict resolution
     cluster: collaboration-and-auth
-    spec: docs/subsystems/sync.md#sync
-    subsystem_doc: docs/subsystems/sync.md
+    spec: docs/services/sync.md#sync
+    subsystem_doc: docs/services/sync.md
     package: '@noy-db/hub/sync'
     factory: withSync
     status: stable
@@ -886,8 +886,8 @@ features:
   - id: shadow
     name: Read-only frames (vault.frame)
     cluster: snapshot-and-portability
-    spec: docs/subsystems/shadow.md#shadow
-    subsystem_doc: docs/subsystems/shadow.md
+    spec: docs/services/shadow.md#shadow
+    subsystem_doc: docs/services/shadow.md
     package: '@noy-db/hub/shadow'
     factory: withShadow
     status: stable
@@ -905,8 +905,8 @@ features:
   - id: periods
     name: Accounting periods (close + reopen)
     cluster: time-and-audit
-    spec: docs/subsystems/periods.md#periods
-    subsystem_doc: docs/subsystems/periods.md
+    spec: docs/services/periods.md#periods
+    subsystem_doc: docs/services/periods.md
     package: '@noy-db/hub/periods'
     factory: withPeriods
     status: stable
@@ -924,8 +924,8 @@ features:
   - id: consent
     name: Consent-scoped audit
     cluster: time-and-audit
-    spec: docs/subsystems/consent.md#consent
-    subsystem_doc: docs/subsystems/consent.md
+    spec: docs/services/consent.md#consent
+    subsystem_doc: docs/services/consent.md
     package: '@noy-db/hub/consent'
     factory: withConsent
     status: stable
@@ -943,8 +943,8 @@ features:
   - id: transactions
     name: Atomic multi-record operations
     cluster: write-and-mutate
-    spec: docs/subsystems/transactions.md#transactions
-    subsystem_doc: docs/subsystems/transactions.md
+    spec: docs/services/transactions.md#transactions
+    subsystem_doc: docs/services/transactions.md
     package: '@noy-db/hub/tx'
     factory: withTransactions
     status: stable
@@ -965,8 +965,8 @@ features:
   - id: derivations
     name: Deterministic derived data
     cluster: derived-data
-    spec: docs/subsystems/derivations.md#derivations
-    subsystem_doc: docs/subsystems/derivations.md
+    spec: docs/services/derivations.md#derivations
+    subsystem_doc: docs/services/derivations.md
     package: '@noy-db/hub/derivations'
     factory: withDerivation
     status: stable
@@ -995,8 +995,8 @@ features:
   - id: materialized-views
     name: Query-level materialized views
     cluster: derived-data
-    spec: docs/subsystems/derivations.md#materialized-views
-    subsystem_doc: docs/subsystems/derivations.md
+    spec: docs/services/derivations.md#materialized-views
+    subsystem_doc: docs/services/derivations.md
     package: '@noy-db/hub'
     factory: withMaterializedView
     status: stable
@@ -1035,8 +1035,8 @@ features:
   - id: overlay-views
     name: Read-shadow virtual collections
     cluster: derived-data
-    spec: docs/subsystems/derivations.md#overlay-views
-    subsystem_doc: docs/subsystems/derivations.md
+    spec: docs/services/derivations.md#overlay-views
+    subsystem_doc: docs/services/derivations.md
     package: '@noy-db/hub'
     factory: withOverlayedView
     status: preview
@@ -1059,8 +1059,8 @@ features:
   - id: guards
     name: Record lock, field freeze, amendment invariant
     cluster: time-and-audit
-    spec: docs/subsystems/guards.md#guards
-    subsystem_doc: docs/subsystems/guards.md
+    spec: docs/services/guards.md#guards
+    subsystem_doc: docs/services/guards.md
     package: '@noy-db/hub/guards'
     factory: withGuard
     status: preview
@@ -1100,8 +1100,8 @@ features:
   - id: transition-guard
     name: transitionGuard — declarative state-machine guard
     cluster: time-and-audit
-    spec: docs/subsystems/guards.md#guards
-    subsystem_doc: docs/subsystems/guards.md
+    spec: docs/services/guards.md#guards
+    subsystem_doc: docs/services/guards.md
     package: '@noy-db/hub/guards'
     factory: null
     status: preview
@@ -1122,8 +1122,8 @@ features:
   - id: bundle
     name: '.noydb container format'
     cluster: snapshot-and-portability
-    spec: docs/subsystems/bundle.md#bundle
-    subsystem_doc: docs/subsystems/bundle.md
+    spec: docs/services/bundle.md#bundle
+    subsystem_doc: docs/services/bundle.md
     package: '@noy-db/hub/bundle'
     factory: null
     status: stable
@@ -1144,7 +1144,7 @@ features:
     name: Transferable partition bundles (extract → adopt → own)
     cluster: snapshot-and-portability
     spec: docs/superpowers/specs/2026-05-24-transferable-partition-bundles-design.md
-    subsystem_doc: docs/subsystems/transferable-partitions.md
+    subsystem_doc: docs/services/transferable-partitions.md
     package: '@noy-db/hub/bundle'
     factory: null
     status: preview
@@ -1168,7 +1168,7 @@ features:
     name: Client-initiated portability & withdrawal (vault.user.*)
     cluster: snapshot-and-portability
     spec: docs/superpowers/specs/2026-06-16-client-initiated-portability-withdrawal-design.md
-    subsystem_doc: docs/subsystems/client-portability.md
+    subsystem_doc: docs/services/client-portability.md
     package: '@noy-db/hub/bundle'
     factory: null
     status: preview
@@ -1252,8 +1252,8 @@ features:
   - id: with-snapshots
     name: Snapshot lifecycle (withSnapshots)
     cluster: snapshot-and-portability
-    spec: docs/subsystems/snapshots.md
-    subsystem_doc: docs/subsystems/snapshots.md
+    spec: docs/services/snapshots.md
+    subsystem_doc: docs/services/snapshots.md
     package: '@noy-db/hub/snapshots'
     factory: withSnapshots
     status: preview
@@ -1304,8 +1304,8 @@ features:
   - id: session
     name: Session tokens + dev unlock
     cluster: collaboration-and-auth
-    spec: docs/subsystems/session.md#session
-    subsystem_doc: docs/subsystems/session.md
+    spec: docs/services/session.md#session
+    subsystem_doc: docs/services/session.md
     package: '@noy-db/hub/session'
     factory: withSession
     status: stable
@@ -1321,8 +1321,8 @@ features:
   - id: user-envelope
     name: Per-principal user envelope
     cluster: collaboration-and-auth
-    spec: docs/subsystems/user-envelope.md#user-envelope
-    subsystem_doc: docs/subsystems/user-envelope.md
+    spec: docs/services/user-envelope.md#user-envelope
+    subsystem_doc: docs/services/user-envelope.md
     package: '@noy-db/hub'
     factory: null
     status: preview
@@ -1342,8 +1342,8 @@ features:
   - id: directory-visibility
     name: User-list visibility flags
     cluster: collaboration-and-auth
-    spec: docs/subsystems/user-envelope.md#directory-visibility
-    subsystem_doc: docs/subsystems/user-envelope.md
+    spec: docs/services/user-envelope.md#directory-visibility
+    subsystem_doc: docs/services/user-envelope.md
     package: '@noy-db/hub'
     factory: null
     status: preview
@@ -1365,8 +1365,8 @@ features:
   - id: routing
     name: Per-collection storage routing
     cluster: operations
-    spec: docs/subsystems/routing.md#routing
-    subsystem_doc: docs/subsystems/routing.md
+    spec: docs/services/routing.md#routing
+    subsystem_doc: docs/services/routing.md
     package: '@noy-db/hub'
     factory: null
     status: stable
@@ -1460,7 +1460,7 @@ features:
     name: Commit-time changeset invariants (ordinary transactions)
     cluster: write-and-mutate
     spec: docs/superpowers/specs/2026-06-13-tx-commit-invariants-design.md
-    subsystem_doc: docs/subsystems/transactions.md
+    subsystem_doc: docs/services/transactions.md
     package: '@noy-db/hub/tx'
     factory: withTransactions
     status: preview
@@ -2101,7 +2101,7 @@ auths:
     package: '@noy-db/on-password'
     factor: knowledge
     status: preview
-    subsystem_doc: docs/subsystems/session-tiers.md
+    subsystem_doc: docs/services/session-tiers.md
     showcases:
       - id: 71-on-password-tier2
         path: showcases/src/71-on-password-tier2.showcase.test.ts

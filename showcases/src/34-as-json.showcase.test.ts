@@ -22,7 +22,7 @@
  * What to read next
  * ─────────────────
  *   - showcase 35-as-zip (composite records + attachments archive)
- *   - docs/subsystems/exports.md
+ *   - docs/services/exports.md
  *
  * Spec mapping
  * ────────────

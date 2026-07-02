@@ -52,17 +52,17 @@ const total = await invoices.scan()
   .aggregate({ sum: sum('amount') })  // requires withAggregate, but streaming aggregate is reducer-only
 ```
 
-`scan()` works in both eager and lazy mode. Lazy mode requires [withIndexing](../subsystems/indexing.md) for non-trivial filters.
+`scan()` works in both eager and lazy mode. Lazy mode requires [withIndexing](../services/indexing.md) for non-trivial filters.
 
 ## Subscriptions (live updates)
 
-Reactive queries are documented under [docs/subsystems/live.md](../subsystems/live.md). The base subscribe-on-collection surface (`collection.subscribe(cb)`) is currently always-on but slated to move into the `live` service.
+Reactive queries are documented under [docs/services/live.md](../services/live.md). The base subscribe-on-collection surface (`collection.subscribe(cb)`) is currently always-on but slated to move into the `live` service.
 
 ## Limits
 
 - **Memory ceiling**: eager queries materialise into an array. For working sets > ~50K records, prefer `scan()`.
 - **No SQL**: the store never sees plaintext, so the store can't run your query. Filtering happens in core after decryption.
-- **Cross-collection**: use `query().join(...)` (see [joins](../subsystems/joins.md)) or `db.queryAcross()` for federated cases.
+- **Cross-collection**: use `query().join(...)` (see [joins](../services/joins.md)) or `db.queryAcross()` for federated cases.
 
 ## Discriminated-union collections
 
@@ -117,7 +117,7 @@ const aOnly = docs.filter(d => isDiscriminant(d, 'type', 'A'))
 
 ## See also
 
-- [docs/subsystems/indexing.md](../subsystems/indexing.md) — fast-path equality / orderBy
-- [docs/subsystems/joins.md](../subsystems/joins.md) — multi-FK joins
-- [docs/subsystems/aggregate.md](../subsystems/aggregate.md) — sum / groupBy / etc.
-- [docs/subsystems/live.md](../subsystems/live.md) — reactive subscriptions
+- [docs/services/indexing.md](../services/indexing.md) — fast-path equality / orderBy
+- [docs/services/joins.md](../services/joins.md) — multi-FK joins
+- [docs/services/aggregate.md](../services/aggregate.md) — sum / groupBy / etc.
+- [docs/services/live.md](../services/live.md) — reactive subscriptions

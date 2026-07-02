@@ -31,7 +31,7 @@
  * What to read next
  * ─────────────────
  *   - docs/superpowers/specs/2026-05-18-guards-design.md
- *   - docs/subsystems/guards.md
+ *   - docs/services/guards.md
  *
  * Spec mapping
  * ────────────

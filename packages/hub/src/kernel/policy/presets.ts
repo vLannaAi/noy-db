@@ -10,7 +10,7 @@ import type { VaultPolicy } from './types.js'
  * The unspecified gates (e.g. `view-user-auth`) inherit the engine
  * default of `{ enabled: false, minTier: 1 }` — they fail closed.
  *
- * @see docs/subsystems/session-tiers.md → Built-in gates
+ * @see docs/services/session-tiers.md → Built-in gates
  */
 export const PERSONAL_POLICY: VaultPolicy = Object.freeze({
   passphrase: {

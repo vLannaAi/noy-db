@@ -43,7 +43,7 @@
  *   - Mandatory strong-recovery enforcement.
  *   - Recovery flow under managed mode (generates fresh sealed phrase).
  *
- * @see docs/subsystems/session-tiers.md → Managed-passphrase mode
+ * @see docs/services/session-tiers.md → Managed-passphrase mode
  *
  * @module
  */

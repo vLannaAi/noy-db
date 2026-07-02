@@ -28,7 +28,7 @@
  * What to read next
  * ─────────────────
  *   - showcase 79-with-guard (the underlying primitive)
- *   - docs/subsystems/guards.md
+ *   - docs/services/guards.md
  *
  * Spec mapping
  * ────────────

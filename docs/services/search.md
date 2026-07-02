@@ -305,5 +305,5 @@ default**. The SSE path is superseded by the client-side index.
 - Showcase 123: L1.5 persisted index warm load — `showcases/src/123-persisted-index.showcase.test.ts`
 - Showcase 124: L2 semantic retrieve — `showcases/src/124-semantic-retrieve.showcase.test.ts`
 - Showcase 125: L3 hybrid retrieve + fuseRetrieval — `showcases/src/125-hybrid-retrieve.showcase.test.ts`
-- L2/L3 semantic + hybrid docs: `docs/subsystems/embeddings.md`
+- L2/L3 semantic + hybrid docs: `docs/services/embeddings.md`
 - `features.yaml` → `features` → `search-index`

@@ -19,7 +19,7 @@
  * `@noy-db/on-webauthn` is the only `on-*` package that releases
  * **wrap-key material from a vendor-implemented protocol** (PRF
  * output → HKDF-SHA256 → AES-GCM wrapping key). Per
- * `docs/subsystems/auth-landscape.md`, this is the single largest
+ * `docs/services/auth-landscape.md`, this is the single largest
  * unverified surface in tier-2: a regression in PRF input/output
  * handling silently locks every passkey-enrolled user out of their
  * vault on the next rotation.

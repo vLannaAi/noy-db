@@ -21,7 +21,7 @@
  *
  * What to read next
  * ─────────────────
- *   - docs/subsystems/snapshots.md (§ Automatic cadence, § S3 bundle store)
+ *   - docs/services/snapshots.md (§ Automatic cadence, § S3 bundle store)
  *   - docs/superpowers/specs/2026-06-07-snapshots-auto-cadence-and-s3-bundle-design.md
  *
  * Spec mapping

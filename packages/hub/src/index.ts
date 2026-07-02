@@ -538,7 +538,7 @@ export type {
   SlotRewrapCeremony,
 } from './with-party/team/rotate-recover.js'
 
-// Public envelope (docs/subsystems/public-envelope.md)
+// Public envelope (docs/services/public-envelope.md)
 export {
   loadPublicEnvelope,
   savePublicEnvelope,

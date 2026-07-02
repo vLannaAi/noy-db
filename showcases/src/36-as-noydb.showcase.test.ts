@@ -21,8 +21,8 @@
  *
  * What to read next
  * ─────────────────
- *   - docs/subsystems/exports.md
- *   - docs/subsystems/bundle.md
+ *   - docs/services/exports.md
+ *   - docs/services/bundle.md
  *
  * Spec mapping
  * ────────────

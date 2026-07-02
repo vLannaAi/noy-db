@@ -72,7 +72,7 @@ pnpm add @noy-db/to-postgres     # node-postgres
 
 Don't pick one forever — a vault can sync to multiple `SyncTarget`s with
 different stores, roles, and policies. See the
-[`sync` service](../subsystems/sync.md) and the
+[`sync` service](../services/sync.md) and the
 [realtime-crdt-app recipe](../recipes/realtime-crdt-app.md).
 
 [← Back to README](../../README.md)

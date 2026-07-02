@@ -49,7 +49,7 @@ Anything outside this floor is a service.
 
 ## The service catalog
 
-Each service has its own subpath export under `@noy-db/hub/<name>`, a `with<Name>()` factory, and a doc page in `docs/subsystems/<name>.md`. The "LOC saved" column is the bundle weight a consumer avoids by **not** opting in.
+Each service has its own subpath export under `@noy-db/hub/<name>`, a `with<Name>()` factory, and a doc page in `docs/services/<name>.md`. The "LOC saved" column is the bundle weight a consumer avoids by **not** opting in.
 
 ### Cluster A — Read & Query
 
@@ -83,7 +83,7 @@ The Dim 14 family. All three share the same encrypted-payload metadata envelope,
 
 | # | Subpath | Headline | LOC saved | Pairs with |
 |---|---|---|---:|---|
-| 8 | `@noy-db/hub/blobs` | Binary attachments + compaction + MIME-magic | 2,376 | `bundle`, `routing` |
+| 8 | `@noy-db/hub/blobs` | Binary attachments + compaction + MIME-magic | 2,376 | `pod`, `routing` |
 | 9 | `@noy-db/hub/i18n` | Multi-locale records + dict-key resolution + auto-translate hook | 854 | `aggregate` (groupBy on dict-key) |
 
 ### Cluster E — Time & Audit
@@ -99,8 +99,8 @@ The Dim 14 family. All three share the same encrypted-payload metadata envelope,
 | # | Subpath | Headline | LOC saved | Pairs with |
 |---|---|---|---:|---|
 | 12 | `@noy-db/hub/shadow` | Read-only `vault.frame()` views | 129 | `history` (time-machine) |
-| 13 | `@noy-db/hub/bundle` | `.noydb` encrypted container format (backup, transport) | 846 | `blobs`, `routing` |
-| 23 | `@noy-db/hub/snapshots` | Vault checkpoint/restore — `db.snapshot()` / `listSnapshots()` / `restoreSnapshot()` with declarative retention + `ledgerHead` tamper-detection | ~200 | `bundle`, `history` |
+| 13 | `@noy-db/hub/pod` (alias: `/bundle`, deprecated) | `.noydb` encrypted container format (backup, transport) | 846 | `blobs`, `routing` |
+| 23 | `@noy-db/hub/snapshots` | Vault checkpoint/restore — `db.snapshot()` / `listSnapshots()` / `restoreSnapshot()` with declarative retention + `ledgerHead` tamper-detection | ~200 | `pod`, `history` |
 
 ### Cluster G — Collaboration & Auth
 
@@ -111,13 +111,13 @@ The Dim 14 family. All three share the same encrypted-payload metadata envelope,
 | 16 | `@noy-db/hub/session` | Token sessions + dev-unlock + policy enforcement | 839 | `team` |
 | 16a | `vault.user.*` (always-on) — see `user-envelope` | Per-principal profile + preferences envelope (`_users/<keyringId>`) with own-only write rule | ~600 always-on | `team`, `session-tiers`, `sync` |
 
-<a id="user-envelope"></a>**`user-envelope`** is included in the always-on core because it has zero peer-dep cost and the policy gates (`edit-own-profile`, `view-team-profiles`) are valuable even for single-user vaults. See `docs/subsystems/user-envelope.md`.
+<a id="user-envelope"></a>**`user-envelope`** is included in the always-on core because it has zero peer-dep cost and the policy gates (`edit-own-profile`, `view-team-profiles`) are valuable even for single-user vaults. See `docs/services/user-envelope.md`.
 
 ### Cluster H — Operations
 
 | # | Subpath | Headline | LOC saved | Pairs with |
 |---|---|---|---:|---|
-| 17 | `@noy-db/hub/routing` | Multi-store routing + middleware + sync-policy + lazy-mode + LRU cache | ~1,985 | `indexing`, `bundle` |
+| 17 | `@noy-db/hub/routing` | Multi-store routing + middleware + sync-policy + lazy-mode + LRU cache | ~1,985 | `indexing`, `pod` |
 | 24 | *(preview)* | Multi-vault partition federation — `db.openVaultGroup()` transparent shard routing + `vault-registry` source-of-truth + `minVersion` fan-out guard (MVP, milestone 16) | — | `queryAcross`, `permissions` |
 
 **Totals:** ~16,650 LOC across all 24 services are tree-shake-able. A consumer using only the core ships ~6,500 LOC. A consumer opting into all 24 ships ~31,700 LOC.
@@ -126,7 +126,7 @@ The Dim 14 family. All three share the same encrypted-payload metadata envelope,
 
 ## Service page template
 
-Every service doc page (`docs/subsystems/<name>.md`) follows the same template so developers can scan any page and find what they need in the same spot:
+Every service doc page (`docs/services/<name>.md`) follows the same template so developers can scan any page and find what they need in the same spot:
 
 ```markdown
 # <Service Name>
@@ -194,7 +194,7 @@ docs/
     04-permissions-and-keyring.md
     05-schema-and-refs.md
     06-query-basics.md
-  subsystems/
+  services/
     indexing.md         # Cluster A
     joins.md
     aggregate.md

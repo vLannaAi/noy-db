@@ -198,6 +198,6 @@ doc both survive the rotation.
 - `docs/superpowers/specs/2026-05-05-user-envelope-design.md` — design spec
 - `showcases/src/70-user-envelope.showcase.test.ts` — Hub API end-to-end
 - `showcases/src/recipe-user-preferences.recipe.test.ts` — reference shape pattern + device-local pattern
-- `docs/subsystems/session-tiers.md` — policy gate DSL the new gates plug into
-- `docs/subsystems/team.md` — multi-user grant/revoke flows the lifecycle binds to
-- `docs/subsystems/plaintext-bypass.md` — `_meta/directory` and `_meta/visibility/<keyringId>` are documented bypasses
+- `docs/services/session-tiers.md` — policy gate DSL the new gates plug into
+- `docs/services/team.md` — multi-user grant/revoke flows the lifecycle binds to
+- `docs/services/plaintext-bypass.md` — `_meta/directory` and `_meta/visibility/<keyringId>` are documented bypasses

@@ -321,7 +321,7 @@ the record itself.
 
 - L2 design spec: `docs/superpowers/specs/2026-06-22-ai-retrieval-l2-semantic-vector-design.md`
 - L3 hybrid design spec: `docs/superpowers/specs/2026-06-23-ai-retrieval-l3-hybrid-design.md`
-- L1/L1.5 search service: `docs/subsystems/search.md`
+- L1/L1.5 search service: `docs/services/search.md`
 - Showcase 124: semantic retrieve walkthrough — `showcases/src/124-semantic-retrieve.showcase.test.ts`
 - Showcase 125: hybrid retrieve + fuseRetrieval walkthrough — `showcases/src/125-hybrid-retrieve.showcase.test.ts`
 - `features.yaml` -> `features` -> `vector-search`

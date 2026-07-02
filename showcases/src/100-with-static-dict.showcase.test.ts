@@ -34,7 +34,7 @@
  *
  * What to read next
  * ─────────────────
- *   - docs/subsystems/i18n.md (§ staticDict)
+ *   - docs/services/i18n.md (§ staticDict)
  *   - docs/superpowers/specs/2026-06-07-i18n-static-dictionary-design.md
  *
  * Spec mapping

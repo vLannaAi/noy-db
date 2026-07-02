@@ -734,7 +734,7 @@ export type RecoveryEnrollment =
  * (LUKS pattern). Adding or removing a slot is a constant-time keyring
  * write — no DEK re-keying required.
  *
- * @see docs/subsystems/session-tiers.md → Tier 2 — Authenticate (multi-slot)
+ * @see docs/services/session-tiers.md → Tier 2 — Authenticate (multi-slot)
  */
 /**
  * Shared fields across all authenticator slot variants. The variant
@@ -2266,7 +2266,7 @@ export interface NoydbOptions {
    *     passphrase, defeating the $5-wrench attack. Mutually
    *     exclusive with `secret` and `getKeyring`.
    *
-   * @see docs/subsystems/session-tiers.md → Managed-passphrase mode
+   * @see docs/services/session-tiers.md → Managed-passphrase mode
    */
   readonly passphraseMode?: 'standard' | 'managed'
   /**
@@ -2392,7 +2392,7 @@ export interface NoydbOptions {
    */
   readonly onInvalidKey?: 'error' | 'reset'
   /**
-   * Enable the public envelope service (`docs/subsystems/public-envelope.md`).
+   * Enable the public envelope service (`docs/services/public-envelope.md`).
    * Pass `true` for the default schema (every standard field, 256 KB
    * icon cap, 200-char text cap), or a `PublicEnvelopeSchema` to
    * narrow what the owner can set. Off by default — vaults written

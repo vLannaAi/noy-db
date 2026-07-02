@@ -3473,7 +3473,7 @@ export class Vault {
    * single, already-opened `Vault` instance so the
    * bundle writer can snapshot it without holding a `Noydb` reference.
    *
-   * @see docs/subsystems/public-envelope.md
+   * @see docs/services/public-envelope.md
    */
   async getPublicEnvelope(
     opts: { readonly locale?: string } = {},

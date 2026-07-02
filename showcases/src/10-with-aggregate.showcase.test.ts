@@ -22,7 +22,7 @@
  * ─────────────────
  *   - showcase 11-with-indexing (faster aggregations on large sets)
  *   - showcase 12-with-joins (aggregate + join scenarios)
- *   - docs/subsystems/aggregate.md
+ *   - docs/services/aggregate.md
  *
  * Spec mapping
  * ────────────

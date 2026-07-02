@@ -22,7 +22,7 @@
  * What to read next
  * ─────────────────
  *   - showcase 18-with-periods (close a period, reads pinned to it)
- *   - docs/subsystems/history.md (`vault.at` section)
+ *   - docs/services/history.md (`vault.at` section)
  *
  * Spec mapping
  * ────────────

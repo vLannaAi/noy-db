@@ -21,7 +21,7 @@
  * What to read next
  * ─────────────────
  *   - showcase 33-as-xlsx (multi-sheet Excel export)
- *   - docs/subsystems/exports.md
+ *   - docs/services/exports.md
  *
  * Spec mapping
  * ────────────

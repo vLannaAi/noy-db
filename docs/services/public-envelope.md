@@ -215,7 +215,7 @@ features:
     name: Public envelope (owner-curated plaintext metadata)
     package: '@noy-db/hub'
     status: preview
-    subsystem_doc: docs/subsystems/public-envelope.md
+    subsystem_doc: docs/services/public-envelope.md
     showcases: []
     recipes: []
     playground_pages: []
@@ -237,7 +237,7 @@ features:
 
 ## References
 
-- [`docs/subsystems/session-tiers.md`](./session-tiers.md) — the tier-1/2/3 model the envelope sits *below* (envelope is readable below tier 1).
-- [`docs/subsystems/i18n.md`](./i18n.md) — `i18nText` and `applyI18nLocale` semantics this service reuses.
-- [`docs/subsystems/bundle.md`](./bundle.md) — the `.noydb` bundle format whose header allowlist this widens.
+- [`docs/services/session-tiers.md`](./session-tiers.md) — the tier-1/2/3 model the envelope sits *below* (envelope is readable below tier 1).
+- [`docs/services/i18n.md`](./i18n.md) — `i18nText` and `applyI18nLocale` semantics this service reuses.
+- [`docs/services/bundle.md`](./bundle.md) — the `.noydb` bundle format whose header allowlist this widens.
 - [`SPEC.md`](../../SPEC.md) — primary spec; the zero-knowledge invariant the public envelope deliberately narrows for chosen fields.
