@@ -442,7 +442,7 @@ export interface CollectionOpts<T> {
  */
 export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
   // Guard: CRDT collections cannot use embeddings (the embedding-derive
-  // block is unreachable after the CRDT early-return in putInternal; full
+  // block is unreachable after the CRDT early-return in _putInternal; full
   // CRDT-derivation is out of scope).
   if (opts.embeddings && opts.crdt) {
     throw new Error(

@@ -2466,7 +2466,7 @@ export class Vault {
     hostSealer: RecipientSealer,
     opts: { expiresAt: string },
   ): Promise<{ pid: string; envelopeKey: string }> {
-    return this.sealedRecordStrategy.sealRecordToHost(this.sealingContext(), collection, id, hostSealer, opts)
+    return this.sealedRecordStrategy.sealRecordToHost(this._sealingContext(), collection, id, hostSealer, opts)
   }
 
   /**
@@ -2477,7 +2477,7 @@ export class Vault {
    * longer open the record. See `revokeSealedRecord` in `record-keys/sealing.ts`.
    */
   async revokeSealedRecord(collection: string, id: string, pid: string, opts?: { hard?: boolean }): Promise<void> {
-    return this.sealedRecordStrategy.revokeSealedRecord(this.sealingContext(), collection, id, pid, opts)
+    return this.sealedRecordStrategy.revokeSealedRecord(this._sealingContext(), collection, id, pid, opts)
   }
 
   /**
@@ -2498,7 +2498,7 @@ export class Vault {
    * @throws {@link RecordCekNotFoundError} if the record is missing or has no `_cek`.
    */
   async rotateRecordCek(collection: string, id: string): Promise<void> {
-    return this.sealedRecordStrategy.rotateRecordCek(this.sealingContext(), collection, id)
+    return this.sealedRecordStrategy.rotateRecordCek(this._sealingContext(), collection, id)
   }
 
   /**
@@ -2506,7 +2506,7 @@ export class Vault {
    * the vault-bound adapter, DEK resolver, actor, and the dual-cache eviction
    * `rotateRecordCek` performs (per-record CEK cache + decrypted-record cache).
    */
-  private sealingContext(): SealingContext {
+  private _sealingContext(): SealingContext {
     return {
       adapter: this.adapter,
       vault: this.name,
