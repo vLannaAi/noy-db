@@ -20,7 +20,7 @@ import {
   type WriterPresence,
 } from '../src/kernel/coordination/index.js'
 import type { NoydbStore } from '../src/kernel/types.js'
-import type { Unsubscribe } from '../src/kernel/write-hooks.js'
+import type { Unsubscribe } from '../src/kernel/with/write-hooks.js'
 
 interface InvOld extends Record<string, unknown> { id: string; total: number }
 interface InvNew extends Record<string, unknown> { id: string; amount: { gross: number } }

@@ -51,7 +51,11 @@ const ENTRIES = {
   'cargo/index': 'src/with-cargo/index.ts',
   'adapter/index': 'src/kernel/adapter/index.ts',
   'to/index': 'src/kernel/to/index.ts',
-  describe: 'src/describe.ts',
+  'with/index': 'src/kernel/with/index.ts',
+  'ui/index': 'src/kernel/ui/index.ts',
+  // Deprecated alias: same source as 'ui/index', kept so `dist/describe/index.js`
+  // (the pre-S5 `./describe` subpath) continues to exist. See kernel/ui/index.ts header.
+  'describe/index': 'src/kernel/ui/index.ts',
 }
 
 // ESM build with code splitting — shared chunks deduplicated so

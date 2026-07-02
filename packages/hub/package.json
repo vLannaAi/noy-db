@@ -144,9 +144,17 @@
       "types": "./dist/to/index.d.ts",
       "default": "./dist/to/index.js"
     },
+    "./with": {
+      "types": "./dist/with/index.d.ts",
+      "default": "./dist/with/index.js"
+    },
+    "./ui": {
+      "types": "./dist/ui/index.d.ts",
+      "default": "./dist/ui/index.js"
+    },
     "./describe": {
-      "types": "./dist/describe.d.ts",
-      "default": "./dist/describe.js"
+      "types": "./dist/describe/index.d.ts",
+      "default": "./dist/describe/index.js"
     }
   },
   "module": "./dist/index.js",

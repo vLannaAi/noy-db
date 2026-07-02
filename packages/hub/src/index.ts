@@ -195,7 +195,7 @@ export { readPlaintextRecord } from './kernel/debug.js'
 export type { WriteQueue } from './kernel/write-queue.js'
 
 // Write lifecycle hooks
-export type { WriteEvent, WriteHook } from './kernel/write-hooks.js'
+export type { WriteEvent, WriteHook } from './kernel/with/write-hooks.js'
 
 // Runtime schema introspection
 export type { SchemaIntrospection } from './with-shape/introspection/types.js'

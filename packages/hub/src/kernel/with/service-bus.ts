@@ -15,7 +15,7 @@
  * @module
  */
 import type { WriteEvent } from './write-hooks.js'
-import type { Role } from './types.js'
+import type { Role } from '../types.js'
 
 /** Typed map of OBSERVE lifecycle point → event payload. Extend by adding keys. */
 export interface LifecycleEventMap {
@@ -88,7 +88,7 @@ export interface GateEventMap {
 export type GatePoint = keyof GateEventMap
 export type GateHandler<P extends GatePoint> = (event: GateEventMap[P]) => void | Promise<void>
 
-export class SubsystemBus {
+export class ServiceBus {
   readonly #handlers = new Map<LifecyclePoint, AnyHandler[]>()
   readonly #gateHandlers = new Map<GatePoint, AnyHandler[]>()
   #depth = 0
@@ -190,3 +190,8 @@ export class SubsystemBus {
     }
   }
 }
+
+/** @deprecated Use ServiceBus. */
+export const SubsystemBus = ServiceBus
+/** @deprecated Use ServiceBus. */
+export type SubsystemBus = ServiceBus

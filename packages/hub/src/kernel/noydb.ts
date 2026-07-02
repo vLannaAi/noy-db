@@ -62,8 +62,8 @@ import { Vault } from './vault.js'
 import type { VaultMeta } from '../with-shape/introspection/meta.js'
 import { NoydbEventEmitter } from './events.js'
 import { WriteQueueTracker, type WriteQueue } from './write-queue.js'
-import { WriteHookRegistry, type WriteHook, type Unsubscribe } from './write-hooks.js'
-import { SubsystemBus } from './subsystem-bus.js'
+import { WriteHookRegistry, type WriteHook, type Unsubscribe } from './with/write-hooks.js'
+import { ServiceBus } from './with/service-bus.js'
 import { TabCoordinator, defaultLockManager, defaultChannel, type TabCoordinationOptions, type TabRole, type TabPresence } from '../with-party/tab-coordination.js'
 import { CrossTabWriteRelay } from '../with-party/tab-write-relay.js'
 import {
@@ -156,7 +156,7 @@ export class Noydb {
   private readonly emitter = new NoydbEventEmitter()
   private readonly writeQueueTracker = new WriteQueueTracker()
   private readonly writeHooks = new WriteHookRegistry()
-  private readonly subsystemBus = new SubsystemBus()
+  private readonly subsystemBus = new ServiceBus()
   private readonly clientId = generateULID()
   /** Session that owns this instance's writers (one user's writers across vaults). */
   private readonly sessionId: string
@@ -1580,7 +1580,7 @@ export class Noydb {
   }
 
   /** @internal The observe bus, threaded into every Collection. */
-  get _subsystemBus(): SubsystemBus {
+  get _subsystemBus(): ServiceBus {
     return this.subsystemBus
   }
 
