@@ -1,7 +1,7 @@
 /**
  * Lazy factory for the store-backed default {@link CoordinationProvider}.
  * `with-shape/schema-update` is service-layer code the kernel spine may not
- * statically import — the dynamic `import()` below is the door-layering
+ * statically import — the dynamic `import()` below is the port-layering
  * law's sanctioned escape hatch for this exact case.
  */
 import type { NoydbStore } from '../../kernel/types.js'

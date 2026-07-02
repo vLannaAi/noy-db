@@ -1,5 +1,5 @@
 /**
- * @noy-db/hub/to — the stable store-adapter contract (the `to-*` family door).
+ * @noy-db/hub/to — the stable store-adapter contract (the `to-*` family port).
  *
  * A storage backend (a `to-*` package) binds ONLY to this subpath: the
  * ciphertext-facing slice of the hub. It carries the 6-method `NoydbStore`
