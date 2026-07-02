@@ -1,5 +1,5 @@
 /**
- * #308 L3 — Reciprocal Rank Fusion. Merges N ranked `RetrieveHit` lists into
+ * L3 — Reciprocal Rank Fusion. Merges N ranked `RetrieveHit` lists into
  * one, scoring each id by Σ 1/(k + rank) across the lists it appears in. Pure,
  * deterministic, no I/O — which is why it serves BOTH hybrid lexical⊕semantic
  * fusion AND klum-db's cross-vault federation (the lists are per-vault). The

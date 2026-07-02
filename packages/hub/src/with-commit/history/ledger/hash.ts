@@ -29,8 +29,8 @@ export async function envelopePayloadHash(
   envelope: EncryptedEnvelope | null,
 ): Promise<string> {
   if (!envelope) return ''
-  // Back-compat (#306 Slice C): a record with NO sealed fields hashes exactly
-  // as before — sha256 of `_data` alone — so every pre-existing ledger entry
+  // Back-compat: a record with NO sealed fields hashes as sha256 of
+  // `_data` alone — so every pre-existing ledger entry
   // and every non-sealed backup verifies byte-identically. A record WITH
   // `_sealed` widens the hash to also bind the sealed-field ciphertext, so the
   // ledger attests to sealed-value tamper/erasure (a dropped or swapped

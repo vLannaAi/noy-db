@@ -1,5 +1,5 @@
 /**
- * Persisted backend for the L1 lexical index (#308 L1.5). Crypto-free: the
+ * Persisted backend for the L1 lexical index (L1.5). Crypto-free: the
  * collection injects load/save/remove + a fingerprint provider. In-memory while
  * live (L1 behavior); persists an opaque snapshot via a debounced flush, and
  * validates a loaded blob against a {count,maxVersion} fingerprint so a stale

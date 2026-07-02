@@ -28,8 +28,8 @@ const DEFAULT_POLL_INTERVAL_MS = 50
 function toPresence(doc: ClientDoc): WriterPresence {
   return {
     writerId: doc.clientId,
-    // Pre-#469 docs (and explicit empty) have no session — fall back to the
-    // writerId so every presence is session-addressable.
+    // Legacy docs written without a sessionId (and explicit empty) have no
+    // session — fall back to the writerId so every presence is session-addressable.
     sessionId: doc.sessionId && doc.sessionId.length > 0 ? doc.sessionId : doc.clientId,
     lastSeen: doc.lastSeen,
     quiescedAtVersion: doc.quiescedAtVersion,

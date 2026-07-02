@@ -1,9 +1,8 @@
 /**
  * Collection-level search / retrieval (`search` / `retrieve` / `similarTo` +
- * the lexical-index build/flush/warm machinery), lifted off the `Collection`
- * god-object (Phase 5 A14 of the microkernel refactoring).
+ * the lexical-index build/flush/warm machinery).
  *
- * This is the #308 retrieval surface: a pure client-side lexical scan
+ * This is the retrieval surface: a pure client-side lexical scan
  * (`search`), the persisted-or-in-memory inverted-index lifecycle
  * (`flushIndex` / `warmIndex` / `buildRetrievalDocs` + the dict-label / blob-
  * filename resolvers that feed it), and the lexical / semantic / hybrid
@@ -11,9 +10,8 @@
  * write path — it reads the live eager cache and the encrypted `_vec` / `_ftindex`
  * side-cars.
  *
- * Every function takes a small {@link SearchContext} (the exact `this.*` the
- * moving methods touched) instead of `this`, mirroring the `record-keys/`
- * siblings. Behaviour is byte-identical to the inline code it replaced.
+ * Every function takes a small {@link SearchContext} instead of `this`,
+ * mirroring the `record-keys/` siblings.
  *
  * The `cache` is the SAME `Map` reference `Collection` owns (passed by
  * reference, never copied) so the index always builds over the live working
@@ -77,7 +75,7 @@ export interface SearchContext<T> {
 }
 
 /**
- * #308 — client-side lexical scan over the live eager cache. Eager mode only;
+ * Client-side lexical scan over the live eager cache. Eager mode only;
  * nothing searchable is written to the store.
  */
 export async function search<T>(ctx: SearchContext<T>, field: string, query: string, opts: SearchOptions = {}): Promise<SearchResult<T>[]> {
@@ -89,7 +87,7 @@ export async function search<T>(ctx: SearchContext<T>, field: string, query: str
   }
   await ctx.ensureHydrated()
   const entries: { id: string; record: T }[] = []
-  // #435 — strip the internal densify marker from the user-facing records.
+  // Strip the internal densify marker from the user-facing records.
   // Non-mutating: never touches the cached record object. The search index
   // is built over the same (marker-free) record, which is fine — the marker
   // is never a searchable field.
@@ -97,7 +95,7 @@ export async function search<T>(ctx: SearchContext<T>, field: string, query: str
   return searchScan(entries, field, query, opts)
 }
 
-/** #308 L1 — build IndexDoc[] for the configured text fields over the live cache. */
+/** L1 — build IndexDoc[] for the configured text fields over the live cache. */
 export function buildRetrievalDocs<T>(
   ctx: SearchContext<T>,
   labelMaps: Map<string, Map<string, Record<string, string>>>,
@@ -117,7 +115,7 @@ export function buildRetrievalDocs<T>(
   return docs
 }
 
-/** #308 L1 — true iff any configured text index is also a blob field (gates ALL slot I/O). */
+/** L1 — true iff any configured text index is also a blob field (gates ALL slot I/O). */
 export function hasIndexedBlobFields<T>(ctx: SearchContext<T>, only?: readonly string[]): boolean {
   if (!ctx.blobFields || !ctx.textIndexes) return false
   const fields = only ? ctx.textIndexes.filter((f) => only.includes(f)) : ctx.textIndexes
@@ -125,7 +123,7 @@ export function hasIndexedBlobFields<T>(ctx: SearchContext<T>, only?: readonly s
 }
 
 /**
- * #308 L1 — resolve `recordId -> (blobField -> filenames[])` by listing slots
+ * L1 — resolve `recordId -> (blobField -> filenames[])` by listing slots
  * for the configured blob fields of each cached record. Blob slot metadata is
  * NOT inline on the record: it lives in a separate `_blob_slots_*` collection,
  * so this costs ONE `blob(id).list()` (a `listSlots`) per record at build time
@@ -157,7 +155,7 @@ async function resolveBlobFilenames<T>(ctx: SearchContext<T>, only?: readonly st
   return out
 }
 
-/** #308 L1 — field -> (key -> {locale->label}) for dictKey fields; static from table, dynamic via getDictionary().list(). */
+/** L1 — field -> (key -> {locale->label}) for dictKey fields; static from table, dynamic via getDictionary().list(). */
 async function resolveDictLabelMaps<T>(ctx: SearchContext<T>): Promise<Map<string, Map<string, Record<string, string>>>> {
   const maps = new Map<string, Map<string, Record<string, string>>>()
   if (!ctx.dictKeyFields || !ctx.textIndexes) return maps
@@ -178,7 +176,7 @@ async function resolveDictLabelMaps<T>(ctx: SearchContext<T>): Promise<Map<strin
   return maps
 }
 
-/** #308 L1.5 — force-persist the lexical index now (e.g. on save/idle). Persists only when textIndexPersist is enabled; a no-op otherwise. */
+/** L1.5 — force-persist the lexical index now (e.g. on save/idle). Persists only when textIndexPersist is enabled; a no-op otherwise. */
 export async function flushIndex<T>(ctx: SearchContext<T>): Promise<void> {
   if (!ctx.searchIndexStore) return
   await ctx.ensureHydrated()
@@ -188,7 +186,7 @@ export async function flushIndex<T>(ctx: SearchContext<T>): Promise<void> {
   await ctx.searchIndexStore.flush?.()
 }
 
-/** #308 L2 — load + decrypt all _vec sidecars into StoredVector[] for the VectorSet. */
+/** L2 — load + decrypt all _vec sidecars into StoredVector[] for the VectorSet. */
 function buildVectorLoad<T>(ctx: SearchContext<T>): () => Promise<StoredVector[]> {
   return async () => {
     const ids = await ctx.adapter.list(ctx.vault, '_vec')
@@ -206,7 +204,7 @@ function buildVectorLoad<T>(ctx: SearchContext<T>): () => Promise<StoredVector[]
 }
 
 /**
- * #308 L1.5 — build the PersistedIndexCallbacks bridge: crypto lives here
+ * L1.5 — build the PersistedIndexCallbacks bridge: crypto lives here
  * (collection has getDEK / encryptJsonString / decryptJsonString / adapter),
  * the index store itself is crypto-free.
  *
@@ -255,7 +253,7 @@ export function buildPersistedIndexCallbacks<T>(provideCtx: () => SearchContext<
   }
 }
 
-/** #308 L1 — pre-build the lexical index (e.g. on open) so the first retrieve() pays no build scan. */
+/** L1 — pre-build the lexical index (e.g. on open) so the first retrieve() pays no build scan. */
 export async function warmIndex<T>(ctx: SearchContext<T>): Promise<void> {
   if (!ctx.searchIndexStore) return
   if (ctx.lazy) {
@@ -270,7 +268,7 @@ export async function warmIndex<T>(ctx: SearchContext<T>): Promise<void> {
   await ctx.searchIndexStore.ensureBuilt(() => buildRetrievalDocs(ctx, labelMaps, blobFilenames))
 }
 
-/** #308 — retrieval. mode: 'lexical' (default) | 'semantic' (L2) | 'hybrid' (L3). */
+/** Retrieval. mode: 'lexical' (default) | 'semantic' (L2) | 'hybrid' (L3). */
 export async function retrieve<T>(ctx: SearchContext<T>, query: string, opts: RetrieveOptions<T> = {}): Promise<RetrieveHit<T>[]> {
   const hits =
     opts.mode === 'semantic' ? await retrieveSemantic(ctx, query, opts)
@@ -279,13 +277,13 @@ export async function retrieve<T>(ctx: SearchContext<T>, query: string, opts: Re
   return opts.within ? applyWithin(hits, opts.within) : hits
 }
 
-/** #308 L3 — keep only hits whose id matches the structured query, re-rank 1-based. */
+/** L3 — keep only hits whose id matches the structured query, re-rank 1-based. */
 function applyWithin<T>(hits: RetrieveHit<T>[], within: Query<T>): RetrieveHit<T>[] {
   const ids = new Set(within._idArray())
   return hits.filter(h => ids.has(h.id)).map((h, i) => ({ ...h, rank: i + 1 }))
 }
 
-/** #308 L1 — client-side lexical retrieval; ranked { id, score, field, snippet, locale? }. */
+/** L1 — client-side lexical retrieval; ranked { id, score, field, snippet, locale? }. */
 async function retrieveLexical<T>(ctx: SearchContext<T>, query: string, opts: RetrieveOptions<T>): Promise<RetrieveHit<T>[]> {
   if (!ctx.searchIndexStore) {
     throw new Error(`Collection "${ctx.name}": retrieve() requires a textIndexes config.`)
@@ -326,7 +324,7 @@ async function retrieveLexical<T>(ctx: SearchContext<T>, query: string, opts: Re
   })
 }
 
-/** #308 L3 — hybrid: fuse lexical (L1) + semantic (L2) by RRF. Requires embeddings. */
+/** L3 — hybrid: fuse lexical (L1) + semantic (L2) by RRF. Requires embeddings. */
 async function retrieveHybrid<T>(ctx: SearchContext<T>, query: string, opts: RetrieveOptions<T>): Promise<RetrieveHit<T>[]> {
   if (!ctx.embeddings) {
     throw new Error(`Collection "${ctx.name}": retrieve({mode:'hybrid'}) requires an embeddings config.`)
@@ -338,7 +336,7 @@ async function retrieveHybrid<T>(ctx: SearchContext<T>, query: string, opts: Ret
   return fuseRetrieval([lex, sem], opts.limit !== undefined ? { limit: opts.limit } : {})
 }
 
-/** #308 L2 — semantic branch of retrieve(): encode query → similarTo(). */
+/** L2 — semantic branch of retrieve(): encode query → similarTo(). */
 async function retrieveSemantic<T>(ctx: SearchContext<T>, query: string, opts: RetrieveOptions<T>): Promise<RetrieveHit<T>[]> {
   if (!ctx.embeddings) throw new Error(`Collection "${ctx.name}": retrieve({mode:'semantic'}) requires an embeddings config.`)
   if (ctx.lazy) throw new Error(`Collection "${ctx.name}": retrieve() requires eager mode (prefetch: true).`)
@@ -350,7 +348,7 @@ async function retrieveSemantic<T>(ctx: SearchContext<T>, query: string, opts: R
   })
 }
 
-/** #308 L2 — raw-vector kNN over the encrypted vector set (decrypted in the trusted tier).
+/** L2 — raw-vector kNN over the encrypted vector set (decrypted in the trusted tier).
  *  Snippet is '' for vector hits in v1 (semantic match isn't span-located). */
 export async function similarTo<T>(ctx: SearchContext<T>, vector: Float32Array, opts: { k?: number; minScore?: number; includeRecord?: boolean } = {}): Promise<RetrieveHit<T>[]> {
   if (!ctx.embeddings || !ctx.vectorSet) throw new Error(`Collection "${ctx.name}": similarTo() requires an embeddings config.`)
@@ -369,7 +367,7 @@ export async function similarTo<T>(ctx: SearchContext<T>, vector: Float32Array, 
 }
 
 /**
- * #308 L2 — the embedding write-hook: derive a record's embedding vector at
+ * L2 — the embedding write-hook: derive a record's embedding vector at
  * write and persist it as the encrypted `_vec` side-car. Routed through the
  * search strategy so it runs only when `withSearch()` is opted in — computing
  * vectors that no gated `similarTo` / semantic `retrieve` could query would be

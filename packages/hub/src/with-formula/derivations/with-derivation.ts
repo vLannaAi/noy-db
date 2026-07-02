@@ -26,7 +26,7 @@ export function withDerivation<
     throw new ValidationError('withDerivation: derive must be a function')
   }
 
-  // Validate declared sibling sources (#344). Each must be a non-empty
+  // Validate declared sibling sources. Each must be a non-empty
   // string and must differ from the primary source — a self-reference
   // would double-register the strategy under the same `_bySource` key.
   if (spec.sources !== undefined) {
@@ -42,7 +42,7 @@ export function withDerivation<
     }
   }
 
-  // Validate FK triggers (#376). Each `collection` must be a non-empty
+  // Validate FK triggers. Each `collection` must be a non-empty
   // string differing from the primary source, and `on` a non-empty field.
   if (spec.triggerBy !== undefined) {
     for (const t of spec.triggerBy) {
@@ -71,7 +71,7 @@ export function withDerivation<
   const lifecycleMode = typeof spec.lifecycle === 'string' ? spec.lifecycle : spec.lifecycle.mode
   for (const [outputKey, outputSpec] of Object.entries(spec.outputs)) {
     // Self-write output (collection === source): reverse-denorm must declare
-    // `denorm` (the fields it owns) — field-level provenance, #376.
+    // `denorm` (the fields it owns) — field-level provenance.
     if (outputSpec.shape === 'record' && outputSpec.collection === spec.source) {
       if (!outputSpec.denorm || outputSpec.denorm.length === 0) {
         throw new ValidationError(

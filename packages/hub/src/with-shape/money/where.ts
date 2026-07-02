@@ -1,8 +1,8 @@
 /**
- * Money-aware `where()` comparison (#336).
+ * Money-aware `where()` comparison.
  *
  * Query clauses evaluate against RAW stored records — money decode
- * happens on output only (#322) — so a money field's stored form is a
+ * happens on output only — so a money field's stored form is a
  * scaled-integer digit string (`'1000000'`) while the caller naturally
  * writes the operand in major units (`10000`, `'10000.00'`). Without a
  * rewrite the comparison is silently wrong by the scale factor, and a

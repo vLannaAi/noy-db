@@ -14,7 +14,7 @@
  *
  * The FK graph is auto-derived from the vault's existing RefRegistry
  * (the `ref('target')` declarations on collections) — no hand-written
- * edge list. See the design spec §4.1.
+ * edge list.
  *
  * @module
  */

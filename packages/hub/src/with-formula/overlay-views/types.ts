@@ -1,6 +1,5 @@
 /**
- * Read-shadow overlay primitive (MV v2 spec § Composition with
- * operator-editable lifecycle). Binds an MV's read-only base output
+ * Read-shadow overlay primitive. Binds an MV's read-only base output
  * to a separate user-writable overlay collection; reads merge via a
  * single shadow predicate, writes route to the overlay.
  *
@@ -47,7 +46,7 @@ export interface OverlayedViewStrategy {
   shadowField: string
   shadowValue: unknown
   /**
-   * Optional field-level merge mode (AU+032 / #348). When present, a
+   * Optional field-level merge mode. When present, a
    * row whose `shadowField` does NOT equal `shadowValue` is no longer
    * forced all-base: the rules below let an intermediate status pull a
    * declared subset of fields from the overlay while every other field

@@ -13,7 +13,7 @@
  * Computed evaluation is the FIRST stage of the write pipeline (before
  * schema validation), so the user need not supply computed fields and the
  * schema validates the computed result. Cross-record / async derivation
- * is out of scope here — see the validation service (#299).
+ * is out of scope here — see the validation service.
  */
 
 import { NoydbError } from '../../kernel/errors.js'

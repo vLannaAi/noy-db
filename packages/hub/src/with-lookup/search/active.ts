@@ -1,5 +1,5 @@
 /**
- * Enable the search / retrieval capability (#308).
+ * Enable the search / retrieval capability.
  * Pass to `createNoydb({ searchStrategy: withSearch() })` to make a collection's
  * `search` / `retrieve` / `similarTo` / `warmIndex` / `flushIndex` methods live,
  * and to enable the put()-time embedding-vector compute for collections that

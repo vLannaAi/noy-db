@@ -85,7 +85,7 @@ export interface UnionSource<TRow extends Record<string, unknown>> {
    * materialized output entirely — the row is not pushed into the
    * unified stream and never reaches `groupBy` / `aggregate`. This
    * removes the need for sentinel rows (e.g. `{ amount: 0 }`) whose
-   * sole purpose is to be aggregated away (#297).
+   * sole purpose is to be aggregated away.
    *
    * When this arm declares {@link join}, the aliased right-side
    * record(s) are attached to the source row under each leg's `as`
@@ -161,7 +161,7 @@ export interface MaterializedViewStrategy<TRow extends Record<string, unknown>> 
    * `MaterializedViewConfigError` if both are set, if `unionSources`
    * is empty, or if two arms name the same `collection`.
    *
-   * A SINGLE arm is valid (#331): it expresses map→group→aggregate
+   * A SINGLE arm is valid: it expresses map→group→aggregate
    * over one collection with a COMPUTED bucket key (e.g. a month
    * sliced from a date field). The query form's `.groupBy()` accepts
    * stored field names only, so a derived key needs the arm's `map`.
@@ -212,7 +212,7 @@ export interface MaterializedViewStrategy<TRow extends Record<string, unknown>> 
    */
   moneyFields?: Record<string, MoneyDescriptor>
   /**
-   * Compute-time i18n resolution locale (#285, `mv` layer). UNION-mode only.
+   * Compute-time i18n resolution locale (`mv` layer). UNION-mode only.
    *
    * An MV that **groups by** an `i18nText` field would otherwise bucket on the
    * raw `{ locale: string }` map — an unstable object key. Set `i18nLocale`
@@ -227,12 +227,12 @@ export interface MaterializedViewStrategy<TRow extends Record<string, unknown>> 
    * `dictKey`/`staticDict` code — the stable key — and label at read).
    *
    * Query-form MVs do their own `groupBy` inside the `Query`, which carries no
-   * locale yet (the join/query-locale slice, #285 §3) — so `i18nLocale` /
+   * locale yet — so `i18nLocale` /
    * `i18nFields` on a query-form MV throw `MaterializedViewConfigError`.
    */
   i18nLocale?: string
   /**
-   * i18n descriptors for UNION-mode compute (#285), keyed by the OUTPUT field
+   * i18n descriptors for UNION-mode compute, keyed by the OUTPUT field
    * name as it appears in the mapped row (NOT the source field). Mirrors
    * {@link moneyFields}: the concatenated mapped stream is a plain array with no
    * collection i18n context, so the descriptor (carrying `onMissing`/`substitute`

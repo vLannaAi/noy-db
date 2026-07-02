@@ -7,7 +7,7 @@
  *   - non-additive ⇔ any removal, any shape/type change, any required-ness
  *                 flip, or a new REQUIRED property
  * Deeper rules (nested objects, union widening, type narrowing) are
- * deferred (spec §8). Callers only invoke this with two object schemas.
+ * deferred. Callers only invoke this with two object schemas.
  */
 import { canonicalize } from '../persisted-schemas/canonicalize.js'
 import type { SchemaDelta, FieldChange } from './types.js'

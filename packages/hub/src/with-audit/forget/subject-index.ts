@@ -1,5 +1,5 @@
 /**
- * The encrypted subject index (#304).
+ * The encrypted subject index.
  *
  * GDPR crypto-shred needs to answer "which records belong to data subject
  * X?" portably (the index must travel with the vault/bundle) WITHOUT leaking

@@ -1,8 +1,8 @@
 /**
- * #199 P1 — `exportMyAccessibleData`: a non-owner user exports the scope they
+ * `exportMyAccessibleData`: a non-owner user exports the scope they
  * can decrypt as a portable, re-keyed `.noydb` bundle. Non-destructive and
  * **always allowed** (the "data sovereignty by construction" property of
- * sealing-at-dimension §11.11 — the firm cannot deny it) but **audited**.
+ * sealing-at-dimension — the firm cannot deny it) but **audited**.
  *
  * Reuses the existing bundle machinery: the access boundary is the caller's DEK
  * set (operator/client → `keyring.permissions`; owner/admin/viewer → all), so a

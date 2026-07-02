@@ -1,6 +1,6 @@
 /**
  * `withForgetCascade` — declaration surface for GDPR right-to-erasure via
- * per-record CEK crypto-shred (#304, step 2 of the CEK security epic).
+ * per-record CEK crypto-shred.
  *
  * This file holds only the *declaration* shape and the disabled sentinel.
  * The actual erasure machinery lives in:
@@ -64,7 +64,7 @@ export const NO_FORGET: ForgetStrategy = { subjects: {} }
  * collection DEK — so erasure-completeness is NOT guaranteed for them. Run
  * the per-record-CEK migration pass, then re-forget, to close the gap.
  *
- * Blob attachments (#365): a shredded record's **erasable** blobs (on a
+ * Blob attachments: a shredded record's **erasable** blobs (on a
  * `perRecordKeys` collection) are crypto-shredded inline — `blobsShredded`
  * counts those taken to refCount 0 (BlobObject deleted → chunks permanently
  * undecryptable), `blobsRetainedShared` counts those still referenced by
@@ -93,25 +93,25 @@ export interface ForgetResult {
   readonly blobResidueCollections: readonly string[]
   /**
    * Count of persisted `_idx/<field>/<recordId>` index side-cars hard-deleted
-   * across the shredded records (#401). These live under the retained
+   * across the shredded records. These live under the retained
    * collection DEK, so crypto-shred alone would leave the indexed field VALUES
    * readable — `forget()` must delete them.
    */
   readonly indexPostingsPurged: number
   /**
    * `collection:id:field` entries whose persisted `_idx` side-car could NOT be
-   * deleted (#401) — index residue that still leaks the indexed value under the
+   * deleted — index residue that still leaks the indexed value under the
    * retained collection DEK. Non-empty means erasure is INCOMPLETE: retry, or
    * purge the side-car out of band.
    */
   readonly indexResidue: readonly string[]
   /**
    * Count of `_sealed[field]` slots dropped from the live store across the
-   * shredded records (#306). For slots written under `sensitive` +
+   * shredded records. For slots written under `sensitive` +
    * `perRecordKeys` (the current path), the key derives off the per-record CEK,
    * so tombstoning the record — which drops `_cek` and `_sealed` — also
-   * crypto-shreds the value. A slot left over from a pre-#306 write keys off the
-   * collection DEK instead, so dropping it removes it from the live store but a
+   * crypto-shreds the value. A legacy slot (written before per-record CEKs) keys
+   * off the collection DEK instead, so dropping it removes it from the live store but a
    * pre-forget backup remains recoverable by a DEK holder (same caveat `_data`
    * carries); migrate by re-`put`ting before forgetting for full crypto-shred.
    */
@@ -121,7 +121,7 @@ export interface ForgetResult {
   readonly sealedCekEnvelopesPurged: number
   /** `collection:id` whose `_sealed_cek` purge failed (residue — the host-recoverable CEK may survive). */
   readonly sealedCekResidue: readonly string[]
-  /** `collection:id:field` sealed slots that were DEK-derived (pre-#306) and thus NOT crypto-shredded
+  /** `collection:id:field` sealed slots that were DEK-derived (legacy, written before per-record CEKs) and thus NOT crypto-shredded
    * by dropping `_cek` — the collection DEK is retained, so synced/backup copies stay decryptable (#M-1). */
   readonly sealedResidue: readonly string[]
   /** The single `op:'forget'` ledger entry appended for this erasure. */

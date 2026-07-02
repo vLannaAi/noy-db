@@ -1,5 +1,5 @@
 /**
- * Nested-path support for `moneyFields` declarations (#334).
+ * Nested-path support for `moneyFields` declarations.
  *
  * A descriptor map key is a PATH, not just a top-level field name:
  *

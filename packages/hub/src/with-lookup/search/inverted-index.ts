@@ -1,5 +1,5 @@
 /**
- * In-memory inverted index for the L1 lexical retrieval layer (#308). Built
+ * In-memory inverted index for the L1 lexical retrieval layer. Built
  * client-side from already-decrypted records; nothing touches the store. BM25
  * mirrors src/search/scan.ts; multi-field with max-field combination so a record
  * ranks by its strongest field, which also supplies the snippet location.

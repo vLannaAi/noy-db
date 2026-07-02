@@ -1,5 +1,5 @@
 /**
- * Wire + binding types for record-scoped CEK sealing (#306 slices 2-3).
+ * Wire + binding types for record-scoped CEK sealing.
  *
  * A vault owner who holds the collection DEK can **seal a single record's
  * content-encryption key (CEK)** to an `at-*` host (e.g. a KMS-backed

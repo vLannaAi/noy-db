@@ -1,5 +1,5 @@
 /**
- * i18n word tokenizer for the L1 lexical index (#308). Uses Intl.Segmenter
+ * i18n word tokenizer for the L1 lexical index. Uses Intl.Segmenter
  * (standard ECMAScript — hub-portable) to dictionary-segment Thai/Lao/Khmer/CJK,
  * which the word-run `tokenize` cannot. Terms are matched in NFKC-lowercased form;
  * offsets index the ORIGINAL text so snippets slice the user's text.

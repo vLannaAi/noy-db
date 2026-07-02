@@ -3,8 +3,8 @@
  * hold blob bytes as native, directly-consumable objects (e.g. servable S3
  * objects) rather than the encrypted-envelope chunks a `NoydbStore` holds.
  *
- * This is the shared seam behind **direct-serve blobs** (#412) and the
- * **debug raw-object path** (#413): "write these bytes as one real object and
+ * This is the shared seam behind **direct-serve blobs** and the
+ * **debug raw-object path**: "write these bytes as one real object and
  * give me a URL to it." See the as-aws-s3 design spec.
  *
  * Unlike `NoydbStore` (ciphertext in / ciphertext out), an `ObjectProjection`

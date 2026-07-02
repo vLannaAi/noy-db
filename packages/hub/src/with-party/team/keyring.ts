@@ -310,7 +310,7 @@ export async function loadKeyring(
 }
 
 /**
- * Open-policy pre-gate (#313): decide create-vs-fail-closed **before** any
+ * Open-policy pre-gate: decide create-vs-fail-closed **before** any
  * vault write. `openVault` must not self-provision an owner keyring into a
  * vault held by other principals; create-on-open is allowed only for a
  * genuinely-new vault (no `_keyring/*` at all). Capability-free — one
@@ -838,61 +838,12 @@ export async function rotateKeys(
     if (!userEnvelope) continue
 
     const userKeyringFile = JSON.parse(userEnvelope._data) as KeyringFile
-    // Note: we can't derive other users' KEKs to re-wrap DEKs for them.
-    // Rotation requires users to re-unlock and be re-granted after the caller
-    // re-wraps with the raw DEKs held in memory. See rotation flow below.
-    // The trick: import the user's KEK from their salt? No — we need their passphrase.
-    //
-    // Per the spec: the caller (owner/admin) wraps the new DEKs with each remaining
-    // user's KEK. But we can't derive their KEK without their passphrase.
-    //
-    // Real solution from the spec: the caller wraps the DEK using the approach of
-    // reading each user's existing wrapping. Since we can't derive their KEK,
-    // we use a RE-KEYING approach: the new DEK is wrapped with a key-wrapping-key
-    // that we CAN derive — we use the existing wrapped DEK as proof that the user
-    // had access, and we replace it with the new wrapped DEK.
-    //
-    // Practical approach: Since the owner/admin has all raw DEKs in memory,
-    // and each user's keyring contains their salt, we need the users to
-    // re-authenticate to get the new wrapped keys. This is the standard approach.
-    //
-    // For NOYDB Phase 2: we'll update the keyring file to include a "pending_rekey"
-    // flag. Users will get new DEKs on next login when the owner provides them.
-    //
-    // SIMPLER approach used here: Since the owner performed the rotation,
-    // the owner has both old and new DEKs. We store a "rekey token" that the
-    // user can use to unwrap: we wrap the new DEK with the OLD DEK (which the
-    // user can still unwrap from their keyring, since their keyring has the old
-    // wrapped DEK and their KEK can unwrap it).
-
-    // Actually even simpler: we just need the user's KEK. We don't have it.
-    // The spec says the owner wraps new DEKs for each remaining user.
-    // This requires knowing each user's KEK (or having a shared secret).
-    //
-    // The CORRECT implementation from the spec: the owner/admin has all DEKs.
-    // Each user's keyring stores DEKs wrapped with THAT USER's KEK.
-    // To re-wrap, we need each user's KEK — which we can't get.
-    //
-    // Real-world solution: use a KEY ESCROW approach where the owner stores
-    // each user's wrapping key (not their passphrase, but a key derived from
-    // the grant process). During grant, the owner stores a copy of the new user's
-    // KEK (wrapped with the owner's KEK) so they can re-wrap later.
-    //
-    // For now: mark the user's keyring as needing rekey. The user will need to
-    // re-authenticate (owner provides new passphrase or re-grants).
-
-    // Update: simplest correct approach — during grant, we store the user's KEK
-    // wrapped with the owner's KEK in a separate escrow field. Then during rotation,
-    // the owner unwraps the user's KEK from escrow and wraps the new DEKs.
-    //
-    // BUT: that means we need to change the KeyringFile format.
-    // For Phase 2 MVP: just delete the user's old DEK entries and require re-grant.
-    // This is secure (revoked keys are gone) but inconvenient (remaining users
-    // need re-grant for rotated collections).
-
-    // PHASE 2 APPROACH: Remove the affected collection DEKs from remaining users'
-    // keyrings. The owner must re-grant access to those collections.
-    // This is correct and secure — just requires the owner to re-run grant().
+    // A user's DEKs are wrapped with that user's KEK, and a KEK derives only
+    // from the user's passphrase — the caller can never derive another user's
+    // KEK, so re-wrapping the new DEKs for them is impossible. Rotation
+    // therefore REMOVES the rotated collections' DEK entries (and permissions)
+    // from each remaining user's keyring: secure (revoked keys are gone) but
+    // the owner must re-run grant() for those users/collections.
 
     const updatedDeks = { ...userKeyringFile.deks }
     for (const collName of collections) {

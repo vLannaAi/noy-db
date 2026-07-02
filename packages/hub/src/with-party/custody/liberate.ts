@@ -1,6 +1,6 @@
 /**
- * FR-6 Task 5 — `liberateVault`: the audited claim of ownership over a
- * sealed-owner (Deed) vault. The inverse of #199 withdrawal.
+ * `liberateVault` — the audited claim of ownership over a
+ * sealed-owner (Deed) vault. The inverse of withdrawal.
  *
  * A **Deed** vault's owner credential is sealed under a non-firm provider, so
  * the firm-side **custodian** (which holds every collection DEK and operates
@@ -33,7 +33,7 @@
  *
  * `freezeAndDeleteClosure` (withdraw-accessible.ts) writes a hash-pinned
  * snapshot and THEN delete-closures the live records — correct for a
- * destructive #199 withdrawal, WRONG for liberation. Liberation transfers
+ * destructive withdrawal, WRONG for liberation. Liberation transfers
  * operational continuity; it must leave the live data intact for the new
  * owner. We therefore call the snapshot-only core `freezeSnapshotOnly`
  * (factored out of that module; the freeze-AND-delete withdrawal path is

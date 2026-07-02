@@ -164,7 +164,7 @@ export async function clearHistory(
 }
 
 /**
- * Crypto-shred every `_history` version of a record (#304). Each non-tombstone
+ * Crypto-shred every `_history` version of a record. Each non-tombstone
  * history envelope is OVERWRITTEN in place with a tombstone
  * `{ _noydb, _v, _ts: now, _by: actor, _iv: '', _data: '' }` — dropping
  * `_iv`/`_data`/`_cek`/`_det`, so the prior ciphertext (and the wrapped CEK

@@ -91,7 +91,7 @@ export interface LedgerEntry {
    * tamper-evident chain).
    *
    * `'forget'` is the single summary entry written by `vault.forget()`
-   * (#304 GDPR crypto-shred). `collection`/`id` are empty and `version`
+   * (GDPR crypto-shred). `collection`/`id` are empty and `version`
    * is 0 — a forget is not scoped to one record. `payloadHash` carries
    * `sha256Hex(subjectId)` so the ledger PROVES "subject X existed and
    * was erased on date D" without retaining the subject id or any
@@ -123,10 +123,10 @@ export interface LedgerEntry {
 
   /**
    * Hex-encoded sha256 over the encrypted envelope's `_data` field, plus its
-   * sealed-field ciphertext map (`_sealed`) when the record carries one (#306
-   * Slice C) — so the ledger attests to both the open body and every sealed
-   * value. A record with no `_sealed` hashes `_data` alone, byte-identically to
-   * before. For `put`, this is the hash of the new ciphertext. For `delete`,
+   * sealed-field ciphertext map (`_sealed`) when the record carries one —
+   * so the ledger attests to both the open body and every sealed
+   * value. A record with no `_sealed` hashes `_data` alone.
+   * For `put`, this is the hash of the new ciphertext. For `delete`,
    * it's the hash of the last visible ciphertext at deletion time, or the empty
    * string if nothing was there to delete. Hashing the ciphertext (not the
    * plaintext) preserves zero-knowledge — see the file docstring. The exact

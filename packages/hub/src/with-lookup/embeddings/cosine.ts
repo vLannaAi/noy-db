@@ -1,4 +1,4 @@
-/** Cosine similarity in [-1,1]; 0 on zero-norm or length mismatch (no NaN). (#308 L2) */
+/** Cosine similarity in [-1,1]; 0 on zero-norm or length mismatch (no NaN). (L2) */
 export function cosine(a: Float32Array | number[], b: Float32Array | number[]): number {
   if (a.length !== b.length) return 0
   let dot = 0, na = 0, nb = 0

@@ -46,7 +46,7 @@ export function withMaterializedView<TRow extends Record<string, unknown>>(
   }
   // UNION-form invariants.
   if (spec.unionSources) {
-    // A single arm is a deliberate shape (#331): map→group→aggregate over
+    // A single arm is a deliberate shape: map→group→aggregate over
     // ONE collection with a COMPUTED bucket key (e.g. month sliced from a
     // date field) — something the query form's stored-field groupBy cannot
     // express. The executor and dependency analyzer are arm-count-agnostic.
@@ -114,7 +114,7 @@ export function withMaterializedView<TRow extends Record<string, unknown>>(
       )
     }
   }
-  // #285: i18nLocale + i18nFields drive compute-time i18n resolution of group-key
+  // i18nLocale + i18nFields drive compute-time i18n resolution of group-key
   // i18nText fields before bucketing — UNION mode (resolved on the unified rows)
   // AND query mode (resolved in GroupedAggregation.run before groupAndReduce).
   // i18nLocale without i18nFields cannot resolve anything, so reject it early.

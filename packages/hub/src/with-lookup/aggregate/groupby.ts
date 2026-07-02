@@ -401,7 +401,7 @@ export class GroupedAggregation<R> {
   /**
    * Execute the query, group, reduce, and return an array of rows.
    *
-   * `opts` (#285 query-form MV grouping): when a `locale` + `i18nFields` are
+   * `opts` (query-form MV grouping): when a `locale` + `i18nFields` are
    * given, the declared group-key `i18nText` fields are resolved to that locale
    * at the `mv` layer BEFORE bucketing — so an i18n group key is a stable string
    * instead of a raw `{locale}` map. The MV executor passes the MV's

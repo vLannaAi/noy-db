@@ -5,8 +5,8 @@
  * {@link CollectionDescription}.
  *
  * The sync path (`collection.describe()`) passes `zodFields: undefined`.
- * The async path (Task 4 — #483) supplies a populated map and validator-
- * derived type strings.
+ * The async path supplies a populated map and validator-derived type
+ * strings.
  *
  * @module
  */
@@ -58,7 +58,7 @@ export interface CollectionDescription {
   readonly meta: CollectionMeta
 }
 
-/** Options for the async describe(opts) overload (#483 Task 4). */
+/** Options for the async describe(opts) overload. */
 export interface DescribeOptions {
   /**
    * When true, resolve dynamic-dict labels from vault.dictionary(name).list()

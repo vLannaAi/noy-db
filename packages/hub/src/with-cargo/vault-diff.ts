@@ -120,7 +120,6 @@ export interface DiffOptions {
    * (`version`, `timestamp`, `by?`, `source?`, `sourceTs?`).
    *
    * Off by default — no extra adapter reads, no behavior change for existing callers.
-   * (FR-5 read surface, #445)
    */
   readonly includeMetadata?: boolean
 }

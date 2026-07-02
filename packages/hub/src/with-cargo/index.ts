@@ -5,8 +5,7 @@
  * `cargo` is the layer of services + interfaces required to **manage pods** —
  * the multi-vault management plane klum-db binds: custody, deed, diff,
  * distributed query, addressing, and change-observation. It consolidates the
- * whole current `/kernel` runtime floor plus the orchestration delta klum
- * previously pulled from the bare `@noy-db/hub` root barrel.
+ * whole current `/kernel` runtime floor plus the orchestration delta.
  *
  * See docs/superpowers/specs/2026-07-01-noydb-architecture-lexicon.md.
  *

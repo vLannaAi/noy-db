@@ -1,5 +1,5 @@
 /**
- * Exact money arithmetic helpers (#337) — `mulRate` and `allocate`.
+ * Exact money arithmetic helpers — `mulRate` and `allocate`.
  *
  * Both operate on the canonical decoded string form that `get()`
  * returns (`'10000.00'`), entirely in scaled-`BigInt` space — no

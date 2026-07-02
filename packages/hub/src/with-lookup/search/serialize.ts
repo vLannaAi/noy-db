@@ -1,4 +1,4 @@
-/** (De)serialize an InvertedIndex to/from a JSON string for persistence (#308 L1.5). */
+/** (De)serialize an InvertedIndex to/from a JSON string for persistence (L1.5). */
 import { InvertedIndex } from './inverted-index.js'
 
 export function serializeIndex(idx: InvertedIndex): string {

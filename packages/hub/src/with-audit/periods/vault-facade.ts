@@ -1,15 +1,11 @@
 /**
- * Vault-side accounting-periods facade, lifted off the `Vault` god-object
- * (Phase 5 A3 of the microkernel refactoring).
+ * Vault-side accounting-periods facade.
  *
  * Holds the period close/open/list/get entry points, the write-time guard
  * (`assertTsWritable`, called by the service gate bus before put/delete via
- * the thin `vault._assertTsWritable` delegator), and the period-record cache —
- * `periodCache`, which used to live on the `Vault` instance now lives here.
- * The encryption/decryption of a `_periods` envelope and the chain-anchor
- * bookkeeping are unchanged; behaviour is byte-identical to the inline `Vault`
- * methods it replaced — every dependency the moving code touched on `this.*`
- * arrives via {@link VaultPeriodsDeps}.
+ * the thin `vault._assertTsWritable` delegator), and the period-record cache
+ * (`periodCache`). Every `Vault` dependency arrives via
+ * {@link VaultPeriodsDeps}.
  *
  * Internal service — reached through `vault.closePeriod(...)` etc.
  */
