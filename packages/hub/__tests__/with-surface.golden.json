@@ -19,6 +19,7 @@
     "GatePutEvent",
     "LifecycleEventMap",
     "LifecyclePoint",
+    "SubsystemBus",
     "Unsubscribe",
     "WriteEvent",
     "WriteHook"
