@@ -17,10 +17,10 @@ import {
   type CoordinationProvider,
   type FenceState,
   type WriterPresence,
-} from '../src/kernel/by/index.js'
+} from '../src/port/by/index.js'
 import { StoreCoordinationProvider } from '../src/with-shape/schema-update/store-coordination-provider.js'
 import type { NoydbStore } from '../src/kernel/types.js'
-import type { Unsubscribe } from '../src/kernel/with/write-hooks.js'
+import type { Unsubscribe } from '../src/port/with/write-hooks.js'
 
 interface InvOld extends Record<string, unknown> { id: string; total: number }
 interface InvNew extends Record<string, unknown> { id: string; amount: { gross: number } }

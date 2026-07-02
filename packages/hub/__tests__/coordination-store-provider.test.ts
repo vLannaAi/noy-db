@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { ConflictError } from '../src/kernel/errors.js'
-import { isQuorum } from '../src/kernel/by/index.js'
-import type { FenceState, WriterPresence } from '../src/kernel/by/index.js'
+import { isQuorum } from '../src/port/by/index.js'
+import type { FenceState, WriterPresence } from '../src/port/by/index.js'
 import { StoreCoordinationProvider } from '../src/with-shape/schema-update/store-coordination-provider.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 

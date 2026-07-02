@@ -912,21 +912,26 @@ function checkNoDebugPlaintextInSource() {
   }
 }
 
-// ─── Check 9: door-layering (S5 family doors) ───────────────────────────
+// ─── Check 9: port-layering (S5 family ports) ────────────────────────────
 //
-// Imports point inward only: family → door → service layer → kernel spine.
-// The kernel spine (the always-on orchestration files: noydb.ts, vault.ts,
-// collection.ts, types.ts, errors.ts, schema.ts, refs.ts, validation.ts,
-// collection-config.ts, write-queue.ts, constants.ts, events.ts, debug.ts,
-// env-check.ts, plus query/ enclave/ cache/ util/ meta/ policy/) may import
-// its own `kernel/with/` hook seam freely, but must not statically reach
-// into a `with-*` service package or another kernel door (`to on at in by
-// ui`) — see docs/superpowers/specs/2026-07-02-family-doors-kernel-diet-design.md.
+// Imports point inward only: family → port → service layer → kernel spine
+// → enclave. The kernel spine (the always-on orchestration files: noydb.ts,
+// vault.ts, collection.ts, types.ts, errors.ts, schema.ts, refs.ts,
+// validation.ts, collection-config.ts, write-queue.ts, constants.ts,
+// events.ts, debug.ts, env-check.ts, plus query/ enclave/ cache/ util/
+// meta/ policy/ — all of `src/kernel/**`) may import its own `port/with/`
+// hook seam freely, but must not statically reach into a `with-*` service
+// package or another family port (`to on at in by ui as`, discovered at
+// `src/port/*`) — see
+// docs/superpowers/specs/2026-07-02-family-doors-kernel-diet-design.md.
 // A dynamic `import()` is the sanctioned escape hatch (the S4 gate recipe);
 // this check only scans static `import`/`export … from` statements.
 //
-// `on` / `at` / `in` don't exist yet (N2b territory) — the check tolerates
-// their absence; it's a plain path-string test, not a directory walk.
+// `as` is the layer port (a sibling of `with-cargo`/`with-pod`, not a
+// `kernel/<name>` barrel) — it may import `with-*` services directly. This
+// check never restricted port→with-* imports in the first place (only
+// port→port and spine→port/with-*), so `as` needs no special-casing beyond
+// being folded into the same port list as the others.
 //
 // PRE_EXISTING_SPINE_SERVICE_IMPORTS grandfathers the with-* call-sites that
 // predate this check: the S4 NO_X-strategy-default / thin-facade-delegator
@@ -937,14 +942,14 @@ function checkNoDebugPlaintextInSource() {
 // coupling, not a retroactive fix.
 //
 // Grandfathered PER IMPORT SPECIFIER, not per file: each entry maps a spine
-// file to the exact list of with-*/door import specifiers it already had
+// file to the exact list of with-*/port import specifiers it already had
 // when this check landed. A grandfathered file adding a NEW spine→service
 // import that isn't in its list still fails — only the frozen baseline is
-// exempt. A file not in this map must stay clean (no with-*/door imports at
+// exempt. A file not in this map must stay clean (no with-*/port imports at
 // all). Regenerate an entry's list only when deliberately retiring one of
 // its existing grandfathered imports (never to silently add a new one).
 
-const KERNEL_DOORS = ['to', 'on', 'at', 'in', 'by', 'ui'] // `with` is the exception door — never restricted.
+const FAMILY_PORTS = ['to', 'on', 'at', 'in', 'by', 'ui', 'as'] // `with` is the exception port — never restricted.
 
 const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
   ['packages/hub/src/kernel/collection-config.ts', [
@@ -1044,7 +1049,7 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-lookup/search/retrieve-types.js',
     '../with-pod/ulid.js',
     '../with-shape/introspection/meta.js',
-    './by/index.js',
+    '../port/by/index.js',
   ]],
   ['packages/hub/src/kernel/noydb.ts', [
     '../with-audit/forget/strategy.js',
@@ -1075,9 +1080,9 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-party/team/sync.js',
     '../with-pod/ulid.js',
     '../with-shape/introspection/meta.js',
-    './by/default-provider.js',
-    './to/memory-store.js',
-    './to/sync-policy.js',
+    '../port/by/default-provider.js',
+    '../port/to/memory-store.js',
+    '../port/to/sync-policy.js',
   ]],
   ['packages/hub/src/kernel/types.ts', [
     '../with-audit/attestation/strategy.js',
@@ -1117,8 +1122,8 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/i18n/script.js',
     '../with-shape/i18n/strategy.js',
     '../with-shape/money/descriptor.js',
-    './by/types.js',
-    './to/sync-policy.js',
+    '../port/by/types.js',
+    '../port/to/sync-policy.js',
   ]],
   ['packages/hub/src/kernel/vault-backup.ts', [
     '../with-commit/history/ledger/constants.js',
@@ -1253,32 +1258,28 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
 const STATIC_IMPORT_FROM_RE =
   /(?:import|export)\s+(?:type\s+)?(?:\*\s+as\s+\S+|\{[^}]*\}|\*)\s*from\s*['"]([^'"]+)['"]/g
 
-function listDirectTsFiles(dir) {
-  if (!existsSync(dir)) return []
-  return readdirSync(dir, { withFileTypes: true })
-    .filter((e) => e.isFile() && e.name.endsWith('.ts') && !e.name.endsWith('.d.ts'))
-    .map((e) => join(dir, e.name))
-}
-
 /** Path of a resolved import, relative to `hub/src`, POSIX-separated. */
 function importTargetRelToHubSrc(fromFile, spec, hubSrc) {
   return relative(hubSrc, resolve(dirname(fromFile), spec)).split('\\').join('/')
 }
 
-function checkDoorLayering() {
+function checkPortLayering() {
   const hubSrc = join(PACKAGES_DIR, 'hub', 'src')
   const kernelDir = join(hubSrc, 'kernel')
+  const portDir = join(hubSrc, 'port')
 
   // Rule 1: the spine must not statically import a with-* service package
-  // or a kernel door.
-  const spineFiles = [
-    ...listDirectTsFiles(kernelDir),
-    ...['query', 'enclave', 'cache', 'util', 'meta', 'policy'].flatMap((d) => {
-      const files = []
-      walkTsFiles(join(kernelDir, d), (file) => files.push(file))
-      return files
-    }),
-  ]
+  // or a family port — except its own `port/with/` hook seam. No more
+  // subdir exclusions are needed inside `kernel/`: every port moved out
+  // to `src/port/`, so a full recursive walk of `kernel/` is the spine —
+  // except `kernel/adapter/`, the deprecated `/adapter` alias, which is
+  // pending relocation to `src/legacy/` and was never spine-scanned.
+  const adapterDir = join(kernelDir, 'adapter')
+  const spineFiles = []
+  walkTsFiles(kernelDir, (file) => {
+    if (!relative(adapterDir, file).startsWith('..')) return // inside kernel/adapter/ — not spine
+    spineFiles.push(file)
+  })
   for (const file of spineFiles) {
     const rel = relative(ROOT, file)
     const allowedImports = PRE_EXISTING_SPINE_SERVICE_IMPORTS.get(rel)
@@ -1290,35 +1291,43 @@ function checkDoorLayering() {
       const target = importTargetRelToHubSrc(file, spec, hubSrc)
       if (/^with-[^/]+(\/|$)/.test(target)) {
         fail(
-          'door-layering',
+          'port-layering',
           `${rel} statically imports service-layer path "${spec}" — the kernel spine may only reach a with-* service via a dynamic import() (the S4 gate recipe).`,
           file,
         )
-      } else if (KERNEL_DOORS.some((d) => target.startsWith(`kernel/${d}/`))) {
+      } else if (target.startsWith('port/with/')) {
+        // sanctioned exception — the spine may reach its own hook seam freely
+      } else if (target.startsWith('port/')) {
         fail(
-          'door-layering',
-          `${rel} statically imports kernel door "${spec}" — the kernel spine may not import a door folder (kernel/with/ is the only exception).`,
+          'port-layering',
+          `${rel} statically imports family port "${spec}" — the kernel spine may not import a port folder (port/with/ is the only exception).`,
           file,
         )
       }
     }
   }
 
-  // Rule 2: a kernel door may not import another kernel door. `with` is
-  // exempt both ways (spine→with and door→with are always allowed).
-  for (const doorName of KERNEL_DOORS) {
-    walkTsFiles(join(kernelDir, doorName), (file, content) => {
+  // Rule 2: a family port may not import another family port. `with` is
+  // exempt both ways (spine→with and port→with are always allowed). `as`
+  // is folded into the same list as the rest — this rule only checks
+  // port-vs-port imports, so it never touches `as`'s with-cargo/with-pod
+  // imports (the layer-port exception the old check documented as
+  // "unexamined because it lived outside kernel/" — same outcome here,
+  // just because this rule doesn't restrict port→with-* at all).
+  for (const portName of FAMILY_PORTS) {
+    walkTsFiles(join(portDir, portName), (file, content) => {
       const rel = relative(ROOT, file)
       const code = stripComments(content)
       for (const m of code.matchAll(STATIC_IMPORT_FROM_RE)) {
         const spec = m[1]
         if (!spec.startsWith('.')) continue
         const target = importTargetRelToHubSrc(file, spec, hubSrc)
-        const targetDoor = KERNEL_DOORS.find((d) => d !== doorName && target.startsWith(`kernel/${d}/`))
-        if (targetDoor) {
+        if (target.startsWith('port/with/')) continue // the hook seam — always an allowed target
+        const targetPort = FAMILY_PORTS.find((d) => d !== portName && target.startsWith(`port/${d}/`))
+        if (targetPort) {
           fail(
-            'door-layering',
-            `${rel} (kernel/${doorName}/) statically imports kernel/${targetDoor}/ — kernel doors may not import each other.`,
+            'port-layering',
+            `${rel} (port/${portName}/) statically imports port/${targetPort}/ — family ports may not import each other.`,
             file,
           )
         }
@@ -1338,7 +1347,7 @@ function checkDoorLayering() {
 // Only hub/src is scanned — tests aren't architecture-bound, though they
 // were migrated to the barrel too for consistency. Only static
 // `import`/`export … from` clauses are checked; a dynamic `import()` is
-// not statically analyzable here (same carve-out as door-layering above).
+// not statically analyzable here (same carve-out as port-layering above).
 
 function checkEnclaveBarrelOnly() {
   const hubSrc = join(PACKAGES_DIR, 'hub', 'src')
@@ -1377,7 +1386,7 @@ checkEveryServiceGated()
 checkKernelSurface()
 checkNoDebugPlaintextInSource()
 checkNoOutboundKlumImport()
-checkDoorLayering()
+checkPortLayering()
 checkEnclaveBarrelOnly()
 
 const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)

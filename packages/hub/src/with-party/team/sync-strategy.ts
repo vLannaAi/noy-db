@@ -31,7 +31,7 @@ import type {
   SyncTargetRole,
 } from '../../kernel/types.js'
 import type { NoydbEventEmitter } from '../../kernel/events.js'
-import type { SyncPolicy } from '../../kernel/to/sync-policy.js'
+import type { SyncPolicy } from '../../port/to/sync-policy.js'
 import type { SyncEngine } from './sync.js'
 import type { SyncTransaction } from './sync-transaction.js'
 import type { PresenceHandle, PresenceHandleOpts } from './presence.js'

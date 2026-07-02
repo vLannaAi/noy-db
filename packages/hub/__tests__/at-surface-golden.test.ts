@@ -19,8 +19,8 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import * as at from '../src/kernel/at/index.js'
-import type { SealingKeyProvider } from '../src/kernel/at/index.js'
+import * as at from '../src/port/at/index.js'
+import type { SealingKeyProvider } from '../src/port/at/index.js'
 
 interface Surface {
   readonly values: readonly string[]
@@ -53,7 +53,7 @@ function parseExports(src: string): { values: string[]; types: string[] } {
 }
 
 const baseline: Surface = JSON.parse(read('./at-surface.golden.json')) as Surface
-const parsed = parseExports(read('../src/kernel/at/index.ts'))
+const parsed = parseExports(read('../src/port/at/index.ts'))
 
 describe('@noy-db/hub/at — golden export surface', () => {
   it('value exports match the frozen baseline (runtime enumeration)', () => {

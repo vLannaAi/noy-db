@@ -25,7 +25,7 @@
 
 import type { StandardSchemaV1 } from './schema.js'
 import type { DeferredNumberingConfig } from '../with-commit/numbering/descriptor.js'
-import type { SyncPolicy } from './to/sync-policy.js'
+import type { SyncPolicy } from '../port/to/sync-policy.js'
 import type { BlobStrategy } from '../with-shape/blobs/strategy.js'
 import type { ArchiveStrategy } from '../with-fork/archive/index.js'
 import type { IndexStrategy } from '../with-lookup/indexing/strategy.js'
@@ -60,7 +60,7 @@ import type { OverlayedViewStrategyHandle } from '../with-formula/overlay-views/
 import type { SealingKeyProvider } from '../with-party/team/managed-passphrase.js'
 import type { ShamirRecoveryProvider } from '../with-party/team/shamir-recovery-provider.js'
 import type { ObjectProjection } from '../with-shape/blobs/object-projection.js'
-import type { CoordinationProvider } from './by/types.js'
+import type { CoordinationProvider } from '../port/by/types.js'
 import type { ScriptWarning } from '../with-shape/i18n/script.js'
 import type { MoneyDescriptor } from '../with-shape/money/descriptor.js'
 

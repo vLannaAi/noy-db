@@ -38,7 +38,7 @@ export type { CargoStrategy } from './strategy.js'
 export { CargoNotEnabledError } from '../kernel/errors.js'
 
 // Change observation.
-export type { WriteHook } from '../kernel/with/write-hooks.js'
+export type { WriteHook } from '../port/with/write-hooks.js'
 export type { WriteQueue } from '../kernel/write-queue.js'
 export type { WriteConflict } from '../kernel/types.js'
 export type { AccessibleVault } from '../kernel/types.js'

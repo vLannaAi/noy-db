@@ -13,9 +13,9 @@
  * Named re-exports only (no `export *`) so the published surface is explicit and
  * tsup's per-entry bundling keeps class identity stable across subpaths.
  */
-export type { Noydb } from '../noydb.js'
-export type { Vault } from '../vault.js'
-export type { Collection } from '../collection.js'
-export type { Query } from '../query/builder.js'
-export type { LiveQuery } from '../query/live.js'
-export type { ChangeEvent } from '../types.js'
+export type { Noydb } from '../../kernel/noydb.js'
+export type { Vault } from '../../kernel/vault.js'
+export type { Collection } from '../../kernel/collection.js'
+export type { Query } from '../../kernel/query/builder.js'
+export type { LiveQuery } from '../../kernel/query/live.js'
+export type { ChangeEvent } from '../../kernel/types.js'

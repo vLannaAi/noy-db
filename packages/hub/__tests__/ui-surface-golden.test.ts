@@ -21,10 +21,10 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import * as ui from '../src/kernel/ui/index.js'
+import * as ui from '../src/port/ui/index.js'
 import type {
   CollectionDescription, CollectionMeta, DescribedField, DescribeOptions, FieldMeta, SemanticType,
-} from '../src/kernel/ui/index.js'
+} from '../src/port/ui/index.js'
 
 interface Surface {
   readonly values: readonly string[]
@@ -57,7 +57,7 @@ function parseExports(src: string): { values: string[]; types: string[] } {
 }
 
 const baseline: Surface = JSON.parse(read('./ui-surface.golden.json')) as Surface
-const parsed = parseExports(read('../src/kernel/ui/index.ts'))
+const parsed = parseExports(read('../src/port/ui/index.ts'))
 
 describe('@noy-db/hub/ui — golden export surface', () => {
   it('value exports match the frozen baseline (runtime enumeration)', () => {
