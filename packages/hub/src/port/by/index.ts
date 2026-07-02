@@ -1,6 +1,6 @@
 /**
  * @noy-db/hub/by — the coordination port for `by-*` transports (the `by-*`
- * family door).
+ * family port).
  *
  * A session-share transport (`by-tabs`, `by-peer`) binds ONLY to this
  * subpath: the drain-barrier coordination contract for the schema-fence

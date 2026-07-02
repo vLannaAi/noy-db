@@ -1,5 +1,5 @@
 /**
- * @noy-db/hub/at — the at-* sealing family door.
+ * @noy-db/hub/at — the at-* sealing family port.
  *
  * A sealing-key provider (`at-env`, `at-aws-kms`, `at-gcp-kms`, …) binds
  * ONLY to this subpath: the `SealingKeyProvider` contract concrete

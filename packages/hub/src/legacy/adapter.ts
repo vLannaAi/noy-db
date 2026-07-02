@@ -1,6 +1,6 @@
 /**
  * @deprecated `@noy-db/hub/adapter` is the legacy name of the `to-*` family
- * door. Import from `@noy-db/hub/to` instead. Kept for published pins;
+ * port. Import from `@noy-db/hub/to` instead. Kept for published pins;
  * removal only with a coordinated version bump.
  *
  * Named re-exports of exactly its historical 12 symbols (not `export *`):

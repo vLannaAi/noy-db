@@ -1,5 +1,5 @@
 /**
- * @noy-db/hub/as — the as-* exporter family door.
+ * @noy-db/hub/as — the as-* exporter family port.
  *
  * An export-format package (`as-csv`, `as-xlsx`, `as-json`, `as-noydb`
  * bundle, `as-sql`, …) binds ONLY to this subpath: the shared import/merge
@@ -9,12 +9,12 @@
  * `with-pod/index.ts`) and the `Vault` handle type those primitives close
  * over.
  *
- * LAYER DOOR (not a kernel door): this file lives at `src/as/`, a sibling
- * of `with-cargo/` and `with-pod/`, not under `src/kernel/`. It may import
+ * LAYER PORT (not a kernel spine port): this file lives at `src/port/as/`, a
+ * sibling of the other family ports, not the kernel spine. It may import
  * `with-*` services directly — same tier as `with-cargo`/`with-pod`
- * themselves — because `scripts/check-architecture.mjs`'s door-layering
- * check only restricts `src/kernel/**` (spine + kernel doors); it does not
- * examine top-level `src/*` directories.
+ * themselves — because `scripts/check-architecture.mjs`'s port-layering
+ * check only restricts port→port imports; it never restricted a port's
+ * with-* service imports in the first place.
  *
  * Named re-exports only (no `export *`) so the published surface is explicit and
  * tsup's per-entry bundling keeps class identity stable across subpaths.

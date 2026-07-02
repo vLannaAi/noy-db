@@ -6,7 +6,7 @@
  * alias kept for source compat), the `WriteHookRegistry`
  * (before/after write hooks), and the export/import capability gate
  * (`assertCanExport`/`assertCanImport`/`canExport`/`canImport`). This subpath
- * is the stable, named door onto them.
+ * is the stable, named port onto them.
  *
  * Named re-exports only (no `export *`) so the published surface is explicit and
  * tsup's per-entry bundling keeps class identity stable across subpaths.

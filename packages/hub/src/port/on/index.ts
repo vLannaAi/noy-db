@@ -1,20 +1,20 @@
 /**
- * @noy-db/hub/on — the on-* unlock family door.
+ * @noy-db/hub/on — the on-* unlock family port.
  *
  * An unlock / auth primitive (`on-password`, `on-webauthn`, `on-oidc`,
  * `on-totp`, `on-shamir`, `on-recovery`, …) binds ONLY to this subpath: the
  * paper-recovery mint primitive plus the keyring/role/permission/rewrap/
  * enroll shapes those packages read and write. `on-recovery` already
  * consumes `mintPaperRecoveryEntry`/`PaperRecoveryEntry` from the root
- * barrel (`@noy-db/hub`); this subpath is the stable, named door onto the
+ * barrel (`@noy-db/hub`); this subpath is the stable, named port onto the
  * same values, mirroring `@noy-db/hub/kernel`.
  *
  * NOTE: these primitives are implemented in `with-party/team/*` (the
  * multi-user keyring service), not in the kernel spine proper — same
  * precedent as `@noy-db/hub/ui` re-exporting from `with-shape/introspection`.
- * The door-layering check only restricts kernel *spine* files (and
- * door-to-door imports) from reaching into a `with-*` service statically;
- * a door itself may.
+ * The port-layering check only restricts kernel *spine* files (and
+ * port-to-port imports) from reaching into a `with-*` service statically;
+ * a port itself may.
  *
  * Named re-exports only (no `export *`) so the published surface is explicit and
  * tsup's per-entry bundling keeps class identity stable across subpaths.
