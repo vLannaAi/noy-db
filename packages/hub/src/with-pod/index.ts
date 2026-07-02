@@ -42,3 +42,11 @@ export type {
 } from './format.js'
 
 export { generateULID, isULID } from './ulid.js'
+
+export { wrapPodStore, createPodStore, wrapBundleStore, createBundleStore } from './pod-store.js'
+export type {
+  WrappedPodNoydbStore,
+  WrapPodStoreOptions,
+  WrappedBundleNoydbStore,
+  WrapBundleStoreOptions,
+} from './pod-store.js'

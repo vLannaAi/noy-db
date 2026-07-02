@@ -24,10 +24,6 @@
       "types": "./dist/i18n/index.d.ts",
       "default": "./dist/i18n/index.js"
     },
-    "./store": {
-      "types": "./dist/store/index.d.ts",
-      "default": "./dist/store/index.js"
-    },
     "./team": {
       "types": "./dist/team/index.d.ts",
       "default": "./dist/team/index.js"

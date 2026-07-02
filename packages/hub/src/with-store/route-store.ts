@@ -20,7 +20,7 @@ import type {
   NoydbStore,
   EncryptedEnvelope,
   VaultSnapshot,
-} from '../types.js'
+} from '../kernel/types.js'
 
 // ─── Internal collection prefixes (duplicated to avoid circular import) ──
 

@@ -23,6 +23,8 @@ import * as pod from '../src/with-pod/index.js'
 import type {
   CompressionAlgo, NoydbBundleHeader, NoydbBundleReadResult,
   ReadNoydbBundleOptions, WriteNoydbBundleOptions,
+  WrapBundleStoreOptions, WrapPodStoreOptions,
+  WrappedBundleNoydbStore, WrappedPodNoydbStore,
 } from '../src/with-pod/index.js'
 
 interface Surface {
@@ -86,4 +88,6 @@ describe('@noy-db/hub/pod — golden export surface', () => {
 type _FrozenTypes = [
   CompressionAlgo, NoydbBundleHeader, NoydbBundleReadResult,
   ReadNoydbBundleOptions, WriteNoydbBundleOptions,
+  WrapBundleStoreOptions, WrapPodStoreOptions,
+  WrappedBundleNoydbStore, WrappedPodNoydbStore,
 ]

@@ -10,6 +10,8 @@
     "NOYDB_BUNDLE_FORMAT_VERSION",
     "NOYDB_BUNDLE_MAGIC",
     "NOYDB_BUNDLE_PREFIX_BYTES",
+    "createBundleStore",
+    "createPodStore",
     "encodeBundleHeader",
     "generateULID",
     "isULID",
@@ -17,6 +19,8 @@
     "readNoydbBundleHeader",
     "resetBrotliSupportCache",
     "validateBundleHeader",
+    "wrapBundleStore",
+    "wrapPodStore",
     "writeNoydbBundle"
   ],
   "types": [
@@ -24,6 +28,10 @@
     "NoydbBundleHeader",
     "NoydbBundleReadResult",
     "ReadNoydbBundleOptions",
+    "WrapBundleStoreOptions",
+    "WrapPodStoreOptions",
+    "WrappedBundleNoydbStore",
+    "WrappedPodNoydbStore",
     "WriteNoydbBundleOptions"
   ]
 }
