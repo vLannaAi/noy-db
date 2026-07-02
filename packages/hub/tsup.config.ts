@@ -50,6 +50,7 @@ const ENTRIES = {
   'kernel/index': 'src/kernel/index.ts',
   'cargo/index': 'src/with-cargo/index.ts',
   'adapter/index': 'src/kernel/adapter/index.ts',
+  'to/index': 'src/kernel/to/index.ts',
   describe: 'src/describe.ts',
 }
 

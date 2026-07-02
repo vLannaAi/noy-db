@@ -140,6 +140,10 @@
       "types": "./dist/adapter/index.d.ts",
       "default": "./dist/adapter/index.js"
     },
+    "./to": {
+      "types": "./dist/to/index.d.ts",
+      "default": "./dist/to/index.js"
+    },
     "./describe": {
       "types": "./dist/describe.d.ts",
       "default": "./dist/describe.js"
