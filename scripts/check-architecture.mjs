@@ -1071,8 +1071,6 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-pod/ulid.js',
     '../with-shape/introspection/meta.js',
     '../port/by/default-provider.js',
-    '../port/to/memory-store.js',
-    '../port/to/sync-policy.js',
   ]],
   ['packages/hub/src/kernel/types.ts', [
     '../with-audit/attestation/strategy.js',
@@ -1113,7 +1111,6 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/i18n/strategy.js',
     '../with-shape/money/descriptor.js',
     '../port/by/types.js',
-    '../port/to/sync-policy.js',
   ]],
   ['packages/hub/src/kernel/vault-backup.ts', [
     '../with-commit/history/ledger/constants.js',
