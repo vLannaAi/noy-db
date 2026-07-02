@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url'
 import * as withDoor from '../src/kernel/with/index.js'
 import type {
   BusHandler, GateDeleteEvent, GateEventMap, GateHandler, GatePoint, GatePutEvent,
-  LifecycleEventMap, LifecyclePoint, Unsubscribe, WriteEvent, WriteHook,
+  LifecycleEventMap, LifecyclePoint, SubsystemBus, Unsubscribe, WriteEvent, WriteHook,
 } from '../src/kernel/with/index.js'
 
 interface Surface {
@@ -33,6 +33,18 @@ interface Surface {
 function read(url: string): string {
   return readFileSync(fileURLToPath(new URL(url, import.meta.url)), 'utf8')
 }
+
+/**
+ * `SubsystemBus` is a DUAL export: `kernel/with/service-bus.ts` declares
+ * both a deprecated value alias (`export const SubsystemBus = ServiceBus`)
+ * and a deprecated type alias (`export type SubsystemBus = ServiceBus`)
+ * under the same name, and the barrel re-exports both through the single
+ * VALUE-style `export { ServiceBus, SubsystemBus } from './service-bus.js'`
+ * clause — there is no separate `export type { SubsystemBus }` clause for
+ * the source-parse below to see. List it here so the type half stays
+ * drift-protected even though it never appears in an `export type {}` block.
+ */
+const DUAL_VALUE_AND_TYPE_EXPORTS = ['SubsystemBus']
 
 /** Strip comments, then collect names from `export [type] { … } from` blocks. */
 function parseExports(src: string): { values: string[]; types: string[] } {
@@ -49,8 +61,10 @@ function parseExports(src: string): { values: string[]; types: string[] } {
     }
     return [...out].sort()
   }
+  const types = collect(/export\s+type\s*\{([^}]*)\}\s*from/g)
+  for (const name of DUAL_VALUE_AND_TYPE_EXPORTS) if (!types.includes(name)) types.push(name)
   return {
-    types: collect(/export\s+type\s*\{([^}]*)\}\s*from/g),
+    types: types.sort(),
     values: collect(/export\s*\{([^}]*)\}\s*from/g),
   }
 }
@@ -78,5 +92,5 @@ describe('@noy-db/hub/with — golden export surface', () => {
 // Compile-time exhaustiveness: every baselined type must still be exported.
 type _FrozenTypes = [
   BusHandler<'afterPut'>, GateDeleteEvent, GateEventMap, GateHandler<'beforePut'>, GatePoint, GatePutEvent,
-  LifecycleEventMap, LifecyclePoint, Unsubscribe, WriteEvent, WriteHook,
+  LifecycleEventMap, LifecyclePoint, SubsystemBus, Unsubscribe, WriteEvent, WriteHook,
 ]
