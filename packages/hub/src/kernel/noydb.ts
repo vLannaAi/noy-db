@@ -235,7 +235,12 @@ export class Noydb {
     }
     this.sessionId = options.sessionId ?? generateULID()
     // createNoydb() always resolves the store-backed default before constructing.
-    this.coordinationProvider = options.coordinationStrategy!
+    if (!options.coordinationStrategy) {
+      throw new ValidationError(
+        'Noydb must be constructed via createNoydb(), which resolves the default coordination provider.',
+      )
+    }
+    this.coordinationProvider = options.coordinationStrategy
     this.txStrategy = options.txStrategy ?? NO_TX
     this.forgetStrategy = options.forgetStrategy ?? NO_FORGET
     this.custodyStrategy = options.custodyStrategy ?? NO_CUSTODY
