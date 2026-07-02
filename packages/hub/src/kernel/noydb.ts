@@ -1933,15 +1933,15 @@ export class Noydb {
     vault: string,
     input: SetPublicEnvelopeInput,
   ): Promise<PublicEnvelope> {
-    const { loadPublicEnvelope, savePublicEnvelope, resolveSchema, validatePublicEnvelopeInput } =
-      await import('../with-party/directory/public-envelope/index.js')
-    const schema = resolveSchema(this.options.publicEnvelope)
-    if (!schema) {
+    if (!this.options.publicEnvelope) {
       throw new ValidationError(
         'setPublicEnvelope: the public-envelope feature is not enabled. ' +
           'Pass `publicEnvelope: true` (or a schema object) to `createNoydb`.',
       )
     }
+    const { loadPublicEnvelope, savePublicEnvelope, resolveSchema, validatePublicEnvelopeInput } =
+      await import('../with-party/directory/public-envelope/index.js')
+    const schema = resolveSchema(this.options.publicEnvelope)!
     validatePublicEnvelopeInput(input, schema)
 
     const now = new Date().toISOString()
