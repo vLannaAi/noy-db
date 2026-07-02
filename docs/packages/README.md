@@ -53,7 +53,7 @@ The online complement to offline-first. A host you operate — Lambda, EC2, a wo
 
 The six families above are **separate npm packages** — `npm install` what you want, omit what you don't. They keep your *dependency graph* small.
 
-The 17 [services](../services/) are **internal opt-ins** within `@noy-db/hub` — gated by `with*()` strategy seams. They keep the *core package's bundle* small.
+The 24 [services](../services/) are **internal opt-ins** within `@noy-db/hub` — gated by `with*()` strategy seams. They keep the *core package's bundle* small.
 
 Both layers compose:
 
@@ -71,6 +71,6 @@ import { tabsChannel } from '@noy-db/by-tabs'     // by-* family (BroadcastChann
 ## Related
 
 - [docs/core/](../core/) — the always-on hub minimum
-- [docs/services/](../services/) — the 17 opt-in services inside the hub
+- [docs/services/](../services/) — the 24 opt-in services inside the hub
 - [SERVICES.md](../../SERVICES.md) — the catalog
 - [CLAUDE.md](../../CLAUDE.md) — agent / contributor guide

@@ -197,7 +197,7 @@ Store **เห็นแต่ ciphertext** การเข้ารหัสเ�
 | ถ้าคุณต้องการ… | อ่าน |
 |---|---|
 | ดูสิ่งที่เปิดอยู่เสมอ (พื้นฐาน) | [`docs/core/`](../core/) |
-| สำรวจ 17 บริการแบบ opt-in | [`docs/services/`](../services/) — ดัชนี + แคตาล็อก [SERVICES.md](../../SERVICES.md) |
+| สำรวจ 24 บริการแบบ opt-in | [`docs/services/`](../services/) — ดัชนี + แคตาล็อก [SERVICES.md](../../SERVICES.md) |
 | คัดลอก recipe เริ่มต้น | [`docs/recipes/`](../recipes/) — personal-notebook · accounting-app · realtime-crdt-app · analytics-app |
 | เลือก storage backend | [`docs/packages/to-stores.md`](../packages/to-stores.md) |
 | เลือก framework integration | [`docs/packages/in-integrations.md`](../packages/in-integrations.md) |
