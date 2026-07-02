@@ -1112,12 +1112,6 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/money/descriptor.js',
     '../port/by/types.js',
   ]],
-  ['packages/hub/src/kernel/vault-backup.ts', [
-    '../with-commit/history/ledger/constants.js',
-    '../with-commit/history/ledger/store.js',
-    '../with-commit/sequence/index.js',
-    '../with-shape/persisted-schemas/storage.js',
-  ]],
   ['packages/hub/src/kernel/vault.ts', [
     '../with-audit/attestation/vault-facade.js',
     '../with-audit/consent/consent.js',
