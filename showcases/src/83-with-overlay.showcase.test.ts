@@ -40,7 +40,7 @@
  * What to read next
  * ─────────────────
  *   - docs/superpowers/specs/2026-05-20-dim14-mv-v2-design.md § Composition with operator-editable lifecycle
- *   - docs/subsystems/derivations.md § Overlay views
+ *   - docs/services/derivations.md § Overlay views
  *
  * Spec mapping
  * ────────────

@@ -2,7 +2,7 @@
  * User-list visibility — barrel export for the
  * `@noy-db/hub/directory` surface.
  *
- * @see docs/subsystems/user-envelope.md → Directory visibility
+ * @see docs/services/user-envelope.md → Directory visibility
  *
  * @module
  */

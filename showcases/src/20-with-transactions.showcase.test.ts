@@ -23,7 +23,7 @@
  * What to read next
  * ─────────────────
  *   - showcase 21-with-bundle (durable export of the transactional state)
- *   - docs/subsystems/transactions.md
+ *   - docs/services/transactions.md
  *
  * Spec mapping
  * ────────────

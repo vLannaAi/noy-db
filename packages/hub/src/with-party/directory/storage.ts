@@ -4,8 +4,8 @@
  * `_meta/policy` — the directory document is plain JSON, the
  * envelope's `_iv` field is left empty.
  *
- * @see docs/subsystems/user-envelope.md → Directory visibility
- * @see docs/subsystems/plaintext-bypass.md — every `_iv: ''` write site
+ * @see docs/services/user-envelope.md → Directory visibility
+ * @see docs/services/plaintext-bypass.md — every `_iv: ''` write site
  *
  * @module
  */

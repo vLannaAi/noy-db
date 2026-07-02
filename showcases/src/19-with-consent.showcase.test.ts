@@ -23,7 +23,7 @@
  * What to read next
  * ─────────────────
  *   - showcase 20-with-transactions (atomic multi-record ops)
- *   - docs/subsystems/consent.md
+ *   - docs/services/consent.md
  *
  * Spec mapping
  * ────────────

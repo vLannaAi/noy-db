@@ -23,7 +23,7 @@
  * What to read next
  * ─────────────────
  *   - showcase 49-topology-team-routing (a full team workflow built on this)
- *   - docs/subsystems/routing.md (full routing surface)
+ *   - docs/services/routing.md (full routing surface)
  *   - packages/hub/src/store/route-store.ts (the implementation, ~250 LOC)
  *
  * Spec mapping

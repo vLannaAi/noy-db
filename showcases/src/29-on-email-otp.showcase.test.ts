@@ -21,7 +21,7 @@
  * What to read next
  * ─────────────────
  *   - showcase 30-on-pin (session-resume PIN)
- *   - docs/subsystems/auth-email-otp.md
+ *   - docs/services/auth-email-otp.md
  *
  * Spec mapping
  * ────────────

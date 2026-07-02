@@ -21,7 +21,7 @@
  * What to read next
  * ─────────────────
  *   - showcase 36-as-noydb (encrypted bundle export)
- *   - docs/subsystems/exports.md
+ *   - docs/services/exports.md
  *
  * Spec mapping
  * ────────────

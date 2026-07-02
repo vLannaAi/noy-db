@@ -9,7 +9,7 @@
  * (`on-webauthn`, `on-oidc`, `on-password`); this module accepts the
  * package's `wrapped_kek` ciphertext + `meta` payload and persists it.
  *
- * @see docs/subsystems/session-tiers.md → Tier 2 — Authenticate
+ * @see docs/services/session-tiers.md → Tier 2 — Authenticate
  *
  * @module
  */

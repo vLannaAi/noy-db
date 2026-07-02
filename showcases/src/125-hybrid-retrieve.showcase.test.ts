@@ -24,7 +24,7 @@
  *
  * What to read next
  * -----------------
- *   - docs/subsystems/embeddings.md (L3 hybrid section, epic map, fuseRetrieval API)
+ *   - docs/services/embeddings.md (L3 hybrid section, epic map, fuseRetrieval API)
  *   - docs/superpowers/specs/2026-06-23-ai-retrieval-l3-hybrid-design.md
  *   - Showcase 122 (L1 lexical retrieve)
  *   - Showcase 123 (L1.5 persisted index)

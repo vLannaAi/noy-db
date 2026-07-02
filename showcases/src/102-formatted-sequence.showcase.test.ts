@@ -26,7 +26,7 @@
  *
  * What to read next
  * ─────────────────
- *   - docs/subsystems/ (atomic-sequence) — the underlying counter
+ *   - docs/services/ (atomic-sequence) — the underlying counter
  *
  * Spec mapping
  * ────────────

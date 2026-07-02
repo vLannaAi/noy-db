@@ -23,7 +23,7 @@
  * What to read next
  * ─────────────────
  *   - showcase 32-as-csv (export starts here)
- *   - docs/subsystems/auth-threat.md
+ *   - docs/services/auth-threat.md
  *
  * Spec mapping
  * ────────────

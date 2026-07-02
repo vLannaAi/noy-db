@@ -25,4 +25,4 @@ Pattern-specific walkthroughs that don't map to a single starter recipe:
 
 - [SERVICES.md](../../SERVICES.md) — full catalog
 - [docs/core/](../core/) — what's always loaded
-- [docs/subsystems/](../subsystems/) — what each opt-in capability does
+- [docs/services/](../services/) — what each opt-in capability does

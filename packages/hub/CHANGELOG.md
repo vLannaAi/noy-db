@@ -321,8 +321,8 @@ Both fail-fast at registration with `MaterializedViewConfigError`, same pattern 
 
 - [`85-with-multikey-groupby`](https://github.com/vLannaAi/noy-db/blob/main/showcases/src/85-with-multikey-groupby.showcase.test.ts) — variadic groupBy walkthrough, declaration-order assertions, niwat per-(client, period) shape
 - [`86-with-union-mv`](https://github.com/vLannaAi/noy-db/blob/main/showcases/src/86-with-union-mv.showcase.test.ts) — UNION MV walkthrough with the monthly-VAT example
-- `docs/subsystems/aggregate.md` — new "Multi-key groupBy" section
-- `docs/subsystems/derivations.md` — "Multi-key groupBy in MV queries" + "UNION sources" sections
+- `docs/services/aggregate.md` — new "Multi-key groupBy" section
+- `docs/services/derivations.md` — "Multi-key groupBy in MV queries" + "UNION sources" sections
 - `features.yaml` — new invariants under `aggregate` and `materialized-views`; new showcase entries cross-linked from both
 
 ## 0.1.0-pre.14
@@ -352,7 +352,7 @@ Query-level materialized views. Where `withDerivation` v1 projects one source ro
   - **Aggregate / groupBy queries** — executor branches on the terminal shape (`Query<T>.toArray()` / `Aggregation.run()` / `GroupedAggregation.run()`). `groupBy().aggregate()` closes over its source so the dep analyzer can't introspect; aggregate MVs require explicit `sources?: string[]`.
 - **Declared deterministic predicates** ([#153](https://github.com/vLannaAi/noy-db/issues/153), PR [#159](https://github.com/vLannaAi/noy-db/pull/159)) — `MaterializedViewStrategy.predicates: { [name]: { hash, fn } }` registers named functions callable from inside the MV's `query()` callback via `.wherePredicate(name, ctx?)`. The predicate's `hash` **and** a canonical-JSON hash of the `ctx` argument both fold into `queryHash` — bumping `hash` or changing `ctx` forces refresh. Canonical use: `isOverdue` against an `asOf` date that moves externally. Niwat-review caught the original "predicates dropped through chain methods" pre-merge: every chain operator (`where`, `or`, `and`, `filter`, `orderBy`, `limit`, `offset`, `join`) now threads the predicates map.
 - **Overlay views — `withOverlayedView`** ([#154](https://github.com/vLannaAi/noy-db/issues/154), PR [#160](https://github.com/vLannaAi/noy-db/pull/160)) — read-shadow primitive. Declares a virtual collection that merges a `base` (typically an MV output) with a user-writable `overlay` via a single-field shadow predicate (`overlay[shadowField] === shadowValue`). Writes through the virtual proxy route to the overlay. Constraints: `base` must be concrete (no overlay-on-overlay stacking — v3 non-goal); `overlay` must not be an MV output; virtual name must not collide with concrete collections or MV outputs. Four error classes (`OverlayBaseIsVirtualError`, `OverlayCollectionUnavailableError`, `OverlayNameCollisionError`, `OverlayIdMismatchError`).
-- **Showcases + reader-facing docs** ([#155](https://github.com/vLannaAi/noy-db/issues/155), PR [#161](https://github.com/vLannaAi/noy-db/pull/161)) — four new showcases (`81-with-mv-eager`, `82-with-mv-lazy`, `83-with-overlay`, `84-with-mv-predicates`) totaling 19 tests; `docs/subsystems/derivations.md` extended with Materialized Views + Overlay views sections; `features.yaml` entries for `materialized-views` and `overlay-views`.
+- **Showcases + reader-facing docs** ([#155](https://github.com/vLannaAi/noy-db/issues/155), PR [#161](https://github.com/vLannaAi/noy-db/pull/161)) — four new showcases (`81-with-mv-eager`, `82-with-mv-lazy`, `83-with-overlay`, `84-with-mv-predicates`) totaling 19 tests; `docs/services/derivations.md` extended with Materialized Views + Overlay views sections; `features.yaml` entries for `materialized-views` and `overlay-views`.
 
 ### Composition story
 
@@ -377,7 +377,7 @@ The `Collection._internalDelete` housekeeping bypass (introduced in #148 for #14
 - `packages/hub/src/overlay-views/{registry,virtual-collection,with-overlayed-view,types}.ts`
 - `packages/hub/src/query/builder.ts` (predicates threading + `serializeClause` for `wherePredicate`)
 - `showcases/src/8{1,2,3,4}-*.showcase.test.ts`
-- `docs/subsystems/derivations.md` (extended)
+- `docs/services/derivations.md` (extended)
 - `docs/superpowers/specs/2026-05-20-dim14-mv-v2-design.md` (the spec)
 
 ## 0.1.0-pre.12
@@ -509,7 +509,7 @@ A 2026-05-09 deep-review of the pre.9 surface (security + API consistency) filed
 
 #### DX / surface coherence (P2)
 
-- **`docs/subsystems/plaintext-bypass.md` invariant catalog** ([#87](https://github.com/vLannaAi/noy-db/issues/87)) — every collection that stores JSON in cleartext (`_keyring/<userId>`, `_meta/policy`, `_meta/recovery-paper`, `_meta/handle`, `_meta/public-envelope`, `_meta/invite-audit-<id>`, `_meta/sync-credentials`, ledger, consent, blob index) listed with rationale, plus a threat-model surface ("what an attacker with store-only access can learn"), plus an explicit checklist for adding or removing a bypass.
+- **`docs/services/plaintext-bypass.md` invariant catalog** ([#87](https://github.com/vLannaAi/noy-db/issues/87)) — every collection that stores JSON in cleartext (`_keyring/<userId>`, `_meta/policy`, `_meta/recovery-paper`, `_meta/handle`, `_meta/public-envelope`, `_meta/invite-audit-<id>`, `_meta/sync-credentials`, ledger, consent, blob index) listed with rationale, plus a threat-model surface ("what an attacker with store-only access can learn"), plus an explicit checklist for adding or removing a bypass.
 
 - **`db.getKeyring()` returns a defensive copy** ([#88](https://github.com/vLannaAi/noy-db/issues/88), [#114](https://github.com/vLannaAi/noy-db/issues/114)) — pre-fix, the returned `UnlockedKeyring`'s `deks` Map (typed `readonly`, but the Map itself isn't) was the live cached reference. A consumer calling `.deks.set()` corrupted the hub's internal state. Now returns a defensive shallow copy with fresh `Map`, fresh `authenticators` array, and per-element clones of `meta`. Hub-internal callers use a new `private getKeyringInternal` that returns the live ref so mutations from `ensureCollectionDEK` still land on the cache. CryptoKey handles inside `deks` stay shared (opaque references; encrypt/decrypt opaque). 14 internal call sites switched.
 
@@ -525,7 +525,7 @@ A 2026-05-09 deep-review of the pre.9 surface (security + API consistency) filed
 
 #### Documentation
 
-- **`docs/subsystems/auth-landscape.md` § Package boundaries** ([#43](https://github.com/vLannaAi/noy-db/issues/43)) — names the layering between `@noy-db/hub` (cryptosystem) and the `@noy-db/on-*` packages (user-facing input format) explicitly. Closes #43 as wontfix-by-design — folding `on-recovery` into a `@noy-db/hub/recovery-codes` subpath would anchor Base32 as the canonical format and break consumer swap-ability for no real bundle saving.
+- **`docs/services/auth-landscape.md` § Package boundaries** ([#43](https://github.com/vLannaAi/noy-db/issues/43)) — names the layering between `@noy-db/hub` (cryptosystem) and the `@noy-db/on-*` packages (user-facing input format) explicitly. Closes #43 as wontfix-by-design — folding `on-recovery` into a `@noy-db/hub/recovery-codes` subpath would anchor Base32 as the canonical format and break consumer swap-ability for no real bundle saving.
 
 #### Issues closed
 
@@ -595,7 +595,7 @@ Closes the 12-issue auth-review filed at the start of this milestone. Driven by 
 
 #### Documentation + housekeeping
 
-- **`docs/subsystems/auth-landscape.md`** — reference map of every authentication, unlock, and sealing-key primitive commonly adopted in 2026, scored on dimensions that matter for a zero-knowledge offline-first vault. 247 lines covering 12 dimensional sections plus coverage assessment, gaps table, decision rules, and Q&A appendix.
+- **`docs/services/auth-landscape.md`** — reference map of every authentication, unlock, and sealing-key primitive commonly adopted in 2026, scored on dimensions that matter for a zero-knowledge offline-first vault. 247 lines covering 12 dimensional sections plus coverage assessment, gaps table, decision rules, and Q&A appendix.
 
 - **on-oidc README + auth-landscape §6 polish** ([#37](https://github.com/vLannaAi/noy-db/issues/37)) — reframes "self-host the key-connector server" from docstring footnote to top-level ⚠️ section. Closes #37 as wontfix: noy-db is offline-first by philosophy and intentionally does not ship server infrastructure for OIDC unlock; consumers without server infrastructure should use `@noy-db/on-webauthn` (platform passkey) instead.
 
@@ -632,7 +632,7 @@ Closes the 12-issue auth-review filed at the start of this milestone. Driven by 
 
   New `db.grant({ initialProfile: T })` admin pre-fill at invite time (bootstrap-only — once the user activates, the own-only rule prevents further admin edits). New `listUsersWithEnvelopes()` joined enumeration for admin UIs. `_users` DEK is eager-provisioned at owner creation; cascade-revoke deletes envelopes alongside keyrings; tier-1 rotation re-encrypts envelopes via the existing rotation path. The `UserProfileProvider` interface (managed-mode IdP integration) is documented but not exported in v1; lands post-1.0 alongside managed-passphrase mode (#14).
 
-  See `docs/subsystems/user-envelope.md`, `docs/recipes/user-preferences.md`, `showcases/src/70-user-envelope.showcase.test.ts`, and `showcases/src/recipe-user-preferences.recipe.test.ts`.
+  See `docs/services/user-envelope.md`, `docs/recipes/user-preferences.md`, `showcases/src/70-user-envelope.showcase.test.ts`, and `showcases/src/recipe-user-preferences.recipe.test.ts`.
 
 - **`db.enrollWebAuthn(vault, ceremony, presented?)`** ([#16](https://github.com/vLannaAi/noy-db/issues/16)) — native WebAuthn enrollment using the **real** internal keyring. Unblocks `vLannaAi/niwat#31`. The ceremony callback receives the live `UnlockedKeyring` so the `wrapped_kek` references the live KEK (not the synthetic-keyring workaround that broke unlock). Hub does not import `@noy-db/on-webauthn` (would invert dep graph); consumers wire the on-webauthn `enrollWebAuthn` function in via the ceremony callback. Companion `db.listWebAuthnSlots(vault)` returns webauthn-method slots only.
 
@@ -642,7 +642,7 @@ Closes the 12-issue auth-review filed at the start of this milestone. Driven by 
 
 ### No breaking changes
 
-All additions are additive. Pre-existing vaults work unchanged — the `_users` collection is reserved on grant; envelopes start empty until first `updateMe()`. Pre-existing vaults predating this feature have a documented one-time DEK-rotate workflow when adopting `vault.user.*` for multi-principal reads (see "Edge cases & limits" in `docs/subsystems/user-envelope.md`).
+All additions are additive. Pre-existing vaults work unchanged — the `_users` collection is reserved on grant; envelopes start empty until first `updateMe()`. Pre-existing vaults predating this feature have a documented one-time DEK-rotate workflow when adopting `vault.user.*` for multi-principal reads (see "Edge cases & limits" in `docs/services/user-envelope.md`).
 
 ## 0.1.0-pre.4
 

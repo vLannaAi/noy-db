@@ -278,7 +278,7 @@ When evaluating a new authenticator request, walk this checklist before reaching
 
 ## See also
 
-- [`docs/subsystems/session-tiers.md`](./session-tiers.md) — how the primitives compose into the three-tier session lifecycle and policy gates.
+- [`docs/services/session-tiers.md`](./session-tiers.md) — how the primitives compose into the three-tier session lifecycle and policy gates.
 - [`CLAUDE.md`](../../CLAUDE.md) → "Authentication / Session Tiers" — repository-level reference.
 - [`SPEC.md`](../../SPEC.md) — primary spec (key hierarchy, encryption invariants).
 - Per-package READMEs: [`on-webauthn`](../../packages/on-webauthn), [`on-oidc`](../../packages/on-oidc), [`on-pin`](../../packages/on-pin), [`on-totp`](../../packages/on-totp), [`on-email-otp`](../../packages/on-email-otp), [`on-recovery`](../../packages/on-recovery), [`on-shamir`](../../packages/on-shamir), [`on-magic-link`](../../packages/on-magic-link), [`on-password`](../../packages/on-password), [`on-threat`](../../packages/on-threat).

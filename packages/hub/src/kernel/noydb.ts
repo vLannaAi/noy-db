@@ -1755,7 +1755,7 @@ export class Noydb {
    * keyring file at `_keyring/<userId>` and the envelope ciphertext at
    * `_users/<keyringId>` remain observable to anyone with direct store
    * read access — only the hub-level enumeration is gated. See
-   * `docs/subsystems/user-envelope.md` → "Directory visibility".
+   * `docs/services/user-envelope.md` → "Directory visibility".
    */
   async setDirectoryEnabled(vault: string, enabled: boolean): Promise<void> {
     if (this.closed) throw new ValidationError('Instance is closed')
@@ -1917,7 +1917,7 @@ export class Noydb {
     return this.team.unlockViaAuthenticator(vault, slotId, verify)
   }
 
-  // ─── Public envelope (docs/subsystems/public-envelope.md) ──────
+  // ─── Public envelope (docs/services/public-envelope.md) ──────
   /**
    * Set the owner-curated public envelope for a vault. Throws
    * `ValidationError` if the developer did not opt the hub into

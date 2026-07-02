@@ -7,7 +7,7 @@
  * a stable {@link PolicyDenyReason} so consumers can branch in error
  * UIs.
  *
- * @see docs/subsystems/session-tiers.md → checkGate() API
+ * @see docs/services/session-tiers.md → checkGate() API
  *
  * @module
  */

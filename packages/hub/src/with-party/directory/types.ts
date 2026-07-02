@@ -14,7 +14,7 @@
  * flags exist to keep admin-UI listings tidy, not to hide principals
  * from a determined attacker.
  *
- * @see docs/subsystems/user-envelope.md → Directory visibility
+ * @see docs/services/user-envelope.md → Directory visibility
  *
  * @module
  */

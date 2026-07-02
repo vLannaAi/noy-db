@@ -2,7 +2,7 @@
  * Public envelope — owner-curated plaintext metadata, readable
  * before vault unlock or bundle decryption.
  *
- * @see docs/subsystems/public-envelope.md
+ * @see docs/services/public-envelope.md
  *
  * @module
  */

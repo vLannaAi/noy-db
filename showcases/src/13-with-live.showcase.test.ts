@@ -22,7 +22,7 @@
  * What to read next
  * ─────────────────
  *   - the @noy-db/in-pinia liveQuery composable
- *   - docs/subsystems/live.md (`(planned: @noy-db/hub/live)`)
+ *   - docs/services/live.md (`(planned: @noy-db/hub/live)`)
  *
  * Spec mapping
  * ────────────

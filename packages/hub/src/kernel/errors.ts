@@ -665,7 +665,7 @@ export class AmendmentForbiddenError extends NoydbError {
  * envelope ciphertext is still in the store, the keyring file is
  * still listed at `_keyring/*`, and anyone with direct store read
  * access can count keyrings without going through the hub. See
- * `docs/subsystems/user-envelope.md` → "Directory visibility".
+ * `docs/services/user-envelope.md` → "Directory visibility".
  */
 export class DirectoryDisabledError extends NoydbError {
   readonly vault: string

@@ -22,7 +22,7 @@
  * What to read next
  * ─────────────────
  *   - showcase 28-on-totp (second-factor enrolment)
- *   - docs/subsystems/auth-shamir.md
+ *   - docs/services/auth-shamir.md
  *
  * Spec mapping
  * ────────────

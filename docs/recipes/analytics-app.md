@@ -139,7 +139,7 @@ For terabyte-scale apps, route hot data to memory-resident stores and cold data 
 ## See also
 
 - [SERVICES.md](../../SERVICES.md) — full catalog
-- [docs/subsystems/indexing.md](../subsystems/indexing.md) (TODO)
-- [docs/subsystems/aggregate.md](../subsystems/aggregate.md) (TODO)
-- [docs/subsystems/joins.md](../subsystems/joins.md) (TODO)
+- [docs/services/indexing.md](../services/indexing.md) (TODO)
+- [docs/services/aggregate.md](../services/aggregate.md) (TODO)
+- [docs/services/joins.md](../services/joins.md) (TODO)
 - [showcases/src/07-query-analytics.showcase.test.ts](../../showcases/src/07-query-analytics.showcase.test.ts)

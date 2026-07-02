@@ -7,7 +7,7 @@
  * creation; the hub merges it onto a built-in preset and persists the
  * merged document at `_meta/policy`.
  *
- * @see docs/subsystems/session-tiers.md → Policy gates DSL
+ * @see docs/services/session-tiers.md → Policy gates DSL
  *
  * @module
  */

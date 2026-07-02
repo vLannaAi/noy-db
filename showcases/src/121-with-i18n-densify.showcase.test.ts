@@ -36,7 +36,7 @@
  *
  * What to read next
  * ─────────────────
- *   - docs/subsystems/i18n.md (§ densifyOnWrite, § script enforcement)
+ *   - docs/services/i18n.md (§ densifyOnWrite, § script enforcement)
  *   - docs/superpowers/specs/2026-06-20-i18n-v1x-tail-design.md
  *
  * Spec mapping

@@ -118,7 +118,7 @@ export interface NoydbPodHeader {
   /** SHA-256 of the compressed body bytes (lowercase hex). Lets readers verify integrity without decompressing. */
   readonly bodySha256: string
   /**
-   * Owner-curated public envelope (`docs/subsystems/public-envelope.md`).
+   * Owner-curated public envelope (`docs/services/public-envelope.md`).
    * Optional — present only when the source vault has a
    * `_meta/public-envelope` document AND the writer's hub is opted
    * into the feature. Treat as **untrusted hint**; the body's

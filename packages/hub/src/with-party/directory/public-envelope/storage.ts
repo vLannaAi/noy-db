@@ -104,7 +104,7 @@ export function resolveLocale(
  *   3. First non-empty value in the map.
  *   4. Empty string (only if every translation is empty — pathological).
  *
- * This deviation is documented in `docs/subsystems/public-envelope.md`.
+ * This deviation is documented in `docs/services/public-envelope.md`.
  */
 export function pickLocale(
   value: string | Record<string, string>,

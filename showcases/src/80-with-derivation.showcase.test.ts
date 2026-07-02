@@ -41,7 +41,7 @@
  * What to read next
  * ─────────────────
  *   - docs/superpowers/specs/2026-05-01-dim14-derivation-v1-design.md
- *   - docs/subsystems/derivations.md
+ *   - docs/services/derivations.md
  *
  * Spec mapping
  * ────────────

@@ -23,7 +23,7 @@
  * What to read next
  * ─────────────────
  *   - showcase 14-with-crdt (CRDT updates flow through sync)
- *   - docs/subsystems/sync.md
+ *   - docs/services/sync.md
  *
  * Spec mapping
  * ────────────

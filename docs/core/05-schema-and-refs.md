@@ -81,7 +81,7 @@ three modes applied per element:
 An empty array or a `null`/`undefined` field is allowed (no links).
 
 Used by:
-- `query.join(field, { as })` — see [docs/subsystems/joins.md](../subsystems/joins.md)
+- `query.join(field, { as })` — see [docs/services/joins.md](../services/joins.md)
 - `vault.checkIntegrity()` — full ref-graph audit
 - `Vault.delete*` enforcement — `enforceRefsOnDelete(collection, id)`
 
@@ -127,6 +127,6 @@ mutations.
 
 ## See also
 
-- [docs/subsystems/joins.md](../subsystems/joins.md)
-- [docs/subsystems/i18n.md](../subsystems/i18n.md) — i18nText / dictKey field descriptors layered on top
+- [docs/services/joins.md](../services/joins.md)
+- [docs/services/i18n.md](../services/i18n.md) — i18nText / dictKey field descriptors layered on top
 - [SPEC.md § Schema](../../SPEC.md)

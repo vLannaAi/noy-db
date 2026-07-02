@@ -166,7 +166,7 @@ if (!verdict.ok) {
 ## See also
 
 - [SERVICES.md](../../SERVICES.md) — full catalog
-- [docs/subsystems/history.md](../subsystems/history.md) (TODO)
-- [docs/subsystems/periods.md](../subsystems/periods.md) (TODO)
-- [docs/subsystems/blobs.md](../subsystems/blobs.md) (TODO)
+- [docs/services/history.md](../services/history.md) (TODO)
+- [docs/services/periods.md](../services/periods.md) (TODO)
+- [docs/services/blobs.md](../services/blobs.md) (TODO)
 - [showcases/src/15-year-end-closure.showcase.test.ts](../../showcases/src/15-year-end-closure.showcase.test.ts) — closer look at the closePeriod write-guard

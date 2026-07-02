@@ -2,7 +2,7 @@
  * User-list visibility (#122) — per-user hidden flag + vault-level
  * directory toggle.
  *
- * @see docs/subsystems/user-envelope.md → Directory visibility
+ * @see docs/services/user-envelope.md → Directory visibility
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../../src/kernel/noydb.js'

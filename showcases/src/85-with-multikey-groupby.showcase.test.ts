@@ -23,7 +23,7 @@
  * What to read next
  * ─────────────────
  *   - Showcase 81 (withMaterializedView eager refresh)
- *   - docs/subsystems/aggregate.md § Multi-key groupBy
+ *   - docs/services/aggregate.md § Multi-key groupBy
  *
  * Spec mapping
  * ────────────

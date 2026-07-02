@@ -41,7 +41,7 @@
  * What to read next
  * ─────────────────
  *   - docs/superpowers/specs/2026-05-20-dim14-mv-v2-design.md § declaredDeterministicPredicates
- *   - docs/subsystems/derivations.md § Materialized Views — declared predicates
+ *   - docs/services/derivations.md § Materialized Views — declared predicates
  *
  * Spec mapping
  * ────────────

@@ -2,7 +2,7 @@
  * Public envelope service — schema validation, storage round-trip,
  * locale resolution, disabled-feature negative path.
  *
- * @see docs/subsystems/public-envelope.md
+ * @see docs/services/public-envelope.md
  */
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'

@@ -43,7 +43,7 @@
  * What to read next
  * ─────────────────
  *   - docs/superpowers/specs/2026-05-20-dim14-mv-v2-design.md
- *   - docs/subsystems/derivations.md § Materialized Views
+ *   - docs/services/derivations.md § Materialized Views
  *   - showcases/src/82-with-mv-lazy.showcase.test.ts (lazy lifecycle)
  *   - showcases/src/83-with-overlay.showcase.test.ts (operator-editable overlays)
  *   - showcases/src/84-with-mv-predicates.showcase.test.ts (declared predicates)

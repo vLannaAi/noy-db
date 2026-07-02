@@ -24,7 +24,7 @@
  *
  * What to read next
  * ─────────────────
- *   - docs/subsystems/bundle.md (full container format)
+ *   - docs/services/bundle.md (full container format)
  *   - the @noy-db/to-file saveBundle/loadBundle helpers
  *
  * Spec mapping

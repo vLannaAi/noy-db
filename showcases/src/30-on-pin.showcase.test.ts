@@ -23,7 +23,7 @@
  * What to read next
  * ─────────────────
  *   - showcase 31-on-threat (lockout + duress)
- *   - docs/subsystems/auth-pin.md
+ *   - docs/services/auth-pin.md
  *
  * Spec mapping
  * ────────────

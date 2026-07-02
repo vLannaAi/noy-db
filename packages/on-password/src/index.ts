@@ -30,7 +30,7 @@
  * `rotatePassphrase`) require a tier-1 unlock anyway — re-enter the
  * master phrase.
  *
- * @see docs/subsystems/session-tiers.md → Tier 2 — `on-password`
+ * @see docs/services/session-tiers.md → Tier 2 — `on-password`
  *
  * @packageDocumentation
  */

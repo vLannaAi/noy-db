@@ -57,7 +57,7 @@ const vault = db.vault('acme')
 macos-keychain:<service>/<account>
 ```
 
-E.g., `macos-keychain:com.acme.app/alice@acme.example`. This format is **frozen** per the [sealing pid stability rule](../../docs/subsystems/sealing-pid-stability.md) — once shipped, it never changes. The hub uses it as the dispatch key when reading an existing `_meta/sealed-passphrase` envelope.
+E.g., `macos-keychain:com.acme.app/alice@acme.example`. This format is **frozen** per the [sealing pid stability rule](../../docs/services/sealing-pid-stability.md) — once shipped, it never changes. The hub uses it as the dispatch key when reading an existing `_meta/sealed-passphrase` envelope.
 
 ## Touch ID
 
@@ -137,7 +137,7 @@ For real-Keychain integration tests on darwin CI runners, leave `entry` undefine
 - [`@noy-db/at-env`](../at-env) — env-var sealing for server / container deployments.
 - [`@noy-db/hub`](../hub) — the database core that consumes `SealingKeyProvider`.
 - [Foundation doc — at-* sealing dimension](../../docs/superpowers/specs/2026-05-23-sealing-at-dimension-foundation.md)
-- [Sealing pid stability rule](../../docs/subsystems/sealing-pid-stability.md)
+- [Sealing pid stability rule](../../docs/services/sealing-pid-stability.md)
 
 ## License
 

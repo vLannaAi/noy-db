@@ -21,7 +21,7 @@
  * What to read next
  * ─────────────────
  *   - showcase 34-as-json (multi-collection structured export)
- *   - docs/subsystems/exports.md
+ *   - docs/services/exports.md
  *
  * Spec mapping
  * ────────────

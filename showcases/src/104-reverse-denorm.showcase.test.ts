@@ -25,7 +25,7 @@
  * What to read next
  * ─────────────────
  *   - showcase 80-with-derivation (the base primitive)
- *   - docs/subsystems/derivations.md
+ *   - docs/services/derivations.md
  *
  * Spec mapping
  * ────────────

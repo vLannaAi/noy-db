@@ -23,7 +23,7 @@
  * What to read next
  * ─────────────────
  *   - showcase 15-with-sync (transport for the merged updates)
- *   - docs/subsystems/crdt.md
+ *   - docs/services/crdt.md
  *
  * Spec mapping
  * ────────────

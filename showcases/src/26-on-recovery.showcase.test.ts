@@ -31,7 +31,7 @@
  * What to read next
  * ─────────────────
  *   - showcase 27-on-shamir (k-of-n secret sharing — beats single recovery codes)
- *   - docs/subsystems/auth-recovery.md
+ *   - docs/services/auth-recovery.md
  *
  * Spec mapping
  * ────────────

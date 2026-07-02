@@ -24,7 +24,7 @@
  * What to read next
  * ─────────────────
  *   - showcase 25-on-magic-link (one-shot delegated access)
- *   - docs/subsystems/auth-oidc.md
+ *   - docs/services/auth-oidc.md
  *
  * Spec mapping
  * ────────────

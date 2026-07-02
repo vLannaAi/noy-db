@@ -1,7 +1,7 @@
 /**
  * Public envelope service — barrel export.
  *
- * @see docs/subsystems/public-envelope.md
+ * @see docs/services/public-envelope.md
  *
  * @module
  */

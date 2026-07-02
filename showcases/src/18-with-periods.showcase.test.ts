@@ -24,7 +24,7 @@
  * What to read next
  * ─────────────────
  *   - showcase 19-with-consent (consent scopes for sensitive workflows)
- *   - docs/subsystems/periods.md
+ *   - docs/services/periods.md
  *
  * Spec mapping
  * ────────────

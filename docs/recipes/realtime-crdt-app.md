@@ -135,7 +135,7 @@ CRDT collections (`crdt: 'yjs'` / `'lww-map'` / `'rga'`) bypass envelope-level c
 ## See also
 
 - [SERVICES.md](../../SERVICES.md) — full catalog
-- [docs/subsystems/crdt.md](../subsystems/crdt.md) (TODO)
-- [docs/subsystems/sync.md](../subsystems/sync.md) (TODO)
+- [docs/services/crdt.md](../services/crdt.md) (TODO)
+- [docs/services/sync.md](../services/sync.md) (TODO)
 - [showcases/src/04-sync-two-offices.showcase.test.ts](../../showcases/src/04-sync-two-offices.showcase.test.ts)
 - [showcases/src/09-encrypted-crdt.showcase.test.ts](../../showcases/src/09-encrypted-crdt.showcase.test.ts)

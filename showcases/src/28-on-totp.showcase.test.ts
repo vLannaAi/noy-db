@@ -22,7 +22,7 @@
  * What to read next
  * ─────────────────
  *   - showcase 29-on-email-otp (transport-pluggable email second factor)
- *   - docs/subsystems/auth-totp.md
+ *   - docs/services/auth-totp.md
  *
  * Spec mapping
  * ────────────

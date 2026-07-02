@@ -22,7 +22,7 @@
  * What to read next
  * ─────────────────
  *   - showcase 12-with-joins (joined-query optimisation)
- *   - docs/subsystems/indexing.md
+ *   - docs/services/indexing.md
  *
  * Spec mapping
  * ────────────
