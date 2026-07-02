@@ -10,7 +10,7 @@
  *   - REMOVING / RENAMING an export fails loudly.
  *
  * MECHANISM (mirrors `kernel-surface-golden.test.ts`, adapted for the barrel's
- * `export * from '../kernel/index.js'` floor):
+ * `export * from '../legacy/kernel.js'` floor):
  *   1. VALUE exports — enumerated at runtime via `Object.keys(import * as cargo)`.
  *   2. SOURCE parse — because `/cargo` re-exports the whole `/kernel` surface
  *      via `export *`, the source-parse UNIONS the names parsed out of BOTH the
@@ -67,7 +67,7 @@ const uniqSort = (xs: string[]): string[] => [...new Set(xs)].sort()
 const baseline: Surface = JSON.parse(read('./cargo-surface.golden.json')) as Surface
 // `export *` from /kernel means the cargo surface = cargo-source delta ∪ kernel floor.
 const cargoSrc = parseExports(read('../src/with-cargo/index.ts'))
-const kernelSrc = parseExports(read('../src/kernel/index.ts'))
+const kernelSrc = parseExports(read('../src/legacy/kernel.ts'))
 const parsed = {
   values: uniqSort([...cargoSrc.values, ...kernelSrc.values]),
   types: uniqSort([...cargoSrc.types, ...kernelSrc.types]),

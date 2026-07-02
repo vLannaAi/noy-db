@@ -1041,16 +1041,6 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/schema-update/fence-controller.js',
     '../with-shape/schema-update/gate.js',
   ]],
-  ['packages/hub/src/kernel/index.ts', [
-    '../with-lookup/aggregate/aggregation.js',
-    '../with-lookup/aggregate/groupby.js',
-    '../with-lookup/indexing/eager-indexes.js',
-    '../with-lookup/search/fuse.js',
-    '../with-lookup/search/retrieve-types.js',
-    '../with-pod/ulid.js',
-    '../with-shape/introspection/meta.js',
-    '../port/by/index.js',
-  ]],
   ['packages/hub/src/kernel/noydb.ts', [
     '../with-audit/forget/strategy.js',
     '../with-audit/forget/subject-index.js',
@@ -1271,15 +1261,10 @@ function checkPortLayering() {
   // Rule 1: the spine must not statically import a with-* service package
   // or a family port — except its own `port/with/` hook seam. No more
   // subdir exclusions are needed inside `kernel/`: every port moved out
-  // to `src/port/`, so a full recursive walk of `kernel/` is the spine —
-  // except `kernel/adapter/`, the deprecated `/adapter` alias, which is
-  // pending relocation to `src/legacy/` and was never spine-scanned.
-  const adapterDir = join(kernelDir, 'adapter')
+  // to `src/port/` and the deprecated `/adapter` alias moved out to
+  // `src/legacy/`, so a full recursive walk of `kernel/` is the spine.
   const spineFiles = []
-  walkTsFiles(kernelDir, (file) => {
-    if (!relative(adapterDir, file).startsWith('..')) return // inside kernel/adapter/ — not spine
-    spineFiles.push(file)
-  })
+  walkTsFiles(kernelDir, (file) => spineFiles.push(file))
   for (const file of spineFiles) {
     const rel = relative(ROOT, file)
     const allowedImports = PRE_EXISTING_SPINE_SERVICE_IMPORTS.get(rel)

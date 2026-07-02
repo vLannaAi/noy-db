@@ -13,7 +13,7 @@
  */
 
 // The runtime floor — the whole current /kernel surface.
-export * from '../kernel/index.js'
+export * from '../legacy/kernel.js'
 
 // Custody & ownership.
 export { CustodyApi } from '../with-party/custody/index.js'

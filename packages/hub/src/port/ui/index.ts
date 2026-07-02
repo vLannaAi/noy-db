@@ -11,12 +11,8 @@
  * (this subpath is purely additive); ui can migrate to the narrow seam on its own
  * schedule. Treat it as a contract — additive changes only; removals are breaking.
  *
- * ALIASING (S5 family doors): this file is `src/kernel/ui/index.ts`, the relocated
- * `src/describe.ts` (moved via `git mv`). It is built under TWO tsup entries that
- * point at this SAME source file — `'ui/index'` (→ `dist/ui/index.js`, the `./ui`
- * subpath) and `'describe/index'` (→ `dist/describe/index.js`, the pre-existing
- * `./describe` subpath, now a deprecated alias). Both `package.json` exports map
- * to their respective dist output; there is no separate stub file for `/describe`.
+ * The pre-existing `./describe` subpath is now a deprecated alias built from
+ * `../legacy/describe.ts`, which re-exports this same surface.
  *
  * @packageDocumentation
  */

@@ -18,6 +18,6 @@ export type {
   StoreCapabilities,
   StoreTime,
   ListPageResult,
-} from '../../port/to/index.js'
+} from '../port/to/index.js'
 
-export { ConflictError, NetworkError, StoreCapabilityError, BundleVersionConflictError } from '../../port/to/index.js'
+export { ConflictError, NetworkError, StoreCapabilityError, BundleVersionConflictError } from '../port/to/index.js'

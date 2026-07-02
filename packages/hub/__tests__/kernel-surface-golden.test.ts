@@ -21,13 +21,13 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import * as kernel from '../src/kernel/index.js'
+import * as kernel from '../src/legacy/kernel.js'
 import type {
   AggregateResult, AggregateSpec, ChangeEvent, Collection, CollectionMeta,
   CoordinationProvider, DrainBarrierOptions, FenceState, FuseOptions, IndexDef,
   JoinStrategy, LiveAggregation, LiveQuery, Noydb, Operator, Query,
   RetrieveHit, RetrieveOptions, Vault, VaultMeta, WriterPresence,
-} from '../src/kernel/index.js'
+} from '../src/legacy/kernel.js'
 
 interface Surface {
   readonly values: readonly string[]
@@ -60,7 +60,7 @@ function parseExports(src: string): { values: string[]; types: string[] } {
 }
 
 const baseline: Surface = JSON.parse(read('./kernel-surface.golden.json')) as Surface
-const parsed = parseExports(read('../src/kernel/index.ts'))
+const parsed = parseExports(read('../src/legacy/kernel.ts'))
 
 describe('@noy-db/hub/kernel — golden export surface', () => {
   it('value exports match the frozen baseline (runtime enumeration)', () => {
