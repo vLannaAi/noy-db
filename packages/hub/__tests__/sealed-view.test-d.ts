@@ -12,7 +12,7 @@
  */
 import { describe, it, expectTypeOf } from 'vitest'
 import { createNoydb } from '../src/index.js'
-import { memoryStore } from '../src/port/to/memory-store.js'
+import { memoryStore } from '../src/kernel/memory-store.js'
 import type { Sealed, SealedView } from '../src/kernel/types.js'
 
 interface Person { id: string; name: string; ssn: string; age: number }
