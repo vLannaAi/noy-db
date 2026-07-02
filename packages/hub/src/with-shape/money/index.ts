@@ -1,5 +1,5 @@
 /**
- * `@noy-db/hub` money subsystem — the `money()` field descriptor for
+ * `@noy-db/hub` money service — the `money()` field descriptor for
  * currency-safe, exact decimal storage, formatting, and aggregation.
  *
  * @see ./descriptor for the public `money()` factory.

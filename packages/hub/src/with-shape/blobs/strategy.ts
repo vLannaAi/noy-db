@@ -1,5 +1,5 @@
 /**
- * Strategy seam between core Collection and the optional blob subsystem.
+ * Strategy seam between core Collection and the optional blob service.
  *
  * Core imports `BlobStrategy` as a TYPE-ONLY symbol and `NO_BLOBS` as a
  * minimal runtime stub. Neither pulls in the heavy `BlobSet` / chunk /

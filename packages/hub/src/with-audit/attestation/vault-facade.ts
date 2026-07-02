@@ -11,7 +11,7 @@
  * inline methods it replaced — every dependency the moving code touched on
  * `this.*` arrives via {@link VaultAttestationDeps}.
  *
- * Internal subsystem — reached through `vault.issueAttestation(...)` etc.
+ * Internal service — reached through `vault.issueAttestation(...)` etc.
  */
 import { AttestationError } from '../../kernel/errors.js'
 import type { NoydbStore } from '../../kernel/types.js'

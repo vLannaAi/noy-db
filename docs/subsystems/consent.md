@@ -59,5 +59,5 @@ const log = await vault.consentAudit({ purpose: 'quarterly-review' })
 
 ## See also
 
-- [SUBSYSTEMS.md](../../SUBSYSTEMS.md)
+- [SERVICES.md](../../SERVICES.md)
 - `__tests__/consent.test.ts`

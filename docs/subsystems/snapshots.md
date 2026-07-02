@@ -1,4 +1,4 @@
-# Snapshots Subsystem
+# Snapshots Service
 
 **Subpath:** `@noy-db/hub/snapshots`  
 **Cluster:** snapshot-and-portability  

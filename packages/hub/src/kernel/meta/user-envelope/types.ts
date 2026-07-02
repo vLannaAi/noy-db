@@ -1,5 +1,5 @@
 /**
- * Type surface for the per-principal user envelope subsystem.
+ * Type surface for the per-principal user envelope service.
  *
  * @see docs/superpowers/specs/2026-05-05-user-envelope-design.md
  *

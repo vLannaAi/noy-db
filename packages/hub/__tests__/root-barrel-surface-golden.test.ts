@@ -3,7 +3,7 @@
  *
  * `src/index.ts` is the flat public surface every consumer imports from
  * (`import { createNoydb, ... } from '@noy-db/hub'`) — the union of the
- * always-on core plus every opt-in subsystem's exports. This freezes the
+ * always-on core plus every opt-in service's exports. This freezes the
  * export list against a checked-in baseline (`root-barrel-surface.golden.json`)
  * so drift fails CI:
  *   - ADDING an export fails until the baseline is updated (visible, reviewed).

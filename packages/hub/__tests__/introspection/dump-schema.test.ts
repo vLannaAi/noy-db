@@ -112,7 +112,7 @@ describe('vault.dumpSchema() — baseline', () => {
     expect(inv!.fields).toEqual({})
   })
 
-  it('reports the subsystems opt-in matrix (presence of registries)', async () => {
+  it('reports the service opt-in matrix (presence of registries)', async () => {
     const comp = await db.openVault(COMP)
     const snap = await comp.dumpSchema()
     expect(snap.subsystems).toEqual(expect.objectContaining({

@@ -1,6 +1,6 @@
 /**
  * @noy-db/hub/crdt — opt-in CRDT (conflict-free replicated data type)
- * subsystem.
+ * service.
  *
  * @category capability
  *

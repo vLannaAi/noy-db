@@ -10,7 +10,7 @@
 # Structure: { schemaVersion, features, adapters, frameworks, auths,
 #              exports, topologies, recipes }
 #
-# Phase 1 ships only the 6 always-on core features. Subsystems, adapters,
+# Phase 1 ships only the 6 always-on core features. Services, adapters,
 # framework integrations, auth methods, export formats, topologies, and
 # recipes populate in phases 2-8.
 
@@ -22,7 +22,7 @@ features:
   - id: vault-and-collections
     name: Vault & collection model
     cluster: core
-    spec: SUBSYSTEMS.md#the-minimalist-core
+    spec: SERVICES.md#the-minimalist-core
     subsystem_doc: docs/core/01-vault-and-collections.md
     package: '@noy-db/hub'
     factory: null
@@ -41,7 +41,7 @@ features:
   - id: encryption
     name: Encryption layer
     cluster: core
-    spec: SUBSYSTEMS.md#the-minimalist-core
+    spec: SERVICES.md#the-minimalist-core
     subsystem_doc: docs/core/02-encryption.md
     package: '@noy-db/hub'
     factory: null
@@ -68,7 +68,7 @@ features:
 
   - id: forget-cascade
     name: GDPR crypto-shred (withForgetCascade / vault.forget)
-    cluster: subsystem
+    cluster: service
     spec: docs/superpowers/specs/2026-06-08-forget-cascade-design.md
     subsystem_doc: docs/core/02-encryption.md
     package: '@noy-db/hub/forget'
@@ -89,7 +89,7 @@ features:
 
   - id: record-scoped-cek-sealing
     name: Record-scoped CEK sealing to an at-* host (vault.sealRecordToHost)
-    cluster: subsystem
+    cluster: service
     spec: docs/superpowers/specs/2026-06-13-record-scoped-cek-sealing-design.md
     subsystem_doc: docs/core/02-encryption.md
     package: '@noy-db/hub'
@@ -109,7 +109,7 @@ features:
 
   - id: per-blob-cek
     name: Per-blob content CEK — crypto-shred of blob attachments (forget)
-    cluster: subsystem
+    cluster: service
     spec: docs/superpowers/specs/2026-06-13-per-blob-cek-design.md
     subsystem_doc: docs/core/02-encryption.md
     package: '@noy-db/hub'
@@ -130,7 +130,7 @@ features:
   - id: stores-contract
     name: 6-method NoydbStore contract
     cluster: core
-    spec: SUBSYSTEMS.md#the-minimalist-core
+    spec: SERVICES.md#the-minimalist-core
     subsystem_doc: docs/core/03-stores.md
     package: '@noy-db/hub'
     factory: null
@@ -147,7 +147,7 @@ features:
   - id: permissions
     name: Roles, keyrings, capabilities
     cluster: core
-    spec: SUBSYSTEMS.md#the-minimalist-core
+    spec: SERVICES.md#the-minimalist-core
     subsystem_doc: docs/core/04-permissions-and-keyring.md
     package: '@noy-db/hub'
     factory: null
@@ -165,7 +165,7 @@ features:
   - id: schema-and-refs
     name: Schema validation + ref integrity
     cluster: core
-    spec: SUBSYSTEMS.md#the-minimalist-core
+    spec: SERVICES.md#the-minimalist-core
     subsystem_doc: docs/core/05-schema-and-refs.md
     package: '@noy-db/hub'
     factory: null
@@ -353,7 +353,7 @@ features:
     playground_pages: []
     diagrams: []
     invariants:
-      - 'returns a structured VaultSchemaSnapshot describing collections / MVs / overlays / derivations / subsystems'
+      - 'returns a structured VaultSchemaSnapshot describing collections / MVs / overlays / derivations / services'
       - 'field source provenance: persisted (Route B) → live-validator (in-process Zod) → unknown'
       - 'withStats: true adds records / bytes / oldest / newest via envelope walk (no decrypt needed)'
       - 'internal collections under separate `internal:` block only when withStats is set'
@@ -456,7 +456,7 @@ features:
   - id: query-basics
     name: Always-on query DSL
     cluster: core
-    spec: SUBSYSTEMS.md#the-minimalist-core
+    spec: SERVICES.md#the-minimalist-core
     subsystem_doc: docs/core/06-query-basics.md
     package: '@noy-db/hub'
     factory: null
@@ -474,7 +474,7 @@ features:
   - id: atomic-sequence
     name: Atomic gap-free sequence (online-only numbering)
     cluster: core
-    spec: SUBSYSTEMS.md#the-minimalist-core
+    spec: SERVICES.md#the-minimalist-core
     subsystem_doc: docs/core/06-query-basics.md
     package: '@noy-db/hub'
     factory: null
@@ -514,7 +514,7 @@ features:
       - 'vault.sequence(series).next({for}) returns Promise<number> resolving at the next pass; the record field is the durable source of truth'
     related: [atomic-sequence, stores-contract]
 
-  # ─── Subsystems behind with*() factories ───────────────────────────
+  # ─── Services behind with*() factories ───────────────────────────
 
   - id: team
     name: Multi-user grant / revoke / rotate
@@ -1452,7 +1452,7 @@ features:
     diagrams: []
     invariants:
       - 'vault.introspect() reports collection doc counts via adapter.list, without decryption'
-      - 'guards / materializedViews / schemaUpdate arrays are empty (not errors) when the subsystem is off'
+      - 'guards / materializedViews / schemaUpdate arrays are empty (not errors) when the service is off'
       - 'schemaUpdate strategy names are captured at collection() registration time'
     related: [dump-schema-introspection, schema-update-strategies]
 

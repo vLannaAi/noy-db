@@ -75,6 +75,6 @@ vault.collection<Invoice>('invoices', {
 
 ## See also
 
-- [SUBSYSTEMS.md](../../SUBSYSTEMS.md)
+- [SERVICES.md](../../SERVICES.md)
 - `__tests__/route-store.test.ts`, `__tests__/store-middleware.test.ts`, `__tests__/bundle-store.test.ts`
 - `showcases/src/03-store-routing.showcase.test.ts`, `showcases/src/08-resilient-middleware.showcase.test.ts`

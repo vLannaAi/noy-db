@@ -18,9 +18,9 @@
  * `record-keys` surface, not on `crypto.ts` directly. The collection-coupled
  * orchestration (CEK resolution, tombstone writes, tier/bundle re-wrap, the
  * `vault.sealRecordToHost`/`rotateRecordCek` grantor side) layers on top in
- * collection.ts / vault.ts and the `forget/` + `sealed-record/` subsystems.
+ * collection.ts / vault.ts and the `forget/` + `sealed-record/` services.
  *
- * Internal subsystem — not exported as a `@noy-db/hub/*` subpath.
+ * Internal service — not exported as a `@noy-db/hub/*` subpath.
  */
 export { wrapCek, unwrapCek } from '../crypto.js'
 export { isTombstone, buildTombstone } from './tombstone.js'

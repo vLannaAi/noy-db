@@ -1,6 +1,6 @@
 /**
  * `transitionGuard` — declarative state-machine sugar over the guard
- * subsystem.
+ * service.
  *
  * Any record with a lifecycle field (invoice `status`, order state,
  * ticket workflow, subscription phase) needs transition validation: a

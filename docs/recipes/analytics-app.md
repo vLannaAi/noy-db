@@ -1,12 +1,12 @@
 # Recipe 4 — Analytics-heavy querying
 
 > **Audience:** apps with thousands to tens of thousands of records that need fast filtering, joining across collections, and pre-aggregated reports — dashboards, BI consoles, search-driven UIs.
-> **Bundle:** core + `withIndexing` + `withAggregate` + `withRouting` (n/a yet — see SUBSYSTEMS catalog) — roughly 10,700 LOC. No history, no blobs, no sync, no i18n by default — add them as needed.
+> **Bundle:** core + `withIndexing` + `withAggregate` + `withRouting` (n/a yet — see SERVICES catalog) — roughly 10,700 LOC. No history, no blobs, no sync, no i18n by default — add them as needed.
 > **Verified by:** [showcases/src/recipe-analytics.recipe.test.ts](../../showcases/src/recipe-analytics.recipe.test.ts)
 
 ## What this gets you
 
-| Subsystem | What it adds |
+| Service | What it adds |
 |---|---|
 | `withIndexing()` | Eager-mode `==` and `in` fast-paths; lazy-mode `.lazyQuery()` for on-demand fetch; `_idx/<field>/<id>` side-cars maintained on every put/delete |
 | `withAggregate()` | `sum`, `avg`, `count`, `min`, `max` + `groupBy` |
@@ -138,7 +138,7 @@ For terabyte-scale apps, route hot data to memory-resident stores and cold data 
 
 ## See also
 
-- [SUBSYSTEMS.md](../../SUBSYSTEMS.md) — full catalog
+- [SERVICES.md](../../SERVICES.md) — full catalog
 - [docs/subsystems/indexing.md](../subsystems/indexing.md) (TODO)
 - [docs/subsystems/aggregate.md](../subsystems/aggregate.md) (TODO)
 - [docs/subsystems/joins.md](../subsystems/joins.md) (TODO)

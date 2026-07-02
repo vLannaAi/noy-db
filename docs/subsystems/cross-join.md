@@ -72,6 +72,6 @@ const result = periods.query()
 
 ## See also
 
-- [SUBSYSTEMS.md](../../SUBSYSTEMS.md)
+- [SERVICES.md](../../SERVICES.md)
 - [joins.md](./joins.md) — FK joins (intra-vault, declared `ref()`)
 - Showcase 92 — DERIV-SSO-001 end-to-end

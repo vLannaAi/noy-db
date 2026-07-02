@@ -19,7 +19,7 @@
  * `persistedIndexesLoaded` flag and `ensure*` hydration stay collection-resident
  * and are reached via callbacks.
  *
- * Internal subsystem — not exported as a `@noy-db/hub/*` subpath.
+ * Internal service — not exported as a `@noy-db/hub/*` subpath.
  */
 import type { NoydbStore } from '../../kernel/types.js'
 import type { RecordCodec } from '../../kernel/enclave/index.js'

@@ -1,5 +1,5 @@
 /**
- * Public envelope subsystem — schema validation, storage round-trip,
+ * Public envelope service — schema validation, storage round-trip,
  * locale resolution, disabled-feature negative path.
  *
  * @see docs/subsystems/public-envelope.md

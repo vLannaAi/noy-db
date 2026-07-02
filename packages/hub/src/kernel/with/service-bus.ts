@@ -1,15 +1,15 @@
 /**
  * Generic per-instance **observe** bus. Observe-class
- * subsystems (devtools inspector, audit, sync-dirty notification) register
+ * services (devtools inspector, audit, sync-dirty notification) register
  * handlers against named lifecycle points instead of the kernel naming each
- * subsystem. Mirrors the registry pattern of {@link WriteHookRegistry} but is
+ * service. Mirrors the registry pattern of {@link WriteHookRegistry} but is
  * internal and keyed by lifecycle point.
  *
  * OBSERVE SEMANTICS: handlers react to a write that already happened. A
  * handler throw is warned, not propagated — it can never abort a write. Write-
- * *gating* subsystems (guards, periods) need a throw-propagating gate bus.
+ * *gating* services (guards, periods) need a throw-propagating gate bus.
  * Add observe points by extending {@link LifecycleEventMap}. Write-*gating*
- * subsystems use the sibling gate API on this same class
+ * services use the sibling gate API on this same class
  * (`registerGate`/`dispatchGate`, throw-propagating); see {@link GateEventMap}.
  *
  * @module
@@ -141,7 +141,7 @@ export class ServiceBus {
           await h(event)
         } catch (err) {
           console.warn(
-            `[noy-db] subsystem observe handler failed at ${point}: ` +
+            `[noy-db] service observe handler failed at ${point}: ` +
             (err instanceof Error ? err.message : String(err)),
           )
         }

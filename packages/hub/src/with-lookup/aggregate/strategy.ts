@@ -1,6 +1,6 @@
 /**
  * Strategy seam between the core Query / ScanBuilder chain and the
- * optional aggregate / groupBy subsystem. Core imports
+ * optional aggregate / groupBy service. Core imports
  * `AggregateStrategy` as a TYPE-ONLY symbol and `NO_AGGREGATE` as a
  * tiny runtime stub.
  *
@@ -24,7 +24,7 @@ import type { MoneyDescriptor } from '../../with-shape/money/descriptor.js'
 
 /**
  * Seam interface. `@internal` — will promote to public only when the
- * aggregate subsystem is extracted into its own package.
+ * aggregate service is extracted into its own package.
  *
  * @internal
  */

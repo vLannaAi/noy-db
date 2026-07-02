@@ -93,6 +93,6 @@ For usage inside `withMaterializedView` queries, see [`derivations.md` § Multi-
 
 ## See also
 
-- [SUBSYSTEMS.md](../../SUBSYSTEMS.md)
+- [SERVICES.md](../../SERVICES.md)
 - `docs/recipes/analytics-app.md`
 - `__tests__/query-aggregate.test.ts`, `__tests__/query-groupby.test.ts`

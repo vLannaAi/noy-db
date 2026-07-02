@@ -201,7 +201,7 @@ describe('bundle includes blobs (dump → load round-trip).', () => {
     targetDb.close()
   })
 
-  it('dump() works when the blobs subsystem is not opted in', async () => {
+  it('dump() works when the blobs service is not opted in', async () => {
     const sourceStore = memory()
     const sourceDb = await createNoydb({
       store: sourceStore,

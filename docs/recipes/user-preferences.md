@@ -2,7 +2,7 @@
 
 > A reference shape for the per-principal `_users/<keyringId>` envelope. The shape lives at the **app layer** — hub commits only to `userId === keyringId` and the storage location.
 
-The runnable verification of this recipe is `showcases/src/recipe-user-preferences.recipe.test.ts`. The full subsystem documentation is at [`docs/subsystems/user-envelope.md`](../subsystems/user-envelope.md).
+The runnable verification of this recipe is `showcases/src/recipe-user-preferences.recipe.test.ts`. The full service documentation is at [`docs/subsystems/user-envelope.md`](../subsystems/user-envelope.md).
 
 ## When to reach for this
 
@@ -134,6 +134,6 @@ Presence subscribers receive `PresencePeer<typeof presencePayload>` and render `
 
 ## See also
 
-- `docs/subsystems/user-envelope.md` — full subsystem reference
+- `docs/subsystems/user-envelope.md` — full service reference
 - `showcases/src/70-user-envelope.showcase.test.ts` — Hub API end-to-end
 - `showcases/src/recipe-user-preferences.recipe.test.ts` — runnable form of this recipe

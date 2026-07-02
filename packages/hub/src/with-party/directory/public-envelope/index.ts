@@ -1,5 +1,5 @@
 /**
- * Public envelope subsystem — barrel export.
+ * Public envelope service — barrel export.
  *
  * @see docs/subsystems/public-envelope.md
  *

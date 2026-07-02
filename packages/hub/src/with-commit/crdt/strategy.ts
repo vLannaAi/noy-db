@@ -1,6 +1,6 @@
 /**
  * Strategy seam between core Collection and the optional CRDT
- * subsystem. Core imports `CrdtStrategy` as a TYPE-ONLY symbol and
+ * service. Core imports `CrdtStrategy` as a TYPE-ONLY symbol and
  * `NO_CRDT` as a minimal runtime stub.
  *
  * The state-construction / merge / snapshot-resolution helpers —

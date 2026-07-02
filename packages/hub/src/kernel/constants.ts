@@ -1,6 +1,6 @@
 /**
  * Hub-core constants that must be referenceable without pulling any
- * subsystem chunk. Kept import-free.
+ * service chunk. Kept import-free.
  */
 
 /** Reserved fleet-wide control-plane vault name. Hub reserves it for an outward orchestration framework's state/control-plane vault. */

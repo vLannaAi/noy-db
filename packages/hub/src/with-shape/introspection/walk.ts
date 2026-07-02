@@ -44,7 +44,7 @@ export interface VaultIntrospectState {
   readonly subsystems: Record<string, boolean>
   /** Vault-level descriptive metadata, when set via `openVault({meta})`. */
   readonly vaultMeta?: VaultMeta
-  // Typed loosely on purpose — these are private subsystem registries
+  // Typed loosely on purpose — these are private service registries
   // accessed only for "is anything registered" enumeration.
   readonly mvRegistry: unknown
   readonly overlayRegistry: unknown

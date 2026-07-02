@@ -1,6 +1,6 @@
 /**
  * Strategy seam between core Collection and the optional indexing
- * subsystem. Core imports `IndexStrategy` and `IndexState` as
+ * service. Core imports `IndexStrategy` and `IndexState` as
  * TYPE-ONLY symbols and `NO_INDEXING` as a tiny runtime stub.
  *
  * The heavy classes — `CollectionIndexes`, `PersistedCollectionIndex`,

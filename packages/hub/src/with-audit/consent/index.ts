@@ -1,5 +1,5 @@
 /**
- * @noy-db/hub/consent — opt-in consent-audit subsystem.
+ * @noy-db/hub/consent — opt-in consent-audit service.
  *
  * @category capability
  *

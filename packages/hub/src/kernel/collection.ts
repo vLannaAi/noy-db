@@ -1304,7 +1304,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     else await this.putInternal(id, record, options)
     if (event) {
       // Ordering: user afterWrite hooks run BEFORE observe-bus dispatch in
-      // slice 1. Revisit when internal observe subsystems (e.g. MV-refresh
+      // slice 1. Revisit when internal observe services (e.g. MV-refresh
       // notification) need to settle before user hooks observe state.
       if (hooksActive) await this.writeHooks!.runAfter(event)
       if (busAfterPut) await this.subsystemBus!.dispatch('afterPut', event)
@@ -1416,7 +1416,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // quantize stage below throws the real error.
     record = canonicalizeIncomingMoney(record, this.moneyFields) as T
 
-    // Gate bus (Track A) — write-gating subsystems (guards: record-lock /
+    // Gate bus (Track A) — write-gating services (guards: record-lock /
     // field-freeze / amendment-collect; periods: closed-period guard) run here,
     // before any schema/i18n/history work. A throwing gate handler propagates
     // and aborts the write; the amendment branch collects without throwing.

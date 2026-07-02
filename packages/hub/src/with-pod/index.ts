@@ -1,5 +1,5 @@
 /**
- * @noy-db/hub/pod — opt-in .noydb container-format (artifact) subsystem.
+ * @noy-db/hub/pod — opt-in .noydb container-format (artifact) service.
  *
  * @category capability
  *

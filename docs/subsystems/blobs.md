@@ -101,6 +101,6 @@ Profiles: `posix` · `windows` · `macos-smb` · `zip` · `url-path` · `s3-key`
 
 ## See also
 
-- [SUBSYSTEMS.md](../../SUBSYSTEMS.md)
+- [SERVICES.md](../../SERVICES.md)
 - `docs/recipes/accounting-app.md`
 - `__tests__/blob-set.test.ts`, `showcases/src/05-blob-lifecycle.showcase.test.ts`

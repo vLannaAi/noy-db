@@ -6,7 +6,7 @@
 
 The four recipes that span the catalog from minimalist core to fully opted-in:
 
-| Recipe | Bundle | Subsystems opted in | Verified by |
+| Recipe | Bundle | Services opted in | Verified by |
 |---|---|---|---|
 | [Personal encrypted notebook](./personal-notebook.md) | core only (~6.5K LOC) | none — pure floor | [`recipe-personal-notebook.recipe.test.ts`](../../showcases/src/recipe-personal-notebook.recipe.test.ts) |
 | [Accounting application](./accounting-app.md) | ~13.2K LOC | history · periods · blobs · i18n · consent · aggregate | [`recipe-accounting-app.recipe.test.ts`](../../showcases/src/recipe-accounting-app.recipe.test.ts) |
@@ -23,6 +23,6 @@ Pattern-specific walkthroughs that don't map to a single starter recipe:
 
 ## Related
 
-- [SUBSYSTEMS.md](../../SUBSYSTEMS.md) — full catalog
+- [SERVICES.md](../../SERVICES.md) — full catalog
 - [docs/core/](../core/) — what's always loaded
 - [docs/subsystems/](../subsystems/) — what each opt-in capability does

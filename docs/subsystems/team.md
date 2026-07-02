@@ -1,13 +1,13 @@
 # team
 
 > **Subpath:** `@noy-db/hub/team`
-> **Factory:** `withTeam()` *(planned — keyring stays in core today; team subsystem extraction tracked separately)*
+> **Factory:** `withTeam()` *(planned — keyring stays in core today; team service extraction tracked separately)*
 > **Cluster:** G — Collaboration & Auth
 > **LOC cost:** ~1,000 (off-bundle when not opted in)
 
 ## What it does
 
-Multi-user grant / revoke / rotate for vault keyrings, magic-link viewer sessions, sub-permission delegation, and hierarchical permission tiers. Single-owner keyring (the core minimum to wrap a DEK) stays in the always-on core; this subsystem covers the "more than one user" surface.
+Multi-user grant / revoke / rotate for vault keyrings, magic-link viewer sessions, sub-permission delegation, and hierarchical permission tiers. Single-owner keyring (the core minimum to wrap a DEK) stays in the always-on core; this service covers the "more than one user" surface.
 
 ## When you need it
 
@@ -86,5 +86,5 @@ Semantics:
 
 ## See also
 
-- [SUBSYSTEMS.md](../../SUBSYSTEMS.md)
+- [SERVICES.md](../../SERVICES.md)
 - `__tests__/keyring.test.ts`, `__tests__/grant-revoke.test.ts`, `__tests__/magic-link-grant.test.ts`

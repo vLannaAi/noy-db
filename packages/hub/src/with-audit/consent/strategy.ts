@@ -1,5 +1,5 @@
 /**
- * Strategy seam for the optional consent-audit subsystem. Core
+ * Strategy seam for the optional consent-audit service. Core
  * imports `ConsentStrategy` as a TYPE-ONLY symbol and `NO_CONSENT`
  * as a tiny runtime stub.
  *

@@ -44,16 +44,16 @@ db.close()  // wipes KEK + DEKs from memory
 
 ### `Vault`
 - `collection<T>(name, opts?)` — typed collection
-- `dump()` / `load()` — backup / restore (with the bundle subsystem)
+- `dump()` / `load()` — backup / restore (with the bundle service)
 - `assertCanExport(format)` — pre-flight authorization
-- `at(timestamp)` / `frame()` / `dictionary(name)` / `closePeriod` / etc. — gated by their respective subsystems
+- `at(timestamp)` / `frame()` / `dictionary(name)` / `closePeriod` / etc. — gated by their respective services
 
 ### `Collection<T>`
 - `get(id, opts?)` / `put(id, record, opts?)` / `delete(id, opts?)`
 - `list(opts?)` / `query()` / `scan()` / `count()`
 - `subscribe(cb)` — change events (always-on)
 - Bulk ops: `putMany`, `getMany`, `deleteMany`, `clear`
-- History / blobs / presence / etc. — gated by their subsystems
+- History / blobs / presence / etc. — gated by their services
 
 ## Reserved collection names
 
@@ -78,7 +78,7 @@ Internal collections start with `_`:
 
 ## See also
 
-- [SUBSYSTEMS.md](../../SUBSYSTEMS.md) — what's gated
+- [SERVICES.md](../../SERVICES.md) — what's gated
 - [Core 02 — Encryption](./02-encryption.md)
 - [Core 03 — Stores](./03-stores.md)
 - [Core 04 — Permissions & Keyring](./04-permissions-and-keyring.md)

@@ -732,7 +732,7 @@ All extend `NoydbError`:
 
 ## See also
 
-- [SUBSYSTEMS.md](../../SUBSYSTEMS.md)
+- [SERVICES.md](../../SERVICES.md)
 - `docs/superpowers/specs/2026-05-01-dim14-derivation-v1-design.md`
 - `docs/superpowers/specs/2026-05-20-dim14-mv-v2-design.md`
 - `__tests__/derivations/*.test.ts`, `__tests__/materialized-views/*.test.ts`, `__tests__/overlay-views/*.test.ts`

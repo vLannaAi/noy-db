@@ -2,7 +2,7 @@
  * `withForgetCascade` — the active factory for GDPR right-to-erasure via
  * per-record CEK crypto-shred (#304). Mirrors the canonical
  * `strategy.ts` (type + `NO_FORGET` sentinel) / `active.ts` (factory) split
- * used by the other subsystems.
+ * used by the other services.
  *
  * @module
  */

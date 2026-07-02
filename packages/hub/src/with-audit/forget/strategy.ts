@@ -72,7 +72,7 @@ export const NO_FORGET: ForgetStrategy = { subjects: {} }
  * `blobResidueCollections` now lists only collections with blobs that could
  * NOT be crypto-shredded: **legacy** blobs (no per-blob `_cek`, chunks under
  * the shared `_blob` DEK — migrate them), or a session without the blob
- * subsystem loaded. An all-erasable subject yields an empty residue list.
+ * service loaded. An all-erasable subject yields an empty residue list.
  */
 export interface ForgetResult {
   /** The subject id passed to `forget()`. Echoed for caller convenience. */

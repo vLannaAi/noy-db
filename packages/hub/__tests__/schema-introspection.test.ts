@@ -38,7 +38,7 @@ describe('vault.introspect() (#229)', () => {
     expect(['rw', 'ro']).toContain(inv!.permission)
   })
 
-  it('a subsystems-off vault yields empty guard/MV/schemaUpdate arrays without error', async () => {
+  it('a services-off vault yields empty guard/MV/schemaUpdate arrays without error', async () => {
     const db = await createNoydb({ store: memory(), user: 'a', secret: 'introspect-pass-1234' })
     const v = await db.openVault('demo')
     v.collection('plain')

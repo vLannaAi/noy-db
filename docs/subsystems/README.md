@@ -1,8 +1,8 @@
-# Subsystems — the catalog
+# Services — the catalog
 
-The 21 opt-in capabilities that compose with the always-on core. Each entry is a tree-shake-able module behind a `with*()` strategy seam — when you don't import the factory, none of the subsystem's code reaches your bundle.
+The 21 opt-in capabilities that compose with the always-on core. Each entry is a tree-shake-able module behind a `with*()` strategy seam — when you don't import the factory, none of the service's code reaches your bundle.
 
-See [SUBSYSTEMS.md](../../SUBSYSTEMS.md) for the catalog overview, dependency graph, starter recipes, and CI invariants.
+See [SERVICES.md](../../SERVICES.md) for the catalog overview, dependency graph, starter recipes, and CI invariants.
 
 ## Cluster A — Read & Query
 
@@ -70,7 +70,7 @@ See [SUBSYSTEMS.md](../../SUBSYSTEMS.md) for the catalog overview, dependency gr
 
 ## Schema-declared features (archetype ③) — no `with*()`
 
-These are **not** opt-in `with*()` subsystems and so have no factory and no
+These are **not** opt-in `with*()` services and so have no factory and no
 `<name>Strategy` option. They are **declared on the collection itself** via
 `collection({ … })` — the collection is their opt-in unit. There is nothing to
 pass to `createNoydb`; a collection that doesn't declare the field simply
@@ -85,7 +85,7 @@ each of these (see `SCHEMA_DECLARED_OR_INFRA_EXEMPT`).
 | introspection | always available on any typed collection | `collection.describe()` / `vault.dumpSchema()` read-only schema surface |
 | schema-update | `collection({ schemaUpdate: … })` | Per-collection migration strategies (blind / additive / locked / coordinated) |
 
-> **Follow-up (out of scope here):** unlike the `with*()` subsystems, these ③
+> **Follow-up (out of scope here):** unlike the `with*()` services, these ③
 > impls are currently **kernel-resident — eagerly imported into the floor** as
 > inline write/read-path hooks (e.g. `with-shape/money/normalize`,
 > `with-formula/computed`, `with-shape/links`, `with-shape/schema-update`,
@@ -96,7 +96,7 @@ each of these (see `SCHEMA_DECLARED_OR_INFRA_EXEMPT`).
 
 ## Doc page template
 
-Every entry follows the same shape — see [_template.md](./_template.md). If you're adding a new subsystem, copy the template and fill it out top-to-bottom.
+Every entry follows the same shape — see [_template.md](./_template.md). If you're adding a new service, copy the template and fill it out top-to-bottom.
 
 ## Reserved future slots
 
@@ -111,6 +111,6 @@ Reserved names so spec/docs/issues can reference them ahead of implementation. T
 
 ## Related
 
-- [SUBSYSTEMS.md](../../SUBSYSTEMS.md) — the catalog
-- [docs/recipes/](../recipes/) — 4 starter recipes that compose subsystems
+- [SERVICES.md](../../SERVICES.md) — the catalog
+- [docs/recipes/](../recipes/) — 4 starter recipes that compose services
 - [SPEC.md](../../SPEC.md) — full specification (TODO: reorganize per )

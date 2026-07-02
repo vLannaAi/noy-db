@@ -1,5 +1,5 @@
 /**
- * Strategy seam for the optional accounting-periods subsystem. Core
+ * Strategy seam for the optional accounting-periods service. Core
  * imports `PeriodsStrategy` type-only + `NO_PERIODS` stub; the real
  * `loadPeriods` / `chainAnchor` / `assertTsWritable` /
  * `validatePeriodName` / `appendPeriodLedgerEntry` functions are

@@ -69,7 +69,7 @@ const docs = yjsCollection(vault, 'docs', {
 
 ## See also
 
-- [SUBSYSTEMS.md](../../SUBSYSTEMS.md)
+- [SERVICES.md](../../SERVICES.md)
 - `docs/recipes/realtime-crdt-app.md`
 - `__tests__/crdt.test.ts`
 - `packages/in-yjs/__tests__/yjs-collection.test.ts`

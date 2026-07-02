@@ -11,7 +11,7 @@
  * dependency the moving code touched on `this.*` arrives via
  * {@link NoydbSnapshotsDeps}.
  *
- * Internal subsystem — reached through `noydb.snapshot(...)` etc.
+ * Internal service — reached through `noydb.snapshot(...)` etc.
  */
 import { NO_SNAPSHOTS, type SnapshotStrategy, type SnapshotMeta } from './strategy.js'
 import { SnapshotScheduler } from './scheduler.js'

@@ -85,7 +85,7 @@ store: s3({ bucket: 'my-vaults', client: myS3Client })
 
 ## รองรับหลายภาษาในตัว
 
-`noy-db` มองภาษาเป็นเรื่องชั้นแรก ไม่ใช่เพิ่มทีหลัง ระบบย่อย [`i18n`](../subsystems/i18n.md) (เปิดใช้แบบ opt-in) ให้คุณ:
+`noy-db` มองภาษาเป็นเรื่องชั้นแรก ไม่ใช่เพิ่มทีหลัง บริการ [`i18n`](../subsystems/i18n.md) (เปิดใช้แบบ opt-in) ให้คุณ:
 
 - เก็บ field เดียวที่มีค่าในหลายภาษาในแต่ละ record (`i18nText({ languages: ['en', 'th', 'zh'] })`)
 - จับคู่ field แบบ enum กับ dictionary ของ label ในหลายภาษา (`dictKey('status', ['draft', 'paid'])` แปลเป็น label ของแต่ละภาษา)
@@ -157,7 +157,7 @@ store: s3({ bucket: 'my-vaults', client: myS3Client })
 | **viewer** | ทั้งหมด | — | — | — | ได้ |
 | **client** | collection ที่ได้รับมอบ | — | — | — | ตามขอบเขต ACL |
 
-ทุก mutation (grant, revoke, rotate, elevate) เขียน entry ของ audit ledger แบบ hash-chain ระบบ tier ระดับ record (`collection.elevate()` / `demote()` / `delegate()` / โหมด invisibility / ghost) พร้อม handle เลื่อน tier แบบ scope (`vault.elevate(tier, { ttlMs, reason })` สำหรับการเขียนที่มีสิทธิพิเศษแบบจำกัดเวลา) อยู่ในระบบย่อย [`history`](../subsystems/history.md) และ [`team`](../subsystems/team.md)
+ทุก mutation (grant, revoke, rotate, elevate) เขียน entry ของ audit ledger แบบ hash-chain ระบบ tier ระดับ record (`collection.elevate()` / `demote()` / `delegate()` / โหมด invisibility / ghost) พร้อม handle เลื่อน tier แบบ scope (`vault.elevate(tier, { ttlMs, reason })` สำหรับการเขียนที่มีสิทธิพิเศษแบบจำกัดเวลา) อยู่ในบริการ [`history`](../subsystems/history.md) และ [`team`](../subsystems/team.md)
 
 ---
 
@@ -197,7 +197,7 @@ Store **เห็นแต่ ciphertext** การเข้ารหัสเ�
 | ถ้าคุณต้องการ… | อ่าน |
 |---|---|
 | ดูสิ่งที่เปิดอยู่เสมอ (พื้นฐาน) | [`docs/core/`](../core/) |
-| สำรวจ 17 ระบบย่อยแบบ opt-in | [`docs/subsystems/`](../subsystems/) — ดัชนี + แคตาล็อก [SUBSYSTEMS.md](../../SUBSYSTEMS.md) |
+| สำรวจ 17 บริการแบบ opt-in | [`docs/subsystems/`](../subsystems/) — ดัชนี + แคตาล็อก [SERVICES.md](../../SERVICES.md) |
 | คัดลอก recipe เริ่มต้น | [`docs/recipes/`](../recipes/) — personal-notebook · accounting-app · realtime-crdt-app · analytics-app |
 | เลือก storage backend | [`docs/packages/to-stores.md`](../packages/to-stores.md) |
 | เลือก framework integration | [`docs/packages/in-integrations.md`](../packages/in-integrations.md) |

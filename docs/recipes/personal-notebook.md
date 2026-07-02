@@ -16,7 +16,7 @@
 | You don't have | Opt in via |
 |---|---|
 | Record version history | `withHistory()` |
-| Joins between collections | `withJoins()` (n/a today — see SUBSYSTEMS catalog) |
+| Joins between collections | `withJoins()` (n/a today — see SERVICES catalog) |
 | Aggregates / `groupBy` | `withAggregate()` |
 | File / blob attachments | `withBlobs()` |
 | Multi-locale records | `withI18n()` |
@@ -102,6 +102,6 @@ const notes = vault.collection<z.infer<typeof NoteSchema>>('notes', {
 
 ## See also
 
-- [SUBSYSTEMS.md](../../SUBSYSTEMS.md) — the full catalog
+- [SERVICES.md](../../SERVICES.md) — the full catalog
 - [docs/core/01-vault-and-collections.md](../core/01-vault-and-collections.md) (TODO)
 - [docs/core/02-encryption.md](../core/02-encryption.md) (TODO)

@@ -69,6 +69,6 @@ const db = await createNoydb({
 
 ## See also
 
-- [SUBSYSTEMS.md](../../SUBSYSTEMS.md)
+- [SERVICES.md](../../SERVICES.md)
 - `docs/recipes/realtime-crdt-app.md`
 - `__tests__/sync.test.ts`, `__tests__/presence.test.ts`, `showcases/src/04-sync-two-offices.showcase.test.ts`

@@ -1,6 +1,6 @@
 /**
  * `@noy-db/hub/sync` — subpath export for the optional sync engine +
- * presence subsystem (~856 LOC).
+ * presence service (~856 LOC).
  *
  * Solo / single-device apps that never replicate to a remote peer
  * and never call `collection.presence()` exclude this subpath

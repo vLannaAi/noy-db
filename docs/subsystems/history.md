@@ -95,6 +95,6 @@ operational / derived collections vault-wide.
 
 ## See also
 
-- [SUBSYSTEMS.md](../../SUBSYSTEMS.md)
+- [SERVICES.md](../../SERVICES.md)
 - `docs/recipes/accounting-app.md`
 - `__tests__/history.test.ts`, `__tests__/ledger.test.ts`, `__tests__/time-machine.test.ts`

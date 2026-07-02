@@ -1,10 +1,10 @@
 # noy-db specification
 
-> **Status: pre-release placeholder.** A full specification lands with the first stable release. Until then, [`SUBSYSTEMS.md`](./SUBSYSTEMS.md) is the canonical catalog and [`docs/core/`](./docs/core/) describes the always-on surface.
+> **Status: pre-release placeholder.** A full specification lands with the first stable release. Until then, [`SERVICES.md`](./SERVICES.md) is the canonical catalog and [`docs/core/`](./docs/core/) describes the always-on surface.
 
 ## What ships in 0.1.0-pre.1 — at a glance
 
-- **Hub** (`@noy-db/hub`) — encrypted document store, vault + collection model, 6-method storage contract, query DSL, optional subsystems behind `with*()` strategy seams.
+- **Hub** (`@noy-db/hub`) — encrypted document store, vault + collection model, 6-method storage contract, query DSL, optional services behind `with*()` strategy seams.
 - **Storage** (`@noy-db/to-*`) — 20 backends from in-memory through cloud SQL.
 - **Frameworks** (`@noy-db/in-*`) — bindings for Vue / Pinia / Nuxt / React / Next.js / Svelte / Zustand / TanStack / Yjs / AI tool-calling.
 - **Unlock** (`@noy-db/on-*`) — passkeys, OIDC, magic-links, recovery codes, Shamir, TOTP, email-OTP, PIN, threat (lockout / duress / honeypot).
@@ -34,4 +34,4 @@ The recipient-list shape is structurally a portable keyring (`Record<userId, Key
 
 - The public TypeScript surface (named exports, option shapes, error classes) may evolve based on pilot feedback.
 - The envelope wire format is stable but optional fields may be added.
-- Optional subsystem strategies and their option shapes may be renamed or split.
+- Optional service strategies and their option shapes may be renamed or split.

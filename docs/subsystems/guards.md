@@ -351,6 +351,6 @@ Visible via `vault.ledger().entries()` like every other ledger entry.
 
 ## See also
 
-- [SUBSYSTEMS.md](../../SUBSYSTEMS.md)
+- [SERVICES.md](../../SERVICES.md)
 - `docs/superpowers/specs/2026-05-18-guards-design.md`
 - `__tests__/guards/*.test.ts`, `showcases/src/79-with-guard.showcase.test.ts`

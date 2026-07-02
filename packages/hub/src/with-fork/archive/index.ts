@@ -1,5 +1,5 @@
 /**
- * `@noy-db/hub` record cold-storage archival subsystem.
+ * `@noy-db/hub` record cold-storage archival service.
  *
  * `withArchive({ store })` designates a cold {@link NoydbStore} as the
  * archive target. Declare a per-collection `archive` policy, then call

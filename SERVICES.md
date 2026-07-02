@@ -1,10 +1,12 @@
-# NOYDB Subsystems
+# NOYDB Services
 
-> Authoritative list of subsystems and the always-on core. The subsystem catalog **is** the product surface — every entry below is both a developer-facing feature and a tree-shake-able code module behind a `with*()` strategy seam.
+> Formerly `SUBSYSTEMS.md`.
 
-## Why subsystems
+> Authoritative list of services and the always-on core. The service catalog **is** the product surface — every entry below is both a developer-facing feature and a tree-shake-able code module behind a `with*()` strategy seam.
 
-NOYDB is built as a **minimalist core + opt-in subsystems**. A consumer who calls only `createNoydb({ user })` — no `store`, since the kernel ships a built-in in-memory default — gets a fully working zero-knowledge encrypted document store and pays for nothing else. Every other capability — history, blobs, sync, joins, CRDT — is a subsystem the developer opts into by passing a strategy factory:
+## Why services
+
+NOYDB is built as a **minimalist core + opt-in services**. A consumer who calls only `createNoydb({ user })` — no `store`, since the kernel ships a built-in in-memory default — gets a fully working zero-knowledge encrypted document store and pays for nothing else. Every other capability — history, blobs, sync, joins, CRDT — is a service the developer opts into by passing a strategy factory:
 
 ```ts
 import { createNoydb } from '@noy-db/hub'
@@ -19,9 +21,9 @@ const db = await createNoydb({
 })
 ```
 
-When a subsystem is not opted into, its real implementation is replaced by a NO-OP stub (or a throwing stub on opt-in surfaces) and the heavy code is fully tree-shaken from the bundle.
+When a service is not opted into, its real implementation is replaced by a NO-OP stub (or a throwing stub on opt-in surfaces) and the heavy code is fully tree-shaken from the bundle.
 
-This document lists the always-on core and the 24 subsystems. It is the table of contents for the rest of the documentation.
+This document lists the always-on core and the service catalog (24 services). It is the table of contents for the rest of the documentation.
 
 ---
 
@@ -34,18 +36,18 @@ The core is what NOYDB **is**, not what it **does**. Six areas are always loaded
 | C1 | **Vault & Collection model** | `Noydb`, `Vault`, `Collection<T>`, lifecycle, `openVault`, `listVaults` | ~3,000 |
 | C2 | **Encryption** | AES-256-GCM, PBKDF2-SHA256 (600K), AES-KW, KEK→DEK, envelope format | ~500 |
 | C3 | **Store contract** | The 6-method `NoydbStore` interface (`get`/`put`/`delete`/`list`/`loadAll`/`saveAll`) | ~300 |
-| C4 | **Keyring & Permissions** | Owner-role keyring, DEK wrapping, single-user permission check (multi-user grant/revoke is the **`team`** subsystem) | ~750 |
+| C4 | **Keyring & Permissions** | Owner-role keyring, DEK wrapping, single-user permission check (multi-user grant/revoke is the **`team`** service) | ~750 |
 | C5 | **Schema & Refs** | Typed records, foreign-key references, ref-mode dispatch (strict / warn / cascade) | ~460 |
 | C6 | **Query basics** | `where` / `orderBy` / `limit` / `offset` / `toArray` / `first` / `count` / `scan` (eager async iteration) | ~700 |
 | — | Errors / Events / Validation | Structured error types, `change` events, runtime guards | ~800 |
 
-Anything outside this floor is a subsystem.
+Anything outside this floor is a service.
 
 ---
 
-## The 24 subsystems
+## The service catalog
 
-Each subsystem has its own subpath export under `@noy-db/hub/<name>`, a `with<Name>()` factory, and a doc page in `docs/subsystems/<name>.md`. The "LOC saved" column is the bundle weight a consumer avoids by **not** opting in.
+Each service has its own subpath export under `@noy-db/hub/<name>`, a `with<Name>()` factory, and a doc page in `docs/subsystems/<name>.md`. The "LOC saved" column is the bundle weight a consumer avoids by **not** opting in.
 
 ### Cluster A — Read & Query
 
@@ -116,16 +118,16 @@ The Dim 14 family. All three share the same encrypted-payload metadata envelope,
 | 17 | `@noy-db/hub/routing` | Multi-store routing + middleware + sync-policy + lazy-mode + LRU cache | ~1,985 | `indexing`, `bundle` |
 | 24 | *(preview)* | Multi-vault partition federation — `db.openVaultGroup()` transparent shard routing + `vault-registry` source-of-truth + `minVersion` fan-out guard (MVP, milestone 16) | — | `queryAcross`, `permissions` |
 
-**Totals:** ~16,650 LOC across all 24 subsystems are tree-shake-able. A consumer using only the core ships ~6,500 LOC. A consumer opting into all 24 ships ~31,700 LOC.
+**Totals:** ~16,650 LOC across all 24 services are tree-shake-able. A consumer using only the core ships ~6,500 LOC. A consumer opting into all 24 ships ~31,700 LOC.
 
 ---
 
-## Subsystem page template
+## Service page template
 
-Every subsystem doc page (`docs/subsystems/<name>.md`) follows the same template so developers can scan any page and find what they need in the same spot:
+Every service doc page (`docs/subsystems/<name>.md`) follows the same template so developers can scan any page and find what they need in the same spot:
 
 ```markdown
-# <Subsystem Name>
+# <Service Name>
 
 > **Subpath:** `@noy-db/hub/<name>`
 > **Factory:** `with<Name>()`
@@ -155,7 +157,7 @@ const db = await createNoydb({
 
 ## API
 
-The public surface this subsystem adds: methods on `Vault`, `Collection`, query terminals, top-level helpers.
+The public surface this service adds: methods on `Vault`, `Collection`, query terminals, top-level helpers.
 
 ## Behavior when NOT opted in
 
@@ -164,7 +166,7 @@ The public surface this subsystem adds: methods on `Vault`, `Collection`, query 
 
 ## Pairs well with
 
-Cross-references to other subsystems that compose naturally.
+Cross-references to other services that compose naturally.
 
 ## Edge cases & limits
 
@@ -219,7 +221,7 @@ docs/
     store-conformance.md
 ```
 
-`SPEC.md` reorganizes around the same partition: a "Core" half (one section per C1–C6) and a "Subsystems" half (one section per subsystem, in the same order as the catalog).
+`SPEC.md` reorganizes around the same partition: a "Core" half (one section per C1–C6) and a "Services" half (one section per service, in the same order as the catalog).
 
 ---
 
@@ -307,9 +309,9 @@ const db = await createNoydb({
 
 ---
 
-## Reserved future subsystems
+## Reserved future services
 
-Slots reserved in the catalog so future work doesn't force renumbering or doc reshuffles. These are **not** subsystems today; they're placeholders so spec/docs/issues can reference them ahead of implementation.
+Slots reserved in the catalog so future work doesn't force renumbering or doc reshuffles. These are **not** services today; they're placeholders so spec/docs/issues can reference them ahead of implementation.
 
 | Reserved name | Intended scope | Earliest target |
 |---|---|---|
@@ -320,9 +322,9 @@ Slots reserved in the catalog so future work doesn't force renumbering or doc re
 
 ---
 
-## Subsystem dependencies
+## Service dependencies
 
-Subsystems compose. The diagram below records hard dependencies (A → B means "if you opt into A, you should also opt into B for the documented surface to work end-to-end").
+Services compose. The diagram below records hard dependencies (A → B means "if you opt into A, you should also opt into B for the documented surface to work end-to-end").
 
 ```
 joins ─────────► indexing      (indexed nested-loop strategy)
@@ -355,8 +357,8 @@ Soft pairings (mentioned in "Pairs well with" but not enforced) are listed per p
 The catalog only delivers value if the gates hold under build. CI must enforce:
 
 1. **Floor invariant** — `createNoydb({ store, user })` with no other imports compiles to ≤ ~6,800 LOC of executed JS (small headroom over the floor for type-elision artifacts).
-2. **Per-subsystem invariant** — importing a single subsystem entry adds ≤ its declared LOC (with a +10% headroom).
-3. **Cross-leak invariant** — no subsystem implementation file is reachable from `@noy-db/hub` (root) without an explicit subpath import. Enforced by a Rollup analyzer pass.
+2. **Per-service invariant** — importing a single service entry adds ≤ its declared LOC (with a +10% headroom).
+3. **Cross-leak invariant** — no service implementation file is reachable from `@noy-db/hub` (root) without an explicit subpath import. Enforced by a Rollup analyzer pass.
 
 These three invariants make the catalog **load-bearing** rather than aspirational.
 
@@ -364,14 +366,14 @@ These three invariants make the catalog **load-bearing** rather than aspirationa
 
 ## Governance
 
-- **Adding a subsystem** requires: a doc page from the template, a strategy seam (`<name>/{strategy.ts,active.ts,index.ts}`), a subpath export in `package.json`, a tsup multi-entry, a SPEC section, and a CI bundle-size gate.
-- **Removing a subsystem** requires a deprecation notice in the changelog, a major version bump, and a migration recipe in the doc page.
-- **Renaming a subsystem** requires keeping the old subpath export as a re-export for one minor version with a deprecation warning.
+- **Adding a service** requires: a doc page from the template, a strategy seam (`<name>/{strategy.ts,active.ts,index.ts}`), a subpath export in `package.json`, a tsup multi-entry, a SPEC section, and a CI bundle-size gate.
+- **Removing a service** requires a deprecation notice in the changelog, a major version bump, and a migration recipe in the doc page.
+- **Renaming a service** requires keeping the old subpath export as a re-export for one minor version with a deprecation warning.
 
 ---
 
 ## Open questions
 
-- Should `keyring-grant` (multi-user grant/revoke/rotate) split out of core into the `team` subsystem, leaving only single-owner keyring in core? Today this is partially done — the proposal is to complete the split so the core floor really is single-user.
-- Should `lazy` mode (cache + on-demand fetch) be promoted from inside `routing` to its own headline subsystem? Trade-off: clarity vs. catalog inflation. Open for the next review.
-- Should `bundle` stay as a subpath given it already tree-shakes naturally via `"sideEffects": false` and named re-exports? Decision: yes — the docs surface matters more than the technical mechanism, and a uniform pattern (every subsystem has `with*()`) is easier to teach.
+- Should `keyring-grant` (multi-user grant/revoke/rotate) split out of core into the `team` service, leaving only single-owner keyring in core? Today this is partially done — the proposal is to complete the split so the core floor really is single-user.
+- Should `lazy` mode (cache + on-demand fetch) be promoted from inside `routing` to its own headline service? Trade-off: clarity vs. catalog inflation. Open for the next review.
+- Should `bundle` stay as a subpath given it already tree-shakes naturally via `"sideEffects": false` and named re-exports? Decision: yes — the docs surface matters more than the technical mechanism, and a uniform pattern (every service has `with*()`) is easier to teach.

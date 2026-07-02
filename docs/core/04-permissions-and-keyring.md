@@ -24,7 +24,7 @@ A vault can be opened only by a user whose keyring decrypts (passphrase / passke
 | `viewer` | `*: ro` | No | Yes |
 | `client` | Explicit collections: `ro` | No | ACL-scoped |
 
-Multi-user grant / revoke / rotate / magic-link / delegation / hierarchical tiers live in the [team](../subsystems/team.md) subsystem. Single-owner workflows need none of that — the keyring core is enough.
+Multi-user grant / revoke / rotate / magic-link / delegation / hierarchical tiers live in the [team](../subsystems/team.md) service. Single-owner workflows need none of that — the keyring core is enough.
 
 ## Single-owner flow
 

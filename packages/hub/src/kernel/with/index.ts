@@ -1,7 +1,7 @@
 /**
  * @noy-db/hub/with — the seam `with*()` services hook into (S5 family doors).
  *
- * Carries the three primitives every opt-in subsystem is built on top of: the
+ * Carries the three primitives every opt-in service is built on top of: the
  * `ServiceBus` (observe/gate lifecycle bus — renamed from `SubsystemBus`, kept
  * as a deprecated alias for source compat), the `WriteHookRegistry`
  * (before/after write hooks), and the export/import capability gate

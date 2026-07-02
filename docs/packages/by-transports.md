@@ -94,6 +94,6 @@ Session-sharing didn't fit any of those. It isn't storage (no `loadAll` / `saveA
 
 ## Related
 
-- [`SUBSYSTEMS.md`](../../SUBSYSTEMS.md) — the `sync` and `crdt` subsystems are the hub-side strategies that produce the change stream a `by-*` transport carries.
+- [`SERVICES.md`](../../SERVICES.md) — the `sync` and `crdt` services are the hub-side strategies that produce the change stream a `by-*` transport carries.
 - [`docs/recipes/realtime-crdt-app.md`](../recipes/realtime-crdt-app.md) — the canonical real-time recipe; pairs naturally with `by-peer` and `by-tabs`.
 - [`docs/packages/README.md`](./README.md) — overview of all five package families.

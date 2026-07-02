@@ -1,6 +1,6 @@
 /**
  * Strategy seam for the optional i18n (multi-locale + dictionary)
- * subsystem. Core imports `I18nStrategy` type-only + `NO_I18N` stub;
+ * service. Core imports `I18nStrategy` type-only + `NO_I18N` stub;
  * real `applyI18nLocale` / `validateI18nTextValue` /
  * `DictionaryHandle` are only reachable via `withI18n()` in
  * `./active.ts`.

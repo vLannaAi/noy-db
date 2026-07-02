@@ -1,5 +1,5 @@
 /**
- * @noy-db/hub/blobs — opt-in blob / document subsystem.
+ * @noy-db/hub/blobs — opt-in blob / document service.
  *
  * @category capability
  *
