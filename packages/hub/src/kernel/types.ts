@@ -53,7 +53,7 @@ import type { SyncStrategy } from '../with-party/team/sync-strategy.js'
 import type { GuardStrategyHandleAny } from '../with-audit/guards/types.js'
 import type { DerivationStrategyHandle } from '../with-formula/derivations/types.js'
 import type { UnlockedKeyring } from '../with-party/team/keyring.js'
-import type { VaultPolicy } from './policy/types.js'
+import type { VaultPolicy, FactorProof } from './policy/types.js'
 import type { PublicEnvelopeSchema } from '../with-party/directory/public-envelope/types.js'
 import type { MaterializedViewStrategyHandle } from '../with-formula/materialized-views/types.js'
 import type { OverlayedViewStrategyHandle } from '../with-formula/overlay-views/types.js'
@@ -2436,6 +2436,18 @@ export interface NoydbOptions {
    */
   readonly coordinationStrategy?: CoordinationProvider
   /**
+   * Pre-resolved factory for the `vault.user` per-principal user-envelope
+   * API. `createNoydb()` always resolves this itself (dynamically
+   * importing `with-party/directory/user-envelope/api.js`) before
+   * constructing `Noydb` — mirrors the {@link coordinationStrategy}
+   * pre-resolve above. There is no supported way to override it; it exists
+   * as an options-bag field only so `createNoydb()` can thread the
+   * pre-resolved value into the constructor without a second parameter.
+   *
+   * @internal
+   */
+  readonly userApiFactory?: UserApiFactory
+  /**
    * Stable id for the session that owns this instance's writers (one user's
    * writers across vaults). Tags every {@link WriterPresence} the fence
    * watcher reports. Defaults to a fresh ULID per `Noydb` instance.
@@ -2533,3 +2545,213 @@ export interface DeleteManyResult {
   readonly success: readonly string[]
   readonly failures: ReadonlyArray<{ readonly id: string; readonly error: Error }>
 }
+
+// ─── User Envelope (vault.user contract) ───────────────────────────────
+//
+// The per-principal user-envelope service's PUBLIC CONTRACT lives here in
+// the spine; the implementation (`UserApi` / `createUserApi`, storage
+// primitives) lives at `with-party/directory/user-envelope/` and is wired
+// in by `createNoydb()` via the pre-resolved `userApiFactory` option above
+// — the same dynamic-import-then-stash pattern used for the default
+// `CoordinationProvider`.
+//
+// @see docs/superpowers/specs/2026-05-05-user-envelope-design.md
+
+/**
+ * Thin reader view of a user envelope. The on-disk shape is the standard
+ * {@link EncryptedEnvelope}; this is what callers see after the storage
+ * layer has decrypted the payload.
+ *
+ * Hub commits to the `keyringId` ⇔ `userId` identity and the `_v` / `_ts`
+ * envelope metadata. The `data` payload is fully app-defined — hub does
+ * not introspect, validate, or reserve any keys inside it.
+ */
+export interface UserEnvelope<T> {
+  /** The principal id this envelope belongs to. Equals the keyring `user_id`. */
+  readonly keyringId: string
+  /** App-owned payload. Opaque to hub. */
+  readonly data: T
+  /** Optimistic-concurrency version. Increments on every write. */
+  readonly _v: number
+  /** ISO timestamp of the last write. */
+  readonly _ts: string
+}
+
+/**
+ * Recursive partial. Used for `updateMe(patch)` so callers can hand in
+ * deeply-nested partial shapes and have them deep-merged onto the
+ * current envelope.
+ */
+export type DeepPartial<T> = T extends object
+  ? { [P in keyof T]?: DeepPartial<T[P]> }
+  : T
+
+/**
+ * Recursive partial with `null` allowed at every level — used by
+ * `updateMe` to express deletion intent in addition to merge.
+ *
+ * Semantics inside `updateMe`:
+ *   - `undefined` (or absent key) — skip; source value preserved
+ *   - `null` — delete the key from the resulting envelope
+ *   - any other value — overwrite (deep-merge for plain objects,
+ *     replace for primitives / arrays)
+ *
+ * Matches lodash `_.merge` behavior on `null` and Firestore's
+ * `FieldValue.delete()` semantics. Loosened from `DeepPartial<T>`.
+ * Consumers wanting the original "merge-only" surface can keep
+ * importing `DeepPartial` and avoid passing `null`.
+ */
+export type DeepPartialOrNull<T> = T extends object
+  ? { [P in keyof T]?: DeepPartialOrNull<T[P]> | null }
+  : T
+
+/** Cancel a previously-registered subscription. */
+export type Unsubscribe = () => void
+
+/**
+ * Optional factor-proof bundle threaded into gated user-envelope
+ * operations. Same shape as `Noydb.checkGate(vault, gate, presented)`
+ * accepts elsewhere — apps that have already presented a TOTP/email-OTP
+ * for this session pass it here to satisfy tightened policies.
+ */
+export interface UserEnvelopePresented {
+  readonly factors?: readonly FactorProof[]
+  readonly sharedDevice?: boolean
+}
+
+/**
+ * Callback used by `UserApi` to validate the active session against a
+ * policy gate. Provided by the `Vault` constructor; in production this
+ * delegates to `Noydb.checkGate(vault, gate, presented)`. In tests, a
+ * no-op stub is fine.
+ */
+export type UserEnvelopeCheckGate = (
+  gate:
+    | 'edit-own-profile'
+    | 'view-team-profiles'
+    | 'client-unilateral-withdraw'
+    | 'user-request-withdrawal'
+    | 'approve-user-withdrawal',
+  presented?: UserEnvelopePresented,
+) => Promise<void>
+
+/**
+ * Reactive handle returned by `live()`. `current` is the most recently
+ * observed value; `subscribe(cb)` fires on subsequent local writes.
+ * `stop()` releases the underlying subscription.
+ */
+export interface LiveUserEnvelope<T> {
+  current(): UserEnvelope<T> | null
+  subscribe(cb: (env: UserEnvelope<T> | null) => void): Unsubscribe
+  stop(): void
+}
+
+/**
+ * The 2nd positional parameter of a {@link PortabilityStrategy} method
+ * (index 1, right after the leading `vault` argument).
+ */
+type PortabilityParam1<K extends keyof PortabilityStrategy> = Parameters<PortabilityStrategy[K]>[1]
+/**
+ * The 3rd positional parameter (index 2) — only present on
+ * `approveWithdrawal` / `rejectWithdrawal` (requestId is index 1 there).
+ */
+type PortabilityParam2<K extends keyof PortabilityStrategy> = Parameters<PortabilityStrategy[K]>[2]
+type PortabilityReturn<K extends keyof PortabilityStrategy> = ReturnType<PortabilityStrategy[K]>
+
+/**
+ * Public `vault.user.*` API surface — the CONTRACT. The implementation
+ * (`UserApi`) lives at `with-party/directory/user-envelope/api.ts` and
+ * `implements` this interface; `createNoydb()` wires it in via the
+ * pre-resolved {@link UserApiFactory}.
+ *
+ * Three families:
+ *  - Write-self: `me` / `updateMe` / `setMe` — always target the writer's
+ *    own keyringId. **Own-only write rule** is structural — no method
+ *    exists to write someone else's envelope.
+ *  - Read-anyone: `get` / `list` — read other principals' envelopes
+ *    (subject to `view-team-profiles` policy gate).
+ *  - Reactive: `subscribe` / `live` — in-process event emission on local
+ *    writes. Cross-instance updates land via the team/sync engine and
+ *    surface to subscribers when the sync diff replays through this API.
+ *
+ * @see docs/superpowers/specs/2026-05-05-user-envelope-design.md
+ */
+export interface VaultUserApi {
+  requestWithdrawal(opts?: PortabilityParam1<'requestWithdrawal'>): PortabilityReturn<'requestWithdrawal'>
+  listWithdrawalRequests(opts?: PortabilityParam1<'listWithdrawalRequests'>): PortabilityReturn<'listWithdrawalRequests'>
+  approveWithdrawal(
+    requestId: PortabilityParam1<'approveWithdrawal'>,
+    opts?: PortabilityParam2<'approveWithdrawal'>,
+  ): PortabilityReturn<'approveWithdrawal'>
+  rejectWithdrawal(
+    requestId: PortabilityParam1<'rejectWithdrawal'>,
+    opts?: PortabilityParam2<'rejectWithdrawal'>,
+  ): PortabilityReturn<'rejectWithdrawal'>
+  unilateralWithdrawal(opts: PortabilityParam1<'withdrawAccessibleData'>): PortabilityReturn<'withdrawAccessibleData'>
+  exportMyAccessibleData(opts?: PortabilityParam1<'exportAccessibleData'>): PortabilityReturn<'exportAccessibleData'>
+  me<T = unknown>(): Promise<UserEnvelope<T> | null>
+  updateMe<T extends object = Record<string, unknown>>(
+    patch: DeepPartialOrNull<T>,
+    presented?: UserEnvelopePresented,
+  ): Promise<UserEnvelope<T>>
+  setMe<T = unknown>(payload: T, presented?: UserEnvelopePresented): Promise<UserEnvelope<T>>
+  getMyVisibility(): Promise<{ readonly hidden: boolean }>
+  setMyVisibility(visibility: { readonly hidden: boolean }): Promise<void>
+  get<T = unknown>(keyringId: string, presented?: UserEnvelopePresented): Promise<UserEnvelope<T> | null>
+  list<T = unknown>(presented?: UserEnvelopePresented): Promise<UserEnvelope<T>[]>
+  subscribe<T = unknown>(keyringId: string, cb: (env: UserEnvelope<T> | null) => void): Unsubscribe
+  live<T = unknown>(keyringId: string): LiveUserEnvelope<T>
+}
+
+/**
+ * Constructor dependencies for `UserApi` (the {@link VaultUserApi}
+ * implementation). Built by `Vault`'s constructor and passed to the
+ * pre-resolved {@link UserApiFactory}.
+ */
+export interface UserApiDeps {
+  readonly adapter: NoydbStore
+  readonly vaultName: string
+  /** The writer's own keyringId. Frozen at construction time. */
+  readonly writerKeyringId: string
+  readonly getDek: () => Promise<CryptoKey>
+  /**
+   * Policy-gate validator. When omitted, gates are skipped — useful
+   * for low-level tests that exercise the storage layer directly.
+   * Production paths always wire the Noydb-backed implementation.
+   */
+  readonly checkGate?: UserEnvelopeCheckGate
+  /**
+   * Noydb-backed `exportMyAccessibleData`, injected by the Vault
+   * (which holds the keyring + bundle machinery). Omitted in low-level tests.
+   */
+  readonly exportAccessible?: (opts: PortabilityParam1<'exportAccessibleData'>) => PortabilityReturn<'exportAccessibleData'>
+  /**
+   * Noydb-backed `unilateralWithdrawal`, injected by the Vault.
+   * Destructive — extract + dispose (delete | freeze). Omitted in low-level tests.
+   */
+  readonly unilateralWithdraw?: (opts: PortabilityParam1<'withdrawAccessibleData'>) => PortabilityReturn<'withdrawAccessibleData'>
+  /**
+   * Noydb-backed two-party withdrawal ceremony, injected by the
+   * Vault. requestWithdraw = requester side; the rest = owner side.
+   */
+  readonly requestWithdraw?: (opts: PortabilityParam1<'requestWithdrawal'>) => PortabilityReturn<'requestWithdrawal'>
+  readonly listWithdrawals?: (opts: PortabilityParam1<'listWithdrawalRequests'>) => PortabilityReturn<'listWithdrawalRequests'>
+  readonly approveWithdraw?: (
+    requestId: PortabilityParam1<'approveWithdrawal'>,
+    opts: PortabilityParam2<'approveWithdrawal'>,
+  ) => PortabilityReturn<'approveWithdrawal'>
+  readonly rejectWithdraw?: (
+    requestId: PortabilityParam1<'rejectWithdrawal'>,
+    opts: PortabilityParam2<'rejectWithdrawal'>,
+  ) => PortabilityReturn<'rejectWithdrawal'>
+}
+
+/**
+ * Factory that builds the `vault.user` API implementation from its
+ * dependencies. `createNoydb()` pre-resolves the real implementation
+ * (`with-party/directory/user-envelope/api.js#createUserApi`) via a
+ * dynamic import before constructing `Noydb`, so `Vault`'s constructor
+ * can call it synchronously — the two sync `subscribe`/`live` methods on
+ * `VaultUserApi` are why `vault.user` must be built synchronously.
+ */
+export type UserApiFactory = (deps: UserApiDeps) => VaultUserApi

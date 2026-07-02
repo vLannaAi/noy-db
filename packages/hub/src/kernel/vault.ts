@@ -8,6 +8,7 @@ import type {
   CrossTierAccessEvent,
   TierMode,
   Role,
+  VaultUserApi,
 } from './types.js'
 import type { Noydb } from './noydb.js'
 import type { IssueDelegationOptions, DelegationToken } from '../with-party/team/delegation.js'
@@ -129,7 +130,6 @@ import {
   type IssueMagicLinkGrantOptions,
   type MagicLinkGrantRecord,
 } from '../with-party/team/magic-link-grant.js'
-import { UserApi } from './meta/user-envelope/api.js'
 import { CustodyApi } from '../with-party/custody/index.js'
 import { persistSchemaIfNeeded } from '../with-shape/persisted-schemas/register.js'
 import { SchemaUpdateGate } from '../with-shape/schema-update/gate.js'
@@ -144,7 +144,7 @@ import type { DumpSchemaOptions, VaultSchemaSnapshot, SchemaIntrospection } from
 import { dumpVaultSchema, type VaultIntrospectState } from '../with-shape/introspection/walk.js'
 import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
 import type { CollectionMeta, VaultMeta } from '../with-shape/introspection/meta.js'
-import { USER_ENVELOPE_COLLECTION } from './meta/user-envelope/types.js'
+import { USER_ENVELOPE_COLLECTION } from './constants.js'
 
 /**
  * Resolve a label from an in-memory `{ locale → label }` map, walking the
@@ -287,7 +287,7 @@ export class Vault {
    *
    * @see docs/superpowers/specs/2026-05-05-user-envelope-design.md
    */
-  public readonly user: UserApi
+  public readonly user: VaultUserApi
 
   /**
    * FR-6 custody API — the sovereign-custody surface, mirroring `vault.user.*`.
@@ -633,19 +633,19 @@ export class Vault {
     // through the rebuilt this.getDEK), and a checkGate callback that
     // delegates to Noydb's policy engine (wires edit-own-profile +
     // view-team-profiles).
-    this.user = new UserApi(
-      this.adapter,
-      this.name,
-      this.keyring.userId,
-      () => this.getDEK(USER_ENVELOPE_COLLECTION),
-      (gate, presented) => this.noydb.checkGate(this.name, gate, presented),
-      (opts) => this.portabilityStrategy.exportAccessibleData(this, opts),
-      (opts) => this.portabilityStrategy.withdrawAccessibleData(this, opts),
-      (opts) => this.portabilityStrategy.requestWithdrawal(this, opts),
-      (opts) => this.portabilityStrategy.listWithdrawalRequests(this, opts),
-      (requestId, opts) => this.portabilityStrategy.approveWithdrawal(this, requestId, opts),
-      (requestId, opts) => this.portabilityStrategy.rejectWithdrawal(this, requestId, opts),
-    )
+    this.user = this.noydb.userApiFactory({
+      adapter: this.adapter,
+      vaultName: this.name,
+      writerKeyringId: this.keyring.userId,
+      getDek: () => this.getDEK(USER_ENVELOPE_COLLECTION),
+      checkGate: (gate, presented) => this.noydb.checkGate(this.name, gate, presented),
+      exportAccessible: (opts) => this.portabilityStrategy.exportAccessibleData(this, opts),
+      unilateralWithdraw: (opts) => this.portabilityStrategy.withdrawAccessibleData(this, opts),
+      requestWithdraw: (opts) => this.portabilityStrategy.requestWithdrawal(this, opts),
+      listWithdrawals: (opts) => this.portabilityStrategy.listWithdrawalRequests(this, opts),
+      approveWithdraw: (requestId, opts) => this.portabilityStrategy.approveWithdrawal(this, requestId, opts),
+      rejectWithdraw: (requestId, opts) => this.portabilityStrategy.rejectWithdrawal(this, requestId, opts),
+    })
 
     // FR-6 custody API — mirrors the UserApi injection pattern: vault-bound
     // closures over Noydb.grantCustodian/revokeCustodian (owner-only) and the

@@ -20,6 +20,7 @@ import type {
   ReAuthOperation,
   TranslatorAuditEntry,
   WriteConflict,
+  UserApiFactory,
 } from './types.js'
 import { ValidationError, NoAccessError, InvalidKeyError, KeyringCorruptError, StoreCapabilityError, PermissionDeniedError, DebugPlaintextError } from './errors.js'
 import {
@@ -154,6 +155,8 @@ export class Noydb {
   private readonly sessionId: string
   /** Drain-barrier coordination transport for the schema fence. */
   private readonly coordinationProvider: CoordinationProvider
+  /** Pre-resolved `vault.user` API factory (mirrors `coordinationProvider` above). Public so `Vault` can call it. */
+  readonly userApiFactory: UserApiFactory
   private readonly vaultCache = new Map<string, Vault>()
   private readonly keyringCache = new Map<string, UnlockedKeyring>()
   private readonly syncEngines = new Map<string, SyncEngine>()
@@ -241,6 +244,8 @@ export class Noydb {
       )
     }
     this.coordinationProvider = options.coordinationStrategy
+    if (!options.userApiFactory) throw new ValidationError('Noydb must be constructed via createNoydb(), which resolves the default user-envelope API factory.')
+    this.userApiFactory = options.userApiFactory
     this.txStrategy = options.txStrategy ?? NO_TX
     this.forgetStrategy = options.forgetStrategy ?? NO_FORGET
     this.custodyStrategy = options.custodyStrategy ?? NO_CUSTODY
@@ -2290,6 +2295,7 @@ export async function createNoydb(options: NoydbOptions): Promise<Noydb> {
   }
 
   if (!options.coordinationStrategy) options = { ...options, coordinationStrategy: await createDefaultCoordinationProvider(options.store!) }
+  if (!options.userApiFactory) options = { ...options, userApiFactory: (await import('../with-party/directory/user-envelope/api.js')).createUserApi }
 
   return new Noydb(options as ResolvedNoydbOptions)
 }

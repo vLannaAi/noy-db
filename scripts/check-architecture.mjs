@@ -1220,13 +1220,6 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../../../with-audit/sealed-record/types.js',
     '../../../with-party/team/managed-passphrase.js',
   ]],
-  ['packages/hub/src/kernel/meta/user-envelope/api.ts', [
-    '../../../with-audit/portability/export-accessible.js',
-    '../../../with-audit/portability/request-withdrawal.js',
-    '../../../with-audit/portability/withdraw-accessible.js',
-    '../../../with-party/directory/types.js',
-    '../../../with-party/directory/visibility.js',
-  ]],
   ['packages/hub/src/kernel/policy/noydb-facade.ts', [
     '../../with-party/session/session-policy.js',
     '../../with-party/session/strategy.js',
