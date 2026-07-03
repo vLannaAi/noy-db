@@ -47,6 +47,7 @@ import type { MoneyDescriptor } from '../with-shape/money/descriptor.js'
 import { validateMoneyFieldPaths } from '../with-shape/money/paths.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
 import { resolveClassifiedFields, ClassifiedConfigError, type ClassifiedEntry, type ResolvedClassified } from '../with-shape/classified/resolve.js'
+import { NO_CLASSIFIED, type ClassifiedStrategy } from '../with-shape/classified/strategy.js'
 import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
 import type { CollectionMeta } from '../with-shape/introspection/meta.js'
 import type { RefDescriptor } from './refs.js'
@@ -229,6 +230,8 @@ export interface CollectionOpts<T> {
   computed?: ComputedFields | undefined
   /** — declare classified() sensitive-field descriptors (sealed + riders + projections). */
   classifiedFields?: Record<string, ClassifiedEntry> | undefined
+  /** — tree-shake seam for `collection.reveal()`. Defaults to `NO_CLASSIFIED`. */
+  classifiedStrategy?: ClassifiedStrategy | undefined
   /**
    * async callback that resolves a dict key to its label
    * for a given locale. Provided by the Vault.
@@ -294,7 +297,7 @@ export interface CollectionOpts<T> {
    * outside a consent scope the callback is a no-op. Awaited so a
    * thrown audit write surfaces to the caller.
    */
-  onAccess?: (op: 'get' | 'put' | 'delete', id: string) => Promise<void>
+  onAccess?: (op: 'get' | 'put' | 'delete' | 'reveal', id: string) => Promise<void>
   /**
    * invoked by `put`/`delete` before any adapter
    * write. Receives the prior envelope timestamp + decrypted
@@ -559,6 +562,7 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     _refs: opts.declaredRefs ?? {},
     moneyFields: opts.moneyFields,
     classified: resolvedClassified,
+    classifiedStrategy: opts.classifiedStrategy ?? NO_CLASSIFIED,
     computed: mergedComputed,
     dictLabelResolver: opts.dictLabelResolver,
     getDictionary: opts.getDictionary,

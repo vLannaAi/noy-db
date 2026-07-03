@@ -1683,6 +1683,24 @@ export class AttestationNotEnabledError extends NoydbError {
 }
 
 /**
+ * Thrown when `collection.reveal()` is called without opting into the
+ * classified capability (the default `NO_CLASSIFIED` stub). Classified reveal
+ * is an opt-in, tree-shakeable capability: enable it with
+ * `classifiedStrategy: withClassified()` from "@noy-db/hub/classified" in
+ * createNoydb().
+ */
+export class ClassifiedNotEnabledError extends NoydbError {
+  constructor(
+    message = 'reveal() requires the classified capability. Pass ' +
+      '`classifiedStrategy: withClassified()` from "@noy-db/hub/classified" ' +
+      'to createNoydb().',
+  ) {
+    super('CLASSIFIED_NOT_ENABLED', message)
+    this.name = 'ClassifiedNotEnabledError'
+  }
+}
+
+/**
  * Thrown when a hierarchical-tiers capability method (`putAtTier`, `getAtTier`,
  * `listAtTier`, `elevate`, `demote`) is called without opting into the tiers
  * capability (the default `NO_TIERS` stub). Tiers is an opt-in, tree-shakeable

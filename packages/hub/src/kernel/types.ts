@@ -39,6 +39,7 @@ import type { HistoryStrategy } from '../with-commit/history/strategy.js'
 import type { ForgetStrategy } from '../with-audit/forget/strategy.js'
 import type { SnapshotStrategy } from '../with-fork/snapshots/strategy.js'
 import type { AttestationStrategy } from '../with-audit/attestation/strategy.js'
+import type { ClassifiedStrategy } from '../with-shape/classified/strategy.js'
 import type { TiersStrategy } from '../with-audit/tiers/strategy.js'
 import type { SealedRecordStrategy } from '../with-audit/sealed-record/strategy.js'
 import type { PortabilityStrategy } from '../with-audit/portability/strategy.js'
@@ -2208,6 +2209,13 @@ export interface NoydbOptions {
    * signer engines are tree-shaken out.
    */
   readonly attestationStrategy?: AttestationStrategy
+  /**
+   * Tree-shake seam — optional classified-field capability. Pass
+   * `withClassified()` from `@noy-db/hub/classified` to enable
+   * `collection.reveal()`. When omitted, `reveal()` throws
+   * `ClassifiedNotEnabledError` and the reveal engine is tree-shaken out.
+   */
+  readonly classifiedStrategy?: ClassifiedStrategy
   /**
    * Tree-shake seam — optional sealed-record (grantor-side) capability. Pass
    * `withSealedRecord()` from `@noy-db/hub/sealed-record` to enable

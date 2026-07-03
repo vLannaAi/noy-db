@@ -116,6 +116,10 @@
       "types": "./dist/attestation/index.d.ts",
       "default": "./dist/attestation/index.js"
     },
+    "./classified": {
+      "types": "./dist/classified/index.d.ts",
+      "default": "./dist/classified/index.js"
+    },
     "./tiers": {
       "types": "./dist/tiers/index.d.ts",
       "default": "./dist/tiers/index.js"

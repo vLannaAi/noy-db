@@ -21,6 +21,8 @@
     "CargoNotEnabledError",
     "ClassifiedConfigError",
     "ClassifiedNeverStoredError",
+    "ClassifiedNotEnabledError",
+    "ClassifiedRevealError",
     "ClassifiedValidationError",
     "Collection",
     "CollectionFrame",

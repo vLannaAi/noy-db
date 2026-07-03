@@ -225,6 +225,7 @@
     "resolveRecordCek",
     "resolveVersion",
     "retrieve",
+    "reveal",
     "revert",
     "scan",
     "search",
