@@ -21,6 +21,7 @@ import { evaluateStrategies } from '../schema-update/dispatch.js'
 import type { SchemaUpdateStrategy, UpdateDecision } from '../schema-update/types.js'
 import type { NoydbStore } from '../../kernel/types.js'
 import type { PersistedSchemaEnvelope } from './types.js'
+import type { EnclaveKey } from '../../kernel/enclave/index.js'
 
 export interface PersistSchemaResult {
   /** True when a fresh envelope was written to storage. */
@@ -38,7 +39,7 @@ export async function persistSchemaIfNeeded(opts: {
   readonly vault: string
   readonly collectionName: string
   readonly validator: unknown
-  readonly dek: CryptoKey
+  readonly dek: EnclaveKey
   readonly strategies?: readonly SchemaUpdateStrategy[]
 }): Promise<PersistSchemaResult> {
   const fresh = await derivePersistedSchema(opts.validator)

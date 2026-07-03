@@ -18,6 +18,7 @@
  * assignability to `Collection<unknown>`).
  */
 import type { NoydbStore, ConflictPolicy, CollectionConflictResolver, HistoryConfig, TierMode, CrossTierAccessEvent } from './types.js'
+import type { EnclaveKey } from './enclave/index.js'
 import type { UnlockedKeyring } from '../with-party/team/keyring.js'
 import type { NoydbEventEmitter } from './events.js'
 import type { WriteQueueTracker } from './write-queue.js'
@@ -91,7 +92,7 @@ export interface CollectionOpts<T> {
   subsystemBus?: ServiceBus | undefined
   /** Active transaction id supplier (null outside a transaction). */
   activeTxId?: (() => string | null) | undefined
-  getDEK: (collectionName: string) => Promise<CryptoKey>
+  getDEK: (collectionName: string) => Promise<EnclaveKey>
   historyConfig?: HistoryConfig | undefined
   /**
    * When `true`, the caller explicitly provided `historyConfig` rather than
@@ -487,7 +488,7 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
   // per-record CEK wiring. The cache is bounded by record count; CEKs
   // are tiny CryptoKey handles, so a generous entry budget is cheap.
   const perRecordCek = opts.perRecordKeys === true
-  const cekCache = perRecordCek ? new Lru<string, CryptoKey>({ maxRecords: 4096 }) : null
+  const cekCache = perRecordCek ? new Lru<string, EnclaveKey>({ maxRecords: 4096 }) : null
 
   return {
     adapter: opts.adapter,

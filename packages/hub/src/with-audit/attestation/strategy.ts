@@ -1,4 +1,5 @@
 import type { NoydbStore } from '../../kernel/types.js'
+import type { EnclaveKey } from '../../kernel/enclave/index.js'
 import type { RevocationList } from '@noy-db/attestation'
 import type { IssueContext, IssueArgs, IssueResult } from './issue.js'
 import type { RevokeContext } from './revoke.js'
@@ -15,7 +16,7 @@ export interface SignerLookupDeps {
   /** The invoking keyring's role, read fresh by the caller per call. */
   readonly role: string
   /** Per-collection DEK resolver (bound `vault.getDEK`). */
-  readonly getDEK: (collection: string) => Promise<CryptoKey>
+  readonly getDEK: (collection: string) => Promise<EnclaveKey>
 }
 
 /**

@@ -19,25 +19,25 @@
  * the collection (its lifetime is tied to `load()`), so callers cache the
  * returned key themselves.
  */
-import { encrypt, decrypt, generateDEK, wrapCek, unwrapCek } from '../crypto.js'
+import { encrypt, decrypt, generateDEK, wrapCek, unwrapCek, type EnclaveKey } from '../crypto.js'
 import type { EncryptedEnvelope } from '../../types.js'
 import type { Lru } from '../../cache/index.js'
 
 /** Dependencies {@link resolveStableCek} needs from its collection. */
 export interface StableCekDeps {
   /** The collection's per-record CEK cache (`null` → no caching). */
-  readonly cache: Lru<string, CryptoKey> | null
+  readonly cache: Lru<string, EnclaveKey> | null
   /** Read the record's live envelope (to recover an existing `_cek`). */
   getLive(id: string): Promise<EncryptedEnvelope | null>
   /** The DEK the CEK is wrapped under (the collection DEK on the normal path). */
-  getDEK(): Promise<CryptoKey>
+  getDEK(): Promise<EnclaveKey>
 }
 
 /**
  * Resolve the stable CEK for a record on the write path. Caches the resolved
  * key under `id` so an update + its history snapshot share one CEK.
  */
-export async function resolveStableCek(deps: StableCekDeps, id: string): Promise<CryptoKey> {
+export async function resolveStableCek(deps: StableCekDeps, id: string): Promise<EnclaveKey> {
   const cached = deps.cache?.get(id)
   if (cached) return cached
 
@@ -60,7 +60,7 @@ export interface RewrappedBody {
   /** Present iff the source envelope carried a CEK (per-record-key record). */
   readonly _cek?: string
   /** The body key when one exists, so the caller can cache it; `null` for a legacy record. */
-  readonly cek: CryptoKey | null
+  readonly cek: EnclaveKey | null
 }
 
 /**
@@ -74,8 +74,8 @@ export interface RewrappedBody {
  */
 export async function rewrapBodyToDek(
   envelope: Pick<EncryptedEnvelope, '_iv' | '_data' | '_cek'>,
-  fromDek: CryptoKey,
-  toDek: CryptoKey,
+  fromDek: EnclaveKey,
+  toDek: EnclaveKey,
 ): Promise<RewrappedBody> {
   if (envelope._cek !== undefined) {
     const cek = await unwrapCek(envelope._cek, fromDek)

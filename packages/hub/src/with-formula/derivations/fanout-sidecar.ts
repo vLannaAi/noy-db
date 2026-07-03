@@ -22,9 +22,9 @@
  */
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
-import { encrypt, decrypt } from '../../kernel/enclave/index.js'
+import { encrypt, decrypt, type EnclaveKey } from '../../kernel/enclave/index.js'
 
-type GetDEK = (collectionName: string) => Promise<CryptoKey>
+type GetDEK = (collectionName: string) => Promise<EnclaveKey>
 
 /** The `_meta` collection name whose DEK encrypts the sidecar body. */
 const FANOUT_DEK_COLLECTION = '_meta'

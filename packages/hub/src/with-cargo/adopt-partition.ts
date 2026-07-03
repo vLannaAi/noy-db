@@ -7,7 +7,7 @@
  *
  * @module
  */
-import { base64ToBuffer, wrapKey } from '../kernel/enclave/index.js'
+import { base64ToBuffer, wrapKey, type EnclaveKey } from '../kernel/enclave/index.js'
 import { TransferSealError, AdoptionStateError, ValidationError } from '../kernel/errors.js'
 import type { NoydbStore, VaultSnapshot, KeyringFile } from '../kernel/types.js'
 import { createOwnerKeyring } from '../with-party/team/keyring.js'
@@ -29,7 +29,7 @@ import { readPodHeader, readPod, parseExtractedPartitionBody } from '../with-pod
 export async function unsealDeks(
   seal: TransferSealPayload,
   transferKey: Uint8Array,
-): Promise<Map<string, CryptoKey>> {
+): Promise<Map<string, EnclaveKey>> {
   if (transferKey.byteLength !== 32) {
     throw new TransferSealError(
       `transfer key must be 32 bytes, got ${transferKey.byteLength}.`,
@@ -55,7 +55,7 @@ export async function unsealDeks(
   } catch {
     throw new TransferSealError('transfer seal payload is not valid JSON after decryption.')
   }
-  const deks = new Map<string, CryptoKey>()
+  const deks = new Map<string, EnclaveKey>()
   for (const [collection, b64] of Object.entries(dekMap)) {
     // Extractable: the recipient must be able to re-wrap these under their
     // own KEK (AES-KW) at owner-creation. Matches generateDEK.

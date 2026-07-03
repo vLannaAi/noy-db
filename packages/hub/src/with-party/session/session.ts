@@ -41,7 +41,7 @@
  * even if the session key is still in the Map.
  */
 
-import { bufferToBase64, base64ToBuffer } from '../../kernel/enclave/index.js'
+import { bufferToBase64, base64ToBuffer, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { generateULID } from '../../with-pod/ulid.js'
 import type { Role } from '../../kernel/types.js'
 import type { UnlockedKeyring } from '../team/keyring.js'
@@ -230,7 +230,7 @@ export async function resolveSession(token: SessionToken): Promise<UnlockedKeyri
     salt: string
   }
 
-  const deks = new Map<string, CryptoKey>()
+  const deks = new Map<string, EnclaveKey>()
   for (const [collName, rawBase64] of Object.entries(payload.deks)) {
     const dek = await subtle.importKey(
       'raw',

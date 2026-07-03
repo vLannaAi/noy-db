@@ -1,6 +1,6 @@
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
-import { encrypt, decrypt } from '../../kernel/enclave/index.js'
+import { encrypt, decrypt, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { AttestationError, ConflictError } from '../../kernel/errors.js'
 import { loadOrCreateSigner, ATTESTATIONS_COLLECTION, REVOKED_RECORD_ID } from './signer.js'
 import { signRevocationList, type RevocationList } from '@noy-db/attestation'
@@ -11,7 +11,7 @@ export interface RevokeContext {
   readonly vault: string
   readonly role: string
   /** The _attestations collection DEK. */
-  getDEK(): Promise<CryptoKey>
+  getDEK(): Promise<EnclaveKey>
 }
 
 interface RevokedSet {
@@ -25,7 +25,7 @@ function requireOwner(ctx: RevokeContext, op: string): void {
   }
 }
 
-async function readSet(store: NoydbStore, vault: string, dek: CryptoKey): Promise<{ docIds: Set<string>; version: number | undefined }> {
+async function readSet(store: NoydbStore, vault: string, dek: EnclaveKey): Promise<{ docIds: Set<string>; version: number | undefined }> {
   const env = await store.get(vault, ATTESTATIONS_COLLECTION, REVOKED_RECORD_ID)
   if (!env) return { docIds: new Set<string>(), version: undefined }
   const set = JSON.parse(await decrypt(env._iv, env._data, dek)) as RevokedSet

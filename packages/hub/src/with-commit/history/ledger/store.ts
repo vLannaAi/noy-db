@@ -46,7 +46,7 @@
 
 import type { NoydbStore, EncryptedEnvelope } from '../../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../../kernel/types.js'
-import { encrypt, decrypt } from '../../../kernel/enclave/index.js'
+import { encrypt, decrypt, type EnclaveKey } from '../../../kernel/enclave/index.js'
 import { ConflictError, LedgerContentionError } from '../../../kernel/errors.js'
 import {
   canonicalJson,
@@ -145,7 +145,7 @@ export class LedgerStore {
   private readonly adapter: NoydbStore
   private readonly vault: string
   private readonly encrypted: boolean
-  private readonly getDEK: (collectionName: string) => Promise<CryptoKey>
+  private readonly getDEK: (collectionName: string) => Promise<EnclaveKey>
   private readonly actor: string
 
   /**
@@ -174,7 +174,7 @@ export class LedgerStore {
     adapter: NoydbStore
     vault: string
     encrypted: boolean
-    getDEK: (collectionName: string) => Promise<CryptoKey>
+    getDEK: (collectionName: string) => Promise<EnclaveKey>
     actor: string
   }) {
     this.adapter = opts.adapter

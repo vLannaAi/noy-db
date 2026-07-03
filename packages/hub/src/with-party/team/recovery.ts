@@ -24,6 +24,7 @@
  */
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
+import type { EnclaveKey } from '../../kernel/enclave/index.js'
 import {
   mintWrappedDeksBlob,
   unwrapDeksFromBlob,
@@ -255,7 +256,7 @@ export async function saveShamirRecoveryEntries(
  */
 export async function mintShamirRecoveryEntry(
   provider: ShamirRecoveryProvider,
-  deks: Map<string, CryptoKey>,
+  deks: Map<string, EnclaveKey>,
   entryId: string,
   k: number,
   n: number,
@@ -292,7 +293,7 @@ export async function unwrapDeksFromShamirEntry(
   provider: ShamirRecoveryProvider,
   entry: ShamirRecoveryEntry,
   shareStrings: readonly string[],
-): Promise<Map<string, CryptoKey>> {
+): Promise<Map<string, EnclaveKey>> {
   if (shareStrings.length < entry.k) {
     throw new Error(
       `Insufficient shares: this Shamir entry needs ${entry.k} of ${entry.n}, `
@@ -331,7 +332,7 @@ function bytesToBase64(b: Uint8Array): string {
  * @param codeId    Stable id used by `burnPaperRecoveryEntry`.
  */
 export async function mintPaperRecoveryEntry(
-  deks: Map<string, CryptoKey>,
+  deks: Map<string, EnclaveKey>,
   code: string,
   codeId: string,
 ): Promise<PaperRecoveryEntry> {
@@ -354,7 +355,7 @@ export async function mintPaperRecoveryEntry(
 export async function unwrapDeksFromPaperEntry(
   entry: PaperRecoveryEntry,
   code: string,
-): Promise<Map<string, CryptoKey>> {
+): Promise<Map<string, EnclaveKey>> {
   return unwrapDeksFromBlob(entry, code)
 }
 

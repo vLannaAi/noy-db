@@ -39,6 +39,7 @@ import type { LedgerStore } from './ledger/store.js'
 import type { JsonPatch } from './ledger/patch.js'
 import type { DiffEntry } from './diff.js'
 import type { VaultInstant, VaultEngine } from './time-machine.js'
+import type { EnclaveKey } from '../../kernel/enclave/index.js'
 
 /**
  * Options accepted by `HistoryStrategy.buildLedger`. Mirrors the
@@ -51,7 +52,7 @@ export interface BuildLedgerOptions {
   adapter: NoydbStore
   vault: string
   encrypted: boolean
-  getDEK: (collectionName: string) => Promise<CryptoKey>
+  getDEK: (collectionName: string) => Promise<EnclaveKey>
   actor: string
 }
 

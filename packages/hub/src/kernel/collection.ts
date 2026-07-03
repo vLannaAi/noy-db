@@ -22,6 +22,7 @@ import {
   queryByDet,
   RecordCodec,
   type DeterministicContext,
+  type EnclaveKey,
 } from './enclave/index.js'
 import {
   classifySealedShred as classifySealedShredImpl,
@@ -199,7 +200,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   private readonly writeHooks: WriteHookRegistry | undefined
   private readonly subsystemBus: ServiceBus | undefined
   private readonly activeTxId: (() => string | null) | undefined
-  private readonly getDEK: (collectionName: string) => Promise<CryptoKey>
+  private readonly getDEK: (collectionName: string) => Promise<EnclaveKey>
   private readonly onDirty: OnDirtyCallback | undefined
   private readonly historyConfig: HistoryConfig
   /** True when the caller explicitly provided a `historyConfig` option (vs. inheriting the vault default). */
@@ -490,7 +491,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * collectionCache, so a keyring refresh drops every CEK alongside the
    * DEK cache. `null` unless `perRecordCek` is set.
    */
-  private readonly cekCache: Lru<string, CryptoKey> | null
+  private readonly cekCache: Lru<string, EnclaveKey> | null
 
   /**
    * The per-record envelope build + encrypt/decrypt + per-record-CEK +
@@ -4125,7 +4126,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * {@link resolveStableCek}. Thin delegate that supplies the collection's
    * CEK cache, live-envelope reader, and DEK resolver.
    */
-  private resolveRecordCek(id: string): Promise<CryptoKey> {
+  private resolveRecordCek(id: string): Promise<EnclaveKey> {
     return resolveStableCek(
       {
         cache: this.cekCache,

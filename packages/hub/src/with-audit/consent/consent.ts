@@ -49,7 +49,7 @@
  * @module
  */
 import type { EncryptedEnvelope, NoydbStore } from '../../kernel/types.js'
-import { encrypt, decrypt } from '../../kernel/enclave/index.js'
+import { encrypt, decrypt, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { generateULID } from '../../with-pod/ulid.js'
 
 /** Reserved collection for consent-audit entries. */
@@ -112,7 +112,7 @@ export async function writeConsentEntry(
   vault: string,
   encrypted: boolean,
   entry: Omit<ConsentAuditEntry, 'id' | 'timestamp'>,
-  getDEK: (collection: string) => Promise<CryptoKey>,
+  getDEK: (collection: string) => Promise<EnclaveKey>,
 ): Promise<void> {
   const id = generateULID()
   const full: ConsentAuditEntry = {
@@ -129,7 +129,7 @@ export async function loadConsentEntries(
   adapter: NoydbStore,
   vault: string,
   encrypted: boolean,
-  getDEK: (collection: string) => Promise<CryptoKey>,
+  getDEK: (collection: string) => Promise<EnclaveKey>,
   filter: ConsentAuditFilter = {},
 ): Promise<ConsentAuditEntry[]> {
   const ids = await adapter.list(vault, CONSENT_AUDIT_COLLECTION)
@@ -150,7 +150,7 @@ export async function loadConsentEntries(
 async function buildEnvelope(
   entry: ConsentAuditEntry,
   encrypted: boolean,
-  getDEK: (collection: string) => Promise<CryptoKey>,
+  getDEK: (collection: string) => Promise<EnclaveKey>,
 ): Promise<EncryptedEnvelope> {
   const json = JSON.stringify(entry)
   if (!encrypted) {
@@ -176,7 +176,7 @@ async function buildEnvelope(
 async function decryptEntry(
   envelope: EncryptedEnvelope,
   encrypted: boolean,
-  getDEK: (collection: string) => Promise<CryptoKey>,
+  getDEK: (collection: string) => Promise<EnclaveKey>,
 ): Promise<ConsentAuditEntry> {
   const json = encrypted
     ? await decrypt(envelope._iv, envelope._data, await getDEK(CONSENT_AUDIT_COLLECTION))

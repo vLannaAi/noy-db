@@ -21,7 +21,7 @@
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import type { NoydbEventEmitter } from '../../kernel/events.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
-import { encrypt, decrypt } from '../../kernel/enclave/index.js'
+import { encrypt, decrypt, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { NoydbError } from '../../kernel/errors.js'
 
 export const LINK_COLLECTION_PREFIX = '_links_'
@@ -97,7 +97,7 @@ export interface LinkSetHandle {
  */
 export class LinkSet implements LinkSetHandle {
   private readonly collName: string
-  private dekPromise: Promise<CryptoKey> | null = null
+  private dekPromise: Promise<EnclaveKey> | null = null
 
   constructor(
     private readonly adapter: NoydbStore,
@@ -105,7 +105,7 @@ export class LinkSet implements LinkSetHandle {
     private readonly name: string,
     private readonly spec: LinkSpec,
     private readonly encrypted: boolean,
-    private readonly getDEK: (collectionName: string) => Promise<CryptoKey>,
+    private readonly getDEK: (collectionName: string) => Promise<EnclaveKey>,
     private readonly actor: string,
     private readonly emitter: NoydbEventEmitter,
     /** Vault-provided existence check for endpoint validation on connect(). */
@@ -114,7 +114,7 @@ export class LinkSet implements LinkSetHandle {
     this.collName = linkCollectionName(name)
   }
 
-  private dek(): Promise<CryptoKey> {
+  private dek(): Promise<EnclaveKey> {
     if (!this.dekPromise) this.dekPromise = this.getDEK(this.collName)
     return this.dekPromise
   }

@@ -50,7 +50,7 @@
 
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import type { UnlockedKeyring } from './keyring.js'
-import { encrypt, decrypt, wrapKey, unwrapKey } from '../../kernel/enclave/index.js'
+import { encrypt, decrypt, wrapKey, unwrapKey, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { dekKey } from './tiers.js'
 import { DelegationTargetMissingError } from '../../kernel/errors.js'
 
@@ -118,7 +118,7 @@ export async function deriveMagicLinkContentKey(
   serverSecret: string | Uint8Array<ArrayBuffer>,
   token: string,
   vault: string,
-): Promise<CryptoKey> {
+): Promise<EnclaveKey> {
   const subtle = globalThis.crypto.subtle
   const ikmBytes =
     serverSecret instanceof Uint8Array
@@ -152,8 +152,8 @@ export async function writeMagicLinkGrant(
   store: NoydbStore,
   vault: string,
   grantor: UnlockedKeyring,
-  contentKey: CryptoKey,
-  grantKek: CryptoKey,
+  contentKey: EnclaveKey,
+  grantKek: EnclaveKey,
   recordId: string,
   opts: IssueMagicLinkGrantOptions,
 ): Promise<MagicLinkGrantRecord> {
@@ -211,7 +211,7 @@ export async function writeMagicLinkGrant(
 export async function readMagicLinkGrantRecord(
   store: NoydbStore,
   vault: string,
-  contentKey: CryptoKey,
+  contentKey: EnclaveKey,
   recordId: string,
 ): Promise<MagicLinkGrantPayload | null> {
   const env = await store.get(vault, MAGIC_LINK_GRANTS_COLLECTION, recordId)
@@ -232,7 +232,7 @@ export async function readMagicLinkGrantRecord(
 export async function listMagicLinkGrants(
   store: NoydbStore,
   vault: string,
-  contentKey: CryptoKey,
+  contentKey: EnclaveKey,
   token: string,
 ): Promise<MagicLinkGrantPayload[]> {
   const ids = await store.list(vault, MAGIC_LINK_GRANTS_COLLECTION)
@@ -252,8 +252,8 @@ export async function listMagicLinkGrants(
  */
 export async function unwrapMagicLinkGrant(
   payload: MagicLinkGrantPayload,
-  grantKek: CryptoKey,
-): Promise<CryptoKey> {
+  grantKek: EnclaveKey,
+): Promise<EnclaveKey> {
   return unwrapKey(payload.wrappedDek, grantKek)
 }
 

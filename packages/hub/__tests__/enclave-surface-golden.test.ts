@@ -20,7 +20,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import * as enclave from '../src/kernel/enclave/index.js'
-import type { DeterministicContext, SealingContext } from '../src/kernel/enclave/index.js'
+import type { DeterministicContext, EnclaveKey, SealingContext } from '../src/kernel/enclave/index.js'
 
 interface Surface {
   readonly values: readonly string[]
@@ -73,4 +73,4 @@ describe('kernel/enclave — golden export surface (fork-swap contract)', () => 
 })
 
 // Compile-time exhaustiveness: every baselined type must still be exported.
-type _FrozenTypes = [DeterministicContext<unknown>, SealingContext]
+type _FrozenTypes = [DeterministicContext<unknown>, EnclaveKey, SealingContext]

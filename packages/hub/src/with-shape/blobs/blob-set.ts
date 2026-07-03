@@ -23,6 +23,7 @@ import {
   wrapCek,
   unwrapCek,
   sha256Hex,
+  type EnclaveKey,
 } from '../../kernel/enclave/index.js'
 import { ConflictError, NotFoundError } from '../../kernel/errors.js'
 import { detectMagic, isPreCompressed } from './mime-magic.js'
@@ -143,7 +144,7 @@ export class BlobSet {
   private readonly vault: string
   private readonly collection: string
   private readonly recordId: string
-  private readonly getDEK: (name: string) => Promise<CryptoKey>
+  private readonly getDEK: (name: string) => Promise<EnclaveKey>
   private readonly encrypted: boolean
   private readonly userId: string | undefined
   private readonly maxBlobBytes: number | undefined
@@ -157,7 +158,7 @@ export class BlobSet {
     vault: string
     collection: string
     recordId: string
-    getDEK: (name: string) => Promise<CryptoKey>
+    getDEK: (name: string) => Promise<EnclaveKey>
     encrypted: boolean
     userId?: string
     maxBlobBytes?: number
@@ -189,7 +190,7 @@ export class BlobSet {
    * - `_cek` absent (legacy) → the `_blob` DEK encrypts chunks directly.
    * - unencrypted vault → `null` (chunks stored as plaintext base64).
    */
-  private async resolveChunkKey(blob: Pick<BlobObject, '_cek'>): Promise<CryptoKey | null> {
+  private async resolveChunkKey(blob: Pick<BlobObject, '_cek'>): Promise<EnclaveKey | null> {
     if (!this.encrypted) return null
     const blobDEK = await this.getDEK(BLOB_COLLECTION)
     return blob._cek !== undefined ? await unwrapCek(blob._cek, blobDEK) : blobDEK
@@ -488,7 +489,7 @@ export class BlobSet {
       if (blob._cek !== undefined) { alreadyErasable.push(eTag); continue }
 
       // Phase 1 — persist the content CEK (resume reuses an existing pending one).
-      let contentCek: CryptoKey
+      let contentCek: EnclaveKey
       if (blob._cekPending !== undefined) {
         contentCek = await unwrapCek(blob._cekPending, blobDEK)
       } else {
@@ -531,7 +532,7 @@ export class BlobSet {
     index: number,
     chunkCount: number,
     chunk: Uint8Array,
-    dek: CryptoKey | null,
+    dek: EnclaveKey | null,
   ): Promise<void> {
     const id = `${eTag}_${index}`
     const now = new Date().toISOString()
@@ -558,7 +559,7 @@ export class BlobSet {
     eTag: string,
     index: number,
     chunkCount: number,
-    dek: CryptoKey | null,
+    dek: EnclaveKey | null,
   ): Promise<Uint8Array | null> {
     const envelope = await this.store.get(this.vault, BLOB_CHUNKS_COLLECTION, `${eTag}_${index}`)
     if (!envelope) return null

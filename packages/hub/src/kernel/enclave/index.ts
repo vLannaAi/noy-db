@@ -13,6 +13,11 @@
  * The export list is the OBSERVED contract — exactly the symbols consumed
  * from outside this folder today — grouped by the module that defines them:
  *
+ *   - key type       — `crypto.ts`: `EnclaveKey`, the opaque key type every
+ *                       barrel-facing signature traffics in (`= CryptoKey` in
+ *                       noy-db's reference enclave; a fork redefines it to its
+ *                       own key representation — see the type's own doc for
+ *                       the fork contract).
  *   - crypto ops     — `crypto.ts`: AES-256-GCM encrypt/decrypt (+ bytes, AAD,
  *                       deterministic variants), SHA-256 / HMAC-SHA-256 hashing.
  *   - key lifecycle  — `crypto.ts` + `record-keys/lifecycle.ts`: KEK/DEK
@@ -38,6 +43,9 @@
  * every consumer regardless of which enclave is wired in. noy-db's own
  * enclave supports every group, so it never throws this error.
  */
+
+// ─── key type ──────────────────────────────────────────────────────
+export type { EnclaveKey } from './crypto.js'
 
 // ─── crypto ops ────────────────────────────────────────────────────
 export {

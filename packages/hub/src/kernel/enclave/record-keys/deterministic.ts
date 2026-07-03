@@ -15,7 +15,7 @@
  *
  * Internal service — not exported as a `@noy-db/hub/*` subpath.
  */
-import { encryptDeterministic } from '../crypto.js'
+import { encryptDeterministic, type EnclaveKey } from '../crypto.js'
 import type { NoydbStore } from '../../types.js'
 import type { RecordCodec } from './record-codec.js'
 
@@ -32,7 +32,7 @@ export interface DeterministicContext<T> {
   /** False on plaintext collections — det lookups are encrypted-only. */
   readonly storeCiphertext: boolean
   /** The collection DEK resolver. */
-  getDEK(): Promise<CryptoKey>
+  getDEK(): Promise<EnclaveKey>
   /** The record codec — decrypts a matched envelope to T. */
   readonly codec: RecordCodec<T>
 }

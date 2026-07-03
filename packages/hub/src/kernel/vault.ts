@@ -115,7 +115,7 @@ import {
   type ClosePeriodOptions,
   type OpenPeriodOptions,
 } from '../with-audit/periods/index.js'
-import { encrypt, decrypt, SEALED_CEK_NS, type SealingContext } from './enclave/index.js'
+import { encrypt, decrypt, SEALED_CEK_NS, type SealingContext, type EnclaveKey } from './enclave/index.js'
 import type { RecipientSealer } from '../with-party/team/managed-passphrase.js'
 import {
   createExportBlobsHandle,
@@ -273,7 +273,7 @@ export class Vault {
    */
   private guardFacade: ReadOnlyVaultFacade | null = null
   private derivationFacade: ReadOnlyVaultFacade | null = null
-  private getDEK: (collectionName: string) => Promise<CryptoKey>
+  private getDEK: (collectionName: string) => Promise<EnclaveKey>
 
   /**
    * Per-principal user envelope API.
@@ -669,9 +669,9 @@ export class Vault {
    * `load()` calls this after refreshing `this.keyring` to discard
    * the prior session's cached DEKs.
    */
-  private makeGetDEK(): (collectionName: string) => Promise<CryptoKey> {
-    let getDEKFn: ((collectionName: string) => Promise<CryptoKey>) | null = null
-    return async (collectionName: string): Promise<CryptoKey> => {
+  private makeGetDEK(): (collectionName: string) => Promise<EnclaveKey> {
+    let getDEKFn: ((collectionName: string) => Promise<EnclaveKey>) | null = null
+    return async (collectionName: string): Promise<EnclaveKey> => {
       if (!getDEKFn) {
         getDEKFn = await ensureCollectionDEK(this.adapter, this.name, this.keyring)
       }
@@ -3193,8 +3193,8 @@ export class Vault {
    * grantor doesn't touch this method directly.
    */
   async writeMagicLinkGrant(
-    contentKey: CryptoKey,
-    grantKek: CryptoKey,
+    contentKey: EnclaveKey,
+    grantKek: EnclaveKey,
     recordId: string,
     opts: IssueMagicLinkGrantOptions,
   ): Promise<MagicLinkGrantRecord> {

@@ -65,7 +65,7 @@
  * ```
  */
 
-import { bufferToBase64, base64ToBuffer } from '../../kernel/enclave/index.js'
+import { bufferToBase64, base64ToBuffer, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { ValidationError } from '../../kernel/errors.js'
 import type { UnlockedKeyring } from '../team/keyring.js'
 import type { Role } from '../../kernel/types.js'
@@ -245,7 +245,7 @@ export async function loadDevUnlock(
 
   if (parsed._noydb_dev_unlock !== 1) return null
 
-  const deks = new Map<string, CryptoKey>()
+  const deks = new Map<string, EnclaveKey>()
   for (const [collName, rawBase64] of Object.entries(parsed.deks)) {
     const dek = await globalThis.crypto.subtle.importKey(
       'raw',

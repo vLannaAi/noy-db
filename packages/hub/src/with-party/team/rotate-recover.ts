@@ -25,6 +25,7 @@ import {
   unwrapKey,
   bufferToBase64,
   base64ToBuffer,
+  type EnclaveKey,
 } from '../../kernel/enclave/index.js'
 import { InvalidKeyError, NoAccessError, RecoveryProfileNotImplementedError } from '../../kernel/errors.js'
 import {
@@ -72,8 +73,8 @@ import { ValidationError } from '../../kernel/errors.js'
  * cover of preservation).
  */
 export interface SlotRewrapContext {
-  readonly newKek: CryptoKey
-  readonly newDeks: Map<string, CryptoKey>
+  readonly newKek: EnclaveKey
+  readonly newDeks: Map<string, EnclaveKey>
   readonly oldSlot: KeyringAuthenticator
 }
 
@@ -147,7 +148,7 @@ export async function rotatePassphrase(
 
   // Unwrap every DEK with the OLD KEK first — this also validates the
   // passphrase (a bad KEK throws InvalidKeyError on the first unwrap).
-  const deks = new Map<string, CryptoKey>()
+  const deks = new Map<string, EnclaveKey>()
   for (const [coll, wrapped] of Object.entries(file.deks)) {
     deks.set(coll, await unwrapKey(wrapped, oldKek))
   }
@@ -483,7 +484,7 @@ async function recoverViaPaperCode(
   }
 
   const normalized = normalizePaperCode(code)
-  let recovered: { deks: Map<string, CryptoKey>; entry: PaperRecoveryEntry } | undefined
+  let recovered: { deks: Map<string, EnclaveKey>; entry: PaperRecoveryEntry } | undefined
   for (const entry of entries) {
     try {
       const deks = await unwrapDeksFromPaperEntry(entry, normalized)
@@ -632,7 +633,7 @@ async function recoverViaShamir(
   // Try each candidate entry. Pass all share strings to the provider;
   // provider.combineShares validates and throws on mismatch — the
   // AES-GCM auth-tag is an additional guard.
-  let recoveredDeks: Map<string, CryptoKey> | undefined
+  let recoveredDeks: Map<string, EnclaveKey> | undefined
   for (const entry of candidates) {
     if (shareStrings.length < entry.k) {
       // Not enough shares for this entry — could still match another.

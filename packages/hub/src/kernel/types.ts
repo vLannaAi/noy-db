@@ -63,6 +63,7 @@ import type { ObjectProjection } from '../with-shape/blobs/object-projection.js'
 import type { CoordinationProvider } from '../port/by/types.js'
 import type { ScriptWarning } from '../with-shape/i18n/script.js'
 import type { MoneyDescriptor } from '../with-shape/money/descriptor.js'
+import type { EnclaveKey } from './enclave/index.js'
 
 /** Format version for encrypted record envelopes. */
 export const NOYDB_FORMAT_VERSION = 1 as const
@@ -2826,7 +2827,7 @@ export interface UserApiDeps {
   readonly vaultName: string
   /** The writer's own keyringId. Frozen at construction time. */
   readonly writerKeyringId: string
-  readonly getDek: () => Promise<CryptoKey>
+  readonly getDek: () => Promise<EnclaveKey>
   /**
    * Policy-gate validator. When omitted, gates are skipped — useful
    * for low-level tests that exercise the storage layer directly.
