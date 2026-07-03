@@ -1,5 +1,6 @@
 import type { NoydbStore, EncryptedEnvelope, HistoryOptions, PruneOptions } from '../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
+import { isTombstone } from '../../kernel/enclave/index.js'
 
 /**
  * History storage convention:
@@ -184,6 +185,7 @@ export async function tombstoneHistory(
   collection: string,
   recordId: string,
   actor: string,
+  encrypted: boolean,
 ): Promise<number> {
   const allIds = await adapter.list(vault, HISTORY_COLLECTION)
   const matchingIds = allIds.filter(id => matchesPrefix(id, collection, recordId))
@@ -194,7 +196,7 @@ export async function tombstoneHistory(
     const env = await adapter.get(vault, HISTORY_COLLECTION, id)
     if (!env) continue
     // Already a tombstone (no body and no wrapped CEK)? Skip — idempotent.
-    if (!env._data && env._cek === undefined) continue
+    if (isTombstone(env, encrypted)) continue
     const tombstone: EncryptedEnvelope = {
       _noydb: NOYDB_FORMAT_VERSION,
       _v: env._v,

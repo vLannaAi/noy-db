@@ -9,7 +9,8 @@
  */
 
 import type { EncryptedEnvelope } from '../../../kernel/types.js'
-import { sha256Hex, canonicalJson } from './entry.js'
+import { sha256Hex } from './entry.js'
+import { envelopeBodyForHash } from '../../../kernel/enclave/index.js'
 
 /**
  * Compute the `payloadHash` value for an encrypted envelope. Used by
@@ -35,13 +36,14 @@ export async function envelopePayloadHash(
   // `_sealed` widens the hash to also bind the sealed-field ciphertext, so the
   // ledger attests to sealed-value tamper/erasure (a dropped or swapped
   // `_sealed[field]` now diverges `verifyBackupIntegrity`'s data cross-check).
+  // `envelopeBodyForHash` (the enclave barrel's C1 protected-body access
+  // contract) derives this exact string — see its own doc for the
+  // canonicalization recipe (sorted keys, independent of `_sealed`'s
+  // field-insertion / store-serialization order).
   //
   // `_cek` is deliberately NOT bound: a tampered wrapped-CEK already self-
   // detects (it fails to unwrap), and `rotateRecordCek` rewrites `_cek` with no
   // ledger entry — binding it would make every legitimate rotation fail verify.
-  //
-  // `canonicalJson` sorts keys, so the hash is independent of `_sealed`'s
-  // field-insertion / store-serialization order.
   //
   // RESIDUAL: a backup containing sealed records created BEFORE this change
   // stored `payloadHash` over `_data` only, so it will fail the data cross-check
@@ -55,6 +57,5 @@ export async function envelopePayloadHash(
   // but doing so overwrites `_data` itself, which then no longer GCM-decrypts, so
   // it only suppresses the verify signal on an already-destroyed record; it cannot
   // silently erase one sealed field while leaving the record readable.
-  if (envelope._sealed === undefined) return sha256Hex(envelope._data)
-  return sha256Hex(canonicalJson({ _data: envelope._data, _sealed: envelope._sealed }))
+  return sha256Hex(envelopeBodyForHash(envelope))
 }
