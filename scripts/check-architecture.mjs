@@ -1429,7 +1429,7 @@ const BODY_FIELD_ACCESS_RE =
 const PRE_EXISTING_BODY_ACCESS = new Map([
   ['packages/hub/src/kernel/debug.ts', 4],
   ['packages/hub/src/kernel/types.ts', 2],
-  ['packages/hub/src/kernel/vault.ts', 14],
+  ['packages/hub/src/kernel/vault.ts', 13],
   ['packages/hub/src/with-audit/attestation/issue.ts', 2],
   ['packages/hub/src/with-audit/attestation/revoke.ts', 2],
   ['packages/hub/src/with-audit/attestation/signer.ts', 2],
@@ -1442,8 +1442,7 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   ['packages/hub/src/with-audit/tiers/index.ts', 22],
   ['packages/hub/src/with-cargo/adopt-partition.ts', 8],
   ['packages/hub/src/with-cargo/extract-partition.ts', 26],
-  ['packages/hub/src/with-commit/history/history.ts', 4],
-  ['packages/hub/src/with-commit/history/ledger/hash.ts', 6],
+  ['packages/hub/src/with-commit/history/history.ts', 2],
   ['packages/hub/src/with-commit/history/ledger/store.ts', 11],
   ['packages/hub/src/with-commit/history/time-machine.ts', 3],
   ['packages/hub/src/with-commit/numbering/index.ts', 5],

@@ -115,7 +115,7 @@ import {
   type ClosePeriodOptions,
   type OpenPeriodOptions,
 } from '../with-audit/periods/index.js'
-import { encrypt, openEnvelopeJson, SEALED_CEK_NS, type SealingContext, type EnclaveKey } from './enclave/index.js'
+import { encrypt, openEnvelopeJson, hasPerRecordKey, SEALED_CEK_NS, type SealingContext, type EnclaveKey } from './enclave/index.js'
 import type { RecipientSealer } from '../with-party/team/managed-passphrase.js'
 import {
   createExportBlobsHandle,
@@ -2262,7 +2262,7 @@ export class Vault {
       // not-yet-migrated), so a shred cannot guarantee erasure of pre-shred
       // ciphertext. We still tombstone it, but report the gap.
       const live = await this.adapter.get(this.name, ref.collection, ref.id)
-      if (perRecordKeys && live && live._data && live._cek === undefined) {
+      if (perRecordKeys && live && live._data && !hasPerRecordKey(live)) {
         unmigratedRecords.push(`${ref.collection}:${ref.id}`)
       }
       // Classify each `_sealed` slot BEFORE tombstoning (#M-1, security
@@ -2312,7 +2312,7 @@ export class Vault {
 
       // Tombstone every history version (idempotent — already-shredded skip).
       historyVersionsShredded += await this.historyStrategy.tombstoneHistory(
-        this.adapter, this.name, ref.collection, ref.id, actor,
+        this.adapter, this.name, ref.collection, ref.id, actor, this.encrypted,
       )
 
       // Purge the record's persisted `_idx` side-cars: they live under

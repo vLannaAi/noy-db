@@ -132,6 +132,7 @@ export interface HistoryStrategy {
     collection: string,
     recordId: string,
     actor: string,
+    encrypted: boolean,
   ): Promise<number>
 
   /**
