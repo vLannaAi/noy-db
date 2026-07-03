@@ -75,8 +75,58 @@ export interface EnclaveConformanceOptions {
 /** The stable code every `EnclaveNotSupportedError` (or fork subclass) carries. */
 const NOT_SUPPORTED_CODE = new EnclaveNotSupportedError('sealing').code
 
-async function expectNotSupported(fn: () => Promise<unknown>): Promise<void> {
-  await expect(fn()).rejects.toMatchObject({ code: NOT_SUPPORTED_CODE })
+/** One of the three optional groups the enclave contract lets a fork refuse. */
+export type ConformanceGroup = 'sealing' | 'deterministic' | 'per-record-keys'
+
+/** True iff `err` is an `EnclaveNotSupportedError` (or fork subclass) refusal. */
+function isNotSupportedRefusal(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { code?: unknown }).code === NOT_SUPPORTED_CODE
+}
+
+/**
+ * Assert the group-consistency guarantee for one optional group: every
+ * function in the group either refuses (`EnclaveNotSupportedError`) or none
+ * do — never a mix. Returns the names of any functions that did NOT refuse
+ * (empty = fully consistent refusal). Exercises the group with placeholder
+ * arguments — it only cares whether the call refuses, not what it would
+ * otherwise return.
+ *
+ * Extracted so both `runEnclaveConformance`'s registered assertions and the
+ * kit's own self-test (`self-test.test.ts`) share one implementation — the
+ * self-test proves a MIXED group (one function silently works while its
+ * sibling refuses) is actually caught, not just the fully-consistent cases.
+ */
+export async function assertGroupRefuses<K>(
+  enclave: EnclaveModule<K>,
+  group: ConformanceGroup,
+): Promise<string[]> {
+  const dek = await enclave.generateDEK()
+  const cek = await enclave.generateDEK()
+  const checks: Record<ConformanceGroup, ReadonlyArray<readonly [string, () => Promise<unknown>]>> = {
+    sealing: [
+      ['deriveSealedFieldKey', () => enclave.deriveSealedFieldKey(dek, 'c', 'f')],
+      ['deriveSealedFieldKeyFromCek', () => enclave.deriveSealedFieldKeyFromCek(dek, 'c', 'f')],
+    ],
+    deterministic: [
+      ['encryptDeterministic', () => enclave.encryptDeterministic('v', dek, 'c/f')],
+      ['decryptDeterministic', () => enclave.decryptDeterministic('iv', 'data', dek)],
+    ],
+    'per-record-keys': [
+      ['wrapCek', () => enclave.wrapCek(cek, dek)],
+      ['unwrapCek', () => enclave.unwrapCek('bogus', dek)],
+    ],
+  }
+
+  const didNotRefuse: string[] = []
+  for (const [name, fn] of checks[group]) {
+    try {
+      await fn()
+      didNotRefuse.push(name) // resolved — did not refuse at all
+    } catch (err) {
+      if (!isNotSupportedRefusal(err)) didNotRefuse.push(name) // refused, but not via EnclaveNotSupportedError
+    }
+  }
+  return didNotRefuse
 }
 
 const HEADER_FIXTURE = {
@@ -199,9 +249,7 @@ export function runEnclaveConformance<K>(enclave: EnclaveModule<K>, opts: Enclav
         })
       } else {
         it('every sealing function throws EnclaveNotSupportedError — never a mix', async () => {
-          const dek = await enclave.generateDEK()
-          await expectNotSupported(() => enclave.deriveSealedFieldKey(dek, 'c', 'f'))
-          await expectNotSupported(() => enclave.deriveSealedFieldKeyFromCek(dek, 'c', 'f'))
+          expect(await assertGroupRefuses(enclave, 'sealing')).toEqual([])
         })
       }
     })
@@ -217,9 +265,7 @@ export function runEnclaveConformance<K>(enclave: EnclaveModule<K>, opts: Enclav
         })
       } else {
         it('every deterministic function throws EnclaveNotSupportedError — never a mix', async () => {
-          const dek = await enclave.generateDEK()
-          await expectNotSupported(() => enclave.encryptDeterministic('v', dek, 'c/f'))
-          await expectNotSupported(() => enclave.decryptDeterministic('iv', 'data', dek))
+          expect(await assertGroupRefuses(enclave, 'deterministic')).toEqual([])
         })
       }
     })
@@ -238,10 +284,7 @@ export function runEnclaveConformance<K>(enclave: EnclaveModule<K>, opts: Enclav
         })
       } else {
         it('every per-record-key function throws EnclaveNotSupportedError — never a mix', async () => {
-          const dek = await enclave.generateDEK()
-          const cek = await enclave.generateDEK()
-          await expectNotSupported(() => enclave.wrapCek(cek, dek))
-          await expectNotSupported(() => enclave.unwrapCek('bogus', dek))
+          expect(await assertGroupRefuses(enclave, 'per-record-keys')).toEqual([])
         })
       }
     })

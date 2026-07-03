@@ -9,10 +9,10 @@
  * group at a time to throw `EnclaveNotSupportedError`, run once per group, to
  * prove those branches actually fire and actually pass.
  */
-import { describe } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { EnclaveNotSupportedError } from '@noy-db/hub'
 import * as real from '../../../packages/hub/src/kernel/enclave/index.js'
-import { runEnclaveConformance, type EnclaveModule } from './index.js'
+import { runEnclaveConformance, assertGroupRefuses, type EnclaveModule } from './index.js'
 
 type Group = 'sealing' | 'deterministic' | 'per-record-keys'
 
@@ -64,5 +64,46 @@ describe('kit self-test: deterministic unsupported', () => {
 describe('kit self-test: per-record-keys unsupported', () => {
   runEnclaveConformance(makeStub('per-record-keys'), {
     supports: { sealing: true, deterministic: true, perRecordKeys: false },
+  })
+})
+
+/**
+ * The three describes above only ever exercise a FULLY-supported or a
+ * FULLY-unsupported group — `runEnclaveConformance` never sees a group
+ * where one function refuses and its sibling silently "works". This
+ * directly self-tests the group-consistency guarantee itself
+ * (`assertGroupRefuses`, extracted from `runEnclaveConformance`'s optional-
+ * group checks) against a deliberately MIXED stub, proving an inconsistent
+ * fork enclave would be reported rather than swallowed.
+ */
+describe('kit self-test: assertGroupRefuses catches an inconsistent (mixed) group', () => {
+  it('sealing: one function silently works while its sibling refuses — reported', async () => {
+    const dek = await real.generateDEK()
+    const mixed: EnclaveModule<CryptoKey> = {
+      ...makeStub('sealing'),
+      deriveSealedFieldKeyFromCek: async () => dek, // works — does not refuse
+    }
+    expect(await assertGroupRefuses(mixed, 'sealing')).toEqual(['deriveSealedFieldKeyFromCek'])
+  })
+
+  it('deterministic: one function silently works while its sibling refuses — reported', async () => {
+    const mixed: EnclaveModule<CryptoKey> = {
+      ...makeStub('deterministic'),
+      decryptDeterministic: async () => 'plaintext', // works — does not refuse
+    }
+    expect(await assertGroupRefuses(mixed, 'deterministic')).toEqual(['decryptDeterministic'])
+  })
+
+  it('per-record-keys: one function silently works while its sibling refuses — reported', async () => {
+    const dek = await real.generateDEK()
+    const mixed: EnclaveModule<CryptoKey> = {
+      ...makeStub('per-record-keys'),
+      unwrapCek: async () => dek, // works — does not refuse
+    }
+    expect(await assertGroupRefuses(mixed, 'per-record-keys')).toEqual(['unwrapCek'])
+  })
+
+  it('a fully-consistent refusing group reports no failures', async () => {
+    expect(await assertGroupRefuses(makeStub('sealing'), 'sealing')).toEqual([])
   })
 })
