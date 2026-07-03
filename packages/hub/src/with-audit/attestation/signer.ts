@@ -1,6 +1,6 @@
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
-import { encrypt, decrypt, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { ConflictError } from '../../kernel/errors.js'
 import { generateDocSigningKeyPair } from '@noy-db/attestation'
 
@@ -33,7 +33,7 @@ export async function loadSigner(
   const existing = await store.get(vault, ATTESTATIONS_COLLECTION, SIGNER_RECORD_ID)
   if (!existing) return null
   const dek = await getDEK(ATTESTATIONS_COLLECTION)
-  const json = await decrypt(existing._iv, existing._data, dek)
+  const json = await openEnvelopeJson(existing, dek)
   return JSON.parse(json) as DocSigner
 }
 

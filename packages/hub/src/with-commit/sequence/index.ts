@@ -21,7 +21,7 @@
 
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
-import { encrypt, decrypt, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { ConflictError, SequenceContentionError, SequenceOfflineError, ValidationError } from '../../kernel/errors.js'
 
 // Capability opt-in seam (S4): `vault.sequence()` builds its CAS store through
@@ -252,7 +252,7 @@ export class SequenceStore {
   private async read(name: string): Promise<{ env: EncryptedEnvelope | null; value: number }> {
     const env = await this.adapter.get(this.vault, SEQUENCE_COLLECTION, name)
     if (!env) return { env: null, value: 0 }
-    const json = this.encrypted ? await decrypt(env._iv, env._data, await this.dek()) : env._data
+    const json = this.encrypted ? await openEnvelopeJson(env, await this.dek()) : env._data
     const state = JSON.parse(json) as SequenceState
     return { env, value: state.value }
   }

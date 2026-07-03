@@ -5,7 +5,7 @@
  */
 import type { NoydbStore, EncryptedEnvelope, StoreTime } from '../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
-import { encrypt, decrypt, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { ConflictError, NumberingUncertaintyError } from '../../kernel/errors.js'
 import type { DeferredNumberingConfig } from './descriptor.js'
 
@@ -76,7 +76,7 @@ export class DeferredNumberingStore {
   private async readJson<T>(collection: string, id: string): Promise<{ env: EncryptedEnvelope | null; value: T | null }> {
     const env = await this.adapter.get(this.vault, collection, id)
     if (!env) return { env: null, value: null }
-    const json = this.encrypted ? await decrypt(env._iv, env._data, await this.dek(collection)) : env._data
+    const json = this.encrypted ? await openEnvelopeJson(env, await this.dek(collection)) : env._data
     return { env, value: JSON.parse(json) as T }
   }
 

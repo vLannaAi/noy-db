@@ -41,7 +41,7 @@
 
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import type { UnlockedKeyring } from './keyring.js'
-import { encrypt, decrypt, wrapKey, unwrapKey, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { encrypt, openEnvelopeJson, wrapKey, unwrapKey, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { dekKey } from './tiers.js'
 import { DelegationTargetMissingError } from '../../kernel/errors.js'
 import { generateULID } from '../../with-pod/ulid.js'
@@ -153,7 +153,7 @@ export async function loadActiveDelegations(
     if (!env) continue
     let token: DelegationToken
     try {
-      const plaintext = await decrypt(env._iv, env._data, delegationsDek)
+      const plaintext = await openEnvelopeJson(env, delegationsDek)
       token = JSON.parse(plaintext) as DelegationToken
     } catch {
       continue

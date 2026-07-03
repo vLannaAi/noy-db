@@ -18,7 +18,7 @@
  */
 import type { NoydbStore, EncryptedEnvelope, UserEnvelope } from '../../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../../kernel/types.js'
-import { encrypt, decrypt, type EnclaveKey } from '../../../kernel/enclave/index.js'
+import { encrypt, openEnvelopeJson, type EnclaveKey } from '../../../kernel/enclave/index.js'
 import { ConflictError, UserEnvelopeOversizedError } from '../../../kernel/errors.js'
 import {
   USER_ENVELOPE_COLLECTION,
@@ -42,7 +42,7 @@ export async function loadUserEnvelope<T = unknown>(
 ): Promise<UserEnvelope<T> | null> {
   const envelope = await store.get(vault, USER_ENVELOPE_COLLECTION, keyringId)
   if (!envelope) return null
-  const plaintext = await decrypt(envelope._iv, envelope._data, dek)
+  const plaintext = await openEnvelopeJson(envelope, dek)
   const data = JSON.parse(plaintext) as T
   return {
     keyringId,

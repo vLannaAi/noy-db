@@ -21,7 +21,7 @@
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import type { NoydbEventEmitter } from '../../kernel/events.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
-import { encrypt, decrypt, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { NoydbError } from '../../kernel/errors.js'
 
 export const LINK_COLLECTION_PREFIX = '_links_'
@@ -128,7 +128,7 @@ export class LinkSet implements LinkSetHandle {
   }
 
   private async decryptEntry(env: EncryptedEnvelope): Promise<LinkEntry> {
-    const json = this.encrypted ? await decrypt(env._iv, env._data, await this.dek()) : env._data
+    const json = this.encrypted ? await openEnvelopeJson(env, await this.dek()) : env._data
     return JSON.parse(json) as LinkEntry
   }
 
