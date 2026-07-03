@@ -144,6 +144,7 @@ import type { DumpSchemaOptions, VaultSchemaSnapshot, SchemaIntrospection } from
 import { dumpVaultSchema, type VaultIntrospectState } from '../with-shape/introspection/walk.js'
 import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
 import type { CollectionMeta, VaultMeta } from '../with-shape/introspection/meta.js'
+import type { ClassifiedEntry } from '../with-shape/classified/resolve.js'
 import { USER_ENVELOPE_COLLECTION } from './constants.js'
 
 /**
@@ -735,6 +736,8 @@ export class Vault {
     moneyFields?: MoneyFieldsOpt<T, M>
     /** — declare computed scalar fields, evaluated on write (schema-owned). */
     computed?: ComputedFields<T>
+    /** — declare classified() sensitive-field descriptors. See the classified-fields spec. */
+    classifiedFields?: Record<string, ClassifiedEntry>
     /** — per-collection conflict resolution policy. */
     conflictPolicy?: ConflictPolicy<T>
     /** — CRDT mode for collaborative editing without conflicts. */
@@ -876,6 +879,12 @@ export class Vault {
       // descriptive metadata to a collection that was auto-created without options.
       // First-wins.
       coll._applyMeta(options.meta)
+    }
+    if (coll && options?.classifiedFields) {
+      // Same MV-pre-creation reconcile as money/computed/fieldMeta/meta: attach
+      // classified fields to a collection that was auto-created without options.
+      // First-wins — cannot retro-seal, only merges rider computed fields.
+      coll._applyClassifiedFields(options.classifiedFields)
     }
     if (!coll) {
       // Register ref declarations (if any) with the vault-level
@@ -1087,6 +1096,7 @@ export class Vault {
       if (options?.textIndexPersist !== undefined) collOpts.textIndexPersist = options.textIndexPersist
       if (options?.moneyFields !== undefined) collOpts.moneyFields = options.moneyFields
       if (options?.computed !== undefined) collOpts.computed = options.computed as ComputedFields
+      if (options?.classifiedFields !== undefined) collOpts.classifiedFields = options.classifiedFields
       if (options?.dictKeyFields !== undefined) {
         // Build the label resolver callback for this collection. A static
         // dict resolves from its in-memory table — no dictionary()

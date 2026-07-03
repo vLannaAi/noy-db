@@ -1,6 +1,7 @@
 import type { NoydbStore, EncryptedEnvelope, ChangeEvent, HistoryConfig, HistoryOptions, HistoryEntry, PruneOptions, ListPageResult, LocaleReadOptions, CollectionConflictResolver, PutManyItemOptions, PutManyOptions, PutManyResult, DeleteManyResult, SealedView } from './types.js'
 import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
 import type { CollectionMeta } from '../with-shape/introspection/meta.js'
+import { resolveClassifiedFields, type ClassifiedEntry, type ResolvedClassified } from '../with-shape/classified/resolve.js'
 import type { CrdtMode, CrdtState, LwwMapState, RgaState } from '../with-commit/crdt/crdt.js'
 import type { CrdtStrategy } from '../with-commit/crdt/strategy.js'
 import type { I18nTextDescriptor } from '../with-shape/i18n/core.js'
@@ -420,6 +421,13 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   private computed: ComputedFields | undefined
 
   /**
+   * Resolved classified() sensitive-field descriptors, declared via the
+   * `classifiedFields` collection option. Mutable so {@link _applyClassifiedFields}
+   * can attach a declaration to a collection MV-analysis pre-created.
+   */
+  private classified: ResolvedClassified | undefined
+
+  /**
    * Async callback provided by the Vault that resolves a dict key
    * to its label for a given locale. Used by the locale-read path for
    * dictKey fields.
@@ -703,6 +711,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     this.meta = cfg.meta
     this._refs = cfg._refs
     this.moneyFields = cfg.moneyFields
+    this.classified = cfg.classified
     this.computed = cfg.computed
     this.dictLabelResolver = cfg.dictLabelResolver
     this.getDictionary = cfg.getDictionary
@@ -1100,6 +1109,21 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   /** @internal — attach collection-level meta post-construction. See {@link _applyMoneyFields}. First-wins. */
   _applyMeta(meta: CollectionMeta): void {
     if (this.meta === undefined) this.meta = meta
+  }
+
+  /**
+   * @internal — attach classified fields post-construction. See {@link _applyMoneyFields}.
+   * First-wins. Note: unlike money/computed/meta, this cannot retro-seal a
+   * collection that was already auto-created — `sensitiveFields` is frozen at
+   * construction time, so a declaration arriving here only merges rider
+   * computed fields; sealing requires `classifiedFields` at the collection's
+   * first `vault.collection()` open.
+   */
+  _applyClassifiedFields(classifiedFields: Record<string, ClassifiedEntry>): void {
+    if (this.classified !== undefined) return
+    const resolved = resolveClassifiedFields(this.name, classifiedFields)
+    this.classified = resolved
+    this.computed = { ...resolved.riderComputed, ...(this.computed ?? {}) }
   }
 
   /** @internal — used only in tests; do not read in production code. */
