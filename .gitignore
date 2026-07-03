@@ -168,7 +168,6 @@ backup/
 # `.github/` is ignored by default, but workflows are needed for CI —
 # selectively allow `.github/workflows/`.
 .npmrc
-!**/playground/**/.npmrc
 .changeset/
 .github/*
 !.github/workflows/

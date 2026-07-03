@@ -1,8 +1,3 @@
 packages:
   - "packages/*"
   - "test-harnesses/*"
-  - "playground"
-  - "playground/cli"
-  - "playground/nuxt"
-  - "showcases"
-  - "recipes/*"
