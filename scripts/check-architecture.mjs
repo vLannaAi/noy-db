@@ -1419,15 +1419,15 @@ function checkEnclaveBarrelOnly() {
 // (that's the barrel's own home turf).
 
 const BODY_FIELD_ACCESS_RE =
-  /\._iv\b|\._data\b|\._cek\b|\._det\b|\._sealed\b|\b_iv\s*:|\b_data\s*:|\b_cek\s*:|\b_det\s*:|\b_sealed\s*:/g
+  /\._iv\b|\._data\b|\._cek\b|\._det\b|\._sealed\b|\._debug\b|\b_iv\s*:|\b_data\s*:|\b_cek\s*:|\b_det\s*:|\b_sealed\s*:|\b_debug\s*:/g
 
 // Snapshotted 2026-07-03 by running the scanner below in report mode over
 // `packages/hub/src/**` (excluding `kernel/enclave/**` and `*.test.ts`).
-// 53 files, 336 occurrences. Shrink an entry (or delete it at 0) as Tasks
+// 53 files, 337 occurrences (incl. _debug). Shrink an entry (or delete it at 0) as Tasks
 // 6-7 migrate call-sites onto the barrel helpers — never raise one without
 // a reviewed, justified new direct access.
 const PRE_EXISTING_BODY_ACCESS = new Map([
-  ['packages/hub/src/kernel/debug.ts', 3],
+  ['packages/hub/src/kernel/debug.ts', 4],
   ['packages/hub/src/kernel/types.ts', 2],
   ['packages/hub/src/kernel/vault.ts', 16],
   ['packages/hub/src/with-audit/attestation/issue.ts', 2],
