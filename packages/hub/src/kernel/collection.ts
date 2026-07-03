@@ -13,6 +13,7 @@ import { quantizeMoneyFields, decodeMoneyFields, canonicalizeStoredMoney, canoni
 import { validateMoneyFieldPaths } from '../with-shape/money/paths.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
 import { evalComputedFields } from '../with-formula/computed/index.js'
+import { enforceClassifiedWrite } from '../with-shape/classified/write.js'
 import type { I18nStrategy } from '../with-shape/i18n/strategy.js'
 import { resolvePolicy } from '../with-shape/i18n/policy.js'
 import {
@@ -1476,6 +1477,12 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
           : {}),
       }
       await this.subsystemBus.dispatchGate('beforePut', gateEvent)
+    }
+
+    // Classified enforcement — storage:'never' rejection + validators run
+    // before riders derive and before the schema sees the record.
+    if (this.classified !== undefined) {
+      enforceClassifiedWrite(record as Record<string, unknown>, this.classified.byField, this.name)
     }
 
     // Computed scalar fields — evaluated FIRST so the user need not supply
