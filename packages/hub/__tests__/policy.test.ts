@@ -18,7 +18,7 @@ import {
   PolicyDeniedError,
   loadVaultPolicy,
   saveVaultPolicy,
-} from '../src/kernel/policy/index.js'
+} from '../src/with-party/policy/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 
 function inlineMemory(): NoydbStore {

@@ -28,7 +28,7 @@ import { generateDEK } from '../src/kernel/enclave/index.js'
 import { persistKeyring } from '../src/with-party/team/keyring.js'
 import { WeakPassphraseError } from '../src/kernel/validation.js'
 import { InvalidKeyError } from '../src/kernel/errors.js'
-import { RecoveryProfileNotImplementedError } from '../src/kernel/policy/errors.js'
+import { RecoveryProfileNotImplementedError } from '../src/kernel/errors.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

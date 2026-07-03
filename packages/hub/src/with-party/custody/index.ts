@@ -23,8 +23,7 @@
  * @see docs/superpowers/specs/2026-06-17-fr6-deed-custodian-liberate-design.md
  * @module
  */
-import type { GrantOptions, RevokeOptions } from '../../kernel/types.js'
-import type { FactorProofBundle } from '../../kernel/policy/types.js'
+import type { GrantOptions, RevokeOptions, FactorProofBundle } from '../../kernel/types.js'
 import type { LiberateOptions, LiberateResult } from './liberate.js'
 
 /** Options for `vault.custody.grantCustodian` — a grant with the role fixed to `custodian`. */

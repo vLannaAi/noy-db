@@ -415,6 +415,7 @@ function scanFileForStrategyOptIn(file, content) {
 //       with-shape/schema-update       per-collection migration strategies
 //   always-on infra — no discrete capability to gate:
 //       with-party/directory           user directory; defaults ON, called unconditionally in core keyring flows
+//       with-party/policy              policy gate engine; every vault always gets policy enforcement, no strategy option to opt out of
 //       with-pod                       writeNoydbBundle/vault.dump — internal backup primitive used by snapshots/portability/cargo/backup
 //   sub-parts of an already-gated service (covered by another withX):
 //       with-lookup/embeddings         vector compute folded into withSearch()
@@ -435,6 +436,7 @@ const SCHEMA_DECLARED_OR_INFRA_EXEMPT = new Set([
   'with-shape/persisted-schemas',
   'with-shape/schema-update',
   'with-party/directory',
+  'with-party/policy',
   'with-pod',
   'with-lookup/embeddings',
   'with-party/sync',
@@ -830,7 +832,14 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 2318→2321 (S4 Task 9: gate cargo behind withCargo()): thread the opt-in `cargoStrategy`
   // from createNoydb options into the three Vault-construction option spreads. Public opt-in API
   // surface; the extraction crypto + diff walk live in the lazy `with-cargo/active.ts` chunk.
-  'packages/hub/src/kernel/noydb.ts': 2321,
+  // Bumped 2321→2325 (rank-5: kernel/policy/ leaves the kernel for with-party/policy/): the engine/
+  // presets/storage/facade implementation (741 LOC) moved out, but noydb.ts itself grew slightly —
+  // it now pre-resolves `policyFactory`/`policyCheckGateFn` the same way `userApiFactory` is
+  // pre-resolved (dynamic import + ctor guard + a stashed `policyCheckGate` field for the
+  // `checkGate` wrapper), same as the user-envelope precedent (commit 19f718eb), which also grew
+  // noydb.ts by a few lines for the identical reason: the contract-in-spine + pre-resolved-factory
+  // pattern has a fixed per-seam cost on this file even when the bulk of the implementation leaves.
+  'packages/hub/src/kernel/noydb.ts': 2325,
 }
 
 function checkKernelSurface() {
@@ -1219,10 +1228,6 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
   ['packages/hub/src/kernel/enclave/record-keys/sealing.ts', [
     '../../../with-audit/sealed-record/types.js',
     '../../../with-party/team/managed-passphrase.js',
-  ]],
-  ['packages/hub/src/kernel/policy/noydb-facade.ts', [
-    '../../with-party/session/session-policy.js',
-    '../../with-party/session/strategy.js',
   ]],
 ])
 

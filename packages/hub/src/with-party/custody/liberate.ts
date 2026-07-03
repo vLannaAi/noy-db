@@ -43,8 +43,7 @@
  */
 
 import type { Vault } from '../../kernel/vault.js'
-import type { FactorProofBundle } from '../../kernel/policy/types.js'
-import type { KeyringFile } from '../../kernel/types.js'
+import type { FactorProofBundle, KeyringFile } from '../../kernel/types.js'
 import { PermissionDeniedError } from '../../kernel/errors.js'
 import { wrapKey } from '../../kernel/enclave/index.js'
 import { createOwnerKeyring } from '../team/keyring.js'
