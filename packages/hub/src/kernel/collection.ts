@@ -1122,13 +1122,13 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   _applyClassifiedFields(classifiedFields: Record<string, ClassifiedEntry>): void {
     if (this.classified !== undefined) return
     const resolved = resolveClassifiedFields(this.name, classifiedFields)
-    this.classified = resolved
     // Check for collisions: each rider-computed key must not already exist in this.computed
     for (const key of Object.keys(resolved.riderComputed)) {
       if (this.computed?.[key] !== undefined) {
         throw new ClassifiedConfigError(this.name, `rider companion "${key}" collides with a declared field`)
       }
     }
+    this.classified = resolved
     this.computed = { ...resolved.riderComputed, ...(this.computed ?? {}) }
   }
 

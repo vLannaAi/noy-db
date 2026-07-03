@@ -93,5 +93,9 @@ describe('classifiedFields threading', () => {
     expect(() => v.collection('x2', {
       classifiedFields: { pan: classified.creditCard({ pan: 'pan' }) }  // try to apply, but rider collides
     })).toThrow(ClassifiedConfigError)
+    // aborted apply must leave no partial state: a corrected declaration can still apply
+    const fixed = v.collection('x2', { classifiedFields: { dob: classified.birthDate() } })
+    await fixed.put('p9', { dob: '1990-04-01' })
+    expect(((await fixed.get('p9')) as Record<string, unknown>).dob_yob).toBe('1990')
   })
 })
