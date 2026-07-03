@@ -11,7 +11,7 @@
  *
  * @module
  */
-import { PolicyDeniedError, type PolicyDenyReason } from './errors.js'
+import { PolicyDeniedError, type PolicyDenyReason } from '../../kernel/errors.js'
 import type {
   ActiveTier,
   FactorProof,
@@ -19,7 +19,7 @@ import type {
   GatePolicy,
   VaultPolicy,
   FactorRequirement,
-} from './types.js'
+} from '../../kernel/types.js'
 
 /** Default freshness window — 5 minutes. */
 export const DEFAULT_FRESHNESS_MS = 5 * 60 * 1000

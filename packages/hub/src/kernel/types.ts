@@ -53,7 +53,7 @@ import type { SyncStrategy } from '../with-party/team/sync-strategy.js'
 import type { GuardStrategyHandleAny } from '../with-audit/guards/types.js'
 import type { DerivationStrategyHandle } from '../with-formula/derivations/types.js'
 import type { UnlockedKeyring } from '../with-party/team/keyring.js'
-import type { VaultPolicy, FactorProof } from './policy/types.js'
+import type { PassphrasePolicy } from './validation.js'
 import type { PublicEnvelopeSchema } from '../with-party/directory/public-envelope/types.js'
 import type { MaterializedViewStrategyHandle } from '../with-formula/materialized-views/types.js'
 import type { OverlayedViewStrategyHandle } from '../with-formula/overlay-views/types.js'
@@ -688,9 +688,10 @@ export interface ImportCapability {
 
 /**
  * Forward-declared on-disk shape for `VaultPolicy` — the actual policy
- * model lives in `policy/types.ts` (#9). Declared here as `unknown`-typed
- * map so types.ts has no dependency on the policy module while the
- * `KeyringFile.policy` field can still round-trip foreign documents.
+ * model is declared further down in this file (#9), see {@link VaultPolicy}.
+ * Declared here as an `unknown`-typed map (rather than `VaultPolicy` itself)
+ * so the `KeyringFile.policy` field can still round-trip foreign/older
+ * documents that don't strictly satisfy the current shape.
  *
  * @internal
  */
@@ -2448,6 +2449,26 @@ export interface NoydbOptions {
    */
   readonly userApiFactory?: UserApiFactory
   /**
+   * Pre-resolved factory for the `NoydbPolicy` service (vault-policy
+   * read/update/bootstrap + session-policy enforcer wiring).
+   * `createNoydb()` always resolves this itself (dynamically importing
+   * `with-party/policy/index.js`) before constructing `Noydb` — mirrors the
+   * {@link coordinationStrategy} / {@link userApiFactory} pre-resolves
+   * above. There is no supported way to override it.
+   *
+   * @internal
+   */
+  readonly policyFactory?: NoydbPolicyFactory
+  /**
+   * Pre-resolved policy-gate engine function (`checkGate`).
+   * `createNoydb()` always resolves this itself (dynamically importing
+   * `with-party/policy/index.js`) before constructing `Noydb` — same
+   * pre-resolve pattern as {@link policyFactory}.
+   *
+   * @internal
+   */
+  readonly policyCheckGateFn?: PolicyCheckGateFn
+  /**
    * Stable id for the session that owns this instance's writers (one user's
    * writers across vaults). Tags every {@link WriterPresence} the fence
    * watcher reports. Defaults to a fresh ULID per `Noydb` instance.
@@ -2755,3 +2776,353 @@ export interface UserApiDeps {
  * `VaultUserApi` are why `vault.user` must be built synchronously.
  */
 export type UserApiFactory = (deps: UserApiDeps) => VaultUserApi
+
+// ─── Policy gates (VaultPolicy contract) ───────────────────────────────
+//
+// Sensitive operations (rotate the passphrase, enroll an authenticator,
+// export plaintext, grant a user, …) are gated by a typed policy
+// object. The developer supplies a {@link VaultPolicy} at vault
+// creation; the hub merges it onto a built-in preset and persists the
+// merged document at `_meta/policy`.
+//
+// The CONTRACT (this section) lives here in the spine; the engine
+// (`checkGate`/`describeGate`), the presets (`PERSONAL_POLICY` /
+// `STRICT_POLICY`), storage (`loadVaultPolicy`/`saveVaultPolicy`), and the
+// `NoydbPolicy` facade implementation live at `with-party/policy/` and are
+// wired in by `createNoydb()` via the pre-resolved {@link NoydbPolicyFactory}
+// / {@link PolicyCheckGateFn} options above — the same
+// dynamic-import-then-stash pattern used for the default
+// `CoordinationProvider` / `UserApiFactory`.
+//
+// @see docs/services/session-tiers.md → Policy gates DSL
+
+/**
+ * A single factor surface — the proof an actor presents at gate time.
+ *
+ * | Kind | Source | Off-device? |
+ * |---|---|---|
+ * | `totp` | RFC 6238 authenticator app (Google Auth, 1Password) | yes |
+ * | `email-otp` | one-time code mailed to the user | yes |
+ * | `recovery` | printable Base32 code (`@noy-db/on-recovery`) | yes (paper) |
+ * | `shamir` | k-of-n threshold share (`@noy-db/on-shamir`) | yes |
+ * | `webauthn-roaming` | hardware key (YubiKey, SoloKey, Titan) | yes (key portable) |
+ * | `webauthn-platform` | platform passkey (Touch ID, Face ID, Hello) | no (device-bound) |
+ * | `password` | tier-2 password (`@noy-db/on-password`) | no |
+ * | `pin` | tier-3 quick-resume PIN (`@noy-db/on-pin`) | no |
+ *
+ * Off-device kinds (TOTP, email-OTP, recovery, shamir, roaming WebAuthn)
+ * are the strongest factor proofs because they require something
+ * separate from the device the user just unlocked. Platform / password /
+ * PIN are useful for "fresh proof of *this* user" but don't bind across
+ * devices — policies can require ANY of them or insist on a count of 2
+ * to force a mix.
+ *
+ * `webauthn-platform`, `password`, `pin` — for consumers with no
+ * off-device infrastructure (no TOTP, no email-OTP, paper recovery not
+ * enrolled) who want to require "any second factor I have wired"
+ * without losing the freshness guarantee.
+ */
+export type FactorKind =
+  | 'totp'
+  | 'email-otp'
+  | 'recovery'
+  | 'shamir'
+  | 'webauthn-roaming'
+  | 'webauthn-platform'
+  | 'password'
+  | 'pin'
+
+/**
+ * One factor requirement entry. The default is "any one of the listed
+ * factors, fresh within the last 5 minutes". Bumping `count` requires N
+ * distinct fresh proofs; bumping `freshnessMs` widens the acceptance
+ * window.
+ */
+export interface FactorRequirement {
+  readonly anyOf: ReadonlyArray<FactorKind>
+  /** Number of distinct factors required. Default 1. */
+  readonly count?: number
+  /** How recent each proof must be. Default 5 minutes. */
+  readonly freshnessMs?: number
+}
+
+/** Soft signals layered on top of the gate verdict — never block on their own. */
+export interface WarningRules {
+  /** Behavior on shared-device tier-1 ops. `'block'` raises a `PolicyDeniedError`. */
+  readonly sharedDevice?: 'warn' | 'block'
+  /** Behavior on weak tier-2 (e.g. password-only) for sensitive ops. */
+  readonly weakAuthenticator?: 'warn' | 'block'
+}
+
+/**
+ * Policy applied to one named gate. `enabled: false` disables the
+ * action entirely (useful in managed-passphrase mode where rotation is
+ * impossible by construction).
+ */
+export interface GatePolicy {
+  /** Minimum tier the active session must hold. */
+  readonly minTier: 1 | 2 | 3
+  /** Extra freshness-bound proofs required at gate time. */
+  readonly factors?: ReadonlyArray<FactorRequirement>
+  readonly warn?: WarningRules
+  readonly enabled?: boolean
+}
+
+/**
+ * Built-in gate names. App-defined gates live in the `app:*` namespace
+ * and use the same engine; the engine treats unknown names with no
+ * configured policy as "no gate" (no-op).
+ */
+export type BuiltInGateName =
+  | 'rotate-passphrase'
+  | 'recover-passphrase'
+  | 'enroll-authenticator'
+  | 'remove-authenticator'
+  /**
+   * Authorize a deliberate paper-recovery-code regeneration —
+   * `db.rotateRecovery`. Symmetric to `rotate-passphrase` for
+   * the case where the user remembers their passphrase but wants a
+   * fresh sheet (lost the printout, suspect compromise of the off-site
+   * copy). PERSONAL allows tier-1; STRICT requires an off-device
+   * factor so a stolen unlocked laptop cannot silently mint a new
+   * sheet for an attacker.
+   */
+  | 'rotate-recovery'
+  /**
+   * Authorize a meta-only mutation on an existing authenticator slot —
+   * `db.updateAuthenticator`. The slot's wrap material, id, and
+   * method are immutable through this gate; only the `meta` blob
+   * (nicknames, method-specific labels) can change. Anti-slot-swap
+   * guard is preserved structurally regardless of this gate's
+   * settings.
+   */
+  | 'update-authenticator'
+  | 'rotate-unlock'
+  | 'enroll-user'
+  | 'revoke-user'
+  | 'export-bundle'
+  | 'export-plaintext'
+  | 'view-user-auth'
+  /** Authorize a write to one's own user envelope. */
+  | 'edit-own-profile'
+  /** Authorize reading other principals' user envelopes. */
+  | 'view-team-profiles'
+  /**
+   * Authorize an atomic peer-recovery — `db.recoverUser`.
+   * Distinct from `revoke-user` because peer-recovery is intentional
+   * re-issuance of someone's keyring under a temp passphrase, NOT
+   * removal. Allows owner→owner natively (matches the threat model:
+   * a co-owner explicitly recovering another co-owner). Ships with a
+   * factor-proof default in `STRICT_POLICY` so the issuer must
+   * affirmatively prove identity at the moment of recovery.
+   */
+  | 'peer-recover-user'
+  /**
+   * Authorize a post-grant identity mutation — `db.updateUser`.
+   * Covers `role`, `displayName`, `permissions` changes on an existing
+   * keyring. Pure plaintext-header rewrite — no DEKs touched, no KEK
+   * required. The role-elevation guard inside the implementation
+   * mirrors `db.grant`'s hierarchy (admin cannot promote to owner)
+   * regardless of this gate's settings.
+   */
+  | 'update-user'
+  /**
+   * Authorize a non-owner's self-service **destructive** withdrawal —
+   * `vault.user.unilateralWithdrawal`. The actor exports their
+   * own re-keyed copy and then removes (delete-closure) or freezes the
+   * source records. Because it both egresses data AND destroys the
+   * firm's live copy, it MUST fail closed: undefined in a policy = denied.
+   * Hosts opt in explicitly (and typically pin `minTier`/factor proofs).
+   */
+  | 'client-unilateral-withdraw'
+  /**
+   * Authorize FILING a two-party withdrawal request —
+   * `vault.user.requestWithdrawal`. Non-destructive (writes a
+   * pending request only); enabled by default so a read-only client can ask.
+   */
+  | 'user-request-withdrawal'
+  /**
+   * Authorize DECIDING a two-party withdrawal request (approve/reject) —
+   * `vault.user.approveWithdrawal` / `rejectWithdrawal`. The approve
+   * path is destructive (extract-and-dispose under firm authority), so it
+   * defaults to a tier-2 floor; owner/admin role is enforced structurally.
+   */
+  | 'approve-user-withdrawal'
+  /**
+   * Authorize minting a **custodian** — `db.grantCustodian` (FR-6). The
+   * custodian is the de-facto operational authority on a sealed-owner (Deed)
+   * vault, so granting one is an ownership-level act: this gate MUST fail
+   * closed (undefined in a policy = denied) and owner-only role is enforced
+   * structurally. Hosts opt in explicitly, typically pinning factor proofs.
+   */
+  | 'grant-custodian'
+  /**
+   * Authorize the audited **Liberate** ceremony — `vault.custody.liberate`
+   * (FR-6). The custodian (holding the live DEKs) claims ownership of a
+   * sealed-owner vault under a recorded legal basis, minting a NEW owner
+   * keyring. Destructive-of-the-old-ownership and irreversible, so it MUST
+   * fail closed (undefined = denied); the caller-is-custodian check is
+   * enforced structurally in the ceremony.
+   */
+  | 'liberate-vault'
+
+/** Either a built-in gate name or an `app:*` custom gate. */
+export type GateName = BuiltInGateName | `app:${string}`
+
+/**
+ * Top-level policy object. Persisted at `_meta/policy` once at vault
+ * creation. The `passphrase` block configures the strength rules
+ * applied at every passphrase ingress; `gates` configures
+ * the action-level requirements.
+ */
+export interface VaultPolicy {
+  readonly passphrase?: PassphrasePolicy
+  readonly gates: Partial<Record<GateName, GatePolicy>>
+}
+
+/** Concrete proof an actor presents to {@link checkGate}. */
+export interface FactorProof {
+  readonly kind: FactorKind
+  /** ISO-8601 timestamp the proof was minted at. Compared against `freshnessMs`. */
+  readonly mintedAt?: string
+  /** Method-specific payload. The engine treats it as opaque — verification is delegated. */
+  readonly payload?: unknown
+}
+
+/**
+ * Bundle of factor proofs + session-context flags passed to a gated
+ * Noydb method. Used as the optional last parameter of every method
+ * that runs through `checkGate`: `db.grant`, `db.revoke`, `db.updateUser`,
+ * `db.enrollAuthenticator`, `db.removeAuthenticator`, `db.updateAuthenticator`,
+ * `db.enrollWebAuthn`, `db.rotatePassphrase`, `db.recoverPassphrase`,
+ * `db.recoverUser`, `db.enrollUnlock`, `db.describeUserAuth`,
+ * `db.describeAllUsersAuth`.
+ *
+ * Previously this type was inlined at every call site as
+ * `{ factors?: ReadonlyArray<FactorProof>; sharedDevice?: boolean }`
+ * and parameter names alternated between `factors` and `presented`.
+ * Now exported so consumers can name their helpers and so the param
+ * name converges to `factors` everywhere.
+ */
+export interface FactorProofBundle {
+  readonly factors?: ReadonlyArray<FactorProof>
+  readonly sharedDevice?: boolean
+}
+
+/** Active session tier — what the engine compares against `gate.minTier`. */
+export type ActiveTier = 1 | 2 | 3
+
+/**
+ * Caller-supplied context for the policy engine's `checkGate`/`describeGate`.
+ * Structural mirror of `with-party/policy/engine.ts`'s `CheckGateContext` —
+ * duplicated here (rather than imported) because the kernel spine may not
+ * statically import a with-* service; see {@link PolicyCheckGateFn}.
+ */
+export interface PolicyCheckGateContext {
+  /** Tier the active session currently holds. */
+  readonly activeTier: ActiveTier
+  /** Proofs the actor is presenting for this gate. */
+  readonly factors?: ReadonlyArray<FactorProof>
+  /**
+   * If the host knows the actor is on a shared device, set this to
+   * `true` so the engine can apply `warn.sharedDevice` rules. Defaults
+   * to `false`.
+   */
+  readonly sharedDevice?: boolean
+  /**
+   * Override `now()` for tests. Defaults to `Date.now()`.
+   * @internal
+   */
+  readonly now?: number
+}
+
+/**
+ * Structural type of the policy engine's `checkGate` function. The real
+ * implementation lives at `with-party/policy/engine.ts#checkGate`;
+ * `createNoydb()` pre-resolves it via a dynamic import (mirrors
+ * {@link UserApiFactory}) so `Noydb.checkGate` can call it without the
+ * spine statically importing the service.
+ */
+export type PolicyCheckGateFn = (
+  policy: VaultPolicy,
+  gate: GateName,
+  context: PolicyCheckGateContext,
+) => Promise<void>
+
+/**
+ * Public `NoydbPolicy` surface — the CONTRACT. The implementation
+ * (`NoydbPolicy` class) lives at `with-party/policy/noydb-facade.ts`;
+ * `createNoydb()` wires it in via the pre-resolved {@link NoydbPolicyFactory}.
+ */
+export interface NoydbPolicyApi {
+  /**
+   * Touch the policy enforcer for a vault (records activity, resets
+   * idle timer). Also touches the legacy session timer. No-op if no enforcer.
+   */
+  touchPolicy(vault?: string): void
+  /**
+   * Check that a policy-guarded operation is permitted.
+   * Throws `SessionPolicyError` if re-auth is required.
+   */
+  checkPolicyOperation(vault: string, op: ReAuthOperation): void
+  /**
+   * Read the active policy for a vault. Loads from `_meta/policy` on
+   * first call; subsequent calls hit the in-memory cache. Throws
+   * `ValidationError` if the vault has not been opened.
+   */
+  getPolicy(vault: string): Promise<VaultPolicy>
+  /**
+   * Replace the policy document at `_meta/policy` and update the
+   * in-memory cache. Gated by the `enroll-user` policy (a policy
+   * change is fundamentally a privilege-management action).
+   */
+  updatePolicy(vault: string, override: Partial<VaultPolicy>): Promise<VaultPolicy>
+  /** Read or persist the vault policy at `_meta/policy` on first open. */
+  bootstrapPolicy(vault: string, opts?: { skipManagedCheck?: boolean }): Promise<void>
+}
+
+/**
+ * Constructor dependencies for `NoydbPolicy` (the {@link NoydbPolicyApi}
+ * implementation). Everything the policy/session-policy methods touch on
+ * the owning `Noydb` instance's `this.*`.
+ *
+ * The `policyEnforcers` map is typed structurally (rather than importing
+ * `PolicyEnforcer` from `with-party/session/session-policy.ts`) so this
+ * spine-resident interface never needs a with-* import; the real
+ * `PolicyEnforcer` class satisfies this shape.
+ */
+export interface NoydbPolicyDeps {
+  /** In-memory vault-policy cache (Noydb-resident; read/written by reference). */
+  readonly policyCache: Map<string, VaultPolicy>
+  /** Per-vault session-policy enforcers (Noydb-resident; read/written by reference). */
+  readonly policyEnforcers: Map<string, { touch(): void; destroy(): void; checkOperation(op: ReAuthOperation): void }>
+  /** The ciphertext store. */
+  readonly store: NoydbStore
+  /** Whether records are encrypted (`options.encrypt !== false`). */
+  readonly encrypted: boolean
+  /** The configured session policy, or undefined. */
+  readonly sessionPolicy: SessionPolicy | undefined
+  /** The developer-supplied default policy, or undefined. */
+  readonly policyOption: VaultPolicy | undefined
+  /** Whether the owning instance has been closed. */
+  isClosed(): boolean
+  /** Reset the kernel-resident idle/session timer. */
+  resetSessionTimer(): void
+  /** Managed-recovery enrolment check (kernel-resident; called on bootstrap). */
+  assertRecoveryEnrolled(
+    vault: string,
+    policy: VaultPolicy,
+    opts?: { skipManagedCheck?: boolean },
+  ): Promise<void>
+  /** Evict the keyring + vault caches when a session is revoked. */
+  onSessionRevoke(vault: string): void
+}
+
+/**
+ * Factory that builds the `NoydbPolicy` service implementation from its
+ * dependencies. `createNoydb()` pre-resolves the real implementation
+ * (`with-party/policy/noydb-facade.js#createNoydbPolicy`) via a dynamic
+ * import before constructing `Noydb`, so the constructor can call it
+ * synchronously — mirrors {@link UserApiFactory}.
+ */
+export type NoydbPolicyFactory = (deps: NoydbPolicyDeps) => NoydbPolicyApi

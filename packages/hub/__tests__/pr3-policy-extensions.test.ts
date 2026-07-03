@@ -25,7 +25,7 @@ import {
   STRICT_POLICY,
   type FactorKind,
   type FactorProof,
-} from '../src/kernel/policy/index.js'
+} from '../src/with-party/policy/index.js'
 import {
   validatePassphrase,
   assertStrongPassphrase,

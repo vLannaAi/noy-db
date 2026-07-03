@@ -21,8 +21,14 @@ import type {
   TranslatorAuditEntry,
   WriteConflict,
   UserApiFactory,
+  ActiveTier,
+  FactorProofBundle,
+  GateName,
+  VaultPolicy,
+  NoydbPolicyApi,
+  PolicyCheckGateFn,
 } from './types.js'
-import { ValidationError, NoAccessError, InvalidKeyError, KeyringCorruptError, StoreCapabilityError, PermissionDeniedError, DebugPlaintextError } from './errors.js'
+import { ValidationError, NoAccessError, InvalidKeyError, KeyringCorruptError, StoreCapabilityError, PermissionDeniedError, DebugPlaintextError, RecoveryNotEnrolledError, ManagedRecoveryNotEnrolledError } from './errors.js'
 import {
   readDirectoryConfig,
   persistDirectoryConfig,
@@ -48,7 +54,6 @@ import {
 import { resolveManagedSecret } from '../with-party/team/managed-passphrase.js'
 import { generateULID } from '../with-pod/ulid.js'
 import { createDefaultCoordinationProvider, type CoordinationProvider } from '../port/by/default-provider.js'
-import { RecoveryNotEnrolledError, ManagedRecoveryNotEnrolledError } from './policy/errors.js'
 import type { PublicEnvelope } from '../with-party/directory/public-envelope/types.js'
 import type { SetPublicEnvelopeInput } from '../with-party/directory/public-envelope/schema.js'
 import { Vault } from './vault.js'
@@ -93,14 +98,6 @@ import { INDEXED_STORE_POLICY } from './sync-policy.js'
 import { memoryStore } from './memory-store.js'
 import type { PolicyEnforcer } from '../with-party/session/session-policy.js'
 import { NO_SESSION, type SessionStrategy } from '../with-party/session/strategy.js'
-import {
-  checkGate as policyCheckGate,
-  type ActiveTier,
-  type FactorProofBundle,
-  type GateName,
-  type VaultPolicy,
-} from './policy/index.js'
-import { NoydbPolicy } from './policy/noydb-facade.js'
 import { TeamFacade } from '../with-party/team/noydb-facade.js'
 
 /**
@@ -200,7 +197,9 @@ export class Noydb {
   private readonly sessionStrategy: SessionStrategy
   private readonly syncStrategy: SyncStrategy
   private readonly snapshots: NoydbSnapshots
-  private readonly policyManager: NoydbPolicy
+  private readonly policyManager: NoydbPolicyApi
+  /** Pre-resolved policy-gate engine function (mirrors `coordinationProvider`/`userApiFactory` above). */
+  private readonly policyCheckGate: PolicyCheckGateFn
   private readonly team: TeamFacade
   /**
    * Currently-running multi-record transaction, set by
@@ -246,6 +245,8 @@ export class Noydb {
     this.coordinationProvider = options.coordinationStrategy
     if (!options.userApiFactory) throw new ValidationError('Noydb must be constructed via createNoydb(), which resolves the default user-envelope API factory.')
     this.userApiFactory = options.userApiFactory
+    if (!options.policyFactory || !options.policyCheckGateFn) throw new ValidationError('Noydb must be constructed via createNoydb(), which resolves the default policy service.')
+    this.policyCheckGate = options.policyCheckGateFn
     this.txStrategy = options.txStrategy ?? NO_TX
     this.forgetStrategy = options.forgetStrategy ?? NO_FORGET
     this.custodyStrategy = options.custodyStrategy ?? NO_CUSTODY
@@ -258,10 +259,9 @@ export class Noydb {
       getVault: (name) => this.vaultCache.get(name),
       onAfterWrite: (h) => this.onAfterWrite(h),
     })
-    this.policyManager = new NoydbPolicy({
+    this.policyManager = options.policyFactory({
       policyCache: this.policyCache,
       policyEnforcers: this.policyEnforcers,
-      sessionStrategy: this.sessionStrategy,
       store: this.options.store,
       encrypted: this.options.encrypt !== false,
       sessionPolicy: this.options.sessionPolicy,
@@ -1795,7 +1795,7 @@ export class Noydb {
   ): Promise<void> {
     const policy = await this.getPolicy(vault)
     const tier = this.activeTier.get(vault) ?? 1
-    await policyCheckGate(policy, gate, {
+    await this.policyCheckGate(policy, gate, {
       activeTier: tier,
       ...(factors?.factors !== undefined ? { factors: factors.factors } : {}),
       ...(factors?.sharedDevice !== undefined
@@ -2296,6 +2296,10 @@ export async function createNoydb(options: NoydbOptions): Promise<Noydb> {
 
   if (!options.coordinationStrategy) options = { ...options, coordinationStrategy: await createDefaultCoordinationProvider(options.store!) }
   if (!options.userApiFactory) options = { ...options, userApiFactory: (await import('../with-party/directory/user-envelope/api.js')).createUserApi }
+  if (!options.policyFactory) {
+    const policyModule = await import('../with-party/policy/index.js')
+    options = { ...options, policyFactory: policyModule.createNoydbPolicy, policyCheckGateFn: policyModule.checkGate }
+  }
 
   return new Noydb(options as ResolvedNoydbOptions)
 }

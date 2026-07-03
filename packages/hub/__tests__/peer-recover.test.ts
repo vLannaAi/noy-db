@@ -27,8 +27,8 @@ import { recoverUser } from '../src/with-party/team/peer-recover.js'
 import { generateDEK } from '../src/kernel/enclave/index.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, InvalidKeyError } from '../src/kernel/errors.js'
-import { PolicyDeniedError } from '../src/kernel/policy/errors.js'
-import { STRICT_POLICY } from '../src/kernel/policy/presets.js'
+import { PolicyDeniedError } from '../src/kernel/errors.js'
+import { STRICT_POLICY } from '../src/with-party/policy/presets.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

@@ -49,7 +49,7 @@ import {
 import { saveSealedPassphrase } from './managed-passphrase.js'
 import type { ShamirRecoveryProvider } from './shamir-recovery-provider.js'
 import { generateULID } from '../../with-pod/ulid.js'
-import { RecoveryProfileNotImplementedError, PolicyDeniedError } from '../../kernel/policy/errors.js'
+import { RecoveryProfileNotImplementedError, PolicyDeniedError } from '../../kernel/errors.js'
 import {
   describeAuthConfig as fnDescribeAuthConfig,
   diagramAuthConfig as fnDiagramAuthConfig,
@@ -73,7 +73,7 @@ import type {
   FactorProofBundle,
   GateName,
   VaultPolicy,
-} from '../../kernel/policy/index.js'
+} from '../../kernel/types.js'
 
 /** NoydbOptions with the store resolved to a non-optional value (internal use only). */
 type ResolvedNoydbOptions = NoydbOptions & { readonly store: NoydbStore }

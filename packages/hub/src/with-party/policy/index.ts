@@ -16,15 +16,15 @@ export type {
   BuiltInGateName,
   VaultPolicy,
   ActiveTier,
-} from './types.js'
+} from '../../kernel/types.js'
 
 export {
   PolicyDeniedError,
   RecoveryNotEnrolledError,
   RecoveryProfileNotImplementedError,
   ManagedRecoveryNotEnrolledError,
-} from './errors.js'
-export type { PolicyDenyReason } from './errors.js'
+} from '../../kernel/errors.js'
+export type { PolicyDenyReason } from '../../kernel/errors.js'
 
 export { PERSONAL_POLICY, STRICT_POLICY, mergePolicy } from './presets.js'
 
@@ -37,3 +37,8 @@ export {
   META_COLLECTION,
   POLICY_RECORD_ID,
 } from './storage.js'
+
+// `createNoydb()` pre-resolves this via a dynamic import to build
+// `Noydb`'s `policyManager` synchronously — mirrors the
+// `with-party/directory/user-envelope/api.js#createUserApi` pre-resolve.
+export { createNoydbPolicy } from './noydb-facade.js'
