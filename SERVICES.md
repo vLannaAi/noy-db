@@ -25,7 +25,7 @@ const db = await createNoydb({
 
 When a service is not opted into, its real implementation is replaced by a NO-OP stub (or a throwing stub on opt-in surfaces) and the heavy code is fully tree-shaken from the bundle.
 
-This document lists the always-on core and the service catalog (24 services). It is the table of contents for the rest of the documentation.
+This document lists the always-on core and the service catalog (25 services). It is the table of contents for the rest of the documentation.
 
 ---
 
@@ -85,6 +85,7 @@ The Dim 14 family. All three share the same encrypted-payload metadata envelope,
 |---|---|---|---:|---|
 | 8 | `@noy-db/hub/blobs` | Binary attachments + compaction + MIME-magic | 2,376 | `pod`, `routing` |
 | 9 | `@noy-db/hub/i18n` | Multi-locale records + dict-key resolution + auto-translate hook | 854 | `aggregate` (groupBy on dict-key) |
+| 25 | `@noy-db/hub/classified` | Classified fields — behavioral sensitive-field types: presets, riders, projections, audited reveal | ~290 | `guards`, `history` (audited access) |
 
 ### Cluster E — Time & Audit
 
@@ -120,7 +121,7 @@ The Dim 14 family. All three share the same encrypted-payload metadata envelope,
 | 17 | `@noy-db/hub/routing` | Multi-store routing + middleware + sync-policy + lazy-mode + LRU cache | ~1,985 | `indexing`, `pod` |
 | 24 | *(preview)* | Multi-vault partition federation — `db.openVaultGroup()` transparent shard routing + `vault-registry` source-of-truth + `minVersion` fan-out guard (MVP, milestone 16) | — | `queryAcross`, `permissions` |
 
-**Totals:** ~16,650 LOC across all 24 services are tree-shake-able. A consumer using only the core ships ~6,500 LOC. A consumer opting into all 24 ships ~31,700 LOC.
+**Totals:** ~16,940 LOC across all 25 services are tree-shake-able. A consumer using only the core ships ~6,500 LOC. A consumer opting into all 25 ships ~31,990 LOC.
 
 ---
 

@@ -102,6 +102,7 @@ const SCENARIOS = [
       'DerivationRegistry',
       'GuardExecutor',
       'DerivationExecutor',
+      'revealField',   // classified/reveal.ts — must stay behind the dynamic import in classified/active.ts
     ],
   },
   {
@@ -111,6 +112,17 @@ const SCENARIOS = [
       import { createNoydb } from '@noy-db/hub'
       import { withHistory } from '@noy-db/hub/history'
       export { createNoydb, withHistory }
+    `,
+    leakCanaries: [],
+  },
+  {
+    name: 'classified',
+    description: 'createNoydb + withClassified',
+    code: `
+      import { createNoydb } from '@noy-db/hub'
+      import { withClassified } from '@noy-db/hub/classified'
+      const classifiedStrategy = withClassified()
+      export { createNoydb, classifiedStrategy }
     `,
     leakCanaries: [],
   },
@@ -185,6 +197,7 @@ async function buildScenario(scenario) {
     alias: {
       '@noy-db/hub': join(HUB_DIR, 'dist', 'index.js'),
       '@noy-db/hub/history': join(HUB_DIR, 'dist', 'history', 'index.js'),
+      '@noy-db/hub/classified': join(HUB_DIR, 'dist', 'classified', 'index.js'),
       '@noy-db/hub/i18n': join(HUB_DIR, 'dist', 'i18n', 'index.js'),
       '@noy-db/hub/session': join(HUB_DIR, 'dist', 'session', 'index.js'),
       '@noy-db/hub/sync': join(HUB_DIR, 'dist', 'sync', 'index.js'),
@@ -226,6 +239,7 @@ async function buildScenario(scenario) {
     alias: {
       '@noy-db/hub': join(HUB_DIR, 'dist', 'index.js'),
       '@noy-db/hub/history': join(HUB_DIR, 'dist', 'history', 'index.js'),
+      '@noy-db/hub/classified': join(HUB_DIR, 'dist', 'classified', 'index.js'),
       '@noy-db/hub/i18n': join(HUB_DIR, 'dist', 'i18n', 'index.js'),
       '@noy-db/hub/session': join(HUB_DIR, 'dist', 'session', 'index.js'),
       '@noy-db/hub/sync': join(HUB_DIR, 'dist', 'sync', 'index.js'),
