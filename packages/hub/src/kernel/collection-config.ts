@@ -46,6 +46,7 @@ import type { DictKeyDescriptor, StaticDictDescriptor, DictionaryHandle } from '
 import type { MoneyDescriptor } from '../with-shape/money/descriptor.js'
 import { validateMoneyFieldPaths } from '../with-shape/money/paths.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
+import { resolveClassifiedFields, ClassifiedConfigError, type ClassifiedEntry, type ResolvedClassified } from '../with-shape/classified/resolve.js'
 import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
 import type { CollectionMeta } from '../with-shape/introspection/meta.js'
 import type { RefDescriptor } from './refs.js'
@@ -226,6 +227,8 @@ export interface CollectionOpts<T> {
   /** — outbound ref declarations (snapshot from vault refRegistry). Used by describe(). */
   declaredRefs?: Record<string, RefDescriptor> | undefined
   computed?: ComputedFields | undefined
+  /** — declare classified() sensitive-field descriptors (sealed + riders + projections). */
+  classifiedFields?: Record<string, ClassifiedEntry> | undefined
   /**
    * async callback that resolves a dict key to its label
    * for a given locale. Provided by the Vault.
@@ -453,6 +456,23 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
 
   if (opts.moneyFields) validateMoneyFieldPaths(opts.moneyFields)
 
+  const resolvedClassified: ResolvedClassified | undefined =
+    opts.classifiedFields !== undefined
+      ? resolveClassifiedFields(opts.name, opts.classifiedFields)
+      : undefined
+
+  // rider companions run first; user `computed` fns may read them.
+  // A user `computed` key colliding with a rider companion is a config error.
+  let mergedComputed: ComputedFields | undefined = opts.computed
+  if (resolvedClassified !== undefined) {
+    for (const key of Object.keys(opts.computed ?? {})) {
+      if (resolvedClassified.riderComputed[key] !== undefined) {
+        throw new ClassifiedConfigError(opts.name, `computed field "${key}" collides with a rider companion`)
+      }
+    }
+    mergedComputed = { ...resolvedClassified.riderComputed, ...(opts.computed ?? {}) }
+  }
+
   // deterministic-encryption wiring
   let deterministicFields: ReadonlySet<string> | null
   if (opts.deterministicFields && opts.deterministicFields.length > 0) {
@@ -481,8 +501,15 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
 
   // structural group-encryption wiring: the set of fields sealed
   // into `_sealed` per-field slots. Empty when the option is absent.
-  const sensitiveFields: ReadonlySet<string> = opts.sensitive && opts.sensitive.length > 0
-    ? Object.freeze(new Set(opts.sensitive))
+  // Recoverable classified fields are unioned in — they seal via the same
+  // mechanism with zero new crypto code.
+  const classifiedSensitive = resolvedClassified === undefined ? [] :
+    Object.entries(resolvedClassified.byField)
+      .filter(([, s]) => s.storage === 'recoverable')
+      .map(([f]) => f)
+  const sensitiveList = [...(opts.sensitive ?? []), ...classifiedSensitive]
+  const sensitiveFields: ReadonlySet<string> = sensitiveList.length > 0
+    ? Object.freeze(new Set(sensitiveList))
     : Object.freeze(new Set<string>())
 
   // per-record CEK wiring. The cache is bounded by record count; CEKs
@@ -531,7 +558,8 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     meta: opts.meta,
     _refs: opts.declaredRefs ?? {},
     moneyFields: opts.moneyFields,
-    computed: opts.computed,
+    classified: resolvedClassified,
+    computed: mergedComputed,
     dictLabelResolver: opts.dictLabelResolver,
     getDictionary: opts.getDictionary,
     i18nPutValidator: opts.i18nPutValidator,

@@ -420,6 +420,7 @@ function scanFileForStrategyOptIn(file, content) {
 //       with-shape/introspection       describe()/dumpVaultSchema — read-only schema surface
 //       with-shape/links               link()/backlink schema refs
 //       with-shape/money               money() field descriptor
+//       with-shape/classified          classifiedFields declaration (sealed + riders)
 //       with-shape/persisted-schemas   schema-persistence infra behind collection()
 //       with-shape/schema-update       per-collection migration strategies
 //   always-on infra — no discrete capability to gate:
@@ -442,6 +443,7 @@ const SCHEMA_DECLARED_OR_INFRA_EXEMPT = new Set([
   'with-shape/introspection',
   'with-shape/links',
   'with-shape/money',
+  'with-shape/classified',
   'with-shape/persisted-schemas',
   'with-shape/schema-update',
   'with-party/directory',
@@ -635,7 +637,9 @@ const KERNEL_SURFACE_BUDGET = {
   // Lowered 5185→4962 (Phase 5 A14: search/retrieval extraction): `search`/`flushIndex`/`warmIndex`/`retrieve`/`similarTo` + the build/resolve/retrieveLexical/Semantic/Hybrid helpers moved to `with-lookup/search/collection-facade.ts` behind a `SearchContext`; Collection keeps thin public delegators + a `searchContext()` binder. The eager `cache` Map is passed by reference; `buildPersistedIndexCallbacks` takes a context THUNK (ctor-invoked before `codec` exists, resolved lazily per callback).
   // Lowered 4962→4686 (Phase 5 A15: index-maintenance extraction): `rebuildEagerIndexesFromCache`/`rebuildUniqueConstraintsFromCache`/`rebuildIndexes`/`reconcileIndex`/`maintainPersistedIndexesOnPut`/`OnDelete`/`_purgePersistedIndexes` + the readPersistedValue/serializeIndexValue/extractIndexValue/valuesMatch helpers moved to `with-lookup/indexing/collection-facade.ts` behind an `IndexingContext`; Collection keeps thin delegators + an `indexingContext()` binder. The eager `cache` Map + the index/unique/persisted mirrors are passed by reference; `persistedIndexesLoaded` flag + `ensure*` hydration stay collection-resident, reached via callbacks. putInternal/the write path is untouched (still calls the same delegator names).
   // Lowered 4686→4301 (Phase 5 A11: constructor → resolveCollectionConfig): the inline opts type literal + the pure opts-resolution half (every `?? default`, the derived `Set`/`VectorSet`/CEK-`Lru`, the embeddings-on-CRDT / money-path / deterministic-risk validations) moved to `collection-config.ts`; the constructor becomes thin wiring (resolve → assign → searchIndexStore/codec/conflict-resolver registration → lazy/index cluster). searchIndexStore + the conflict-resolver registration + the lazy/index cluster stay constructor-resident: searchIndexStore for the persisted-index thunk ordering (built before codec), the conflict resolvers because their closures capture private `this` state AND `conflictPolicy: ConflictPolicy<T>` (invariant in T — a method param would break `Collection<T>`→`Collection<unknown>`), and the lazy/index cluster to preserve the registration→validation side-effect order.
-  'packages/hub/src/kernel/collection.ts': 4301,
+  // Bumped 4301→4304 — classified-fields stage 1 Task 3 (threading): private
+  // `classified` field + ctor assignment + `_applyClassifiedFields` reconcile method.
+  'packages/hub/src/kernel/collection.ts': 4304,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
@@ -763,7 +767,9 @@ const KERNEL_SURFACE_BUDGET = {
   // field's doc comment (+9). The extraction crypto + diff walk are reached only via the lazy
   // `with-cargo/active.ts` chunk (which dynamically imports `extractPartitionCore`/`diffVaultCore`;
   // the crypto body is unchanged).
-  'packages/hub/src/kernel/vault.ts': 3855,
+  // Bumped 3855→3857 — classified-fields stage 1 Task 3 (threading): public
+  // `classifiedFields` option + reconcile branch + fresh-construction thread-through.
+  'packages/hub/src/kernel/vault.ts': 3857,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
@@ -992,6 +998,8 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/blobs/blob-compaction.js',
     '../with-shape/blobs/object-projection.js',
     '../with-shape/blobs/strategy.js',
+    // classified-fields stage 1 — ③ schema feature, joins the #553 lazy-import debt like money/dictKey/computed
+    '../with-shape/classified/resolve.js',
     '../with-shape/i18n/core.js',
     '../with-shape/i18n/dictionary.js',
     '../with-shape/i18n/strategy.js',
@@ -1043,6 +1051,8 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/blobs/blob-set.js',
     '../with-shape/blobs/object-projection.js',
     '../with-shape/blobs/strategy.js',
+    // classified-fields stage 1 — ③ schema feature, joins the #553 lazy-import debt like money/dictKey/computed
+    '../with-shape/classified/resolve.js',
     '../with-shape/i18n/core.js',
     '../with-shape/i18n/dictionary.js',
     '../with-shape/i18n/policy.js',
@@ -1184,6 +1194,8 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/blobs/export-blobs.js',
     '../with-shape/blobs/object-projection.js',
     '../with-shape/blobs/strategy.js',
+    // classified-fields stage 1 — ③ schema feature, joins the #553 lazy-import debt like money/dictKey/computed
+    '../with-shape/classified/resolve.js',
     '../with-shape/i18n/core.js',
     '../with-shape/i18n/dictionary.js',
     '../with-shape/i18n/strategy.js',
