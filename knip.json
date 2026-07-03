@@ -19,26 +19,6 @@
         "src/with-party/session/index.ts",
         "src/with-party/team/index.ts"
       ]
-    },
-    "showcases": {
-      "entry": [
-        "src/**/*.showcase.test.ts",
-        "src/**/*.workers.test.ts",
-        "src/**/*.test.tsx",
-        "src/_*.ts"
-      ]
-    },
-    "recipes/*": {
-      "entry": ["src/index.ts", "src/app.ts", "infra/app.ts", "scripts/*.mjs"]
-    },
-    "playground": {
-      "entry": ["src/index.ts", "demo.mjs"]
-    },
-    "playground/cli": {
-      "entry": ["src/index.ts", "demo.mjs"]
-    },
-    "playground/nuxt": {
-      "entry": ["app/**/*.vue", "nuxt.config.ts"]
     }
   }
 }

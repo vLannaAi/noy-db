@@ -1,4 +1,0 @@
-{
-  "app": "npx tsx infra/app.ts",
-  "context": { "@aws-cdk/core:newStyleStackSynthesis": true }
-}
