@@ -639,7 +639,9 @@ const KERNEL_SURFACE_BUDGET = {
   // Lowered 4686→4301 (Phase 5 A11: constructor → resolveCollectionConfig): the inline opts type literal + the pure opts-resolution half (every `?? default`, the derived `Set`/`VectorSet`/CEK-`Lru`, the embeddings-on-CRDT / money-path / deterministic-risk validations) moved to `collection-config.ts`; the constructor becomes thin wiring (resolve → assign → searchIndexStore/codec/conflict-resolver registration → lazy/index cluster). searchIndexStore + the conflict-resolver registration + the lazy/index cluster stay constructor-resident: searchIndexStore for the persisted-index thunk ordering (built before codec), the conflict resolvers because their closures capture private `this` state AND `conflictPolicy: ConflictPolicy<T>` (invariant in T — a method param would break `Collection<T>`→`Collection<unknown>`), and the lazy/index cluster to preserve the registration→validation side-effect order.
   // Bumped 4301→4310 — 2026-07-04 classified-fields stage 1 Task 3 (threading): private
   // `classified` field + ctor assignment + `_applyClassifiedFields` reconcile method + collision guard.
-  'packages/hub/src/kernel/collection.ts': 4310,
+  // Bumped 4310→4320 — 2026-07-04 classified-fields stage 1 Task 4 (write-enforcement):
+  // enforceClassifiedWrite call in _putInternal before computed stage (thin call-site + pure validation).
+  'packages/hub/src/kernel/collection.ts': 4320,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
@@ -1053,6 +1055,7 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/blobs/strategy.js',
     // classified-fields stage 1 — ③ schema feature, joins the #553 lazy-import debt like money/dictKey/computed
     '../with-shape/classified/resolve.js',
+    '../with-shape/classified/write.js',
     '../with-shape/i18n/core.js',
     '../with-shape/i18n/dictionary.js',
     '../with-shape/i18n/policy.js',
