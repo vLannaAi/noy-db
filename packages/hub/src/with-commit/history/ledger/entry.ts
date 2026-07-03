@@ -56,6 +56,8 @@
  * timestamps. This is an accepted trade-off for the tamper-evidence
  * property; full ORAM-level privacy is out of scope for noy-db.
  */
+import { sha256Hex as sha256HexBytes } from '../../../kernel/enclave/index.js'
+
 export interface LedgerEntry {
   /**
    * Zero-based sequential position of this entry in the chain. The
@@ -259,9 +261,7 @@ export function canonicalJson(value: unknown): string {
  * ledger entry is already much larger than the hash itself.
  */
 export async function sha256Hex(input: string): Promise<string> {
-  const bytes = new TextEncoder().encode(input)
-  const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes)
-  return bytesToHex(new Uint8Array(digest))
+  return sha256HexBytes(new TextEncoder().encode(input))
 }
 
 /**
@@ -272,18 +272,6 @@ export async function sha256Hex(input: string): Promise<string> {
  */
 export async function hashEntry(entry: LedgerEntry): Promise<string> {
   return sha256Hex(canonicalJson(entry))
-}
-
-/** Convert a Uint8Array to a lowercase hex string. */
-function bytesToHex(bytes: Uint8Array): string {
-  const hex = new Array<string>(bytes.length)
-  for (let i = 0; i < bytes.length; i++) {
-    // Non-null assertion: indexing a Uint8Array within bounds always
-    // returns a number, but the compiler's noUncheckedIndexedAccess
-    // flag widens it to `number | undefined`. Safe here by construction.
-    hex[i] = (bytes[i] ?? 0).toString(16).padStart(2, '0')
-  }
-  return hex.join('')
 }
 
 /**

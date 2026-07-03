@@ -32,7 +32,7 @@
  *
  * @module
  */
-import { encrypt, openEnvelopeJson, hmacSha256Hex, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { encrypt, openEnvelopeJson, hmacSha256Hex, sha256Hex, type EnclaveKey } from '../../kernel/enclave/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 
@@ -56,11 +56,7 @@ type GetDEK = (collectionName: string) => Promise<EnclaveKey>
 
 /** SHA-256 hex of a UTF-8 string. The LEGACY (pre-M-2) subject-index key. */
 async function sha256HexString(input: string): Promise<string> {
-  const bytes = new TextEncoder().encode(input)
-  const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes)
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('')
+  return sha256Hex(new TextEncoder().encode(input))
 }
 
 /**

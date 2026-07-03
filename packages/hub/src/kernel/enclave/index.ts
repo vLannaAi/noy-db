@@ -70,6 +70,7 @@ export {
 // ─── key lifecycle ─────────────────────────────────────────────────
 export {
   deriveKey,
+  derivePassphraseKey,
   generateDEK,
   generateSalt,
   generateIV,
@@ -84,6 +85,7 @@ export {
   unwrapCek,
   importCek,
 } from './crypto.js'
+export type { PassphraseKeyUsage } from './crypto.js'
 export { resolveStableCek, rewrapBodyToDek } from './record-keys/lifecycle.js'
 
 // ─── record codec ──────────────────────────────────────────────────

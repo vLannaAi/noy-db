@@ -50,6 +50,7 @@ import {
   type CompressionAlgo,
   type NoydbPodHeader,
 } from './format.js'
+import { sha256Hex as sha256HexBytes } from '../kernel/enclave/index.js'
 import { BundleIntegrityError, BundleSealMismatchError, ValidationError } from '../kernel/errors.js'
 import type { Vault } from '../kernel/vault.js'
 import type { BundleRecipient } from '../with-party/team/keyring.js'
@@ -977,13 +978,7 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
   // matters.
   const copy = new Uint8Array(bytes.length)
   copy.set(bytes)
-  const digest = await crypto.subtle.digest('SHA-256', copy)
-  const view = new Uint8Array(digest)
-  let hex = ''
-  for (let i = 0; i < view.length; i++) {
-    hex += view[i]!.toString(16).padStart(2, '0')
-  }
-  return hex
+  return sha256HexBytes(copy)
 }
 
 /**
