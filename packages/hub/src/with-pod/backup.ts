@@ -107,6 +107,7 @@ export async function dumpVault(ctx: BackupContext): Promise<string> {
   const internalSnapshot: VaultSnapshot = {}
   const internalNames = [
     LEDGER_COLLECTION, LEDGER_DELTAS_COLLECTION, SCHEMAS_COLLECTION, SEQUENCE_COLLECTION,
+    '_history', // full-snapshot version history — so history()/getVersion()/diff() survive the bundle
     '_blob_index', '_blob_chunks', '_blob_eviction_audit',
     ...Object.keys(snapshot).flatMap((c) => [`_blob_slots_${c}`, `_blob_versions_${c}`]),
   ]
