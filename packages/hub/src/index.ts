@@ -204,6 +204,7 @@ export type { SchemaIntrospection } from './with-shape/introspection/types.js'
 export type { FieldMeta, SemanticType } from './with-shape/introspection/field-meta.js'
 export type { CollectionMeta, VaultMeta } from './with-shape/introspection/meta.js'
 export type { CollectionDescription, DescribedField, DescribeOptions } from './with-shape/introspection/describe.js'
+export { applyListProjection, type ListProjectionOptions } from './with-shape/introspection/projection.js'
 
 // Dry-run transactions
 export type { DryRunResult, AffectedDocument, GuardViolation } from './with-commit/tx/dry-run.js'
