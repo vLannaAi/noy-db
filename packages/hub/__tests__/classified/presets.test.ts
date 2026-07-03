@@ -32,6 +32,8 @@ describe('classified presets', () => {
     const s = classified.birthDate()
     expect(s.validate!('1990-04-01')).toBeNull()
     expect(s.validate!('01/04/1990')).toMatch(/ISO/)
+    expect(s.validate!('1990-13-45')).toMatch(/calendar/)
+    expect(s.validate!('1990-02-30')).toMatch(/calendar/)
     expect(s.riders!.yob!('1990-04-01')).toBe('1990')
     expect(s.list).toEqual({ kind: 'mask', pattern: '${yob}-••-••' })
   })
