@@ -2,6 +2,8 @@ import type { NoydbStore, EncryptedEnvelope, ChangeEvent, HistoryConfig, History
 import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
 import type { CollectionMeta } from '../with-shape/introspection/meta.js'
 import { resolveClassifiedFields, ClassifiedConfigError, type ClassifiedEntry, type ResolvedClassified } from '../with-shape/classified/resolve.js'
+import { ClassifiedRevealError } from '../with-shape/classified/errors.js'
+import type { ClassifiedStrategy } from '../with-shape/classified/strategy.js'
 import type { CrdtMode, CrdtState, LwwMapState, RgaState } from '../with-commit/crdt/crdt.js'
 import type { CrdtStrategy } from '../with-commit/crdt/strategy.js'
 import type { I18nTextDescriptor } from '../with-shape/i18n/core.js'
@@ -429,6 +431,13 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   private classified: ResolvedClassified | undefined
 
   /**
+   * Tree-shake seam for `reveal()` — defaults to `NO_CLASSIFIED`, which
+   * throws `ClassifiedNotEnabledError`. Set via the `classifiedStrategy`
+   * `createNoydb()` option (opt in with `withClassified()`).
+   */
+  private readonly classifiedStrategy: ClassifiedStrategy
+
+  /**
    * Async callback provided by the Vault that resolves a dict key
    * to its label for a given locale. Used by the locale-read path for
    * dictKey fields.
@@ -558,7 +567,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
   /** — consent-audit hook, no-op when no scope is active. */
   private readonly onAccess:
-    | ((op: 'get' | 'put' | 'delete', id: string) => Promise<void>)
+    | ((op: 'get' | 'put' | 'delete' | 'reveal', id: string) => Promise<void>)
     | undefined
 
   /**
@@ -713,6 +722,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     this._refs = cfg._refs
     this.moneyFields = cfg.moneyFields
     this.classified = cfg.classified
+    this.classifiedStrategy = cfg.classifiedStrategy
     this.computed = cfg.computed
     this.dictLabelResolver = cfg.dictLabelResolver
     this.getDictionary = cfg.getDictionary
@@ -1085,6 +1095,23 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       base = (env.jsonSchema as Record<string, unknown> | null) ?? null
     }
     return buildJsonSchema(desc, base)
+  }
+
+  /** Single-point audited reveal of one classified field. Requires withClassified(). */
+  async reveal(id: string, field: string): Promise<unknown> {
+    const spec = this.classified?.byField[field]
+    if (spec === undefined) throw new ClassifiedRevealError(this.name, field, 'field is not classified')
+    if (spec.storage === 'never') {
+      throw new ClassifiedRevealError(this.name, field, `storage:'never' — nothing is stored to reveal`)
+    }
+    return this.classifiedStrategy.reveal({
+      collection: this.name,
+      spec,
+      getView: async (rid) => (await this.get(rid)) as Record<string, unknown> | null,
+      ...(this.onAccess !== undefined
+        ? { onAccess: async (_op: 'reveal', rid: string) => { await this.onAccess!('reveal', rid) } }
+        : {}),
+    }, id, field)
   }
 
   /**

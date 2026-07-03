@@ -641,7 +641,9 @@ const KERNEL_SURFACE_BUDGET = {
   // `classified` field + ctor assignment + `_applyClassifiedFields` reconcile method + collision guard.
   // Bumped 4310→4320 — 2026-07-04 classified-fields stage 1 Task 4 (write-enforcement):
   // enforceClassifiedWrite call in _putInternal before computed stage (thin call-site + pure validation).
-  'packages/hub/src/kernel/collection.ts': 4320,
+  // Bumped 4320→4346 — 2026-07-04 classified-fields stage 1 Task 6 (reveal gate): private
+  // `classifiedStrategy` field + ctor assignment + the public `reveal()` delegator method.
+  'packages/hub/src/kernel/collection.ts': 4346,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
@@ -771,7 +773,9 @@ const KERNEL_SURFACE_BUDGET = {
   // the crypto body is unchanged).
   // Bumped 3855→3857 — 2026-07-04 classified-fields stage 1 Task 3 (threading): public
   // `classifiedFields` option + reconcile branch + fresh-construction thread-through.
-  'packages/hub/src/kernel/vault.ts': 3857,
+  // Bumped 3857→3862 — 2026-07-04 classified-fields stage 1 Task 6 (reveal gate): private
+  // `classifiedStrategy` field + ctor option + ctor assignment + collOpts thread-through.
+  'packages/hub/src/kernel/vault.ts': 3862,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
@@ -856,7 +860,9 @@ const KERNEL_SURFACE_BUDGET = {
   // `checkGate` wrapper), same as the user-envelope precedent (commit 19f718eb), which also grew
   // noydb.ts by a few lines for the identical reason: the contract-in-spine + pre-resolved-factory
   // pattern has a fixed per-seam cost on this file even when the bulk of the implementation leaves.
-  'packages/hub/src/kernel/noydb.ts': 2325,
+  // Bumped 2325→2327 — 2026-07-04 classified-fields stage 1 Task 6 (reveal gate): thread the opt-in
+  // `classifiedStrategy` into the two Vault-construction option spreads.
+  'packages/hub/src/kernel/noydb.ts': 2327,
 }
 
 function checkKernelSurface() {
@@ -1002,6 +1008,8 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/blobs/strategy.js',
     // classified-fields stage 1 — ③ schema feature, joins the #553 lazy-import debt like money/dictKey/computed
     '../with-shape/classified/resolve.js',
+    // classified-fields stage 1 — ② capability gate, mirrors attestationStrategy/tiersStrategy threading
+    '../with-shape/classified/strategy.js',
     '../with-shape/i18n/core.js',
     '../with-shape/i18n/dictionary.js',
     '../with-shape/i18n/strategy.js',
@@ -1056,6 +1064,10 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     // classified-fields stage 1 — ③ schema feature, joins the #553 lazy-import debt like money/dictKey/computed
     '../with-shape/classified/resolve.js',
     '../with-shape/classified/write.js',
+    // classified-fields stage 1 — ② capability gate, mirrors attestationStrategy/tiersStrategy threading
+    '../with-shape/classified/strategy.js',
+    // classified-fields stage 1 Task 6 — typed reveal() error, sibling of the ③ write-path errors
+    '../with-shape/classified/errors.js',
     '../with-shape/i18n/core.js',
     '../with-shape/i18n/dictionary.js',
     '../with-shape/i18n/policy.js',
@@ -1137,6 +1149,8 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-party/team/sync-strategy.js',
     '../with-shape/blobs/object-projection.js',
     '../with-shape/blobs/strategy.js',
+    // classified-fields stage 1 — ② capability gate, mirrors attestationStrategy/tiersStrategy threading
+    '../with-shape/classified/strategy.js',
     '../with-shape/i18n/policy.js',
     '../with-shape/i18n/script.js',
     '../with-shape/i18n/strategy.js',
@@ -1199,6 +1213,8 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/blobs/strategy.js',
     // classified-fields stage 1 — ③ schema feature, joins the #553 lazy-import debt like money/dictKey/computed
     '../with-shape/classified/resolve.js',
+    // classified-fields stage 1 — ② capability gate, mirrors attestationStrategy/tiersStrategy threading
+    '../with-shape/classified/strategy.js',
     '../with-shape/i18n/core.js',
     '../with-shape/i18n/dictionary.js',
     '../with-shape/i18n/strategy.js',

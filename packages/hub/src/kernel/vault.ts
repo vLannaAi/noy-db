@@ -145,6 +145,7 @@ import { dumpVaultSchema, type VaultIntrospectState } from '../with-shape/intros
 import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
 import type { CollectionMeta, VaultMeta } from '../with-shape/introspection/meta.js'
 import type { ClassifiedEntry } from '../with-shape/classified/resolve.js'
+import { NO_CLASSIFIED, type ClassifiedStrategy } from '../with-shape/classified/strategy.js'
 import { USER_ENVELOPE_COLLECTION } from './constants.js'
 
 /**
@@ -236,6 +237,7 @@ export class Vault {
   private readonly forgetStrategy: ForgetStrategy
   private readonly i18nStrategy: I18nStrategy
   private readonly syncStrategy: SyncStrategy
+  private readonly classifiedStrategy: ClassifiedStrategy
   /**
    * Per-vault guard registry. `null` until `_initGuards()` runs; stays
    * `null` for vaults that never register any guard strategy. The
@@ -532,6 +534,7 @@ export class Vault {
     numberingConfigs?: ReadonlyArray<DeferredNumberingConfig> | undefined
     forgetStrategy?: ForgetStrategy | undefined
     attestationStrategy?: AttestationStrategy | undefined
+    classifiedStrategy?: ClassifiedStrategy | undefined
     sealedRecordStrategy?: SealedRecordStrategy | undefined
     portabilityStrategy?: PortabilityStrategy | undefined
     sequenceStrategy?: SequenceStrategy | undefined
@@ -594,6 +597,7 @@ export class Vault {
     this.forgetStrategy = opts.forgetStrategy ?? NO_FORGET
     this.i18nStrategy = opts.i18nStrategy ?? NO_I18N
     this.syncStrategy = opts.syncStrategy ?? NO_SYNC
+    this.classifiedStrategy = opts.classifiedStrategy ?? NO_CLASSIFIED
     // Guard + derivation registries are initialised lazily via
     // `_initGuards()` / `_initDerivations()` from `Noydb.openVault()`.
     // The classes are dynamic-imported there so vaults that never
@@ -1008,6 +1012,7 @@ export class Vault {
         historyStrategy: this.historyStrategy,
         i18nStrategy: this.i18nStrategy,
         syncStrategy: this.syncStrategy,
+        classifiedStrategy: this.classifiedStrategy,
         // Per-collection ledger opt-out: when this collection sets
         // `historyConfig.ledger: false`, withhold the ledger reference so all
         // four `if (this.ledger)` append sites in Collection no-op. The chain

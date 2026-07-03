@@ -21,3 +21,10 @@ export class ClassifiedValidationError extends Error {
     this.name = 'ClassifiedValidationError'
   }
 }
+
+export class ClassifiedRevealError extends Error {
+  constructor(public readonly collection: string, public readonly field: string, detail: string) {
+    super(`Cannot reveal field "${field}" in collection "${collection}": ${detail}`)
+    this.name = 'ClassifiedRevealError'
+  }
+}
