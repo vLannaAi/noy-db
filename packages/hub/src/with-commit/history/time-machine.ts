@@ -49,7 +49,7 @@
 import type { EncryptedEnvelope, NoydbStore } from '../../kernel/types.js'
 import type { LedgerStore } from './ledger/store.js'
 import { getHistory } from './history.js'
-import { decrypt } from '../../kernel/enclave/index.js'
+import { decrypt, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { ReadOnlyAtInstantError } from '../../kernel/errors.js'
 
 /**
@@ -76,7 +76,7 @@ export interface VaultEngine {
    * Resolves the DEK used to decrypt a given collection's envelopes.
    * Not called when `encrypted` is false.
    */
-  getDEK(collection: string): Promise<CryptoKey>
+  getDEK(collection: string): Promise<EnclaveKey>
   /**
    * Lazily-initialised ledger. We consult it to detect deletes that
    * happened between the latest history snapshot and the target

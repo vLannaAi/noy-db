@@ -34,6 +34,8 @@
  * @module
  */
 
+import type { EnclaveKey } from '../../kernel/enclave/index.js'
+
 const PBKDF2_ITERATIONS = 600_000
 const SALT_BYTES = 32
 const IV_BYTES = 12
@@ -85,7 +87,7 @@ export interface WrappedDeksBlob {
  *               password, PIN). Treated as opaque bytes by PBKDF2.
  */
 export async function mintWrappedDeksBlob(
-  deks: Map<string, CryptoKey>,
+  deks: Map<string, EnclaveKey>,
   credential: string,
 ): Promise<WrappedDeksBlob> {
   const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES))
@@ -126,7 +128,7 @@ export async function mintWrappedDeksBlob(
 export async function unwrapDeksFromBlob(
   blob: WrappedDeksBlob,
   credential: string,
-): Promise<Map<string, CryptoKey>> {
+): Promise<Map<string, EnclaveKey>> {
   const wrappingKey = await deriveWrappingKey(credential, base64ToBytes(blob.salt))
   const plaintext = await subtle.decrypt(
     { name: 'AES-GCM', iv: base64ToBytes(blob.iv) as BufferSource },
@@ -134,7 +136,7 @@ export async function unwrapDeksFromBlob(
     base64ToBytes(blob.wrappedDeks) as BufferSource,
   )
   const parsed = JSON.parse(new TextDecoder().decode(plaintext)) as { deks: Record<string, string> }
-  const deks = new Map<string, CryptoKey>()
+  const deks = new Map<string, EnclaveKey>()
   for (const [coll, b64] of Object.entries(parsed.deks)) {
     const raw = base64ToBytes(b64)
     const key = await subtle.importKey(

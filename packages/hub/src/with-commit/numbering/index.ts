@@ -5,7 +5,7 @@
  */
 import type { NoydbStore, EncryptedEnvelope, StoreTime } from '../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
-import { encrypt, decrypt } from '../../kernel/enclave/index.js'
+import { encrypt, decrypt, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { ConflictError, NumberingUncertaintyError } from '../../kernel/errors.js'
 import type { DeferredNumberingConfig } from './descriptor.js'
 
@@ -30,7 +30,7 @@ export class DeferredNumberingStore {
   private readonly adapter: NoydbStore
   private readonly vault: string
   private readonly encrypted: boolean
-  private readonly getDEK: (collectionName: string) => Promise<CryptoKey>
+  private readonly getDEK: (collectionName: string) => Promise<EnclaveKey>
   private readonly actor: string
   private readonly configs: Map<string, DeferredNumberingConfig>
   /**
@@ -43,13 +43,13 @@ export class DeferredNumberingStore {
   private readonly stamp: (collection: string, recordId: string, field: string, serial: number) => Promise<boolean>
   /** In-process registry: `${series}::${recordId}` → resolver for the live next() Promise. */
   private readonly waiters = new Map<string, PendingPromise>()
-  private readonly dekCache = new Map<string, Promise<CryptoKey>>()
+  private readonly dekCache = new Map<string, Promise<EnclaveKey>>()
 
   constructor(opts: {
     adapter: NoydbStore
     vault: string
     encrypted: boolean
-    getDEK: (collectionName: string) => Promise<CryptoKey>
+    getDEK: (collectionName: string) => Promise<EnclaveKey>
     actor: string
     configs: Map<string, DeferredNumberingConfig>
     stamp: (collection: string, recordId: string, field: string, serial: number) => Promise<boolean>
@@ -67,7 +67,7 @@ export class DeferredNumberingStore {
     return this.configs.has(series)
   }
 
-  private dek(collection: string): Promise<CryptoKey> {
+  private dek(collection: string): Promise<EnclaveKey> {
     let p = this.dekCache.get(collection)
     if (!p) { p = this.getDEK(collection); this.dekCache.set(collection, p) }
     return p

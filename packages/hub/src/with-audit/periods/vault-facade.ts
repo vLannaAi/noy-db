@@ -11,7 +11,7 @@
  */
 import { ValidationError } from '../../kernel/errors.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
-import { encrypt, decrypt } from '../../kernel/enclave/index.js'
+import { encrypt, decrypt, type EnclaveKey } from '../../kernel/enclave/index.js'
 import type { EncryptedEnvelope, NoydbStore } from '../../kernel/types.js'
 import type { LedgerStore } from '../../with-commit/history/ledger/store.js'
 import type { Collection } from '../../kernel/collection.js'
@@ -36,7 +36,7 @@ export interface VaultPeriodsDeps {
   /** The invoking keyring's user id (read fresh per call). */
   userId(): string
   /** Per-collection DEK resolver (bound `vault.getDEK`). */
-  getDEK(collection: string): Promise<CryptoKey>
+  getDEK(collection: string): Promise<EnclaveKey>
   /** The vault's ledger store, or null when history is off. */
   getLedgerOrNull(): LedgerStore | null
   /** Collection accessor (used by `openPeriod`'s carry-forward writes). */

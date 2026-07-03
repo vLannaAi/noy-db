@@ -34,6 +34,7 @@ import type { I18nTextDescriptor } from './core.js'
 import type { Layer } from './policy.js'
 import type { ScriptWarning } from './script.js'
 import type { DictionaryHandle, DictionaryOptions } from './dictionary.js'
+import type { EnclaveKey } from '../../kernel/enclave/index.js'
 
 /**
  * Options accepted by `I18nStrategy.buildDictionaryHandle`. Mirrors
@@ -47,7 +48,7 @@ export interface BuildDictionaryHandleOptions<Keys extends string = string> {
   compartmentName: string
   dictionaryName: string
   keyring: UnlockedKeyring
-  getDEK: (collectionName: string) => Promise<CryptoKey>
+  getDEK: (collectionName: string) => Promise<EnclaveKey>
   encrypted: boolean
   ledger: LedgerStore | undefined
   options: DictionaryOptions

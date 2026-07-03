@@ -1,6 +1,6 @@
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
-import { encrypt, decrypt } from '../../kernel/enclave/index.js'
+import { encrypt, decrypt, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { ConflictError } from '../../kernel/errors.js'
 import { generateDocSigningKeyPair } from '@noy-db/attestation'
 
@@ -28,7 +28,7 @@ export interface DocSigner {
 export async function loadSigner(
   store: NoydbStore,
   vault: string,
-  getDEK: (collection: string) => Promise<CryptoKey>,
+  getDEK: (collection: string) => Promise<EnclaveKey>,
 ): Promise<DocSigner | null> {
   const existing = await store.get(vault, ATTESTATIONS_COLLECTION, SIGNER_RECORD_ID)
   if (!existing) return null
@@ -50,7 +50,7 @@ export async function loadSigner(
 export async function loadOrCreateSigner(
   store: NoydbStore,
   vault: string,
-  getDEK: (collection: string) => Promise<CryptoKey>,
+  getDEK: (collection: string) => Promise<EnclaveKey>,
 ): Promise<DocSigner> {
   const existing = await loadSigner(store, vault, getDEK)
   if (existing) return existing

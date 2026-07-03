@@ -35,7 +35,7 @@ import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import type { NoydbEventEmitter } from '../../kernel/events.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
-import { encrypt, decrypt } from '../../kernel/enclave/index.js'
+import { encrypt, decrypt, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { ensureCollectionDEK } from '../../with-party/team/keyring.js'
 import type { LedgerStore } from '../../with-commit/history/ledger/store.js'
 import type { OnMissingPolicy } from './policy.js'
@@ -344,7 +344,7 @@ export class DictionaryHandle<Keys extends string = string> {
     private readonly compartmentName: string,
     private readonly dictionaryName: string,
     private readonly keyring: UnlockedKeyring,
-    private readonly getDEK: (collectionName: string) => Promise<CryptoKey>,
+    private readonly getDEK: (collectionName: string) => Promise<EnclaveKey>,
     private readonly encrypted: boolean,
     private readonly ledger: LedgerStore | undefined,
     private readonly options: DictionaryOptions,
@@ -388,7 +388,7 @@ export class DictionaryHandle<Keys extends string = string> {
 
   // ─── Internal helpers ─────────────────────────────────────────────
 
-  private async getDekForDict(): Promise<CryptoKey> {
+  private async getDekForDict(): Promise<EnclaveKey> {
     const resolve = await ensureCollectionDEK(
       this.adapter,
       this.compartmentName,

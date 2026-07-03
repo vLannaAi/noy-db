@@ -11,6 +11,7 @@ import {
   decrypt,
   bufferToBase64,
   base64ToBuffer,
+  type EnclaveKey,
 } from '../../kernel/enclave/index.js'
 import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, KeyringExpiredError, KeyringCorruptError, InvalidKeyError, ValidationError, DirectoryDisabledError } from '../../kernel/errors.js'
 import { readDirectoryConfig } from '../directory/storage.js'
@@ -97,7 +98,7 @@ export interface UnlockedKeyring {
   readonly displayName: string
   readonly role: Role
   readonly permissions: Permissions
-  readonly deks: Map<string, CryptoKey>
+  readonly deks: Map<string, EnclaveKey>
   /**
    * The KEK, when this keyring was unlocked via tier 1 (passphrase) or
    * a wrap-KEK tier-2 method (WebAuthn / OIDC). `null` when the
@@ -115,10 +116,10 @@ export interface UnlockedKeyring {
    * null-check and throw a clear error if absent — re-authenticate
    * at tier 1 first to recover the KEK.
    *
-   * Tightened from `CryptoKey` to `CryptoKey | null`; the runtime
+   * Tightened from `EnclaveKey` to `EnclaveKey | null`; the runtime
    * contract has always allowed null, the type now matches reality.
    */
-  readonly kek: CryptoKey | null
+  readonly kek: EnclaveKey | null
   readonly salt: Uint8Array
   /**
    * Debug-plaintext layout flag. Set only on the plaintext keyring created
@@ -177,9 +178,9 @@ export interface UnlockedKeyring {
 // pre-canary heuristic left open.
 
 const CANARY_PLAINTEXT_BYTES = new Uint8Array(32)
-let canaryKeyPromise: Promise<CryptoKey> | null = null
+let canaryKeyPromise: Promise<EnclaveKey> | null = null
 
-function getCanaryKey(): Promise<CryptoKey> {
+function getCanaryKey(): Promise<EnclaveKey> {
   if (canaryKeyPromise === null) {
     canaryKeyPromise = globalThis.crypto.subtle.importKey(
       'raw',
@@ -193,13 +194,13 @@ function getCanaryKey(): Promise<CryptoKey> {
 }
 
 /** Mint a fresh wrapped-canary string. Deterministic for a given KEK. */
-export async function mintKeyringCanary(kek: CryptoKey): Promise<string> {
+export async function mintKeyringCanary(kek: EnclaveKey): Promise<string> {
   const canaryKey = await getCanaryKey()
   return wrapKey(canaryKey, kek)
 }
 
 /** Try to unwrap the canary. Returns true iff KEK + canary bytes are intact. */
-async function verifyKeyringCanary(wrappedCanary: string, kek: CryptoKey): Promise<boolean> {
+async function verifyKeyringCanary(wrappedCanary: string, kek: EnclaveKey): Promise<boolean> {
   try {
     await unwrapKey(wrappedCanary, kek)
     return true
@@ -252,7 +253,7 @@ export async function loadKeyring(
     : null
 
   // Unwrap each DEK independently — collect successes and failures.
-  const deks = new Map<string, CryptoKey>()
+  const deks = new Map<string, EnclaveKey>()
   const failedCollections: string[] = []
   let firstUnwrapError: unknown = null
   for (const [collName, wrappedDek] of Object.entries(keyringFile.deks)) {
@@ -790,7 +791,7 @@ export async function rotateKeys(
     )
   }
   // Generate new DEKs for each affected collection
-  const newDeks = new Map<string, CryptoKey>()
+  const newDeks = new Map<string, EnclaveKey>()
   for (const collName of collections) {
     newDeks.set(collName, await generateDEK())
   }
@@ -1147,7 +1148,7 @@ export interface ListUsersOptions {
 export async function listUsersWithEnvelopes<T = unknown>(
   adapter: NoydbStore,
   vault: string,
-  userEnvelopeDek: CryptoKey,
+  userEnvelopeDek: EnclaveKey,
   callerRole: Role,
   options: ListUsersOptions = {},
 ): Promise<Array<{ user: UserInfo; envelope: UserEnvelopeReader<T> | null }>> {
@@ -1197,15 +1198,15 @@ export async function ensureCollectionDEK(
   adapter: NoydbStore,
   vault: string,
   keyring: UnlockedKeyring,
-): Promise<(collectionName: string) => Promise<CryptoKey>> {
+): Promise<(collectionName: string) => Promise<EnclaveKey>> {
   // Dedupe concurrent first-time DEK creates per collection. Without
   // this, two concurrent `getDEK('foo')` calls both pass the `existing`
   // check (the Map is empty), both generate fresh DEKs, and the second
   // `set` overwrites the first — making any envelope encrypted with
   // the discarded DEK fail to decrypt later (TamperedError on read).
   // Pre-existing race exposed by the multi-writer ledger work.
-  const inFlight = new Map<string, Promise<CryptoKey>>()
-  return async (collectionName: string): Promise<CryptoKey> => {
+  const inFlight = new Map<string, Promise<EnclaveKey>>()
+  return async (collectionName: string): Promise<EnclaveKey> => {
     const existing = keyring.deks.get(collectionName)
     if (existing) return existing
     const pending = inFlight.get(collectionName)

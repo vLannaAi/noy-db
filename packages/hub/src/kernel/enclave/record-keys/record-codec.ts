@@ -16,7 +16,7 @@
  *
  * Internal service — not exported as a `@noy-db/hub/*` subpath.
  */
-import { encrypt, decrypt, encryptDeterministic, wrapCek, unwrapCek, deriveSealedFieldKey, deriveSealedFieldKeyFromCek } from '../crypto.js'
+import { encrypt, decrypt, encryptDeterministic, wrapCek, unwrapCek, deriveSealedFieldKey, deriveSealedFieldKeyFromCek, type EnclaveKey } from '../crypto.js'
 import { NOYDB_FORMAT_VERSION, SealedHandle, type EncryptedEnvelope, type CrdtMode, type CrdtState, type CrdtStrategy } from '../../types.js'
 import { isTombstone } from './tombstone.js'
 import { parseSealedSlot, dualReadSealedSlot } from './sealed-slot.js'
@@ -47,13 +47,13 @@ export interface RecordCodecContext<T> {
   /** Output-schema validator, or undefined. */
   readonly schema: StandardSchemaV1<unknown, T> | undefined
   /** The collection DEK (codec only ever needs this.name's DEK). */
-  getDEK(): Promise<CryptoKey>
+  getDEK(): Promise<EnclaveKey>
   /**
    * The collection's per-record CEK cache (SHARED reference, not a copy).
    * Ownership/lifetime stays on Collection; codec reads+writes it in
    * resolveEnvelopeCek exactly as the inline code did. `null` → no caching.
    */
-  readonly cekCache: Lru<string, CryptoKey> | null
+  readonly cekCache: Lru<string, EnclaveKey> | null
 }
 
 export class RecordCodec<T> {
@@ -150,7 +150,7 @@ export class RecordCodec<T> {
   async encryptJsonString(
     json: string,
     version: number,
-    cek?: CryptoKey,
+    cek?: EnclaveKey,
     source?: string,
     sourceTs?: string,
   ): Promise<EncryptedEnvelope> {
@@ -178,7 +178,7 @@ export class RecordCodec<T> {
   async encryptRecord(
     record: T,
     version: number,
-    cek?: CryptoKey,
+    cek?: EnclaveKey,
     source?: string,
     sourceTs?: string,
   ): Promise<EncryptedEnvelope> {
@@ -254,7 +254,7 @@ export class RecordCodec<T> {
    * ({@link decryptJsonString}) and the sealed-field path ({@link decryptRecord}
    * / {@link toCacheRecord}) so both agree on the record's key.
    */
-  async resolveEnvelopeCek(envelope: EncryptedEnvelope, id?: string): Promise<CryptoKey | undefined> {
+  async resolveEnvelopeCek(envelope: EncryptedEnvelope, id?: string): Promise<EnclaveKey | undefined> {
     if (envelope._cek === undefined) return undefined
     const cached = id !== undefined ? this.ctx.cekCache?.get(id) : undefined
     if (cached !== undefined) return cached
@@ -313,7 +313,7 @@ export class RecordCodec<T> {
    * {@link Sealed} handle's `reveal()` — so the on-demand reveal and the eager
    * materialisation always agree byte-for-byte.
    */
-  async unsealField(field: string, blob: string, cek?: CryptoKey): Promise<unknown> {
+  async unsealField(field: string, blob: string, cek?: EnclaveKey): Promise<unknown> {
     // Dual-read. Current writes seal under a key derived from the record's
     // per-record CEK; legacy records (even ones whose body is
     // CEK-encrypted) are sealed under the collection-DEK key. Try the CEK key
@@ -362,7 +362,7 @@ export class RecordCodec<T> {
    * may sit in the working-set cache (or be logged/serialised) without
    * exposing the value, which decrypts only on `reveal()`.
    */
-  makeSealedHandle(field: string, blob: string, cek?: CryptoKey): SealedHandle<unknown> {
+  makeSealedHandle(field: string, blob: string, cek?: EnclaveKey): SealedHandle<unknown> {
     return new SealedHandle(() => this.unsealField(field, blob, cek))
   }
 

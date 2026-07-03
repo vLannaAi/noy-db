@@ -23,7 +23,7 @@
 export { withTiers } from './active.js'
 export { NO_TIERS, type TiersStrategy } from './strategy.js'
 export { TiersNotEnabledError } from '../../kernel/errors.js'
-import { encrypt, decrypt, unwrapCek, rewrapBodyToDek, type RecordCodec } from '../../kernel/enclave/index.js'
+import { encrypt, decrypt, unwrapCek, rewrapBodyToDek, type RecordCodec, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { TierDemoteDeniedError } from '../../kernel/errors.js'
 import { dekKey, assertTierAccess } from '../../with-party/team/tiers.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
@@ -55,7 +55,7 @@ export interface TiersContext<T> {
    * the move stays synchronous with the cache the kernel's read/write path
    * owns. `null` → no caching.
    */
-  readonly cekCache: Lru<string, CryptoKey> | null
+  readonly cekCache: Lru<string, EnclaveKey> | null
   /** Emit `_source`/`_sourceTs` provenance fields when a source is supplied. */
   readonly provenance: boolean
   /** Declared tiers, or null when the feature is off. */
@@ -63,7 +63,7 @@ export interface TiersContext<T> {
   /** Above-tier read visibility mode (`'invisibility'` | `'ghost'`). */
   readonly tierMode: TierMode
   /** Resolve a tier DEK by its `dekKey(name, tier)`. */
-  getDEK(key: string): Promise<CryptoKey>
+  getDEK(key: string): Promise<EnclaveKey>
   /** Fire a cross-tier access event (sink stays collection-resident). */
   emitCrossTierEvent(event: CrossTierAccessEvent): void
 }

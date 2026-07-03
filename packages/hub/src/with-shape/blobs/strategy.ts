@@ -16,6 +16,7 @@ import type { BlobSet } from './blob-set.js'
 import type { NoydbStore } from '../../kernel/types.js'
 import type { ObjectProjection } from './object-projection.js'
 import type { BlobFieldsConfig } from './blob-compaction.js'
+import type { EnclaveKey } from '../../kernel/enclave/index.js'
 
 /**
  * Args forwarded by `Collection.blob(id)` to the active strategy's
@@ -29,7 +30,7 @@ export interface BlobStrategyOpenArgs {
   readonly vault: string
   readonly collection: string
   readonly recordId: string
-  readonly getDEK: (collectionName: string) => Promise<CryptoKey>
+  readonly getDEK: (collectionName: string) => Promise<EnclaveKey>
   readonly encrypted: boolean
   readonly userId: string
   /**

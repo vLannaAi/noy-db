@@ -41,7 +41,7 @@
 
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import type { UnlockedKeyring } from './keyring.js'
-import { encrypt, decrypt, wrapKey, unwrapKey } from '../../kernel/enclave/index.js'
+import { encrypt, decrypt, wrapKey, unwrapKey, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { dekKey } from './tiers.js'
 import { DelegationTargetMissingError } from '../../kernel/errors.js'
 import { generateULID } from '../../with-pod/ulid.js'
@@ -84,8 +84,8 @@ export async function issueDelegation(
   store: NoydbStore,
   vault: string,
   grantor: UnlockedKeyring,
-  targetKek: CryptoKey | null,
-  delegationsDek: CryptoKey,
+  targetKek: EnclaveKey | null,
+  delegationsDek: EnclaveKey,
   opts: IssueDelegationOptions,
 ): Promise<DelegationToken> {
   if (!targetKek) {
@@ -142,7 +142,7 @@ export async function loadActiveDelegations(
   store: NoydbStore,
   vault: string,
   user: UnlockedKeyring,
-  delegationsDek: CryptoKey,
+  delegationsDek: EnclaveKey,
   now: Date = new Date(),
 ): Promise<DelegationToken[]> {
   const ids = await store.list(vault, DELEGATIONS_COLLECTION)
@@ -166,7 +166,7 @@ export async function loadActiveDelegations(
     // — those were wrapped under the user's KEK at issue time. Skip
     // this token; the consumer reaches it again at tier-1 unlock.
     if (!user.kek) continue
-    let dek: CryptoKey
+    let dek: EnclaveKey
     try {
       dek = await unwrapKey(token.wrappedDek, user.kek)
     } catch {

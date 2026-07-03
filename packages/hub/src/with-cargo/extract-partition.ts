@@ -18,6 +18,7 @@ import {
   decryptBytesWithAAD,
   unwrapCek,
   wrapCek,
+  type EnclaveKey,
 } from '../kernel/enclave/index.js'
 import {
   BLOB_COLLECTION,
@@ -44,7 +45,7 @@ import {
 /** Re-keyed collections snapshot + the fresh DEKs used. */
 export interface ReKeyResult {
   readonly collections: Record<string, Record<string, EncryptedEnvelope>>
-  readonly deks: Map<string, CryptoKey>
+  readonly deks: Map<string, EnclaveKey>
 }
 
 /**
@@ -59,7 +60,7 @@ export async function reKeyClosure(
 ): Promise<ReKeyResult> {
   const { name: vaultName, adapter, getDEK } = vault._introspectState()
   const collections: Record<string, Record<string, EncryptedEnvelope>> = {}
-  const deks = new Map<string, CryptoKey>()
+  const deks = new Map<string, EnclaveKey>()
 
   for (const [collectionName, ids] of closure) {
     const srcDek = await getDEK(collectionName)
@@ -121,7 +122,7 @@ export async function reKeyClosure(
 export async function reKeySchemas(
   vault: Vault,
   closure: Map<string, Set<string>>,
-  destDeks: Map<string, CryptoKey>,
+  destDeks: Map<string, EnclaveKey>,
   fieldProjection?: Record<string, readonly string[]>,
 ): Promise<Record<string, EncryptedEnvelope>> {
   const { name: vaultName, adapter, getDEK } = vault._introspectState()
@@ -167,7 +168,7 @@ export async function reKeyLedger(
   vault: Vault,
   closure: Map<string, Set<string>>,
   reKeyedCollections: Record<string, Record<string, EncryptedEnvelope>>,
-  ledgerDek: CryptoKey,
+  ledgerDek: EnclaveKey,
 ): Promise<ReKeyLedgerResult> {
   const { name: vaultName, adapter, getDEK } = vault._introspectState()
   const srcLedgerDek = await getDEK(LEDGER_COLLECTION)
@@ -249,7 +250,7 @@ export interface ReKeyBlobsResult {
   readonly internal: Record<string, Record<string, EncryptedEnvelope>>
   /** Fresh transfer `_blob` DEK — seal it so owner-creation wraps it under the
    * recipient KEK. Undefined when no blob travels (source keyring untouched). */
-  readonly blobDek?: CryptoKey
+  readonly blobDek?: EnclaveKey
 }
 
 /**
@@ -290,7 +291,7 @@ export interface ReKeyBlobsResult {
 export async function reKeyBlobs(
   vault: Vault,
   closure: Map<string, Set<string>>,
-  destDeks: Map<string, CryptoKey>,
+  destDeks: Map<string, EnclaveKey>,
   fieldProjection?: Record<string, readonly string[]>,
 ): Promise<ReKeyBlobsResult> {
   const { name: vaultName, adapter, getDEK } = vault._introspectState()
@@ -370,7 +371,7 @@ export async function reKeyBlobs(
     const blob = JSON.parse(await decrypt(idxEnv._iv, idxEnv._data, srcBlobDek)) as BlobObject
 
     // Resolve the per-blob content CEK; passthrough vs. in-bundle promotion.
-    let contentCek: CryptoKey
+    let contentCek: EnclaveKey
     let chunksPassthrough: boolean
     if (blob._cek !== undefined) {
       contentCek = await unwrapCek(blob._cek, srcBlobDek)
@@ -427,7 +428,7 @@ export interface SealResult {
  * transfer key. The transfer key is returned to the caller out-of-band;
  * only the sealed bytes travel in the bundle. Layout: iv(12) ‖ ct ‖ tag.
  */
-export async function sealDeks(deks: Map<string, CryptoKey>): Promise<SealResult> {
+export async function sealDeks(deks: Map<string, EnclaveKey>): Promise<SealResult> {
   const dekMap: Record<string, string> = {}
   for (const [collection, dek] of deks) {
     const raw = await crypto.subtle.exportKey('raw', dek)

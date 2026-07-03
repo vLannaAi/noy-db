@@ -25,6 +25,7 @@ import type { NoydbStore } from '../../kernel/types.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
 import type { RefRegistry } from '../../kernel/refs.js'
 import type { VaultMeta } from './meta.js'
+import type { EnclaveKey } from '../../kernel/enclave/index.js'
 
 /**
  * The minimal slice of Vault internal state the walker needs.
@@ -38,7 +39,7 @@ export interface VaultIntrospectState {
   readonly adapter: NoydbStore
   readonly collectionCache: Map<string, Collection<unknown>>
   readonly refRegistry: RefRegistry
-  readonly getDEK: (collectionName: string) => Promise<CryptoKey>
+  readonly getDEK: (collectionName: string) => Promise<EnclaveKey>
   /** The active unlocked keyring — role/permissions/userId for access-scoped ops. */
   readonly keyring: UnlockedKeyring
   readonly subsystems: Record<string, boolean>

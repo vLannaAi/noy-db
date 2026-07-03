@@ -12,6 +12,7 @@
  */
 
 import type { NoydbStore } from '../../kernel/types.js'
+import type { EnclaveKey } from '../../kernel/enclave/index.js'
 import type {
   ConsentAuditEntry,
   ConsentAuditFilter,
@@ -29,7 +30,7 @@ export interface ConsentStrategy {
     vault: string,
     encrypted: boolean,
     entry: Omit<ConsentAuditEntry, 'id' | 'timestamp'>,
-    getDEK: (collectionName: string) => Promise<CryptoKey>,
+    getDEK: (collectionName: string) => Promise<EnclaveKey>,
   ): Promise<void>
 
   /**
@@ -39,7 +40,7 @@ export interface ConsentStrategy {
     adapter: NoydbStore,
     vault: string,
     encrypted: boolean,
-    getDEK: (collectionName: string) => Promise<CryptoKey>,
+    getDEK: (collectionName: string) => Promise<EnclaveKey>,
     filter?: ConsentAuditFilter,
   ): Promise<ConsentAuditEntry[]>
 }

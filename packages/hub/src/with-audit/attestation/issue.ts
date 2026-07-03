@@ -1,6 +1,6 @@
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
-import { encrypt } from '../../kernel/enclave/index.js'
+import { encrypt, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { AttestationError } from '../../kernel/errors.js'
 import { generateULID } from '../../with-pod/ulid.js'
 import { loadOrCreateSigner, ATTESTATIONS_COLLECTION } from './signer.js'
@@ -15,7 +15,7 @@ export interface IssueContext {
   readonly vault: string
   readonly role: string
   /** The _attestations collection DEK (AES-KW-wrapped under KEK by the keyring). */
-  getDEK(): Promise<CryptoKey>
+  getDEK(): Promise<EnclaveKey>
   /** Decrypted source record + its envelope version, or null if absent. */
   readRecord(collection: string, id: string): Promise<{ record: Record<string, unknown>; version: number } | null>
 }

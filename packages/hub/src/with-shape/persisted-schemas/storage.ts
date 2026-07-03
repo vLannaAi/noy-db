@@ -15,7 +15,7 @@
  * @module
  */
 
-import { encrypt, decrypt } from '../../kernel/enclave/index.js'
+import { encrypt, decrypt, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import type { PersistedSchemaEnvelope } from './types.js'
@@ -33,7 +33,7 @@ export async function loadPersistedSchema(
   store: NoydbStore,
   vault: string,
   collection: string,
-  dek: CryptoKey,
+  dek: EnclaveKey,
 ): Promise<PersistedSchemaEnvelope | undefined> {
   const envelope = await store.get(vault, SCHEMAS_COLLECTION, collection)
   if (!envelope) return undefined
@@ -56,7 +56,7 @@ export async function savePersistedSchema(
   store: NoydbStore,
   vault: string,
   collection: string,
-  dek: CryptoKey,
+  dek: EnclaveKey,
   payload: PersistedSchemaEnvelope,
 ): Promise<void> {
   const json = JSON.stringify(payload)

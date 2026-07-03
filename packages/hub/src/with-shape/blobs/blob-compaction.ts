@@ -31,7 +31,7 @@
 
 import type { NoydbStore, EncryptedEnvelope, SlotInfo } from '../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
-import { encrypt } from '../../kernel/enclave/index.js'
+import { encrypt, type EnclaveKey } from '../../kernel/enclave/index.js'
 
 // ─── Config types ───────────────────────────────────────────────────────
 
@@ -155,7 +155,7 @@ export interface CompactionContext {
   readonly vault: string
   readonly actor: string
   readonly encrypted: boolean
-  readonly getDEK: (collection: string) => Promise<CryptoKey>
+  readonly getDEK: (collection: string) => Promise<EnclaveKey>
   /**
    * Resolve a collection's declared `blobFields` config. Returns an
    * empty map for collections without the config — the walk skips

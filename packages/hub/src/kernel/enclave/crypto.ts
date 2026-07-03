@@ -38,6 +38,18 @@
 
 import { DecryptionError, InvalidKeyError, TamperedError } from '../errors.js'
 
+/**
+ * **EnclaveKey** — the opaque key type at the enclave seam.
+ *
+ * In noy-db's reference enclave this is `CryptoKey` (the Web Crypto API's
+ * key handle). A fork's enclave redefines this alias to its own key
+ * representation (e.g. `type EnclaveKey = null` for a keyless HSM-backed
+ * fork) — outside `kernel/enclave/**`, every consumer must treat it as
+ * opaque: never construct, inspect, or serialize it directly, only pass it
+ * between barrel functions (`encrypt`/`decrypt`/`wrapKey`/`unwrapKey`/…).
+ */
+export type EnclaveKey = CryptoKey
+
 const PBKDF2_ITERATIONS = 600_000
 const SALT_BYTES = 32
 const IV_BYTES = 12

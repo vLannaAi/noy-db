@@ -12,6 +12,7 @@
  */
 import { AttestationError } from '../../kernel/errors.js'
 import type { NoydbStore } from '../../kernel/types.js'
+import type { EnclaveKey } from '../../kernel/enclave/index.js'
 import type { AttestationFieldSchema, RevocationList } from '@noy-db/attestation'
 import type { IssueContext } from './issue.js'
 import type { RevokeContext } from './revoke.js'
@@ -25,7 +26,7 @@ export interface VaultAttestationDeps {
   /** Vault namespace name. */
   readonly vault: string
   /** Per-collection DEK resolver (bound `vault.getDEK`). */
-  readonly getDEK: (collection: string) => Promise<CryptoKey>
+  readonly getDEK: (collection: string) => Promise<EnclaveKey>
   /** The invoking keyring's role (read fresh per call). */
   role(): string
   /** Decrypt a collection record at `locale: 'raw'` (issue side reads the live record). */

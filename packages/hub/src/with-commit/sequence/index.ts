@@ -21,7 +21,7 @@
 
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
-import { encrypt, decrypt } from '../../kernel/enclave/index.js'
+import { encrypt, decrypt, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { ConflictError, SequenceContentionError, SequenceOfflineError, ValidationError } from '../../kernel/errors.js'
 
 // Capability opt-in seam (S4): `vault.sequence()` builds its CAS store through
@@ -202,7 +202,7 @@ export interface SequenceStoreOptions {
   adapter: NoydbStore
   vault: string
   encrypted: boolean
-  getDEK: (collectionName: string) => Promise<CryptoKey>
+  getDEK: (collectionName: string) => Promise<EnclaveKey>
   actor: string
 }
 
@@ -210,7 +210,7 @@ export class SequenceStore {
   private readonly adapter: NoydbStore
   private readonly vault: string
   private readonly encrypted: boolean
-  private readonly getDEK: (collectionName: string) => Promise<CryptoKey>
+  private readonly getDEK: (collectionName: string) => Promise<EnclaveKey>
   private readonly actor: string
   /**
    * Memoized DEK promise. The `_sequences` collection DEK is created on
@@ -219,7 +219,7 @@ export class SequenceStore {
    * writer's ciphertext unreadable by another). One shared promise → one
    * DEK.
    */
-  private dekPromise: Promise<CryptoKey> | null = null
+  private dekPromise: Promise<EnclaveKey> | null = null
 
   constructor(opts: SequenceStoreOptions) {
     this.adapter = opts.adapter
@@ -244,7 +244,7 @@ export class SequenceStore {
     }
   }
 
-  private dek(): Promise<CryptoKey> {
+  private dek(): Promise<EnclaveKey> {
     if (!this.dekPromise) this.dekPromise = this.getDEK(SEQUENCE_COLLECTION)
     return this.dekPromise
   }

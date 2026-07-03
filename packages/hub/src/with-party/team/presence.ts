@@ -16,7 +16,7 @@
  */
 
 import type { NoydbStore, PresencePeer } from '../../kernel/types.js'
-import { encrypt, decrypt, generateIV, bufferToBase64, derivePresenceKey } from '../../kernel/enclave/index.js'
+import { encrypt, decrypt, generateIV, bufferToBase64, derivePresenceKey, type EnclaveKey } from '../../kernel/enclave/index.js'
 
 /** Options for constructing a PresenceHandle. @internal */
 export interface PresenceHandleOpts {
@@ -33,7 +33,7 @@ export interface PresenceHandleOpts {
   /** Whether encryption is active. When false, presence payloads are stored as JSON. */
   encrypted: boolean
   /** Callback that resolves the collection DEK (used to derive the presence key). */
-  getDEK: (collectionName: string) => Promise<CryptoKey>
+  getDEK: (collectionName: string) => Promise<EnclaveKey>
   /** How long (ms) before a peer's presence is considered stale. Default: 30_000. */
   staleMs?: number
   /** Poll interval (ms) for the storage-poll fallback. Default: 5_000. */
@@ -59,13 +59,13 @@ export class PresenceHandle<P> {
   private readonly collectionName: string
   private readonly userId: string
   private readonly encrypted: boolean
-  private readonly getDEK: (collectionName: string) => Promise<CryptoKey>
+  private readonly getDEK: (collectionName: string) => Promise<EnclaveKey>
   private readonly staleMs: number
   private readonly pollIntervalMs: number
   private readonly channel: string
   private readonly storageCollection: string
 
-  private presenceKey: CryptoKey | null = null
+  private presenceKey: EnclaveKey | null = null
   private subscribers: Array<(peers: PresencePeer<P>[]) => void> = []
   private unsubscribePubSub: (() => void) | null = null
   private pollTimer: ReturnType<typeof setInterval> | null = null
@@ -150,7 +150,7 @@ export class PresenceHandle<P> {
 
   // ─── Private ────────────────────────────────────────────────────────
 
-  private async getPresenceKey(): Promise<CryptoKey | null> {
+  private async getPresenceKey(): Promise<EnclaveKey | null> {
     if (!this.encrypted) return null
     if (!this.presenceKey) {
       try {

@@ -15,7 +15,7 @@
  * *types* they share are spine-owned (`kernel/types.ts`), not imported from
  * `sealed-record/` directly.
  */
-import { encrypt, decrypt, generateDEK, wrapCek, unwrapCek, bufferToBase64, deriveSealedFieldKeyFromCek } from '../crypto.js'
+import { encrypt, decrypt, generateDEK, wrapCek, unwrapCek, bufferToBase64, deriveSealedFieldKeyFromCek, type EnclaveKey } from '../crypto.js'
 import {
   NOYDB_FORMAT_VERSION,
   type EncryptedEnvelope,
@@ -38,7 +38,7 @@ export interface SealingContext {
   /** Vault id (the adapter's first coordinate). */
   readonly vault: string
   /** Resolve the DEK a record's CEK is wrapped under. */
-  getDEK(collection: string): Promise<CryptoKey>
+  getDEK(collection: string): Promise<EnclaveKey>
   /** Actor id stamped on `_by` (empty string → omit). */
   readonly actor: string
   /** Evict the per-record CEK cache + decrypted-record cache after a rotation. */
