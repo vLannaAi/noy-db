@@ -853,6 +853,10 @@ export type {
   MoneyString,
 } from './with-shape/money/index.js'
 
+// classified — preset catalog (creditCard/birthDate/email/phone) + validators
+export { classified, luhnCheck, isClassifiedFieldSpec, isClassifiedGroup, resolveClassifiedFields, ClassifiedConfigError, ClassifiedNeverStoredError, ClassifiedValidationError } from './with-shape/classified/index.js'
+export type { ClassifiedFieldSpec, ClassifiedGroup, ClassifiedEntry, ClassifiedList, ClassifiedStorage } from './with-shape/classified/index.js'
+
 // computed — schema-owned computed scalar fields
 export { evalComputedFields, ComputedFieldError } from './with-formula/computed/index.js'
 export type { ComputedFields, ComputedFn } from './with-formula/computed/index.js'
