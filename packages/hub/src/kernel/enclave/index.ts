@@ -31,6 +31,12 @@
  *   - deterministic  — `record-keys/deterministic.ts`: blind-equality lookup
  *                       over deterministically-encrypted fields.
  *   - tombstone      — `record-keys/tombstone.ts`: the erased-record residue.
+ *   - envelope body  — `record-keys/envelope-body.ts`: the C1 protected-body
+ *                       access contract (`openEnvelopeJson`,
+ *                       `writeEnvelopeBody`, `hasPerRecordKey`,
+ *                       `envelopeBodyForHash`) — the sanctioned door onto
+ *                       `_iv`/`_data`/`_cek`/`_sealed` for everyone outside
+ *                       this folder.
  *
  * Additive changes only — removing or renaming an export here is breaking
  * for any fork. Frozen by `__tests__/enclave-surface-golden.test.ts`.
@@ -93,3 +99,6 @@ export type { DeterministicContext } from './record-keys/deterministic.js'
 
 // ─── tombstone ─────────────────────────────────────────────────────
 export { isTombstone, buildTombstone } from './record-keys/tombstone.js'
+
+// ─── envelope body (C1 protected-body access contract) ──────────────
+export { openEnvelopeJson, writeEnvelopeBody, hasPerRecordKey, envelopeBodyForHash } from './record-keys/envelope-body.js'

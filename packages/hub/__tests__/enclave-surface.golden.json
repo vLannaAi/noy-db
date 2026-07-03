@@ -19,13 +19,16 @@
     "encryptBytes",
     "encryptBytesWithAAD",
     "encryptDeterministic",
+    "envelopeBodyForHash",
     "findByDet",
     "generateDEK",
     "generateIV",
     "generateSalt",
+    "hasPerRecordKey",
     "hmacSha256Hex",
     "importCek",
     "isTombstone",
+    "openEnvelopeJson",
     "queryByDet",
     "resolveStableCek",
     "revokeSealedRecord",
@@ -36,7 +39,8 @@
     "unwrapCek",
     "unwrapKey",
     "wrapCek",
-    "wrapKey"
+    "wrapKey",
+    "writeEnvelopeBody"
   ],
   "types": [
     "DeterministicContext",
