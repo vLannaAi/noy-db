@@ -1,4 +1,4 @@
-import type { VaultPolicy } from './types.js'
+import type { VaultPolicy } from '../../kernel/types.js'
 
 /**
  * Default policy for personal vaults and SMB deployments — the gates

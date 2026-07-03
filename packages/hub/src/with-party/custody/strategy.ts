@@ -18,8 +18,7 @@
  * `vault.custody.*`) are the capability.
  * @internal
  */
-import type { RevokeOptions } from '../../kernel/types.js'
-import type { FactorProofBundle } from '../../kernel/policy/types.js'
+import type { RevokeOptions, FactorProofBundle } from '../../kernel/types.js'
 import type { Vault } from '../../kernel/vault.js'
 import type { GrantCustodianOptions } from './index.js'
 import type { LiberateOptions, LiberateResult } from './liberate.js'

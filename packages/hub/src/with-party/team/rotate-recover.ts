@@ -26,10 +26,7 @@ import {
   bufferToBase64,
   base64ToBuffer,
 } from '../../kernel/enclave/index.js'
-import { InvalidKeyError, NoAccessError } from '../../kernel/errors.js'
-import {
-  RecoveryProfileNotImplementedError,
-} from '../../kernel/policy/errors.js'
+import { InvalidKeyError, NoAccessError, RecoveryProfileNotImplementedError } from '../../kernel/errors.js'
 import {
   loadPaperRecoveryEntries,
   burnPaperRecoveryEntry,

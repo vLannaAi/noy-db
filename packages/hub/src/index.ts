@@ -994,15 +994,17 @@ export {
   checkGate,
   describeGate,
   DEFAULT_FRESHNESS_MS,
-  PolicyDeniedError,
-  RecoveryNotEnrolledError,
-  RecoveryProfileNotImplementedError,
-  ManagedRecoveryNotEnrolledError,
   loadVaultPolicy,
   saveVaultPolicy,
   META_COLLECTION,
   POLICY_RECORD_ID,
-} from './kernel/policy/index.js'
+} from './with-party/policy/index.js'
+export {
+  PolicyDeniedError,
+  RecoveryNotEnrolledError,
+  RecoveryProfileNotImplementedError,
+  ManagedRecoveryNotEnrolledError,
+} from './kernel/errors.js'
 export type {
   VaultPolicy,
   GatePolicy,
@@ -1014,9 +1016,9 @@ export type {
   FactorProofBundle,
   WarningRules,
   ActiveTier,
-  PolicyDenyReason,
-  CheckGateContext,
-} from './kernel/policy/index.js'
+} from './kernel/types.js'
+export type { PolicyDenyReason } from './kernel/errors.js'
+export type { CheckGateContext } from './with-party/policy/index.js'
 
 // Validation — phrase format (#7)
 export {

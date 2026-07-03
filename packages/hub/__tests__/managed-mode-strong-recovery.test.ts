@@ -25,7 +25,7 @@ import {
   loadSealedPassphrase,
 } from '../src/index.js'
 import { ConflictError, ValidationError } from '../src/kernel/errors.js'
-import { ManagedRecoveryNotEnrolledError } from '../src/kernel/policy/errors.js'
+import { ManagedRecoveryNotEnrolledError } from '../src/kernel/errors.js'
 import { shamirRecoveryProvider } from '@noy-db/on-shamir'
 
 function inlineMemory(): NoydbStore {

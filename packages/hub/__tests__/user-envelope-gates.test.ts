@@ -13,7 +13,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 import { createNoydb, type Noydb } from '../src/kernel/noydb.js'
-import { PolicyDeniedError } from '../src/kernel/policy/errors.js'
+import { PolicyDeniedError } from '../src/kernel/errors.js'
 
 interface TestProfile {
   profile?: { displayName?: string }

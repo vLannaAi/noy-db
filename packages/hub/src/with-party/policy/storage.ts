@@ -8,9 +8,8 @@
  *
  * @module
  */
-import type { NoydbStore, EncryptedEnvelope } from '../types.js'
-import { NOYDB_FORMAT_VERSION } from '../types.js'
-import type { VaultPolicy } from './types.js'
+import type { NoydbStore, EncryptedEnvelope, VaultPolicy } from '../../kernel/types.js'
+import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 
 /** Reserved collection name for vault-level metadata documents. */
 export const META_COLLECTION = '_meta'

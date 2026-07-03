@@ -15,7 +15,7 @@
  *
  * @module
  */
-import { PolicyDeniedError } from '../../../kernel/policy/errors.js'
+import { PolicyDeniedError } from '../../../kernel/errors.js'
 import {
   loadUserEnvelope,
   saveUserEnvelope,

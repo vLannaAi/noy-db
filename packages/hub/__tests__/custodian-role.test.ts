@@ -17,7 +17,7 @@ import { withCargo } from '../src/index.js'
 import type { Noydb } from '../src/kernel/noydb.js'
 import { withTiers } from '../src/with-audit/tiers/index.js'
 import { withPortability } from '../src/with-audit/portability/index.js'
-import { checkGate, PolicyDeniedError } from '../src/kernel/policy/index.js'
+import { checkGate, PolicyDeniedError } from '../src/with-party/policy/index.js'
 import { putCredential } from '../src/with-party/team/sync-credentials.js'
 import { extractPartition } from '../src/with-cargo/extract-partition.js'
 
