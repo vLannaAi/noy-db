@@ -12,6 +12,7 @@ import { NOYDB_BACKUP_VERSION } from '../kernel/types.js'
 import {
   decrypt,
   encrypt,
+  openEnvelopeJson,
   generateDEK,
   bufferToBase64,
   encryptBytesWithAAD,
@@ -103,7 +104,7 @@ export async function reKeyClosure(
         out[id] = { ...env, _iv: iv, _data: data, _cek: wrapped }
         continue
       }
-      const plaintext = await decrypt(env._iv, env._data, srcDek)
+      const plaintext = await openEnvelopeJson(env, srcDek)
       const { iv, data } = await encrypt(project(plaintext), destDek)
       out[id] = { ...env, _iv: iv, _data: data }
     }
@@ -138,7 +139,7 @@ export async function reKeySchemas(
     const destDek = destDeks.get(collectionName)
     if (!destDek) continue
     const srcDek = await getDEK(collectionName)
-    const plaintext = await decrypt(env._iv, env._data, srcDek)
+    const plaintext = await openEnvelopeJson(env, srcDek)
     const { iv, data } = await encrypt(plaintext, destDek)
     out[collectionName] = { ...env, _iv: iv, _data: data }
   }
@@ -179,7 +180,7 @@ export async function reKeyLedger(
   for (const id of ids) {
     const env = await adapter.get(vaultName, LEDGER_COLLECTION, id)
     if (!env) continue
-    srcEntries.push(JSON.parse(await decrypt(env._iv, env._data, srcLedgerDek)) as LedgerEntry)
+    srcEntries.push(JSON.parse(await openEnvelopeJson(env, srcLedgerDek)) as LedgerEntry)
   }
 
   // 2. Keep closure put/delete entries (drop amendments + out-of-closure).
@@ -325,7 +326,7 @@ export async function reKeyBlobs(
     for (const id of ids) {
       const env = await adapter.get(vaultName, slotsCollection, id)
       if (!env) continue
-      const slots = JSON.parse(await decrypt(env._iv, env._data, srcDek)) as Record<string, SlotRecord>
+      const slots = JSON.parse(await openEnvelopeJson(env, srcDek)) as Record<string, SlotRecord>
       // FR-7: drop projected-out blob fields' slots (slot names are blob field
       // names) — their eTags then never enter the travel set.
       const kept: Record<string, SlotRecord> = {}
@@ -349,7 +350,7 @@ export async function reKeyBlobs(
       if (proj && slotName !== undefined && !proj.has(slotName)) continue
       const env = await adapter.get(vaultName, versionsCollection, key)
       if (!env) continue
-      const record = JSON.parse(await decrypt(env._iv, env._data, srcDek)) as VersionRecord
+      const record = JSON.parse(await openEnvelopeJson(env, srcDek)) as VersionRecord
       addRef(record.eTag)
       const { iv, data } = await encrypt(JSON.stringify(record), destDek)
       place(versionsCollection, key, { ...env, _iv: iv, _data: data })
@@ -368,7 +369,7 @@ export async function reKeyBlobs(
   for (const [eTag, refCount] of carriedRefs) {
     const idxEnv = await adapter.get(vaultName, BLOB_INDEX_COLLECTION, eTag)
     if (!idxEnv) continue // dangling slot reference — nothing to carry
-    const blob = JSON.parse(await decrypt(idxEnv._iv, idxEnv._data, srcBlobDek)) as BlobObject
+    const blob = JSON.parse(await openEnvelopeJson(idxEnv, srcBlobDek)) as BlobObject
 
     // Resolve the per-blob content CEK; passthrough vs. in-bundle promotion.
     let contentCek: EnclaveKey

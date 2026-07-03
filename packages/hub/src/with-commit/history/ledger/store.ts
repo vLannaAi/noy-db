@@ -46,7 +46,7 @@
 
 import type { NoydbStore, EncryptedEnvelope } from '../../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../../kernel/types.js'
-import { encrypt, decrypt, type EnclaveKey } from '../../../kernel/enclave/index.js'
+import { encrypt, openEnvelopeJson, type EnclaveKey } from '../../../kernel/enclave/index.js'
 import { ConflictError, LedgerContentionError } from '../../../kernel/errors.js'
 import {
   canonicalJson,
@@ -360,7 +360,7 @@ export class LedgerStore {
       return JSON.parse(envelope._data) as JsonPatch
     }
     const dek = await this.getDEK(LEDGER_COLLECTION)
-    const json = await decrypt(envelope._iv, envelope._data, dek)
+    const json = await openEnvelopeJson(envelope, dek)
     return JSON.parse(json) as JsonPatch
   }
 
@@ -676,7 +676,7 @@ export class LedgerStore {
       return JSON.parse(envelope._data) as LedgerEntry
     }
     const dek = await this.getDEK(LEDGER_COLLECTION)
-    const json = await decrypt(envelope._iv, envelope._data, dek)
+    const json = await openEnvelopeJson(envelope, dek)
     return JSON.parse(json) as LedgerEntry
   }
 }

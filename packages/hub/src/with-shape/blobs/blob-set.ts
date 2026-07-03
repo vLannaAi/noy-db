@@ -13,7 +13,7 @@ import type { ObjectProjection } from './object-projection.js'
 import type { BlobFieldsConfig } from './blob-compaction.js'
 import {
   encrypt,
-  decrypt,
+  openEnvelopeJson,
   hmacSha256Hex,
   encryptBytesWithAAD,
   decryptBytesWithAAD,
@@ -223,7 +223,7 @@ export class BlobSet {
     }
 
     const dek = await this.getDEK(this.collection)
-    const json = await decrypt(envelope._iv, envelope._data, dek)
+    const json = await openEnvelopeJson(envelope, dek)
     return {
       slots: JSON.parse(json) as Record<string, SlotRecord>,
       version: envelope._v,
@@ -299,7 +299,7 @@ export class BlobSet {
     }
 
     const dek = await this.getDEK(BLOB_COLLECTION)
-    const json = await decrypt(envelope._iv, envelope._data, dek)
+    const json = await openEnvelopeJson(envelope, dek)
     return { blob: JSON.parse(json) as BlobObject, version: envelope._v }
   }
 
@@ -588,7 +588,7 @@ export class BlobSet {
     }
 
     const dek = await this.getDEK(this.collection)
-    const json = await decrypt(envelope._iv, envelope._data, dek)
+    const json = await openEnvelopeJson(envelope, dek)
     return JSON.parse(json) as VersionRecord
   }
 
@@ -1153,7 +1153,7 @@ export class BlobSet {
         versions.push(JSON.parse(envelope._data) as VersionRecord)
       } else {
         const dek = await this.getDEK(this.collection)
-        const json = await decrypt(envelope._iv, envelope._data, dek)
+        const json = await openEnvelopeJson(envelope, dek)
         versions.push(JSON.parse(json) as VersionRecord)
       }
     }

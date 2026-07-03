@@ -50,7 +50,7 @@
 
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import type { UnlockedKeyring } from './keyring.js'
-import { encrypt, decrypt, wrapKey, unwrapKey, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { encrypt, openEnvelopeJson, wrapKey, unwrapKey, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { dekKey } from './tiers.js'
 import { DelegationTargetMissingError } from '../../kernel/errors.js'
 
@@ -217,7 +217,7 @@ export async function readMagicLinkGrantRecord(
   const env = await store.get(vault, MAGIC_LINK_GRANTS_COLLECTION, recordId)
   if (!env) return null
   try {
-    const json = await decrypt(env._iv, env._data, contentKey)
+    const json = await openEnvelopeJson(env, contentKey)
     return JSON.parse(json) as MagicLinkGrantPayload
   } catch {
     return null

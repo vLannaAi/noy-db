@@ -8,7 +8,7 @@
  * @module
  */
 import type { EncryptedEnvelope } from '../kernel/types.js'
-import { decrypt, unwrapCek } from '../kernel/enclave/index.js'
+import { openEnvelopeJson } from '../kernel/enclave/index.js'
 import { readPodHeader, readPod, parseExtractedPartitionBody } from '../with-pod/bundle.js'
 import { unsealDeks } from './adopt-partition.js'
 
@@ -49,9 +49,7 @@ export async function decryptExtractedPartition(
     if (dek === undefined) continue // no DEK sealed for this collection — skip
     const recs: DecryptedRecord[] = []
     for (const [id, env] of Object.entries(byId)) {
-      const plaintext = env._cek !== undefined
-        ? await decrypt(env._iv, env._data, await unwrapCek(env._cek, dek))
-        : await decrypt(env._iv, env._data, dek)
+      const plaintext = await openEnvelopeJson(env, dek)
       const body = JSON.parse(plaintext) as Record<string, unknown>
       recs.push({
         id,

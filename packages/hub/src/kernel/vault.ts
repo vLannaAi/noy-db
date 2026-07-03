@@ -115,7 +115,7 @@ import {
   type ClosePeriodOptions,
   type OpenPeriodOptions,
 } from '../with-audit/periods/index.js'
-import { encrypt, decrypt, SEALED_CEK_NS, type SealingContext, type EnclaveKey } from './enclave/index.js'
+import { encrypt, openEnvelopeJson, SEALED_CEK_NS, type SealingContext, type EnclaveKey } from './enclave/index.js'
 import type { RecipientSealer } from '../with-party/team/managed-passphrase.js'
 import {
   createExportBlobsHandle,
@@ -2054,7 +2054,7 @@ export class Vault {
       return JSON.parse(env._data)
     }
     const dek = await this.getDEK(collectionName)
-    const json = await decrypt(env._iv, env._data, dek)
+    const json = await openEnvelopeJson(env, dek)
     return JSON.parse(json)
   }
 

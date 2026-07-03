@@ -40,7 +40,7 @@
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import type { UnlockedKeyring } from './keyring.js'
-import { encrypt, decrypt } from '../../kernel/enclave/index.js'
+import { encrypt, openEnvelopeJson } from '../../kernel/enclave/index.js'
 import { ensureCollectionDEK } from './keyring.js'
 import { PermissionDeniedError } from '../../kernel/errors.js'
 
@@ -152,7 +152,7 @@ export async function getCredential(
   const envelope = await adapter.get(vault, SYNC_CREDENTIALS_COLLECTION, adapterId)
   if (!envelope) return null
 
-  const plaintext = await decrypt(envelope._iv, envelope._data, dek)
+  const plaintext = await openEnvelopeJson(envelope, dek)
   return JSON.parse(plaintext) as SyncCredential
 }
 

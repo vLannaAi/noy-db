@@ -15,7 +15,7 @@
  * @module
  */
 
-import { encrypt, decrypt, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import type { PersistedSchemaEnvelope } from './types.js'
@@ -38,7 +38,7 @@ export async function loadPersistedSchema(
   const envelope = await store.get(vault, SCHEMAS_COLLECTION, collection)
   if (!envelope) return undefined
   try {
-    const plaintext = await decrypt(envelope._iv, envelope._data, dek)
+    const plaintext = await openEnvelopeJson(envelope, dek)
     const parsed = JSON.parse(plaintext) as PersistedSchemaEnvelope
     if (parsed._noydb_schema !== 1) return undefined
     return parsed

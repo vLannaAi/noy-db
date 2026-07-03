@@ -35,7 +35,7 @@ import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import type { NoydbEventEmitter } from '../../kernel/events.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
-import { encrypt, decrypt, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { ensureCollectionDEK } from '../../with-party/team/keyring.js'
 import type { LedgerStore } from '../../with-commit/history/ledger/store.js'
 import type { OnMissingPolicy } from './policy.js'
@@ -425,7 +425,7 @@ export class DictionaryHandle<Keys extends string = string> {
       return JSON.parse(envelope._data) as DictEntry
     }
     const dek = await this.getDekForDict()
-    const json = await decrypt(envelope._iv, envelope._data, dek)
+    const json = await openEnvelopeJson(envelope, dek)
     return JSON.parse(json) as DictEntry
   }
 

@@ -49,7 +49,7 @@
  * @module
  */
 import type { EncryptedEnvelope, NoydbStore } from '../../kernel/types.js'
-import { encrypt, decrypt, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { generateULID } from '../../with-pod/ulid.js'
 
 /** Reserved collection for consent-audit entries. */
@@ -178,9 +178,8 @@ async function decryptEntry(
   encrypted: boolean,
   getDEK: (collection: string) => Promise<EnclaveKey>,
 ): Promise<ConsentAuditEntry> {
-  const json = encrypted
-    ? await decrypt(envelope._iv, envelope._data, await getDEK(CONSENT_AUDIT_COLLECTION))
-    : envelope._data
+  if (!encrypted) return JSON.parse(envelope._data) as ConsentAuditEntry
+  const json = await openEnvelopeJson(envelope, await getDEK(CONSENT_AUDIT_COLLECTION))
   return JSON.parse(json) as ConsentAuditEntry
 }
 

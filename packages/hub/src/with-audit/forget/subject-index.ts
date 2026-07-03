@@ -32,7 +32,7 @@
  *
  * @module
  */
-import { encrypt, decrypt, hmacSha256Hex, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { encrypt, openEnvelopeJson, hmacSha256Hex, type EnclaveKey } from '../../kernel/enclave/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 
@@ -110,7 +110,7 @@ async function readRefs(
   if (!env || !env._data) return []
   if (!encrypted) return parseRefs(env._data)
   const dek = await getDEK(SUBJECT_INDEX_COLLECTION)
-  const json = await decrypt(env._iv, env._data, dek)
+  const json = await openEnvelopeJson(env, dek)
   return parseRefs(json)
 }
 
