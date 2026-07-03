@@ -7,10 +7,11 @@
  * resolved snapshot; `collection.getRaw(id)` returns the full CRDT state.
  */
 
-// ─── Mode ─────────────────────────────────────────────────────────────
-
-/** Per-collection CRDT mode. */
-export type CrdtMode = 'lww-map' | 'rga' | 'yjs'
+// Hoisted to kernel/types.ts (C3 — enclave self-containment: record-codec.ts
+// consumes this as a spine-owned contract type). Re-exported here so existing
+// importers of this module are unaffected.
+import type { CrdtState } from '../../kernel/types.js'
+export type { CrdtMode, CrdtState } from '../../kernel/types.js'
 
 // ─── State shapes ─────────────────────────────────────────────────────
 
@@ -48,8 +49,6 @@ export interface YjsState {
   /** base64-encoded Y.encodeStateAsUpdate() bytes. */
   readonly update: string
 }
-
-export type CrdtState = LwwMapState | RgaState | YjsState
 
 // ─── Snapshot resolution ──────────────────────────────────────────────
 

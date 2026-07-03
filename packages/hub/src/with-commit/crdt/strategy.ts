@@ -13,27 +13,11 @@
  * @internal
  */
 
-import type { CrdtState, LwwMapState, RgaState } from './crdt.js'
-
-/**
- * Seam interface. `@internal`.
- *
- * @internal
- */
-export interface CrdtStrategy {
-  buildLwwMapState(
-    record: Record<string, unknown>,
-    previous: LwwMapState | undefined,
-    now: string,
-  ): LwwMapState
-  buildRgaState(
-    items: readonly unknown[],
-    previous: RgaState | undefined,
-    idGen: () => string,
-  ): RgaState
-  mergeCrdtStates(local: CrdtState, remote: CrdtState): CrdtState
-  resolveCrdtSnapshot(state: CrdtState): unknown
-}
+// Hoisted to kernel/types.ts (C3 — enclave self-containment: record-codec.ts
+// consumes this as a spine-owned contract type). Re-exported here so existing
+// importers of this module are unaffected.
+import type { CrdtStrategy } from '../../kernel/types.js'
+export type { CrdtStrategy } from '../../kernel/types.js'
 
 const NOT_ENABLED = new Error(
   'CRDT mode requires the CRDT strategy. Import `{ withCrdt }` from ' +

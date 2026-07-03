@@ -17,7 +17,7 @@
  *                       deterministic variants), SHA-256 / HMAC-SHA-256 hashing.
  *   - key lifecycle  — `crypto.ts` + `record-keys/lifecycle.ts`: KEK/DEK
  *                       derivation, AES-KW wrap/unwrap, per-record CEK
- *                       wrap/unwrap + resolution/re-wrap, HKDF-derived
+ *                       wrap/unwrap/import + resolution/re-wrap, HKDF-derived
  *                       presence/sealed-field keys, base64 helpers.
  *   - record codec   — `record-keys/record-codec.ts`: the per-record
  *                       encode/decode engine.
@@ -60,6 +60,7 @@ export {
   deriveSealedFieldKeyFromCek,
   wrapCek,
   unwrapCek,
+  importCek,
 } from './crypto.js'
 export { resolveStableCek, rewrapBodyToDek } from './record-keys/lifecycle.js'
 
