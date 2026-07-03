@@ -14,8 +14,8 @@
  *    work even when decryption fails (legacy keyrings predating the
  *    envelope feature, or a corrupted envelope).
  *
- * @see docs/services/user-envelope.md → Directory visibility
- * @see docs/services/plaintext-bypass.md — every `_iv: ''` write site
+ * @see https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/user-envelope.md → Directory visibility
+ * @see https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/plaintext-bypass.md — every `_iv: ''` write site
  *
  * @module
  */

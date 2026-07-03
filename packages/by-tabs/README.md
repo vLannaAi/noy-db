@@ -2,7 +2,7 @@
 
 BroadcastChannel multi-tab transport for [noy-db](https://github.com/vLannaAi/noy-db) — sub-millisecond fan-out between tabs of the same origin.
 
-> Second member of the `by-*` family of session-share transports. See [`docs/packages/by-transports.md`](../../docs/packages/by-transports.md) for the family contract and roster.
+> Second member of the `by-*` family of session-share transports. See [`docs/packages/by-transports.md`](https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/packages/by-transports.md) for the family contract and roster.
 
 ## Install
 

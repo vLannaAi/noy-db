@@ -134,7 +134,7 @@ The module ships the foundation: typed options, auto-imports, and the SSR-safe c
 
 ## Status
 
-See [ROADMAP.md](../../ROADMAP.md) for the forward plan.
+See [ROADMAP.md](https://github.com/vLannaAi/noy-db-docs/blob/main/ROADMAP.md) for the forward plan.
 
 ## License
 

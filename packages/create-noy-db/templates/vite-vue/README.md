@@ -92,4 +92,4 @@ your domain.
 - [noy-db getting started](https://github.com/vLannaAi/noy-db/blob/main/docs/choose-your-path.md)
 - [Topology matrix](https://github.com/vLannaAi/noy-db/blob/main/docs/topologies.md)
 - [Architecture](https://github.com/vLannaAi/noy-db/blob/main/docs/architecture.md)
-- [Roadmap](https://github.com/vLannaAi/noy-db/blob/main/ROADMAP.md)
+- [Roadmap](https://github.com/vLannaAi/noy-db-docs/blob/main/ROADMAP.md)

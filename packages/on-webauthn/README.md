@@ -47,7 +47,7 @@ See the [main repository](https://github.com/vLannaAi/noy-db#readme) for setup, 
 
 - Source — [`packages/on-webauthn`](https://github.com/vLannaAi/noy-db/tree/main/packages/on-webauthn)
 - Issues — [github.com/vLannaAi/noy-db/issues](https://github.com/vLannaAi/noy-db/issues)
-- Spec — [`SPEC.md`](https://github.com/vLannaAi/noy-db/blob/main/SPEC.md)
+- Spec — [`SPEC.md`](https://github.com/vLannaAi/noy-db-docs/blob/main/SPEC.md)
 
 ## License
 

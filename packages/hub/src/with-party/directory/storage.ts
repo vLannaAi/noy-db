@@ -4,8 +4,8 @@
  * `_meta/policy` — the directory document is plain JSON, the
  * envelope's `_iv` field is left empty.
  *
- * @see docs/services/user-envelope.md → Directory visibility
- * @see docs/services/plaintext-bypass.md — every `_iv: ''` write site
+ * @see https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/user-envelope.md → Directory visibility
+ * @see https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/plaintext-bypass.md — every `_iv: ''` write site
  *
  * @module
  */

@@ -1,7 +1,7 @@
 /**
  * Public envelope service — barrel export.
  *
- * @see docs/services/public-envelope.md
+ * @see https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/public-envelope.md
  *
  * @module
  */

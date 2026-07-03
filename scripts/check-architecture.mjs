@@ -415,7 +415,7 @@ function scanFileForStrategyOptIn(file, content) {
 // Exemptions (verified 2026-07-02) fall in three buckets:
 //   ③ schema features — declared on `collection({ … })`, not a global
 //     strategy; the collection IS the opt-in unit, impl lazy-imported
-//     from the schema declaration (see docs/services/<x>.md):
+//     from the schema declaration (see noy-db-docs/content/docs/services/<x>.md):
 //       with-formula/computed          computed({…}) field evaluator
 //       with-shape/introspection       describe()/dumpVaultSchema — read-only schema surface
 //       with-shape/links               link()/backlink schema refs

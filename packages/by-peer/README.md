@@ -2,7 +2,7 @@
 
 WebRTC peer-to-peer transport for [noy-db](https://github.com/vLannaAi/noy-db) — no server in the middle.
 
-> First member of the `by-*` family of session-share transports. See [`docs/packages/by-transports.md`](../../docs/packages/by-transports.md) for the family contract and roster.
+> First member of the `by-*` family of session-share transports. See [`docs/packages/by-transports.md`](https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/packages/by-transports.md) for the family contract and roster.
 >
 > Previously published as `@noy-db/p2p` — same code, renamed to fit the prefix family.
 

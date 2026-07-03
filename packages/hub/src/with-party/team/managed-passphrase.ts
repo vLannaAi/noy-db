@@ -43,7 +43,7 @@
  *   - Mandatory strong-recovery enforcement.
  *   - Recovery flow under managed mode (generates fresh sealed phrase).
  *
- * @see docs/services/session-tiers.md → Managed-passphrase mode
+ * @see https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/session-tiers.md → Managed-passphrase mode
  *
  * @module
  */
