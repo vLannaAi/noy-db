@@ -20,6 +20,7 @@ import { isStaticDictDescriptor } from '../i18n/dictionary.js'
 import type { I18nTextDescriptor } from '../i18n/core.js'
 import type { ComputedFields } from '../../with-formula/computed/index.js'
 import type { RefDescriptor } from '../../kernel/refs.js'
+import type { ClassifiedFieldSpec } from '../classified/descriptor.js'
 import { derivePersistedSchema, isZod4Schema } from '../persisted-schemas/derive.js'
 import { jsonSchemaToFields } from './fields.js'
 
@@ -53,6 +54,12 @@ export interface DescribedField {
   readonly widget: string
   /** Whether the field is user-editable. False for computed, id, and provenance-stamped fields. */
   readonly editable: boolean
+  /** Present when the field is classified. Serialized read-projection contract. */
+  readonly classified?: {
+    readonly preset: string
+    readonly storage: 'recoverable' | 'never'
+    readonly list: 'omit' | { readonly mask: string } | { readonly rider: string }
+  }
 }
 
 export interface CollectionDescription {
@@ -175,6 +182,8 @@ export interface BuildDescriptionInput {
    * When present, describe() surfaces an `i18n` block on matching DescribedField entries.
    */
   readonly i18nFields?: Record<string, I18nTextDescriptor> | undefined
+  /** Per-field classified specs (already resolved/flattened). */
+  readonly classified?: Record<string, ClassifiedFieldSpec> | undefined
 }
 
 // Re-export so that callers that want to catch the error don't need another import path.
@@ -224,7 +233,7 @@ function deriveWidget(opts: {
  * couldn't do (schema fields weren't knowable synchronously).
  */
 export function buildDescription(input: BuildDescriptionInput): CollectionDescription {
-  const { collection, fieldMeta, moneyFields, dictKeyFields, computed, refs, zodFields, dictLabels, meta, i18nFields } = input
+  const { collection, fieldMeta, moneyFields, dictKeyFields, computed, refs, zodFields, dictLabels, meta, i18nFields, classified } = input
 
   // When zodFields is present AND non-empty (async path, validator successfully derived
   // a schema): validate fieldMeta keys against the real known-field set = config keys ∪
@@ -254,6 +263,7 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
     ...Object.keys(fieldMeta ?? {}),
     ...Object.keys(zodFields ?? {}),
     ...Object.keys(i18nFields ?? {}),
+    ...Object.keys(classified ?? {}),
   ])
 
   const fields: DescribedField[] = []
@@ -265,6 +275,7 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
     const refDesc = refs[key]
     const isComputed = computed !== undefined && key in computed
     const i18nDesc = i18nFields?.[key]
+    const cls = classified?.[key]
 
     // ── Infer type + structural extras ────────────────────────────────────
     let type = zod?.type ?? 'unknown'
@@ -336,6 +347,10 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
       // type already initialized to zod?.type ?? 'unknown' above; no re-set needed
     }
 
+    // Classified sensitivity feeds inferred meta at lowest precedence — channel
+    // fieldMeta and zod .meta() still win via resolveFieldMeta's merge order.
+    if (cls !== undefined) inferred.sensitivity = cls.sensitivity
+
     // ── Merge fieldMeta channel ────────────────────────────────────────────
     const channelEntry = fieldMeta?.[key]
     const zodMeta = zod?.meta
@@ -393,6 +408,15 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
       ...(i18nBlock !== undefined ? { i18n: i18nBlock } : {}),
       widget,
       editable,
+      ...(cls !== undefined ? {
+        classified: {
+          preset: cls.preset,
+          storage: cls.storage,
+          list: cls.list.kind === 'omit' ? 'omit' as const
+            : cls.list.kind === 'mask' ? { mask: cls.list.pattern }
+            : { rider: cls.list.rider },
+        },
+      } : {}),
     }
 
     fields.push(field)

@@ -41,6 +41,7 @@ export function buildJsonSchema(desc: CollectionDescription, base?: Record<strin
       for (const v of f.dict.values) if (v.label !== undefined) labels[v.value] = v.label
       if (Object.keys(labels).length) prop['x-enumLabels'] = labels
     }
+    if (f.classified !== undefined) prop['x-classified'] = f.classified
     properties[f.key] = prop
   }
   return base != null && typeof base === 'object'
