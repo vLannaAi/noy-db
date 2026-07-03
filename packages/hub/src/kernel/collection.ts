@@ -1,7 +1,7 @@
 import type { NoydbStore, EncryptedEnvelope, ChangeEvent, HistoryConfig, HistoryOptions, HistoryEntry, PruneOptions, ListPageResult, LocaleReadOptions, CollectionConflictResolver, PutManyItemOptions, PutManyOptions, PutManyResult, DeleteManyResult, SealedView } from './types.js'
 import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
 import type { CollectionMeta } from '../with-shape/introspection/meta.js'
-import { resolveClassifiedFields, type ClassifiedEntry, type ResolvedClassified } from '../with-shape/classified/resolve.js'
+import { resolveClassifiedFields, ClassifiedConfigError, type ClassifiedEntry, type ResolvedClassified } from '../with-shape/classified/resolve.js'
 import type { CrdtMode, CrdtState, LwwMapState, RgaState } from '../with-commit/crdt/crdt.js'
 import type { CrdtStrategy } from '../with-commit/crdt/strategy.js'
 import type { I18nTextDescriptor } from '../with-shape/i18n/core.js'
@@ -1123,6 +1123,12 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     if (this.classified !== undefined) return
     const resolved = resolveClassifiedFields(this.name, classifiedFields)
     this.classified = resolved
+    // Check for collisions: each rider-computed key must not already exist in this.computed
+    for (const key of Object.keys(resolved.riderComputed)) {
+      if (this.computed?.[key] !== undefined) {
+        throw new ClassifiedConfigError(this.name, `rider companion "${key}" collides with a declared field`)
+      }
+    }
     this.computed = { ...resolved.riderComputed, ...(this.computed ?? {}) }
   }
 
