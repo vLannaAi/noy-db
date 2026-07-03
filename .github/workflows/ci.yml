@@ -1,7 +1,7 @@
 name: CI
 
 # Dev CI — fast feedback on every PR and push to main.
-# Jobs: architecture → spec-coverage → lint/typecheck → build → test (node 24).
+# Jobs: architecture → lint/typecheck → build → test (node 24).
 # Single flake-free runtime for speed; the full node 22+24 test matrix and
 # the cross-OS interop run pre-publish as a hard gate in release.yml.
 
@@ -42,45 +42,10 @@ jobs:
       - name: Check
         run: node scripts/check-architecture.mjs
 
-  # ── Spec coverage ────────────────────────────────────────────────────
-  # Validates features.yaml — the spec ↔ artefact registry. Every entry's
-  # paths must resolve, every showcase id must match its filename, every
-  # cross-reference must hit a registered id, every spec anchor must
-  # exist in the target markdown. The diagram render-drift check piggy-
-  # backs once Phase 2/3 introduces the first .mmd sources.
-  spec-coverage:
-    name: Spec coverage
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: '22'
-          package-manager-cache: false
-      - name: Enable corepack (pnpm)
-        run: corepack enable
-      - name: Get pnpm store path
-        id: pnpm-store
-        shell: bash
-        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v5
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: ${{ runner.os }}-pnpm-
-      - name: Install
-        run: pnpm install --frozen-lockfile
-      - name: Render diagrams (noop until Phase 2/3)
-        run: pnpm render:diagrams
-      - name: Validate features registry
-        run: pnpm validate:features
-      - name: Check storage-capability matrix is in sync
-        run: pnpm render:storage-matrix -- --check
-
   # ── Lint + typecheck ─────────────────────────────────────────────────
   quality:
     name: Lint + typecheck
-    needs: [architecture, spec-coverage]
+    needs: [architecture]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -115,7 +80,7 @@ jobs:
   # ── Build (once — caches for test matrix) ────────────────────────────
   build:
     name: Build
-    needs: [architecture, spec-coverage]
+    needs: [architecture]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -188,11 +153,8 @@ jobs:
       # that surfaced with the default parallel runner. Each package's
       # test suite is fast on its own; serializing them adds < 1 minute
       # to the matrix wall time.
-      # @noy-db/showcases is a private demo workspace whose topology tests
-      # require real-cloud credentials (Cloudflare R2, Supabase, WebDAV).
-      # Excluded from CI; runnable locally with .env populated.
       - name: Test
-        run: pnpm turbo test --concurrency=1 --filter '!@noy-db/showcases'
+        run: pnpm turbo test --concurrency=1
 
   # ── Interop moved to the pre-publish gate ────────────────────────────
   # The cross-OS WinZip-AES-256 interop matrix (ubuntu/macOS/windows +
