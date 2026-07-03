@@ -45,7 +45,17 @@ export const classified = {
       _noydbClassified: true, preset: 'birthDate', storage: 'recoverable',
       sensitivity: 'pii', list: { kind: 'mask', pattern: '${yob}-••-••' },
       riders: { yob: (v) => String(v).slice(0, 4) },
-      validate: (v) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? null : 'expected ISO yyyy-mm-dd'),
+      validate: (v) => {
+        if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return 'expected ISO yyyy-mm-dd'
+        const parts = v.split('-').map(Number)
+        const year = parts[0]!, month = parts[1]!, day = parts[2]!
+        if (month < 1 || month > 12) return 'not a valid calendar date'
+        const daysInMonth = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+        const isLeapYear = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0
+        const maxDay = month === 2 && isLeapYear ? 29 : daysInMonth[month - 1]!
+        if (day < 1 || day > maxDay) return 'not a valid calendar date'
+        return null
+      },
     }
   },
 
