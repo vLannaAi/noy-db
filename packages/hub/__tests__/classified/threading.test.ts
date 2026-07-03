@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../../src/kernel/noydb.js'
-import { classified } from '../../src/with-shape/classified/index.js'
+import { classified, ClassifiedConfigError } from '../../src/with-shape/classified/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/kernel/types.js'
 import { ConflictError } from '../../src/kernel/errors.js'
 
@@ -73,5 +73,25 @@ describe('classifiedFields threading', () => {
     await c.put('p1', { dob: '1990-04-01' })
     const rec = await c.get('p1') as Record<string, unknown>
     expect(rec.dob_yob).toBe('1990')
+  })
+
+  it('throws ClassifiedConfigError on rider-computed collision', async () => {
+    const db = await createNoydb({ store: inlineMemory(), user: 'a', secret: 'pw-cls-3' })
+    const v = await db.openVault('v3')
+    // fresh-open collision: classifiedFields with rider conflicts with pre-declared computed field
+    expect(() => v.collection('x1', {
+      classifiedFields: { pan: classified.creditCard({ pan: 'pan' }) },  // creditCard ships last4 rider
+      computed: { pan_last4: (r) => 'user' }                             // colliding key
+    })).toThrow(ClassifiedConfigError)
+  })
+
+  it('throws ClassifiedConfigError on reconcile collision', async () => {
+    const db = await createNoydb({ store: inlineMemory(), user: 'a', secret: 'pw-cls-4' })
+    const v = await db.openVault('v4')
+    // reconcile collision: bare collection created first, then classifiedFields applied with rider that collides
+    v.collection('x2', { computed: { pan_last4: (r) => 'user' } })     // pre-declare computed field
+    expect(() => v.collection('x2', {
+      classifiedFields: { pan: classified.creditCard({ pan: 'pan' }) }  // try to apply, but rider collides
+    })).toThrow(ClassifiedConfigError)
   })
 })
