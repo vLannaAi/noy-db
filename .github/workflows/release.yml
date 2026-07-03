@@ -136,12 +136,10 @@ jobs:
       - name: Typecheck
         run: pnpm turbo typecheck
 
-      # @noy-db/showcases topology tests need real-cloud credentials
-      # (private workspace; runnable locally with .env populated).
       # HARD GATE: unlike dev CI, a failing test here BLOCKS the publish
       # (this is the last line of defence before npm), on both node 22 + 24.
       - name: Test
-        run: pnpm turbo test --concurrency=1 --filter '!@noy-db/showcases'
+        run: pnpm turbo test --concurrency=1
 
       - name: Verify package.json versions match release tag
         if: github.event_name == 'release'
