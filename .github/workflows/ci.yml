@@ -149,9 +149,11 @@ jobs:
   # Single flake-free runtime (node 24) for fast PR feedback. The full
   # node 22 + 24 matrix AND the cross-OS interop run pre-publish in
   # release.yml — the hard gate before anything reaches npm.
+  # Depends on build only: lint/typecheck gates the PR in parallel;
+  # serializing test behind it added ~2 min of dead critical-path time.
   test:
     name: Test (node 24)
-    needs: [quality, build]
+    needs: [build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
