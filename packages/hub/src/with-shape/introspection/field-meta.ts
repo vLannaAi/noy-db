@@ -36,6 +36,14 @@ export interface FieldMeta {
    * When absent, the widget is derived automatically by buildDescription.
    */
   widget?: string
+  /**
+   * Card/section grouping hint for detail & form layouts (e.g. 'Identity',
+   * 'Amounts'). Purely descriptive metadata — consumers group; describe()
+   * keeps emitting fields alphabetically.
+   */
+  group?: string
+  /** Relative ordering hint within (and across) groups. Lower renders first. */
+  order?: number
 }
 
 export class FieldMetaUnknownFieldError extends Error {
@@ -88,6 +96,8 @@ export function resolveFieldMeta(key: string, inputs: MergeInputs): ResolvedMeta
   const aliases = pick('aliases')
   const displayFor = pick('displayFor')
   const widget = pick('widget')
+  const group = pick('group')
+  const order = pick('order')
   return {
     label: pick('label') ?? humanizeFieldKey(key),
     ...(description !== undefined ? { description } : {}),
@@ -98,5 +108,7 @@ export function resolveFieldMeta(key: string, inputs: MergeInputs): ResolvedMeta
     ...(aliases !== undefined ? { aliases } : {}),
     ...(displayFor !== undefined ? { displayFor } : {}),
     ...(widget !== undefined ? { widget } : {}),
+    ...(group !== undefined ? { group } : {}),
+    ...(order !== undefined ? { order } : {}),
   }
 }

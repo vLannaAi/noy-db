@@ -33,6 +33,10 @@ export interface DescribedField {
   readonly constraints?: Record<string, unknown>
   readonly label: string
   readonly description?: string
+  /** Card/section grouping hint for detail & form layouts. From fieldMeta/zod .meta(). */
+  readonly group?: string
+  /** Relative ordering hint within and across groups. Lower renders first. */
+  readonly order?: number
   readonly semanticType?: string
   readonly unit?: string
   readonly sensitivity?: 'public' | 'pii' | 'secret'
@@ -86,6 +90,7 @@ export interface ZodFieldSlot {
 // Unknown .meta() keys (not in this set) are ignored.
 const ZOD_META_KEYS = new Set<string>([
   'label', 'description', 'unit', 'semanticType', 'sensitivity', 'aggregate', 'aliases', 'displayFor',
+  'group', 'order',
 ])
 
 // ─── deriveZodFields ──────────────────────────────────────────────────────
@@ -373,6 +378,8 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
       optional: zod?.optional ?? false,
       label: resolved.label,
       ...(resolved.description !== undefined ? { description: resolved.description } : {}),
+      ...(resolved.group !== undefined ? { group: resolved.group } : {}),
+      ...(resolved.order !== undefined ? { order: resolved.order } : {}),
       ...(resolved.semanticType !== undefined ? { semanticType: resolved.semanticType } : {}),
       ...(resolved.unit !== undefined ? { unit: resolved.unit } : {}),
       ...(resolved.sensitivity !== undefined ? { sensitivity: resolved.sensitivity } : {}),
