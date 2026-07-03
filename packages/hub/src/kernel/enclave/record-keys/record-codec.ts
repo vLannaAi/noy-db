@@ -17,13 +17,11 @@
  * Internal service — not exported as a `@noy-db/hub/*` subpath.
  */
 import { encrypt, decrypt, encryptDeterministic, wrapCek, unwrapCek, deriveSealedFieldKey, deriveSealedFieldKeyFromCek } from '../crypto.js'
-import { NOYDB_FORMAT_VERSION, SealedHandle, type EncryptedEnvelope } from '../../types.js'
+import { NOYDB_FORMAT_VERSION, SealedHandle, type EncryptedEnvelope, type CrdtMode, type CrdtState, type CrdtStrategy } from '../../types.js'
 import { isTombstone } from './tombstone.js'
 import { parseSealedSlot, dualReadSealedSlot } from './sealed-slot.js'
 import { DebugReservedFieldError } from '../../errors.js'
 import { validateSchemaOutput, type StandardSchemaV1 } from '../../schema.js'
-import type { CrdtMode, CrdtState } from '../../../with-commit/crdt/crdt.js'
-import type { CrdtStrategy } from '../../../with-commit/crdt/strategy.js'
 import type { Lru } from '../../cache/index.js'
 
 /** Everything the moving crypto methods touched on `this.*`, as a flat context. */

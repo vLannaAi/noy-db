@@ -11,15 +11,21 @@
  * `vault.revokeSealedRecord` / `vault.rotateRecordCek`, lifted off `Vault`
  * behind a narrow {@link SealingContext} so the kernel file delegates. They
  * live in `record-keys/` (the vault-side CEK policy layer), NOT in
- * `sealed-record/`, so the host-side subpath stays DEK-free — they import only
- * the wire *types* from there.
+ * `sealed-record/`, so the host-side subpath stays DEK-free — the wire
+ * *types* they share are spine-owned (`kernel/types.ts`), not imported from
+ * `sealed-record/` directly.
  */
 import { encrypt, decrypt, generateDEK, wrapCek, unwrapCek, bufferToBase64, deriveSealedFieldKeyFromCek } from '../crypto.js'
-import { NOYDB_FORMAT_VERSION, type EncryptedEnvelope, type NoydbStore } from '../../types.js'
+import {
+  NOYDB_FORMAT_VERSION,
+  type EncryptedEnvelope,
+  type NoydbStore,
+  type RecipientSealer,
+  type SealedCekBinding,
+  type SealedCekDeliveryEnvelope,
+} from '../../types.js'
 import { dualReadSealedSlot } from './sealed-slot.js'
 import { RecordCekNotFoundError, ValidationError } from '../../errors.js'
-import type { RecipientSealer } from '../../../with-party/team/managed-passphrase.js'
-import type { SealedCekBinding, SealedCekDeliveryEnvelope } from '../../../with-audit/sealed-record/types.js'
 
 const subtle = globalThis.crypto.subtle
 

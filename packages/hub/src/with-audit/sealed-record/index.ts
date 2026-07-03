@@ -14,7 +14,7 @@
  * @module
  */
 
-import { decrypt, base64ToBuffer } from '../../kernel/enclave/index.js'
+import { decrypt, base64ToBuffer, importCek } from '../../kernel/enclave/index.js'
 import {
   SealedRecordExpiredError,
   SealedRecordMismatchError,
@@ -29,8 +29,6 @@ export { SealedRecordExpiredError, SealedRecordMismatchError } from '../../kerne
 export { withSealedRecord } from './active.js'
 export { NO_SEALED_RECORD, type SealedRecordStrategy } from './strategy.js'
 export { SealedRecordNotEnabledError } from '../../kernel/errors.js'
-
-const subtle = globalThis.crypto.subtle
 
 /**
  * Host-side: decrypt a single record whose CEK was sealed to this host by a
@@ -97,12 +95,6 @@ export async function openSealedRecord(
 
   // (5) Import the raw CEK + decrypt the body. Wrong-key (pre-rotation CEK vs
   // post-rotation body) surfaces as TamperedError from decrypt's GCM tag check.
-  const cek = await subtle.importKey(
-    'raw',
-    base64ToBuffer(binding.cek) as BufferSource,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['decrypt'],
-  )
+  const cek = await importCek(base64ToBuffer(binding.cek))
   return decrypt(recordEnvelope._iv, recordEnvelope._data, cek)
 }

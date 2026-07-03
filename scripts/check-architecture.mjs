@@ -1322,20 +1322,39 @@ function checkPortLayering() {
 // were migrated to the barrel too for consistency. Only static
 // `import`/`export … from` clauses are checked; a dynamic `import()` is
 // not statically analyzable here (same carve-out as port-layering above).
+//
+// The reverse direction (C3 — self-contained folder, Enclave Contract v1):
+// a file INSIDE kernel/enclave/** may import only spine types (kernel/**,
+// port/**) — never a with-* service. Contract types a service used to hand
+// the enclave (CRDT mode/state/strategy, RecipientSealer, the sealed-CEK
+// wire types) are hoisted into kernel/types.ts precisely so this direction
+// can be zero.
 
 function checkEnclaveBarrelOnly() {
   const hubSrc = join(PACKAGES_DIR, 'hub', 'src')
   const enclaveDir = join(hubSrc, 'kernel', 'enclave')
 
   walkTsFiles(hubSrc, (file, content) => {
-    if (!relative(enclaveDir, file).startsWith('..')) return // inside kernel/enclave/ itself — internal imports stay relative
-
     const rel = relative(ROOT, file)
+    const insideEnclave = !relative(enclaveDir, file).startsWith('..')
     const code = stripComments(content)
+
     for (const m of code.matchAll(STATIC_IMPORT_FROM_RE)) {
       const spec = m[1]
       if (!spec.startsWith('.')) continue
       const target = importTargetRelToHubSrc(file, spec, hubSrc)
+
+      if (insideEnclave) {
+        if (/^with-[^/]+(\/|$)/.test(target)) {
+          fail(
+            'enclave-barrel-only',
+            `${rel} statically imports service-layer path "${spec}" — kernel/enclave/** must be self-contained (C3): it may import only spine types, never a with-* service. Hoist the contract type into kernel/types.ts and re-export it from the service instead.`,
+            file,
+          )
+        }
+        continue // internal (relative-within-enclave) imports are the barrel's own business
+      }
+
       if (target.startsWith('kernel/enclave/') && target !== 'kernel/enclave/index.js') {
         fail(
           'enclave-barrel-only',

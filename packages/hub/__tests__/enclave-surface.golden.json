@@ -24,6 +24,7 @@
     "generateIV",
     "generateSalt",
     "hmacSha256Hex",
+    "importCek",
     "isTombstone",
     "queryByDet",
     "resolveStableCek",

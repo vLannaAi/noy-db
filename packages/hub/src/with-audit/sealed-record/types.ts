@@ -25,46 +25,7 @@
  * @module
  */
 
-/**
- * Thin delivery envelope persisted at
- * `_sealed_cek/<collection>/<id>/<pid>`. The grantor writes one per
- * (record, recipient host) pair. `payload` is the base64 of the bytes returned
- * by {@link RecipientSealer.sealForRecipient} over a UTF-8
- * `JSON.stringify({@link SealedCekBinding})`.
- *
- * `expiresAt` is duplicated here for a cheap pre-unseal reject, but is NOT
- * authoritative — the binding inside `payload` carries the expiry the host
- * verifies after unsealing, so a tampered delivery envelope cannot extend a
- * grant.
- */
-export interface SealedCekDeliveryEnvelope {
-  /** Envelope schema version. */
-  readonly v: 1
-  /** Magic marker for forensics + format detection. */
-  readonly _noydb_sealed_cek: 1
-  /** Recipient host provider id; matches the sealer's `.id` / hint `pid`. */
-  readonly pid: string
-  /** base64 of the sealed {@link SealedCekBinding} bytes. */
-  readonly payload: string
-  /** Fast-path expiry hint (ISO 8601). Authoritative copy is inside `payload`. */
-  readonly expiresAt: string
-}
-
-/**
- * The plaintext struct sealed for the recipient host. After the host unseals
- * `SealedCekDeliveryEnvelope.payload` it parses this and MUST verify:
- *  - `collection` + `id` match the record envelope it is decrypting, and
- *  - `expiresAt` has not passed (authoritative expiry check).
- *
- * `cek` is the base64 of the raw 32-byte AES-256-GCM record CEK.
- */
-export interface SealedCekBinding {
-  /** Collection the CEK belongs to. */
-  readonly collection: string
-  /** Record id the CEK belongs to. */
-  readonly id: string
-  /** base64 of the raw AES-256-GCM CEK bytes. */
-  readonly cek: string
-  /** Authoritative expiry (ISO 8601). */
-  readonly expiresAt: string
-}
+// Hoisted to kernel/types.ts (C3 — enclave self-containment: sealing.ts
+// consumes these as spine-owned contract types). Re-exported here so
+// existing importers of this module are unaffected.
+export type { SealedCekDeliveryEnvelope, SealedCekBinding } from '../../kernel/types.js'

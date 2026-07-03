@@ -30,7 +30,7 @@ import type { BlobStrategy } from '../with-shape/blobs/strategy.js'
 import type { ArchiveStrategy } from '../with-fork/archive/index.js'
 import type { IndexStrategy } from '../with-lookup/indexing/strategy.js'
 import type { AggregateStrategy } from '../with-lookup/aggregate/strategy.js'
-import type { CrdtStrategy } from '../with-commit/crdt/strategy.js'
+import type { LwwMapState, RgaState, YjsState } from '../with-commit/crdt/crdt.js'
 import type { ConsentStrategy } from '../with-audit/consent/strategy.js'
 import type { PeriodsStrategy } from '../with-audit/periods/strategy.js'
 import type { ShadowStrategy } from '../with-fork/shadow/strategy.js'
@@ -57,7 +57,7 @@ import type { PassphrasePolicy } from './validation.js'
 import type { PublicEnvelopeSchema } from '../with-party/directory/public-envelope/types.js'
 import type { MaterializedViewStrategyHandle } from '../with-formula/materialized-views/types.js'
 import type { OverlayedViewStrategyHandle } from '../with-formula/overlay-views/types.js'
-import type { SealingKeyProvider } from '../with-party/team/managed-passphrase.js'
+import type { SealingKeyProvider, RecipientHint } from '../with-party/team/managed-passphrase.js'
 import type { ShamirRecoveryProvider } from '../with-party/team/shamir-recovery-provider.js'
 import type { ObjectProjection } from '../with-shape/blobs/object-projection.js'
 import type { CoordinationProvider } from '../port/by/types.js'
@@ -347,6 +347,73 @@ export class SealedHandle<V> implements Sealed<V> {
   toJSON(): string {
     return '[sealed]'
   }
+}
+
+/**
+ * Handover-capable provider. Implemented additionally by asymmetric/granted
+ * providers (cloud-KMS asymmetric, Azure RSA Key Vault, AWS KMS with grant).
+ * Self-only providers (macOS Keychain, env-var, WebAuthn-PRF) do NOT
+ * implement this — the §11.2 capability matrix lives in the type system.
+ *
+ * Per foundation §11.4. A function that requires recipient-target sealing
+ * takes `RecipientSealer`, not `SealingKeyProvider` — the compiler rejects
+ * passing a self-only provider at the spec site.
+ */
+export interface RecipientSealer {
+  readonly id: string
+  /** Produce hint material a sender uses to seal-for-this-recipient. */
+  publishRecipientHint(): Promise<RecipientHint>
+  /**
+   * Seal plaintext for the recipient described by `hint`. Returns opaque
+   * bytes — same contract as `SealingKeyProvider.seal()`. The bundle
+   * layer base64-encodes the bytes into `SealedAutoUnlockEntry.sealed`
+   * without inspecting them.
+   */
+  sealForRecipient(plaintext: Uint8Array, hint: RecipientHint): Promise<Uint8Array>
+}
+
+/**
+ * Thin delivery envelope persisted at
+ * `_sealed_cek/<collection>/<id>/<pid>`. The grantor writes one per
+ * (record, recipient host) pair. `payload` is the base64 of the bytes returned
+ * by {@link RecipientSealer.sealForRecipient} over a UTF-8
+ * `JSON.stringify({@link SealedCekBinding})`.
+ *
+ * `expiresAt` is duplicated here for a cheap pre-unseal reject, but is NOT
+ * authoritative — the binding inside `payload` carries the expiry the host
+ * verifies after unsealing, so a tampered delivery envelope cannot extend a
+ * grant.
+ */
+export interface SealedCekDeliveryEnvelope {
+  /** Envelope schema version. */
+  readonly v: 1
+  /** Magic marker for forensics + format detection. */
+  readonly _noydb_sealed_cek: 1
+  /** Recipient host provider id; matches the sealer's `.id` / hint `pid`. */
+  readonly pid: string
+  /** base64 of the sealed {@link SealedCekBinding} bytes. */
+  readonly payload: string
+  /** Fast-path expiry hint (ISO 8601). Authoritative copy is inside `payload`. */
+  readonly expiresAt: string
+}
+
+/**
+ * The plaintext struct sealed for the recipient host. After the host unseals
+ * `SealedCekDeliveryEnvelope.payload` it parses this and MUST verify:
+ *  - `collection` + `id` match the record envelope it is decrypting, and
+ *  - `expiresAt` has not passed (authoritative expiry check).
+ *
+ * `cek` is the base64 of the raw 32-byte AES-256-GCM record CEK.
+ */
+export interface SealedCekBinding {
+  /** Collection the CEK belongs to. */
+  readonly collection: string
+  /** Record id the CEK belongs to. */
+  readonly id: string
+  /** base64 of the raw AES-256-GCM CEK bytes. */
+  readonly cek: string
+  /** Authoritative expiry (ISO 8601). */
+  readonly expiresAt: string
 }
 
 /**
@@ -1654,8 +1721,33 @@ export interface PresencePeer<P> {
 
 // ─── CRDT ─────────────────────────────────────────────────
 
+/** Per-collection CRDT mode. */
+export type CrdtMode = 'lww-map' | 'rga' | 'yjs'
+
+export type CrdtState = LwwMapState | RgaState | YjsState
+
 // Re-exported from crdt.ts so consumers only need one import path.
-export type { CrdtMode, CrdtState, LwwMapState, RgaState, YjsState } from '../with-commit/crdt/crdt.js'
+export type { LwwMapState, RgaState, YjsState } from '../with-commit/crdt/crdt.js'
+
+/**
+ * Seam interface. `@internal`.
+ *
+ * @internal
+ */
+export interface CrdtStrategy {
+  buildLwwMapState(
+    record: Record<string, unknown>,
+    previous: LwwMapState | undefined,
+    now: string,
+  ): LwwMapState
+  buildRgaState(
+    items: readonly unknown[],
+    previous: RgaState | undefined,
+    idGen: () => string,
+  ): RgaState
+  mergeCrdtStates(local: CrdtState, remote: CrdtState): CrdtState
+  resolveCrdtSnapshot(state: CrdtState): unknown
+}
 
 // ─── Blob / Attachment Store ────────────────────────
 

@@ -177,6 +177,15 @@ export async function unwrapCek(wrappedBase64: string, dek: CryptoKey): Promise<
   }
 }
 
+/**
+ * Import a raw 32-byte AES-256-GCM record CEK (e.g. from a sealed-CEK
+ * delivery binding). Non-extractable, decrypt-only — the imported key is
+ * used solely to open the record's `_iv`/`_data` body under `decrypt()`.
+ */
+export async function importCek(rawKey: Uint8Array): Promise<CryptoKey> {
+  return subtle.importKey('raw', rawKey as BufferSource, { name: 'AES-GCM', length: KEY_BITS }, false, ['decrypt'])
+}
+
 // ─── Encrypt / Decrypt ─────────────────────────────────────────────────
 
 export interface EncryptResult {

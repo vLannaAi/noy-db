@@ -48,7 +48,7 @@
  * @module
  */
 
-import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
+import type { NoydbStore, EncryptedEnvelope, RecipientSealer } from '../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 
 /**
@@ -178,28 +178,10 @@ export type RecipientHint = {
   readonly material: Readonly<Record<string, unknown>>
 }
 
-/**
- * Handover-capable provider. Implemented additionally by asymmetric/granted
- * providers (cloud-KMS asymmetric, Azure RSA Key Vault, AWS KMS with grant).
- * Self-only providers (macOS Keychain, env-var, WebAuthn-PRF) do NOT
- * implement this — the §11.2 capability matrix lives in the type system.
- *
- * Per foundation §11.4. A function that requires recipient-target sealing
- * takes `RecipientSealer`, not `SealingKeyProvider` — the compiler rejects
- * passing a self-only provider at the spec site.
- */
-export interface RecipientSealer {
-  readonly id: string
-  /** Produce hint material a sender uses to seal-for-this-recipient. */
-  publishRecipientHint(): Promise<RecipientHint>
-  /**
-   * Seal plaintext for the recipient described by `hint`. Returns opaque
-   * bytes — same contract as `SealingKeyProvider.seal()`. The bundle
-   * layer base64-encodes the bytes into `SealedAutoUnlockEntry.sealed`
-   * without inspecting them.
-   */
-  sealForRecipient(plaintext: Uint8Array, hint: RecipientHint): Promise<Uint8Array>
-}
+// Hoisted to kernel/types.ts (C3 — enclave self-containment: sealing.ts
+// consumes this as a spine-owned contract type). Re-exported here so existing
+// importers of this module are unaffected.
+export type { RecipientSealer } from '../../kernel/types.js'
 
 /**
  * Shared RSA-OAEP-SHA256 + AES-GCM seal in the canonical recipient-target
