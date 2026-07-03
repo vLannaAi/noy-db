@@ -42,6 +42,15 @@
  *                       on the SubsystemBus instead of hard-coding into
  *                       these files. See KERNEL_SURFACE_BUDGET.
  *
+ *   11. enclave-body-only — non-enclave `packages/hub/src/**` may not read
+ *                       or construct the envelope's protected-body fields
+ *                       (`_iv`/`_data`/`_cek`/`_det`/`_sealed`) directly;
+ *                       only `kernel/enclave/**` may. A per-file grandfather
+ *                       map (PRE_EXISTING_BODY_ACCESS) ratchets the count
+ *                       down as call-sites migrate onto the barrel helpers —
+ *                       stored count must always equal actual, in both
+ *                       directions.
+ *
  * Each check has its own per-package or per-file allow-list when a
  * legitimate exception exists.
  */
@@ -1366,6 +1375,157 @@ function checkEnclaveBarrelOnly() {
   })
 }
 
+// ─── Check 11: enclave-body-only (C1 — protected-body access ratchet) ──
+//
+// Enclave Contract v1 splits the envelope into a protocol header (family-
+// owned: `_noydb`/`_v`/`_ts`/`_by`/`_source`/`_sourceTs`/`_tier`/
+// `_elevatedBy` — stores/sync/history/klum read these freely) and a
+// protected body (`_iv`/`_data`/`_cek`/`_det`/`_sealed`/`_debug` — enclave
+// territory). Only `kernel/enclave/**` may read or construct these body
+// fields; everyone else goes through the barrel helpers
+// (`openEnvelopeJson`/`writeEnvelopeBody`/`hasPerRecordKey`/
+// `envelopeBodyForHash`, per the design doc).
+//
+// The 2026-07-03 audit found ~121 direct accesses across ~55 non-enclave
+// files predating this check — too many to fix in one PR. This is a
+// RATCHET, not a hard ban: PRE_EXISTING_BODY_ACCESS grandfathers each
+// offending file at its scanned-at-implementation-time count. Migration
+// (Tasks 6-7) shrinks these counts in review-gated batches; the map
+// reaching all-zero (empty) is the definition of C1 done.
+//
+// Equality semantics (mirrors KERNEL_SURFACE_BUDGET's ratchet, but per-file
+// and exact rather than a ceiling): the STORED count must always equal the
+// ACTUAL count.
+//   - actual > stored  → FAIL: new protected-body access outside the enclave.
+//   - actual < stored  → FAIL: the count drifted down without banking the
+//                        win — a real reduction must be reflected in the map,
+//                        or the ratchet can't tell a genuine shrink from a
+//                        scanner blind spot.
+//   - actual === stored → clean.
+//   - actual > 0 and the file isn't in the map at all → FAIL (same as
+//     actual > stored, with stored implicitly 0 — a brand-new file may not
+//     introduce protected-body access without an explicit, reviewed entry).
+//
+// Detection: property access (`env._iv`, `envelope._data`, …) via a literal
+// `.` + field name + word boundary, OR object-literal key construction
+// (`_iv: …`, `_data: …`, …). Like `checkEnclaveBarrelOnly` and
+// `checkPortLayering`, this uses `stripComments` (not
+// `stripCommentsAndStrings`) — field mentions inside JSDoc/comments don't
+// count, but a field name appearing inside a string literal (e.g. an error
+// message) would. That's an accepted, understood overcount: it keeps this
+// check's helpers identical to its siblings, and any such site is rare and
+// stable, so the ratchet doesn't flap. `*.test.ts` files are excluded (tests
+// aren't architecture-bound) as is everything under `kernel/enclave/**`
+// (that's the barrel's own home turf).
+
+const BODY_FIELD_ACCESS_RE =
+  /\._iv\b|\._data\b|\._cek\b|\._det\b|\._sealed\b|\b_iv\s*:|\b_data\s*:|\b_cek\s*:|\b_det\s*:|\b_sealed\s*:/g
+
+// Snapshotted 2026-07-03 by running the scanner below in report mode over
+// `packages/hub/src/**` (excluding `kernel/enclave/**` and `*.test.ts`).
+// 53 files, 336 occurrences. Shrink an entry (or delete it at 0) as Tasks
+// 6-7 migrate call-sites onto the barrel helpers — never raise one without
+// a reviewed, justified new direct access.
+const PRE_EXISTING_BODY_ACCESS = new Map([
+  ['packages/hub/src/kernel/debug.ts', 3],
+  ['packages/hub/src/kernel/types.ts', 2],
+  ['packages/hub/src/kernel/vault.ts', 16],
+  ['packages/hub/src/with-audit/attestation/issue.ts', 2],
+  ['packages/hub/src/with-audit/attestation/revoke.ts', 4],
+  ['packages/hub/src/with-audit/attestation/signer.ts', 4],
+  ['packages/hub/src/with-audit/consent/consent.ts', 7],
+  ['packages/hub/src/with-audit/forget/subject-index.ts', 9],
+  ['packages/hub/src/with-audit/periods/vault-facade.ts', 7],
+  ['packages/hub/src/with-audit/portability/request-withdrawal.ts', 4],
+  ['packages/hub/src/with-audit/portability/withdraw-accessible.ts', 2],
+  ['packages/hub/src/with-audit/sealed-record/index.ts', 4],
+  ['packages/hub/src/with-audit/tiers/index.ts', 22],
+  ['packages/hub/src/with-cargo/adopt-partition.ts', 8],
+  ['packages/hub/src/with-cargo/decrypt-partition.ts', 6],
+  ['packages/hub/src/with-cargo/extract-partition.ts', 38],
+  ['packages/hub/src/with-commit/history/history.ts', 4],
+  ['packages/hub/src/with-commit/history/ledger/hash.ts', 6],
+  ['packages/hub/src/with-commit/history/ledger/store.ts', 15],
+  ['packages/hub/src/with-commit/history/time-machine.ts', 3],
+  ['packages/hub/src/with-commit/numbering/index.ts', 7],
+  ['packages/hub/src/with-commit/sequence/index.ts', 7],
+  ['packages/hub/src/with-formula/derivations/fanout-sidecar.ts', 8],
+  ['packages/hub/src/with-party/auth-introspection/index.ts', 1],
+  ['packages/hub/src/with-party/custody/liberate.ts', 2],
+  ['packages/hub/src/with-party/directory/public-envelope/storage.ts', 3],
+  ['packages/hub/src/with-party/directory/storage.ts', 3],
+  ['packages/hub/src/with-party/directory/user-envelope/storage.ts', 4],
+  ['packages/hub/src/with-party/directory/visibility.ts', 3],
+  ['packages/hub/src/with-party/policy/storage.ts', 3],
+  ['packages/hub/src/with-party/team/deed.ts', 3],
+  ['packages/hub/src/with-party/team/delegation.ts', 4],
+  ['packages/hub/src/with-party/team/keyring.ts', 14],
+  ['packages/hub/src/with-party/team/magic-link-grant.ts', 4],
+  ['packages/hub/src/with-party/team/managed-passphrase.ts', 3],
+  ['packages/hub/src/with-party/team/peer-recover.ts', 3],
+  ['packages/hub/src/with-party/team/presence.ts', 3],
+  ['packages/hub/src/with-party/team/recovery.ts', 6],
+  ['packages/hub/src/with-party/team/rotate-recover.ts', 5],
+  ['packages/hub/src/with-party/team/sync-credentials.ts', 4],
+  ['packages/hub/src/with-party/team/sync.ts', 3],
+  ['packages/hub/src/with-pod/backup.ts', 3],
+  ['packages/hub/src/with-pod/bundle.ts', 2],
+  ['packages/hub/src/with-shape/blobs/blob-compaction.ts', 4],
+  ['packages/hub/src/with-shape/blobs/blob-set.ts', 41],
+  ['packages/hub/src/with-shape/i18n/dictionary.ts', 7],
+  ['packages/hub/src/with-shape/introspection/walk.ts', 1],
+  ['packages/hub/src/with-shape/links/link-set.ts', 7],
+  ['packages/hub/src/with-shape/persisted-schemas/storage.ts', 4],
+  ['packages/hub/src/with-shape/schema-update/client-registry.ts', 3],
+  ['packages/hub/src/with-shape/schema-update/fence.ts', 3],
+  ['packages/hub/src/with-store/route-store.ts', 1],
+  ['packages/hub/src/with-store/store-middleware.ts', 1],
+])
+
+function checkEnclaveBodyOnly() {
+  const hubSrc = join(PACKAGES_DIR, 'hub', 'src')
+  const enclaveDir = join(hubSrc, 'kernel', 'enclave')
+
+  const actualCounts = new Map()
+  walkTsFiles(hubSrc, (file, content) => {
+    if (file.endsWith('.test.ts')) return
+    const insideEnclave = !relative(enclaveDir, file).startsWith('..')
+    if (insideEnclave) return
+    const code = stripComments(content)
+    const matches = code.match(BODY_FIELD_ACCESS_RE)
+    if (matches && matches.length > 0) {
+      actualCounts.set(relative(ROOT, file), matches.length)
+    }
+  })
+
+  const allFiles = new Set([...actualCounts.keys(), ...PRE_EXISTING_BODY_ACCESS.keys()])
+  for (const rel of allFiles) {
+    const actual = actualCounts.get(rel) ?? 0
+    const stored = PRE_EXISTING_BODY_ACCESS.get(rel)
+    const file = join(ROOT, rel)
+
+    if (stored === undefined) {
+      fail(
+        'enclave-body-only',
+        `${rel} has ${actual} protected-body field access(es) (_iv/_data/_cek/_det/_sealed) but is not in PRE_EXISTING_BODY_ACCESS — only kernel/enclave/** may read or construct these fields directly. Go through the enclave barrel helpers (openEnvelopeJson/writeEnvelopeBody/hasPerRecordKey/envelopeBodyForHash), or if this is a deliberate grandfathered exception add an entry to PRE_EXISTING_BODY_ACCESS in scripts/check-architecture.mjs.`,
+        file,
+      )
+    } else if (actual > stored) {
+      fail(
+        'enclave-body-only',
+        `${rel} has ${actual} protected-body field access(es), up from the grandfathered ${stored} — new direct _iv/_data/_cek/_det/_sealed access outside kernel/enclave/** is not allowed. Go through the enclave barrel helpers instead of adding to the grandfathered count.`,
+        file,
+      )
+    } else if (actual < stored) {
+      fail(
+        'enclave-body-only',
+        `${rel} has ${actual} protected-body field access(es), down from the grandfathered ${stored} — count drifted down without being banked. Update PRE_EXISTING_BODY_ACCESS's entry for this file to ${actual} (or remove the entry if it reached 0) to lock in the reduction.`,
+        file,
+      )
+    }
+  }
+}
+
 // ─── Run ───────────────────────────────────────────────────────────────
 
 const startTime = Date.now()
@@ -1381,6 +1541,7 @@ checkNoDebugPlaintextInSource()
 checkNoOutboundKlumImport()
 checkPortLayering()
 checkEnclaveBarrelOnly()
+checkEnclaveBodyOnly()
 
 const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
 
