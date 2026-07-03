@@ -86,6 +86,62 @@ export async function deriveKey(
   )
 }
 
+/**
+ * Which AES algorithm/usage a {@link derivePassphraseKey} result is for:
+ * `'aes-kw'` mints a key-wrapping key (`wrapKey`/`unwrapKey`, e.g. for
+ * KEK derivation); `'aes-gcm'` mints a direct encrypt/decrypt key (e.g.
+ * for the wrap-DEKs primitive in `with-party/team/wrapped-deks.ts`).
+ */
+export type PassphraseKeyUsage = 'aes-kw' | 'aes-gcm'
+
+/**
+ * Derive a non-extractable AES key from a passphrase/credential and salt
+ * via PBKDF2-SHA256, generalizing {@link deriveKey}'s AES-KW derivation to
+ * also cover AES-GCM-usage keys. Callers pin their own `iterations` and
+ * `keyUsage` so an existing call site's exact parameters (and thus its
+ * derived-key bytes) are preserved verbatim when migrated onto this
+ * shared primitive — this is call-site consolidation, not a KDF change.
+ */
+export async function derivePassphraseKey(
+  passphrase: string,
+  salt: Uint8Array,
+  params: { iterations: number; keyUsage: PassphraseKeyUsage },
+): Promise<CryptoKey> {
+  const keyMaterial = await subtle.importKey(
+    'raw',
+    new TextEncoder().encode(passphrase),
+    'PBKDF2',
+    false,
+    ['deriveKey'],
+  )
+
+  return params.keyUsage === 'aes-gcm'
+    ? subtle.deriveKey(
+        {
+          name: 'PBKDF2',
+          salt: salt as BufferSource,
+          iterations: params.iterations,
+          hash: 'SHA-256',
+        },
+        keyMaterial,
+        { name: 'AES-GCM', length: KEY_BITS },
+        false,
+        ['encrypt', 'decrypt'],
+      )
+    : subtle.deriveKey(
+        {
+          name: 'PBKDF2',
+          salt: salt as BufferSource,
+          iterations: params.iterations,
+          hash: 'SHA-256',
+        },
+        keyMaterial,
+        { name: 'AES-KW', length: KEY_BITS },
+        false,
+        ['wrapKey', 'unwrapKey'],
+      )
+}
+
 // ─── DEK Generation ────────────────────────────────────────────────────
 
 /** Generate a random AES-256-GCM data encryption key. */

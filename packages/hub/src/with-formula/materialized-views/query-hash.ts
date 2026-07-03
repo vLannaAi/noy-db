@@ -8,6 +8,8 @@
  * Web Crypto SHA-256 — no extra deps. Mirrors the v1
  * `computeStrategyHash` pattern.
  */
+import { sha256Hex } from '../../kernel/enclave/index.js'
+
 export async function computeQueryHash(
   mvName: string,
   /**
@@ -30,10 +32,7 @@ export async function computeQueryHash(
     queryPlanSummary,
   })
   const bytes = new TextEncoder().encode(canonical)
-  const digest = await crypto.subtle.digest('SHA-256', bytes)
-  return Array.from(new Uint8Array(digest))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('')
+  return sha256Hex(bytes)
 }
 
 /**

@@ -7,6 +7,8 @@
  *
  * Web Crypto SHA-256 — no extra deps.
  */
+import { sha256Hex } from '../../kernel/enclave/index.js'
+
 export async function computeStrategyHash(
   source: string,
   outputKeys: readonly string[],
@@ -24,8 +26,5 @@ export async function computeStrategyHash(
     ...(sources?.length ? { sources: [...sources].sort() } : {}),
   })
   const bytes = new TextEncoder().encode(canonical)
-  const digest = await crypto.subtle.digest('SHA-256', bytes)
-  return Array.from(new Uint8Array(digest))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('')
+  return sha256Hex(bytes)
 }

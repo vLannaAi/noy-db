@@ -12,6 +12,7 @@
     "decryptBytesWithAAD",
     "decryptDeterministic",
     "deriveKey",
+    "derivePassphraseKey",
     "derivePresenceKey",
     "deriveSealedFieldKey",
     "deriveSealedFieldKeyFromCek",
@@ -45,6 +46,7 @@
   "types": [
     "DeterministicContext",
     "EnclaveKey",
+    "PassphraseKeyUsage",
     "SealingContext"
   ]
 }
