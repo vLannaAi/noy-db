@@ -102,7 +102,6 @@ const SCENARIOS = [
       'DerivationRegistry',
       'GuardExecutor',
       'DerivationExecutor',
-      'revealField',   // classified/reveal.ts — must stay behind the dynamic import in classified/active.ts
     ],
   },
   {
@@ -125,6 +124,9 @@ const SCENARIOS = [
       export { createNoydb, classifiedStrategy }
     `,
     leakCanaries: [],
+    eagerImports: [
+      'revealField',   // reveal engine must stay behind the dynamic import in classified/active.ts
+    ],
   },
   {
     name: 'analytics',
