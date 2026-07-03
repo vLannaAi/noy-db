@@ -21,7 +21,7 @@
  * @packageDocumentation
  */
 
-import type { Vault } from '@noy-db/hub'
+import { applyListProjection, diffVault, type Vault, type CollectionDescription, type VaultDiff } from '@noy-db/hub'
 
 export interface AsCSVOptions {
   /**
@@ -44,6 +44,23 @@ export interface AsCSVOptions {
    * friendly output (Excel prefers CRLF but accepts LF).
    */
   readonly eol?: '\n' | '\r\n'
+
+  /**
+   * Apply the hub's `applyListProjection` read-projection before
+   * serialising rows. `true` redacts only `classifiedFields` (mask /
+   * omit / rider, per the field's preset). The object form additionally
+   * redacts fields carrying a plain `fieldMeta` `sensitivity: 'pii' |
+   * 'secret'` tag, per `sensitivity: 'omit' | 'mask'`.
+   *
+   * Caveat: `describe()` reflects the declarations of *this session's*
+   * collection instance — redaction only takes effect when the
+   * collection was opened (this call or earlier in the session) with
+   * its `classifiedFields` / `fieldMeta` options. This is presentation-
+   * layer redaction; it never affects what's on disk. Sealed handles
+   * are unaffected either way — they always serialize as `'[sealed]'`,
+   * so ciphertext never leaks regardless of this option.
+   */
+  readonly redact?: boolean | { readonly sensitivity: 'omit' | 'mask' }
 }
 
 export interface AsCSVWriteOptions extends AsCSVOptions {
@@ -71,12 +88,19 @@ export async function toString(vault: Vault, options: AsCSVOptions): Promise<str
   const collection = options.collection
 
   // Pull the one collection via exportStream in collection granularity.
-  const records: unknown[] = []
+  let records: unknown[] = []
   for await (const chunk of vault.exportStream({ granularity: 'collection' })) {
     if (chunk.collection === collection) {
       records.push(...chunk.records)
       break
     }
+  }
+
+  if (options.redact !== undefined && options.redact !== false) {
+    const desc: CollectionDescription = vault.collection(collection).describe()
+    const projectionOpts = options.redact === true ? undefined
+      : { sensitivity: options.redact.sensitivity }
+    records = records.map((r) => applyListProjection(desc, r as Record<string, unknown>, projectionOpts))
   }
 
   // Determine columns.
@@ -179,8 +203,6 @@ function inferColumns(records: readonly unknown[]): string[] {
 }
 
 // ─── Reader ─────────────────────────────────────────────
-
-import { diffVault, type VaultDiff } from '@noy-db/hub'
 
 export type ImportPolicy = 'merge' | 'replace' | 'insert-only'
 
