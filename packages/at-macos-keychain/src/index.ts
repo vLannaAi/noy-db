@@ -150,7 +150,7 @@ export interface MacosKeychainSealingProviderOptions {
  *
  * Provider `id` format: `macos-keychain:{service}/{account}`. The
  * format is semver-frozen per the §11.9.1 stability rule; see
- * `docs/services/sealing-pid-stability.md`.
+ * `https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/sealing-pid-stability.md`.
  *
  * @throws Error at construction if `service` or `account` is empty,
  *   or on non-darwin platforms (with a pointer to platform-appropriate

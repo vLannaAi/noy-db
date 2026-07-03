@@ -668,7 +668,7 @@ export class AmendmentForbiddenError extends NoydbError {
  * envelope ciphertext is still in the store, the keyring file is
  * still listed at `_keyring/*`, and anyone with direct store read
  * access can count keyrings without going through the hub. See
- * `docs/services/user-envelope.md` → "Directory visibility".
+ * `https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/user-envelope.md` → "Directory visibility".
  */
 export class DirectoryDisabledError extends NoydbError {
   readonly vault: string
@@ -2649,7 +2649,7 @@ export class RecoveryNotEnrolledError extends NoydbError {
     message =
       'Recovery profile not enrolled. Pass `recovery: [{ profile: "paper", codes: 10 }]` ' +
       'to `createNoydb()`, or set `policy.gates["recover-passphrase"].enabled = false` to ' +
-      'opt out of recovery (passphrase loss = data loss). See docs/services/session-tiers.md.',
+      'opt out of recovery (passphrase loss = data loss). See https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/session-tiers.md.',
   ) {
     super('RECOVERY_NOT_ENROLLED', message)
     this.name = 'RecoveryNotEnrolledError'

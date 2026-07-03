@@ -2,7 +2,7 @@
  * Bundle header round-trip + minimum-disclosure regression for the
  * public envelope.
  *
- * @see docs/services/public-envelope.md
+ * @see https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/public-envelope.md
  */
 import { describe, it, expect } from 'vitest'
 import {

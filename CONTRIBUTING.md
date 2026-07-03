@@ -53,7 +53,7 @@ NOYDB uses an issue-driven workflow with long-lived feature branches for release
 ### 1. Find or open an issue first
 
 - **Bug reports** → use the bug template
-- **Feature requests** → check `ROADMAP.md` first; if not already planned, use the feature template
+- **Feature requests** → check [`ROADMAP.md`](https://github.com/vLannaAi/noy-db-docs/blob/main/ROADMAP.md) first; if not already planned, use the feature template
 - **Large designs** → open a [Discussion](https://github.com/vLannaAi/noy-db/discussions) before any code
 - **Release planning** → maintainers open an `epic` issue (e.g., the release tracker)
 
@@ -119,7 +119,7 @@ Releases are **manual and event-driven**. There is no automated "merge to main �
 
 1. **On a release branch** (e.g. `release/v0.X.0`), bump every changed package's `version` in its `package.json` to the target version.
 2. Generate per-package CHANGELOG entries from the `.changeset/*.md` files (or write them by hand — usually richer that way), then **delete the consumed changesets**.
-3. Update `ROADMAP.md` to mark the version as shipped.
+3. Update [`ROADMAP.md`](https://github.com/vLannaAi/noy-db-docs/blob/main/ROADMAP.md) (in `noy-db-docs`) to mark the version as shipped.
 4. **Pre-publish smoke test** (non-negotiable — see below).
 5. Open a PR against `main`, get CI green, and merge.
 6. **Create a GitHub Release** targeting `main` with tag `v0.X.0` and release notes:

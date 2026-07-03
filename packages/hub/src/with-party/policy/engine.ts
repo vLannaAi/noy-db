@@ -7,7 +7,7 @@
  * a stable {@link PolicyDenyReason} so consumers can branch in error
  * UIs.
  *
- * @see docs/services/session-tiers.md → checkGate() API
+ * @see https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/session-tiers.md → checkGate() API
  *
  * @module
  */

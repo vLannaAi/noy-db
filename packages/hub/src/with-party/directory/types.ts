@@ -14,7 +14,7 @@
  * flags exist to keep admin-UI listings tidy, not to hide principals
  * from a determined attacker.
  *
- * @see docs/services/user-envelope.md → Directory visibility
+ * @see https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/user-envelope.md → Directory visibility
  *
  * @module
  */

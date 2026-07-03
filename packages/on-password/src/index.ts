@@ -30,7 +30,7 @@
  * `rotatePassphrase`) require a tier-1 unlock anyway — re-enter the
  * master phrase.
  *
- * @see docs/services/session-tiers.md → Tier 2 — `on-password`
+ * @see https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/session-tiers.md → Tier 2 — `on-password`
  *
  * @packageDocumentation
  */

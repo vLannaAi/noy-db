@@ -314,9 +314,9 @@ pnpm add @noy-db/hub@next @noy-db/to-memory@next
 
 ## Documentation
 
-- Full docs: <https://github.com/vLannaAi/noy-db#readme>
-- Spec: <https://github.com/vLannaAi/noy-db/blob/main/SPEC.md>
-- Roadmap: <https://github.com/vLannaAi/noy-db/blob/main/ROADMAP.md>
+- Full docs: <https://github.com/vLannaAi/noy-db-docs>
+- Spec: <https://github.com/vLannaAi/noy-db-docs/blob/main/SPEC.md>
+- Roadmap: <https://github.com/vLannaAi/noy-db-docs/blob/main/ROADMAP.md>
 
 ## License
 

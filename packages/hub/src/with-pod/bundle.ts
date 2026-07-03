@@ -1351,7 +1351,7 @@ export function readPodHeader(bytes: Uint8Array): NoydbPodHeader {
 export const readNoydbBundleHeader = readPodHeader
 
 /**
- * Read just the bundle's public envelope (`docs/services/public-envelope.md`)
+ * Read just the bundle's public envelope (`https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/public-envelope.md`)
  * — without verifying the body or even parsing the dump JSON. Pass
  * the raw bundle bytes; receive the owner-curated metadata or
  * `undefined` if the bundle was written without one.

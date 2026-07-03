@@ -139,7 +139,7 @@ See [`@noy-db/hub` query DSL docs](../core/README.md#query-dsl) for the full ope
 
 ## Status
 
-See [ROADMAP.md](../../ROADMAP.md) for the forward plan.
+See [ROADMAP.md](https://github.com/vLannaAi/noy-db-docs/blob/main/ROADMAP.md) for the forward plan.
 
 ## License
 

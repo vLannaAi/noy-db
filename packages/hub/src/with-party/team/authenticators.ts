@@ -9,7 +9,7 @@
  * (`on-webauthn`, `on-oidc`, `on-password`); this module accepts the
  * package's `wrapped_kek` ciphertext + `meta` payload and persists it.
  *
- * @see docs/services/session-tiers.md → Tier 2 — Authenticate
+ * @see https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/session-tiers.md → Tier 2 — Authenticate
  *
  * @module
  */

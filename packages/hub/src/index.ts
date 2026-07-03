@@ -538,7 +538,7 @@ export type {
   SlotRewrapCeremony,
 } from './with-party/team/rotate-recover.js'
 
-// Public envelope (docs/services/public-envelope.md)
+// Public envelope (https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/public-envelope.md)
 export {
   loadPublicEnvelope,
   savePublicEnvelope,

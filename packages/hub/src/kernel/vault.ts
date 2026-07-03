@@ -3465,7 +3465,7 @@ export class Vault {
    * single, already-opened `Vault` instance so the
    * bundle writer can snapshot it without holding a `Noydb` reference.
    *
-   * @see docs/services/public-envelope.md
+   * @see https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/public-envelope.md
    */
   async getPublicEnvelope(
     opts: { readonly locale?: string } = {},

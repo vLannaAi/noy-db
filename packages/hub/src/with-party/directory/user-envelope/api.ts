@@ -283,7 +283,7 @@ export class UserApi implements VaultUserApi {
    * Honest caveat: this is a UX flag, not a privacy guarantee. The
    * envelope ciphertext at `_users/<keyringId>` and the keyring file at
    * `_keyring/<userId>` are both still observable to anyone with direct
-   * store read access. See `docs/services/user-envelope.md` →
+   * store read access. See `https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/user-envelope.md` →
    * "Directory visibility".
    */
   async setMyVisibility(visibility: UserVisibility): Promise<void> {

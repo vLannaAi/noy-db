@@ -74,4 +74,4 @@ CRUD helpers. Edit the generated interface to match your domain.
 - [noy-db getting started](https://github.com/vLannaAi/noy-db/blob/main/docs/quickstart.md)
 - [Topology matrix](https://github.com/vLannaAi/noy-db/blob/main/docs/topologies.md) — pick the right stack
 - [Architecture](https://github.com/vLannaAi/noy-db/blob/main/docs/architecture.md)
-- [Roadmap](https://github.com/vLannaAi/noy-db/blob/main/ROADMAP.md)
+- [Roadmap](https://github.com/vLannaAi/noy-db-docs/blob/main/ROADMAP.md)

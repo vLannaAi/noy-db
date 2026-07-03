@@ -2,7 +2,7 @@
  * Public envelope — owner-curated plaintext metadata, readable
  * before vault unlock or bundle decryption.
  *
- * @see docs/services/public-envelope.md
+ * @see https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/public-envelope.md
  *
  * @module
  */

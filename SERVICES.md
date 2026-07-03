@@ -49,7 +49,7 @@ Anything outside this floor is a service.
 
 ## The service catalog
 
-Each service has its own subpath export under `@noy-db/hub/<name>`, a `with<Name>()` factory, and a doc page in `docs/services/<name>.md`. The "LOC saved" column is the bundle weight a consumer avoids by **not** opting in.
+Each service has its own subpath export under `@noy-db/hub/<name>`, a `with<Name>()` factory, and a doc page at [`noy-db-docs/content/docs/services/<name>.md`](https://github.com/vLannaAi/noy-db-docs/tree/main/content/docs/services). The "LOC saved" column is the bundle weight a consumer avoids by **not** opting in.
 
 ### Cluster A — Read & Query
 
@@ -111,7 +111,7 @@ The Dim 14 family. All three share the same encrypted-payload metadata envelope,
 | 16 | `@noy-db/hub/session` | Token sessions + dev-unlock + policy enforcement | 839 | `team` |
 | 16a | `vault.user.*` (always-on) — see `user-envelope` | Per-principal profile + preferences envelope (`_users/<keyringId>`) with own-only write rule | ~600 always-on | `team`, `session-tiers`, `sync` |
 
-<a id="user-envelope"></a>**`user-envelope`** is included in the always-on core because it has zero peer-dep cost and the policy gates (`edit-own-profile`, `view-team-profiles`) are valuable even for single-user vaults. See `docs/services/user-envelope.md`.
+<a id="user-envelope"></a>**`user-envelope`** is included in the always-on core because it has zero peer-dep cost and the policy gates (`edit-own-profile`, `view-team-profiles`) are valuable even for single-user vaults. See [`noy-db-docs/content/docs/services/user-envelope.md`](https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/user-envelope.md).
 
 ### Cluster H — Operations
 
@@ -126,7 +126,7 @@ The Dim 14 family. All three share the same encrypted-payload metadata envelope,
 
 ## Service page template
 
-Every service doc page (`docs/services/<name>.md`) follows the same template so developers can scan any page and find what they need in the same spot:
+Every service doc page ([`noy-db-docs/content/docs/services/<name>.md`](https://github.com/vLannaAi/noy-db-docs/tree/main/content/docs/services)) follows the same template so developers can scan any page and find what they need in the same spot:
 
 ```markdown
 # <Service Name>
@@ -223,13 +223,13 @@ docs/
     store-conformance.md
 ```
 
-`SPEC.md` reorganizes around the same partition: a "Core" half (one section per C1–C6) and a "Services" half (one section per service, in the same order as the catalog).
+[`SPEC.md`](https://github.com/vLannaAi/noy-db-docs/blob/main/SPEC.md) (in `noy-db-docs`) reorganizes around the same partition: a "Core" half (one section per C1–C6) and a "Services" half (one section per service, in the same order as the catalog).
 
 ---
 
 ## Starter recipes
 
-Each recipe maps directly to a doc page under `docs/recipes/` and a showcase test under `showcases/`.
+Each recipe maps directly to a doc page under [`noy-db-docs/content/docs/recipes/`](https://github.com/vLannaAi/noy-db-docs/tree/main/content/docs/recipes) and a showcase test under [`noy-db-docs/showcases/`](https://github.com/vLannaAi/noy-db-docs/tree/main/showcases).
 
 ### Recipe 1 — Personal encrypted notebook (single user, local-only)
 
