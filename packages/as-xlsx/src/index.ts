@@ -28,7 +28,7 @@
  * @packageDocumentation
  */
 
-import type { Vault, DictEntry } from '@noy-db/hub'
+import { applyListProjection, type Vault, type DictEntry } from '@noy-db/hub'
 import { writeXlsx, colLetter, formula, styled, type XlsxSheet, type XlsxValidation } from './xlsx.js'
 import { readXlsx } from './read.js'
 
@@ -191,6 +191,22 @@ export interface AsXlsxOptions {
    * `id` field on records. Defaults to the existing flat export when omitted.
    */
   readonly smart?: boolean
+  /**
+   * Apply the hub's `applyListProjection` read-projection to every sheet's
+   * records before rendering. `true` redacts only `classifiedFields` (mask /
+   * omit / rider, per the field's preset). The object form additionally
+   * redacts fields carrying a plain `fieldMeta` `sensitivity: 'pii' |
+   * 'secret'` tag, per `sensitivity: 'omit' | 'mask'`.
+   *
+   * Caveat: `describe()` reflects the declarations of *this session's*
+   * collection instance — redaction only takes effect when the collection
+   * was opened (this call or earlier in the session) with its
+   * `classifiedFields` / `fieldMeta` options. This is presentation-layer
+   * redaction; it never affects what's on disk. Sealed handles are
+   * unaffected either way — they always serialize as `'[sealed]'`, so
+   * ciphertext never leaks regardless of this option.
+   */
+  readonly redact?: boolean | { readonly sensitivity: 'omit' | 'mask' }
 }
 
 /** Options for `download()` — adds optional filename. */
@@ -245,11 +261,12 @@ export async function toBytes(vault: Vault, options: AsXlsxOptions): Promise<Uin
       if (sheetOpt.filter && !sheetOpt.filter(r)) continue
       records.push(r)
     }
-    const columns = sheetOpt.columns ?? inferColumns(records)
+    const projected = projectRecords(vault, sheetOpt.collection, records, options.redact)
+    const columns = sheetOpt.columns ?? inferColumns(projected)
     materialisedSheets.push({
       name: sheetOpt.name,
       header: columns,
-      rows: records.map((r) => columns.map((c) => r[c] ?? null)),
+      rows: projected.map((r) => columns.map((c) => r[c] ?? null)),
       ...(sheetOpt.widths !== undefined ? { widths: sheetOpt.widths } : {}),
     })
   }
@@ -318,6 +335,12 @@ export interface MultiVaultXlsxEntry {
    * Defaults to `vault.name`.
    */
   readonly label?: string
+  /**
+   * Same semantics as {@link AsXlsxOptions.redact}, applied to this entry's
+   * sheets via `entry.vault.collection(sheetCollection).describe()` — each
+   * entry's own vault, since a multi-vault export spans several sessions.
+   */
+  readonly redact?: boolean | { readonly sensitivity: 'omit' | 'mask' }
 }
 
 /** Options for {@link toBytesMultiVault}. */
@@ -396,7 +419,8 @@ export async function toBytesMultiVault(
         if (s.filter && !s.filter(r)) continue
         records.push(r)
       }
-      loaded.push({ entry, prefix, sheetOpt: s, records })
+      const projected = projectRecords(entry.vault, s.collection, records, entry.redact)
+      loaded.push({ entry, prefix, sheetOpt: s, records: projected })
 
       // Build index for this collection, keyed by every field that any denorm
       // might reference as `keyField`. We index by `id` by default, and also
@@ -404,7 +428,7 @@ export async function toBytesMultiVault(
       const indexKey = `${prefix}/${s.collection}`
       const collectionIndex = denormIndex.get(indexKey) ?? new Map<string, Record<string, unknown>>()
       denormIndex.set(indexKey, collectionIndex)
-      for (const r of records) {
+      for (const r of projected) {
         // Always index by `id` (most common key) and by any declared keyFields.
         const idVal = (r as { id?: unknown }).id
         if (idVal != null) collectionIndex.set(safeStringify(idVal), r)
@@ -482,6 +506,24 @@ export async function toBytesMultiVault(
 // ── internals ─────────────────────────────────────────────────────
 
 /**
+ * Apply `AsXlsxOptions.redact` to a sheet's records via the hub's
+ * `applyListProjection`, describing the collection on its own vault (each
+ * sheet/path may have a different vault instance — multi-vault entries in
+ * particular). No-op (returns a shallow copy) when `redact` is unset.
+ */
+function projectRecords(
+  vault: Vault,
+  collectionName: string,
+  records: readonly Record<string, unknown>[],
+  redact: AsXlsxOptions['redact'],
+): Record<string, unknown>[] {
+  if (redact === undefined || redact === false) return [...records]
+  const desc = vault.collection(collectionName).describe()
+  const projectionOpts = redact === true ? undefined : { sensitivity: redact.sensitivity }
+  return records.map((r) => applyListProjection(desc, r, projectionOpts))
+}
+
+/**
  * Build a flat {@link XlsxSheet} from pre-filtered records.
  * Used by both {@link toBytes} (via its own inline path) and
  * {@link toBytesMultiVault}.
@@ -549,19 +591,20 @@ async function buildSmartSheets(
       if (sheetOpt.filter && !sheetOpt.filter(r)) continue
       records.push(r)
     }
-    const base = sheetOpt.columns ?? inferColumns(records)
+    const projected = projectRecords(vault, sheetOpt.collection, records, options.redact)
+    const base = sheetOpt.columns ?? inferColumns(projected)
     const cols = ['id', ...base.filter((c) => c !== 'id')]
     const labelCol = cols.find((c) => c !== 'id')
     const labelMap = new Map<string, unknown>()
-    if (labelCol) for (const r of records) if (r.id != null) labelMap.set(safeStringify(r.id), r[labelCol])
+    if (labelCol) for (const r of projected) if (r.id != null) labelMap.set(safeStringify(r.id), r[labelCol])
     const i18nFields = (sheetOpt.i18nFields ?? []).filter((f) => cols.includes(f))
     for (const f of i18nFields) {
-      for (const r of records) {
+      for (const r of projected) {
         const v = r[f]
         if (v && typeof v === 'object') for (const loc of Object.keys(v as Record<string, unknown>)) localeSet.add(loc)
       }
     }
-    mats.push({ opt: sheetOpt, records, cols, labelMap, i18nFields })
+    mats.push({ opt: sheetOpt, records: projected, cols, labelMap, i18nFields })
   }
   const matByCollection = new Map(mats.map((m) => [m.opt.collection, m]))
 
