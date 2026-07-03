@@ -29,6 +29,14 @@
  *
  * Additive changes only — removing or renaming an export here is breaking
  * for any fork. Frozen by `__tests__/enclave-surface-golden.test.ts`.
+ *
+ * **Refusal contract:** the barrel above is frozen — every symbol must
+ * exist in any fork — but the optional groups (sealing, deterministic,
+ * per-record-key lifecycle) MAY throw `EnclaveNotSupportedError` instead
+ * of implementing the reference behavior. The core groups (crypto ops,
+ * record codec, tombstone) MUST NOT throw it — they are load-bearing for
+ * every consumer regardless of which enclave is wired in. noy-db's own
+ * enclave supports every group, so it never throws this error.
  */
 
 // ─── crypto ops ────────────────────────────────────────────────────

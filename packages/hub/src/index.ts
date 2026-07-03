@@ -928,6 +928,8 @@ export { isDiscriminant } from './kernel/util/discriminant.js'
 // Crypto utilities (buffer encoding helpers + binary encrypt/hash)
 export { bufferToBase64, base64ToBuffer, encryptBytes, decryptBytes } from './kernel/enclave/index.js'
 export { encryptDeterministic, decryptDeterministic } from './kernel/enclave/index.js'
+// Enclave fork-swap contract — optional-group refusal (C4)
+export { EnclaveNotSupportedError } from './kernel/errors.js'
 
 // hierarchical access
 export type { GhostRecord, TierMode, CrossTierAccessEvent } from './kernel/types.js'

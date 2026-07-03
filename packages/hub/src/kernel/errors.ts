@@ -2718,3 +2718,34 @@ export class RecoveryProfileNotImplementedError extends NoydbError {
     this.tracking = tracking
   }
 }
+
+// ─── Enclave Errors ────────────────────────────────────────────────────
+
+/**
+ * Thrown by a `kernel/enclave` fork's **optional groups** — sealing,
+ * deterministic, per-record-key lifecycle — when that fork's crypto
+ * engine does not implement the requested behavior.
+ *
+ * The enclave barrel is a frozen fork-swap contract: every symbol must
+ * exist, but the optional groups may refuse to work rather than
+ * implement the full reference semantics. The unconditional core
+ * (crypto ops, `RecordCodec`, tombstone) must never throw this — those
+ * groups are load-bearing for every consumer regardless of which
+ * enclave is wired in. noy-db's own reference enclave supports every
+ * group, so this error is never thrown by `@noy-db/hub` itself; it
+ * exists for fork authors to signal "my enclave doesn't do X" with a
+ * stable, catchable code instead of an ad hoc throw.
+ */
+export class EnclaveNotSupportedError extends NoydbError {
+  /** The optional group that is not supported by this enclave. */
+  readonly group: 'sealing' | 'deterministic' | 'per-record-keys'
+
+  constructor(group: 'sealing' | 'deterministic' | 'per-record-keys', detail?: string) {
+    super(
+      'ENCLAVE_NOT_SUPPORTED',
+      `enclave: ${group} is not supported by this enclave${detail ? ` — ${detail}` : ''}`,
+    )
+    this.name = 'EnclaveNotSupportedError'
+    this.group = group
+  }
+}

@@ -58,6 +58,7 @@
     "ElevationExpiredError",
     "EmbeddingDimMismatchError",
     "EmbeddingModelMismatchError",
+    "EnclaveNotSupportedError",
     "ExportCapabilityError",
     "FieldFrozenError",
     "FilenameSanitizationError",
