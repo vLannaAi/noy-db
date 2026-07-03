@@ -1,5 +1,18 @@
 # @noy-db/as-xlsx
 
+## 0.3.0-pre.1
+
+### Minor Changes
+
+- 0.3 version line — lockstep with `@noy-db/hub` 0.3.0-pre.1 (kernel/enclave reorg, family doors, `withX()` service gating; see the hub changelog). No package-specific changes beyond the hub realignment.
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/as-zip@0.3.0-pre.1
+  - @noy-db/hub@0.3.0-pre.1
+
 ## 0.2.0-pre.31
 
 ### Patch Changes

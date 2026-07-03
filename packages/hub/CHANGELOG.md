@@ -1,5 +1,27 @@
 # Changelog — hub
 
+## 0.3.0-pre.1
+
+### Minor Changes
+
+- 0.3 line opener — the microkernel reorganization.
+
+  - **Kernel/enclave reorg**: hub source regrouped into `kernel/` (spine + enclave) with every optional service under a `with-*` dimension folder; the vault/collection/noydb god-objects decomposed into focused facades.
+  - **Enclave Contract v1**: opaque `EnclaveKey`, protected-body access helpers, `EnclaveNotSupportedError` refusal contract, executable conformance kit, and a golden-frozen enclave barrel (the fork-swap seam).
+  - **Family doors**: new subpaths `/to` `/on` `/at` `/in` `/as` `/by` `/with` `/ui`, each with a golden surface. `/to` supersedes `/adapter` (kept as deprecated alias).
+  - **`/cargo` orchestration seam** supersedes `/kernel` (kept as deprecated alias) — the canonical binding surface for outward orchestrators.
+  - **`withX()` opt-in gating across services (S4)**: attestation, tiers, sealed-record, portability, sequence, custody, search, cargo, and friends are now uniformly tree-shakeable strategy opt-ins; zero-config `createNoydb()` ships with a built-in memory store.
+  - **`bundle` → `pod` canonical naming** (deprecated aliases kept); the `with-share` dimension dissolved into `/pod`.
+  - **Sensitive-field surface**: `Sealed<V>` access gate, compile-time refusal of sealed fields in `where`/`orderBy`/`scan`/`index`/`groupBy`, typed `aggregate()` builders, money reducers, and the S/Q/M generics on `vault.collection()`.
+  - **Security hardening**: `forget()` erases `_sealed_cek` envelopes (H-1/M-1); subject-index ids keyed with an HMAC PRF (M-2); derivations fanout sidecar encrypted (M-3); sealed-record expiry fails closed (M-4); sealed-record revoke softness made explicit with opt-in hard rotate (M-5).
+  - **Portability**: `extractPartition` carries the slice's blobs re-keyed under a fresh transfer DEK; blobs travel in `vault.dump()`/`.noydb` pods.
+  - **Terminology & docs**: subsystem → service (`SUBSYSTEMS.md` → `SERVICES.md`); the propaedeutic docs layer (guides/showcases/playground/recipes) extracted to the `noy-db-docs` repo.
+
+### Patch Changes
+
+- Updated dependencies
+  - @noy-db/attestation@0.3.0-pre.1
+
 ## Unreleased
 
 ### Internal: microkernel refactor — god-object decomposition (no public API change)
@@ -17,7 +39,7 @@ Record-scoped sealing (epic [#306](https://github.com/vLannaAi/noy-db/issues/306
 - **Erasure.** When a collection sets both `sensitive` and `perRecordKeys`, each sealed field's key now derives from the record's per-record CEK (`deriveSealedFieldKeyFromCek`) instead of the collection DEK. `vault.forget()` drops the record's wrapped `_cek`, which now makes `_sealed` cryptographically unrecoverable — the same erasure guarantee `_data` already had. `ForgetResult` gains a **`sealedFieldsShredded`** count.
 - **No-migration dual-read.** Reads try the CEK-derived key first and fall back to the collection-DEK key, so records sealed before this change stay readable with no migration step; they upgrade to CEK-derivation on their next `put()`. `rotateRecordCek` re-encrypts `_sealed` under the new CEK rather than carrying it forward.
 - **Ledger integrity.** The history ledger's `payloadHash` now binds `_sealed`, so `vault.verifyBackupIntegrity()` detects tampering or erasure of a sealed value. Backward-compatible: a record with no sealed fields hashes exactly as before (`sha256(_data)`), so existing ledgers and non-sealed backups verify byte-identically. `_cek` is intentionally **not** bound (a tampered wrapped-CEK self-detects, and `rotateRecordCek` rewrites it with no ledger entry).
-- **Boundary.** A backup captured *before* `forget()` that retained both `_sealed` and `_cek` remains recoverable by a collection-DEK holder — the same caveat `_data` carries.
+- **Boundary.** A backup captured _before_ `forget()` that retained both `_sealed` and `_cek` remains recoverable by a collection-DEK holder — the same caveat `_data` carries.
 
 ### Feature: money-field typing across all aggregate builders ([#306](https://github.com/vLannaAi/noy-db/issues/306))
 
