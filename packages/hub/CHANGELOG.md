@@ -1,5 +1,19 @@
 # Changelog — hub
 
+## 0.3.0-pre.2
+
+### Minor Changes
+
+- describe()-driven layout metadata + history-complete pods (the Item release foundation).
+
+  - **`FieldMeta.group` / `FieldMeta.order`**: card/section grouping and ordering hints flow through `collection.describe()` onto each `DescribedField` (channel > zod `.meta()` > inferred, like every other meta key). Purely descriptive — fields keep their stable alphabetical emission; consumers (the `@noy-db/ui` item family) apply the grouping.
+  - **`_history` travels in the `.noydb` pod**: `vault.dump()` now enumerates the full-snapshot version-history collection alongside the ledger/schema/sequence/blob internals, so `collection.history()`, `getVersion()` and `diff()` work on a pod-restored vault. Load-side already restored `_internal` generically.
+
+### Patch Changes
+
+- Updated dependencies
+  - @noy-db/attestation@0.3.0-pre.2
+
 ## 0.3.0-pre.1
 
 ### Minor Changes

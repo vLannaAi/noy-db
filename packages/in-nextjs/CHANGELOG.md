@@ -1,5 +1,18 @@
 # @noy-db/in-nextjs
 
+## 0.3.0-pre.2
+
+### Minor Changes
+
+- 0.3 version line continues — lockstep with `@noy-db/hub` 0.3.0-pre.2 (describe() group/order metadata, \_history in the .noydb pod; see the hub changelog). No package-specific changes beyond the hub realignment.
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.3.0-pre.2
+  - @noy-db/in-react@0.3.0-pre.2
+
 ## 0.3.0-pre.1
 
 ### Minor Changes
