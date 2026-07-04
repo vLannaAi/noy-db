@@ -311,7 +311,7 @@ export interface CollectionOpts<T> {
    * outside a consent scope the callback is a no-op. Awaited so a
    * thrown audit write surfaces to the caller.
    */
-  onAccess?: (op: 'get' | 'put' | 'delete' | 'reveal' | 'verify', id: string) => Promise<void>
+  onAccess?: (op: 'get' | 'put' | 'delete' | 'reveal' | 'verify' | 'find', id: string) => Promise<void>
   /**
    * invoked by `put`/`delete` before any adapter
    * write. Receives the prior envelope timestamp + decrypted
@@ -341,6 +341,13 @@ export interface CollectionOpts<T> {
    * any deterministic field is declared. Any other value throws.
    */
   acknowledgeDeterministicRisk?: boolean | undefined
+  /**
+   * gate for the classified `equatable` knob (R8 double door). Must be `true`
+   * when any classified field declares `equatable: true`; otherwise construction
+   * throws. One-directional — setting it with zero equatable members is a
+   * silent no-op (mirrors `acknowledgeDeterministicRisk`).
+   */
+  acknowledgeEquatableRisk?: boolean | undefined
   /**
    * Structural group-encryption. Fields listed here are
    * encrypted into their own `_sealed[field]` envelope slot — each under
@@ -540,6 +547,7 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     vectorSourceFields: new Set(embeddingSources),
     subjectKeyField: opts.subjectKeyField,
     bareSensitiveFields: new Set(opts.sensitive ?? []),
+    acknowledgeEquatableRisk: opts.acknowledgeEquatableRisk === true,
   }
   if (resolvedClassified !== undefined) {
     guardClassifiedCompat(opts.name, resolvedClassified.byField, classifiedGuardCtx) // door 1
@@ -567,6 +575,7 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
         .map(([f, s]) => [f, {
           normalize: s.verifyNormalize ?? 'password',
           notLastN: s.notLastN ?? 0,
+          equatable: s.equatable === true,
           ...(s.rotateDays !== undefined ? { rotateDays: s.rotateDays } : {}),
         }] as const)
   const vdigFields: ReadonlyMap<string, VdigFieldPolicy> | null =

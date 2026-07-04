@@ -22,8 +22,22 @@ import { isTombstone } from './tombstone.js'
 import { parseSealedSlot, dualReadSealedSlot } from './sealed-slot.js'
 import { DebugReservedFieldError, ClassifiedConfigError, ValidationError } from '../../errors.js'
 import { mintVdigSlot } from '../classify/write.js'
+import { mintBidxTag } from '../classify/bidx.js'
+import { normalizeForVerify } from '../classify/normalize.js'
 import { validateSchemaOutput, type StandardSchemaV1 } from '../../schema.js'
 import type { Lru } from '../../cache/index.js'
+
+/**
+ * One classified per-slot verdict from {@link RecordCodec.classifySealedShred}.
+ * `shreddable` — CEK-only, tombstone makes it undecryptable. `dekResidue` —
+ * collection-DEK-keyed, survives in synced/backup copies. The third class is
+ * BOTH: a `_bidx` blind-index tag is live-dropped by the tombstone yet retained
+ * under the surviving DEK in any pre-forget backup (honest dual accounting).
+ */
+export type SealedShredSlot = {
+  readonly field: string
+  readonly class: 'shreddable' | 'dekResidue' | 'live-shreddable+dekResidue-in-backups'
+}
 
 /** Everything the moving crypto methods touched on `this.*`, as a flat context. */
 export interface RecordCodecContext<T> {
@@ -43,6 +57,16 @@ export interface RecordCodecContext<T> {
   readonly deterministicFields: ReadonlySet<string> | null
   /** Digest-only classified fields → verify policy (stage 2). Null when none. */
   readonly vdigFields: ReadonlyMap<string, VdigFieldPolicy> | null
+  /**
+   * C-A / R10 config-drift signal: the persisted `x-classified` marker's
+   * declared digest-only field set (empty when the collection carries no
+   * marker). Lazy, memoized (O(1) per handle after the first call). The R10
+   * superset guard refuses whenever a field in this set is absent from
+   * `vdigFields`. Consulted once per handle on any encrypted write path — the
+   * cross-session, prev-free signal a fully-naive create has no `prev` for.
+   * Undefined on codecs with no store access (direct-construction tests).
+   */
+  classifiedMarkerDigestOnly?(): Promise<readonly string[]>
   /** CRDT mode (decrypt resolves CrdtState→snapshot when set). */
   readonly crdtMode: CrdtMode | undefined
   /** CRDT strategy seam (resolveCrdtSnapshot). */
@@ -194,6 +218,46 @@ export class RecordCodec<T> {
       return this.buildDebugEnvelope(record, version, source, sourceTs)
     }
 
+    // ── C-A / R10 config-drift guard (superset) ────────────────────────
+    // A handle may write a classified collection only if its DECLARED
+    // digest-only set is a SUPERSET of the collection's stored/marked
+    // classified set. Any classified field this handle does NOT declare is a
+    // field it cannot maintain: the `_vdig` loop below iterates only declared
+    // fields, so an undeclared classified field is neither stripped nor tagged —
+    // its value would be serialized into `_data` as DEK-recoverable plaintext
+    // (the C-A leak), or its stored tag silently dropped. Fail loud.
+    //
+    // This subsumes the old naive-only guard (a fully-naive handle has an empty
+    // declared set, so ANY stored classified field violates the superset) AND
+    // closes the partial-handle door (declares Y, not X, over a record carrying
+    // `_vdig[X]`/`_bidx[X]`): the narrow `vdigFields === null || size === 0`
+    // gate skipped that entire case. The stored/marked set is the union of:
+    //   1. the persisted `x-classified` marker's declared digest-only set
+    //      (cross-session, prev-free — the only signal a fully-naive create has);
+    //   2. the keys the target `prev` already carries in `_vdig`/`_bidx` (the
+    //      overwrite arm; a classified-declaring handle DOES pass `prev`).
+    // Only encrypted collections can be classified, so plaintext collections skip.
+    if (this.ctx.storeCiphertext) {
+      const declared = this.ctx.vdigFields
+      const storedClassified = new Set<string>()
+      if (vdig?.prev?._vdig) for (const k of Object.keys(vdig.prev._vdig)) storedClassified.add(k)
+      if (vdig?.prev?._bidx) for (const k of Object.keys(vdig.prev._bidx)) storedClassified.add(k)
+      if (this.ctx.classifiedMarkerDigestOnly !== undefined) {
+        for (const k of await this.ctx.classifiedMarkerDigestOnly()) storedClassified.add(k)
+      }
+      let undeclared: string | undefined
+      for (const field of storedClassified) {
+        if (declared === null || !declared.has(field)) { undeclared = field; break }
+      }
+      if (undeclared !== undefined) {
+        throw new ClassifiedConfigError(
+          this.ctx.name,
+          `this collection has classified digest-only field "${undeclared}" but this handle does not declare it — ` +
+          'refusing to write (would drop its tag or serialize the secret as plaintext)',
+        )
+      }
+    }
+
     // Structural group-encryption: peel declared sensitive fields out
     // of the record BEFORE building `_data`, sealing each into its own
     // `_sealed[field]` slot under a per-field key. Default-off — with no
@@ -228,6 +292,7 @@ export class RecordCodec<T> {
     // clear (null) / loud error (anything else). Runs on a CLONE so the
     // caller's record object is never mutated.
     let vdigOut: Record<string, string> | undefined
+    let bidxOutMap: Record<string, string> | undefined
     if (this.ctx.vdigFields !== null && this.ctx.vdigFields.size > 0 && this.ctx.storeCiphertext) {
       if (vdig === undefined) {
         throw new Error(
@@ -243,6 +308,12 @@ export class RecordCodec<T> {
       }
       const open: Record<string, unknown> = { ...(openRecord as unknown as Record<string, unknown>) }
       const out: Record<string, string> = {}
+      // _bidx (blind-index equality tags) rides the SAME iteration as _vdig,
+      // so the structural invariant _bidx[field] ⇒ _vdig[field] holds by
+      // construction: a tag is only ever written where the _vdig slot is
+      // written/carried. DEK is fetched lazily — only an equatable rotate needs it.
+      const bidxOut: Record<string, string> = {}
+      let bidxDek: EnclaveKey | undefined
       for (const [field, policy] of this.ctx.vdigFields) {
         const value = open[field]
         const prevBlob = vdig.prev?._vdig?.[field]
@@ -261,7 +332,16 @@ export class RecordCodec<T> {
         if (value === undefined) {
           // 1. carry-forward: verbatim bytes (CEK version-stable, AAD _v-free;
           //    byte-identity keeps the ledger payload hash deterministic).
-          if (prevBlob !== undefined) out[field] = prevBlob
+          // I-3 monotonic carry: whenever the _vdig slot is carried, ALSO copy
+          // prev._bidx[field] verbatim — regardless of THIS handle's equatable
+          // knob. An unrelated put by a handle with equatable removed must not
+          // drop another handle's tag (anti-flip-flop). If prev has no tag,
+          // there is nothing to mint from (no plaintext) → stays uncovered.
+          if (prevBlob !== undefined) {
+            out[field] = prevBlob
+            const prevTag = vdig.prev?._bidx?.[field]
+            if (prevTag !== undefined) bidxOut[field] = prevTag
+          }
           continue
         }
         if (value === null) {
@@ -277,16 +357,29 @@ export class RecordCodec<T> {
         }
         // 2. rotate: validate ran in the stage-1 write seam; digest + ring here.
         out[field] = await mintVdigSlot(value, policy, prevBlob, cek, this.ctx.name, vdig.id, field)
+        // _bidx branch 2: if this handle is equatable, mint a fresh tag through
+        // the SAME normalization pipeline mintVdigSlot uses (normalizeForVerify)
+        // — the tag provably equals computeBidxTarget for this value. If the
+        // knob is OFF, emit nothing: the stale prev tag points at the now-
+        // superseded value (carrying it would be wrong) and minting is disallowed
+        // (knob off) → the tag is dropped. Confirm-by-verify keeps this sound.
+        if (policy.equatable === true) {
+          if (bidxDek === undefined) bidxDek = await this.ctx.getDEK()
+          const normalized = normalizeForVerify(policy.normalize, value)
+          bidxOut[field] = await mintBidxTag(normalized, bidxDek, this.ctx.name, field)
+        }
         delete open[field] // strip from _data — digest-only never persists plaintext
       }
       openRecord = open as unknown as T
       if (Object.keys(out).length > 0) vdigOut = out
+      if (Object.keys(bidxOut).length > 0) bidxOutMap = bidxOut
     }
 
     const base = await this.encryptJsonString(JSON.stringify(openRecord), version, cek, source, sourceTs)
     const withSealed = sealed ? { ...base, _sealed: sealed } : base
     const withVdig = vdigOut ? { ...withSealed, _vdig: vdigOut } : withSealed
-    if (!this.ctx.deterministicFields || !this.ctx.storeCiphertext) return withVdig
+    const withBidx = bidxOutMap ? { ...withVdig, _bidx: bidxOutMap } : withVdig
+    if (!this.ctx.deterministicFields || !this.ctx.storeCiphertext) return withBidx
 
     // compute deterministic-ciphertext slots for every
     // declared field. Non-primitive values are JSON-stringified so
@@ -308,8 +401,8 @@ export class RecordCodec<T> {
       const { iv, data } = await encryptDeterministic(plaintext, detKey, `${this.ctx.name}/${field}`)
       det[field] = `${iv}:${data}`
     }
-    if (Object.keys(det).length === 0) return withVdig
-    return { ...withVdig, _det: det }
+    if (Object.keys(det).length === 0) return withBidx
+    return { ...withBidx, _det: det }
   }
 
   // ──────────────────────────────────────────────────────────────────────
@@ -406,30 +499,41 @@ export class RecordCodec<T> {
    */
   async classifySealedShred(
     live: EncryptedEnvelope,
-  ): Promise<{ shreddable: string[]; dekResidue: string[] }> {
-    const shreddable: string[] = []
-    const dekResidue: string[] = []
+  ): Promise<{ readonly slots: readonly SealedShredSlot[] }> {
+    const slots: SealedShredSlot[] = []
     // Verify-digest slots are CEK-only by construction (I3): dropping `_cek`
     // makes every `_vdig[field]` permanently undecryptable — shreddable
     // unconditionally, no vdig-dekResidue class (spec §2 forget()). Same
     // honesty caveats as #306 D5 for synced/backup copies of the ciphertext.
+    // A `_vdig` field ALSO carrying a `_bidx` tag is the third category: the
+    // tombstone drops it from the live store, but a pre-forget backup retains
+    // the blind-index tag under the surviving collection DEK — live-shreddable
+    // yet dekResidue-in-backups. `_bidx[field] ⇒ _vdig[field]` (I4), so we
+    // decide per vdig field and emit exactly one slot each (count-preserving).
     if (live._vdig !== undefined && live._cek !== undefined) {
-      shreddable.push(...Object.keys(live._vdig))
+      for (const field of Object.keys(live._vdig)) {
+        slots.push({
+          field,
+          class: live._bidx?.[field] !== undefined
+            ? 'live-shreddable+dekResidue-in-backups'
+            : 'shreddable',
+        })
+      }
     }
     const sealed = live._sealed
-    if (sealed === undefined) return { shreddable, dekResidue }
+    if (sealed === undefined) return { slots }
     const cek = await this.resolveEnvelopeCek(live)
     for (const [field, blob] of Object.entries(sealed)) {
-      if (cek === undefined) { dekResidue.push(field); continue }
+      if (cek === undefined) { slots.push({ field, class: 'dekResidue' }); continue }
       const { iv, data } = parseSealedSlot(blob)
       try {
         await decrypt(iv, data, await deriveSealedFieldKeyFromCek(cek, this.ctx.name, field))
-        shreddable.push(field)
+        slots.push({ field, class: 'shreddable' })
       } catch {
-        dekResidue.push(field)
+        slots.push({ field, class: 'dekResidue' })
       }
     }
-    return { shreddable, dekResidue }
+    return { slots }
   }
 
   /**

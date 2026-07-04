@@ -10,6 +10,8 @@
  * @module
  */
 
+import type { ClassifiedMarker } from '../../kernel/types.js'
+
 /** Family of Standard Schema v1 validator the persisted snapshot was derived from. */
 export type PersistedSchemaKind = 'Zod' | 'Valibot' | 'ArkType' | 'Effect' | 'Unknown'
 
@@ -35,4 +37,13 @@ export interface PersistedSchemaEnvelope {
   readonly reason?: string
   /** ISO-8601 timestamp of the most recent derivation write. */
   readonly derivedAt: string
+  /**
+   * C-A / R10 config-drift marker. Present when the collection declares
+   * classified digest-only fields. A handle opened WITHOUT `classifiedFields`
+   * (a naive handle, whose codec has `vdigFields === null`) reads this back and
+   * refuses to write — a silent plaintext/tag-drop write would corrupt the
+   * classified record. Independent of `persistJsonSchema`: a classified
+   * collection that never opts into schema persistence still writes this marker.
+   */
+  readonly classified?: ClassifiedMarker
 }

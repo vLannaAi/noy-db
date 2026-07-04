@@ -91,6 +91,7 @@ export { resolveStableCek, rewrapBodyToDek } from './record-keys/lifecycle.js'
 
 // ─── record codec ──────────────────────────────────────────────────
 export { RecordCodec } from './record-keys/record-codec.js'
+export type { SealedShredSlot } from './record-keys/record-codec.js'
 
 // ─── sealing ───────────────────────────────────────────────────────
 export { SEALED_CEK_NS, sealRecordToHost, revokeSealedRecord, rotateRecordCek } from './record-keys/sealing.js'
@@ -114,3 +115,10 @@ export { deriveVdigSlotKey } from './classify/vdig.js'
 export { pbkdf2VerifyDigest } from './classify/digest.js'
 export { ctEqualTags } from './classify/compare.js'
 export { evaluateKofN } from './classify/kofn.js'
+
+// ─── classify (slice-2b equatable blind index) ──────────────────────
+// ADDITIVE per Enclave Contract v1. A fork must provide these four; the
+// findByDigest orchestration (collection.ts) sits behind the with-shape
+// dynamic-import seam and is not part of the fork contract.
+export { deriveClassifyIndexKey, deriveClassifyIndexSalt, mintBidxTag } from './classify/bidx.js'
+export { computeBidxTarget } from './classify/find.js'

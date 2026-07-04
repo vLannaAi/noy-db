@@ -79,8 +79,26 @@ export const classified = {
 
   /** Digest-only password: verify-without-reveal; never listed, never revealed.
    *  Enumeration math is on the caller for low-entropy values — see the
-   *  per-preset docs; the hub ships no rate limiter in this slice (spec §5). */
-  password(opts: { minLength?: number; rotateDays?: number; notLastN?: number } = {}): ClassifiedFieldSpec {
+   *  per-preset docs; the hub ships no rate limiter in this slice (spec §5).
+   *
+   *  @param opts.equatable — emit a store-visible `_bidx` equality tag (enables
+   *  `findByDigest`). Cost band you are accepting:
+   *
+   *  equal values produce equal store-visible tags: anyone with store access
+   *  learns which records share this secret and how many share each value —
+   *  never the value itself. A collection-DEK holder can additionally test
+   *  candidate values offline: the tag's inner digest is PBKDF2-SHA256 (600K),
+   *  which is GPU/ASIC-friendly — an offline attacker runs on the order of
+   *  10⁴–10⁸ guesses/second, so for low-entropy secrets (PINs, casefolded secret
+   *  answers) offline recovery of the equality partition is seconds-to-hours, not
+   *  years. `crypto.subtle` exposes no memory-hard KDF (no scrypt/argon2) and the
+   *  family's no-crypto-deps law forbids adding one, so PBKDF2-SHA256 is the
+   *  hardest primitive available; the iteration count raises the price but does
+   *  not make a low-entropy field safe. The real control for low-entropy fields
+   *  is the DOOR — do not enable `equatable` for them unless the partition being
+   *  learnable is acceptable — not the iteration count. Pre-forget backups retain
+   *  tags. */
+  password(opts: { minLength?: number; rotateDays?: number; notLastN?: number; equatable?: true } = {}): ClassifiedFieldSpec {
     const minLength = opts.minLength ?? 10
     const notLastN = opts.notLastN ?? 0
     if (!Number.isInteger(notLastN) || notLastN < 0 || notLastN > 8) {
@@ -92,6 +110,7 @@ export const classified = {
       verifyNormalize: 'password',
       ...(opts.rotateDays !== undefined ? { rotateDays: opts.rotateDays } : {}),
       ...(notLastN > 0 ? { notLastN } : {}),
+      ...(opts.equatable === true ? { equatable: true as const } : {}),
       validate: (v) => (typeof v === 'string' && v.normalize('NFC').length >= minLength
         ? null : `password must be at least ${minLength} characters`),
     }
@@ -99,12 +118,31 @@ export const classified = {
 
   /** Digest-only secret answer: normalized (casefold/trim/collapse), groupable
    *  into k-of-n matchGroup challenges. Low-entropy by nature — document the
-   *  enumeration math to your users; add app-side rate limiting. */
-  secretAnswer(): ClassifiedFieldSpec {
+   *  enumeration math to your users; add app-side rate limiting.
+   *
+   *  @param opts.equatable — emit a store-visible `_bidx` equality tag (enables
+   *  `findByDigest`). Cost band you are accepting:
+   *
+   *  equal values produce equal store-visible tags: anyone with store access
+   *  learns which records share this secret and how many share each value —
+   *  never the value itself. A collection-DEK holder can additionally test
+   *  candidate values offline: the tag's inner digest is PBKDF2-SHA256 (600K),
+   *  which is GPU/ASIC-friendly — an offline attacker runs on the order of
+   *  10⁴–10⁸ guesses/second, so for low-entropy secrets (PINs, casefolded secret
+   *  answers) offline recovery of the equality partition is seconds-to-hours, not
+   *  years. `crypto.subtle` exposes no memory-hard KDF (no scrypt/argon2) and the
+   *  family's no-crypto-deps law forbids adding one, so PBKDF2-SHA256 is the
+   *  hardest primitive available; the iteration count raises the price but does
+   *  not make a low-entropy field safe. The real control for low-entropy fields
+   *  is the DOOR — do not enable `equatable` for them unless the partition being
+   *  learnable is acceptable — not the iteration count. Pre-forget backups retain
+   *  tags. */
+  secretAnswer(opts: { equatable?: true } = {}): ClassifiedFieldSpec {
     return {
       _noydbClassified: true, preset: 'secretAnswer', storage: 'digest-only',
       sensitivity: 'secret', list: { kind: 'omit' },
       verifyNormalize: 'secret-answer', verifyGroupMember: true,
+      ...(opts.equatable === true ? { equatable: true as const } : {}),
       validate: (v) => (typeof v === 'string'
         && v.normalize('NFC').toLowerCase().trim().replace(/\s+/g, ' ').length > 0
         ? null : 'secret answer must be non-empty after normalization'),

@@ -163,7 +163,7 @@ describe('Refusal matrix — door 2: _applyClassifiedFields (the reconcile seam,
 })
 
 describe('Imp5: R6 write-side fires on EVERY codec branch over a prev._sealed slot', () => {
-  const pw: VdigFieldPolicy = { normalize: 'password', notLastN: 0 }
+  const pw: VdigFieldPolicy = { normalize: 'password', notLastN: 0, equatable: false }
 
   async function makeCodec() {
     const dek = await generateDEK()

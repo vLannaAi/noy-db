@@ -6,6 +6,7 @@ function policyOf(spec: ClassifiedFieldSpec): VdigFieldPolicy {
   return {
     normalize: spec.verifyNormalize ?? 'password',
     notLastN: spec.notLastN ?? 0,
+    equatable: spec.equatable === true,
     ...(spec.rotateDays !== undefined ? { rotateDays: spec.rotateDays } : {}),
   }
 }
@@ -48,6 +49,11 @@ export function withClassified(): ClassifiedStrategy {
       const result = await matchGroupFields(engineCtx(ctx), id, answers, members, opts)
       await ctx.onAccess?.('verify', id)                    // ONE entry per call (Q6)
       return result
+    },
+    async computeTarget(ctx, field, candidate, costByte) {
+      const { computeBidxTarget } = await import('../../kernel/enclave/classify/find.js')
+      const dek = await ctx.getDEK()
+      return computeBidxTarget(candidate, policyOf(ctx.spec).normalize, dek, ctx.collection, field, costByte)
     },
   }
 }

@@ -660,11 +660,33 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 4478→4481 (2026-07-04, classified stage 2 T16): reveal() ctx widened from a
   // single getView() to the raw-envelope shape (getEnvelope/resolveCek/getDEK) — the
   // reveal engine itself moved into kernel/enclave/classify/reveal.ts (I6).
+  // Bumped 4481→4506 (2026-07-04, classified slice 2b T6): C-A/R10 config-drift guard —
+  // per-handle memoization state + the first-write marker-persist hook + the naive-handle
+  // codec signal. Irreducible kernel write-path wiring; the marker store I/O itself lives in
+  // with-shape/classified/config-drift.ts and the R10 throw in enclave/record-keys/record-codec.ts.
+  // Bumped 4506→4507 (2026-07-04, classified slice 2b T8): the per-slot
+  // `SealedShredSlot` type import for `_classifySealedShred`'s return annotation.
+  // Bumped 4507→4592 (2026-07-05, classified slice 2b T13): the `findByDigest`
+  // equatable blind-index lookup — the security-critical scan+confirm orchestration
+  // (R9 single-message refusal, target-before-scan I-1 ordering, the list+N-get scan
+  // retaining hit envelopes, the single 'find' sweep consent op, and the in-hand
+  // confirm-by-verify ctx). The enclave target/verify crypto stays behind the
+  // strategy seam (`computeTarget`) + a dynamic `import()` of verifyDigestField; only
+  // the store-shape-invariant scan/confirm wiring is here, beside the sibling
+  // findByDet scan it mirrors.
+  // Bumped 4592→4654 (2026-07-05, classified slice 2b T14): the
+  // `scrubEquatableTags` maintenance sweep — the sole lazy-write-independent
+  // `_bidx` drop-path (envelope rewrite dropping the field's tag) plus its
+  // ledger-consistency append (op:'migration', no `_v` bump, new payloadHash)
+  // so the scrub keeps the hash chain verifiable.
   // Lowered 4481→4476 (2026-07-04, #267 lazy service): the lazy-mode budget
   // validation + LRU construction moved out of the constructor onto the
   // lazy strategy seam (port/with/lazy-strategy.ts; withLazy() /
   // IMPLICIT_LAZY back-compat default).
-  'packages/hub/src/kernel/collection.ts': 4476,
+  // Merge 2026-07-05 (#582 ∪ #267/#580): reconciled to the TRUE post-merge line
+  // count — collection.ts now carries #267's lazy-strategy extraction AND this
+  // branch's findByDigest/scrubEquatableTags together. Not loosened past the real count.
+  'packages/hub/src/kernel/collection.ts': 4647,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
@@ -800,12 +822,24 @@ const KERNEL_SURFACE_BUDGET = {
   // `forgetStrategy.subjects[collectionName]` into collOpts so the Refusal-matrix R4 row
   // (digest-only cannot be the forget-subject key) sees it; guard logic lives in
   // with-shape/classified/guards.ts.
+  // Bumped 3866→3877 (2026-07-04, classified slice 2b T8): forget() crypto-shred
+  // accounting rewritten against `classifySealedShred`'s per-slot shape — the
+  // `_bidx` third category ('live-shreddable+dekResidue-in-backups') counts as
+  // BOTH shredded and dekResidue-in-backups (honest dual accounting).
+  // Bumped 3877→3883 (2026-07-05, classified slice 2b T10): the equatable
+  // double door — CollectionOptions gains `acknowledgeEquatableRisk` (+JSDoc)
+  // and vault.collection() threads it into collOpts (mirrors
+  // acknowledgeDeterministicRisk). Genuinely core: the R8 gate is a
+  // construction-time collection option.
   // Bumped 3866→3871 (2026-07-04, #267 lazy service): standard strategy
   // plumbing only — the lazyStrategy opts field, private field, assignment,
   // collection() pass-through and type import. No logic; offset by the
   // collection.ts −5 above (net kernel-spine LOC for #267 items 1+2 is ±0
   // while the grant/revoke/rotate keyring engines left the floor).
-  'packages/hub/src/kernel/vault.ts': 3871,
+  // Merge 2026-07-05 (#582 ∪ #267/#580): reconciled to the TRUE post-merge line
+  // count — vault.ts now carries #267's lazyStrategy plumbing AND this branch's
+  // acknowledgeEquatableRisk door together. Not loosened past the real count.
+  'packages/hub/src/kernel/vault.ts': 3888,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
@@ -1638,6 +1672,52 @@ function checkEnclaveClassifyOnly() {
   })
 }
 
+// ─── Check 13: enclave-classify-index-only (M1 — slice-2b identifier ratchet) ──
+//
+// Slice-2b blind-index: the bidx key/salt-derivation and target-computation
+// identifiers — plus the index salt-domain literals — live ONLY in
+// kernel/enclave/** (the classify/ folder). Outside it, referencing these
+// is a leak of enclave interior into service/kernel code. The ONE sanctioned
+// exception is with-shape/classified/active.ts, which reaches
+// computeBidxTarget exclusively through the dynamic-import strategy seam
+// (kernel/enclave/classify/find.js) — that file is allowlisted the same way
+// enclave/test files are exempt elsewhere in this script. Opaque `_bidx`
+// tag-map TRANSIT is explicitly permitted (codec carry-forward, sealing.ts
+// verbatim carry, backup/history plumbing), which is why `_bidx` is
+// deliberately absent from BODY_FIELD_ACCESS_RE above. Like
+// enclave-classify-only: stripComments (not strings — the salt literals ARE
+// strings), *.test.ts and __tests__/** exempt. The enclave-conformance kit
+// lives under test-harnesses/ (never scanned — walkTsFiles here only walks
+// packages/hub/src).
+const CLASSIFY_INDEX_ENCLAVE_ONLY_RE =
+  /\bderiveClassifyIndexKey\b|\bderiveClassifyIndexSalt\b|\bmintBidxTag\b|\bcomputeBidxTarget\b|noydb-classify-index-v1|noydb-classify-index-salt-v1/
+
+const CLASSIFY_INDEX_ALLOWLIST = new Set(['packages/hub/src/with-shape/classified/active.ts'])
+
+function checkEnclaveClassifyIndexOnly() {
+  const hubSrc = join(PACKAGES_DIR, 'hub', 'src')
+  const enclaveDir = join(hubSrc, 'kernel', 'enclave')
+  walkTsFiles(hubSrc, (file, content) => {
+    if (file.endsWith('.test.ts')) return
+    if (relative(ROOT, file).split('/').includes('__tests__')) return
+    const insideEnclave = !relative(enclaveDir, file).startsWith('..')
+    if (insideEnclave) return
+    if (CLASSIFY_INDEX_ALLOWLIST.has(relative(ROOT, file))) return
+    const code = stripComments(content)
+    const m = code.match(CLASSIFY_INDEX_ENCLAVE_ONLY_RE)
+    if (m) {
+      fail(
+        'enclave-classify-index-only',
+        `${relative(ROOT, file)} references "${m[0]}" — blind-index key/salt-derivation and target ` +
+        `identifiers, and the 'noydb-classify-index-v1'/'noydb-classify-index-salt-v1' literals, are ` +
+        `enclave-interior (M1). Call through the classified strategy seam (with-shape/classified/active.ts ` +
+        `dynamic import) or the enclave barrel; opaque _bidx tag-map transit needs no crypto identifier.`,
+        file,
+      )
+    }
+  })
+}
+
 // ─── Run ───────────────────────────────────────────────────────────────
 
 const startTime = Date.now()
@@ -1655,6 +1735,7 @@ checkPortLayering()
 checkEnclaveBarrelOnly()
 checkEnclaveBodyOnly()
 checkEnclaveClassifyOnly()
+checkEnclaveClassifyIndexOnly()
 
 const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
 

@@ -156,6 +156,15 @@ const SCENARIOS = [
   {
     name: 'classified',
     description: 'createNoydb + withClassified',
+    // Baseline bumped 914 -> 1016 gz for slice-2b: findByDigest +
+    // scrubEquatableTags + the equatable surface (descriptor/presets/
+    // guards) + the config-drift marker are all public API added to the
+    // eagerly-loaded Collection/classified module and cannot be deferred.
+    // The find/mint ENGINES stay lazy (canary-guarded below): computeBidxTarget
+    // stays behind active.ts's dynamic import exactly like the stage-2
+    // verify/reveal engines, and mintBidxTag stays codec-internal like
+    // mintVdigSlot. leaks stay ✓ — this is a legitimate size increase, not
+    // an eager-engine leak.
     code: `
       import { createNoydb } from '@noy-db/hub'
       import { withClassified } from '@noy-db/hub/classified'
@@ -168,6 +177,8 @@ const SCENARIOS = [
       'verifyDigestField', // verify oracle — MUST stay behind active.ts's dynamic import
       'matchGroupFields',
       'mintVdigSlot',      // write-side digest engine (codec-internal, never eager via the strategy)
+      'computeBidxTarget', // findByDigest target/find engine — MUST stay behind active.ts's dynamic import (slice-2b)
+      'mintBidxTag',       // write-side digest-index mint engine (codec-internal, never eager via the strategy)
     ],
   },
   {

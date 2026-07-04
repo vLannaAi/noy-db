@@ -18,7 +18,7 @@ describe('stage-2 spine', () => {
   })
 
   it('VdigFieldPolicy + ClassifiedVerdict + digest-only spec typecheck', () => {
-    const p: VdigFieldPolicy = { normalize: 'password', notLastN: 3, rotateDays: 90 }
+    const p: VdigFieldPolicy = { normalize: 'password', notLastN: 3, rotateDays: 90, equatable: false }
     const v: ClassifiedVerdict = { ok: true, mustRotate: true }
     const spec: ClassifiedFieldSpec = {
       _noydbClassified: true, preset: 'password', storage: 'digest-only',

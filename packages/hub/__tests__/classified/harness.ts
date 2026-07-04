@@ -48,3 +48,35 @@ export function inlineMemory(): InlineMemoryStore {
     _dump(c, col, id) { return store.get(c)?.get(col)?.get(id) },
   }
 }
+
+/** One recorded store call: the op name + the raw positional args. */
+export interface StoreCall {
+  readonly op: 'get' | 'put' | 'delete' | 'list' | 'loadAll' | 'saveAll'
+  readonly args: readonly unknown[]
+}
+
+export interface SpyStore extends InlineMemoryStore {
+  /** Ordered log of every store call, in invocation order. */
+  readonly calls: StoreCall[]
+}
+
+/**
+ * Thin recording wrapper around an {@link InlineMemoryStore}: appends
+ * `{ op, args }` to `calls` for every store method, then delegates verbatim.
+ * Pure test util — no behavioral change, no golden impact. Used by the C-B
+ * store-shape vector to prove `findByDigest` issues exactly `list + N get`.
+ */
+export function spyStore(inner: InlineMemoryStore): SpyStore {
+  const calls: StoreCall[] = []
+  const spy: SpyStore = {
+    calls,
+    async get(c, col, id) { calls.push({ op: 'get', args: [c, col, id] }); return inner.get(c, col, id) },
+    async put(c, col, id, env, ev) { calls.push({ op: 'put', args: [c, col, id, env, ev] }); return inner.put(c, col, id, env, ev) },
+    async delete(c, col, id) { calls.push({ op: 'delete', args: [c, col, id] }); return inner.delete(c, col, id) },
+    async list(c, col) { calls.push({ op: 'list', args: [c, col] }); return inner.list(c, col) },
+    async loadAll(c) { calls.push({ op: 'loadAll', args: [c] }); return inner.loadAll(c) },
+    async saveAll(c, data) { calls.push({ op: 'saveAll', args: [c, data] }); return inner.saveAll(c, data) },
+    _dump(c, col, id) { return inner._dump(c, col, id) },
+  }
+  return spy
+}

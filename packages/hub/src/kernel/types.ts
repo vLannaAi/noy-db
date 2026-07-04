@@ -190,6 +190,16 @@ export interface EncryptedEnvelope {
    */
   readonly _vdig?: Record<string, string>
   /**
+   * Equatable blind-index tags (classified slice 2b). Map of digest-only field
+   * name → base64 33-byte tag (1-byte cost/version discriminator ‖ 32-byte keyed
+   * MAC), CURRENT VALUE ONLY (the _vdig ring is never indexed). This is the ONLY
+   * store-visible classified artifact: a keyed MAC, comparable without a key
+   * ceremony, with NO inline cryptographic integrity by construction. Invariant:
+   * _bidx[field] present ⇒ _vdig[field] present. Confirm-by-verify (findByDigest)
+   * makes any read-side orphan/splice unreturnable.
+   */
+  readonly _bidx?: Record<string, string>
+  /**
    * Per-record content-encryption key (CEK), base64 AES-KW-wrapped under
    * the collection (or tier) DEK. Present only on records written by a
    * collection opened with `perRecordKeys: true`. When present, the body
@@ -229,6 +239,20 @@ export interface VdigFieldPolicy {
   /** Ring size for reuse refusal; 0 = no ring. Cap 8 (spec Q4). */
   readonly notLastN: number
   readonly rotateDays?: number
+  /** default false — refused unless the double door is open (R8) */
+  readonly equatable: boolean
+}
+
+/**
+ * The persisted classified-fields config marker (C-A / R10). Reuses the
+ * stage-2 persisted-schema record; this is the shape of the marker stored
+ * there.
+ */
+export interface ClassifiedMarker {
+  /** field names declared digest-only (have _vdig); non-empty ⇒ writes need the classified codec */
+  readonly digestOnly: readonly string[]
+  /** field names additionally declared equatable (have _bidx when covered) */
+  readonly equatable: readonly string[]
 }
 
 /** Verdict-only egress of the enclave oracle (spec §3). */

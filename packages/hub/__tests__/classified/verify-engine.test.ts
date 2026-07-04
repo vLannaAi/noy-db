@@ -7,8 +7,8 @@ import {
 import type { EncryptedEnvelope, VdigFieldPolicy } from '../../src/kernel/types.js'
 import { ClassifiedConfigError, ClassifiedVerifyError } from '../../src/kernel/errors.js'
 
-const pw: VdigFieldPolicy = { normalize: 'password', notLastN: 0 }
-const sa: VdigFieldPolicy = { normalize: 'secret-answer', notLastN: 0 }
+const pw: VdigFieldPolicy = { normalize: 'password', notLastN: 0, equatable: false }
+const sa: VdigFieldPolicy = { normalize: 'secret-answer', notLastN: 0, equatable: false }
 
 /** Wall-clock one call — used by the C4 timing-parity vectors. */
 async function timeOnce(fn: () => Promise<unknown>): Promise<number> {
@@ -63,7 +63,7 @@ describe('verifyDigestField', () => {
 
   it('I1: mustRotate decorates ONLY ok:true, when now() exceeds cur.at + rotateDays', async () => {
     const cek = await generateDEK()
-    const rot: VdigFieldPolicy = { normalize: 'password', notLastN: 0, rotateDays: 30 }
+    const rot: VdigFieldPolicy = { normalize: 'password', notLastN: 0, rotateDays: 30, equatable: false }
     const env = await envWith(cek, { password: { value: 'correct-horse-battery', policy: rot } })
     const future = () => Date.now() + 31 * 86_400_000
     expect(await verifyDigestField(ctxFor(env, cek, future), 'r1', 'password', 'correct-horse-battery', rot))

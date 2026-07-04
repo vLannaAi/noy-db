@@ -70,6 +70,17 @@ export interface EnclaveModule<K = unknown> {
   pbkdf2VerifyDigest(value: string, salt: Uint8Array, iterations: number): Promise<Uint8Array>
   ctEqualTags(a: Uint8Array, b: Uint8Array): boolean
   evaluateKofN(results: readonly boolean[], min: number): boolean
+  deriveClassifyIndexKey(dek: K, collection: string, field: string): Promise<K>
+  deriveClassifyIndexSalt(dek: K, collection: string, field: string): Promise<Uint8Array>
+  mintBidxTag(normalized: string, dek: K, collection: string, field: string): Promise<string>
+  computeBidxTarget(
+    candidate: string,
+    normalize: 'password' | 'secret-answer',
+    dek: K,
+    collection: string,
+    field: string,
+    costByte?: number,
+  ): Promise<string | null>
 }
 
 export interface EnclaveConformanceOptions {
@@ -127,6 +138,10 @@ export async function assertGroupRefuses<K>(
     classify: [
       ['deriveVdigSlotKey', () => enclave.deriveVdigSlotKey(cek, 'c', 'f')],
       ['pbkdf2VerifyDigest', () => enclave.pbkdf2VerifyDigest('v', new Uint8Array(32), 1_000)],
+      ['deriveClassifyIndexKey', () => enclave.deriveClassifyIndexKey(dek, 'c', 'f')],
+      ['deriveClassifyIndexSalt', () => enclave.deriveClassifyIndexSalt(dek, 'c', 'f')],
+      ['mintBidxTag', () => enclave.mintBidxTag('v', dek, 'c', 'f')],
+      ['computeBidxTarget', () => enclave.computeBidxTarget('v', 'password', dek, 'c', 'f')],
     ],
   }
 
@@ -350,6 +365,20 @@ export function runEnclaveConformance<K>(enclave: EnclaveModule<K>, opts: Enclav
         const keyOtherField = await enclave.deriveVdigSlotKey(cek, 'users', 'pin')
         await expect(enclave.decryptBytesWithAAD(sealed.iv, sealed.data, keyOtherField as never, aad('r1', 'pin')))
           .rejects.toThrow() // spliced to another field (key AND aad domain-separated)
+      })
+
+      it('bidx tag: round-trip + per-field/collection separation', async () => {
+        const dek = await enclave.generateDEK()
+        const n = 'correct horse'
+        const tag = await enclave.mintBidxTag(n, dek, 'users', 'password')
+        expect(await enclave.computeBidxTarget('correct horse', 'password', dek, 'users', 'password')).toBe(tag)
+        expect(await enclave.mintBidxTag(n, dek, 'users', 'pin')).not.toBe(tag)
+        expect(await enclave.mintBidxTag(n, dek, 'admins', 'password')).not.toBe(tag)
+      })
+
+      it('Oracle #4: unknown discriminator → computeBidxTarget null', async () => {
+        const dek = await enclave.generateDEK()
+        expect(await enclave.computeBidxTarget('x', 'password', dek, 'u', 'a', 0x7f)).toBeNull()
       })
     })
 

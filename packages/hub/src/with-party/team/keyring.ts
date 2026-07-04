@@ -797,6 +797,26 @@ export async function rotateKeys(
   }
 
   // Re-encrypt all records in affected collections
+  //
+  // FORWARD REQUIREMENT (not implemented here — DEK rotation predates
+  // perRecordKeys/classified fields): a future perRecordKeys-aware DEK
+  // rotation MUST DROP `_bidx` here rather than carry it forward. `_bidx` is
+  // rooted in the (soon-to-be-dead) old DEK; a stale tag surviving under the
+  // new DEK is unreturnable garbage (no key can ever re-derive it to match a
+  // query again) that still LEAKS the old equality partition. Unlike
+  // `rotateRecordCek` (record-keys/sealing.ts), which carries `_bidx`
+  // verbatim because it is CEK-rotation-only and the DEK is unchanged, a DEK
+  // rotation changes the root the tag is derived from, so index coverage can
+  // only regrow per-record, the next time each record is `put()` under the
+  // new DEK.
+  //
+  // D-5 (pre-existing hazard, flagged not fixed): in a mixed collection, bare
+  // (non-`_cek`) records below are re-encrypted and `put()` in this loop
+  // *before* any `_cek` record is reached; if a later record in the same
+  // collection throws (e.g. an unwrap failure), those already-rewritten bare
+  // records are left persisted under the new DEK while `callerKeyring` is
+  // never updated with it (the `deks.set` below hasn't run) — an unsaved-DEK
+  // state with no rollback.
   for (const collName of collections) {
     const oldDek = callerKeyring.deks.get(collName)
     const newDek = newDeks.get(collName)!

@@ -19,6 +19,8 @@ export interface ClassifiedGuardCtx {
   readonly vectorSourceFields: ReadonlySet<string>
   readonly subjectKeyField: string | undefined
   readonly bareSensitiveFields: ReadonlySet<string>
+  /** Collection-level gate for the `equatable` knob (R8 double door). */
+  readonly acknowledgeEquatableRisk: boolean
 }
 
 export function guardClassifiedCompat(
@@ -39,6 +41,33 @@ export function guardClassifiedCompat(
       'digest-only/recoverable classified fields cannot combine with a crdt mode or a ' +
       'conflictPolicy resolver — merge paths bypass write enforcement (R2)')
   }
+  // R7 — `equatable` is a digest-only knob: it drives the `_bidx` blind-index
+  // slot, which only exists on the digest-only write path. A recoverable/never
+  // field carrying it would silently no-op (recoverable equality is `_det`'s
+  // job). Refuse rather than accept-and-ignore. Checked over ALL specs, before
+  // the digest-only early-return below, precisely to catch the non-digest case.
+  for (const [f, spec] of Object.entries(byField)) {
+    if (spec.equatable === true && spec.storage !== 'digest-only') {
+      throw new ClassifiedConfigError(collection,
+        `field "${f}" declares equatable but storage is '${spec.storage}' — equatable is a ` +
+        `digest-only knob; recoverable equality is _det's job (R7)`)
+    }
+  }
+
+  // R8 — the equatable double door (mirrors deterministicFields ×
+  // acknowledgeDeterministicRisk): any field opting into `equatable` requires
+  // the collection to acknowledge the partition-leak risk. One-directional —
+  // `acknowledgeEquatableRisk: true` with ZERO equatable members is a silent
+  // no-op (never throws here), so the ack can sit on a collection config
+  // ahead of the field landing.
+  const hasEquatable = Object.values(byField).some((s) => s.equatable === true)
+  if (hasEquatable && ctx.acknowledgeEquatableRisk !== true) {
+    throw new ClassifiedConfigError(collection,
+      `classified equatable fields require \`acknowledgeEquatableRisk: true\` — equal values ` +
+      `produce equal store-visible index tags (a partition leak a DEK holder can offline-` +
+      `dictionary at the PBKDF2 floor); the door is the real control for low-entropy fields (R8)`)
+  }
+
   if (digestOnly.length === 0) return
 
   // Digest-only on a plaintext collection: the codec's vdig block is gated on

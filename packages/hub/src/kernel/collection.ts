@@ -26,6 +26,7 @@ import {
   RecordCodec,
   type DeterministicContext,
   type EnclaveKey,
+  type SealedShredSlot,
 } from './enclave/index.js'
 import {
   classifySealedShred as classifySealedShredImpl,
@@ -446,6 +447,10 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    */
   private readonly vdigFields: ReadonlyMap<string, VdigFieldPolicy> | null
 
+  /** C-A/R10 memoization: marker declared-set lookup (undefined=unresolved) + classified-handle persist-once flag. */
+  private _markerDigestOnlyCache: readonly string[] | undefined = undefined
+  private _markerPersisted = false
+
   /**
    * Tree-shake seam for `reveal()` — defaults to `NO_CLASSIFIED`, which
    * throws `ClassifiedNotEnabledError`. Set via the `classifiedStrategy`
@@ -583,7 +588,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
   /** — consent-audit hook, no-op when no scope is active. */
   private readonly onAccess:
-    | ((op: 'get' | 'put' | 'delete' | 'reveal' | 'verify', id: string) => Promise<void>)
+    | ((op: 'get' | 'put' | 'delete' | 'reveal' | 'verify' | 'find', id: string) => Promise<void>)
     | undefined
 
   /**
@@ -811,6 +816,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       schema: this.schema,
       getDEK: () => this.getDEK(this.name),
       cekCache: this.cekCache,
+      classifiedMarkerDigestOnly: () => this._classifiedMarkerDigestOnly(),
     })
 
     // Build + register this collection's SyncEngine conflict resolvers (the CRDT
@@ -1171,9 +1177,155 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       getDEK: () => this.getDEK(this.name),
       now: () => Date.now(), // Q7: injected here; engine tests inject their own
       ...(this.onAccess !== undefined
-        ? { onAccess: async (_op: 'verify', rid: string) => { await this.onAccess!('verify', rid) } }
+        ? { onAccess: async (_op: 'verify' | 'find', rid: string) => { await this.onAccess!('verify', rid) } }
         : {}),
     }
+  }
+
+  /**
+   * Equatable blind-index lookup: the ids whose classified digest-only
+   * `equatable` field carries a `_bidx` tag matching `candidate` AND whose
+   * `_vdig` payload confirms it. Requires the field to be declared
+   * `classified.password({ equatable: true })` (or `secretAnswer`) and the
+   * collection to have opened its `acknowledgeEquatableRisk` door.
+   *
+   * The algorithm order is load-bearing (spec §3):
+   *  1. Caller-bug refusals thrown at ~0 elapsed, BEFORE any PBKDF2 (R9 /
+   *     Oracle #6): the three field mis-declarations share ONE constant,
+   *     field-name-free message so the refusal text cannot enumerate which
+   *     fields are classified / digest-only / equatable.
+   *  2. Derive the ONE blind-index target UNCONDITIONALLY (I-1 / F1): an empty
+   *     collection still pays exactly one 600K PBKDF2, so wall-time can never
+   *     distinguish "no records" from "no match". No early return may precede
+   *     this line.
+   *  3. Scan `list + one get` per id, string-comparing the stored `_bidx` tag —
+   *     decrypting NOTHING — and retain each hit's already-fetched envelope.
+   *  4. Emit the single sweep consent op (`onAccess('find', '*')`) now — after
+   *     the scan, before confirm (Oracle #5) — fixing its store-write timestamp
+   *     independent of hit count.
+   *  5. Confirm-by-verify against the ALREADY-FETCHED envelope (C-B): run the
+   *     enclave `verifyDigestField` on an in-memory `getEnvelope` closure so the
+   *     confirm reads ZERO additional envelopes. A tag-hit whose `_vdig` fails
+   *     to confirm is dropped silently (a splice is indistinguishable from a
+   *     stale tag). Store-shape law: the only store calls are `list + N get`.
+   */
+  async findByDigest(field: string, candidate: string): Promise<readonly string[]> {
+    // 1. Caller-bug refusals — pad-exempt, before any PBKDF2. R9 single message.
+    const spec = this.classified?.byField[field]
+    if (spec === undefined || spec.storage !== 'digest-only' || spec.equatable !== true) {
+      throw new ClassifiedVerifyError(this.name, '*',
+        'not a declared equatable digest-only classified field')
+    }
+    if (typeof candidate !== 'string') {
+      throw new ClassifiedVerifyError(this.name, '*', 'candidate must be a string')
+    }
+
+    // 2. ONE full 600K PBKDF2, run UNCONDITIONALLY before the scan (I-1). A
+    //    NO_CLASSIFIED strategy surfaces ClassifiedNotEnabledError here.
+    const target = await this.classifiedStrategy.computeTarget(this._classifiedVerifyCtx(spec), field, candidate)
+
+    // 3. Scan: list + one get per id; string-compare the stored tag; decrypt
+    //    nothing; retain each hit's already-fetched envelope for the confirm.
+    const ids = await this.adapter.list(this.vault, this.name)
+    const hits: string[] = []
+    const hitMap = new Map<string, EncryptedEnvelope>()
+    for (const id of ids) {
+      const env = await this.adapter.get(this.vault, this.name, id)
+      if (target !== null && env?._bidx?.[field] === target) {
+        hits.push(id)
+        hitMap.set(id, env)
+      }
+    }
+
+    // 4. Single sweep consent op — after the scan, before confirm (Oracle #5).
+    await this.onAccess?.('find', '*')
+
+    // 5. Confirm-by-verify on the IN-HAND envelope (C-B) — the enclave verify
+    //    door via a dynamic import (the kernel spine reaches the enclave only
+    //    through import(), never a static deep import). NOT strategy.verify —
+    //    that re-fetches via ctx.getEnvelope AND emits a per-id 'verify' op.
+    if (hits.length === 0) return []
+    const { verifyDigestField } = await import('./enclave/classify/verify.js')
+    const policy: VdigFieldPolicy = {
+      normalize: spec.verifyNormalize ?? 'password',
+      notLastN: spec.notLastN ?? 0,
+      equatable: true,
+      ...(spec.rotateDays !== undefined ? { rotateDays: spec.rotateDays } : {}),
+    }
+    const confirmCtx = {
+      collection: this.name,
+      getEnvelope: async (rid: string) => hitMap.get(rid) ?? null,   // in-memory: zero extra store.get
+      resolveCek: (env: EncryptedEnvelope) => this.codec.resolveEnvelopeCek(env),
+      getDEK: () => this.getDEK(this.name),
+      now: () => Date.now(),
+    }
+    const confirmed: string[] = []
+    for (const id of hits) {
+      const verdict = await verifyDigestField(confirmCtx, id, field, candidate, policy)
+      if (verdict.ok === true) confirmed.push(id)   // discard mustRotate; drop failures silently
+    }
+    return confirmed
+  }
+
+  /**
+   * Retire a field's equatable blind-index (`_bidx`) coverage across every
+   * live record — the SOLE lazy-write-independent drop-path for a still-live
+   * record's tag (besides clear / `forget()` / DEK-rotation). For each envelope
+   * carrying `_bidx[field]`, rewrite it WITHOUT that slot (dropping the whole
+   * `_bidx` map when it becomes empty), leaving `_vdig[field]` and everything
+   * else INTACT — the field stays `digest-only`, only the index coverage is
+   * retired. NO crypto, NO re-mint, NO re-encrypt: a targeted envelope rewrite.
+   * Returns the count of records scrubbed.
+   *
+   * This is a maintenance write, not a read-egress: it emits NO `'find'` op and
+   * no consent. The field is validated to a declared equatable digest-only
+   * classified field (only such a field ever carries `_bidx`).
+   *
+   * **Ledger consistency**: dropping `_bidx[field]` changes the envelope's
+   * payload hash (`_bidx` is bound into `envelopeBodyForHash`), so a raw
+   * `adapter.put` of the scrubbed envelope WITHOUT a matching ledger entry would
+   * desync the chain and make a future integrity cross-check flag false
+   * tampering. After each rewrite we therefore append an `op:'migration'` entry
+   * recording the NEW payloadHash at the SAME version — this is index retirement,
+   * not a new record version, so `_v` is NOT bumped; the migration op is
+   * reverse-delta-inert (`ledger.reconstruct` skips non-put/delete ops) yet
+   * keeps the hash chain and the record's latest recorded payloadHash correct.
+   */
+  async scrubEquatableTags(field: string): Promise<number> {
+    const spec = this.classified?.byField[field]
+    if (spec === undefined || spec.storage !== 'digest-only' || spec.equatable !== true) {
+      throw new ClassifiedVerifyError(this.name, '*',
+        'not a declared equatable digest-only classified field')
+    }
+    const ids = await this.adapter.list(this.vault, this.name)
+    let count = 0
+    for (const id of ids) {
+      const env = await this.adapter.get(this.vault, this.name, id)
+      if (env?._bidx?.[field] === undefined) continue
+
+      // Rewrite without the field's tag; drop the whole `_bidx` map if it
+      // empties (a fresh mutable copy — `EncryptedEnvelope._bidx` is readonly).
+      const nextBidx: Record<string, string> = { ...env._bidx }
+      delete nextBidx[field]
+      const scrubbedRaw: Record<string, unknown> = { ...env }
+      delete scrubbedRaw._bidx
+      if (Object.keys(nextBidx).length > 0) scrubbedRaw._bidx = nextBidx
+      const scrubbed = scrubbedRaw as unknown as EncryptedEnvelope
+      await this.adapter.put(this.vault, this.name, id, scrubbed)
+
+      // Keep the ledger verifiable: the scrubbed envelope has a new payload
+      // hash, so record it (no `_v` bump — index retirement, not a version).
+      if (this.ledger) {
+        await this.ledger.append({
+          op: 'migration', collection: this.name, id, version: scrubbed._v,
+          actor: this.keyring.userId,
+          payloadHash: await this.historyStrategy.envelopePayloadHash(scrubbed),
+          reason: 'classified:scrub-equatable-tags',
+        })
+      }
+      count++
+    }
+    return count
   }
 
   /**
@@ -1967,6 +2119,10 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
     const envelope = await this.codec.encryptRecord(record, version, cek, options?.source, options?.sourceTs, vdigCtx)
     await this.adapter.put(this.vault, this.name, id, envelope)
+
+    // C-A/R10: persist the x-classified marker on the first classified write
+    // (cross-session drift signal). Memoized; no-op for non-classified handles.
+    await this._ensureClassifiedMarker()
 
     // Derive the embedding vector at write (encode → encrypted _vec sidecar).
     // Placed AFTER the main adapter.put so `version` (computed above) is in scope and
@@ -4332,6 +4488,22 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     )
   }
 
+  /** C-A/R10: persist the classified marker once per classified handle (store I/O in config-drift.ts). */
+  private async _ensureClassifiedMarker(): Promise<void> {
+    if (this._markerPersisted || this.vdigFields === null) return
+    const { persistClassifiedMarkerForFields } = await import('../with-shape/classified/config-drift.js')
+    await persistClassifiedMarkerForFields(this.adapter, this.vault, this.name, this.vdigFields, await this.getDEK(this.name))
+    this._markerPersisted = true
+  }
+
+  /** C-A/R10 drift signal — the marker's declared digest-only set, memoized to one store read per handle (see config-drift.ts). */
+  private async _classifiedMarkerDigestOnly(): Promise<readonly string[]> {
+    if (this._markerDigestOnlyCache !== undefined) return this._markerDigestOnlyCache
+    const { readClassifiedMarkerDigestOnly } = await import('../with-shape/classified/config-drift.js')
+    this._markerDigestOnlyCache = await readClassifiedMarkerDigestOnly(this.adapter, this.vault, this.name, await this.getDEK(this.name))
+    return this._markerDigestOnlyCache
+  }
+
   /**
    * find the first record whose deterministic field matches
    * the given plaintext. Returns `null` when no match exists.
@@ -4422,7 +4594,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    */
   _classifySealedShred(
     live: EncryptedEnvelope,
-  ): Promise<{ shreddable: string[]; dekResidue: string[] }> {
+  ): Promise<{ readonly slots: readonly SealedShredSlot[] }> {
     return classifySealedShredImpl(this.tiersContext(), live)
   }
 

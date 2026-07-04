@@ -86,13 +86,15 @@ export function hasPerRecordKey(env: EncryptedEnvelope): boolean {
 /**
  * Canonical body string for the ledger hash chain — the exact bytes
  * `with-commit/history/ledger/hash.ts`'s `envelopePayloadHash` derives from
- * `_data` + `_sealed` + `_vdig` before hashing:
- *  - no `_sealed`, no `_vdig` → `_data` alone (back-compat: every
+ * `_data` + `_sealed` + `_vdig` + `_bidx` before hashing:
+ *  - no `_sealed`, no `_vdig`, no `_bidx` → `_data` alone (back-compat: every
  *    pre-existing ledger entry and non-sealed backup hashes byte-identically).
- *  - either map present → canonical JSON of `{ _data, _sealed?, _vdig? }`
+ *  - any map present → canonical JSON of `{ _data, _sealed?, _vdig?, _bidx? }`
  *    with sorted keys at every level, each map bound ONLY when present, so
  *    the result is independent of the maps' field-insertion / store-
- *    serialization order.
+ *    serialization order. `_bidx` is always the LAST segment, so a legacy
+ *    `_vdig`-only / `_bidx`-absent envelope hashes byte-identically to its
+ *    stage-2 value.
  *
  * Deliberately reimplements the two-key-object canonicalization inline
  * rather than importing `with-commit/history/ledger/entry.ts`'s general
@@ -109,8 +111,12 @@ export function envelopeBodyForHash(env: EncryptedEnvelope): string {
   // `_vdig` writer (it does — Tasks 7/8/11 are one branch). This binding is
   // the temporal-rollback detector completing C1: AAD stops cross-record/
   // cross-field splices; the ledger hash catches same-slot rollbacks.
-  if (env._sealed === undefined && env._vdig === undefined) return env._data
-  const mapPart = (key: '_sealed' | '_vdig', map: Record<string, string>): string => {
+  //
+  // Conditional widen (slice 2b, SM #5): bind `_bidx` the same way, appended
+  // LAST (after `_vdig`) so a `_bidx`-absent envelope keeps its stage-2
+  // byte-identical hash.
+  if (env._sealed === undefined && env._vdig === undefined && env._bidx === undefined) return env._data
+  const mapPart = (key: '_sealed' | '_vdig' | '_bidx', map: Record<string, string>): string => {
     const parts = Object.keys(map).sort().map(
       (k) => `${JSON.stringify(k)}:${JSON.stringify(map[k])}`,
     )
@@ -119,5 +125,6 @@ export function envelopeBodyForHash(env: EncryptedEnvelope): string {
   const segments = [`"_data":${JSON.stringify(env._data)}`]
   if (env._sealed !== undefined) segments.push(mapPart('_sealed', env._sealed))
   if (env._vdig !== undefined) segments.push(mapPart('_vdig', env._vdig))
+  if (env._bidx !== undefined) segments.push(mapPart('_bidx', env._bidx))
   return `{${segments.join(',')}}`
 }
