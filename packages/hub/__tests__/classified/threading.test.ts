@@ -5,9 +5,19 @@
 
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../../src/kernel/noydb.js'
-import { classified, ClassifiedConfigError } from '../../src/with-shape/classified/index.js'
+import {
+  classified, ClassifiedConfigError, ClassifiedNeverStoredError,
+  type ClassifiedFieldSpec,
+} from '../../src/with-shape/classified/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/kernel/types.js'
 import { ConflictError } from '../../src/kernel/errors.js'
+
+/** A `storage: 'never'` spec-literal (mirrors resolve.test.ts) — no recoverable
+ *  members, so it's safe to declare on the reconcile path (post auto-creation). */
+const neverSpec = (): ClassifiedFieldSpec => ({
+  _noydbClassified: true, preset: 'test', storage: 'never',
+  list: { kind: 'omit' }, sensitivity: 'secret',
+})
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -65,14 +75,20 @@ describe('classifiedFields threading', () => {
     expect(rec.cardNumber_bin).toBe('424242')
   })
 
-  it('reconciles declarations arriving after auto-creation (first-wins _apply)', async () => {
+  it('refuses a recoverable declaration arriving after auto-creation (sealing is fixed at first open)', async () => {
     const db = await createNoydb({ store: inlineMemory(), user: 'a', secret: 'pw-cls-2' })
     const v = await db.openVault('v2')
+    v.collection('people')                                               // bare auto-open — sensitiveFields frozen empty
+    expect(() => v.collection('people', { classifiedFields: { dob: classified.birthDate() } }))
+      .toThrow(/first open/)
+  })
+
+  it('reconciles a never-only declaration arriving after auto-creation (no recoverable members)', async () => {
+    const db = await createNoydb({ store: inlineMemory(), user: 'a', secret: 'pw-cls-2b' })
+    const v = await db.openVault('v2b')
     v.collection('people')                                               // bare auto-open
-    const c = v.collection('people', { classifiedFields: { dob: classified.birthDate() } })
-    await c.put('p1', { dob: '1990-04-01' })
-    const rec = await c.get('p1') as Record<string, unknown>
-    expect(rec.dob_yob).toBe('1990')
+    const c = v.collection('people', { classifiedFields: { cvc: neverSpec() } })
+    await expect(c.put('p1', { cvc: '123' })).rejects.toBeInstanceOf(ClassifiedNeverStoredError)
   })
 
   it('throws ClassifiedConfigError on rider-computed collision', async () => {
@@ -93,9 +109,11 @@ describe('classifiedFields threading', () => {
     expect(() => v.collection('x2', {
       classifiedFields: { pan: classified.creditCard({ pan: 'pan' }) }  // try to apply, but rider collides
     })).toThrow(ClassifiedConfigError)
-    // aborted apply must leave no partial state: a corrected declaration can still apply
-    const fixed = v.collection('x2', { classifiedFields: { dob: classified.birthDate() } })
-    await fixed.put('p9', { dob: '1990-04-01' })
-    expect(((await fixed.get('p9')) as Record<string, unknown>).dob_yob).toBe('1990')
+    // aborted apply must leave no partial state: a corrected declaration can still apply.
+    // Uses a never-only spec (not `birthDate()`, which is recoverable and would now
+    // trip the reconcile-sealing guard on this bare-opened collection) — the point
+    // here is atomicity of the collision guard, not sealing.
+    const fixed = v.collection('x2', { classifiedFields: { cvc: neverSpec() } })
+    await expect(fixed.put('p9', { cvc: '123' })).rejects.toBeInstanceOf(ClassifiedNeverStoredError)
   })
 })
