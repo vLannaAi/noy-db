@@ -646,7 +646,9 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 4346→4357 — 2026-07-04 classified-fields final review — reconcile sealing guard:
   // `_applyClassifiedFields` refuses recoverable classified fields declared after first open
   // (fail-loud instead of silently leaving them unsealed).
-  'packages/hub/src/kernel/collection.ts': 4357,
+  // 2026-07-04 classified stage-2 T7 — bumped 4357→4358: one-line `vdigFields: null`
+  // placeholder in the RecordCodec constructor call (Task 8 replaces it with the real map).
+  'packages/hub/src/kernel/collection.ts': 4358,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
