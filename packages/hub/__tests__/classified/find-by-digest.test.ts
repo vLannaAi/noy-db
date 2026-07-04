@@ -149,7 +149,7 @@ describe('findByDigest', () => {
     await c.put('r2', { password: 'splice-secret-r2' })
     const e1 = store._dump('v1', 'users', 'r1')!
     const e2 = store._dump('v1', 'users', 'r2')!
-    e2._bidx!.password = e1._bidx!.password   // forge: r2's tag now equals r1's tag
+    e2._bidx!.password = e1._bidx!.password!   // forge: r2's tag now equals r1's tag
     expect(await c.findByDigest('password', 'splice-secret-r1')).toEqual(['r1'])  // B fails the _vdig confirm
   }, 120_000)
 
