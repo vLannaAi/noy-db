@@ -19,7 +19,7 @@ import { loadPersistedSchema, savePersistedSchema } from './storage.js'
 import { computeSchemaDelta } from '../schema-update/delta.js'
 import { evaluateStrategies } from '../schema-update/dispatch.js'
 import type { SchemaUpdateStrategy, UpdateDecision } from '../schema-update/types.js'
-import type { NoydbStore } from '../../kernel/types.js'
+import type { NoydbStore, ClassifiedMarker } from '../../kernel/types.js'
 import type { PersistedSchemaEnvelope } from './types.js'
 import type { EnclaveKey } from '../../kernel/enclave/index.js'
 
@@ -70,8 +70,53 @@ export async function persistSchemaIfNeeded(opts: {
     return { written: false, skipped: false, envelope: stored ?? fresh, decision }
   }
 
-  await savePersistedSchema(opts.store, opts.vault, opts.collectionName, opts.dek, fresh)
-  return { written: true, skipped: false, envelope: fresh, decision }
+  // Preserve a previously-persisted classified marker (C-A / R10) — the schema
+  // derivation knows nothing about it, so a naive overwrite here would drop the
+  // config-drift guard's cross-session signal.
+  const toSave: PersistedSchemaEnvelope =
+    stored?.classified !== undefined ? { ...fresh, classified: stored.classified } : fresh
+  await savePersistedSchema(opts.store, opts.vault, opts.collectionName, opts.dek, toSave)
+  return { written: true, skipped: false, envelope: toSave, decision }
+}
+
+/**
+ * Persist (or refresh) the C-A / R10 classified marker into the collection's
+ * `_schemas/<collection>` record, preserving any existing derived JSON-Schema
+ * body. Idempotent — a no-op when an equivalent marker is already stored.
+ * Independent of `persistJsonSchema`: called on the first classified write so a
+ * later naive handle can detect the drift cross-session.
+ */
+export async function persistClassifiedMarker(opts: {
+  readonly store: NoydbStore
+  readonly vault: string
+  readonly collectionName: string
+  readonly dek: EnclaveKey
+  readonly marker: ClassifiedMarker
+}): Promise<void> {
+  const stored = await loadPersistedSchema(opts.store, opts.vault, opts.collectionName, opts.dek)
+  if (stored?.classified !== undefined && markersEqual(stored.classified, opts.marker)) return
+  const payload: PersistedSchemaEnvelope =
+    stored !== undefined
+      ? { ...stored, classified: opts.marker }
+      : {
+          _noydb_schema: 1,
+          kind: 'Unknown',
+          jsonSchema: null,
+          hash: null,
+          derivedAt: new Date().toISOString(),
+          classified: opts.marker,
+        }
+  await savePersistedSchema(opts.store, opts.vault, opts.collectionName, opts.dek, payload)
+}
+
+function markersEqual(a: ClassifiedMarker, b: ClassifiedMarker): boolean {
+  return sameSet(a.digestOnly, b.digestOnly) && sameSet(a.equatable, b.equatable)
+}
+
+function sameSet(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false
+  const s = new Set(a)
+  return b.every((x) => s.has(x))
 }
 
 function isPlainObject(v: unknown): v is object {

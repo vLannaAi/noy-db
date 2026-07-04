@@ -45,6 +45,15 @@ export interface RecordCodecContext<T> {
   readonly deterministicFields: ReadonlySet<string> | null
   /** Digest-only classified fields → verify policy (stage 2). Null when none. */
   readonly vdigFields: ReadonlyMap<string, VdigFieldPolicy> | null
+  /**
+   * C-A / R10 config-drift signal. Lazy, memoized (O(1) per handle after the
+   * first call) check of the persisted `x-classified` marker. Consulted ONLY on
+   * a naive write path (`vdigFields === null`) — a correctly-configured
+   * classified codec never calls it, so the common non-classified write path
+   * pays at most one store read per handle and a classified handle pays nothing.
+   * Undefined on codecs with no store access (direct-construction tests).
+   */
+  classifiedMarkerPresent?(): Promise<boolean>
   /** CRDT mode (decrypt resolves CrdtState→snapshot when set). */
   readonly crdtMode: CrdtMode | undefined
   /** CRDT strategy seam (resolveCrdtSnapshot). */
@@ -194,6 +203,30 @@ export class RecordCodec<T> {
     // `_`-prefixed fields that the inline layout would collide with.
     if (!this.ctx.storeCiphertext && this.ctx.debugPlaintext && !this.ctx.name.startsWith('_')) {
       return this.buildDebugEnvelope(record, version, source, sourceTs)
+    }
+
+    // ── C-A / R10 config-drift guard ───────────────────────────────────
+    // A naive handle — opened WITHOUT `classifiedFields`, so this codec has
+    // `vdigFields === null` — writing into a collection that HAS classified
+    // digest-only fields would silently drop `_bidx`/`_vdig` tags or serialize
+    // the secret as plaintext into `_data`. Refuse. Placed here (before the
+    // sealed/vdig blocks, which a `vdigFields === null` codec skips) so the
+    // check still runs, symmetric in spirit to the `prev._sealed` R6 check.
+    // Two independent signals:
+    //   1. the persisted `x-classified` marker (cross-session, prev-free — the
+    //      naive write path supplies no `prev`, so this is the primary signal);
+    //   2. the target `prev` already carries `_vdig`/`_bidx` (the overwrite arm,
+    //      which also back-ports the stage-2 `_vdig`-only hole).
+    // Only encrypted collections can be classified, so plaintext collections and
+    // correctly-configured classified codecs (`vdigFields !== null`) both skip it.
+    if (this.ctx.storeCiphertext && (this.ctx.vdigFields === null || this.ctx.vdigFields.size === 0)) {
+      const prevClassified = vdig?.prev?._vdig !== undefined || vdig?.prev?._bidx !== undefined
+      if (prevClassified || (this.ctx.classifiedMarkerPresent !== undefined && await this.ctx.classifiedMarkerPresent())) {
+        throw new ClassifiedConfigError(
+          this.ctx.name,
+          'this collection has classified digest-only fields but this handle was opened without classifiedFields — refusing to write (would drop tags or serialize the secret as plaintext)',
+        )
+      }
     }
 
     // Structural group-encryption: peel declared sensitive fields out

@@ -660,7 +660,11 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 4478→4481 (2026-07-04, classified stage 2 T16): reveal() ctx widened from a
   // single getView() to the raw-envelope shape (getEnvelope/resolveCek/getDEK) — the
   // reveal engine itself moved into kernel/enclave/classify/reveal.ts (I6).
-  'packages/hub/src/kernel/collection.ts': 4481,
+  // Bumped 4481→4506 (2026-07-04, classified slice 2b T6): C-A/R10 config-drift guard —
+  // per-handle memoization state + the first-write marker-persist hook + the naive-handle
+  // codec signal. Irreducible kernel write-path wiring; the marker store I/O itself lives in
+  // with-shape/classified/config-drift.ts and the R10 throw in enclave/record-keys/record-codec.ts.
+  'packages/hub/src/kernel/collection.ts': 4506,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.

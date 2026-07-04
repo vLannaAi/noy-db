@@ -445,6 +445,10 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    */
   private readonly vdigFields: ReadonlyMap<string, VdigFieldPolicy> | null
 
+  /** C-A/R10 memoization: naive-handle marker lookup (undefined=unresolved) + classified-handle persist-once flag. */
+  private _naiveMarkerCache: boolean | undefined = undefined
+  private _markerPersisted = false
+
   /**
    * Tree-shake seam for `reveal()` — defaults to `NO_CLASSIFIED`, which
    * throws `ClassifiedNotEnabledError`. Set via the `classifiedStrategy`
@@ -810,6 +814,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       schema: this.schema,
       getDEK: () => this.getDEK(this.name),
       cekCache: this.cekCache,
+      classifiedMarkerPresent: () => this._naiveClassifiedMarkerPresent(),
     })
 
     // Build + register this collection's SyncEngine conflict resolvers (the CRDT
@@ -1967,6 +1972,10 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
     const envelope = await this.codec.encryptRecord(record, version, cek, options?.source, options?.sourceTs, vdigCtx)
     await this.adapter.put(this.vault, this.name, id, envelope)
+
+    // C-A/R10: persist the x-classified marker on the first classified write
+    // (cross-session drift signal). Memoized; no-op for non-classified handles.
+    await this._ensureClassifiedMarker()
 
     // Derive the embedding vector at write (encode → encrypted _vec sidecar).
     // Placed AFTER the main adapter.put so `version` (computed above) is in scope and
@@ -4336,6 +4345,22 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       },
       id,
     )
+  }
+
+  /** C-A/R10: persist the classified marker once per classified handle (store I/O in config-drift.ts). */
+  private async _ensureClassifiedMarker(): Promise<void> {
+    if (this._markerPersisted || this.vdigFields === null) return
+    const { persistClassifiedMarkerForFields } = await import('../with-shape/classified/config-drift.js')
+    await persistClassifiedMarkerForFields(this.adapter, this.vault, this.name, this.vdigFields, await this.getDEK(this.name))
+    this._markerPersisted = true
+  }
+
+  /** C-A/R10 naive-handle drift signal — memoized to one store read per handle (see config-drift.ts). */
+  private async _naiveClassifiedMarkerPresent(): Promise<boolean> {
+    if (this._naiveMarkerCache !== undefined) return this._naiveMarkerCache
+    const { readClassifiedMarkerPresent } = await import('../with-shape/classified/config-drift.js')
+    this._naiveMarkerCache = await readClassifiedMarkerPresent(this.adapter, this.vault, this.name, await this.getDEK(this.name))
+    return this._naiveMarkerCache
   }
 
   /**
