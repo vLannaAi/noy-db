@@ -88,6 +88,9 @@ per-member policy.
   step-up assertion before reveal.
 - Classified fields join the `S` refusal set automatically — declare once, the query DSL
   refusal matrix follows.
+  > **Stage-1 deviation (2026-07-04):** automatic S-set membership is deferred to stage 2 —
+  > recoverable fields are runtime-sealed (handles, never inline), but compile-time query
+  > refusal requires the existing explicit S generic.
 
 ## Write path
 
