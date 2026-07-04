@@ -17,7 +17,7 @@
  * signature can't be exposed via a method without breaking `Collection<T>`
  * assignability to `Collection<unknown>`).
  */
-import type { NoydbStore, ConflictPolicy, CollectionConflictResolver, HistoryConfig, TierMode, CrossTierAccessEvent } from './types.js'
+import type { NoydbStore, ConflictPolicy, CollectionConflictResolver, HistoryConfig, TierMode, CrossTierAccessEvent, VdigFieldPolicy } from './types.js'
 import type { EnclaveKey } from './enclave/index.js'
 import type { UnlockedKeyring } from '../with-party/team/keyring.js'
 import type { NoydbEventEmitter } from './events.js'
@@ -515,6 +515,20 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     ? Object.freeze(new Set(sensitiveList))
     : Object.freeze(new Set<string>())
 
+  // Digest-only classified fields → the enclave-consumable policy map
+  // (stage 2). Both the codec write path and the verify engine key off it.
+  const vdigEntries: Array<readonly [string, VdigFieldPolicy]> =
+    resolvedClassified === undefined ? [] :
+      Object.entries(resolvedClassified.byField)
+        .filter(([, s]) => s.storage === 'digest-only')
+        .map(([f, s]) => [f, {
+          normalize: s.verifyNormalize ?? 'password',
+          notLastN: s.notLastN ?? 0,
+          ...(s.rotateDays !== undefined ? { rotateDays: s.rotateDays } : {}),
+        }] as const)
+  const vdigFields: ReadonlyMap<string, VdigFieldPolicy> | null =
+    vdigEntries.length > 0 ? new Map(vdigEntries) : null
+
   // per-record CEK wiring. The cache is bounded by record count; CEKs
   // are tiny CryptoKey handles, so a generous entry budget is cheap.
   const perRecordCek = opts.perRecordKeys === true
@@ -581,6 +595,7 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     onCrossTierAccess: opts.onCrossTierAccess,
     deterministicFields,
     sensitiveFields,
+    vdigFields,
     perRecordCek,
     cekCache,
     provenance: opts.provenance === true,
