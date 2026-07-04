@@ -391,6 +391,7 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
       key,
       type,
       optional: zod?.optional ?? false,
+      ...(zod?.constraints !== undefined ? { constraints: zod.constraints } : {}),
       label: resolved.label,
       ...(resolved.description !== undefined ? { description: resolved.description } : {}),
       ...(resolved.group !== undefined ? { group: resolved.group } : {}),
