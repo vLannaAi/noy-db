@@ -1582,6 +1582,45 @@ function checkEnclaveBodyOnly() {
   }
 }
 
+// ─── Check 12: enclave-classify-only (M1 — stage-2 identifier ratchet) ──
+//
+// Stage-2 classified: plaintext/digest/key operations live ONLY in
+// kernel/enclave/** (the classify/ folder). Outside it, referencing the
+// verify-crypto identifiers — or the vdig salt-domain literal — is a leak
+// of enclave interior into service/kernel code. Opaque `_vdig`
+// ciphertext-map TRANSIT is explicitly permitted (collection/vault/backup/
+// history shuttle blobs; C6 carry-forward copies them verbatim inside the
+// codec), which is why `_vdig` is deliberately absent from
+// BODY_FIELD_ACCESS_RE above. Like enclave-body-only: stripComments (not
+// strings — the salt literal IS a string), *.test.ts and __tests__/**
+// exempt. The enclave-conformance kit lives under test-harnesses/ (never
+// scanned — walkTsFiles here only walks packages/hub/src).
+const CLASSIFY_ENCLAVE_ONLY_RE =
+  /\bderiveVdigSlotKey\b|\bpbkdf2VerifyDigest\b|\bctEqualTags\b|\bblindedEqual\b|noydb-classify-vdig/
+
+function checkEnclaveClassifyOnly() {
+  const hubSrc = join(PACKAGES_DIR, 'hub', 'src')
+  const enclaveDir = join(hubSrc, 'kernel', 'enclave')
+  walkTsFiles(hubSrc, (file, content) => {
+    if (file.endsWith('.test.ts')) return
+    if (relative(ROOT, file).split('/').includes('__tests__')) return
+    const insideEnclave = !relative(enclaveDir, file).startsWith('..')
+    if (insideEnclave) return
+    const code = stripComments(content)
+    const m = code.match(CLASSIFY_ENCLAVE_ONLY_RE)
+    if (m) {
+      fail(
+        'enclave-classify-only',
+        `${relative(ROOT, file)} references "${m[0]}" — verify-digest crypto identifiers and the ` +
+        `'noydb-classify-vdig' salt domain are enclave-interior (M1). Call through the classified ` +
+        `strategy seam (with-shape/classified/active.ts dynamic import) or the enclave barrel; ` +
+        `opaque _vdig ciphertext transit needs no crypto identifier.`,
+        file,
+      )
+    }
+  })
+}
+
 // ─── Run ───────────────────────────────────────────────────────────────
 
 const startTime = Date.now()
@@ -1598,6 +1637,7 @@ checkNoOutboundKlumImport()
 checkPortLayering()
 checkEnclaveBarrelOnly()
 checkEnclaveBodyOnly()
+checkEnclaveClassifyOnly()
 
 const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
 
