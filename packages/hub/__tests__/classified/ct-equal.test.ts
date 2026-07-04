@@ -41,7 +41,13 @@ describe('blindedEqual (double-HMAC reduction)', () => {
     const short = await time(bytes('aa'), bytes('ab'))
     const long = await time(bytes('x'.repeat(200)), bytes('y'.repeat(200)))
     const mixed = await time(bytes('aa'), bytes('x'.repeat(200)))
+    // Bidirectional: the short/long/mixed timings must stay within a
+    // generous constant factor of each other, in either direction — a
+    // regression that makes any of them disproportionately slow OR
+    // disproportionately fast (e.g. an early-return short-circuit) trips this.
     expect(long).toBeLessThan(short * 5 + 50)
     expect(mixed).toBeLessThan(short * 5 + 50)
+    expect(short).toBeLessThan(long * 5 + 50)
+    expect(short).toBeLessThan(mixed * 5 + 50)
   })
 })

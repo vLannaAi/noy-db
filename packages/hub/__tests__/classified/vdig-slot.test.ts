@@ -48,6 +48,18 @@ describe('vdig slot seal/open', () => {
     await expect(openVdigPayload(blob, other, 'users', 'r1', 'password')).rejects.toThrow()
   })
 
+  it('a malformed blob (no iv:data separator) throws TamperedError', async () => {
+    const cek = await generateDEK()
+    await expect(openVdigPayload('nocolonhere', cek, 'users', 'r1', 'password')).rejects.toBeInstanceOf(TamperedError)
+  })
+
+  it('a malformed blob (garbage base64) throws TamperedError', async () => {
+    const cek = await generateDEK()
+    await expect(
+      openVdigPayload('not@@base64!!:also@@not!!base64', cek, 'users', 'r1', 'password'),
+    ).rejects.toBeInstanceOf(TamperedError)
+  })
+
   it('slot keys are domain-separated per field', async () => {
     const cek = await generateDEK()
     const k1 = await deriveVdigSlotKey(cek, 'users', 'password')
