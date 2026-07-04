@@ -17,10 +17,11 @@
  * Internal service — not exported as a `@noy-db/hub/*` subpath.
  */
 import { encrypt, decrypt, encryptDeterministic, wrapCek, unwrapCek, deriveSealedFieldKey, deriveSealedFieldKeyFromCek, type EnclaveKey } from '../crypto.js'
-import { NOYDB_FORMAT_VERSION, SealedHandle, type EncryptedEnvelope, type CrdtMode, type CrdtState, type CrdtStrategy } from '../../types.js'
+import { NOYDB_FORMAT_VERSION, SealedHandle, type EncryptedEnvelope, type CrdtMode, type CrdtState, type CrdtStrategy, type VdigFieldPolicy } from '../../types.js'
 import { isTombstone } from './tombstone.js'
 import { parseSealedSlot, dualReadSealedSlot } from './sealed-slot.js'
-import { DebugReservedFieldError } from '../../errors.js'
+import { DebugReservedFieldError, ClassifiedConfigError, ValidationError } from '../../errors.js'
+import { mintVdigSlot } from '../classify/write.js'
 import { validateSchemaOutput, type StandardSchemaV1 } from '../../schema.js'
 import type { Lru } from '../../cache/index.js'
 
@@ -40,6 +41,8 @@ export interface RecordCodecContext<T> {
   readonly sensitiveFields: ReadonlySet<string>
   /** Declared deterministic-index fields, or null. */
   readonly deterministicFields: ReadonlySet<string> | null
+  /** Digest-only classified fields → verify policy (stage 2). Null when none. */
+  readonly vdigFields: ReadonlyMap<string, VdigFieldPolicy> | null
   /** CRDT mode (decrypt resolves CrdtState→snapshot when set). */
   readonly crdtMode: CrdtMode | undefined
   /** CRDT strategy seam (resolveCrdtSnapshot). */
@@ -181,6 +184,7 @@ export class RecordCodec<T> {
     cek?: EnclaveKey,
     source?: string,
     sourceTs?: string,
+    vdig?: { readonly id: string; readonly prev: EncryptedEnvelope | null },
   ): Promise<EncryptedEnvelope> {
     // Debug-plaintext: write user-collection records with their fields inlined
     // beside the envelope metadata so native store tools read them directly.
@@ -219,9 +223,66 @@ export class RecordCodec<T> {
       }
     }
 
+    // ── Digest-only classified fields (stage 2, C6) ────────────────────
+    // Per field, exactly one of: carry-forward (absent) / rotate (string) /
+    // clear (null) / loud error (anything else). Runs on a CLONE so the
+    // caller's record object is never mutated.
+    let vdigOut: Record<string, string> | undefined
+    if (this.ctx.vdigFields !== null && this.ctx.vdigFields.size > 0 && this.ctx.storeCiphertext) {
+      if (vdig === undefined) {
+        throw new Error(
+          `RecordCodec.encryptRecord: collection "${this.ctx.name}" declares digest-only classified ` +
+          `fields but this write path supplied no { id, prev } context — it would silently destroy _vdig (C6). Caller bug.`,
+        )
+      }
+      if (cek === undefined) {
+        throw new Error(
+          `RecordCodec.encryptRecord: digest-only fields require a per-record CEK (R1 invariant) — ` +
+          `collection "${this.ctx.name}" wrote without one. Caller bug.`,
+        )
+      }
+      const open: Record<string, unknown> = { ...(openRecord as unknown as Record<string, unknown>) }
+      const out: Record<string, string> = {}
+      for (const [field, policy] of this.ctx.vdigFields) {
+        const value = open[field]
+        const prevBlob = vdig.prev?._vdig?.[field]
+        if (value === undefined) {
+          // 1. carry-forward: verbatim bytes (CEK version-stable, AAD _v-free;
+          //    byte-identity keeps the ledger payload hash deterministic).
+          if (prevBlob !== undefined) out[field] = prevBlob
+          continue
+        }
+        if (value === null) {
+          // 3. clear: the defined deletion short of forget().
+          delete open[field]
+          continue
+        }
+        if (typeof value !== 'string') {
+          // 4. caller bug, fail-loud.
+          throw new ValidationError(
+            `digest-only classified field "${field}" in "${this.ctx.name}" must be a string (rotate) or null (clear), got ${typeof value}`,
+          )
+        }
+        if (vdig.prev?._sealed?.[field] !== undefined) {
+          // R6 transition evidence: never silently delete recoverable plaintext.
+          throw new ClassifiedConfigError(
+            this.ctx.name,
+            `field "${field}" carries a recoverable _sealed slot from a previous storage form — ` +
+            `recoverable ↔ digest-only transitions are refused (R6); migrate explicitly`,
+          )
+        }
+        // 2. rotate: validate ran in the stage-1 write seam; digest + ring here.
+        out[field] = await mintVdigSlot(value, policy, prevBlob, cek, this.ctx.name, vdig.id, field)
+        delete open[field] // strip from _data — digest-only never persists plaintext
+      }
+      openRecord = open as unknown as T
+      if (Object.keys(out).length > 0) vdigOut = out
+    }
+
     const base = await this.encryptJsonString(JSON.stringify(openRecord), version, cek, source, sourceTs)
     const withSealed = sealed ? { ...base, _sealed: sealed } : base
-    if (!this.ctx.deterministicFields || !this.ctx.storeCiphertext) return withSealed
+    const withVdig = vdigOut ? { ...withSealed, _vdig: vdigOut } : withSealed
+    if (!this.ctx.deterministicFields || !this.ctx.storeCiphertext) return withVdig
 
     // compute deterministic-ciphertext slots for every
     // declared field. Non-primitive values are JSON-stringified so
@@ -232,14 +293,15 @@ export class RecordCodec<T> {
     const det: Record<string, string> = {}
     for (const field of this.ctx.deterministicFields) {
       if (this.ctx.sensitiveFields.has(field)) continue
+      if (this.ctx.vdigFields?.has(field)) continue // I5: digest-only never equality-correlatable
       const value = rec[field]
       if (value === undefined || value === null) continue
       const plaintext = typeof value === 'string' ? value : JSON.stringify(value)
       const { iv, data } = await encryptDeterministic(plaintext, dek, `${this.ctx.name}/${field}`)
       det[field] = `${iv}:${data}`
     }
-    if (Object.keys(det).length === 0) return withSealed
-    return { ...withSealed, _det: det }
+    if (Object.keys(det).length === 0) return withVdig
+    return { ...withVdig, _det: det }
   }
 
   // ──────────────────────────────────────────────────────────────────────

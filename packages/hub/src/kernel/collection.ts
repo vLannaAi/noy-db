@@ -787,6 +787,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       provenance: this.provenance,
       sensitiveFields: this.sensitiveFields,
       deterministicFields: this.deterministicFields,
+      vdigFields: null, // Task 8 wires the real map
       crdtMode: this.crdtMode,
       crdtStrategy: this.crdtStrategy,
       schema: this.schema,
