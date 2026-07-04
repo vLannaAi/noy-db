@@ -235,6 +235,8 @@
     "tiersContext",
     "toJSONSchema",
     "validateInput",
+    "verify",
+    "verifyGroup",
     "warmIndex"
   ]
 }

@@ -489,6 +489,7 @@
     "ClassifiedGroup",
     "ClassifiedList",
     "ClassifiedStorage",
+    "ClassifiedVerdict",
     "CircuitBreakerOptions",
     "Clause",
     "ClosePeriodOptions",

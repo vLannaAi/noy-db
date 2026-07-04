@@ -655,7 +655,9 @@ const KERNEL_SURFACE_BUDGET = {
   // guard call-sites (R1-R6) — the stored `classifiedGuardCtx` + the door-2 guard,
   // the R6 session form-flip refusal, and the digest-only retro-attach refusal in
   // `_applyClassifiedFields`; the guard logic lives in with-shape/classified/guards.ts.
-  'packages/hub/src/kernel/collection.ts': 4436,
+  // Bumped 4436→4478 (2026-07-04, classified stage 2 T15): verify()/verifyGroup()
+  // public oracle doors — thin ctx builders; the oracle lives in kernel/enclave/classify/verify.ts.
+  'packages/hub/src/kernel/collection.ts': 4478,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
