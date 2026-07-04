@@ -205,6 +205,9 @@ export interface AsXlsxOptions {
    * redaction; it never affects what's on disk. Sealed handles are
    * unaffected either way — they always serialize as `'[sealed]'`, so
    * ciphertext never leaks regardless of this option.
+   *
+   * Rider companion fields (e.g. `pan_last4`) remain visible as their own
+   * columns — they are safe write-time projections.
    */
   readonly redact?: boolean | { readonly sensitivity: 'omit' | 'mask' }
 }
