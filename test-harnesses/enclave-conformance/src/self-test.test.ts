@@ -50,6 +50,12 @@ function makeStub(unsupportedGroup: Group): EnclaveModule<CryptoKey> {
     decryptBytesWithAAD: unsupportedGroup === 'classify' ? refuses('classify') : real.decryptBytesWithAAD,
     deriveVdigSlotKey: unsupportedGroup === 'classify' ? refuses('classify') : real.deriveVdigSlotKey,
     pbkdf2VerifyDigest: unsupportedGroup === 'classify' ? refuses('classify') : real.pbkdf2VerifyDigest,
+    deriveClassifyIndexKey:
+      unsupportedGroup === 'classify' ? refuses('classify') : real.deriveClassifyIndexKey,
+    deriveClassifyIndexSalt:
+      unsupportedGroup === 'classify' ? refuses('classify') : real.deriveClassifyIndexSalt,
+    mintBidxTag: unsupportedGroup === 'classify' ? refuses('classify') : real.mintBidxTag,
+    computeBidxTarget: unsupportedGroup === 'classify' ? refuses('classify') : real.computeBidxTarget,
     ctEqualTags:
       unsupportedGroup === 'classify'
         ? () => {
