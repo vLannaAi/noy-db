@@ -39,4 +39,10 @@ describe('normalizeForVerify', () => {
     expect(normalizeForVerify('secret-answer', '  Fluffy   The\tCat ')).toBe('fluffy the cat')
     expect(normalizeForVerify('secret-answer', 'CAFÉ')).toBe('café')
   })
+
+  it('secret-answer mode: case-folding matches regardless of accents/case/whitespace', () => {
+    expect(normalizeForVerify('secret-answer', '  Élan  Vital ')).toBe(
+      normalizeForVerify('secret-answer', 'élan vital'),
+    )
+  })
 })

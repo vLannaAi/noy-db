@@ -14,7 +14,8 @@
  * record's `_cek` (forget() shreds it totally; no vdig-dekResidue class).
  * @module
  */
-import { encryptBytesWithAAD, decryptBytesWithAAD, type EnclaveKey } from '../crypto.js'
+import { encryptBytesWithAAD, decryptBytesWithAAD, base64ToBuffer, type EnclaveKey } from '../crypto.js'
+import { TamperedError } from '../../errors.js'
 
 const subtle = globalThis.crypto.subtle
 
@@ -78,10 +79,19 @@ export async function openVdigPayload(
   field: string,
 ): Promise<VdigPayload> {
   const sep = blob.indexOf(':')
+  if (sep === -1) throw new TamperedError()
+  const ivPart = blob.slice(0, sep)
+  const dataPart = blob.slice(sep + 1)
+  try {
+    base64ToBuffer(ivPart)
+    base64ToBuffer(dataPart)
+  } catch {
+    throw new TamperedError()
+  }
   const key = await deriveVdigSlotKey(cek, collection, field)
   const bytes = await decryptBytesWithAAD(
-    blob.slice(0, sep),
-    blob.slice(sep + 1),
+    ivPart,
+    dataPart,
     key,
     buildVdigAad(collection, recordId, field),
   )
