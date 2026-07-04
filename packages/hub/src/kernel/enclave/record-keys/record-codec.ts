@@ -16,7 +16,7 @@
  *
  * Internal service — not exported as a `@noy-db/hub/*` subpath.
  */
-import { encrypt, decrypt, encryptDeterministic, wrapCek, unwrapCek, deriveSealedFieldKey, deriveSealedFieldKeyFromCek, type EnclaveKey } from '../crypto.js'
+import { encrypt, decrypt, encryptDeterministic, deriveDeterministicKey, wrapCek, unwrapCek, deriveSealedFieldKey, deriveSealedFieldKeyFromCek, type EnclaveKey } from '../crypto.js'
 import { NOYDB_FORMAT_VERSION, SealedHandle, type EncryptedEnvelope, type CrdtMode, type CrdtState, type CrdtStrategy, type VdigFieldPolicy } from '../../types.js'
 import { isTombstone } from './tombstone.js'
 import { parseSealedSlot, dualReadSealedSlot } from './sealed-slot.js'
@@ -292,7 +292,11 @@ export class RecordCodec<T> {
     // declared field. Non-primitive values are JSON-stringified so
     // objects/arrays still dedupe on structural equality. Sealed fields are
     // excluded — they live only in `_sealed`, never the `_det` index.
+    // L-1: `_det` encrypts under a dedicated HKDF-derived key (salt
+    // `noydb-det`), never the raw DEK — the DEK's randomized-IV `_data`
+    // regime and `_det`'s deterministic-IV regime must not share a key.
     const dek = await this.ctx.getDEK()
+    const detKey = await deriveDeterministicKey(dek)
     const rec = record as unknown as Record<string, unknown>
     const det: Record<string, string> = {}
     for (const field of this.ctx.deterministicFields) {
@@ -301,7 +305,7 @@ export class RecordCodec<T> {
       const value = rec[field]
       if (value === undefined || value === null) continue
       const plaintext = typeof value === 'string' ? value : JSON.stringify(value)
-      const { iv, data } = await encryptDeterministic(plaintext, dek, `${this.ctx.name}/${field}`)
+      const { iv, data } = await encryptDeterministic(plaintext, detKey, `${this.ctx.name}/${field}`)
       det[field] = `${iv}:${data}`
     }
     if (Object.keys(det).length === 0) return withVdig

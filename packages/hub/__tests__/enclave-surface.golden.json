@@ -12,6 +12,7 @@
     "decryptBytes",
     "decryptBytesWithAAD",
     "decryptDeterministic",
+    "deriveDeterministicKey",
     "deriveKey",
     "derivePassphraseKey",
     "derivePresenceKey",
