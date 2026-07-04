@@ -651,7 +651,11 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 4358→4394 (2026-07-04 classified stage-2 T8): prev-envelope threading for
   // digest-only `_vdig` carry-forward (C6) — thin { id, prev } plumbing at the
   // encryptRecord call sites; the digest/carry crypto lives in kernel/enclave/classify/.
-  'packages/hub/src/kernel/collection.ts': 4394,
+  // Bumped 4394→4436 (2026-07-04, classified stage 2 T13): both-door Refusal-matrix
+  // guard call-sites (R1-R6) — the stored `classifiedGuardCtx` + the door-2 guard,
+  // the R6 session form-flip refusal, and the digest-only retro-attach refusal in
+  // `_applyClassifiedFields`; the guard logic lives in with-shape/classified/guards.ts.
+  'packages/hub/src/kernel/collection.ts': 4436,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
@@ -783,7 +787,11 @@ const KERNEL_SURFACE_BUDGET = {
   // `classifiedFields` option + reconcile branch + fresh-construction thread-through.
   // Bumped 3857→3862 — 2026-07-04 classified-fields stage 1 Task 6 (reveal gate): private
   // `classifiedStrategy` field + ctor option + ctor assignment + collOpts thread-through.
-  'packages/hub/src/kernel/vault.ts': 3862,
+  // Bumped 3862→3866 (2026-07-04, classified stage 2 T13): plumb `subjectKeyField` from
+  // `forgetStrategy.subjects[collectionName]` into collOpts so the Refusal-matrix R4 row
+  // (digest-only cannot be the forget-subject key) sees it; guard logic lives in
+  // with-shape/classified/guards.ts.
+  'packages/hub/src/kernel/vault.ts': 3866,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
@@ -1014,6 +1022,9 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/blobs/blob-compaction.js',
     '../with-shape/blobs/object-projection.js',
     '../with-shape/blobs/strategy.js',
+    // classified stage 2 Task 13 (2026-07-04) — refusal matrix R1-R5 guard at
+    // door 1 (config resolution); pure validation, same ③ class as resolve.js
+    '../with-shape/classified/guards.js',
     // classified-fields stage 1 — ③ schema feature, joins the #553 lazy-import debt like money/dictKey/computed
     '../with-shape/classified/resolve.js',
     // classified-fields stage 1 — ② capability gate, mirrors attestationStrategy/tiersStrategy threading
@@ -1076,6 +1087,9 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/classified/strategy.js',
     // classified-fields stage 1 Task 6 — typed reveal() error, sibling of the ③ write-path errors
     '../with-shape/classified/errors.js',
+    // classified stage 2 Task 13 (2026-07-04) — refusal matrix R1-R5 guard at
+    // door 2 (the _applyClassifiedFields reconcile seam); pure validation, same ③ class as resolve.js
+    '../with-shape/classified/guards.js',
     '../with-shape/i18n/core.js',
     '../with-shape/i18n/dictionary.js',
     '../with-shape/i18n/policy.js',
