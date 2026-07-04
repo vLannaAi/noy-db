@@ -55,7 +55,7 @@ export interface AsJSONOptions {
    * layer redaction; it never affects what's on disk. Sealed handles
    * are unaffected either way — they always serialize as `'[sealed]'`,
    * so ciphertext never leaks regardless of this option. Rider companion
-   * fields (e.g. `pan_last4`) remain visible as their own columns — they
+   * fields (e.g. `pan_last4`) remain visible as their own keys — they
    * are safe write-time projections.
    */
   readonly redact?: boolean | { readonly sensitivity: 'omit' | 'mask' }
