@@ -1,4 +1,4 @@
-import type { NoydbStore, EncryptedEnvelope, ChangeEvent, HistoryConfig, HistoryOptions, HistoryEntry, PruneOptions, ListPageResult, LocaleReadOptions, CollectionConflictResolver, PutManyItemOptions, PutManyOptions, PutManyResult, DeleteManyResult, SealedView } from './types.js'
+import type { NoydbStore, EncryptedEnvelope, ChangeEvent, HistoryConfig, HistoryOptions, HistoryEntry, PruneOptions, ListPageResult, LocaleReadOptions, CollectionConflictResolver, PutManyItemOptions, PutManyOptions, PutManyResult, DeleteManyResult, SealedView, VdigFieldPolicy } from './types.js'
 import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
 import type { CollectionMeta } from '../with-shape/introspection/meta.js'
 import { resolveClassifiedFields, ClassifiedConfigError, type ClassifiedEntry, type ResolvedClassified } from '../with-shape/classified/resolve.js'
@@ -431,6 +431,13 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   private classified: ResolvedClassified | undefined
 
   /**
+   * Digest-only classified fields (`storage: 'digest-only'`), keyed by field
+   * name — the enclave-consumable policy map the codec's write path carries
+   * `_vdig` forward under (C6). `null` when the collection declares none.
+   */
+  private readonly vdigFields: ReadonlyMap<string, VdigFieldPolicy> | null
+
+  /**
    * Tree-shake seam for `reveal()` — defaults to `NO_CLASSIFIED`, which
    * throws `ClassifiedNotEnabledError`. Set via the `classifiedStrategy`
    * `createNoydb()` option (opt in with `withClassified()`).
@@ -722,6 +729,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     this._refs = cfg._refs
     this.moneyFields = cfg.moneyFields
     this.classified = cfg.classified
+    this.vdigFields = cfg.vdigFields
     this.classifiedStrategy = cfg.classifiedStrategy
     this.computed = cfg.computed
     this.dictLabelResolver = cfg.dictLabelResolver
@@ -787,7 +795,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       provenance: this.provenance,
       sensitiveFields: this.sensitiveFields,
       deterministicFields: this.deterministicFields,
-      vdigFields: null, // Task 8 wires the real map
+      vdigFields: this.vdigFields,
       crdtMode: this.crdtMode,
       crdtStrategy: this.crdtStrategy,
       schema: this.schema,
@@ -879,6 +887,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
           const merged = mergeFn(localRecord, remoteRecord)
           const mergedVersion = Math.max(local._v, remote._v) + 1
           const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
+          // R2 refuses digest-only × conflictPolicy; on a vdig collection this path is
+          // unreachable and the codec fail-loud guard backstops it.
           return this.codec.encryptRecord(merged, mergedVersion, cek)
         }
       }
@@ -1477,6 +1487,22 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     return cached ? { record: cached.record, version: cached.version } : undefined
   }
 
+  /**
+   * Wraps {@link RecordCodec.toCacheRecord} with an additional strip for
+   * digest-only classified fields: the codec already omits them from `_data`
+   * on write, but the write path caches the pre-encrypt `record` object
+   * directly (to skip a redundant decrypt) — without this, a vdig field's
+   * plaintext would sit in the working-set cache and `get()` would leak it
+   * right back out, defeating C6.
+   */
+  private async toCacheableRecord(record: T, envelope: EncryptedEnvelope, id: string): Promise<T> {
+    const base = await this.codec.toCacheRecord(record, envelope, id)
+    if (this.vdigFields === null) return base
+    const clone = { ...(base as unknown as Record<string, unknown>) }
+    for (const field of this.vdigFields.keys()) delete clone[field]
+    return clone as unknown as T
+  }
+
   /** @internal Untracked put body — call {@link put}, not this. */
   private async _putInternal(id: string, record: T, options?: { readonly reason?: string; readonly source?: string; readonly sourceTs?: string }): Promise<void> {
     if (!hasWritePermission(this.keyring, this.name)) {
@@ -1741,7 +1767,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
       if (existingResolved && this.historyConfig.enabled !== false) {
         // History snapshot of the PRIOR version — does NOT carry source from the new write
-        const histEnvelope = await this.codec.encryptRecord(existingResolved.record, existingResolved.version, cek)
+        const vdigCtx = this.vdigFields !== null ? { id, prev: existingEnvelope } : undefined
+        const histEnvelope = await this.codec.encryptRecord(existingResolved.record, existingResolved.version, cek, undefined, undefined, vdigCtx)
         await this.historyStrategy.saveHistory(this.adapter, this.vault, this.name, id, histEnvelope)
         this.emitter.emit('history:save', { vault: this.vault, collection: this.name, id, version: existingResolved.version })
         if (this.historyConfig.maxVersions) {
@@ -1822,11 +1849,18 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // byte-identical legacy write path.
     const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
 
+    // Digest-only classified fields need the PREVIOUS live envelope: the codec
+    // carries `_vdig` forward when a field is absent from this write (C6).
+    // One adapter read, only on vdig collections — zero-cost otherwise.
+    const vdigCtx = this.vdigFields !== null
+      ? { id, prev: await this.adapter.get(this.vault, this.name, id) }
+      : undefined
+
     // Save history snapshot of the PREVIOUS version before overwriting.
     // CRITICAL: the history snapshot is a record of the PRIOR version — it must
     // NOT carry the source from the current write (source belongs to the new write only).
     if (existing && this.historyConfig.enabled !== false) {
-      const historyEnvelope = await this.codec.encryptRecord(existing.record, existing.version, cek)
+      const historyEnvelope = await this.codec.encryptRecord(existing.record, existing.version, cek, undefined, undefined, vdigCtx)
       await this.historyStrategy.saveHistory(this.adapter, this.vault, this.name, id, historyEnvelope)
 
       this.emitter.emit('history:save', {
@@ -1844,7 +1878,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       }
     }
 
-    const envelope = await this.codec.encryptRecord(record, version, cek, options?.source, options?.sourceTs)
+    const envelope = await this.codec.encryptRecord(record, version, cek, options?.source, options?.sourceTs, vdigCtx)
     await this.adapter.put(this.vault, this.name, id, envelope)
 
     // Derive the embedding vector at write (encode → encrypted _vec sidecar).
@@ -1897,13 +1931,13 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     if (this.lazy && this.lru) {
       // Cache the handle-form (sealed fields → Sealed handles) so plaintext
       // for sensitive fields is never resident in the working set.
-      this.lru.set(id, { record: await this.codec.toCacheRecord(record, envelope, id), version }, estimateRecordBytes(record))
+      this.lru.set(id, { record: await this.toCacheableRecord(record, envelope, id), version }, estimateRecordBytes(record))
       // Maintain persisted-index side-cars. Lazy mode is the
       // only place `persistedIndexes` is populated; eager mode uses the
       // in-memory `CollectionIndexes` above.
       await this.maintainPersistedIndexesOnPut(id, record, existing ? existing.record : null, version)
     } else {
-      this.cache.set(id, { record: await this.codec.toCacheRecord(record, envelope, id), version })
+      this.cache.set(id, { record: await this.toCacheableRecord(record, envelope, id), version })
       // Update secondary indexes incrementally — no-op if no indexes are
       // declared. Pass the previous record (if any) so old buckets are
       // cleaned up before the new value is added.
@@ -2413,7 +2447,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       // stays directly under the collection DEK. `forget()`/shred reports
       // un-migrated records explicitly rather than claiming erasure.
       const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
-      const newEnv = await this.codec.encryptRecord(next as unknown as T, nextVersion, cek)
+      const newEnv = await this.codec.encryptRecord(next as unknown as T, nextVersion, cek, undefined, undefined, this.vdigFields !== null ? { id, prev: env } : undefined)
       await this.adapter.put(this.vault, this.name, id, newEnv)
       await this._invalidateCacheEntry(id) // refresh in-memory cache after the raw write
       if (this.ledger) {
@@ -2557,7 +2591,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // stays in the same key chain as the rest of its history.
     if (existing && this.historyConfig.enabled !== false) {
       const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
-      const historyEnvelope = await this.codec.encryptRecord(existing.record, existing.version, cek)
+      const prevForVdig = this.vdigFields !== null ? await this.adapter.get(this.vault, this.name, id) : null
+      const historyEnvelope = await this.codec.encryptRecord(existing.record, existing.version, cek, undefined, undefined, this.vdigFields !== null ? { id, prev: prevForVdig } : undefined)
       await this.historyStrategy.saveHistory(this.adapter, this.vault, this.name, id, historyEnvelope)
     }
 
@@ -3812,7 +3847,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       // dumped envelope matches the stored format and stays in the same key
       // chain. `undefined` → legacy path.
       const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
-      result[id] = await this.codec.encryptRecord(entry.record, entry.version, cek)
+      const prevForVdig = this.vdigFields !== null ? await this.adapter.get(this.vault, this.name, id) : null
+      result[id] = await this.codec.encryptRecord(entry.record, entry.version, cek, undefined, undefined, this.vdigFields !== null ? { id, prev: prevForVdig } : undefined)
     }
     return result
   }
