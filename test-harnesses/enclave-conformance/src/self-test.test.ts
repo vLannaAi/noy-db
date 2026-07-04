@@ -14,7 +14,7 @@ import { EnclaveNotSupportedError } from '@noy-db/hub'
 import * as real from '../../../packages/hub/src/kernel/enclave/index.js'
 import { runEnclaveConformance, assertGroupRefuses, type EnclaveModule } from './index.js'
 
-type Group = 'sealing' | 'deterministic' | 'per-record-keys'
+type Group = 'sealing' | 'deterministic' | 'per-record-keys' | 'classify'
 
 function refuses(group: Group): (...args: never[]) => Promise<never> {
   return async () => {
@@ -46,24 +46,46 @@ function makeStub(unsupportedGroup: Group): EnclaveModule<CryptoKey> {
       unsupportedGroup === 'deterministic' ? refuses('deterministic') : real.decryptDeterministic,
     wrapCek: unsupportedGroup === 'per-record-keys' ? refuses('per-record-keys') : real.wrapCek,
     unwrapCek: unsupportedGroup === 'per-record-keys' ? refuses('per-record-keys') : real.unwrapCek,
+    encryptBytesWithAAD: unsupportedGroup === 'classify' ? refuses('classify') : real.encryptBytesWithAAD,
+    decryptBytesWithAAD: unsupportedGroup === 'classify' ? refuses('classify') : real.decryptBytesWithAAD,
+    deriveVdigSlotKey: unsupportedGroup === 'classify' ? refuses('classify') : real.deriveVdigSlotKey,
+    pbkdf2VerifyDigest: unsupportedGroup === 'classify' ? refuses('classify') : real.pbkdf2VerifyDigest,
+    ctEqualTags:
+      unsupportedGroup === 'classify'
+        ? () => {
+            throw new EnclaveNotSupportedError('classify')
+          }
+        : real.ctEqualTags,
+    evaluateKofN:
+      unsupportedGroup === 'classify'
+        ? () => {
+            throw new EnclaveNotSupportedError('classify')
+          }
+        : real.evaluateKofN,
   }
 }
 
 describe('kit self-test: sealing unsupported', () => {
   runEnclaveConformance(makeStub('sealing'), {
-    supports: { sealing: false, deterministic: true, perRecordKeys: true },
+    supports: { sealing: false, deterministic: true, perRecordKeys: true, classify: true },
   })
 })
 
 describe('kit self-test: deterministic unsupported', () => {
   runEnclaveConformance(makeStub('deterministic'), {
-    supports: { sealing: true, deterministic: false, perRecordKeys: true },
+    supports: { sealing: true, deterministic: false, perRecordKeys: true, classify: true },
   })
 })
 
 describe('kit self-test: per-record-keys unsupported', () => {
   runEnclaveConformance(makeStub('per-record-keys'), {
-    supports: { sealing: true, deterministic: true, perRecordKeys: false },
+    supports: { sealing: true, deterministic: true, perRecordKeys: false, classify: true },
+  })
+})
+
+describe('kit self-test: classify unsupported', () => {
+  runEnclaveConformance(makeStub('classify'), {
+    supports: { sealing: true, deterministic: true, perRecordKeys: true, classify: false },
   })
 })
 

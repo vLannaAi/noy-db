@@ -62,6 +62,14 @@ export interface EnclaveModule<K = unknown> {
   // ─── optional group: per-record keys ───────────────────────────────
   wrapCek(cek: K, dek: K): Promise<string>
   unwrapCek(wrapped: string, dek: K): Promise<K>
+
+  // ─── optional group: classify (stage-2 verify oracle primitives) ───
+  encryptBytesWithAAD(data: Uint8Array, dek: K, aad: Uint8Array): Promise<{ iv: string; data: string }>
+  decryptBytesWithAAD(iv: string, data: string, dek: K, aad: Uint8Array): Promise<Uint8Array>
+  deriveVdigSlotKey(cek: K, collectionName: string, field: string): Promise<K>
+  pbkdf2VerifyDigest(value: string, salt: Uint8Array, iterations: number): Promise<Uint8Array>
+  ctEqualTags(a: Uint8Array, b: Uint8Array): boolean
+  evaluateKofN(results: readonly boolean[], min: number): boolean
 }
 
 export interface EnclaveConformanceOptions {
@@ -69,14 +77,15 @@ export interface EnclaveConformanceOptions {
     readonly sealing: boolean
     readonly deterministic: boolean
     readonly perRecordKeys: boolean
+    readonly classify: boolean
   }
 }
 
 /** The stable code every `EnclaveNotSupportedError` (or fork subclass) carries. */
 const NOT_SUPPORTED_CODE = new EnclaveNotSupportedError('sealing').code
 
-/** One of the three optional groups the enclave contract lets a fork refuse. */
-export type ConformanceGroup = 'sealing' | 'deterministic' | 'per-record-keys'
+/** One of the optional groups the enclave contract lets a fork refuse. */
+export type ConformanceGroup = 'sealing' | 'deterministic' | 'per-record-keys' | 'classify'
 
 /** True iff `err` is an `EnclaveNotSupportedError` (or fork subclass) refusal. */
 function isNotSupportedRefusal(err: unknown): boolean {
@@ -114,6 +123,10 @@ export async function assertGroupRefuses<K>(
     'per-record-keys': [
       ['wrapCek', () => enclave.wrapCek(cek, dek)],
       ['unwrapCek', () => enclave.unwrapCek('bogus', dek)],
+    ],
+    classify: [
+      ['deriveVdigSlotKey', () => enclave.deriveVdigSlotKey(cek, 'c', 'f')],
+      ['pbkdf2VerifyDigest', () => enclave.pbkdf2VerifyDigest('v', new Uint8Array(32), 1_000)],
     ],
   }
 
@@ -287,6 +300,57 @@ export function runEnclaveConformance<K>(enclave: EnclaveModule<K>, opts: Enclav
           expect(await assertGroupRefuses(enclave, 'per-record-keys')).toEqual([])
         })
       }
+    })
+
+    describe('classify (stage-2 verify primitives)', () => {
+      if (!opts.supports.classify) {
+        it('refuses the group with EnclaveNotSupportedError', () => {
+          expect(() => enclave.ctEqualTags(new Uint8Array(32), new Uint8Array(32)))
+            .toThrowError(expect.objectContaining({ code: NOT_SUPPORTED_CODE }))
+        })
+        return
+      }
+
+      it('pbkdf2VerifyDigest: 32 bytes, deterministic, salt-separated', async () => {
+        const salt = new Uint8Array(32).fill(3)
+        const a = await enclave.pbkdf2VerifyDigest('candidate', salt, 1_000)
+        const b = await enclave.pbkdf2VerifyDigest('candidate', salt, 1_000)
+        const c = await enclave.pbkdf2VerifyDigest('candidate', new Uint8Array(32).fill(4), 1_000)
+        expect(a.length).toBe(32)
+        expect([...a]).toEqual([...b])
+        expect([...a]).not.toEqual([...c])
+      })
+
+      it('ctEqualTags: equal/unequal verdicts + exact-32 precondition', () => {
+        const t = new Uint8Array(32).fill(9)
+        expect(enclave.ctEqualTags(t, new Uint8Array(32).fill(9))).toBe(true)
+        const off = new Uint8Array(32).fill(9); off[0] = 8
+        expect(enclave.ctEqualTags(t, off)).toBe(false)
+        expect(() => enclave.ctEqualTags(new Uint8Array(31), t)).toThrow()
+      })
+
+      it('evaluateKofN truth table + bounds', () => {
+        expect(enclave.evaluateKofN([true, false, true], 2)).toBe(true)
+        expect(enclave.evaluateKofN([true, false, false], 2)).toBe(false)
+        expect(() => enclave.evaluateKofN([true], 0)).toThrow()
+        expect(() => enclave.evaluateKofN([true], 2)).toThrow()
+      })
+
+      it('vdig slot key: AAD-bound round-trip + cross-record/field splice rejection (C1)', async () => {
+        const cek = await enclave.generateDEK()
+        const key = await enclave.deriveVdigSlotKey(cek, 'users', 'password')
+        const aad = (rid: string, f: string) =>
+          new TextEncoder().encode(JSON.stringify(['noydb-classify-vdig', 'users', rid, f]))
+        const sealed = await enclave.encryptBytesWithAAD(
+          new TextEncoder().encode('{"v":1}'), key as never, aad('r1', 'password'))
+        const back = await enclave.decryptBytesWithAAD(sealed.iv, sealed.data, key as never, aad('r1', 'password'))
+        expect(new TextDecoder().decode(back)).toBe('{"v":1}')
+        await expect(enclave.decryptBytesWithAAD(sealed.iv, sealed.data, key as never, aad('r2', 'password')))
+          .rejects.toThrow() // spliced to another record
+        const keyOtherField = await enclave.deriveVdigSlotKey(cek, 'users', 'pin')
+        await expect(enclave.decryptBytesWithAAD(sealed.iv, sealed.data, keyOtherField as never, aad('r1', 'pin')))
+          .rejects.toThrow() // spliced to another field (key AND aad domain-separated)
+      })
     })
 
     describe('known-answer vectors (structure + decryptability, no leaks)', () => {
