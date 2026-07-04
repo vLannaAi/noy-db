@@ -27,6 +27,18 @@ import { normalizeForVerify } from '../classify/normalize.js'
 import { validateSchemaOutput, type StandardSchemaV1 } from '../../schema.js'
 import type { Lru } from '../../cache/index.js'
 
+/**
+ * One classified per-slot verdict from {@link RecordCodec.classifySealedShred}.
+ * `shreddable` — CEK-only, tombstone makes it undecryptable. `dekResidue` —
+ * collection-DEK-keyed, survives in synced/backup copies. The third class is
+ * BOTH: a `_bidx` blind-index tag is live-dropped by the tombstone yet retained
+ * under the surviving DEK in any pre-forget backup (honest dual accounting).
+ */
+export type SealedShredSlot = {
+  readonly field: string
+  readonly class: 'shreddable' | 'dekResidue' | 'live-shreddable+dekResidue-in-backups'
+}
+
 /** Everything the moving crypto methods touched on `this.*`, as a flat context. */
 export interface RecordCodecContext<T> {
   /** Collection name — the crypto AAD scope and schema-error context. */
@@ -470,30 +482,41 @@ export class RecordCodec<T> {
    */
   async classifySealedShred(
     live: EncryptedEnvelope,
-  ): Promise<{ shreddable: string[]; dekResidue: string[] }> {
-    const shreddable: string[] = []
-    const dekResidue: string[] = []
+  ): Promise<{ readonly slots: readonly SealedShredSlot[] }> {
+    const slots: SealedShredSlot[] = []
     // Verify-digest slots are CEK-only by construction (I3): dropping `_cek`
     // makes every `_vdig[field]` permanently undecryptable — shreddable
     // unconditionally, no vdig-dekResidue class (spec §2 forget()). Same
     // honesty caveats as #306 D5 for synced/backup copies of the ciphertext.
+    // A `_vdig` field ALSO carrying a `_bidx` tag is the third category: the
+    // tombstone drops it from the live store, but a pre-forget backup retains
+    // the blind-index tag under the surviving collection DEK — live-shreddable
+    // yet dekResidue-in-backups. `_bidx[field] ⇒ _vdig[field]` (I4), so we
+    // decide per vdig field and emit exactly one slot each (count-preserving).
     if (live._vdig !== undefined && live._cek !== undefined) {
-      shreddable.push(...Object.keys(live._vdig))
+      for (const field of Object.keys(live._vdig)) {
+        slots.push({
+          field,
+          class: live._bidx?.[field] !== undefined
+            ? 'live-shreddable+dekResidue-in-backups'
+            : 'shreddable',
+        })
+      }
     }
     const sealed = live._sealed
-    if (sealed === undefined) return { shreddable, dekResidue }
+    if (sealed === undefined) return { slots }
     const cek = await this.resolveEnvelopeCek(live)
     for (const [field, blob] of Object.entries(sealed)) {
-      if (cek === undefined) { dekResidue.push(field); continue }
+      if (cek === undefined) { slots.push({ field, class: 'dekResidue' }); continue }
       const { iv, data } = parseSealedSlot(blob)
       try {
         await decrypt(iv, data, await deriveSealedFieldKeyFromCek(cek, this.ctx.name, field))
-        shreddable.push(field)
+        slots.push({ field, class: 'shreddable' })
       } catch {
-        dekResidue.push(field)
+        slots.push({ field, class: 'dekResidue' })
       }
     }
-    return { shreddable, dekResidue }
+    return { slots }
   }
 
   /**

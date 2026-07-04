@@ -116,7 +116,7 @@ import {
   type ClosePeriodOptions,
   type OpenPeriodOptions,
 } from '../with-audit/periods/index.js'
-import { encrypt, openEnvelopeJson, hasPerRecordKey, SEALED_CEK_NS, type SealingContext, type EnclaveKey } from './enclave/index.js'
+import { encrypt, openEnvelopeJson, hasPerRecordKey, SEALED_CEK_NS, type SealingContext, type EnclaveKey, type SealedShredSlot } from './enclave/index.js'
 import type { RecipientSealer } from '../with-party/team/managed-passphrase.js'
 import {
   createExportBlobsHandle,
@@ -2291,9 +2291,20 @@ export class Vault {
       if (live?._sealed !== undefined) {
         try {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const cls = await (coll as any)._classifySealedShred(live) as { shreddable: string[]; dekResidue: string[] }
-          sealedFieldsShredded += cls.shreddable.length
-          for (const field of cls.dekResidue) sealedResidue.push(`${ref.collection}:${ref.id}:${field}`)
+          const cls = await (coll as any)._classifySealedShred(live) as { readonly slots: readonly SealedShredSlot[] }
+          for (const slot of cls.slots) {
+            // 'shreddable' → CEK-only, the tombstone genuinely erases it.
+            // 'live-shreddable+dekResidue-in-backups' (the `_bidx` case) is BOTH:
+            // live-dropped by the tombstone (counts as shredded) yet retained
+            // under the surviving DEK in any pre-forget backup (also residue) —
+            // honest dual accounting.
+            if (slot.class === 'shreddable' || slot.class === 'live-shreddable+dekResidue-in-backups') {
+              sealedFieldsShredded += 1
+            }
+            if (slot.class === 'dekResidue' || slot.class === 'live-shreddable+dekResidue-in-backups') {
+              sealedResidue.push(`${ref.collection}:${ref.id}:${slot.field}`)
+            }
+          }
         } catch {
           // Classification unwraps `_cek`; if that fails (corrupt/unreadable
           // envelope) do NOT abort the whole erasure mid-loop. Report every

@@ -91,6 +91,7 @@ export { resolveStableCek, rewrapBodyToDek } from './record-keys/lifecycle.js'
 
 // ─── record codec ──────────────────────────────────────────────────
 export { RecordCodec } from './record-keys/record-codec.js'
+export type { SealedShredSlot } from './record-keys/record-codec.js'
 
 // ─── sealing ───────────────────────────────────────────────────────
 export { SEALED_CEK_NS, sealRecordToHost, revokeSealedRecord, rotateRecordCek } from './record-keys/sealing.js'

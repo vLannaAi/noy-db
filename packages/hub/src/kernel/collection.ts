@@ -26,6 +26,7 @@ import {
   RecordCodec,
   type DeterministicContext,
   type EnclaveKey,
+  type SealedShredSlot,
 } from './enclave/index.js'
 import {
   classifySealedShred as classifySealedShredImpl,
@@ -4453,7 +4454,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    */
   _classifySealedShred(
     live: EncryptedEnvelope,
-  ): Promise<{ shreddable: string[]; dekResidue: string[] }> {
+  ): Promise<{ readonly slots: readonly SealedShredSlot[] }> {
     return classifySealedShredImpl(this.tiersContext(), live)
   }
 

@@ -27,10 +27,11 @@ describe('forget() × _vdig', () => {
     expect(live._vdig?.password).toBeDefined()
     // reach the codec through the collection's internal shim, as forget() does
     const result = await (c as unknown as {
-      _classifySealedShred(e: unknown): Promise<{ shreddable: string[]; dekResidue: string[] }>
+      _classifySealedShred(e: unknown): Promise<{ readonly slots: readonly { readonly field: string; readonly class: string }[] }>
     })._classifySealedShred(live)
-    expect(result.shreddable).toContain('password')
-    expect(result.shreddable).toContain('ssn')       // CEK-sealed slot, unchanged behavior
-    expect(result.dekResidue).not.toContain('password')
+    // password is digest-only (no _bidx) → shreddable; ssn is a CEK-sealed slot
+    expect(result.slots).toContainEqual({ field: 'password', class: 'shreddable' })
+    expect(result.slots).toContainEqual({ field: 'ssn', class: 'shreddable' })   // CEK-sealed, unchanged behavior
+    expect(result.slots).not.toContainEqual({ field: 'password', class: 'dekResidue' })
   }, 60_000)
 })

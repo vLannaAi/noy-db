@@ -664,7 +664,9 @@ const KERNEL_SURFACE_BUDGET = {
   // per-handle memoization state + the first-write marker-persist hook + the naive-handle
   // codec signal. Irreducible kernel write-path wiring; the marker store I/O itself lives in
   // with-shape/classified/config-drift.ts and the R10 throw in enclave/record-keys/record-codec.ts.
-  'packages/hub/src/kernel/collection.ts': 4506,
+  // Bumped 4506→4507 (2026-07-04, classified slice 2b T8): the per-slot
+  // `SealedShredSlot` type import for `_classifySealedShred`'s return annotation.
+  'packages/hub/src/kernel/collection.ts': 4507,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
@@ -800,7 +802,11 @@ const KERNEL_SURFACE_BUDGET = {
   // `forgetStrategy.subjects[collectionName]` into collOpts so the Refusal-matrix R4 row
   // (digest-only cannot be the forget-subject key) sees it; guard logic lives in
   // with-shape/classified/guards.ts.
-  'packages/hub/src/kernel/vault.ts': 3866,
+  // Bumped 3866→3877 (2026-07-04, classified slice 2b T8): forget() crypto-shred
+  // accounting rewritten against `classifySealedShred`'s per-slot shape — the
+  // `_bidx` third category ('live-shreddable+dekResidue-in-backups') counts as
+  // BOTH shredded and dekResidue-in-backups (honest dual accounting).
+  'packages/hub/src/kernel/vault.ts': 3877,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),

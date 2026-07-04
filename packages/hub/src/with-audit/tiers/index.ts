@@ -23,7 +23,7 @@
 export { withTiers } from './active.js'
 export { NO_TIERS, type TiersStrategy } from './strategy.js'
 export { TiersNotEnabledError } from '../../kernel/errors.js'
-import { encrypt, decrypt, unwrapCek, rewrapBodyToDek, type RecordCodec, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { encrypt, decrypt, unwrapCek, rewrapBodyToDek, type RecordCodec, type EnclaveKey, type SealedShredSlot } from '../../kernel/enclave/index.js'
 import { TierDemoteDeniedError } from '../../kernel/errors.js'
 import { dekKey, assertTierAccess } from '../../with-party/team/tiers.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
@@ -347,6 +347,6 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
 export function classifySealedShred<T>(
   ctx: TiersContext<T>,
   live: EncryptedEnvelope,
-): Promise<{ shreddable: string[]; dekResidue: string[] }> {
+): Promise<{ readonly slots: readonly SealedShredSlot[] }> {
   return ctx.codec.classifySealedShred(live)
 }
