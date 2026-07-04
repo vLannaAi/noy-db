@@ -86,12 +86,13 @@ export function hasPerRecordKey(env: EncryptedEnvelope): boolean {
 /**
  * Canonical body string for the ledger hash chain — the exact bytes
  * `with-commit/history/ledger/hash.ts`'s `envelopePayloadHash` derives from
- * `_data` + `_sealed` before hashing:
- *  - no `_sealed` → `_data` alone (back-compat: every pre-existing ledger
- *    entry and non-sealed backup hashes byte-identically).
- *  - `_sealed` present → canonical JSON of `{ _data, _sealed }` with sorted
- *    keys at every level, so the result is independent of `_sealed`'s
- *    field-insertion / store-serialization order.
+ * `_data` + `_sealed` + `_vdig` before hashing:
+ *  - no `_sealed`, no `_vdig` → `_data` alone (back-compat: every
+ *    pre-existing ledger entry and non-sealed backup hashes byte-identically).
+ *  - either map present → canonical JSON of `{ _data, _sealed?, _vdig? }`
+ *    with sorted keys at every level, each map bound ONLY when present, so
+ *    the result is independent of the maps' field-insertion / store-
+ *    serialization order.
  *
  * Deliberately reimplements the two-key-object canonicalization inline
  * rather than importing `with-commit/history/ledger/entry.ts`'s general
@@ -102,10 +103,21 @@ export function hasPerRecordKey(env: EncryptedEnvelope): boolean {
  * `envelope-body.test.ts`).
  */
 export function envelopeBodyForHash(env: EncryptedEnvelope): string {
-  if (env._sealed === undefined) return env._data
-  const sealedKeys = Object.keys(env._sealed).sort()
-  const sealedParts = sealedKeys.map(
-    (k) => `${JSON.stringify(k)}:${JSON.stringify(env._sealed![k])}`,
-  )
-  return `{"_data":${JSON.stringify(env._data)},"_sealed":{${sealedParts.join(',')}}}`
+  // Conditional widen (stage 2): bind `_vdig` exactly the way `_sealed` is
+  // bound — only when present. No existing envelope carries `_vdig`, so this
+  // ships with no flag-day PROVIDED it lands in the same slice as the first
+  // `_vdig` writer (it does — Tasks 7/8/11 are one branch). This binding is
+  // the temporal-rollback detector completing C1: AAD stops cross-record/
+  // cross-field splices; the ledger hash catches same-slot rollbacks.
+  if (env._sealed === undefined && env._vdig === undefined) return env._data
+  const mapPart = (key: '_sealed' | '_vdig', map: Record<string, string>): string => {
+    const parts = Object.keys(map).sort().map(
+      (k) => `${JSON.stringify(k)}:${JSON.stringify(map[k])}`,
+    )
+    return `${JSON.stringify(key)}:{${parts.join(',')}}`
+  }
+  const segments = [`"_data":${JSON.stringify(env._data)}`]
+  if (env._sealed !== undefined) segments.push(mapPart('_sealed', env._sealed))
+  if (env._vdig !== undefined) segments.push(mapPart('_vdig', env._vdig))
+  return `{${segments.join(',')}}`
 }
