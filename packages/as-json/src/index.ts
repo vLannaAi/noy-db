@@ -17,7 +17,7 @@
  * @packageDocumentation
  */
 
-import type { Vault } from '@noy-db/hub'
+import { applyListProjection, type Vault, type CollectionDescription } from '@noy-db/hub'
 
 export interface AsJSONOptions {
   /**
@@ -40,6 +40,25 @@ export interface AsJSONOptions {
    * of the raw records the consumer originally put.
    */
   readonly includeMeta?: boolean
+
+  /**
+   * Apply the hub's `applyListProjection` read-projection before
+   * serialising records. `true` redacts only `classifiedFields` (mask /
+   * omit / rider, per the field's preset). The object form additionally
+   * redacts fields carrying a plain `fieldMeta` `sensitivity: 'pii' |
+   * 'secret'` tag, per `sensitivity: 'omit' | 'mask'`.
+   *
+   * Caveat: `describe()` reflects the declarations of *this session's*
+   * collection instance — redaction only takes effect when the
+   * collection was opened (this call or earlier in the session) with
+   * its `classifiedFields` / `fieldMeta` options. This is presentation-
+   * layer redaction; it never affects what's on disk. Sealed handles
+   * are unaffected either way — they always serialize as `'[sealed]'`,
+   * so ciphertext never leaks regardless of this option. Rider companion
+   * fields (e.g. `pan_last4`) remain visible as their own columns — they
+   * are safe write-time projections.
+   */
+  readonly redact?: boolean | { readonly sensitivity: 'omit' | 'mask' }
 }
 
 export interface AsJSONDownloadOptions extends AsJSONOptions {
@@ -84,11 +103,18 @@ export async function toObject(vault: Vault, options: AsJSONOptions = {}): Promi
   for await (const chunk of vault.exportStream({ granularity: 'collection' })) {
     if (allowlist && !allowlist.has(chunk.collection)) continue
     const bucket = doc[chunk.collection] ?? (doc[chunk.collection] = [])
+    const shouldRedact = options.redact !== undefined && options.redact !== false
+    const projectionOpts = shouldRedact && options.redact !== true ? { sensitivity: options.redact.sensitivity } : undefined
+    const desc: CollectionDescription | undefined = shouldRedact ? vault.collection(chunk.collection).describe() : undefined
     for (const record of chunk.records) {
+      let r = record as Record<string, unknown>
+      if (shouldRedact && desc) {
+        r = applyListProjection(desc, r, projectionOpts)
+      }
       if (options.includeMeta) {
-        bucket.push(record as Record<string, unknown>)
+        bucket.push(r)
       } else {
-        bucket.push(stripMeta(record as Record<string, unknown>))
+        bucket.push(stripMeta(r))
       }
     }
   }
