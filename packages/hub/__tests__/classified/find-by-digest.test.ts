@@ -20,6 +20,7 @@ import { createNoydb } from '../../src/kernel/noydb.js'
 import { inlineMemory, spyStore, type InlineMemoryStore } from './harness.js'
 import { classified } from '../../src/with-shape/classified/presets.js'
 import { withClassified } from '../../src/with-shape/classified/active.js'
+import { withConsent } from '../../src/with-audit/consent/index.js'
 import { ClassifiedVerifyError } from '../../src/kernel/errors.js'
 import type { EncryptedEnvelope } from '../../src/kernel/types.js'
 import type { ClassifiedStrategy } from '../../src/with-shape/classified/strategy.js'
@@ -150,6 +151,35 @@ describe('findByDigest', () => {
     const e2 = store._dump('v1', 'users', 'r2')!
     e2._bidx!.password = e1._bidx!.password   // forge: r2's tag now equals r1's tag
     expect(await c.findByDigest('password', 'splice-secret-r1')).toEqual(['r1'])  // B fails the _vdig confirm
+  }, 120_000)
+
+  it('Oracle #5: exactly ONE find consent op regardless of hit count (3 shared-secret hits → 1 sweep entry)', async () => {
+    // Task 13's C-B store-shape vector proved no per-hit STORE op; this proves
+    // the CONSENT count. Three records share one secret (3 tag-hits) yet the
+    // sweep must record a single `('find','*')` consent entry — never one-per-hit
+    // (which would be a hit-count oracle in the audit trail).
+    const store = inlineMemory()
+    const db = await createNoydb({
+      store, user: 'a', secret: `pw-fbd-${seq++}`,
+      classifiedStrategy: withClassified(), consentStrategy: withConsent(),
+    })
+    const v = await db.openVault('v1')
+    const c = v.collection<Record<string, unknown>>('users', {
+      perRecordKeys: true,
+      acknowledgeEquatableRisk: true,
+      classifiedFields: { password: classified.password({ equatable: true }) },
+    })
+    await c.put('r1', { password: 'oracle5-shared-secret' })
+    await c.put('r2', { password: 'oracle5-shared-secret' })
+    await c.put('r3', { password: 'oracle5-shared-secret' })   // 3 tag-hits
+    const hits = await v.withConsent({ purpose: 'lookup', consentHash: 'h' }, async () =>
+      c.findByDigest('password', 'oracle5-shared-secret'),
+    )
+    expect(hits).toEqual(['r1', 'r2', 'r3'])
+    const log = await v.consentAudit({})
+    const finds = log.filter((e: { op: string }) => e.op === 'find')
+    expect(finds).toHaveLength(1)                          // ONE sweep op, never one-per-hit
+    expect(finds[0]!.recordId).toBe('*')                  // the sweep sentinel, not a real id
   }, 120_000)
 
   it('ring-not-indexed: after a rotate, findByDigest(oldSecret) → []', async () => {

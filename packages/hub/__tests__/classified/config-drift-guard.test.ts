@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../../src/kernel/noydb.js'
 import { inlineMemory, type InlineMemoryStore } from './harness.js'
+import { classified } from '../../src/with-shape/classified/presets.js'
+import { withClassified } from '../../src/with-shape/classified/active.js'
 import { ClassifiedConfigError } from '../../src/kernel/errors.js'
 import type { ClassifiedFieldSpec } from '../../src/with-shape/classified/descriptor.js'
 
@@ -65,6 +67,27 @@ describe('C-A / R10 config-drift guard', () => {
       classifiedFields: { password: passwordSpec },
     })
     await expect(users.put('r1', { name: 'B' })).resolves.toBeUndefined()
+  }, 30_000)
+
+  it('literal _bidx path: naive handle over an EQUATABLE record (real _bidx tag present) throws ClassifiedConfigError', async () => {
+    // Unlike the first vector (digest-only spec: marker only, no real _bidx),
+    // this seeds through an EQUATABLE handle so the persisted envelope carries
+    // an actual store-visible `_bidx` tag. R10 must fire for the literal `_bidx`
+    // path, not only the `_vdig` back-port — Task 6 deferred this because the
+    // equatable API did not yet exist.
+    const store = inlineMemory()
+    const db = await createNoydb({ store, user: 'a', secret: 'pw-s2-8', classifiedStrategy: withClassified() })
+    const v = await db.openVault('v1')
+    const eq = v.collection<Record<string, unknown>>('users', {
+      perRecordKeys: true,
+      acknowledgeEquatableRisk: true,
+      classifiedFields: { password: classified.password({ equatable: true }) },
+    })
+    await eq.put('r1', { password: 'hunter2-hunter2', name: 'A' })
+    // sanity: a real `_bidx` tag exists on the seeded envelope
+    expect(store._dump('v1', 'users', 'r1')?._bidx?.password).toBeDefined()
+    const naive = await openNaive(store)
+    await expect(naive.put('r1', { name: 'B' })).rejects.toBeInstanceOf(ClassifiedConfigError)
   }, 30_000)
 
   it('a genuinely non-classified collection writes normally (no marker, no throw)', async () => {
