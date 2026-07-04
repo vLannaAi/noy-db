@@ -25,6 +25,7 @@ import {
   type SealedCekDeliveryEnvelope,
 } from '../../types.js'
 import { dualReadSealedSlot } from './sealed-slot.js'
+import { openVdigPayload, sealVdigPayload } from '../classify/vdig.js'
 import { RecordCekNotFoundError, ValidationError } from '../../errors.js'
 
 const subtle = globalThis.crypto.subtle
@@ -190,6 +191,20 @@ export async function rotateRecordCek(
     sealedOut = out
   }
 
+  // Verify-digest slots are keyed off the per-record CEK too (I3: CEK-only,
+  // no DEK fallback → single read, not a dual-read). Rotation must re-seal
+  // each `_vdig[field]` under the new CEK with the SAME reconstructed AAD, or
+  // the correct password would false-reject forever (C3).
+  let vdigOut: Record<string, string> | undefined
+  if (live._vdig !== undefined) {
+    const out: Record<string, string> = {}
+    for (const [field, blob] of Object.entries(live._vdig)) {
+      const payload = await openVdigPayload(blob, oldCek, collection, id, field)
+      out[field] = await sealVdigPayload(payload, newCek, collection, id, field)
+    }
+    vdigOut = out
+  }
+
   const env: EncryptedEnvelope = {
     _noydb: NOYDB_FORMAT_VERSION,
     _v: live._v + 1,
@@ -206,6 +221,7 @@ export async function rotateRecordCek(
     // orphan them (unreadable under the new CEK). `sealedOut` holds the slots
     // dual-read from the old CEK (or the legacy DEK) and re-sealed under newCek.
     ...(sealedOut !== undefined ? { _sealed: sealedOut } : {}),
+    ...(vdigOut !== undefined ? { _vdig: vdigOut } : {}),
   }
   await ctx.adapter.put(ctx.vault, collection, id, env)
 
