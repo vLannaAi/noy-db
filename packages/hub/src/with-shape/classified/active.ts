@@ -6,6 +6,7 @@ function policyOf(spec: ClassifiedFieldSpec): VdigFieldPolicy {
   return {
     normalize: spec.verifyNormalize ?? 'password',
     notLastN: spec.notLastN ?? 0,
+    equatable: false,
     ...(spec.rotateDays !== undefined ? { rotateDays: spec.rotateDays } : {}),
   }
 }

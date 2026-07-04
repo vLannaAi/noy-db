@@ -22,7 +22,7 @@ async function makeCodec(vdigFields: ReadonlyMap<string, VdigFieldPolicy> | null
   return { codec, dek }
 }
 
-const pw: VdigFieldPolicy = { normalize: 'password', notLastN: 0 }
+const pw: VdigFieldPolicy = { normalize: 'password', notLastN: 0, equatable: false }
 
 describe('encryptRecord digest-only branches (C6)', () => {
   it('rotate branch: string value → _vdig slot, field stripped from _data, no _sealed', async () => {
@@ -93,7 +93,7 @@ describe('encryptRecord digest-only branches (C6)', () => {
 
 describe('notLastN ring (real 600K PBKDF2 — slow test)', () => {
   it('reuse of cur or a ring entry throws ClassifiedRotationError; ring trims to notLastN', async () => {
-    const ringPw: VdigFieldPolicy = { normalize: 'password', notLastN: 2 }
+    const ringPw: VdigFieldPolicy = { normalize: 'password', notLastN: 2, equatable: false }
     const { codec } = await makeCodec(new Map([['password', ringPw]]))
     const cek = await generateDEK()
     const v1 = await codec.encryptRecord({ password: 'password-one!' }, 1, cek, undefined, undefined, { id: 'r1', prev: null })

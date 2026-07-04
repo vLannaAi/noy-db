@@ -560,6 +560,7 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
         .map(([f, s]) => [f, {
           normalize: s.verifyNormalize ?? 'password',
           notLastN: s.notLastN ?? 0,
+          equatable: false,
           ...(s.rotateDays !== undefined ? { rotateDays: s.rotateDays } : {}),
         }] as const)
   const vdigFields: ReadonlyMap<string, VdigFieldPolicy> | null =
