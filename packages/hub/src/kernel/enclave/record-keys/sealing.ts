@@ -215,6 +215,12 @@ export async function rotateRecordCek(
     ...(ctx.actor ? { _by: ctx.actor } : {}),
     ...(live._tier !== undefined ? { _tier: live._tier } : {}),
     ...(live._det !== undefined ? { _det: live._det } : {}),
+    // `_bidx` (equality-index tag) is DEK-rooted and CEK-independent, so it is
+    // carried forward VERBATIM — not recomputed — unlike `_vdig`/`_sealed`
+    // below, which are CEK-bound and must be re-sealed under the new CEK.
+    // Dropping this line would silently orphan the equality index on rotation
+    // (the #306 Slice-A data-loss bug, replayed on the index).
+    ...(live._bidx !== undefined ? { _bidx: live._bidx } : {}),
     // Re-encrypt sealed (`sensitive`) fields under the new CEK. Sealed
     // keys derive off the per-record CEK, so the rotated record's old CEK is
     // destroyed here — carrying the old `_sealed` slots forward verbatim would
