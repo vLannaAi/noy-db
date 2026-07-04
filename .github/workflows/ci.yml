@@ -149,12 +149,21 @@ jobs:
           restore-keys: ${{ runner.os }}-turbo-
       - name: Build
         run: pnpm turbo build
-      # Concurrency=1 avoids cross-package temp-dir / port collisions
-      # that surfaced with the default parallel runner. Each package's
-      # test suite is fast on its own; serializing them adds < 1 minute
-      # to the matrix wall time.
-      - name: Test
-        run: pnpm turbo test --concurrency=1
+      # Two-phase test schedule (#564). The historical --concurrency=1
+      # guarded against cross-package collisions, but an empirical sweep
+      # found none: suites already use fs.mkdtemp-style unique dirs and no
+      # fixed ports. What DOES exist is CPU contention — hub (~400 test
+      # files, the box's dominant consumer) starving wall-clock-sensitive
+      # tests in whatever runs beside it. So: hub runs ALONE with the full
+      # runner (its vitest workers parallelize internally), then the
+      # satellites run at --concurrency=4 (matched to the 4-vCPU runner).
+      # The recurring in-pinia TamperedError flake was a real hub race
+      # (concurrent openVault() building two key-divergent Vaults) — fixed
+      # at the root by the single-flight memo in kernel/noydb.ts.
+      - name: Test (hub)
+        run: pnpm turbo test --filter=@noy-db/hub
+      - name: Test (satellites)
+        run: pnpm turbo test --filter='!@noy-db/hub' --concurrency=4
 
   # ── Interop moved to the pre-publish gate ────────────────────────────
   # The cross-OS WinZip-AES-256 interop matrix (ubuntu/macOS/windows +
