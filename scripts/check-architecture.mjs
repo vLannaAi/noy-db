@@ -666,7 +666,15 @@ const KERNEL_SURFACE_BUDGET = {
   // with-shape/classified/config-drift.ts and the R10 throw in enclave/record-keys/record-codec.ts.
   // Bumped 4506→4507 (2026-07-04, classified slice 2b T8): the per-slot
   // `SealedShredSlot` type import for `_classifySealedShred`'s return annotation.
-  'packages/hub/src/kernel/collection.ts': 4507,
+  // Bumped 4507→4592 (2026-07-05, classified slice 2b T13): the `findByDigest`
+  // equatable blind-index lookup — the security-critical scan+confirm orchestration
+  // (R9 single-message refusal, target-before-scan I-1 ordering, the list+N-get scan
+  // retaining hit envelopes, the single 'find' sweep consent op, and the in-hand
+  // confirm-by-verify ctx). The enclave target/verify crypto stays behind the
+  // strategy seam (`computeTarget`) + a dynamic `import()` of verifyDigestField; only
+  // the store-shape-invariant scan/confirm wiring is here, beside the sibling
+  // findByDet scan it mirrors.
+  'packages/hub/src/kernel/collection.ts': 4592,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.

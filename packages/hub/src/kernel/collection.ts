@@ -587,7 +587,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
   /** — consent-audit hook, no-op when no scope is active. */
   private readonly onAccess:
-    | ((op: 'get' | 'put' | 'delete' | 'reveal' | 'verify', id: string) => Promise<void>)
+    | ((op: 'get' | 'put' | 'delete' | 'reveal' | 'verify' | 'find', id: string) => Promise<void>)
     | undefined
 
   /**
@@ -1185,6 +1185,91 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         ? { onAccess: async (_op: 'verify' | 'find', rid: string) => { await this.onAccess!('verify', rid) } }
         : {}),
     }
+  }
+
+  /**
+   * Equatable blind-index lookup: the ids whose classified digest-only
+   * `equatable` field carries a `_bidx` tag matching `candidate` AND whose
+   * `_vdig` payload confirms it. Requires the field to be declared
+   * `classified.password({ equatable: true })` (or `secretAnswer`) and the
+   * collection to have opened its `acknowledgeEquatableRisk` door.
+   *
+   * The algorithm order is load-bearing (spec §3):
+   *  1. Caller-bug refusals thrown at ~0 elapsed, BEFORE any PBKDF2 (R9 /
+   *     Oracle #6): the three field mis-declarations share ONE constant,
+   *     field-name-free message so the refusal text cannot enumerate which
+   *     fields are classified / digest-only / equatable.
+   *  2. Derive the ONE blind-index target UNCONDITIONALLY (I-1 / F1): an empty
+   *     collection still pays exactly one 600K PBKDF2, so wall-time can never
+   *     distinguish "no records" from "no match". No early return may precede
+   *     this line.
+   *  3. Scan `list + one get` per id, string-comparing the stored `_bidx` tag —
+   *     decrypting NOTHING — and retain each hit's already-fetched envelope.
+   *  4. Emit the single sweep consent op (`onAccess('find', '*')`) now — after
+   *     the scan, before confirm (Oracle #5) — fixing its store-write timestamp
+   *     independent of hit count.
+   *  5. Confirm-by-verify against the ALREADY-FETCHED envelope (C-B): run the
+   *     enclave `verifyDigestField` on an in-memory `getEnvelope` closure so the
+   *     confirm reads ZERO additional envelopes. A tag-hit whose `_vdig` fails
+   *     to confirm is dropped silently (a splice is indistinguishable from a
+   *     stale tag). Store-shape law: the only store calls are `list + N get`.
+   */
+  async findByDigest(field: string, candidate: string): Promise<readonly string[]> {
+    // 1. Caller-bug refusals — pad-exempt, before any PBKDF2. R9 single message.
+    const spec = this.classified?.byField[field]
+    if (spec === undefined || spec.storage !== 'digest-only' || spec.equatable !== true) {
+      throw new ClassifiedVerifyError(this.name, '*',
+        'not a declared equatable digest-only classified field')
+    }
+    if (typeof candidate !== 'string') {
+      throw new ClassifiedVerifyError(this.name, '*', 'candidate must be a string')
+    }
+
+    // 2. ONE full 600K PBKDF2, run UNCONDITIONALLY before the scan (I-1). A
+    //    NO_CLASSIFIED strategy surfaces ClassifiedNotEnabledError here.
+    const target = await this.classifiedStrategy.computeTarget(this._classifiedVerifyCtx(spec), field, candidate)
+
+    // 3. Scan: list + one get per id; string-compare the stored tag; decrypt
+    //    nothing; retain each hit's already-fetched envelope for the confirm.
+    const ids = await this.adapter.list(this.vault, this.name)
+    const hits: string[] = []
+    const hitMap = new Map<string, EncryptedEnvelope>()
+    for (const id of ids) {
+      const env = await this.adapter.get(this.vault, this.name, id)
+      if (target !== null && env?._bidx?.[field] === target) {
+        hits.push(id)
+        hitMap.set(id, env)
+      }
+    }
+
+    // 4. Single sweep consent op — after the scan, before confirm (Oracle #5).
+    await this.onAccess?.('find', '*')
+
+    // 5. Confirm-by-verify on the IN-HAND envelope (C-B) — the enclave verify
+    //    door via a dynamic import (the kernel spine reaches the enclave only
+    //    through import(), never a static deep import). NOT strategy.verify —
+    //    that re-fetches via ctx.getEnvelope AND emits a per-id 'verify' op.
+    if (hits.length === 0) return []
+    const { verifyDigestField } = await import('./enclave/classify/verify.js')
+    const policy: VdigFieldPolicy = {
+      normalize: spec.verifyNormalize ?? 'password',
+      notLastN: spec.notLastN ?? 0,
+      equatable: true,
+      ...(spec.rotateDays !== undefined ? { rotateDays: spec.rotateDays } : {}),
+    }
+    const confirmCtx = {
+      collection: this.name,
+      getEnvelope: async (rid: string) => hitMap.get(rid) ?? null,   // in-memory: zero extra store.get
+      resolveCek: (env: EncryptedEnvelope) => this.codec.resolveEnvelopeCek(env),
+      getDEK: () => this.getDEK(this.name),
+      now: () => Date.now(),
+    }
+    const confirmed: string[] = []
+    for (const id of hits) {
+      const verdict = await verifyDigestField(confirmCtx, id, field, candidate, policy)
+      if (verdict.ok === true) confirmed.push(id)   // discard mustRotate; drop failures silently
+    }
+    return confirmed
   }
 
   /**
