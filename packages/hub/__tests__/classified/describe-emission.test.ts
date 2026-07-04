@@ -78,4 +78,17 @@ describe('classified in describe()/toJSONSchema()', () => {
     })
     expect(js.properties.dob!['x-sensitivity']).toBe('pii')
   })
+
+  it('channel fieldMeta sensitivity overrides the classified preset sensitivity', async () => {
+    const db = await createNoydb({ store: inlineMemory(), user: 'a', secret: 'pw-de-3' })
+    const v = await db.openVault('v3')
+    const c = v.collection('contacts', {
+      classifiedFields: { mail: classified.email() },
+      fieldMeta: { mail: { label: 'Mail', sensitivity: 'secret' } },
+    })
+    const desc = c.describe()
+    const mail = desc.fields.find((f) => f.key === 'mail')!
+    expect(mail.sensitivity).toBe('secret')
+    expect(mail.classified?.preset).toBe('email')
+  })
 })

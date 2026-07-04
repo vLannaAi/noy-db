@@ -9,7 +9,7 @@
 import { describe, expect, it } from 'vitest'
 import { createNoydb, classified } from '@noy-db/hub'
 import { memory } from '@noy-db/to-memory'
-import { toBytes, readXlsx } from '../src/index.js'
+import { toBytes, toBytesMultiVault, readXlsx } from '../src/index.js'
 
 /**
  * Builds a fresh vault whose owner already holds the `plaintext: ['xlsx']`
@@ -91,5 +91,48 @@ describe('as-xlsx redact (#489)', () => {
     const row = sheet.rows.slice(1).find((r) => r[h['id']!] === 'r1')!
     expect(row[h['pan']!]).toBe('•••• 4242')
     expect(Object.values(row)).not.toContain('4242424242424242')
+  })
+
+  it('multi-vault: entry-level redact only masks the sheet whose entry opted in', async () => {
+    const vRedacted = await makeVault()
+    const cRedacted = vRedacted.collection('cards', {
+      classifiedFields: { card: classified.creditCard({ pan: 'pan' }) },
+    })
+    await cRedacted.put('r1', { pan: '4242424242424242', total: 9 })
+
+    const vPlain = await makeVault()
+    const cPlain = vPlain.collection('cards', {
+      classifiedFields: { card: classified.creditCard({ pan: 'pan' }) },
+    })
+    await cPlain.put('r1', { pan: '4111111111111111', total: 5 })
+
+    const bytes = await toBytesMultiVault([
+      {
+        vault: vRedacted, label: 'redacted',
+        sheets: [{ name: 'cards', collection: 'cards' }],
+        redact: true,
+      },
+      {
+        vault: vPlain, label: 'plain',
+        sheets: [{ name: 'cards', collection: 'cards' }],
+      },
+    ])
+
+    const wb = await readXlsx(bytes)
+    const redactedSheet = wb.sheets.find((s) => s.name === 'redacted_cards')!
+    const hR = headerMap(redactedSheet)
+    const rowR = redactedSheet.rows.slice(1).find((r) => r[hR['total']!] === 9)!
+    expect(rowR[hR['pan']!]).toBe('•••• 4242')
+    expect(Object.values(rowR)).not.toContain('4242424242424242')
+
+    // The non-redacted entry is untouched: `pan` is a classified 'recoverable'
+    // field, so unprojected it stays a SealedHandle — never the raw PAN, and
+    // never masked either. It serializes via its non-leaking `toJSON()`.
+    const plainSheet = wb.sheets.find((s) => s.name === 'plain_cards')!
+    const hP = headerMap(plainSheet)
+    const rowP = plainSheet.rows.slice(1).find((r) => r[hP['total']!] === 5)!
+    expect(rowP[hP['pan']!]).toBe('"[sealed]"')
+    expect(Object.values(rowP)).not.toContain('4111111111111111')
+    expect(Object.values(rowP)).not.toContain('•••• 1111')
   })
 })

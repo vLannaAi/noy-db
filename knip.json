@@ -17,7 +17,8 @@
         "src/kernel/util/index.ts",
         "src/with-fork/snapshots/index.ts",
         "src/with-party/session/index.ts",
-        "src/with-party/team/index.ts"
+        "src/with-party/team/index.ts",
+        "src/with-shape/classified/index.ts"
       ]
     }
   }
