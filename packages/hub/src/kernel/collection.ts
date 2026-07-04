@@ -1273,6 +1273,67 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   }
 
   /**
+   * Retire a field's equatable blind-index (`_bidx`) coverage across every
+   * live record — the SOLE lazy-write-independent drop-path for a still-live
+   * record's tag (besides clear / `forget()` / DEK-rotation). For each envelope
+   * carrying `_bidx[field]`, rewrite it WITHOUT that slot (dropping the whole
+   * `_bidx` map when it becomes empty), leaving `_vdig[field]` and everything
+   * else INTACT — the field stays `digest-only`, only the index coverage is
+   * retired. NO crypto, NO re-mint, NO re-encrypt: a targeted envelope rewrite.
+   * Returns the count of records scrubbed.
+   *
+   * This is a maintenance write, not a read-egress: it emits NO `'find'` op and
+   * no consent. The field is validated to a declared equatable digest-only
+   * classified field (only such a field ever carries `_bidx`).
+   *
+   * **Ledger consistency**: dropping `_bidx[field]` changes the envelope's
+   * payload hash (`_bidx` is bound into `envelopeBodyForHash`), so a raw
+   * `adapter.put` of the scrubbed envelope WITHOUT a matching ledger entry would
+   * desync the chain and make a future integrity cross-check flag false
+   * tampering. After each rewrite we therefore append an `op:'migration'` entry
+   * recording the NEW payloadHash at the SAME version — this is index retirement,
+   * not a new record version, so `_v` is NOT bumped; the migration op is
+   * reverse-delta-inert (`ledger.reconstruct` skips non-put/delete ops) yet
+   * keeps the hash chain and the record's latest recorded payloadHash correct.
+   */
+  async scrubEquatableTags(field: string): Promise<number> {
+    const spec = this.classified?.byField[field]
+    if (spec === undefined || spec.storage !== 'digest-only' || spec.equatable !== true) {
+      throw new ClassifiedVerifyError(this.name, '*',
+        'not a declared equatable digest-only classified field')
+    }
+    const ids = await this.adapter.list(this.vault, this.name)
+    let count = 0
+    for (const id of ids) {
+      const env = await this.adapter.get(this.vault, this.name, id)
+      if (env?._bidx?.[field] === undefined) continue
+
+      // Rewrite without the field's tag; drop the whole `_bidx` map if it
+      // empties (a fresh mutable copy — `EncryptedEnvelope._bidx` is readonly).
+      const nextBidx: Record<string, string> = { ...env._bidx }
+      delete nextBidx[field]
+      const scrubbedRaw: Record<string, unknown> = { ...env }
+      delete scrubbedRaw._bidx
+      if (Object.keys(nextBidx).length > 0) scrubbedRaw._bidx = nextBidx
+      const scrubbed = scrubbedRaw as unknown as EncryptedEnvelope
+      await this.adapter.put(this.vault, this.name, id, scrubbed)
+
+      // Keep the ledger verifiable: the scrubbed envelope has a new payload
+      // hash, so record it (no `_v` bump — index retirement, not a version).
+      if (this.ledger) {
+        await this.ledger.append({
+          op: 'migration', collection: this.name, id, version: scrubbed._v,
+          actor: this.keyring.userId,
+          payloadHash: await this.historyStrategy.envelopePayloadHash(scrubbed),
+          reason: 'classified:scrub-equatable-tags',
+        })
+      }
+      count++
+    }
+    return count
+  }
+
+  /**
    * @internal — attach money descriptors post-construction. MV dependency
    * analysis auto-creates a source collection (without options) during
    * `openVault`, before the user's `collection(name, { moneyFields })`

@@ -674,7 +674,12 @@ const KERNEL_SURFACE_BUDGET = {
   // strategy seam (`computeTarget`) + a dynamic `import()` of verifyDigestField; only
   // the store-shape-invariant scan/confirm wiring is here, beside the sibling
   // findByDet scan it mirrors.
-  'packages/hub/src/kernel/collection.ts': 4592,
+  // Bumped 4592→4654 (2026-07-05, classified slice 2b T14): the
+  // `scrubEquatableTags` maintenance sweep — the sole lazy-write-independent
+  // `_bidx` drop-path (envelope rewrite dropping the field's tag) plus its
+  // ledger-consistency append (op:'migration', no `_v` bump, new payloadHash)
+  // so the scrub keeps the hash chain verifiable.
+  'packages/hub/src/kernel/collection.ts': 4654,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.

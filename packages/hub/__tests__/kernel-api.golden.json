@@ -229,6 +229,7 @@
     "reveal",
     "revert",
     "scan",
+    "scrubEquatableTags",
     "search",
     "searchContext",
     "similarTo",
