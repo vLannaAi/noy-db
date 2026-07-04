@@ -79,6 +79,7 @@ export {
   bufferToBase64,
   base64ToBuffer,
   derivePresenceKey,
+  deriveDeterministicKey,
   deriveSealedFieldKey,
   deriveSealedFieldKeyFromCek,
   wrapCek,

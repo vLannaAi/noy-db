@@ -613,6 +613,52 @@ export async function deriveSealedFieldKeyFromCek(
 // ─── Deterministic Encryption ────────────────────────────
 
 /**
+ * Derive the collection's **dedicated deterministic-index key** from its DEK
+ * via HKDF-SHA256 (L-1, #554).
+ *
+ * `_det` slots previously encrypted under the raw collection DEK — the same
+ * key `_data` uses with a *randomized*-IV regime while `_det` uses a
+ * *deterministic*-IV regime. Two IV regimes on one key is avoidable hygiene
+ * debt (~2^-96 theoretical collision), so the deterministic index now gets its
+ * own HKDF-separated key: salt `'noydb-det'`, info
+ * `JSON.stringify(['noydb-det'])` (the injective JSON-array domain tag, same
+ * convention as {@link deriveSealedFieldKey}). Per-field separation still
+ * comes from the `'<collection>/<field>'` context inside
+ * {@link encryptDeterministic}, exactly as before.
+ *
+ * The derived key stays **DEK-derived (collection-level)** on purpose: `_det`
+ * is carried verbatim through per-record CEK rotation (see
+ * `record-keys/sealing.ts`), so its key must not depend on the CEK. It rotates
+ * with the collection DEK, like the presence key.
+ *
+ * The key is minted **extractable** — {@link encryptDeterministic} derives its
+ * per-value IV via HKDF over the raw key bytes (an `exportKey` under the
+ * hood), which a non-extractable key would forbid. Same in-memory posture as
+ * the DEK itself (`generateDEK` mints extractable keys).
+ *
+ * @param dek The collection's AES-256-GCM DEK (extractable).
+ * @returns A dedicated AES-256-GCM key for the `_det` deterministic index.
+ */
+export async function deriveDeterministicKey(dek: CryptoKey): Promise<CryptoKey> {
+  const rawDek = await subtle.exportKey('raw', dek)
+  const hkdfKey = await subtle.importKey('raw', rawDek, 'HKDF', false, ['deriveBits'])
+  const salt = new TextEncoder().encode('noydb-det')
+  const info = new TextEncoder().encode(JSON.stringify(['noydb-det']))
+  const bits = await subtle.deriveBits(
+    { name: 'HKDF', hash: 'SHA-256', salt, info },
+    hkdfKey,
+    KEY_BITS,
+  )
+  return subtle.importKey(
+    'raw',
+    bits,
+    { name: 'AES-GCM', length: KEY_BITS },
+    true,
+    ['encrypt', 'decrypt'],
+  )
+}
+
+/**
  * Derive a deterministic 12-byte IV from `{ DEK, context, plaintext }`
  * via HKDF-SHA256. Given the same three inputs, the IV is identical, so
  * `encryptDeterministic` produces the same ciphertext on every call —

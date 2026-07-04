@@ -15,7 +15,7 @@
  *
  * Internal service — not exported as a `@noy-db/hub/*` subpath.
  */
-import { encryptDeterministic, type EnclaveKey } from '../crypto.js'
+import { encryptDeterministic, deriveDeterministicKey, type EnclaveKey } from '../crypto.js'
 import type { NoydbStore } from '../../types.js'
 import type { RecordCodec } from './record-codec.js'
 
@@ -37,12 +37,25 @@ export interface DeterministicContext<T> {
   readonly codec: RecordCodec<T>
 }
 
-/** Recompute the deterministic ciphertext target for a query value. */
-async function detTarget<T>(ctx: DeterministicContext<T>, field: string, value: unknown): Promise<string> {
+/**
+ * Recompute the deterministic ciphertext targets for a query value.
+ *
+ * L-1: _det migrated to a dedicated HKDF key (salt noydb-det); dual-query
+ * keeps pre-migration envelopes findable — they self-heal to the new key on
+ * their next write. Index 0 is the current (derived-key) target, index 1 the
+ * legacy raw-DEK target. Both are derived once per query call, not per
+ * envelope, so the extra derivation is a fixed cost.
+ */
+async function detTargets<T>(ctx: DeterministicContext<T>, field: string, value: unknown): Promise<[string, string]> {
   const dek = await ctx.getDEK()
+  const detKey = await deriveDeterministicKey(dek)
   const plaintext = typeof value === 'string' ? value : JSON.stringify(value)
-  const { iv, data } = await encryptDeterministic(plaintext, dek, `${ctx.name}/${field}`)
-  return `${iv}:${data}`
+  const context = `${ctx.name}/${field}`
+  const [current, legacy] = await Promise.all([
+    encryptDeterministic(plaintext, detKey, context),
+    encryptDeterministic(plaintext, dek, context),
+  ])
+  return [`${current.iv}:${current.data}`, `${legacy.iv}:${legacy.data}`]
 }
 
 function assertDetField<T>(ctx: DeterministicContext<T>, field: string, method: string): void {
@@ -71,13 +84,13 @@ function assertDetField<T>(ctx: DeterministicContext<T>, field: string, method: 
  */
 export async function findByDet<T>(ctx: DeterministicContext<T>, field: string, value: unknown): Promise<T | null> {
   assertDetField(ctx, field, 'findByDet')
-  const target = await detTarget(ctx, field, value)
+  const [target, legacyTarget] = await detTargets(ctx, field, value)
 
   const ids = await ctx.adapter.list(ctx.vault, ctx.name)
   for (const id of ids) {
     const env = await ctx.adapter.get(ctx.vault, ctx.name, id)
     if (!env || !env._det) continue
-    if (env._det[field] === target) {
+    if (env._det[field] === target || env._det[field] === legacyTarget) {
       return ctx.codec.decryptRecord(env)
     }
   }
@@ -90,14 +103,14 @@ export async function findByDet<T>(ctx: DeterministicContext<T>, field: string, 
  */
 export async function queryByDet<T>(ctx: DeterministicContext<T>, field: string, value: unknown): Promise<T[]> {
   assertDetField(ctx, field, 'queryByDet')
-  const target = await detTarget(ctx, field, value)
+  const [target, legacyTarget] = await detTargets(ctx, field, value)
 
   const ids = await ctx.adapter.list(ctx.vault, ctx.name)
   const matches: T[] = []
   for (const id of ids) {
     const env = await ctx.adapter.get(ctx.vault, ctx.name, id)
     if (!env || !env._det) continue
-    if (env._det[field] === target) {
+    if (env._det[field] === target || env._det[field] === legacyTarget) {
       const rec = await ctx.codec.decryptRecord(env)
       if (rec !== null) matches.push(rec) // skip tombstone (defensive)
     }
