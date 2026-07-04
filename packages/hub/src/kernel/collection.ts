@@ -12,10 +12,8 @@ import { getAtPath, setAtPathInPlace, stripI18nFilled } from '../with-shape/i18n
 import type { DictKeyDescriptor, StaticDictDescriptor, DictionaryHandle } from '../with-shape/i18n/dictionary.js'
 import { isStaticDictDescriptor } from '../with-shape/i18n/dictionary.js'
 import type { MoneyDescriptor } from '../with-shape/money/descriptor.js'
-import { quantizeMoneyFields, decodeMoneyFields, canonicalizeStoredMoney, canonicalizeIncomingMoney } from '../with-shape/money/normalize.js'
-import { validateMoneyFieldPaths } from '../with-shape/money/paths.js'
+import { moneyRuntime } from './money-runtime.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
-import { evalComputedFields } from '../with-formula/computed/index.js'
 import { enforceClassifiedWrite } from '../with-shape/classified/write.js'
 import type { I18nStrategy } from '../with-shape/i18n/strategy.js'
 import { resolvePolicy } from '../with-shape/i18n/policy.js'
@@ -82,7 +80,6 @@ import type { VectorSet, EmbeddingDescriptor } from '../with-lookup/embeddings/i
 import { buildUniqueConstraintSet, type UniqueConstraintSet } from '../with-lookup/indexing/unique-constraints.js'
 import type { RefDescriptor } from './refs.js'
 import { buildDescription, deriveZodFields, type CollectionDescription, type DescribeOptions } from '../with-shape/introspection/describe.js'
-import { buildJsonSchema } from '../with-shape/introspection/json-schema.js'
 import type { CollectionConfig } from '../with-shape/introspection/types.js'
 import { Lru, parseBytes, estimateRecordBytes, type LruStats } from './cache/index.js'
 import { generateULID } from '../with-pod/ulid.js'
@@ -112,6 +109,7 @@ import type { MVQueryContext } from '../with-formula/materialized-views/types.js
 import type { MaterializedViewExecutor as MVExecutorType } from '../with-formula/materialized-views/executor.js'
 import type * as MVStaleModule from '../with-formula/materialized-views/stale.js'
 import { resolveCollectionConfig, type CollectionOpts } from './collection-config.js'
+import { loadEvalComputedFields } from '../with-formula/computed/lazy.js'
 
 /** Callback for dirty tracking (sync engine integration). */
 export type OnDirtyCallback = (collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>
@@ -1110,6 +1108,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
   /** JSON Schema for this collection with describe() metadata as x- extensions. */
   async toJSONSchema(): Promise<object> {
+    // Lazy import (#553) -- only reachable through this async method.
+    const { buildJsonSchema } = await import('../with-shape/introspection/json-schema.js')
     const desc = await this.describe({})
     let base: Record<string, unknown> | null = null
     if (this.schema !== undefined) {
@@ -1189,7 +1189,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    */
   _applyMoneyFields(moneyFields: Record<string, MoneyDescriptor>): void {
     if (this.moneyFields !== undefined) return
-    validateMoneyFieldPaths(moneyFields)
+    moneyRuntime().validateMoneyFieldPaths(moneyFields)
     this.moneyFields = moneyFields
   }
 
@@ -1600,7 +1600,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // gates, computed fields, and schema validation all see the decoded
     // `get()` shape. Best-effort — bad input passes through and the
     // quantize stage below throws the real error.
-    record = canonicalizeIncomingMoney(record, this.moneyFields) as T
+    if (this.moneyFields) record = moneyRuntime().canonicalizeIncomingMoney(record, this.moneyFields) as T
 
     // Gate bus (Track A) — write-gating services (guards: record-lock /
     // field-freeze / amendment-collect; periods: closed-period guard) run here,
@@ -1621,7 +1621,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         op: existingEnv ? 'update' : 'create',
         vault: this.vault, collection: this.name, docId: id,
         incoming: record,
-        existing: canonicalizeStoredMoney(existingRecord, this.moneyFields),
+        existing: this.moneyFields ? moneyRuntime().canonicalizeStoredMoney(existingRecord, this.moneyFields) : existingRecord,
         existingVersion: existingEnv?._v ?? 0,
         existingTs: existingEnv?._ts,
         userId: this.keyring.userId,
@@ -1643,7 +1643,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // them and the schema validates the computed result. Throws
     // ComputedFieldError if a function throws.
     if (this.computed !== undefined) {
-      record = evalComputedFields(record as Record<string, unknown>, this.computed, id) as T
+      record = (await loadEvalComputedFields())(record as Record<string, unknown>, this.computed, id) as T
     }
 
     // Schema validation — runs BEFORE encryption so invalid records are
@@ -1660,7 +1660,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // Quantize money fields to their stored form (scaled-int string).
     // After schema validation — descriptor owns precision/scale/currency.
     if (this.moneyFields) {
-      record = quantizeMoneyFields(record as Record<string, unknown>, this.moneyFields) as T
+      record = moneyRuntime().quantizeMoneyFields(record as Record<string, unknown>, this.moneyFields) as T
     }
 
     // Auto-translate missing i18nText translations.
@@ -2161,7 +2161,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       raw = (await this.resolvePriorValues(id))?.record ?? null
     }
     if (raw === null) return null
-    return canonicalizeStoredMoney(raw, this.moneyFields) as T
+    return (this.moneyFields ? moneyRuntime().canonicalizeStoredMoney(raw, this.moneyFields) : raw) as T
   }
 
   /**
@@ -2258,7 +2258,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     if (this.derivationSource === undefined) return
     // `record` is the stored form here (post-quantize) — decode so
     // derive(source, ctx) sees the canonical money shape.
-    const incoming = canonicalizeStoredMoney(record, this.moneyFields) as Record<string, unknown>
+    const incoming = (this.moneyFields ? moneyRuntime().canonicalizeStoredMoney(record, this.moneyFields) : record) as Record<string, unknown>
     if (incoming && typeof incoming === 'object' && '_derivedFrom' in incoming) return
     const registry = this.derivationSource.registry()
     const strategies = registry.strategiesForSource(this.name)
@@ -2632,7 +2632,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         }
         await this.subsystemBus.dispatchGate('beforeDelete', {
           vault: this.vault, collection: this.name, docId: id,
-          existing: canonicalizeStoredMoney(existingRecord, this.moneyFields),
+          existing: this.moneyFields ? moneyRuntime().canonicalizeStoredMoney(existingRecord, this.moneyFields) : existingRecord,
           existingVersion: existingEnv._v,
           existingTs: existingEnv._ts,
           internal,
@@ -3970,7 +3970,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // Money decode runs regardless of locale (stored int → decimal string);
     // virtuals are gated on `locale !== 'raw'` inside decodeMoneyFields.
     if (hasMoney && this.moneyFields) {
-      result = decodeMoneyFields(result, this.moneyFields, typeof locale === 'string' ? locale : undefined)
+      result = moneyRuntime().decodeMoneyFields(result, this.moneyFields, typeof locale === 'string' ? locale : undefined)
     }
 
     // i18nText / dictKey resolution require an active locale — EXCEPT a

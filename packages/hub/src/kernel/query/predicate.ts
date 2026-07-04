@@ -6,7 +6,8 @@
  * tree-shakeable through it.
  */
 
-import { evaluateMoneyClause, type MoneyWhereOperand } from '../../with-shape/money/where.js'
+import type { MoneyWhereOperand } from '../../with-shape/money/where.js'
+import { moneyRuntime } from '../money-runtime.js'
 
 /** Comparison operators supported by the where() builder. */
 export type Operator =
@@ -142,7 +143,7 @@ export function evaluateFieldClause(record: unknown, clause: FieldClause): boole
   // the stored form is a digit string, so the generic paths below would
   // either reject (string vs number is not comparable) or compare
   // lexicographically. The operand was quantized at build time.
-  if (clause.money) return evaluateMoneyClause(actual, op, clause.money)
+  if (clause.money) return moneyRuntime().evaluateMoneyClause(actual, op, clause.money)
 
   switch (op) {
     case '==':

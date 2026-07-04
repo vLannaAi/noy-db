@@ -1,25 +1,25 @@
 {
   "scenarios": {
     "floor": {
-      "minifiedBytes": 1186,
-      "gzippedBytes": 403
+      "minifiedBytes": 1354,
+      "gzippedBytes": 440
     },
     "history": {
-      "minifiedBytes": 5787,
-      "gzippedBytes": 2224
+      "minifiedBytes": 5955,
+      "gzippedBytes": 2278
     },
     "classified": {
-      "minifiedBytes": 2340,
-      "gzippedBytes": 870
+      "minifiedBytes": 2508,
+      "gzippedBytes": 914
     },
     "analytics": {
-      "minifiedBytes": 2059,
-      "gzippedBytes": 822
+      "minifiedBytes": 2227,
+      "gzippedBytes": 864
     },
     "all-on": {
-      "minifiedBytes": 26125,
-      "gzippedBytes": 8157
+      "minifiedBytes": 26293,
+      "gzippedBytes": 8215
     }
   },
-  "updatedAt": "2026-07-04T07:12:52.616Z"
+  "updatedAt": "2026-07-04T12:57:06.653Z"
 }

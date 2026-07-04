@@ -89,7 +89,8 @@ import {
 } from './refs.js'
 import type { DictionaryHandle, DictionaryOptions, DictKeyDescriptor, StaticDictDescriptor } from '../with-shape/i18n/dictionary.js'
 import { isDictCollectionName, isStaticDictDescriptor } from '../with-shape/i18n/dictionary.js'
-import { LinkSet, isLinkCollectionName, type LinkSpec, type LinkSetHandle } from '../with-shape/links/link-set.js'
+import { isLinkCollectionName, type LinkSpec, type LinkSetHandle } from '../with-shape/links/names.js'
+import { makeLazyLinkSetHandle, type LazyLinkSetHandle } from '../with-shape/links/lazy-handle.js'
 import type { EmbeddingDescriptor } from '../with-lookup/embeddings/index.js'
 import type { I18nTextDescriptor } from '../with-shape/i18n/core.js'
 import { getAtPath } from '../with-shape/i18n/core.js'
@@ -131,17 +132,17 @@ import {
   type MagicLinkGrantRecord,
 } from '../with-party/team/magic-link-grant.js'
 import { CustodyApi } from '../with-party/custody/index.js'
-import { persistSchemaIfNeeded } from '../with-shape/persisted-schemas/register.js'
+// #553: gate + controller + fence-doc reader stay static (a REMOTE cutover must fence this client even without local declarations, and schemaFenceState() is a thin live read that UI bindings seed from in one tick); the decision engine + watcher load lazily.
+import type { FenceWatcher } from '../with-shape/schema-update/fence-watcher.js'
 import { SchemaUpdateGate } from '../with-shape/schema-update/gate.js'
 import { SchemaFenceController } from '../with-shape/schema-update/fence-controller.js'
-import { FenceWatcher } from '../with-shape/schema-update/fence-watcher.js'
 import { loadFence, type FenceDoc } from '../with-shape/schema-update/fence.js'
 import type { SchemaUpdateStrategy, UpdateDecision, TransformFn } from '../with-shape/schema-update/types.js'
 import type { AttestationFieldSchema, RevocationList } from '@noy-db/attestation'
 import { VaultAttestation, NO_ATTESTATION, type AttestationStrategy } from '../with-audit/attestation/vault-facade.js'
 import { NO_SEALED_RECORD, type SealedRecordStrategy } from '../with-audit/sealed-record/strategy.js'
 import type { DumpSchemaOptions, VaultSchemaSnapshot, SchemaIntrospection } from '../with-shape/introspection/types.js'
-import { dumpVaultSchema, type VaultIntrospectState } from '../with-shape/introspection/walk.js'
+import type { VaultIntrospectState } from '../with-shape/introspection/walk.js'
 import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
 import type { CollectionMeta, VaultMeta } from '../with-shape/introspection/meta.js'
 import type { ClassifiedEntry } from '../with-shape/classified/resolve.js'
@@ -464,8 +465,8 @@ export class Vault {
 
   /** Registered link specs, keyed by link name; set by `vault.link()`. */
   private readonly linkRegistry = new Map<string, LinkSpec>()
-  /** Cache of LinkSet handles, one per link name. */
-  private readonly linkSetCache = new Map<string, LinkSet>()
+  /** Cache of link-set handles, one per link name (lazy -- see links()). */
+  private readonly linkSetCache = new Map<string, LazyLinkSetHandle>()
 
   /** — subscribers for cross-tier access events. */
   private readonly crossTierSubs = new Set<(event: CrossTierAccessEvent) => void>()
@@ -962,13 +963,14 @@ export class Vault {
         const strategies = options.schemaUpdate ?? []
         const work = (async (): Promise<UpdateDecision> => {
           const dek = await this.getDEK(collectionName)
+          const { persistSchemaIfNeeded } = await import('../with-shape/persisted-schemas/register.js') // lazy (#553)
           const result = await persistSchemaIfNeeded({
             store: this.adapter, vault: this.name, collectionName, validator, dek, strategies,
           })
           const decision = result.decision ?? { action: 'allow' as const }
           if (decision.action === 'cutover') {
             this.schemaFence.registerPendingCutover(collectionName, decision.transform)
-            this._ensureFenceCoordination()
+            await this._ensureFenceCoordination()
           }
           return decision
         })()
@@ -1179,7 +1181,7 @@ export class Vault {
         const work = (async () => {
           try {
             const dek = await this.getDEK(collectionName)
-            await persistSchemaIfNeeded({
+            await (await import('../with-shape/persisted-schemas/register.js')).persistSchemaIfNeeded({
               store: this.adapter,
               vault: this.name,
               collectionName,
@@ -1281,10 +1283,12 @@ export class Vault {
     return loadFence(this.adapter, this.name)
   }
 
-  /** @internal Start the per-client heartbeat + fence watcher once a cutover is registered. */
-  _ensureFenceCoordination(): void {
+  /** @internal Start heartbeat + fence watcher once a cutover is registered. Async since #553: FenceWatcher dynamic-imports on demand. */
+  async _ensureFenceCoordination(): Promise<void> {
     if (this.#fenceCoordinationStarted) return
     this.#fenceCoordinationStarted = true
+    const { FenceWatcher } = await import('../with-shape/schema-update/fence-watcher.js')
+    if (!this.#fenceCoordinationStarted) return // _stop raced the load -- don't resurrect
     this.#fenceWatcher = new FenceWatcher({
       coordination: this.noydb.coordination,
       vault: this.name,
@@ -1315,7 +1319,7 @@ export class Vault {
 
   /** @internal Drive one heartbeat + watch cycle deterministically (tests). */
   async _fenceTick(): Promise<void> {
-    this._ensureFenceCoordination()
+    await this._ensureFenceCoordination()
     await this.#fenceWatcher!.beat()
     await this.#fenceWatcher!.check()
   }
@@ -1571,17 +1575,12 @@ export class Vault {
       if (!spec) {
         throw new ValidationError(`vault.links("${name}"): not declared. Call vault.link("${name}", { a, b }) first.`)
       }
-      handle = new LinkSet(
-        this.adapter,
-        this.name,
-        name,
-        spec,
-        this.encrypted,
-        this.getDEK,
-        this.keyring.userId,
-        this.emitter,
-        async (collection, id) => (await this.collection(collection).get(id)) !== null,
-      )
+      // #553: handle surface is all-async, so the LinkSet engine dynamic-imports on first link I/O.
+      handle = makeLazyLinkSetHandle({
+        adapter: this.adapter, vault: this.name, name, spec, encrypted: this.encrypted,
+        getDEK: this.getDEK, actor: this.keyring.userId, emitter: this.emitter,
+        endpointExists: async (collection, id) => (await this.collection(collection).get(id)) !== null,
+      })
       this.linkSetCache.set(name, handle)
     }
     return handle
@@ -3318,6 +3317,7 @@ export class Vault {
    * @see docs/superpowers/specs/2026-05-22-schema-dump-design.md
    */
   async dumpSchema(opts: DumpSchemaOptions = {}): Promise<VaultSchemaSnapshot> {
+    const { dumpVaultSchema } = await import('../with-shape/introspection/walk.js') // lazy (#553)
     return dumpVaultSchema(this, opts)
   }
 
