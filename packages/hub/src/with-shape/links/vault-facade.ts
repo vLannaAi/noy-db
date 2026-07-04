@@ -19,10 +19,12 @@ import {
   linkCollectionName,
   linkRowKey,
   LinkIntegrityError,
-  type LinkSet,
   type LinkSpec,
   type LinkSetHandle,
-} from './link-set.js'
+} from './names.js'
+// Type-only -- the LinkSet storage engine loads via dynamic import in the
+// Vault's lazy links() handle (#553); this facade only needs its shape.
+import type { LinkSet } from './link-set.js'
 import type { JoinableSource } from '../../kernel/query/index.js'
 import type { Collection } from '../../kernel/collection.js'
 import type { NoydbStore } from '../../kernel/types.js'

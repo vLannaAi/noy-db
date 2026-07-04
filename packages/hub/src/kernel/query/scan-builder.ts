@@ -70,8 +70,7 @@ import type {
 import type { JoinContext, JoinLeg, JoinableSource } from './join.js'
 import { DanglingReferenceError } from '../errors.js'
 import type { MoneyDescriptor } from '../../with-shape/money/descriptor.js'
-import { decodeMoneyFields } from '../../with-shape/money/normalize.js'
-import { moneyFieldClause } from '../../with-shape/money/where.js'
+import { moneyRuntime } from '../money-runtime.js'
 
 /**
  * Page provider — the Collection-shaped hook the builder calls to
@@ -154,7 +153,7 @@ export class ScanBuilder<T, S extends keyof T = never, M extends keyof T & strin
    */
   private decodeMoney(record: T): T {
     if (!this.moneyFields || Object.keys(this.moneyFields).length === 0) return record
-    return decodeMoneyFields(record as Record<string, unknown>, this.moneyFields, 'raw') as T
+    return moneyRuntime().decodeMoneyFields(record as Record<string, unknown>, this.moneyFields, 'raw') as T
   }
 
   /**
@@ -175,7 +174,7 @@ export class ScanBuilder<T, S extends keyof T = never, M extends keyof T & strin
     // same build-time operand rewrite as Query.where().
     const desc = this.moneyFields?.[field as string]
     const clause: FieldClause = desc
-      ? moneyFieldClause(field as string, op, value, desc)
+      ? moneyRuntime().moneyFieldClause(field as string, op, value, desc)
       : { type: 'field', field: field as string, op, value }
     return new ScanBuilder<T, S, M>(
       this.pageProvider,

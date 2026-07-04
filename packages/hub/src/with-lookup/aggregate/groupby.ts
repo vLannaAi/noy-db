@@ -72,7 +72,7 @@ import { reducerBuilder } from './reducers.js'
 import { canonicalGroupKey } from './canonical-key.js'
 import { GroupCardinalityError } from '../../kernel/errors.js'
 import type { MoneyDescriptor } from '../../with-shape/money/descriptor.js'
-import { wrapMoneyReducers } from '../../with-shape/money/money-reducer.js'
+import { moneyRuntime } from '../../kernel/money-runtime.js'
 import { applyI18nLocale, type I18nTextDescriptor } from '../../with-shape/i18n/core.js'
 
 /**
@@ -190,7 +190,7 @@ abstract class GroupedQueryBase {
 
   /** Apply money-aware reducer rewriting when money fields are declared. */
   protected wrapSpec<Spec extends AggregateSpec>(spec: Spec): Spec {
-    return this.moneyFields ? (wrapMoneyReducers(spec, this.moneyFields) as Spec) : spec
+    return this.moneyFields ? (moneyRuntime().wrapMoneyReducers(spec, this.moneyFields) as Spec) : spec
   }
 }
 
@@ -295,7 +295,7 @@ export function groupAndReduce<R>(
   // covers direct `groupAndReduce` callers (UNION-form MVs) that have
   // no Query wrapper to do it.
   if (moneyFields) {
-    spec = wrapMoneyReducers(spec, moneyFields)
+    spec = moneyRuntime().wrapMoneyReducers(spec, moneyFields)
   }
 
   // Bucket value is { keyValues, records } so the output row can stamp

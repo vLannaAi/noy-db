@@ -17,6 +17,7 @@
 import type { RoundingMode } from './fixed-point.js'
 import { scaleForCurrency } from './iso4217.js'
 import { NoydbError } from '../../kernel/errors.js'
+import { linkMoneyEngine } from './engine.js'
 
 export interface MoneyOptionsFixed {
   currency: string
@@ -108,6 +109,11 @@ function isMultiOptions(o: MoneyOptions): o is MoneyOptionsMulti {
 
 /** Create a {@link MoneyDescriptor}. */
 export function money(options: MoneyOptions): MoneyDescriptor {
+  // The declaration is the engine's opt-in unit (#553): constructing a
+  // descriptor statically links normalize/paths/where/money-reducer into
+  // the kernel's runtime seam, so every later kernel consultation
+  // (including the SYNC query DSL) finds the engine already present.
+  linkMoneyEngine()
   const hasFixed = 'currency' in options
   const hasMulti = 'currencies' in options
   if (hasFixed && hasMulti) {

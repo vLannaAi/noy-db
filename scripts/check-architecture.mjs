@@ -1043,7 +1043,6 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/introspection/field-meta.js',
     '../with-shape/introspection/meta.js',
     '../with-shape/money/descriptor.js',
-    '../with-shape/money/paths.js',
     '../with-shape/schema-update/fence-controller.js',
     '../with-shape/schema-update/gate.js',
   ]],
@@ -1058,6 +1057,8 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-commit/history/strategy.js',
     '../with-commit/tx/transaction.js',
     '../with-formula/computed/index.js',
+    // #553 -- tiny lazy-loader seam; the computed engine itself now dynamic-imports
+    '../with-formula/computed/lazy.js',
     '../with-formula/derivations/executor.js',
     '../with-formula/derivations/fanout-sidecar.js',
     '../with-formula/derivations/registry.js',
@@ -1104,12 +1105,9 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/i18n/strategy.js',
     '../with-shape/introspection/describe.js',
     '../with-shape/introspection/field-meta.js',
-    '../with-shape/introspection/json-schema.js',
     '../with-shape/introspection/meta.js',
     '../with-shape/introspection/types.js',
     '../with-shape/money/descriptor.js',
-    '../with-shape/money/normalize.js',
-    '../with-shape/money/paths.js',
     '../with-shape/persisted-schemas/derive.js',
     '../with-shape/schema-update/fence-controller.js',
     '../with-shape/schema-update/gate.js',
@@ -1252,9 +1250,11 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/introspection/meta.js',
     '../with-shape/introspection/types.js',
     '../with-shape/introspection/walk.js',
-    '../with-shape/links/link-set.js',
+    // #553 -- always-loadable links slice (naming/types + the lazy handle
+    // factory); the LinkSet storage engine itself now dynamic-imports
+    '../with-shape/links/lazy-handle.js',
+    '../with-shape/links/names.js',
     '../with-shape/links/vault-facade.js',
-    '../with-shape/persisted-schemas/register.js',
     '../with-shape/schema-update/fence-controller.js',
     '../with-shape/schema-update/fence-watcher.js',
     '../with-shape/schema-update/fence.js',
@@ -1268,9 +1268,6 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../../with-lookup/aggregate/strategy.js',
     '../../with-lookup/indexing/eager-indexes.js',
     '../../with-shape/money/descriptor.js',
-    '../../with-shape/money/money-reducer.js',
-    '../../with-shape/money/normalize.js',
-    '../../with-shape/money/where.js',
   ]],
   ['packages/hub/src/kernel/query/index.ts', [
     '../../with-lookup/aggregate/aggregation.js',
@@ -1281,6 +1278,11 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
   ['packages/hub/src/kernel/query/join.ts', [
     '../../with-shape/i18n/core.js',
   ]],
+  ['packages/hub/src/kernel/money-runtime.ts', [
+    // #553 -- TYPE-only (erased) import of the MoneyEngine interface; the
+    // engine values are linked at runtime by money() via installMoneyEngine()
+    '../with-shape/money/engine.js',
+  ]],
   ['packages/hub/src/kernel/query/predicate.ts', [
     '../../with-shape/money/where.js',
   ]],
@@ -1288,8 +1290,6 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../../with-lookup/aggregate/aggregation.js',
     '../../with-lookup/aggregate/reducers.js',
     '../../with-shape/money/descriptor.js',
-    '../../with-shape/money/normalize.js',
-    '../../with-shape/money/where.js',
   ]],
   ['packages/hub/src/kernel/enclave/record-keys/record-codec.ts', [
     '../../../with-commit/crdt/crdt.js',

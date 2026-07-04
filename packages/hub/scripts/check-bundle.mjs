@@ -102,6 +102,19 @@ const SCENARIOS = [
       'DerivationRegistry',
       'GuardExecutor',
       'DerivationExecutor',
+      // Archetype-3 schema engines (#553) -- declaration-gated, must never
+      // be statically reachable from the floor:
+      'quantizeMoneyFields',   // money write engine (linked by money())
+      'decodeMoneyFields',     // money read engine
+      'moneyFieldClause',      // money where() build engine
+      'evaluateMoneyClause',   // money predicate engine
+      'wrapMoneyReducers',     // money aggregation engine
+      'evalComputedFields',    // computed-fields engine (lazy at first put)
+      'LinkSet',               // link-set storage engine (lazy links() handle)
+      'persistSchemaIfNeeded', // schema-update decision engine
+      'FenceWatcher',          // cutover heartbeat/watcher
+      'dumpVaultSchema',       // introspection walker
+      'buildJsonSchema',       // JSON-Schema assembler
     ],
   },
   {
@@ -141,6 +154,14 @@ const SCENARIOS = [
       export { createNoydb, withIndexing, withAggregate }
     `,
     leakCanaries: [],
+    // The aggregate service must not drag the money engine in -- money
+    // reducer wrapping goes through the kernel's money-runtime seam and
+    // only links when a collection declares money() fields (#553).
+    eagerImports: [
+      'wrapMoneyReducers',
+      'quantizeMoneyFields',
+      'decodeMoneyFields',
+    ],
   },
   {
     name: 'all-on',

@@ -20,9 +20,7 @@ import { reducerBuilder } from '../../with-lookup/aggregate/reducers.js'
 import type { GroupedQuery, GroupedQueryN } from '../../with-lookup/aggregate/groupby.js'
 import { NO_AGGREGATE, type AggregateStrategy } from '../../with-lookup/aggregate/strategy.js'
 import type { MoneyDescriptor } from '../../with-shape/money/descriptor.js'
-import { wrapMoneyReducers } from '../../with-shape/money/money-reducer.js'
-import { decodeMoneyFields, moneyScaledValue } from '../../with-shape/money/normalize.js'
-import { moneyFieldClause } from '../../with-shape/money/where.js'
+import { moneyRuntime } from '../money-runtime.js'
 
 export interface OrderBy {
   readonly field: string
@@ -283,7 +281,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
   where(field: QueryField<T, S, Q>, op: Operator, value: unknown): Query<T, S, Q, M> {
     const desc = this.source.moneyFields?.[field]
     const clause: FieldClause = desc
-      ? moneyFieldClause(field, op, value, desc)
+      ? moneyRuntime().moneyFieldClause(field, op, value, desc)
       : { type: 'field', field, op, value }
     return new Query<T, S, Q, M>(
       this.source as QuerySource<T>,
@@ -646,7 +644,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
   private decodeMoney(records: readonly unknown[]): unknown[] {
     const moneyFields = this.source.moneyFields
     if (!moneyFields || Object.keys(moneyFields).length === 0) return records as unknown[]
-    return records.map(r => decodeMoneyFields(r as Record<string, unknown>, moneyFields, 'raw'))
+    return records.map(r => moneyRuntime().decodeMoneyFields(r as Record<string, unknown>, moneyFields, 'raw'))
   }
 
   /** Return the first matching record, or null. Joins are applied. `opts.locale` resolves joined i18n fields. */
@@ -746,7 +744,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     // before the strategy runs (covers static run() and live/MV paths).
     const moneyFields = this.source.moneyFields
     if (moneyFields) {
-      spec = wrapMoneyReducers(spec, moneyFields) as Spec
+      spec = moneyRuntime().wrapMoneyReducers(spec, moneyFields) as Spec
     }
     // Closure over the current query. Produces the record set that
     // the aggregation reduces — same pipeline as `count()`, skipping
@@ -1179,7 +1177,7 @@ export function executePlan(records: readonly unknown[], plan: QueryPlan): unkno
 function fnViewDecoder(source: InternalSource): ((r: unknown) => unknown) | undefined {
   const mf = source.moneyFields
   if (!mf || Object.keys(mf).length === 0) return undefined
-  return r => decodeMoneyFields(r as Record<string, unknown>, mf, 'raw')
+  return r => moneyRuntime().decodeMoneyFields(r as Record<string, unknown>, mf, 'raw')
 }
 
 function filterRecords(
@@ -1370,8 +1368,8 @@ function buildOrderLabelMaps(
 
 /** Compare two stored money values by BigInt scaled-int; nullish/malformed last (asc). */
 function compareMoney(a: unknown, b: unknown, desc: MoneyDescriptor): number {
-  const av = moneyScaledValue(a, desc)
-  const bv = moneyScaledValue(b, desc)
+  const av = moneyRuntime().moneyScaledValue(a, desc)
+  const bv = moneyRuntime().moneyScaledValue(b, desc)
   if (av === null) return bv === null ? 0 : 1
   if (bv === null) return -1
   return av < bv ? -1 : av > bv ? 1 : 0

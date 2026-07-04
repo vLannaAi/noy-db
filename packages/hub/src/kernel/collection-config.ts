@@ -44,7 +44,7 @@ import type { IndexDef } from '../with-lookup/indexing/eager-indexes.js'
 import type { I18nTextDescriptor } from '../with-shape/i18n/core.js'
 import type { DictKeyDescriptor, StaticDictDescriptor, DictionaryHandle } from '../with-shape/i18n/dictionary.js'
 import type { MoneyDescriptor } from '../with-shape/money/descriptor.js'
-import { validateMoneyFieldPaths } from '../with-shape/money/paths.js'
+import { moneyRuntime } from './money-runtime.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
 import { resolveClassifiedFields, ClassifiedConfigError, type ClassifiedEntry, type ResolvedClassified } from '../with-shape/classified/resolve.js'
 import { guardClassifiedCompat, type ClassifiedGuardCtx } from '../with-shape/classified/guards.js'
@@ -464,7 +464,7 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     )
   }
 
-  if (opts.moneyFields) validateMoneyFieldPaths(opts.moneyFields)
+  if (opts.moneyFields) moneyRuntime().validateMoneyFieldPaths(opts.moneyFields)
 
   const resolvedClassified: ResolvedClassified | undefined =
     opts.classifiedFields !== undefined
