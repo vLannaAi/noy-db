@@ -155,6 +155,15 @@ export class Noydb {
   /** Pre-resolved `vault.user` API factory (mirrors `coordinationProvider` above). Public so `Vault` can call it. */
   readonly userApiFactory: UserApiFactory
   private readonly vaultCache = new Map<string, Vault>()
+  /**
+   * In-flight `openVault` promise per name — concurrent opens of the same
+   * vault must converge on ONE Vault instance. Without this, two callers
+   * racing past the `vaultCache` miss each construct a Vault (and later two
+   * Collections with independent DEKs for the same store slice), so a record
+   * written through one fails decryption through the other with a spurious
+   * `TamperedError` (#564).
+   */
+  private readonly vaultOpening = new Map<string, Promise<Vault>>()
   private readonly keyringCache = new Map<string, UnlockedKeyring>()
   private readonly syncEngines = new Map<string, SyncEngine>()
   /**
@@ -499,6 +508,13 @@ export class Noydb {
     this.touchPolicy(name)
 
     let comp = this.vaultCache.get(name)
+    if (!comp) {
+      // Serialize concurrent opens of the same name (#564): the loser of the
+      // race awaits the winner's construction instead of building a second,
+      // key-divergent Vault for the same store slice.
+      const pending = this.vaultOpening.get(name)
+      if (pending) comp = await pending
+    }
     if (comp) {
       // Update locale on existing cached vault if specified
       if (opts?.locale !== undefined) {
@@ -507,6 +523,20 @@ export class Noydb {
       return comp
     }
 
+    const opening = this.#openVaultFresh(name, opts)
+    this.vaultOpening.set(name, opening)
+    try {
+      return await opening
+    } finally {
+      this.vaultOpening.delete(name)
+    }
+  }
+
+  /** Uncached single-flight body of {@link openVault} — see `vaultOpening`. */
+  async #openVaultFresh(
+    name: string,
+    opts?: { locale?: string; create?: boolean; meta?: VaultMeta },
+  ): Promise<Vault> {
     const keyring = await this._getKeyringInternal(name, { create: opts?.create !== false })
     // Tier-1 unlock — passphrase / getKeyring callbacks both yield the
     // most-privileged tier. Tier-2 / tier-3 unlocks install
@@ -559,7 +589,7 @@ export class Noydb {
       }
     }
 
-    comp = new Vault({
+    const comp = new Vault({
       adapter: this.options.store,
       name,
       noydb: this,
