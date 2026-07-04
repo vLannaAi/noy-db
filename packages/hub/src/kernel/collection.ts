@@ -1537,7 +1537,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * plaintext would sit in the working-set cache and `get()` would leak it
    * right back out, defeating C6.
    */
-  private async toCacheableRecord(record: T, envelope: EncryptedEnvelope, id: string): Promise<T> {
+  private async _toCacheableRecord(record: T, envelope: EncryptedEnvelope, id: string): Promise<T> {
     const base = await this.codec.toCacheRecord(record, envelope, id)
     if (this.vdigFields === null) return base
     const clone = { ...(base as unknown as Record<string, unknown>) }
@@ -1973,13 +1973,13 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     if (this.lazy && this.lru) {
       // Cache the handle-form (sealed fields → Sealed handles) so plaintext
       // for sensitive fields is never resident in the working set.
-      this.lru.set(id, { record: await this.toCacheableRecord(record, envelope, id), version }, estimateRecordBytes(record))
+      this.lru.set(id, { record: await this._toCacheableRecord(record, envelope, id), version }, estimateRecordBytes(record))
       // Maintain persisted-index side-cars. Lazy mode is the
       // only place `persistedIndexes` is populated; eager mode uses the
       // in-memory `CollectionIndexes` above.
       await this.maintainPersistedIndexesOnPut(id, record, existing ? existing.record : null, version)
     } else {
-      this.cache.set(id, { record: await this.toCacheableRecord(record, envelope, id), version })
+      this.cache.set(id, { record: await this._toCacheableRecord(record, envelope, id), version })
       // Update secondary indexes incrementally — no-op if no indexes are
       // declared. Pass the previous record (if any) so old buckets are
       // cleaned up before the new value is added.
