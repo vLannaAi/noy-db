@@ -68,13 +68,11 @@ import {
   loadKeyring,
   createOwnerKeyring,
   assertKeyringOpenAllowed,
-  grant as keyringGrant,
-  revoke as keyringRevoke,
-  rotateKeys as keyringRotate,
   changeSecret as keyringChangeSecret,
   listUsers as keyringListUsers,
   updateKeyringIdentity,
 } from '../with-party/team/keyring.js'
+import { NO_TEAM, type TeamStrategy } from '../port/with/team-strategy.js'
 import type { UnlockedKeyring } from '../with-party/team/keyring.js'
 import {
   type EnrollAuthenticatorOptions,
@@ -203,6 +201,11 @@ export class Noydb {
    * through it; grant/revoke route through it from this class. @internal
    */
   readonly custodyStrategy: CustodyStrategy
+  /**
+   * Opt-in multi-user team strategy (#267 keyring-grant → team split) —
+   * `NO_TEAM` (throwing) unless `withTeam()` was passed; the keyring
+   * engines are linked only by the active strategy, not by this file. */
+  private readonly teamStrategy: TeamStrategy
   private readonly sessionStrategy: SessionStrategy
   private readonly syncStrategy: SyncStrategy
   private readonly snapshots: NoydbSnapshots
@@ -259,6 +262,7 @@ export class Noydb {
     this.txStrategy = options.txStrategy ?? NO_TX
     this.forgetStrategy = options.forgetStrategy ?? NO_FORGET
     this.custodyStrategy = options.custodyStrategy ?? NO_CUSTODY
+    this.teamStrategy = options.teamStrategy ?? NO_TEAM
     this.sessionStrategy = options.sessionStrategy ?? NO_SESSION
     this.syncStrategy = options.syncStrategy ?? NO_SYNC
     this.snapshots = new NoydbSnapshots({
@@ -291,6 +295,7 @@ export class Noydb {
       quickUnlock: this.quickUnlock,
       policyCache: this.policyCache,
       checkGate: (vault, gate, factors) => this.checkGate(vault, gate, factors),
+      checkPolicyOperation: (vault, op) => this.checkPolicyOperation(vault, op),
       getKeyringInternal: (vault, opts) => this._getKeyringInternal(vault, opts),
       assertRecoveryEnrolled: (vault, policy, opts) =>
         this.assertRecoveryEnrolled(vault, policy, opts),
@@ -615,6 +620,7 @@ export class Noydb {
       ...(this.options.objectStore !== undefined ? { objectStore: this.options.objectStore } : {}),
       ...(this.options.archiveStrategy !== undefined ? { archiveStrategy: this.options.archiveStrategy } : {}),
       ...(this.options.indexStrategy !== undefined ? { indexStrategy: this.options.indexStrategy } : {}),
+      ...(this.options.lazyStrategy !== undefined ? { lazyStrategy: this.options.lazyStrategy } : {}),
       ...(this.options.aggregateStrategy !== undefined ? { aggregateStrategy: this.options.aggregateStrategy } : {}),
       ...(this.options.crdtStrategy !== undefined ? { crdtStrategy: this.options.crdtStrategy } : {}),
       ...(this.options.tiersStrategy !== undefined ? { tiersStrategy: this.options.tiersStrategy } : {}),
@@ -699,6 +705,7 @@ export class Noydb {
       ...(this.options.objectStore !== undefined ? { objectStore: this.options.objectStore } : {}),
       ...(this.options.archiveStrategy !== undefined ? { archiveStrategy: this.options.archiveStrategy } : {}),
       ...(this.options.indexStrategy !== undefined ? { indexStrategy: this.options.indexStrategy } : {}),
+      ...(this.options.lazyStrategy !== undefined ? { lazyStrategy: this.options.lazyStrategy } : {}),
       ...(this.options.aggregateStrategy !== undefined ? { aggregateStrategy: this.options.aggregateStrategy } : {}),
       ...(this.options.crdtStrategy !== undefined ? { crdtStrategy: this.options.crdtStrategy } : {}),
       ...(this.options.tiersStrategy !== undefined ? { tiersStrategy: this.options.tiersStrategy } : {}),
@@ -741,6 +748,7 @@ export class Noydb {
       ...(this.options.objectStore !== undefined ? { objectStore: this.options.objectStore } : {}),
       ...(this.options.archiveStrategy !== undefined ? { archiveStrategy: this.options.archiveStrategy } : {}),
       ...(this.options.indexStrategy !== undefined ? { indexStrategy: this.options.indexStrategy } : {}),
+      ...(this.options.lazyStrategy !== undefined ? { lazyStrategy: this.options.lazyStrategy } : {}),
       ...(this.options.aggregateStrategy !== undefined ? { aggregateStrategy: this.options.aggregateStrategy } : {}),
       ...(this.options.crdtStrategy !== undefined ? { crdtStrategy: this.options.crdtStrategy } : {}),
       ...(this.options.tiersStrategy !== undefined ? { tiersStrategy: this.options.tiersStrategy } : {}),
@@ -769,16 +777,14 @@ export class Noydb {
    *
    * The legacy `requireReAuthFor: ['grant']` session-policy check still
    * fires on top — both are independent opt-ins.
+   * Opt-in (#267): throws {@link TeamNotEnabledError} without `withTeam()`.
    */
   async grant(
     vault: string,
     options: GrantOptions,
     factors?: FactorProofBundle,
   ): Promise<void> {
-    this.checkPolicyOperation(vault, 'grant')
-    await this.checkGate(vault, 'enroll-user', factors)
-    const keyring = await this._getKeyringInternal(vault)
-    await keyringGrant(this.options.store, vault, keyring, options)
+    return this.teamStrategy.grant(this.team, vault, options, factors)
   }
 
   /**
@@ -789,16 +795,14 @@ export class Noydb {
    *
    * The legacy `requireReAuthFor: ['revoke']` session-policy check still
    * fires on top — both are independent opt-ins.
+   * Opt-in (#267): throws {@link TeamNotEnabledError} without `withTeam()`.
    */
   async revoke(
     vault: string,
     options: RevokeOptions,
     factors?: FactorProofBundle,
   ): Promise<void> {
-    this.checkPolicyOperation(vault, 'revoke')
-    await this.checkGate(vault, 'revoke-user', factors)
-    const keyring = await this._getKeyringInternal(vault)
-    await keyringRevoke(this.options.store, vault, keyring, options)
+    return this.teamStrategy.revoke(this.team, vault, options, factors)
   }
 
   /**
@@ -821,8 +825,10 @@ export class Noydb {
     return this.custodyStrategy.grantCustodian(this as CustodyHost, vault, options, factors)
   }
 
-  /** @internal — the grant-custodian engine, reached only when withCustody() is opted in. */
+  /** @internal — grant-custodian engine, reached only via withCustody(); the
+   * keyring engine arrives as an argument so the floor never carries it (#267). */
   async _grantCustodianImpl(
+    engine: (adapter: NoydbStore, vault: string, callerKeyring: UnlockedKeyring, options: GrantOptions) => Promise<void>,
     vault: string,
     options: Omit<GrantOptions, 'role'>,
     factors?: FactorProofBundle,
@@ -831,7 +837,7 @@ export class Noydb {
     await this.checkGate(vault, 'grant-custodian', factors)
     const keyring = await this._getKeyringInternal(vault)
     if (keyring.role !== 'owner') throw new PermissionDeniedError('only the Deed owner can grant a custodian')
-    await keyringGrant(this.options.store, vault, keyring, { ...options, role: 'custodian' })
+    await engine(this.options.store, vault, keyring, { ...options, role: 'custodian' })
   }
 
   /**
@@ -850,8 +856,10 @@ export class Noydb {
     return this.custodyStrategy.revokeCustodian(this as CustodyHost, vault, options, factors)
   }
 
-  /** @internal — the revoke-custodian engine, reached only when withCustody() is opted in. */
+  /** @internal — revoke-custodian engine, reached only via withCustody().
+   * Mirrors `_grantCustodianImpl` (#267: engine passed in). */
   async _revokeCustodianImpl(
+    engine: (adapter: NoydbStore, vault: string, callerKeyring: UnlockedKeyring, options: RevokeOptions) => Promise<void>,
     vault: string,
     options: RevokeOptions,
     factors?: FactorProofBundle,
@@ -860,7 +868,7 @@ export class Noydb {
     await this.checkGate(vault, 'revoke-user', factors)
     const keyring = await this._getKeyringInternal(vault)
     if (keyring.role !== 'owner') throw new PermissionDeniedError('only the Deed owner can revoke a custodian')
-    await keyringRevoke(this.options.store, vault, keyring, options)
+    await engine(this.options.store, vault, keyring, options)
   }
 
   /**
@@ -937,15 +945,10 @@ export class Noydb {
    * Exposed on Noydb (rather than only on the lower-level keyring
    * module) so CLI and admin tooling can trigger rotation without
    * reaching into internals. See `noy-db rotate` for the CLI wrapper.
+   * Opt-in (#267): throws {@link TeamNotEnabledError} without `withTeam()`.
    */
   async rotate(vault: string, collections: string[]): Promise<void> {
-    this.checkPolicyOperation(vault, 'rotate')
-    const keyring = await this._getKeyringInternal(vault)
-    await keyringRotate(this.options.store, vault, keyring, collections)
-    // Refresh the cached keyring so subsequent operations see the
-    // freshly-rotated DEKs. Without this, `ensureCollectionDEK` on
-    // the next Collection access would still hold the old ones.
-    this.keyringCache.set(vault, keyring)
+    return this.teamStrategy.rotate(this.team, vault, collections)
   }
 
   /** List all users with access to a vault. */

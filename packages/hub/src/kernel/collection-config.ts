@@ -61,6 +61,7 @@ import type { TxContext } from '../with-commit/tx/transaction.js'
 import type { MaterializedViewRegistry } from '../with-formula/materialized-views/registry.js'
 import type { MVQueryContext } from '../with-formula/materialized-views/types.js'
 import type { Collection, OnDirtyCallback, CacheOptions } from './collection.js'
+import type { LazyStrategy } from '../port/with/lazy-strategy.js'
 
 /**
  * Raw options handed to the {@link Collection} constructor by the Vault.
@@ -164,6 +165,12 @@ export interface CollectionOpts<T> {
    * unbounded lazy cache defeats the purpose.
    */
   cache?: CacheOptions | undefined
+  /**
+   * Lazy service seam (#267) — supplies the bounded-LRU working-set cache
+   * when `prefetch: false`. Omitted → the deprecated IMPLICIT_LAZY
+   * back-compat default (identical behavior + one-time warn).
+   */
+  lazyStrategy?: LazyStrategy | undefined
   /**
    * Optional Standard Schema v1 validator (Zod, Valibot, ArkType,
    * Effect Schema, etc.). When set, every `put()` is validated before

@@ -28,6 +28,7 @@ import {
 import { ConflictError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import type { UnlockedKeyring } from '../src/with-party/team/keyring.js'
+import { withTeam } from '../src/with-party/team/index.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -149,7 +150,7 @@ describe('evaluateImportCapability — no-keyring variant', () => {
 describe('grant() persistence — importCapability round-trips via keyring file', () => {
   it('persists explicit import capability for a newly-granted operator', async () => {
     const adapter = memory()
-    const ownerDb = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const ownerDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
     await ownerDb.openVault('acme')
 
     await ownerDb.grant('acme', {
@@ -162,7 +163,7 @@ describe('grant() persistence — importCapability round-trips via keyring file'
     })
     await ownerDb.close()
 
-    const opDb = await createNoydb({ store: adapter, user: 'op@test', secret: 'op-pass' })
+    const opDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'op@test', secret: 'op-pass' })
     await opDb.openVault('acme')
 
     const internals = (opDb as unknown as { keyringCache: Map<string, UnlockedKeyring> })
@@ -176,7 +177,7 @@ describe('grant() persistence — importCapability round-trips via keyring file'
 
   it('legacy keyrings (no importCapability field) load default-closed', async () => {
     const adapter = memory()
-    const ownerDb = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const ownerDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
     await ownerDb.openVault('acme')
 
     await ownerDb.grant('acme', {
@@ -188,7 +189,7 @@ describe('grant() persistence — importCapability round-trips via keyring file'
     })
     await ownerDb.close()
 
-    const opDb = await createNoydb({ store: adapter, user: 'op@test', secret: 'op-pass' })
+    const opDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'op@test', secret: 'op-pass' })
     await opDb.openVault('acme')
 
     const internals = (opDb as unknown as { keyringCache: Map<string, UnlockedKeyring> })
@@ -201,7 +202,7 @@ describe('grant() persistence — importCapability round-trips via keyring file'
 
   it('owner keyring is default-closed too (no auto-grant for any tier)', async () => {
     const adapter = memory()
-    const db = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
     await db.openVault('acme')
 
     const internals = (db as unknown as { keyringCache: Map<string, UnlockedKeyring> })
@@ -215,7 +216,7 @@ describe('grant() persistence — importCapability round-trips via keyring file'
 describe('vault.assertCanImport / canImport', () => {
   it('owner cannot import plaintext or bundle without a grant', async () => {
     const adapter = memory()
-    const db = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
     const vault = await db.openVault('acme')
     expect(vault.canImport('plaintext', 'csv')).toBe(false)
     expect(vault.canImport('bundle')).toBe(false)
@@ -226,7 +227,7 @@ describe('vault.assertCanImport / canImport', () => {
 
   it('operator with plaintext grant can import that format and only that format', async () => {
     const adapter = memory()
-    const ownerDb = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const ownerDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
     await ownerDb.openVault('acme')
     await ownerDb.grant('acme', {
       userId: 'op@test', displayName: 'Operator', role: 'operator',
@@ -236,7 +237,7 @@ describe('vault.assertCanImport / canImport', () => {
     })
     await ownerDb.close()
 
-    const opDb = await createNoydb({ store: adapter, user: 'op@test', secret: 'op-pass' })
+    const opDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'op@test', secret: 'op-pass' })
     const vault = await opDb.openVault('acme')
     expect(vault.canImport('plaintext', 'csv')).toBe(true)
     expect(vault.canImport('plaintext', 'json')).toBe(false)

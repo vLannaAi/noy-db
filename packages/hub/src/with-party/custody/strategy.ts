@@ -18,8 +18,9 @@
  * `vault.custody.*`) are the capability.
  * @internal
  */
-import type { RevokeOptions, FactorProofBundle } from '../../kernel/types.js'
+import type { GrantOptions, RevokeOptions, FactorProofBundle, NoydbStore } from '../../kernel/types.js'
 import type { Vault } from '../../kernel/vault.js'
+import type { UnlockedKeyring } from '../team/keyring.js'
 import type { GrantCustodianOptions } from './index.js'
 import type { LiberateOptions, LiberateResult } from './liberate.js'
 import { CustodyNotEnabledError } from '../../kernel/errors.js'
@@ -28,11 +29,23 @@ import { CustodyNotEnabledError } from '../../kernel/errors.js'
  * The grant/revoke engine the strategy runs when opted in — implemented by
  * `Noydb` (`_grantCustodianImpl` / `_revokeCustodianImpl` hold the gate +
  * keyring logic; the public `grantCustodian` / `revokeCustodian` route through
- * the strategy).
+ * the strategy). Since the #267 team split the keyring grant/revoke engines
+ * are passed IN by `withCustody()` (statically linked there, not in the
+ * kernel) so the single-user floor never carries them.
  */
 export interface CustodyHost {
-  _grantCustodianImpl(vault: string, options: GrantCustodianOptions, factors?: FactorProofBundle): Promise<void>
-  _revokeCustodianImpl(vault: string, options: RevokeOptions, factors?: FactorProofBundle): Promise<void>
+  _grantCustodianImpl(
+    engine: (adapter: NoydbStore, vault: string, callerKeyring: UnlockedKeyring, options: GrantOptions) => Promise<void>,
+    vault: string,
+    options: GrantCustodianOptions,
+    factors?: FactorProofBundle,
+  ): Promise<void>
+  _revokeCustodianImpl(
+    engine: (adapter: NoydbStore, vault: string, callerKeyring: UnlockedKeyring, options: RevokeOptions) => Promise<void>,
+    vault: string,
+    options: RevokeOptions,
+    factors?: FactorProofBundle,
+  ): Promise<void>
 }
 
 export interface CustodyStrategy {

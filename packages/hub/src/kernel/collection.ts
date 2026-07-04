@@ -55,7 +55,7 @@ import { hasWritePermission } from '../with-party/team/keyring.js'
 import type { NoydbEventEmitter } from './events.js'
 import type { WriteQueueTracker } from './write-queue.js'
 import type { WriteHookRegistry, WriteEvent } from '../port/with/write-hooks.js'
-import type { ServiceBus, GatePutEvent } from '../port/with/service-bus.js'
+import type { ServiceBus, GatePutEvent, GatePoint } from '../port/with/service-bus.js'
 import type { SchemaUpdateGate } from '../with-shape/schema-update/gate.js'
 import type { SchemaFenceController } from '../with-shape/schema-update/fence-controller.js'
 import type { StandardSchemaV1 } from './schema.js'
@@ -82,7 +82,8 @@ import { buildUniqueConstraintSet, type UniqueConstraintSet } from '../with-look
 import type { RefDescriptor } from './refs.js'
 import { buildDescription, deriveZodFields, type CollectionDescription, type DescribeOptions } from '../with-shape/introspection/describe.js'
 import type { CollectionConfig } from '../with-shape/introspection/types.js'
-import { Lru, parseBytes, estimateRecordBytes, type LruStats } from './cache/index.js'
+import { estimateRecordBytes, type Lru, type LruStats } from './cache/index.js'
+import { IMPLICIT_LAZY } from '../port/with/lazy-strategy.js'
 import { generateULID } from '../with-pod/ulid.js'
 import type { PresenceHandle, PresenceHandleOpts } from '../with-party/team/presence.js'
 import type { SyncStrategy } from '../with-party/team/sync-strategy.js'
@@ -916,16 +917,10 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     this.lazy = opts.prefetch === false
 
     if (this.lazy) {
-      if (!opts.cache || (opts.cache.maxRecords === undefined && opts.cache.maxBytes === undefined)) {
-        throw new Error(
-          `Collection "${this.name}": lazy mode (prefetch: false) requires a cache option ` +
-          `with maxRecords and/or maxBytes. An unbounded lazy cache defeats the purpose.`,
-        )
-      }
-      const lruOptions: { maxRecords?: number; maxBytes?: number } = {}
-      if (opts.cache.maxRecords !== undefined) lruOptions.maxRecords = opts.cache.maxRecords
-      if (opts.cache.maxBytes !== undefined) lruOptions.maxBytes = parseBytes(opts.cache.maxBytes)
-      this.lru = new Lru<string, { record: T; version: number }>(lruOptions)
+      // #267 lazy service — budget validation + LRU construction live on the
+      // strategy seam (withLazy(); IMPLICIT_LAZY = deprecated implicit path).
+      this.lru = (opts.lazyStrategy ?? IMPLICIT_LAZY)
+        .createCache<{ record: T; version: number }>(this.name, opts.cache)
       this.hydrated = true // lazy mode is always "hydrated" — no bulk load
     } else {
       this.lru = null
@@ -1726,6 +1721,18 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     return cached ? { record: cached.record, version: cached.version } : undefined
   }
 
+  /** Resolves the prior envelope/record for a gate event; elides the read (#267) when no handler at `point` needs it (`elided: true`, `env`/`record` null). */
+  private async resolveGatePrior(point: GatePoint, id: string): Promise<{ env: EncryptedEnvelope | null; record: unknown; elided: boolean }> {
+    if (!this.subsystemBus!.gateNeedsPrior(point)) return { env: null, record: null, elided: true }
+    const env = await this.adapter.get(this.vault, this.name, id)
+    if (!env) return { env: null, record: null, elided: false }
+    try {
+      return { env, record: await this.codec.decryptRecord(env, { skipValidation: true }), elided: false }
+    } catch {
+      return { env, record: null, elided: false }
+    }
+  }
+
   /**
    * Wraps {@link RecordCodec.toCacheRecord} with an additional strip for
    * digest-only classified fields: the codec already omits them from `_data`
@@ -1758,17 +1765,10 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // field-freeze / amendment-collect; periods: closed-period guard) run here,
     // before any schema/i18n/history work. A throwing gate handler propagates
     // and aborts the write; the amendment branch collects without throwing.
-    // Zero-cost when no gate handler is registered.
+    // Zero-cost when no gate handler is registered; elides its own
+    // prior-read (#267) too — see {@link resolveGatePrior}.
     if (this.subsystemBus?.hasGateHandlers('beforePut')) {
-      const existingEnv = await this.adapter.get(this.vault, this.name, id)
-      let existingRecord: unknown = null
-      if (existingEnv) {
-        try {
-          existingRecord = await this.codec.decryptRecord(existingEnv, { skipValidation: true })
-        } catch {
-          existingRecord = null
-        }
-      }
+      const { env: existingEnv, record: existingRecord } = await this.resolveGatePrior('beforePut', id)
       const gateEvent: GatePutEvent = {
         op: existingEnv ? 'update' : 'create',
         vault: this.vault, collection: this.name, docId: id,
@@ -2776,21 +2776,15 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // Gate bus (Track A) — fires for ALL deletes (carrying `internal`), so a
     // gate handler can collect amendment changes on system-internal deletes
     // while branching off `onDelete`/period checks for them. Delete-of-absent
-    // (no envelope) does not fire.
+    // does not fire — unless the read is elided (#267, {@link resolveGatePrior}).
     if (this.subsystemBus?.hasGateHandlers('beforeDelete')) {
-      const existingEnv = await this.adapter.get(this.vault, this.name, id)
-      if (existingEnv) {
-        let existingRecord: unknown = null
-        try {
-          existingRecord = await this.codec.decryptRecord(existingEnv, { skipValidation: true })
-        } catch {
-          existingRecord = null
-        }
+      const { env: existingEnv, record: existingRecord, elided } = await this.resolveGatePrior('beforeDelete', id)
+      if (existingEnv || elided) {
         await this.subsystemBus.dispatchGate('beforeDelete', {
           vault: this.vault, collection: this.name, docId: id,
           existing: this.moneyFields ? moneyRuntime().canonicalizeStoredMoney(existingRecord, this.moneyFields) : existingRecord,
-          existingVersion: existingEnv._v,
-          existingTs: existingEnv._ts,
+          existingVersion: existingEnv?._v ?? 0,
+          existingTs: existingEnv?._ts,
           internal,
           userId: this.keyring.userId,
           role: this.keyring.role,

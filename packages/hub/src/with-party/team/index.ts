@@ -13,6 +13,14 @@
  * populated even with `sideEffects: false`.
  */
 
+// ─── Capability opt-in seam (#267 keyring-grant → team split) ──
+// `db.grant` / `db.revoke` / `db.rotate` throw TeamNotEnabledError unless
+// `teamStrategy: withTeam()` is passed to createNoydb; withTeam() links the
+// keyring engines into this subpath's bundle, keeping the floor single-user.
+export { withTeam } from './active.js'
+export { NO_TEAM, type TeamStrategy } from './strategy.js'
+export { TeamNotEnabledError } from '../../kernel/errors.js'
+
 // ─── Keyring / multi-user ───────────────────────────────────
 export type { UnlockedKeyring } from './keyring.js'
 export {

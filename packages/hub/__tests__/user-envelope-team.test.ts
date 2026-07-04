@@ -20,6 +20,7 @@ import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 import { createNoydb, type Noydb } from '../src/kernel/noydb.js'
 import { listUsersWithEnvelopes } from '../src/with-party/team/keyring.js'
 import { USER_ENVELOPE_COLLECTION } from '../src/kernel/constants.js'
+import { withTeam } from '../src/with-party/team/index.js'
 
 interface TestProfile {
   profile?: { displayName?: string; locale?: string }
@@ -53,7 +54,7 @@ describe('team integration — listUsersWithEnvelopes (#23)', () => {
 
   beforeEach(async () => {
     store = inlineMemory()
-    aliceDb = await createNoydb({ store, user: 'alice', secret: 'alice-pass-2026-strong' })
+    aliceDb = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: 'alice-pass-2026-strong' })
     const v = await aliceDb.openVault('demo')
     await v.user.updateMe<TestProfile>({
       profile: { displayName: 'Alice', locale: 'en-US' },

@@ -222,6 +222,7 @@
     "reconcileIndex",
     "resolveCurrentOrVersion",
     "resolveDensifyPrior",
+    "resolveGatePrior",
     "resolvePriorValues",
     "resolveRecordCek",
     "resolveVersion",

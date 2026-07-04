@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { createNoydb, PathEscapeError, type Noydb } from '@noy-db/hub'
 import { withBlobs } from '@noy-db/hub/blobs'
 import { jsonFile, exportBlobsToDirectory } from '../src/index.js'
+import { withTeam } from '@noy-db/hub/team'
 
 interface Doc { id: string; title: string }
 
@@ -20,7 +21,7 @@ async function makeFixture(): Promise<void> {
   const dataDir = join(workDir, 'data')
   // First open: grant export capability via re-grant (matches the
   // existing exportBlobs test fixture in @noy-db/hub).
-  const bootstrap = await createNoydb({
+  const bootstrap = await createNoydb({ teamStrategy: withTeam(),
     store: jsonFile({ dir: dataDir }),
     user: 'alice',
     secret: SECRET,
@@ -36,7 +37,7 @@ async function makeFixture(): Promise<void> {
   })
   await bootstrap.close()
 
-  db = await createNoydb({
+  db = await createNoydb({ teamStrategy: withTeam(),
     store: jsonFile({ dir: dataDir }),
     user: 'alice',
     secret: SECRET,

@@ -9,6 +9,7 @@ import {
   type EncryptedEnvelope,
   type VaultSnapshot,
 } from '@noy-db/hub'
+import { withTeam } from '@noy-db/hub/team'
 import {
   setActiveNoydb,
   useCapabilityGrant,
@@ -67,7 +68,7 @@ const SECRET = 'cap-grant-test-passphrase-2026'
 let db: Noydb
 
 async function freshDb(): Promise<Noydb> {
-  return createNoydb({
+  return createNoydb({ teamStrategy: withTeam(),
     store: memory(),
     user: 'admin-user',
     secret: SECRET,
@@ -200,7 +201,7 @@ describe('useCapabilityGrant', () => {
     // Set up a non-owner session: re-grant the active user as operator.
     // Owner can always approve; operator on an admin-required grant cannot.
     const adapter = memory()
-    const ownerDb = await createNoydb({ store: adapter, user: 'owner', secret: SECRET })
+    const ownerDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner', secret: SECRET })
     await ownerDb.openVault('V1')
     await ownerDb.grant('V1', {
       userId: 'op',
@@ -211,7 +212,7 @@ describe('useCapabilityGrant', () => {
     })
     await ownerDb.close()
 
-    const opDb = await createNoydb({ store: adapter, user: 'op', secret: 'op-pw' })
+    const opDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'op', secret: 'op-pw' })
     setActiveNoydb(opDb)
     await opDb.openVault('V1')
 

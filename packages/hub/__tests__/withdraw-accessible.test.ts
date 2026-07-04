@@ -11,6 +11,7 @@ import { createNoydb } from '../src/kernel/noydb.js'
 import { withPortability } from '../src/with-audit/portability/index.js'
 import type { VaultPolicy } from '../src/kernel/types.js'
 import { readNoydbBundle } from '../src/with-pod/bundle.js'
+import { withTeam } from '../src/with-party/team/index.js'
 
 function makeStore(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -34,7 +35,7 @@ const GATE_ON = { gates: { 'client-unilateral-withdraw': { enabled: true, minTie
 
 /** Owner-provisioned vault with one member granted `mode` on `invoices`. */
 async function setup(store: NoydbStore, role: 'operator' | 'client', mode: 'rw' | 'ro', policy?: VaultPolicy) {
-  const base = { store, user: 'firm', secret: 'owner-pw-long-enough' }
+  const base = { store, user: 'firm', secret: 'owner-pw-long-enough', teamStrategy: withTeam() }
   const owner = await createNoydb(policy ? { ...base, policy } : base)
   const ov = await owner.openVault('acme')
   await ov.collection<{ id: string; total: number }>('invoices').put('i1', { id: 'i1', total: 100 })
@@ -44,7 +45,7 @@ async function setup(store: NoydbStore, role: 'operator' | 'client', mode: 'rw' 
     permissions: { invoices: mode },
   })
   owner.close()
-  const member = await createNoydb({ store, user: 'member1', secret: 'member-pw-long-enough', portabilityStrategy: withPortability() })
+  const member = await createNoydb({ teamStrategy: withTeam(), store, user: 'member1', secret: 'member-pw-long-enough', portabilityStrategy: withPortability() })
   const cv = await member.openVault('acme')
   return { cv }
 }

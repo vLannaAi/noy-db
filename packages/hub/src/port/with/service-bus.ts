@@ -88,9 +88,29 @@ export interface GateEventMap {
 export type GatePoint = keyof GateEventMap
 export type GateHandler<P extends GatePoint> = (event: GateEventMap[P]) => void | Promise<void>
 
+/**
+ * Registration options for a gate handler.
+ *
+ * `needsPrior` (default `true`) declares whether the handler reads the
+ * prior-derived event fields — `existing`, `existingVersion`, `existingTs`,
+ * and (on `beforePut`) `op`. When EVERY handler registered at a point set
+ * `needsPrior: false`, the write path skips the prior-read (store get +
+ * decrypt) entirely and dispatches the event with `existing: null`,
+ * `existingVersion: 0`, `existingTs: undefined` (and `op: 'create'` on
+ * `beforePut`; a `beforeDelete` gate then also fires for delete-of-absent).
+ * A handler that opts out MUST NOT rely on those fields. (#267 prior-read
+ * elision — pure perf; one prior-needing handler restores the old behavior
+ * for the whole point.)
+ */
+export interface GateRegisterOptions {
+  readonly needsPrior?: boolean
+}
+
+type GateEntry = { readonly fn: AnyHandler; readonly needsPrior: boolean }
+
 export class ServiceBus {
   readonly #handlers = new Map<LifecyclePoint, AnyHandler[]>()
-  readonly #gateHandlers = new Map<GatePoint, AnyHandler[]>()
+  readonly #gateHandlers = new Map<GatePoint, GateEntry[]>()
   #depth = 0
 
   /** Register a handler for an observe point. Returns an unsubscribe fn. */
@@ -151,15 +171,20 @@ export class ServiceBus {
     }
   }
 
-  /** Register a write-gating handler. A throw from the handler ABORTS the write. Returns an unsubscribe fn. */
-  registerGate<P extends GatePoint>(point: P, handler: GateHandler<P>): Unsubscribe {
+  /**
+   * Register a write-gating handler. A throw from the handler ABORTS the
+   * write. Returns an unsubscribe fn. See {@link GateRegisterOptions} for
+   * the `needsPrior` prior-read declaration (#267).
+   */
+  registerGate<P extends GatePoint>(point: P, handler: GateHandler<P>, opts?: GateRegisterOptions): Unsubscribe {
     let arr = this.#gateHandlers.get(point)
     if (!arr) { arr = []; this.#gateHandlers.set(point, arr) }
-    arr.push(handler as AnyHandler)
+    const entry: GateEntry = { fn: handler as AnyHandler, needsPrior: opts?.needsPrior !== false }
+    arr.push(entry)
     return () => {
       const a = this.#gateHandlers.get(point)
       if (!a) return
-      const i = a.indexOf(handler as AnyHandler)
+      const i = a.indexOf(entry)
       if (i >= 0) a.splice(i, 1)
     }
   }
@@ -168,6 +193,18 @@ export class ServiceBus {
   hasGateHandlers(point: GatePoint): boolean {
     const a = this.#gateHandlers.get(point)
     return a !== undefined && a.length > 0
+  }
+
+  /**
+   * True when at least one gate handler at `point` needs the prior record
+   * (the default). False when the point has no handlers or every handler
+   * registered with `needsPrior: false` — the write path then skips the
+   * prior-read before dispatching (#267 prior-read elision).
+   */
+  gateNeedsPrior(point: GatePoint): boolean {
+    const a = this.#gateHandlers.get(point)
+    if (!a) return false
+    return a.some((e) => e.needsPrior)
   }
 
   /**
@@ -185,8 +222,8 @@ export class ServiceBus {
   async dispatchGate<P extends GatePoint>(point: P, event: GateEventMap[P]): Promise<void> {
     const a = this.#gateHandlers.get(point)
     if (!a || a.length === 0) return
-    for (const h of a.slice()) {
-      await h(event) // throw propagates → aborts the write
+    for (const e of a.slice()) {
+      await e.fn(event) // throw propagates → aborts the write
     }
   }
 }

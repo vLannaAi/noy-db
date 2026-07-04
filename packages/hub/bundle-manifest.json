@@ -2,11 +2,15 @@
   "scenarios": {
     "floor": {
       "minifiedBytes": 1354,
-      "gzippedBytes": 440
+      "gzippedBytes": 437
+    },
+    "team": {
+      "minifiedBytes": 1576,
+      "gzippedBytes": 558
     },
     "history": {
       "minifiedBytes": 5955,
-      "gzippedBytes": 2278
+      "gzippedBytes": 2273
     },
     "classified": {
       "minifiedBytes": 2788,
@@ -14,11 +18,11 @@
     },
     "analytics": {
       "minifiedBytes": 2227,
-      "gzippedBytes": 864
+      "gzippedBytes": 862
     },
     "all-on": {
       "minifiedBytes": 26293,
-      "gzippedBytes": 8215
+      "gzippedBytes": 8214
     }
   },
   "updatedAt": "2026-07-04T18:33:13.096Z"

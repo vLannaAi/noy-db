@@ -12,6 +12,7 @@ import { ConflictError, createNoydb } from '@noy-db/hub'
 import { withTransactions } from '@noy-db/hub/tx'
 import { withHistory } from '@noy-db/hub/history'
 import { fromString, fromObject } from '../src/index.js'
+import { withTeam } from '@noy-db/hub/team'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -53,7 +54,7 @@ interface Invoice { id: string; amount: number; status: string }
 
 async function setup() {
   const adapter = memory()
-  const init = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-2026' })
+  const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
   await init.openVault('demo')
   await init.grant('demo', {
     userId: 'alice', displayName: 'Alice', role: 'owner',
@@ -61,7 +62,7 @@ async function setup() {
     importCapability: { plaintext: ['json'] },
   })
   init.close()
-  const db = await createNoydb({
+  const db = await createNoydb({ teamStrategy: withTeam(),
     store: adapter, user: 'alice', secret: 'pw-2026',
     txStrategy: withTransactions(),
   })
@@ -171,7 +172,7 @@ describe('as-json fromString — apply stamps `reason: "import:json"` on every l
   it('imported rows are filterable from manual edits via ledger.reason', async () => {
     const adapter = memory()
     // Init: grant + seed an existing record manually (no reason — counts as manual edit).
-    const init = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-2026', historyStrategy: withHistory() })
+    const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026', historyStrategy: withHistory() })
     await init.openVault('demo')
     await init.grant('demo', {
       userId: 'alice', displayName: 'Alice', role: 'owner',
@@ -180,7 +181,7 @@ describe('as-json fromString — apply stamps `reason: "import:json"` on every l
     })
     init.close()
 
-    const db = await createNoydb({
+    const db = await createNoydb({ teamStrategy: withTeam(),
       store: adapter, user: 'alice', secret: 'pw-2026',
       historyStrategy: withHistory(),
       txStrategy: withTransactions(),

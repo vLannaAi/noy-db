@@ -13,6 +13,7 @@ import {
 import { listUsersWithEnvelopes } from '../../src/with-party/team/keyring.js'
 import { USER_ENVELOPE_COLLECTION } from '../../src/kernel/constants.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
+import { withTeam } from '../../src/with-party/team/index.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -42,7 +43,7 @@ async function getDek(vault: unknown): Promise<CryptoKey> {
 describe('User-list visibility (#122)', () => {
   it('hidden users are filtered from listUsersWithEnvelopes by default', async () => {
     const store = inlineMemory()
-    const aliceDb = await createNoydb({ store, user: 'alice', secret: 'alice-pass-2026-strong' })
+    const aliceDb = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: 'alice-pass-2026-strong' })
     const v = await aliceDb.openVault('demo')
     await v.user.updateMe({ profile: { displayName: 'Alice' } })
     await aliceDb.grant('demo', {
@@ -53,7 +54,7 @@ describe('User-list visibility (#122)', () => {
     })
 
     // Bob marks himself hidden.
-    const bobDb = await createNoydb({ store, user: 'bob', secret: 'bob-pass-2026-strong' })
+    const bobDb = await createNoydb({ teamStrategy: withTeam(), store, user: 'bob', secret: 'bob-pass-2026-strong' })
     const bobV = await bobDb.openVault('demo')
     await bobV.user.setMyVisibility({ hidden: true })
     expect(await bobV.user.getMyVisibility()).toEqual({ hidden: true })
@@ -79,7 +80,7 @@ describe('User-list visibility (#122)', () => {
 
   it('{ includeHidden: true } requires admin/owner role', async () => {
     const store = inlineMemory()
-    const aliceDb = await createNoydb({ store, user: 'alice', secret: 'alice-pass-2026-strong' })
+    const aliceDb = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: 'alice-pass-2026-strong' })
     const v = await aliceDb.openVault('demo')
     await v.user.updateMe({ profile: { displayName: 'Alice' } })
     const dek = await getDek(v)
@@ -107,7 +108,7 @@ describe('User-list visibility (#122)', () => {
 
   it('directory disabled throws DirectoryDisabledError for non-admin', async () => {
     const store = inlineMemory()
-    const aliceDb = await createNoydb({ store, user: 'alice', secret: 'alice-pass-2026-strong' })
+    const aliceDb = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: 'alice-pass-2026-strong' })
     const v = await aliceDb.openVault('demo')
     await v.user.updateMe({ profile: { displayName: 'Alice' } })
 
@@ -137,7 +138,7 @@ describe('User-list visibility (#122)', () => {
 
   it('setDirectoryEnabled requires owner', async () => {
     const store = inlineMemory()
-    const aliceDb = await createNoydb({ store, user: 'alice', secret: 'alice-pass-2026-strong' })
+    const aliceDb = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: 'alice-pass-2026-strong' })
     await aliceDb.openVault('demo')
     await aliceDb.grant('demo', {
       userId: 'admin1',
@@ -146,7 +147,7 @@ describe('User-list visibility (#122)', () => {
       passphrase: 'admin1-pass-2026-strong',
     })
 
-    const adminDb = await createNoydb({ store, user: 'admin1', secret: 'admin1-pass-2026-strong' })
+    const adminDb = await createNoydb({ teamStrategy: withTeam(), store, user: 'admin1', secret: 'admin1-pass-2026-strong' })
     await adminDb.openVault('demo')
 
     // Admin (not owner) cannot toggle the directory.
@@ -164,7 +165,7 @@ describe('User-list visibility (#122)', () => {
 
   it('revoke deletes the visibility sidecar (no leak to re-granted userId)', async () => {
     const store = inlineMemory()
-    const aliceDb = await createNoydb({ store, user: 'alice', secret: 'alice-pass-2026-strong' })
+    const aliceDb = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: 'alice-pass-2026-strong' })
     const v = await aliceDb.openVault('demo')
     await v.user.updateMe({ profile: { displayName: 'Alice' } })
 
@@ -175,7 +176,7 @@ describe('User-list visibility (#122)', () => {
       role: 'operator',
       passphrase: 'bob-pass-2026-strong',
     })
-    const bobDb = await createNoydb({ store, user: 'bob', secret: 'bob-pass-2026-strong' })
+    const bobDb = await createNoydb({ teamStrategy: withTeam(), store, user: 'bob', secret: 'bob-pass-2026-strong' })
     const bobV = await bobDb.openVault('demo')
     await bobV.user.setMyVisibility({ hidden: true })
     expect(await bobV.user.getMyVisibility()).toEqual({ hidden: true })
@@ -197,7 +198,7 @@ describe('User-list visibility (#122)', () => {
     expect(visible.map((r) => r.user.userId).sort()).toEqual(['alice', 'bob'])
 
     // And no orphaned visibility doc remains.
-    const bobAfter = await createNoydb({ store, user: 'bob', secret: 'bob-pass-redux-2026-strong' })
+    const bobAfter = await createNoydb({ teamStrategy: withTeam(), store, user: 'bob', secret: 'bob-pass-redux-2026-strong' })
     const bobAfterV = await bobAfter.openVault('demo')
     expect(await bobAfterV.user.getMyVisibility()).toEqual({ hidden: false })
 
@@ -207,7 +208,7 @@ describe('User-list visibility (#122)', () => {
 
   it('peer-recovery preserves the hidden flag', async () => {
     const store = inlineMemory()
-    const aliceDb = await createNoydb({ store, user: 'alice', secret: 'alice-pass-2026-strong' })
+    const aliceDb = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: 'alice-pass-2026-strong' })
     await aliceDb.openVault('demo')
     await aliceDb.grant('demo', {
       userId: 'bob',
@@ -217,7 +218,7 @@ describe('User-list visibility (#122)', () => {
     })
 
     // Bob marks himself hidden.
-    const bobDb = await createNoydb({ store, user: 'bob', secret: 'bob-pass-2026-strong' })
+    const bobDb = await createNoydb({ teamStrategy: withTeam(), store, user: 'bob', secret: 'bob-pass-2026-strong' })
     const bobV = await bobDb.openVault('demo')
     await bobV.user.setMyVisibility({ hidden: true })
     bobDb.close()
@@ -229,7 +230,7 @@ describe('User-list visibility (#122)', () => {
     })
 
     // Bob re-opens with the temp passphrase. Visibility doc survived.
-    const bobAfter = await createNoydb({ store, user: 'bob', secret: 'temp-bob-recovered-2026-strong' })
+    const bobAfter = await createNoydb({ teamStrategy: withTeam(), store, user: 'bob', secret: 'temp-bob-recovered-2026-strong' })
     const bobAfterV = await bobAfter.openVault('demo')
     expect(await bobAfterV.user.getMyVisibility()).toEqual({ hidden: true })
 

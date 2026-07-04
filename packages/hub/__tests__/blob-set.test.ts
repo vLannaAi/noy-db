@@ -3,6 +3,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, NoydbBundleStore } f
 import { ConflictError, BundleVersionConflictError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { withBlobs } from '../src/with-shape/blobs/index.js'
+import { withTeam } from '../src/with-party/team/index.js'
 import {
   BLOB_INDEX_COLLECTION,
   BLOB_CHUNKS_COLLECTION,
@@ -73,7 +74,7 @@ describe('BlobSet', () => {
   })
 
   it('put → list → get round-trip (encrypted)', async () => {
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
+    const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const invoices = vault.collection<{ ref: string }>('invoices')
 
@@ -99,7 +100,7 @@ describe('BlobSet', () => {
   })
 
   it('deduplication: identical content shares chunks and increments refCount', async () => {
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
+    const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const invoices = vault.collection<{ ref: string }>('invoices')
 
@@ -130,7 +131,7 @@ describe('BlobSet', () => {
   })
 
   it('delete decrements refCount', async () => {
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
+    const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const invoices = vault.collection<{ ref: string }>('invoices')
     await invoices.put('inv-001', { ref: 'A' })
@@ -154,7 +155,7 @@ describe('BlobSet', () => {
   })
 
   it('BlobObject stores chunkSize and chunkCount', async () => {
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
+    const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const files = vault.collection<{ name: string }>('files')
     await files.put('f-001', { name: 'test' })
@@ -179,7 +180,7 @@ describe('BlobSet', () => {
     // limit intermittently.
     { timeout: 30_000 },
     async () => {
-      const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
+      const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
       const vault = await db.openVault(VAULT)
       const files = vault.collection<{ name: string }>('files')
       await files.put('f-001', { name: 'big' })
@@ -204,7 +205,7 @@ describe('BlobSet', () => {
   )
 
   it('custom chunkSize is stored and used on read', async () => {
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
+    const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const files = vault.collection<{ name: string }>('files')
     await files.put('f-001', { name: 'custom-chunk' })
@@ -228,7 +229,7 @@ describe('BlobSet', () => {
   })
 
   it('overwrites an existing slot and adjusts refCounts', async () => {
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
+    const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const docs = vault.collection<{ id: string }>('docs')
     await docs.put('d-001', { id: 'D1' })
@@ -251,7 +252,7 @@ describe('BlobSet', () => {
   })
 
   it('blobInfo returns null for missing slot', async () => {
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
+    const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const col = vault.collection<{ x: number }>('things')
     await col.put('t-001', { x: 1 })
@@ -263,7 +264,7 @@ describe('BlobSet', () => {
   })
 
   it('metadata uses correct collection prefix', async () => {
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
+    const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const invoices = vault.collection<{ ref: string }>('invoices')
     await invoices.put('inv-001', { ref: 'X' })
@@ -282,7 +283,7 @@ describe('BlobSet', () => {
   })
 
   it('response() returns a Response with correct headers', async () => {
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
+    const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const col = vault.collection<{ x: number }>('things')
     await col.put('t-001', { x: 1 })
@@ -315,7 +316,7 @@ describe('BlobSet', () => {
     }) as typeof URL.createObjectURL
     URL.revokeObjectURL = ((u: string) => { revoked.push(u) }) as typeof URL.revokeObjectURL
     try {
-      const db = await createNoydb({ store, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+      const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
       const vault = await db.openVault(VAULT)
       const col = vault.collection<{ x: number }>('things')
       await col.put('t-001', { x: 1 })
@@ -351,7 +352,7 @@ describe('BlobSet', () => {
     const originalCreate = URL.createObjectURL
     URL.createObjectURL = ((blob: Blob) => { capturedType = blob.type; return 'blob:test/x' }) as typeof URL.createObjectURL
     try {
-      const db = await createNoydb({ store, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+      const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
       const vault = await db.openVault(VAULT)
       const col = vault.collection<{ x: number }>('things')
       await col.put('t-001', { x: 1 })
@@ -368,7 +369,7 @@ describe('BlobSet', () => {
   })
 
   it('works in unencrypted mode', async () => {
-    const db = await createNoydb({ store, user: 'alice', encrypt: false , blobStrategy: withBlobs() })
+    const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', encrypt: false , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const col = vault.collection<{ n: number }>('items')
     await col.put('i-001', { n: 42 })
@@ -386,7 +387,7 @@ describe('BlobSet', () => {
   // ─── MIME auto-detection ──────────────────────────────────────────
 
   it('auto-detects PDF MIME type from magic bytes', async () => {
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
+    const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const col = vault.collection<{ x: number }>('docs')
     await col.put('d-001', { x: 1 })
@@ -407,7 +408,7 @@ describe('BlobSet', () => {
   // ─── Published versions (UC-3 amendment versioning) ───────────────
 
   it('publish → getVersion round-trip', async () => {
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
+    const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const invoices = vault.collection<{ ref: string }>('invoices')
     await invoices.put('inv-001', { ref: 'INV-001' })
@@ -445,7 +446,7 @@ describe('BlobSet', () => {
   })
 
   it('listVersions returns all published versions for a slot', async () => {
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
+    const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const col = vault.collection<{ x: number }>('docs')
     await col.put('d-001', { x: 1 })
@@ -465,7 +466,7 @@ describe('BlobSet', () => {
   })
 
   it('deleteVersion decrements refCount', async () => {
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
+    const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const col = vault.collection<{ x: number }>('docs')
     await col.put('d-001', { x: 1 })
@@ -489,7 +490,7 @@ describe('BlobSet', () => {
   })
 
   it('responseVersion returns correct headers and body', async () => {
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
+    const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const col = vault.collection<{ x: number }>('docs')
     await col.put('d-001', { x: 1 })
@@ -548,7 +549,7 @@ describe('wrapBundleStore', () => {
 
     const bundleStore = wrapBundleStore(bundleBackend)
 
-    const db = await createNoydb({ store: bundleStore, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
+    const db = await createNoydb({ teamStrategy: withTeam(), store: bundleStore, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const invoices = vault.collection<{ amount: number }>('invoices')
 
@@ -563,7 +564,7 @@ describe('wrapBundleStore', () => {
     db.close()
 
     // Re-open from the same storage — data must survive
-    const db2 = await createNoydb({ store: bundleStore, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
+    const db2 = await createNoydb({ teamStrategy: withTeam(), store: bundleStore, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault2 = await db2.openVault(VAULT)
     const invoices2 = vault2.collection<{ amount: number }>('invoices')
 
@@ -685,7 +686,7 @@ describe('wrapBundleStore', () => {
 
     const bundleStore = wrapBundleStore(bundleBackend)
 
-    const db = await createNoydb({ store: bundleStore, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
+    const db = await createNoydb({ teamStrategy: withTeam(), store: bundleStore, user: 'alice', secret: SECRET , blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const col = vault.collection<{ x: number }>('things')
     await col.put('t-001', { x: 1 })

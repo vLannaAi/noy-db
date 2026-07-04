@@ -10,6 +10,7 @@ import { createNoydb } from '../src/kernel/noydb.js'
 import { withPortability } from '../src/with-audit/portability/index.js'
 import { readNoydbBundle } from '../src/with-pod/bundle.js'
 import { WithdrawalRequestError } from '../src/with-audit/portability/request-withdrawal.js'
+import { withTeam } from '../src/with-party/team/index.js'
 
 function makeStore(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -31,7 +32,7 @@ function makeStore(): NoydbStore {
 
 /** Owner vault + a read-only client both open on the same store/vault. */
 async function setup(store: NoydbStore, clientMode: 'rw' | 'ro' = 'ro') {
-  const owner = await createNoydb({ store, user: 'firm', secret: 'owner-pw-long-enough', portabilityStrategy: withPortability() })
+  const owner = await createNoydb({ teamStrategy: withTeam(), store, user: 'firm', secret: 'owner-pw-long-enough', portabilityStrategy: withPortability() })
   const ov = await owner.openVault('acme')
   await ov.collection<{ id: string; total: number }>('invoices').put('i1', { id: 'i1', total: 100 })
   await ov.collection<{ id: string; total: number }>('invoices').put('i2', { id: 'i2', total: 50 })
@@ -39,7 +40,7 @@ async function setup(store: NoydbStore, clientMode: 'rw' | 'ro' = 'ro') {
     userId: 'client1', displayName: 'Client', role: 'client', passphrase: 'client-pw-long-enough',
     permissions: { invoices: clientMode },
   })
-  const client = await createNoydb({ store, user: 'client1', secret: 'client-pw-long-enough', portabilityStrategy: withPortability() })
+  const client = await createNoydb({ teamStrategy: withTeam(), store, user: 'client1', secret: 'client-pw-long-enough', portabilityStrategy: withPortability() })
   const cv = await client.openVault('acme')
   return { ov, cv }
 }

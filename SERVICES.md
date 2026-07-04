@@ -25,7 +25,7 @@ const db = await createNoydb({
 
 When a service is not opted into, its real implementation is replaced by a NO-OP stub (or a throwing stub on opt-in surfaces) and the heavy code is fully tree-shaken from the bundle.
 
-This document lists the always-on core and the service catalog (25 services). It is the table of contents for the rest of the documentation.
+This document lists the always-on core and the service catalog (26 services). It is the table of contents for the rest of the documentation.
 
 ---
 
@@ -38,7 +38,7 @@ The core is what NOYDB **is**, not what it **does**. Six areas are always loaded
 | C1 | **Vault & Collection model** | `Noydb`, `Vault`, `Collection<T>`, lifecycle, `openVault`, `listVaults` | ~3,000 |
 | C2 | **Encryption** | AES-256-GCM, PBKDF2-SHA256 (600K), AES-KW, KEK→DEK, envelope format | ~500 |
 | C3 | **Store contract** | The 6-method `NoydbStore` interface (`get`/`put`/`delete`/`list`/`loadAll`/`saveAll`) | ~300 |
-| C4 | **Keyring & Permissions** | Owner-role keyring, DEK wrapping, single-user permission check (multi-user grant/revoke is the **`team`** service) | ~750 |
+| C4 | **Keyring & Permissions** | Owner-role keyring, DEK wrapping, single-user permission check (multi-user grant/revoke/rotate lives in the **`team`** service — split completed in #267, gated behind `withTeam()`) | ~750 |
 | C5 | **Schema & Refs** | Typed records, foreign-key references, ref-mode dispatch (strict / warn / cascade) | ~460 |
 | C6 | **Query basics** | `where` / `orderBy` / `limit` / `offset` / `toArray` / `first` / `count` / `scan` (eager async iteration) | ~700 |
 | — | Errors / Events / Validation | Structured error types, `change` events, runtime guards | ~800 |
@@ -55,7 +55,7 @@ Each service has its own subpath export under `@noy-db/hub/<name>`, a `with<Name
 
 | # | Subpath | Headline | LOC saved | Pairs with |
 |---|---|---|---:|---|
-| 1 | `@noy-db/hub/indexing` | Eager + lazy persisted indexes (equality + orderBy dispatch) | 886 | `joins`, `lazy` (within `routing`) |
+| 1 | `@noy-db/hub/indexing` | Eager + lazy persisted indexes (equality + orderBy dispatch) | 886 | `joins`, `lazy` |
 | 2 | `@noy-db/hub/joins` | Multi-FK eager joins (indexed nested-loop / hash strategy) | ~470 | `indexing`, `live` |
 | 3 | `@noy-db/hub/aggregate` | `count` / `sum` / `avg` / `min` / `max` + `groupBy` | 886 | `joins` |
 | 4 | `@noy-db/hub/live` | Reactive subscriptions (`.live()`, `.subscribe()`) | ~210 | `joins`, `crdt`, `sync` |
@@ -108,7 +108,7 @@ The Dim 14 family. All three share the same encrypted-payload metadata envelope,
 | # | Subpath | Headline | LOC saved | Pairs with |
 |---|---|---|---:|---|
 | 14 | `@noy-db/hub/sync` | P2P replication engine + presence | ~856 | `crdt`, `live`, `team` |
-| 15 | `@noy-db/hub/team` | Multi-user grant/revoke/rotate + magic-link + delegation + tiers | ~1,000 | `sync`, `session` |
+| 15 | `@noy-db/hub/team` | Multi-user grant/revoke/rotate (`db.grant`/`db.revoke`/`db.rotate` require `teamStrategy: withTeam()` since 0.3 — #267) + magic-link + delegation + tiers | ~1,000 | `sync`, `session` |
 | 16 | `@noy-db/hub/session` | Token sessions + dev-unlock + policy enforcement | 839 | `team` |
 | 16a | `vault.user.*` (always-on) — see `user-envelope` | Per-principal profile + preferences envelope (`_users/<keyringId>`) with own-only write rule | ~600 always-on | `team`, `session-tiers`, `sync` |
 
@@ -118,10 +118,11 @@ The Dim 14 family. All three share the same encrypted-payload metadata envelope,
 
 | # | Subpath | Headline | LOC saved | Pairs with |
 |---|---|---|---:|---|
-| 17 | `@noy-db/hub/routing` | Multi-store routing + middleware + sync-policy + lazy-mode + LRU cache | ~1,985 | `indexing`, `pod` |
+| 17 | `@noy-db/hub/routing` | Multi-store routing + middleware + sync-policy | ~1,800 | `indexing`, `pod`, `lazy` |
+| 26 | `@noy-db/hub/lazy` | Lazy mode — `prefetch: false` on-demand per-id reads over a bounded LRU working set (`withLazy()`; promoted out of `routing`, #267) | ~185 | `indexing` (persisted mirrors), `routing` |
 | 24 | *(preview)* | Multi-vault partition federation — `db.openVaultGroup()` transparent shard routing + `vault-registry` source-of-truth + `minVersion` fan-out guard (MVP, milestone 16) | — | `queryAcross`, `permissions` |
 
-**Totals:** ~16,940 LOC across all 25 services are tree-shake-able. A consumer using only the core ships ~6,500 LOC. A consumer opting into all 25 ships ~31,990 LOC.
+**Totals:** ~16,940 LOC across all 26 services are tree-shake-able. A consumer using only the core ships ~6,500 LOC. A consumer opting into all 26 ships ~31,990 LOC.
 
 ---
 
@@ -377,6 +378,6 @@ These three invariants make the catalog **load-bearing** rather than aspirationa
 
 ## Open questions
 
-- Should `keyring-grant` (multi-user grant/revoke/rotate) split out of core into the `team` service, leaving only single-owner keyring in core? Today this is partially done — the proposal is to complete the split so the core floor really is single-user.
-- Should `lazy` mode (cache + on-demand fetch) be promoted from inside `routing` to its own headline service? Trade-off: clarity vs. catalog inflation. Open for the next review.
+- ~~Should `keyring-grant` (multi-user grant/revoke/rotate) split out of core into the `team` service, leaving only single-owner keyring in core?~~ **Resolved (#267):** the split is complete. `db.grant` / `db.revoke` / `db.rotate` throw `TeamNotEnabledError` unless `teamStrategy: withTeam()` is passed; the keyring grant/revoke/rotate engines are linked only from the `@noy-db/hub/team` subpath, so the core floor really is single-user. Single-user primitives (owner keyring, unlock, `listUsers`, `updateUser`, passphrase rotate/recover, `createDeedOwner`) stay ungated.
+- ~~Should `lazy` mode (cache + on-demand fetch) be promoted from inside `routing` to its own headline service?~~ **Resolved (#267):** promoted — `@noy-db/hub/lazy` ships `withLazy()` (entry #26). Pre-1.0 back-compat: `prefetch: false` without `withLazy()` keeps working identically through a deprecated implicit path (one-time console warn); the implicit path is removed at 1.0.
 - Should `bundle` stay as a subpath given it already tree-shakes naturally via `"sideEffects": false` and named re-exports? Decision: yes — the docs surface matters more than the technical mechanism, and a uniform pattern (every service has `with*()`) is easier to teach.
