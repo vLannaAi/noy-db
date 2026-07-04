@@ -180,6 +180,14 @@ export interface EncryptedEnvelope {
    */
   readonly _sealed?: Record<string, string>
   /**
+   * Verify-digest slots (classified stage 2). Map of digest-only field name →
+   * AES-256-GCM `iv:data` blob sealed under the HKDF(CEK) vdig slot key with
+   * AAD ['noydb-classify-vdig', collection, recordId, field]. The store sees
+   * only ciphertext; only the enclave verify path can read the digest. At most
+   * one of `_sealed[field]` / `_vdig[field]` exists per field (I4).
+   */
+  readonly _vdig?: Record<string, string>
+  /**
    * Per-record content-encryption key (CEK), base64 AES-KW-wrapped under
    * the collection (or tier) DEK. Present only on records written by a
    * collection opened with `perRecordKeys: true`. When present, the body
@@ -210,6 +218,22 @@ export interface EncryptedEnvelope {
    * debug envelope self-describing, so a classic plaintext reader handles it too.
    */
   readonly _debug?: typeof NOYDB_FORMAT_VERSION
+}
+
+/** Spine policy for one digest-only classified field — the enclave-consumable
+ *  projection of a ClassifiedFieldSpec (the enclave never imports with-*). */
+export interface VdigFieldPolicy {
+  readonly normalize: 'password' | 'secret-answer'
+  /** Ring size for reuse refusal; 0 = no ring. Cap 8 (spec Q4). */
+  readonly notLastN: number
+  readonly rotateDays?: number
+}
+
+/** Verdict-only egress of the enclave oracle (spec §3). */
+export interface ClassifiedVerdict {
+  readonly ok: boolean
+  /** I1: present ONLY when ok === true — never computed for a false verdict. */
+  readonly mustRotate?: true
 }
 
 /**

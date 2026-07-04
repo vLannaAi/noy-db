@@ -1,11 +1,12 @@
-/** Configuration/write errors for classified fields. @module */
-
-export class ClassifiedConfigError extends Error {
-  constructor(public readonly collection: string, message: string) {
-    super(`classifiedFields for collection "${collection}": ${message}`)
-    this.name = 'ClassifiedConfigError'
-  }
-}
+/**
+ * Configuration/write errors for classified fields. @module
+ *
+ * `ClassifiedConfigError` / `ClassifiedRevealError` moved to `kernel/errors.ts`
+ * (stage 2) so `kernel/enclave/classify/*` can throw them without importing
+ * with-*. Re-exported here under the same names so existing import paths
+ * keep working.
+ */
+export { ClassifiedConfigError, ClassifiedRevealError, ClassifiedVerifyError, ClassifiedRotationError } from '../../kernel/errors.js'
 
 export class ClassifiedNeverStoredError extends Error {
   constructor(public readonly collection: string, public readonly field: string) {
@@ -19,12 +20,5 @@ export class ClassifiedValidationError extends Error {
   constructor(public readonly collection: string, public readonly field: string, detail: string) {
     super(`Classified field "${field}" in collection "${collection}" failed validation: ${detail}`)
     this.name = 'ClassifiedValidationError'
-  }
-}
-
-export class ClassifiedRevealError extends Error {
-  constructor(public readonly collection: string, public readonly field: string, detail: string) {
-    super(`Cannot reveal field "${field}" in collection "${collection}": ${detail}`)
-    this.name = 'ClassifiedRevealError'
   }
 }

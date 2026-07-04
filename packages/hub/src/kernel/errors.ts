@@ -2767,3 +2767,55 @@ export class EnclaveNotSupportedError extends NoydbError {
     this.group = group
   }
 }
+
+// ─── Classified Errors ─────────────────────────────────────────────────
+
+/**
+ * Raised when a collection's `classifiedFields` configuration is invalid
+ * (e.g. a claimed field name collides with a rider companion or another
+ * classified field). Homed in `kernel/errors.ts` (rather than
+ * `with-shape/classified/errors.ts`) so `kernel/enclave/classify/*` can throw
+ * it without importing with-*; `with-shape/classified/errors.ts` re-exports
+ * it under the same name for backward-compatible import paths.
+ */
+export class ClassifiedConfigError extends Error {
+  constructor(public readonly collection: string, message: string) {
+    super(`classifiedFields for collection "${collection}": ${message}`)
+    this.name = 'ClassifiedConfigError'
+  }
+}
+
+/**
+ * Raised by `collection.reveal()` when a field cannot be revealed — unknown
+ * field, `storage:'never'`, or missing record. See {@link ClassifiedConfigError}
+ * for why this lives in `kernel/errors.ts`.
+ */
+export class ClassifiedRevealError extends Error {
+  constructor(public readonly collection: string, public readonly field: string, detail: string) {
+    super(`Cannot reveal field "${field}" in collection "${collection}": ${detail}`)
+    this.name = 'ClassifiedRevealError'
+  }
+}
+
+/**
+ * Raised by the classified verify path (`storage:'digest-only'`, stage 2)
+ * when a field cannot be verified — unknown field, not digest-only, or no
+ * digest stored yet.
+ */
+export class ClassifiedVerifyError extends Error {
+  constructor(public readonly collection: string, public readonly field: string, detail: string) {
+    super(`Cannot verify field "${field}" in collection "${collection}": ${detail}`)
+    this.name = 'ClassifiedVerifyError'
+  }
+}
+
+/**
+ * Raised by the classified rotation path (stage 2) when a new value is
+ * refused — e.g. reuse of one of the last N values (`notLastN`).
+ */
+export class ClassifiedRotationError extends Error {
+  constructor(public readonly collection: string, public readonly field: string, detail: string) {
+    super(`Rotation refused for field "${field}" in collection "${collection}": ${detail}`)
+    this.name = 'ClassifiedRotationError'
+  }
+}

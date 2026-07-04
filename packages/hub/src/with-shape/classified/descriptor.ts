@@ -6,7 +6,7 @@
  * @module
  */
 
-export type ClassifiedStorage = 'recoverable' | 'never'
+export type ClassifiedStorage = 'recoverable' | 'never' | 'digest-only'
 
 export type ClassifiedList =
   | { readonly kind: 'omit' }
@@ -25,6 +25,14 @@ export interface ClassifiedFieldSpec {
   readonly riders?: Record<string, ClassifiedRider>
   /** Write-time validator: error message, or null when valid. */
   readonly validate?: (value: unknown) => string | null
+  /** Digest-only verify policy (stage 2). Mode both sides normalize under. */
+  readonly verifyNormalize?: 'password' | 'secret-answer'
+  /** Decorate ok:true verdicts with mustRotate after this many days (I1). */
+  readonly rotateDays?: number
+  /** Refuse reuse of the last N values on rotate (cap 8, spec Q4). */
+  readonly notLastN?: number
+  /** Member of the collection's matchGroup (secretAnswer preset). */
+  readonly verifyGroupMember?: true
 }
 
 export interface ClassifiedGroup {

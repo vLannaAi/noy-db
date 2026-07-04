@@ -57,7 +57,7 @@ export interface DescribedField {
   /** Present when the field is classified. Serialized read-projection contract. */
   readonly classified?: {
     readonly preset: string
-    readonly storage: 'recoverable' | 'never'
+    readonly storage: 'recoverable' | 'never' | 'digest-only'
     readonly list: 'omit' | { readonly mask: string } | { readonly rider: string }
   }
 }
