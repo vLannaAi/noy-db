@@ -643,7 +643,10 @@ const KERNEL_SURFACE_BUDGET = {
   // enforceClassifiedWrite call in _putInternal before computed stage (thin call-site + pure validation).
   // Bumped 4320→4346 — 2026-07-04 classified-fields stage 1 Task 6 (reveal gate): private
   // `classifiedStrategy` field + ctor assignment + the public `reveal()` delegator method.
-  'packages/hub/src/kernel/collection.ts': 4346,
+  // Bumped 4346→4357 — 2026-07-04 classified-fields final review — reconcile sealing guard:
+  // `_applyClassifiedFields` refuses recoverable classified fields declared after first open
+  // (fail-loud instead of silently leaving them unsealed).
+  'packages/hub/src/kernel/collection.ts': 4357,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.

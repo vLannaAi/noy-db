@@ -1145,9 +1145,10 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * @internal — attach classified fields post-construction. See {@link _applyMoneyFields}.
    * First-wins. Note: unlike money/computed/meta, this cannot retro-seal a
    * collection that was already auto-created — `sensitiveFields` is frozen at
-   * construction time, so a declaration arriving here only merges rider
-   * computed fields; sealing requires `classifiedFields` at the collection's
-   * first `vault.collection()` open.
+   * construction time. A reconciled declaration is only accepted when none of
+   * its members are `storage: 'recoverable'` (those require sealing at first
+   * open); otherwise this throws rather than silently persisting the value as
+   * inline plaintext while `describe()` advertises protection.
    */
   _applyClassifiedFields(classifiedFields: Record<string, ClassifiedEntry>): void {
     if (this.classified !== undefined) return
@@ -1157,6 +1158,16 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       if (this.computed?.[key] !== undefined) {
         throw new ClassifiedConfigError(this.name, `rider companion "${key}" collides with a declared field`)
       }
+    }
+    const unsealable = Object.entries(resolved.byField)
+      .filter(([field, spec]) => spec.storage === 'recoverable' && !this.sensitiveFields.has(field))
+      .map(([field]) => field)
+    if (unsealable.length > 0) {
+      throw new ClassifiedConfigError(this.name,
+        `recoverable classified field(s) ${unsealable.map((f) => `"${f}"`).join(', ')} were declared after the `
+        + `collection was first opened without them — sealing is fixed at first open, so these values would `
+        + `persist as inline plaintext. Declare classifiedFields at the collection's first vault.collection() call `
+        + `(for materialized-view sources this means recoverable classified fields are not supported in stage 1).`)
     }
     this.classified = resolved
     this.computed = { ...resolved.riderComputed, ...(this.computed ?? {}) }
