@@ -1078,7 +1078,8 @@ export class Vault {
       // use per-record CEKs: crypto-shred can only guarantee erasure of a body
       // keyed off a per-record CEK. Force it on (and warn if the caller
       // explicitly set it false — that would silently defeat erasure).
-      if (this.forgetStrategy.subjects[collectionName] !== undefined) {
+      const subjectKey = this.forgetStrategy.subjects[collectionName]
+      if (subjectKey !== undefined) {
         if (options?.perRecordKeys === false) {
           console.warn(
             `[noy-db] Collection "${collectionName}" is declared in withForgetCascade ` +
@@ -1087,6 +1088,9 @@ export class Vault {
           )
         }
         collOpts.perRecordKeys = true
+        // Classified refusal matrix R4: a digest-only field cannot be the
+        // forget-subject key (the subject index would hold the plaintext).
+        collOpts.subjectKeyField = subjectKey
       }
       if (options?.provenance !== undefined) collOpts.provenance = options.provenance
       if (options?.ramCiphertext !== undefined) collOpts.ramCiphertext = options.ramCiphertext

@@ -246,6 +246,18 @@ export class RecordCodec<T> {
       for (const [field, policy] of this.ctx.vdigFields) {
         const value = open[field]
         const prevBlob = vdig.prev?._vdig?.[field]
+        if (vdig.prev?._sealed?.[field] !== undefined) {
+          // R6 transition evidence: never silently delete recoverable
+          // plaintext. Checked BEFORE the value-type dispatch so the
+          // carry-forward (absent) and clear (null) branches refuse too —
+          // both would otherwise drop the `_sealed` slot from the new
+          // envelope, silently destroying the recoverable ciphertext.
+          throw new ClassifiedConfigError(
+            this.ctx.name,
+            `field "${field}" carries a recoverable _sealed slot from a previous storage form — ` +
+            `recoverable ↔ digest-only transitions are refused (R6); migrate explicitly`,
+          )
+        }
         if (value === undefined) {
           // 1. carry-forward: verbatim bytes (CEK version-stable, AAD _v-free;
           //    byte-identity keeps the ledger payload hash deterministic).
@@ -261,14 +273,6 @@ export class RecordCodec<T> {
           // 4. caller bug, fail-loud.
           throw new ValidationError(
             `digest-only classified field "${field}" in "${this.ctx.name}" must be a string (rotate) or null (clear), got ${typeof value}`,
-          )
-        }
-        if (vdig.prev?._sealed?.[field] !== undefined) {
-          // R6 transition evidence: never silently delete recoverable plaintext.
-          throw new ClassifiedConfigError(
-            this.ctx.name,
-            `field "${field}" carries a recoverable _sealed slot from a previous storage form — ` +
-            `recoverable ↔ digest-only transitions are refused (R6); migrate explicitly`,
           )
         }
         // 2. rotate: validate ran in the stage-1 write seam; digest + ring here.

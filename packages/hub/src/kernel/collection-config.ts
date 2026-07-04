@@ -47,6 +47,7 @@ import type { MoneyDescriptor } from '../with-shape/money/descriptor.js'
 import { validateMoneyFieldPaths } from '../with-shape/money/paths.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
 import { resolveClassifiedFields, ClassifiedConfigError, type ClassifiedEntry, type ResolvedClassified } from '../with-shape/classified/resolve.js'
+import { guardClassifiedCompat, type ClassifiedGuardCtx } from '../with-shape/classified/guards.js'
 import { NO_CLASSIFIED, type ClassifiedStrategy } from '../with-shape/classified/strategy.js'
 import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
 import type { CollectionMeta } from '../with-shape/introspection/meta.js'
@@ -230,6 +231,12 @@ export interface CollectionOpts<T> {
   computed?: ComputedFields | undefined
   /** — declare classified() sensitive-field descriptors (sealed + riders + projections). */
   classifiedFields?: Record<string, ClassifiedEntry> | undefined
+  /**
+   * The forget-cascade subject key for this collection (from
+   * `withForgetCascade({ subjects })`), plumbed by the Vault. Consumed by the
+   * classified refusal matrix (R4: a digest-only field cannot be the subject key).
+   */
+  subjectKeyField?: string | undefined
   /** — tree-shake seam for `collection.reveal()`. Defaults to `NO_CLASSIFIED`. */
   classifiedStrategy?: ClassifiedStrategy | undefined
   /**
@@ -502,6 +509,35 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
   const i18nDensifyFields =
     Object.keys(densifyFields).length > 0 ? densifyFields : undefined
 
+  // Refusal matrix (R1-R5) — door 1. The SAME guard + ctx runs again at door 2
+  // (`_applyClassifiedFields`, the reconcile seam), because crdt/conflictPolicy/
+  // perRecordKeys are construction-only while classifiedFields can attach later
+  // (C5's lesson). The ctx is always built (and returned) so door 2 has it even
+  // when this construction declared no classified fields.
+  const guardIndexedFields = new Set<string>()
+  for (const ix of opts.indexes ?? []) {
+    if (typeof ix === 'string') guardIndexedFields.add(ix)
+    else if (Array.isArray(ix)) for (const f of ix) guardIndexedFields.add(f)
+    else for (const f of (ix as { readonly fields: readonly string[] }).fields) guardIndexedFields.add(f)
+  }
+  const embeddingSources = opts.embeddings === undefined ? []
+    : typeof opts.embeddings.source === 'string' ? [opts.embeddings.source] : [...opts.embeddings.source]
+  const classifiedGuardCtx: ClassifiedGuardCtx = {
+    perRecordKeys: opts.perRecordKeys === true,
+    crdt: opts.crdt !== undefined,
+    hasConflictPolicy: opts.conflictPolicy !== undefined,
+    storeCiphertext: opts.encrypted,
+    deterministicFields,
+    indexedFields: guardIndexedFields,
+    textIndexFields: new Set(opts.textIndexes ?? []),
+    vectorSourceFields: new Set(embeddingSources),
+    subjectKeyField: opts.subjectKeyField,
+    bareSensitiveFields: new Set(opts.sensitive ?? []),
+  }
+  if (resolvedClassified !== undefined) {
+    guardClassifiedCompat(opts.name, resolvedClassified.byField, classifiedGuardCtx) // door 1
+  }
+
   // structural group-encryption wiring: the set of fields sealed
   // into `_sealed` per-field slots. Empty when the option is absent.
   // Recoverable classified fields are unioned in — they seal via the same
@@ -576,6 +612,7 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     _refs: opts.declaredRefs ?? {},
     moneyFields: opts.moneyFields,
     classified: resolvedClassified,
+    classifiedGuardCtx,
     classifiedStrategy: opts.classifiedStrategy ?? NO_CLASSIFIED,
     computed: mergedComputed,
     dictLabelResolver: opts.dictLabelResolver,

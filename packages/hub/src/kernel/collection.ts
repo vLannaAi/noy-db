@@ -3,6 +3,7 @@ import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
 import type { CollectionMeta } from '../with-shape/introspection/meta.js'
 import { resolveClassifiedFields, ClassifiedConfigError, type ClassifiedEntry, type ResolvedClassified } from '../with-shape/classified/resolve.js'
 import { ClassifiedRevealError } from '../with-shape/classified/errors.js'
+import { guardClassifiedCompat, type ClassifiedGuardCtx } from '../with-shape/classified/guards.js'
 import type { ClassifiedStrategy } from '../with-shape/classified/strategy.js'
 import type { CrdtMode, CrdtState, LwwMapState, RgaState } from '../with-commit/crdt/crdt.js'
 import type { CrdtStrategy } from '../with-commit/crdt/strategy.js'
@@ -431,6 +432,15 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   private classified: ResolvedClassified | undefined
 
   /**
+   * Frozen construction-time facts the refusal matrix (R1-R5) checks against.
+   * Stored so {@link _applyClassifiedFields} — door 2, the reconcile seam —
+   * can re-run the SAME guard the config resolver ran at door 1 (C5's lesson:
+   * crdt/conflictPolicy/perRecordKeys are construction-only but
+   * classifiedFields can attach later).
+   */
+  private readonly classifiedGuardCtx: ClassifiedGuardCtx
+
+  /**
    * Digest-only classified fields (`storage: 'digest-only'`), keyed by field
    * name — the enclave-consumable policy map the codec's write path carries
    * `_vdig` forward under (C6). `null` when the collection declares none.
@@ -729,6 +739,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     this._refs = cfg._refs
     this.moneyFields = cfg.moneyFields
     this.classified = cfg.classified
+    this.classifiedGuardCtx = cfg.classifiedGuardCtx
     this.vdigFields = cfg.vdigFields
     this.classifiedStrategy = cfg.classifiedStrategy
     this.computed = cfg.computed
@@ -1162,13 +1173,44 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * inline plaintext while `describe()` advertises protection.
    */
   _applyClassifiedFields(classifiedFields: Record<string, ClassifiedEntry>): void {
-    if (this.classified !== undefined) return
     const resolved = resolveClassifiedFields(this.name, classifiedFields)
+    if (this.classified !== undefined) {
+      // R6 (session): first-wins, but a re-declaration that CHANGES a field's
+      // storage form is refused — never a silent form flip.
+      for (const [field, spec] of Object.entries(resolved.byField)) {
+        const prior = this.classified.byField[field]
+        if (prior !== undefined && prior.storage !== spec.storage) {
+          throw new ClassifiedConfigError(this.name,
+            `field "${field}" was already declared storage:'${prior.storage}' — ` +
+            `storage-form transitions are refused (R6); migrate explicitly`)
+        }
+      }
+      return // identical / compatible re-declaration → first-wins no-op
+    }
+    // Door 2 (C5): re-run the refusal matrix R1-R5 against the frozen
+    // construction-time facts before accepting a late-attached declaration.
+    guardClassifiedCompat(this.name, resolved.byField, this.classifiedGuardCtx)
     // Check for collisions: each rider-computed key must not already exist in this.computed
     for (const key of Object.keys(resolved.riderComputed)) {
       if (this.computed?.[key] !== undefined) {
         throw new ClassifiedConfigError(this.name, `rider companion "${key}" collides with a declared field`)
       }
+    }
+    // Digest-only can NEVER retro-attach: the codec's `vdigFields` map is
+    // construction-frozen (`null` here, since this collection was built
+    // without a classified declaration), so accepting a late digest-only
+    // member would write the secret into `_data` recoverably while
+    // describe() advertises digest-only. Same "both doors" lesson as the
+    // recoverable check below (C5).
+    const retroDigest = Object.entries(resolved.byField)
+      .filter(([, spec]) => spec.storage === 'digest-only')
+      .map(([field]) => field)
+    if (retroDigest.length > 0) {
+      throw new ClassifiedConfigError(this.name,
+        `digest-only classified field(s) ${retroDigest.map((f) => `"${f}"`).join(', ')} were declared after the `
+        + `collection was first opened without them — the digest write path is fixed at first open, so these `
+        + `values would persist recoverably in _data. Declare classifiedFields at the collection's first `
+        + `vault.collection() call.`)
     }
     const unsealable = Object.entries(resolved.byField)
       .filter(([field, spec]) => spec.storage === 'recoverable' && !this.sensitiveFields.has(field))
