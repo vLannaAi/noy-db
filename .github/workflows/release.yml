@@ -138,8 +138,11 @@ jobs:
 
       # HARD GATE: unlike dev CI, a failing test here BLOCKS the publish
       # (this is the last line of defence before npm), on both node 22 + 24.
-      - name: Test
-        run: pnpm turbo test --concurrency=1
+      # Two-phase schedule matches dev CI (#564) — kept in lockstep per cbf07ea4.
+      - name: Test (hub)
+        run: pnpm turbo test --filter=@noy-db/hub
+      - name: Test (satellites)
+        run: pnpm turbo test --filter='!@noy-db/hub' --concurrency=4
 
       - name: Verify package.json versions match release tag
         if: github.event_name == 'release'
