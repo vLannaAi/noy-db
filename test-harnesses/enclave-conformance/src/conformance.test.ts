@@ -16,5 +16,5 @@ import * as enclave from '../../../packages/hub/src/kernel/enclave/index.js'
 import { runEnclaveConformance } from './index.js'
 
 runEnclaveConformance(enclave, {
-  supports: { sealing: true, deterministic: true, perRecordKeys: true },
+  supports: { sealing: true, deterministic: true, perRecordKeys: true, classify: true },
 })
