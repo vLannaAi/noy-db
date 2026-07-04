@@ -1,7 +1,7 @@
 {
   "name": "@noy-db/hub",
   "version": "0.3.0-pre.3",
-  "description": "Zero-knowledge, offline-first, encrypted document store — core library with AES-256-GCM, PBKDF2, multi-user keyring, and sync engine",
+  "description": "Zero-knowledge, offline-first, encrypted document store \u2014 core library with AES-256-GCM, PBKDF2, multi-user keyring, and sync engine",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
   "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/hub#readme",
@@ -55,6 +55,10 @@
     "./indexing": {
       "types": "./dist/indexing/index.d.ts",
       "default": "./dist/indexing/index.js"
+    },
+    "./lazy": {
+      "types": "./dist/lazy/index.d.ts",
+      "default": "./dist/lazy/index.js"
     },
     "./aggregate": {
       "types": "./dist/aggregate/index.d.ts",

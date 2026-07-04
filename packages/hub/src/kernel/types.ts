@@ -46,6 +46,7 @@ import type { PortabilityStrategy } from '../with-audit/portability/strategy.js'
 import type { SequenceStrategy } from '../with-commit/sequence/strategy.js'
 import type { CustodyStrategy } from '../with-party/custody/strategy.js'
 import type { TeamStrategy } from '../port/with/team-strategy.js'
+import type { LazyStrategy } from '../port/with/lazy-strategy.js'
 import type { SearchStrategy } from '../with-lookup/search/strategy.js'
 import type { CargoStrategy } from '../with-cargo/strategy.js'
 import type { Layer } from '../with-shape/i18n/policy.js'
@@ -2291,6 +2292,15 @@ export interface NoydbOptions {
    * against).
    */
   readonly teamStrategy?: TeamStrategy
+  /**
+   * Opt-in seam — the `lazy` service (#267). Pass `withLazy()` from
+   * `@noy-db/hub/lazy` to explicitly enable lazy mode's bounded-LRU
+   * working set for collections declared with `prefetch: false`. When
+   * omitted, `prefetch: false` still works via the deprecated implicit
+   * back-compat path (identical behavior, one-time deprecation warn);
+   * the implicit path will be removed at 1.0.
+   */
+  readonly lazyStrategy?: LazyStrategy
   /**
    * Tree-shake seam — optional search / retrieval capability. Pass
    * `withSearch()` from `@noy-db/hub` to enable a collection's `search`

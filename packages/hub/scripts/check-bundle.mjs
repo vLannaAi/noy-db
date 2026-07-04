@@ -122,6 +122,17 @@ const SCENARIOS = [
     ],
   },
   {
+    name: 'lazy',
+    description: 'createNoydb + withLazy (#267 lazy service)',
+    code: `
+      import { createNoydb } from '@noy-db/hub'
+      import { withLazy } from '@noy-db/hub/lazy'
+      const lazyStrategy = withLazy()
+      export { createNoydb, lazyStrategy }
+    `,
+    leakCanaries: [],
+  },
+  {
     name: 'team',
     description: 'createNoydb + withTeam (#267 keyring-grant → team split)',
     code: `
@@ -251,6 +262,7 @@ async function buildScenario(scenario) {
       '@noy-db/hub/shadow': join(HUB_DIR, 'dist', 'shadow', 'index.js'),
       '@noy-db/hub/tx': join(HUB_DIR, 'dist', 'tx', 'index.js'),
       '@noy-db/hub/team': join(HUB_DIR, 'dist', 'team', 'index.js'),
+      '@noy-db/hub/lazy': join(HUB_DIR, 'dist', 'lazy', 'index.js'),
     },
     logLevel: 'silent',
   })
@@ -294,6 +306,7 @@ async function buildScenario(scenario) {
       '@noy-db/hub/shadow': join(HUB_DIR, 'dist', 'shadow', 'index.js'),
       '@noy-db/hub/tx': join(HUB_DIR, 'dist', 'tx', 'index.js'),
       '@noy-db/hub/team': join(HUB_DIR, 'dist', 'team', 'index.js'),
+      '@noy-db/hub/lazy': join(HUB_DIR, 'dist', 'lazy', 'index.js'),
     },
     logLevel: 'silent',
   })
