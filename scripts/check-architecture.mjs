@@ -657,7 +657,10 @@ const KERNEL_SURFACE_BUDGET = {
   // `_applyClassifiedFields`; the guard logic lives in with-shape/classified/guards.ts.
   // Bumped 4436→4478 (2026-07-04, classified stage 2 T15): verify()/verifyGroup()
   // public oracle doors — thin ctx builders; the oracle lives in kernel/enclave/classify/verify.ts.
-  'packages/hub/src/kernel/collection.ts': 4478,
+  // Bumped 4478→4481 (2026-07-04, classified stage 2 T16): reveal() ctx widened from a
+  // single getView() to the raw-envelope shape (getEnvelope/resolveCek/getDEK) — the
+  // reveal engine itself moved into kernel/enclave/classify/reveal.ts (I6).
+  'packages/hub/src/kernel/collection.ts': 4481,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.

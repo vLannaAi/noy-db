@@ -125,7 +125,7 @@ const SCENARIOS = [
     `,
     leakCanaries: [],
     eagerImports: [
-      'revealField',   // reveal engine must stay behind the dynamic import in classified/active.ts
+      'revealSealedField',   // reveal engine must stay behind the dynamic import in classified/active.ts (now enclave-side)
     ],
   },
   {

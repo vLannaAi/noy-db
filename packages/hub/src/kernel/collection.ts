@@ -1132,7 +1132,10 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     return this.classifiedStrategy.reveal({
       collection: this.name,
       spec,
-      getView: async (rid) => (await this.get(rid)) as Record<string, unknown> | null,
+      encrypted: this.storeCiphertext,
+      getEnvelope: (rid) => this.adapter.get(this.vault, this.name, rid),
+      resolveCek: (env) => this.codec.resolveEnvelopeCek(env),
+      getDEK: () => this.getDEK(this.name),
       ...(this.onAccess !== undefined
         ? { onAccess: async (_op: 'reveal', rid: string) => { await this.onAccess!('reveal', rid) } }
         : {}),

@@ -22,8 +22,13 @@ const engineCtx = (ctx: ClassifiedVerifyCtx) => ({
 export function withClassified(): ClassifiedStrategy {
   return {
     async reveal(ctx, id, field) {
-      const { revealField } = await import('./reveal.js')   // reworked in Task 16
-      return revealField(ctx, id, field)
+      const { revealSealedField } = await import('../../kernel/enclave/classify/reveal.js')
+      const value = await revealSealedField({
+        collection: ctx.collection, encrypted: ctx.encrypted,
+        getEnvelope: ctx.getEnvelope, resolveCek: ctx.resolveCek, getDEK: ctx.getDEK,
+      }, id, field)
+      await ctx.onAccess?.('reveal', id)
+      return value
     },
     async verify(ctx, id, field, candidate) {
       const { verifyDigestField } = await import('../../kernel/enclave/classify/verify.js')
