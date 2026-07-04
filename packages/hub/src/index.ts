@@ -857,7 +857,7 @@ export type {
 
 // classified — preset catalog (creditCard/birthDate/email/phone) + validators
 export { classified, luhnCheck, isClassifiedFieldSpec, isClassifiedGroup, resolveClassifiedFields, ClassifiedConfigError, ClassifiedNeverStoredError, ClassifiedValidationError, ClassifiedRevealError, ClassifiedVerifyError, ClassifiedRotationError } from './with-shape/classified/index.js'
-export type { ClassifiedFieldSpec, ClassifiedGroup, ClassifiedEntry, ClassifiedList, ClassifiedStorage } from './with-shape/classified/index.js'
+export type { ClassifiedFieldSpec, ClassifiedGroup, ClassifiedEntry, ClassifiedList, ClassifiedStorage, ClassifiedVerdict } from './with-shape/classified/index.js'
 
 // computed — schema-owned computed scalar fields
 export { evalComputedFields, ComputedFieldError } from './with-formula/computed/index.js'

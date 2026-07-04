@@ -74,7 +74,7 @@ export interface ConsentContext {
 }
 
 /** Access operation recorded in an audit entry. */
-export type ConsentOp = 'get' | 'put' | 'delete' | 'reveal'
+export type ConsentOp = 'get' | 'put' | 'delete' | 'reveal' | 'verify'
 
 /** One consent-audit record, as decrypted for the caller. */
 export interface ConsentAuditEntry {

@@ -1,10 +1,10 @@
-import type { NoydbStore, EncryptedEnvelope, ChangeEvent, HistoryConfig, HistoryOptions, HistoryEntry, PruneOptions, ListPageResult, LocaleReadOptions, CollectionConflictResolver, PutManyItemOptions, PutManyOptions, PutManyResult, DeleteManyResult, SealedView, VdigFieldPolicy } from './types.js'
+import type { NoydbStore, EncryptedEnvelope, ChangeEvent, HistoryConfig, HistoryOptions, HistoryEntry, PruneOptions, ListPageResult, LocaleReadOptions, CollectionConflictResolver, PutManyItemOptions, PutManyOptions, PutManyResult, DeleteManyResult, SealedView, VdigFieldPolicy, ClassifiedVerdict } from './types.js'
 import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
 import type { CollectionMeta } from '../with-shape/introspection/meta.js'
-import { resolveClassifiedFields, ClassifiedConfigError, type ClassifiedEntry, type ResolvedClassified } from '../with-shape/classified/resolve.js'
-import { ClassifiedRevealError } from '../with-shape/classified/errors.js'
+import { resolveClassifiedFields, ClassifiedConfigError, type ClassifiedEntry, type ClassifiedFieldSpec, type ResolvedClassified } from '../with-shape/classified/resolve.js'
+import { ClassifiedRevealError, ClassifiedVerifyError } from '../with-shape/classified/errors.js'
 import { guardClassifiedCompat, type ClassifiedGuardCtx } from '../with-shape/classified/guards.js'
-import type { ClassifiedStrategy } from '../with-shape/classified/strategy.js'
+import type { ClassifiedStrategy, ClassifiedVerifyCtx } from '../with-shape/classified/strategy.js'
 import type { CrdtMode, CrdtState, LwwMapState, RgaState } from '../with-commit/crdt/crdt.js'
 import type { CrdtStrategy } from '../with-commit/crdt/strategy.js'
 import type { I18nTextDescriptor } from '../with-shape/i18n/core.js'
@@ -584,7 +584,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
   /** — consent-audit hook, no-op when no scope is active. */
   private readonly onAccess:
-    | ((op: 'get' | 'put' | 'delete' | 'reveal', id: string) => Promise<void>)
+    | ((op: 'get' | 'put' | 'delete' | 'reveal' | 'verify', id: string) => Promise<void>)
     | undefined
 
   /**
@@ -1126,6 +1126,9 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     if (spec.storage === 'never') {
       throw new ClassifiedRevealError(this.name, field, `storage:'never' — nothing is stored to reveal`)
     }
+    if (spec.storage === 'digest-only') {
+      throw new ClassifiedRevealError(this.name, field, `storage:'digest-only' — verify-only; nothing recoverable to reveal`)
+    }
     return this.classifiedStrategy.reveal({
       collection: this.name,
       spec,
@@ -1134,6 +1137,45 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         ? { onAccess: async (_op: 'reveal', rid: string) => { await this.onAccess!('reveal', rid) } }
         : {}),
     }, id, field)
+  }
+
+  /** Verify-without-reveal: verdict-only oracle for one classified field. Requires withClassified(). */
+  async verify(id: string, field: string, candidate: string): Promise<ClassifiedVerdict> {
+    const spec = this.classified?.byField[field]
+    if (spec === undefined) throw new ClassifiedVerifyError(this.name, field, 'field is not classified')
+    if (spec.storage === 'never') {
+      throw new ClassifiedVerifyError(this.name, field, `storage:'never' — nothing is stored to verify against`)
+    }
+    const ctx = this._classifiedVerifyCtx(spec)
+    return spec.storage === 'digest-only'
+      ? this.classifiedStrategy.verify(ctx, id, field, candidate)
+      : this.classifiedStrategy.verifyText(ctx, id, field, candidate)
+  }
+
+  /** k-of-n challenge over the collection's secretAnswer members. Requires withClassified(). */
+  async verifyGroup(id: string, answers: Record<string, string>, opts: { readonly min: number }): Promise<{ readonly passed: boolean }> {
+    const members = Object.entries(this.classified?.byField ?? {})
+      .filter(([, s]) => s.storage === 'digest-only' && s.verifyGroupMember === true)
+      .map(([field, spec]) => ({ field, spec }))
+    if (members.length === 0) {
+      throw new ClassifiedVerifyError(this.name, '*', 'no groupable digest-only (secretAnswer) fields declared')
+    }
+    const ctx = { ...this._classifiedVerifyCtx(members[0]!.spec), groupMembers: members }
+    return this.classifiedStrategy.matchGroup(ctx, id, answers, opts)
+  }
+
+  private _classifiedVerifyCtx(spec: ClassifiedFieldSpec): ClassifiedVerifyCtx {
+    return {
+      collection: this.name,
+      spec,
+      getEnvelope: (rid) => this.adapter.get(this.vault, this.name, rid),
+      resolveCek: (env) => this.codec.resolveEnvelopeCek(env),
+      getDEK: () => this.getDEK(this.name),
+      now: () => Date.now(), // Q7: injected here; engine tests inject their own
+      ...(this.onAccess !== undefined
+        ? { onAccess: async (_op: 'verify', rid: string) => { await this.onAccess!('verify', rid) } }
+        : {}),
+    }
   }
 
   /**
