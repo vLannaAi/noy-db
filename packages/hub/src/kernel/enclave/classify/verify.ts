@@ -3,7 +3,10 @@
  * distinguishes "record missing" / "no digest" / "AAD-tamper" / "mismatch"
  * beyond { ok: false } — existence oracles are oracles too. Every path that
  * cannot run a real comparison runs ONE dummy PBKDF2 + ONE dummy tag-compare
- * first (C4), so wall-clock cannot enumerate records/fields/answers.
+ * first (C4), so wall-clock cannot enumerate records/fields/answers. The
+ * text door (verifyTextField) has no real PBKDF2 of its own, so it pays the
+ * pad UNCONDITIONALLY — every outcome, including a real compare, costs the
+ * same one PBKDF2 unit (no inverted exists-vs-absent oracle).
  * Throws are reserved for caller/config bugs (ClassifiedVerifyError /
  * ClassifiedConfigError) and are exempt from the pad by design (R6 note).
  * @module
@@ -26,9 +29,14 @@ export interface VerifyEngineCtx {
   readonly now: () => number
 }
 
-/** C4 pad: one full-cost dummy digest + one dummy compare; result discarded. */
-async function padOnce(): Promise<void> {
-  const dummy = await pbkdf2VerifyDigest('noydb-classify-c4-pad', generateSalt(), VDIG_ITERATIONS)
+/**
+ * C4 pad: one full-cost dummy digest + one dummy compare; result discarded.
+ * Pad at `iter` when the caller holds an AUTHENTICATED payload.iter, so pad
+ * cost tracks the real compare cost across future iteration bumps; the
+ * fully-absent paths (no payload to read an iter from) use VDIG_ITERATIONS.
+ */
+async function padOnce(iter: number = VDIG_ITERATIONS): Promise<void> {
+  const dummy = await pbkdf2VerifyDigest('noydb-classify-c4-pad', generateSalt(), iter)
   await blindedEqual(dummy, dummy)
 }
 
@@ -88,22 +96,33 @@ export async function verifyTextField(
   candidate: string,
   normalize: VerifyNormalizeMode,
 ): Promise<ClassifiedVerdict> {
+  // C4, single code path: (a) attempt the unseal where a slot exists, then
+  // for EVERY outcome — present-correct, present-wrong, missing record,
+  // missing slot, tampered — (b) run the one constant-cost pad, (c) run one
+  // blindedEqual, (d) return the boolean. Unlike the digest door there is no
+  // real PBKDF2 here (unseal is sub-ms AES-GCM), so skipping the pad on the
+  // real compare would make exists-but-wrong ~100x FASTER than absent — an
+  // inverted existence oracle. No branch below skips the dominant cost.
   const env = await ctx.getEnvelope(id)
-  if (env === null) return padFalse()
-  const blob = env._sealed?.[field]
-  if (blob === undefined) return padFalse()
-  const cek = await ctx.resolveCek(env)
-  const dek = await ctx.getDEK()
-  let stored: unknown
-  try {
-    stored = JSON.parse(await dualReadSealedSlot(blob, field, ctx.collection, cek, dek))
-  } catch {
-    return padFalse()
+  const blob = env?._sealed?.[field]
+  let stored: string | undefined
+  if (env !== null && blob !== undefined) {
+    const cek = await ctx.resolveCek(env)
+    const dek = await ctx.getDEK()
+    try {
+      // Plaintext exists microseconds inside this function; only the boolean leaves.
+      stored = String(JSON.parse(await dualReadSealedSlot(blob, field, ctx.collection, cek, dek)))
+    } catch {
+      stored = undefined // AAD/tamper (C1) → same padded compare tail as absent
+    }
   }
-  // Plaintext exists microseconds inside this function; only the boolean leaves.
+  await padOnce()
   const a = new TextEncoder().encode(normalizeForVerify(normalize, candidate))
-  const b = new TextEncoder().encode(normalizeForVerify(normalize, String(stored)))
-  return { ok: await blindedEqual(a, b) }
+  const b = stored !== undefined
+    ? new TextEncoder().encode(normalizeForVerify(normalize, stored))
+    : a // no-compare dummy comparand — the verdict is forced false below
+  const eq = await blindedEqual(a, b)
+  return { ok: stored !== undefined && eq }
 }
 
 export async function matchGroupFields(
@@ -145,13 +164,21 @@ export async function matchGroupFields(
   for (const m of members) {
     const candidate = normalized.get(m.field)
     const blob = env?._vdig?.[m.field]
-    if (env === null || cek === undefined || candidate === undefined || blob === undefined) {
+    if (env === null || cek === undefined || blob === undefined) {
       await padOnce()
       results.push(false)
       continue
     }
     try {
       const payload = await openVdigPayload(blob, cek, ctx.collection, id, m.field)
+      if (candidate === undefined) {
+        // Slot present, answer absent: the payload's authenticated iter is in
+        // hand — pad at IT (not the constant) so a future iteration bump
+        // cannot desync this pad's cost from the real compare's cost.
+        await padOnce(payload.iter)
+        results.push(false)
+        continue
+      }
       const digest = await pbkdf2VerifyDigest(candidate, base64ToBuffer(payload.cur.salt), payload.iter)
       results.push(await blindedEqual(digest, base64ToBuffer(payload.cur.hash)))
     } catch {

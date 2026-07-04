@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { generateDEK } from '../../src/kernel/enclave/index.js'
+import { generateDEK, encrypt, deriveSealedFieldKeyFromCek } from '../../src/kernel/enclave/index.js'
 import { mintVdigSlot } from '../../src/kernel/enclave/classify/write.js'
 import {
   verifyDigestField, verifyTextField, matchGroupFields, type VerifyEngineCtx,
@@ -129,10 +129,47 @@ describe('matchGroupFields (I2)', () => {
 })
 
 describe('verifyTextField', () => {
+  /** Mint a CEK-sealed `_sealed[field]` slot exactly as the record codec writes it. */
+  async function sealedEnvWith(cek: CryptoKey, field: string, value: string): Promise<EncryptedEnvelope> {
+    const fieldKey = await deriveSealedFieldKeyFromCek(cek, 'users', field)
+    const { iv, data } = await encrypt(JSON.stringify(value), fieldKey)
+    return { _noydb: 1, _v: 1, _ts: 't', _iv: 'x', _data: 'x', _cek: 'wrapped', _sealed: { [field]: `${iv}:${data}` } }
+  }
+
   it('caller-bug: this engine door never accepts a digest-only slot (no _sealed) → padded false', async () => {
     const cek = await generateDEK()
     const env = await envWith(cek, { password: { value: 'correct-horse-battery', policy: pw } })
     expect(await verifyTextField(ctxFor(env, cek), 'r1', 'password', 'correct-horse-battery', 'password'))
       .toEqual({ ok: false })
+  }, 120_000)
+
+  it('round-trip: correct → ok:true; wrong → ok:false; tampered slot → ok:false, never a throw', async () => {
+    const cek = await generateDEK()
+    const env = await sealedEnvWith(cek, 'ssn', 'sensitive-value-42')
+    expect(await verifyTextField(ctxFor(env, cek), 'r1', 'ssn', 'sensitive-value-42', 'password')).toEqual({ ok: true })
+    expect(await verifyTextField(ctxFor(env, cek), 'r1', 'ssn', 'wrong-value', 'password')).toEqual({ ok: false })
+    const tampered: EncryptedEnvelope = { ...env, _sealed: { ssn: 'aaaa:bbbb' } }
+    expect(await verifyTextField(ctxFor(tampered, cek), 'r1', 'ssn', 'sensitive-value-42', 'password')).toEqual({ ok: false })
+  }, 120_000)
+
+  it('C4 timing parity: present-correct / present-wrong / missing record / missing slot all pay the uniform pad', async () => {
+    const cek = await generateDEK()
+    const env = await sealedEnvWith(cek, 'ssn', 'sensitive-value-42')
+    const time = async (fn: () => Promise<unknown>) => {
+      const t0 = performance.now(); await fn(); return performance.now() - t0
+    }
+    const correct = await time(() => verifyTextField(ctxFor(env, cek), 'r1', 'ssn', 'sensitive-value-42', 'password'))
+    const wrong = await time(() => verifyTextField(ctxFor(env, cek), 'r1', 'ssn', 'wrong-value', 'password'))
+    const missingRecord = await time(() => verifyTextField(ctxFor(null, cek), 'r1', 'ssn', 'wrong-value', 'password'))
+    const missingSlot = await time(() => verifyTextField(ctxFor({ ...env, _sealed: {} }, cek), 'r1', 'ssn', 'wrong-value', 'password'))
+    // The unconditional 600K-PBKDF2 pad dominates (~100ms+); a path that skipped
+    // it would return in <5ms. Pairwise generous bounds, same style as the
+    // digest-path vector — every outcome must sit inside every other's envelope.
+    expect(correct).toBeGreaterThan(wrong * 0.4)
+    expect(wrong).toBeGreaterThan(correct * 0.4)
+    expect(missingRecord).toBeGreaterThan(wrong * 0.4)
+    expect(missingSlot).toBeGreaterThan(wrong * 0.4)
+    expect(wrong).toBeGreaterThan(missingRecord * 0.4)
+    expect(wrong).toBeGreaterThan(missingSlot * 0.4)
   }, 120_000)
 })
