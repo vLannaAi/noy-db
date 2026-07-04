@@ -883,7 +883,10 @@ const KERNEL_SURFACE_BUDGET = {
   // pattern has a fixed per-seam cost on this file even when the bulk of the implementation leaves.
   // Bumped 2325→2327 — 2026-07-04 classified-fields stage 1 Task 6 (reveal gate): thread the opt-in
   // `classifiedStrategy` into the two Vault-construction option spreads.
-  'packages/hub/src/kernel/noydb.ts': 2327,
+  // Bumped 2327→2357 — 2026-07-04 #564: single-flight `openVault` (in-flight promise memo +
+  // `openVaultFresh` split), so concurrent opens of one vault can no longer construct two
+  // key-divergent Vault instances (root cause of the recurring in-pinia TamperedError CI flake).
+  'packages/hub/src/kernel/noydb.ts': 2357,
 }
 
 function checkKernelSurface() {
