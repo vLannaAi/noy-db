@@ -18,7 +18,7 @@
  * @packageDocumentation
  */
 
-import type { Vault } from '@noy-db/hub'
+import { applyListProjection, type Vault, type CollectionDescription } from '@noy-db/hub'
 
 export type SqlDialect = 'postgres' | 'mysql' | 'sqlite'
 export type SqlMode = 'schema-only' | 'data-only' | 'schema+data'
@@ -34,6 +34,26 @@ export interface AsSQLOptions {
   readonly tableNames?: (collection: string) => string
   /** Include `_noydb_version` / `_noydb_ts` metadata columns. Default `false`. */
   readonly metadataColumns?: boolean
+
+  /**
+   * Apply the hub's `applyListProjection` read-projection before
+   * serialising rows. `true` redacts only `classifiedFields` (mask /
+   * omit / rider, per the field's preset). The object form additionally
+   * redacts fields carrying a plain `fieldMeta` `sensitivity: 'pii' |
+   * 'secret'` tag, per `sensitivity: 'omit' | 'mask'`.
+   *
+   * Caveat: `describe()` reflects the declarations of *this session's*
+   * collection instance — redaction only takes effect when the
+   * collection was opened (this call or earlier in the session) with
+   * its `classifiedFields` / `fieldMeta` options. This is presentation-
+   * layer redaction; it never affects what's on disk. Sealed handles
+   * are unaffected either way — they always serialize as `'[sealed]'`,
+   * so ciphertext never leaks regardless of this option.
+   *
+   * Rider companion fields (e.g. `pan_last4`) remain visible as their
+   * own columns — they are safe write-time projections.
+   */
+  readonly redact?: boolean | { readonly sensitivity: 'omit' | 'mask' }
 }
 
 export interface AsSQLDownloadOptions extends AsSQLOptions {
@@ -59,8 +79,18 @@ export async function toString(vault: Vault, options: AsSQLOptions = {}): Promis
   const buckets = new Map<string, Record<string, unknown>[]>()
   for await (const chunk of vault.exportStream({ granularity: 'collection' })) {
     if (!includeAll && allowlist && !allowlist.has(chunk.collection)) continue
+    let records = chunk.records.map(r => stripMeta(r as Record<string, unknown>))
+
+    // Apply redaction projection if specified.
+    if (options.redact !== undefined && options.redact !== false) {
+      const desc: CollectionDescription = vault.collection(chunk.collection).describe()
+      const projectionOpts = options.redact === true ? undefined
+        : { sensitivity: options.redact.sensitivity }
+      records = records.map((r) => applyListProjection(desc, r, projectionOpts))
+    }
+
     const bucket = buckets.get(chunk.collection) ?? []
-    for (const r of chunk.records) bucket.push(stripMeta(r as Record<string, unknown>))
+    bucket.push(...records)
     buckets.set(chunk.collection, bucket)
   }
 
