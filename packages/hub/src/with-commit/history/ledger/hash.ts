@@ -20,7 +20,12 @@ import { envelopeBodyForHash } from '../../../kernel/enclave/index.js'
  *
  * Hashes the open `_data` ciphertext, plus the sealed-field ciphertext
  * map (`_sealed`) when a record carries one — so the ledger attests to
- * both the open body AND every sealed value.
+ * both the open body AND every sealed value … and the verify-digest
+ * ciphertext map (`_vdig`), each bound only when present — the `_vdig`
+ * binding is the temporal-rollback detector for the C1 splice class.
+ * `rotateRecordCek` rewrites `_vdig` with no ledger entry, the same
+ * pre-existing rotation property `_sealed`/`_cek` already have
+ * (`verifyBackupIntegrity` flags rotated records until re-anchored).
  *
  * Returns the empty string when there is no envelope (delete of a
  * never-existed record). The empty string tolerated by the ledger
