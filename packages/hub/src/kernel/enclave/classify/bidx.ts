@@ -103,7 +103,7 @@ export async function deriveClassifyIndexSalt(
  * reuse the same crypto at a caller-chosen cost byte (e.g. to evaluate a
  * legacy tier) without duplicating the derivation/digest/MAC pipeline.
  */
-async function mintAt(
+export async function mintAt(
   normalized: string,
   dek: EnclaveKey,
   collection: string,
