@@ -401,6 +401,13 @@ export class RecordCodec<T> {
   ): Promise<{ shreddable: string[]; dekResidue: string[] }> {
     const shreddable: string[] = []
     const dekResidue: string[] = []
+    // Verify-digest slots are CEK-only by construction (I3): dropping `_cek`
+    // makes every `_vdig[field]` permanently undecryptable — shreddable
+    // unconditionally, no vdig-dekResidue class (spec §2 forget()). Same
+    // honesty caveats as #306 D5 for synced/backup copies of the ciphertext.
+    if (live._vdig !== undefined && live._cek !== undefined) {
+      shreddable.push(...Object.keys(live._vdig))
+    }
     const sealed = live._sealed
     if (sealed === undefined) return { shreddable, dekResidue }
     const cek = await this.resolveEnvelopeCek(live)
