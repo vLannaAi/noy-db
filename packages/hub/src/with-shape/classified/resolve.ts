@@ -18,7 +18,9 @@ export function resolveClassifiedFields(
   const byField: Record<string, ClassifiedFieldSpec> = {}
   const claim = (field: string, spec: ClassifiedFieldSpec): void => {
     if (byField[field] !== undefined) {
-      throw new ClassifiedConfigError(collection, `field "${field}" is claimed twice`)
+      throw new ClassifiedConfigError(collection,
+        `field "${field}" is claimed twice — storage forms are mutually exclusive per field (R5): ` +
+        `a field is digest-only OR recoverable OR never, exactly one`)
     }
     byField[field] = spec
   }

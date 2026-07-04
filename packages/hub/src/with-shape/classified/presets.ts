@@ -76,4 +76,38 @@ export const classified = {
       validate: (v) => (digitsOf(v).length >= 5 ? null : 'expected at least 5 digits'),
     }
   },
+
+  /** Digest-only password: verify-without-reveal; never listed, never revealed.
+   *  Enumeration math is on the caller for low-entropy values — see the
+   *  per-preset docs; the hub ships no rate limiter in this slice (spec §5). */
+  password(opts: { minLength?: number; rotateDays?: number; notLastN?: number } = {}): ClassifiedFieldSpec {
+    const minLength = opts.minLength ?? 10
+    const notLastN = opts.notLastN ?? 0
+    if (!Number.isInteger(notLastN) || notLastN < 0 || notLastN > 8) {
+      throw new Error(`classified.password: notLastN must be an integer 0..8 (write cost is n × 600K PBKDF2; ring blast radius is documented), got ${notLastN}`)
+    }
+    return {
+      _noydbClassified: true, preset: 'password', storage: 'digest-only',
+      sensitivity: 'secret', list: { kind: 'omit' },
+      verifyNormalize: 'password',
+      ...(opts.rotateDays !== undefined ? { rotateDays: opts.rotateDays } : {}),
+      ...(notLastN > 0 ? { notLastN } : {}),
+      validate: (v) => (typeof v === 'string' && v.normalize('NFC').length >= minLength
+        ? null : `password must be at least ${minLength} characters`),
+    }
+  },
+
+  /** Digest-only secret answer: normalized (casefold/trim/collapse), groupable
+   *  into k-of-n matchGroup challenges. Low-entropy by nature — document the
+   *  enumeration math to your users; add app-side rate limiting. */
+  secretAnswer(): ClassifiedFieldSpec {
+    return {
+      _noydbClassified: true, preset: 'secretAnswer', storage: 'digest-only',
+      sensitivity: 'secret', list: { kind: 'omit' },
+      verifyNormalize: 'secret-answer', verifyGroupMember: true,
+      validate: (v) => (typeof v === 'string'
+        && v.normalize('NFC').toLowerCase().trim().replace(/\s+/g, ' ').length > 0
+        ? null : 'secret answer must be non-empty after normalization'),
+    }
+  },
 }

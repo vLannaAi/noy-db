@@ -12,6 +12,7 @@ export function enforceClassifiedWrite(
   for (const [field, spec] of Object.entries(byField)) {
     const value = record[field]
     if (value === undefined) continue
+    if (value === null && spec.storage === 'digest-only') continue // explicit clear (C6 branch 3)
     if (spec.storage === 'never') throw new ClassifiedNeverStoredError(collection, field)
     const problem = spec.validate?.(value) ?? null
     if (problem !== null) throw new ClassifiedValidationError(collection, field, problem)
