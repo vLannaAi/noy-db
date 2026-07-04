@@ -104,3 +104,12 @@ export { isTombstone, buildTombstone } from './record-keys/tombstone.js'
 
 // ─── envelope body (C1 protected-body access contract) ──────────────
 export { openEnvelopeJson, writeEnvelopeBody, hasPerRecordKey, envelopeBodyForHash } from './record-keys/envelope-body.js'
+
+// ─── classify (stage-2 verify oracle primitives) ────────────────────
+// ADDITIVE per Enclave Contract v1. A fork must provide these four; the
+// verify/matchGroup orchestration (classify/verify.ts) sits behind the
+// with-shape dynamic-import seam and is not part of the fork contract.
+export { deriveVdigSlotKey } from './classify/vdig.js'
+export { pbkdf2VerifyDigest } from './classify/digest.js'
+export { ctEqualTags } from './classify/compare.js'
+export { evaluateKofN } from './classify/kofn.js'
