@@ -125,7 +125,10 @@ const SCENARIOS = [
     `,
     leakCanaries: [],
     eagerImports: [
-      'revealSealedField',   // reveal engine must stay behind the dynamic import in classified/active.ts (now enclave-side)
+      'revealSealedField', // reveal engine (enclave-side since stage 2)
+      'verifyDigestField', // verify oracle — MUST stay behind active.ts's dynamic import
+      'matchGroupFields',
+      'mintVdigSlot',      // write-side digest engine (codec-internal, never eager via the strategy)
     ],
   },
   {
