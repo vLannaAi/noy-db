@@ -1,5 +1,15 @@
 # @noy-db/in-solid
 
+## 0.3.0-pre.3
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.3.0-pre.3
+
 ## 0.3.0-pre.2
 
 ### Minor Changes
