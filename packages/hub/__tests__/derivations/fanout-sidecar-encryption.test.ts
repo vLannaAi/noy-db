@@ -148,4 +148,40 @@ describe('M-3 — fanout sidecar encryption', () => {
     const loaded = await loadFanoutSidecar(store, 'v', 'docs', 'd1', 'tagRows', getDEK, true)
     expect(loaded?.keys).toEqual(['x', 'y'])
   })
+
+  // #554: a genuinely absent sidecar must still resolve to `undefined`
+  // (orphan cleanup correctly no-ops), but a PRESENT-and-corrupt one must
+  // NOT be conflated with absence — it must surface, not silently skip
+  // orphan-row deletion.
+  it('unit: absent sidecar (no envelope at all) resolves to undefined, no throw', async () => {
+    const { store } = memoryWithData()
+    const dek = await generateDEK()
+    const getDEK = async () => dek
+    const loaded = await loadFanoutSidecar(store, 'v', 'docs', 'nonexistent', 'tagRows', getDEK, true)
+    expect(loaded).toBeUndefined()
+  })
+
+  it('unit: a present but undecryptable sidecar (wrong DEK) throws instead of silently returning undefined', async () => {
+    const { store } = memoryWithData()
+    const dek = await generateDEK()
+    const wrongDek = await generateDEK()
+    await saveFanoutSidecar(store, 'v', { source: 'docs', sourceId: 'd1', outputKey: 'tagRows', outputCollection: 'docTags', keys: ['a', 'b'] }, async () => dek, true)
+    await expect(
+      loadFanoutSidecar(store, 'v', 'docs', 'd1', 'tagRows', async () => wrongDek, true),
+    ).rejects.toThrow()
+  })
+
+  it('unit: a present but unparseable ciphertext-body sidecar (corrupt JSON post-decrypt) throws', async () => {
+    const { store } = memoryWithData()
+    const dek = await generateDEK()
+    const getDEK = async () => dek
+    // A plaintext (`_iv === ''`) envelope skips decryption entirely, so
+    // corrupting `_data` directly exercises the JSON.parse failure path.
+    await store.put('v', '_meta', 'derivations-fanout/docs/d1/tagRows', {
+      _noydb: NOYDB_FORMAT_VERSION, _v: 1, _ts: new Date().toISOString(), _iv: '', _data: 'not valid json{{{',
+    } as EncryptedEnvelope)
+    await expect(
+      loadFanoutSidecar(store, 'v', 'docs', 'd1', 'tagRows', getDEK, true),
+    ).rejects.toThrow()
+  })
 })

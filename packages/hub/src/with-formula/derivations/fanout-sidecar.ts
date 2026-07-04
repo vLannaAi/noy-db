@@ -64,7 +64,18 @@ function recordId(source: string, sourceId: string, outputKey: string): string {
 }
 
 /**
- * Read the sidecar; returns empty if absent.
+ * Read the sidecar; returns `undefined` only when it's legitimately absent
+ * (no envelope at that id) — the correct signal for callers to skip
+ * orphan-row reconciliation because there's nothing to reconcile against.
+ *
+ * A PRESENT envelope that fails to decrypt or parse is a data-integrity
+ * problem, not an absence, and is deliberately NOT caught here: swallowing
+ * it to `undefined` would look identical to "no sidecar" and make callers
+ * (the array-derivation dispatch in `vault.ts`/`collection.ts`) silently
+ * skip deleting stale derived rows on a shrink. Let `openEnvelopeJson`'s
+ * `DecryptionError`/`TamperedError` and `JSON.parse` failures propagate,
+ * matching the no-catch convention of sibling decrypt call-sites (e.g.
+ * `with-audit/consent/consent.ts`'s `decryptEntry`).
  *
  * Dual-reads for back-compat: an envelope with `_iv === ''` is a legacy
  * plaintext sidecar (parse `_data` directly); otherwise the body was
@@ -81,18 +92,14 @@ export async function loadFanoutSidecar(
 ): Promise<FanoutSidecar | undefined> {
   const envelope = await store.get(vault, '_meta', recordId(source, sourceId, outputKey))
   if (!envelope) return undefined
-  try {
-    // Legacy plaintext (`_iv === ''`) reads directly; encrypted bodies decrypt.
-    const json = (!encrypted || envelope._iv === '')
-      ? envelope._data
-      : await openEnvelopeJson(envelope, await getDEK(FANOUT_DEK_COLLECTION))
-    const parsed = JSON.parse(json) as FanoutSidecar
-    if (parsed._noydb_fanout !== 1) return undefined
-    if (!Array.isArray(parsed.keys)) return undefined
-    return parsed
-  } catch {
-    return undefined
-  }
+  // Legacy plaintext (`_iv === ''`) reads directly; encrypted bodies decrypt.
+  const json = (!encrypted || envelope._iv === '')
+    ? envelope._data
+    : await openEnvelopeJson(envelope, await getDEK(FANOUT_DEK_COLLECTION))
+  const parsed = JSON.parse(json) as FanoutSidecar
+  if (parsed._noydb_fanout !== 1) return undefined
+  if (!Array.isArray(parsed.keys)) return undefined
+  return parsed
 }
 
 /**
