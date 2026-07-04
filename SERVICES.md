@@ -85,7 +85,7 @@ The Dim 14 family. All three share the same encrypted-payload metadata envelope,
 |---|---|---|---:|---|
 | 8 | `@noy-db/hub/blobs` | Binary attachments + compaction + MIME-magic | 2,376 | `pod`, `routing` |
 | 9 | `@noy-db/hub/i18n` | Multi-locale records + dict-key resolution + auto-translate hook | 854 | `aggregate` (groupBy on dict-key) |
-| 25 | `@noy-db/hub/classified` | Classified fields — behavioral sensitive-field types: presets, riders, projections, audited reveal | ~290 | `guards`, `history` (audited access) |
+| 25 | `@noy-db/hub/classified` | Classified fields — behavioral sensitive-field types: presets, riders, projections, audited reveal, verify-without-reveal (digest-only presets, k-of-n matchGroup) | ~950 | `guards`, `history` (audited access) |
 
 ### Cluster E — Time & Audit
 
