@@ -1652,6 +1652,52 @@ function checkEnclaveClassifyOnly() {
   })
 }
 
+// ─── Check 13: enclave-classify-index-only (M1 — slice-2b identifier ratchet) ──
+//
+// Slice-2b blind-index: the bidx key/salt-derivation and target-computation
+// identifiers — plus the index salt-domain literals — live ONLY in
+// kernel/enclave/** (the classify/ folder). Outside it, referencing these
+// is a leak of enclave interior into service/kernel code. The ONE sanctioned
+// exception is with-shape/classified/active.ts, which reaches
+// computeBidxTarget exclusively through the dynamic-import strategy seam
+// (kernel/enclave/classify/find.js) — that file is allowlisted the same way
+// enclave/test files are exempt elsewhere in this script. Opaque `_bidx`
+// tag-map TRANSIT is explicitly permitted (codec carry-forward, sealing.ts
+// verbatim carry, backup/history plumbing), which is why `_bidx` is
+// deliberately absent from BODY_FIELD_ACCESS_RE above. Like
+// enclave-classify-only: stripComments (not strings — the salt literals ARE
+// strings), *.test.ts and __tests__/** exempt. The enclave-conformance kit
+// lives under test-harnesses/ (never scanned — walkTsFiles here only walks
+// packages/hub/src).
+const CLASSIFY_INDEX_ENCLAVE_ONLY_RE =
+  /\bderiveClassifyIndexKey\b|\bderiveClassifyIndexSalt\b|\bmintBidxTag\b|\bcomputeBidxTarget\b|noydb-classify-index-v1|noydb-classify-index-salt-v1/
+
+const CLASSIFY_INDEX_ALLOWLIST = new Set(['packages/hub/src/with-shape/classified/active.ts'])
+
+function checkEnclaveClassifyIndexOnly() {
+  const hubSrc = join(PACKAGES_DIR, 'hub', 'src')
+  const enclaveDir = join(hubSrc, 'kernel', 'enclave')
+  walkTsFiles(hubSrc, (file, content) => {
+    if (file.endsWith('.test.ts')) return
+    if (relative(ROOT, file).split('/').includes('__tests__')) return
+    const insideEnclave = !relative(enclaveDir, file).startsWith('..')
+    if (insideEnclave) return
+    if (CLASSIFY_INDEX_ALLOWLIST.has(relative(ROOT, file))) return
+    const code = stripComments(content)
+    const m = code.match(CLASSIFY_INDEX_ENCLAVE_ONLY_RE)
+    if (m) {
+      fail(
+        'enclave-classify-index-only',
+        `${relative(ROOT, file)} references "${m[0]}" — blind-index key/salt-derivation and target ` +
+        `identifiers, and the 'noydb-classify-index-v1'/'noydb-classify-index-salt-v1' literals, are ` +
+        `enclave-interior (M1). Call through the classified strategy seam (with-shape/classified/active.ts ` +
+        `dynamic import) or the enclave barrel; opaque _bidx tag-map transit needs no crypto identifier.`,
+        file,
+      )
+    }
+  })
+}
+
 // ─── Run ───────────────────────────────────────────────────────────────
 
 const startTime = Date.now()
@@ -1669,6 +1715,7 @@ checkPortLayering()
 checkEnclaveBarrelOnly()
 checkEnclaveBodyOnly()
 checkEnclaveClassifyOnly()
+checkEnclaveClassifyIndexOnly()
 
 const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
 
