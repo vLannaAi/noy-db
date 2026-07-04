@@ -304,7 +304,7 @@ export interface CollectionOpts<T> {
    * outside a consent scope the callback is a no-op. Awaited so a
    * thrown audit write surfaces to the caller.
    */
-  onAccess?: (op: 'get' | 'put' | 'delete' | 'reveal' | 'verify', id: string) => Promise<void>
+  onAccess?: (op: 'get' | 'put' | 'delete' | 'reveal' | 'verify' | 'find', id: string) => Promise<void>
   /**
    * invoked by `put`/`delete` before any adapter
    * write. Receives the prior envelope timestamp + decrypted

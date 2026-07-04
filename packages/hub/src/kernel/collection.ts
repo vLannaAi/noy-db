@@ -1182,7 +1182,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       getDEK: () => this.getDEK(this.name),
       now: () => Date.now(), // Q7: injected here; engine tests inject their own
       ...(this.onAccess !== undefined
-        ? { onAccess: async (_op: 'verify', rid: string) => { await this.onAccess!('verify', rid) } }
+        ? { onAccess: async (_op: 'verify' | 'find', rid: string) => { await this.onAccess!('verify', rid) } }
         : {}),
     }
   }

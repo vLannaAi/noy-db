@@ -73,8 +73,17 @@ export interface ConsentContext {
   readonly consentHash: string
 }
 
-/** Access operation recorded in an audit entry. */
-export type ConsentOp = 'get' | 'put' | 'delete' | 'reveal' | 'verify'
+/**
+ * Access operation recorded in an audit entry.
+ *
+ * Union-widening checklist (I-2) — these three sites widen together or a
+ * downstream exhaustive switch breaks at its next in-range minor:
+ *   1. `ConsentOp` here (public, re-exported at `index.ts`).
+ *   2. `onAccess` op union on `kernel/collection-config.ts`.
+ *   3. classified ctx `onAccess` op union on `with-shape/classified/strategy.ts`
+ *      (the `ClassifiedVerifyCtx` one — the `ClassifiedRevealCtx` one stays `'reveal'`-only).
+ */
+export type ConsentOp = 'get' | 'put' | 'delete' | 'reveal' | 'verify' | 'find'
 
 /** One consent-audit record, as decrypted for the caller. */
 export interface ConsentAuditEntry {

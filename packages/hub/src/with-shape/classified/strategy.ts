@@ -27,7 +27,7 @@ export interface ClassifiedVerifyCtx {
   readonly now: () => number                                        // injected (Q7)
   /** Group members resolved by the collection (matchGroup only). */
   readonly groupMembers?: ReadonlyArray<{ readonly field: string; readonly spec: ClassifiedFieldSpec }>
-  readonly onAccess?: ((op: 'verify', id: string) => Promise<void>) | undefined
+  readonly onAccess?: ((op: 'verify' | 'find', id: string) => Promise<void>) | undefined
 }
 
 export interface ClassifiedStrategy {
