@@ -36,6 +36,7 @@ export interface ClassifiedStrategy {
   verifyText(ctx: ClassifiedVerifyCtx, id: string, field: string, candidate: string): Promise<ClassifiedVerdict>
   matchGroup(ctx: ClassifiedVerifyCtx, id: string, answers: Record<string, string>,
              opts: { readonly min: number }): Promise<{ readonly passed: boolean }>
+  computeTarget(ctx: ClassifiedVerifyCtx, field: string, candidate: string, costByte?: number): Promise<string | null>
 }
 
 export const NO_CLASSIFIED: ClassifiedStrategy = {
@@ -43,4 +44,5 @@ export const NO_CLASSIFIED: ClassifiedStrategy = {
   async verify() { throw new ClassifiedNotEnabledError() },
   async verifyText() { throw new ClassifiedNotEnabledError() },
   async matchGroup() { throw new ClassifiedNotEnabledError() },
+  async computeTarget() { throw new ClassifiedNotEnabledError() },
 }
