@@ -1,5 +1,29 @@
 # @noy-db/as-xlsx
 
+## 0.3.0-pre.3
+
+### Minor Changes
+
+- Classified fields (stage 1): behavioral sensitive-field types. `classifiedFields`
+  collection option with presets (`classified.creditCard()` composite with
+  storage:'never' CVC, `birthDate`, `email`, `phone`), write-time riders +
+  validation, sealed-backed storage, `withClassified()`-gated audited
+  `collection.reveal()`, `x-classified` in describe()/toJSONSchema(), and
+  `applyListProjection()` — consumed by as-csv/as-xlsx `redact` options (#489).
+  Note: riders materialize at write time, so date-relative riders (ageBand,
+  expiresSoon) are deliberately not offered; birthDate ships a stable `yob` rider.
+  The birthDate preset validates real calendar dates (incl. leap years).
+  Compile-time S-set query refusal for classified fields is deferred to stage 2 (values are runtime-sealed regardless).
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.3.0-pre.3
+  - @noy-db/as-zip@0.3.0-pre.3
+
 ## 0.3.0-pre.2
 
 ### Minor Changes

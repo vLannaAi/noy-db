@@ -1,5 +1,19 @@
 # @noy-db/as-ndjson
 
+## 0.3.0-pre.3
+
+### Minor Changes
+
+- `redact` export option for the remaining record exporters (#489, #571), matching the as-csv/as-xlsx recipe: `redact?: boolean | { sensitivity: 'omit' | 'mask' }`, applied via the hub's shared `applyListProjection()` + `collection.describe()` — no bespoke redaction logic. `redact: true` projects classified fields (mask/omit/rider per their declaration); the object form additionally handles plain `sensitivity`-tagged fields. Projection runs before column/element derivation, so omitted fields vanish structurally (verified down to as-sql's CREATE TABLE + INSERT lists).
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.3.0-pre.3
+
 ## 0.3.0-pre.2
 
 ### Minor Changes

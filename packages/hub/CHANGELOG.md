@@ -1,5 +1,26 @@
 # Changelog — hub
 
+## 0.3.0-pre.3
+
+### Minor Changes
+
+- Classified fields (stage 1): behavioral sensitive-field types. `classifiedFields`
+  collection option with presets (`classified.creditCard()` composite with
+  storage:'never' CVC, `birthDate`, `email`, `phone`), write-time riders +
+  validation, sealed-backed storage, `withClassified()`-gated audited
+  `collection.reveal()`, `x-classified` in describe()/toJSONSchema(), and
+  `applyListProjection()` — consumed by as-csv/as-xlsx `redact` options (#489).
+  Note: riders materialize at write time, so date-relative riders (ageBand,
+  expiresSoon) are deliberately not offered; birthDate ships a stable `yob` rider.
+  The birthDate preset validates real calendar dates (incl. leap years).
+  Compile-time S-set query refusal for classified fields is deferred to stage 2 (values are runtime-sealed regardless).
+- Classified fields (stage 2): the enclave oracle — verify-without-reveal. `classified.password({ minLength, rotateDays?, notLastN? })` and `classified.secretAnswer()` digest-only presets; `collection.verify(id, field, candidate)` and `verifyGroup(id, answers, { min })` (k-of-n), gated behind `withClassified()`; rotation policy (`notLastN` reuse ring, `rotateDays` → `{ ok, mustRotate }`). New AAD-bound `_vdig` envelope slot: AES-256-GCM, per-record per-write salt, PBKDF2-SHA256 600K digests encrypted at rest so the store can't dictionary-attack low-entropy secrets — rides the CEK (forget() crypto-shreds it, rotation re-encrypts it, the ledger binds it back-compatibly, pods carry ciphertext only). Refusal matrix R1–R6 at both config doors (digest-only requires perRecordKeys; no CRDT×classified; no deterministic/indexed/vector intersection; storage-form exclusivity). All crypto confined to `kernel/enclave/classify/**` (enforced by a new architecture ratchet); verify engine behind a dynamic import (bundle-gated). Deferred to a future slice: the `_bidx` equatable blind index / `findByDigest` (the only store-visible, frequency-leaking surface). Designed through a 3-lens pre-implementation adversarial audit + a final whole-branch security review.
+- `collection.describe({})` (async) now surfaces validator constraints on each `DescribedField` (min/max, length bounds, enum, format) derived from the collection's schema, so consumers reading `describe()` see the same constraints the validator enforces.
+
+### Patch Changes
+
+- Two hygiene fixes (#554). **L-1**: the deterministic `_det` index now encrypts under a dedicated HKDF key (salt `noydb-det`) instead of sharing the collection DEK — separating the deterministic-IV regime from the randomized-IV `_data` regime. Existing `_det` stays findable via dual-query and self-heals to the new key on the record's next write; rotation-stable (the key is collection-level). **loadFanoutSidecar**: a corrupt/undecryptable fanout sidecar now surfaces the error instead of being swallowed as "absent" — orphan-row cleanup on an array-derivation shrink is no longer silently skipped.
+
 ## 0.3.0-pre.2
 
 ### Minor Changes
