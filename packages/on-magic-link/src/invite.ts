@@ -210,7 +210,12 @@ export class InviteAuditMissingError extends Error {
  * the rotation inside `acceptInvite` invalidates the temp phrase
  * (single-use by construction).
  *
- * @throws Whatever `db.grant` throws (PrivilegeEscalationError,
+ * The issuing `db` must be constructed with `teamStrategy: withTeam()`
+ * (from `@noy-db/hub/team`) — minting an invite is a multi-user grant,
+ * which is the opt-in team capability since noy-db 0.3 (#267).
+ *
+ * @throws Whatever `db.grant` throws (TeamNotEnabledError when the issuing
+ *         db lacks `withTeam()`, PrivilegeEscalationError,
  *         WeakPassphraseError if the temp phrase fails policy, …)
  */
 export async function issueInvite(

@@ -10,6 +10,7 @@ import { withTransactions } from '@noy-db/hub/tx'
 import { memory } from '@noy-db/to-memory'
 import { readZip } from '@noy-db/as-zip'
 import { toBytes, readXlsx, formula, fromBytes, writeXlsx, inferSchema, zodSourceFor } from '../src/index.js'
+import { withTeam } from '@noy-db/hub/team'
 
 const DEC = new TextDecoder()
 
@@ -18,7 +19,7 @@ interface Invoice { id: string; clientId: string; amount: number }
 
 async function setup() {
   const adapter = memory()
-  const init = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-2026' })
+  const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
   await init.openVault('firm')
   await init.grant('firm', {
     userId: 'alice', displayName: 'Alice', role: 'owner', passphrase: 'pw-2026',
@@ -26,7 +27,7 @@ async function setup() {
   })
   init.close()
 
-  const db = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-2026' })
+  const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
   const vault = await db.openVault('firm')
   await vault.collection<Client>('clients').put('c1', { id: 'c1', name: 'Acme' })
   await vault.collection<Invoice>('invoices', { refs: { clientId: ref('clients', 'strict') } })
@@ -102,14 +103,14 @@ describe('#414 P1 — smart export', () => {
 
   it('P2: global LANG cell + i18n locale columns with a live display formula', async () => {
     const adapter = memory()
-    const init = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-i18n' })
+    const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-i18n' })
     await init.openVault('shop')
     await init.grant('shop', {
       userId: 'alice', displayName: 'Alice', role: 'owner', passphrase: 'pw-i18n',
       exportCapability: { plaintext: ['xlsx'] },
     })
     init.close()
-    const db = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-i18n', i18nStrategy: withI18n() })
+    const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-i18n', i18nStrategy: withI18n() })
     const vault = await db.openVault('shop') // no active locale → raw i18n maps
     await vault.collection<{ id: string; name: Record<string, string> }>('products', {
       i18nFields: { name: i18nText({ languages: ['en', 'th'], required: 'all' }) },
@@ -136,14 +137,14 @@ describe('#414 P1 — smart export', () => {
 
   it('P2 dict: a _Lookups sheet + a LANG-driven VLOOKUP label column', async () => {
     const adapter = memory()
-    const init = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-dict' })
+    const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-dict' })
     await init.openVault('co')
     await init.grant('co', {
       userId: 'alice', displayName: 'Alice', role: 'owner', passphrase: 'pw-dict',
       exportCapability: { plaintext: ['xlsx'] },
     })
     init.close()
-    const db = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-dict', i18nStrategy: withI18n() })
+    const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-dict', i18nStrategy: withI18n() })
     const vault = await db.openVault('co')
     await vault.dictionary('status').putAll({
       paid: { en: 'Paid', th: 'ชำระแล้ว' },
@@ -172,14 +173,14 @@ describe('#414 P1 — smart export', () => {
 
   it('P3: groupBy summary sheet with live SUMIFS/COUNTIFS + cached values', async () => {
     const adapter = memory()
-    const init = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-sum' })
+    const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-sum' })
     await init.openVault('firm')
     await init.grant('firm', {
       userId: 'alice', displayName: 'Alice', role: 'owner', passphrase: 'pw-sum',
       exportCapability: { plaintext: ['xlsx'] },
     })
     init.close()
-    const db = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-sum' })
+    const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-sum' })
     const vault = await db.openVault('firm')
     await vault.collection<Client>('clients').put('c1', { id: 'c1', name: 'Acme' })
     const invoices = vault.collection<Invoice>('invoices', { refs: { clientId: ref('clients', 'strict') } })
@@ -212,14 +213,14 @@ describe('#414 P1 — smart export', () => {
 
   it('P4 smart import: reverses the smart layout — rebuilds i18n maps, drops derived columns', async () => {
     const adapter = memory()
-    const init = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-rt' })
+    const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-rt' })
     await init.openVault('shop')
     await init.grant('shop', {
       userId: 'alice', displayName: 'Alice', role: 'owner', passphrase: 'pw-rt',
       exportCapability: { plaintext: ['xlsx'] }, importCapability: { plaintext: ['xlsx'] },
     })
     init.close()
-    const db = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-rt', i18nStrategy: withI18n(), txStrategy: withTransactions() })
+    const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-rt', i18nStrategy: withI18n(), txStrategy: withTransactions() })
     const vault = await db.openVault('shop')
     const products = vault.collection<{ id: string; name: Record<string, string> }>('products', {
       i18nFields: { name: i18nText({ languages: ['en', 'th'], required: 'all' }) },

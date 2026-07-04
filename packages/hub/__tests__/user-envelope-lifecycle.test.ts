@@ -17,6 +17,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 import { createNoydb, type Noydb } from '../src/kernel/noydb.js'
 import { USER_ENVELOPE_COLLECTION } from '../src/kernel/constants.js'
+import { withTeam } from '../src/with-party/team/index.js'
 
 interface TestProfile {
   profile: { displayName?: string; locale?: string }
@@ -50,7 +51,7 @@ describe('user envelope — keyring lifecycle (#20)', () => {
 
   beforeEach(async () => {
     store = inlineMemory()
-    aliceDb = await createNoydb({ store, user: 'alice', secret: 'alice-pass-2026-strong' })
+    aliceDb = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: 'alice-pass-2026-strong' })
   })
 
   it('createOwnerKeyring eager-provisions the _users DEK', async () => {
@@ -73,7 +74,7 @@ describe('user envelope — keyring lifecycle (#20)', () => {
     })
     aliceDb.close()
 
-    const bobDb = await createNoydb({ store, user: 'bob', secret: 'bob-pass-2026-strong' })
+    const bobDb = await createNoydb({ teamStrategy: withTeam(), store, user: 'bob', secret: 'bob-pass-2026-strong' })
     const bobVault = await bobDb.openVault('demo')
     const me = await bobVault.user.me<TestProfile>()
     expect(me).not.toBeNull()
@@ -97,7 +98,7 @@ describe('user envelope — keyring lifecycle (#20)', () => {
     aliceDb.close()
 
     // Bob unlocks his own keyring and reads the seeded envelope.
-    const bobDb = await createNoydb({ store, user: 'bob', secret: 'bob-pass-2026-strong' })
+    const bobDb = await createNoydb({ teamStrategy: withTeam(), store, user: 'bob', secret: 'bob-pass-2026-strong' })
     const bobVault = await bobDb.openVault('demo')
     const me = await bobVault.user.me<TestProfile>()
     expect(me!.data.profile.displayName).toBe('Bob (pre-filled)')
@@ -135,7 +136,7 @@ describe('user envelope — keyring lifecycle (#20)', () => {
 
     // Re-open vault to refresh state — alice still has access.
     aliceDb.close()
-    aliceDb = await createNoydb({ store, user: 'alice', secret: 'alice-pass-2026-strong' })
+    aliceDb = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: 'alice-pass-2026-strong' })
     const refreshed = await aliceDb.openVault('demo')
     expect(await refreshed.user.get<TestProfile>('bob')).toBeNull()
 
@@ -169,7 +170,7 @@ describe('user envelope — keyring lifecycle (#20)', () => {
       initialProfile: { profile: { displayName: 'Bob' } } satisfies TestProfile,
     })
     aliceDb.close()
-    const bobDb = await createNoydb({ store, user: 'bob', secret: 'bob-pass-2026-strong' })
+    const bobDb = await createNoydb({ teamStrategy: withTeam(), store, user: 'bob', secret: 'bob-pass-2026-strong' })
     await bobDb.openVault('demo')
     await bobDb.grant('demo', {
       userId: 'carol',
@@ -180,7 +181,7 @@ describe('user envelope — keyring lifecycle (#20)', () => {
     })
     bobDb.close()
 
-    aliceDb = await createNoydb({ store, user: 'alice', secret: 'alice-pass-2026-strong' })
+    aliceDb = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: 'alice-pass-2026-strong' })
     const aliceVault = await aliceDb.openVault('demo')
     expect(await aliceVault.user.get<TestProfile>('bob')).not.toBeNull()
     expect(await aliceVault.user.get<TestProfile>('carol')).not.toBeNull()
@@ -189,7 +190,7 @@ describe('user envelope — keyring lifecycle (#20)', () => {
     await aliceDb.revoke('demo', { userId: 'bob' })
 
     aliceDb.close()
-    aliceDb = await createNoydb({ store, user: 'alice', secret: 'alice-pass-2026-strong' })
+    aliceDb = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: 'alice-pass-2026-strong' })
     const refreshed = await aliceDb.openVault('demo')
     expect(await refreshed.user.get<TestProfile>('bob')).toBeNull()
     expect(await refreshed.user.get<TestProfile>('carol')).toBeNull()

@@ -17,12 +17,13 @@ import { describe, expect, it } from 'vitest'
 import { ExportCapabilityError, createNoydb } from '@noy-db/hub'
 import { memory } from '@noy-db/to-memory'
 import { toBytes, write, colLetter, writeXlsx } from '../src/index.js'
+import { withTeam } from '@noy-db/hub/team'
 
 interface Invoice { id: string; client: string; amount: number; paid: boolean; date: string }
 
 async function seedVault() {
   const adapter = memory()
-  const db = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+  const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
   const vault = await db.openVault('acme')
   const invoices = vault.collection<Invoice>('invoices')
   await invoices.put('inv-1', { id: 'inv-1', client: 'Globex', amount: 1500, paid: true, date: '2026-01-15' })
@@ -32,7 +33,7 @@ async function seedVault() {
 }
 
 async function grantXlsx(adapter: ReturnType<typeof memory>) {
-  const db = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+  const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
   await db.grant('acme', {
     userId: 'owner-01', displayName: 'Owner', role: 'owner',
     passphrase: 'owner-pass',
@@ -220,7 +221,7 @@ describe('as-xlsx — vault integration', () => {
     const { adapter } = await seedVault()
     await grantXlsx(adapter)
 
-    const db = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
     const vault = await db.openVault('acme')
     const bytes = await toBytes(vault, {
       sheets: [
@@ -248,7 +249,7 @@ describe('as-xlsx — vault integration', () => {
     const { adapter } = await seedVault()
     await grantXlsx(adapter)
 
-    const db = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
     const vault = await db.openVault('acme')
     const bytes = await toBytes(vault, {
       sheets: [{ name: 'Invoices', collection: 'invoices' }],
@@ -265,7 +266,7 @@ describe('as-xlsx — vault integration', () => {
     const { adapter } = await seedVault()
     await grantXlsx(adapter)
 
-    const db = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
     const vault = await db.openVault('acme')
     const bytes = await toBytes(vault, {
       sheets: [
@@ -291,7 +292,7 @@ describe('as-xlsx — vault integration', () => {
     const { adapter } = await seedVault()
     await grantXlsx(adapter)
 
-    const db = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
     const vault = await db.openVault('acme')
     const bytes = await toBytes(vault, {
       sheets: [{ name: 'Invoices', collection: 'invoices', columns: ['id'] }],
@@ -315,7 +316,7 @@ describe('as-xlsx — vault integration', () => {
   it('refuses write() without acknowledgeRisks', async () => {
     const { adapter } = await seedVault()
     await grantXlsx(adapter)
-    const db = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
     const vault = await db.openVault('acme')
     await expect(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -327,7 +328,7 @@ describe('as-xlsx — vault integration', () => {
   it('write() persists a valid xlsx to disk', async () => {
     const { adapter } = await seedVault()
     await grantXlsx(adapter)
-    const db = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
     const vault = await db.openVault('acme')
 
     const { mkdtemp, readFile, rm } = await import('node:fs/promises')

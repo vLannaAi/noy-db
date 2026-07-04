@@ -33,6 +33,7 @@ import {
 } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import type { Noydb } from '../src/kernel/noydb.js'
+import { withTeam } from '../src/with-party/team/index.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -80,7 +81,7 @@ describe('admin-grants-admin (bounded delegation).', () => {
 
   beforeEach(async () => {
     adapter = memory()
-    ownerDb = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    ownerDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
     const comp = await ownerDb.openVault(COMP)
     await comp.collection<Invoice>('invoices').put('inv-1', { amount: 100, client: 'Globex' })
 
@@ -95,7 +96,7 @@ describe('admin-grants-admin (bounded delegation).', () => {
 
   describe('grant capability', () => {
     it('admin can grant another admin (was rejected under v0.4)', async () => {
-      const admin1Db = await createNoydb({ store: adapter, user: 'admin-1', secret: 'admin-1-pass' })
+      const admin1Db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'admin-1', secret: 'admin-1-pass' })
       await expect(
         admin1Db.grant(COMP, {
           userId: 'admin-2',
@@ -107,7 +108,7 @@ describe('admin-grants-admin (bounded delegation).', () => {
     })
 
     it('the granted admin can unlock the vault and read records', async () => {
-      const admin1Db = await createNoydb({ store: adapter, user: 'admin-1', secret: 'admin-1-pass' })
+      const admin1Db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'admin-1', secret: 'admin-1-pass' })
       await admin1Db.grant(COMP, {
         userId: 'admin-2',
         displayName: 'Second Admin',
@@ -115,14 +116,14 @@ describe('admin-grants-admin (bounded delegation).', () => {
         passphrase: 'admin-2-pass',
       })
 
-      const admin2Db = await createNoydb({ store: adapter, user: 'admin-2', secret: 'admin-2-pass' })
+      const admin2Db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'admin-2', secret: 'admin-2-pass' })
       const comp = await admin2Db.openVault(COMP)
       const inv = await comp.collection<Invoice>('invoices').get('inv-1')
       expect(inv?.amount).toBe(100)
     })
 
     it('the granted admin can themselves grant a third admin (transitive delegation)', async () => {
-      const admin1Db = await createNoydb({ store: adapter, user: 'admin-1', secret: 'admin-1-pass' })
+      const admin1Db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'admin-1', secret: 'admin-1-pass' })
       await admin1Db.grant(COMP, {
         userId: 'admin-2',
         displayName: 'Second Admin',
@@ -130,7 +131,7 @@ describe('admin-grants-admin (bounded delegation).', () => {
         passphrase: 'admin-2-pass',
       })
 
-      const admin2Db = await createNoydb({ store: adapter, user: 'admin-2', secret: 'admin-2-pass' })
+      const admin2Db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'admin-2', secret: 'admin-2-pass' })
       await expect(
         admin2Db.grant(COMP, {
           userId: 'admin-3',
@@ -145,7 +146,7 @@ describe('admin-grants-admin (bounded delegation).', () => {
       // Sanity check that the admin → operator/viewer/client paths still
       // work after the canGrant change. The lateral admin delegation
       // shouldn't have any effect on these — but it's cheap to verify.
-      const admin1Db = await createNoydb({ store: adapter, user: 'admin-1', secret: 'admin-1-pass' })
+      const admin1Db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'admin-1', secret: 'admin-1-pass' })
       await expect(
         admin1Db.grant(COMP, {
           userId: 'op-from-admin1',
@@ -179,11 +180,11 @@ describe('admin-grants-admin (bounded delegation).', () => {
   describe('cascade-strict revoke (default)', () => {
     it('revokes the full delegation subtree in one call', async () => {
       // Build a 3-level chain: owner → admin-1 → admin-2 → admin-3
-      const admin1Db = await createNoydb({ store: adapter, user: 'admin-1', secret: 'admin-1-pass' })
+      const admin1Db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'admin-1', secret: 'admin-1-pass' })
       await admin1Db.grant(COMP, {
         userId: 'admin-2', displayName: 'A2', role: 'admin', passphrase: 'a2',
       })
-      const admin2Db = await createNoydb({ store: adapter, user: 'admin-2', secret: 'a2' })
+      const admin2Db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'admin-2', secret: 'a2' })
       await admin2Db.grant(COMP, {
         userId: 'admin-3', displayName: 'A3', role: 'admin', passphrase: 'a3',
       })
@@ -207,7 +208,7 @@ describe('admin-grants-admin (bounded delegation).', () => {
       //   owner → admin-1 → admin-2
       //   owner → admin-A
       // Revoking admin-1 should remove admin-1 and admin-2, leave admin-A.
-      const admin1Db = await createNoydb({ store: adapter, user: 'admin-1', secret: 'admin-1-pass' })
+      const admin1Db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'admin-1', secret: 'admin-1-pass' })
       await admin1Db.grant(COMP, {
         userId: 'admin-2', displayName: 'A2', role: 'admin', passphrase: 'a2',
       })
@@ -226,7 +227,7 @@ describe('admin-grants-admin (bounded delegation).', () => {
       // admin descendants only — the operator's keyring is left alone
       // (they'd lose access via the rotation pass anyway, but the
       // keyring file itself stays present until manually cleaned up).
-      const admin1Db = await createNoydb({ store: adapter, user: 'admin-1', secret: 'admin-1-pass' })
+      const admin1Db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'admin-1', secret: 'admin-1-pass' })
       await admin1Db.grant(COMP, {
         userId: 'op-1', displayName: 'Op', role: 'operator', passphrase: 'op',
         permissions: { invoices: 'rw' },
@@ -241,11 +242,11 @@ describe('admin-grants-admin (bounded delegation).', () => {
 
   describe('cascade-warn revoke', () => {
     it('leaves descendant admins in place and emits console.warn listing them', async () => {
-      const admin1Db = await createNoydb({ store: adapter, user: 'admin-1', secret: 'admin-1-pass' })
+      const admin1Db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'admin-1', secret: 'admin-1-pass' })
       await admin1Db.grant(COMP, {
         userId: 'admin-2', displayName: 'A2', role: 'admin', passphrase: 'a2',
       })
-      const admin2Db = await createNoydb({ store: adapter, user: 'admin-2', secret: 'a2' })
+      const admin2Db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'admin-2', secret: 'a2' })
       await admin2Db.grant(COMP, {
         userId: 'admin-3', displayName: 'A3', role: 'admin', passphrase: 'a3',
       })
@@ -277,11 +278,11 @@ describe('admin-grants-admin (bounded delegation).', () => {
 
   describe('owner is unrevocable (rule unchanged)', () => {
     it('a newly-promoted admin via the new delegation path still cannot revoke owner', async () => {
-      const admin1Db = await createNoydb({ store: adapter, user: 'admin-1', secret: 'admin-1-pass' })
+      const admin1Db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'admin-1', secret: 'admin-1-pass' })
       await admin1Db.grant(COMP, {
         userId: 'admin-2', displayName: 'A2', role: 'admin', passphrase: 'a2',
       })
-      const admin2Db = await createNoydb({ store: adapter, user: 'admin-2', secret: 'a2' })
+      const admin2Db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'admin-2', secret: 'a2' })
 
       await expect(
         admin2Db.revoke(COMP, { userId: 'owner-01' }),
@@ -295,7 +296,7 @@ describe('admin-grants-admin (bounded delegation).', () => {
         userId: 'admin-2', displayName: 'A2', role: 'admin', passphrase: 'a2',
       })
 
-      const admin1Db = await createNoydb({ store: adapter, user: 'admin-1', secret: 'admin-1-pass' })
+      const admin1Db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'admin-1', secret: 'admin-1-pass' })
       await expect(
         admin1Db.revoke(COMP, { userId: 'admin-2', rotateKeys: false }),
       ).resolves.not.toThrow()

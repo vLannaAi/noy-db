@@ -13,6 +13,7 @@ import { ConflictError, PermissionDeniedError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import type { Noydb } from '../src/kernel/noydb.js'
 import { withCustody } from '../src/with-party/custody/index.js'
+import { withTeam } from '../src/with-party/team/index.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -59,7 +60,7 @@ describe('FR-6 Task 4 — grantCustodian / revokeCustodian (owner-only custody A
 
   beforeEach(async () => {
     adapter = inlineMemory()
-    ownerDb = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass', policy: POLICY, custodyStrategy: withCustody() })
+    ownerDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass', policy: POLICY, custodyStrategy: withCustody() })
     const comp = await ownerDb.openVault(COMP)
     await comp.collection<Invoice>('invoices').put('inv-001', { amount: 5000, status: 'draft' })
     await comp.collection<Invoice>('payments').put('pay-001', { amount: 3000, status: 'paid' })
@@ -70,7 +71,7 @@ describe('FR-6 Task 4 — grantCustodian / revokeCustodian (owner-only custody A
       ownerDb.grantCustodian(COMP, { userId: 'firm-01', displayName: 'Firm', passphrase: 'firm-pass-long' }),
     ).resolves.not.toThrow()
 
-    const firmDb = await createNoydb({ store: adapter, user: 'firm-01', secret: 'firm-pass-long' })
+    const firmDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'firm-01', secret: 'firm-pass-long' })
     const comp = await firmDb.openVault(COMP)
     // reads every collection
     expect((await comp.collection<Invoice>('invoices').get('inv-001'))?.amount).toBe(5000)
@@ -89,7 +90,7 @@ describe('FR-6 Task 4 — grantCustodian / revokeCustodian (owner-only custody A
     // is unconfigured, so it must fail closed even for the owner. (Using a
     // separate vault avoids reading C400's persisted gate-enabled policy.)
     const NO_GATE_COMP = 'C400-nogate'
-    const noGateDb = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass', custodyStrategy: withCustody() })
+    const noGateDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass', custodyStrategy: withCustody() })
     const comp = await noGateDb.openVault(NO_GATE_COMP)
     await comp.collection<Invoice>('invoices').put('inv-001', { amount: 1, status: 'x' })
     await expect(
@@ -99,7 +100,7 @@ describe('FR-6 Task 4 — grantCustodian / revokeCustodian (owner-only custody A
 
   it('(b) grantCustodian FAILS when the caller is NOT the owner (admin tries)', async () => {
     await ownerDb.grant(COMP, { userId: 'admin-01', displayName: 'Admin', role: 'admin', passphrase: 'admin-pass' })
-    const adminDb = await createNoydb({ store: adapter, user: 'admin-01', secret: 'admin-pass', policy: POLICY, custodyStrategy: withCustody() })
+    const adminDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'admin-01', secret: 'admin-pass', policy: POLICY, custodyStrategy: withCustody() })
     await adminDb.openVault(COMP)
     await expect(
       adminDb.grantCustodian(COMP, { userId: 'firm-03', displayName: 'Firm', passphrase: 'firm-pass-long' }),
@@ -109,7 +110,7 @@ describe('FR-6 Task 4 — grantCustodian / revokeCustodian (owner-only custody A
   it('(c) revokeCustodian (as owner) removes the custodian', async () => {
     await ownerDb.grantCustodian(COMP, { userId: 'firm-01', displayName: 'Firm', passphrase: 'firm-pass-long' })
     // sanity: the custodian can open before revocation
-    const firmDb = await createNoydb({ store: adapter, user: 'firm-01', secret: 'firm-pass-long' })
+    const firmDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'firm-01', secret: 'firm-pass-long' })
     await expect(firmDb.openVault(COMP)).resolves.toBeTruthy()
 
     await expect(
@@ -117,14 +118,14 @@ describe('FR-6 Task 4 — grantCustodian / revokeCustodian (owner-only custody A
     ).resolves.not.toThrow()
 
     // after revocation the firm keyring is gone — a fresh open is denied
-    const firmAfter = await createNoydb({ store: adapter, user: 'firm-01', secret: 'firm-pass-long' })
+    const firmAfter = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'firm-01', secret: 'firm-pass-long' })
     await expect(firmAfter.openVault(COMP)).rejects.toThrow()
   })
 
   it('revokeCustodian FAILS when the caller is NOT the owner (admin tries)', async () => {
     await ownerDb.grantCustodian(COMP, { userId: 'firm-01', displayName: 'Firm', passphrase: 'firm-pass-long' })
     await ownerDb.grant(COMP, { userId: 'admin-01', displayName: 'Admin', role: 'admin', passphrase: 'admin-pass' })
-    const adminDb = await createNoydb({ store: adapter, user: 'admin-01', secret: 'admin-pass', policy: POLICY, custodyStrategy: withCustody() })
+    const adminDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'admin-01', secret: 'admin-pass', policy: POLICY, custodyStrategy: withCustody() })
     await adminDb.openVault(COMP)
     await expect(
       adminDb.revokeCustodian(COMP, { userId: 'firm-01' }),

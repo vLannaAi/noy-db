@@ -115,7 +115,22 @@ const SCENARIOS = [
       'FenceWatcher',          // cutover heartbeat/watcher
       'dumpVaultSchema',       // introspection walker
       'buildJsonSchema',       // JSON-Schema assembler
+      // #267 keyring-grant → team split -- the multi-user keyring engines
+      // are linked only by withTeam() (team subpath) / withCustody(), never
+      // by the single-user floor:
+      'rotateKeys',            // team keyring re-key engine
     ],
+  },
+  {
+    name: 'team',
+    description: 'createNoydb + withTeam (#267 keyring-grant → team split)',
+    code: `
+      import { createNoydb } from '@noy-db/hub'
+      import { withTeam } from '@noy-db/hub/team'
+      const teamStrategy = withTeam()
+      export { createNoydb, teamStrategy }
+    `,
+    leakCanaries: [],
   },
   {
     name: 'history',
@@ -235,6 +250,7 @@ async function buildScenario(scenario) {
       '@noy-db/hub/periods': join(HUB_DIR, 'dist', 'periods', 'index.js'),
       '@noy-db/hub/shadow': join(HUB_DIR, 'dist', 'shadow', 'index.js'),
       '@noy-db/hub/tx': join(HUB_DIR, 'dist', 'tx', 'index.js'),
+      '@noy-db/hub/team': join(HUB_DIR, 'dist', 'team', 'index.js'),
     },
     logLevel: 'silent',
   })
@@ -277,6 +293,7 @@ async function buildScenario(scenario) {
       '@noy-db/hub/periods': join(HUB_DIR, 'dist', 'periods', 'index.js'),
       '@noy-db/hub/shadow': join(HUB_DIR, 'dist', 'shadow', 'index.js'),
       '@noy-db/hub/tx': join(HUB_DIR, 'dist', 'tx', 'index.js'),
+      '@noy-db/hub/team': join(HUB_DIR, 'dist', 'team', 'index.js'),
     },
     logLevel: 'silent',
   })

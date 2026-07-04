@@ -31,6 +31,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel
 import { ConflictError, StoreCapabilityError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import type { Noydb } from '../src/kernel/noydb.js'
+import { withTeam } from '../src/with-party/team/index.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -88,7 +89,7 @@ describe('cross-vault queries.', () => {
 
   beforeEach(async () => {
     adapter = memory()
-    aliceDb = await createNoydb({ store: adapter, user: 'alice', secret: 'alice-pass' })
+    aliceDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'alice-pass' })
 
     // alice owns three compartments: T1, T2, T7. Each has an `invoices`
     // collection with a couple of records keyed by month.
@@ -109,7 +110,7 @@ describe('cross-vault queries.', () => {
 
     it('filters by minRole — admin keeps owner+admin only', async () => {
       // Add a fourth vault where alice is granted as 'viewer'.
-      const ownerDb = await createNoydb({ store: adapter, user: 'bob', secret: 'bob-pass' })
+      const ownerDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'bob', secret: 'bob-pass' })
       await ownerDb.openVault('T-shared')
       await ownerDb.grant('T-shared', {
         userId: 'alice', displayName: 'Alice', role: 'viewer', passphrase: 'alice-pass',
@@ -124,7 +125,7 @@ describe('cross-vault queries.', () => {
 
     it('does not leak existence — compartments alice cannot unwrap are silently excluded', async () => {
       // Bob creates a private vault alice has no keyring for.
-      const bobDb = await createNoydb({ store: adapter, user: 'bob', secret: 'bob-pass' })
+      const bobDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'bob', secret: 'bob-pass' })
       const bobComp = await bobDb.openVault('bob-private')
       await bobComp.collection<{ secret: string }>('payments').put('p-1', { secret: 'classified' })
 
@@ -143,7 +144,7 @@ describe('cross-vault queries.', () => {
       // succeeds with any passphrase because there's nothing to validate
       // — that empty-vault edge case is a separate v0.4 hardening
       // item, documented in the listAccessibleVaults JSDoc).
-      const bobDb = await createNoydb({ store: adapter, user: 'bob', secret: 'bob-pass' })
+      const bobDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'bob', secret: 'bob-pass' })
       const bobComp = await bobDb.openVault('T-mismatched')
       await bobComp.collection<{ amount: number }>('payments').put('p-1', { amount: 50 })
 
@@ -187,7 +188,7 @@ describe('cross-vault queries.', () => {
 
     it('throws StoreCapabilityError against adapters without listVaults', async () => {
       const dumb = memoryWithoutEnumeration()
-      const db = await createNoydb({ store: dumb, user: 'alice', secret: 'alice-pass' })
+      const db = await createNoydb({ teamStrategy: withTeam(), store: dumb, user: 'alice', secret: 'alice-pass' })
       await db.openVault('T1')
 
       await expect(db.listAccessibleVaults()).rejects.toThrow(StoreCapabilityError)
@@ -197,7 +198,7 @@ describe('cross-vault queries.', () => {
 
     it('StoreCapabilityError exposes the missing capability for catch-block dispatch', async () => {
       const dumb = memoryWithoutEnumeration()
-      const db = await createNoydb({ store: dumb, user: 'alice', secret: 'alice-pass' })
+      const db = await createNoydb({ teamStrategy: withTeam(), store: dumb, user: 'alice', secret: 'alice-pass' })
       try {
         await db.listAccessibleVaults()
         expect.fail('should have thrown')

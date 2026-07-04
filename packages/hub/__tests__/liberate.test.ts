@@ -37,6 +37,7 @@ import { withHistory } from '../src/with-commit/history/index.js'
 import { saveDeedMarker, loadDeedMarker } from '../src/with-party/team/deed.js'
 import { liberateVault } from '../src/with-party/custody/liberate.js'
 import { withCustody } from '../src/with-party/custody/index.js'
+import { withTeam } from '../src/with-party/team/index.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -78,7 +79,7 @@ describe('FR-6 Task 5 — liberateVault (audited custodian ownership claim)', ()
    */
   async function provisionWithCustodian(policy: unknown = POLICY): Promise<void> {
     // @ts-expect-error — policy is typed as unknown in this test helper; the spread resolves correctly at runtime
-    ownerDb = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass', historyStrategy: withHistory(), custodyStrategy: withCustody(), ...(policy ? { policy } : {}) })
+    ownerDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass', historyStrategy: withHistory(), custodyStrategy: withCustody(), ...(policy ? { policy } : {}) })
     const comp = await ownerDb.openVault(VAULT)
     await comp.collection<Invoice>('invoices').put('inv-001', { amount: 5000, status: 'draft' })
     await comp.collection<Invoice>('payments').put('pay-001', { amount: 3000, status: 'paid' })
@@ -97,7 +98,7 @@ describe('FR-6 Task 5 — liberateVault (audited custodian ownership claim)', ()
     await provisionWithCustodian()
 
     // The custodian opens + claims ownership.
-    const firmDb = await createNoydb({ store: adapter, user: 'firm-01', secret: 'firm-pass-long', historyStrategy: withHistory() })
+    const firmDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'firm-01', secret: 'firm-pass-long', historyStrategy: withHistory() })
     const custodianVault = await firmDb.openVault(VAULT)
 
     const result = await liberateVault(custodianVault, {
@@ -121,7 +122,7 @@ describe('FR-6 Task 5 — liberateVault (audited custodian ownership claim)', ()
     expect((await custodianVault.collection<Invoice>('payments').get('pay-001'))?.amount).toBe(3000)
 
     // 4. the NEW owner is a DISTINCT principal who can open + operate as owner.
-    const newOwnerDb = await createNoydb({ store: adapter, user: 'firm-owner-01', secret: 'firm-owner-pass-long' })
+    const newOwnerDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'firm-owner-01', secret: 'firm-owner-pass-long' })
     const newOwnerVault = await newOwnerDb.openVault(VAULT)
     expect((await newOwnerVault.collection<Invoice>('invoices').get('inv-001'))?.amount).toBe(5000)
     await expect(
@@ -146,7 +147,7 @@ describe('FR-6 Task 5 — liberateVault (audited custodian ownership claim)', ()
   it('throws when the `liberate-vault` gate is disabled (fail-closed)', async () => {
     // No policy → the `liberate-vault` built-in gate is unconfigured → fail-closed.
     await provisionWithCustodian({ gates: { 'grant-custodian': { enabled: true, minTier: 1 } } })
-    const firmDb = await createNoydb({ store: adapter, user: 'firm-01', secret: 'firm-pass-long', historyStrategy: withHistory() })
+    const firmDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'firm-01', secret: 'firm-pass-long', historyStrategy: withHistory() })
     const custodianVault = await firmDb.openVault(VAULT)
     await expect(
       liberateVault(custodianVault, { newOwnerId: 'firm-owner-01', newOwnerPassphrase: 'firm-owner-pass-long', legalBasis: 'contractual-handover' }),
@@ -165,7 +166,7 @@ describe('FR-6 Task 5 — liberateVault (audited custodian ownership claim)', ()
   it('throws when the caller is an operator (not the custodian)', async () => {
     await provisionWithCustodian()
     await ownerDb.grant(VAULT, { userId: 'op-01', displayName: 'Op', role: 'operator', passphrase: 'op-pass-long', permissions: { invoices: 'rw' } })
-    const opDb = await createNoydb({ store: adapter, user: 'op-01', secret: 'op-pass-long', historyStrategy: withHistory() })
+    const opDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'op-01', secret: 'op-pass-long', historyStrategy: withHistory() })
     const opVault = await opDb.openVault(VAULT)
     await expect(
       liberateVault(opVault, { newOwnerId: 'firm-owner-01', newOwnerPassphrase: 'firm-owner-pass-long', legalBasis: 'contractual-handover' }),
@@ -174,7 +175,7 @@ describe('FR-6 Task 5 — liberateVault (audited custodian ownership claim)', ()
 
   it('refuses to clobber an existing principal: newOwnerId must be a fresh id', async () => {
     await provisionWithCustodian()
-    const firmDb = await createNoydb({ store: adapter, user: 'firm-01', secret: 'firm-pass-long', historyStrategy: withHistory() })
+    const firmDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'firm-01', secret: 'firm-pass-long', historyStrategy: withHistory() })
     const custodianVault = await firmDb.openVault(VAULT)
     // capture the existing owner-01 keyring envelope before the attempt
     const before = await adapter.get(VAULT, '_keyring', 'owner-01')

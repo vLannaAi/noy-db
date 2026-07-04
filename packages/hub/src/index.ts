@@ -596,6 +596,12 @@ export { CustodyNotEnabledError } from './kernel/errors.js'
 export { createDeedOwner, loadDeedMarker, isDeedVault, DEED_RECORD_ID } from './with-party/team/deed.js'
 export type { DeedMarker } from './with-party/team/deed.js'
 
+// #267 keyring-grant → team split — multi-user grant/revoke/rotate opt-in.
+export { withTeam } from './with-party/team/active.js'
+export { NO_TEAM } from './with-party/team/strategy.js'
+export type { TeamStrategy } from './with-party/team/strategy.js'
+export { TeamNotEnabledError } from './kernel/errors.js'
+
 // Auth introspection
 export {
   describeAuthConfig,

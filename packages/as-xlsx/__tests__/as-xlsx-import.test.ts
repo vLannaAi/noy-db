@@ -16,12 +16,13 @@ import { withTransactions } from '@noy-db/hub/tx'
 import { withI18n } from '@noy-db/hub/i18n'
 import { memory } from '@noy-db/to-memory'
 import { fromBytes, toBytes, writeXlsx, XlsxDictAmbiguityError } from '../src/index.js'
+import { withTeam } from '@noy-db/hub/team'
 
 interface Invoice { id: string; client: string; amount: number; paid: boolean }
 
 async function setup() {
   const adapter = memory()
-  const init = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-2026' })
+  const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
   await init.openVault('demo')
   await init.grant('demo', {
     userId: 'alice', displayName: 'Alice', role: 'owner',
@@ -31,7 +32,7 @@ async function setup() {
   })
   init.close()
 
-  const db = await createNoydb({
+  const db = await createNoydb({ teamStrategy: withTeam(),
     store: adapter, user: 'alice', secret: 'pw-2026',
     txStrategy: withTransactions(),
   })
@@ -44,7 +45,7 @@ async function setup() {
 describe('as-xlsx fromBytes — capability gate', () => {
   it('throws ImportCapabilityError without the grant', async () => {
     const adapter = memory()
-    const db = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-2026' })
+    const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
     const vault = await db.openVault('demo')
     const xlsx = await writeXlsx([{ name: 'invoices', header: ['id'], rows: [['a']] }])
     await expect(
@@ -200,7 +201,7 @@ describe('as-xlsx fromBytes — policies', () => {
 describe('as-xlsx fromBytes — apply() requires withTransactions()', () => {
   it('throws a clear error when the tx strategy is missing', async () => {
     const adapter = memory()
-    const init = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-2026' })
+    const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
     await init.openVault('demo')
     await init.grant('demo', {
       userId: 'alice', displayName: 'Alice', role: 'owner',
@@ -208,7 +209,7 @@ describe('as-xlsx fromBytes — apply() requires withTransactions()', () => {
       importCapability: { plaintext: ['xlsx'] },
     })
     init.close()
-    const db = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-2026' })
+    const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
     const vault = await db.openVault('demo')
 
     const xlsx = await writeXlsx([
@@ -286,7 +287,7 @@ describe('as-xlsx fromBytes — dict inversion (explicit dicts)', () => {
 describe('as-xlsx fromBytes — dict inversion (vault fallback)', () => {
   async function setupWithDict() {
     const adapter = memory()
-    const init = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-2026' })
+    const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
     await init.openVault('demo')
     await init.grant('demo', {
       userId: 'alice', displayName: 'Alice', role: 'owner',
@@ -295,7 +296,7 @@ describe('as-xlsx fromBytes — dict inversion (vault fallback)', () => {
       exportCapability: { plaintext: ['xlsx'] },
     })
     init.close()
-    const db = await createNoydb({
+    const db = await createNoydb({ teamStrategy: withTeam(),
       store: adapter, user: 'alice', secret: 'pw-2026',
       txStrategy: withTransactions(),
       i18nStrategy: withI18n(),

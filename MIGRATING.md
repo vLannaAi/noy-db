@@ -1,3 +1,36 @@
+## 0.2 → 0.3
+
+### Multi-user grant/revoke/rotate now requires `withTeam()` (#267)
+
+**Breaking:** the keyring-grant → `team` split is complete — the always-on
+core is single-user. `db.grant`, `db.revoke`, and `db.rotate` throw
+`TeamNotEnabledError` unless you opt into the team capability:
+
+```ts
+import { createNoydb } from '@noy-db/hub'
+import { withTeam } from '@noy-db/hub/team'
+
+const db = await createNoydb({
+  store,
+  user: 'admin',
+  teamStrategy: withTeam(),
+})
+await db.grant('acme', { userId: 'bob', role: 'operator', passphrase: '…' })
+```
+
+Single-user primitives are unaffected and stay ungated: owner keyring
+creation, unlock, `listUsers`, `updateUser`, passphrase rotate/recover
+(`rotatePassphrase` / `recoverPassphrase`), and the `createDeedOwner` free
+function. `db.grantCustodian` / `db.revokeCustodian` keep their own
+`custodyStrategy: withCustody()` gate (unchanged). Flows that mint users on
+a caller-supplied `db` — e.g. `issueInvite` from `@noy-db/on-magic-link`,
+or the `noy-db add-user` / `noy-db rotate` CLI commands — need the issuing
+`db` constructed with `withTeam()` (the bundled CLI already does this).
+
+Why: tree-shaking. The grant/revoke/rotate keyring engines are now linked
+only from the `@noy-db/hub/team` subpath, so a single-user floor bundle
+never carries multi-user key-wrap machinery.
+
 ## 0.1 → 0.2
 
 ### `@noy-db/in-pinia` reactive i18n (non-breaking, opt-in)

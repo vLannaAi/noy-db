@@ -1775,6 +1775,25 @@ export class CustodyNotEnabledError extends NoydbError {
 }
 
 /**
+ * Thrown when a multi-user team operation — `db.grant`, `db.revoke`, or
+ * `db.rotate` — is called without opting into the team capability (the
+ * default `NO_TEAM` stub). The always-on floor is single-user by design
+ * (#267 keyring-grant → team split): enable multi-user grant/revoke/rotate
+ * with `teamStrategy: withTeam()` from "@noy-db/hub/team" in createNoydb().
+ * Single-user primitives (owner keyring, unlock, `listUsers`, `updateUser`,
+ * passphrase rotate/recover) stay ungated.
+ */
+export class TeamNotEnabledError extends NoydbError {
+  constructor(
+    message = 'Multi-user grant/revoke/rotate requires the team capability. ' +
+      'Pass `teamStrategy: withTeam()` (from "@noy-db/hub/team") to createNoydb().',
+  ) {
+    super('TEAM_NOT_ENABLED', message)
+    this.name = 'TeamNotEnabledError'
+  }
+}
+
+/**
  * Thrown when a search / retrieval capability method — `collection.search`,
  * `collection.retrieve`, `collection.similarTo`, `collection.warmIndex`,
  * `collection.flushIndex`, or the put()-time embedding-vector compute for a

@@ -9,6 +9,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 import { createNoydb, type Noydb } from '../src/kernel/noydb.js'
+import { withTeam } from '../src/with-party/team/index.js'
 
 interface TestProfile {
   profile: { displayName?: string; locale?: string }
@@ -43,7 +44,7 @@ describe('vault.user.* — write-self', () => {
 
   beforeEach(async () => {
     store = inlineMemory()
-    db = await createNoydb({ store, user: 'alice', secret: 'alice-pass-2026-strong' })
+    db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: 'alice-pass-2026-strong' })
   })
 
   it('me() returns null before any write', async () => {
@@ -201,7 +202,7 @@ describe('vault.user.* — read-anyone (multi-principal)', () => {
 
   beforeEach(async () => {
     store = inlineMemory()
-    aliceDb = await createNoydb({ store, user: 'alice', secret: 'alice-pass-2026-strong' })
+    aliceDb = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: 'alice-pass-2026-strong' })
     const aliceVault = await aliceDb.openVault('demo')
 
     // Force the _users DEK to exist in alice's keyring before bob is
@@ -221,8 +222,8 @@ describe('vault.user.* — read-anyone (multi-principal)', () => {
     })
     aliceDb.close()
 
-    bobDb = await createNoydb({ store, user: 'bob', secret: 'bob-pass-2026-strong' })
-    aliceDb = await createNoydb({ store, user: 'alice', secret: 'alice-pass-2026-strong' })
+    bobDb = await createNoydb({ teamStrategy: withTeam(), store, user: 'bob', secret: 'bob-pass-2026-strong' })
+    aliceDb = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: 'alice-pass-2026-strong' })
   })
 
   it('get(otherKeyringId) reads another principal envelope', async () => {
@@ -264,7 +265,7 @@ describe('vault.user.* — reactive (subscribe / live)', () => {
   let db: Noydb
 
   beforeEach(async () => {
-    db = await createNoydb({
+    db = await createNoydb({ teamStrategy: withTeam(),
       store: inlineMemory(),
       user: 'alice',
       secret: 'alice-pass-2026-strong',

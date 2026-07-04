@@ -72,6 +72,9 @@ import type {
   ActiveTier,
   FactorProofBundle,
   GateName,
+  GrantOptions,
+  ReAuthOperation,
+  RevokeOptions,
   VaultPolicy,
 } from '../../kernel/types.js'
 
@@ -92,6 +95,8 @@ export interface TeamFacadeDeps {
   readonly policyCache: Map<string, VaultPolicy>
   /** Evaluate the policy gate for an operation (kernel-resident). */
   checkGate(vault: string, gate: GateName, factors?: FactorProofBundle): Promise<void>
+  /** Legacy `requireReAuthFor` session-policy check (kernel-resident). */
+  checkPolicyOperation(vault: string, op: ReAuthOperation): void
   /** Live-reference keyring unlock path (kernel-resident). */
   getKeyringInternal(
     vault: string,
@@ -121,6 +126,56 @@ export class TeamFacade {
       )
     }
     return p
+  }
+
+  // ─── Multi-user grant / revoke / rotate runners (#267 team split) ──
+  //
+  // The kernel's `db.grant` / `db.revoke` / `db.rotate` route through the
+  // TeamStrategy seam, which calls back here with the keyring ENGINE as an
+  // argument (statically linked in `active.ts`, i.e. only in the
+  // `@noy-db/hub/team` subpath bundle). These runners own the policy-gate +
+  // keyring plumbing so the kernel keeps single-line delegators and the
+  // engines stay off the single-user floor.
+
+  /** Gate + run a `grant` engine. See `Noydb.grant` for the public contract. */
+  async runGrant(
+    engine: (adapter: NoydbStore, vault: string, callerKeyring: UnlockedKeyring, options: GrantOptions) => Promise<void>,
+    vault: string,
+    options: GrantOptions,
+    factors?: FactorProofBundle,
+  ): Promise<void> {
+    this.deps.checkPolicyOperation(vault, 'grant')
+    await this.deps.checkGate(vault, 'enroll-user', factors)
+    const keyring = await this.deps.getKeyringInternal(vault)
+    await engine(this.deps.options.store, vault, keyring, options)
+  }
+
+  /** Gate + run a `revoke` engine. See `Noydb.revoke` for the public contract. */
+  async runRevoke(
+    engine: (adapter: NoydbStore, vault: string, callerKeyring: UnlockedKeyring, options: RevokeOptions) => Promise<void>,
+    vault: string,
+    options: RevokeOptions,
+    factors?: FactorProofBundle,
+  ): Promise<void> {
+    this.deps.checkPolicyOperation(vault, 'revoke')
+    await this.deps.checkGate(vault, 'revoke-user', factors)
+    const keyring = await this.deps.getKeyringInternal(vault)
+    await engine(this.deps.options.store, vault, keyring, options)
+  }
+
+  /** Gate + run a `rotateKeys` engine. See `Noydb.rotate` for the public contract. */
+  async runRotate(
+    engine: (adapter: NoydbStore, vault: string, callerKeyring: UnlockedKeyring, collections: string[]) => Promise<void>,
+    vault: string,
+    collections: string[],
+  ): Promise<void> {
+    this.deps.checkPolicyOperation(vault, 'rotate')
+    const keyring = await this.deps.getKeyringInternal(vault)
+    await engine(this.deps.options.store, vault, keyring, collections)
+    // Refresh the cached keyring so subsequent operations see the
+    // freshly-rotated DEKs. Without this, `ensureCollectionDEK` on
+    // the next Collection access would still hold the old ones.
+    this.deps.keyringCache.set(vault, keyring)
   }
 
   // ─── Tier-2 enroll / remove ─────────────────────────────────────

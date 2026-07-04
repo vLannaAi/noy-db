@@ -28,6 +28,7 @@
  *   partial-state-on-crash is already handled.
  */
 
+import { withTeam } from '@noy-db/hub/team'
 import { createNoydb, type Noydb, type NoydbStore, type Role } from '@noy-db/hub'
 import { jsonFile } from '@noy-db/to-file'
 import type { ReadPassphrase } from './shared.js'
@@ -113,6 +114,9 @@ export async function addUser(options: AddUserOptions): Promise<AddUserResult> {
       store: buildAdapter(options.dir),
       user: options.callerUser,
       secret: callerSecret,
+      // Multi-user grant is the opt-in team capability (#267) — the CLI
+      // add-user command is by definition a multi-user operation.
+      teamStrategy: withTeam(),
     })
 
     // Build the grant options. Only include `permissions` when the

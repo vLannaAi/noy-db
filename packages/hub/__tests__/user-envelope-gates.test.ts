@@ -14,6 +14,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 import { createNoydb, type Noydb } from '../src/kernel/noydb.js'
 import { PolicyDeniedError } from '../src/kernel/errors.js'
+import { withTeam } from '../src/with-party/team/index.js'
 
 interface TestProfile {
   profile?: { displayName?: string }
@@ -45,7 +46,7 @@ describe('user envelope — policy gates (#22)', () => {
 
   it('default policy: updateMe succeeds for tier-1 (passphrase-unlocked) owner', async () => {
     const store = inlineMemory()
-    const db = await createNoydb({
+    const db = await createNoydb({ teamStrategy: withTeam(),
       store,
       user: 'alice',
       secret: 'alice-pass-2026-strong',
@@ -59,7 +60,7 @@ describe('user envelope — policy gates (#22)', () => {
 
   it('tightening edit-own-profile to require TOTP blocks tier-1 writes without proof', async () => {
     const store = inlineMemory()
-    const db = await createNoydb({
+    const db = await createNoydb({ teamStrategy: withTeam(),
       store,
       user: 'alice',
       secret: 'alice-pass-2026-strong',
@@ -90,7 +91,7 @@ describe('user envelope — policy gates (#22)', () => {
 
   it('tightened gate accepts a fresh TOTP proof', async () => {
     const store = inlineMemory()
-    const db = await createNoydb({
+    const db = await createNoydb({ teamStrategy: withTeam(),
       store,
       user: 'alice',
       secret: 'alice-pass-2026-strong',
@@ -118,7 +119,7 @@ describe('user envelope — policy gates (#22)', () => {
   it('view-team-profiles.enabled: false → list() returns only self', async () => {
     const store = inlineMemory()
     // Boot vault with default policy so we can grant a teammate.
-    const setup = await createNoydb({
+    const setup = await createNoydb({ teamStrategy: withTeam(),
       store,
       user: 'alice',
       secret: 'alice-pass-2026-strong',
@@ -139,7 +140,7 @@ describe('user envelope — policy gates (#22)', () => {
     // policy round-trips on subsequent opens unchanged. So instead we
     // simulate a fresh vault with the strict policy from the start.
     const store2 = inlineMemory()
-    const aliceDb = await createNoydb({
+    const aliceDb = await createNoydb({ teamStrategy: withTeam(),
       store: store2,
       user: 'alice',
       secret: 'alice-pass-2026-strong',
@@ -167,7 +168,7 @@ describe('user envelope — policy gates (#22)', () => {
 
   it('view-team-profiles.enabled: false → get(otherKeyringId) throws PolicyDeniedError', async () => {
     const store = inlineMemory()
-    const db = await createNoydb({
+    const db = await createNoydb({ teamStrategy: withTeam(),
       store,
       user: 'alice',
       secret: 'alice-pass-2026-strong',
@@ -190,7 +191,7 @@ describe('user envelope — policy gates (#22)', () => {
 
   it('view-team-profiles disabled does NOT block reading own envelope via get(self)', async () => {
     const store = inlineMemory()
-    const db = await createNoydb({
+    const db = await createNoydb({ teamStrategy: withTeam(),
       store,
       user: 'alice',
       secret: 'alice-pass-2026-strong',
