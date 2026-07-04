@@ -102,6 +102,9 @@ describe('@noy-db/at-env — integration with @noy-db/hub managed-passphrase mod
   beforeEach(() => { process.env[TEST_ENV] = TEST_KEY_BASE64 })
   afterEach(() => { delete process.env[TEST_ENV] })
 
+  // 30s timeout (#564): two full managed-mode opens = several 600K-PBKDF2
+  // derivations plus first-import transform of three packages — legitimately
+  // near the 5s vitest default when parallel suites compete for CPU.
   it('round-trips a managed-mode vault end-to-end (no user passphrase typed)', async () => {
     const { createNoydb } = await import('@noy-db/hub')
     const { memory } = await import('@noy-db/to-memory')
@@ -138,5 +141,5 @@ describe('@noy-db/at-env — integration with @noy-db/hub managed-passphrase mod
     const note = await vault2.collection<{ id: string; note: string }>('notes').get('n1')
     expect(note).toEqual({ id: 'n1', note: 'managed-mode write via at-env' })
     db2.close()
-  })
+  }, 30_000)
 })

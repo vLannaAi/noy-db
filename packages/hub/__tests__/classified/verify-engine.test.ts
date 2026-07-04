@@ -10,6 +10,15 @@ import { ClassifiedConfigError, ClassifiedVerifyError } from '../../src/kernel/e
 const pw: VdigFieldPolicy = { normalize: 'password', notLastN: 0 }
 const sa: VdigFieldPolicy = { normalize: 'secret-answer', notLastN: 0 }
 
+/** Wall-clock one call — used by the C4 timing-parity vectors. */
+async function timeOnce(fn: () => Promise<unknown>): Promise<number> {
+  const t0 = performance.now()
+  await fn()
+  return performance.now() - t0
+}
+/** Median — discards the contention-dilated outlier of a 3-sample class. */
+const medianOf = (xs: number[]): number => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]!
+
 function ctxFor(env: EncryptedEnvelope | null, cek: CryptoKey | undefined, now = () => Date.now()): VerifyEngineCtx {
   return {
     collection: 'users',
@@ -76,12 +85,20 @@ describe('verifyDigestField', () => {
   it('C4 timing parity: missing record / missing slot cost within the wrong-candidate envelope', async () => {
     const cek = await generateDEK()
     const env = await envWith(cek, { password: { value: 'correct-horse-battery', policy: pw } })
-    const time = async (fn: () => Promise<unknown>) => {
-      const t0 = performance.now(); await fn(); return performance.now() - t0
+    // Interleaved median-of-3 per class (#564): a single sample is at the
+    // mercy of a CPU-contention burst from concurrently-running suites — one
+    // dilated sample flips a pairwise 0.4 ratio without any real regression.
+    const wrongs: number[] = []
+    const missingRecords: number[] = []
+    const missingSlots: number[] = []
+    for (let r = 0; r < 3; r++) {
+      wrongs.push(await timeOnce(() => verifyDigestField(ctxFor(env, cek), 'r1', 'password', 'wrong-password-!!', pw)))
+      missingRecords.push(await timeOnce(() => verifyDigestField(ctxFor(null, cek), 'r1', 'password', 'wrong-password-!!', pw)))
+      missingSlots.push(await timeOnce(() => verifyDigestField(ctxFor({ ...env, _vdig: {} }, cek), 'r1', 'password', 'wrong-password-!!', pw)))
     }
-    const wrong = await time(() => verifyDigestField(ctxFor(env, cek), 'r1', 'password', 'wrong-password-!!', pw))
-    const missingRecord = await time(() => verifyDigestField(ctxFor(null, cek), 'r1', 'password', 'wrong-password-!!', pw))
-    const missingSlot = await time(() => verifyDigestField(ctxFor({ ...env, _vdig: {} }, cek), 'r1', 'password', 'wrong-password-!!', pw))
+    const wrong = medianOf(wrongs)
+    const missingRecord = medianOf(missingRecords)
+    const missingSlot = medianOf(missingSlots)
     // The 600K PBKDF2 dominates (~100ms+); an unpadded miss returns in <5ms.
     expect(missingRecord).toBeGreaterThan(wrong * 0.4)
     expect(missingSlot).toBeGreaterThan(wrong * 0.4)
@@ -155,13 +172,23 @@ describe('verifyTextField', () => {
   it('C4 timing parity: present-correct / present-wrong / missing record / missing slot all pay the uniform pad', async () => {
     const cek = await generateDEK()
     const env = await sealedEnvWith(cek, 'ssn', 'sensitive-value-42')
-    const time = async (fn: () => Promise<unknown>) => {
-      const t0 = performance.now(); await fn(); return performance.now() - t0
+    // Interleaved median-of-3 per class (#564) — same rationale as the
+    // digest-path C4 vector above: one contention-dilated sample must not
+    // flip a pairwise ratio.
+    const corrects: number[] = []
+    const wrongs: number[] = []
+    const missingRecords: number[] = []
+    const missingSlots: number[] = []
+    for (let r = 0; r < 3; r++) {
+      corrects.push(await timeOnce(() => verifyTextField(ctxFor(env, cek), 'r1', 'ssn', 'sensitive-value-42', 'password')))
+      wrongs.push(await timeOnce(() => verifyTextField(ctxFor(env, cek), 'r1', 'ssn', 'wrong-value', 'password')))
+      missingRecords.push(await timeOnce(() => verifyTextField(ctxFor(null, cek), 'r1', 'ssn', 'wrong-value', 'password')))
+      missingSlots.push(await timeOnce(() => verifyTextField(ctxFor({ ...env, _sealed: {} }, cek), 'r1', 'ssn', 'wrong-value', 'password')))
     }
-    const correct = await time(() => verifyTextField(ctxFor(env, cek), 'r1', 'ssn', 'sensitive-value-42', 'password'))
-    const wrong = await time(() => verifyTextField(ctxFor(env, cek), 'r1', 'ssn', 'wrong-value', 'password'))
-    const missingRecord = await time(() => verifyTextField(ctxFor(null, cek), 'r1', 'ssn', 'wrong-value', 'password'))
-    const missingSlot = await time(() => verifyTextField(ctxFor({ ...env, _sealed: {} }, cek), 'r1', 'ssn', 'wrong-value', 'password'))
+    const correct = medianOf(corrects)
+    const wrong = medianOf(wrongs)
+    const missingRecord = medianOf(missingRecords)
+    const missingSlot = medianOf(missingSlots)
     // The unconditional 600K-PBKDF2 pad dominates (~100ms+); a path that skipped
     // it would return in <5ms. Pairwise generous bounds, same style as the
     // digest-path vector — every outcome must sit inside every other's envelope.

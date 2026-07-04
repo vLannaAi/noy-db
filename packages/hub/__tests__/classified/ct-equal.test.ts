@@ -31,16 +31,32 @@ describe('blindedEqual (double-HMAC reduction)', () => {
     // HMAC cost is block-count granular (sub-µs per block); assert the 100x
     // length spread stays within a generous constant factor — a linear or
     // early-return regression blows well past it.
-    const N = 200
-    const time = async (a: Uint8Array, b: Uint8Array) => {
+    //
+    // Sampling is interleaved round-robin with per-class medians (#564): a
+    // single contiguous window per class is at the mercy of whatever CPU-
+    // contention burst lands inside it (concurrent CI suites, GC) — one such
+    // burst dilated the `short` window 13x. A spike now either hits all three
+    // classes of a round alike or is discarded by the median.
+    const ROUNDS = 10
+    const PER_ROUND = 20 // 10 × 20 = the same 200 total iterations per class
+    const timeOnce = async (a: Uint8Array, b: Uint8Array) => {
       const t0 = performance.now()
-      for (let i = 0; i < N; i++) await blindedEqual(a, b)
+      for (let i = 0; i < PER_ROUND; i++) await blindedEqual(a, b)
       return performance.now() - t0
     }
-    await time(bytes('warmup'), bytes('warmup'))
-    const short = await time(bytes('aa'), bytes('ab'))
-    const long = await time(bytes('x'.repeat(200)), bytes('y'.repeat(200)))
-    const mixed = await time(bytes('aa'), bytes('x'.repeat(200)))
+    const median = (xs: number[]) => [...xs].sort((p, q) => p - q)[Math.floor(xs.length / 2)]!
+    await timeOnce(bytes('warmup'), bytes('warmup'))
+    const shorts: number[] = []
+    const longs: number[] = []
+    const mixeds: number[] = []
+    for (let r = 0; r < ROUNDS; r++) {
+      shorts.push(await timeOnce(bytes('aa'), bytes('ab')))
+      longs.push(await timeOnce(bytes('x'.repeat(200)), bytes('y'.repeat(200))))
+      mixeds.push(await timeOnce(bytes('aa'), bytes('x'.repeat(200))))
+    }
+    const short = median(shorts)
+    const long = median(longs)
+    const mixed = median(mixeds)
     // Bidirectional: the short/long/mixed timings must stay within a
     // generous constant factor of each other, in either direction — a
     // regression that makes any of them disproportionately slow OR
