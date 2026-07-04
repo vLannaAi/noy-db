@@ -446,8 +446,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    */
   private readonly vdigFields: ReadonlyMap<string, VdigFieldPolicy> | null
 
-  /** C-A/R10 memoization: naive-handle marker lookup (undefined=unresolved) + classified-handle persist-once flag. */
-  private _naiveMarkerCache: boolean | undefined = undefined
+  /** C-A/R10 memoization: marker declared-set lookup (undefined=unresolved) + classified-handle persist-once flag. */
+  private _markerDigestOnlyCache: readonly string[] | undefined = undefined
   private _markerPersisted = false
 
   /**
@@ -815,7 +815,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       schema: this.schema,
       getDEK: () => this.getDEK(this.name),
       cekCache: this.cekCache,
-      classifiedMarkerPresent: () => this._naiveClassifiedMarkerPresent(),
+      classifiedMarkerDigestOnly: () => this._classifiedMarkerDigestOnly(),
     })
 
     // Build + register this collection's SyncEngine conflict resolvers (the CRDT
@@ -4502,12 +4502,12 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     this._markerPersisted = true
   }
 
-  /** C-A/R10 naive-handle drift signal — memoized to one store read per handle (see config-drift.ts). */
-  private async _naiveClassifiedMarkerPresent(): Promise<boolean> {
-    if (this._naiveMarkerCache !== undefined) return this._naiveMarkerCache
-    const { readClassifiedMarkerPresent } = await import('../with-shape/classified/config-drift.js')
-    this._naiveMarkerCache = await readClassifiedMarkerPresent(this.adapter, this.vault, this.name, await this.getDEK(this.name))
-    return this._naiveMarkerCache
+  /** C-A/R10 drift signal — the marker's declared digest-only set, memoized to one store read per handle (see config-drift.ts). */
+  private async _classifiedMarkerDigestOnly(): Promise<readonly string[]> {
+    if (this._markerDigestOnlyCache !== undefined) return this._markerDigestOnlyCache
+    const { readClassifiedMarkerDigestOnly } = await import('../with-shape/classified/config-drift.js')
+    this._markerDigestOnlyCache = await readClassifiedMarkerDigestOnly(this.adapter, this.vault, this.name, await this.getDEK(this.name))
+    return this._markerDigestOnlyCache
   }
 
   /**

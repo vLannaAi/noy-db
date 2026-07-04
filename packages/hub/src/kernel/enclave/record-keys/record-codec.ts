@@ -58,14 +58,15 @@ export interface RecordCodecContext<T> {
   /** Digest-only classified fields → verify policy (stage 2). Null when none. */
   readonly vdigFields: ReadonlyMap<string, VdigFieldPolicy> | null
   /**
-   * C-A / R10 config-drift signal. Lazy, memoized (O(1) per handle after the
-   * first call) check of the persisted `x-classified` marker. Consulted ONLY on
-   * a naive write path (`vdigFields === null`) — a correctly-configured
-   * classified codec never calls it, so the common non-classified write path
-   * pays at most one store read per handle and a classified handle pays nothing.
+   * C-A / R10 config-drift signal: the persisted `x-classified` marker's
+   * declared digest-only field set (empty when the collection carries no
+   * marker). Lazy, memoized (O(1) per handle after the first call). The R10
+   * superset guard refuses whenever a field in this set is absent from
+   * `vdigFields`. Consulted once per handle on any encrypted write path — the
+   * cross-session, prev-free signal a fully-naive create has no `prev` for.
    * Undefined on codecs with no store access (direct-construction tests).
    */
-  classifiedMarkerPresent?(): Promise<boolean>
+  classifiedMarkerDigestOnly?(): Promise<readonly string[]>
   /** CRDT mode (decrypt resolves CrdtState→snapshot when set). */
   readonly crdtMode: CrdtMode | undefined
   /** CRDT strategy seam (resolveCrdtSnapshot). */
@@ -217,26 +218,42 @@ export class RecordCodec<T> {
       return this.buildDebugEnvelope(record, version, source, sourceTs)
     }
 
-    // ── C-A / R10 config-drift guard ───────────────────────────────────
-    // A naive handle — opened WITHOUT `classifiedFields`, so this codec has
-    // `vdigFields === null` — writing into a collection that HAS classified
-    // digest-only fields would silently drop `_bidx`/`_vdig` tags or serialize
-    // the secret as plaintext into `_data`. Refuse. Placed here (before the
-    // sealed/vdig blocks, which a `vdigFields === null` codec skips) so the
-    // check still runs, symmetric in spirit to the `prev._sealed` R6 check.
-    // Two independent signals:
-    //   1. the persisted `x-classified` marker (cross-session, prev-free — the
-    //      naive write path supplies no `prev`, so this is the primary signal);
-    //   2. the target `prev` already carries `_vdig`/`_bidx` (the overwrite arm,
-    //      which also back-ports the stage-2 `_vdig`-only hole).
-    // Only encrypted collections can be classified, so plaintext collections and
-    // correctly-configured classified codecs (`vdigFields !== null`) both skip it.
-    if (this.ctx.storeCiphertext && (this.ctx.vdigFields === null || this.ctx.vdigFields.size === 0)) {
-      const prevClassified = vdig?.prev?._vdig !== undefined || vdig?.prev?._bidx !== undefined
-      if (prevClassified || (this.ctx.classifiedMarkerPresent !== undefined && await this.ctx.classifiedMarkerPresent())) {
+    // ── C-A / R10 config-drift guard (superset) ────────────────────────
+    // A handle may write a classified collection only if its DECLARED
+    // digest-only set is a SUPERSET of the collection's stored/marked
+    // classified set. Any classified field this handle does NOT declare is a
+    // field it cannot maintain: the `_vdig` loop below iterates only declared
+    // fields, so an undeclared classified field is neither stripped nor tagged —
+    // its value would be serialized into `_data` as DEK-recoverable plaintext
+    // (the C-A leak), or its stored tag silently dropped. Fail loud.
+    //
+    // This subsumes the old naive-only guard (a fully-naive handle has an empty
+    // declared set, so ANY stored classified field violates the superset) AND
+    // closes the partial-handle door (declares Y, not X, over a record carrying
+    // `_vdig[X]`/`_bidx[X]`): the narrow `vdigFields === null || size === 0`
+    // gate skipped that entire case. The stored/marked set is the union of:
+    //   1. the persisted `x-classified` marker's declared digest-only set
+    //      (cross-session, prev-free — the only signal a fully-naive create has);
+    //   2. the keys the target `prev` already carries in `_vdig`/`_bidx` (the
+    //      overwrite arm; a classified-declaring handle DOES pass `prev`).
+    // Only encrypted collections can be classified, so plaintext collections skip.
+    if (this.ctx.storeCiphertext) {
+      const declared = this.ctx.vdigFields
+      const storedClassified = new Set<string>()
+      if (vdig?.prev?._vdig) for (const k of Object.keys(vdig.prev._vdig)) storedClassified.add(k)
+      if (vdig?.prev?._bidx) for (const k of Object.keys(vdig.prev._bidx)) storedClassified.add(k)
+      if (this.ctx.classifiedMarkerDigestOnly !== undefined) {
+        for (const k of await this.ctx.classifiedMarkerDigestOnly()) storedClassified.add(k)
+      }
+      let undeclared: string | undefined
+      for (const field of storedClassified) {
+        if (declared === null || !declared.has(field)) { undeclared = field; break }
+      }
+      if (undeclared !== undefined) {
         throw new ClassifiedConfigError(
           this.ctx.name,
-          'this collection has classified digest-only fields but this handle was opened without classifiedFields — refusing to write (would drop tags or serialize the secret as plaintext)',
+          `this collection has classified digest-only field "${undeclared}" but this handle does not declare it — ` +
+          'refusing to write (would drop its tag or serialize the secret as plaintext)',
         )
       }
     }

@@ -40,14 +40,19 @@ export async function persistClassifiedMarkerForFields(
   await persistClassifiedMarker({ store, vault, collectionName, dek, marker })
 }
 
-/** Read whether a collection carries a persisted classified marker (cross-session drift signal). */
-export async function readClassifiedMarkerPresent(
+/**
+ * Read a collection's persisted classified marker's declared digest-only field
+ * set (empty when the collection carries no marker). Cross-session drift signal:
+ * the R10 superset guard refuses a handle whose declared classified set does not
+ * cover every field in this set.
+ */
+export async function readClassifiedMarkerDigestOnly(
   store: NoydbStore,
   vault: string,
   collectionName: string,
   dek: EnclaveKey,
-): Promise<boolean> {
+): Promise<readonly string[]> {
   const { loadPersistedSchema } = await import('../persisted-schemas/storage.js')
   const persisted = await loadPersistedSchema(store, vault, collectionName, dek)
-  return (persisted?.classified?.digestOnly.length ?? 0) > 0
+  return persisted?.classified?.digestOnly ?? []
 }

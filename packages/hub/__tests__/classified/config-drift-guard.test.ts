@@ -16,6 +16,34 @@ const passwordSpec: ClassifiedFieldSpec = {
   _noydbClassified: true, preset: 'password', storage: 'digest-only',
   sensitivity: 'secret', list: { kind: 'omit' }, verifyNormalize: 'password',
 }
+// A second, independent digest-only field, so a PARTIAL handle can declare one
+// classified field (note) while the collection carries another (password) it
+// does NOT declare — the partial-handle door the superset guard closes.
+const noteSpec: ClassifiedFieldSpec = {
+  _noydbClassified: true, preset: 'password', storage: 'digest-only',
+  sensitivity: 'secret', list: { kind: 'omit' }, verifyNormalize: 'password',
+}
+
+/** Seed a two-classified-field record ({password, note}) through a full handle. */
+async function seedTwoClassified(store: InlineMemoryStore, record: Record<string, unknown>): Promise<void> {
+  const db = await createNoydb({ store, user: 'a', secret: 'pw-s2-8' })
+  const v = await db.openVault('v1')
+  const users = v.collection<Record<string, unknown>>('users', {
+    perRecordKeys: true,
+    classifiedFields: { password: passwordSpec, note: noteSpec },
+  })
+  await users.put('r1', record)
+}
+
+/** Open a PARTIAL handle: declares `note` but NOT `password`. */
+async function openPartial(store: InlineMemoryStore) {
+  const db = await createNoydb({ store, user: 'a', secret: 'pw-s2-8' })
+  const v = await db.openVault('v1')
+  return v.collection<Record<string, unknown>>('users', {
+    perRecordKeys: true,
+    classifiedFields: { note: noteSpec },
+  })
+}
 
 /**
  * Open the classified `users` collection over a fresh session, write one
@@ -88,6 +116,39 @@ describe('C-A / R10 config-drift guard', () => {
     expect(store._dump('v1', 'users', 'r1')?._bidx?.password).toBeDefined()
     const naive = await openNaive(store)
     await expect(naive.put('r1', { name: 'B' })).rejects.toBeInstanceOf(ClassifiedConfigError)
+  }, 30_000)
+
+  it('partial-handle door: a handle declaring {note} but NOT {password} refuses to overwrite a record carrying _vdig[password], and leaks no plaintext', async () => {
+    const store = inlineMemory()
+    await seedTwoClassified(store, { password: 'hunter2-hunter2', note: 'hunter3-hunter3', name: 'A' })
+    // sanity: the stored envelope carries a _vdig slot for BOTH classified fields
+    const seeded = store._dump('v1', 'users', 'r1')
+    expect(seeded?._vdig?.password).toBeDefined()
+    expect(seeded?._vdig?.note).toBeDefined()
+
+    const partial = await openPartial(store)
+    // This put CONTAINS password's value. The partial handle does not declare
+    // `password`, so without the superset guard the _vdig loop (iterating only
+    // {note}) never strips it and it lands in _data as DEK-recoverable plaintext.
+    const leaked = 'topsecret-leaked'
+    await expect(partial.put('r1', { password: leaked, note: 'hunter4-hunter4', name: 'B' }))
+      .rejects.toBeInstanceOf(ClassifiedConfigError)
+    // no plaintext leak: the attempted secret appears nowhere in the stored envelope
+    expect(JSON.stringify(store._dump('v1', 'users', 'r1'))).not.toContain(leaked)
+  }, 30_000)
+
+  it('superset handle (declares a strict SUPERSET of the stored classified set) writes fine — no false refusal', async () => {
+    const store = inlineMemory()
+    // stored classified set = {password} only …
+    await seedClassified(store, { password: 'hunter2-hunter2', name: 'A' })
+    // … reopen declaring {password, note} (a strict superset). Must not refuse.
+    const db = await createNoydb({ store, user: 'a', secret: 'pw-s2-8' })
+    const v = await db.openVault('v1')
+    const superset = v.collection<Record<string, unknown>>('users', {
+      perRecordKeys: true,
+      classifiedFields: { password: passwordSpec, note: noteSpec },
+    })
+    await expect(superset.put('r1', { name: 'B' })).resolves.toBeUndefined()
   }, 30_000)
 
   it('a genuinely non-classified collection writes normally (no marker, no throw)', async () => {
