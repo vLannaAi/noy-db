@@ -806,7 +806,12 @@ const KERNEL_SURFACE_BUDGET = {
   // accounting rewritten against `classifySealedShred`'s per-slot shape — the
   // `_bidx` third category ('live-shreddable+dekResidue-in-backups') counts as
   // BOTH shredded and dekResidue-in-backups (honest dual accounting).
-  'packages/hub/src/kernel/vault.ts': 3877,
+  // Bumped 3877→3883 (2026-07-05, classified slice 2b T10): the equatable
+  // double door — CollectionOptions gains `acknowledgeEquatableRisk` (+JSDoc)
+  // and vault.collection() threads it into collOpts (mirrors
+  // acknowledgeDeterministicRisk). Genuinely core: the R8 gate is a
+  // construction-time collection option.
+  'packages/hub/src/kernel/vault.ts': 3883,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),

@@ -33,6 +33,14 @@ export interface ClassifiedFieldSpec {
   readonly notLastN?: number
   /** Member of the collection's matchGroup (secretAnswer preset). */
   readonly verifyGroupMember?: true
+  /**
+   * Opt into a store-visible blind-index (`_bidx`) tag so equal values become
+   * queryable/joinable while staying digest-only. Digest-only knob (R7); gated
+   * behind the collection's `acknowledgeEquatableRisk` door (R8). Equal values
+   * produce equal tags — a partition leak a DEK holder can offline-dictionary
+   * at the PBKDF2 floor. Absent/false ⇒ refused-by-default.
+   */
+  readonly equatable?: true
 }
 
 export interface ClassifiedGroup {

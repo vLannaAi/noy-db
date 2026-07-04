@@ -59,6 +59,15 @@ export interface DescribedField {
     readonly preset: string
     readonly storage: 'recoverable' | 'never' | 'digest-only'
     readonly list: 'omit' | { readonly mask: string } | { readonly rider: string }
+    /**
+     * Present (and `true`) only when the field opted into the equatable blind
+     * index. Additive metadata — emitted UNGATED (no `withClassified()` needed;
+     * `toJSONSchema()` carries it too), so it advertises *that* the field is
+     * equatable beyond the DEK-consent boundary. Intended: it's a structural
+     * property a schema consumer legitimately needs and discloses no value. A
+     * deployment wanting it gated can gate this behind its value-bearing door.
+     */
+    readonly equatable?: true
   }
 }
 
@@ -416,6 +425,7 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
           list: cls.list.kind === 'omit' ? 'omit' as const
             : cls.list.kind === 'mask' ? { mask: cls.list.pattern }
             : { rider: cls.list.rider },
+          ...(cls.equatable === true ? { equatable: true as const } : {}),
         },
       } : {}),
     }

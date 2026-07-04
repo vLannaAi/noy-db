@@ -41,6 +41,9 @@ export function buildJsonSchema(desc: CollectionDescription, base?: Record<strin
       for (const v of f.dict.values) if (v.label !== undefined) labels[v.value] = v.label
       if (Object.keys(labels).length) prop['x-enumLabels'] = labels
     }
+    // `x-classified` carries the whole classified block, incl. `equatable` when
+    // set — emitted ungated (boundary note on DescribedField.classified): a
+    // deployment wanting it gated can gate this behind its value-bearing door.
     if (f.classified !== undefined) prop['x-classified'] = f.classified
     properties[f.key] = prop
   }

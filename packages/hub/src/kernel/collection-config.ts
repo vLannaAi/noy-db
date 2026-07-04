@@ -335,6 +335,13 @@ export interface CollectionOpts<T> {
    */
   acknowledgeDeterministicRisk?: boolean | undefined
   /**
+   * gate for the classified `equatable` knob (R8 double door). Must be `true`
+   * when any classified field declares `equatable: true`; otherwise construction
+   * throws. One-directional — setting it with zero equatable members is a
+   * silent no-op (mirrors `acknowledgeDeterministicRisk`).
+   */
+  acknowledgeEquatableRisk?: boolean | undefined
+  /**
    * Structural group-encryption. Fields listed here are
    * encrypted into their own `_sealed[field]` envelope slot — each under
    * an HKDF-derived per-field key — instead of sitting inside the open
@@ -533,6 +540,7 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     vectorSourceFields: new Set(embeddingSources),
     subjectKeyField: opts.subjectKeyField,
     bareSensitiveFields: new Set(opts.sensitive ?? []),
+    acknowledgeEquatableRisk: opts.acknowledgeEquatableRisk === true,
   }
   if (resolvedClassified !== undefined) {
     guardClassifiedCompat(opts.name, resolvedClassified.byField, classifiedGuardCtx) // door 1
@@ -560,7 +568,7 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
         .map(([f, s]) => [f, {
           normalize: s.verifyNormalize ?? 'password',
           notLastN: s.notLastN ?? 0,
-          equatable: false,
+          equatable: s.equatable === true,
           ...(s.rotateDays !== undefined ? { rotateDays: s.rotateDays } : {}),
         }] as const)
   const vdigFields: ReadonlyMap<string, VdigFieldPolicy> | null =

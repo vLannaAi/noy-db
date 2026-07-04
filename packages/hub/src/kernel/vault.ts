@@ -755,6 +755,9 @@ export class Vault {
     deterministicFields?: readonly IndexFieldName<T, S>[]
     /** — explicit ack that deterministic encryption leaks equality. */
     acknowledgeDeterministicRisk?: boolean
+    /** — explicit ack for the classified `equatable` knob (R8 door). Required
+     *  when any classified field declares `equatable: true`. */
+    acknowledgeEquatableRisk?: boolean
     /**
      * — structural group-encryption. Fields sealed into their own
      * `_sealed[field]` envelope slot (per-field key), kept out of the open
@@ -1069,6 +1072,9 @@ export class Vault {
       }
       if (options?.acknowledgeDeterministicRisk !== undefined) {
         collOpts.acknowledgeDeterministicRisk = options.acknowledgeDeterministicRisk
+      }
+      if (options?.acknowledgeEquatableRisk !== undefined) {
+        collOpts.acknowledgeEquatableRisk = options.acknowledgeEquatableRisk
       }
       if (options?.sensitive !== undefined) {
         collOpts.sensitive = options.sensitive

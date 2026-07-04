@@ -79,8 +79,12 @@ export const classified = {
 
   /** Digest-only password: verify-without-reveal; never listed, never revealed.
    *  Enumeration math is on the caller for low-entropy values — see the
-   *  per-preset docs; the hub ships no rate limiter in this slice (spec §5). */
-  password(opts: { minLength?: number; rotateDays?: number; notLastN?: number } = {}): ClassifiedFieldSpec {
+   *  per-preset docs; the hub ships no rate limiter in this slice (spec §5).
+   *  `equatable: true` emits a store-visible `_bidx` tag so equal passwords are
+   *  queryable: equal values ⇒ equal tags (partition leak), and a DEK holder
+   *  can offline-dictionary at the PBKDF2 floor — the `acknowledgeEquatableRisk`
+   *  door (R8) is the real control for these low-entropy fields. */
+  password(opts: { minLength?: number; rotateDays?: number; notLastN?: number; equatable?: true } = {}): ClassifiedFieldSpec {
     const minLength = opts.minLength ?? 10
     const notLastN = opts.notLastN ?? 0
     if (!Number.isInteger(notLastN) || notLastN < 0 || notLastN > 8) {
@@ -92,6 +96,7 @@ export const classified = {
       verifyNormalize: 'password',
       ...(opts.rotateDays !== undefined ? { rotateDays: opts.rotateDays } : {}),
       ...(notLastN > 0 ? { notLastN } : {}),
+      ...(opts.equatable === true ? { equatable: true as const } : {}),
       validate: (v) => (typeof v === 'string' && v.normalize('NFC').length >= minLength
         ? null : `password must be at least ${minLength} characters`),
     }
@@ -99,12 +104,17 @@ export const classified = {
 
   /** Digest-only secret answer: normalized (casefold/trim/collapse), groupable
    *  into k-of-n matchGroup challenges. Low-entropy by nature — document the
-   *  enumeration math to your users; add app-side rate limiting. */
-  secretAnswer(): ClassifiedFieldSpec {
+   *  enumeration math to your users; add app-side rate limiting.
+   *  `equatable: true` emits a store-visible `_bidx` tag so equal answers are
+   *  queryable: equal values ⇒ equal tags (partition leak), and a DEK holder
+   *  can offline-dictionary at the PBKDF2 floor — the `acknowledgeEquatableRisk`
+   *  door (R8) is the real control for these low-entropy fields. */
+  secretAnswer(opts: { equatable?: true } = {}): ClassifiedFieldSpec {
     return {
       _noydbClassified: true, preset: 'secretAnswer', storage: 'digest-only',
       sensitivity: 'secret', list: { kind: 'omit' },
       verifyNormalize: 'secret-answer', verifyGroupMember: true,
+      ...(opts.equatable === true ? { equatable: true as const } : {}),
       validate: (v) => (typeof v === 'string'
         && v.normalize('NFC').toLowerCase().trim().replace(/\s+/g, ' ').length > 0
         ? null : 'secret answer must be non-empty after normalization'),
