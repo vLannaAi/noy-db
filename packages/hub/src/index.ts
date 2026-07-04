@@ -602,6 +602,10 @@ export { NO_TEAM } from './with-party/team/strategy.js'
 export type { TeamStrategy } from './with-party/team/strategy.js'
 export { TeamNotEnabledError } from './kernel/errors.js'
 
+// #267 lazy service — lazy-mode (prefetch: false) explicit opt-in.
+export { withLazy } from './with-store/lazy/active.js'
+export type { LazyStrategy } from './with-store/lazy/strategy.js'
+
 // Auth introspection
 export {
   describeAuthConfig,

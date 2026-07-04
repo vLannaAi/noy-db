@@ -81,7 +81,8 @@ import { buildUniqueConstraintSet, type UniqueConstraintSet } from '../with-look
 import type { RefDescriptor } from './refs.js'
 import { buildDescription, deriveZodFields, type CollectionDescription, type DescribeOptions } from '../with-shape/introspection/describe.js'
 import type { CollectionConfig } from '../with-shape/introspection/types.js'
-import { Lru, parseBytes, estimateRecordBytes, type LruStats } from './cache/index.js'
+import { estimateRecordBytes, type Lru, type LruStats } from './cache/index.js'
+import { IMPLICIT_LAZY } from '../port/with/lazy-strategy.js'
 import { generateULID } from '../with-pod/ulid.js'
 import type { PresenceHandle, PresenceHandleOpts } from '../with-party/team/presence.js'
 import type { SyncStrategy } from '../with-party/team/sync-strategy.js'
@@ -910,16 +911,10 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     this.lazy = opts.prefetch === false
 
     if (this.lazy) {
-      if (!opts.cache || (opts.cache.maxRecords === undefined && opts.cache.maxBytes === undefined)) {
-        throw new Error(
-          `Collection "${this.name}": lazy mode (prefetch: false) requires a cache option ` +
-          `with maxRecords and/or maxBytes. An unbounded lazy cache defeats the purpose.`,
-        )
-      }
-      const lruOptions: { maxRecords?: number; maxBytes?: number } = {}
-      if (opts.cache.maxRecords !== undefined) lruOptions.maxRecords = opts.cache.maxRecords
-      if (opts.cache.maxBytes !== undefined) lruOptions.maxBytes = parseBytes(opts.cache.maxBytes)
-      this.lru = new Lru<string, { record: T; version: number }>(lruOptions)
+      // #267 lazy service — budget validation + LRU construction live on the
+      // strategy seam (withLazy(); IMPLICIT_LAZY = deprecated implicit path).
+      this.lru = (opts.lazyStrategy ?? IMPLICIT_LAZY)
+        .createCache<{ record: T; version: number }>(this.name, opts.cache)
       this.hydrated = true // lazy mode is always "hydrated" — no bulk load
     } else {
       this.lru = null

@@ -660,7 +660,11 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 4478→4481 (2026-07-04, classified stage 2 T16): reveal() ctx widened from a
   // single getView() to the raw-envelope shape (getEnvelope/resolveCek/getDEK) — the
   // reveal engine itself moved into kernel/enclave/classify/reveal.ts (I6).
-  'packages/hub/src/kernel/collection.ts': 4481,
+  // Lowered 4481→4476 (2026-07-04, #267 lazy service): the lazy-mode budget
+  // validation + LRU construction moved out of the constructor onto the
+  // lazy strategy seam (port/with/lazy-strategy.ts; withLazy() /
+  // IMPLICIT_LAZY back-compat default).
+  'packages/hub/src/kernel/collection.ts': 4476,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
@@ -796,7 +800,12 @@ const KERNEL_SURFACE_BUDGET = {
   // `forgetStrategy.subjects[collectionName]` into collOpts so the Refusal-matrix R4 row
   // (digest-only cannot be the forget-subject key) sees it; guard logic lives in
   // with-shape/classified/guards.ts.
-  'packages/hub/src/kernel/vault.ts': 3866,
+  // Bumped 3866→3871 (2026-07-04, #267 lazy service): standard strategy
+  // plumbing only — the lazyStrategy opts field, private field, assignment,
+  // collection() pass-through and type import. No logic; offset by the
+  // collection.ts −5 above (net kernel-spine LOC for #267 items 1+2 is ±0
+  // while the grant/revoke/rotate keyring engines left the floor).
+  'packages/hub/src/kernel/vault.ts': 3871,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
@@ -886,7 +895,12 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 2327→2357 — 2026-07-04 #564: single-flight `openVault` (in-flight promise memo +
   // `openVaultFresh` split), so concurrent opens of one vault can no longer construct two
   // key-divergent Vault instances (root cause of the recurring in-pinia TamperedError CI flake).
-  'packages/hub/src/kernel/noydb.ts': 2357,
+  // Held 2357 through the #267 team split (grant/revoke/rotate bodies moved
+  // to TeamFacade runners + withTeam-linked engines; delegators stayed).
+  // Bumped 2357→2360 (2026-07-04, #267 lazy service): three lazyStrategy
+  // pass-through spread lines (one per Vault construction site) — standard
+  // strategy plumbing, no logic.
+  'packages/hub/src/kernel/noydb.ts': 2360,
 }
 
 function checkKernelSurface() {

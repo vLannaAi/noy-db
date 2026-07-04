@@ -53,6 +53,7 @@ import { NO_SEQUENCE, type SequenceStrategy } from '../with-commit/sequence/stra
 import { DeferredNumberingStore, type Assignment } from '../with-commit/numbering/index.js'
 import type { DeferredNumberingConfig } from '../with-commit/numbering/descriptor.js'
 import type { IndexStrategy } from '../with-lookup/indexing/strategy.js'
+import type { LazyStrategy } from '../port/with/lazy-strategy.js'
 import type { AggregateStrategy } from '../with-lookup/aggregate/strategy.js'
 import type { CrdtStrategy } from '../with-commit/crdt/strategy.js'
 import type { TiersStrategy } from '../with-audit/tiers/strategy.js'
@@ -217,6 +218,7 @@ export class Vault {
   /** Per-collection record archival policies. Indexed by collection name. */
   private readonly archiveRegistry = new Map<string, ArchivePolicy>()
   private readonly indexStrategy: IndexStrategy | undefined
+  private readonly lazyStrategy: LazyStrategy | undefined
   private readonly aggregateStrategy: AggregateStrategy | undefined
   private readonly crdtStrategy: CrdtStrategy | undefined
   private readonly tiersStrategy: TiersStrategy | undefined
@@ -520,6 +522,7 @@ export class Vault {
     objectStore?: ObjectProjection | undefined
     archiveStrategy?: ArchiveStrategy | undefined
     indexStrategy?: IndexStrategy | undefined
+    lazyStrategy?: LazyStrategy | undefined
     aggregateStrategy?: AggregateStrategy | undefined
     crdtStrategy?: CrdtStrategy | undefined
     tiersStrategy?: TiersStrategy | undefined
@@ -564,6 +567,7 @@ export class Vault {
     this.objectStore = opts.objectStore
     this.archiveStrategy = opts.archiveStrategy
     this.indexStrategy = opts.indexStrategy
+    this.lazyStrategy = opts.lazyStrategy
     this.aggregateStrategy = opts.aggregateStrategy
     this.crdtStrategy = opts.crdtStrategy
     this.tiersStrategy = opts.tiersStrategy
@@ -1007,6 +1011,7 @@ export class Vault {
         ...(this.objectStore !== undefined ? { objectStore: this.objectStore } : {}),
         ...(options?.blobFields !== undefined ? { blobFields: options.blobFields as BlobFieldsConfig<unknown> } : {}),
         ...(this.indexStrategy !== undefined ? { indexStrategy: this.indexStrategy } : {}),
+        ...(this.lazyStrategy !== undefined ? { lazyStrategy: this.lazyStrategy } : {}),
         ...(this.aggregateStrategy !== undefined ? { aggregateStrategy: this.aggregateStrategy } : {}),
         ...(this.crdtStrategy !== undefined ? { crdtStrategy: this.crdtStrategy } : {}),
         ...(this.tiersStrategy !== undefined ? { tiersStrategy: this.tiersStrategy } : {}),

@@ -29,6 +29,7 @@ const ENTRIES = {
   'query/index': 'src/kernel/query/index.ts',
   'blobs/index': 'src/with-shape/blobs/index.ts',
   'indexing/index': 'src/with-lookup/indexing/index.ts',
+  'lazy/index': 'src/with-store/lazy/index.ts',
   'aggregate/index': 'src/with-lookup/aggregate/index.ts',
   'crdt/index': 'src/with-commit/crdt/index.ts',
   'bundle/index': 'src/legacy/bundle.ts',

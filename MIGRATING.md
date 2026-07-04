@@ -31,6 +31,23 @@ Why: tree-shaking. The grant/revoke/rotate keyring engines are now linked
 only from the `@noy-db/hub/team` subpath, so a single-user floor bundle
 never carries multi-user key-wrap machinery.
 
+### Lazy mode is now the `lazy` service (#267) — non-breaking, deprecation
+
+Lazy mode (`prefetch: false` + a `cache` budget on `vault.collection()`)
+was previously an implicit part of `routing`. It is now its own opt-in
+service:
+
+```ts
+import { withLazy } from '@noy-db/hub/lazy'
+const db = await createNoydb({ store, user: 'me', lazyStrategy: withLazy() })
+const docs = vault.collection('docs', { prefetch: false, cache: { maxRecords: 500 } })
+```
+
+**Nothing breaks today:** `prefetch: false` without `withLazy()` keeps
+working byte-for-byte via a deprecated implicit path that logs a one-time
+console warning. The implicit path will be removed at 1.0 — add
+`lazyStrategy: withLazy()` when convenient.
+
 ## 0.1 → 0.2
 
 ### `@noy-db/in-pinia` reactive i18n (non-breaking, opt-in)
