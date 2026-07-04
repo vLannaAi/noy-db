@@ -10,7 +10,11 @@ import type { ClassifiedVerdict } from '../../kernel/types.js'
 export interface ClassifiedRevealCtx {
   readonly collection: string
   readonly spec: ClassifiedFieldSpec
-  getView(id: string): Promise<Record<string, unknown> | null>
+  /** True on an encrypted collection — false selects the plaintext-body read. */
+  readonly encrypted: boolean
+  getEnvelope(id: string): Promise<EncryptedEnvelope | null>
+  resolveCek(env: EncryptedEnvelope): Promise<EnclaveKey | undefined>
+  getDEK(): Promise<EnclaveKey>
   readonly onAccess?: ((op: 'reveal', id: string) => Promise<void>) | undefined
 }
 
