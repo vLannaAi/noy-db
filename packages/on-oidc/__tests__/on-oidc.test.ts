@@ -280,9 +280,15 @@ describe('enrollOidc + unlockOidc round-trip', () => {
 
     const enrollment = await enrollOidc(keyring, 'company-a', TEST_CONFIG, token)
 
-    // Use a fresh token (same sub, still valid)
-    const unlockToken = makeIdToken({ sub })
-    const unlocked = await unlockOidc(enrollment, TEST_CONFIG, unlockToken)
+    // Reuse the SAME token for unlock (#564). The transport key is
+    // HKDF(raw token string) and this replay-mock returns the enroll-time
+    // ciphertext verbatim, so unlock only decrypts when the token bytes
+    // match. Minting a second token here worked only when both mints landed
+    // in the same wall-clock second (iat is second-granular) — a 1-in-N
+    // flake. A REAL key connector decrypts on PUT and re-encrypts per GET
+    // (see enrollOidc's transport-encryption comment), which is what makes
+    // fresh-token unlocks work in production.
+    const unlocked = await unlockOidc(enrollment, TEST_CONFIG, token)
 
     expect(unlocked.userId).toBe('alice')
     expect(unlocked.displayName).toBe('Alice')
@@ -300,7 +306,9 @@ describe('enrollOidc + unlockOidc round-trip', () => {
     vi.stubGlobal('fetch', mockFetch)
 
     const enrollment = await enrollOidc(keyring, 'company-a', TEST_CONFIG, token)
-    const unlocked = await unlockOidc(enrollment, TEST_CONFIG, makeIdToken({ sub }))
+    // Same token for unlock — the replay-mock requires byte-identical
+    // transport keys (see the round-trip test above, #564).
+    const unlocked = await unlockOidc(enrollment, TEST_CONFIG, token)
 
     const dek = unlocked.deks.get('invoices')!
     const iv = globalThis.crypto.getRandomValues(new Uint8Array(12))
@@ -316,8 +324,11 @@ describe('enrollOidc + unlockOidc round-trip', () => {
     const mockFetch = makeKeyConnectorMock()
     vi.stubGlobal('fetch', mockFetch)
 
-    await enrollOidc(keyring, 'company-a', TEST_CONFIG, makeIdToken({ sub }))
-    const unlocked = await unlockOidc(enrollment_placeholder(), TEST_CONFIG, makeIdToken({ sub }))
+    // One token for both — the replay-mock requires byte-identical
+    // transport keys (see the round-trip test above, #564).
+    const token = makeIdToken({ sub })
+    await enrollOidc(keyring, 'company-a', TEST_CONFIG, token)
+    const unlocked = await unlockOidc(enrollment_placeholder(), TEST_CONFIG, token)
     expect(unlocked.permissions).toEqual({ invoices: 'rw', clients: 'rw' })
 
     function enrollment_placeholder() {

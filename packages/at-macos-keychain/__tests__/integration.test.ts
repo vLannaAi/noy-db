@@ -66,7 +66,9 @@ describe('@noy-db/at-macos-keychain — integration with @noy-db/hub managed-pas
     const note = await vault2.collection<{ id: string; note: string }>('notes').get('n1')
     expect(note).toEqual({ id: 'n1', note: 'managed-mode write via at-macos-keychain' })
     db2.close()
-  })
+    // 30s timeout (#564): two full managed-mode opens (600K-PBKDF2 × several)
+    // sit near the 5s vitest default when parallel suites compete for CPU.
+  }, 30_000)
 
   it('a different (service, account) creates an isolated vault that cannot read the first', async () => {
     const store = memory()

@@ -28,6 +28,9 @@ function makeEvent(opts: Partial<FakeH3Event> & { context?: Record<string, unkno
 }
 
 describe('runtime/rest handler', () => {
+  // 30s timeout (#564): the FIRST test in the file pays the whole dynamic
+  // `import('../src/runtime/rest.js')` transform cost, which can exceed the
+  // 5s vitest default when parallel package suites compete for CPU.
   it('returns 500 noydb_store_not_configured when store is absent', async () => {
     const mod = await import('../src/runtime/rest.js')
     const handler = mod.default as (event: FakeH3Event) => Promise<Response>
@@ -37,7 +40,7 @@ describe('runtime/rest handler', () => {
     expect(res.status).toBe(500)
     const body = await res.json() as { error: string }
     expect(body.error).toBe('noydb_store_not_configured')
-  })
+  }, 30_000)
 
   it('reads config from event.context.nitro.runtimeConfig (canonical Nitro path)', async () => {
     const mod = await import('../src/runtime/rest.js')
