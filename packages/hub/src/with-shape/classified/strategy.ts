@@ -12,18 +12,18 @@ export interface ClassifiedRevealCtx {
   readonly spec: ClassifiedFieldSpec
   /** True on an encrypted collection — false selects the plaintext-body read. */
   readonly encrypted: boolean
-  getEnvelope(id: string): Promise<EncryptedEnvelope | null>
-  resolveCek(env: EncryptedEnvelope): Promise<EnclaveKey | undefined>
-  getDEK(): Promise<EnclaveKey>
+  readonly getEnvelope: (id: string) => Promise<EncryptedEnvelope | null>
+  readonly resolveCek: (env: EncryptedEnvelope) => Promise<EnclaveKey | undefined>
+  readonly getDEK: () => Promise<EnclaveKey>
   readonly onAccess?: ((op: 'reveal', id: string) => Promise<void>) | undefined
 }
 
 export interface ClassifiedVerifyCtx {
   readonly collection: string
   readonly spec: ClassifiedFieldSpec
-  getEnvelope(id: string): Promise<EncryptedEnvelope | null>       // raw envelope, NOT a decrypted view
-  resolveCek(env: EncryptedEnvelope): Promise<EnclaveKey | undefined>
-  getDEK(): Promise<EnclaveKey>
+  readonly getEnvelope: (id: string) => Promise<EncryptedEnvelope | null>       // raw envelope, NOT a decrypted view
+  readonly resolveCek: (env: EncryptedEnvelope) => Promise<EnclaveKey | undefined>
+  readonly getDEK: () => Promise<EnclaveKey>
   readonly now: () => number                                        // injected (Q7)
   /** Group members resolved by the collection (matchGroup only). */
   readonly groupMembers?: ReadonlyArray<{ readonly field: string; readonly spec: ClassifiedFieldSpec }>
