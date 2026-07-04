@@ -20,7 +20,8 @@
  * @packageDocumentation
  */
 
-import type { Vault } from '@noy-db/hub'
+import type { Vault, CollectionDescription } from '@noy-db/hub'
+import { applyListProjection } from '@noy-db/hub'
 
 export interface AsXMLOptions {
   /** Collection to export. */
@@ -39,6 +40,24 @@ export interface AsXMLOptions {
   readonly namespace?: string
   /** Optional namespace prefix. Used together with `namespace`. */
   readonly namespacePrefix?: string
+  /**
+   * Apply the hub's `applyListProjection` read-projection before
+   * serialising records. `true` redacts only `classifiedFields` (mask /
+   * omit / rider, per the field's preset). The object form additionally
+   * redacts fields carrying a plain `fieldMeta` `sensitivity: 'pii' |
+   * 'secret'` tag, per `sensitivity: 'omit' | 'mask'`.
+   *
+   * Caveat: `describe()` reflects the declarations of *this session's*
+   * collection instance — redaction only takes effect when the
+   * collection was opened (this call or earlier in the session) with
+   * its `classifiedFields` / `fieldMeta` options. This is presentation-
+   * layer redaction; it never affects what's on disk. Sealed handles
+   * are unaffected either way — they always serialize as `'[sealed]'`,
+   * so ciphertext never leaks regardless of this option. Rider companion
+   * fields (e.g. `pan_last4`) remain visible as their own elements —
+   * they are safe write-time projections.
+   */
+  readonly redact?: boolean | { readonly sensitivity: 'omit' | 'mask' }
 }
 
 export interface AsXMLDownloadOptions extends AsXMLOptions {
@@ -60,6 +79,13 @@ export async function toString(vault: Vault, options: AsXMLOptions): Promise<str
       records.push(...chunk.records)
       break
     }
+  }
+
+  if (options.redact !== undefined && options.redact !== false) {
+    const desc: CollectionDescription = vault.collection(options.collection).describe()
+    const projectionOpts = options.redact === true ? undefined
+      : { sensitivity: options.redact.sensitivity }
+    records.splice(0, records.length, ...records.map((r) => applyListProjection(desc, r as Record<string, unknown>, projectionOpts)))
   }
 
   const rootName = options.rootElement ?? 'Records'
