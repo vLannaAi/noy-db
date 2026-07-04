@@ -19,7 +19,8 @@
  * @packageDocumentation
  */
 
-import type { Vault } from '@noy-db/hub'
+import type { Vault, CollectionDescription } from '@noy-db/hub'
+import { applyListProjection } from '@noy-db/hub'
 
 export interface AsNDJSONOptions {
   /** Collection allowlist. Omit for every collection the caller can read. */
@@ -28,6 +29,26 @@ export interface AsNDJSONOptions {
   readonly includeMeta?: boolean
   /** Name of the routing field. Default `'_schema'`. */
   readonly schemaField?: string
+
+  /**
+   * Apply the hub's `applyListProjection` read-projection before
+   * serialising each record. `true` redacts only `classifiedFields` (mask /
+   * omit / rider, per the field's preset). The object form additionally
+   * redacts fields carrying a plain `fieldMeta` `sensitivity: 'pii' |
+   * 'secret'` tag, per `sensitivity: 'omit' | 'mask'`.
+   *
+   * Caveat: `describe()` reflects the declarations of *this session's*
+   * collection instance — redaction only takes effect when the
+   * collection was opened (this call or earlier in the session) with
+   * its `classifiedFields` / `fieldMeta` options. This is presentation-
+   * layer redaction; it never affects what's on disk. Sealed handles
+   * are unaffected either way — they always serialize as `'[sealed]'`,
+   * so ciphertext never leaks regardless of this option.
+   *
+   * Rider companion fields (e.g. `pan_last4`) remain visible as their own
+   * keys — they are safe write-time projections.
+   */
+  readonly redact?: boolean | { readonly sensitivity: 'omit' | 'mask' }
 }
 
 export interface AsNDJSONDownloadOptions extends AsNDJSONOptions {
@@ -50,12 +71,37 @@ export async function* stream(vault: Vault, options: AsNDJSONOptions = {}): Asyn
   const allowlist = options.collections ? new Set(options.collections) : null
   const schemaField = options.schemaField ?? '_schema'
 
+  // Cache collection descriptions for redaction
+  const descCache = new Map<string, CollectionDescription>()
+
   for await (const chunk of vault.exportStream({ granularity: 'record' })) {
     if (allowlist && !allowlist.has(chunk.collection)) continue
+
+    // Compute description once per collection if redaction is enabled
+    let desc: CollectionDescription | undefined
+    if (options.redact !== undefined && options.redact !== false) {
+      if (!descCache.has(chunk.collection)) {
+        descCache.set(chunk.collection, vault.collection(chunk.collection).describe())
+      }
+      desc = descCache.get(chunk.collection)
+    }
+
     for (const record of chunk.records) {
-      const base = options.includeMeta
-        ? (record as Record<string, unknown>)
-        : stripMeta(record as Record<string, unknown>)
+      let base: Record<string, unknown>
+      if (options.includeMeta) {
+        base = record as Record<string, unknown>
+      } else {
+        base = stripMeta(record as Record<string, unknown>)
+      }
+
+      // Apply redaction if enabled
+      if (desc !== undefined) {
+        const projectionOpts = typeof options.redact === 'object'
+          ? { sensitivity: options.redact.sensitivity }
+          : undefined
+        base = applyListProjection(desc, base, projectionOpts)
+      }
+
       const out: Record<string, unknown> = { [schemaField]: chunk.collection, ...base }
       yield JSON.stringify(out)
     }
