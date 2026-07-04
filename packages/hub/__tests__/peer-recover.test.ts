@@ -29,6 +29,7 @@ import { createNoydb } from '../src/kernel/noydb.js'
 import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, InvalidKeyError } from '../src/kernel/errors.js'
 import { PolicyDeniedError } from '../src/kernel/errors.js'
 import { STRICT_POLICY } from '../src/with-party/policy/presets.js'
+import { withTeam } from '../src/with-party/team/index.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -301,7 +302,7 @@ describe('recoverUser (#34 atomicity, #33 owner→owner)', () => {
 describe('db.recoverUser (#33 + #34 hub-level integration)', () => {
   it('runs the peer-recover-user policy gate before the team call', async () => {
     const store = inlineMemory()
-    const db = await createNoydb({
+    const db = await createNoydb({ teamStrategy: withTeam(),
       store,
       user: 'alice',
       secret: ALICE_PHRASE,

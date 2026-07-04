@@ -28,6 +28,7 @@ import { createNoydb } from '../src/kernel/noydb.js'
 import { NoAccessError, PermissionDeniedError, ValidationError } from '../src/kernel/errors.js'
 import { PolicyDeniedError } from '../src/kernel/errors.js'
 import { STRICT_POLICY } from '../src/with-party/policy/presets.js'
+import { withTeam } from '../src/with-party/team/index.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -414,7 +415,7 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
 describe('Noydb.updateUser (hub-level wiring, #54)', () => {
   it('round-trip via the public Noydb method', async () => {
     const store = inlineMemory()
-    const alice = await createNoydb({ store, user: 'alice', secret: ALICE_PHRASE })
+    const alice = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: ALICE_PHRASE })
     await alice.openVault('acme')
     await alice.grant('acme', {
       userId: 'bob',
@@ -429,7 +430,7 @@ describe('Noydb.updateUser (hub-level wiring, #54)', () => {
       displayName: 'Bob the Promoted',
     })
 
-    const reopen = await createNoydb({ store, user: 'bob', secret: BOB_PHRASE })
+    const reopen = await createNoydb({ teamStrategy: withTeam(), store, user: 'bob', secret: BOB_PHRASE })
     await reopen.openVault('acme')
     const bob = await reopen.getKeyring('acme')
     expect(bob.role).toBe('operator')
@@ -438,7 +439,7 @@ describe('Noydb.updateUser (hub-level wiring, #54)', () => {
 
   it('STRICT_POLICY rejects updateUser without factor proof', async () => {
     const store = inlineMemory()
-    const alice = await createNoydb({
+    const alice = await createNoydb({ teamStrategy: withTeam(),
       store,
       user: 'alice',
       secret: 'correct horse battery staple printer toaster picnic',
@@ -463,7 +464,7 @@ describe('Noydb.updateUser (hub-level wiring, #54)', () => {
 
   it('refreshes the cached keyring after self-update', async () => {
     const store = inlineMemory()
-    const alice = await createNoydb({ store, user: 'alice', secret: ALICE_PHRASE })
+    const alice = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: ALICE_PHRASE })
     await alice.openVault('acme')
 
     // Alice updates her OWN displayName (any role can update displayName

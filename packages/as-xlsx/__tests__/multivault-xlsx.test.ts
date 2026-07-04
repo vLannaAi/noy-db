@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest'
 import { ExportCapabilityError, createNoydb } from '@noy-db/hub'
 import { memory } from '@noy-db/to-memory'
 import { toBytesMultiVault, type MultiVaultDenormColumn } from '../src/index.js'
+import { withTeam } from '@noy-db/hub/team'
 
 // ── zip helpers (mirrors as-xlsx.test.ts) ──────────────────────────
 
@@ -62,7 +63,7 @@ async function seedTwoVaults() {
   const adapter = memory()
 
   // First open as owner to set up vaults + data
-  const db = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+  const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
 
   // primary vault: bills referencing entityId
   const primaryVault = await db.openVault('primary')
@@ -80,7 +81,7 @@ async function seedTwoVaults() {
 }
 
 async function grantXlsxBothVaults(adapter: ReturnType<typeof memory>) {
-  const db = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+  const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
   await db.grant('primary', {
     userId: 'owner-01', displayName: 'Owner', role: 'owner',
     passphrase: 'owner-pass',
@@ -101,7 +102,7 @@ describe('toBytesMultiVault', () => {
     const { db, adapter } = await seedTwoVaults()
     await grantXlsxBothVaults(adapter)
 
-    const db2 = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const db2 = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
     const primaryVault = await db2.openVault('primary')
     const dirVault = await db2.openVault('directory')
 
@@ -139,7 +140,7 @@ describe('toBytesMultiVault', () => {
     const { db, adapter } = await seedTwoVaults()
     await grantXlsxBothVaults(adapter)
 
-    const db2 = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const db2 = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
     const primaryVault = await db2.openVault('primary')
     const dirVault = await db2.openVault('directory')
 
@@ -169,7 +170,7 @@ describe('toBytesMultiVault', () => {
     const { db, adapter } = await seedTwoVaults()
     await grantXlsxBothVaults(adapter)
 
-    const db2 = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const db2 = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
     const primaryVault = await db2.openVault('primary')
     const dirVault = await db2.openVault('directory')
 
@@ -214,7 +215,7 @@ describe('toBytesMultiVault', () => {
     const { db, adapter } = await seedTwoVaults()
     await grantXlsxBothVaults(adapter)
 
-    const db2 = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const db2 = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
     const primaryVault = await db2.openVault('primary')
     const dirVault = await db2.openVault('directory')
 
@@ -243,7 +244,7 @@ describe('toBytesMultiVault', () => {
     const { db, adapter } = await seedTwoVaults()
     await grantXlsxBothVaults(adapter)
 
-    const db2 = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const db2 = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
     const primaryVault = await db2.openVault('primary')
     const dirVault = await db2.openVault('directory')
 
@@ -272,7 +273,7 @@ describe('toBytesMultiVault', () => {
     const { db, adapter } = await seedTwoVaults()
     await grantXlsxBothVaults(adapter)
 
-    const db2 = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const db2 = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
     const primaryVault = await db2.openVault('primary')
 
     const bytes = await toBytesMultiVault(
@@ -311,7 +312,7 @@ describe('toBytesMultiVault — denormalized columns', () => {
     const { db, adapter } = await seedTwoVaults()
     await grantXlsxBothVaults(adapter)
 
-    const db2 = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const db2 = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
     const primaryVault = await db2.openVault('primary')
     const dirVault = await db2.openVault('directory')
 
@@ -355,7 +356,7 @@ describe('toBytesMultiVault — denormalized columns', () => {
 
   it('yields empty cell for unresolved FK (entity id not in closure/index)', async () => {
     const adapter = memory()
-    const db = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
 
     const primaryVault = await db.openVault('primary')
     const bills = primaryVault.collection<{ id: string; entityId: string; amount: number }>('bills')
@@ -371,7 +372,7 @@ describe('toBytesMultiVault — denormalized columns', () => {
     await db.close()
 
     // Grant xlsx on both vaults
-    const db2 = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const db2 = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
     await db2.grant('primary', {
       userId: 'owner-01', displayName: 'Owner', role: 'owner',
       passphrase: 'owner-pass',
@@ -384,7 +385,7 @@ describe('toBytesMultiVault — denormalized columns', () => {
     })
     await db2.close()
 
-    const db3 = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const db3 = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
     const pv = await db3.openVault('primary')
     const dv = await db3.openVault('directory')
 
@@ -438,7 +439,7 @@ describe('toBytesMultiVault — denormalized columns', () => {
     const { db, adapter } = await seedTwoVaults()
     await grantXlsxBothVaults(adapter)
 
-    const db2 = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const db2 = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
     const primaryVault = await db2.openVault('primary')
     const dirVault = await db2.openVault('directory')
 

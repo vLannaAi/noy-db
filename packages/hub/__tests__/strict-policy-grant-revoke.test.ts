@@ -12,6 +12,7 @@ import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { PolicyDeniedError } from '../src/kernel/errors.js'
 import { STRICT_POLICY } from '../src/with-party/policy/presets.js'
+import { withTeam } from '../src/with-party/team/index.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -38,7 +39,7 @@ const STRICT_PHRASE = 'correct horse battery staple printer toaster picnic'
 
 async function bootstrap(): Promise<{ db: Awaited<ReturnType<typeof createNoydb>>; store: NoydbStore }> {
   const store = inlineMemory()
-  const db = await createNoydb({
+  const db = await createNoydb({ teamStrategy: withTeam(),
     store,
     user: 'alice',
     secret: STRICT_PHRASE,

@@ -23,6 +23,7 @@ import {
 import { ConflictError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import type { UnlockedKeyring } from '../src/with-party/team/keyring.js'
+import { withTeam } from '../src/with-party/team/index.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -147,7 +148,7 @@ describe('evaluateExportCapability — no-keyring variant', () => {
 describe('grant() persistence — exportCapability round-trips via keyring file', () => {
   it('persists explicit export capability for a newly-granted operator', async () => {
     const adapter = memory()
-    const ownerDb = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const ownerDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
     await ownerDb.openVault('acme')
 
     await ownerDb.grant('acme', {
@@ -160,7 +161,7 @@ describe('grant() persistence — exportCapability round-trips via keyring file'
     })
     await ownerDb.close()
 
-    const opDb = await createNoydb({ store: adapter, user: 'op@test', secret: 'op-pass' })
+    const opDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'op@test', secret: 'op-pass' })
     await opDb.openVault('acme')
 
     const internals = (opDb as unknown as { keyringCache: Map<string, UnlockedKeyring> })
@@ -174,7 +175,7 @@ describe('grant() persistence — exportCapability round-trips via keyring file'
 
   it('legacy keyrings (no exportCapability field) load with role-based defaults', async () => {
     const adapter = memory()
-    const ownerDb = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const ownerDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
     await ownerDb.openVault('acme')
 
     await ownerDb.grant('acme', {
@@ -186,7 +187,7 @@ describe('grant() persistence — exportCapability round-trips via keyring file'
     })
     await ownerDb.close()
 
-    const opDb = await createNoydb({ store: adapter, user: 'op@test', secret: 'op-pass' })
+    const opDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'op@test', secret: 'op-pass' })
     await opDb.openVault('acme')
 
     const internals = (opDb as unknown as { keyringCache: Map<string, UnlockedKeyring> })
@@ -199,7 +200,7 @@ describe('grant() persistence — exportCapability round-trips via keyring file'
 
   it('owner keyring defaults to bundle-on even without explicit grant', async () => {
     const adapter = memory()
-    const db = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
     await db.openVault('acme')
 
     const internals = (db as unknown as { keyringCache: Map<string, UnlockedKeyring> })
@@ -213,7 +214,7 @@ describe('grant() persistence — exportCapability round-trips via keyring file'
 describe('vault.assertCanExport / canExport', () => {
   it('owner can export bundle by default (no grant needed)', async () => {
     const adapter = memory()
-    const db = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
     const vault = await db.openVault('acme')
     expect(vault.canExport('bundle')).toBe(true)
     expect(() => vault.assertCanExport('bundle')).not.toThrow()
@@ -222,7 +223,7 @@ describe('vault.assertCanExport / canExport', () => {
 
   it('owner cannot export plaintext without a grant', async () => {
     const adapter = memory()
-    const db = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
     const vault = await db.openVault('acme')
     expect(vault.canExport('plaintext', 'xlsx')).toBe(false)
     expect(() => vault.assertCanExport('plaintext', 'xlsx')).toThrow(ExportCapabilityError)
@@ -231,7 +232,7 @@ describe('vault.assertCanExport / canExport', () => {
 
   it('operator with plaintext grant can export that format', async () => {
     const adapter = memory()
-    const ownerDb = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const ownerDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
     await ownerDb.openVault('acme')
     await ownerDb.grant('acme', {
       userId: 'op@test', displayName: 'Operator', role: 'operator',
@@ -241,7 +242,7 @@ describe('vault.assertCanExport / canExport', () => {
     })
     await ownerDb.close()
 
-    const opDb = await createNoydb({ store: adapter, user: 'op@test', secret: 'op-pass' })
+    const opDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'op@test', secret: 'op-pass' })
     const vault = await opDb.openVault('acme')
     expect(vault.canExport('plaintext', 'xlsx')).toBe(true)
     expect(vault.canExport('plaintext', 'csv')).toBe(false)

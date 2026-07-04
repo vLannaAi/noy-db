@@ -24,6 +24,7 @@ import {
   type CrossTierAccessEvent,
 } from '../src/index.js'
 import { withTiers } from '../src/with-audit/tiers/index.js'
+import { withTeam } from '../src/with-party/team/index.js'
 
 interface Doc {
   id: string
@@ -70,7 +71,7 @@ function memoryStore(): NoydbStore {
 }
 
 async function ownerVault() {
-  const db = await createNoydb({ store: memoryStore(), secret: 'pw', user: 'owner', tiersStrategy: withTiers() })
+  const db = await createNoydb({ teamStrategy: withTeam(), store: memoryStore(), secret: 'pw', user: 'owner', tiersStrategy: withTiers() })
   const vault = await db.openVault('v1')
   return { db, vault }
 }
@@ -173,7 +174,7 @@ describe('vault.elevate', () => {
   it('7. TierNotGrantedError when keyring cannot reach the tier (non-owner/admin)', async () => {
     // Set up an operator with no tier-2 DEK on any collection.
     const store = memoryStore()
-    const db = await createNoydb({ store, secret: 'pw', user: 'owner' })
+    const db = await createNoydb({ teamStrategy: withTeam(), store, secret: 'pw', user: 'owner' })
     const vault = await db.openVault('v1')
     vault.collection<Doc>('docs', { tiers: [0, 1, 2] })
 
@@ -186,7 +187,7 @@ describe('vault.elevate', () => {
     })
     await db.close()
 
-    const opDb = await createNoydb({ store, secret: 'op-pw', user: 'op' })
+    const opDb = await createNoydb({ teamStrategy: withTeam(), store, secret: 'op-pw', user: 'op' })
     const opVault = await opDb.openVault('v1')
 
     await expect(

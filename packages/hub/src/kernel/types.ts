@@ -45,6 +45,7 @@ import type { SealedRecordStrategy } from '../with-audit/sealed-record/strategy.
 import type { PortabilityStrategy } from '../with-audit/portability/strategy.js'
 import type { SequenceStrategy } from '../with-commit/sequence/strategy.js'
 import type { CustodyStrategy } from '../with-party/custody/strategy.js'
+import type { TeamStrategy } from '../port/with/team-strategy.js'
 import type { SearchStrategy } from '../with-lookup/search/strategy.js'
 import type { CargoStrategy } from '../with-cargo/strategy.js'
 import type { Layer } from '../with-shape/i18n/policy.js'
@@ -2278,6 +2279,18 @@ export interface NoydbOptions {
    * stays ungated (it has no createNoydb instance to gate against).
    */
   readonly custodyStrategy?: CustodyStrategy
+  /**
+   * Tree-shake seam — optional multi-user team capability (#267
+   * keyring-grant → team split). Pass `withTeam()` from `@noy-db/hub/team`
+   * to enable `db.grant` / `db.revoke` / `db.rotate`. When omitted, those
+   * throw `TeamNotEnabledError` and the keyring grant/revoke/rotate engines
+   * are reached only via opt-in — the always-on floor is single-user.
+   * Single-user primitives (owner keyring, unlock, `listUsers`,
+   * `updateUser`, passphrase rotate/recover) stay ungated, as does the
+   * `createDeedOwner` free function (no createNoydb instance to gate
+   * against).
+   */
+  readonly teamStrategy?: TeamStrategy
   /**
    * Tree-shake seam — optional search / retrieval capability. Pass
    * `withSearch()` from `@noy-db/hub` to enable a collection's `search`

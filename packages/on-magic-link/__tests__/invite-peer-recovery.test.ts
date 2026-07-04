@@ -33,6 +33,7 @@ import {
 } from '../src/index.js'
 import { createNoydb } from '@noy-db/hub'
 import type { NoydbStore, EncryptedEnvelope } from '@noy-db/hub'
+import { withTeam } from '@noy-db/hub/team'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -62,7 +63,7 @@ const BOB_NEW_PHRASE = 'evergreen marble lantern apricot velvet thunder'
 describe('issueInvite + acceptInvite round-trip', () => {
   it('mints a new user; recipient claims under newPhrase; tempPhrase invalidated', async () => {
     const store = inlineMemory()
-    const issuer = await createNoydb({ store, user: 'alice', secret: ALICE_PHRASE })
+    const issuer = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: ALICE_PHRASE })
     await issuer.openVault('acme')
 
     const { encoded, payload } = await issueInvite(issuer, 'acme', {
@@ -88,11 +89,11 @@ describe('issueInvite + acceptInvite round-trip', () => {
 
     // Temp phrase is now invalid — opening with it should fail.
     await expect(
-      createNoydb({ store, user: 'bob', secret: payload.tempPhrase }).then((d) => d.openVault('acme')),
+      createNoydb({ teamStrategy: withTeam(), store, user: 'bob', secret: payload.tempPhrase }).then((d) => d.openVault('acme')),
     ).rejects.toThrow()
 
     // newPhrase opens fresh sessions cleanly.
-    const reopen = await createNoydb({ store, user: 'bob', secret: BOB_NEW_PHRASE })
+    const reopen = await createNoydb({ teamStrategy: withTeam(), store, user: 'bob', secret: BOB_NEW_PHRASE })
     await reopen.openVault('acme')
     const verify = await reopen.getKeyring('acme')
     expect(verify.userId).toBe('bob')
@@ -102,7 +103,7 @@ describe('issueInvite + acceptInvite round-trip', () => {
 describe('issuePeerRecovery + acceptInvite round-trip', () => {
   it('rewraps existing user; original DEKs preserved; new phrase works', async () => {
     const store = inlineMemory()
-    const alice = await createNoydb({ store, user: 'alice', secret: ALICE_PHRASE })
+    const alice = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: ALICE_PHRASE })
     await alice.openVault('acme')
     await alice.grant('acme', {
       userId: 'bob',
@@ -128,13 +129,13 @@ describe('issuePeerRecovery + acceptInvite round-trip', () => {
 
     // Old phrase doesn't unlock anymore.
     await expect(
-      createNoydb({ store, user: 'bob', secret: BOB_OLD_PHRASE }).then((d) => d.openVault('acme')),
+      createNoydb({ teamStrategy: withTeam(), store, user: 'bob', secret: BOB_OLD_PHRASE }).then((d) => d.openVault('acme')),
     ).rejects.toThrow()
   }, 180_000)
 
   it('owner→owner peer-recovery (closes #33 + #34 end-to-end)', async () => {
     const store = inlineMemory()
-    const alice = await createNoydb({ store, user: 'alice', secret: ALICE_PHRASE })
+    const alice = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: ALICE_PHRASE })
     await alice.openVault('acme')
     await alice.grant('acme', {
       userId: 'mrs-niwat',
@@ -155,7 +156,7 @@ describe('issuePeerRecovery + acceptInvite round-trip', () => {
 describe('TTL + revoke + single-use', () => {
   it('rejects expired invite with InviteExpiredError before opening session', async () => {
     const store = inlineMemory()
-    const alice = await createNoydb({ store, user: 'alice', secret: ALICE_PHRASE })
+    const alice = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: ALICE_PHRASE })
     await alice.openVault('acme')
 
     const { encoded } = await issueInvite(alice, 'acme', {
@@ -174,7 +175,7 @@ describe('TTL + revoke + single-use', () => {
 
   it('rejects revoked invite with InviteRevokedError', async () => {
     const store = inlineMemory()
-    const alice = await createNoydb({ store, user: 'alice', secret: ALICE_PHRASE })
+    const alice = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: ALICE_PHRASE })
     await alice.openVault('acme')
 
     const { encoded } = await issueInvite(alice, 'acme', {
@@ -191,7 +192,7 @@ describe('TTL + revoke + single-use', () => {
 
   it('revokeInvite is idempotent', async () => {
     const store = inlineMemory()
-    const alice = await createNoydb({ store, user: 'alice', secret: ALICE_PHRASE })
+    const alice = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: ALICE_PHRASE })
     await alice.openVault('acme')
     const { encoded } = await issueInvite(alice, 'acme', {
       userId: 'bob',
@@ -204,7 +205,7 @@ describe('TTL + revoke + single-use', () => {
 
   it('rejects second acceptInvite with InviteAlreadyAcceptedError (single-use)', async () => {
     const store = inlineMemory()
-    const alice = await createNoydb({ store, user: 'alice', secret: ALICE_PHRASE })
+    const alice = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: ALICE_PHRASE })
     await alice.openVault('acme')
 
     const { encoded } = await issueInvite(alice, 'acme', {
@@ -223,7 +224,7 @@ describe('TTL + revoke + single-use', () => {
 describe('revoked-link-shadow-keyring defense (#32 point 4)', () => {
   it('throws InviteAuditMissingError when the audit doc is absent', async () => {
     const store = inlineMemory()
-    const alice = await createNoydb({ store, user: 'alice', secret: ALICE_PHRASE })
+    const alice = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: ALICE_PHRASE })
     await alice.openVault('acme')
 
     const { encoded } = await issueInvite(alice, 'acme', {
@@ -248,7 +249,7 @@ describe('revoked-link-shadow-keyring defense (#32 point 4)', () => {
 describe('audit doc + payload encoding', () => {
   it('audit doc holds issuer / kind / target / issuedAt / expiresAt', async () => {
     const store = inlineMemory()
-    const alice = await createNoydb({ store, user: 'alice', secret: ALICE_PHRASE })
+    const alice = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: ALICE_PHRASE })
     await alice.openVault('acme')
 
     const { payload } = await issueInvite(alice, 'acme', {
@@ -271,7 +272,7 @@ describe('audit doc + payload encoding', () => {
 
   it('audit doc records acceptedAt after successful claim', async () => {
     const store = inlineMemory()
-    const alice = await createNoydb({ store, user: 'alice', secret: ALICE_PHRASE })
+    const alice = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: ALICE_PHRASE })
     await alice.openVault('acme')
 
     const { encoded, payload } = await issueInvite(alice, 'acme', {
@@ -288,7 +289,7 @@ describe('audit doc + payload encoding', () => {
 
   it('forwards passphrasePolicy to the inner rotation (#53)', async () => {
     const store = inlineMemory()
-    const alice = await createNoydb({ store, user: 'alice', secret: ALICE_PHRASE })
+    const alice = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: ALICE_PHRASE })
     await alice.openVault('acme')
 
     const { encoded } = await issueInvite(alice, 'acme', {
@@ -317,7 +318,7 @@ describe('audit doc + payload encoding', () => {
     expect(result.payload.userId).toBe('bob')
 
     // Reopen with the hyphenated phrase to confirm it actually rotated.
-    const reopen = await createNoydb({
+    const reopen = await createNoydb({ teamStrategy: withTeam(),
       store,
       user: 'bob',
       secret: HYPHENATED_PHRASE,
@@ -330,7 +331,7 @@ describe('audit doc + payload encoding', () => {
 
   it('rejects newPhrase that violates the supplied passphrasePolicy (#53)', async () => {
     const store = inlineMemory()
-    const alice = await createNoydb({ store, user: 'alice', secret: ALICE_PHRASE })
+    const alice = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: ALICE_PHRASE })
     await alice.openVault('acme')
 
     const { encoded } = await issueInvite(alice, 'acme', {
@@ -357,7 +358,7 @@ describe('audit doc + payload encoding', () => {
 
   it('allowWeakPassphrase: true bypasses the rotation validator (#53)', async () => {
     const store = inlineMemory()
-    const alice = await createNoydb({ store, user: 'alice', secret: ALICE_PHRASE })
+    const alice = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: ALICE_PHRASE })
     await alice.openVault('acme')
 
     const { encoded } = await issueInvite(alice, 'acme', {

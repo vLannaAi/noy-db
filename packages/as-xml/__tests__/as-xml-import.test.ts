@@ -16,6 +16,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub'
 import { ConflictError, ImportCapabilityError, createNoydb } from '@noy-db/hub'
 import { withTransactions } from '@noy-db/hub/tx'
 import { fromString, toString } from '../src/index.js'
+import { withTeam } from '@noy-db/hub/team'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -58,7 +59,7 @@ interface Invoice { id: string; client: string; amount: number }
 
 async function setup() {
   const adapter = memory()
-  const init = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-2026' })
+  const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
   await init.openVault('demo')
   await init.grant('demo', {
     userId: 'alice', displayName: 'Alice', role: 'owner',
@@ -68,7 +69,7 @@ async function setup() {
   })
   init.close()
 
-  const db = await createNoydb({
+  const db = await createNoydb({ teamStrategy: withTeam(),
     store: adapter, user: 'alice', secret: 'pw-2026',
     txStrategy: withTransactions(),
   })
@@ -80,7 +81,7 @@ async function setup() {
 describe('as-xml fromString — capability gate', () => {
   it('throws ImportCapabilityError without the grant', async () => {
     const adapter = memory()
-    const db = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-2026' })
+    const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
     const vault = await db.openVault('demo')
     await expect(
       fromString(vault, '<Records><Invoice><id>a</id></Invoice></Records>', { collection: 'invoices' }),
@@ -218,7 +219,7 @@ describe('as-xml fromString — round-trip', () => {
 describe('as-xml fromString — apply() requires withTransactions()', () => {
   it('throws a clear error when the tx strategy is missing', async () => {
     const adapter = memory()
-    const init = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-2026' })
+    const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
     await init.openVault('demo')
     await init.grant('demo', {
       userId: 'alice', displayName: 'Alice', role: 'owner',
@@ -226,7 +227,7 @@ describe('as-xml fromString — apply() requires withTransactions()', () => {
       importCapability: { plaintext: ['xml'] },
     })
     init.close()
-    const db = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-2026' })
+    const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
     const vault = await db.openVault('demo')
 
     const importer = await fromString(vault,

@@ -38,7 +38,7 @@ The core is what NOYDB **is**, not what it **does**. Six areas are always loaded
 | C1 | **Vault & Collection model** | `Noydb`, `Vault`, `Collection<T>`, lifecycle, `openVault`, `listVaults` | ~3,000 |
 | C2 | **Encryption** | AES-256-GCM, PBKDF2-SHA256 (600K), AES-KW, KEK→DEK, envelope format | ~500 |
 | C3 | **Store contract** | The 6-method `NoydbStore` interface (`get`/`put`/`delete`/`list`/`loadAll`/`saveAll`) | ~300 |
-| C4 | **Keyring & Permissions** | Owner-role keyring, DEK wrapping, single-user permission check (multi-user grant/revoke is the **`team`** service) | ~750 |
+| C4 | **Keyring & Permissions** | Owner-role keyring, DEK wrapping, single-user permission check (multi-user grant/revoke/rotate lives in the **`team`** service — split completed in #267, gated behind `withTeam()`) | ~750 |
 | C5 | **Schema & Refs** | Typed records, foreign-key references, ref-mode dispatch (strict / warn / cascade) | ~460 |
 | C6 | **Query basics** | `where` / `orderBy` / `limit` / `offset` / `toArray` / `first` / `count` / `scan` (eager async iteration) | ~700 |
 | — | Errors / Events / Validation | Structured error types, `change` events, runtime guards | ~800 |
@@ -108,7 +108,7 @@ The Dim 14 family. All three share the same encrypted-payload metadata envelope,
 | # | Subpath | Headline | LOC saved | Pairs with |
 |---|---|---|---:|---|
 | 14 | `@noy-db/hub/sync` | P2P replication engine + presence | ~856 | `crdt`, `live`, `team` |
-| 15 | `@noy-db/hub/team` | Multi-user grant/revoke/rotate + magic-link + delegation + tiers | ~1,000 | `sync`, `session` |
+| 15 | `@noy-db/hub/team` | Multi-user grant/revoke/rotate (`db.grant`/`db.revoke`/`db.rotate` require `teamStrategy: withTeam()` since 0.3 — #267) + magic-link + delegation + tiers | ~1,000 | `sync`, `session` |
 | 16 | `@noy-db/hub/session` | Token sessions + dev-unlock + policy enforcement | 839 | `team` |
 | 16a | `vault.user.*` (always-on) — see `user-envelope` | Per-principal profile + preferences envelope (`_users/<keyringId>`) with own-only write rule | ~600 always-on | `team`, `session-tiers`, `sync` |
 
@@ -377,6 +377,6 @@ These three invariants make the catalog **load-bearing** rather than aspirationa
 
 ## Open questions
 
-- Should `keyring-grant` (multi-user grant/revoke/rotate) split out of core into the `team` service, leaving only single-owner keyring in core? Today this is partially done — the proposal is to complete the split so the core floor really is single-user.
+- ~~Should `keyring-grant` (multi-user grant/revoke/rotate) split out of core into the `team` service, leaving only single-owner keyring in core?~~ **Resolved (#267):** the split is complete. `db.grant` / `db.revoke` / `db.rotate` throw `TeamNotEnabledError` unless `teamStrategy: withTeam()` is passed; the keyring grant/revoke/rotate engines are linked only from the `@noy-db/hub/team` subpath, so the core floor really is single-user. Single-user primitives (owner keyring, unlock, `listUsers`, `updateUser`, passphrase rotate/recover, `createDeedOwner`) stay ungated.
 - Should `lazy` mode (cache + on-demand fetch) be promoted from inside `routing` to its own headline service? Trade-off: clarity vs. catalog inflation. Open for the next review.
 - Should `bundle` stay as a subpath given it already tree-shakes naturally via `"sideEffects": false` and named re-exports? Decision: yes — the docs surface matters more than the technical mechanism, and a uniform pattern (every service has `with*()`) is easier to teach.

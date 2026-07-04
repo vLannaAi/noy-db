@@ -35,6 +35,7 @@
  * those injections to their real implementations.
  */
 
+import { withTeam } from '@noy-db/hub/team'
 import { createNoydb, type Noydb, type NoydbStore } from '@noy-db/hub'
 import { jsonFile } from '@noy-db/to-file'
 import type { ReadPassphrase } from './shared.js'
@@ -100,6 +101,8 @@ export async function rotate(options: RotateOptions): Promise<RotateResult> {
       store: buildAdapter(options.dir),
       user: options.user,
       secret,
+      // Key rotation is the opt-in team capability (#267).
+      teamStrategy: withTeam(),
     })
 
     // Resolve "all collections" by asking the vault. This

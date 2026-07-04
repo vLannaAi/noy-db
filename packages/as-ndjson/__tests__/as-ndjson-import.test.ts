@@ -3,6 +3,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub'
 import { ConflictError, createNoydb } from '@noy-db/hub'
 import { withTransactions } from '@noy-db/hub/tx'
 import { fromString } from '../src/index.js'
+import { withTeam } from '@noy-db/hub/team'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -44,7 +45,7 @@ interface Note { id: string; text: string }
 
 async function setup() {
   const adapter = memory()
-  const init = await createNoydb({ store: adapter, user: 'alice', secret: 'pw-2026' })
+  const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
   await init.openVault('demo')
   await init.grant('demo', {
     userId: 'alice', displayName: 'Alice', role: 'owner',
@@ -52,7 +53,7 @@ async function setup() {
     importCapability: { plaintext: ['ndjson'] },
   })
   init.close()
-  const db = await createNoydb({
+  const db = await createNoydb({ teamStrategy: withTeam(),
     store: adapter, user: 'alice', secret: 'pw-2026',
     txStrategy: withTransactions(),
   })

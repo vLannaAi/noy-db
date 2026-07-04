@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest'
 import { createNoydb, classified } from '@noy-db/hub'
 import { memory } from '@noy-db/to-memory'
 import { toBytes, toBytesMultiVault, readXlsx } from '../src/index.js'
+import { withTeam } from '@noy-db/hub/team'
 
 /**
  * Builds a fresh vault whose owner already holds the `plaintext: ['xlsx']`
@@ -19,7 +20,7 @@ import { toBytes, toBytesMultiVault, readXlsx } from '../src/index.js'
  */
 async function makeVault() {
   const adapter = memory()
-  const db = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+  const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
   await db.openVault('acme')
   await db.grant('acme', {
     userId: 'owner-01', displayName: 'Owner', role: 'owner',
@@ -28,7 +29,7 @@ async function makeVault() {
   })
   await db.close()
 
-  const db2 = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass' })
+  const db2 = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
   return db2.openVault('acme')
 }
 

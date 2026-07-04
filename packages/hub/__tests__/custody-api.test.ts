@@ -37,6 +37,7 @@ import type { Noydb } from '../src/kernel/noydb.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { MemorySealingKeyProvider, resolveManagedSecret } from '../src/with-party/team/managed-passphrase.js'
 import { createDeedOwner, loadDeedMarker } from '../src/with-party/team/deed.js'
+import { withTeam } from '../src/with-party/team/index.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -91,7 +92,7 @@ describe('FR-6 Task 6 — vault.custody.* end-to-end acceptance walkthrough', ()
    */
   async function openLatentOwner(): Promise<Noydb> {
     const passphrase = await resolveManagedSecret(adapter, VAULT, sealing)
-    return createNoydb({ cargoStrategy: withCargo(),
+    return createNoydb({ teamStrategy: withTeam(), cargoStrategy: withCargo(),
       store: adapter, user: 'owner-01', secret: passphrase,
       historyStrategy: withHistory(), policy: POLICY, custodyStrategy: withCustody(),
     })
@@ -123,7 +124,7 @@ describe('FR-6 Task 6 — vault.custody.* end-to-end acceptance walkthrough', ()
     ).resolves.not.toThrow()
 
     // ── 2. The custodian opens + reads/writes ALL collections ────────────────
-    const firmDb = await createNoydb({ cargoStrategy: withCargo(), store: adapter, user: 'firm-01', secret: 'firm-pass-long', historyStrategy: withHistory(), policy: POLICY, portabilityStrategy: withPortability() })
+    const firmDb = await createNoydb({ teamStrategy: withTeam(), cargoStrategy: withCargo(), store: adapter, user: 'firm-01', secret: 'firm-pass-long', historyStrategy: withHistory(), policy: POLICY, portabilityStrategy: withPortability() })
     const firmVault = await firmDb.openVault(VAULT)
     expect((await firmVault.collection<Invoice>('invoices').get('inv-001'))?.amount).toBe(5000)
     expect((await firmVault.collection<Invoice>('payments').get('pay-001'))?.amount).toBe(3000)
@@ -155,7 +156,7 @@ describe('FR-6 Task 6 — vault.custody.* end-to-end acceptance walkthrough', ()
       latentOwnerVault.custody.revokeCustodian({ userId: 'firm-01' }),
     ).resolves.not.toThrow()
     // After revocation the firm keyring is gone — a fresh custodian open is denied.
-    const firmAfter = await createNoydb({ cargoStrategy: withCargo(), store: adapter, user: 'firm-01', secret: 'firm-pass-long' })
+    const firmAfter = await createNoydb({ teamStrategy: withTeam(), cargoStrategy: withCargo(), store: adapter, user: 'firm-01', secret: 'firm-pass-long' })
     await expect(firmAfter.openVault(VAULT)).rejects.toThrow()
     // The latent owner can extract-and-sever WITHOUT the custodian's cooperation.
     const extracted = await extractPartition(latentOwnerVault, { seeds: { invoices: () => true } })
@@ -172,13 +173,13 @@ describe('FR-6 Task 6 — vault.custody.* end-to-end acceptance walkthrough', ()
     // collection — this writes a `user-unilateral-withdrawal:...` entry into the
     // SAME `vault.ledger()` the liberation later appends to.
     await ownerDb.grant(VAULT, { userId: 'op-01', displayName: 'Op', role: 'operator', passphrase: 'op-pass-long', permissions: { archive: 'rw' } })
-    const opDb = await createNoydb({ cargoStrategy: withCargo(), store: adapter, user: 'op-01', secret: 'op-pass-long', historyStrategy: withHistory(), policy: POLICY, portabilityStrategy: withPortability() })
+    const opDb = await createNoydb({ teamStrategy: withTeam(), cargoStrategy: withCargo(), store: adapter, user: 'op-01', secret: 'op-pass-long', historyStrategy: withHistory(), policy: POLICY, portabilityStrategy: withPortability() })
     const opVault = await opDb.openVault(VAULT)
     await opVault.user.unilateralWithdrawal({ legalBasis: 'partial-handover', disposition: 'freeze', scope: { collections: ['archive'] } })
 
     // Now mint the custodian + liberate via vault.custody.liberate.
     await ownerVault.custody.grantCustodian({ userId: 'firm-01', displayName: 'Firm', passphrase: 'firm-pass-long' })
-    const firmDb = await createNoydb({ cargoStrategy: withCargo(), store: adapter, user: 'firm-01', secret: 'firm-pass-long', historyStrategy: withHistory(), policy: POLICY, portabilityStrategy: withPortability(), custodyStrategy: withCustody() })
+    const firmDb = await createNoydb({ teamStrategy: withTeam(), cargoStrategy: withCargo(), store: adapter, user: 'firm-01', secret: 'firm-pass-long', historyStrategy: withHistory(), policy: POLICY, portabilityStrategy: withPortability(), custodyStrategy: withCustody() })
     const firmVault = await firmDb.openVault(VAULT)
 
     const result = await firmVault.custody.liberate({
@@ -194,7 +195,7 @@ describe('FR-6 Task 6 — vault.custody.* end-to-end acceptance walkthrough', ()
     expect(liberations).toHaveLength(1)
 
     // The new owner is a DISTINCT principal who can operate as owner; live data preserved.
-    const newOwnerDb = await createNoydb({ cargoStrategy: withCargo(), store: adapter, user: 'firm-owner-01', secret: 'firm-owner-pass-long' })
+    const newOwnerDb = await createNoydb({ teamStrategy: withTeam(), cargoStrategy: withCargo(), store: adapter, user: 'firm-owner-01', secret: 'firm-owner-pass-long' })
     const newOwnerVault = await newOwnerDb.openVault(VAULT)
     expect((await newOwnerVault.collection<Invoice>('invoices').get('inv-001'))?.amount).toBe(5000)
 
@@ -206,7 +207,7 @@ describe('FR-6 Task 6 — vault.custody.* end-to-end acceptance walkthrough', ()
   it('vault.custody.grantCustodian is owner-only (an admin caller is denied)', async () => {
     const ownerDb = await provisionDeed()
     await ownerDb.grant(VAULT, { userId: 'admin-01', displayName: 'Admin', role: 'admin', passphrase: 'admin-pass-long' })
-    const adminDb = await createNoydb({ cargoStrategy: withCargo(), store: adapter, user: 'admin-01', secret: 'admin-pass-long', policy: POLICY, custodyStrategy: withCustody() })
+    const adminDb = await createNoydb({ teamStrategy: withTeam(), cargoStrategy: withCargo(), store: adapter, user: 'admin-01', secret: 'admin-pass-long', policy: POLICY, custodyStrategy: withCustody() })
     const adminVault = await adminDb.openVault(VAULT)
     await expect(
       adminVault.custody.grantCustodian({ userId: 'firm-99', displayName: 'Firm', passphrase: 'firm-pass-long' }),

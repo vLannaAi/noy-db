@@ -19,6 +19,7 @@ import {
   MemorySealingKeyProvider,
 } from '../src/with-party/team/managed-passphrase.js'
 import { shamirRecoveryProvider } from '@noy-db/on-shamir'
+import { withTeam } from '../src/with-party/team/index.js'
 
 // Inline memory adapter (same shape as cross-vault.test.ts)
 function memory(): NoydbStore {
@@ -92,11 +93,11 @@ function trackingMemory() {
 describe('openVault no-self-provision (#313)', () => {
   it('default: bob opening alice\'s populated vault fails closed and writes nothing', async () => {
     const { adapter, mark, writesSince } = trackingMemory()
-    const alice = await createNoydb({ store: adapter, user: 'alice', secret: 'alice-pass' })
+    const alice = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'alice-pass' })
     const av = await alice.openVault('client-1')
     await av.collection<{ n: number }>('c').put('r1', { n: 1 })
 
-    const bob = await createNoydb({ store: adapter, user: 'bob', secret: 'bob-pass' })
+    const bob = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'bob', secret: 'bob-pass' })
     const m = mark()
     await expect(bob.openVault('client-1')).rejects.toBeInstanceOf(NoAccessError)
     expect(writesSince(m)).toEqual([])          // NOTHING written after alice populated the vault
@@ -107,13 +108,13 @@ describe('openVault no-self-provision (#313)', () => {
     const { adapter, mark, writesSince } = trackingMemory()
 
     // alice creates + populates with a standard secret-based vault
-    const alice = await createNoydb({ store: adapter, user: 'alice', secret: 'alice-pass' })
+    const alice = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'alice-pass' })
     await (await alice.openVault('client-1')).collection<{ n: number }>('c').put('r1', { n: 1 })
 
     // bob uses managed mode — resolveManagedSecret would write _meta/sealed-passphrase
     // on first open if the pre-gate weren't there
     const bobProvider = new MemorySealingKeyProvider({ id: 'test-kms' })
-    const bob = await createNoydb({
+    const bob = await createNoydb({ teamStrategy: withTeam(),
       store: adapter,
       user: 'bob',
       passphraseMode: 'managed',
@@ -130,7 +131,7 @@ describe('openVault no-self-provision (#313)', () => {
 
   it('new vault still open-or-creates (default)', async () => {
     const { adapter } = trackingMemory()
-    const db = await createNoydb({ store: adapter, user: 'alice', secret: 'alice-pass' })
+    const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'alice-pass' })
     const v = await db.openVault('fresh')
     await v.collection<{ n: number }>('c').put('r1', { n: 1 })
     expect(await adapter.get('fresh', '_keyring', 'alice')).not.toBeNull()
@@ -138,24 +139,24 @@ describe('openVault no-self-provision (#313)', () => {
 
   it('create:false never creates, even a fresh vault', async () => {
     const { adapter } = trackingMemory()
-    const db = await createNoydb({ store: adapter, user: 'alice', secret: 'alice-pass' })
+    const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'alice-pass' })
     await expect(db.openVault('fresh', { create: false })).rejects.toBeInstanceOf(NoAccessError)
     expect(await adapter.get('fresh', '_keyring', 'alice')).toBeNull()
   })
 
   it('create:false on a populated vault succeeds for a granted member', async () => {
     const { adapter } = trackingMemory()
-    const alice = await createNoydb({ store: adapter, user: 'alice', secret: 'alice-pass' })
+    const alice = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'alice-pass' })
     await (await alice.openVault('client-1')).collection<{ n: number }>('c').put('r1', { n: 1 })
     await alice.grant('client-1', { userId: 'bob', displayName: 'Bob', role: 'viewer', passphrase: 'bob-pass', allowWeakPassphrase: true })
-    const bob = await createNoydb({ store: adapter, user: 'bob', secret: 'bob-pass' })
+    const bob = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'bob', secret: 'bob-pass' })
     const bv = await bob.openVault('client-1', { create: false })
     expect(await bv.collection<{ n: number }>('c').get('r1')).toEqual({ n: 1 })
   })
 
   it('a granted member opens fine and can read records', async () => {
     const { adapter } = trackingMemory()
-    const alice = await createNoydb({ store: adapter, user: 'alice', secret: 'alice-pass' })
+    const alice = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'alice-pass' })
     await (await alice.openVault('client-1')).collection<{ n: number }>('c').put('r1', { n: 1 })
     await alice.grant('client-1', {
       userId: 'bob',
@@ -165,7 +166,7 @@ describe('openVault no-self-provision (#313)', () => {
       allowWeakPassphrase: true,
     })
 
-    const bob = await createNoydb({ store: adapter, user: 'bob', secret: 'bob-pass' })
+    const bob = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'bob', secret: 'bob-pass' })
     const bv = await bob.openVault('client-1')
     expect(await bv.collection<{ n: number }>('c').get('r1')).toEqual({ n: 1 })
   })

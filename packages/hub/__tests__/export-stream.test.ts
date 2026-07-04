@@ -27,6 +27,7 @@ import { createNoydb } from '../src/kernel/noydb.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import type { Noydb } from '../src/kernel/noydb.js'
 import { ref } from '../src/kernel/refs.js'
+import { withTeam } from '../src/with-party/team/index.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -76,7 +77,7 @@ describe('exportStream() + exportJSON().', () => {
 
   beforeEach(async () => {
     adapter = memory()
-    ownerDb = await createNoydb({ store: adapter, user: 'owner-01', historyStrategy: withHistory(), secret: 'owner-pass' })
+    ownerDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', historyStrategy: withHistory(), secret: 'owner-pass' })
 
     // Seed three collections so we can assert ACL scoping later.
     const comp = await ownerDb.openVault(COMP)
@@ -89,7 +90,7 @@ describe('exportStream() + exportJSON().', () => {
 
   describe('empty compartment', () => {
     it('yields zero chunks', async () => {
-      const db = await createNoydb({ store: memory(), user: 'owner-01', historyStrategy: withHistory(), secret: 'p' })
+      const db = await createNoydb({ teamStrategy: withTeam(), store: memory(), user: 'owner-01', historyStrategy: withHistory(), secret: 'p' })
       const empty = await db.openVault('empty-co')
       const chunks: ExportChunk[] = []
       for await (const chunk of empty.exportStream()) chunks.push(chunk)
@@ -210,7 +211,7 @@ describe('exportStream() + exportJSON().', () => {
         passphrase: 'op-pass',
         permissions: { invoices: 'rw' },
       })
-      const opDb = await createNoydb({ store: adapter, user: 'op-01', historyStrategy: withHistory(), secret: 'op-pass' })
+      const opDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'op-01', historyStrategy: withHistory(), secret: 'op-pass' })
       const comp = await opDb.openVault(COMP)
 
       const chunks: ExportChunk[] = []
@@ -226,7 +227,7 @@ describe('exportStream() + exportJSON().', () => {
         role: 'viewer',
         passphrase: 'v-pass',
       })
-      const viewerDb = await createNoydb({ store: adapter, user: 'viewer-01', historyStrategy: withHistory(), secret: 'v-pass' })
+      const viewerDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'viewer-01', historyStrategy: withHistory(), secret: 'v-pass' })
       const comp = await viewerDb.openVault(COMP)
 
       const chunks: ExportChunk[] = []
@@ -243,7 +244,7 @@ describe('exportStream() + exportJSON().', () => {
         passphrase: 'c-pass',
         permissions: { invoices: 'ro' },
       })
-      const clientDb = await createNoydb({ store: adapter, user: 'client-01', historyStrategy: withHistory(), secret: 'c-pass' })
+      const clientDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'client-01', historyStrategy: withHistory(), secret: 'c-pass' })
       const comp = await clientDb.openVault(COMP)
 
       const chunks: ExportChunk[] = []
@@ -300,7 +301,7 @@ describe('exportStream() + exportJSON().', () => {
         passphrase: 'op-pass',
         permissions: { payments: 'ro' },
       })
-      const opDb = await createNoydb({ store: adapter, user: 'op-02', historyStrategy: withHistory(), secret: 'op-pass' })
+      const opDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'op-02', historyStrategy: withHistory(), secret: 'op-pass' })
       const comp = await opDb.openVault(COMP)
 
       const parsed = JSON.parse(await comp.exportJSON()) as {

@@ -7,14 +7,15 @@
  * via opt-in; grant/revoke run the host's own gate + keyring engine.
  */
 import type { CustodyStrategy } from './strategy.js'
+import { grant as grantEngine, revoke as revokeEngine } from '../team/keyring.js'
 
 export function withCustody(): CustodyStrategy {
   return {
     async grantCustodian(host, vault, options, factors) {
-      return host._grantCustodianImpl(vault, options, factors)
+      return host._grantCustodianImpl(grantEngine, vault, options, factors)
     },
     async revokeCustodian(host, vault, options, factors) {
-      return host._revokeCustodianImpl(vault, options, factors)
+      return host._revokeCustodianImpl(revokeEngine, vault, options, factors)
     },
     async liberate(vault, opts) {
       const { liberateVault } = await import('./liberate.js')
