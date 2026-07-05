@@ -1,5 +1,16 @@
 # @noy-db/in-tanstack-table
 
+## 0.3.0-pre.4
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.3.0-pre.4
+
 ## 0.3.0-pre.3
 
 ### Patch Changes
