@@ -1,5 +1,13 @@
 # @noy-db/in-react
 
+## 0.3.0-pre.5
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.3.0-pre.5
+
 ## 0.3.0-pre.4
 
 ### Patch Changes
