@@ -28,6 +28,7 @@ import { OverlayedCollection } from '../with-formula/overlay-views/virtual-colle
 import type { PublicEnvelope } from '../with-party/directory/public-envelope/types.js'
 import { buildRecipientKeyringFile } from '../with-party/team/keyring.js'
 import { ensureCollectionDEK, hasAccess } from '../with-party/team/keyring.js'
+import { isSecretBearingReservedCollection } from '../with-party/team/reserved-secret-collections.js'
 import {
   assertCanExport as assertCanExportCapability,
   assertCanImport as assertCanImportCapability,
@@ -863,6 +864,15 @@ export class Vault {
     }
     // Guard: reject reserved _links_* names — use vault.link()/vault.links() instead.
     if (isLinkCollectionName(collectionName)) {
+      throw new ReservedCollectionNameError(collectionName)
+    }
+    // Guard: reject secret-bearing reserved names (`_sync_credentials`,
+    // `_broker`). Their record CONTENTS are directly-usable secrets, so they
+    // must never be reachable through the generic public collection handle —
+    // they are served only by their dedicated, owner/admin-gated API. Serving
+    // them here would decrypt with whatever DEK the caller's keyring holds,
+    // bypassing that gate. See reserved-secret-collections.ts.
+    if (isSecretBearingReservedCollection(collectionName)) {
       throw new ReservedCollectionNameError(collectionName)
     }
 

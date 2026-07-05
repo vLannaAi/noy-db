@@ -22,6 +22,7 @@ import {
   loadUserEnvelope as loadUserEnvelopeFn,
   deleteUserEnvelope,
 } from '../directory/user-envelope/index.js'
+import { isSecretBearingReservedCollection } from './reserved-secret-collections.js'
 
 // ─── Roles that can grant/revoke ───────────────────────────────────────
 
@@ -440,9 +441,23 @@ export async function grant(
   const newSalt = generateSalt()
   const newKek = await deriveKey(options.passphrase, newSalt)
 
+  // Only owner and admin may ever hold a secret-bearing reserved DEK
+  // (`_sync_credentials`, `_broker`) — they are the roles the dedicated
+  // credential API admits. Every other grantee (custodian, viewer, operator,
+  // client) is excluded, even from the "wrap ALL" branches below: a custodian
+  // operates the DATA but must never read the firm's transport secrets (see
+  // `requireAdminAccess` in sync-credentials.ts), and handing any sub-admin
+  // one of these DEKs is a plaintext leak, not a metadata leak.
+  const granteeMayHoldSecrets =
+    options.role === 'owner' || options.role === 'admin'
+
   // Wrap the appropriate DEKs with the new user's KEK
   const wrappedDeks: Record<string, string> = {}
   for (const collName of Object.keys(permissions)) {
+    // Never hand a secret-bearing reserved DEK to a sub-admin, even if the
+    // grantor explicitly names it in `permissions` — that path is served
+    // only by the owner/admin-gated credential API, not per-collection grants.
+    if (isSecretBearingReservedCollection(collName) && !granteeMayHoldSecrets) continue
     const dek = callerKeyring.deks.get(collName)
     if (dek) {
       wrappedDeks[collName] = await wrapKey(dek, newKek)
@@ -460,9 +475,9 @@ export async function grant(
     options.role === 'viewer'
   ) {
     for (const [collName, dek] of callerKeyring.deks) {
-      if (!(collName in wrappedDeks)) {
-        wrappedDeks[collName] = await wrapKey(dek, newKek)
-      }
+      if (collName in wrappedDeks) continue
+      if (isSecretBearingReservedCollection(collName) && !granteeMayHoldSecrets) continue
+      wrappedDeks[collName] = await wrapKey(dek, newKek)
     }
   }
 
@@ -480,10 +495,19 @@ export async function grant(
   // plaintext leak — the ledger entries record collection names,
   // record ids, and ciphertext hashes, but never plaintext records.
   // Per-collection ledger DEKs are tracked as a follow-up.
+  //
+  // EXCEPTION — secret-bearing reserved collections (`_sync_credentials`,
+  // `_broker`) whose record CONTENTS are directly-usable secrets are NOT
+  // propagated to sub-admin grantees. Unlike the operational collections
+  // above, handing an operator/viewer/client/custodian one of these DEKs
+  // IS a plaintext leak (the firm's transport OAuth tokens). Only owner and
+  // admin — the roles the dedicated `getCredential`/`putCredential` API
+  // admits — receive them, so the legit admin-reads-existing-credential
+  // flow (which needs the DEK to decrypt, not regenerate) still works.
   for (const [collName, dek] of callerKeyring.deks) {
-    if (collName.startsWith('_') && !(collName in wrappedDeks)) {
-      wrappedDeks[collName] = await wrapKey(dek, newKek)
-    }
+    if (!collName.startsWith('_') || collName in wrappedDeks) continue
+    if (isSecretBearingReservedCollection(collName) && !granteeMayHoldSecrets) continue
+    wrappedDeks[collName] = await wrapKey(dek, newKek)
   }
 
   // Anti-privilege-escalation check. Every DEK we just

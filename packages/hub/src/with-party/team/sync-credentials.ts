@@ -44,8 +44,14 @@ import { encrypt, openEnvelopeJson } from '../../kernel/enclave/index.js'
 import { ensureCollectionDEK } from './keyring.js'
 import { PermissionDeniedError } from '../../kernel/errors.js'
 
-/** The reserved collection name. Never collides with user collections. */
-export const SYNC_CREDENTIALS_COLLECTION = '_sync_credentials'
+/**
+ * The reserved collection name. Never collides with user collections.
+ * Canonical definition lives in `reserved-secret-collections.ts` (shared with
+ * the `vault.collection()` guard and grant DEK-propagation); re-exported here
+ * for existing consumers.
+ */
+export { SYNC_CREDENTIALS_COLLECTION } from './reserved-secret-collections.js'
+import { SYNC_CREDENTIALS_COLLECTION } from './reserved-secret-collections.js'
 
 // ─── Token types ──────────────────────────────────────────────────────
 
