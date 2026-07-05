@@ -839,7 +839,11 @@ const KERNEL_SURFACE_BUDGET = {
   // Merge 2026-07-05 (#582 ∪ #267/#580): reconciled to the TRUE post-merge line
   // count — vault.ts now carries #267's lazyStrategy plumbing AND this branch's
   // acknowledgeEquatableRisk door together. Not loosened past the real count.
-  'packages/hub/src/kernel/vault.ts': 3888,
+  // Bumped 3888 → 3898 (2026-07-05): the secret-bearing reserved-collection
+  // guard at the collection() door — a genuinely-core trust-boundary check
+  // (closes a granted-principal read path to `_sync_credentials`) that sits
+  // alongside the existing _dict_/_links_ reserved-name guards.
+  'packages/hub/src/kernel/vault.ts': 3898,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
@@ -1280,6 +1284,10 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-party/directory/public-envelope/types.js',
     '../with-party/team/delegation.js',
     '../with-party/team/keyring.js',
+    // reserved-secret-collection guard (security fix) — the collection() door
+    // rejects secret-bearing reserved names; sibling of the grandfathered
+    // reserved-name predicates i18n/dictionary.js and links/names.js below.
+    '../with-party/team/reserved-secret-collections.js',
     '../with-party/team/magic-link-grant.js',
     '../with-party/team/managed-passphrase.js',
     '../with-party/team/sync-strategy.js',
