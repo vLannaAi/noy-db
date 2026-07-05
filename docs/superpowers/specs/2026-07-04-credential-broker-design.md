@@ -1,5 +1,7 @@
 # #479 — Client cloud-credential broker: passphrase-bound, rolling, non-extractable store auth (design brief)
 
+**Status:** all 7 owner-decisions RESOLVED 2026-07-05 (see Open questions) — decision-complete, ready for a hardened spec + adversarial audit before implementation. Locked: developer-backend enrolment attestation · symmetric HMAC proof · `@noy-db/hub/broker` helpers + doc host · slice-1 AWS-only · `StoreAuth` untouched · persist-nothing default · klum re-export deferred.
+
 > **Status:** design (2026-07-04), decision-ready — DESIGN ONLY, no code. Hardens the
 > proposal sketch in issue #479 into decidable forks. Prior art: #306 record-scoped
 > sealing (`2026-06-29-306-record-scoped-sealing.md`), the S5 port model
@@ -309,28 +311,29 @@ registered proof keys, or for D-2 unsealing symmetry — deployment choice).
 - **R5 (seam churn):** `/to` golden bump + noy-db-to peer-floor ratchet must land
   as one coordinated pre-release (the 0.3.0-pre line's sister-adoption playbook).
 
-## Open questions (owner input needed)
+## Open questions — RESOLVED 2026-07-05 (owner sign-off)
 
-1. **Enrolment trust bootstrap** — how does the broker know a registering proof
-   key is legitimate? TOFU (first-register-wins per vault id) vs
-   developer-backend attestation (app session token authorizes `/enroll`) vs
-   out-of-band admin approval. TOFU is simplest but lets an attacker who knows a
-   fresh vault id squat it; recommendation leans developer-backend, but this is a
-   deployment-topology call.
-2. **Symmetric HMAC proof acceptable?** §2 argues broker-side forgeability is a
-   non-weakening. Confirm, or we design the heavier per-instance asymmetric
-   enrolment-key variant now instead of later.
-3. **Helper home** — H-3 (helpers in `@noy-db/hub/broker` + doc example) vs a
-   published example host package. H-3 recommended; confirm no appetite for an
+1. **Enrolment trust bootstrap → developer-backend attestation.** The app's
+   existing session/auth token authorizes `/enroll`; the broker refuses enrolment
+   without it. Closes the TOFU vault-id-squatting hole. The reference host example
+   (§6) must show the attestation check on `/enroll`.
+2. **Symmetric HMAC proof → accepted.** §2's non-weakening argument stands (the
+   broker is the credential mint; forging a proof to itself grants nothing extra).
+   No asymmetric enrolment key. HMAC-SHA-256 as specified.
+3. **Helper home → `@noy-db/hub/broker` subpath + doc example (H-3).** Portable
+   `crypto.subtle`-only verify/issue/seal helpers exported from the new service
+   subpath + a documented ~100-line Lambda/STS reference host. No new package, no
    `at-*` charter stretch.
-4. **Slice-1 scope** — do `to-postgres` / `to-turso` / `to-supabase` adopt the
-   `kind: 'token'` arm in slice 1, or AWS-only first? (Type ships vendor-neutral
-   either way.)
-5. **`StoreAuth` polish** — add `kind: 'broker'`, `flow: 'rolling'` (descriptive
-   only, still consumed by nothing) or leave untouched until something reads it?
-   Recommendation: leave untouched; it's declared-only today and additive later.
-6. **D-2 default** — agreed that sealed delivery is opt-in and "persist nothing"
-   is the default posture?
-7. **klum-db fleet angle** — should cargo eventually re-export broker types so the
-   lobby can orchestrate per-vault broker enrolment fleet-wide? (Cargo is
-   additive-only, so deferring costs nothing.)
+4. **Slice-1 scope → AWS-only first.** Slice 1 wires the `credentials` hook into
+   `to-aws-dynamo` / `as-aws-s3` behind an AWS profile. The contract type ships
+   vendor-neutral; `to-postgres` / `to-turso` / `to-supabase` adopt the
+   `kind: 'token'` arm in a later slice.
+5. **`StoreAuth` polish → leave untouched.** It stays declared-only today; a
+   `kind: 'broker'` / `flow: 'rolling'` descriptor is additive later if something
+   comes to consume it.
+6. **Sealed-delivery default → confirmed.** Sealed-to-instance TLV is opt-in;
+   **"persist nothing" (memory-only, refresh-on-demand)** is the default posture
+   (D-1 recommended in §5).
+7. **klum-db fleet angle → deferred.** Cargo does not re-export broker types now;
+   revisit if/when the lobby wants fleet-wide enrolment (cargo is additive-only,
+   so deferring costs nothing).
