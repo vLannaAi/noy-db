@@ -1,5 +1,34 @@
 # Changelog — hub
 
+## 0.3.0-pre.4
+
+### Minor Changes
+
+- classified: equatable blind index (slice 2b)
+
+  Opt-in equality search over digest-only classified fields. Enabling `equatable: true` on `classified.password()` / `classified.secretAnswer()` (gated behind the collection-level `acknowledgeEquatableRisk: true` door, R8) attaches a store-visible `_bidx` equality tag to each envelope, so equal values produce equal tags and can be looked up with the new `collection.findByDigest(field, candidate)`. The lookup is a single `list + N get` sweep whose matches are confirmed in-hand against `_vdig` (no per-hit store op, no wrong-id return), and it emits exactly one `onAccess('find', '*')` consent op regardless of hit count. `scrubEquatableTags()` is the sole explicit tag drop-path (DEK rotation also drops tags); the `_bidx ⇒ _vdig` invariant holds and monotonic carry-forward preserves coverage on unrelated puts.
+
+  Note: the honest cost band — equal tags leak the equality partition (who-shares-what and how-many, never the value), and a collection-DEK holder can offline-dictionary at the PBKDF2-SHA256 (600K) floor. The door, not the iteration count, is the control for low-entropy fields.
+
+  NON-additive golden: `classifySealedShred` now returns a per-slot `{ field, class }` shape (was parallel arrays) to carry the `_bidx` slot disposition (`live-shreddable` + `dekResidue-in-backups`).
+
+- Archetype-③ schema engines (money, computed, links, schema-update, introspection) are now declaration-gated instead of kernel-resident, so they tree-shake out of bundles that never declare them (#553) — the floor's eagerly-loaded set shrinks by ~14.5 KB min / ~5.2 KB gz. Money links its engine at `money()` declaration time (the sync query DSL is preserved exactly); computed/links/schema-update/introspection load on first use behind dynamic imports. No public API changes; hand-rolled money descriptor objects (not built via `money()`) now fail loud with `MONEY_ENGINE_NOT_LINKED`.
+- Track A kernel-shrink tail (#267) — three changes that move optional capability off the always-on floor:
+
+  - **`team` split:** multi-user grant/revoke/rotate move out of the always-on core behind the new `withTeam()` strategy + `@noy-db/hub/team` subpath. A collection that never opts into `withTeam()` no longer carries the grant/revoke/rotate machinery (smaller single-user floor). **Migration:** consumers using grant/revoke/rotate must now pass `teamStrategy: withTeam()` into `createNoydb({…})` — see `MIGRATING.md`.
+  - **`lazy` service:** the cache + on-demand fetch path (previously buried inside routing) is promoted to its own opt-in service behind `withLazy()` + `@noy-db/hub/lazy`.
+  - **gate prior-read elision (perf):** the gate bus skips its prior-read `adapter.get` + decrypt when no registered handler declares interest in the existing record — a wasted read on every gated put/delete removed on the no-interested-handler path.
+
+### Patch Changes
+
+- classified: C-A / R10 config-drift guard is now a SUPERSET check (covers `_vdig`-only and partial handles)
+
+  The slice-2b config-drift guard (R10) closes the naive-handle plaintext-leak / silent-drop hole on already-shipped stage-2 `_vdig`-only classified collections — not just the new `_bidx` path. It is now broadened from the original naive-only gate (which fired only for a handle with NO `classifiedFields`) to a **superset check**: a handle may write a classified collection only if its declared digest-only set covers every field the collection carries as classified (union of the target `prev`'s `_vdig`/`_bidx` keys and the persisted x-classified marker's declared set). This closes the **partial-handle door** — a handle that declares classified field `Y` but not `X`, writing a record that contains `X`'s value, previously skipped the guard entirely and serialized `X` into `_data` as DEK-recoverable plaintext (a C-A confidentiality leak of a digest-only secret). Such writes now throw `ClassifiedConfigError`.
+
+  MIGRATION NOTE: a write from a handle whose `classifiedFields` do not cover every classified field of the target collection now throws `ClassifiedConfigError` — fail-loud is the point. Re-open such collections with the full `classifiedFields` config (as the correctly-configured handle already does) and the write proceeds normally.
+
+- `openVault(name)` is now single-flight: concurrent opens of the same vault converge on one `Vault` instance. Previously two callers racing past the cache miss each constructed a Vault — and later two Collections with independent DEKs for the same store slice — so a record written through one failed decryption through the other with a spurious `TamperedError` (#564; root cause of the recurring in-pinia CI flake).
+
 ## 0.3.0-pre.3
 
 ### Minor Changes
