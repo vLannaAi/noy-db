@@ -1,5 +1,52 @@
 # Changelog — hub
 
+## 0.3.0-pre.5
+
+### Patch Changes
+
+- Harden the classified R10 config-drift guard against a `_schemas/<collection>`
+  lost-update race (#583).
+
+  The persisted `x-classified` marker (R10 trigger signal (b)) shares its
+  `_schemas/<collection>` record with the JSON-Schema writer. Both performed a
+  get-then-put read-modify-write with **no** version guard, so interleaving their
+  load→save windows lost whichever writer put first — dropping the marker (or the
+  derived schema body) and transiently disabling R10 signal (b) for the
+  first-write window.
+
+  Fix: `savePersistedSchema` now takes an optional `expectedVersion` (the `_v`
+  captured at load) and CASes on it via the store's native `put(..., expectedVersion)`
+  optimistic-lock, and both writers (`persistSchemaIfNeeded`,
+  `persistClassifiedMarker`) retry-on-`ConflictError` — re-reading, re-merging the
+  other writer's field, and re-putting. On `casAtomic` stores the marker now
+  survives a concurrent schema (re)registration by construction; the R10 read path
+  (`classifiedMarkerDigestOnly()`) and the persisted marker format are unchanged.
+
+- Security: reserved secret-collections are no longer readable by granted (sub-admin) principals.
+
+  Secret-bearing reserved collections (`_sync_credentials`, and the pre-reserved
+  `_broker` for #479) hold directly-usable secrets (transport OAuth tokens,
+  connection strings, API keys) in their record contents. Two seams combined to
+  expose them to a granted operator/viewer/client/custodian:
+
+  - `vault.collection('_sync_credentials')` returned a working handle — the
+    generic public read path had no guard for secret-bearing reserved names — so
+    it decrypted with whatever DEK the caller's keyring held, bypassing the
+    owner/admin gate on the dedicated `getCredential` API.
+  - `grant()` propagated every `_`-prefixed DEK to every new keyring regardless
+    of role, so a freshly-granted sub-admin received the `_sync_credentials` DEK.
+
+  Fix (two layers):
+
+  - `vault.collection()` now rejects secret-bearing reserved names with
+    `ReservedCollectionNameError` (mirrors the existing `_dict_*`/`_links_*`
+    guards). `_broker` is reserved now to future-proof the credential broker.
+  - `grant()` no longer propagates secret-bearing reserved DEKs to sub-admin
+    grantees (operator, viewer, client, custodian). Operational reserved DEKs
+    (`_ledger`, `_history`, `_sync`) still propagate to every role. Owner/admin —
+    the roles the dedicated credential API admits — still receive them, so the
+    admin-reads-existing-credential flow is preserved.
+
 ## 0.3.0-pre.4
 
 ### Minor Changes
