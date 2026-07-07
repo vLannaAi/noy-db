@@ -11,7 +11,8 @@ import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
 import type { NoydbStore } from '../src/kernel/types.js'
 import { memory } from '../../to-memory/src/index.js'
-import { RAW_TARGET } from '../src/with-shape/satellites/proxy.js'
+import { RAW_TARGET, makeSatelliteProxy } from '../src/with-shape/satellites/proxy.js'
+import { SatelliteConfigError } from '../src/kernel/errors.js'
 
 const SECRET = 'satellite-proxy-test-1234'
 
@@ -119,10 +120,44 @@ describe('satellite proxy — existence authority + R-S6', () => {
     await expect(raw.put('ghost', { body: 'B' })).resolves.toBeUndefined()
   })
 
-  it('satellite.query() refuses — Query terminals are sync, existence authority requires an async check; use list()', async () => {
+  it('satellite.query() refuses with SatelliteConfigError — Query terminals are sync, existence authority requires an async check; use list()', async () => {
     const { vault } = await openPair()
     await vault.collection<Msg>('msgs').put('x', { from: 'a' })
     await vault.collection<Msg>('msgs_text').put('x', { body: 'B' })
+    expect(() => vault.collection<Msg>('msgs_text').query()).toThrowError(SatelliteConfigError)
     expect(() => vault.collection<Msg>('msgs_text').query()).toThrowError(/list\(\)/)
+  })
+
+  it('poison check runs INSIDE the pair lock: a put queued behind a poisoning section rejects', async () => {
+    // Unit-level on makeSatelliteProxy with a stub target: the vault fixture
+    // can't distinguish the orderings because the Noydb-wide onBeforeWrite
+    // poison hook (Task 4) rejects the write either way (defense-in-depth
+    // masking). Here there is no write hook — only the proxy's own check.
+    const { SatelliteRegistry } = await import('../src/with-shape/satellites/registry.js')
+    const registry = new SatelliteRegistry()
+    const spec = { base: 'msgs', satellite: 'msgs_text', fields: ['body'] as const, joined: undefined }
+    registry.register(spec)
+    const liveEnv = { _noydb: 1, _v: 1, _ts: 't', _iv: 'iv', _data: 'd' }
+    const target = {
+      adapter: { get: async () => liveEnv }, // base always live — only poison can refuse
+      vault: 'v1',
+      put: async () => undefined,
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const proxied = makeSatelliteProxy(target as any, spec, registry)
+    // Occupy the pair lock; poison the satellite inside the held section
+    // (models a concurrent fan-out's failure path poisoning under the lock).
+    let release!: () => void
+    const gate = new Promise<void>(res => { release = res })
+    const holding = registry.withPairLock('msgs', async () => {
+      await gate
+      registry.poison('msgs_text', 'R-S1: poisoned during fan-out (ordering test)')
+    })
+    // Queue the put behind the held lock. Its poison check must run AFTER
+    // acquisition — i.e. after the poisoning section completes — so it rejects.
+    const blocked = proxied.put('x', { body: 'B' })
+    release()
+    await holding
+    await expect(blocked).rejects.toThrowError(/poisoned during fan-out/)
   })
 })

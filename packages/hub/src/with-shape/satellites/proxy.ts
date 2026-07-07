@@ -29,7 +29,7 @@ export function makeSatelliteProxy(target: any, spec: SatelliteSpec, registry: S
   const vaultName = target.vault
 
   const queryNotExistenceFiltered = (): never => {
-    throw new Error(
+    throw new SatelliteConfigError(
       `satellite "${spec.satellite}": query() is not existence-filtered. Query's terminal ` +
       `methods (toArray/first/count) read the in-memory cache synchronously, while existence ` +
       `authority (§ Convergence & existence authority, rule 1) requires an async, undecrypted ` +
@@ -51,13 +51,18 @@ export function makeSatelliteProxy(target: any, spec: SatelliteSpec, registry: S
       // one) — correlate by position against the cache's own key order
       // instead. Read AFTER `target.list()` resolves, so a not-yet-hydrated
       // cache on the first read doesn't race a still-empty key snapshot.
+      // Invariant: list() must preserve cache-insertion order (collection.ts
+      // list() maps [...cache.values()]) — positional key correlation depends on it.
       const ids = [...(target.cache as Map<string, unknown>).keys()]
       return records.filter((_: unknown, i: number) => { const id = ids[i]; return id !== undefined && live.has(id) })
     },
     query: queryNotExistenceFiltered,
     async put(id: string, record: unknown) {
-      registry.assertNotPoisoned(spec.satellite)
       return registry.withPairLock(spec.base, async () => {
+        // Poison check INSIDE the lock: a put queued behind a section that
+        // poisons the pair (e.g. a fan-out's failure path) must observe the
+        // poison after acquiring, not race past a pre-lock check.
+        registry.assertNotPoisoned(spec.satellite)
         if (!(await isBaseLive(adapter, vaultName, spec.base, id))) {
           throw new SatelliteConfigError(
             `R-S6: satellite "${spec.satellite}" put for "${id}" with no live base record in ` +
