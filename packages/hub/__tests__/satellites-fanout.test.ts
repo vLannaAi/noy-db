@@ -143,19 +143,29 @@ describe('joined fan-out', () => {
     await expect(joinedPut(deps(), 'x', { from: 'a', body: 'B' })).rejects.toThrow()
     expect(await spy.raw.get('v1', 'msgs', 'x')).toBeNull() // prior (absent) restored
     expect(dirtyLog.entriesFor('msgs', 'x')).toEqual([]) // dirty entry removed
-    expect(changes.last('msgs')).toMatchObject({ id: 'x', action: 'revert' })
+    // Compensation announces the RESTORED state with the public action
+    // vocabulary: prior was absent, so the event is a plain 'delete'.
+    expect(changes.last('msgs')).toMatchObject({ id: 'x', action: 'delete' })
   })
 
   it('pair delete removes the satellite leg first; failure reverts', async () => {
-    const { vault, spy, deps } = await openPair()
+    const { vault, spy, changes, deps } = await openPair()
     await joinedPut(deps(), 'x', { from: 'a', body: 'B' })
     spy.reset()
     await vault.collection<Msg>('msgs').delete('x') // through the public base-proxy delete override
     expect(spy.deleteOrder).toEqual([['msgs_text', 'x'], ['msgs', 'x']])
 
     await joinedPut(deps(), 'y', { from: 'b', body: 'C' })
+    const priorEnvelope = await spy.raw.get('v1', 'msgs_text', 'y') // envelope to be restored
+    // subscribe() must see the compensation as a hydrated 'put' with the
+    // restored record — not a misrouted 'delete' (record: null).
+    const subEvents: Array<{ type: string; id: string; record: Msg | null }> = []
+    vault.collection<Msg>('msgs_text').subscribe(e => subEvents.push(e))
     spy.failNextDeleteFor('msgs')
     await expect(vault.collection<Msg>('msgs').delete('y')).rejects.toThrow()
-    expect(await spy.raw.get('v1', 'msgs_text', 'y')).not.toBeNull() // satellite leg restored
+    expect(await spy.raw.get('v1', 'msgs_text', 'y')).toEqual(priorEnvelope) // satellite ENVELOPE restored byte-for-byte
+    expect(changes.last('msgs_text')).toMatchObject({ id: 'y', action: 'put' }) // restored → 'put'
+    await new Promise(r => setTimeout(r, 0)) // let subscribe()'s async hydration settle
+    expect(subEvents.at(-1)).toMatchObject({ type: 'put', id: 'y', record: { body: 'C' } })
   })
 })

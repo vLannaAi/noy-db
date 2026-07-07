@@ -1328,8 +1328,7 @@ export interface ChangeEvent {
   readonly vault: string
   readonly collection: string
   readonly id: string
-  /** `'revert'` — satellite fan-out compensation after a reverted write (spec #591). */
-  readonly action: 'put' | 'delete' | 'revert'
+  readonly action: 'put' | 'delete'
 }
 
 export interface NoydbEventMap {

@@ -3868,11 +3868,14 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     this.cekCache?.remove(id)
   }
 
-  /** @internal Satellite fan-out revert cleanup: drop the sync dirty entry and re-announce the restored state (spec #591). */
+  /** @internal Satellite fan-out revert cleanup (spec #591): drop the sync dirty entry ('revert' is
+   *  onDirty-channel-only) and re-announce the RESTORED state as a plain put/delete — `subscribe()`
+   *  only understands those two actions, and the restored record may exist again. */
   async _compensateRevertedWrite(id: string): Promise<void> {
     await this._invalidateCacheEntry(id)
     await this.onDirty?.(this.name, id, 'revert', 0)
-    this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action: 'revert' })
+    const restored = await this.get(id) // rare revert path — one read buys a semantically-correct event
+    this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action: restored !== null ? 'put' : 'delete' })
   }
 
   async _invalidateCacheEntry(id: string): Promise<void> {
