@@ -1,17 +1,11 @@
 import { SatelliteConfigError } from '../../kernel/errors.js'
 import { isBaseLive, liveBaseIdSet } from './existence.js'
+import { pairDelete } from './fanout.js'
+import { RAW_TARGET } from './raw-target.js'
 import type { SatelliteSpec } from './types.js'
 import type { SatelliteRegistry } from './registry.js'
 
-/**
- * Escape hatch: `proxied[RAW_TARGET]` returns the unwrapped collection —
- * no existence check, no pair lock. Needed by callers (e.g. a later
- * fan-out task's joined-handle writes) that already hold the pair mutex
- * themselves; going back through the proxy's `put` would re-enter
- * `registry.withPairLock` on the same base and deadlock (the mutex is not
- * reentrant — see `registry.ts:withPairLock`).
- */
-export const RAW_TARGET: unique symbol = Symbol('noydb.satellite.rawTarget')
+export { RAW_TARGET }
 
 /**
  * Wraps a satellite's real `Collection<T>` in a `Proxy` that enforces
@@ -71,6 +65,35 @@ export function makeSatelliteProxy(target: any, spec: SatelliteSpec, registry: S
         }
         return target.put(id, record)
       })
+    },
+  }
+
+  return new Proxy(target, {
+    get(t, prop, _recv) {
+      if (prop === RAW_TARGET) return t
+      if (typeof prop === 'string' && prop in overrides) return overrides[prop]
+      const v = Reflect.get(t, prop, t)
+      return typeof v === 'function' ? v.bind(t) : v
+    },
+  })
+}
+
+/**
+ * Wraps a satellite's BASE collection in a `Proxy` whose only override is
+ * `delete` — routed through `pairDelete` (this task) so removing a base
+ * record also removes its satellite row, in order, with revert-on-failure.
+ * `satellite()` is a thunk, not a resolved handle: at the moment a base is
+ * first requested the paired satellite may not exist yet in some call
+ * orders, and `fanout.ts` re-resolves + unwraps it lazily per call anyway.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function makeBaseProxy(target: any, spec: SatelliteSpec, registry: SatelliteRegistry, satellite: () => unknown): any {
+  const adapter = target.adapter
+  const vaultName = target.vault
+
+  const overrides: Record<string, unknown> = {
+    async delete(id: string) {
+      return pairDelete({ spec, base: () => target, satellite, adapter, vaultName, registry }, id)
     },
   }
 

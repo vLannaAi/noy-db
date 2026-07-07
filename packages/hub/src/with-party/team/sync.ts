@@ -118,6 +118,13 @@ export class SyncEngine {
     this.scheduler?.notifyChange()
   }
 
+  /** Remove a dirty entry (satellite fan-out revert cleanup — spec #591). */
+  async removeDirty(collection: string, id: string): Promise<void> {
+    const before = this.dirty.length
+    this.dirty = this.dirty.filter(d => !(d.collection === collection && d.id === id))
+    if (this.dirty.length !== before) await this.persistMeta()
+  }
+
   /** Push dirty records to remote adapter. Accepts optional `PushOptions` for partial sync. */
   async push(options?: PushOptions): Promise<PushResult> {
     await this.ensureLoaded()

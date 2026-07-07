@@ -114,7 +114,7 @@ import type { LocaleReadOptions, ConflictPolicy } from './types.js'
 import type { CrdtMode } from '../with-commit/crdt/crdt.js'
 import { ReservedCollectionNameError, StaticDictReadonlyError, UnknownDictCodeError, SatelliteConfigError } from './errors.js'
 import { declareSatellite } from '../with-shape/satellites/declare.js'
-import { makeSatelliteProxy } from '../with-shape/satellites/proxy.js'
+import { makeSatelliteProxy, makeBaseProxy } from '../with-shape/satellites/proxy.js'
 import type { SatelliteRegistry } from '../with-shape/satellites/registry.js'
 import {
   type PeriodRecord,
@@ -1244,6 +1244,8 @@ export class Vault {
     if (this.satelliteRegistry) { // #591: existence-authority + R-S6 read/write proxy (with-shape/satellites/proxy.ts)
       const spec = this.satelliteRegistry.bySatellite(collectionName)
       if (spec) return makeSatelliteProxy(coll, spec, this.satelliteRegistry) as Collection<T, S, Q, M>
+      const baseSpec = this.satelliteRegistry.satelliteOf(collectionName) // #591 Task 6: base-side delete fan-out
+      if (baseSpec) return makeBaseProxy(coll, baseSpec, this.satelliteRegistry, () => this.collection(baseSpec.satellite)) as Collection<T, S, Q, M>
     }
     return coll as unknown as Collection<T, S, Q, M>
   }

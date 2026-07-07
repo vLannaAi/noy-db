@@ -603,10 +603,13 @@ export class Noydb {
       emitter: this.emitter,
       onDirty: targets.length > 0
         ? async (coll, id, action, version) => {
-            // Fan out dirty tracking to all sync engines for this vault
+            // Fan out dirty tracking to all sync engines for this vault.
+            // 'revert' (satellite fan-out compensation, spec #591) un-dirties
+            // instead of tracking a new change.
             for (const [key, engine] of this.syncEngines) {
               if (key === name || key.startsWith(`${name}::`)) {
-                void engine.trackChange(coll, id, action, version)
+                if (action === 'revert') void engine.removeDirty(coll, id)
+                else void engine.trackChange(coll, id, action, version)
               }
             }
           }
