@@ -98,8 +98,9 @@ export class SyncEngine {
    *
    * Pair-coupled (#591 rule 5b): registering for one satellite-pair member
    * registers the same resolver for both — the pair converges under one
-   * resolution policy. Uses whatever the pair-expander knows about the pair
-   * *at this call*; see the ordering-constraint note on `setPairExpander`.
+   * resolution policy. Expands with whatever the pair-expander knows *at this
+   * call*; resolvers registered before their pair existed are covered by
+   * `remirrorPairResolvers` at pair-registration time.
    */
   registerConflictResolver(collection: string, resolver: CollectionConflictResolver): void {
     for (const n of this.pairExpander?.([collection]) ?? [collection]) this.conflictResolvers.set(n, resolver)
@@ -109,12 +110,26 @@ export class SyncEngine {
    * Wire a satellite pair-expansion function (vault registration, #591 Task 11).
    * The closure re-reads the live `SatelliteRegistry` on every call, so pairs
    * declared after this is set are still picked up by `push`/`pull` filters.
-   * `registerConflictResolver`, however, expands *at the moment it's called* —
-   * a resolver registered before its satellite partner is declared will NOT
-   * be mirrored retroactively.
    */
   setPairExpander(expander: (names: readonly string[]) => readonly string[]): void {
     this.pairExpander = expander
+  }
+
+  /**
+   * Retroactively mirror per-collection conflict resolvers across a newly
+   * registered satellite pair (#591 rule 5b) — covers the NORMAL declaration
+   * order, where the base's `conflictPolicy` resolver was registered before
+   * the satellite was declared (so the call-time expansion in
+   * `registerConflictResolver` saw no pair yet). Tie-break: when BOTH members
+   * already carry (different) resolvers, the FIRST name in `names` wins —
+   * callers pass `[base, satellite]`, so the base's resolver is canonical.
+   * Idempotent; a later explicit registration on either member still
+   * overwrites both (last-wins, via the call-time expansion above).
+   */
+  remirrorPairResolvers(names: readonly string[]): void {
+    const canonical = names.map(n => this.conflictResolvers.get(n)).find(r => r !== undefined)
+    if (!canonical) return
+    for (const n of names) this.conflictResolvers.set(n, canonical)
   }
 
   /** Record a local change for later push. */

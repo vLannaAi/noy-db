@@ -122,25 +122,20 @@ describe('satellite sync pair-expansion + resolver mirroring (#591 Task 11)', ()
     expect(await localB.get(COMP, 'msgs_text', 'm3')).not.toBeNull()
   })
 
-  it('a resolver registered on the base fires for a satellite conflict (rule 5b)', async () => {
-    const local = inlineMemory()
-    const remote = inlineMemory()
-    const db = await createNoydb({ store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false })
-    const vault = await db.openVault(COMP)
-
-    // Satellite declared FIRST so the registry already knows the pair when
-    // the base's conflictPolicy registration runs below (ordering constraint
-    // — see task-11-report.md self-review).
-    vault.collection<Msg>('msgs_text', { satelliteOf: 'msgs', fields: ['subject', 'body'] })
-    vault.collection<Msg>('msgs', { conflictPolicy: 'last-writer-wins' })
-
-    await vault.collection<Msg>('msgs').put('m4', { from: 'dave' })
-    await vault.collection<Msg>('msgs_text').put('m4', { subject: 'local-1', body: '' })
+  /**
+   * Builds a same-version (_v=2 both sides) CAS push-conflict on `msgs_text`
+   * where the LOCAL side has the older timestamp: LWW resolves to remote,
+   * FWW (and the default 'version' db-level fallback) keep local — so the
+   * winning subject fully discriminates WHICH resolver actually fired.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async function driveSatelliteConflict(db: any, vault: any, local: NoydbStore, remote: NoydbStore) {
+    await vault.collection('msgs').put('m4', { from: 'dave' })
+    await vault.collection('msgs_text').put('m4', { subject: 'local-1', body: '' })
     await db.push(COMP) // remote msgs_text/m4 now at _v=1
 
     // Someone else pushes a newer version to remote out-of-band, with a
-    // FUTURE timestamp (LWW should prefer it; default 'version' strategy
-    // would not, since it compares versions, not timestamps).
+    // FUTURE timestamp.
     const futureTs = new Date(Date.now() + 60_000).toISOString()
     await remote.put(COMP, 'msgs_text', 'm4', {
       _noydb: 1, _v: 2, _ts: futureTs, _iv: '', _data: JSON.stringify({ subject: 'REMOTE', body: 'remote body' }),
@@ -148,17 +143,70 @@ describe('satellite sync pair-expansion + resolver mirroring (#591 Task 11)', ()
 
     // Local writes again (now also at _v=2, but with an OLDER timestamp) —
     // pushing this creates a same-version CAS conflict against remote.
-    await vault.collection<Msg>('msgs_text').put('m4', { subject: 'local-2', body: '' })
+    await vault.collection('msgs_text').put('m4', { subject: 'local-2', body: '' })
 
     const result = await db.push(COMP, { collections: ['msgs'] })
+    const localEnv = await local.get(COMP, 'msgs_text', 'm4')
+    return { result, winner: (JSON.parse(localEnv!._data) as Msg).subject }
+  }
+
+  it('rule 5b, NORMAL order: base declared with conflictPolicy first, satellite second — resolver still fires for a satellite conflict', async () => {
+    const local = inlineMemory()
+    const remote = inlineMemory()
+    const db = await createNoydb({ store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false })
+    const vault = await db.openVault(COMP)
+
+    // Normal declaration order: the base's conflictPolicy is registered
+    // BEFORE the pair exists — retroactive re-mirroring at pair-registration
+    // time must copy it onto the satellite.
+    vault.collection<Msg>('msgs', { conflictPolicy: 'last-writer-wins' })
+    vault.collection<Msg>('msgs_text', { satelliteOf: 'msgs', fields: ['subject', 'body'] })
+
+    const { result, winner } = await driveSatelliteConflict(db, vault, local, remote)
 
     expect(result.conflicts).toHaveLength(1)
     expect(result.conflicts[0]!.collection).toBe('msgs_text')
-    const localEnv = await local.get(COMP, 'msgs_text', 'm4')
-    // LWW picked remote (later _ts) — proves the mirrored resolver fired
-    // instead of falling back to the default 'version' db-level strategy
-    // (which would have kept local, since both sides were at _v=2).
-    expect(JSON.parse(localEnv!._data).subject).toBe('REMOTE')
+    // LWW picked remote (later _ts) — the mirrored resolver fired instead of
+    // the default 'version' fallback (which keeps local at equal versions).
+    expect(winner).toBe('REMOTE')
+  })
+
+  it('rule 5b, satellite-first order: a resolver registered on the base after the pair exists fires for a satellite conflict', async () => {
+    const local = inlineMemory()
+    const remote = inlineMemory()
+    const db = await createNoydb({ store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false })
+    const vault = await db.openVault(COMP)
+
+    vault.collection<Msg>('msgs_text', { satelliteOf: 'msgs', fields: ['subject', 'body'] })
+    vault.collection<Msg>('msgs', { conflictPolicy: 'last-writer-wins' })
+
+    const { result, winner } = await driveSatelliteConflict(db, vault, local, remote)
+
+    expect(result.conflicts).toHaveLength(1)
+    expect(result.conflicts[0]!.collection).toBe('msgs_text')
+    expect(winner).toBe('REMOTE')
+  })
+
+  it('rule 5b tie-break: when BOTH members carried different resolvers before pairing, the base\'s wins', async () => {
+    const local = inlineMemory()
+    const remote = inlineMemory()
+    const db = await createNoydb({ store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false })
+    const vault = await db.openVault(COMP)
+
+    // Both collections carry (different) resolvers BEFORE the pair is
+    // declared: base LWW, satellite FWW. In the driven conflict LWW resolves
+    // to remote and FWW keeps local — fully discriminating.
+    vault.collection<Msg>('msgs', { conflictPolicy: 'last-writer-wins' })
+    vault.collection<Msg>('msgs_text', { conflictPolicy: 'first-writer-wins' })
+    // NOW pair them (no conflictPolicy on this redeclare) — re-mirroring
+    // must pick the BASE's resolver as canonical for both members.
+    vault.collection<Msg>('msgs_text', { satelliteOf: 'msgs', fields: ['subject', 'body'] })
+
+    const { result, winner } = await driveSatelliteConflict(db, vault, local, remote)
+
+    expect(result.conflicts).toHaveLength(1)
+    // Base's LWW (→ remote) won over the satellite's pre-pairing FWW (→ local).
+    expect(winner).toBe('REMOTE')
   })
 
   it('control: without any satellite declared, push({ collections }) behaves exactly as before', async () => {

@@ -25,12 +25,20 @@ export interface SatelliteDeclareContext {
   /** Registers the vault-wide poison write-gate; invoked at most once per vault. */
   readonly registerPoisonHook: (hook: (e: { readonly vault: string; readonly collection: string }) => void) => void
   /**
-   * Wires a live pair-expansion function to the vault's SyncEngine(s) —
-   * invoked at most once per vault, alongside `registerPoisonHook`, on first
-   * satellite declaration (#591 Task 11). The closure captures the registry
-   * itself (not a snapshot), so pairs declared later are still picked up.
+   * Iterates the vault's SyncEngine(s) (#591 Task 11) — used to wire the
+   * live pair-expander (once per vault, alongside `registerPoisonHook`; the
+   * closure captures the registry itself, not a snapshot, so pairs declared
+   * later are still picked up by push/pull filters) and to retroactively
+   * re-mirror conflict resolvers on every successful pair registration.
+   * No-op when sync is not configured.
    */
-  readonly registerPairExpander: (expander: (names: readonly string[]) => readonly string[]) => void
+  readonly forEachSyncEngine: (fn: (engine: PairSyncEngine) => void) => void
+}
+
+/** The narrow slice of SyncEngine that satellite declaration wiring drives (#591 Task 11). */
+export interface PairSyncEngine {
+  setPairExpander(expander: (names: readonly string[]) => readonly string[]): void
+  remirrorPairResolvers(names: readonly string[]): void
 }
 
 export interface SatelliteDeclarationOptions {
@@ -80,10 +88,13 @@ export function declareSatellite(
     ctx.registerPoisonHook((e) => { // gate writes against the poison map (R-S1 cross-check)
       if (e.vault === ctx.vaultName) created.assertNotPoisoned(e.collection)
     })
-    ctx.registerPairExpander(names => created.expandNames(names)) // #591 Task 11: sync push/pull + conflict resolvers treat a pair as a unit
+    ctx.forEachSyncEngine(e => e.setPairExpander(names => created.expandNames(names))) // #591 Task 11: sync push/pull + conflict resolvers treat a pair as a unit
     reg = created
   }
   reg.register(spec)
+  // #591 Task 11: retroactive resolver mirroring — a conflictPolicy resolver
+  // registered on either member BEFORE this pair existed is copied to both now.
+  ctx.forEachSyncEngine(e => e.remirrorPairResolvers([spec.base, spec.satellite]))
   const registry = reg // const alias — closure below must not capture the `let`
   const baseSchema = ctx.getBaseSchema(spec.base)
   void import('./post-register.js') // .catch: never-throw-async, independent of postRegister internals

@@ -894,7 +894,7 @@ export class Vault {
         adapter: this.adapter, vaultName: this.name, forgetSubjects: this.forgetStrategy.subjects, getDEK: this.getDEK,
         getBaseSchema: (base) => this.collectionCache.get(base)?.getSchema(),
         registerPoisonHook: (hook) => { this.noydb._writeHooks.onBeforeWrite(hook) },
-        registerPairExpander: (expander) => { this.noydb._forEachSyncEngine(this.name, e => e.setPairExpander(expander)) },
+        forEachSyncEngine: (fn) => { this.noydb._forEachSyncEngine(this.name, fn) },
       }, collectionName, { ...options, satelliteOf: options.satelliteOf }, this.satelliteRegistry)
     }
 
