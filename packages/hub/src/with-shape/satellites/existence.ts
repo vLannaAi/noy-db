@@ -6,7 +6,7 @@ import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
  * tombstone shape (`_iv === '' && _data === ''`, per `buildTombstone()`) both
  * read as "not live" — undecrypted, envelope-level checks only.
  */
-export function isEnvelopeLive(env: EncryptedEnvelope | null): boolean {
+function isEnvelopeLive(env: EncryptedEnvelope | null): boolean {
   return env !== null && !(env._iv === '' && env._data === '')
 }
 

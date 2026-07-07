@@ -40,7 +40,7 @@ export interface SatelliteDeclareContext {
 }
 
 /** The narrow slice of SyncEngine that satellite declaration wiring drives (#591 Task 11). */
-export interface PairSyncEngine {
+interface PairSyncEngine {
   setPairExpander(expander: (names: readonly string[]) => readonly string[]): void
   remirrorPairResolvers(names: readonly string[]): void
 }
