@@ -24,6 +24,13 @@ export interface SatelliteDeclareContext {
   readonly getBaseSchema: (base: string) => unknown
   /** Registers the vault-wide poison write-gate; invoked at most once per vault. */
   readonly registerPoisonHook: (hook: (e: { readonly vault: string; readonly collection: string }) => void) => void
+  /**
+   * Wires a live pair-expansion function to the vault's SyncEngine(s) —
+   * invoked at most once per vault, alongside `registerPoisonHook`, on first
+   * satellite declaration (#591 Task 11). The closure captures the registry
+   * itself (not a snapshot), so pairs declared later are still picked up.
+   */
+  readonly registerPairExpander: (expander: (names: readonly string[]) => readonly string[]) => void
 }
 
 export interface SatelliteDeclarationOptions {
@@ -73,6 +80,7 @@ export function declareSatellite(
     ctx.registerPoisonHook((e) => { // gate writes against the poison map (R-S1 cross-check)
       if (e.vault === ctx.vaultName) created.assertNotPoisoned(e.collection)
     })
+    ctx.registerPairExpander(names => created.expandNames(names)) // #591 Task 11: sync push/pull + conflict resolvers treat a pair as a unit
     reg = created
   }
   reg.register(spec)

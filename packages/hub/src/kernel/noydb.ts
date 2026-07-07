@@ -1482,6 +1482,10 @@ export class Noydb {
     return engine
   }
 
+  _forEachSyncEngine(vault: string, fn: (engine: SyncEngine) => void): void {
+    for (const [key, engine] of this.syncEngines) if (key === vault || key.startsWith(`${vault}::`)) fn(engine)
+  }
+
   // ─── Events ────────────────────────────────────────────────────
 
   on<K extends keyof NoydbEventMap>(event: K, handler: (data: NoydbEventMap[K]) => void): void {

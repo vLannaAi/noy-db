@@ -42,6 +42,15 @@ export class SyncEngine {
   /** Per-collection conflict resolvers registered by Collection instances. */
   private readonly conflictResolvers = new Map<string, CollectionConflictResolver>()
 
+  /**
+   * Expands a collection-name filter to include its satellite pair partner(s)
+   * (spec #591 convergence rule 5b) — wired from vault satellite declaration
+   * via `setPairExpander`. `undefined` when no satellite has ever been
+   * declared for this vault: identity behavior, zero change for non-satellite
+   * users.
+   */
+  private pairExpander?: (names: readonly string[]) => readonly string[]
+
   constructor(opts: {
     local: NoydbStore
     remote: NoydbStore
@@ -86,9 +95,26 @@ export class SyncEngine {
   /**
    * Register a per-collection conflict resolver.
    * Called by Collection when `conflictPolicy` is set.
+   *
+   * Pair-coupled (#591 rule 5b): registering for one satellite-pair member
+   * registers the same resolver for both — the pair converges under one
+   * resolution policy. Uses whatever the pair-expander knows about the pair
+   * *at this call*; see the ordering-constraint note on `setPairExpander`.
    */
   registerConflictResolver(collection: string, resolver: CollectionConflictResolver): void {
-    this.conflictResolvers.set(collection, resolver)
+    for (const n of this.pairExpander?.([collection]) ?? [collection]) this.conflictResolvers.set(n, resolver)
+  }
+
+  /**
+   * Wire a satellite pair-expansion function (vault registration, #591 Task 11).
+   * The closure re-reads the live `SatelliteRegistry` on every call, so pairs
+   * declared after this is set are still picked up by `push`/`pull` filters.
+   * `registerConflictResolver`, however, expands *at the moment it's called* —
+   * a resolver registered before its satellite partner is declared will NOT
+   * be mirrored retroactively.
+   */
+  setPairExpander(expander: (names: readonly string[]) => readonly string[]): void {
+    this.pairExpander = expander
   }
 
   /** Record a local change for later push. */
@@ -134,11 +160,14 @@ export class SyncEngine {
     const errors: Error[] = []
     const completed: number[] = []
 
+    // Partial sync: expand the filter to cover satellite pair partners (#591 rule 5b)
+    const filter = options?.collections ? new Set(this.pairExpander?.(options.collections) ?? options.collections) : null
+
     for (let i = 0; i < this.dirty.length; i++) {
       const entry = this.dirty[i]!
 
       // Partial sync: skip collections not in the filter
-      if (options?.collections && !options.collections.includes(entry.collection)) {
+      if (filter && !filter.has(entry.collection)) {
         continue
       }
 
@@ -225,12 +254,15 @@ export class SyncEngine {
     const conflicts: Conflict[] = []
     const errors: Error[] = []
 
+    // Partial sync: expand the filter to cover satellite pair partners (#591 rule 5b)
+    const filter = options?.collections ? new Set(this.pairExpander?.(options.collections) ?? options.collections) : null
+
     try {
       const remoteSnapshot = await this.remote.loadAll(this.vault)
 
       for (const [collName, records] of Object.entries(remoteSnapshot)) {
         // Partial sync: skip collections not in the filter
-        if (options?.collections && !options.collections.includes(collName)) {
+        if (filter && !filter.has(collName)) {
           continue
         }
 
