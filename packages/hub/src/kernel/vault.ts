@@ -112,7 +112,9 @@ import type { DerivationRegistry } from '../with-formula/derivations/registry.js
 import type { DerivationStrategyHandle } from '../with-formula/derivations/types.js'
 import type { LocaleReadOptions, ConflictPolicy } from './types.js'
 import type { CrdtMode } from '../with-commit/crdt/crdt.js'
-import { ReservedCollectionNameError, StaticDictReadonlyError, UnknownDictCodeError } from './errors.js'
+import { ReservedCollectionNameError, StaticDictReadonlyError, UnknownDictCodeError, SatelliteConfigError } from './errors.js'
+import { SatelliteRegistry } from '../with-shape/satellites/registry.js'
+import { validateSatelliteDeclaration, hashFields } from '../with-shape/satellites/validate.js'
 import {
   type PeriodRecord,
   type ClosePeriodOptions,
@@ -323,6 +325,7 @@ export class Vault {
    */
   private readonly reloadKeyring: (() => Promise<UnlockedKeyring>) | undefined
   private readonly collectionCache = new Map<string, Collection<unknown>>()
+  private satelliteRegistry: SatelliteRegistry | null = null // spec #591, archetype-③
   /** Vault-level schema cutover fence/controller. */
   readonly schemaFence: SchemaFenceController
   /** Per-client heartbeat/watcher; started lazily on cutover registration. */
@@ -777,6 +780,9 @@ export class Vault {
      * default; non-adopting collections take the legacy path unchanged.
      */
     perRecordKeys?: boolean
+    satelliteOf?: string // satellite pairing (spec #591)
+    fields?: readonly string[] // satellite routing table (required with satelliteOf)
+    joined?: string // registers the joined handle (see vault.joined())
     /**
      * Per-record provenance tracking. When `true`, `put()` calls that
      * supply a `source` option stamp `_source` / `_sourceTs` onto the
@@ -874,6 +880,39 @@ export class Vault {
     // bypassing that gate. See reserved-secret-collections.ts.
     if (isSecretBearingReservedCollection(collectionName)) {
       throw new ReservedCollectionNameError(collectionName)
+    }
+
+    if (this.satelliteRegistry?.byJoined(collectionName)) { // #591: joined handle — not a directly reachable collection
+      throw new SatelliteConfigError(`"${collectionName}" is a joined handle — use vault.joined('${collectionName}'), not vault.collection().`)
+    }
+    if (options?.satelliteOf !== undefined) {
+      let reg = this.satelliteRegistry
+      if (reg === null) {
+        reg = this.satelliteRegistry = new SatelliteRegistry()
+        this.noydb._writeHooks.onBeforeWrite(e => { // gate writes against the poison map (R-S1 cross-check)
+          if (e.vault === this.name) this.satelliteRegistry?.assertNotPoisoned(e.collection)
+        })
+      }
+      const existing = reg.bySatellite(collectionName)
+      if (existing) {
+        const same = existing.base === options.satelliteOf
+          && hashFields(existing.fields) === hashFields(options.fields ?? [])
+          && (existing.joined ?? null) === (options.joined ?? null)
+        if (!same) {
+          throw new SatelliteConfigError(`R-S9: "${collectionName}" re-declared divergently within this session (base/fields/joined mismatch).`)
+        }
+      } else {
+        const spec = validateSatelliteDeclaration({
+          satellite: collectionName, satelliteOf: options.satelliteOf, fields: options.fields, joined: options.joined,
+          baseIsSatellite: reg.bySatellite(options.satelliteOf) !== null, crdtMode: options.crdt !== undefined,
+        })
+        if (this.forgetStrategy.subjects[spec.base] !== undefined && options.perRecordKeys !== true) {
+          throw new SatelliteConfigError(`R-S7: satellite "${collectionName}" of forget-covered base "${spec.base}" must declare perRecordKeys.`)
+        }
+        reg.register(spec)
+        const baseSchema = this.collectionCache.get(spec.base)?.getSchema()
+        void import('../with-shape/satellites/post-register.js').then(m => m.postRegister(this.adapter, this.name, spec, this.getDEK, baseSchema, reg))
+      }
     }
 
     let coll = this.collectionCache.get(collectionName)
