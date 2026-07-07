@@ -119,6 +119,7 @@
     "getRevokedDocIds",
     "introspect",
     "issueAttestation",
+    "joined",
     "ledger",
     "link",
     "links",
