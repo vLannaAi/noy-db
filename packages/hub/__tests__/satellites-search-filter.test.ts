@@ -105,3 +105,69 @@ describe('satellite search/retrieve existence post-filter (#591, Task 9)', () =>
     expect(hits.map((h) => h.id).sort()).toEqual(['d1', 'd2'])
   })
 })
+
+describe('satellite deterministic-lookup existence filter (#591, Task 9 review fix)', () => {
+  async function openDetPair() {
+    const rawStore = memory()
+    const db = await createNoydb({ store: rawStore, user: 'alice', secret: SECRET })
+    const vault = await db.openVault('v1')
+    vault.collection<Msg>('msgs')
+    vault.collection<Msg>('msgs_text', {
+      satelliteOf: 'msgs',
+      fields: ['subject', 'body'],
+      joined: 'msgs_full',
+      deterministicFields: ['body'],
+      acknowledgeDeterministicRisk: true,
+    })
+    return { vault, rawStore }
+  }
+
+  it('findByDet skips a dead-base match and still finds a later live one', async () => {
+    const { vault, rawStore } = await openDetPair()
+    // Same det value on both pairs; both rows carry an identical _det slot.
+    await vault.joined('msgs_full').put('a', { from: 'x', subject: 'dead', body: 'shared-det' })
+    await vault.joined('msgs_full').put('b', { from: 'y', subject: 'live', body: 'shared-det' })
+
+    await rawStore.delete('v1', 'msgs', 'a')
+
+    const found = await vault.collection<Msg>('msgs_text').findByDet('body', 'shared-det')
+    expect(found).toMatchObject({ subject: 'live', body: 'shared-det' })
+    // And once the second base dies too, the match is fully gone.
+    await rawStore.delete('v1', 'msgs', 'b')
+    expect(await vault.collection<Msg>('msgs_text').findByDet('body', 'shared-det')).toBeNull()
+  })
+
+  it('findByDet returns null when the only match\'s base is tombstoned', async () => {
+    const { vault, rawStore } = await openDetPair()
+    await vault.joined('msgs_full').put('x', { from: 'a', body: 'lonely-det' })
+
+    await tombstone(rawStore, 'v1', 'msgs', 'x')
+
+    expect(await vault.collection<Msg>('msgs_text').findByDet('body', 'lonely-det')).toBeNull()
+  })
+
+  it('queryByDet excludes dead-base matches and keeps live ones', async () => {
+    const { vault, rawStore } = await openDetPair()
+    await vault.joined('msgs_full').put('a', { from: 'x', subject: 'keep', body: 'multi-det' })
+    await vault.joined('msgs_full').put('b', { from: 'y', subject: 'drop', body: 'multi-det' })
+
+    await rawStore.delete('v1', 'msgs', 'b')
+
+    const hits = await vault.collection<Msg>('msgs_text').queryByDet('body', 'multi-det')
+    expect(hits).toHaveLength(1)
+    expect(hits[0]).toMatchObject({ subject: 'keep', body: 'multi-det' })
+  })
+
+  it('does not affect a non-satellite collection\'s det lookups', async () => {
+    const { vault } = await openDetPair()
+    const users = vault.collection<{ email: string }>('users', {
+      deterministicFields: ['email'],
+      acknowledgeDeterministicRisk: true,
+    })
+    await users.put('u1', { email: 'a@x' })
+    await users.put('u2', { email: 'a@x' })
+
+    expect(await users.findByDet('email', 'a@x')).not.toBeNull()
+    expect(await users.queryByDet('email', 'a@x')).toHaveLength(2)
+  })
+})

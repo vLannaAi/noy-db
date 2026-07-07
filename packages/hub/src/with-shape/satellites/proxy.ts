@@ -1,4 +1,5 @@
 import { SatelliteConfigError } from '../../kernel/errors.js'
+import { findByDet as detFindByDet, queryByDet as detQueryByDet } from '../../kernel/enclave/record-keys/deterministic.js'
 import { isBaseLive, liveBaseIdSet } from './existence.js'
 import { pairDelete } from './fanout.js'
 import { RAW_TARGET } from './raw-target.js'
@@ -119,6 +120,38 @@ export function makeSatelliteProxy(target: any, spec: SatelliteSpec, registry: S
       const hits = await target.similarTo(vector, opts)
       return filterLiveHits(hits, adapter, vaultName, spec.base)
     },
+    // #591 Task 9 review fix: findByDet/queryByDet scan envelopes straight
+    // off the adapter (kernel/enclave/record-keys/deterministic.ts) and
+    // return BARE records (no id), so a post-filter can't correlate a match
+    // back to its base row. Instead the scan itself is scoped: re-run the
+    // same det functions over the collection's own DeterministicContext
+    // (`detContext()` is private like `adapter`/`cache` above) with its
+    // `adapter.list` narrowed to live-base ids — a dead-base match is then
+    // never visited, so findByDet correctly continues to a later live match
+    // rather than short-circuiting on a ghost.
+    async findByDet(field: string, value: unknown) {
+      return detFindByDet(liveScopedDetContext(), field, value)
+    },
+    async queryByDet(field: string, value: unknown) {
+      return detQueryByDet(liveScopedDetContext(), field, value)
+    },
+  }
+
+  const liveScopedDetContext = () => {
+    const ctx = target.detContext()
+    const raw = ctx.adapter as NoydbStore
+    return {
+      ...ctx,
+      adapter: {
+        ...raw,
+        get: raw.get.bind(raw),
+        async list(v: string, c: string) {
+          const ids = await raw.list(v, c)
+          const live = await Promise.all(ids.map((id) => isBaseLive(adapter, vaultName, spec.base, id)))
+          return ids.filter((_, i) => live[i])
+        },
+      },
+    }
   }
 
   return new Proxy(target, {
