@@ -1,5 +1,5 @@
 import { SatelliteConfigError } from '../../kernel/errors.js'
-import { findByDet as detFindByDet, queryByDet as detQueryByDet } from '../../kernel/enclave/record-keys/deterministic.js'
+import { findByDet as detFindByDet, queryByDet as detQueryByDet } from '../../kernel/enclave/index.js'
 import { isBaseLive, liveBaseIdSet } from './existence.js'
 import { pairDelete } from './fanout.js'
 import { RAW_TARGET } from './raw-target.js'

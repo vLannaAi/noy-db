@@ -198,3 +198,46 @@ Refusals & config:
 
 Conflict granularity (documented behavior, asserted as such):
 - Two clients' divergent joined writes can converge to base-from-A ⊕ satellite-from-B; the vector asserts this **documented** field-group granularity and that registering a conflict resolver for one pair member registers it for both.
+
+## Implementation amendments (v1, 2026-07-07)
+
+Four execution decisions made across Tasks 5–11, folded back into the design record (Task 12
+reconciliation). None of these revise a resolved owner decision above — each is a v1 scoping
+detail discovered while building the rule it implements.
+
+- **Satellite `query()` refuses with `SatelliteConfigError` (Task 5).** Query's terminal methods
+  (`toArray`/`first`/`count`) read the in-memory cache **synchronously**, while existence authority
+  (§ Convergence & existence authority, rule 1) requires an **async**, undecrypted check against
+  live base state — the two shapes don't compose without either breaking `query()`'s synchronous
+  contract or accepting a check that can miss an out-of-band base mutation. `list()`/`get()` remain
+  existence-safe (async, checked per call); `search`/`retrieve`/`similarTo` get their own existence
+  post-filter (Task 9) since they answer from the search facade's own cache/index, not the proxy's
+  get/list overrides.
+
+- **Bundle export filter degrades leak-on-error, never drop-live-data (Task 10).** The `as-noydb`
+  bundle export excludes base-less (dead-ciphertext) satellite envelopes (§ Conformance vectors,
+  "Export filter"). If the liveness check against the base itself errors mid-export, the filter's
+  posture is to **include** the satellite envelope (leak-on-error) rather than **exclude** it
+  (drop-on-error) — an operator can always re-run `forget()`/a sweep to close a leaked dead
+  satellite, but a wrongly dropped *live* record is unrecoverable data loss. This also discloses a
+  **first-declaration marker-race window**: between a satellite's first `declareSatellite()` call
+  writing the pairing marker to `_schemas` and that write becoming durable, a concurrent export
+  reading a not-yet-marked collection treats it as a plain collection (no existence filtering
+  applied at all) rather than as a satellite — a narrow, session-scoped race, not a persistent gap.
+
+- **`pushFiltered`/`SyncTransaction` predicate paths are outside pair-unit expansion (Task 11).**
+  Pair-unit dirty-entry expansion (a base's sync push carries its satellite's pending entries too,
+  per § Conformance vectors "Partial sync") covers the ordinary `push({ collections })` allow-list
+  path. `pushFiltered`'s per-record predicate and `SyncTransaction`'s explicit entry list are
+  **not** expanded to their pair partner — a predicate or transaction that selects a base record
+  does not implicitly pull in its satellite row. Both are documented out-of-scope for v1; a caller
+  using either path against a satellite pair is responsible for including both collections itself.
+
+- **Conflict-resolver pair-coupling is base-canonical on pre-pairing ties (Task 11).** Registering a
+  conflict resolver for one pair member mirrors it to the other (§ Conformance vectors, "Conflict
+  granularity"). If a resolver is registered on the satellite *before* the pair exists (no base
+  declared yet, or declared after), retroactive mirroring at pair-registration time resolves any tie
+  between a pre-existing base-side resolver and the satellite-side one in favor of the
+  **base's** resolver — base-canonical, not last-write-wins — since the base is the existence
+  authority for the pair (rule 1) and its conflict policy is the one already governing the pair's
+  observable identity.
