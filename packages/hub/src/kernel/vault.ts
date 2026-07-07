@@ -886,14 +886,7 @@ export class Vault {
       throw new SatelliteConfigError(`"${collectionName}" is a joined handle — use vault.joined('${collectionName}'), not vault.collection().`)
     }
     if (options?.satelliteOf !== undefined) {
-      let reg = this.satelliteRegistry
-      if (reg === null) {
-        reg = this.satelliteRegistry = new SatelliteRegistry()
-        this.noydb._writeHooks.onBeforeWrite(e => { // gate writes against the poison map (R-S1 cross-check)
-          if (e.vault === this.name) this.satelliteRegistry?.assertNotPoisoned(e.collection)
-        })
-      }
-      const existing = reg.bySatellite(collectionName)
+      const existing = this.satelliteRegistry?.bySatellite(collectionName)
       if (existing) {
         const same = existing.base === options.satelliteOf
           && hashFields(existing.fields) === hashFields(options.fields ?? [])
@@ -902,16 +895,24 @@ export class Vault {
           throw new SatelliteConfigError(`R-S9: "${collectionName}" re-declared divergently within this session (base/fields/joined mismatch).`)
         }
       } else {
+        // Validate FIRST — a refused declaration must leave no side effect (no registry, no hook).
         const spec = validateSatelliteDeclaration({
           satellite: collectionName, satelliteOf: options.satelliteOf, fields: options.fields, joined: options.joined,
-          baseIsSatellite: reg.bySatellite(options.satelliteOf) !== null, crdtMode: options.crdt !== undefined,
+          baseIsSatellite: (this.satelliteRegistry?.bySatellite(options.satelliteOf) ?? null) !== null, crdtMode: options.crdt !== undefined,
         })
         if (this.forgetStrategy.subjects[spec.base] !== undefined && options.perRecordKeys !== true) {
           throw new SatelliteConfigError(`R-S7: satellite "${collectionName}" of forget-covered base "${spec.base}" must declare perRecordKeys.`)
         }
-        reg.register(spec)
+        if (this.satelliteRegistry === null) {
+          this.satelliteRegistry = new SatelliteRegistry()
+          this.noydb._writeHooks.onBeforeWrite(e => { // gate writes against the poison map (R-S1 cross-check)
+            if (e.vault === this.name) this.satelliteRegistry?.assertNotPoisoned(e.collection)
+          })
+        }
+        const reg = this.satelliteRegistry; reg.register(spec)
         const baseSchema = this.collectionCache.get(spec.base)?.getSchema()
-        void import('../with-shape/satellites/post-register.js').then(m => m.postRegister(this.adapter, this.name, spec, this.getDEK, baseSchema, reg))
+        void import('../with-shape/satellites/post-register.js') // .catch: never-throw-async, independent of postRegister internals
+          .then(m => m.postRegister(this.adapter, this.name, spec, this.getDEK, baseSchema, reg)).catch(() => {})
       }
     }
 

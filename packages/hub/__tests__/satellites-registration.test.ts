@@ -81,6 +81,17 @@ describe('satellite declaration wiring (#591)', () => {
     })()
   })
 
+  it('a refused declaration leaves no side effects: registry stays null, plain writes unaffected', async () => {
+    const { vault } = await openTestVault({ forgetStrategy: withForgetCascade({ subjects: { msgs: 'from' } }) })
+    expect(() => vault.collection<Msg>('msgs_text', { satelliteOf: 'msgs', fields: ['body'] }))
+      .toThrowError(SatelliteConfigError)
+    // Internal invariant: the refused declaration created no registry (and thus no write hook).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((vault as any).satelliteRegistry).toBeNull()
+    // A plain write on an unrelated collection flows through untouched:
+    await expect(vault.collection<Msg>('notes').put('n1', { body: 'ok' })).resolves.toBeUndefined()
+  })
+
   it('R-S9: a divergent in-session redeclaration of the same satellite name is refused', async () => {
     const { vault } = await openTestVault()
     vault.collection<Msg>('msgs_text', { satelliteOf: 'msgs', fields: ['subject'] })
