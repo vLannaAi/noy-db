@@ -8,6 +8,31 @@ import type { SatelliteRegistry } from './registry.js'
 export { RAW_TARGET }
 
 /**
+ * Correlates a collection handle's `list()` output with the ids implied by
+ * cache-insertion order — `list()` returns bare records (no `id` field
+ * unless the caller put one), so ids are recovered positionally against the
+ * cache's own key order instead. Read AFTER `target.list()` resolves, so a
+ * not-yet-hydrated cache on the first read doesn't race a still-empty key
+ * snapshot. Invariant: `list()` must preserve cache-insertion order
+ * (collection.ts `list()` maps `[...cache.values()]`) — positional
+ * correlation depends on it. Drops any record whose position has no
+ * corresponding cache key (should not happen in practice; defensive only).
+ * Exported so `joined.ts` (#591, Task 7) can get the same [id, record]
+ * correlation for the base side without duplicating this logic.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function listWithIds(target: any): Promise<Array<[string, unknown]>> {
+  const records = await target.list()
+  const ids = [...(target.cache as Map<string, unknown>).keys()]
+  const out: Array<[string, unknown]> = []
+  for (let i = 0; i < records.length; i++) {
+    const id = ids[i]
+    if (id !== undefined) out.push([id, records[i]])
+  }
+  return out
+}
+
+/**
  * Wraps a satellite's real `Collection<T>` in a `Proxy` that enforces
  * existence authority (spec § Convergence & existence authority, rule 1)
  * and R-S6 on top of it. Every member not explicitly overridden below
@@ -40,15 +65,8 @@ export function makeSatelliteProxy(target: any, spec: SatelliteSpec, registry: S
     },
     async list() {
       const live = await liveBaseIdSet(adapter, vaultName, spec.base)
-      const records = await target.list()
-      // `list()` returns bare records (no `id` field unless the caller put
-      // one) — correlate by position against the cache's own key order
-      // instead. Read AFTER `target.list()` resolves, so a not-yet-hydrated
-      // cache on the first read doesn't race a still-empty key snapshot.
-      // Invariant: list() must preserve cache-insertion order (collection.ts
-      // list() maps [...cache.values()]) — positional key correlation depends on it.
-      const ids = [...(target.cache as Map<string, unknown>).keys()]
-      return records.filter((_: unknown, i: number) => { const id = ids[i]; return id !== undefined && live.has(id) })
+      const pairs = await listWithIds(target)
+      return pairs.filter(([id]) => live.has(id)).map(([, record]) => record)
     },
     query: queryNotExistenceFiltered,
     async put(id: string, record: unknown) {

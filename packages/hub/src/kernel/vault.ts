@@ -116,6 +116,8 @@ import { ReservedCollectionNameError, StaticDictReadonlyError, UnknownDictCodeEr
 import { declareSatellite } from '../with-shape/satellites/declare.js'
 import { makeSatelliteProxy, makeBaseProxy } from '../with-shape/satellites/proxy.js'
 import type { SatelliteRegistry } from '../with-shape/satellites/registry.js'
+import { makeJoinedHandle } from '../with-shape/satellites/joined.js'
+import type { JoinedHandle } from '../with-shape/satellites/types.js'
 import {
   type PeriodRecord,
   type ClosePeriodOptions,
@@ -1248,6 +1250,16 @@ export class Vault {
       if (baseSpec) return makeBaseProxy(coll, baseSpec, this.satelliteRegistry, () => this.collection(baseSpec.satellite)) as Collection<T, S, Q, M>
     }
     return coll as unknown as Collection<T, S, Q, M>
+  }
+
+  /** Full-record handle for a satellite pair registered with `joined:` (spec #591). Narrow type — not a Collection. */
+  joined<T extends Record<string, unknown>>(name: string): JoinedHandle<T> {
+    const spec = this.satelliteRegistry?.byJoined(name)
+    if (!spec) throw new SatelliteConfigError(`No joined handle "${name}" is registered — declare it via collection(satellite, { joined: '${name}' }).`)
+    return makeJoinedHandle<T>(spec, {
+      spec, base: () => this.collection(spec.base), satellite: () => this.collection(spec.satellite),
+      adapter: this.adapter, vaultName: this.name, registry: this.satelliteRegistry!,
+    })
   }
 
   /**
