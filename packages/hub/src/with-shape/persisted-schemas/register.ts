@@ -22,6 +22,7 @@ import { ConflictError } from '../../kernel/errors.js'
 import type { SchemaUpdateStrategy, UpdateDecision } from '../schema-update/types.js'
 import type { NoydbStore, ClassifiedMarker } from '../../kernel/types.js'
 import type { PersistedSchemaEnvelope } from './types.js'
+import type { PairingMarker } from '../satellites/types.js'
 import type { EnclaveKey } from '../../kernel/enclave/index.js'
 
 /**
@@ -144,6 +145,53 @@ export async function persistClassifiedMarker(opts: {
       throw err
     }
   }
+}
+
+/**
+ * Persist (or refresh) the R-S9 satellite pairing marker into the collection's
+ * `_schemas/<collection>` record, preserving any existing derived JSON-Schema
+ * body. Idempotent — a no-op when an equivalent marker is already stored.
+ * Independent of `persistJsonSchema`: called on satellite declaration so a
+ * later divergent re-declaration can be detected cross-session.
+ */
+export async function persistSatelliteMarker(opts: {
+  readonly store: NoydbStore
+  readonly vault: string
+  readonly collectionName: string
+  readonly dek: EnclaveKey
+  readonly marker: PairingMarker
+}): Promise<void> {
+  // Shares the `_schemas/<collection>` record with the JSON-Schema writer;
+  // CAS on the loaded version so a concurrent schema (re)registration can't
+  // silently drop the marker (and vice-versa) — see #583.
+  for (let attempt = 0; ; attempt++) {
+    const { version, payload: stored } = await loadPersistedSchemaEntry(
+      opts.store, opts.vault, opts.collectionName, opts.dek,
+    )
+    if (stored?.satellite !== undefined && satelliteMarkersEqual(stored.satellite, opts.marker)) return
+    const payload: PersistedSchemaEnvelope =
+      stored !== undefined
+        ? { ...stored, satellite: opts.marker }
+        : {
+            _noydb_schema: 1,
+            kind: 'Unknown',
+            jsonSchema: null,
+            hash: null,
+            derivedAt: new Date().toISOString(),
+            satellite: opts.marker,
+          }
+    try {
+      await savePersistedSchema(opts.store, opts.vault, opts.collectionName, opts.dek, payload, version)
+      return
+    } catch (err) {
+      if (err instanceof ConflictError && attempt < MAX_SCHEMA_CAS_RETRIES) continue
+      throw err
+    }
+  }
+}
+
+function satelliteMarkersEqual(a: PairingMarker, b: PairingMarker): boolean {
+  return a.base === b.base && a.fieldsHash === b.fieldsHash && (a.joined ?? null) === (b.joined ?? null)
 }
 
 function markersEqual(a: ClassifiedMarker, b: ClassifiedMarker): boolean {
