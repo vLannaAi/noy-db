@@ -113,8 +113,8 @@ import type { DerivationStrategyHandle } from '../with-formula/derivations/types
 import type { LocaleReadOptions, ConflictPolicy } from './types.js'
 import type { CrdtMode } from '../with-commit/crdt/crdt.js'
 import { ReservedCollectionNameError, StaticDictReadonlyError, UnknownDictCodeError, SatelliteConfigError } from './errors.js'
-import { SatelliteRegistry } from '../with-shape/satellites/registry.js'
-import { validateSatelliteDeclaration, hashFields } from '../with-shape/satellites/validate.js'
+import { declareSatellite } from '../with-shape/satellites/declare.js'
+import type { SatelliteRegistry } from '../with-shape/satellites/registry.js'
 import {
   type PeriodRecord,
   type ClosePeriodOptions,
@@ -885,35 +885,12 @@ export class Vault {
     if (this.satelliteRegistry?.byJoined(collectionName)) { // #591: joined handle — not a directly reachable collection
       throw new SatelliteConfigError(`"${collectionName}" is a joined handle — use vault.joined('${collectionName}'), not vault.collection().`)
     }
-    if (options?.satelliteOf !== undefined) {
-      const existing = this.satelliteRegistry?.bySatellite(collectionName)
-      if (existing) {
-        const same = existing.base === options.satelliteOf
-          && hashFields(existing.fields) === hashFields(options.fields ?? [])
-          && (existing.joined ?? null) === (options.joined ?? null)
-        if (!same) {
-          throw new SatelliteConfigError(`R-S9: "${collectionName}" re-declared divergently within this session (base/fields/joined mismatch).`)
-        }
-      } else {
-        // Validate FIRST — a refused declaration must leave no side effect (no registry, no hook).
-        const spec = validateSatelliteDeclaration({
-          satellite: collectionName, satelliteOf: options.satelliteOf, fields: options.fields, joined: options.joined,
-          baseIsSatellite: (this.satelliteRegistry?.bySatellite(options.satelliteOf) ?? null) !== null, crdtMode: options.crdt !== undefined,
-        })
-        if (this.forgetStrategy.subjects[spec.base] !== undefined && options.perRecordKeys !== true) {
-          throw new SatelliteConfigError(`R-S7: satellite "${collectionName}" of forget-covered base "${spec.base}" must declare perRecordKeys.`)
-        }
-        if (this.satelliteRegistry === null) {
-          this.satelliteRegistry = new SatelliteRegistry()
-          this.noydb._writeHooks.onBeforeWrite(e => { // gate writes against the poison map (R-S1 cross-check)
-            if (e.vault === this.name) this.satelliteRegistry?.assertNotPoisoned(e.collection)
-          })
-        }
-        const reg = this.satelliteRegistry; reg.register(spec)
-        const baseSchema = this.collectionCache.get(spec.base)?.getSchema()
-        void import('../with-shape/satellites/post-register.js') // .catch: never-throw-async, independent of postRegister internals
-          .then(m => m.postRegister(this.adapter, this.name, spec, this.getDEK, baseSchema, reg)).catch(() => {})
-      }
+    if (options?.satelliteOf !== undefined) { // #591 thin call-site (archetype-③) — wiring lives in with-shape/satellites/declare.ts
+      this.satelliteRegistry = declareSatellite({
+        adapter: this.adapter, vaultName: this.name, forgetSubjects: this.forgetStrategy.subjects, getDEK: this.getDEK,
+        getBaseSchema: (base) => this.collectionCache.get(base)?.getSchema(),
+        registerPoisonHook: (hook) => { this.noydb._writeHooks.onBeforeWrite(hook) },
+      }, collectionName, { ...options, satelliteOf: options.satelliteOf }, this.satelliteRegistry)
     }
 
     let coll = this.collectionCache.get(collectionName)
