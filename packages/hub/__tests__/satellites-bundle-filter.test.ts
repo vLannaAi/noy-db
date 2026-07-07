@@ -122,6 +122,38 @@ describe('writeNoydbBundle — satellite existence-authority filter (#591 Task 1
     db.close()
   })
 
+  it('leak-on-error posture: a corrupted pairing marker disables filtering for that satellite (exports UNFILTERED, never throws, never drops live data)', async () => {
+    // The filter's deliberate asymmetry (see dead-filter.ts): on any
+    // marker-read failure — DEK unreachable, decrypt/parse failure,
+    // marker not yet persisted — the collection degrades to
+    // "non-satellite" and exports unfiltered. Leaking stale dead
+    // ciphertext into a backup is recoverable; silently dropping live
+    // records from a backup is not. This test pins that posture.
+    const { db, vault, rawStore } = await openPair()
+    await vault.joined<Msg>('msgs_full').put('x', { from: 'a', body: 'B' })
+    await vault.joined<Msg>('msgs_full').put('y', { from: 'b', body: 'C' })
+    await vault.collection<Invoice>('invoices').put('a', { id: 'a', amount: 100 })
+    const controlBefore = collRecords(await exportDump(vault), 'invoices')
+    await rawStore.delete('v1', 'msgs', 'x') // genuine dead satellite row
+
+    // Corrupt the persisted _schemas/msgs_text record at the raw store:
+    // garbage ciphertext fails AES-GCM decryption, loadPersistedSchema
+    // swallows internally and returns undefined → marker unreadable.
+    const markerEnv = await rawStore.get('v1', '_schemas', 'msgs_text')
+    expect(markerEnv).not.toBeNull() // precondition: the marker WAS persisted
+    await rawStore.put('v1', '_schemas', 'msgs_text', { ...markerEnv!, _data: 'Z29vZC1sdWNrLWRlY3J5cHRpbmctdGhpcw==' })
+
+    // Export succeeds without throwing, and msgs_text passes through
+    // UNFILTERED — the dead row 'x' is included (leaked, by design).
+    const dumpJson = await exportDump(vault)
+    expect(Object.keys(collRecords(dumpJson, 'msgs_text')).sort()).toEqual(['x', 'y'])
+    // The base itself naturally carries only the live row.
+    expect(Object.keys(collRecords(dumpJson, 'msgs'))).toEqual(['y'])
+    // Non-satellite control still exports identically.
+    expect(collRecords(dumpJson, 'invoices')).toEqual(controlBefore)
+    db.close()
+  })
+
   it('a satellite pair declared with zero dead rows exports with no behavior change', async () => {
     const { db, vault } = await openPair()
     await vault.joined<Msg>('msgs_full').put('x', { from: 'a', body: 'B' })

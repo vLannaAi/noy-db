@@ -30,15 +30,31 @@ export async function liveBaseIdSetsForBundle(
   const out = new Map<string, Set<string>>()
   for (const name of collectionNames) {
     if (name.startsWith('_')) continue
+    // SILENT-DEGRADE surface (deliberate asymmetry): on ANY marker-read
+    // failure the collection is treated as non-satellite and exported
+    // UNFILTERED. That covers, precisely:
+    //   (a) `getDEK(name)` throwing for any reason (caught below);
+    //   (b) the persisted `_schemas/<name>` record failing to decrypt or
+    //       parse — corruption, wrong DEK, transient store error —
+    //       `loadPersistedSchema` catches internally and returns
+    //       `undefined` (storage.ts), which reads here as "no marker";
+    //   (c) the marker not yet persisted — `declareSatellite`'s
+    //       `postRegister` is fire-and-forget, so an export racing a
+    //       fresh declaration can miss it.
+    // Leak-on-error is chosen over exclude-on-error because this is a
+    // BACKUP path: exporting stale dead-satellite ciphertext is
+    // recoverable; silently dropping live records from a backup is the
+    // strictly worse failure. Pinned by the "leak-on-error posture" tests
+    // in satellites-bundle-filter.test.ts.
     let dek: EnclaveKey
     try {
       dek = await getDEK(name)
     } catch {
-      continue // no DEK reachable for this collection — can't read its marker, treat as non-satellite
+      continue // (a) no DEK reachable — can't read the marker, export unfiltered
     }
     const persisted = await loadPersistedSchema(store, vaultName, name, dek)
     const marker = persisted?.satellite
-    if (!marker) continue
+    if (!marker) continue // (b)/(c) — undecryptable/absent/markerless schema record, export unfiltered
     out.set(name, await liveBaseIdSet(store, vaultName, marker.base))
   }
   return out
