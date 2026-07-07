@@ -22,6 +22,10 @@ export interface SatelliteDeclareContext {
   readonly getDEK: (collectionName: string) => Promise<EnclaveKey>
   /** The base collection's attached Standard Schema validator, if constructed. */
   readonly getBaseSchema: (base: string) => unknown
+  /** The base collection's constructed crdt mode, if any (R-S8 direction i). */
+  readonly getBaseCrdt: (base: string) => unknown
+  /** True when `name` is an already-constructed collection (R-S5 joined-name guard). */
+  readonly collectionExists: (name: string) => boolean
   /** Registers the vault-wide poison write-gate; invoked at most once per vault. */
   readonly registerPoisonHook: (hook: (e: { readonly vault: string; readonly collection: string }) => void) => void
   /**
@@ -77,7 +81,10 @@ export function declareSatellite(
   const spec = validateSatelliteDeclaration({
     satellite: collectionName, satelliteOf: options.satelliteOf, fields: options.fields, joined: options.joined,
     baseIsSatellite: (existingRegistry?.bySatellite(options.satelliteOf) ?? null) !== null,
-    crdtMode: options.crdt !== undefined,
+    // R-S8 direction (i): refuse if EITHER this declaration sets crdt, OR the
+    // base was already constructed with crdt mode before this pairing.
+    crdtMode: options.crdt !== undefined || ctx.getBaseCrdt(options.satelliteOf) !== undefined,
+    joinedCollidesWithCollection: options.joined !== undefined && ctx.collectionExists(options.joined),
   })
   if (ctx.forgetSubjects[spec.base] !== undefined && options.perRecordKeys !== true) {
     throw new SatelliteConfigError(`R-S7: satellite "${collectionName}" of forget-covered base "${spec.base}" must declare perRecordKeys.`)

@@ -12,6 +12,14 @@ export class SatelliteRegistry {
     if (this.byBase.has(spec.base)) {
       throw new SatelliteConfigError(`R-S1: base "${spec.base}" already has satellite "${this.byBase.get(spec.base)!.satellite}" — v1 allows exactly one satellite per base.`)
     }
+    // R-S3, order-inverted direction: `spec.satellite` was already declared as
+    // a BASE (some other satellite is satelliteOf it) — registering it as a
+    // satellite of `spec.base` too would form a satellite-of-satellite chain.
+    // The other direction (satelliteOf pointing straight at a satellite) is
+    // caught synchronously in validate.ts BEFORE register() is ever called.
+    if (this.byBase.has(spec.satellite)) {
+      throw new SatelliteConfigError(`R-S3: "${spec.satellite}" is itself registered as a base (of "${this.byBase.get(spec.satellite)!.satellite}") — no satellite-of-satellite chains.`)
+    }
     const taken = (n: string) => this.byBase.has(n) || this.bySat.has(n) || this.byJoin.has(n)
     if (spec.joined !== undefined && taken(spec.joined)) {
       throw new SatelliteConfigError(`R-S5: joined name "${spec.joined}" collides with an existing pair member or joined name.`)

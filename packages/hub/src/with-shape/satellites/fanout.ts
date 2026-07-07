@@ -20,7 +20,7 @@
  * `registry.withPairLock` this module already holds) or recurse forever
  * (the base proxy's `delete` calls straight back into `pairDelete`).
  */
-import type { EncryptedEnvelope } from '../../kernel/types.js'
+import type { EncryptedEnvelope, NoydbStore } from '../../kernel/types.js'
 import type { SatelliteSpec } from './types.js'
 import type { SatelliteRegistry } from './registry.js'
 import { RAW_TARGET } from './raw-target.js'
@@ -29,7 +29,12 @@ export interface FanoutDeps {
   readonly spec: SatelliteSpec
   readonly base: () => unknown
   readonly satellite: () => unknown
-  readonly adapter: { get(vault: string, collection: string, id: string): Promise<EncryptedEnvelope | null>; put(vault: string, collection: string, id: string, envelope: EncryptedEnvelope): Promise<void>; delete(vault: string, collection: string, id: string): Promise<void> }
+  // Widened to the full `NoydbStore` (#591 review M2): every caller already
+  // hands in the full adapter (vault.ts's `this.adapter` / a proxy's own
+  // `target.adapter`) — narrowing to fan-out's own get/put/delete needs just
+  // forced `joined.ts` to re-widen it back with a double cast to reach
+  // `isBaseLive`/`liveBaseIdSet`, which also call `.list`.
+  readonly adapter: NoydbStore
   readonly vaultName: string
   readonly registry: SatelliteRegistry
 }

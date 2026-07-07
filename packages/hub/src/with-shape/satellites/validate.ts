@@ -10,6 +10,8 @@ export interface SatelliteDeclarationInput {
   readonly baseIsSatellite: boolean
   /** True when the declaring collection (or its base) sets crdtMode (R-S8). */
   readonly crdtMode: boolean
+  /** True when `joined` names an already-declared plain (non-pair) collection (R-S5). */
+  readonly joinedCollidesWithCollection: boolean
 }
 
 /** Sync declaration refusals R-S3/R-S5/R-S8. Async cross-checks live in registry.ts. */
@@ -33,6 +35,9 @@ export function validateSatelliteDeclaration(input: SatelliteDeclarationInput): 
   if (input.joined !== undefined && (input.joined === input.satellite || input.joined === input.satelliteOf)) {
     throw new SatelliteConfigError(`R-S5: joined name "${input.joined}" collides with a pair member.`)
   }
+  if (input.joinedCollidesWithCollection) {
+    throw new SatelliteConfigError(`R-S5: joined name "${input.joined}" collides with an already-declared collection.`)
+  }
   return Object.freeze({
     base: input.satelliteOf,
     satellite: input.satellite,
@@ -43,7 +48,9 @@ export function validateSatelliteDeclaration(input: SatelliteDeclarationInput): 
 
 /** Order-insensitive stable hash of the fields list (FNV-1a over the sorted, joined names). */
 export function hashFields(fields: readonly string[]): string {
-  const s = [...fields].sort().join('')
+  // '\x1f' (unit separator) — NOT '' — joins the sorted names: an empty
+  // delimiter collapses ['ab'] and ['a', 'b'] onto the same hash.
+  const s = [...fields].sort().join('\x1f')
   let h = 0x811c9dc5
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i)

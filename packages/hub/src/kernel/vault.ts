@@ -889,10 +889,17 @@ export class Vault {
     if (this.satelliteRegistry?.byJoined(collectionName)) { // #591: joined handle — not a directly reachable collection
       throw new SatelliteConfigError(`"${collectionName}" is a joined handle — use vault.joined('${collectionName}'), not vault.collection().`)
     }
+    // R-S8 direction (ii): refuse constructing (fresh OR already-cached) either
+    // pair member with crdt mode AFTER the pairing already exists.
+    if (options?.crdt !== undefined && this.satelliteRegistry?.isPairMember(collectionName)) {
+      throw new SatelliteConfigError('R-S8: crdtMode is refused on either member of a satellite pair in v1 (revert cannot compensate a merge).')
+    }
     if (options?.satelliteOf !== undefined) { // #591 thin call-site (archetype-③) — wiring lives in with-shape/satellites/declare.ts
       this.satelliteRegistry = declareSatellite({
         adapter: this.adapter, vaultName: this.name, forgetSubjects: this.forgetStrategy.subjects, getDEK: this.getDEK,
         getBaseSchema: (base) => this.collectionCache.get(base)?.getSchema(),
+        getBaseCrdt: (base) => this.collectionCache.get(base)?.getConfig()?.crdt,
+        collectionExists: (name) => this.collectionCache.has(name),
         registerPoisonHook: (hook) => { this.noydb._writeHooks.onBeforeWrite(hook) },
         forEachSyncEngine: (fn) => { this.noydb._forEachSyncEngine(this.name, fn) },
       }, collectionName, { ...options, satelliteOf: options.satelliteOf }, this.satelliteRegistry)

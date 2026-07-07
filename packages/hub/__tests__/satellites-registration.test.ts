@@ -48,6 +48,16 @@ describe('satellite declaration wiring (#591)', () => {
       .toThrowError(/R-S3/)
   })
 
+  it('R-S3: refuses satelliteOf pointing at a name that is ALREADY registered as a base (order-inverted chain)', async () => {
+    const { vault } = await openTestVault()
+    // "msgs_text" is declared as a BASE first (of "deep") ...
+    vault.collection<Msg>('deep', { satelliteOf: 'msgs_text', fields: ['x'] })
+    // ... then re-declared as a SATELLITE of "msgs" — same chain, opposite
+    // declaration order; must refuse identically to the direct-order test above.
+    expect(() => vault.collection<Msg>('msgs_text', { satelliteOf: 'msgs', fields: ['body'] }))
+      .toThrowError(/R-S3/)
+  })
+
   it('R-S7: refuses a satellite without perRecordKeys when the base is forget-covered', async () => {
     const { vault } = await openTestVault({ forgetStrategy: withForgetCascade({ subjects: { msgs: 'from' } }) })
     expect(() => vault.collection<Msg>('msgs_text', { satelliteOf: 'msgs', fields: ['body'] }))
@@ -55,6 +65,28 @@ describe('satellite declaration wiring (#591)', () => {
     // With perRecordKeys it registers fine:
     expect(() => vault.collection<Msg>('msgs_text2', { satelliteOf: 'msgs', fields: ['body'], perRecordKeys: true }))
       .not.toThrow()
+  })
+
+  it('R-S8: refuses declaring a satellite whose base was already constructed with crdt mode', async () => {
+    const { vault } = await openTestVault()
+    vault.collection<Msg>('msgs', { crdt: 'lww-map' })
+    expect(() => vault.collection<Msg>('msgs_text', { satelliteOf: 'msgs', fields: ['body'] }))
+      .toThrowError(/R-S8/)
+  })
+
+  it('R-S8: refuses constructing the base with crdt mode AFTER the pairing already exists', async () => {
+    const { vault } = await openTestVault()
+    vault.collection<Msg>('msgs', {})
+    vault.collection<Msg>('msgs_text', { satelliteOf: 'msgs', fields: ['body'] })
+    expect(() => vault.collection<Msg>('msgs', { crdt: 'lww-map' }))
+      .toThrowError(/R-S8/)
+  })
+
+  it('R-S5: refuses a joined name that matches an already-declared plain collection', async () => {
+    const { vault } = await openTestVault()
+    vault.collection<Msg>('msgs_full', {})
+    expect(() => vault.collection<Msg>('msgs_text', { satelliteOf: 'msgs', fields: ['body'], joined: 'msgs_full' }))
+      .toThrowError(/R-S5/)
   })
 
   it('rejects vault.collection(<joinedName>) with a pointer to vault.joined()', async () => {

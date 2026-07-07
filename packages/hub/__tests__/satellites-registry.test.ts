@@ -19,6 +19,13 @@ describe('SatelliteRegistry', () => {
     expect(() => r.register({ base: 'msgs', satellite: 'msgs_att', fields: ['att'] })).toThrowError(/R-S1/)
   })
 
+  it('R-S3: refuses registering a spec whose satellite name is already registered as a base (order-inverted chain)', () => {
+    const r = new SatelliteRegistry()
+    r.register({ base: 'msgs_text', satellite: 'deep', fields: ['x'] }) // msgs_text is a BASE here
+    expect(() => r.register({ base: 'msgs', satellite: 'msgs_text', fields: ['body'] })) // now claimed as a satellite too
+      .toThrowError(/R-S3/)
+  })
+
   it('R-S5: refuses a joined name that collides with any registered collection role', () => {
     const r = new SatelliteRegistry()
     r.register(spec)

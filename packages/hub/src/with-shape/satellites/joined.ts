@@ -14,7 +14,6 @@
  * fan-out (`joinedPut`/`pairDelete`), which already holds the pair lock and
  * reverts on partial failure — this module adds no write logic of its own.
  */
-import type { NoydbStore } from '../../kernel/types.js'
 import type { JoinedHandle, SatelliteSpec } from './types.js'
 import type { FanoutDeps } from './fanout.js'
 import { joinedPut, pairDelete } from './fanout.js'
@@ -27,11 +26,7 @@ type CollectionHandle = any
 export function makeJoinedHandle<T extends Record<string, unknown>>(spec: SatelliteSpec, deps: FanoutDeps): JoinedHandle<T> {
   const base = (): CollectionHandle => deps.base()
   const satellite = (): CollectionHandle => deps.satellite()
-  // `FanoutDeps.adapter` is narrowed to fan-out's own get/put/delete needs;
-  // `isBaseLive`/`liveBaseIdSet` want the full `NoydbStore` (they also call
-  // `.list`). The object handed in (`vault.joined()`'s `this.adapter`)
-  // always IS the full adapter — widen the type back.
-  const adapter = deps.adapter as unknown as NoydbStore
+  const adapter = deps.adapter // `FanoutDeps.adapter` is the full `NoydbStore` (#591 review M2)
 
   // Every declared satellite field defaults to null — a record with no
   // satellite row yet (or a not-yet-populated field) reads as null rather

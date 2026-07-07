@@ -851,7 +851,15 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 3898→3949 (2026-07-07, #591 satellites archetype-③ — thin call-sites only
   // (declare/joined accessor/proxy wrap/forget ref-expansion/pair-sync hooks); heavy
   // logic in with-shape/satellites): documented actual post-implementation line count.
-  'packages/hub/src/kernel/vault.ts': 3949,
+  // Bumped 3949→3956 (2026-07-07, #591 final-review I2/R-S8 fix): two new
+  // `SatelliteDeclareContext` ctx-accessor lines (`getBaseCrdt`/`collectionExists`,
+  // thin call-sites only) + a 4-line R-S8-direction-(ii) guard near the top of
+  // `collection()` (refuses constructing — fresh OR already-cached — a satellite
+  // pair member with crdt AFTER the pair already exists; must run before the
+  // `if (!coll)` construction branch, since re-declaring an ALREADY-cached
+  // collection with a new option skips that branch entirely) — still a thin
+  // call-site; the R-S8 refusal logic itself lives in with-shape/satellites/validate.ts.
+  'packages/hub/src/kernel/vault.ts': 3956,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),

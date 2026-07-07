@@ -3,7 +3,7 @@ import { validateSatelliteDeclaration, hashFields } from '../src/with-shape/sate
 import { SatelliteConfigError } from '../src/kernel/errors.js'
 
 describe('validateSatelliteDeclaration', () => {
-  const ok = { satellite: 'msgs_text', satelliteOf: 'msgs', fields: ['subject', 'body'], joined: 'msgs_full' }
+  const ok = { satellite: 'msgs_text', satelliteOf: 'msgs', fields: ['subject', 'body'], joined: 'msgs_full', joinedCollidesWithCollection: false }
 
   it('accepts a well-formed declaration and returns a frozen SatelliteSpec', () => {
     const spec = validateSatelliteDeclaration({ ...ok, baseIsSatellite: false, crdtMode: false })
@@ -30,6 +30,11 @@ describe('validateSatelliteDeclaration', () => {
       .toThrowError(/R-S5/)
   })
 
+  it('R-S5: refuses a joined name that collides with an already-declared plain collection', () => {
+    expect(() => validateSatelliteDeclaration({ ...ok, baseIsSatellite: false, crdtMode: false, joinedCollidesWithCollection: true }))
+      .toThrowError(/R-S5/)
+  })
+
   it('R-S8: refuses crdtMode on the satellite member', () => {
     expect(() => validateSatelliteDeclaration({ ...ok, baseIsSatellite: false, crdtMode: true }))
       .toThrowError(/R-S8/)
@@ -38,5 +43,9 @@ describe('validateSatelliteDeclaration', () => {
   it('hashFields is order-insensitive and stable', () => {
     expect(hashFields(['b', 'a'])).toBe(hashFields(['a', 'b']))
     expect(hashFields(['a', 'b'])).not.toBe(hashFields(['a']))
+  })
+
+  it('hashFields does not collide on a joined field vs its split components (M1 delimiter fix)', () => {
+    expect(hashFields(['ab'])).not.toBe(hashFields(['a', 'b']))
   })
 })
