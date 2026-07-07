@@ -2847,8 +2847,9 @@ export class ClassifiedRotationError extends Error {
  * always names the R-S id.
  */
 export class SatelliteConfigError extends NoydbError {
-  constructor(message: string) {
+  constructor(message: string, options?: { readonly cause?: unknown }) {
     super('SATELLITE_CONFIG_ERROR', message)
     this.name = 'SatelliteConfigError'
+    if (options?.cause !== undefined) this.cause = options.cause
   }
 }

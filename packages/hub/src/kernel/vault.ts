@@ -118,6 +118,7 @@ import { makeSatelliteProxy, makeBaseProxy } from '../with-shape/satellites/prox
 import type { SatelliteRegistry } from '../with-shape/satellites/registry.js'
 import { makeJoinedHandle } from '../with-shape/satellites/joined.js'
 import type { JoinedHandle } from '../with-shape/satellites/types.js'
+import { expandRefsWithSatellites } from '../with-shape/satellites/forget.js'
 import {
   type PeriodRecord,
   type ClosePeriodOptions,
@@ -2310,6 +2311,9 @@ export class Vault {
     }
 
     const refs = await lookupSubject(this.adapter, this.name, this.getDEK, this.encrypted, subjectId)
+    // Satellite fan-out (#591, with-shape/satellites/forget.ts) — a satellite
+    // is never itself in the subject index, so synthesize its ref or it survives.
+    const allRefs = expandRefsWithSatellites(refs, this.satelliteRegistry)
 
     let recordsShredded = 0
     let historyVersionsShredded = 0
@@ -2327,9 +2331,10 @@ export class Vault {
     const blobsEnabled = this.blobStrategy !== undefined
     const actor = this.keyring.userId
 
-    for (const ref of refs) {
+    for (const ref of allRefs) {
       const coll = this.collection<Record<string, unknown>>(ref.collection)
-      const perRecordKeys = this.forgetStrategy.subjects[ref.collection] !== undefined
+      const satelliteOf = (ref as { satelliteOf?: string }).satelliteOf
+      const perRecordKeys = this.forgetStrategy.subjects[satelliteOf ?? ref.collection] !== undefined // #591 classification inheritance
 
       // Detect an un-migrated record BEFORE shredding: a perRecordKeys
       // collection whose live envelope still carries a body but no `_cek`
@@ -2389,8 +2394,17 @@ export class Vault {
         sealedCekResidue.push(`${ref.collection}:${ref.id}`)
       }
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const shred = await (coll as any)._writeTombstone(ref.id, actor) as { previousVersion: number } | null
+      let shred: { previousVersion: number } | null
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        shred = await (coll as any)._writeTombstone(ref.id, actor) as { previousVersion: number } | null
+      } catch (cause) {
+        if (satelliteOf === undefined) throw cause // base ref: pre-existing (unwrapped) fail-loud behavior
+        throw new SatelliteConfigError( // R-S4: abort the whole forget rather than leave the heavy side un-erased
+          `R-S4: forget could not fan out to satellite "${ref.collection}" — aborting rather than leaving the heavy side`,
+          { cause },
+        )
+      }
       if (shred !== null) {
         recordsShredded++
         collections.add(ref.collection)
