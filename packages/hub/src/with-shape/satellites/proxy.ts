@@ -78,32 +78,88 @@ export function makeSatelliteProxy(target: any, spec: SatelliteSpec, registry: S
     )
   }
 
+  // Pulled out of the `overrides` object literal (rather than inlined) so
+  // `getMany`/`putMany` below can loop through the SAME existence/lock/poison
+  // logic a single get/put applies — the real `Collection.getMany`/`putMany`
+  // bind their internal `this.get`/`this.put` calls to the RAW target (see
+  // `listWithIds` header + I1, #591 review), which is exactly how a bulk call
+  // through this proxy used to bypass existence filtering and R-S6/poison/lock.
+  const getOne = async (id: string): Promise<unknown> => {
+    if (!(await isBaseLive(adapter, vaultName, spec.base, id))) return null
+    return target.get(id)
+  }
+  const putOne = async (id: string, record: unknown): Promise<unknown> => {
+    return registry.withPairLock(spec.base, async () => {
+      // Poison check INSIDE the lock: a put queued behind a section that
+      // poisons the pair (e.g. a fan-out's failure path) must observe the
+      // poison after acquiring, not race past a pre-lock check.
+      registry.assertNotPoisoned(spec.satellite)
+      if (!(await isBaseLive(adapter, vaultName, spec.base, id))) {
+        throw new SatelliteConfigError(
+          `R-S6: satellite "${spec.satellite}" put for "${id}" with no live base record in ` +
+          `"${spec.base}" — create the base first (or write through the joined handle).`,
+        )
+      }
+      return target.put(id, record)
+    })
+  }
+
   const overrides: Record<string, unknown> = {
-    async get(id: string) {
-      if (!(await isBaseLive(adapter, vaultName, spec.base, id))) return null
-      return target.get(id)
-    },
+    get: getOne,
     async list() {
       const live = await liveBaseIdSet(adapter, vaultName, spec.base)
       const pairs = await listWithIds(target)
       return pairs.filter(([id]) => live.has(id)).map(([, record]) => record)
     },
     query: queryNotExistenceFiltered,
-    async put(id: string, record: unknown) {
-      return registry.withPairLock(spec.base, async () => {
-        // Poison check INSIDE the lock: a put queued behind a section that
-        // poisons the pair (e.g. a fan-out's failure path) must observe the
-        // poison after acquiring, not race past a pre-lock check.
-        registry.assertNotPoisoned(spec.satellite)
-        if (!(await isBaseLive(adapter, vaultName, spec.base, id))) {
-          throw new SatelliteConfigError(
-            `R-S6: satellite "${spec.satellite}" put for "${id}" with no live base record in ` +
-            `"${spec.base}" — create the base first (or write through the joined handle).`,
-          )
-        }
-        return target.put(id, record)
-      })
+    put: putOne,
+    // #591 review I1: the real `getMany` loops `this.get(id)` bound to the raw
+    // target, never this proxy's existence-filtered `get` — same Map<id, T|null>
+    // shape, built from the overridden single-get instead.
+    async getMany(ids: readonly string[]) {
+      const result = new Map<string, unknown>()
+      for (const id of ids) result.set(id, await getOne(id))
+      return result
     },
+    // #591 review I1: the real `putMany` (non-atomic) loops `this.put(id, record)`
+    // bound to the raw target, bypassing R-S6/pair-lock/poison per item; looping
+    // through the overridden single-put here restores that per-item enforcement
+    // while preserving the real putMany's { ok, success, failures } shape — a
+    // refused item becomes a failure entry, not a thrown error. Atomic mode is a
+    // single transaction by design (looping per-item `put` would break its
+    // all-or-nothing revert guarantee), so instead the WHOLE call is refused
+    // with R-S6 up front, under the pair lock + poison check, if any id lacks a
+    // live base — only then does it delegate to the real atomic executor.
+    async putMany(entries: ReadonlyArray<readonly [string, unknown, unknown?]>, options?: { atomic?: boolean }) {
+      if (options?.atomic) {
+        return registry.withPairLock(spec.base, async () => {
+          registry.assertNotPoisoned(spec.satellite)
+          for (const [id] of entries) {
+            if (!(await isBaseLive(adapter, vaultName, spec.base, id))) {
+              throw new SatelliteConfigError(
+                `R-S6: satellite "${spec.satellite}" putMany(atomic) refused — "${id}" has no live base record in "${spec.base}".`,
+              )
+            }
+          }
+          return target.putMany(entries, options)
+        })
+      }
+      const success: string[] = []
+      const failures: Array<{ id: string; error: Error }> = []
+      for (const [id, record] of entries) {
+        try {
+          await putOne(id, record)
+          success.push(id)
+        } catch (error) {
+          failures.push({ id, error: error as Error })
+        }
+      }
+      return { ok: failures.length === 0, success, failures }
+    },
+    // No `deleteMany` override: the real `deleteMany` loops the raw
+    // `this.delete(id)` too, but this proxy never overrides single `delete`
+    // (satellite delete is legal, unguarded — see makeBaseProxy for the leg
+    // that DOES need fan-out) — there is nothing for a bulk delete to bypass.
     // #591 Task 9: search/retrieve/similarTo answer from the search facade's
     // own cache/index (never the get/list overrides above), so they need
     // their own existence post-filter — every retrieval surface the facade
@@ -165,21 +221,41 @@ export function makeSatelliteProxy(target: any, spec: SatelliteSpec, registry: S
 }
 
 /**
- * Wraps a satellite's BASE collection in a `Proxy` whose only override is
- * `delete` — routed through `pairDelete` (this task) so removing a base
- * record also removes its satellite row, in order, with revert-on-failure.
- * `satellite()` is a thunk, not a resolved handle: at the moment a base is
- * first requested the paired satellite may not exist yet in some call
- * orders, and `fanout.ts` re-resolves + unwraps it lazily per call anyway.
+ * Wraps a satellite's BASE collection in a `Proxy` whose overrides are
+ * `delete` and `deleteMany` — both routed through `pairDelete` (this task) so
+ * removing a base record also removes its satellite row, in order, with
+ * revert-on-failure. `satellite()` is a thunk, not a resolved handle: at the
+ * moment a base is first requested the paired satellite may not exist yet in
+ * some call orders, and `fanout.ts` re-resolves + unwraps it lazily per call
+ * anyway.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function makeBaseProxy(target: any, spec: SatelliteSpec, registry: SatelliteRegistry, satellite: () => unknown): any {
   const adapter = target.adapter
   const vaultName = target.vault
 
+  // #591 review I1: the real `deleteMany` loops `this.delete(id)` bound to the
+  // raw target, bypassing this proxy's own `delete` override entirely — a
+  // base deleteMany would silently orphan every satellite row instead of
+  // fanning out. Pulled out so both `delete` and `deleteMany` share it.
+  const deleteOne = async (id: string): Promise<void> => {
+    return pairDelete({ spec, base: () => target, satellite, adapter, vaultName, registry }, id)
+  }
+
   const overrides: Record<string, unknown> = {
-    async delete(id: string) {
-      return pairDelete({ spec, base: () => target, satellite, adapter, vaultName, registry }, id)
+    delete: deleteOne,
+    async deleteMany(ids: readonly string[]) {
+      const success: string[] = []
+      const failures: Array<{ id: string; error: Error }> = []
+      for (const id of ids) {
+        try {
+          await deleteOne(id)
+          success.push(id)
+        } catch (error) {
+          failures.push({ id, error: error as Error })
+        }
+      }
+      return { ok: failures.length === 0, success, failures }
     },
   }
 

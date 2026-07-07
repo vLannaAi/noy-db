@@ -161,3 +161,65 @@ describe('satellite proxy — existence authority + R-S6', () => {
     await expect(blocked).rejects.toThrowError(/poisoned during fan-out/)
   })
 })
+
+describe('satellite proxy — bulk methods honor the same overrides as their single-item counterpart (#591 review I1)', () => {
+  it('satellite.getMany excludes dead-base ids (real getMany binds to the raw get, bypassing existence filtering)', async () => {
+    const { vault, rawStore } = await openPair()
+    await vault.collection<Msg>('msgs').put('a', { from: 'a' })
+    await vault.collection<Msg>('msgs_text').put('a', { body: '1' })
+    await vault.collection<Msg>('msgs').put('b', { from: 'b' })
+    await vault.collection<Msg>('msgs_text').put('b', { body: '2' })
+    await rawStore.delete('v1', 'msgs', 'b') // simulate offline resurrection state
+
+    const result = await vault.collection<Msg>('msgs_text').getMany(['a', 'b'])
+
+    expect(result.get('a')).toEqual({ body: '1' })
+    expect(result.get('b')).toBeNull() // dead base -> null, matching real getMany's missing-record shape
+  })
+
+  it('satellite.putMany (non-atomic) refuses an orphan id as a FAILURE entry, not a throw, and still writes live ids', async () => {
+    const { vault } = await openPair()
+    await vault.collection<Msg>('msgs').put('a', { from: 'a' })
+
+    const result = await vault.collection<Msg>('msgs_text').putMany([
+      ['a', { body: '1' }],
+      ['ghost', { body: '2' }], // no live base -> R-S6
+    ])
+
+    expect(result.ok).toBe(false)
+    expect(result.success).toEqual(['a'])
+    expect(result.failures).toHaveLength(1)
+    expect(result.failures[0]!.id).toBe('ghost')
+    expect(result.failures[0]!.error.message).toMatch(/R-S6/)
+    expect(await vault.collection<Msg>('msgs_text').get('a')).toEqual({ body: '1' })
+  })
+
+  it('satellite.putMany({ atomic: true }) refuses the WHOLE call with R-S6 when any id lacks a live base', async () => {
+    const { vault, rawStore } = await openPair()
+    await vault.collection<Msg>('msgs').put('a', { from: 'a' })
+
+    await expect(vault.collection<Msg>('msgs_text').putMany(
+      [['a', { body: '1' }], ['ghost', { body: '2' }]],
+      { atomic: true },
+    )).rejects.toThrowError(/R-S6/)
+    // Whole call refused up front — not even the live id was written.
+    expect(await rawStore.get('v1', 'msgs_text', 'a')).toBeNull()
+  })
+
+  it('base.deleteMany fans out both legs per id (real deleteMany binds to the raw delete, bypassing pairDelete)', async () => {
+    const { vault, rawStore } = await openPair()
+    await vault.collection<Msg>('msgs').put('a', { from: 'a' })
+    await vault.collection<Msg>('msgs_text').put('a', { body: '1' })
+    await vault.collection<Msg>('msgs').put('b', { from: 'b' })
+    await vault.collection<Msg>('msgs_text').put('b', { body: '2' })
+
+    const result = await vault.collection<Msg>('msgs').deleteMany(['a', 'b'])
+
+    expect(result.ok).toBe(true)
+    expect([...result.success].sort()).toEqual(['a', 'b'])
+    expect(await rawStore.get('v1', 'msgs', 'a')).toBeNull()
+    expect(await rawStore.get('v1', 'msgs_text', 'a')).toBeNull() // satellite leg fanned out
+    expect(await rawStore.get('v1', 'msgs', 'b')).toBeNull()
+    expect(await rawStore.get('v1', 'msgs_text', 'b')).toBeNull()
+  })
+})
