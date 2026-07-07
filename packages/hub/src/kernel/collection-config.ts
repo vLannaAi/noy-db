@@ -178,6 +178,12 @@ export interface CollectionOpts<T> {
    * `schema` field docstring for the error semantics.
    */
   schema?: StandardSchemaV1<unknown, T> | undefined
+  /** Declares this collection a satellite of `satelliteOf` (spec #591). */
+  satelliteOf?: string | undefined
+  /** Satellite routing table — the fields owned by this satellite (required with satelliteOf). */
+  fields?: readonly string[] | undefined
+  /** Registers the full-record joined handle under this name (optional; see vault.joined()). */
+  joined?: string | undefined
   /**
    * Optional reference to the compartment's hash-chained ledger.
    * When present, successful mutations append a ledger entry via
