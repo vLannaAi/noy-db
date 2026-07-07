@@ -9,9 +9,12 @@
  * identically here).
  */
 import { describe, it, expect } from 'vitest'
+import { z } from 'zod'
 import { inlineMemory } from './classified/harness.js'
 import { generateDEK } from '../src/kernel/enclave/index.js'
 import { ensureSatelliteMarker } from '../src/with-shape/satellites/marker.js'
+import { persistSchemaIfNeeded } from '../src/with-shape/persisted-schemas/register.js'
+import { loadPersistedSchema } from '../src/with-shape/persisted-schemas/storage.js'
 import { SatelliteConfigError } from '../src/kernel/errors.js'
 import type { SatelliteSpec } from '../src/with-shape/satellites/types.js'
 
@@ -48,5 +51,33 @@ describe('ensureSatelliteMarker (R-S9)', () => {
     await ensureSatelliteMarker(store, 'v1', spec, dek)
     await expect(ensureSatelliteMarker(store, 'v1', { ...spec, base: 'mail' }, dek)).rejects.toThrowError(SatelliteConfigError)
     await expect(ensureSatelliteMarker(store, 'v1', { ...spec, joined: 'other' }, dek)).rejects.toThrowError(/R-S9/)
+  })
+
+  it('survives a JSON-Schema (re)derivation on the shared _schemas record', async () => {
+    // Same #583 bug class as the classified marker: persistSchemaIfNeeded's
+    // read-merge-write must carry the satellite marker forward, or the R-S9
+    // drift signal silently dies the first time a satellite collection with
+    // persistJsonSchema re-derives its schema.
+    const { store, dek } = await makeFixture()
+    await ensureSatelliteMarker(store, 'v1', spec, dek)
+
+    // Schema writer touches _schemas/<satellite> (first registration writes).
+    await persistSchemaIfNeeded({
+      store, vault: 'v1', collectionName: spec.satellite,
+      validator: z.object({ subject: z.string(), body: z.string() }), dek,
+    })
+
+    // Marker survived the merge — both signals coexist on the single record.
+    const stored = await loadPersistedSchema(store, 'v1', spec.satellite, dek)
+    expect(stored?.satellite).toBeDefined()
+    expect(stored?.satellite?.base).toBe('msgs')
+    expect(stored?.kind).toBe('Zod')
+
+    // And the R-S9 guard still works end-to-end: same spec resolves,
+    // divergent spec refuses.
+    await expect(ensureSatelliteMarker(store, 'v1', spec, dek)).resolves.toBeUndefined()
+    await expect(
+      ensureSatelliteMarker(store, 'v1', { ...spec, fields: ['body'] }, dek),
+    ).rejects.toThrowError(/R-S9/)
   })
 })

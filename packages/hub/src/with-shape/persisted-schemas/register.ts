@@ -89,11 +89,13 @@ export async function persistSchemaIfNeeded(opts: {
       return { written: false, skipped: false, envelope: stored ?? fresh, decision }
     }
 
-    // Preserve a previously-persisted classified marker (C-A / R10) — the schema
-    // derivation knows nothing about it, so a naive overwrite here would drop the
-    // config-drift guard's cross-session signal.
-    const toSave: PersistedSchemaEnvelope =
-      stored?.classified !== undefined ? { ...fresh, classified: stored.classified } : fresh
+    // Preserve a previously-persisted classified marker (C-A / R10) and
+    // satellite pairing marker (R-S9) — the schema derivation knows nothing
+    // about them, so a naive overwrite here would drop the config-drift
+    // guards' cross-session signals.
+    let toSave: PersistedSchemaEnvelope = fresh
+    if (stored?.classified !== undefined) toSave = { ...toSave, classified: stored.classified }
+    if (stored?.satellite !== undefined) toSave = { ...toSave, satellite: stored.satellite }
     try {
       await savePersistedSchema(opts.store, opts.vault, opts.collectionName, opts.dek, toSave, version)
       return { written: true, skipped: false, envelope: toSave, decision }
