@@ -2,6 +2,7 @@ import { SatelliteConfigError } from '../../kernel/errors.js'
 import { isBaseLive, liveBaseIdSet } from './existence.js'
 import { pairDelete } from './fanout.js'
 import { RAW_TARGET } from './raw-target.js'
+import type { NoydbStore } from '../../kernel/types.js'
 import type { SatelliteSpec } from './types.js'
 import type { SatelliteRegistry } from './registry.js'
 
@@ -30,6 +31,24 @@ export async function listWithIds(target: any): Promise<Array<[string, unknown]>
     if (id !== undefined) out.push([id, records[i]])
   }
   return out
+}
+
+/**
+ * Existence-filter a search/retrieve hit array in place, id-scoped to the
+ * hits actually returned (never a full `liveBaseIdSet` scan — #591 Task 9).
+ * `search()`/`retrieve()`/`similarTo()` answer from the facade's own eager
+ * cache / lexical index (`with-lookup/search/collection-facade.ts`), which
+ * never observes the proxy's existence check — this closes that leak as a
+ * pure post-filter: the persisted `_ftindex` posting is never touched.
+ */
+async function filterLiveHits<H extends { id: string }>(
+  hits: readonly H[],
+  adapter: NoydbStore,
+  vaultName: string,
+  base: string,
+): Promise<H[]> {
+  const live = await Promise.all(hits.map((h) => isBaseLive(adapter, vaultName, base, h.id)))
+  return hits.filter((_, i) => live[i])
 }
 
 /**
@@ -83,6 +102,22 @@ export function makeSatelliteProxy(target: any, spec: SatelliteSpec, registry: S
         }
         return target.put(id, record)
       })
+    },
+    // #591 Task 9: search/retrieve/similarTo answer from the search facade's
+    // own cache/index (never the get/list overrides above), so they need
+    // their own existence post-filter — every retrieval surface the facade
+    // exposes is covered here.
+    async search(field: string, query: string, opts?: unknown) {
+      const hits = await target.search(field, query, opts)
+      return filterLiveHits(hits, adapter, vaultName, spec.base)
+    },
+    async retrieve(query: string, opts?: unknown) {
+      const hits = await target.retrieve(query, opts)
+      return filterLiveHits(hits, adapter, vaultName, spec.base)
+    },
+    async similarTo(vector: Float32Array, opts?: unknown) {
+      const hits = await target.similarTo(vector, opts)
+      return filterLiveHits(hits, adapter, vaultName, spec.base)
     },
   }
 
