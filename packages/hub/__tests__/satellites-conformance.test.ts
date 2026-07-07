@@ -39,7 +39,8 @@ interface Msg extends Record<string, unknown> {
 // Vector (a)/(b): base put shape + crash injection
 // ---------------------------------------------------------------------------
 
-/** In-memory store instrumented with put ordering (copied from satellites-fanout.test.ts). */
+/** In-memory store instrumented with put ordering + one-shot per-collection
+ *  put/delete failure injection (copied from satellites-fanout.test.ts). */
 function spyMemory() {
   const data = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   const gc = (v: string, c: string): Map<string, EncryptedEnvelope> => {
@@ -48,10 +49,19 @@ function spyMemory() {
     return coll
   }
   const putOrder: Array<[string, string]> = []
+  let failPut: string | null = null
+  let failDelete: string | null = null
   const store: NoydbStore = {
     async get(v, c, id) { return data.get(v)?.get(c)?.get(id) ?? null },
-    async put(v, c, id, env) { putOrder.push([c, id]); gc(v, c).set(id, env) },
-    async delete(v, c, id) { gc(v, c).delete(id) },
+    async put(v, c, id, env) {
+      if (failPut === c) { failPut = null; throw new Error(`spy: forced put failure for "${c}"`) }
+      putOrder.push([c, id])
+      gc(v, c).set(id, env)
+    },
+    async delete(v, c, id) {
+      if (failDelete === c) { failDelete = null; throw new Error(`spy: forced delete failure for "${c}"`) }
+      gc(v, c).delete(id)
+    },
     async list(v, c) { const coll = data.get(v)?.get(c); return coll ? [...coll.keys()] : [] },
     async loadAll(v) {
       const comp = data.get(v); const s: VaultSnapshot = {}
@@ -62,7 +72,11 @@ function spyMemory() {
       for (const [n, byId] of Object.entries(recs)) { const coll = gc(v, n); for (const [id, e] of Object.entries(byId)) coll.set(id, e) }
     },
   }
-  return { store, putOrder }
+  return {
+    store, putOrder,
+    failNextPutFor: (c: string): void => { failPut = c },
+    failNextDeleteFor: (c: string): void => { failDelete = c },
+  }
 }
 
 async function openCrashPair() {
@@ -72,7 +86,10 @@ async function openCrashPair() {
   vault.collection<Msg>('msgs', {})
   vault.collection<Msg>('msgs_text', { satelliteOf: 'msgs', fields: ['subject', 'body'], joined: 'msgs_full' })
   const pairOnly = (): Array<[string, string]> => spy.putOrder.filter(([c]) => c === 'msgs' || c === 'msgs_text')
-  return { vault, rawStore: spy.store, putOrder: pairOnly }
+  return {
+    vault, rawStore: spy.store, putOrder: pairOnly,
+    failNextPutFor: spy.failNextPutFor, failNextDeleteFor: spy.failNextDeleteFor,
+  }
 }
 
 describe('spec conformance — cross-cutting vectors (#591, Task 13)', () => {
@@ -98,18 +115,37 @@ describe('spec conformance — cross-cutting vectors (#591, Task 13)', () => {
       return vault2
     }
 
-    it('joined put killed after the base leg: base present, satellite absent, joined reads all-null satellite fields', async () => {
-      // spec: Conformance — crash injection, joined-put kill after the first fan-out op.
-      // Simulated by writing ONLY the base leg directly (bypassing joinedPut
-      // entirely) — a genuine process kill never reaches joinedPut's own
-      // catch-and-revert path, unlike the exception-driven revert already
-      // covered in satellites-fanout.test.ts.
-      const { vault, rawStore } = await openCrashPair()
-      await vault.collection<Msg>('msgs').put('x', { from: 'a' })
+    it('double-fault torn pair: satellite-leg failure whose best-effort revert ALSO fails leaves the torn state standing — readable safe-direction-only, live and after re-open', async () => {
+      // spec: Atomicity — crash-window torn pair (double fault: leg failure + best-effort revert failure) reads safe-direction-only
+      //
+      // Drives the REAL fan-out path (joinedPut via vault.joined().put) into
+      // its accepted crash window: the satellite leg's adapter put throws,
+      // and the subsequent best-effort revert of the already-executed base
+      // leg ALSO fails. For a fresh id the base leg's prior envelope is null,
+      // so fanout.ts's revertAndCompensate issues an adapter DELETE to undo
+      // it — that is the op armed to fail here. Revert failures are swallowed
+      // by design (surfacing one would mask the original leg error), so this
+      // double fault leaves the torn state standing: base carries the NEW hot
+      // fields, satellite absent.
+      const { vault, rawStore, failNextPutFor, failNextDeleteFor } = await openCrashPair()
+      failNextPutFor('msgs_text')  // satellite leg throws
+      failNextDeleteFor('msgs')    // ...and the base-leg revert (delete of the fresh envelope) also fails
 
+      // The ORIGINAL satellite-leg error surfaces, not the swallowed revert error.
+      await expect(vault.joined<Msg>('msgs_full').put('x', { from: 'a', subject: 's', body: 'B' }))
+        .rejects.toThrow(/msgs_text/)
+
+      // Torn persisted state: base stands with the new hot fields; satellite
+      // never produced (no base-less satellite either — folded from vector (a)).
       expect(await rawStore.get('v1', 'msgs', 'x')).not.toBeNull()
-      expect(await rawStore.get('v1', 'msgs_text', 'x')).toBeNull() // never produced
+      expect(await rawStore.get('v1', 'msgs_text', 'x')).toBeNull()
+      expect(await rawStore.list('v1', 'msgs_text')).not.toContain('x')
 
+      // Same-session reads of the torn state are safe-direction-only:
+      expect(await vault.joined<Msg>('msgs_full').get('x')).toEqual({ from: 'a', subject: null, body: null })
+      expect(await vault.collection<Msg>('msgs_text').get('x')).toBeNull()
+
+      // And the PERSISTED torn state is equally safe after a fresh re-open:
       const fresh = await reopenCrashPair(rawStore)
       expect(await fresh.joined<Msg>('msgs_full').get('x')).toEqual({ from: 'a', subject: null, body: null })
     })
@@ -128,13 +164,6 @@ describe('spec conformance — cross-cutting vectors (#591, Task 13)', () => {
 
       const fresh = await reopenCrashPair(rawStore)
       expect(await fresh.joined<Msg>('msgs_full').get('y')).toEqual({ from: 'b', subject: null, body: null })
-    })
-
-    it('a base-less satellite is never produced locally by a base-only write', async () => {
-      // spec: Conformance — "a fresh base-less satellite is never produced LOCALLY"
-      const { vault, rawStore } = await openCrashPair()
-      await vault.collection<Msg>('msgs').put('z', { from: 'c' }) // as if killed before any satellite leg ran
-      expect(await rawStore.list('v1', 'msgs_text')).not.toContain('z')
     })
   })
 
@@ -172,6 +201,7 @@ describe('spec conformance — cross-cutting vectors (#591, Task 13)', () => {
       expect(await vault.collection<Msg>('msgs_text').list()).toEqual([])
       expect(() => vault.collection<Msg>('msgs_text').query()).toThrowError(SatelliteConfigError)
       expect(await vault.collection<Msg>('msgs_text').retrieve('zebra')).toEqual([])
+      expect(await vault.collection<Msg>('msgs_text').search('body', 'zebra')).toEqual([]) // scan-mode search, same filterLiveHits path
       expect(await vault.joined<Msg>('msgs_full').get('x')).toBeNull()
 
       // Containment is purely observational — the satellite envelope was
