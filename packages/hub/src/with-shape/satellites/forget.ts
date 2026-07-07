@@ -14,10 +14,23 @@
  *   - the synthesized ref's tombstone write can be held to R-S4 fail-loud
  *     semantics distinct from a base ref's existing resilient handling.
  *
- * The synthesized ref is appended to the SAME list the caller iterates, so it
+ * The synthesized ref is INTERLEAVED into the SAME list the caller iterates —
+ * immediately BEFORE its base ref, not appended after the whole list — so it
  * traverses every purge stage below the tombstone (history, `_idx`/`_ftindex`,
  * blobs, `_sealed`/`_sealed_cek`, vectors) identically to a base ref — there
  * is no separate satellite-only code path.
+ *
+ * Ordering is load-bearing (retry black hole, #591 review C1): `vault.forget()`'s
+ * per-ref loop removes each ref's subject-index entry (the retry anchor) only
+ * at the END of that ref's own iteration. If the satellite ref instead ran
+ * AFTER its base ref (as a simple append), an R-S4 abort mid-satellite-ref (or
+ * a crash) would leave the base ref already fully processed — including its
+ * subject-index entry already removed — so a retried `forget(subjectId)` finds
+ * nothing to resolve and returns a clean, empty result while the satellite's
+ * heavy data stays un-shredded forever. Interleaving the satellite ref BEFORE
+ * its base ref means any R-S4 abort happens before the base's subject-index
+ * anchor is touched, so a retry re-discovers the same base ref (and
+ * re-synthesizes its satellite ref) until both actually shred.
  */
 import type { SubjectRef } from '../../with-audit/forget/subject-index.js'
 import type { SatelliteRegistry } from './registry.js'
@@ -38,10 +51,15 @@ export function expandRefsWithSatellites(
   registry: SatelliteRegistry | null,
 ): ReadonlyArray<SubjectRef | SatelliteSubjectRef> {
   if (registry === null) return refs
-  const satRefs: SatelliteSubjectRef[] = []
+  const out: Array<SubjectRef | SatelliteSubjectRef> = []
+  let anySat = false
   for (const ref of refs) {
     const spec = registry.satelliteOf(ref.collection)
-    if (spec) satRefs.push({ collection: spec.satellite, id: ref.id, satelliteOf: ref.collection })
+    if (spec) {
+      anySat = true
+      out.push({ collection: spec.satellite, id: ref.id, satelliteOf: ref.collection })
+    }
+    out.push(ref)
   }
-  return satRefs.length === 0 ? refs : [...refs, ...satRefs]
+  return anySat ? out : refs
 }

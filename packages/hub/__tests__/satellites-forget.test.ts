@@ -128,4 +128,25 @@ describe('forget fan-out through the full purge suite (#591, Task 8)', () => {
 
     await expect(vault.forget('alice@x')).rejects.toThrowError(/R-S4/)
   })
+
+  it('R-S4 retry: an aborted forget can be retried to completion — the base\'s subject-index anchor must survive an abort mid-satellite-ref (no retry black hole, review C1)', async () => {
+    const { vault, rawStore, spy } = await openForgetPair()
+    await vault.joined('msgs_full').put('x', { from: 'alice@x', subject: 's', body: 'SECRET' })
+
+    spy.failNextPutFor('msgs_text') // satellite tombstone write fails ONCE
+    await expect(vault.forget('alice@x')).rejects.toThrowError(/R-S4/)
+
+    // Retry (the spy already disarmed itself after firing once) must still
+    // find the subject and shred BOTH the satellite and the base — if the
+    // satellite ref ran after (instead of before) its base ref, the base's
+    // subject-index entry would already be gone and this retry would return
+    // a clean, empty result while the satellite stays un-shredded forever.
+    const result = await vault.forget('alice@x')
+
+    expect(result.recordsShredded).toBe(2) // base + satellite, both shredded on retry
+    const satEnv = await rawStore.get('v1', 'msgs_text', 'x')
+    expect(satEnv?._data).toBe('')
+    const baseEnv = await rawStore.get('v1', 'msgs', 'x')
+    expect(baseEnv?._data).toBe('')
+  })
 })
