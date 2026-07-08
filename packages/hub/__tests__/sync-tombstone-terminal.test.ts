@@ -4,6 +4,7 @@ import { ConflictError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { withSync } from '../src/with-party/sync/index.js'
 import { withForgetCascade } from '../src/with-audit/forget/index.js'
+import { withHistory } from '../src/with-commit/history/index.js'
 import { isTombstoneShape } from '../src/kernel/enclave/record-keys/tombstone.js'
 
 /** In-memory store (mirrors the harness in sync.test.ts). */
@@ -209,6 +210,70 @@ describe('push tombstone-terminal rule (#590)', () => {
     expect(push.conflicts).toHaveLength(0)
     expect(events).toHaveLength(1)
     expect((await db.push(V)).pushed).toBe(0)                     // entry completed, edit never re-pushed
+    db.close()
+  })
+})
+
+describe('end-to-end: forget() + sync (#590 exit criteria)', () => {
+  async function setup() {
+    const local = inlineMemory(); const remote = inlineMemory()
+    const db = await createNoydb({
+      store: local, sync: remote, user: 'alice', secret: 'hunter2', syncStrategy: withSync(),
+      forgetStrategy: withForgetCascade({ subjects: { notes: 'subjectId' } }),
+      historyStrategy: withHistory(),
+    })
+    const vault = await db.openVault(V)
+    const notes = vault.collection<Note>('notes', { perRecordKeys: true })
+    return { local, remote, db, vault, notes }
+  }
+
+  it('the shred rides the push channel: forget → push tombstones the remote', async () => {
+    const { remote, db, vault, notes } = await setup()
+    await notes.put('n1', { subjectId: 's1', body: 'secret' })
+    await db.push(V)
+    await vault.forget('s1')
+    await db.push(V)
+    const remoteEnv = (await remote.get(V, 'notes', 'n1'))!
+    expect(remoteEnv._data).toBe('')
+    expect(remoteEnv._cek).toBeUndefined()
+    db.close()
+  })
+
+  it('exit criteria, order pull-then-push: offline higher-_v edit cannot resurrect; tombstoned everywhere, edit reported', async () => {
+    const { local, remote, db, vault, notes } = await setup()
+    await notes.put('n1', { subjectId: 's1', body: 'secret' })
+    await db.push(V)
+    const preShred = (await remote.get(V, 'notes', 'n1'))!   // what offline peer B still holds
+    await vault.forget('s1')                                  // ledger-attested shred on A
+    await remote.put(V, 'notes', 'n1', { ...preShred, _v: preShred._v + 1 })  // B pushed its edit
+
+    const pull = await db.pull(V)
+    await db.push(V)
+
+    expect(await notes.get('n1')).toBeNull()                                  // still erased on A
+    expect((await local.get(V, 'notes', 'n1'))!._data).toBe('')
+    const remoteEnv = (await remote.get(V, 'notes', 'n1'))!
+    expect(remoteEnv._data).toBe('')                                          // remote re-tombstoned
+    expect(remoteEnv._cek).toBeUndefined()
+    expect(remoteEnv._v).toBe(preShred._v + 1)                                // monotonic counter kept
+    expect(pull.erasures).toHaveLength(1)                                     // B's edit reported, not applied
+    db.close()
+  })
+
+  it('exit criteria, order push-then-pull: same convergence', async () => {
+    const { local, remote, db, vault, notes } = await setup()
+    await notes.put('n1', { subjectId: 's1', body: 'secret' })
+    await db.push(V)
+    const preShred = (await remote.get(V, 'notes', 'n1'))!
+    await vault.forget('s1')
+    await remote.put(V, 'notes', 'n1', { ...preShred, _v: preShred._v + 1 })
+
+    await db.push(V)     // unconditional tombstone assertion overwrites B's copy
+    await db.pull(V)
+
+    expect(await notes.get('n1')).toBeNull()
+    expect((await local.get(V, 'notes', 'n1'))!._data).toBe('')
+    expect((await remote.get(V, 'notes', 'n1'))!._data).toBe('')
     db.close()
   })
 })

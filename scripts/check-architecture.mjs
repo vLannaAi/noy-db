@@ -691,7 +691,10 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 4647→4662 (2026-07-07, #591 satellites archetype-③ — thin call-sites only
   // (declare/joined accessor/proxy wrap/forget ref-expansion/pair-sync hooks); heavy
   // logic in with-shape/satellites): documented actual post-implementation line count.
-  'packages/hub/src/kernel/collection.ts': 4662,
+  // Bumped 4662→4664 (2026-07-09, +2: #590 forget→sync-dirty-log hook): _writeTombstone
+  // enters the sync dirty log via the existing onDirty seam so the shred propagates on
+  // push; one comment + one call, the sync engine itself stays in with-party/team/sync.ts.
+  'packages/hub/src/kernel/collection.ts': 4664,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
