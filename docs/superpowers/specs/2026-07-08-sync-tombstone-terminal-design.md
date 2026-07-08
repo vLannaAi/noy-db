@@ -61,10 +61,11 @@ Enforced at every compare point, **before any resolver runs**:
 
 | Situation | Behavior |
 |---|---|
-| Pull: local tombstone, remote live (any `_v` — higher, equal, lower) | Never apply. **Re-assert**: put the tombstone to the remote with `_v = max(local._v, remote._v)`, fresh `_ts`, original `_by` preserved; update local to the same `_v`. Report the suppressed remote envelope. |
-| Pull: remote tombstone, local live (any `_v`, even dirty) | Apply the tombstone locally, drop the dirty entry, invalidate caches, report the suppressed local envelope. |
-| Push conflict (`handleConflict` call sites in `push`/`pushFiltered`) | If either side is a tombstone, the tombstone wins unconditionally. Per-collection resolvers and the db-level `ConflictStrategy` are **never consulted** — a resolver must not overrule a ledger-attested erasure. |
-| Pull `modifiedSince` filter | Tombstones are exempt — an erasure is never skipped by partial sync. |
+| Pull: local tombstone, remote live (any `_v` — higher, equal, lower) | Never apply. **Re-assert**: put the tombstone to the remote with `_v = max(local._v, remote._v)`, fresh `_ts` when bumped, original `_by` preserved; update local to the same `_v`. Report the suppressed remote envelope. |
+| Pull: remote tombstone, local live | Apply the tombstone locally regardless of `_v`, drop any dirty entry, invalidate caches. Report the suppressed local envelope **only when it was dirty** (an actual local edit was lost); a non-dirty stale copy is a plain apply, not a suppression. |
+| Push: the local envelope for a dirty entry is a tombstone | **Unconditional put** — no CAS `expectedVersion`, no conflict path. A tombstone push is an erasure assertion; erasure always wins. |
+| Push `ConflictError` path (`push`/`pushFiltered`): remote is a tombstone | Enforce locally, complete the entry, report the suppressed local envelope. Per-collection resolvers and the db-level `ConflictStrategy` are **never consulted** — a resolver must not overrule a ledger-attested erasure. |
+| Pull `modifiedSince` filter | **Remote tombstones are exempt** — an arriving erasure is never skipped by partial sync. (A local-tombstone re-assert can be deferred by `modifiedSince` filtering of the remote live copy; the next full pull — or the push channel — covers it.) |
 | Both sides tombstones | Keep the higher `_v`; no report. |
 
 The `_v`-bump on re-assert keeps per-key version monotonicity on each store; the
@@ -84,9 +85,16 @@ to the tombstone is guaranteed once any tombstone-holder syncs.
 ### 4. Reporting (api-additive)
 
 - New type `ErasureEnforcement { vault, collection, id, tombstone, suppressed,
-  direction: 'pull' | 'push' }` in `kernel/types.ts`.
-- New optional `erasures?: ErasureEnforcement[]` on `PullResult` and `PushResult`.
-- New `'sync:erasure'` event.
+  direction: 'pull' | 'push' }` in `kernel/types.ts`; `suppressed` is always the
+  concrete live envelope that lost (never null — unreported enforcements are
+  plain applies).
+- New optional `erasures?: ErasureEnforcement[]` on `PullResult` and `PushResult`
+  (optional so existing constructors of these types stay valid; the engine always
+  sets it).
+- New `'sync:erasure'` event in `NoydbEventMap`.
+- Exported from the main hub entry only — **not** added to the `/kernel`, `/cargo`,
+  or `/adapter` seams (verified: none of them export the sync result types today;
+  the golden surfaces stay byte-identical).
 
 Deliberately **not** a `Conflict`: conflicts carry `resolve()` semantics and resolver
 routing, which erasure enforcement must never have.
