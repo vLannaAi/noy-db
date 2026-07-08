@@ -6,6 +6,39 @@
 > [`docs/superpowers/specs/2026-07-01-noydb-architecture-lexicon.md`](docs/superpowers/specs/2026-07-01-noydb-architecture-lexicon.md#addendum-ports-2026-07-02).
 > Read this when adding, renaming, or questioning a package's home.
 
+## The containing architecture — nested cores
+
+Before the classification rules, the frame they live in. The whole product is **one composition
+rule applied at four scales**: a minimal core, an opt-in periphery, and a frozen seam between
+them, with a mechanical guard holding the seam. Each level *is* the next level's core:
+
+| Level | Equation | Seam the periphery binds | Mechanical guard |
+|---|---|---|---|
+| 0 | **microkernel (spine) + enclave (+ policy) = kernel** | the enclave barrel — the frozen crypto contract the spine consumes | `enclave-barrel-only` / `enclave-body-only` ratchets; `kernel-surface` line ceilings |
+| 1 | **kernel + `with-*` service layers = hub** | `with*()` strategy factories via the `/with` port; `NO_X` stubs when unused | `strategy-opt-in`; bundle-size gate; port-layering |
+| 2 | **hub + families (`to` `on` `at` `in` `by` `as`) = noy-db** | the golden-frozen port subpaths (`@noy-db/hub/to`, `/on`, …) | `peer-deps`; `stores-ciphertext-only`; `no-crypto-deps` |
+| 3 | **noy-db + klum-db (managed fleets) + noy-db-to + noy-db-ui + noy-db-docs = the product family** | `/cargo` (klum), `/to` at a version range (extended stores), `collection.describe()` (ui), **published versions + `docs.manifest.json`** (docs) | `no-outbound-klum-import`; each sister repo's own `check-architecture`; version-anchored doc-sync |
+
+Three invariants make the recursion more than a diagram:
+
+- **The one-way law, with one deliberate arrow-flip.** At levels 1–3 the periphery binds the
+  core's frozen contract and the core never imports outward. At level 0 the arrow flips: the
+  *spine* consumes the *enclave's* frozen barrel — because the crypto is the innermost core,
+  protected from everything, including the kernel itself.
+- **The trust gradient.** Every seam crossing sheds capability, monotonically: enclave (raw
+  keys) → kernel (DEK handles + plaintext) → services (plaintext, opt-in, scoped) → families
+  (ciphertext-only, or post-decrypt as a consumer) → sister repos (published surface only) →
+  docs (published *versions* only). Nothing at ring N can reach ring N−1's capabilities except
+  through the seam.
+- **Isolation hardens outward.** The same seam idea is implemented with progressively stronger
+  mechanisms: tree-shaking + `NO_X` stubs (level 1) → package boundary + golden-frozen subpaths
+  (level 2) → repo boundary + npm peer ranges (level 3) → version-anchored sync state
+  (`docs.manifest.json`) for the ring that holds no code at all.
+
+And at every level the economics are identical: **pay only for the rings you opt into** — an
+unused service tree-shakes out, an unused family is a package you never install, a fleet you
+don't manage is a repo you never touch.
+
 ## The two axes
 
 NOYDB's catalog is organized along **two independent axes** that are easy to conflate:
