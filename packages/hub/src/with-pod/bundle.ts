@@ -1096,6 +1096,62 @@ function applySliceFilters(
 }
 
 /**
+ * Unconditionally drop satellite-collection records whose base row is dead
+ * (absent or tombstoned — existence.ts rule 1) from a vault dump. Unlike
+ * `applySliceFilters` / `applyPlaintextFilters`, this isn't opt-in: a
+ * satellite envelope that outlived its base is dead ciphertext (plus its
+ * wrapped keys) that should never leave the vault in a `.noydb` backup
+ * (#591 Task 10 — closes the last enumerated existence-authority surface).
+ *
+ * Pairing info comes from the persisted `_schemas/<name>` marker rather
+ * than the in-memory `SatelliteRegistry` — that registry is private to
+ * `Vault` and the bundle-export path only has `Vault._introspectState()`
+ * (adapter + vault name + per-collection DEK accessor), so it reads the
+ * marker instead of widening the kernel's surface. See
+ * `with-shape/satellites/dead-filter.ts`.
+ *
+ * No-ops (returns `dumpJson` unchanged) when the vault has no detectable
+ * satellite collections at all, so vaults that never use satellites pay
+ * no extra parse/reserialize cost. Also no-ops when `vault` doesn't
+ * implement `_introspectState()` at all — some call sites pass a minimal
+ * duck-typed vault-like object for unit tests (e.g.
+ * `snapshots.test.ts`'s `makeMockVault`, which implements only
+ * `getBundleHandle`/`dump`/`load`/`getPublicEnvelope`); a real `Vault`
+ * always implements it.
+ *
+ * @internal
+ */
+async function applySatelliteLivenessFilter(
+  vault: Vault,
+  dumpJson: string,
+): Promise<string> {
+  const backup = JSON.parse(dumpJson) as {
+    collections?: Record<string, Record<string, unknown>>
+    [k: string]: unknown
+  }
+  if (!backup.collections || typeof backup.collections !== 'object') return dumpJson
+  if (typeof vault._introspectState !== 'function') return dumpJson
+
+  const { adapter, name, getDEK } = vault._introspectState()
+  const { liveBaseIdSetsForBundle } = await import('../with-shape/satellites/dead-filter.js')
+  const satLive = await liveBaseIdSetsForBundle(adapter, name, Object.keys(backup.collections), getDEK)
+  if (satLive.size === 0) return dumpJson
+
+  const next: Record<string, Record<string, unknown>> = {}
+  for (const [collName, records] of Object.entries(backup.collections)) {
+    const live = satLive.get(collName)
+    if (!live) { next[collName] = records; continue }
+    const kept: Record<string, unknown> = {}
+    for (const [id, env] of Object.entries(records)) {
+      if (live.has(id)) kept[id] = env
+    }
+    next[collName] = kept
+  }
+  backup.collections = next
+  return JSON.stringify(backup)
+}
+
+/**
  * Apply opt-in plaintext-tier filters
  * to a vault dump. Operates BEFORE `applySliceFilters` so the metadata
  * pass sees the trimmed record set.
@@ -1241,10 +1297,15 @@ export async function writePod(
   const handle = await vault.getBundleHandle()
   const dumpJson = await vault.dump()
 
+  // Satellite existence-authority filter (#591 Task 10) — unconditional,
+  // runs before every other filter so dead-ciphertext satellite records
+  // never reach recipient rewrap or the opt-in filters below.
+  const satelliteFiltered = await applySatelliteLivenessFilter(vault, dumpJson)
+
   // Re-keying: when caller supplied recipients (or the single-recipient
   // shorthand), substitute the bundle's `keyrings` map with freshly
   // built recipient slots before slice filters run.
-  const rekeyed = await applyRecipientRewrap(vault, dumpJson, opts)
+  const rekeyed = await applyRecipientRewrap(vault, satelliteFiltered, opts)
   // Plaintext-tier filters run BEFORE
   // the metadata-only slice — that way the metadata pass sees the
   // already-trimmed record set and the two filter chains compose

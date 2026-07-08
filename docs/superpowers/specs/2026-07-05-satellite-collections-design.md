@@ -40,7 +40,7 @@ collection('msgs_text', {
 ```
 
 - **Shared key = the record id.** `msgs_text/x` is the satellite of `msgs/x`. The 1:1 pairing is on the id itself, which is what makes every satellite read an O(1) same-id lookup, never a scan. **v1 allows exactly one satellite per base** (Q2, decided post-audit — the pre-audit text was inconsistently 1-vs-N; N-satellites is a deferred, explicitly versioned extension, see § Deferred).
-- **Architectural home — archetype-③ (`with-shape/satellites`), decided by audit.** The kernel-surface ratchet stands at 4647/3898/2360 for collection.ts/vault.ts/noydb.ts with the files at 4646/3897/2359 — **one line of headroom each** (`scripts/check-architecture.mjs:689,846,941`). The pairing registry, fan-out, existence checks, and joined proxy therefore live in `with-shape/satellites/*`, declared on `collection({ satelliteOf, fields, joined })` with the implementation lazy-imported (the repo's archetype-③ pattern: schema features declared on `collection()`, impl in `with-shape/*`). Kernel files get only thin bus-registered call-sites; any ceiling bump must be explicitly budgeted in the plan and justified per the ratchet doctrine ("register on the bus, not grow these files").
+- **Architectural home — archetype-③ (`with-shape/satellites`), decided by audit.** The kernel-surface ratchet stands at 4647/3898/2360 for collection.ts/vault.ts/noydb.ts with the files at 4646/3897/2359 — **one line of headroom each** (`scripts/check-architecture.mjs:689,846,941`). The pairing registry, fan-out, existence checks, and joined proxy therefore live in `with-shape/satellites/*`, declared on `collection({ satelliteOf, fields, joined })` with the implementation lazy-imported (the repo's archetype-③ pattern: schema features declared on `collection()`, impl in `with-shape/*`) *(v1 ships static imports — see § Implementation amendments)*. Kernel files get only thin bus-registered call-sites; any ceiling bump must be explicitly budgeted in the plan and justified per the ratchet doctrine ("register on the bus, not grow these files").
 - **The pairing config is persisted, not session-local (audit).** `satelliteOf` / `fields` / `joined` as pure declaration options would drift across app versions (v1 declares `fields: ['body']`, v2 adds `'subject'` → the same logical record splits differently per client; a client that never declares the satellite would not fan out deletes at all). On first declaration the vault persists a **pairing marker** (base name, `fields` hash, `joined` name) into the `_schemas` reserved collection, following the classified config-drift marker pattern (hardened against the lost-update race in `f94b158e`). A re-declaration that mismatches the persisted marker is refused (R-S9); evolving `fields` is a deliberate marker-update operation, not a silent redeclare.
 - **The satellite's `fields` list IS the routing table.** A whole-record write routes each key: in `fields` → satellite, everything else → base. One explicit array per satellite (not per-field annotation, so the 70-field case stays ergonomic). *Why not "the schemas are the routing table":* a noy-db `schema` is an opaque Standard Schema v1 validator (`kernel/schema.ts`) — field enumeration exists only via `derivePersistedSchema` (`with-shape/introspection/describe.ts`), which is async, best-effort, and effectively zod-4-only. Routing correctness is a hard invariant, so it must not depend on best-effort introspection. Derivable schema fields and `fieldMeta` keys are used as **cross-checks** on `fields` at declaration (best-effort, async — R-S5), never as the routing source.
 - **The base is oblivious and standalone.** `msgs` is defined and usable entirely on its own; its schema/API says nothing about `msgs_text`. Only the vault-level pairing registry (backed by the persisted marker) knows the link, to drive delete/forget fan-out. `msgs.get(id)` returns the hot fields only — **no satellite fetch, no `body` decrypt.** This is the whole point: the cheap read is the default.
@@ -117,7 +117,7 @@ Each satellite **is a normal collection** for writes, indexing, and storage — 
 ## Shipping obligations (audit — mechanical gates that will otherwise fail merge day)
 
 - `features.yaml` entry (schema-validated — `pnpm validate:features`).
-- Bundle-size gate: satellite code must be reachable only behind the `with-shape/satellites` lazy import — the three CI invariants (floor, cross-leak, per-subsystem) must stay green with satellites unused.
+- Bundle-size gate: satellite code must be reachable only behind the `with-shape/satellites` lazy import *(v1 ships static imports — see § Implementation amendments)* — the three CI invariants (floor, cross-leak, per-subsystem) must stay green with satellites unused.
 - `check-architecture.mjs`: register the declaration options in the archetype-③ exemption set (or ship a `with*()` factory); budget any kernel ceiling bump explicitly.
 - Doc page `docs/subsystems/satellites.md`, SPEC section, subpath export + tsup entry per the SERVICES.md governance checklist.
 - Conformance vectors live in the hub package tests (spy-store based); no adapter-conformance changes (stores see only ordinary envelopes).
@@ -198,3 +198,63 @@ Refusals & config:
 
 Conflict granularity (documented behavior, asserted as such):
 - Two clients' divergent joined writes can converge to base-from-A ⊕ satellite-from-B; the vector asserts this **documented** field-group granularity and that registering a conflict resolver for one pair member registers it for both.
+
+## Implementation amendments (v1, 2026-07-07)
+
+Four execution decisions made across Tasks 5–11, folded back into the design record (Task 12
+reconciliation). None of these revise a resolved owner decision above — each is a v1 scoping
+detail discovered while building the rule it implements.
+
+- **Satellite `query()` refuses with `SatelliteConfigError` (Task 5).** Query's terminal methods
+  (`toArray`/`first`/`count`) read the in-memory cache **synchronously**, while existence authority
+  (§ Convergence & existence authority, rule 1) requires an **async**, undecrypted check against
+  live base state — the two shapes don't compose without either breaking `query()`'s synchronous
+  contract or accepting a check that can miss an out-of-band base mutation. `list()`/`get()` remain
+  existence-safe (async, checked per call); `search`/`retrieve`/`similarTo` get their own existence
+  post-filter (Task 9) since they answer from the search facade's own cache/index, not the proxy's
+  get/list overrides.
+
+- **Bundle export filter degrades leak-on-error, never drop-live-data (Task 10).** The `as-noydb`
+  bundle export excludes base-less (dead-ciphertext) satellite envelopes (§ Conformance vectors,
+  "Export filter"). If the liveness check against the base itself errors mid-export, the filter's
+  posture is to **include** the satellite envelope (leak-on-error) rather than **exclude** it
+  (drop-on-error) — an operator can always re-run `forget()`/a sweep to close a leaked dead
+  satellite, but a wrongly dropped *live* record is unrecoverable data loss. This also discloses a
+  **first-declaration marker-race window**: between a satellite's first `declareSatellite()` call
+  writing the pairing marker to `_schemas` and that write becoming durable, a concurrent export
+  reading a not-yet-marked collection treats it as a plain collection (no existence filtering
+  applied at all) rather than as a satellite — a narrow, session-scoped race, not a persistent gap.
+
+- **`pushFiltered`/`SyncTransaction` predicate paths are outside pair-unit expansion (Task 11).**
+  Pair-unit dirty-entry expansion (a base's sync push carries its satellite's pending entries too,
+  per § Conformance vectors "Partial sync") covers the ordinary `push({ collections })` allow-list
+  path. `pushFiltered`'s per-record predicate and `SyncTransaction`'s explicit entry list are
+  **not** expanded to their pair partner — a predicate or transaction that selects a base record
+  does not implicitly pull in its satellite row. Both are documented out-of-scope for v1; a caller
+  using either path against a satellite pair is responsible for including both collections itself.
+
+- **Conflict-resolver pair-coupling is base-canonical on pre-pairing ties (Task 11).** Registering a
+  conflict resolver for one pair member mirrors it to the other (§ Conformance vectors, "Conflict
+  granularity"). If a resolver is registered on the satellite *before* the pair exists (no base
+  declared yet, or declared after), retroactive mirroring at pair-registration time resolves any tie
+  between a pre-existing base-side resolver and the satellite-side one in favor of the
+  **base's** resolver — base-canonical, not last-write-wins — since the base is the existence
+  authority for the pair (rule 1) and its conflict policy is the one already governing the pair's
+  observable identity.
+
+- **The archetype-③ implementation ships as STATIC imports from the kernel call-sites, not
+  lazy-imported (Task 12 reconciliation).** § Architectural home and § Shipping obligations above
+  describe the implementation as reachable only behind a `with-shape/satellites` lazy import; v1
+  does not ship that. `kernel/vault.ts` statically imports
+  `declare`/`proxy`/`registry`/`joined`/`types`/`forget` — matching the classified/i18n/links
+  family precedent and grandfathered per-specifier in `check-architecture.mjs`'s
+  `PRE_EXISTING_SPINE_SERVICE_IMPORTS` (port-layering). Consequence: satellite engine code
+  (registry, proxies, fan-out, joined handle, ref expansion) ships in **every** consumer bundle
+  (floor +2.4% gz, within the bundle-size gate's tolerance — the gate stays green because ③
+  schema features were never floor-excluded). Only marker persistence, post-register schema
+  derivation, and persisted-schema reads are genuinely lazy (`await import` in `marker.ts`,
+  `post-register.ts`, `dead-filter.ts`). Why: the declaration path (validate → R-S7 → registry
+  registration) must run **synchronously inside `vault.collection()`** — a sync API — which
+  precludes a lazy (async-import) spine for the core machinery. True lazy-loading of the
+  proxy/fan-out engines behind the declaration seam remains a possible future optimization
+  (shared with the #553 lazy-import debt the money/computed/classified ③ siblings already carry).

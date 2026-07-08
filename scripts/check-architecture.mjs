@@ -446,6 +446,8 @@ const SCHEMA_DECLARED_OR_INFRA_EXEMPT = new Set([
   'with-shape/money',
   'with-shape/persisted-schemas',
   'with-shape/schema-update',
+  // #591 satellites — satelliteOf/fields/joined declaration on collection(); joined handle via vault.joined()
+  'with-shape/satellites',
   'with-party/directory',
   'with-party/policy',
   'with-pod',
@@ -686,7 +688,10 @@ const KERNEL_SURFACE_BUDGET = {
   // Merge 2026-07-05 (#582 ∪ #267/#580): reconciled to the TRUE post-merge line
   // count — collection.ts now carries #267's lazy-strategy extraction AND this
   // branch's findByDigest/scrubEquatableTags together. Not loosened past the real count.
-  'packages/hub/src/kernel/collection.ts': 4647,
+  // Bumped 4647→4662 (2026-07-07, #591 satellites archetype-③ — thin call-sites only
+  // (declare/joined accessor/proxy wrap/forget ref-expansion/pair-sync hooks); heavy
+  // logic in with-shape/satellites): documented actual post-implementation line count.
+  'packages/hub/src/kernel/collection.ts': 4662,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
@@ -843,7 +848,18 @@ const KERNEL_SURFACE_BUDGET = {
   // guard at the collection() door — a genuinely-core trust-boundary check
   // (closes a granted-principal read path to `_sync_credentials`) that sits
   // alongside the existing _dict_/_links_ reserved-name guards.
-  'packages/hub/src/kernel/vault.ts': 3898,
+  // Bumped 3898→3949 (2026-07-07, #591 satellites archetype-③ — thin call-sites only
+  // (declare/joined accessor/proxy wrap/forget ref-expansion/pair-sync hooks); heavy
+  // logic in with-shape/satellites): documented actual post-implementation line count.
+  // Bumped 3949→3956 (2026-07-07, #591 final-review I2/R-S8 fix): two new
+  // `SatelliteDeclareContext` ctx-accessor lines (`getBaseCrdt`/`collectionExists`,
+  // thin call-sites only) + a 4-line R-S8-direction-(ii) guard near the top of
+  // `collection()` (refuses constructing — fresh OR already-cached — a satellite
+  // pair member with crdt AFTER the pair already exists; must run before the
+  // `if (!coll)` construction branch, since re-declaring an ALREADY-cached
+  // collection with a new option skips that branch entirely) — still a thin
+  // call-site; the R-S8 refusal logic itself lives in with-shape/satellites/validate.ts.
+  'packages/hub/src/kernel/vault.ts': 3956,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
@@ -938,7 +954,10 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 2357→2360 (2026-07-04, #267 lazy service): three lazyStrategy
   // pass-through spread lines (one per Vault construction site) — standard
   // strategy plumbing, no logic.
-  'packages/hub/src/kernel/noydb.ts': 2360,
+  // Bumped 2360→2367 (2026-07-07, #591 satellites archetype-③ — thin call-sites only
+  // (declare/joined accessor/proxy wrap/forget ref-expansion/pair-sync hooks); heavy
+  // logic in with-shape/satellites): documented actual post-implementation line count.
+  'packages/hub/src/kernel/noydb.ts': 2367,
 }
 
 function checkKernelSurface() {
@@ -1311,6 +1330,14 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/links/lazy-handle.js',
     '../with-shape/links/names.js',
     '../with-shape/links/vault-facade.js',
+    // #591 satellites — ③ schema feature (declare/joined accessor/proxy wrap/
+    // forget ref-expansion), thin call-sites only; heavy logic in with-shape/satellites
+    '../with-shape/satellites/declare.js',
+    '../with-shape/satellites/forget.js',
+    '../with-shape/satellites/joined.js',
+    '../with-shape/satellites/proxy.js',
+    '../with-shape/satellites/registry.js',
+    '../with-shape/satellites/types.js',
     '../with-shape/schema-update/fence-controller.js',
     '../with-shape/schema-update/fence-watcher.js',
     '../with-shape/schema-update/fence.js',
@@ -1591,6 +1618,13 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   ['packages/hub/src/with-shape/introspection/walk.ts', 1],
   ['packages/hub/src/with-shape/links/link-set.ts', 5],
   ['packages/hub/src/with-shape/persisted-schemas/storage.ts', 2],
+  // #591 satellites — existence authority (spec § Convergence & existence
+  // authority, rule 1): one undecrypted envelope-shape check (`_iv === '' &&
+  // _data === ''`, mirroring the tombstone shape) on the store's raw `get()`.
+  // No `encrypted` flag is threaded to existence.ts's call sites, so
+  // isTombstone()'s two-arg contract doesn't drop in cleanly; reviewed as a
+  // deliberate, narrow exception rather than growing the barrel's contract.
+  ['packages/hub/src/with-shape/satellites/existence.ts', 2],
   ['packages/hub/src/with-shape/schema-update/client-registry.ts', 3],
   ['packages/hub/src/with-shape/schema-update/fence.ts', 3],
   ['packages/hub/src/with-store/route-store.ts', 1],

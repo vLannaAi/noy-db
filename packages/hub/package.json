@@ -124,6 +124,10 @@
       "types": "./dist/classified/index.d.ts",
       "default": "./dist/classified/index.js"
     },
+    "./satellites": {
+      "types": "./dist/satellites/index.d.ts",
+      "default": "./dist/satellites/index.js"
+    },
     "./tiers": {
       "types": "./dist/tiers/index.d.ts",
       "default": "./dist/tiers/index.js"

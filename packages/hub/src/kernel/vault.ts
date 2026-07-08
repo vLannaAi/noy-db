@@ -112,7 +112,13 @@ import type { DerivationRegistry } from '../with-formula/derivations/registry.js
 import type { DerivationStrategyHandle } from '../with-formula/derivations/types.js'
 import type { LocaleReadOptions, ConflictPolicy } from './types.js'
 import type { CrdtMode } from '../with-commit/crdt/crdt.js'
-import { ReservedCollectionNameError, StaticDictReadonlyError, UnknownDictCodeError } from './errors.js'
+import { ReservedCollectionNameError, StaticDictReadonlyError, UnknownDictCodeError, SatelliteConfigError } from './errors.js'
+import { declareSatellite } from '../with-shape/satellites/declare.js'
+import { makeSatelliteProxy, makeBaseProxy } from '../with-shape/satellites/proxy.js'
+import type { SatelliteRegistry } from '../with-shape/satellites/registry.js'
+import { makeJoinedHandle } from '../with-shape/satellites/joined.js'
+import type { JoinedHandle } from '../with-shape/satellites/types.js'
+import { expandRefsWithSatellites } from '../with-shape/satellites/forget.js'
 import {
   type PeriodRecord,
   type ClosePeriodOptions,
@@ -323,6 +329,7 @@ export class Vault {
    */
   private readonly reloadKeyring: (() => Promise<UnlockedKeyring>) | undefined
   private readonly collectionCache = new Map<string, Collection<unknown>>()
+  private satelliteRegistry: SatelliteRegistry | null = null // spec #591, archetype-③
   /** Vault-level schema cutover fence/controller. */
   readonly schemaFence: SchemaFenceController
   /** Per-client heartbeat/watcher; started lazily on cutover registration. */
@@ -777,6 +784,9 @@ export class Vault {
      * default; non-adopting collections take the legacy path unchanged.
      */
     perRecordKeys?: boolean
+    satelliteOf?: string // satellite pairing (spec #591)
+    fields?: readonly string[] // satellite routing table (required with satelliteOf)
+    joined?: string // registers the joined handle (see vault.joined())
     /**
      * Per-record provenance tracking. When `true`, `put()` calls that
      * supply a `source` option stamp `_source` / `_sourceTs` onto the
@@ -874,6 +884,25 @@ export class Vault {
     // bypassing that gate. See reserved-secret-collections.ts.
     if (isSecretBearingReservedCollection(collectionName)) {
       throw new ReservedCollectionNameError(collectionName)
+    }
+
+    if (this.satelliteRegistry?.byJoined(collectionName)) { // #591: joined handle — not a directly reachable collection
+      throw new SatelliteConfigError(`"${collectionName}" is a joined handle — use vault.joined('${collectionName}'), not vault.collection().`)
+    }
+    // R-S8 direction (ii): refuse constructing (fresh OR already-cached) either
+    // pair member with crdt mode AFTER the pairing already exists.
+    if (options?.crdt !== undefined && this.satelliteRegistry?.isPairMember(collectionName)) {
+      throw new SatelliteConfigError('R-S8: crdtMode is refused on either member of a satellite pair in v1 (revert cannot compensate a merge).')
+    }
+    if (options?.satelliteOf !== undefined) { // #591 thin call-site (archetype-③) — wiring lives in with-shape/satellites/declare.ts
+      this.satelliteRegistry = declareSatellite({
+        adapter: this.adapter, vaultName: this.name, forgetSubjects: this.forgetStrategy.subjects, getDEK: this.getDEK,
+        getBaseSchema: (base) => this.collectionCache.get(base)?.getSchema(),
+        getBaseCrdt: (base) => this.collectionCache.get(base)?.getConfig()?.crdt,
+        collectionExists: (name) => this.collectionCache.has(name),
+        registerPoisonHook: (hook) => { this.noydb._writeHooks.onBeforeWrite(hook) },
+        forEachSyncEngine: (fn) => { this.noydb._forEachSyncEngine(this.name, fn) },
+      }, collectionName, { ...options, satelliteOf: options.satelliteOf }, this.satelliteRegistry)
     }
 
     let coll = this.collectionCache.get(collectionName)
@@ -1223,7 +1252,23 @@ export class Vault {
         this._pendingSchemaWrites.push(work)
       }
     }
+    if (this.satelliteRegistry) { // #591: existence-authority + R-S6 read/write proxy (with-shape/satellites/proxy.ts)
+      const spec = this.satelliteRegistry.bySatellite(collectionName)
+      if (spec) return makeSatelliteProxy(coll, spec, this.satelliteRegistry) as Collection<T, S, Q, M>
+      const baseSpec = this.satelliteRegistry.satelliteOf(collectionName) // #591 Task 6: base-side delete fan-out
+      if (baseSpec) return makeBaseProxy(coll, baseSpec, this.satelliteRegistry, () => this.collection(baseSpec.satellite)) as Collection<T, S, Q, M>
+    }
     return coll as unknown as Collection<T, S, Q, M>
+  }
+
+  /** Full-record handle for a satellite pair registered with `joined:` (spec #591). Narrow type — not a Collection. */
+  joined<T extends Record<string, unknown>>(name: string): JoinedHandle<T> {
+    const spec = this.satelliteRegistry?.byJoined(name)
+    if (!spec) throw new SatelliteConfigError(`No joined handle "${name}" is registered — declare it via collection(satellite, { joined: '${name}' }).`)
+    return makeJoinedHandle<T>(spec, {
+      spec, base: () => this.collection(spec.base), satellite: () => this.collection(spec.satellite),
+      adapter: this.adapter, vaultName: this.name, registry: this.satelliteRegistry!,
+    })
   }
 
   /**
@@ -2274,6 +2319,9 @@ export class Vault {
     }
 
     const refs = await lookupSubject(this.adapter, this.name, this.getDEK, this.encrypted, subjectId)
+    // Satellite fan-out (#591, with-shape/satellites/forget.ts) — a satellite
+    // is never itself in the subject index, so synthesize its ref or it survives.
+    const allRefs = expandRefsWithSatellites(refs, this.satelliteRegistry)
 
     let recordsShredded = 0
     let historyVersionsShredded = 0
@@ -2291,9 +2339,10 @@ export class Vault {
     const blobsEnabled = this.blobStrategy !== undefined
     const actor = this.keyring.userId
 
-    for (const ref of refs) {
+    for (const ref of allRefs) {
       const coll = this.collection<Record<string, unknown>>(ref.collection)
-      const perRecordKeys = this.forgetStrategy.subjects[ref.collection] !== undefined
+      const satelliteOf = (ref as { satelliteOf?: string }).satelliteOf
+      const perRecordKeys = this.forgetStrategy.subjects[satelliteOf ?? ref.collection] !== undefined // #591 classification inheritance
 
       // Detect an un-migrated record BEFORE shredding: a perRecordKeys
       // collection whose live envelope still carries a body but no `_cek`
@@ -2353,8 +2402,17 @@ export class Vault {
         sealedCekResidue.push(`${ref.collection}:${ref.id}`)
       }
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const shred = await (coll as any)._writeTombstone(ref.id, actor) as { previousVersion: number } | null
+      let shred: { previousVersion: number } | null
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        shred = await (coll as any)._writeTombstone(ref.id, actor) as { previousVersion: number } | null
+      } catch (cause) {
+        if (satelliteOf === undefined) throw cause // base ref: pre-existing (unwrapped) fail-loud behavior
+        throw new SatelliteConfigError( // R-S4: abort the whole forget rather than leave the heavy side un-erased
+          `R-S4: forget could not fan out to satellite "${ref.collection}" — aborting rather than leaving the heavy side`,
+          { cause },
+        )
+      }
       if (shred !== null) {
         recordsShredded++
         collections.add(ref.collection)
