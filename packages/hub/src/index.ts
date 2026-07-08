@@ -92,6 +92,7 @@ export type {
   DirtyEntry,
   SyncMetadata,
   Conflict,
+  ErasureEnforcement,
   ConflictStrategy,
   ConflictPolicy,
   CollectionConflictResolver,
