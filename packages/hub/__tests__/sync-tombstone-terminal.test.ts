@@ -55,3 +55,109 @@ describe('isTombstoneShape', () => {
     expect(isTombstoneShape({ _noydb: 1, _v: 1, _ts: 'x', _iv: '', _data: '', _cek: 'wrapped' })).toBe(false)
   })
 })
+
+describe('pull tombstone-terminal rule (#590)', () => {
+  async function setup(conflict?: 'local-wins') {
+    const local = inlineMemory(); const remote = inlineMemory()
+    const db = await createNoydb({
+      store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false,
+      ...(conflict ? { conflict } : {}),
+    })
+    const vault = await db.openVault(V)
+    const notes = vault.collection<Note>('notes')
+    return { local, remote, db, notes }
+  }
+
+  it('a remote tombstone beats a newer dirty local edit — enforced, dirty dropped, reported, resolver bypassed', async () => {
+    const { local, remote, db, notes } = await setup('local-wins')
+    await notes.put('n1', { body: 'v1' })
+    await db.push(V)                                      // both sides at _v=1
+    await notes.put('n1', { body: 'offline edit' })       // dirty, _v=2
+    await remote.put(V, 'notes', 'n1', tombstoneEnv(1))   // another device shredded it
+
+    const events: ErasureEnforcement[] = []
+    db.on('sync:erasure', e => events.push(e))
+    const pull = await db.pull(V)
+
+    expect((await local.get(V, 'notes', 'n1'))!._data).toBe('')  // enforced despite local-wins + higher local _v
+    expect(pull.erasures).toHaveLength(1)
+    expect(pull.erasures![0]!.direction).toBe('pull')
+    expect(pull.erasures![0]!.suppressed._v).toBe(2)
+    expect(pull.conflicts).toHaveLength(0)                       // never a resolvable conflict
+    expect(events).toHaveLength(1)
+
+    const push = await db.push(V)
+    expect(push.pushed).toBe(0)                                  // suppressed edit is not pushed
+    db.close()
+  })
+
+  it('a remote tombstone over a non-dirty stale copy applies silently (no erasure report)', async () => {
+    const { local, remote, db, notes } = await setup()
+    await notes.put('n1', { body: 'v1' })
+    await db.push(V)                                      // clean
+    await remote.put(V, 'notes', 'n1', tombstoneEnv(1))
+    const pull = await db.pull(V)
+    expect((await local.get(V, 'notes', 'n1'))!._data).toBe('')
+    expect(pull.erasures ?? []).toHaveLength(0)
+    db.close()
+  })
+
+  it('a local tombstone is never overwritten by a higher-_v live remote — re-asserted outward with a bumped _v', async () => {
+    const { local, remote, db, notes } = await setup()
+    await notes.put('n1', { body: 'v1' })
+    await db.push(V)
+    const live = (await remote.get(V, 'notes', 'n1'))!
+    await local.put(V, 'notes', 'n1', tombstoneEnv(1))    // local shred residue
+    await remote.put(V, 'notes', 'n1', { ...live, _v: 3 }) // offline peer's later edit
+
+    const pull = await db.pull(V)
+
+    expect((await local.get(V, 'notes', 'n1'))!._data).toBe('')
+    const remoteEnv = (await remote.get(V, 'notes', 'n1'))!
+    expect(remoteEnv._data).toBe('')                       // remote re-tombstoned
+    expect(remoteEnv._v).toBe(3)                           // bumped to the suppressed _v
+    expect((await local.get(V, 'notes', 'n1'))!._v).toBe(3)
+    expect(pull.erasures).toHaveLength(1)
+    expect(pull.erasures![0]!.suppressed._v).toBe(3)
+    db.close()
+  })
+
+  it('re-assert at equal _v: remote live copy is tombstoned without a bump', async () => {
+    const { local, remote, db, notes } = await setup()
+    await notes.put('n1', { body: 'v1' })
+    await db.push(V)
+    await local.put(V, 'notes', 'n1', tombstoneEnv(1))
+    const pull = await db.pull(V)
+    const remoteEnv = (await remote.get(V, 'notes', 'n1'))!
+    expect(remoteEnv._data).toBe('')
+    expect(remoteEnv._v).toBe(1)
+    expect(pull.erasures).toHaveLength(1)
+    db.close()
+  })
+
+  it('both sides tombstoned: higher _v wins, nothing reported', async () => {
+    const { local, remote, db } = await setup()
+    await local.put(V, 'notes', 'n1', tombstoneEnv(1))
+    await remote.put(V, 'notes', 'n1', tombstoneEnv(4))
+    const pull = await db.pull(V)
+    expect((await local.get(V, 'notes', 'n1'))!._v).toBe(4)
+    expect(pull.erasures ?? []).toHaveLength(0)
+    db.close()
+  })
+
+  it('modifiedSince never skips an arriving tombstone (but still skips old live envelopes)', async () => {
+    const { local, remote, db, notes } = await setup()
+    await notes.put('n1', { body: 'v1' })
+    await notes.put('n2', { body: 'v1' })
+    await db.push(V)
+    await remote.put(V, 'notes', 'n1', tombstoneEnv(2, '2000-01-01T00:00:00.000Z'))
+    const oldLive = (await remote.get(V, 'notes', 'n2'))!
+    await remote.put(V, 'notes', 'n2', { ...oldLive, _v: 2, _ts: '2000-01-01T00:00:00.000Z' })
+
+    await db.pull(V, { modifiedSince: '2020-01-01T00:00:00.000Z' })
+
+    expect((await local.get(V, 'notes', 'n1'))!._data).toBe('')  // tombstone exempt from the filter
+    expect((await local.get(V, 'notes', 'n2'))!._v).toBe(1)      // old live envelope still filtered
+    db.close()
+  })
+})

@@ -12,12 +12,14 @@ import type {
   EncryptedEnvelope,
   SyncMetadata,
   SyncTargetRole,
+  ErasureEnforcement,
 } from '../../kernel/types.js'
 import { NOYDB_SYNC_VERSION } from '../../kernel/types.js'
 import { ConflictError } from '../../kernel/errors.js'
 import type { NoydbEventEmitter } from '../../kernel/events.js'
 import type { SyncPolicy } from '../../kernel/sync-policy.js'
 import { SyncScheduler } from '../../kernel/sync-policy.js'
+import { isTombstoneShape } from '../../kernel/enclave/record-keys/tombstone.js'
 
 /** Sync engine: dirty tracking, push, pull, conflict resolution, scheduling. */
 export class SyncEngine {
@@ -50,6 +52,14 @@ export class SyncEngine {
    * users.
    */
   private pairExpander?: (names: readonly string[]) => readonly string[]
+
+  /** #598: refreshes Collection in-memory views after a sync-applied local write. Wired by the vault at open. */
+  private cacheInvalidator?: (collection: string, id: string) => Promise<void>
+
+  /** Wire the Collection-cache invalidation hook (#598). Same injection pattern as `setPairExpander`. */
+  setCacheInvalidator(fn: (collection: string, id: string) => Promise<void>): void {
+    this.cacheInvalidator = fn
+  }
 
   constructor(opts: {
     local: NoydbStore
@@ -267,6 +277,7 @@ export class SyncEngine {
 
     let pulled = 0
     const conflicts: Conflict[] = []
+    const erasures: ErasureEnforcement[] = []
     const errors: Error[] = []
 
     // Partial sync: expand the filter to cover satellite pair partners (#591 rule 5b)
@@ -282,18 +293,37 @@ export class SyncEngine {
         }
 
         for (const [id, remoteEnvelope] of Object.entries(records)) {
-          // Partial sync: modifiedSince filter
-          if (options?.modifiedSince && remoteEnvelope._ts <= options.modifiedSince) {
+          // Partial sync: modifiedSince filter — arriving tombstones are exempt (#590):
+          // an erasure must never be skipped by partial sync.
+          if (options?.modifiedSince && remoteEnvelope._ts <= options.modifiedSince && !isTombstoneShape(remoteEnvelope)) {
             continue
           }
 
           try {
             const localEnvelope = await this.local.get(this.vault, collName, id)
+            const remoteIsTombstone = isTombstoneShape(remoteEnvelope)
 
             if (!localEnvelope) {
-              // New record from remote
-              await this.local.put(this.vault, collName, id, remoteEnvelope)
+              // New record from remote (tombstones included — durable erasure evidence)
+              await this.applyRemote(collName, id, remoteEnvelope)
               pulled++
+            } else if (isTombstoneShape(localEnvelope)) {
+              if (remoteIsTombstone) {
+                // Both shredded — keep the higher version counter
+                if (remoteEnvelope._v > localEnvelope._v) await this.applyRemote(collName, id, remoteEnvelope)
+              } else {
+                // Terminal rule (#590): a tombstone is never overwritten by a live
+                // envelope, regardless of _v. Re-assert the shred outward instead.
+                erasures.push(await this.reassertTombstone(collName, id, localEnvelope, remoteEnvelope))
+              }
+            } else if (remoteIsTombstone) {
+              // Terminal rule (#590): an arriving tombstone wins over any local live
+              // envelope — even a newer, dirty one. Resolvers are never consulted.
+              const wasDirty = this.dirty.some(d => d.collection === collName && d.id === id)
+              await this.applyRemote(collName, id, remoteEnvelope)
+              this.dirty = this.dirty.filter(d => !(d.collection === collName && d.id === id))
+              pulled++
+              if (wasDirty) erasures.push(this.reportErasure(collName, id, remoteEnvelope, localEnvelope, 'pull'))
             } else if (remoteEnvelope._v > localEnvelope._v) {
               // Remote is newer — check if we have a dirty entry for this
               const isDirty = this.dirty.some(d => d.collection === collName && d.id === id)
@@ -308,19 +338,19 @@ export class SyncEngine {
                 )
                 conflicts.push(conflict)
                 if (handled === 'remote') {
-                  await this.local.put(this.vault, collName, id, conflict.remote)
+                  await this.applyRemote(collName, id, conflict.remote)
                   this.dirty = this.dirty.filter(d => !(d.collection === collName && d.id === id))
                   pulled++
                 } else if (handled === 'merged' && conflict.local !== localEnvelope) {
                   const merged = conflict.local
-                  await this.local.put(this.vault, collName, id, merged)
+                  await this.applyRemote(collName, id, merged)
                   this.dirty = this.dirty.filter(d => !(d.collection === collName && d.id === id))
                   pulled++
                 }
                 // 'local' or 'deferred': push handles it
               } else {
                 // Remote is newer, no local changes — update
-                await this.local.put(this.vault, collName, id, remoteEnvelope)
+                await this.applyRemote(collName, id, remoteEnvelope)
                 pulled++
               }
             }
@@ -337,7 +367,7 @@ export class SyncEngine {
     this.lastPull = new Date().toISOString()
     await this.persistMeta()
 
-    const result: PullResult = { pulled, conflicts, errors }
+    const result: PullResult = { pulled, conflicts, errors, erasures }
     this.emitter.emit('sync:pull', result)
     return result
   }
@@ -489,6 +519,42 @@ export class SyncEngine {
   private handleOffline = (): void => {
     this.isOnline = false
     this.emitter.emit('sync:offline', undefined as never)
+  }
+
+  /** Apply an envelope to the local store and refresh in-memory views (#598). */
+  private async applyRemote(collection: string, id: string, envelope: EncryptedEnvelope): Promise<void> {
+    await this.local.put(this.vault, collection, id, envelope)
+    await this.cacheInvalidator?.(collection, id)
+  }
+
+  /** Record + emit a tombstone enforcement (#590). */
+  private reportErasure(
+    collection: string, id: string,
+    tombstone: EncryptedEnvelope, suppressed: EncryptedEnvelope,
+    direction: 'pull' | 'push',
+  ): ErasureEnforcement {
+    const enforcement: ErasureEnforcement = { vault: this.vault, collection, id, tombstone, suppressed, direction }
+    this.emitter.emit('sync:erasure', enforcement)
+    return enforcement
+  }
+
+  /**
+   * Re-assert a local tombstone over a live remote envelope (#590): the shred
+   * wins in both directions, regardless of `_v`. Bumps the tombstone to the
+   * suppressed envelope's `_v` when higher so per-key version counters stay
+   * monotonic on every store; `_by` (the shredding actor) is preserved.
+   */
+  private async reassertTombstone(
+    collection: string, id: string,
+    tombstone: EncryptedEnvelope, suppressedRemote: EncryptedEnvelope,
+  ): Promise<ErasureEnforcement> {
+    let winner = tombstone
+    if (suppressedRemote._v > tombstone._v) {
+      winner = { ...tombstone, _v: suppressedRemote._v, _ts: new Date().toISOString() }
+      await this.applyRemote(collection, id, winner)
+    }
+    await this.remote.put(this.vault, collection, id, winner)
+    return this.reportErasure(collection, id, winner, suppressedRemote, 'pull')
   }
 
   /**
