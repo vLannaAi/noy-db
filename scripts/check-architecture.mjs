@@ -691,7 +691,10 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 4647→4662 (2026-07-07, #591 satellites archetype-③ — thin call-sites only
   // (declare/joined accessor/proxy wrap/forget ref-expansion/pair-sync hooks); heavy
   // logic in with-shape/satellites): documented actual post-implementation line count.
-  'packages/hub/src/kernel/collection.ts': 4662,
+  // Bumped 4662→4664 (2026-07-09, +2: #590 forget→sync-dirty-log hook): _writeTombstone
+  // enters the sync dirty log via the existing onDirty seam so the shred propagates on
+  // push; one comment + one call, the sync engine itself stays in with-party/team/sync.ts.
+  'packages/hub/src/kernel/collection.ts': 4664,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
@@ -859,7 +862,14 @@ const KERNEL_SURFACE_BUDGET = {
   // `if (!coll)` construction branch, since re-declaring an ALREADY-cached
   // collection with a new option skips that branch entirely) — still a thin
   // call-site; the R-S8 refusal logic itself lives in with-shape/satellites/validate.ts.
-  'packages/hub/src/kernel/vault.ts': 3956,
+  // Bumped 3956→3964 (2026-07-09): #598 sync cache-invalidation wiring
+  // (vault._invalidateSyncApplied + openVault hook) — the @internal
+  // `_invalidateSyncApplied(collection, id)` helper the kernel owns: peeks
+  // collectionCache and delegates to the existing Collection
+  // `_invalidateCekCacheEntry`/`_invalidateCacheEntry` pair so sync-applied
+  // envelopes (pull applies, conflict winners, tombstone enforcement) evict
+  // stale decrypted views. Thin call-site; the sync engine lives in with-party/team/.
+  'packages/hub/src/kernel/vault.ts': 3964,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
@@ -957,7 +967,12 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 2360→2367 (2026-07-07, #591 satellites archetype-③ — thin call-sites only
   // (declare/joined accessor/proxy wrap/forget ref-expansion/pair-sync hooks); heavy
   // logic in with-shape/satellites): documented actual post-implementation line count.
-  'packages/hub/src/kernel/noydb.ts': 2367,
+  // Bumped 2367→2371 (2026-07-09): #598 sync cache-invalidation wiring
+  // (vault._invalidateSyncApplied + openVault hook) — a 4-line
+  // `_forEachSyncEngine(name, …setCacheInvalidator…)` hookup directly after
+  // the openVault Vault construction. Thin call-site; the invalidation itself
+  // lives on Vault/Collection and the engine in with-party/team/.
+  'packages/hub/src/kernel/noydb.ts': 2371,
 }
 
 function checkKernelSurface() {

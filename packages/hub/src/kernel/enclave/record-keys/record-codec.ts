@@ -461,7 +461,13 @@ export class RecordCodec<T> {
         }
         return JSON.stringify(rec)
       }
-      return envelope._data
+      // #598: a real record never serializes to '' (JSON.stringify's floor is
+      // '{}'), so an empty `_data` here is the sync engine's shape-only
+      // tombstone (`isTombstoneShape` in team/sync.ts) landing on an
+      // unencrypted collection, where the encryption-gated `isTombstone()`
+      // check above doesn't fire. Treat it the same as an encrypted
+      // tombstone: null, not a `JSON.parse('')` crash.
+      return envelope._data === '' ? null : envelope._data
     }
     const cek = await this.resolveEnvelopeCek(envelope, id)
     if (cek !== undefined) return decrypt(envelope._iv, envelope._data, cek)

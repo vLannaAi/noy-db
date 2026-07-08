@@ -551,6 +551,7 @@
     "EnrollAuthenticatorWrappingDEKsOptions",
     "EnrollAuthenticatorWrappingKEKOptions",
     "EnrollRecoveryResult",
+    "ErasureEnforcement",
     "ExportAccessibleOptions",
     "ExportCapability",
     "ExportChunk",

@@ -2965,6 +2965,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     this.cache.delete(id)
     this.lru?.remove(id)
     this.cekCache?.remove(id)
+    // #590: enter the sync dirty log — the shred must propagate on push (pull re-assert in team/sync.ts is the backstop)
+    await this.onDirty?.(this.name, id, 'put', live._v)
 
     return { previousVersion: live._v }
   }

@@ -674,6 +674,10 @@ export class Noydb {
             }
           : undefined,
     })
+    // #598: sync-applied writes must refresh Collection in-memory views.
+    this._forEachSyncEngine(name, engine => {
+      engine.setCacheInvalidator((collection, id) => comp._invalidateSyncApplied(collection, id))
+    })
     // Initialise the optional guard + derivation registries via
     // dynamic-import. Both calls are no-ops when the corresponding
     // strategies array is empty / unset, leaving the service code

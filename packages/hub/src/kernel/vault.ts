@@ -1313,6 +1313,14 @@ export class Vault {
     await coll._applyRemoteChange(docId, action)
   }
 
+  /** @internal #598: refresh cache entries a sync-applied write rewrote underneath us. No-op if not loaded this session. */
+  async _invalidateSyncApplied(collection: string, id: string): Promise<void> {
+    const coll = this.collectionCache.get(collection)
+    if (!coll) return
+    coll._invalidateCekCacheEntry(id)
+    await coll._invalidateCacheEntry(id)
+  }
+
   /**
    * For a detected conflict: capture this tab's clobbered record,
    * read the common ancestor from history, converge the cache to the store's

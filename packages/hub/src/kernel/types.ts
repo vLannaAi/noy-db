@@ -1203,6 +1203,23 @@ export interface Conflict {
 }
 
 /**
+ * #590: sync suppressed a live envelope because a crypto-shred tombstone is
+ * terminal for its record id. Reported on push/pull results (`erasures`) and
+ * via the `'sync:erasure'` event; conflict resolvers are never consulted for
+ * tombstone pairs.
+ */
+export interface ErasureEnforcement {
+  readonly vault: string
+  readonly collection: string
+  readonly id: string
+  /** The winning tombstone (as stored after enforcement). */
+  readonly tombstone: EncryptedEnvelope
+  /** The live envelope that lost: a suppressed dirty local edit, or the remote copy destroyed by re-assertion. */
+  readonly suppressed: EncryptedEnvelope
+  readonly direction: 'pull' | 'push'
+}
+
+/**
  * A same-device cross-tab write conflict: another tab overwrote a
  * document this tab had written, having diverged from an older base. Records
  * are decrypted (cross-tab handlers reconcile in plaintext). `base` is the
@@ -1276,12 +1293,16 @@ export interface PushResult {
   readonly pushed: number
   readonly conflicts: Conflict[]
   readonly errors: Error[]
+  /** #590: tombstone enforcements applied during this run (never resolver-visible). */
+  readonly erasures?: ErasureEnforcement[]
 }
 
 export interface PullResult {
   readonly pulled: number
   readonly conflicts: Conflict[]
   readonly errors: Error[]
+  /** #590: tombstone enforcements applied during this run (never resolver-visible). */
+  readonly erasures?: ErasureEnforcement[]
 }
 
 /** Result of a sync transaction commit. */
@@ -1289,6 +1310,8 @@ export interface SyncTransactionResult {
   readonly status: 'committed' | 'conflict'
   readonly pushed: number
   readonly conflicts: Conflict[]
+  /** #590: staged writes suppressed by tombstone enforcement during commit. */
+  readonly erasures?: ErasureEnforcement[]
 }
 
 export interface SyncStatus {
@@ -1342,6 +1365,7 @@ export interface NoydbEventMap {
   'schema:fence-changed': { vault: string; currentSchemaVersion: number; fenceState: 'normal' | 'draining' | 'migrating' | 'complete' }
   'sync:push': PushResult
   'sync:pull': PullResult
+  'sync:erasure': ErasureEnforcement
   'sync:conflict': Conflict
   'write:conflict': WriteConflict
   'sync:online': void

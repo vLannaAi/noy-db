@@ -18,6 +18,17 @@
 import { NOYDB_FORMAT_VERSION, type EncryptedEnvelope } from '../../types.js'
 
 /**
+ * Shape-only tombstone recognition for layers that have no per-collection
+ * context (the sync engine, #590): a tombstone carries an empty `_data` and
+ * no wrapped CEK. No live envelope can match — record bodies never serialize
+ * to the empty string (the `_sync` meta envelope carries non-empty `_data`,
+ * and legacy migration envelopes carry non-empty `_iv`/`_data`).
+ */
+export function isTombstoneShape(envelope: EncryptedEnvelope): boolean {
+  return envelope._data === '' && envelope._cek === undefined
+}
+
+/**
  * Is this envelope a crypto-shred tombstone?
  *
  * A tombstone carries no body (`_data` empty) and no wrapped CEK (`_cek`
@@ -31,7 +42,7 @@ import { NOYDB_FORMAT_VERSION, type EncryptedEnvelope } from '../../types.js'
  */
 export function isTombstone(envelope: EncryptedEnvelope, encrypted: boolean): boolean {
   if (!encrypted) return false
-  return !envelope._data && envelope._cek === undefined
+  return isTombstoneShape(envelope)
 }
 
 /**
