@@ -277,3 +277,39 @@ describe('end-to-end: forget() + sync (#590 exit criteria)', () => {
     db.close()
   })
 })
+
+describe('sync-applied writes refresh the Collection cache (#598)', () => {
+  it('a pull-applied newer envelope is visible through collection.get without a re-open', async () => {
+    const local = inlineMemory(); const remote = inlineMemory()
+    const db = await createNoydb({ store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false })
+    const vault = await db.openVault(V)
+    const notes = vault.collection<Note>('notes')
+    await notes.put('n1', { body: 'v1' })
+    await db.push(V)
+    expect((await notes.get('n1'))!.body).toBe('v1')          // cache warm
+
+    const env = (await remote.get(V, 'notes', 'n1'))!
+    const newer = { ...env, _v: 2, _data: JSON.stringify({ ...JSON.parse(env._data), body: 'v2-from-remote' }) }
+    await remote.put(V, 'notes', 'n1', newer)
+    await db.pull(V)
+
+    expect((await notes.get('n1'))!.body).toBe('v2-from-remote')  // stale cache would still say v1
+    db.close()
+  })
+
+  it('an enforced tombstone is immediately unreadable through collection.get (no decrypted residue in memory)', async () => {
+    const local = inlineMemory(); const remote = inlineMemory()
+    const db = await createNoydb({ store: local, sync: remote, user: 'alice', secret: 'hunter2', syncStrategy: withSync() })
+    const vault = await db.openVault(V)
+    const notes = vault.collection<Note>('notes', { perRecordKeys: true })
+    await notes.put('n1', { subjectId: 's1', body: 'secret' })
+    await db.push(V)
+    expect((await notes.get('n1'))!.body).toBe('secret')      // cache warm with decrypted record
+
+    await remote.put(V, 'notes', 'n1', tombstoneEnv(1))       // shredded on another device
+    await db.pull(V)
+
+    expect(await notes.get('n1')).toBeNull()                  // enforced AND evicted
+    db.close()
+  })
+})
