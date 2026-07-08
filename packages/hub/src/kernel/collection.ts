@@ -113,8 +113,13 @@ import type * as MVStaleModule from '../with-formula/materialized-views/stale.js
 import { resolveCollectionConfig, type CollectionOpts } from './collection-config.js'
 import { loadEvalComputedFields } from '../with-formula/computed/lazy.js'
 
-/** Callback for dirty tracking (sync engine integration). */
-export type OnDirtyCallback = (collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>
+/**
+ * Callback for dirty tracking (sync engine integration). `action: 'revert'`
+ * (spec #591) means "un-dirty" — the fan-out wiring in `noydb.ts` routes it
+ * to `SyncEngine.removeDirty` instead of `trackChange`; `version` is unused
+ * for that action.
+ */
+export type OnDirtyCallback = (collection: string, id: string, action: 'put' | 'delete' | 'revert', version: number) => Promise<void>
 
 /**
  * Value-equality for a single self-write reverse-denorm field. Scalars
@@ -3861,6 +3866,16 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    */
   _invalidateCekCacheEntry(id: string): void {
     this.cekCache?.remove(id)
+  }
+
+  /** @internal Satellite fan-out revert cleanup (spec #591): drop the sync dirty entry ('revert' is
+   *  onDirty-channel-only) and re-announce the RESTORED state as a plain put/delete — `subscribe()`
+   *  only understands those two actions, and the restored record may exist again. */
+  async _compensateRevertedWrite(id: string): Promise<void> {
+    await this._invalidateCacheEntry(id)
+    await this.onDirty?.(this.name, id, 'revert', 0)
+    const restored = await this.get(id) // rare revert path — one read buys a semantically-correct event
+    this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action: restored !== null ? 'put' : 'delete' })
   }
 
   async _invalidateCacheEntry(id: string): Promise<void> {

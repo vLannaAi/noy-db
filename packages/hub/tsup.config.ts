@@ -47,6 +47,7 @@ const ENTRIES = {
   'util/index': 'src/kernel/util/index.ts',
   'attestation/index': 'src/with-audit/attestation/index.ts',
   'classified/index': 'src/with-shape/classified/index.ts',
+  'satellites/index': 'src/with-shape/satellites/index.ts',
   'tiers/index': 'src/with-audit/tiers/index.ts',
   'portability/index': 'src/with-audit/portability/index.ts',
   'kernel/index': 'src/legacy/kernel.ts',

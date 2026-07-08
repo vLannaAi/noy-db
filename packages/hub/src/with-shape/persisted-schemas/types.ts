@@ -11,6 +11,7 @@
  */
 
 import type { ClassifiedMarker } from '../../kernel/types.js'
+import type { PairingMarker } from '../satellites/types.js'
 
 /** Family of Standard Schema v1 validator the persisted snapshot was derived from. */
 export type PersistedSchemaKind = 'Zod' | 'Valibot' | 'ArkType' | 'Effect' | 'Unknown'
@@ -46,4 +47,11 @@ export interface PersistedSchemaEnvelope {
    * collection that never opts into schema persistence still writes this marker.
    */
   readonly classified?: ClassifiedMarker
+  /**
+   * R-S9 satellite pairing marker. Present when this collection is declared
+   * as a satellite (`satelliteOf`). A later re-declaration of the same
+   * satellite must match `(base, fieldsHash, joined)` exactly or is refused —
+   * the satellite-pair analogue of {@link classified}'s config-drift guard.
+   */
+  readonly satellite?: PairingMarker
 }
