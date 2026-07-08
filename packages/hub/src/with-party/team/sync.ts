@@ -590,6 +590,9 @@ export class SyncEngine {
       await this.applyRemote(collection, id, winner)
     }
     await this.remote.put(this.vault, collection, id, winner)
+    // The re-assert already delivered the tombstone remotely — drop any dirty
+    // entry so the following push doesn't redundantly re-put it.
+    this.dirty = this.dirty.filter(d => !(d.collection === collection && d.id === id))
     return this.reportErasure(collection, id, winner, suppressedRemote, 'pull')
   }
 

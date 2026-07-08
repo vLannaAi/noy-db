@@ -81,6 +81,7 @@ export class SyncTransaction {
       status: pushResult.conflicts.length > 0 ? 'conflict' : 'committed',
       pushed: pushResult.pushed,
       conflicts: pushResult.conflicts,
+      ...(pushResult.erasures?.length ? { erasures: pushResult.erasures } : {}),
     }
   }
 }

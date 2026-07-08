@@ -1203,10 +1203,10 @@ export interface Conflict {
 }
 
 /**
- * A tombstone enforcement: the terminal application of a deletion assertion
- * that won over a concurrent local edit or remote write (#590).
- * Only set on non-manual-conflict handlers; manual handlers must query the
- * result to inspect tombstone wins. Emitted as `'sync:erasure'` event.
+ * #590: sync suppressed a live envelope because a crypto-shred tombstone is
+ * terminal for its record id. Reported on push/pull results (`erasures`) and
+ * via the `'sync:erasure'` event; conflict resolvers are never consulted for
+ * tombstone pairs.
  */
 export interface ErasureEnforcement {
   readonly vault: string
@@ -1310,6 +1310,8 @@ export interface SyncTransactionResult {
   readonly status: 'committed' | 'conflict'
   readonly pushed: number
   readonly conflicts: Conflict[]
+  /** #590: staged writes suppressed by tombstone enforcement during commit. */
+  readonly erasures?: ErasureEnforcement[]
 }
 
 export interface SyncStatus {

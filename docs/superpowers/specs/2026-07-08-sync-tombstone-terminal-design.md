@@ -77,10 +77,14 @@ terminal rule itself never depends on `_v`.
 so the shred rides the normal push channel immediately. The pull-side re-assert is the
 convergence backstop for peers that only ever pull.
 
-**Accepted window (documented):** a push-only client that edited offline can
-transiently resurrect the *remote* copy; the first sync by any tombstone-holder
-re-tombstones it. A dumb ciphertext store cannot enforce this server-side; convergence
-to the tombstone is guaranteed once any tombstone-holder syncs.
+**Accepted window (documented):** any client whose push precedes its pull can transiently
+resurrect the *remote* copy — including the CAS-matching case: `buildTombstone` keeps the
+displaced `_v`, so a peer that edited once from the same base passes the `expectedVersion`
+check and overwrites the remote tombstone **silently and unreported** (no ConflictError, so
+the push-side enforcement never fires), and its own next pull does not repair the remote
+(equal `_v` → skip). Convergence still holds: the first sync by any tombstone-holder
+re-tombstones the remote via pull re-assertion. `sync()` (pull-then-push) protects the
+default path; a dumb ciphertext store cannot enforce this server-side.
 
 ### 4. Reporting (api-additive)
 

@@ -313,3 +313,28 @@ describe('sync-applied writes refresh the Collection cache (#598)', () => {
     db.close()
   })
 })
+
+describe('sync transactions vs tombstones (#590)', () => {
+  it('a staged write suppressed by tombstone enforcement is disclosed via result.erasures', async () => {
+    const local = inlineMemory(); const remote = inlineMemory()
+    const db = await createNoydb({ store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false })
+    const vault = await db.openVault(V)
+    const notes = vault.collection<Note>('notes')
+    await notes.put('n1', { body: 'v1' })
+    await db.push(V)                                       // both sides synced at _v=1
+
+    await remote.put(V, 'notes', 'n1', tombstoneEnv(5))    // shredded elsewhere — CAS mismatch on push
+
+    const tx = db.transaction(V)
+    tx.put('notes', 'n1', { body: 'offline edit' })
+    const result = await tx.commit()
+
+    expect(result.erasures).toHaveLength(1)
+    expect(result.erasures![0]!.direction).toBe('push')
+    expect((await local.get(V, 'notes', 'n1'))!._data).toBe('')  // local enforced to the tombstone
+    // By design, status stays 'committed' — the erasures field is the disclosure that a
+    // staged write was suppressed, not a change to the committed/conflict status logic.
+    expect(result.status).toBe('committed')
+    db.close()
+  })
+})
