@@ -1,5 +1,11 @@
 # Changelog — hub
 
+## 0.3.0-pre.6
+
+### Minor Changes
+
+- Satellite collections (#591): off-row storage for heavy fields. Declare `collection(name, { satelliteOf, fields, joined })` to pair a base collection with a satellite holding its heavy/cold fields 1:1 on the record id — base reads never fetch or decrypt the heavy side. Explicit `fields` routing; persisted pairing marker (R-S9 drift refusal); narrow `JoinedHandle` full-record access via `vault.joined()`; existence-authority read filtering (get/list/search/retrieve/similarTo/det-lookups/bulk + bundle export); ordered fan-out writes with hardened best-effort revert; `forget()` fan-out through the full purge suite with residue-classification inheritance; pair-unit sync filters and pair-coupled conflict resolvers. Refusal matrix R-S1–R-S9. v1 scope: one satellite per base, new collections only, `crdt` pair members refused, satellite `query()` refuses loudly. New subpath `@noy-db/hub/satellites` (types). See docs/superpowers/specs/2026-07-05-satellite-collections-design.md.
+
 ## 0.3.0-pre.5
 
 ### Patch Changes
