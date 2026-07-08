@@ -36,6 +36,7 @@
     "hmacSha256Hex",
     "importCek",
     "isTombstone",
+    "isTombstoneShape",
     "mintBidxTag",
     "openEnvelopeJson",
     "pbkdf2VerifyDigest",

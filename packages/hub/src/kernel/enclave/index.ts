@@ -102,7 +102,7 @@ export { findByDet, queryByDet } from './record-keys/deterministic.js'
 export type { DeterministicContext } from './record-keys/deterministic.js'
 
 // ─── tombstone ─────────────────────────────────────────────────────
-export { isTombstone, buildTombstone } from './record-keys/tombstone.js'
+export { isTombstone, isTombstoneShape, buildTombstone } from './record-keys/tombstone.js'
 
 // ─── envelope body (C1 protected-body access contract) ──────────────
 export { openEnvelopeJson, writeEnvelopeBody, hasPerRecordKey, envelopeBodyForHash } from './record-keys/envelope-body.js'

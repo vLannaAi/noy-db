@@ -19,7 +19,7 @@ import { ConflictError } from '../../kernel/errors.js'
 import type { NoydbEventEmitter } from '../../kernel/events.js'
 import type { SyncPolicy } from '../../kernel/sync-policy.js'
 import { SyncScheduler } from '../../kernel/sync-policy.js'
-import { isTombstoneShape } from '../../kernel/enclave/record-keys/tombstone.js'
+import { isTombstoneShape } from '../../kernel/enclave/index.js'
 
 /** Sync engine: dirty tracking, push, pull, conflict resolution, scheduling. */
 export class SyncEngine {
