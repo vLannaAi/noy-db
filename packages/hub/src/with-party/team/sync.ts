@@ -182,6 +182,7 @@ export class SyncEngine {
 
     let pushed = 0
     const conflicts: Conflict[] = []
+    const erasures: ErasureEnforcement[] = []
     const errors: Error[] = []
     const completed: number[] = []
 
@@ -209,6 +210,15 @@ export class SyncEngine {
             continue
           }
 
+          if (isTombstoneShape(envelope)) {
+            // #590: a tombstone push is an erasure assertion — unconditional,
+            // no CAS, no conflict resolution. Erasure always wins.
+            await this.remote.put(this.vault, entry.collection, entry.id, envelope)
+            completed.push(i)
+            pushed++
+            continue
+          }
+
           try {
             await this.remote.put(
               this.vault,
@@ -223,30 +233,38 @@ export class SyncEngine {
             if (err instanceof ConflictError) {
               const remoteEnvelope = await this.remote.get(this.vault, entry.collection, entry.id)
               if (remoteEnvelope) {
-                const { handled, conflict } = await this.handleConflict(
-                  entry.collection,
-                  entry.id,
-                  envelope,
-                  remoteEnvelope,
-                  'push',
-                )
-                conflicts.push(conflict)
-                if (handled === 'local') {
-                  await this.remote.put(this.vault, entry.collection, entry.id, conflict.local)
+                if (isTombstoneShape(remoteEnvelope)) {
+                  // #590: remote already shredded this record — enforce locally,
+                  // never resolve. Resolvers must not overrule an erasure.
+                  await this.applyRemote(entry.collection, entry.id, remoteEnvelope)
+                  erasures.push(this.reportErasure(entry.collection, entry.id, remoteEnvelope, envelope, 'push'))
                   completed.push(i)
-                  pushed++
-                } else if (handled === 'remote') {
-                  await this.local.put(this.vault, entry.collection, entry.id, conflict.remote)
-                  completed.push(i)
-                } else if (handled === 'merged' && conflict.local !== envelope) {
-                  // Merged envelope is stored in conflict.local (the winner)
-                  const merged = conflict.local
-                  await this.remote.put(this.vault, entry.collection, entry.id, merged)
-                  await this.local.put(this.vault, entry.collection, entry.id, merged)
-                  completed.push(i)
-                  pushed++
+                } else {
+                  const { handled, conflict } = await this.handleConflict(
+                    entry.collection,
+                    entry.id,
+                    envelope,
+                    remoteEnvelope,
+                    'push',
+                  )
+                  conflicts.push(conflict)
+                  if (handled === 'local') {
+                    await this.remote.put(this.vault, entry.collection, entry.id, conflict.local)
+                    completed.push(i)
+                    pushed++
+                  } else if (handled === 'remote') {
+                    await this.applyRemote(entry.collection, entry.id, conflict.remote)
+                    completed.push(i)
+                  } else if (handled === 'merged' && conflict.local !== envelope) {
+                    // Merged envelope is stored in conflict.local (the winner)
+                    const merged = conflict.local
+                    await this.remote.put(this.vault, entry.collection, entry.id, merged)
+                    await this.applyRemote(entry.collection, entry.id, merged)
+                    completed.push(i)
+                    pushed++
+                  }
+                  // handled === 'deferred': leave in dirty log
                 }
-                // handled === 'deferred': leave in dirty log
               }
             } else {
               throw err
@@ -266,7 +284,7 @@ export class SyncEngine {
     this.lastPush = new Date().toISOString()
     await this.persistMeta()
 
-    const result: PushResult = { pushed, conflicts, errors }
+    const result: PushResult = { pushed, conflicts, errors, erasures }
     this.emitter.emit('sync:push', result)
     return result
   }
@@ -389,6 +407,7 @@ export class SyncEngine {
 
     let pushed = 0
     const conflicts: Conflict[] = []
+    const erasures: ErasureEnforcement[] = []
     const errors: Error[] = []
     const completed: number[] = []
 
@@ -408,6 +427,15 @@ export class SyncEngine {
             continue
           }
 
+          if (isTombstoneShape(envelope)) {
+            // #590: a tombstone push is an erasure assertion — unconditional,
+            // no CAS, no conflict resolution. Erasure always wins.
+            await this.remote.put(this.vault, entry.collection, entry.id, envelope)
+            completed.push(i)
+            pushed++
+            continue
+          }
+
           try {
             await this.remote.put(
               this.vault,
@@ -422,27 +450,35 @@ export class SyncEngine {
             if (err instanceof ConflictError) {
               const remoteEnvelope = await this.remote.get(this.vault, entry.collection, entry.id)
               if (remoteEnvelope) {
-                const { handled, conflict } = await this.handleConflict(
-                  entry.collection,
-                  entry.id,
-                  envelope,
-                  remoteEnvelope,
-                  'push',
-                )
-                conflicts.push(conflict)
-                if (handled === 'local') {
-                  await this.remote.put(this.vault, entry.collection, entry.id, conflict.local)
+                if (isTombstoneShape(remoteEnvelope)) {
+                  // #590: remote already shredded this record — enforce locally,
+                  // never resolve. Resolvers must not overrule an erasure.
+                  await this.applyRemote(entry.collection, entry.id, remoteEnvelope)
+                  erasures.push(this.reportErasure(entry.collection, entry.id, remoteEnvelope, envelope, 'push'))
                   completed.push(i)
-                  pushed++
-                } else if (handled === 'remote') {
-                  await this.local.put(this.vault, entry.collection, entry.id, conflict.remote)
-                  completed.push(i)
-                } else if (handled === 'merged' && conflict.local !== envelope) {
-                  const merged = conflict.local
-                  await this.remote.put(this.vault, entry.collection, entry.id, merged)
-                  await this.local.put(this.vault, entry.collection, entry.id, merged)
-                  completed.push(i)
-                  pushed++
+                } else {
+                  const { handled, conflict } = await this.handleConflict(
+                    entry.collection,
+                    entry.id,
+                    envelope,
+                    remoteEnvelope,
+                    'push',
+                  )
+                  conflicts.push(conflict)
+                  if (handled === 'local') {
+                    await this.remote.put(this.vault, entry.collection, entry.id, conflict.local)
+                    completed.push(i)
+                    pushed++
+                  } else if (handled === 'remote') {
+                    await this.applyRemote(entry.collection, entry.id, conflict.remote)
+                    completed.push(i)
+                  } else if (handled === 'merged' && conflict.local !== envelope) {
+                    const merged = conflict.local
+                    await this.remote.put(this.vault, entry.collection, entry.id, merged)
+                    await this.applyRemote(entry.collection, entry.id, merged)
+                    completed.push(i)
+                    pushed++
+                  }
                 }
               }
             } else {
@@ -462,7 +498,7 @@ export class SyncEngine {
     this.lastPush = new Date().toISOString()
     await this.persistMeta()
 
-    const result: PushResult = { pushed, conflicts, errors }
+    const result: PushResult = { pushed, conflicts, errors, erasures }
     this.emitter.emit('sync:push', result)
     return result
   }

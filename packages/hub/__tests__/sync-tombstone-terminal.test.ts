@@ -161,3 +161,54 @@ describe('pull tombstone-terminal rule (#590)', () => {
     db.close()
   })
 })
+
+describe('push tombstone-terminal rule (#590)', () => {
+  async function setup(conflict?: 'local-wins') {
+    const local = inlineMemory(); const remote = inlineMemory()
+    const db = await createNoydb({
+      store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false,
+      ...(conflict ? { conflict } : {}),
+    })
+    const vault = await db.openVault(V)
+    const notes = vault.collection<Note>('notes')
+    return { local, remote, db, notes }
+  }
+
+  it('a dirty entry whose local envelope is a tombstone pushes unconditionally (no CAS)', async () => {
+    const { local, remote, db, notes } = await setup()
+    await notes.put('n1', { body: 'v1' })                  // dirty at _v=1
+    // remote meanwhile holds a much newer live copy — CAS would refuse
+    const liveRemote: EncryptedEnvelope = { _noydb: 1, _v: 9, _ts: new Date().toISOString(), _iv: '', _data: '{"body":"other"}' }
+    await remote.put(V, 'notes', 'n1', liveRemote)
+    await local.put(V, 'notes', 'n1', tombstoneEnv(1))     // shredded before the push ran
+
+    const push = await db.push(V)
+
+    expect(push.pushed).toBe(1)
+    expect((await remote.get(V, 'notes', 'n1'))!._data).toBe('')  // erasure won without CAS
+    const again = await db.push(V)
+    expect(again.pushed).toBe(0)                                   // entry completed
+    db.close()
+  })
+
+  it('push ConflictError against a remote tombstone: enforced locally, reported, resolver bypassed', async () => {
+    const { local, remote, db, notes } = await setup('local-wins')
+    await notes.put('n1', { body: 'v1' })
+    await db.push(V)                                       // both at _v=1
+    await notes.put('n1', { body: 'offline edit' })        // dirty, _v=2 (CAS expects remote _v=1)
+    await remote.put(V, 'notes', 'n1', tombstoneEnv(5))    // shredded elsewhere at _v=5 → CAS mismatch
+
+    const events: ErasureEnforcement[] = []
+    db.on('sync:erasure', e => events.push(e))
+    const push = await db.push(V)
+
+    expect((await local.get(V, 'notes', 'n1'))!._data).toBe('')   // enforced despite local-wins
+    expect(push.erasures).toHaveLength(1)
+    expect(push.erasures![0]!.direction).toBe('push')
+    expect(push.erasures![0]!.suppressed._v).toBe(2)
+    expect(push.conflicts).toHaveLength(0)
+    expect(events).toHaveLength(1)
+    expect((await db.push(V)).pushed).toBe(0)                     // entry completed, edit never re-pushed
+    db.close()
+  })
+})
