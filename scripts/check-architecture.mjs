@@ -887,7 +887,11 @@ const KERNEL_SURFACE_BUDGET = {
   // `adapter.delete` any `_del` marker with `_ts` older than the cutoff. Genuinely
   // core (touches the adapter contract directly); the load-bearing safety-invariant
   // doc comment accounts for most of the delta.
-  'packages/hub/src/kernel/vault.ts': 3990,
+  // Bumped 3990→3997 (2026-07-09, +7: #589 final-review Fix 4): two doc-comment
+  // sentences on `_purgeDeleteMarkers` — ledger/event emission deferred to #604, and
+  // local-adapter-only purge scope (operator must purge every sync target too). No
+  // behavior change.
+  'packages/hub/src/kernel/vault.ts': 3997,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),

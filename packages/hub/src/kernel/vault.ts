@@ -1331,6 +1331,13 @@ export class Vault {
    * is always present to win convergence. This is an operator-asserted safe-point
    * ONLY; #604's period-close lifecycle is what earns that assertion. Do not call
    * it on live/unsettled data.
+   *
+   * Emits no ledger/event yet — #604's period-close, the only intended caller, owns
+   * the audit record.
+   *
+   * Purges the local adapter only; the operator must purge every sync target too, or
+   * the next pull re-imports the markers (benign — they still read deleted — but no
+   * space is reclaimed). #604 owns cross-target purge.
    */
   async _purgeDeleteMarkers(before: string, collections?: string[]): Promise<number> {
     const snapshot = await this.adapter.loadAll(this.name)   // one read; already carries every envelope

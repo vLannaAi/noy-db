@@ -151,8 +151,12 @@ vault._purgeDeleteMarkers(before: ISOTimestamp, collections?: string[]): Promise
 ```
 
 enumerates delete markers with `_ts` strictly older than `before` and physically removes them
-(`adapter.delete`), returning the count and emitting a ledger / event record. Scoped to **delete
-markers only** — forget tombstones and history are untouched (their retention is #604's call).
+(`adapter.delete`), returning the count. Scoped to **delete markers only** — forget tombstones and
+history are untouched (their retention is #604's call).
+
+Emission of a ledger / event record for the purge is **deferred to #604**: the seam is `@internal`
+and called by nothing yet, and #604's period-close lifecycle — the only intended caller — is what
+owns the audited operator action, so the audit trail belongs there rather than duplicated here.
 
 Its doc carries the load-bearing invariant **loudly**: *purging a marker re-opens the #589
 resurrection window for any peer offline since before the cutoff; never-GC is safe precisely because
