@@ -54,20 +54,26 @@ Implementation detail: `_purgeDeleteMarkers(before)` filters `env._ts < before` 
 
 ### 3. State + ledger (closes a #589 deferral)
 
-Freeze rewrites the `_periods/<name>` record with three added fields and appends a tamper-evident ledger entry:
+**Freeze must NOT mutate the chained `_periods/<name>` record.** Periods are hash-chained: each period stores `priorPeriodHash = sha256(canonicalJson(priorPeriodRecord))` (`chainAnchor`), and the subsystem explicitly anticipates a `verifyPeriodChain()` (docstring, `periods.ts`). Rewriting a *sealed, already-chained* period record to add `frozenAt` would change its `canonicalJson` → change its hash → make the successor's stored `priorPeriodHash` mismatch → break the chain the moment that verifier ships. There is no `verifyPeriodChain()` today, so this would be a *latent* corruption in the one property the subsystem exists to guarantee — unacceptable in an audit product.
+
+Instead, freeze state lives in a **companion record** in a new reserved collection, leaving the chained record untouched:
 
 ```ts
-// added to PeriodRecord (all optional; absent = not yet frozen)
-readonly frozenAt?: string          // ISO, freeze call time
-readonly frozenBy?: string          // invoking keyring userId
-readonly purgedMarkerCount?: number // markers physically removed
+export const PERIOD_FREEZES_COLLECTION = '_period_freezes'   // sibling of '_periods'
+
+export interface PeriodFreezeRecord {
+  readonly period: string             // the frozen period's name (the key)
+  readonly frozenAt: string           // ISO, freeze call time
+  readonly frozenBy: string           // invoking keyring userId
+  readonly purgedMarkerCount: number  // markers physically removed
+}
 ```
 
-The rewrite goes through the same ledger-instrumented path `closePeriod` uses (`appendPeriodLedgerEntry`), so the freeze — a *destructive* operator action — lands a hash-chained audit entry (actor, boundary, count). **This is exactly the ledger/event emission deferred from #589's `_purgeDeleteMarkers`** (the seam's doc said "emits no ledger/event yet — #604's period-close, the only intended caller, owns the audit record"). Freeze is that caller; this closes the deferral.
+`PeriodRecord` gains the same three fields as **optional, return-only** (`frozenAt?`, `frozenBy?`, `purgedMarkerCount?`): they are **never written into the stored `_periods/<name>` record** (so its `canonicalJson`/hash is unchanged), and are merged in from the companion when a `PeriodRecord` is *returned* by `getPeriod` / `listPeriods` / `freezePeriod`. The public shape stays "a frozen period carries these fields"; the storage keeps them off the chained record.
 
-The period-record rewrite must preserve the hash chain: `freezePeriod` updates the existing record in place (same `name`, `kind`, `endDate`, `priorPeriodHash`), adding only the freeze fields, and re-appends the ledger entry — it does **not** re-chain or alter `priorPeriodHash` (freeze is metadata on an existing sealed record, not a new period). The plan verifies `loadPeriods()`'s chain still validates after a freeze.
+Freeze writes the companion through the same encrypt-and-put path period records use (`writePeriodRecord`-style, keyed `_period_freezes/<name>`) and appends a tamper-evident ledger entry via `appendPeriodLedgerEntry` (actor, boundary, count). **This is exactly the ledger/event emission deferred from #589's `_purgeDeleteMarkers`** (its doc: "emits no ledger/event yet — #604's period-close, the only intended caller, owns the audit record"). Freeze is that caller; this closes the deferral.
 
-**Idempotency:** if the period already has `frozenAt`, `freezePeriod` is a **no-op** that returns the existing record — no re-purge (the range is already empty anyway) and no second ledger entry.
+**Idempotency:** `freezePeriod` first reads the companion `_period_freezes/<name>`; if present, it is a **no-op** returning the period merged with the existing freeze fields — no re-purge, no second ledger entry.
 
 ### 4. Interaction with the write-seal
 
@@ -82,7 +88,7 @@ Behind `withPeriods()`, on an encrypted vault:
 3. **Never touch live / forget-tombstones:** live records and forget crypto-shred tombstones in-window are untouched by freeze.
 4. **Gating:** `freezePeriod` on a nonexistent or `kind: 'opened'` period throws; requires the strategy.
 5. **Idempotent:** second `freezePeriod` is a no-op (no extra ledger entry, count unchanged, `frozenAt` stable).
-6. **Ledger + chain:** the freeze appends one ledger entry; `frozenAt/frozenBy/purgedMarkerCount` persist; `loadPeriods()` hash chain still validates.
+6. **Ledger + chain immutability:** the freeze appends one ledger entry and writes the `_period_freezes/<name>` companion; the stored `_periods/<name>` record's bytes are **unchanged** by freeze (assert the chained record's `canonicalJson`/hash is identical before and after a freeze); `getPeriod`/`listPeriods` return the period with the merged freeze fields.
 7. **Seal preserved:** writes to the frozen period still throw `PeriodClosedError`.
 8. **Boundary construction:** parametrized over a bare-date `endDate` (`'2026-03-31'`) and a full-timestamp `endDate` — the inclusive-of-`endDate`, exclusive-of-after invariant holds for both.
 
