@@ -188,6 +188,49 @@ describe('delete convergence on pull (#589)', () => {
     dbA.close(); dbB.close()
   })
 
+  it('push-channel tie, marker-pushed-first: a concurrent edit pushed after a marker converges to deleted (#589 review Fix 1)', async () => {
+    const { remote, dbA, dbB } = await twoPeers()
+    const a = (await dbA.openVault(V)).collection<Note>('notes')
+    const b = (await dbB.openVault(V)).collection<Note>('notes')
+    await a.put('n1', { body: 'v1' }); await dbA.push(V)
+    await dbB.pull(V)                                   // A and B both at _v=1
+
+    await a.delete('n1'); await dbA.push(V)              // A: marker _v=2 pushed → remote is the marker
+    expect(isDeleteMarker(remote.raw(V, 'notes', 'n1')!)).toBe(true)
+
+    await b.put('n1', { body: 'edited' })                // B: live _v=2 locally, WITHOUT pulling first
+    await dbB.push(V)                                    // B's CAS fails against the remote marker (push-channel tie)
+
+    // B converges to deleted (does not force its edit onto the remote marker)
+    expect(isDeleteMarker(remote.raw(V, 'notes', 'n1')!)).toBe(true)
+    expect(await b.get('n1')).toBeNull()
+
+    await dbA.pull(V)                                     // A pulls — still deleted
+    expect(await a.get('n1')).toBeNull()
+    dbA.close(); dbB.close()
+  })
+
+  it('push-channel tie, edit-pushed-first: a concurrent delete pushed after an edit still wins (#589 review Fix 1)', async () => {
+    const { remote, dbA, dbB } = await twoPeers()
+    const a = (await dbA.openVault(V)).collection<Note>('notes')
+    const b = (await dbB.openVault(V)).collection<Note>('notes')
+    await a.put('n1', { body: 'v1' }); await dbA.push(V)
+    await dbB.pull(V)                                   // A and B both at _v=1
+
+    await b.put('n1', { body: 'edited' }); await dbB.push(V)   // B: live edit _v=2 pushed → remote is the live edit
+    expect(isDeleteMarker(remote.raw(V, 'notes', 'n1')!)).toBe(false)
+
+    await a.delete('n1')                                  // A: marker _v=2 locally, WITHOUT pulling first
+    await dbA.push(V)                                     // A's CAS fails against the remote edit (push-channel tie)
+
+    // Delete wins: A force-overwrites the remote with its marker
+    expect(isDeleteMarker(remote.raw(V, 'notes', 'n1')!)).toBe(true)
+
+    await dbB.pull(V)
+    expect(await b.get('n1')).toBeNull()
+    dbA.close(); dbB.close()
+  })
+
   it('a delete marker never overrides a forget tombstone (forget outranks delete)', async () => {
     // local forget tombstone vs incoming delete marker → forget stays
     const local = memory(); const remote = memory()

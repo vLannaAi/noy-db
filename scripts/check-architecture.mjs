@@ -700,7 +700,13 @@ const KERNEL_SURFACE_BUDGET = {
   // re-creating a deleted id continues from the marker's `_v + 1` instead of resetting
   // to 1, gated on `!existing && onDirty` and reusing the lazy branch's raw read so
   // there is exactly one `adapter.get` on the re-create path.
-  'packages/hub/src/kernel/collection.ts': 4693,
+  // Bumped 4693→4705 (2026-07-09, +12: #589 final-review Fix 2): `_doDelete` now
+  // captures the marker's minted version (`markerVersion = live._v + 1`) and reports
+  // that same version to `onDirty`, instead of the separately-derived `existing?.version`
+  // which could disagree with it (lazy mode, uncached record, history disabled) and
+  // desync the dirty entry's version from the marker actually written. Also dedupes
+  // the `previousEnvelope`/`live` reads into one `adapter.get`.
+  'packages/hub/src/kernel/collection.ts': 4705,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.

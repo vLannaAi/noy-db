@@ -2863,13 +2863,21 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     const previousEnvelope = await this.adapter.get(this.vault, this.name, id)
     const previousPayloadHash = await this.historyStrategy.envelopePayloadHash(previousEnvelope)
 
+    // #589 (review): the version the marker is minted at (live._v + 1) — captured
+    // here so `onDirty` below reports the SAME version, not `existing?.version`
+    // (which can be stale/absent in lazy mode with the record uncached and history
+    // disabled, desyncing the dirty entry's version from the marker and breaking
+    // push's CAS). `live` reuses `previousEnvelope` above — same read, nothing
+    // between them writes to the adapter, so no need for a second `adapter.get`.
+    let markerVersion: number | undefined
     if (this.onDirty) {
       // #589: under sync, delete leaves a version-ordered marker so the deletion
       // converges on pull (a bare adapter.delete is invisible to other pullers).
       // No-op if there is no live record to delete (already marked / shredded).
-      const live = await this.adapter.get(this.vault, this.name, id)
+      const live = previousEnvelope
       if (!live || isTombstone(live, this.storeCiphertext) || isDeleteMarker(live)) return
-      await this.adapter.put(this.vault, this.name, id, buildDeleteMarker(live._v + 1, this.keyring.userId))
+      markerVersion = live._v + 1
+      await this.adapter.put(this.vault, this.name, id, buildDeleteMarker(markerVersion, this.keyring.userId))
     } else {
       await this.adapter.delete(this.vault, this.name, id)
     }
@@ -2909,9 +2917,13 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     }
 
     // #589: under sync the marker rides the push channel as an ordinary CAS put at
-    // its own version (existing._v + 1); the dirty version must match the marker so
-    // push's expectedVersion = marker._v - 1 = existing._v matches the remote's live copy.
-    await this.onDirty?.(this.name, id, 'put', (existing?.version ?? 0) + 1)
+    // its own version (live._v + 1); the dirty version must match the marker so
+    // push's expectedVersion = marker._v - 1 = live._v matches the remote's live copy.
+    // #589 (review): use `markerVersion` (the version the marker was actually minted
+    // at above), not `existing?.version` — the fallback below is unreachable in
+    // practice (onDirty undefined ⇒ markerVersion undefined ⇒ the `?.` short-circuits
+    // before this argument matters) but keeps the expression well-typed.
+    await this.onDirty?.(this.name, id, 'put', markerVersion ?? (existing?.version ?? 0) + 1)
 
     this.emitter.emit('change', {
       vault: this.vault,
