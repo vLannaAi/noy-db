@@ -65,10 +65,19 @@
  *
  * Freeze purges the LOCAL adapter only. On a synced vault, markers already
  * pushed to sync targets survive there, and a later pull re-imports them
- * (benign — they still read deleted, but the space isn't reclaimed).
- * Purging re-opens the #589 resurrection window for a peer offline since
- * before the cutoff, which is why the closed period is the
- * operator-asserted safe-point that gates the call.
+ * (benign — they still read deleted, but the space isn't reclaimed). A
+ * re-imported marker keeps its original `_ts` (inside the already-frozen
+ * period's window), so — like any late-booked delete — it is reclaimed by
+ * the NEXT period's freeze, whose window covers it; freeze stays terminal
+ * and does NOT re-purge an already-frozen period (#611). Sweeping the sync
+ * targets themselves is a cross-target-purge concern deferred to the
+ * cold-archival spec. Purging re-opens the #589 resurrection window for a
+ * peer offline since before the cutoff, which is why the closed period is
+ * the operator-asserted safe-point that gates the call.
+ *
+ * A period whose purge window has not fully elapsed cannot be frozen —
+ * `freezePeriod` throws rather than purge markers for deletes that may not
+ * have converged yet (#610).
  *
  * ## Not covered
  *
