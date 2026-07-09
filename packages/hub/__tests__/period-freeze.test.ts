@@ -119,6 +119,14 @@ describe('freezePeriod (#604)', () => {
     db.close()
   })
 
+  it('refuses to freeze a period whose purge window reaches into the future (#610)', async () => {
+    const { db, vault } = await makeVault()
+    // closePeriod does not validate endDate against now, so a future window is reachable.
+    await vault.closePeriod({ name: 'FY99', endDate: '2099-12-31' })
+    await expect(vault.freezePeriod('FY99')).rejects.toThrow(/future/)
+    db.close()
+  })
+
   it('is idempotent: a second freeze is a no-op (no re-purge, no second ledger entry)', async () => {
     const { local, db, vault } = await makeVault()
     const t = vault.collection<Row>('txns')

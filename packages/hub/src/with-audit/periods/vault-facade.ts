@@ -171,10 +171,19 @@ export class VaultPeriods {
         `freezePeriod: period "${name}" is "${period.kind}"; only a closed period can be frozen.`,
       )
     }
+    // #610: refuse a period whose purge window reaches into the future. Markers
+    // are bounded by write-time `_ts`, so a not-yet-elapsed window would purge
+    // deletes written seconds ago that cannot have converged to any peer.
+    const before = periodExclusiveUpperBound(period.endDate)
+    if (Date.parse(before) > Date.now()) {
+      throw new ValidationError(
+        `freezePeriod: period "${name}" purge window ends at ${before}, in the future; ` +
+          `only a period whose window is fully in the past can be frozen (recent delete markers may not have converged).`,
+      )
+    }
     const prior = await this.readReserved<PeriodFreezeRecord>(PERIOD_FREEZES_COLLECTION, name)
     if (prior) return this.mergeFreeze(period, prior) // idempotent no-op
 
-    const before = periodExclusiveUpperBound(period.endDate)
     const purgedMarkerCount = await this.deps.purgeDeleteMarkers(before)
     const freeze: PeriodFreezeRecord = {
       period: name,
