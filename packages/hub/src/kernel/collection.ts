@@ -21,6 +21,7 @@ import {
   isTombstone,
   isDeleteMarker,
   buildTombstone,
+  buildDeleteMarker,
   resolveStableCek,
   findByDet,
   queryByDet,
@@ -2847,7 +2848,16 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     const previousEnvelope = await this.adapter.get(this.vault, this.name, id)
     const previousPayloadHash = await this.historyStrategy.envelopePayloadHash(previousEnvelope)
 
-    await this.adapter.delete(this.vault, this.name, id)
+    if (this.onDirty) {
+      // #589: under sync, delete leaves a version-ordered marker so the deletion
+      // converges on pull (a bare adapter.delete is invisible to other pullers).
+      // No-op if there is no live record to delete (already marked / shredded).
+      const live = await this.adapter.get(this.vault, this.name, id)
+      if (!live || isTombstone(live, this.storeCiphertext) || isDeleteMarker(live)) return
+      await this.adapter.put(this.vault, this.name, id, buildDeleteMarker(live._v + 1, this.keyring.userId))
+    } else {
+      await this.adapter.delete(this.vault, this.name, id)
+    }
 
     // Ledger append — same after-write timing as put(). The recorded
     // version is the version that WAS deleted (existing?.version), not
@@ -2883,7 +2893,10 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       }
     }
 
-    await this.onDirty?.(this.name, id, 'delete', existing?.version ?? 0)
+    // #589: under sync the marker rides the push channel as an ordinary CAS put at
+    // its own version (existing._v + 1); the dirty version must match the marker so
+    // push's expectedVersion = marker._v - 1 = existing._v matches the remote's live copy.
+    await this.onDirty?.(this.name, id, 'put', (existing?.version ?? 0) + 1)
 
     this.emitter.emit('change', {
       vault: this.vault,

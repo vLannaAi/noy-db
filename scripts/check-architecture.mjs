@@ -694,7 +694,9 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 4662→4664 (2026-07-09, +2: #590 forget→sync-dirty-log hook): _writeTombstone
   // enters the sync dirty log via the existing onDirty seam so the shred propagates on
   // push; one comment + one call, the sync engine itself stays in with-party/team/sync.ts.
-  'packages/hub/src/kernel/collection.ts': 4664,
+  // Bumped 4664→4678 (2026-07-09, +14: #589 _doDelete writes a delete marker under
+  // sync via buildDeleteMarker; converges deletes on pull. Marker helpers live in enclave.
+  'packages/hub/src/kernel/collection.ts': 4678,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.

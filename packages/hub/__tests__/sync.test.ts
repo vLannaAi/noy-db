@@ -115,8 +115,13 @@ describe('sync engine', () => {
       await invoices.delete('inv-del')
       await dbA.push(COMP)
 
-      // Verify remote is clean
-      expect(await remote.get(COMP, 'invoices', 'inv-del')).toBeNull()
+      // #589: under sync, delete() leaves a version-bumped `_del` marker (not a
+      // physical removal) so the deletion converges to other pullers; the marker
+      // itself pushes to remote as an ordinary CAS put. It reads as absent though.
+      const remoteEnv = await remote.get(COMP, 'invoices', 'inv-del')
+      expect(remoteEnv).not.toBeNull()
+      expect((remoteEnv as EncryptedEnvelope & { _del?: true })._del).toBe(true)
+      expect(await invoices.get('inv-del')).toBeNull()
     })
 
     it('dirty tracking accumulates and clears after push', async () => {
