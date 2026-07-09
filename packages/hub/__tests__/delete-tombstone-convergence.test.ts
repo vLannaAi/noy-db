@@ -85,3 +85,20 @@ describe('delete() writes a marker under sync (#589)', () => {
     db.close()
   })
 })
+
+describe('re-create version continuity (#589)', () => {
+  it('a put after a synced delete continues from the marker version (not reset to 1)', async () => {
+    const local = memory(); const remote = memory()
+    const db = await createNoydb({ store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false })
+    const notes = (await db.openVault(V)).collection<Note>('notes')
+    await notes.put('n1', { body: 'v1' })        // _v=1
+    await notes.delete('n1')                      // marker _v=2
+    await notes.put('n1', { body: 're-created' }) // must be _v=3, NOT _v=1
+
+    const raw = local.raw(V, 'notes', 'n1')!
+    expect(isDeleteMarker(raw)).toBe(false)       // live again
+    expect(raw._v).toBe(3)                        // marker._v (2) + 1
+    expect((await notes.get('n1'))!.body).toBe('re-created')
+    db.close()
+  })
+})

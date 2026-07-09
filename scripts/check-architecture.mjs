@@ -696,7 +696,11 @@ const KERNEL_SURFACE_BUDGET = {
   // push; one comment + one call, the sync engine itself stays in with-party/team/sync.ts.
   // Bumped 4664→4678 (2026-07-09, +14: #589 _doDelete writes a delete marker under
   // sync via buildDeleteMarker; converges deletes on pull. Marker helpers live in enclave.
-  'packages/hub/src/kernel/collection.ts': 4678,
+  // Bumped 4678→4693 (2026-07-09, +15: #589 re-create version continuity): a put
+  // re-creating a deleted id continues from the marker's `_v + 1` instead of resetting
+  // to 1, gated on `!existing && onDirty` and reusing the lazy branch's raw read so
+  // there is exactly one `adapter.get` on the re-create path.
+  'packages/hub/src/kernel/collection.ts': 4693,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.

@@ -2059,15 +2059,19 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // in-memory map (no I/O); in lazy mode we have to ask the adapter
     // because the record may have been evicted (or never loaded).
     let existing: { record: T; version: number } | undefined
+    // Raw envelope read already performed while resolving `existing` (lazy
+    // path below) — reused by the #589 continuity check so the re-create
+    // path never pays a second `adapter.get`.
+    let priorRaw: EncryptedEnvelope | null = null
     if (this.lazy && this.lru) {
       existing = this.lru.get(id)
       if (!existing) {
-        const previousEnvelope = await this.adapter.get(this.vault, this.name, id)
-        if (previousEnvelope) {
-          const previousRecord = await this.codec.decryptRecord(previousEnvelope)
+        priorRaw = await this.adapter.get(this.vault, this.name, id)
+        if (priorRaw) {
+          const previousRecord = await this.codec.decryptRecord(priorRaw)
           // Tombstone (shredded) prior → treat as no previous version.
           if (previousRecord !== null) {
-            existing = { record: previousRecord, version: previousEnvelope._v }
+            existing = { record: previousRecord, version: priorRaw._v }
           }
         }
       }
@@ -2078,7 +2082,18 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       existing = await this.resolvePriorValues(id)
     }
 
-    const version = existing ? existing.version + 1 : 1
+    let version = existing ? existing.version + 1 : 1
+    // #589: a put re-creating a deleted id must continue past the delete
+    // marker's version so it wins convergence — resetting to 1 would lose to
+    // the marker's higher `_v` on sync. Markers exist only under sync, so this
+    // is gated on `onDirty`; the lazy branch above may have already read the
+    // raw envelope, so this reuses it instead of reading twice. Forget
+    // tombstones (`isTombstone`, no `_del`) are terminal and are NOT
+    // continued — they still reset to 1.
+    if (!existing && this.onDirty) {
+      if (priorRaw === null) priorRaw = await this.adapter.get(this.vault, this.name, id)
+      if (priorRaw && isDeleteMarker(priorRaw)) version = priorRaw._v + 1
+    }
 
     // Unique-constraint pre-flight — BEFORE history-save so a violation
     // never writes a history snapshot or fires 'history:save'. Runs after
