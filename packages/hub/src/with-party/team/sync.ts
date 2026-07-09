@@ -19,7 +19,7 @@ import { ConflictError } from '../../kernel/errors.js'
 import type { NoydbEventEmitter } from '../../kernel/events.js'
 import type { SyncPolicy } from '../../kernel/sync-policy.js'
 import { SyncScheduler } from '../../kernel/sync-policy.js'
-import { isTombstoneShape } from '../../kernel/enclave/index.js'
+import { isTombstoneShape, isDeleteMarker } from '../../kernel/enclave/index.js'
 
 /** Sync engine: dirty tracking, push, pull, conflict resolution, scheduling. */
 export class SyncEngine {
@@ -313,7 +313,12 @@ export class SyncEngine {
         for (const [id, remoteEnvelope] of Object.entries(records)) {
           // Partial sync: modifiedSince filter — arriving tombstones are exempt (#590):
           // an erasure must never be skipped by partial sync.
-          if (options?.modifiedSince && remoteEnvelope._ts <= options.modifiedSince && !isTombstoneShape(remoteEnvelope)) {
+          if (
+            options?.modifiedSince &&
+            remoteEnvelope._ts <= options.modifiedSince &&
+            !isTombstoneShape(remoteEnvelope) &&
+            !isDeleteMarker(remoteEnvelope)
+          ) {
             continue
           }
 
@@ -342,6 +347,30 @@ export class SyncEngine {
               this.dirty = this.dirty.filter(d => !(d.collection === collName && d.id === id))
               pulled++
               if (wasDirty) erasures.push(this.reportErasure(collName, id, remoteEnvelope, localEnvelope, 'pull'))
+            } else if (
+              remoteEnvelope._v === localEnvelope._v &&
+              isDeleteMarker(remoteEnvelope) !== isDeleteMarker(localEnvelope)
+            ) {
+              // #589: true concurrent delete-vs-edit at the SAME version. Version order
+              // can't break the tie. A per-collection resolver decides if one is set;
+              // otherwise DELETE wins (the db-level 'version' default is deliberately NOT
+              // consulted — it would resolve a tie to local-wins).
+              const resolver = this.conflictResolvers.get(collName)
+              if (resolver) {
+                const winner = await resolver(id, localEnvelope, remoteEnvelope)
+                if (winner === remoteEnvelope || (winner !== localEnvelope && winner !== null)) {
+                  await this.applyRemote(collName, id, winner ?? remoteEnvelope)
+                  this.dirty = this.dirty.filter(d => !(d.collection === collName && d.id === id))
+                  pulled++
+                }
+                // winner === localEnvelope or null → keep local (its dirty entry, if any, pushes out)
+              } else if (isDeleteMarker(remoteEnvelope)) {
+                // no resolver → delete wins; the incoming marker is the delete
+                await this.applyRemote(collName, id, remoteEnvelope)
+                this.dirty = this.dirty.filter(d => !(d.collection === collName && d.id === id))
+                pulled++
+              }
+              // no resolver and LOCAL is the marker → keep local marker; its dirty 'put' pushes it outward
             } else if (remoteEnvelope._v > localEnvelope._v) {
               // Remote is newer — check if we have a dirty entry for this
               const isDirty = this.dirty.some(d => d.collection === collName && d.id === id)
