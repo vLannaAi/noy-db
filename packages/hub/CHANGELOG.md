@@ -1,5 +1,15 @@
 # Changelog — hub
 
+## 0.3.0-pre.7
+
+### Minor Changes
+
+- Deletes now converge under sync (#589). `collection.delete()` on a synced vault writes a version-ordered `_del` marker instead of a physical removal, so a delete propagates on pull and offline peers can no longer resurrect deleted records; a legitimate re-create at a higher version still resurrects the id (guaranteed non-resurrection remains `forget()`'s job). A concurrent same-version delete-vs-edit resolves via the collection's conflict resolver, or delete-wins by default. Adds an operator purge seam (`Vault._purgeDeleteMarkers`) for the forthcoming period-close feature (#604). Adds an optional `_del` field to `EncryptedEnvelope` on the `@noy-db/hub/adapter` seam (additive) — every `to-*` store must round-trip it (new adapter-conformance vector); `noy-db-to` stores need a conformance pass. Local-only (non-synced) collections keep physical deletes — no change.
+
+### Patch Changes
+
+- Security (#590): sync now treats crypto-shred tombstones as terminal. `pull()` never overwrites a `forget()` tombstone with a live envelope regardless of `_v` and re-asserts the shred outward; `push()` asserts tombstones unconditionally and never conflict-resolves against one (resolvers are bypassed — an erasure cannot be overruled); `forget()` tombstones now enter the sync dirty log so the shred propagates on push. Suppressed edits are reported via `PushResult.erasures` / `PullResult.erasures` and the new `sync:erasure` event (new `ErasureEnforcement` type). Also fixes #598: every sync-applied local write now refreshes the Collection in-memory caches, so same-session readers see sync results (and never a decrypted residue of a shredded record).
+
 ## 0.3.0-pre.6
 
 ### Minor Changes

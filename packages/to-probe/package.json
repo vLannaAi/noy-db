@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/to-probe",
-  "version": "0.3.0-pre.6",
+  "version": "0.3.0-pre.7",
   "description": "Diagnostic companion for the @noy-db/to-* store family — not itself a storage backend. Setup-time suitability test + topology check + runtime reliability monitor. Exercises the 6-method NoydbStore contract across five axes (write latency, CAS integrity, hydration cost, sync economics, network resilience) and produces a structured risk-scored report.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
