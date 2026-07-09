@@ -204,3 +204,29 @@ describe('delete convergence on pull (#589)', () => {
     db.close()
   })
 })
+
+describe('_purgeDeleteMarkers seam (#589 → #604)', () => {
+  it('physically removes only delete markers older than the cutoff; leaves live + newer', async () => {
+    const local = memory(); const remote = memory()
+    const db = await createNoydb({ store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false })
+    const vault = await db.openVault(V)
+    const notes = vault.collection<Note>('notes')
+    await notes.put('keep', { body: 'live' })                         // live, never purged
+    await notes.put('old', { body: 'x' }); await notes.delete('old')  // old marker
+    await notes.put('new', { body: 'y' })                             // (deleted below, after cutoff)
+
+    // Backdate the 'old' marker in the raw store to before the cutoff:
+    const oldM = local.raw(V, 'notes', 'old')!
+    await local.put(V, 'notes', 'old', { ...oldM, _ts: '2000-01-01T00:00:00.000Z' })
+    await notes.delete('new')                                          // 'new' marker at now
+
+    const removed = await (vault as unknown as { _purgeDeleteMarkers(b: string, c?: string[]): Promise<number> })
+      ._purgeDeleteMarkers('2020-01-01T00:00:00.000Z')
+
+    expect(removed).toBe(1)
+    expect(local.raw(V, 'notes', 'old')).toBeUndefined()             // purged
+    expect(isDeleteMarker(local.raw(V, 'notes', 'new')!)).toBe(true) // newer marker kept
+    expect(local.raw(V, 'notes', 'keep')).toBeDefined()             // live kept
+    db.close()
+  })
+})

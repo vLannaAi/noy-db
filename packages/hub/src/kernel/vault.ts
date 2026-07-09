@@ -124,7 +124,7 @@ import {
   type ClosePeriodOptions,
   type OpenPeriodOptions,
 } from '../with-audit/periods/index.js'
-import { encrypt, openEnvelopeJson, hasPerRecordKey, SEALED_CEK_NS, type SealingContext, type EnclaveKey, type SealedShredSlot } from './enclave/index.js'
+import { encrypt, openEnvelopeJson, hasPerRecordKey, SEALED_CEK_NS, type SealingContext, type EnclaveKey, type SealedShredSlot, isDeleteMarker } from './enclave/index.js'
 import type { RecipientSealer } from '../with-party/team/managed-passphrase.js'
 import {
   createExportBlobsHandle,
@@ -1319,6 +1319,32 @@ export class Vault {
     if (!coll) return
     coll._invalidateCekCacheEntry(id)
     await coll._invalidateCacheEntry(id)
+  }
+
+  /**
+   * @internal #589 → #604. Physically remove delete markers with `_ts` strictly
+   * older than `before` (ISO timestamp), across `collections` (or all data
+   * collections). Returns the count removed.
+   *
+   * SAFETY: purging a marker RE-OPENS the #589 resurrection window for any peer
+   * offline since before the cutoff — never-GC is safe precisely because the marker
+   * is always present to win convergence. This is an operator-asserted safe-point
+   * ONLY; #604's period-close lifecycle is what earns that assertion. Do not call
+   * it on live/unsettled data.
+   */
+  async _purgeDeleteMarkers(before: string, collections?: string[]): Promise<number> {
+    const snapshot = await this.adapter.loadAll(this.name)   // one read; already carries every envelope
+    let removed = 0
+    for (const [coll, records] of Object.entries(snapshot)) {
+      if (collections && !collections.includes(coll)) continue
+      for (const [id, env] of Object.entries(records)) {
+        if (isDeleteMarker(env) && env._ts < before) {
+          await this.adapter.delete(this.name, coll, id)
+          removed++
+        }
+      }
+    }
+    return removed
   }
 
   /**

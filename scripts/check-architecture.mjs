@@ -875,7 +875,13 @@ const KERNEL_SURFACE_BUDGET = {
   // `_invalidateCekCacheEntry`/`_invalidateCacheEntry` pair so sync-applied
   // envelopes (pull applies, conflict winners, tombstone enforcement) evict
   // stale decrypted views. Thin call-site; the sync engine lives in with-party/team/.
-  'packages/hub/src/kernel/vault.ts': 3964,
+  // Bumped 3964→3990 (2026-07-09): #589 _purgeDeleteMarkers seam — the @internal
+  // `_purgeDeleteMarkers(before, collections?)` operator hook #604's period-close
+  // will build on: one `adapter.loadAll` read, iterate envelopes, physically
+  // `adapter.delete` any `_del` marker with `_ts` older than the cutoff. Genuinely
+  // core (touches the adapter contract directly); the load-bearing safety-invariant
+  // doc comment accounts for most of the delta.
+  'packages/hub/src/kernel/vault.ts': 3990,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
