@@ -183,7 +183,13 @@ export class VaultPeriods {
       purgedMarkerCount,
     }
     const envelope = await this.writeReserved(PERIOD_FREEZES_COLLECTION, name, freeze)
-    await this.deps.strategy.appendPeriodLedgerEntry(this.deps.getLedgerOrNull(), this.deps.userId(), envelope, name)
+    await this.deps.strategy.appendPeriodLedgerEntry(
+      this.deps.getLedgerOrNull(),
+      this.deps.userId(),
+      envelope,
+      name,
+      PERIOD_FREEZES_COLLECTION,
+    )
     return this.mergeFreeze(period, freeze)
   }
 

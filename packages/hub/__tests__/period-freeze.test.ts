@@ -19,6 +19,7 @@ import { ConflictError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { withSync } from '../src/with-party/sync/index.js'
 import { withPeriods } from '../src/with-audit/periods/index.js'
+import { withHistory } from '../src/with-commit/history/index.js'
 import { isDeleteMarker } from '../src/kernel/enclave/record-keys/tombstone.js'
 
 /** In-memory store exposing raw stored envelopes for white-box assertions. */
@@ -61,7 +62,8 @@ async function makeVault() {
     user: 'alice',
     syncStrategy: withSync(),
     periodsStrategy: withPeriods(),
-    encrypt: false,
+    historyStrategy: withHistory(),
+    secret: 'hunter2',
   })
   const vault = await db.openVault(V)
   return { local, remote, db, vault }
@@ -143,6 +145,42 @@ describe('freezePeriod (#604)', () => {
     expect((await vault.getPeriod('FY26-Q1'))!.frozenAt).toBeTruthy()
     expect((await vault.listPeriods()).find(p => p.name === 'FY26-Q1')!.purgedMarkerCount).toBe(1)
     await expect(t.put('b', { amount: 2, date: '2026-02-02' })).rejects.toThrow()  // seal intact
+    db.close()
+  })
+
+  it('the freeze ledger entry is attributed to _period_freezes, not _periods — verifyBackupIntegrity stays ok, re-freeze appends no extra entry (review C1)', async () => {
+    const { local, db, vault } = await makeVault()
+    const t = vault.collection<Row>('txns')
+    await t.put('a', { amount: 1, date: '2026-02-01' }); await db.push(V)
+    await t.delete('a'); await db.push(V)
+    const m = local.raw(V, 'txns', 'a')!
+    await local.put(V, 'txns', 'a', { ...m, _ts: '2026-02-15T00:00:00.000Z' })
+    await vault.closePeriod({ name: 'FY26-Q1', endDate: '2026-03-31' })
+
+    // Sanity: clean before freeze.
+    expect((await vault.verifyBackupIntegrity()).ok).toBe(true)
+
+    await vault.freezePeriod('FY26-Q1')
+
+    // The freeze's ledger entry must record the _period_freezes companion
+    // it actually wrote, not the untouched _periods/<name> chained record.
+    const entriesAfterFirstFreeze = await vault.ledger().loadAllEntries()
+    const freezeEntry = entriesAfterFirstFreeze[entriesAfterFirstFreeze.length - 1]!
+    expect(freezeEntry.collection).toBe('_period_freezes')
+    expect(freezeEntry.id).toBe('FY26-Q1')
+
+    // A cross-check on the latest put per (collection, id) must not
+    // mistake the freeze entry for a rewrite of _periods/<name> — that
+    // would hash-mismatch against the actually-stored (unchanged) close
+    // envelope and falsely brick backup/restore.
+    const verifyAfterFreeze = await vault.verifyBackupIntegrity()
+    expect(verifyAfterFreeze.ok).toBe(true)
+
+    // Idempotent re-freeze: no additional ledger entry.
+    await vault.freezePeriod('FY26-Q1')
+    const entriesAfterSecondFreeze = await vault.ledger().loadAllEntries()
+    expect(entriesAfterSecondFreeze.length).toBe(entriesAfterFirstFreeze.length)
+
     db.close()
   })
 })

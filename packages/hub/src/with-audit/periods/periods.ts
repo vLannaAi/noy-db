@@ -378,12 +378,13 @@ export async function appendPeriodLedgerEntry(
   actor: string,
   envelope: EncryptedEnvelope,
   name: string,
+  collection: string = PERIODS_COLLECTION,
 ): Promise<void> {
   if (!ledger) return
   const { envelopePayloadHash } = await import('../../with-commit/history/ledger/index.js')
   await ledger.append({
     op: 'put',
-    collection: PERIODS_COLLECTION,
+    collection,
     id: name,
     version: envelope._v,
     actor,
