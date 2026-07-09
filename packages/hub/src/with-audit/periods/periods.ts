@@ -41,6 +41,28 @@
  * as normal records with fresh timestamps that fall outside every
  * closed period.
  *
+ * ## Freeze
+ *
+ * ```
+ * vault.freezePeriod('FY2026-Q1')
+ *   └─► physically purges delete markers whose write-time falls inside
+ *       the closed period's window (via the #589 `_purgeDeleteMarkers`
+ *       seam), then records the fact:
+ *         ├─ PeriodFreezeRecord written to _period_freezes/<name>
+ *         └─ normal ledger append fires (LedgerStore.append)
+ * ```
+ *
+ * The chained `_periods/<name>` record is never mutated — `frozenAt` /
+ * `frozenBy` / `purgedMarkerCount` are merged onto the returned
+ * `PeriodRecord` at read time from the companion, so a tamper with the
+ * freeze can never break the inter-period hash chain. Freezing is
+ * terminal (a closed period, once frozen, stays frozen) and idempotent
+ * (a second call is a no-op that returns the same merged record without
+ * re-purging or re-appending a ledger entry). Freeze does NOT purge
+ * forget-tombstones (GDPR crypto-shred erasure evidence), `_history`
+ * versions, or live records — the delete-markers-only seam leaves all
+ * three untouched by construction.
+ *
  * ## Not covered
  *
  * - Partial re-opening of a closed period. If an auditor needs to
