@@ -19,6 +19,7 @@ import type { I18nStrategy } from '../with-shape/i18n/strategy.js'
 import { resolvePolicy } from '../with-shape/i18n/policy.js'
 import {
   isTombstone,
+  isDeleteMarker,
   buildTombstone,
   resolveStableCek,
   findByDet,
@@ -1474,7 +1475,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         if (!envelope) return null
         // Tombstone tolerance (decision 5): a shredded record carries no
         // body / CEK. Reads return null rather than throwing TamperedError.
-        if (isTombstone(envelope, this.storeCiphertext)) return null
+        if (isTombstone(envelope, this.storeCiphertext) || isDeleteMarker(envelope)) return null
         record = await this.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
         if (record === null) return null
         this.lru.set(id, { record, version: envelope._v }, estimateRecordBytes(record))
@@ -2298,7 +2299,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         // (a later public `get()` would then return it, defeating the gate).
         const cached = this.lru.get(id)
         const env = await this.adapter.get(this.vault, this.name, id)
-        if (!env || isTombstone(env, this.storeCiphertext)) return null
+        if (!env || isTombstone(env, this.storeCiphertext) || isDeleteMarker(env)) return null
         raw = await this.codec.decryptRecord(env, { id })
         if (raw === null) return null
         if (!cached) {
@@ -2309,7 +2310,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         if (cached) raw = cached.record
         else {
           const env = await this.adapter.get(this.vault, this.name, id)
-          if (!env || isTombstone(env, this.storeCiphertext)) return null
+          if (!env || isTombstone(env, this.storeCiphertext) || isDeleteMarker(env)) return null
           raw = await this.codec.decryptRecord(env, { id })
           if (raw === null) return null
           this.lru.set(id, { record: raw, version: env._v }, estimateRecordBytes(raw))
@@ -2681,7 +2682,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     let count = 0
     for (const id of ids) {
       const env = await this.adapter.get(this.vault, this.name, id)
-      if (!env || isTombstone(env, this.storeCiphertext)) continue
+      if (!env || isTombstone(env, this.storeCiphertext) || isDeleteMarker(env)) continue
       const decoded = await this.codec.decryptRecord(env, { skipValidation: true, id })
       if (decoded === null) continue // defensive: shredded between list and get
       const record = decoded as unknown as Record<string, unknown>
@@ -2956,7 +2957,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
   async _writeTombstone(id: string, actor: string): Promise<{ previousVersion: number } | null> {
     const live = await this.adapter.get(this.vault, this.name, id)
-    if (!live || isTombstone(live, this.storeCiphertext)) return null
+    if (!live || isTombstone(live, this.storeCiphertext) || isDeleteMarker(live)) return null
 
     await this.adapter.put(this.vault, this.name, id, buildTombstone(live._v, actor))
 
@@ -3937,7 +3938,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     const ids = await this.adapter.list(this.vault, this.name)
     for (const id of ids) {
       const envelope = await this.adapter.get(this.vault, this.name, id)
-      if (envelope && !isTombstone(envelope, this.storeCiphertext)) {
+      if (envelope && !isTombstone(envelope, this.storeCiphertext) && !isDeleteMarker(envelope)) {
         const record = await this.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
         if (record === null) continue
         this.cache.set(id, { record, version: envelope._v })
@@ -3951,7 +3952,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   /** Hydrate from a pre-loaded snapshot (used by Vault). */
   async hydrateFromSnapshot(records: Record<string, EncryptedEnvelope>): Promise<void> {
     for (const [id, envelope] of Object.entries(records)) {
-      if (isTombstone(envelope, this.storeCiphertext)) continue
+      if (isTombstone(envelope, this.storeCiphertext) || isDeleteMarker(envelope)) continue
       const record = await this.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
       if (record === null) continue
       this.cache.set(id, { record, version: envelope._v })
