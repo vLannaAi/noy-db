@@ -3418,7 +3418,10 @@ export class Vault {
   /**
    * Freeze a closed period (#604): purges in-window delete markers and
    * records a `_period_freezes` companion, never mutating the chained
-   * `_periods` record. Idempotent.
+   * `_periods` record. Idempotent. Purges the LOCAL adapter only — a
+   * synced target's markers survive there and re-import on pull (benign),
+   * and purging re-opens the #589 resurrection window for a peer offline
+   * since before the cutoff (see periods.ts's "Freeze" section).
    */
   async freezePeriod(name: string): Promise<PeriodRecord> {
     return this.periods.freezePeriod(name)

@@ -895,7 +895,11 @@ const KERNEL_SURFACE_BUDGET = {
   // delegator — thin call-site onto `VaultPeriods.freezePeriod`; the freeze logic
   // itself lives in with-audit/periods/vault-facade.ts. Genuinely core (new public
   // Vault method, same tier as closePeriod/openPeriod/getPeriod above it).
-  'packages/hub/src/kernel/vault.ts': 4007,
+  // Bumped 4007→4010 (2026-07-09, +3: #604 final-review Fix I3): restored the
+  // local-adapter-only-purge / #589 resurrection-window caveat onto the
+  // `freezePeriod` delegator's docstring (trimmed from the shipped version).
+  // No behavior change.
+  'packages/hub/src/kernel/vault.ts': 4010,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),

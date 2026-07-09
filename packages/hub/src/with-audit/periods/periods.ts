@@ -63,6 +63,13 @@
  * versions, or live records — the delete-markers-only seam leaves all
  * three untouched by construction.
  *
+ * Freeze purges the LOCAL adapter only. On a synced vault, markers already
+ * pushed to sync targets survive there, and a later pull re-imports them
+ * (benign — they still read deleted, but the space isn't reclaimed).
+ * Purging re-opens the #589 resurrection window for a peer offline since
+ * before the cutoff, which is why the closed period is the
+ * operator-asserted safe-point that gates the call.
+ *
  * ## Not covered
  *
  * - Partial re-opening of a closed period. If an auditor needs to
