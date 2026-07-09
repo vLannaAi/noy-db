@@ -17,7 +17,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { memory } from '../../to-memory/src/index.js'
 import { ValidationError, PeriodClosedError, createNoydb } from '../src/index.js'
-import { withPeriods } from '../src/with-audit/periods/index.js'
+import { withPeriods, periodExclusiveUpperBound } from '../src/with-audit/periods/index.js'
 import type { Noydb } from '../src/index.js'
 
 interface Invoice { amount: number; status: string; date: string }
@@ -267,6 +267,23 @@ describe('vault.closePeriod() + openPeriod() — v0.17 / ', () => {
           carryForward: async () => ({}),
         }),
       ).rejects.toBeInstanceOf(ValidationError)
+    })
+  })
+
+  describe('periodExclusiveUpperBound (#604)', () => {
+    it('bare-date endDate → next midnight (seals through end-of-day)', () => {
+      expect(periodExclusiveUpperBound('2026-03-31')).toBe('2026-04-01T00:00:00.000Z')
+    })
+    it('timestamp endDate → +1ms (seals through that instant)', () => {
+      expect(periodExclusiveUpperBound('2026-03-31T17:00:00.000Z')).toBe('2026-03-31T17:00:00.001Z')
+    })
+    it('a marker at end-of-endDate-day is inside the window; next-day-start is outside', () => {
+      const bound = periodExclusiveUpperBound('2026-03-31')
+      expect('2026-03-31T23:59:59.999Z' < bound).toBe(true)   // purged
+      expect('2026-04-01T00:00:00.000Z' < bound).toBe(false)  // kept
+    })
+    it('throws on an unparseable endDate', () => {
+      expect(() => periodExclusiveUpperBound('not-a-date')).toThrow()
     })
   })
 })
