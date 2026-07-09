@@ -230,6 +230,13 @@ export interface EncryptedEnvelope {
    * debug envelope self-describing, so a classic plaintext reader handles it too.
    */
   readonly _debug?: typeof NOYDB_FORMAT_VERSION
+  /**
+   * #589: this envelope is a delete marker (ordinary `collection.delete()` under
+   * sync). Empty `_data`, no `_cek`, but version-ordered — a higher-`_v` re-create
+   * resurrects the id. Distinct from a forget crypto-shred tombstone, which is
+   * terminal. Reads treat it as absent.
+   */
+  readonly _del?: true
 }
 
 /** Spine policy for one digest-only classified field — the enclave-consumable
