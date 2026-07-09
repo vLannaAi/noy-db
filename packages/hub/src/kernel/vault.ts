@@ -594,6 +594,7 @@ export class Vault {
       getDEK: (collection) => this.getDEK(collection),
       getLedgerOrNull: () => this.getLedgerOrNull(),
       collection: (name) => this.collection(name),
+      purgeDeleteMarkers: (before) => this._purgeDeleteMarkers(before),
     })
     this.linksEnforcer = new VaultLinks({
       refRegistry: this.refRegistry,

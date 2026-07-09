@@ -41,6 +41,8 @@ export interface VaultPeriodsDeps {
   getLedgerOrNull(): LedgerStore | null
   /** Collection accessor (used by `openPeriod`'s carry-forward writes). */
   collection<T = unknown>(name: string): Collection<T>
+  /** #604: physically purge delete markers with `_ts < before`. Bound to `vault._purgeDeleteMarkers`. */
+  purgeDeleteMarkers(before: string): Promise<number>
 }
 
 export class VaultPeriods {
