@@ -62,6 +62,36 @@ import { PeriodClosedError, ValidationError } from '../../kernel/errors.js'
 /** The reserved collection name holding closed-period metadata. */
 export const PERIODS_COLLECTION = '_periods'
 
+/** Sibling of {@link PERIODS_COLLECTION} holding freeze companions (#604). */
+export const PERIOD_FREEZES_COLLECTION = '_period_freezes'
+
+/**
+ * Companion record recording that a closed period was frozen (its delete
+ * markers physically purged). Stored in {@link PERIOD_FREEZES_COLLECTION},
+ * keyed by period name — kept OFF the hash-chained `_periods/<name>` record so
+ * freeze never alters the inter-period chain.
+ */
+export interface PeriodFreezeRecord {
+  readonly period: string
+  readonly frozenAt: string
+  readonly frozenBy: string
+  readonly purgedMarkerCount: number
+}
+
+/**
+ * Exclusive upper bound for a period's delete-marker purge window (#604).
+ * Markers carry no business date (empty body), only write-time `_ts`, so freeze
+ * purges markers with `_ts < bound`, `bound` being the instant just after the
+ * period's inclusive `endDate`: a date-only `endDate` seals through end-of-day
+ * → next midnight; a full-timestamp `endDate` seals through that instant → +1ms.
+ */
+export function periodExclusiveUpperBound(endDate: string): string {
+  const ms = Date.parse(endDate)
+  if (Number.isNaN(ms)) throw new ValidationError(`freezePeriod: unparseable period endDate "${endDate}".`)
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(endDate)
+  return new Date(ms + (dateOnly ? 86_400_000 : 1)).toISOString()
+}
+
 /**
  * Stored record for one closed or opened accounting period. One entry
  * per period, keyed by `name` in the reserved `_periods` collection.
@@ -116,6 +146,12 @@ export interface PeriodRecord {
    * cross-check the opening balances against the closing snapshot.
    */
   readonly openingCollections?: readonly string[]
+  /** #604 return-only — merged from the `_period_freezes/<name>` companion on
+   *  read; NEVER written into the stored `_periods/<name>` record (would break
+   *  the hash chain). Absent = not yet frozen. */
+  readonly frozenAt?: string
+  readonly frozenBy?: string
+  readonly purgedMarkerCount?: number
 }
 
 /** Options for `vault.closePeriod()`. */
