@@ -239,6 +239,13 @@ export function runStoreConformanceTests(
         expect(result?._iv).toBe('')
         expect(result?._data).toBe('')
       })
+
+      it('round-trips a delete-marker envelope (_del) byte-identically (#589)', async () => {
+        const marker = { _noydb: 1 as const, _v: 6, _ts: new Date().toISOString(), _iv: '', _data: '', _del: true as const }
+        await adapter.put('comp1', 'coll1', 'id1', marker)
+        const result = await adapter.get('comp1', 'coll1', 'id1')
+        expect(result).toEqual(marker)          // _del must survive — a store that drops it breaks #589 convergence
+      })
     })
 
     // ─── Internal Collection Filtering ─────────────────────────────
