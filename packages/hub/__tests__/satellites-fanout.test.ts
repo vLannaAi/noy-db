@@ -153,7 +153,9 @@ describe('joined fan-out', () => {
     await joinedPut(deps(), 'x', { from: 'a', body: 'B' })
     spy.reset()
     await vault.collection<Msg>('msgs').delete('x') // through the public base-proxy delete override
-    expect(spy.deleteOrder).toEqual([['msgs_text', 'x'], ['msgs', 'x']])
+    // #589: under sync, delete() writes a version-ordered marker via adapter.put
+    // (not adapter.delete), so the ordering now shows up on putOrder.
+    expect(spy.putOrder).toEqual([['msgs_text', 'x'], ['msgs', 'x']])
 
     await joinedPut(deps(), 'y', { from: 'b', body: 'C' })
     const priorEnvelope = await spy.raw.get('v1', 'msgs_text', 'y') // envelope to be restored
@@ -161,7 +163,9 @@ describe('joined fan-out', () => {
     // restored record — not a misrouted 'delete' (record: null).
     const subEvents: Array<{ type: string; id: string; record: Msg | null }> = []
     vault.collection<Msg>('msgs_text').subscribe(e => subEvents.push(e))
-    spy.failNextDeleteFor('msgs')
+    // #589: the base leg's delete-under-sync is itself a `put` (the marker), so
+    // the fault injection must target put, not delete, to exercise the revert.
+    spy.failNextPutFor('msgs')
     await expect(vault.collection<Msg>('msgs').delete('y')).rejects.toThrow()
     expect(await spy.raw.get('v1', 'msgs_text', 'y')).toEqual(priorEnvelope) // satellite ENVELOPE restored byte-for-byte
     expect(changes.last('msgs_text')).toMatchObject({ id: 'y', action: 'put' }) // restored → 'put'

@@ -19,7 +19,7 @@ import { ConflictError } from '../../kernel/errors.js'
 import type { NoydbEventEmitter } from '../../kernel/events.js'
 import type { SyncPolicy } from '../../kernel/sync-policy.js'
 import { SyncScheduler } from '../../kernel/sync-policy.js'
-import { isTombstoneShape } from '../../kernel/enclave/index.js'
+import { isTombstoneShape, isDeleteMarker } from '../../kernel/enclave/index.js'
 
 /** Sync engine: dirty tracking, push, pull, conflict resolution, scheduling. */
 export class SyncEngine {
@@ -239,6 +239,25 @@ export class SyncEngine {
                   await this.applyRemote(entry.collection, entry.id, remoteEnvelope)
                   erasures.push(this.reportErasure(entry.collection, entry.id, remoteEnvelope, envelope, 'push'))
                   completed.push(i)
+                } else if (
+                  remoteEnvelope._v === envelope._v &&
+                  isDeleteMarker(remoteEnvelope) !== isDeleteMarker(envelope) &&
+                  !this.conflictResolvers.get(entry.collection)
+                ) {
+                  // #589: a same-_v delete-vs-edit tie on the push channel. handleConflict's db-level
+                  // 'version' default would resolve it to local-wins; the tie rule consults ONLY the
+                  // per-collection resolver, else delete-wins. (When a per-collection resolver IS set,
+                  // fall through to handleConflict, which already honors it — incl. the merged case.)
+                  if (isDeleteMarker(remoteEnvelope)) {
+                    // remote already deleted → converge locally, drop our (edit) push
+                    await this.applyRemote(entry.collection, entry.id, remoteEnvelope)
+                    completed.push(i)
+                  } else {
+                    // our local is the marker → force the delete onto the remote (unconditional put)
+                    await this.remote.put(this.vault, entry.collection, entry.id, envelope)
+                    completed.push(i)
+                    pushed++
+                  }
                 } else {
                   const { handled, conflict } = await this.handleConflict(
                     entry.collection,
@@ -313,7 +332,12 @@ export class SyncEngine {
         for (const [id, remoteEnvelope] of Object.entries(records)) {
           // Partial sync: modifiedSince filter — arriving tombstones are exempt (#590):
           // an erasure must never be skipped by partial sync.
-          if (options?.modifiedSince && remoteEnvelope._ts <= options.modifiedSince && !isTombstoneShape(remoteEnvelope)) {
+          if (
+            options?.modifiedSince &&
+            remoteEnvelope._ts <= options.modifiedSince &&
+            !isTombstoneShape(remoteEnvelope) &&
+            !isDeleteMarker(remoteEnvelope)
+          ) {
             continue
           }
 
@@ -342,6 +366,36 @@ export class SyncEngine {
               this.dirty = this.dirty.filter(d => !(d.collection === collName && d.id === id))
               pulled++
               if (wasDirty) erasures.push(this.reportErasure(collName, id, remoteEnvelope, localEnvelope, 'pull'))
+            } else if (
+              remoteEnvelope._v === localEnvelope._v &&
+              isDeleteMarker(remoteEnvelope) !== isDeleteMarker(localEnvelope)
+            ) {
+              // #589: true concurrent delete-vs-edit at the SAME version. Version order
+              // can't break the tie. A per-collection resolver decides if one is set;
+              // otherwise DELETE wins (the db-level 'version' default is deliberately NOT
+              // consulted — it would resolve a tie to local-wins).
+              const resolver = this.conflictResolvers.get(collName)
+              if (resolver) {
+                const winner = await resolver(id, localEnvelope, remoteEnvelope)
+                if (winner !== localEnvelope && winner !== null) {
+                  // #589 (review): a novel/merged winner (neither side verbatim) must also be
+                  // pushed to remote — mirrors handleConflict's 'merged' handling — so both
+                  // sides converge instead of local applying it while remote keeps its old copy.
+                  if (winner !== remoteEnvelope) {
+                    await this.remote.put(this.vault, collName, id, winner)
+                  }
+                  await this.applyRemote(collName, id, winner)
+                  this.dirty = this.dirty.filter(d => !(d.collection === collName && d.id === id))
+                  pulled++
+                }
+                // winner === localEnvelope or null → keep local (its dirty entry, if any, pushes out)
+              } else if (isDeleteMarker(remoteEnvelope)) {
+                // no resolver → delete wins; the incoming marker is the delete
+                await this.applyRemote(collName, id, remoteEnvelope)
+                this.dirty = this.dirty.filter(d => !(d.collection === collName && d.id === id))
+                pulled++
+              }
+              // no resolver and LOCAL is the marker → keep local marker; its dirty 'put' pushes it outward
             } else if (remoteEnvelope._v > localEnvelope._v) {
               // Remote is newer — check if we have a dirty entry for this
               const isDirty = this.dirty.some(d => d.collection === collName && d.id === id)
@@ -456,6 +510,25 @@ export class SyncEngine {
                   await this.applyRemote(entry.collection, entry.id, remoteEnvelope)
                   erasures.push(this.reportErasure(entry.collection, entry.id, remoteEnvelope, envelope, 'push'))
                   completed.push(i)
+                } else if (
+                  remoteEnvelope._v === envelope._v &&
+                  isDeleteMarker(remoteEnvelope) !== isDeleteMarker(envelope) &&
+                  !this.conflictResolvers.get(entry.collection)
+                ) {
+                  // #589: a same-_v delete-vs-edit tie on the push channel. handleConflict's db-level
+                  // 'version' default would resolve it to local-wins; the tie rule consults ONLY the
+                  // per-collection resolver, else delete-wins. (When a per-collection resolver IS set,
+                  // fall through to handleConflict, which already honors it — incl. the merged case.)
+                  if (isDeleteMarker(remoteEnvelope)) {
+                    // remote already deleted → converge locally, drop our (edit) push
+                    await this.applyRemote(entry.collection, entry.id, remoteEnvelope)
+                    completed.push(i)
+                  } else {
+                    // our local is the marker → force the delete onto the remote (unconditional put)
+                    await this.remote.put(this.vault, entry.collection, entry.id, envelope)
+                    completed.push(i)
+                    pushed++
+                  }
                 } else {
                   const { handled, conflict } = await this.handleConflict(
                     entry.collection,

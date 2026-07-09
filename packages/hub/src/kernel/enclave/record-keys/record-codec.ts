@@ -18,7 +18,7 @@
  */
 import { encrypt, decrypt, encryptDeterministic, deriveDeterministicKey, wrapCek, unwrapCek, deriveSealedFieldKey, deriveSealedFieldKeyFromCek, type EnclaveKey } from '../crypto.js'
 import { NOYDB_FORMAT_VERSION, SealedHandle, type EncryptedEnvelope, type CrdtMode, type CrdtState, type CrdtStrategy, type VdigFieldPolicy } from '../../types.js'
-import { isTombstone } from './tombstone.js'
+import { isTombstone, isDeleteMarker } from './tombstone.js'
 import { parseSealedSlot, dualReadSealedSlot } from './sealed-slot.js'
 import { DebugReservedFieldError, ClassifiedConfigError, ValidationError } from '../../errors.js'
 import { mintVdigSlot } from '../classify/write.js'
@@ -448,7 +448,7 @@ export class RecordCodec<T> {
     // treats it as "absent / skip", matching how get()/list already drop
     // tombstones. Legacy plaintext collections (`!this.storeCiphertext`) legitimately
     // have empty `_iv`/`_data`, so `isTombstone` is false for them — preserved.
-    if (isTombstone(envelope, this.ctx.storeCiphertext)) return null
+    if (isTombstone(envelope, this.ctx.storeCiphertext) || isDeleteMarker(envelope)) return null
     if (!this.ctx.storeCiphertext) {
       // Debug-plaintext layout: record fields were inlined as top-level keys
       // (see buildDebugEnvelope). Reconstruct the record from the non-`_`

@@ -19,7 +19,9 @@ import type { I18nStrategy } from '../with-shape/i18n/strategy.js'
 import { resolvePolicy } from '../with-shape/i18n/policy.js'
 import {
   isTombstone,
+  isDeleteMarker,
   buildTombstone,
+  buildDeleteMarker,
   resolveStableCek,
   findByDet,
   queryByDet,
@@ -1474,7 +1476,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         if (!envelope) return null
         // Tombstone tolerance (decision 5): a shredded record carries no
         // body / CEK. Reads return null rather than throwing TamperedError.
-        if (isTombstone(envelope, this.storeCiphertext)) return null
+        if (isTombstone(envelope, this.storeCiphertext) || isDeleteMarker(envelope)) return null
         record = await this.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
         if (record === null) return null
         this.lru.set(id, { record, version: envelope._v }, estimateRecordBytes(record))
@@ -2057,15 +2059,19 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // in-memory map (no I/O); in lazy mode we have to ask the adapter
     // because the record may have been evicted (or never loaded).
     let existing: { record: T; version: number } | undefined
+    // Raw envelope read already performed while resolving `existing` (lazy
+    // path below) — reused by the #589 continuity check so the re-create
+    // path never pays a second `adapter.get`.
+    let priorRaw: EncryptedEnvelope | null = null
     if (this.lazy && this.lru) {
       existing = this.lru.get(id)
       if (!existing) {
-        const previousEnvelope = await this.adapter.get(this.vault, this.name, id)
-        if (previousEnvelope) {
-          const previousRecord = await this.codec.decryptRecord(previousEnvelope)
+        priorRaw = await this.adapter.get(this.vault, this.name, id)
+        if (priorRaw) {
+          const previousRecord = await this.codec.decryptRecord(priorRaw)
           // Tombstone (shredded) prior → treat as no previous version.
           if (previousRecord !== null) {
-            existing = { record: previousRecord, version: previousEnvelope._v }
+            existing = { record: previousRecord, version: priorRaw._v }
           }
         }
       }
@@ -2076,7 +2082,18 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       existing = await this.resolvePriorValues(id)
     }
 
-    const version = existing ? existing.version + 1 : 1
+    let version = existing ? existing.version + 1 : 1
+    // #589: a put re-creating a deleted id must continue past the delete
+    // marker's version so it wins convergence — resetting to 1 would lose to
+    // the marker's higher `_v` on sync. Markers exist only under sync, so this
+    // is gated on `onDirty`; the lazy branch above may have already read the
+    // raw envelope, so this reuses it instead of reading twice. Forget
+    // tombstones (`isTombstone`, no `_del`) are terminal and are NOT
+    // continued — they still reset to 1.
+    if (!existing && this.onDirty) {
+      if (priorRaw === null) priorRaw = await this.adapter.get(this.vault, this.name, id)
+      if (priorRaw && isDeleteMarker(priorRaw)) version = priorRaw._v + 1
+    }
 
     // Unique-constraint pre-flight — BEFORE history-save so a violation
     // never writes a history snapshot or fires 'history:save'. Runs after
@@ -2298,7 +2315,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         // (a later public `get()` would then return it, defeating the gate).
         const cached = this.lru.get(id)
         const env = await this.adapter.get(this.vault, this.name, id)
-        if (!env || isTombstone(env, this.storeCiphertext)) return null
+        if (!env || isTombstone(env, this.storeCiphertext) || isDeleteMarker(env)) return null
         raw = await this.codec.decryptRecord(env, { id })
         if (raw === null) return null
         if (!cached) {
@@ -2309,7 +2326,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         if (cached) raw = cached.record
         else {
           const env = await this.adapter.get(this.vault, this.name, id)
-          if (!env || isTombstone(env, this.storeCiphertext)) return null
+          if (!env || isTombstone(env, this.storeCiphertext) || isDeleteMarker(env)) return null
           raw = await this.codec.decryptRecord(env, { id })
           if (raw === null) return null
           this.lru.set(id, { record: raw, version: env._v }, estimateRecordBytes(raw))
@@ -2681,7 +2698,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     let count = 0
     for (const id of ids) {
       const env = await this.adapter.get(this.vault, this.name, id)
-      if (!env || isTombstone(env, this.storeCiphertext)) continue
+      if (!env || isTombstone(env, this.storeCiphertext) || isDeleteMarker(env)) continue
       const decoded = await this.codec.decryptRecord(env, { skipValidation: true, id })
       if (decoded === null) continue // defensive: shredded between list and get
       const record = decoded as unknown as Record<string, unknown>
@@ -2846,7 +2863,24 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     const previousEnvelope = await this.adapter.get(this.vault, this.name, id)
     const previousPayloadHash = await this.historyStrategy.envelopePayloadHash(previousEnvelope)
 
-    await this.adapter.delete(this.vault, this.name, id)
+    // #589 (review): the version the marker is minted at (live._v + 1) — captured
+    // here so `onDirty` below reports the SAME version, not `existing?.version`
+    // (which can be stale/absent in lazy mode with the record uncached and history
+    // disabled, desyncing the dirty entry's version from the marker and breaking
+    // push's CAS). `live` reuses `previousEnvelope` above — same read, nothing
+    // between them writes to the adapter, so no need for a second `adapter.get`.
+    let markerVersion: number | undefined
+    if (this.onDirty) {
+      // #589: under sync, delete leaves a version-ordered marker so the deletion
+      // converges on pull (a bare adapter.delete is invisible to other pullers).
+      // No-op if there is no live record to delete (already marked / shredded).
+      const live = previousEnvelope
+      if (!live || isTombstone(live, this.storeCiphertext) || isDeleteMarker(live)) return
+      markerVersion = live._v + 1
+      await this.adapter.put(this.vault, this.name, id, buildDeleteMarker(markerVersion, this.keyring.userId))
+    } else {
+      await this.adapter.delete(this.vault, this.name, id)
+    }
 
     // Ledger append — same after-write timing as put(). The recorded
     // version is the version that WAS deleted (existing?.version), not
@@ -2882,7 +2916,14 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       }
     }
 
-    await this.onDirty?.(this.name, id, 'delete', existing?.version ?? 0)
+    // #589: under sync the marker rides the push channel as an ordinary CAS put at
+    // its own version (live._v + 1); the dirty version must match the marker so
+    // push's expectedVersion = marker._v - 1 = live._v matches the remote's live copy.
+    // #589 (review): use `markerVersion` (the version the marker was actually minted
+    // at above), not `existing?.version` — the fallback below is unreachable in
+    // practice (onDirty undefined ⇒ markerVersion undefined ⇒ the `?.` short-circuits
+    // before this argument matters) but keeps the expression well-typed.
+    await this.onDirty?.(this.name, id, 'put', markerVersion ?? (existing?.version ?? 0) + 1)
 
     this.emitter.emit('change', {
       vault: this.vault,
@@ -2956,7 +2997,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
   async _writeTombstone(id: string, actor: string): Promise<{ previousVersion: number } | null> {
     const live = await this.adapter.get(this.vault, this.name, id)
-    if (!live || isTombstone(live, this.storeCiphertext)) return null
+    if (!live || isTombstone(live, this.storeCiphertext) || isDeleteMarker(live)) return null
 
     await this.adapter.put(this.vault, this.name, id, buildTombstone(live._v, actor))
 
@@ -3937,7 +3978,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     const ids = await this.adapter.list(this.vault, this.name)
     for (const id of ids) {
       const envelope = await this.adapter.get(this.vault, this.name, id)
-      if (envelope && !isTombstone(envelope, this.storeCiphertext)) {
+      if (envelope && !isTombstone(envelope, this.storeCiphertext) && !isDeleteMarker(envelope)) {
         const record = await this.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
         if (record === null) continue
         this.cache.set(id, { record, version: envelope._v })
@@ -3951,7 +3992,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   /** Hydrate from a pre-loaded snapshot (used by Vault). */
   async hydrateFromSnapshot(records: Record<string, EncryptedEnvelope>): Promise<void> {
     for (const [id, envelope] of Object.entries(records)) {
-      if (isTombstone(envelope, this.storeCiphertext)) continue
+      if (isTombstone(envelope, this.storeCiphertext) || isDeleteMarker(envelope)) continue
       const record = await this.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
       if (record === null) continue
       this.cache.set(id, { record, version: envelope._v })

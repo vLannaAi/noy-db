@@ -694,7 +694,19 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 4662→4664 (2026-07-09, +2: #590 forget→sync-dirty-log hook): _writeTombstone
   // enters the sync dirty log via the existing onDirty seam so the shred propagates on
   // push; one comment + one call, the sync engine itself stays in with-party/team/sync.ts.
-  'packages/hub/src/kernel/collection.ts': 4664,
+  // Bumped 4664→4678 (2026-07-09, +14: #589 _doDelete writes a delete marker under
+  // sync via buildDeleteMarker; converges deletes on pull. Marker helpers live in enclave.
+  // Bumped 4678→4693 (2026-07-09, +15: #589 re-create version continuity): a put
+  // re-creating a deleted id continues from the marker's `_v + 1` instead of resetting
+  // to 1, gated on `!existing && onDirty` and reusing the lazy branch's raw read so
+  // there is exactly one `adapter.get` on the re-create path.
+  // Bumped 4693→4705 (2026-07-09, +12: #589 final-review Fix 2): `_doDelete` now
+  // captures the marker's minted version (`markerVersion = live._v + 1`) and reports
+  // that same version to `onDirty`, instead of the separately-derived `existing?.version`
+  // which could disagree with it (lazy mode, uncached record, history disabled) and
+  // desync the dirty entry's version from the marker actually written. Also dedupes
+  // the `previousEnvelope`/`live` reads into one `adapter.get`.
+  'packages/hub/src/kernel/collection.ts': 4705,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
@@ -869,7 +881,17 @@ const KERNEL_SURFACE_BUDGET = {
   // `_invalidateCekCacheEntry`/`_invalidateCacheEntry` pair so sync-applied
   // envelopes (pull applies, conflict winners, tombstone enforcement) evict
   // stale decrypted views. Thin call-site; the sync engine lives in with-party/team/.
-  'packages/hub/src/kernel/vault.ts': 3964,
+  // Bumped 3964→3990 (2026-07-09): #589 _purgeDeleteMarkers seam — the @internal
+  // `_purgeDeleteMarkers(before, collections?)` operator hook #604's period-close
+  // will build on: one `adapter.loadAll` read, iterate envelopes, physically
+  // `adapter.delete` any `_del` marker with `_ts` older than the cutoff. Genuinely
+  // core (touches the adapter contract directly); the load-bearing safety-invariant
+  // doc comment accounts for most of the delta.
+  // Bumped 3990→3997 (2026-07-09, +7: #589 final-review Fix 4): two doc-comment
+  // sentences on `_purgeDeleteMarkers` — ledger/event emission deferred to #604, and
+  // local-adapter-only purge scope (operator must purge every sync target too). No
+  // behavior change.
+  'packages/hub/src/kernel/vault.ts': 3997,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),

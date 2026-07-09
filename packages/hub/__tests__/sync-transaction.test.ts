@@ -4,6 +4,7 @@ import { ConflictError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { withSync } from '../src/with-party/sync/index.js'
 import { SyncTransaction } from '../src/with-party/team/sync-transaction.js'
+import { isDeleteMarker } from '../src/kernel/enclave/record-keys/tombstone.js'
 
 // ─── Inline memory adapter ─────────────────────────────────────────────────
 
@@ -102,7 +103,11 @@ describe('SyncTransaction (v0.9)', () => {
     const result = await tx.commit()
 
     expect(result.status).toBe('committed')
-    expect(await remote.get(COMP, 'invoices', 'inv-del')).toBeNull()
+    // #589: under sync, delete() leaves a version-bumped `_del` marker (not a
+    // physical removal) so the deletion converges to other pullers.
+    const remoteEnv = await remote.get(COMP, 'invoices', 'inv-del')
+    expect(remoteEnv).not.toBeNull()
+    expect(isDeleteMarker(remoteEnv!)).toBe(true)
   })
 
   it('is chainable: put().put().delete()', async () => {
