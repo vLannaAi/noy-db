@@ -3415,6 +3415,15 @@ export class Vault {
     return this.periods.getPeriod(name)
   }
 
+  /**
+   * Freeze a closed period (#604): purges in-window delete markers and
+   * records a `_period_freezes` companion, never mutating the chained
+   * `_periods` record. Idempotent.
+   */
+  async freezePeriod(name: string): Promise<PeriodRecord> {
+    return this.periods.freezePeriod(name)
+  }
+
   /** @internal — called by the gate bus before put/delete. */
   async _assertTsWritable(
     existing: { ts: string | null; record: Record<string, unknown> | null } | null,

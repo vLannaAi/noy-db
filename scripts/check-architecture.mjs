@@ -891,7 +891,11 @@ const KERNEL_SURFACE_BUDGET = {
   // sentences on `_purgeDeleteMarkers` — ledger/event emission deferred to #604, and
   // local-adapter-only purge scope (operator must purge every sync target too). No
   // behavior change.
-  'packages/hub/src/kernel/vault.ts': 3997,
+  // Bumped 3997→4007 (2026-07-09, +10: #604 Task 3): `vault.freezePeriod(name)`
+  // delegator — thin call-site onto `VaultPeriods.freezePeriod`; the freeze logic
+  // itself lives in with-audit/periods/vault-facade.ts. Genuinely core (new public
+  // Vault method, same tier as closePeriod/openPeriod/getPeriod above it).
+  'packages/hub/src/kernel/vault.ts': 4007,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
@@ -1616,7 +1620,14 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   ['packages/hub/src/with-audit/attestation/signer.ts', 2],
   ['packages/hub/src/with-audit/consent/consent.ts', 5],
   ['packages/hub/src/with-audit/forget/subject-index.ts', 7],
-  ['packages/hub/src/with-audit/periods/vault-facade.ts', 5],
+  // #604 Task 3: `readReserved()` — generic reserved-collection reader added
+  // alongside `writeReserved()` (DRY'd from the old `writePeriodRecord`) to
+  // also serve the `_period_freezes` companion. Its plaintext fallback
+  // (`env._data`) mirrors the identical established ternary idiom already
+  // used in with-shape/links/link-set.ts and with-commit/{numbering,sequence}/index.ts
+  // (`this.encrypted ? await openEnvelopeJson(...) : env._data`) — reviewed,
+  // not a new pattern.
+  ['packages/hub/src/with-audit/periods/vault-facade.ts', 6],
   ['packages/hub/src/with-audit/portability/request-withdrawal.ts', 4],
   ['packages/hub/src/with-audit/portability/withdraw-accessible.ts', 2],
   ['packages/hub/src/with-audit/sealed-record/index.ts', 4],

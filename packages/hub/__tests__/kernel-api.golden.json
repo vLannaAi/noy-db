@@ -109,6 +109,7 @@
     "exportStream",
     "forget",
     "frame",
+    "freezePeriod",
     "getBundleHandle",
     "getDocumentSigningPublicKey",
     "getLedgerOrNull",
