@@ -79,6 +79,37 @@
  * `freezePeriod` throws rather than purge markers for deletes that may not
  * have converged yet (#610).
  *
+ * ## Archive
+ *
+ * ```
+ * vault.archivePeriod('FY2026-Q1')
+ *   └─► relocates the closed period's in-window records (those with
+ *       `_ts < periodExclusiveUpperBound(endDate)`) from the hot store to
+ *       the configured cold tier (routeStore's `cold` route), then records:
+ *         ├─ PeriodArchiveRecord written to _period_archives/<name>
+ *         └─ a ledger entry attributed to _period_archives
+ * ```
+ *
+ * Archival is NON-DESTRUCTIVE: routeStore reads fall through to the cold
+ * tier on a hot miss, so an archived record still reads normally. It is
+ * therefore gated only on `closed` (not `frozen`) — it does not re-open the
+ * #589 resurrection window and needs no convergence safe-point. Freeze
+ * (purge markers) and archive (relocate records) are independent and compose
+ * in either order. Like freeze, archival keeps the chained `_periods/<name>`
+ * record byte-immutable (state lives in the companion) and is idempotent.
+ *
+ * Bounds by write-time `_ts`, NOT business date: the store tier sees only
+ * encrypted envelopes. A record with an in-period business date but a later
+ * `_ts` (late-booked) archives at the NEXT period's archive — the same rule
+ * freeze uses for late-booked delete markers. Requires a `routeStore` with a
+ * cold route (`age: { cold }`); throws otherwise.
+ *
+ * Read cost: with `withLazy()` (per-id reads) archived records are truly
+ * cold — fetched from cold only on access. In the default hydrated mode,
+ * `loadAll` merges the cold store, so archived records still load into RAM
+ * on vault open (hot-tier STORAGE is reclaimed; RAM is not). Summaries
+ * (`_`-prefixed) always stay hot.
+ *
  * ## Not covered
  *
  * - Partial re-opening of a closed period. If an auditor needs to
