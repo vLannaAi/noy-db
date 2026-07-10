@@ -49,6 +49,10 @@ Anything outside this floor is a service.
 
 ---
 
+## Field features (the Via port)
+
+Separate from services, the **Via port** is a unified field-feature declaration surface where capabilities are declared per-field, not per-vault. Every field can be indexed, a reference, computed, carry money with exact arithmetic, be translated across locales, sealed at rest, externalized as a blob, etc. Each feature is optional and tree-shaken; features compose in one ordered stack and run through a phased kernel pipeline. See [`docs/subsystems/via.md`](docs/subsystems/via.md) for the full story and [`docs/subsystems/via-money.md`](docs/subsystems/via-money.md) / [`docs/subsystems/via-i18n.md`](docs/subsystems/via-i18n.md) for individual features. Phase A ships `via-money` and `via-i18n` (with backward compatibility); phases B–E add security, derivation, lookup, and extensibility.
+
 ## The service catalog
 
 Each service has its own subpath export under `@noy-db/hub/<name>`, a `with<Name>()` factory, and a doc page at [`noy-db-docs/content/docs/services/<name>.md`](https://github.com/vLannaAi/noy-db-docs/tree/main/content/docs/services). The "LOC saved" column is the bundle weight a consumer avoids by **not** opting in.
