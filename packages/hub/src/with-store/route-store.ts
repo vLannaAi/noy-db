@@ -20,6 +20,7 @@ import type {
   NoydbStore,
   EncryptedEnvelope,
   VaultSnapshot,
+  StoreCapabilities,
 } from '../kernel/types.js'
 
 // ─── Internal collection prefixes (duplicated to avoid circular import) ──
@@ -495,8 +496,15 @@ export function routeStore(opts: RouteStoreOptions): RoutedNoydbStore {
 
   // ── Store methods ──────────────────────────────────────────────────
 
+  // #613: advertise cold-archival when a cold route exists. Spread the
+  // primary's capabilities so CAS/auth/etc. still surface; layer the flag.
   const store: RoutedNoydbStore = {
     name: buildName(),
+    ...(opts.age?.cold
+      ? { capabilities: { ...primary.capabilities, coldArchival: true } as StoreCapabilities }
+      : primary.capabilities
+        ? { capabilities: primary.capabilities }
+        : {}),
 
     async get(vault, collection, id) {
       const s = storeFor(vault, collection)

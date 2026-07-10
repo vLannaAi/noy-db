@@ -610,6 +610,17 @@ describe('routeStore', () => {
       expect(fromOverflow).toBeNull()
     })
   })
+
+  describe('coldArchival capability (#613)', () => {
+    it('advertises coldArchival when an age.cold route is configured', () => {
+      const s = routeStore({ default: makeStore('default'), age: { cold: makeStore('cold'), coldAfterDays: 30 } })
+      expect(s.capabilities?.coldArchival).toBe(true)
+    })
+    it('does NOT advertise coldArchival without a cold route', () => {
+      const s = routeStore({ default: makeStore('default') })
+      expect(s.capabilities?.coldArchival).not.toBe(true)
+    })
+  })
 })
 
 // ─── createNoydb integration ─────────────────────────────────────────
