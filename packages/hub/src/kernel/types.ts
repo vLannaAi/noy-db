@@ -2103,6 +2103,12 @@ export interface StoreCapabilities {
    * `5 * 1024 * 1024` — localStorage quota safety.
    */
   maxBlobBytes?: number
+  /**
+   * true — the store is a tiered router (`routeStore`) with a cold route,
+   * so `compact(vault, { before })` can relocate records hot → cold and
+   * reads fall through to cold. `vault.archivePeriod()` requires this.
+   */
+  coldArchival?: boolean
 }
 
 // ─── Factory Options ───────────────────────────────────────────────────

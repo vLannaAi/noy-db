@@ -595,6 +595,7 @@ export class Vault {
       getLedgerOrNull: () => this.getLedgerOrNull(),
       collection: (name) => this.collection(name),
       purgeDeleteMarkers: (before) => this._purgeDeleteMarkers(before),
+      archiveRecords: (before) => this._archiveClosedPeriod(before),
     })
     this.linksEnforcer = new VaultLinks({
       refRegistry: this.refRegistry,
@@ -1353,6 +1354,26 @@ export class Vault {
       }
     }
     return removed
+  }
+
+  /**
+   * @internal #613. Relocate this closed period's in-window records (those
+   * with `_ts < before`) from the hot store to the configured cold tier,
+   * via the routeStore's `compact({ before })`. Returns the count moved.
+   * Requires a `routeStore` with a cold route (the `coldArchival`
+   * capability); throws a clear error otherwise. Non-destructive — reads
+   * fall through to cold, so this does NOT re-open the #589 window.
+   */
+  async _archiveClosedPeriod(before: string): Promise<number> {
+    // Inline type-only import() (no `from` clause) is the sanctioned S4 gate
+    // escape hatch for the kernel spine to reference a with-* service type
+    // without a static import that the port-layering architecture check would flag.
+    // eslint-disable-next-line @typescript-eslint/consistent-type-imports
+    const store = this.adapter as Partial<import('../with-store/route-store.js').RoutedNoydbStore>
+    if (store.capabilities?.coldArchival !== true || typeof store.compact !== 'function') {
+      throw new ValidationError('archivePeriod: cold archival requires a routeStore with a cold route.')
+    }
+    return store.compact(this.name, { before })
   }
 
   /**
@@ -3425,6 +3446,17 @@ export class Vault {
    */
   async freezePeriod(name: string): Promise<PeriodRecord> {
     return this.periods.freezePeriod(name)
+  }
+
+  /**
+   * Archive a closed period (#613): relocates its in-window records from the
+   * hot store to the configured cold tier (via the routeStore's cold route),
+   * recording a `_period_archives` companion + ledger entry, never mutating
+   * the chained `_periods` record. Non-destructive (reads fall through to
+   * cold) and idempotent. Requires a routeStore with a cold route.
+   */
+  async archivePeriod(name: string): Promise<PeriodRecord> {
+    return this.periods.archivePeriod(name)
   }
 
   /** @internal — called by the gate bus before put/delete. */

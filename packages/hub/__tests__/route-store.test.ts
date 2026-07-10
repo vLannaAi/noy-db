@@ -610,6 +610,64 @@ describe('routeStore', () => {
       expect(fromOverflow).toBeNull()
     })
   })
+
+  describe('coldArchival capability (#613)', () => {
+    it('advertises coldArchival when an age.cold route is configured', () => {
+      const s = routeStore({ default: makeStore('default'), age: { cold: makeStore('cold'), coldAfterDays: 30 } })
+      expect(s.capabilities?.coldArchival).toBe(true)
+    })
+    it('does NOT advertise coldArchival without a cold route', () => {
+      const s = routeStore({ default: makeStore('default') })
+      expect(s.capabilities?.coldArchival).not.toBe(true)
+    })
+    it('a router without its own cold route does NOT inherit coldArchival from a nested cold-capable primary (#613 whole-branch I1)', () => {
+      const inner = routeStore({ default: makeStore('default'), age: { cold: makeStore('cold') } })
+      const outer = routeStore({ default: inner })   // outer has no cold route of its own
+      expect(inner.capabilities?.coldArchival).toBe(true)
+      expect(outer.capabilities?.coldArchival).not.toBe(true)   // must NOT leak
+    })
+  })
+
+  describe('compact({ before }) — explicit cutoff (#613)', () => {
+    const env = (ts: string): EncryptedEnvelope => ({
+      _noydb: 1, _v: 1, _ts: ts, _iv: '', _data: 'x',
+    })
+
+    it('migrates only records with _ts < before, leaving newer ones hot', async () => {
+      const hot = makeStore('hot'), cold = makeStore('cold')
+      const s = routeStore({ default: hot, age: { cold, collections: ['txns'] } })   // no coldAfterDays
+      await hot.put('V', 'txns', 'old', env('2026-01-01T00:00:00.000Z'))
+      await hot.put('V', 'txns', 'new', env('2026-09-01T00:00:00.000Z'))
+
+      const migrated = await s.compact('V', { before: '2026-04-01T00:00:00.000Z' })
+
+      expect(migrated).toBe(1)
+      expect(await hot.get('V', 'txns', 'old')).toBeNull()          // moved out of hot
+      expect(await cold.get('V', 'txns', 'old')).not.toBeNull()     // now in cold
+      expect(await hot.get('V', 'txns', 'new')).not.toBeNull()      // untouched
+      expect(await s.get('V', 'txns', 'old')).not.toBeNull()        // read-through still finds it
+    })
+
+    it('never migrates _-prefixed reserved collections', async () => {
+      const hot = makeStore('hot'), cold = makeStore('cold')
+      const s = routeStore({ default: hot, age: { cold, collections: ['_periods'] } })
+      await hot.put('V', '_periods', 'FY26', env('2020-01-01T00:00:00.000Z'))
+
+      const migrated = await s.compact('V', { before: '2026-01-01T00:00:00.000Z' })
+
+      expect(migrated).toBe(0)
+      expect(await hot.get('V', '_periods', 'FY26')).not.toBeNull()  // summary stays hot
+    })
+
+    it('rolling compact() migrates nothing when coldAfterDays is omitted', async () => {
+      const hot = makeStore('hot'), cold = makeStore('cold')
+      const s = routeStore({ default: hot, age: { cold, collections: ['txns'] } })
+      await hot.put('V', 'txns', 'old', env('2000-01-01T00:00:00.000Z'))
+
+      expect(await s.compact('V')).toBe(0)                           // no rolling cutoff configured
+      expect(await hot.get('V', 'txns', 'old')).not.toBeNull()
+    })
+  })
 })
 
 // ─── createNoydb integration ─────────────────────────────────────────
