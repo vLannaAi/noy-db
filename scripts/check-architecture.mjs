@@ -708,7 +708,16 @@ const KERNEL_SURFACE_BUDGET = {
   // which could disagree with it (lazy mode, uncached record, history disabled) and
   // desync the dirty entry's version from the marker actually written. Also dedupes
   // the `previousEnvelope`/`live` reads into one `adapter.get`.
-  'packages/hub/src/kernel/collection.ts': 4705,
+  // Lowered 4705→4473 (2026-07-11, Task 11 re-ratchet, #623 via-port arc):
+  // net −232 from the 4705 peak. The arc moved money/i18n's write/read
+  // cutover onto the ViaPipeline (7c885b87, 5e44df6b, 598e8ac6), relocated
+  // with-shape/money → shape/via-money and with-shape/i18n → shape/via-i18n
+  // (9361663c, 43765b56), and extracted generic path utils to kernel/paths
+  // (57851399) — so the inline quantize/decode/locale logic this file used
+  // to carry left the kernel spine for the shape/via-* feature layer. Locked
+  // in to the ACTUAL measured line count (readFileSync(...).split('\n').length)
+  // — no slack.
+  'packages/hub/src/kernel/collection.ts': 4473,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
@@ -912,7 +921,12 @@ const KERNEL_SURFACE_BUDGET = {
   // delegation guard + 9 docstring lines across the two validator delegators explaining it (+11). The two methods' bodies
   // are otherwise unchanged — the inline i18n write/present duplication this task
   // removes lived in collection.ts, not here.
-  'packages/hub/src/kernel/vault.ts': 4095,
+  // Lowered 4095→4094 (2026-07-11, Task 11 re-ratchet, #623 via-port arc):
+  // cc9d5830's origin-tagged mutation choke point (kernel/mutation.ts's
+  // MutationOrigin + Collection._onRecordMutated dispatch socket for phase
+  // C) trimmed vault.ts by one net line as part of the same commit. Locked
+  // in to the ACTUAL measured line count — no slack.
+  'packages/hub/src/kernel/vault.ts': 4094,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
@@ -1804,6 +1818,77 @@ function checkEnclaveClassifyIndexOnly() {
   })
 }
 
+// ─── Check 14: via-layering (#623 — kernel-spine ↔ src/shape/via-* boundary) ──
+//
+// The Via port converged money/i18n features out of collection.ts/vault.ts
+// into src/shape/via-money/ and src/shape/via-i18n/ — a sibling family to
+// with-*, not a with-* service itself, so Check 9 (port-layering) never
+// restricted it: its fail predicate only matches `with-*` and `port/`
+// targets (see that check's own doc comment). This check closes that gap
+// for the kernel-spine → shape/ direction, mirroring Check 9's mechanics
+// exactly (same spine walk, same per-specifier grandfather semantics):
+//
+//   no file under packages/hub/src/kernel/** may statically import from
+//   src/shape/**, EXCEPT the frozen baseline in VIA_SHAPE_ALLOWLIST below.
+//   Grandfathered PER IMPORT SPECIFIER, not per file — a listed file
+//   adding a NEW shape/ import outside its frozen list still fails.
+//
+// The reverse direction — no file under src/shape/via-* may import
+// kernel/enclave/ (crypto should reach features only via ctx, not a direct
+// enclave-barrel import) — is deliberately NOT enforced here. Verifying it
+// during Task 11 found a real, pre-existing violation
+// (shape/via-i18n/dictionary.ts imports kernel/enclave/index.js — legal
+// under Check 10's barrel-only rule, but not under this stricter one).
+// Per the Task-11 brief, that's a STOP-and-report condition, not a call to
+// make unilaterally (route dictionary.ts through ctx, vs. an explicit
+// reviewed grandfather). See .superpowers/sdd/task-11-report.md for the
+// full fire-proof and the finding; the mechanism is proven but not shipped.
+
+const VIA_SHAPE_ALLOWLIST = new Map([
+  // #626: the one join-layer i18n exception (comment lives at the import
+  // site in join.ts) — join-layer i18n is sync + i18n-text-only; converging
+  // it onto the Via seam is #626's job.
+  ['packages/hub/src/kernel/query/join.ts', ['../../shape/via-i18n/core.js']],
+  // Discovered while implementing this check (Task 11) — via-compose.ts
+  // landed in #623 Task 9, after the Task-8 review that identified join.ts
+  // as "the ONE sanctioned kernel→shape import". Pure type/predicate
+  // imports (I18nTextDescriptor/DictKeyDescriptor/StaticDictDescriptor +
+  // the isX predicates, no crypto) — mergeViaFields needs them to classify
+  // a via() descriptor by shape. Same #626 convergence applies; flagged in
+  // task-11-report.md rather than silently narrowed to match the brief's
+  // single-entry assumption.
+  ['packages/hub/src/kernel/via-compose.ts', [
+    '../shape/via-i18n/core.js',
+    '../shape/via-i18n/dictionary.js',
+  ]],
+])
+
+function checkViaLayering() {
+  const hubSrc = join(PACKAGES_DIR, 'hub', 'src')
+  const kernelDir = join(hubSrc, 'kernel')
+
+  const spineFiles = []
+  walkTsFiles(kernelDir, (file) => spineFiles.push(file))
+  for (const file of spineFiles) {
+    const rel = relative(ROOT, file)
+    const allowedImports = VIA_SHAPE_ALLOWLIST.get(rel)
+    const code = stripComments(readFileSync(file, 'utf8'))
+    for (const m of code.matchAll(STATIC_IMPORT_FROM_RE)) {
+      const spec = m[1]
+      if (!spec.startsWith('.')) continue // only relative imports resolve inside hub/src
+      if (allowedImports?.includes(spec)) continue // frozen baseline import — grandfathered
+      const target = importTargetRelToHubSrc(file, spec, hubSrc)
+      if (/^shape\//.test(target)) {
+        fail(
+          'via-layering',
+          `${rel} statically imports feature-layer path "${spec}" — the kernel spine may not reach into src/shape/** (the Via port's feature layer) except the frozen #626 baseline in VIA_SHAPE_ALLOWLIST. Route through the Via port (kernel/via.ts) instead.`,
+          file,
+        )
+      }
+    }
+  }
+}
+
 // ─── Run ───────────────────────────────────────────────────────────────
 
 const startTime = Date.now()
@@ -1822,6 +1907,7 @@ checkEnclaveBarrelOnly()
 checkEnclaveBodyOnly()
 checkEnclaveClassifyOnly()
 checkEnclaveClassifyIndexOnly()
+checkViaLayering()
 
 const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
 

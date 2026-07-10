@@ -458,8 +458,11 @@ function pickNearestScript(value: Record<string, string>, target: string): strin
 
 // `getAtPath`/`setAtPathInPlace` are generic dotted-path/[]-wildcard record
 // helpers, not i18n logic — moved to `kernel/paths.ts` (Task 7, #623).
-// Re-exported here for compat with existing importers of this module.
-export { getAtPath, setAtPathInPlace } from '../../kernel/paths.js'
+// `getAtPath` re-exported here for compat with existing importers of this
+// module (embeddings/descriptor.ts, search/build-docs.ts); `setAtPathInPlace`
+// is not re-exported — its only consumer (via-i18n/binding.ts) imports it
+// directly from kernel/paths.ts.
+export { getAtPath } from '../../kernel/paths.js'
 
 /** Recursively resolve i18nText at a single path within a record copy. */
 function applyAtPath(

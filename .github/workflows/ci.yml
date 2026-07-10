@@ -109,6 +109,13 @@ jobs:
           restore-keys: ${{ runner.os }}-turbo-
       - name: Build
         run: pnpm turbo build
+      # The bundle-size + cross-leak gate (packages/hub/scripts/check-bundle.mjs)
+      # resolves `@noy-db/hub` through the built dist, so it belongs here
+      # rather than on the build-free architecture job — this was never
+      # CI-wired before (turbo's bundle-check task exists but nothing
+      # invoked it).
+      - name: Bundle check (hub)
+        run: pnpm --filter @noy-db/hub bundle-check
 
   # ── Test (dev CI) ────────────────────────────────────────────────────
   # Single flake-free runtime (node 24) for fast PR feedback. The full
