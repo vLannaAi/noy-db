@@ -904,7 +904,8 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 4042→4082 (2026-07-10, #615 target-purge): `_purgeMarkersOn` extraction
   // (from `_purgeDeleteMarkers`), the `_purgePeriodTargets` seam, `getPurgeableTargets`
   // option/field/default, and the `purgePeriodTargets` delegator (mirrors archivePeriod).
-  'packages/hub/src/kernel/vault.ts': 4082,
+  // Bumped 4082→4084 (2026-07-10, #615 review M1): refreshed the _purgeDeleteMarkers doc comment (pure doc growth, no behavior change).
+  'packages/hub/src/kernel/vault.ts': 4084,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),

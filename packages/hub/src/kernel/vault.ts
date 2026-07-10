@@ -1339,12 +1339,14 @@ export class Vault {
    * ONLY; #604's period-close lifecycle is what earns that assertion. Do not call
    * it on live/unsettled data.
    *
-   * Emits no ledger/event yet — #604's period-close, the only intended caller, owns
-   * the audit record.
+   * Emits no ledger/event itself — its callers (#604's `freezePeriod`, #615's
+   * `purgePeriodTargets`) own the audit record. The sweep body is shared via
+   * {@link _purgeMarkersOn}, which #615 also aims at push-only sync targets.
    *
-   * Purges the local adapter only; the operator must purge every sync target too, or
-   * the next pull re-imports the markers (benign — they still read deleted — but no
-   * space is reclaimed). #604 owns cross-target purge.
+   * Purges the local adapter only. Markers already pushed to the vault's
+   * push-only (`backup`/`archive`) sync targets are reclaimed by #615's
+   * `vault.purgePeriodTargets`; `sync-peer` targets are left untouched (purging
+   * them would re-open the resurrection window — the deferred half of #611).
    */
   async _purgeDeleteMarkers(before: string, collections?: string[]): Promise<number> {
     return this._purgeMarkersOn(this.adapter, before, collections)
