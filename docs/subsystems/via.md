@@ -98,7 +98,7 @@ READ:   load → decode (B) → present (A)
 
 For each phase, features run in **declared stack order** (the order they appear in `via(...)`). The runner lives in the kernel; collection.ts calls it at the existing write/read call sites, replacing today's hand-wired money/i18n branches. Zero-via fields skip the runner entirely (identity fast path — no regression for plain documents).
 
-The **feature stack order** is printable and debuggable. `collection.describe()` and devtools show each field's via-stack, phase order, declared dependencies, and staleness state.
+The **feature stack order** is deterministic and pinned in one place (`compileViaBindings`). Today `collection.describe()` carries each feature's `describeFragment` contribution; surfacing the full per-field via-stack, phase order, declared dependencies, and staleness state is planned for phase C (the dependency graph makes those inspectable).
 
 ## Architecture guards & enforcement
 
