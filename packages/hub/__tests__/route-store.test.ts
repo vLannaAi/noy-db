@@ -621,6 +621,47 @@ describe('routeStore', () => {
       expect(s.capabilities?.coldArchival).not.toBe(true)
     })
   })
+
+  describe('compact({ before }) — explicit cutoff (#613)', () => {
+    const env = (ts: string): EncryptedEnvelope => ({
+      _noydb: 1, _v: 1, _ts: ts, _iv: '', _data: 'x',
+    })
+
+    it('migrates only records with _ts < before, leaving newer ones hot', async () => {
+      const hot = makeStore('hot'), cold = makeStore('cold')
+      const s = routeStore({ default: hot, age: { cold, collections: ['txns'] } })   // no coldAfterDays
+      await hot.put('V', 'txns', 'old', env('2026-01-01T00:00:00.000Z'))
+      await hot.put('V', 'txns', 'new', env('2026-09-01T00:00:00.000Z'))
+
+      const migrated = await s.compact('V', { before: '2026-04-01T00:00:00.000Z' })
+
+      expect(migrated).toBe(1)
+      expect(await hot.get('V', 'txns', 'old')).toBeNull()          // moved out of hot
+      expect(await cold.get('V', 'txns', 'old')).not.toBeNull()     // now in cold
+      expect(await hot.get('V', 'txns', 'new')).not.toBeNull()      // untouched
+      expect(await s.get('V', 'txns', 'old')).not.toBeNull()        // read-through still finds it
+    })
+
+    it('never migrates _-prefixed reserved collections', async () => {
+      const hot = makeStore('hot'), cold = makeStore('cold')
+      const s = routeStore({ default: hot, age: { cold, collections: ['_periods'] } })
+      await hot.put('V', '_periods', 'FY26', env('2020-01-01T00:00:00.000Z'))
+
+      const migrated = await s.compact('V', { before: '2026-01-01T00:00:00.000Z' })
+
+      expect(migrated).toBe(0)
+      expect(await hot.get('V', '_periods', 'FY26')).not.toBeNull()  // summary stays hot
+    })
+
+    it('rolling compact() migrates nothing when coldAfterDays is omitted', async () => {
+      const hot = makeStore('hot'), cold = makeStore('cold')
+      const s = routeStore({ default: hot, age: { cold, collections: ['txns'] } })
+      await hot.put('V', 'txns', 'old', env('2000-01-01T00:00:00.000Z'))
+
+      expect(await s.compact('V')).toBe(0)                           // no rolling cutoff configured
+      expect(await hot.get('V', 'txns', 'old')).not.toBeNull()
+    })
+  })
 })
 
 // ─── createNoydb integration ─────────────────────────────────────────
