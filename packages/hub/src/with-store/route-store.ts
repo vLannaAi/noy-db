@@ -508,12 +508,15 @@ export function routeStore(opts: RouteStoreOptions): RoutedNoydbStore {
 
   // #613: advertise cold-archival when a cold route exists. Spread the
   // primary's capabilities so CAS/auth/etc. still surface; layer the flag.
+  // A router with no cold route of its own must NOT inherit `coldArchival:
+  // true` from a nested cold-capable primary (whole-branch review I1) — force
+  // it off explicitly so the consumer's `!== true` gate throws.
   const store: RoutedNoydbStore = {
     name: buildName(),
     ...(opts.age?.cold
       ? { capabilities: { ...primary.capabilities, coldArchival: true } as StoreCapabilities }
       : primary.capabilities
-        ? { capabilities: primary.capabilities }
+        ? { capabilities: { ...primary.capabilities, coldArchival: false } as StoreCapabilities }
         : {}),
 
     async get(vault, collection, id) {

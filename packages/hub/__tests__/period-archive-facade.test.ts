@@ -73,6 +73,28 @@ describe('VaultPeriods.archivePeriod (#613)', () => {
     expect(adapter.raw('V', PERIOD_ARCHIVES_COLLECTION, 'FY26-Q1')!._data).toBe(companionBefore)
   })
 
+  it('is idempotent: archiveRecords is called exactly once across two archivePeriod calls, proving the early return happens before the seam + ledger append (#613 whole-branch M3)', async () => {
+    const adapter = memory()
+    let archiveCalls = 0
+    const deps = {
+      strategy: withPeriods(),
+      adapter,
+      vault: 'V',
+      encrypted: false,
+      userId: () => 'alice',
+      getDEK: async () => { throw new Error('no crypto in plaintext test') },
+      getLedgerOrNull: () => null,
+      collection: () => { throw new Error('unused') },
+      purgeDeleteMarkers: async () => 0,
+      archiveRecords: async () => { archiveCalls += 1; return 2 },
+    }
+    const periods = new VaultPeriods(deps as any)
+    await periods.closePeriod({ name: 'FY26-Q1', endDate: '2026-03-31' })
+    await periods.archivePeriod('FY26-Q1')
+    await periods.archivePeriod('FY26-Q1')
+    expect(archiveCalls).toBe(1)
+  })
+
   it('leaves the chained _periods record byte-identical (never mutated by archive)', async () => {
     const { periods, adapter } = makeFacade()
     await periods.closePeriod({ name: 'FY26-Q1', endDate: '2026-03-31' })
@@ -86,6 +108,16 @@ describe('VaultPeriods.archivePeriod (#613)', () => {
     await periods.closePeriod({ name: 'FY26-Q1', endDate: '2026-03-31' })
     await periods.archivePeriod('FY26-Q1')
     const got = await periods.getPeriod('FY26-Q1')
+    expect(got?.archivedRecordCount).toBe(2)
+    expect(got?.archivedBy).toBe('alice')
+  })
+
+  it('listPeriods merges the archive fields (#613 whole-branch M2)', async () => {
+    const { periods } = makeFacade()
+    await periods.closePeriod({ name: 'FY26-Q1', endDate: '2026-03-31' })
+    await periods.archivePeriod('FY26-Q1')
+    const all = await periods.listPeriods()
+    const got = all.find((p) => p.name === 'FY26-Q1')
     expect(got?.archivedRecordCount).toBe(2)
     expect(got?.archivedBy).toBe('alice')
   })

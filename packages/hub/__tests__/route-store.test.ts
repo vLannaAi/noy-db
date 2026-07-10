@@ -620,6 +620,12 @@ describe('routeStore', () => {
       const s = routeStore({ default: makeStore('default') })
       expect(s.capabilities?.coldArchival).not.toBe(true)
     })
+    it('a router without its own cold route does NOT inherit coldArchival from a nested cold-capable primary (#613 whole-branch I1)', () => {
+      const inner = routeStore({ default: makeStore('default'), age: { cold: makeStore('cold') } })
+      const outer = routeStore({ default: inner })   // outer has no cold route of its own
+      expect(inner.capabilities?.coldArchival).toBe(true)
+      expect(outer.capabilities?.coldArchival).not.toBe(true)   // must NOT leak
+    })
   })
 
   describe('compact({ before }) — explicit cutoff (#613)', () => {
