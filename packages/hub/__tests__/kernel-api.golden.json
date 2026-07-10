@@ -132,6 +132,7 @@
     "onCrossTierAccess",
     "openPeriod",
     "publishRevocationList",
+    "purgePeriodTargets",
     "rebuildSubjectIndex",
     "refreshView",
     "resolveDictSource",

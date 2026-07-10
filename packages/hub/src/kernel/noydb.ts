@@ -618,6 +618,10 @@ export class Noydb {
         ? (resolverName, resolver) => syncEngine.registerConflictResolver(resolverName, resolver)
         : undefined,
       syncAdapter: targets.length > 0 ? targets[0]!.store : undefined,
+      getPurgeableTargets: () =>
+        targets
+          .filter((t) => t.role === 'backup' || t.role === 'archive')
+          .map((t) => ({ store: t.store, role: t.role as 'backup' | 'archive', ...(t.label !== undefined ? { label: t.label } : {}) })),
       historyConfig: this.options.history,
       ...(this.options.blobStrategy !== undefined ? { blobStrategy: this.options.blobStrategy } : {}),
       ...(this.options.objectStore !== undefined ? { objectStore: this.options.objectStore } : {}),
