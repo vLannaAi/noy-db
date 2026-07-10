@@ -20,7 +20,7 @@ import type {
   AggregationUpstream,
 } from './aggregation.js'
 import type { GroupedQuery, GroupedQueryN } from './groupby.js'
-import type { MoneyDescriptor } from '../../with-shape/money/descriptor.js'
+import type { MoneyDescriptor } from '../../shape/via-money/descriptor.js'
 
 /**
  * Seam interface. `@internal` — will promote to public only when the

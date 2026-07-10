@@ -853,7 +853,7 @@ export {
   asMoney,
   isMoneyString,
   moneyNumber,
-} from './with-shape/money/index.js'
+} from './shape/via-money/index.js'
 export type {
   MoneyDescriptor,
   MoneyOptions,
@@ -864,7 +864,7 @@ export type {
   MulRateOptions,
   AllocateOptions,
   MoneyString,
-} from './with-shape/money/index.js'
+} from './shape/via-money/index.js'
 
 // classified — preset catalog (creditCard/birthDate/email/phone) + validators
 export { classified, luhnCheck, isClassifiedFieldSpec, isClassifiedGroup, resolveClassifiedFields, ClassifiedConfigError, ClassifiedNeverStoredError, ClassifiedValidationError, ClassifiedRevealError, ClassifiedVerifyError, ClassifiedRotationError } from './with-shape/classified/index.js'

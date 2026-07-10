@@ -71,7 +71,7 @@ import type { ReducerBuilder } from './reducers.js'
 import { reducerBuilder } from './reducers.js'
 import { canonicalGroupKey } from './canonical-key.js'
 import { GroupCardinalityError } from '../../kernel/errors.js'
-import type { MoneyDescriptor } from '../../with-shape/money/descriptor.js'
+import type { MoneyDescriptor } from '../../shape/via-money/descriptor.js'
 import { moneyRuntime } from '../../kernel/money-runtime.js'
 import { applyI18nLocale, type I18nTextDescriptor } from '../../with-shape/i18n/core.js'
 

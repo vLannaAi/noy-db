@@ -14,7 +14,7 @@
 import type { FieldMeta } from './field-meta.js'
 import { resolveFieldMeta, validateFieldMetaKeys, FieldMetaUnknownFieldError, humanizeFieldKey } from './field-meta.js'
 import type { CollectionMeta } from './meta.js'
-import type { MoneyDescriptor } from '../money/descriptor.js'
+import type { MoneyDescriptor } from '../../shape/via-money/descriptor.js'
 import type { DictKeyDescriptor, StaticDictDescriptor } from '../i18n/dictionary.js'
 import { isStaticDictDescriptor } from '../i18n/dictionary.js'
 import type { I18nTextDescriptor } from '../i18n/core.js'

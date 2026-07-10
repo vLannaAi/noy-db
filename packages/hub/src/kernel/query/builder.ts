@@ -19,7 +19,7 @@ import type { ReducerBuilder } from '../../with-lookup/aggregate/reducers.js'
 import { reducerBuilder } from '../../with-lookup/aggregate/reducers.js'
 import type { GroupedQuery, GroupedQueryN } from '../../with-lookup/aggregate/groupby.js'
 import { NO_AGGREGATE, type AggregateStrategy } from '../../with-lookup/aggregate/strategy.js'
-import type { MoneyDescriptor } from '../../with-shape/money/descriptor.js'
+import type { MoneyDescriptor } from '../../shape/via-money/descriptor.js'
 import { moneyRuntime } from '../money-runtime.js'
 
 export interface OrderBy {

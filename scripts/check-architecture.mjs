@@ -411,6 +411,8 @@ function scanFileForStrategyOptIn(file, content) {
 // Rule: every `with-<dim>/<service>/` sub-folder — and every `with-<dim>`
 // dim that has NO sub-folders (the dim IS the service, e.g. with-cargo) —
 // must export a `with*()` factory, UNLESS it is on the exempt list below.
+// `shape/` (the Via port's non-`with-*` service root, e.g. shape/via-money)
+// is scanned the same way as a `with-<dim>` namespace dim (#623).
 //
 // Exemptions (verified 2026-07-02) fall in three buckets:
 //   ③ schema features — declared on `collection({ … })`, not a global
@@ -420,7 +422,7 @@ function scanFileForStrategyOptIn(file, content) {
 //       with-shape/classified          classifiedFields declaration (sealed + riders)
 //       with-shape/introspection       describe()/dumpVaultSchema — read-only schema surface
 //       with-shape/links               link()/backlink schema refs
-//       with-shape/money               money() field descriptor
+//       shape/via-money                money() field descriptor
 //       with-shape/persisted-schemas   schema-persistence infra behind collection()
 //       with-shape/schema-update       per-collection migration strategies
 //   always-on infra — no discrete capability to gate:
@@ -443,7 +445,7 @@ const SCHEMA_DECLARED_OR_INFRA_EXEMPT = new Set([
   'with-shape/classified',
   'with-shape/introspection',
   'with-shape/links',
-  'with-shape/money',
+  'shape/via-money',
   'with-shape/persisted-schemas',
   'with-shape/schema-update',
   // #591 satellites — satelliteOf/fields/joined declaration on collection(); joined handle via vault.joined()
@@ -490,7 +492,7 @@ function requireServiceGate(id, dir) {
 function checkEveryServiceGated() {
   const hubSrc = join(PACKAGES_DIR, 'hub', 'src')
   const dims = readdirSync(hubSrc, { withFileTypes: true })
-    .filter(e => e.isDirectory() && e.name.startsWith('with-'))
+    .filter(e => e.isDirectory() && (e.name.startsWith('with-') || e.name === 'shape'))
   for (const dim of dims) {
     const dimPath = join(hubSrc, dim.name)
     const subFolders = readdirSync(dimPath, { withFileTypes: true })
@@ -1169,7 +1171,7 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/i18n/strategy.js',
     '../with-shape/introspection/field-meta.js',
     '../with-shape/introspection/meta.js',
-    '../with-shape/money/descriptor.js',
+    '../shape/via-money/descriptor.js',
     '../with-shape/schema-update/fence-controller.js',
     '../with-shape/schema-update/gate.js',
   ]],
@@ -1234,7 +1236,7 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/introspection/field-meta.js',
     '../with-shape/introspection/meta.js',
     '../with-shape/introspection/types.js',
-    '../with-shape/money/descriptor.js',
+    '../shape/via-money/descriptor.js',
     '../with-shape/persisted-schemas/derive.js',
     '../with-shape/schema-update/fence-controller.js',
     '../with-shape/schema-update/gate.js',
@@ -1309,7 +1311,7 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/i18n/policy.js',
     '../with-shape/i18n/script.js',
     '../with-shape/i18n/strategy.js',
-    '../with-shape/money/descriptor.js',
+    '../shape/via-money/descriptor.js',
     '../port/by/types.js',
   ]],
   ['packages/hub/src/kernel/vault.ts', [
@@ -1406,7 +1408,7 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../../with-lookup/aggregate/reducers.js',
     '../../with-lookup/aggregate/strategy.js',
     '../../with-lookup/indexing/eager-indexes.js',
-    '../../with-shape/money/descriptor.js',
+    '../../shape/via-money/descriptor.js',
   ]],
   ['packages/hub/src/kernel/query/index.ts', [
     '../../with-lookup/aggregate/aggregation.js',
@@ -1420,15 +1422,15 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
   ['packages/hub/src/kernel/money-runtime.ts', [
     // #553 -- TYPE-only (erased) import of the MoneyEngine interface; the
     // engine values are linked at runtime by money() via installMoneyEngine()
-    '../with-shape/money/engine.js',
+    '../shape/via-money/engine.js',
   ]],
   ['packages/hub/src/kernel/query/predicate.ts', [
-    '../../with-shape/money/where.js',
+    '../../shape/via-money/where.js',
   ]],
   ['packages/hub/src/kernel/query/scan-builder.ts', [
     '../../with-lookup/aggregate/aggregation.js',
     '../../with-lookup/aggregate/reducers.js',
-    '../../with-shape/money/descriptor.js',
+    '../../shape/via-money/descriptor.js',
   ]],
   ['packages/hub/src/kernel/enclave/record-keys/record-codec.ts', [
     '../../../with-commit/crdt/crdt.js',

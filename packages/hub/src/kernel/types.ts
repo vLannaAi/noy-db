@@ -65,7 +65,7 @@ import type { ShamirRecoveryProvider } from '../with-party/team/shamir-recovery-
 import type { ObjectProjection } from '../with-shape/blobs/object-projection.js'
 import type { CoordinationProvider } from '../port/by/types.js'
 import type { ScriptWarning } from '../with-shape/i18n/script.js'
-import type { MoneyDescriptor } from '../with-shape/money/descriptor.js'
+import type { MoneyDescriptor } from '../shape/via-money/descriptor.js'
 import type { EnclaveKey } from './enclave/index.js'
 
 /** Format version for encrypted record envelopes. */

@@ -8,7 +8,7 @@
  * would either break those sync semantics or race a fire-and-forget
  * preload. Instead the DECLARATION carries the engine: constructing a
  * descriptor via `money()` statically links the implementation
- * (`with-shape/money/engine.ts`) and installs it here, so by the time
+ * (`shape/via-money/engine.ts`) and installs it here, so by the time
  * any kernel path holds a `MoneyDescriptor` the engine is guaranteed
  * present.
  *
@@ -18,7 +18,7 @@
  * declares a money field tree-shakes the whole family out.
  */
 import { NoydbError } from './errors.js'
-import type { MoneyEngine } from '../with-shape/money/engine.js'
+import type { MoneyEngine } from '../shape/via-money/engine.js'
 
 export type { MoneyEngine }
 
