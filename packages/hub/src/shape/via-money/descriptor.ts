@@ -18,6 +18,7 @@ import type { RoundingMode } from './fixed-point.js'
 import { scaleForCurrency } from './iso4217.js'
 import { NoydbError } from '../../kernel/errors.js'
 import { linkMoneyEngine } from './engine.js'
+import { linkMoneyVia } from './binding.js'
 
 export interface MoneyOptionsFixed {
   currency: string
@@ -114,6 +115,7 @@ export function money(options: MoneyOptions): MoneyDescriptor {
   // the kernel's runtime seam, so every later kernel consultation
   // (including the SYNC query DSL) finds the engine already present.
   linkMoneyEngine()
+  linkMoneyVia()
   const hasFixed = 'currency' in options
   const hasMulti = 'currencies' in options
   if (hasFixed && hasMulti) {

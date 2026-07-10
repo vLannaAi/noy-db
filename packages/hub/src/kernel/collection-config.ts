@@ -44,7 +44,6 @@ import type { IndexDef } from '../with-lookup/indexing/eager-indexes.js'
 import type { I18nTextDescriptor } from '../with-shape/i18n/core.js'
 import type { DictKeyDescriptor, StaticDictDescriptor, DictionaryHandle } from '../with-shape/i18n/dictionary.js'
 import type { MoneyDescriptor } from '../shape/via-money/descriptor.js'
-import { moneyRuntime } from './money-runtime.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
 import { resolveClassifiedFields, ClassifiedConfigError, type ClassifiedEntry, type ResolvedClassified } from '../with-shape/classified/resolve.js'
 import { guardClassifiedCompat, type ClassifiedGuardCtx } from '../with-shape/classified/guards.js'
@@ -63,7 +62,7 @@ import type { MVQueryContext } from '../with-formula/materialized-views/types.js
 import type { Collection, OnDirtyCallback, CacheOptions } from './collection.js'
 import type { LazyStrategy } from '../port/with/lazy-strategy.js'
 import { ViaPipeline } from './via-pipeline.js'
-import type { ViaBinding } from './via.js'
+import { viaBinder, type ViaBinding } from './via.js'
 
 /**
  * Raw options handed to the {@link Collection} constructor by the Vault.
@@ -473,9 +472,11 @@ export interface CollectionOpts<T> {
  * Compile a collection's declared config into the ordered list of `ViaBinding`s
  * for its `ViaPipeline`. Compile seam only — no production consumers yet.
  */
-export function compileViaBindings<T>(_opts: CollectionOpts<T>): ViaBinding[] {
+export function compileViaBindings<T>(opts: CollectionOpts<T>): ViaBinding[] {
   // money (Task 5) then i18n (Task 8) — order pinned for pipeline parity
-  return []
+  const bindings: ViaBinding[] = []
+  if (opts.moneyFields) bindings.push(viaBinder('money')(opts.moneyFields))
+  return bindings
 }
 
 /**
@@ -494,8 +495,6 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
       `Collection "${opts.name}": embeddings are not supported on CRDT collections (L2). Use a non-CRDT collection for semantic search.`,
     )
   }
-
-  if (opts.moneyFields) moneyRuntime().validateMoneyFieldPaths(opts.moneyFields)
 
   const resolvedClassified: ResolvedClassified | undefined =
     opts.classifiedFields !== undefined
