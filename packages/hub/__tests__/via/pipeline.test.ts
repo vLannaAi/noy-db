@@ -134,6 +134,12 @@ describe('ViaPipeline', () => {
     expect(clause).toEqual({ brand: 'a', payload: 'a:eq' })
   })
 
+  it('buildClause falls through to second binding when first does not cover', () => {
+    const p = ViaPipeline.build([fixtureBindingA(), fixtureBindingB()])!
+    const clause = p.buildClause('y', 'eq', 'value')
+    expect(clause).toEqual({ brand: 'b', payload: 'b:eq' })
+  })
+
   it('buildClause returns undefined when no binding covers', () => {
     const p = ViaPipeline.build([fixtureBindingA(), fixtureBindingB()])!
     const clause = p.buildClause('z', 'eq', 'value')
