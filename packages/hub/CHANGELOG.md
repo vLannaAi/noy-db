@@ -1,5 +1,22 @@
 # Changelog — hub
 
+## 0.3.0-pre.8
+
+### Minor Changes
+
+- Period-driven cold archival (#613, #604 Spec 3). New `vault.archivePeriod(name)` relocates a closed period's in-window records (`_ts < periodExclusiveUpperBound(endDate)`) from the hot store to a configured cold tier, driving `routeStore`'s existing hot→cold migration + cold read-through. Non-destructive (reads still resolve), idempotent, gated only on a `closed` period, and records a `_period_archives/<name>` companion + ledger entry parallel to `freezePeriod` (the chained `_periods` record stays byte-immutable). Requires a `routeStore` with a cold route (`age: { cold }`); throws otherwise.
+
+  Supporting additions: `routeStore.compact(vault, { before })` accepts an explicit cutoff (and `AgeRoute.coldAfterDays` is now optional — `age: { cold }` alone = period-driven archival only); `StoreCapabilities.coldArchival` advertises a cold-capable router.
+
+  Note: `routeStore` now surfaces its primary store's `capabilities` (previously it exposed none), layering `coldArchival` on top. A consequence is that CAS-gated features (e.g. gap-free `sequence().next()`) are now permitted on a routeStore-backed vault when the primary store reports `casAtomic` — previously they refused on any routeStore. A router without its own cold route never advertises `coldArchival`, even when nested over a cold-capable primary.
+
+- Period freeze (#604). `vault.freezePeriod(name)` physically reclaims the space held by a closed accounting period's delete markers — it purges the delete markers whose write-time falls within the period (via the operator-asserted safe-point the closed period provides), records a `_period_freezes/<name>` companion + a tamper-evident ledger entry, and leaves the hash-chained period record byte-immutable. Terminal and idempotent; requires `withPeriods()`. Forget-tombstones, history, and live records are untouched. Closes the `_purgeDeleteMarkers` audit-emission deferred from #589.
+- Single-vault target-purge (#615, scoped base of #611). New `vault.purgePeriodTargets(name)` sweeps delete markers (`_ts < periodExclusiveUpperBound(endDate)`) off the vault's **push-only** sync targets (`backup`/`archive` roles) for a period that is already **closed and frozen** locally — reclaiming remote marker space that `freezePeriod`'s local purge can't reach. Records a `_period_target_purges/<name>` companion + ledger entry (mirroring freeze/archive; the chained `_periods` record stays byte-immutable), idempotent, gated on frozen-first. `sync-peer` targets are deliberately skipped (purging their markers could re-open the resurrection window — the deferred half of #611). A vault with no push-only targets writes no companion and is re-runnable. Single-vault only; fleet-wide purge remains klum's concern over `@noy-db/hub/cargo`. `surface: api` — rides the existing store contract (`loadAll`/`delete`), no adapter change.
+
+### Patch Changes
+
+- Never pull from a `backup`/`archive` sync target (#616). `Noydb.sync()` now calls the primary engine push-only when the primary's role isn't `sync-peer`, and `Noydb.pull()` is a no-op (empty result) for a non-`sync-peer` primary — so a backup/archive-only config (where the sink was elected as the primary) is no longer pulled from. This applies the role→direction policy the secondary fan-out already used to the primary too, making the code match `sync()`'s existing "backup/archive do push-only" contract. `surface: internal` — no public API change; an explicitly constructed `SyncEngine.pull()` still pulls.
+
 ## 0.3.0-pre.7
 
 ### Minor Changes
