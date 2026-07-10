@@ -1346,8 +1346,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    */
   _applyMoneyFields(moneyFields: Record<string, MoneyDescriptor>): void {
     if (this.moneyFields !== undefined) return
-    this.moneyFields = moneyFields
     this.via = ViaPipeline.build([...(this.via?.bindings ?? []), viaBinder('money')(moneyFields)])
+    this.moneyFields = moneyFields
   }
 
   /** @internal — attach computed fields post-construction. See {@link _applyMoneyFields}. */
@@ -1821,8 +1821,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
     // Quantize money fields to their stored form (scaled-int string).
     // After schema validation — descriptor owns precision/scale/currency.
-    const writeCtx = { id, prior: async () => null, emit: (e: string, p: unknown) => (this.emitter.emit as (ev: string, pl: unknown) => void)(e, p) } // Task 8 wires prior
-    if (this.via) record = await this.via.encodeWrite(record as Record<string, unknown>, writeCtx) as T
+    if (this.via) record = await this.via.encodeWrite(record as Record<string, unknown>, { id, prior: async () => null, emit: (e: string, p: unknown) => (this.emitter.emit as (ev: string, pl: unknown) => void)(e, p) }) as T // Task 8 wires prior
 
     // Auto-translate missing i18nText translations.
     // Runs BEFORE i18n validation so translated values satisfy the
