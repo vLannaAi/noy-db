@@ -103,6 +103,9 @@ export const PERIODS_COLLECTION = '_periods'
 /** Sibling of {@link PERIODS_COLLECTION} holding freeze companions (#604). */
 export const PERIOD_FREEZES_COLLECTION = '_period_freezes'
 
+/** Sibling of {@link PERIODS_COLLECTION} holding archive companions (#613). */
+export const PERIOD_ARCHIVES_COLLECTION = '_period_archives'
+
 /**
  * Companion record recording that a closed period was frozen (its delete
  * markers physically purged). Stored in {@link PERIOD_FREEZES_COLLECTION},
@@ -114,6 +117,19 @@ export interface PeriodFreezeRecord {
   readonly frozenAt: string
   readonly frozenBy: string
   readonly purgedMarkerCount: number
+}
+
+/**
+ * Companion record noting that a closed period was cold-archived (its
+ * in-window records physically relocated hot → cold). Stored in
+ * {@link PERIOD_ARCHIVES_COLLECTION}, keyed by period name — kept OFF the
+ * hash-chained `_periods/<name>` record so archive never alters the chain.
+ */
+export interface PeriodArchiveRecord {
+  readonly period: string
+  readonly archivedAt: string
+  readonly archivedBy: string
+  readonly archivedRecordCount: number
 }
 
 /**
@@ -190,6 +206,12 @@ export interface PeriodRecord {
   readonly frozenAt?: string
   readonly frozenBy?: string
   readonly purgedMarkerCount?: number
+  /** #613 return-only — merged from the `_period_archives/<name>` companion on
+   *  read; NEVER written into the stored `_periods/<name>` record. Absent = not
+   *  yet archived. */
+  readonly archivedAt?: string
+  readonly archivedBy?: string
+  readonly archivedRecordCount?: number
 }
 
 /** Options for `vault.closePeriod()`. */

@@ -18,6 +18,7 @@ export type { PeriodsStrategy } from './strategy.js'
 export {
   PERIODS_COLLECTION,
   PERIOD_FREEZES_COLLECTION,
+  PERIOD_ARCHIVES_COLLECTION,
   periodExclusiveUpperBound,
   loadPeriods,
   chainAnchor,
@@ -28,6 +29,7 @@ export {
 export type {
   PeriodRecord,
   PeriodFreezeRecord,
+  PeriodArchiveRecord,
   ClosePeriodOptions,
   OpenPeriodOptions,
   CarryForwardContext,
