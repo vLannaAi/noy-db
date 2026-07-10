@@ -137,6 +137,9 @@ export const PERIOD_FREEZES_COLLECTION = '_period_freezes'
 /** Sibling of {@link PERIODS_COLLECTION} holding archive companions (#613). */
 export const PERIOD_ARCHIVES_COLLECTION = '_period_archives'
 
+/** Sibling of {@link PERIODS_COLLECTION} holding target-purge companions (#615). */
+export const PERIOD_TARGET_PURGES_COLLECTION = '_period_target_purges'
+
 /**
  * Companion record recording that a closed period was frozen (its delete
  * markers physically purged). Stored in {@link PERIOD_FREEZES_COLLECTION},
@@ -161,6 +164,26 @@ export interface PeriodArchiveRecord {
   readonly archivedAt: string
   readonly archivedBy: string
   readonly archivedRecordCount: number
+}
+
+/** Per-target count of delete markers purged off one push-only sync target (#615). */
+export interface TargetPurgeCount {
+  readonly label?: string
+  readonly role: 'backup' | 'archive'
+  readonly purgedCount: number
+}
+
+/**
+ * Companion record noting that a closed+frozen period's delete markers were
+ * swept off the vault's push-only sync targets (#615). Stored in
+ * {@link PERIOD_TARGET_PURGES_COLLECTION}, keyed by period name — kept OFF the
+ * hash-chained `_periods/<name>` record so target-purge never alters the chain.
+ */
+export interface PeriodTargetPurgeRecord {
+  readonly period: string
+  readonly purgedAt: string
+  readonly purgedBy: string
+  readonly targets: readonly TargetPurgeCount[]
 }
 
 /**
@@ -243,6 +266,12 @@ export interface PeriodRecord {
   readonly archivedAt?: string
   readonly archivedBy?: string
   readonly archivedRecordCount?: number
+  /** #615 return-only — merged from the `_period_target_purges/<name>` companion
+   *  on read; NEVER written into the stored `_periods/<name>` record. Absent =
+   *  target-purge not yet run (or the vault has no push-only targets). */
+  readonly targetsPurgedAt?: string
+  readonly targetsPurgedBy?: string
+  readonly targetsPurged?: readonly TargetPurgeCount[]
 }
 
 /** Options for `vault.closePeriod()`. */
