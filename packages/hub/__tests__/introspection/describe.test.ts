@@ -12,9 +12,9 @@
 import { describe, it, expect, vi } from 'vitest'
 import { z } from 'zod'
 import { createNoydb } from '../../src/kernel/noydb.js'
-import { money } from '../../src/with-shape/money/descriptor.js'
-import { staticDict, dictKey } from '../../src/with-shape/i18n/dictionary.js'
-import { i18nText } from '../../src/with-shape/i18n/core.js'
+import { money } from '../../src/shape/via-money/descriptor.js'
+import { staticDict, dictKey } from '../../src/shape/via-i18n/dictionary.js'
+import { i18nText } from '../../src/shape/via-i18n/core.js'
 import { ref } from '../../src/kernel/refs.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/kernel/types.js'
 import { ConflictError } from '../../src/kernel/errors.js'
@@ -159,7 +159,7 @@ describe('collection.describe() — sync path', () => {
   it('dynamic dictKey: values list uses declared keys, no label', async () => {
     const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-describe-4' })
     const v = await db.openVault('v2')
-    const { dictKey } = await import('../../src/with-shape/i18n/dictionary.js')
+    const { dictKey } = await import('../../src/shape/via-i18n/dictionary.js')
 
     const orders = v.collection('orders', {
       dictKeyFields: { phase: dictKey('phase', ['open', 'closed'] as const) },
@@ -267,7 +267,7 @@ describe('collection.describe(opts) — async path', () => {
   })
 
   it('resolveDictLabels fills dynamic dict labels (async, reads _dict_)', async () => {
-    const { withI18n } = await import('../../src/with-shape/i18n/active.js')
+    const { withI18n } = await import('../../src/shape/via-i18n/active.js')
     const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-async-3', i18nStrategy: withI18n() })
     const v = await db.openVault('av3')
 
@@ -364,7 +364,7 @@ describe('collection.describe(opts) — async path', () => {
 
   // Fix 2 — empty async dict must fall back to declared keys
   it('resolveDictLabels with empty store falls back to declared keys (async superset of sync)', async () => {
-    const { withI18n } = await import('../../src/with-shape/i18n/active.js')
+    const { withI18n } = await import('../../src/shape/via-i18n/active.js')
     const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-emptydict-1', i18nStrategy: withI18n() })
     const v = await db.openVault('emptydict_vault')
 
@@ -387,7 +387,7 @@ describe('collection.describe(opts) — async path', () => {
 
 describe('collection.describe() — Task 3: i18n, widget, editable', () => {
   async function makeSalesVault() {
-    const { withI18n } = await import('../../src/with-shape/i18n/active.js')
+    const { withI18n } = await import('../../src/shape/via-i18n/active.js')
     const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-t3-1', i18nStrategy: withI18n() })
     const v = await db.openVault('t3v1')
 
@@ -486,7 +486,7 @@ describe('collection.describe() — Task 3: i18n, widget, editable', () => {
   // validateFieldMetaKeys does not throw FieldMetaUnknownFieldError for fields that
   // live in i18nFields + fieldMeta but not in the zod schema (typical for i18nText).
   it('async describe does not throw when field is in both i18nFields and fieldMeta but not zod schema', async () => {
-    const { withI18n } = await import('../../src/with-shape/i18n/active.js')
+    const { withI18n } = await import('../../src/shape/via-i18n/active.js')
     const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-t3-i18n-regress', i18nStrategy: withI18n() })
     const v = await db.openVault('t3v_i18n_regress')
 

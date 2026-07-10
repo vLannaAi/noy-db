@@ -8,8 +8,8 @@ import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
-import { resolveI18nText, i18nText } from '../src/with-shape/i18n/core.js'
-import { withI18n } from '../src/with-shape/i18n/index.js'
+import { resolveI18nText, i18nText } from '../src/shape/via-i18n/core.js'
+import { withI18n } from '../src/shape/via-i18n/index.js'
 
 // insertion order th, en, ar — so a naive first-non-empty picks 'th'
 const VALUE = { th: 'สวัสดี', en: 'Hello', ar: 'مرحبا' }

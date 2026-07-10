@@ -44,6 +44,13 @@ import {
   PermissionDeniedError,
   DictKeyMissingError,
 } from '../../kernel/errors.js'
+import { linkI18nVia } from './binding.js'
+
+// `isDictCollectionName` now lives on the kernel port (#623 Task 7,
+// port/with/i18n-strategy.ts) — re-exported here for compat. Its `'_dict_'`
+// check is a duplicate of DICT_COLLECTION_PREFIX below (not an import, to
+// avoid a port→feature value dependency); keep the two in sync.
+export { isDictCollectionName } from '../../port/with/i18n-strategy.js'
 
 /** Reserved collection name prefix. Never collides with user collections. */
 export const DICT_COLLECTION_PREFIX = '_dict_'
@@ -51,11 +58,6 @@ export const DICT_COLLECTION_PREFIX = '_dict_'
 /** Return the adapter collection name for a named dictionary. */
 export function dictCollectionName(dictionaryName: string): string {
   return `${DICT_COLLECTION_PREFIX}${dictionaryName}`
-}
-
-/** Return true when a collection name is a reserved dictionary collection. */
-export function isDictCollectionName(name: string): boolean {
-  return name.startsWith(DICT_COLLECTION_PREFIX)
 }
 
 // ─── DictKey descriptor ────────────────────────────────────────────────
@@ -78,6 +80,8 @@ export function isDictCollectionName(name: string): boolean {
  */
 export interface DictKeyDescriptor<Keys extends string = string> {
   readonly _noydbDictKey: true
+  /** Via port brand marker (#623 Task 9) — dictKey shares the i18n binding brand. */
+  readonly _viaBrand: 'i18n'
   /** Which dictionary this field references. */
   readonly name: string
   /** Declared valid keys. When set, `put()` rejects keys not in this set. */
@@ -132,6 +136,9 @@ export function dictKey<Keys extends string>(
   keysOrMap?: readonly Keys[] | Record<Keys, string>,
   opts?: { onMissing?: OnMissingPolicy; substitute?: readonly string[]; labels?: Record<string, string> },
 ): DictKeyDescriptor<Keys> {
+  // The declaration is the Via binding's opt-in unit (#553) — same pattern
+  // as i18nText()/money().
+  linkI18nVia()
   let keys: readonly Keys[] | undefined
   let labels: Record<string, string> | undefined
   if (Array.isArray(keysOrMap)) {
@@ -146,6 +153,7 @@ export function dictKey<Keys extends string>(
   }
   return {
     _noydbDictKey: true,
+    _viaBrand: 'i18n',
     name,
     keys,
     ...(opts?.onMissing !== undefined ? { onMissing: opts.onMissing } : {}),
@@ -154,14 +162,10 @@ export function dictKey<Keys extends string>(
   }
 }
 
-/** Runtime predicate for detecting a DictKeyDescriptor. */
-export function isDictKeyDescriptor(x: unknown): x is DictKeyDescriptor {
-  return (
-    typeof x === 'object' &&
-    x !== null &&
-    (x as { _noydbDictKey?: unknown })._noydbDictKey === true
-  )
-}
+// `isDictKeyDescriptor` now lives on the kernel port (#623 Task 11,
+// port/with/i18n-strategy.ts, alongside `isStaticDictDescriptor`) —
+// re-exported here for compat with existing importers of this module.
+export { isDictKeyDescriptor } from '../../port/with/i18n-strategy.js'
 
 // ─── StaticDict descriptor (code-provided dictionary) ──────────────────
 
@@ -194,6 +198,8 @@ export function isDictKeyDescriptor(x: unknown): x is DictKeyDescriptor {
  */
 export interface StaticDictDescriptor<Keys extends string = string> {
   readonly _noydbStaticDict: true
+  /** Via port brand marker (#623 Task 9) — staticDict shares the i18n binding brand. */
+  readonly _viaBrand: 'i18n'
   /** Which dictionary this field references (the registry name). */
   readonly name: string
   /** The in-code label table: key → { locale → label }. */
@@ -250,8 +256,12 @@ export function staticDict<const T extends Record<string, Record<string, string>
     validateCodes?: boolean
   },
 ): StaticDictDescriptor<Extract<keyof T, string>> {
+  // The declaration is the Via binding's opt-in unit (#553) — same pattern
+  // as i18nText()/dictKey()/money().
+  linkI18nVia()
   return {
     _noydbStaticDict: true,
+    _viaBrand: 'i18n',
     name,
     table: table as Readonly<Record<Extract<keyof T, string>, Readonly<Record<string, string>>>>,
     keys: Object.keys(table) as Extract<keyof T, string>[],
@@ -262,14 +272,9 @@ export function staticDict<const T extends Record<string, Record<string, string>
   }
 }
 
-/** Runtime predicate for detecting a StaticDictDescriptor. */
-export function isStaticDictDescriptor(x: unknown): x is StaticDictDescriptor {
-  return (
-    typeof x === 'object' &&
-    x !== null &&
-    (x as { _noydbStaticDict?: unknown })._noydbStaticDict === true
-  )
-}
+// `isStaticDictDescriptor` now lives on the kernel port (#623 Task 7,
+// port/with/i18n-strategy.ts) — re-exported here for compat.
+export { isStaticDictDescriptor } from '../../port/with/i18n-strategy.js'
 
 // ─── Dictionary entry shape ────────────────────────────────────────────
 

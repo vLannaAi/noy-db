@@ -1,13 +1,17 @@
 /**
- * Strategy seam for the optional i18n (multi-locale + dictionary)
- * service. Core imports `I18nStrategy` type-only + `NO_I18N` stub;
- * real `applyI18nLocale` / `validateI18nTextValue` /
- * `DictionaryHandle` are only reachable via `withI18n()` in
- * `./active.ts`.
+ * i18n strategy seam (#623 Task 7 — moved out of `shape/via-i18n/strategy.ts`
+ * and `shape/via-i18n/dictionary.ts`, precedent: `port/with/lazy-strategy.ts`).
+ * Lives on the `/with` port (the one seam the kernel spine may import
+ * statically) so `Collection`/`Vault` can hold the `NO_I18N` default and the
+ * two reserved-name/brand predicates without a spine→service static import.
  *
- * Solo apps that don't use `i18nText()` fields, don't declare
- * `dictKey()` fields, and don't open a `vault.dictionary(...)` handle
- * ship none of the ~854 LOC behind this seam.
+ * Core imports `I18nStrategy` type-only + `NO_I18N` stub; real
+ * `applyI18nLocale` / `validateI18nTextValue` / `DictionaryHandle` are only
+ * reachable via `withI18n()` in `shape/via-i18n/active.ts`.
+ *
+ * Solo apps that don't use `i18nText()` fields, don't declare `dictKey()`
+ * fields, and don't open a `vault.dictionary(...)` handle ship none of the
+ * ~854 LOC behind this seam.
  *
  * Behavior under NO_I18N:
  *
@@ -30,10 +34,10 @@ import type { NoydbStore } from '../../kernel/types.js'
 import type { LedgerStore } from '../../with-commit/history/ledger/store.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
 import type { NoydbEventEmitter } from '../../kernel/events.js'
-import type { I18nTextDescriptor } from './core.js'
-import type { Layer } from './policy.js'
-import type { ScriptWarning } from './script.js'
-import type { DictionaryHandle, DictionaryOptions } from './dictionary.js'
+import type { I18nTextDescriptor } from '../../shape/via-i18n/core.js'
+import type { Layer } from '../../shape/via-i18n/policy.js'
+import type { ScriptWarning } from '../../shape/via-i18n/script.js'
+import type { DictKeyDescriptor, DictionaryHandle, DictionaryOptions, StaticDictDescriptor } from '../../shape/via-i18n/dictionary.js'
 import type { EnclaveKey } from '../../kernel/enclave/index.js'
 
 /**
@@ -161,3 +165,64 @@ export const NO_I18N: I18nStrategy = {
   densify() {},
   buildDictionaryHandle() { throw notEnabled('vault.dictionary()') },
 }
+
+/**
+ * Return true when a collection name is a reserved dictionary collection
+ * (the `_dict_*` prefix). Mirrors `DICT_COLLECTION_PREFIX` in
+ * `shape/via-i18n/dictionary.ts` — duplicated here (not imported) so this
+ * port has no VALUE dependency back on the feature; keep the two in sync if
+ * the prefix ever changes.
+ */
+export function isDictCollectionName(name: string): boolean {
+  return name.startsWith('_dict_')
+}
+
+/** Runtime predicate for detecting a StaticDictDescriptor. */
+export function isStaticDictDescriptor(x: unknown): x is StaticDictDescriptor {
+  return (
+    typeof x === 'object' &&
+    x !== null &&
+    (x as { _noydbStaticDict?: unknown })._noydbStaticDict === true
+  )
+}
+
+/**
+ * Runtime predicate for detecting an I18nTextDescriptor. Pure tag check —
+ * moved here (#623 Task 11) alongside `isStaticDictDescriptor` so
+ * `kernel/via-compose.ts` (`mergeViaFields`'s descriptor-shape classification)
+ * can reach it through the port instead of importing `shape/via-i18n/core.js`
+ * directly. Re-exported from that module for compat with existing importers.
+ */
+export function isI18nTextDescriptor(x: unknown): x is I18nTextDescriptor {
+  return (
+    typeof x === 'object' &&
+    x !== null &&
+    (x as { _noydbI18nText?: unknown })._noydbI18nText === true
+  )
+}
+
+/**
+ * Runtime predicate for detecting a DictKeyDescriptor. Pure tag check —
+ * moved here (#623 Task 11) for the same reason as `isI18nTextDescriptor`
+ * above. Re-exported from `shape/via-i18n/dictionary.js` for compat with
+ * existing importers.
+ */
+export function isDictKeyDescriptor(x: unknown): x is DictKeyDescriptor {
+  return (
+    typeof x === 'object' &&
+    x !== null &&
+    (x as { _noydbDictKey?: unknown })._noydbDictKey === true
+  )
+}
+
+/**
+ * Type-only re-exports (#623 Task 8) — the kernel spine (collection.ts,
+ * collection-config.ts, vault.ts, types.ts) imports these descriptor/handle
+ * types through the port instead of reaching into `shape/via-i18n/*`
+ * directly, so `src/kernel/**` carries no via-i18n specifier at all.
+ * `isolatedModules: true` erases these at build time — no runtime coupling.
+ */
+export type { I18nTextDescriptor } from '../../shape/via-i18n/core.js'
+export type { DictKeyDescriptor, DictionaryHandle, DictionaryOptions, StaticDictDescriptor } from '../../shape/via-i18n/dictionary.js'
+export type { Layer } from '../../shape/via-i18n/policy.js'
+export type { ScriptWarning } from '../../shape/via-i18n/script.js'

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { withSearch } from '../src/index.js'
-import { withI18n } from '../src/with-shape/i18n/index.js'
+import { withI18n } from '../src/shape/via-i18n/index.js'
 import type { Noydb } from '../src/kernel/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'

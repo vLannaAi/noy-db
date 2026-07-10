@@ -26,7 +26,7 @@
 
 import { parseToScaledInt } from './fixed-point.js'
 import { MoneyUnsupportedError, type MoneyDescriptor } from './descriptor.js'
-import type { FieldClause, Operator } from '../../kernel/query/predicate.js'
+import type { Operator } from '../../kernel/query/predicate.js'
 
 /** One quantized operand value: scaled digit string + its currency. */
 interface MoneyOperandEntry {
@@ -35,9 +35,10 @@ interface MoneyOperandEntry {
 }
 
 /**
- * The money payload attached to a {@link FieldClause} over a declared
- * money field. `entries` holds one element for comparison ops, two for
- * `between` (lo, hi — same currency), N for `in`.
+ * The opaque `via` clause payload for a `where()` over a declared money
+ * field (see `ViaBinding.buildClause` in kernel/via.ts). `entries` holds
+ * one element for comparison ops, two for `between` (lo, hi — same
+ * currency), N for `in`.
  */
 export interface MoneyWhereOperand {
   readonly mode: 'fixed' | 'multi'
@@ -88,27 +89,21 @@ function parseOperand(field: string, raw: unknown, desc: MoneyDescriptor): Money
 }
 
 /**
- * Build the {@link FieldClause} for a `where()` over a declared money
- * field. The operand is quantized into stored scaled-int space NOW —
- * build time — so typos throw at the call site.
- *
- * For FIXED mode the clause's `value` is rewritten to the scaled digit
- * string(s): that is exactly the stored form, so the secondary-index
- * fast path (`lookupEqual`/`lookupIn`, which probes with `clause.value`)
- * keeps working. MULTI mode keeps the caller's `value` untouched — the
- * index stringifies object keys to a no-match sentinel, so the executor
- * must skip the index for these clauses (it checks `money.mode`).
+ * Build the `via` clause payload ({@link MoneyWhereOperand}) for a
+ * `where()` over a declared money field — the `ViaBinding.buildClause`
+ * implementation for money. The operand is quantized into stored
+ * scaled-int space NOW — build time — so typos throw at the call site.
  */
 export function moneyFieldClause(
   field: string,
   op: Operator,
   value: unknown,
   desc: MoneyDescriptor,
-): FieldClause {
+): MoneyWhereOperand {
   switch (op) {
     case '==': case '!=': case '<': case '<=': case '>': case '>=': {
       const e = parseOperand(field, value, desc)
-      return withMoney(field, op, value, desc, [e])
+      return { mode: desc.mode, entries: [e] }
     }
     case 'between': {
       if (!Array.isArray(value) || value.length !== 2) {
@@ -121,13 +116,13 @@ export function moneyFieldClause(
           `where("${field}"): 'between' bounds mix currencies (${lo.currency} vs ${hi.currency})`,
         )
       }
-      return withMoney(field, op, value, desc, [lo, hi])
+      return { mode: desc.mode, entries: [lo, hi] }
     }
     case 'in': {
       if (!Array.isArray(value)) {
         throw new MoneyUnsupportedError(`where("${field}"): 'in' needs an array of amounts`)
       }
-      return withMoney(field, op, value, desc, value.map(v => parseOperand(field, v, desc)))
+      return { mode: desc.mode, entries: value.map(v => parseOperand(field, v, desc)) }
     }
     default:
       // contains / startsWith — string ops have no meaning in scaled space.
@@ -135,24 +130,6 @@ export function moneyFieldClause(
         `where("${field}"): operator '${op}' is not supported on a money field`,
       )
   }
-}
-
-function withMoney(
-  field: string,
-  op: Operator,
-  originalValue: unknown,
-  desc: MoneyDescriptor,
-  entries: ReadonlyArray<MoneyOperandEntry>,
-): FieldClause {
-  const money: MoneyWhereOperand = { mode: desc.mode, entries }
-  // Fixed mode: surface the stored-form operand as `value` for the
-  // index fast path; arrays (in/between) map element-wise.
-  const value = desc.mode !== 'fixed'
-    ? originalValue
-    : entries.length === 1 && op !== 'in' && op !== 'between'
-      ? entries[0]!.scaled
-      : entries.map(e => e.scaled)
-  return { type: 'field', field, op, value, money }
 }
 
 /** Read a raw STORED money value into scaled space, or null if absent/malformed. */

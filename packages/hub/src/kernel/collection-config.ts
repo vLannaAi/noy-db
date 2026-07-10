@@ -31,7 +31,7 @@ import type { LedgerStore } from '../with-commit/history/ledger/index.js'
 import type { CrdtMode } from '../with-commit/crdt/crdt.js'
 import { NO_CRDT, type CrdtStrategy } from '../with-commit/crdt/strategy.js'
 import { NO_HISTORY, type HistoryStrategy } from '../with-commit/history/strategy.js'
-import { NO_I18N, type I18nStrategy } from '../with-shape/i18n/strategy.js'
+import { NO_I18N, type I18nStrategy } from '../port/with/i18n-strategy.js'
 import { NO_SYNC, type SyncStrategy } from '../with-party/team/sync-strategy.js'
 import { NO_BLOBS, type BlobStrategy } from '../with-shape/blobs/strategy.js'
 import { NO_AGGREGATE, type AggregateStrategy } from '../with-lookup/aggregate/strategy.js'
@@ -41,10 +41,7 @@ import type { ObjectProjection } from '../with-shape/blobs/object-projection.js'
 import type { BlobFieldsConfig } from '../with-shape/blobs/blob-compaction.js'
 import type { IndexStrategy } from '../with-lookup/indexing/strategy.js'
 import type { IndexDef } from '../with-lookup/indexing/eager-indexes.js'
-import type { I18nTextDescriptor } from '../with-shape/i18n/core.js'
-import type { DictKeyDescriptor, StaticDictDescriptor, DictionaryHandle } from '../with-shape/i18n/dictionary.js'
-import type { MoneyDescriptor } from '../with-shape/money/descriptor.js'
-import { moneyRuntime } from './money-runtime.js'
+import type { I18nTextDescriptor, DictKeyDescriptor, StaticDictDescriptor, DictionaryHandle } from '../port/with/i18n-strategy.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
 import { resolveClassifiedFields, ClassifiedConfigError, type ClassifiedEntry, type ResolvedClassified } from '../with-shape/classified/resolve.js'
 import { guardClassifiedCompat, type ClassifiedGuardCtx } from '../with-shape/classified/guards.js'
@@ -62,6 +59,9 @@ import type { MaterializedViewRegistry } from '../with-formula/materialized-view
 import type { MVQueryContext } from '../with-formula/materialized-views/types.js'
 import type { Collection, OnDirtyCallback, CacheOptions } from './collection.js'
 import type { LazyStrategy } from '../port/with/lazy-strategy.js'
+import { ViaPipeline } from './via-pipeline.js'
+import { viaBinder, type ViaBinding, type ViaDescriptor } from './via.js'
+import { mergeViaFields, type ViaFieldSpec } from './via-compose.js'
 
 /**
  * Raw options handed to the {@link Collection} constructor by the Vault.
@@ -238,7 +238,9 @@ export interface CollectionOpts<T> {
   fieldMeta?: Record<string, FieldMeta> | undefined
   /** — collection-level descriptive metadata. Read via getMeta(). */
   meta?: CollectionMeta | undefined
-  moneyFields?: Record<string, MoneyDescriptor> | undefined
+  moneyFields?: Record<string, ViaDescriptor> | undefined
+  /** — declare via() composed fields; grouped by `_viaBrand` and merged with the money/i18n sugar keys above (a field in both throws). */
+  viaFields?: Record<string, ViaFieldSpec> | undefined
   /** — outbound ref declarations (snapshot from vault refRegistry). Used by describe(). */
   declaredRefs?: Record<string, RefDescriptor> | undefined
   computed?: ComputedFields | undefined
@@ -468,6 +470,45 @@ export interface CollectionOpts<T> {
 }
 
 /**
+ * Compile a collection's declared config into the ordered list of `ViaBinding`s
+ * for its `ViaPipeline`.
+ *
+ * money then i18n — order pinned for pipeline parity with the hand-wired
+ * baseline this replaces: money encode ran before the i18n write stages,
+ * and money decode ran before i18n locale/dict-label resolution on read.
+ * {@link Collection._applyMoneyFields} PREPENDS money for the same reason
+ * on its own (MV-precreation reconcile) path — see its docstring.
+ */
+export function compileViaBindings<T>(opts: CollectionOpts<T>): ViaBinding[] {
+  const { moneyFields, i18nFields, dictKeyFields } = mergeViaFields(opts)
+  const bindings: ViaBinding[] = []
+  if (moneyFields) bindings.push(viaBinder('money')(moneyFields))
+  if (i18nFields || dictKeyFields) {
+    // Densify-enabled subset (fields opting into `densifyOnWrite: true`) —
+    // undefined when none opt in, so the write path skips densify work
+    // entirely for ordinary collections.
+    const densify = i18nFields
+      ? Object.fromEntries(
+          Object.entries(i18nFields).filter(([, d]) => d.options.densifyOnWrite === true),
+        )
+      : {}
+    const i18nDensifyFields = Object.keys(densify).length > 0 ? densify : undefined
+    bindings.push(viaBinder('i18n')({
+      ...(i18nFields !== undefined ? { i18nFields } : {}),
+      ...(dictKeyFields !== undefined ? { dictKeyFields } : {}),
+      ...(i18nDensifyFields !== undefined ? { i18nDensifyFields } : {}),
+      strategy: opts.i18nStrategy ?? NO_I18N,
+      ...(opts.defaultLocale !== undefined ? { defaultLocale: opts.defaultLocale } : {}),
+      ...(opts.autoTranslateHook !== undefined ? { autoTranslateHook: opts.autoTranslateHook } : {}),
+      ...(opts.dictLabelResolver !== undefined ? { dictLabelResolver: opts.dictLabelResolver } : {}),
+      ...(opts.i18nPutValidator !== undefined ? { i18nPutValidator: opts.i18nPutValidator } : {}),
+      collectionName: opts.name,
+    }))
+  }
+  return bindings
+}
+
+/**
  * Resolve the raw {@link CollectionOpts} into the concrete field values the
  * {@link Collection} constructor assigns — every `?? default`, every derived
  * `Set`/subset, plus the three pure construction-time validations. Pure: no
@@ -484,7 +525,8 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     )
   }
 
-  if (opts.moneyFields) moneyRuntime().validateMoneyFieldPaths(opts.moneyFields)
+  // via() / sugar-key merge (#623 Task 9) — throws on a field declared in both.
+  const effectiveViaFields = mergeViaFields(opts)
 
   const resolvedClassified: ResolvedClassified | undefined =
     opts.classifiedFields !== undefined
@@ -518,16 +560,6 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
   } else {
     deterministicFields = null
   }
-
-  // Precompute the densify-enabled subset (undefined when none opt in)
-  // so the write path skips work for non-densify collections.
-  const densifyFields = opts.i18nFields
-    ? Object.fromEntries(
-        Object.entries(opts.i18nFields).filter(([, d]) => d.options.densifyOnWrite === true),
-      )
-    : {}
-  const i18nDensifyFields =
-    Object.keys(densifyFields).length > 0 ? densifyFields : undefined
 
   // Refusal matrix (R1-R5) — door 1. The SAME guard + ctx runs again at door 2
   // (`_applyClassifiedFields`, the reconcile seam), because crdt/conflictPolicy/
@@ -623,16 +655,16 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     ledger: opts.ledger,
     refEnforcer: opts.refEnforcer,
     joinResolver: opts.joinResolver,
-    i18nFields: opts.i18nFields,
+    i18nFields: effectiveViaFields.i18nFields,
     textIndexes: opts.textIndexes,
-    i18nDensifyFields,
     embeddings: opts.embeddings,
     vectorSet: opts.embeddings ? new VectorSet() : undefined,
-    dictKeyFields: opts.dictKeyFields,
+    dictKeyFields: effectiveViaFields.dictKeyFields,
     fieldMeta: opts.fieldMeta,
     meta: opts.meta,
     _refs: opts.declaredRefs ?? {},
-    moneyFields: opts.moneyFields,
+    via: ViaPipeline.build(compileViaBindings(opts)),
+    moneyFields: effectiveViaFields.moneyFields,
     classified: resolvedClassified,
     classifiedGuardCtx,
     classifiedStrategy: opts.classifiedStrategy ?? NO_CLASSIFIED,

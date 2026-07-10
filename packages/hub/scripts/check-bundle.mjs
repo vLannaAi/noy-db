@@ -192,8 +192,9 @@ const SCENARIOS = [
     `,
     leakCanaries: [],
     // The aggregate service must not drag the money engine in -- money
-    // reducer wrapping goes through the kernel's money-runtime seam and
-    // only links when a collection declares money() fields (#553).
+    // reducer wrapping goes through the kernel's generic Via port
+    // (kernel/via.ts's viaBinder) and the money binding only links when a
+    // collection declares money() fields (#553).
     eagerImports: [
       'wrapMoneyReducers',
       'quantizeMoneyFields',

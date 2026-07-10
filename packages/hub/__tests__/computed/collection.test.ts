@@ -4,7 +4,7 @@ import { createNoydb } from '../../src/index.js'
 import { ComputedFieldError } from '../../src/with-formula/computed/index.js'
 import { withAggregate } from '../../src/with-lookup/aggregate/index.js'
 import { sum } from '../../src/with-lookup/aggregate/reducers.js'
-import { money } from '../../src/with-shape/money/descriptor.js'
+import { money } from '../../src/shape/via-money/descriptor.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
 function memory(): NoydbStore {

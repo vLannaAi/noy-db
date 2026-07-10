@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseToScaledInt, formatScaledInt } from '../../src/with-shape/money/fixed-point.js'
+import { parseToScaledInt, formatScaledInt } from '../../src/shape/via-money/fixed-point.js'
 
 const ok = (r: ReturnType<typeof parseToScaledInt>): bigint => {
   if (!r.ok) throw new Error(`expected ok, got ${r.reason}`)

@@ -49,8 +49,7 @@ import type { TeamStrategy } from '../port/with/team-strategy.js'
 import type { LazyStrategy } from '../port/with/lazy-strategy.js'
 import type { SearchStrategy } from '../with-lookup/search/strategy.js'
 import type { CargoStrategy } from '../with-cargo/strategy.js'
-import type { Layer } from '../with-shape/i18n/policy.js'
-import type { I18nStrategy } from '../with-shape/i18n/strategy.js'
+import type { Layer, I18nStrategy } from '../port/with/i18n-strategy.js'
 import type { SessionStrategy } from '../with-party/session/strategy.js'
 import type { SyncStrategy } from '../with-party/team/sync-strategy.js'
 import type { GuardStrategyHandleAny } from '../with-audit/guards/types.js'
@@ -64,8 +63,8 @@ import type { SealingKeyProvider, RecipientHint } from '../with-party/team/manag
 import type { ShamirRecoveryProvider } from '../with-party/team/shamir-recovery-provider.js'
 import type { ObjectProjection } from '../with-shape/blobs/object-projection.js'
 import type { CoordinationProvider } from '../port/by/types.js'
-import type { ScriptWarning } from '../with-shape/i18n/script.js'
-import type { MoneyDescriptor } from '../with-shape/money/descriptor.js'
+import type { ScriptWarning } from '../port/with/i18n-strategy.js'
+import type { ViaDescriptor } from './via.js'
 import type { EnclaveKey } from './enclave/index.js'
 
 /** Format version for encrypted record envelopes. */
@@ -375,13 +374,19 @@ export type SensitiveOpt<T, S extends keyof T> = [S] extends [never]
 /**
  * The type of the `moneyFields` collection option, conditional on whether the
  * caller opted into compile-time money-field typing via the 4th generic `M`.
- * With no `M` (`M = never`) it accepts any `Record<string, MoneyDescriptor>` —
- * runtime money only, no compile-level narrowing, non-breaking. With `M` given,
- * it is `Record<M, MoneyDescriptor>`, tying the runtime map to the declared
- * money-field union so the two cannot drift.
+ * Typed against the opaque {@link ViaDescriptor} marker rather than the
+ * concrete `MoneyDescriptor` — the kernel never inspects a Via feature's
+ * descriptor shape, only its declaring service does.
+ * A `money()` descriptor structurally satisfies `ViaDescriptor` (it carries
+ * `_viaBrand: 'money'`), so this stays publicly assignable from `money()`
+ * call sites. With no `M` (`M = never`) it accepts any
+ * `Record<string, ViaDescriptor>` — runtime money only, no compile-level
+ * narrowing, non-breaking. With `M` given, it is `Record<M, ViaDescriptor>`,
+ * tying the runtime map to the declared money-field union so the two cannot
+ * drift.
  */
 export type MoneyFieldsOpt<T, M extends keyof T & string = never> =
-  [M] extends [never] ? Record<string, MoneyDescriptor> : Record<M, MoneyDescriptor>
+  [M] extends [never] ? Record<string, ViaDescriptor> : Record<M, ViaDescriptor>
 
 /**
  * Concrete {@link Sealed} handle. Holds the reveal closure (which captures the

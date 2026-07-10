@@ -89,15 +89,16 @@ import {
   type RefDescriptor,
   type RefViolation,
 } from './refs.js'
-import type { DictionaryHandle, DictionaryOptions, DictKeyDescriptor, StaticDictDescriptor } from '../with-shape/i18n/dictionary.js'
-import { isDictCollectionName, isStaticDictDescriptor } from '../with-shape/i18n/dictionary.js'
+import type { DictionaryHandle, DictionaryOptions, DictKeyDescriptor, StaticDictDescriptor } from '../port/with/i18n-strategy.js'
+import { isDictCollectionName, isStaticDictDescriptor } from '../port/with/i18n-strategy.js'
 import { isLinkCollectionName, type LinkSpec, type LinkSetHandle } from '../with-shape/links/names.js'
 import { makeLazyLinkSetHandle, type LazyLinkSetHandle } from '../with-shape/links/lazy-handle.js'
 import type { EmbeddingDescriptor } from '../with-lookup/embeddings/index.js'
-import type { I18nTextDescriptor } from '../with-shape/i18n/core.js'
-import { getAtPath } from '../with-shape/i18n/core.js'
+import { getAtPath } from './paths.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
-import { NO_I18N, type I18nStrategy } from '../with-shape/i18n/strategy.js'
+import { NO_I18N, type I18nStrategy, type I18nTextDescriptor } from '../port/with/i18n-strategy.js'
+import { isViaInstalled } from './via.js'
+import { mergeViaFields, type ViaFieldSpec } from './via-compose.js'
 import { NO_SYNC, type SyncStrategy } from '../with-party/team/sync-strategy.js'
 // Type-only imports for the guard + derivation services. The
 // runtime classes are loaded on demand via `await import(...)` inside
@@ -758,6 +759,7 @@ export class Vault {
     meta?: CollectionMeta
     /** — declare money() fields for currency-safe decimal storage/formatting. */
     moneyFields?: MoneyFieldsOpt<T, M>
+    viaFields?: Record<string, ViaFieldSpec> // via() composed fields; merged with the money/i18n sugar keys (field in both throws)
     /** — declare computed scalar fields, evaluated on write (schema-owned). */
     computed?: ComputedFields<T>
     /** — declare classified() sensitive-field descriptors. See the classified-fields spec. */
@@ -945,6 +947,7 @@ export class Vault {
       coll._applyClassifiedFields(options.classifiedFields)
     }
     if (!coll) {
+      const effectiveViaFields = mergeViaFields({ moneyFields: options?.moneyFields, i18nFields: options?.i18nFields, dictKeyFields: options?.dictKeyFields, viaFields: options?.viaFields })
       // Register ref declarations (if any) with the vault-level
       // registry BEFORE constructing the Collection. This way the
       // first put() on the new collection already sees its refs via
@@ -954,8 +957,8 @@ export class Vault {
       }
 
       // Register i18nText fields
-      if (options?.i18nFields) {
-        this.i18nFieldRegistry.set(collectionName, options.i18nFields)
+      if (effectiveViaFields.i18nFields) {
+        this.i18nFieldRegistry.set(collectionName, effectiveViaFields.i18nFields)
       }
 
       // register blobFields retention/TTL policy
@@ -978,10 +981,10 @@ export class Vault {
       // per-vault pointer rewrite) and instead populate the static
       // registries that back the read-path resolver, the readonly guard, and
       // put-time code validation.
-      if (options?.dictKeyFields) {
+      if (effectiveViaFields.dictKeyFields) {
         const dictFieldMap: Record<string, string> = {}
         const staticFieldMap: Record<string, StaticDictDescriptor> = {}
-        for (const [field, desc] of Object.entries(options.dictKeyFields)) {
+        for (const [field, desc] of Object.entries(effectiveViaFields.dictKeyFields)) {
           if (isStaticDictDescriptor(desc)) {
             staticFieldMap[field] = desc
             this.staticDictNames.add(desc.name)
@@ -1163,9 +1166,10 @@ export class Vault {
       if (options?.warmIndexOnOpen !== undefined) collOpts.warmIndexOnOpen = options.warmIndexOnOpen
       if (options?.textIndexPersist !== undefined) collOpts.textIndexPersist = options.textIndexPersist
       if (options?.moneyFields !== undefined) collOpts.moneyFields = options.moneyFields
+      if (options?.viaFields !== undefined) collOpts.viaFields = options.viaFields
       if (options?.computed !== undefined) collOpts.computed = options.computed as ComputedFields
       if (options?.classifiedFields !== undefined) collOpts.classifiedFields = options.classifiedFields
-      if (options?.dictKeyFields !== undefined) {
+      if (effectiveViaFields.dictKeyFields !== undefined) {
         // Build the label resolver callback for this collection. A static
         // dict resolves from its in-memory table — no dictionary()
         // lookup, no _dict_* read — while a plain dictKey resolves through
@@ -1182,13 +1186,13 @@ export class Vault {
         // Provide a handle factory for dynamic dicts so the search
         // index can call list() to build the full key→labels map.
         collOpts.getDictionary = async (name: string) => this.dictionary(name)
-        collOpts.dictKeyFields = options.dictKeyFields
+        collOpts.dictKeyFields = options?.dictKeyFields
       }
       // i18n / staticDict validation on put — enforced via the compartment's
       // put hook. staticDict adds put-time code validation.
       if (
-        options?.i18nFields !== undefined ||
-        options?.dictKeyFields !== undefined
+        effectiveViaFields.i18nFields !== undefined ||
+        effectiveViaFields.dictKeyFields !== undefined
       ) {
         collOpts.i18nPutValidator = (record: unknown) => {
           this.enforceI18nOnPut(collectionName, record)
@@ -1196,7 +1200,7 @@ export class Vault {
         }
       }
       // Wire the translator for autoTranslate: true fields
-      if (options?.i18nFields !== undefined && this.translateText) {
+      if (effectiveViaFields.i18nFields !== undefined && this.translateText) {
         collOpts.autoTranslateHook = this.translateText
       }
       // fieldMeta: thread through to the collection. Real key-validation (against
@@ -1324,8 +1328,7 @@ export class Vault {
   async _invalidateSyncApplied(collection: string, id: string): Promise<void> {
     const coll = this.collectionCache.get(collection)
     if (!coll) return
-    coll._invalidateCekCacheEntry(id)
-    await coll._invalidateCacheEntry(id)
+    await coll._onRecordMutated(id, 'put', 'sync-apply')
   }
 
   /**
@@ -1487,8 +1490,12 @@ export class Vault {
    * Validate i18nText fields on a `put()`. Called by Collection just
    * before the adapter write, after schema validation. Throws
    * `MissingTranslationError` when a required translation is absent.
+   *
+   * Delegates through the Via registry (#623) — a no-op only when i18n was
+   * never declared (mirrors the registry check below).
    */
   enforceI18nOnPut(collectionName: string, record: unknown): void {
+    if (!isViaInstalled('i18n')) return
     const i18nFields = this.i18nFieldRegistry.get(collectionName)
     if (!i18nFields || Object.keys(i18nFields).length === 0) return
     if (!record || typeof record !== 'object') return
@@ -1509,8 +1516,11 @@ export class Vault {
    * table, else `UnknownDictCodeError`. Opt out per descriptor with
    * `{ validateCodes: false }`. Supports scalar, dotted, and `[].`-wildcard
    * field paths via `getAtPath` (same path support as i18n validation).
+   *
+   * Delegates through the Via registry — see {@link enforceI18nOnPut}.
    */
   enforceStaticDictOnPut(collectionName: string, record: unknown): void {
+    if (!isViaInstalled('i18n')) return
     const staticFields = this.staticDescriptorByField.get(collectionName)
     if (!staticFields || Object.keys(staticFields).length === 0) return
     if (!record || typeof record !== 'object') return

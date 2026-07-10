@@ -44,6 +44,7 @@ import { MissingTranslationError, LocaleNotSpecifiedError } from '../../kernel/e
 import type { OnMissing, OnMissingPolicy, Layer } from './policy.js'
 import { resolvePolicy } from './policy.js'
 import { inferScripts } from './script.js'
+import { linkI18nVia } from './binding.js'
 
 // ─── I18nMap type helper ───────────────────────────────────────────────
 
@@ -186,6 +187,8 @@ export interface I18nTextOptions {
  */
 export interface I18nTextDescriptor {
   readonly _noydbI18nText: true
+  /** Via port brand marker — lets an `I18nTextDescriptor` satisfy the kernel's opaque `ViaDescriptor` (#623 Task 9). */
+  readonly _viaBrand: 'i18n'
   readonly options: I18nTextOptions
 }
 
@@ -201,6 +204,10 @@ export interface I18nTextDescriptor {
  * ```
  */
 export function i18nText(options: I18nTextOptions): I18nTextDescriptor {
+  // The declaration is the Via binding's opt-in unit (#553): constructing
+  // a descriptor statically links the i18n binding into the kernel's Via
+  // port, so every later kernel consultation finds it already installed.
+  linkI18nVia()
   if (options.densifyOnWrite === true && hasThrowPolicy(options.onMissing)) {
     throw new Error(
       `i18nText: densifyOnWrite cannot be combined with an explicit onMissing 'throw' ` +
@@ -208,7 +215,7 @@ export function i18nText(options: I18nTextOptions): I18nTextDescriptor {
         `Remove the 'throw' policy or disable densifyOnWrite.`,
     )
   }
-  return { _noydbI18nText: true, options }
+  return { _noydbI18nText: true, _viaBrand: 'i18n', options }
 }
 
 /** True when `onMissing` declares `'throw'` for any layer (scalar or per-layer). */
@@ -218,14 +225,10 @@ function hasThrowPolicy(onMissing: OnMissingPolicy | undefined): boolean {
   return Object.values(onMissing).includes('throw')
 }
 
-/** Runtime predicate for detecting an `I18nTextDescriptor`. */
-export function isI18nTextDescriptor(x: unknown): x is I18nTextDescriptor {
-  return (
-    typeof x === 'object' &&
-    x !== null &&
-    (x as { _noydbI18nText?: unknown })._noydbI18nText === true
-  )
-}
+// `isI18nTextDescriptor` now lives on the kernel port (#623 Task 11,
+// port/with/i18n-strategy.ts, alongside `isStaticDictDescriptor`) —
+// re-exported here for compat with existing importers of this module.
+export { isI18nTextDescriptor } from '../../port/with/i18n-strategy.js'
 
 // ─── Validation helpers ────────────────────────────────────────────────
 
@@ -449,61 +452,13 @@ function pickNearestScript(value: Record<string, string>, target: string): strin
 
 // ─── Path helpers (nested i18nFields like 'address.lineOne') ──────────
 
-/**
- * Return all leaf values at `path`, expanding `[].` array wildcards.
- *
- * - `'name'`              → `[obj.name]`
- * - `'address.lineOne'`   → `[obj.address.lineOne]`
- * - `'contacts[].title'`  → `[obj.contacts[0].title, obj.contacts[1].title, …]`
- *
- * Returns an empty array when the path does not resolve (missing key,
- * wrong type, etc.). Used by `enforceI18nOnPut` to validate nested fields.
- */
-export function getAtPath(obj: Record<string, unknown>, path: string): unknown[] {
-  const arrayIdx = path.indexOf('[].')
-  if (arrayIdx !== -1) {
-    const arrayKey = path.slice(0, arrayIdx)
-    const restPath = path.slice(arrayIdx + 3)
-    const arr = obj[arrayKey]
-    if (!Array.isArray(arr)) return []
-    return arr.flatMap(item => {
-      if (!item || typeof item !== 'object' || Array.isArray(item)) return []
-      return getAtPath(item as Record<string, unknown>, restPath)
-    })
-  }
-  const dotIdx = path.indexOf('.')
-  if (dotIdx !== -1) {
-    const head = path.slice(0, dotIdx)
-    const rest = path.slice(dotIdx + 1)
-    const nested = obj[head]
-    if (!nested || typeof nested !== 'object' || Array.isArray(nested)) return []
-    return getAtPath(nested as Record<string, unknown>, rest)
-  }
-  const val = obj[path]
-  return val !== undefined ? [val] : []
-}
-
-/**
- * Mutate `obj` in-place, setting `value` at the nested `path`.
- * Supports dot notation (`'address.lineOne'`) but not array wildcards —
- * auto-translate on `contacts[].title` style paths is not supported.
- */
-export function setAtPathInPlace(
-  obj: Record<string, unknown>,
-  path: string,
-  value: unknown,
-): void {
-  const dotIdx = path.indexOf('.')
-  if (dotIdx !== -1) {
-    const head = path.slice(0, dotIdx)
-    const rest = path.slice(dotIdx + 1)
-    const nested = obj[head]
-    if (!nested || typeof nested !== 'object' || Array.isArray(nested)) return
-    setAtPathInPlace(nested as Record<string, unknown>, rest, value)
-    return
-  }
-  obj[path] = value
-}
+// `getAtPath`/`setAtPathInPlace` are generic dotted-path/[]-wildcard record
+// helpers, not i18n logic — moved to `kernel/paths.ts` (Task 7, #623).
+// `getAtPath` re-exported here for compat with existing importers of this
+// module (embeddings/descriptor.ts, search/build-docs.ts); `setAtPathInPlace`
+// is not re-exported — its only consumer (via-i18n/binding.ts) imports it
+// directly from kernel/paths.ts.
+export { getAtPath } from '../../kernel/paths.js'
 
 /** Recursively resolve i18nText at a single path within a record copy. */
 function applyAtPath(

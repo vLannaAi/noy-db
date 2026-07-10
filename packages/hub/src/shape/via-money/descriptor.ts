@@ -17,7 +17,7 @@
 import type { RoundingMode } from './fixed-point.js'
 import { scaleForCurrency } from './iso4217.js'
 import { NoydbError } from '../../kernel/errors.js'
-import { linkMoneyEngine } from './engine.js'
+import { linkMoneyVia } from './binding.js'
 
 export interface MoneyOptionsFixed {
   currency: string
@@ -37,6 +37,8 @@ export type MoneyOptions = MoneyOptionsFixed | MoneyOptionsMulti
 
 export interface MoneyDescriptor {
   readonly _noydbMoney: true
+  /** Via port brand marker — lets a `MoneyDescriptor` satisfy the kernel's opaque `ViaDescriptor`. */
+  readonly _viaBrand: 'money'
   readonly mode: 'fixed' | 'multi'
   readonly options: MoneyOptions
   readonly rounding: RoundingMode | undefined
@@ -109,11 +111,11 @@ function isMultiOptions(o: MoneyOptions): o is MoneyOptionsMulti {
 
 /** Create a {@link MoneyDescriptor}. */
 export function money(options: MoneyOptions): MoneyDescriptor {
-  // The declaration is the engine's opt-in unit (#553): constructing a
-  // descriptor statically links normalize/paths/where/money-reducer into
-  // the kernel's runtime seam, so every later kernel consultation
-  // (including the SYNC query DSL) finds the engine already present.
-  linkMoneyEngine()
+  // The declaration is the Via binding's opt-in unit (#553): constructing
+  // a descriptor statically links normalize/paths/where/money-reducer into
+  // the kernel's Via port, so every later kernel consultation (including
+  // the SYNC query DSL) finds the binding already installed.
+  linkMoneyVia()
   const hasFixed = 'currency' in options
   const hasMulti = 'currencies' in options
   if (hasFixed && hasMulti) {
@@ -142,6 +144,7 @@ export function money(options: MoneyOptions): MoneyDescriptor {
       allowList !== 'any' && allowList.length === 1 ? allowList[0] : undefined
     return {
       _noydbMoney: true,
+      _viaBrand: 'money',
       mode: 'multi',
       options,
       rounding,
@@ -160,6 +163,7 @@ export function money(options: MoneyOptions): MoneyDescriptor {
   }
   return {
     _noydbMoney: true,
+    _viaBrand: 'money',
     mode: 'fixed',
     options,
     rounding,

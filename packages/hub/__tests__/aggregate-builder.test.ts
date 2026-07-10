@@ -8,7 +8,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb, sum, count, moneySum } from '../src/index.js'
 import { withAggregate } from '../src/with-lookup/aggregate/index.js'
-import { money } from '../src/with-shape/money/descriptor.js'
+import { money } from '../src/shape/via-money/descriptor.js'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 
 function memory(): NoydbStore {

@@ -411,6 +411,8 @@ function scanFileForStrategyOptIn(file, content) {
 // Rule: every `with-<dim>/<service>/` sub-folder — and every `with-<dim>`
 // dim that has NO sub-folders (the dim IS the service, e.g. with-cargo) —
 // must export a `with*()` factory, UNLESS it is on the exempt list below.
+// `shape/` (the Via port's non-`with-*` service root, e.g. shape/via-money)
+// is scanned the same way as a `with-<dim>` namespace dim (#623).
 //
 // Exemptions (verified 2026-07-02) fall in three buckets:
 //   ③ schema features — declared on `collection({ … })`, not a global
@@ -420,7 +422,7 @@ function scanFileForStrategyOptIn(file, content) {
 //       with-shape/classified          classifiedFields declaration (sealed + riders)
 //       with-shape/introspection       describe()/dumpVaultSchema — read-only schema surface
 //       with-shape/links               link()/backlink schema refs
-//       with-shape/money               money() field descriptor
+//       shape/via-money                money() field descriptor
 //       with-shape/persisted-schemas   schema-persistence infra behind collection()
 //       with-shape/schema-update       per-collection migration strategies
 //   always-on infra — no discrete capability to gate:
@@ -443,7 +445,7 @@ const SCHEMA_DECLARED_OR_INFRA_EXEMPT = new Set([
   'with-shape/classified',
   'with-shape/introspection',
   'with-shape/links',
-  'with-shape/money',
+  'shape/via-money',
   'with-shape/persisted-schemas',
   'with-shape/schema-update',
   // #591 satellites — satelliteOf/fields/joined declaration on collection(); joined handle via vault.joined()
@@ -490,7 +492,7 @@ function requireServiceGate(id, dir) {
 function checkEveryServiceGated() {
   const hubSrc = join(PACKAGES_DIR, 'hub', 'src')
   const dims = readdirSync(hubSrc, { withFileTypes: true })
-    .filter(e => e.isDirectory() && e.name.startsWith('with-'))
+    .filter(e => e.isDirectory() && (e.name.startsWith('with-') || e.name === 'shape'))
   for (const dim of dims) {
     const dimPath = join(hubSrc, dim.name)
     const subFolders = readdirSync(dimPath, { withFileTypes: true })
@@ -706,7 +708,16 @@ const KERNEL_SURFACE_BUDGET = {
   // which could disagree with it (lazy mode, uncached record, history disabled) and
   // desync the dirty entry's version from the marker actually written. Also dedupes
   // the `previousEnvelope`/`live` reads into one `adapter.get`.
-  'packages/hub/src/kernel/collection.ts': 4705,
+  // Lowered 4705→4473 (2026-07-11, Task 11 re-ratchet, #623 via-port arc):
+  // net −232 from the 4705 peak. The arc moved money/i18n's write/read
+  // cutover onto the ViaPipeline (7c885b87, 5e44df6b, 598e8ac6), relocated
+  // with-shape/money → shape/via-money and with-shape/i18n → shape/via-i18n
+  // (9361663c, 43765b56), and extracted generic path utils to kernel/paths
+  // (57851399) — so the inline quantize/decode/locale logic this file used
+  // to carry left the kernel spine for the shape/via-* feature layer. Locked
+  // in to the ACTUAL measured line count (readFileSync(...).split('\n').length)
+  // — no slack.
+  'packages/hub/src/kernel/collection.ts': 4473,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
@@ -905,7 +916,17 @@ const KERNEL_SURFACE_BUDGET = {
   // (from `_purgeDeleteMarkers`), the `_purgePeriodTargets` seam, `getPurgeableTargets`
   // option/field/default, and the `purgePeriodTargets` delegator (mirrors archivePeriod).
   // Bumped 4082→4084 (2026-07-10, #615 review M1): refreshed the _purgeDeleteMarkers doc comment (pure doc growth, no behavior change).
-  'packages/hub/src/kernel/vault.ts': 4084,
+  // Bumped 4084→4095 (2026-07-11, #623 Task 8: i18n cutover onto the Via pipeline):
+  // `enforceI18nOnPut`/`enforceStaticDictOnPut` each gained an `isViaInstalled('i18n')`
+  // delegation guard + 9 docstring lines across the two validator delegators explaining it (+11). The two methods' bodies
+  // are otherwise unchanged — the inline i18n write/present duplication this task
+  // removes lived in collection.ts, not here.
+  // Lowered 4095→4094 (2026-07-11, Task 11 re-ratchet, #623 via-port arc):
+  // cc9d5830's origin-tagged mutation choke point (kernel/mutation.ts's
+  // MutationOrigin + Collection._onRecordMutated dispatch socket for phase
+  // C) trimmed vault.ts by one net line as part of the same commit. Locked
+  // in to the ACTUAL measured line count — no slack.
+  'packages/hub/src/kernel/vault.ts': 4094,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
@@ -1164,12 +1185,8 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/classified/resolve.js',
     // classified-fields stage 1 — ② capability gate, mirrors attestationStrategy/tiersStrategy threading
     '../with-shape/classified/strategy.js',
-    '../with-shape/i18n/core.js',
-    '../with-shape/i18n/dictionary.js',
-    '../with-shape/i18n/strategy.js',
     '../with-shape/introspection/field-meta.js',
     '../with-shape/introspection/meta.js',
-    '../with-shape/money/descriptor.js',
     '../with-shape/schema-update/fence-controller.js',
     '../with-shape/schema-update/gate.js',
   ]],
@@ -1226,15 +1243,10 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     // classified stage 2 Task 13 (2026-07-04) — refusal matrix R1-R5 guard at
     // door 2 (the _applyClassifiedFields reconcile seam); pure validation, same ③ class as resolve.js
     '../with-shape/classified/guards.js',
-    '../with-shape/i18n/core.js',
-    '../with-shape/i18n/dictionary.js',
-    '../with-shape/i18n/policy.js',
-    '../with-shape/i18n/strategy.js',
     '../with-shape/introspection/describe.js',
     '../with-shape/introspection/field-meta.js',
     '../with-shape/introspection/meta.js',
     '../with-shape/introspection/types.js',
-    '../with-shape/money/descriptor.js',
     '../with-shape/persisted-schemas/derive.js',
     '../with-shape/schema-update/fence-controller.js',
     '../with-shape/schema-update/gate.js',
@@ -1306,10 +1318,6 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/blobs/strategy.js',
     // classified-fields stage 1 — ② capability gate, mirrors attestationStrategy/tiersStrategy threading
     '../with-shape/classified/strategy.js',
-    '../with-shape/i18n/policy.js',
-    '../with-shape/i18n/script.js',
-    '../with-shape/i18n/strategy.js',
-    '../with-shape/money/descriptor.js',
     '../port/by/types.js',
   ]],
   ['packages/hub/src/kernel/vault.ts', [
@@ -1374,9 +1382,6 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/classified/resolve.js',
     // classified-fields stage 1 — ② capability gate, mirrors attestationStrategy/tiersStrategy threading
     '../with-shape/classified/strategy.js',
-    '../with-shape/i18n/core.js',
-    '../with-shape/i18n/dictionary.js',
-    '../with-shape/i18n/strategy.js',
     '../with-shape/introspection/field-meta.js',
     '../with-shape/introspection/meta.js',
     '../with-shape/introspection/types.js',
@@ -1406,7 +1411,6 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../../with-lookup/aggregate/reducers.js',
     '../../with-lookup/aggregate/strategy.js',
     '../../with-lookup/indexing/eager-indexes.js',
-    '../../with-shape/money/descriptor.js',
   ]],
   ['packages/hub/src/kernel/query/index.ts', [
     '../../with-lookup/aggregate/aggregation.js',
@@ -1415,20 +1419,11 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../../with-lookup/indexing/eager-indexes.js',
   ]],
   ['packages/hub/src/kernel/query/join.ts', [
-    '../../with-shape/i18n/core.js',
-  ]],
-  ['packages/hub/src/kernel/money-runtime.ts', [
-    // #553 -- TYPE-only (erased) import of the MoneyEngine interface; the
-    // engine values are linked at runtime by money() via installMoneyEngine()
-    '../with-shape/money/engine.js',
-  ]],
-  ['packages/hub/src/kernel/query/predicate.ts', [
-    '../../with-shape/money/where.js',
+    '../../shape/via-i18n/core.js',
   ]],
   ['packages/hub/src/kernel/query/scan-builder.ts', [
     '../../with-lookup/aggregate/aggregation.js',
     '../../with-lookup/aggregate/reducers.js',
-    '../../with-shape/money/descriptor.js',
   ]],
   ['packages/hub/src/kernel/enclave/record-keys/record-codec.ts', [
     '../../../with-commit/crdt/crdt.js',
@@ -1677,7 +1672,7 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   ['packages/hub/src/with-pod/bundle.ts', 2],
   ['packages/hub/src/with-shape/blobs/blob-compaction.ts', 4],
   ['packages/hub/src/with-shape/blobs/blob-set.ts', 33],
-  ['packages/hub/src/with-shape/i18n/dictionary.ts', 5],
+  ['packages/hub/src/shape/via-i18n/dictionary.ts', 5],
   ['packages/hub/src/with-shape/introspection/walk.ts', 1],
   ['packages/hub/src/with-shape/links/link-set.ts', 5],
   ['packages/hub/src/with-shape/persisted-schemas/storage.ts', 2],
@@ -1823,6 +1818,126 @@ function checkEnclaveClassifyIndexOnly() {
   })
 }
 
+// ─── Check 14: via-layering (#623 — kernel-spine ↔ src/shape/via-* boundary) ──
+//
+// The Via port converged money/i18n features out of collection.ts/vault.ts
+// into src/shape/via-money/ and src/shape/via-i18n/ — a sibling family to
+// with-*, not a with-* service itself, so Check 9 (port-layering) never
+// restricted it: its fail predicate only matches `with-*` and `port/`
+// targets (see that check's own doc comment). This check closes that gap
+// for the kernel-spine → shape/ direction, mirroring Check 9's mechanics
+// exactly (same spine walk, same per-specifier grandfather semantics):
+//
+//   no file under packages/hub/src/kernel/** may statically import from
+//   src/shape/**, EXCEPT the frozen baseline in VIA_SHAPE_ALLOWLIST below.
+//   Grandfathered PER IMPORT SPECIFIER, not per file — a listed file
+//   adding a NEW shape/ import outside its frozen list still fails.
+//
+// via-compose.ts (#623 Task 9) originally needed a second grandfathered
+// entry here — its descriptor-shape classification (`mergeViaFields`)
+// imported I18nTextDescriptor/DictKeyDescriptor/StaticDictDescriptor + the
+// isX predicates straight from shape/via-i18n/*. Task 11's fix wave routed
+// those through the port instead (isI18nTextDescriptor/isDictKeyDescriptor
+// moved onto port/with/i18n-strategy.ts beside isStaticDictDescriptor; the
+// descriptor types were already port-owned re-exports from Task 8), so
+// via-compose.ts now imports zero `shape/` specifiers and the allowlist
+// below holds exactly the one #626 baseline the original brief specified.
+//
+// The reverse direction — no file under src/shape/via-* may import
+// kernel/enclave/ (crypto should reach features only via ctx, not a direct
+// enclave-barrel import) — is enforced separately by Check 15
+// (via-enclave-isolation) below.
+
+const VIA_SHAPE_ALLOWLIST = new Map([
+  // #626: the one join-layer i18n exception (comment lives at the import
+  // site in join.ts) — join-layer i18n is sync + i18n-text-only; converging
+  // it onto the Via seam is #626's job.
+  ['packages/hub/src/kernel/query/join.ts', ['../../shape/via-i18n/core.js']],
+])
+
+function checkViaLayering() {
+  const hubSrc = join(PACKAGES_DIR, 'hub', 'src')
+  const kernelDir = join(hubSrc, 'kernel')
+
+  const spineFiles = []
+  walkTsFiles(kernelDir, (file) => spineFiles.push(file))
+  for (const file of spineFiles) {
+    const rel = relative(ROOT, file)
+    const allowedImports = VIA_SHAPE_ALLOWLIST.get(rel)
+    const code = stripComments(readFileSync(file, 'utf8'))
+    for (const m of code.matchAll(STATIC_IMPORT_FROM_RE)) {
+      const spec = m[1]
+      if (!spec.startsWith('.')) continue // only relative imports resolve inside hub/src
+      if (allowedImports?.includes(spec)) continue // frozen baseline import — grandfathered
+      const target = importTargetRelToHubSrc(file, spec, hubSrc)
+      if (/^shape\//.test(target)) {
+        fail(
+          'via-layering',
+          `${rel} statically imports feature-layer path "${spec}" — the kernel spine may not reach into src/shape/** (the Via port's feature layer) except the frozen #626 baseline in VIA_SHAPE_ALLOWLIST. Route through the Via port (kernel/via.ts) instead.`,
+          file,
+        )
+      }
+    }
+  }
+}
+
+// ─── Check 15: via-enclave-isolation (#623 — src/shape/via-* → kernel/enclave/ ban) ──
+//
+// The reverse direction from Check 14: no file under src/shape/via-*/**
+// (the Via port's feature layer — via-money, via-i18n) may statically
+// import kernel/enclave/ — crypto should reach a feature only via ctx
+// (phase B's ViaCryptoCtx, milestone #28), never a direct enclave-barrel
+// import. This is STRICTER than Check 10 (enclave-barrel-only), which only
+// bans reaching *past* the barrel; importing the barrel itself
+// (kernel/enclave/index.js) from anywhere outside kernel/enclave/** is
+// explicitly Check-10-legal. Check 15 additionally bans via-*/** from
+// importing the barrel at all.
+//
+// VIA_ENCLAVE_ALLOWLIST holds one explicit, reviewed grandfather:
+// shape/via-i18n/dictionary.ts's DictionaryHandle (encrypt/openEnvelopeJson
+// for _dict_* entry envelopes) predates #623 — verified via
+// `git show 43765b56^:packages/hub/src/with-shape/i18n/dictionary.ts`, the
+// identical import was already there before the #623 arc even started, at
+// the file's pre-move path. Grandfathered PER IMPORT SPECIFIER, same
+// semantics as VIA_SHAPE_ALLOWLIST — do not add new entries; a listed
+// file's other imports, and every other via-*/** file, must stay clean.
+
+const VIA_ENCLAVE_ALLOWLIST = new Map([
+  // PRE-EXISTING (predates #623): DictionaryHandle is vault-grain _dict_*
+  // machinery squatting in the feature folder; phase B's ViaCryptoCtx
+  // (milestone #28) owns rerouting it — do not add new entries.
+  ['packages/hub/src/shape/via-i18n/dictionary.ts', ['../../kernel/enclave/index.js']],
+])
+
+function checkViaEnclaveIsolation() {
+  const hubSrc = join(PACKAGES_DIR, 'hub', 'src')
+  const shapeDir = join(hubSrc, 'shape')
+
+  const viaDirs = readdirSync(shapeDir, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && e.name.startsWith('via-'))
+
+  for (const dim of viaDirs) {
+    walkTsFiles(join(shapeDir, dim.name), (file, content) => {
+      const rel = relative(ROOT, file)
+      const allowedImports = VIA_ENCLAVE_ALLOWLIST.get(rel)
+      const code = stripComments(content)
+      for (const m of code.matchAll(STATIC_IMPORT_FROM_RE)) {
+        const spec = m[1]
+        if (!spec.startsWith('.')) continue // only relative imports resolve inside hub/src
+        if (allowedImports?.includes(spec)) continue // frozen baseline import — grandfathered
+        const target = importTargetRelToHubSrc(file, spec, hubSrc)
+        if (target.startsWith('kernel/enclave/')) {
+          fail(
+            'via-enclave-isolation',
+            `${rel} statically imports enclave path "${spec}" — src/shape/via-*/** (the Via port's feature layer) may not reach kernel/enclave/ directly, not even the barrel; crypto should reach a feature only via ctx (phase B's ViaCryptoCtx, milestone #28), except the frozen baseline in VIA_ENCLAVE_ALLOWLIST.`,
+            file,
+          )
+        }
+      }
+    })
+  }
+}
+
 // ─── Run ───────────────────────────────────────────────────────────────
 
 const startTime = Date.now()
@@ -1841,6 +1956,8 @@ checkEnclaveBarrelOnly()
 checkEnclaveBodyOnly()
 checkEnclaveClassifyOnly()
 checkEnclaveClassifyIndexOnly()
+checkViaLayering()
+checkViaEnclaveIsolation()
 
 const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
 

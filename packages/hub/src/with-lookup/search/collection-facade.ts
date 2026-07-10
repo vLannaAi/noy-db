@@ -23,8 +23,8 @@
  */
 import type { NoydbStore } from '../../kernel/types.js'
 import type { RecordCodec } from '../../kernel/enclave/index.js'
-import { stripI18nFilled, type I18nTextDescriptor } from '../../with-shape/i18n/core.js'
-import { isStaticDictDescriptor, type DictKeyDescriptor, type StaticDictDescriptor, type DictionaryHandle } from '../../with-shape/i18n/dictionary.js'
+import { stripI18nFilled, type I18nTextDescriptor } from '../../shape/via-i18n/core.js'
+import { isStaticDictDescriptor, type DictKeyDescriptor, type StaticDictDescriptor, type DictionaryHandle } from '../../shape/via-i18n/dictionary.js'
 import type { BlobSet } from '../../with-shape/blobs/blob-set.js'
 import type { BlobFieldsConfig } from '../../with-shape/blobs/blob-compaction.js'
 import type { Query } from '../../kernel/query/index.js'

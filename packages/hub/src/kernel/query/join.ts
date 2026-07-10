@@ -48,7 +48,8 @@
 import type { RefDescriptor, RefMode } from '../refs.js'
 import { readPath } from './predicate.js'
 import { JoinTooLargeError, DanglingReferenceError } from '../errors.js'
-import { applyI18nLocale, type I18nTextDescriptor } from '../../with-shape/i18n/core.js'
+// #626: the ONE sanctioned kernel→shape/ import — join-layer i18n is sync + i18n-text-only; converging it onto the Via seam is #626 (Check 9 grandfathers exactly this line).
+import { applyI18nLocale, type I18nTextDescriptor } from '../../shape/via-i18n/core.js'
 
 /** Planner strategy for a single join leg. Auto-selected unless overridden. */
 export type JoinStrategy = 'hash' | 'nested'
