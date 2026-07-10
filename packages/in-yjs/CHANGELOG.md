@@ -1,5 +1,15 @@
 # Changelog — in-yjs
 
+## 1.0.0-pre.8
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.3.0-pre.8
+
 ## 1.0.0-pre.7
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/at-env",
-  "version": "0.3.0-pre.7",
+  "version": "0.3.0-pre.8",
   "description": "Env-var sealing key provider for noy-db managed-passphrase mode — AES-256-GCM under a key from process.env. Smallest production-shape provider; pair with Kubernetes Secrets / Heroku env / AWS Secrets Manager.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
