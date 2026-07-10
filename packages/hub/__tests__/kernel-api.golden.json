@@ -79,6 +79,7 @@
     "abortSchemaCutover",
     "applyLocale",
     "archive",
+    "archivePeriod",
     "assertCanExport",
     "assertCanImport",
     "at",

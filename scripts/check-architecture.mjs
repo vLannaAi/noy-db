@@ -899,7 +899,9 @@ const KERNEL_SURFACE_BUDGET = {
   // local-adapter-only-purge / #589 resurrection-window caveat onto the
   // `freezePeriod` delegator's docstring (trimmed from the shipped version).
   // No behavior change.
-  'packages/hub/src/kernel/vault.ts': 4010,
+  // Bumped 4010→4042 (2026-07-10, #613 period archive): `_archiveClosedPeriod`
+  // seam + `archivePeriod` delegator (pure additive, mirrors freezePeriod).
+  'packages/hub/src/kernel/vault.ts': 4042,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),

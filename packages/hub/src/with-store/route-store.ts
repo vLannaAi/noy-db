@@ -614,7 +614,7 @@ export function routeStore(opts: RouteStoreOptions): RoutedNoydbStore {
       let migrated = 0
       const collections = opts.age.collections?.length
         ? opts.age.collections
-        : await primary.list(vault, '').catch(() => [] as string[])
+        : Object.keys(await primary.loadAll(vault).catch(() => ({}) as VaultSnapshot))
 
       for (const collection of collections) {
         const ids = await primary.list(vault, collection).catch(() => [] as string[])
