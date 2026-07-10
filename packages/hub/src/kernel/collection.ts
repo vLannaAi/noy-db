@@ -12,7 +12,8 @@ import { getAtPath, setAtPathInPlace, stripI18nFilled } from '../with-shape/i18n
 import type { DictKeyDescriptor, StaticDictDescriptor, DictionaryHandle } from '../with-shape/i18n/dictionary.js'
 import { isStaticDictDescriptor } from '../with-shape/i18n/dictionary.js'
 import type { MoneyDescriptor } from '../shape/via-money/descriptor.js'
-import { moneyRuntime } from './money-runtime.js'
+import { ViaPipeline } from './via-pipeline.js'
+import { viaBinder } from './via.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
 import { enforceClassifiedWrite } from '../with-shape/classified/write.js'
 import type { I18nStrategy } from '../with-shape/i18n/strategy.js'
@@ -424,6 +425,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * can attach descriptors to a collection MV-analysis pre-created.
    */
   private moneyFields: Record<string, MoneyDescriptor> | undefined
+  private via: ViaPipeline | undefined // compiled Via pipeline (money now; i18n later); rebuilt by {@link _applyMoneyFields}
 
   /**
    * Computed scalar fields, evaluated first on every `put()`. Mutable for
@@ -749,6 +751,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     this.meta = cfg.meta
     this._refs = cfg._refs
     this.moneyFields = cfg.moneyFields
+    this.via = cfg.via
     this.classified = cfg.classified
     this.classifiedGuardCtx = cfg.classifiedGuardCtx
     this.vdigFields = cfg.vdigFields
@@ -1343,8 +1346,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    */
   _applyMoneyFields(moneyFields: Record<string, MoneyDescriptor>): void {
     if (this.moneyFields !== undefined) return
-    moneyRuntime().validateMoneyFieldPaths(moneyFields)
     this.moneyFields = moneyFields
+    this.via = ViaPipeline.build([...(this.via?.bindings ?? []), viaBinder('money')(moneyFields)])
   }
 
   /** @internal — attach computed fields post-construction. See {@link _applyMoneyFields}. */
@@ -1766,7 +1769,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // gates, computed fields, and schema validation all see the decoded
     // `get()` shape. Best-effort — bad input passes through and the
     // quantize stage below throws the real error.
-    if (this.moneyFields) record = moneyRuntime().canonicalizeIncomingMoney(record, this.moneyFields) as T
+    if (this.via) record = this.via.ingest(record as Record<string, unknown>) as T
 
     // Gate bus (Track A) — write-gating services (guards: record-lock /
     // field-freeze / amendment-collect; periods: closed-period guard) run here,
@@ -1780,7 +1783,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         op: existingEnv ? 'update' : 'create',
         vault: this.vault, collection: this.name, docId: id,
         incoming: record,
-        existing: this.moneyFields ? moneyRuntime().canonicalizeStoredMoney(existingRecord, this.moneyFields) : existingRecord,
+        existing: this.via ? this.via.canonicalizeStored(existingRecord as Record<string, unknown>) : existingRecord,
         existingVersion: existingEnv?._v ?? 0,
         existingTs: existingEnv?._ts,
         userId: this.keyring.userId,
@@ -1818,9 +1821,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
     // Quantize money fields to their stored form (scaled-int string).
     // After schema validation — descriptor owns precision/scale/currency.
-    if (this.moneyFields) {
-      record = moneyRuntime().quantizeMoneyFields(record as Record<string, unknown>, this.moneyFields) as T
-    }
+    const writeCtx = { id, prior: async () => null, emit: (e: string, p: unknown) => (this.emitter.emit as (ev: string, pl: unknown) => void)(e, p) } // Task 8 wires prior
+    if (this.via) record = await this.via.encodeWrite(record as Record<string, unknown>, writeCtx) as T
 
     // Auto-translate missing i18nText translations.
     // Runs BEFORE i18n validation so translated values satisfy the
@@ -2339,7 +2341,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       raw = (await this.resolvePriorValues(id))?.record ?? null
     }
     if (raw === null) return null
-    return (this.moneyFields ? moneyRuntime().canonicalizeStoredMoney(raw, this.moneyFields) : raw) as T
+    return (this.via ? this.via.canonicalizeStored(raw as Record<string, unknown>) : raw) as T
   }
 
   /**
@@ -2436,7 +2438,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     if (this.derivationSource === undefined) return
     // `record` is the stored form here (post-quantize) — decode so
     // derive(source, ctx) sees the canonical money shape.
-    const incoming = (this.moneyFields ? moneyRuntime().canonicalizeStoredMoney(record, this.moneyFields) : record) as Record<string, unknown>
+    const incoming = (this.via ? this.via.canonicalizeStored(record as Record<string, unknown>) : record) as Record<string, unknown>
     if (incoming && typeof incoming === 'object' && '_derivedFrom' in incoming) return
     const registry = this.derivationSource.registry()
     const strategies = registry.strategiesForSource(this.name)
@@ -2804,7 +2806,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       if (existingEnv || elided) {
         await this.subsystemBus.dispatchGate('beforeDelete', {
           vault: this.vault, collection: this.name, docId: id,
-          existing: this.moneyFields ? moneyRuntime().canonicalizeStoredMoney(existingRecord, this.moneyFields) : existingRecord,
+          existing: this.via ? this.via.canonicalizeStored(existingRecord as Record<string, unknown>) : existingRecord,
           existingVersion: existingEnv?._v ?? 0,
           existingTs: existingEnv?._ts,
           internal,
@@ -4172,14 +4174,13 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     if (!hasI18n && !hasDict && !hasMoney) return record
 
     const locale = localeOpts?.locale ?? this.defaultLocale
+    const layer = localeOpts?._layer ?? 'read'
 
     let result = record as unknown as Record<string, unknown>
 
     // Money decode runs regardless of locale (stored int → decimal string);
     // virtuals are gated on `locale !== 'raw'` inside decodeMoneyFields.
-    if (hasMoney && this.moneyFields) {
-      result = moneyRuntime().decodeMoneyFields(result, this.moneyFields, typeof locale === 'string' ? locale : undefined)
-    }
+    if (this.via) result = await this.via.present(result, { locale, ...(localeOpts?.fallback !== undefined ? { fallback: localeOpts.fallback } : {}), layer })
 
     // i18nText / dictKey resolution require an active locale — EXCEPT a
     // static dict declaring a `displayLocale`, which resolves its
@@ -4205,7 +4206,6 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // The layer (`'read'` by default; `'guard'`/`'derivation'` when read
     // through a layer-tagged facade) selects the field's per-layer
     // `onMissing` policy inside applyI18nLocale.
-    const layer = localeOpts?._layer ?? 'read'
     if (locale && hasI18n && this.i18nFields) {
       result = this.i18nStrategy.applyI18nLocale(result, this.i18nFields, locale, localeOpts?.fallback, layer)
     }
