@@ -1,9 +1,9 @@
 /** #435 F1 — densifyOnWrite. */
 import { describe, it, expect } from 'vitest'
-import { i18nText, applyI18nLocale } from '../src/with-shape/i18n/core.js'
-import { computeExemptFills, densify } from '../src/with-shape/i18n/densify.js'
-import { withI18n } from '../src/with-shape/i18n/index.js'
-import { NO_I18N } from '../src/with-shape/i18n/strategy.js'
+import { i18nText, applyI18nLocale } from '../src/shape/via-i18n/core.js'
+import { computeExemptFills, densify } from '../src/shape/via-i18n/densify.js'
+import { withI18n } from '../src/shape/via-i18n/index.js'
+import { NO_I18N } from '../src/shape/via-i18n/strategy.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { withSearch } from '../src/index.js'
 import type { Noydb } from '../src/kernel/noydb.js'

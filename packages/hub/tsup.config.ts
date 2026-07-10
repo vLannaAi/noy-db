@@ -20,7 +20,7 @@ import { defineConfig } from 'tsup'
  */
 const ENTRIES = {
   index: 'src/index.ts',
-  'i18n/index': 'src/with-shape/i18n/index.ts',
+  'i18n/index': 'src/shape/via-i18n/index.ts',
   'team/index': 'src/with-party/team/index.ts',
   'session/index': 'src/with-party/session/index.ts',
   'history/index': 'src/with-commit/history/index.ts',

@@ -74,7 +74,7 @@ import { GroupCardinalityError } from '../../kernel/errors.js'
 import type { MoneyDescriptor } from '../../shape/via-money/descriptor.js'
 import type { ViaPipeline } from '../../kernel/via-pipeline.js'
 import { viaBinder } from '../../kernel/via.js'
-import { applyI18nLocale, type I18nTextDescriptor } from '../../with-shape/i18n/core.js'
+import { applyI18nLocale, type I18nTextDescriptor } from '../../shape/via-i18n/core.js'
 
 /**
  * Cardinality thresholds for `.groupBy()`. The warn threshold gives

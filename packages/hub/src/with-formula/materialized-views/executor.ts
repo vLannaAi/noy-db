@@ -7,7 +7,7 @@ import type { RegisteredMV } from './registry.js'
 import { wrapDbWithPredicates } from './registry.js'
 import { groupAndReduce } from '../../with-lookup/aggregate/groupby.js'
 import { canonicalGroupKey } from '../../with-lookup/aggregate/canonical-key.js'
-import { applyI18nLocale, type I18nTextDescriptor } from '../../with-shape/i18n/core.js'
+import { applyI18nLocale, type I18nTextDescriptor } from '../../shape/via-i18n/core.js'
 
 /**
  * Accessor shape passed in from the owning Vault. Mirrors v1's

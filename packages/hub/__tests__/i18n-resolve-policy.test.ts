@@ -7,7 +7,7 @@
  * - locale:'raw' → return the map; legacy 4-arg form unchanged
  */
 import { describe, it, expect } from 'vitest'
-import { resolveI18nText } from '../src/with-shape/i18n/core.js'
+import { resolveI18nText } from '../src/shape/via-i18n/core.js'
 
 const v = { th: 'สมชาย' }
 

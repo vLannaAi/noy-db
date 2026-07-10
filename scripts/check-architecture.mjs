@@ -1166,9 +1166,9 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/classified/resolve.js',
     // classified-fields stage 1 — ② capability gate, mirrors attestationStrategy/tiersStrategy threading
     '../with-shape/classified/strategy.js',
-    '../with-shape/i18n/core.js',
-    '../with-shape/i18n/dictionary.js',
-    '../with-shape/i18n/strategy.js',
+    '../shape/via-i18n/core.js',
+    '../shape/via-i18n/dictionary.js',
+    '../shape/via-i18n/strategy.js',
     '../with-shape/introspection/field-meta.js',
     '../with-shape/introspection/meta.js',
     '../with-shape/schema-update/fence-controller.js',
@@ -1227,10 +1227,10 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     // classified stage 2 Task 13 (2026-07-04) — refusal matrix R1-R5 guard at
     // door 2 (the _applyClassifiedFields reconcile seam); pure validation, same ③ class as resolve.js
     '../with-shape/classified/guards.js',
-    '../with-shape/i18n/core.js',
-    '../with-shape/i18n/dictionary.js',
-    '../with-shape/i18n/policy.js',
-    '../with-shape/i18n/strategy.js',
+    '../shape/via-i18n/core.js',
+    '../shape/via-i18n/dictionary.js',
+    '../shape/via-i18n/policy.js',
+    '../shape/via-i18n/strategy.js',
     '../with-shape/introspection/describe.js',
     '../with-shape/introspection/field-meta.js',
     '../with-shape/introspection/meta.js',
@@ -1306,9 +1306,9 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/blobs/strategy.js',
     // classified-fields stage 1 — ② capability gate, mirrors attestationStrategy/tiersStrategy threading
     '../with-shape/classified/strategy.js',
-    '../with-shape/i18n/policy.js',
-    '../with-shape/i18n/script.js',
-    '../with-shape/i18n/strategy.js',
+    '../shape/via-i18n/policy.js',
+    '../shape/via-i18n/script.js',
+    '../shape/via-i18n/strategy.js',
     '../port/by/types.js',
   ]],
   ['packages/hub/src/kernel/vault.ts', [
@@ -1373,9 +1373,9 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/classified/resolve.js',
     // classified-fields stage 1 — ② capability gate, mirrors attestationStrategy/tiersStrategy threading
     '../with-shape/classified/strategy.js',
-    '../with-shape/i18n/core.js',
-    '../with-shape/i18n/dictionary.js',
-    '../with-shape/i18n/strategy.js',
+    '../shape/via-i18n/core.js',
+    '../shape/via-i18n/dictionary.js',
+    '../shape/via-i18n/strategy.js',
     '../with-shape/introspection/field-meta.js',
     '../with-shape/introspection/meta.js',
     '../with-shape/introspection/types.js',
@@ -1413,7 +1413,7 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../../with-lookup/indexing/eager-indexes.js',
   ]],
   ['packages/hub/src/kernel/query/join.ts', [
-    '../../with-shape/i18n/core.js',
+    '../../shape/via-i18n/core.js',
   ]],
   ['packages/hub/src/kernel/query/scan-builder.ts', [
     '../../with-lookup/aggregate/aggregation.js',
@@ -1666,7 +1666,7 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   ['packages/hub/src/with-pod/bundle.ts', 2],
   ['packages/hub/src/with-shape/blobs/blob-compaction.ts', 4],
   ['packages/hub/src/with-shape/blobs/blob-set.ts', 33],
-  ['packages/hub/src/with-shape/i18n/dictionary.ts', 5],
+  ['packages/hub/src/shape/via-i18n/dictionary.ts', 5],
   ['packages/hub/src/with-shape/introspection/walk.ts', 1],
   ['packages/hub/src/with-shape/links/link-set.ts', 5],
   ['packages/hub/src/with-shape/persisted-schemas/storage.ts', 2],

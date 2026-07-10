@@ -7,16 +7,16 @@ import { guardClassifiedCompat, type ClassifiedGuardCtx } from '../with-shape/cl
 import type { ClassifiedStrategy, ClassifiedVerifyCtx } from '../with-shape/classified/strategy.js'
 import type { CrdtMode, CrdtState, LwwMapState, RgaState } from '../with-commit/crdt/crdt.js'
 import type { CrdtStrategy } from '../with-commit/crdt/strategy.js'
-import type { I18nTextDescriptor } from '../with-shape/i18n/core.js'
-import { getAtPath, setAtPathInPlace, stripI18nFilled } from '../with-shape/i18n/core.js'
-import type { DictKeyDescriptor, StaticDictDescriptor, DictionaryHandle } from '../with-shape/i18n/dictionary.js'
-import { isStaticDictDescriptor } from '../with-shape/i18n/dictionary.js'
+import type { I18nTextDescriptor } from '../shape/via-i18n/core.js'
+import { getAtPath, setAtPathInPlace, stripI18nFilled } from '../shape/via-i18n/core.js'
+import type { DictKeyDescriptor, StaticDictDescriptor, DictionaryHandle } from '../shape/via-i18n/dictionary.js'
+import { isStaticDictDescriptor } from '../shape/via-i18n/dictionary.js'
 import { ViaPipeline } from './via-pipeline.js'
 import { viaBinder, type ViaDescriptor } from './via.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
 import { enforceClassifiedWrite } from '../with-shape/classified/write.js'
-import type { I18nStrategy } from '../with-shape/i18n/strategy.js'
-import { resolvePolicy } from '../with-shape/i18n/policy.js'
+import type { I18nStrategy } from '../shape/via-i18n/strategy.js'
+import { resolvePolicy } from '../shape/via-i18n/policy.js'
 import {
   isTombstone,
   isDeleteMarker,

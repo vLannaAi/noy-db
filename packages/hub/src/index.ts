@@ -822,13 +822,13 @@ export {
   dictCollectionName,
   DictionaryHandle,
   DICT_COLLECTION_PREFIX,
-} from './with-shape/i18n/dictionary.js'
+} from './shape/via-i18n/dictionary.js'
 export type {
   DictKeyDescriptor,
   StaticDictDescriptor,
   DictEntry,
   DictionaryOptions,
-} from './with-shape/i18n/dictionary.js'
+} from './shape/via-i18n/dictionary.js'
 
 // i18n — i18nText
 export {
@@ -837,8 +837,8 @@ export {
   validateI18nTextValue,
   resolveI18nText,
   applyI18nLocale,
-} from './with-shape/i18n/core.js'
-export type { I18nTextOptions, I18nTextDescriptor, ResolveI18nOptions, I18nMap } from './with-shape/i18n/core.js'
+} from './shape/via-i18n/core.js'
+export type { I18nTextOptions, I18nTextDescriptor, ResolveI18nOptions, I18nMap } from './shape/via-i18n/core.js'
 
 // money — currency-safe decimal field descriptor
 export {
@@ -875,10 +875,10 @@ export { evalComputedFields, ComputedFieldError } from './with-formula/computed/
 export type { ComputedFields, ComputedFn } from './with-formula/computed/index.js'
 
 // i18n — resolution policy + script enforcement
-export { resolvePolicy } from './with-shape/i18n/policy.js'
-export type { OnMissing, Layer, OnMissingPolicy } from './with-shape/i18n/policy.js'
-export { inferScripts, enforceScript } from './with-shape/i18n/script.js'
-export type { ScriptWarning } from './with-shape/i18n/script.js'
+export { resolvePolicy } from './shape/via-i18n/policy.js'
+export type { OnMissing, Layer, OnMissingPolicy } from './shape/via-i18n/policy.js'
+export { inferScripts, enforceScript } from './shape/via-i18n/script.js'
+export type { ScriptWarning } from './shape/via-i18n/script.js'
 
 // i18n errors
 export {
