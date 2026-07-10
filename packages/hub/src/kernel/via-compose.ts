@@ -13,10 +13,13 @@
  */
 import { ValidationError } from './errors.js'
 import type { ViaDescriptor } from './via.js'
-import type { I18nTextDescriptor } from '../shape/via-i18n/core.js'
-import { isI18nTextDescriptor } from '../shape/via-i18n/core.js'
-import type { DictKeyDescriptor, StaticDictDescriptor } from '../shape/via-i18n/dictionary.js'
-import { isDictKeyDescriptor, isStaticDictDescriptor } from '../shape/via-i18n/dictionary.js'
+// Types + shape-classification predicates reach through the kernel's own
+// `port/with/` hook seam (never `src/shape/` directly) — #623 Task 11.
+// `isI18nTextDescriptor`/`isDictKeyDescriptor` are pure tag checks moved
+// onto the port alongside `isStaticDictDescriptor` (see i18n-strategy.ts);
+// the descriptor types were already port-owned re-exports (#623 Task 8).
+import type { DictKeyDescriptor, I18nTextDescriptor, StaticDictDescriptor } from '../port/with/i18n-strategy.js'
+import { isDictKeyDescriptor, isI18nTextDescriptor, isStaticDictDescriptor } from '../port/with/i18n-strategy.js'
 
 /** Tagged container returned by {@link via}. Readonly — never mutated after construction. */
 export interface ViaFieldSpec {

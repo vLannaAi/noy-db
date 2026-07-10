@@ -37,7 +37,7 @@ import type { NoydbEventEmitter } from '../../kernel/events.js'
 import type { I18nTextDescriptor } from '../../shape/via-i18n/core.js'
 import type { Layer } from '../../shape/via-i18n/policy.js'
 import type { ScriptWarning } from '../../shape/via-i18n/script.js'
-import type { DictionaryHandle, DictionaryOptions, StaticDictDescriptor } from '../../shape/via-i18n/dictionary.js'
+import type { DictKeyDescriptor, DictionaryHandle, DictionaryOptions, StaticDictDescriptor } from '../../shape/via-i18n/dictionary.js'
 import type { EnclaveKey } from '../../kernel/enclave/index.js'
 
 /**
@@ -183,6 +183,35 @@ export function isStaticDictDescriptor(x: unknown): x is StaticDictDescriptor {
     typeof x === 'object' &&
     x !== null &&
     (x as { _noydbStaticDict?: unknown })._noydbStaticDict === true
+  )
+}
+
+/**
+ * Runtime predicate for detecting an I18nTextDescriptor. Pure tag check —
+ * moved here (#623 Task 11) alongside `isStaticDictDescriptor` so
+ * `kernel/via-compose.ts` (`mergeViaFields`'s descriptor-shape classification)
+ * can reach it through the port instead of importing `shape/via-i18n/core.js`
+ * directly. Re-exported from that module for compat with existing importers.
+ */
+export function isI18nTextDescriptor(x: unknown): x is I18nTextDescriptor {
+  return (
+    typeof x === 'object' &&
+    x !== null &&
+    (x as { _noydbI18nText?: unknown })._noydbI18nText === true
+  )
+}
+
+/**
+ * Runtime predicate for detecting a DictKeyDescriptor. Pure tag check —
+ * moved here (#623 Task 11) for the same reason as `isI18nTextDescriptor`
+ * above. Re-exported from `shape/via-i18n/dictionary.js` for compat with
+ * existing importers.
+ */
+export function isDictKeyDescriptor(x: unknown): x is DictKeyDescriptor {
+  return (
+    typeof x === 'object' &&
+    x !== null &&
+    (x as { _noydbDictKey?: unknown })._noydbDictKey === true
   )
 }
 

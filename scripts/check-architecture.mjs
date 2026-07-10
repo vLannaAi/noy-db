@@ -1833,34 +1833,26 @@ function checkEnclaveClassifyIndexOnly() {
 //   Grandfathered PER IMPORT SPECIFIER, not per file — a listed file
 //   adding a NEW shape/ import outside its frozen list still fails.
 //
+// via-compose.ts (#623 Task 9) originally needed a second grandfathered
+// entry here — its descriptor-shape classification (`mergeViaFields`)
+// imported I18nTextDescriptor/DictKeyDescriptor/StaticDictDescriptor + the
+// isX predicates straight from shape/via-i18n/*. Task 11's fix wave routed
+// those through the port instead (isI18nTextDescriptor/isDictKeyDescriptor
+// moved onto port/with/i18n-strategy.ts beside isStaticDictDescriptor; the
+// descriptor types were already port-owned re-exports from Task 8), so
+// via-compose.ts now imports zero `shape/` specifiers and the allowlist
+// below holds exactly the one #626 baseline the original brief specified.
+//
 // The reverse direction — no file under src/shape/via-* may import
 // kernel/enclave/ (crypto should reach features only via ctx, not a direct
-// enclave-barrel import) — is deliberately NOT enforced here. Verifying it
-// during Task 11 found a real, pre-existing violation
-// (shape/via-i18n/dictionary.ts imports kernel/enclave/index.js — legal
-// under Check 10's barrel-only rule, but not under this stricter one).
-// Per the Task-11 brief, that's a STOP-and-report condition, not a call to
-// make unilaterally (route dictionary.ts through ctx, vs. an explicit
-// reviewed grandfather). See .superpowers/sdd/task-11-report.md for the
-// full fire-proof and the finding; the mechanism is proven but not shipped.
+// enclave-barrel import) — is enforced separately by Check 15
+// (via-enclave-isolation) below.
 
 const VIA_SHAPE_ALLOWLIST = new Map([
   // #626: the one join-layer i18n exception (comment lives at the import
   // site in join.ts) — join-layer i18n is sync + i18n-text-only; converging
   // it onto the Via seam is #626's job.
   ['packages/hub/src/kernel/query/join.ts', ['../../shape/via-i18n/core.js']],
-  // Discovered while implementing this check (Task 11) — via-compose.ts
-  // landed in #623 Task 9, after the Task-8 review that identified join.ts
-  // as "the ONE sanctioned kernel→shape import". Pure type/predicate
-  // imports (I18nTextDescriptor/DictKeyDescriptor/StaticDictDescriptor +
-  // the isX predicates, no crypto) — mergeViaFields needs them to classify
-  // a via() descriptor by shape. Same #626 convergence applies; flagged in
-  // task-11-report.md rather than silently narrowed to match the brief's
-  // single-entry assumption.
-  ['packages/hub/src/kernel/via-compose.ts', [
-    '../shape/via-i18n/core.js',
-    '../shape/via-i18n/dictionary.js',
-  ]],
 ])
 
 function checkViaLayering() {
@@ -1889,6 +1881,63 @@ function checkViaLayering() {
   }
 }
 
+// ─── Check 15: via-enclave-isolation (#623 — src/shape/via-* → kernel/enclave/ ban) ──
+//
+// The reverse direction from Check 14: no file under src/shape/via-*/**
+// (the Via port's feature layer — via-money, via-i18n) may statically
+// import kernel/enclave/ — crypto should reach a feature only via ctx
+// (phase B's ViaCryptoCtx, milestone #28), never a direct enclave-barrel
+// import. This is STRICTER than Check 10 (enclave-barrel-only), which only
+// bans reaching *past* the barrel; importing the barrel itself
+// (kernel/enclave/index.js) from anywhere outside kernel/enclave/** is
+// explicitly Check-10-legal. Check 15 additionally bans via-*/** from
+// importing the barrel at all.
+//
+// VIA_ENCLAVE_ALLOWLIST holds one explicit, reviewed grandfather:
+// shape/via-i18n/dictionary.ts's DictionaryHandle (encrypt/openEnvelopeJson
+// for _dict_* entry envelopes) predates #623 — verified via
+// `git show 43765b56^:packages/hub/src/with-shape/i18n/dictionary.ts`, the
+// identical import was already there before the #623 arc even started, at
+// the file's pre-move path. Grandfathered PER IMPORT SPECIFIER, same
+// semantics as VIA_SHAPE_ALLOWLIST — do not add new entries; a listed
+// file's other imports, and every other via-*/** file, must stay clean.
+
+const VIA_ENCLAVE_ALLOWLIST = new Map([
+  // PRE-EXISTING (predates #623): DictionaryHandle is vault-grain _dict_*
+  // machinery squatting in the feature folder; phase B's ViaCryptoCtx
+  // (milestone #28) owns rerouting it — do not add new entries.
+  ['packages/hub/src/shape/via-i18n/dictionary.ts', ['../../kernel/enclave/index.js']],
+])
+
+function checkViaEnclaveIsolation() {
+  const hubSrc = join(PACKAGES_DIR, 'hub', 'src')
+  const shapeDir = join(hubSrc, 'shape')
+
+  const viaDirs = readdirSync(shapeDir, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && e.name.startsWith('via-'))
+
+  for (const dim of viaDirs) {
+    walkTsFiles(join(shapeDir, dim.name), (file, content) => {
+      const rel = relative(ROOT, file)
+      const allowedImports = VIA_ENCLAVE_ALLOWLIST.get(rel)
+      const code = stripComments(content)
+      for (const m of code.matchAll(STATIC_IMPORT_FROM_RE)) {
+        const spec = m[1]
+        if (!spec.startsWith('.')) continue // only relative imports resolve inside hub/src
+        if (allowedImports?.includes(spec)) continue // frozen baseline import — grandfathered
+        const target = importTargetRelToHubSrc(file, spec, hubSrc)
+        if (target.startsWith('kernel/enclave/')) {
+          fail(
+            'via-enclave-isolation',
+            `${rel} statically imports enclave path "${spec}" — src/shape/via-*/** (the Via port's feature layer) may not reach kernel/enclave/ directly, not even the barrel; crypto should reach a feature only via ctx (phase B's ViaCryptoCtx, milestone #28), except the frozen baseline in VIA_ENCLAVE_ALLOWLIST.`,
+            file,
+          )
+        }
+      }
+    })
+  }
+}
+
 // ─── Run ───────────────────────────────────────────────────────────────
 
 const startTime = Date.now()
@@ -1908,6 +1957,7 @@ checkEnclaveBodyOnly()
 checkEnclaveClassifyOnly()
 checkEnclaveClassifyIndexOnly()
 checkViaLayering()
+checkViaEnclaveIsolation()
 
 const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
 

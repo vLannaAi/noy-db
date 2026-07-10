@@ -225,14 +225,10 @@ function hasThrowPolicy(onMissing: OnMissingPolicy | undefined): boolean {
   return Object.values(onMissing).includes('throw')
 }
 
-/** Runtime predicate for detecting an `I18nTextDescriptor`. */
-export function isI18nTextDescriptor(x: unknown): x is I18nTextDescriptor {
-  return (
-    typeof x === 'object' &&
-    x !== null &&
-    (x as { _noydbI18nText?: unknown })._noydbI18nText === true
-  )
-}
+// `isI18nTextDescriptor` now lives on the kernel port (#623 Task 11,
+// port/with/i18n-strategy.ts, alongside `isStaticDictDescriptor`) —
+// re-exported here for compat with existing importers of this module.
+export { isI18nTextDescriptor } from '../../port/with/i18n-strategy.js'
 
 // ─── Validation helpers ────────────────────────────────────────────────
 

@@ -162,14 +162,10 @@ export function dictKey<Keys extends string>(
   }
 }
 
-/** Runtime predicate for detecting a DictKeyDescriptor. */
-export function isDictKeyDescriptor(x: unknown): x is DictKeyDescriptor {
-  return (
-    typeof x === 'object' &&
-    x !== null &&
-    (x as { _noydbDictKey?: unknown })._noydbDictKey === true
-  )
-}
+// `isDictKeyDescriptor` now lives on the kernel port (#623 Task 11,
+// port/with/i18n-strategy.ts, alongside `isStaticDictDescriptor`) —
+// re-exported here for compat with existing importers of this module.
+export { isDictKeyDescriptor } from '../../port/with/i18n-strategy.js'
 
 // ─── StaticDict descriptor (code-provided dictionary) ──────────────────
 
