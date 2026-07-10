@@ -1,10 +1,10 @@
 /**
  * The money `ViaBinding` — wires the money engine (normalize/paths/where/
  * money-reducer) into the kernel's generic Via port. `money()`
- * (descriptor.ts) calls {@link linkMoneyVia} at declaration time, mirroring
- * the #553 static-link pattern `linkMoneyEngine()` already uses for the
- * legacy `moneyRuntime()` seam (kept until Task 6 retires the query-DSL
- * call sites that still consult it).
+ * (descriptor.ts) calls {@link linkMoneyVia} at declaration time — the
+ * same #553 static-link pattern the retired `linkMoneyEngine()` /
+ * `kernel/money-runtime.ts` seam used, now the only one (Task 6 cut the
+ * query DSL over to this binding and deleted the legacy seam).
  */
 import type { ViaBinding } from '../../kernel/via.js'
 import { installViaBinder } from '../../kernel/via.js'
@@ -28,7 +28,7 @@ export function moneyBinding(moneyFields: Record<string, MoneyDescriptor>): ViaB
     buildClause: (field, op, value) => {
       const desc = moneyFields[field]
       if (!desc) return undefined
-      return moneyFieldClause(field, op as Operator, value, desc).money // the MoneyWhereOperand payload
+      return moneyFieldClause(field, op as Operator, value, desc) // the MoneyWhereOperand payload
     },
     evaluateClause: (actual, op, payload) => evaluateMoneyClause(actual, op as Operator, payload as MoneyWhereOperand),
     decodeResults: (r) => decodeMoneyFields(r as Record<string, unknown>, moneyFields, 'raw'),

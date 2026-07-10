@@ -1171,7 +1171,6 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/i18n/strategy.js',
     '../with-shape/introspection/field-meta.js',
     '../with-shape/introspection/meta.js',
-    '../shape/via-money/descriptor.js',
     '../with-shape/schema-update/fence-controller.js',
     '../with-shape/schema-update/gate.js',
   ]],
@@ -1236,7 +1235,6 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/introspection/field-meta.js',
     '../with-shape/introspection/meta.js',
     '../with-shape/introspection/types.js',
-    '../shape/via-money/descriptor.js',
     '../with-shape/persisted-schemas/derive.js',
     '../with-shape/schema-update/fence-controller.js',
     '../with-shape/schema-update/gate.js',
@@ -1311,7 +1309,6 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/i18n/policy.js',
     '../with-shape/i18n/script.js',
     '../with-shape/i18n/strategy.js',
-    '../shape/via-money/descriptor.js',
     '../port/by/types.js',
   ]],
   ['packages/hub/src/kernel/vault.ts', [
@@ -1408,7 +1405,6 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../../with-lookup/aggregate/reducers.js',
     '../../with-lookup/aggregate/strategy.js',
     '../../with-lookup/indexing/eager-indexes.js',
-    '../../shape/via-money/descriptor.js',
   ]],
   ['packages/hub/src/kernel/query/index.ts', [
     '../../with-lookup/aggregate/aggregation.js',
@@ -1419,18 +1415,9 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
   ['packages/hub/src/kernel/query/join.ts', [
     '../../with-shape/i18n/core.js',
   ]],
-  ['packages/hub/src/kernel/money-runtime.ts', [
-    // #553 -- TYPE-only (erased) import of the MoneyEngine interface; the
-    // engine values are linked at runtime by money() via installMoneyEngine()
-    '../shape/via-money/engine.js',
-  ]],
-  ['packages/hub/src/kernel/query/predicate.ts', [
-    '../../shape/via-money/where.js',
-  ]],
   ['packages/hub/src/kernel/query/scan-builder.ts', [
     '../../with-lookup/aggregate/aggregation.js',
     '../../with-lookup/aggregate/reducers.js',
-    '../../shape/via-money/descriptor.js',
   ]],
   ['packages/hub/src/kernel/enclave/record-keys/record-codec.ts', [
     '../../../with-commit/crdt/crdt.js',
