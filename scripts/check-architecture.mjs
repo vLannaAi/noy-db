@@ -1011,7 +1011,9 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 2371→2375 (2026-07-10, #615 target-purge): `getPurgeableTargets`
   // pass-through at the sync-configured Vault construction site — thin
   // call-site, filters/maps the already-computed `targets` array.
-  'packages/hub/src/kernel/noydb.ts': 2375,
+  // Bumped 2375→2385 (2026-07-10, #616): role-gate the sync primary (emptyPullResult
+  // factory + pull() no-op + sync() primary ternary branch for push-only sinks).
+  'packages/hub/src/kernel/noydb.ts': 2385,
 }
 
 function checkKernelSurface() {
