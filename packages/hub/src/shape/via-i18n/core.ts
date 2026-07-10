@@ -44,6 +44,7 @@ import { MissingTranslationError, LocaleNotSpecifiedError } from '../../kernel/e
 import type { OnMissing, OnMissingPolicy, Layer } from './policy.js'
 import { resolvePolicy } from './policy.js'
 import { inferScripts } from './script.js'
+import { linkI18nVia } from './binding.js'
 
 // ─── I18nMap type helper ───────────────────────────────────────────────
 
@@ -201,6 +202,10 @@ export interface I18nTextDescriptor {
  * ```
  */
 export function i18nText(options: I18nTextOptions): I18nTextDescriptor {
+  // The declaration is the Via binding's opt-in unit (#553): constructing
+  // a descriptor statically links the i18n binding into the kernel's Via
+  // port, so every later kernel consultation finds it already installed.
+  linkI18nVia()
   if (options.densifyOnWrite === true && hasThrowPolicy(options.onMissing)) {
     throw new Error(
       `i18nText: densifyOnWrite cannot be combined with an explicit onMissing 'throw' ` +

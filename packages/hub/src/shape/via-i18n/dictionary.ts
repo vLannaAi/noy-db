@@ -44,6 +44,7 @@ import {
   PermissionDeniedError,
   DictKeyMissingError,
 } from '../../kernel/errors.js'
+import { linkI18nVia } from './binding.js'
 
 // `isDictCollectionName` now lives on the kernel port (#623 Task 7,
 // port/with/i18n-strategy.ts) — re-exported here for compat. Its `'_dict_'`
@@ -133,6 +134,9 @@ export function dictKey<Keys extends string>(
   keysOrMap?: readonly Keys[] | Record<Keys, string>,
   opts?: { onMissing?: OnMissingPolicy; substitute?: readonly string[]; labels?: Record<string, string> },
 ): DictKeyDescriptor<Keys> {
+  // The declaration is the Via binding's opt-in unit (#553) — same pattern
+  // as i18nText()/money().
+  linkI18nVia()
   let keys: readonly Keys[] | undefined
   let labels: Record<string, string> | undefined
   if (Array.isArray(keysOrMap)) {
@@ -251,6 +255,9 @@ export function staticDict<const T extends Record<string, Record<string, string>
     validateCodes?: boolean
   },
 ): StaticDictDescriptor<Extract<keyof T, string>> {
+  // The declaration is the Via binding's opt-in unit (#553) — same pattern
+  // as i18nText()/dictKey()/money().
+  linkI18nVia()
   return {
     _noydbStaticDict: true,
     name,
