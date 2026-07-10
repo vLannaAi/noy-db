@@ -82,7 +82,7 @@ export function installViaBinder(brand: string, binder: ViaBinder): void {
   if (!binders.has(brand)) binders.set(brand, binder)
 }
 
-/** @internal — test-only visibility (mirrors isMoneyEngineInstalled). */
+/** @internal — registry presence check. Used by tests (mirrors isMoneyEngineInstalled) and by vault's i18n validator delegators as a no-i18n-ever-declared fast path. */
 export function isViaInstalled(brand: string): boolean {
   return binders.has(brand)
 }

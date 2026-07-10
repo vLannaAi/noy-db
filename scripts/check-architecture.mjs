@@ -909,7 +909,7 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 4082→4084 (2026-07-10, #615 review M1): refreshed the _purgeDeleteMarkers doc comment (pure doc growth, no behavior change).
   // Bumped 4084→4095 (2026-07-11, #623 Task 8: i18n cutover onto the Via pipeline):
   // `enforceI18nOnPut`/`enforceStaticDictOnPut` each gained an `isViaInstalled('i18n')`
-  // delegation guard + a docstring line explaining it (+11). The two methods' bodies
+  // delegation guard + 9 docstring lines across the two validator delegators explaining it (+11). The two methods' bodies
   // are otherwise unchanged — the inline i18n write/present duplication this task
   // removes lived in collection.ts, not here.
   'packages/hub/src/kernel/vault.ts': 4095,
