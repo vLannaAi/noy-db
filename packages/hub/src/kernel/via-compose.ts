@@ -102,6 +102,8 @@ export function mergeViaFields(sources: ViaFieldSources): MergedViaFields {
       } else if (descriptor._viaBrand === 'i18n') {
         if (isI18nTextDescriptor(descriptor)) viaI18nText[field] = descriptor
         else if (isDictKeyDescriptor(descriptor) || isStaticDictDescriptor(descriptor)) viaDictKey[field] = descriptor
+      } else {
+        throw new ValidationError(`via(): field "${field}" has a descriptor with unrecognized _viaBrand "${descriptor._viaBrand}" — via() only supports money/i18n descriptors today.`)
       }
     }
   }

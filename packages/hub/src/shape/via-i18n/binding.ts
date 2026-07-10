@@ -4,12 +4,12 @@
  * on read) into the kernel's generic Via port. Mirrors
  * `shape/via-money/binding.ts`'s #553 static-link pattern.
  *
- * DORMANT (#623 Task 7): `i18nBinding()`/`linkI18nVia()` exist and are
- * unit-tested here, but no kernel call site constructs `this.via` from an
- * i18n collection's config yet — `collection.ts`/`vault.ts` still run the
- * hand-wired put/read paths this file's bodies were moved/adapted from
- * (`_putInternal` 1826-1945, `applyLocaleToRecord` 4184-4301). Task 8 wires
- * the compile entry (the cutover) and removes the hand-wired paths.
+ * LIVE (#623 Task 8 wired the cutover): `i18nBinding()`/`linkI18nVia()` are
+ * the real put/read path for every i18n-declaring collection —
+ * `collection.ts`'s `_putInternal`/`applyLocaleToRecord` (the call sites
+ * this file's bodies were moved/adapted from) now delegate their i18n
+ * stages to `this.via.encodeWrite`/`this.via.present` instead of running
+ * the hand-wired i18n logic inline.
  *
  * `i18nText()`, `dictKey()`, `staticDict()` each call {@link linkI18nVia}
  * first — the same #553 pattern `money()` uses.
@@ -168,8 +168,8 @@ async function runI18nWriteStages(
 
   // 2. densifyOnWrite: read prior fills so a round-tripped derived copy is
   // exempt from script enforcement and can be refreshed. Read once here,
-  // reused by densify() below. `ctx.prior()` is a stub returning null until
-  // Task 8 wires the real prior-record read.
+  // reused by densify() below. `ctx.prior()` resolves the real prior
+  // record (collection.ts wires it to `resolveDensifyPrior`, #623 Task 8).
   let densifyPrior: Record<string, unknown> | undefined
   let exemptFills: Map<string, Set<string>> | undefined
   if (i18nDensifyFields) {

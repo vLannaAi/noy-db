@@ -205,6 +205,23 @@ describe('via() composer (#623 Task 9)', () => {
     })).toThrow(/total/)
   })
 
+  it('mergeViaFields throws ValidationError naming the field and brand for an unrecognized _viaBrand', async () => {
+    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'via-compose-unknown-brand-2026' })
+    const vault = await db.openVault('v')
+
+    expect(() => vault.collection<Invoice>('invoices', {
+      viaFields: { total: via({ _viaBrand: 'bogus' }) },
+    })).toThrow(ValidationError)
+
+    expect(() => vault.collection<Invoice>('invoices2', {
+      viaFields: { total: via({ _viaBrand: 'bogus' }) },
+    })).toThrow(/total/)
+
+    expect(() => vault.collection<Invoice>('invoices3', {
+      viaFields: { total: via({ _viaBrand: 'bogus' }) },
+    })).toThrow(/bogus/)
+  })
+
   it('stacks money + i18n on different fields in one viaFields map', async () => {
     const db = await createNoydb({
       store: memory(), user: 'alice', secret: 'via-compose-stack-2026',
