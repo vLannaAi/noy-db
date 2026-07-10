@@ -20,10 +20,13 @@ import {
   PERIODS_COLLECTION,
   PERIOD_FREEZES_COLLECTION,
   PERIOD_ARCHIVES_COLLECTION,
+  PERIOD_TARGET_PURGES_COLLECTION,
   periodExclusiveUpperBound,
   type PeriodRecord,
   type PeriodFreezeRecord,
   type PeriodArchiveRecord,
+  type PeriodTargetPurgeRecord,
+  type TargetPurgeCount,
   type ClosePeriodOptions,
   type OpenPeriodOptions,
 } from './periods.js'
@@ -50,6 +53,8 @@ export interface VaultPeriodsDeps {
   purgeDeleteMarkers(before: string): Promise<number>
   /** #613: relocate a closed period's in-window records hot → cold. Bound to `vault._archiveClosedPeriod`. */
   archiveRecords(before: string): Promise<number>
+  /** #615: sweep delete markers off the vault's push-only sync targets. Bound to `vault._purgePeriodTargets`. */
+  purgeTargets(before: string): Promise<readonly TargetPurgeCount[]>
 }
 
 export class VaultPeriods {
@@ -246,6 +251,64 @@ export class VaultPeriods {
     return this.mergeArchive(period, archive)
   }
 
+  /**
+   * Target-purge a closed period (#615): sweeps delete markers off the vault's
+   * PUSH-ONLY sync targets (`backup`/`archive`) via `purgeTargets`, recording a
+   * companion `_period_target_purges/<name>` record. `sync-peer` targets are
+   * skipped (resurrection risk). NEVER mutates the chained `_periods/<name>`
+   * record. Requires the period be frozen first (closed → frozen → target-purged).
+   * Idempotent once run; with no push-only targets it writes no companion and
+   * is re-runnable.
+   */
+  async purgePeriodTargets(name: string): Promise<PeriodRecord> {
+    const existing = await this.loadPeriodsCache()
+    const period = existing.find((p) => p.name === name)
+    if (!period) throw new ValidationError(`purgePeriodTargets: no period named "${name}".`)
+    if (period.kind !== 'closed') {
+      throw new ValidationError(
+        `purgePeriodTargets: period "${name}" is "${period.kind}"; only a closed period can be target-purged.`,
+      )
+    }
+    const frozen = await this.readReserved<PeriodFreezeRecord>(PERIOD_FREEZES_COLLECTION, name)
+    if (!frozen) {
+      throw new ValidationError(
+        `purgePeriodTargets: period "${name}" must be frozen first (closed → frozen → target-purged).`,
+      )
+    }
+    const prior = await this.readReserved<PeriodTargetPurgeRecord>(PERIOD_TARGET_PURGES_COLLECTION, name)
+    if (prior) return this.mergeTargetPurge(period, prior) // idempotent no-op
+
+    const before = periodExclusiveUpperBound(period.endDate)
+    const targets = await this.deps.purgeTargets(before)
+    if (targets.length === 0) return period // no push-only targets → no companion, re-runnable
+
+    const record: PeriodTargetPurgeRecord = {
+      period: name,
+      purgedAt: new Date().toISOString(),
+      purgedBy: this.deps.userId(),
+      targets,
+    }
+    const envelope = await this.writeReserved(PERIOD_TARGET_PURGES_COLLECTION, name, record)
+    await this.deps.strategy.appendPeriodLedgerEntry(
+      this.deps.getLedgerOrNull(),
+      this.deps.userId(),
+      envelope,
+      name,
+      PERIOD_TARGET_PURGES_COLLECTION,
+    )
+    return this.mergeTargetPurge(period, record)
+  }
+
+  /** Merge target-purge companion fields into a fresh `PeriodRecord` copy — never mutates `periodCache`. */
+  private mergeTargetPurge(period: PeriodRecord, record: PeriodTargetPurgeRecord): PeriodRecord {
+    return {
+      ...period,
+      targetsPurgedAt: record.purgedAt,
+      targetsPurgedBy: record.purgedBy,
+      targetsPurged: record.targets,
+    }
+  }
+
   /** Merge archive companion fields into a fresh `PeriodRecord` copy — never mutates `periodCache`. */
   private mergeArchive(period: PeriodRecord, archive: PeriodArchiveRecord): PeriodRecord {
     return {
@@ -281,16 +344,24 @@ export class VaultPeriods {
       const a = await this.readReserved<PeriodArchiveRecord>(PERIOD_ARCHIVES_COLLECTION, id)
       if (a) archives.set(a.period, a)
     }
+    const targetPurgeIds = await this.deps.adapter.list(this.deps.vault, PERIOD_TARGET_PURGES_COLLECTION)
+    const targetPurges = new Map<string, PeriodTargetPurgeRecord>()
+    for (const id of targetPurgeIds) {
+      const tp = await this.readReserved<PeriodTargetPurgeRecord>(PERIOD_TARGET_PURGES_COLLECTION, id)
+      if (tp) targetPurges.set(tp.period, tp)
+    }
     return all.map((p) => {
       const f = freezes.get(p.name)
       let merged = f ? this.mergeFreeze(p, f) : p
       const a = archives.get(p.name)
       if (a) merged = this.mergeArchive(merged, a)
+      const tp = targetPurges.get(p.name)
+      if (tp) merged = this.mergeTargetPurge(merged, tp)
       return merged
     })
   }
 
-  /** Look up a single period by name, merged with its freeze + archive companions if any. Returns `null` if not found. */
+  /** Look up a single period by name, merged with its freeze + archive + target-purge companions if any. Returns `null` if not found. */
   async getPeriod(name: string): Promise<PeriodRecord | null> {
     const all = await this.loadPeriodsCache()
     const period = all.find((p) => p.name === name)
@@ -299,6 +370,8 @@ export class VaultPeriods {
     const archive = await this.readReserved<PeriodArchiveRecord>(PERIOD_ARCHIVES_COLLECTION, name)
     let merged = freeze ? this.mergeFreeze(period, freeze) : period
     if (archive) merged = this.mergeArchive(merged, archive)
+    const targetPurge = await this.readReserved<PeriodTargetPurgeRecord>(PERIOD_TARGET_PURGES_COLLECTION, name)
+    if (targetPurge) merged = this.mergeTargetPurge(merged, targetPurge)
     return merged
   }
 

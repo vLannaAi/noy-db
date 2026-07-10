@@ -110,6 +110,28 @@
  * on vault open (hot-tier STORAGE is reclaimed; RAM is not). Summaries
  * (`_`-prefixed) always stay hot.
  *
+ * ## Target-purge
+ *
+ * ```
+ * vault.purgePeriodTargets('FY2026-Q1')
+ *   └─► sweeps delete markers (`_ts < periodExclusiveUpperBound(endDate)`) off
+ *       the vault's PUSH-ONLY sync targets (backup/archive roles), then records:
+ *         ├─ PeriodTargetPurgeRecord written to _period_target_purges/<name>
+ *         └─ a ledger entry attributed to _period_target_purges
+ * ```
+ *
+ * Extends freeze's local marker purge to the vault's own remote sinks.
+ * `sync-peer` (bidirectional) targets are SKIPPED: purging a marker there
+ * re-opens the #589 resurrection window for a client offline before the
+ * cutoff, an assertion no single vault can verify. Backup/archive targets are
+ * push-only — never pulled from into convergence — so sweeping their markers
+ * is safe. Requires the period be frozen first (closed → frozen →
+ * target-purged) so the local safe-point is already established. Idempotent
+ * once run; a vault with no push-only targets writes no companion and is
+ * re-runnable (so a target added later is still swept). Single-vault only —
+ * fleet-wide purge across sovereign vaults is klum's concern over
+ * `@noy-db/hub/cargo`.
+ *
  * ## Not covered
  *
  * - Partial re-opening of a closed period. If an auditor needs to
@@ -137,6 +159,9 @@ export const PERIOD_FREEZES_COLLECTION = '_period_freezes'
 /** Sibling of {@link PERIODS_COLLECTION} holding archive companions (#613). */
 export const PERIOD_ARCHIVES_COLLECTION = '_period_archives'
 
+/** Sibling of {@link PERIODS_COLLECTION} holding target-purge companions (#615). */
+export const PERIOD_TARGET_PURGES_COLLECTION = '_period_target_purges'
+
 /**
  * Companion record recording that a closed period was frozen (its delete
  * markers physically purged). Stored in {@link PERIOD_FREEZES_COLLECTION},
@@ -161,6 +186,26 @@ export interface PeriodArchiveRecord {
   readonly archivedAt: string
   readonly archivedBy: string
   readonly archivedRecordCount: number
+}
+
+/** Per-target count of delete markers purged off one push-only sync target (#615). */
+export interface TargetPurgeCount {
+  readonly label?: string
+  readonly role: 'backup' | 'archive'
+  readonly purgedCount: number
+}
+
+/**
+ * Companion record noting that a closed+frozen period's delete markers were
+ * swept off the vault's push-only sync targets (#615). Stored in
+ * {@link PERIOD_TARGET_PURGES_COLLECTION}, keyed by period name — kept OFF the
+ * hash-chained `_periods/<name>` record so target-purge never alters the chain.
+ */
+export interface PeriodTargetPurgeRecord {
+  readonly period: string
+  readonly purgedAt: string
+  readonly purgedBy: string
+  readonly targets: readonly TargetPurgeCount[]
 }
 
 /**
@@ -243,6 +288,12 @@ export interface PeriodRecord {
   readonly archivedAt?: string
   readonly archivedBy?: string
   readonly archivedRecordCount?: number
+  /** #615 return-only — merged from the `_period_target_purges/<name>` companion
+   *  on read; NEVER written into the stored `_periods/<name>` record. Absent =
+   *  target-purge not yet run (or the vault has no push-only targets). */
+  readonly targetsPurgedAt?: string
+  readonly targetsPurgedBy?: string
+  readonly targetsPurged?: readonly TargetPurgeCount[]
 }
 
 /** Options for `vault.closePeriod()`. */

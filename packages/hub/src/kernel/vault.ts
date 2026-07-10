@@ -210,6 +210,7 @@ export class Vault {
   private readonly onDirty: OnDirtyCallback | undefined
   private readonly onRegisterConflictResolver: ((name: string, resolver: CollectionConflictResolver) => void) | undefined
   private readonly syncAdapter: NoydbStore | undefined
+  private readonly getPurgeableTargets: () => readonly { store: NoydbStore; role: 'backup' | 'archive'; label?: string }[]
   private readonly historyConfig: HistoryConfig
   /**
    * tree-shake seam for the optional blob service. Undefined
@@ -520,6 +521,8 @@ export class Vault {
     onRegisterConflictResolver?: ((name: string, resolver: CollectionConflictResolver) => void) | undefined
     /** — optional remote/sync adapter for presence broadcasting. */
     syncAdapter?: NoydbStore | undefined
+    /** #615 — push-only sync targets (backup/archive) this vault may target-purge. Default: none. */
+    getPurgeableTargets?: () => readonly { store: NoydbStore; role: 'backup' | 'archive'; label?: string }[]
     /**
      * tree-shake seam — strategy for optional blob storage.
      * Passed through to every `Collection` built by `vault.collection()`.
@@ -571,6 +574,7 @@ export class Vault {
     this.onDirty = opts.onDirty
     this.onRegisterConflictResolver = opts.onRegisterConflictResolver
     this.syncAdapter = opts.syncAdapter
+    this.getPurgeableTargets = opts.getPurgeableTargets ?? (() => [])
     this.blobStrategy = opts.blobStrategy
     this.objectStore = opts.objectStore
     this.archiveStrategy = opts.archiveStrategy
@@ -596,6 +600,7 @@ export class Vault {
       collection: (name) => this.collection(name),
       purgeDeleteMarkers: (before) => this._purgeDeleteMarkers(before),
       archiveRecords: (before) => this._archiveClosedPeriod(before),
+      purgeTargets: (before) => this._purgePeriodTargets(before),
     })
     this.linksEnforcer = new VaultLinks({
       refRegistry: this.refRegistry,
@@ -1334,21 +1339,31 @@ export class Vault {
    * ONLY; #604's period-close lifecycle is what earns that assertion. Do not call
    * it on live/unsettled data.
    *
-   * Emits no ledger/event yet — #604's period-close, the only intended caller, owns
-   * the audit record.
+   * Emits no ledger/event itself — its callers (#604's `freezePeriod`, #615's
+   * `purgePeriodTargets`) own the audit record. The sweep body is shared via
+   * {@link _purgeMarkersOn}, which #615 also aims at push-only sync targets.
    *
-   * Purges the local adapter only; the operator must purge every sync target too, or
-   * the next pull re-imports the markers (benign — they still read deleted — but no
-   * space is reclaimed). #604 owns cross-target purge.
+   * Purges the local adapter only. Markers already pushed to the vault's
+   * push-only (`backup`/`archive`) sync targets are reclaimed by #615's
+   * `vault.purgePeriodTargets`; `sync-peer` targets are left untouched (purging
+   * them would re-open the resurrection window — the deferred half of #611).
    */
   async _purgeDeleteMarkers(before: string, collections?: string[]): Promise<number> {
-    const snapshot = await this.adapter.loadAll(this.name)   // one read; already carries every envelope
+    return this._purgeMarkersOn(this.adapter, before, collections)
+  }
+
+  /**
+   * @internal #615. Sweep delete markers with `_ts < before` off ANY store
+   * (local adapter or a push-only sync target). Returns the count removed.
+   */
+  private async _purgeMarkersOn(store: NoydbStore, before: string, collections?: string[]): Promise<number> {
+    const snapshot = await store.loadAll(this.name)
     let removed = 0
     for (const [coll, records] of Object.entries(snapshot)) {
       if (collections && !collections.includes(coll)) continue
       for (const [id, env] of Object.entries(records)) {
         if (isDeleteMarker(env) && env._ts < before) {
-          await this.adapter.delete(this.name, coll, id)
+          await store.delete(this.name, coll, id)
           removed++
         }
       }
@@ -1374,6 +1389,21 @@ export class Vault {
       throw new ValidationError('archivePeriod: cold archival requires a routeStore with a cold route.')
     }
     return store.compact(this.name, { before })
+  }
+
+  /**
+   * @internal #615. Sweep delete markers with `_ts < before` off each of the
+   * vault's push-only sync targets, returning a per-target count. Skips
+   * `sync-peer` targets by construction (getPurgeableTargets yields only
+   * backup/archive). Never touches the local adapter.
+   */
+  async _purgePeriodTargets(before: string): Promise<readonly { label?: string; role: 'backup' | 'archive'; purgedCount: number }[]> {
+    const out: { label?: string; role: 'backup' | 'archive'; purgedCount: number }[] = []
+    for (const t of this.getPurgeableTargets()) {
+      const purgedCount = await this._purgeMarkersOn(t.store, before)
+      out.push({ ...(t.label !== undefined ? { label: t.label } : {}), role: t.role, purgedCount })
+    }
+    return out
   }
 
   /**
@@ -3457,6 +3487,18 @@ export class Vault {
    */
   async archivePeriod(name: string): Promise<PeriodRecord> {
     return this.periods.archivePeriod(name)
+  }
+
+  /**
+   * Target-purge a closed+frozen period (#615): sweeps delete markers off the
+   * vault's push-only sync targets (`backup`/`archive`), recording a
+   * `_period_target_purges` companion + ledger entry, never mutating the chained
+   * `_periods` record. `sync-peer` targets are skipped. Requires the period be
+   * frozen first. Idempotent; a vault with no push-only targets writes no
+   * companion and is re-runnable.
+   */
+  async purgePeriodTargets(name: string): Promise<PeriodRecord> {
+    return this.periods.purgePeriodTargets(name)
   }
 
   /** @internal — called by the gate bus before put/delete. */

@@ -901,7 +901,11 @@ const KERNEL_SURFACE_BUDGET = {
   // No behavior change.
   // Bumped 4010→4042 (2026-07-10, #613 period archive): `_archiveClosedPeriod`
   // seam + `archivePeriod` delegator (pure additive, mirrors freezePeriod).
-  'packages/hub/src/kernel/vault.ts': 4042,
+  // Bumped 4042→4082 (2026-07-10, #615 target-purge): `_purgeMarkersOn` extraction
+  // (from `_purgeDeleteMarkers`), the `_purgePeriodTargets` seam, `getPurgeableTargets`
+  // option/field/default, and the `purgePeriodTargets` delegator (mirrors archivePeriod).
+  // Bumped 4082→4084 (2026-07-10, #615 review M1): refreshed the _purgeDeleteMarkers doc comment (pure doc growth, no behavior change).
+  'packages/hub/src/kernel/vault.ts': 4084,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
@@ -1004,7 +1008,10 @@ const KERNEL_SURFACE_BUDGET = {
   // `_forEachSyncEngine(name, …setCacheInvalidator…)` hookup directly after
   // the openVault Vault construction. Thin call-site; the invalidation itself
   // lives on Vault/Collection and the engine in with-party/team/.
-  'packages/hub/src/kernel/noydb.ts': 2371,
+  // Bumped 2371→2375 (2026-07-10, #615 target-purge): `getPurgeableTargets`
+  // pass-through at the sync-configured Vault construction site — thin
+  // call-site, filters/maps the already-computed `targets` array.
+  'packages/hub/src/kernel/noydb.ts': 2375,
 }
 
 function checkKernelSurface() {
