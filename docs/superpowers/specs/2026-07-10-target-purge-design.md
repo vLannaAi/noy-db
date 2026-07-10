@@ -52,7 +52,7 @@ Wire it as a `VaultPeriods.purgePeriodTargets` method (`with-audit/periods/vault
 
 ### 3. Why this is safe
 
-Push-only targets are never pulled from into the convergence set, so purging their markers cannot resurrect a record. The period is already **frozen** (local markers gone, record settled locally), so a later restore from a purged backup yields a consistent *deleted* state (the record is absent locally and on the backup). The `sync-peer` skip is the load-bearing safety choice: those are the only targets whose purge could reopen the #589 window, and their safe precondition is unverifiable in a single vault.
+Push-only targets are never pulled from into the convergence set (enforced at the sync-orchestration layer by #616 — `backup`/`archive` primaries are push-only), so purging their markers cannot resurrect a record. The period is already **frozen** (local markers gone, record settled locally), so a later restore from a purged backup yields a consistent *deleted* state (the record is absent locally and on the backup). The `sync-peer` skip is the load-bearing safety choice: those are the only targets whose purge could reopen the #589 window, and their safe precondition is unverifiable in a single vault.
 
 ### 4. Mechanism — generalize the shipped sweep
 

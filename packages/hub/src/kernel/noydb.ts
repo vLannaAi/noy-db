@@ -138,6 +138,9 @@ function createPlaintextKeyring(userId: string, debugPlaintext = false): Unlocke
 /** NoydbOptions with the store resolved to a non-optional value (internal use only). */
 type ResolvedNoydbOptions = NoydbOptions & { readonly store: NoydbStore }
 
+/** #616: a fresh empty pull result for push-only (backup/archive) targets that are never pulled from. */
+const emptyPullResult = (): PullResult => ({ pulled: 0, conflicts: [], errors: [] })
+
 /** The top-level NOYDB instance. */
 export class Noydb {
   private readonly options: ResolvedNoydbOptions
@@ -1281,9 +1284,13 @@ export class Noydb {
     return engine.push(options)
   }
 
-  /** Pull remote changes to local for a vault. */
+  /**
+   * Pull remote changes to local for a vault. A `backup`/`archive` primary is a
+   * push-only sink and is never pulled from (#616) — returns an empty result.
+   */
   async pull(vault: string, options?: PullOptions): Promise<PullResult> {
     const engine = this.getSyncEngine(vault)
+    if (engine.role !== 'sync-peer') return emptyPullResult()
     return engine.pull(options)
   }
 
@@ -1293,7 +1300,10 @@ export class Noydb {
    */
   async sync(vault: string, options?: { push?: PushOptions; pull?: PullOptions }): Promise<{ pull: PullResult; push: PushResult }> {
     const primary = this.getSyncEngine(vault)
-    const result = await primary.sync(options)
+    const result: { pull: PullResult; push: PushResult } =
+      primary.role === 'sync-peer'
+        ? await primary.sync(options)
+        : { pull: emptyPullResult(), push: await primary.push(options?.push) }
 
     // Fan out push to backup/archive targets (fire-and-mark-dirty)
     for (const [key, engine] of this.syncEngines) {
