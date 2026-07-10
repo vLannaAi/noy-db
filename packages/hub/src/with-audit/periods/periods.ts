@@ -110,6 +110,28 @@
  * on vault open (hot-tier STORAGE is reclaimed; RAM is not). Summaries
  * (`_`-prefixed) always stay hot.
  *
+ * ## Target-purge
+ *
+ * ```
+ * vault.purgePeriodTargets('FY2026-Q1')
+ *   └─► sweeps delete markers (`_ts < periodExclusiveUpperBound(endDate)`) off
+ *       the vault's PUSH-ONLY sync targets (backup/archive roles), then records:
+ *         ├─ PeriodTargetPurgeRecord written to _period_target_purges/<name>
+ *         └─ a ledger entry attributed to _period_target_purges
+ * ```
+ *
+ * Extends freeze's local marker purge to the vault's own remote sinks.
+ * `sync-peer` (bidirectional) targets are SKIPPED: purging a marker there
+ * re-opens the #589 resurrection window for a client offline before the
+ * cutoff, an assertion no single vault can verify. Backup/archive targets are
+ * push-only — never pulled from into convergence — so sweeping their markers
+ * is safe. Requires the period be frozen first (closed → frozen →
+ * target-purged) so the local safe-point is already established. Idempotent
+ * once run; a vault with no push-only targets writes no companion and is
+ * re-runnable (so a target added later is still swept). Single-vault only —
+ * fleet-wide purge across sovereign vaults is klum's concern over
+ * `@noy-db/hub/cargo`.
+ *
  * ## Not covered
  *
  * - Partial re-opening of a closed period. If an auditor needs to
