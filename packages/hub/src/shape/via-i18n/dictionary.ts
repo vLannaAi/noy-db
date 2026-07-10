@@ -45,17 +45,18 @@ import {
   DictKeyMissingError,
 } from '../../kernel/errors.js'
 
+// `isDictCollectionName` now lives on the kernel port (#623 Task 7,
+// port/with/i18n-strategy.ts) — re-exported here for compat. Its `'_dict_'`
+// check is a duplicate of DICT_COLLECTION_PREFIX below (not an import, to
+// avoid a port→feature value dependency); keep the two in sync.
+export { isDictCollectionName } from '../../port/with/i18n-strategy.js'
+
 /** Reserved collection name prefix. Never collides with user collections. */
 export const DICT_COLLECTION_PREFIX = '_dict_'
 
 /** Return the adapter collection name for a named dictionary. */
 export function dictCollectionName(dictionaryName: string): string {
   return `${DICT_COLLECTION_PREFIX}${dictionaryName}`
-}
-
-/** Return true when a collection name is a reserved dictionary collection. */
-export function isDictCollectionName(name: string): boolean {
-  return name.startsWith(DICT_COLLECTION_PREFIX)
 }
 
 // ─── DictKey descriptor ────────────────────────────────────────────────
@@ -262,14 +263,9 @@ export function staticDict<const T extends Record<string, Record<string, string>
   }
 }
 
-/** Runtime predicate for detecting a StaticDictDescriptor. */
-export function isStaticDictDescriptor(x: unknown): x is StaticDictDescriptor {
-  return (
-    typeof x === 'object' &&
-    x !== null &&
-    (x as { _noydbStaticDict?: unknown })._noydbStaticDict === true
-  )
-}
+// `isStaticDictDescriptor` now lives on the kernel port (#623 Task 7,
+// port/with/i18n-strategy.ts) — re-exported here for compat.
+export { isStaticDictDescriptor } from '../../port/with/i18n-strategy.js'
 
 // ─── Dictionary entry shape ────────────────────────────────────────────
 

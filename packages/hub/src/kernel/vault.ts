@@ -90,14 +90,14 @@ import {
   type RefViolation,
 } from './refs.js'
 import type { DictionaryHandle, DictionaryOptions, DictKeyDescriptor, StaticDictDescriptor } from '../shape/via-i18n/dictionary.js'
-import { isDictCollectionName, isStaticDictDescriptor } from '../shape/via-i18n/dictionary.js'
+import { isDictCollectionName, isStaticDictDescriptor } from '../port/with/i18n-strategy.js'
 import { isLinkCollectionName, type LinkSpec, type LinkSetHandle } from '../with-shape/links/names.js'
 import { makeLazyLinkSetHandle, type LazyLinkSetHandle } from '../with-shape/links/lazy-handle.js'
 import type { EmbeddingDescriptor } from '../with-lookup/embeddings/index.js'
 import type { I18nTextDescriptor } from '../shape/via-i18n/core.js'
 import { getAtPath } from './paths.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
-import { NO_I18N, type I18nStrategy } from '../shape/via-i18n/strategy.js'
+import { NO_I18N, type I18nStrategy } from '../port/with/i18n-strategy.js'
 import { NO_SYNC, type SyncStrategy } from '../with-party/team/sync-strategy.js'
 // Type-only imports for the guard + derivation services. The
 // runtime classes are loaded on demand via `await import(...)` inside
