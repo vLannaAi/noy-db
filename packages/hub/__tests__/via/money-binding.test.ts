@@ -31,7 +31,7 @@ describe('moneyBinding (#623 Task 5)', () => {
   it('encodeWrite quantizes the canonical decimal to the stored scaled-int string', async () => {
     const b = moneyBinding(moneyFields)
     const ingested = b.ingest!({ total: 123.45 })
-    const written = await b.encodeWrite!(ingested, { id: 'x', prior: async () => null, emit: () => {} })
+    const written = await b.encodeWrite!(ingested, { id: 'x', vault: 'test-vault', prior: async () => null, emit: () => {} })
     expect(written.total).toBe('12345')
   })
 

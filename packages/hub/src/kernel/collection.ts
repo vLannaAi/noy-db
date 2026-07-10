@@ -7,17 +7,12 @@ import { guardClassifiedCompat, type ClassifiedGuardCtx } from '../with-shape/cl
 import type { ClassifiedStrategy, ClassifiedVerifyCtx } from '../with-shape/classified/strategy.js'
 import type { CrdtMode, CrdtState, LwwMapState, RgaState } from '../with-commit/crdt/crdt.js'
 import type { CrdtStrategy } from '../with-commit/crdt/strategy.js'
-import type { I18nTextDescriptor } from '../shape/via-i18n/core.js'
-import { stripI18nFilled } from '../shape/via-i18n/core.js'
-import { getAtPath, setAtPathInPlace } from './paths.js'
-import type { DictKeyDescriptor, StaticDictDescriptor, DictionaryHandle } from '../shape/via-i18n/dictionary.js'
+import type { I18nTextDescriptor, DictKeyDescriptor, StaticDictDescriptor, DictionaryHandle } from '../port/with/i18n-strategy.js'
 import { isStaticDictDescriptor } from '../port/with/i18n-strategy.js'
 import { ViaPipeline } from './via-pipeline.js'
 import { viaBinder, type ViaDescriptor } from './via.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
 import { enforceClassifiedWrite } from '../with-shape/classified/write.js'
-import type { I18nStrategy } from '../port/with/i18n-strategy.js'
-import { resolvePolicy } from '../shape/via-i18n/policy.js'
 import {
   isTombstone,
   isDeleteMarker,
@@ -51,7 +46,7 @@ import {
   purgePersistedIndexes as purgePersistedIndexesImpl,
   type IndexingContext,
 } from '../with-lookup/indexing/collection-facade.js'
-import { ConflictError, ReadOnlyError, TranslatorNotConfiguredError, LocaleNotSpecifiedError } from './errors.js'
+import { ConflictError, ReadOnlyError } from './errors.js'
 import type { GhostRecord, TierMode, CrossTierAccessEvent } from './types.js'
 import type { UnlockedKeyring } from '../with-party/team/keyring.js'
 import { hasWritePermission } from '../with-party/team/keyring.js'
@@ -236,7 +231,6 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   private readonly tiersStrategy: TiersStrategy
   private readonly searchStrategy: SearchStrategy
   private readonly historyStrategy: HistoryStrategy
-  private readonly i18nStrategy: I18nStrategy
   private readonly syncStrategy: SyncStrategy
 
   // In-memory cache of decrypted records (eager mode only). Lazy mode
@@ -353,9 +347,9 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
   /**
    * Map of field name → `I18nTextDescriptor` for fields declared with
-   * `i18nText()`. Used by:
-   *   - `put()` via `i18nPutValidator` to enforce required translations
-   *   - `get()`/`list()` to apply locale resolution after decryption
+   * `i18nText()`. Write/read handling itself runs through the compiled
+   * `via` i18n binding (see {@link via}); this field remains for
+   * `describe()`, `hasReadTransforms()`, and the search-index build path.
    *
    * Declared via the `i18nFields` collection option.
    */
@@ -372,13 +366,6 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * poke + retrieve are zero-cost) unless `textIndexes` is non-empty.
    */
   private readonly searchIndexStore: IndexStore | undefined
-
-  /**
-   * The densify-enabled subset of {@link i18nFields} (fields whose
-   * descriptor opts in via `densifyOnWrite: true`). `undefined` when none opt
-   * in, so the write path skips all densify work for ordinary collections.
-   */
-  private readonly i18nDensifyFields: Record<string, I18nTextDescriptor> | undefined
 
   /**
    * Embedding config for write-time vector derivation. `undefined`
@@ -425,7 +412,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * decode back. Mutable so {@link _applyMoneyFields} can attach.
    */
   private moneyFields: Record<string, ViaDescriptor> | undefined
-  private via: ViaPipeline | undefined // compiled Via pipeline (money now; i18n later); rebuilt by {@link _applyMoneyFields}
+  private via: ViaPipeline | undefined // compiled Via pipeline (money, i18n); rebuilt by {@link _applyMoneyFields}
 
   /**
    * Computed scalar fields, evaluated first on every `put()`. Mutable for
@@ -468,35 +455,11 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   private readonly classifiedStrategy: ClassifiedStrategy
 
   /**
-   * Async callback provided by the Vault that resolves a dict key
-   * to its label for a given locale. Used by the locale-read path for
-   * dictKey fields.
-   *
-   * Signature: `(dictName, key, locale, fallback?) => Promise<string | undefined>`
-   */
-  private readonly dictLabelResolver:
-    | ((
-        dictName: string,
-        key: string,
-        locale: string,
-        fallback?: string | readonly string[],
-      ) => Promise<string | undefined>)
-    | undefined
-
-  /**
    * Async callback provided by the Vault to open a dynamic
    * dictionary handle (for label-map pre-computation in the search index).
    * Only used in `resolveDictLabelMaps()`; static dicts bypass this entirely.
    */
   private readonly getDictionary: ((name: string) => Promise<DictionaryHandle>) | undefined
-
-  /**
-   * Synchronous callback provided by the Vault that validates
-   * i18nText fields on `put()`. Throws `MissingTranslationError` when
-   * a required translation is absent. Called after schema validation,
-   * before encryption.
-   */
-  private readonly i18nPutValidator: ((record: unknown) => void) | undefined
 
   /**
    * declared deterministic fields. `null` when the feature
@@ -558,17 +521,6 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   private readonly tiers: ReadonlySet<number> | null
   private readonly tierMode: TierMode
   private readonly onCrossTierAccess: ((event: CrossTierAccessEvent) => void) | undefined
-
-  /**
-   * Async translator callback provided by Noydb via Vault for
-   * `i18nText` fields with `autoTranslate: true`. Called
-   * before i18n validation so translated values are present when the
-   * validator runs. `undefined` when no `plaintextTranslator` was
-   * configured on `createNoydb()`.
-   */
-  private readonly autoTranslateHook:
-    | ((text: string, from: string, to: string, field: string, collection: string) => Promise<string>)
-    | undefined
 
   /**
    * Optional reference to the vault-level hash-chained audit
@@ -719,7 +671,6 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     this.tiersStrategy = cfg.tiersStrategy
     this.searchStrategy = cfg.searchStrategy
     this.historyStrategy = cfg.historyStrategy
-    this.i18nStrategy = cfg.i18nStrategy
     this.syncStrategy = cfg.syncStrategy
     this.reconcileOnOpen = cfg.reconcileOnOpen
     this.getDEK = cfg.getDEK
@@ -743,7 +694,6 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
           ? new PersistedIndexStore(buildPersistedIndexCallbacksImpl(() => this.searchContext()))
           : new MemoryIndexStore()
         : undefined
-    this.i18nDensifyFields = cfg.i18nDensifyFields
     this.embeddings = cfg.embeddings
     this.vectorSet = cfg.vectorSet
     this.dictKeyFields = cfg.dictKeyFields
@@ -757,10 +707,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     this.vdigFields = cfg.vdigFields
     this.classifiedStrategy = cfg.classifiedStrategy
     this.computed = cfg.computed
-    this.dictLabelResolver = cfg.dictLabelResolver
     this.getDictionary = cfg.getDictionary
-    this.i18nPutValidator = cfg.i18nPutValidator
-    this.autoTranslateHook = cfg.autoTranslateHook
     this.defaultLocale = cfg.defaultLocale
     this.crdtMode = cfg.crdtMode
     this.syncAdapter = cfg.syncAdapter
@@ -1343,10 +1290,17 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * analysis auto-creates a source collection (without options) during
    * `openVault`, before the user's `collection(name, { moneyFields })`
    * declaration; this reconciles that ordering. First-wins. Not public.
+   *
+   * PREPENDS money rather than appending: {@link compileViaBindings} always
+   * compiles money before i18n (money-first pipeline order — see its
+   * docstring), and by the time this reconcile runs an i18n binding may
+   * already be sitting in `this.via.bindings` (declared at construction).
+   * Appending here would yield `[i18n, money]` on this path vs `[money,
+   * i18n]` from compile — prepending keeps both paths money-first.
    */
   _applyMoneyFields(moneyFields: Record<string, ViaDescriptor>): void {
     if (this.moneyFields !== undefined) return
-    this.via = ViaPipeline.build([...(this.via?.bindings ?? []), viaBinder('money')(moneyFields)])
+    this.via = ViaPipeline.build([viaBinder('money')(moneyFields), ...(this.via?.bindings ?? [])])
     this.moneyFields = moneyFields
   }
 
@@ -1819,129 +1773,21 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       record = await validateSchemaInput(this.schema, record, `put(${id})`)
     }
 
-    // Quantize money fields to their stored form (scaled-int string).
-    // After schema validation — descriptor owns precision/scale/currency.
-    if (this.via) record = await this.via.encodeWrite(record as Record<string, unknown>, { id, prior: async () => null, emit: (e: string, p: unknown) => (this.emitter.emit as (ev: string, pl: unknown) => void)(e, p) }) as T // Task 8 wires prior
-
-    // Auto-translate missing i18nText translations.
-    // Runs BEFORE i18n validation so translated values satisfy the
-    // required-locale constraint. Throws TranslatorNotConfiguredError
-    // when a field has autoTranslate: true but no hook was configured.
-    if (this.i18nFields) {
-      const obj = record as Record<string, unknown>
-      for (const [field, descriptor] of Object.entries(this.i18nFields)) {
-        if (!descriptor.options.autoTranslate) continue
-        // getAtPath returns [] for array-wildcard paths — auto-translate on
-        // 'contacts[].field' style paths is not supported; skip silently.
-        const leafValues = getAtPath(obj, field)
-        if (leafValues.length !== 1) continue
-        const value = leafValues[0]
-        if (!value || typeof value !== 'object' || Array.isArray(value)) continue
-        const map = value as Record<string, string>
-        // Determine which locales need translation. For 'all', translate all
-        // declared languages that are missing. For 'any', only translate if
-        // none are present. For string[], translate the listed required ones.
-        const { languages, required } = descriptor.options
-        const missing: string[] = languages.filter(
-          (lang) => !(lang in map) || map[lang] === '',
-        )
-        if (missing.length === 0) continue
-        // Find a source locale (first present non-empty value)
-        const sourceLocale = languages.find((l) => l in map && map[l] !== '')
-        if (!sourceLocale) continue
-        if (!this.autoTranslateHook) {
-          throw new TranslatorNotConfiguredError(field, this.name)
-        }
-        // Only translate locales that are actually needed
-        const toTranslate =
-          required === 'any'
-            ? [] // 'any' is already satisfied since sourceLocale exists
-            : required === 'all'
-              ? missing
-              : missing.filter((l) => required.includes(l))
-        const translated = { ...map }
-        for (const targetLocale of toTranslate) {
-          translated[targetLocale] = await this.autoTranslateHook(
-            map[sourceLocale]!,
-            sourceLocale,
-            targetLocale,
-            field,
-            this.name,
-          )
-        }
-        setAtPathInPlace(obj, field, translated)
-      }
-    }
-
-    // densifyOnWrite: read prior fills so a round-tripped
-    // derived copy is exempt from script enforcement and can be refreshed.
-    // `densifyPrior` is read once here and reused by densify() below.
-    let densifyPrior: Record<string, unknown> | undefined
-    let exemptFills: Map<string, Set<string>> | undefined
-    if (this.i18nDensifyFields) {
-      densifyPrior = await this.resolveDensifyPrior(id)
-      exemptFills = this.i18nStrategy.computeExemptFills(
-        densifyPrior,
-        record as Record<string, unknown>,
-        this.i18nDensifyFields,
-      )
-    }
-
-    // i18nText script enforcement — runs AFTER auto-translate (so
-    // generated values are checked too). Throws ScriptViolationError
-    // under the default 'reject'; 'filter' strips disallowed chars in
-    // place (getAtPath returns live leaf references, so the write-back
-    // covers nested and array-wildcard paths uniformly); 'warn' leaves
-    // the value unchanged.
-    if (this.i18nFields) {
-      const obj = record as Record<string, unknown>
-      for (const [field, descriptor] of Object.entries(this.i18nFields)) {
-        if (!descriptor.options.script) continue
-        for (const leaf of getAtPath(obj, field)) {
-          if (!leaf || typeof leaf !== 'object' || Array.isArray(leaf)) continue
-          const leafMap = leaf as Record<string, unknown>
-          const { value: cleaned, warnings } = this.i18nStrategy.enforceScript(
-            leafMap,
-            field,
-            descriptor,
-            exemptFills?.get(field),
-          )
-          if (cleaned !== leafMap) Object.assign(leafMap, cleaned)
-          // enforceScript only returns warnings under 'warn'/'filter' ('reject'
-          // throws first), so this guard never fires — it makes that invariant
-          // explicit and keeps `mode` off the optional-undefined type.
-          const mode = descriptor.options.onScriptViolation
-          if (mode === 'warn' || mode === 'filter') {
-            for (const w of warnings) {
-              this.emitter.emit('i18n:script-violation', {
-                vault: this.vault,
-                collection: this.name,
-                id,
-                mode,
-                warning: w,
-              })
-            }
-          }
-        }
-      }
-    }
-
-    // i18nText validation — runs AFTER schema validation so
-    // the record shape is trustworthy. Throws MissingTranslationError
-    // when required translations are absent.
-    if (this.i18nPutValidator !== undefined) {
-      this.i18nPutValidator(record)
-    }
-
-    // Eager-fill empty slots + record provenance. Runs AFTER the
-    // authored gates (required + script) so only authored slots are validated;
-    // filled slots are recorded in the internal `_i18nFilled` marker.
-    if (this.i18nDensifyFields) {
-      this.i18nStrategy.densify(
-        record as Record<string, unknown>,
-        densifyPrior,
-        this.i18nDensifyFields,
-      )
+    // Single Via encode-write phase: money quantize (After schema validation
+    // — descriptor owns precision/scale/currency), then i18nText
+    // translate→densify-prior-read→script→validate→densify (via the i18n
+    // binding, when declared) — binding order is money-first (see
+    // {@link compileViaBindings}). `prior` mirrors {@link resolveDensifyPrior}
+    // exactly (same basis the densify-prior read used before this cutover)
+    // and is lazily invoked — only paid when a binding's densify actually
+    // calls it.
+    if (this.via) {
+      record = await this.via.encodeWrite(record as Record<string, unknown>, {
+        id,
+        vault: this.vault,
+        prior: async () => (await this.resolveDensifyPrior(id)) ?? null,
+        emit: (e: string, p: unknown) => (this.emitter.emit as (ev: string, pl: unknown) => void)(e, p),
+      }) as T
     }
 
     // Foreign-key ref enforcement. Runs AFTER schema
@@ -4177,128 +4023,15 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
     let result = record as unknown as Record<string, unknown>
 
-    // Money decode runs regardless of locale (stored int → decimal string);
-    // virtuals are gated on `locale !== 'raw'` inside decodeMoneyFields.
+    // Money decode + i18nText/dictKey resolution all run through the
+    // compiled Via pipeline: money decode is unconditional (virtuals gated
+    // on `locale !== 'raw'` inside the money binding); the i18n binding's
+    // `present` hook (the i18n via-shape's `runI18nPresent`) applies the
+    // SAME locale-active / static-display-hinge / dict-label / densify-
+    // marker-strip logic this method used to run inline.
     if (this.via) result = await this.via.present(result, { locale, ...(localeOpts?.fallback !== undefined ? { fallback: localeOpts.fallback } : {}), layer })
 
-    // i18nText / dictKey resolution require an active locale — EXCEPT a
-    // static dict declaring a `displayLocale`, which resolves its
-    // `<field>Label` even under a locale-less read (the hybrid hinge).
-    // The first early-return (above, `!hasI18n && !hasDict && !hasMoney`) is
-    // UNCHANGED; only this second return relaxes, and ONLY for static-display
-    // fields — folding `hasI18n` in here would let an i18nText-only
-    // collection fall through to applyI18nLocale(…, undefined) on a
-    // locale-less read, breaking the raw-{th,en}-map invariant.
-    const hasStaticDisplay =
-      hasDict &&
-      this.dictKeyFields !== undefined &&
-      Object.values(this.dictKeyFields).some(
-        (d) => isStaticDictDescriptor(d) && d.displayLocale !== undefined,
-      )
-    // Strip the internal densify marker even when no locale is active
-    // (applyI18nLocale, which normally strips it, is skipped on this path).
-    // Non-mutating: never touches the cached/stored record object.
-    if (!locale && !hasStaticDisplay) return stripI18nFilled(result) as T
-
-    // 1. i18nText resolution — guarded on `locale`, because the relaxed gate
-    // above can now be entered with `locale === undefined` (static-display).
-    // The layer (`'read'` by default; `'guard'`/`'derivation'` when read
-    // through a layer-tagged facade) selects the field's per-layer
-    // `onMissing` policy inside applyI18nLocale.
-    if (locale && hasI18n && this.i18nFields) {
-      result = this.i18nStrategy.applyI18nLocale(result, this.i18nFields, locale, localeOpts?.fallback, layer)
-    }
-
-    // 2. dictKey / staticDict label resolution
-    if (hasDict && this.dictKeyFields && this.dictLabelResolver && locale !== 'raw') {
-      const withLabels = { ...result }
-      const resolver = this.dictLabelResolver
-      for (const [field, desc] of Object.entries(this.dictKeyFields)) {
-        // dictKey default policy is 'null' (omit/null on miss) — today's
-        // behavior — unless the field declares onMissing. 'substitute'
-        // walks the declared substitute chain (passed as the resolver's
-        // fallback); 'throw' raises LocaleNotSpecifiedError.
-        const policy = desc.onMissing ? resolvePolicy(desc.onMissing, layer) : 'null'
-        const fallback =
-          policy === 'substitute'
-            ? (localeOpts?.fallback ?? desc.substitute)
-            : localeOpts?.fallback
-        // Per-field effective locale: a static dict falls back to its
-        // `displayLocale` when no locale is active (the hybrid hinge);
-        // a plain dictKey with no displayLocale gets `undefined` → its
-        // <field>Label is omitted on a locale-less read (today's behavior).
-        const effLocale =
-          locale ??
-          (isStaticDictDescriptor(desc) ? desc.displayLocale : undefined)
-        // Resolve one key → label | null, honoring the policy. With no
-        // effective locale there is nothing to resolve against.
-        const resolveKey = async (key: string): Promise<string | null> => {
-          if (!effLocale) {
-            if (policy === 'throw') {
-              throw new LocaleNotSpecifiedError(
-                field,
-                `dictKey "${field}": no locale active to resolve key "${key}".`,
-              )
-            }
-            return null
-          }
-          const label = await resolver(desc.name, key, effLocale, fallback)
-          if (label === undefined) {
-            if (policy === 'throw') {
-              throw new LocaleNotSpecifiedError(
-                field,
-                `dictKey "${field}": no label for key "${key}" in locale "${effLocale}".`,
-              )
-            }
-            return null
-          }
-          return label
-        }
-
-        if (field.includes('[].')) {
-          // Wildcard path `arrayKey[].leaf`: add a per-element
-          // sibling `<leaf>Label`. Single level + simple leaf.
-          const parts = field.split('[].')
-          const arrayKey = parts[0]!
-          const leaf = parts[1]
-          if (!leaf || leaf.includes('.')) continue
-          const arr = (withLabels as Record<string, unknown>)[arrayKey]
-          if (!Array.isArray(arr)) continue
-          const labelKey = `${leaf}Label`
-          ;(withLabels as Record<string, unknown>)[arrayKey] = await Promise.all(
-            arr.map(async (el) => {
-              if (!el || typeof el !== 'object' || Array.isArray(el)) return el
-              const k = (el as Record<string, unknown>)[leaf]
-              if (typeof k !== 'string') return el
-              return { ...(el as Record<string, unknown>), [labelKey]: await resolveKey(k) }
-            }),
-          )
-          continue
-        }
-
-        const val = result[field]
-        if (Array.isArray(val)) {
-          // Array-of-keys → [{ key, label }] pair objects (key preserved).
-          withLabels[`${field}Label`] = await Promise.all(
-            val.map(async (k) => ({
-              key: k,
-              label: typeof k === 'string' ? await resolveKey(k) : null,
-            })),
-          )
-        } else if (typeof val === 'string') {
-          const label = await resolveKey(val)
-          // Scalar under 'null'/default omits the label key (today's
-          // behavior); 'substitute' returns a value; 'throw' threw above.
-          if (label !== null) withLabels[`${field}Label`] = label
-        }
-      }
-      result = withLabels
-    }
-
-    // Final guard: the locale-less static-display path skips
-    // applyI18nLocale's strip, so ensure the densify marker never leaks here
-    // either. Non-mutating (no-op when absent or already stripped above).
-    return stripI18nFilled(result) as T
+    return result as T
   }
 
   /**

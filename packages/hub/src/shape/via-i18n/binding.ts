@@ -134,10 +134,9 @@ function runI18nScriptEnforcement(
       const mode = descriptor.options.onScriptViolation
       if (mode === 'warn' || mode === 'filter') {
         for (const w of warnings) {
-          // `ViaWriteCtx` carries no vault identity yet — Task 8 finishes
-          // wiring this event's payload once the binding is on the compile
-          // path; `collection` is what's available today via cfg.
+          // Exact original payload shape (collection.ts:1916-1922 pre-cutover).
           ctx.emit('i18n:script-violation', {
+            vault: ctx.vault,
             collection: cfg.collectionName,
             id: ctx.id,
             mode,

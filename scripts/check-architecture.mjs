@@ -907,7 +907,12 @@ const KERNEL_SURFACE_BUDGET = {
   // (from `_purgeDeleteMarkers`), the `_purgePeriodTargets` seam, `getPurgeableTargets`
   // option/field/default, and the `purgePeriodTargets` delegator (mirrors archivePeriod).
   // Bumped 4082→4084 (2026-07-10, #615 review M1): refreshed the _purgeDeleteMarkers doc comment (pure doc growth, no behavior change).
-  'packages/hub/src/kernel/vault.ts': 4084,
+  // Bumped 4084→4095 (2026-07-11, #623 Task 8: i18n cutover onto the Via pipeline):
+  // `enforceI18nOnPut`/`enforceStaticDictOnPut` each gained an `isViaInstalled('i18n')`
+  // delegation guard + a docstring line explaining it (+11). The two methods' bodies
+  // are otherwise unchanged — the inline i18n write/present duplication this task
+  // removes lived in collection.ts, not here.
+  'packages/hub/src/kernel/vault.ts': 4095,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
@@ -1166,8 +1171,6 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/classified/resolve.js',
     // classified-fields stage 1 — ② capability gate, mirrors attestationStrategy/tiersStrategy threading
     '../with-shape/classified/strategy.js',
-    '../shape/via-i18n/core.js',
-    '../shape/via-i18n/dictionary.js',
     '../with-shape/introspection/field-meta.js',
     '../with-shape/introspection/meta.js',
     '../with-shape/schema-update/fence-controller.js',
@@ -1226,9 +1229,6 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     // classified stage 2 Task 13 (2026-07-04) — refusal matrix R1-R5 guard at
     // door 2 (the _applyClassifiedFields reconcile seam); pure validation, same ③ class as resolve.js
     '../with-shape/classified/guards.js',
-    '../shape/via-i18n/core.js',
-    '../shape/via-i18n/dictionary.js',
-    '../shape/via-i18n/policy.js',
     '../with-shape/introspection/describe.js',
     '../with-shape/introspection/field-meta.js',
     '../with-shape/introspection/meta.js',
@@ -1304,9 +1304,6 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/blobs/strategy.js',
     // classified-fields stage 1 — ② capability gate, mirrors attestationStrategy/tiersStrategy threading
     '../with-shape/classified/strategy.js',
-    '../shape/via-i18n/policy.js',
-    '../shape/via-i18n/script.js',
-    '../shape/via-i18n/strategy.js',
     '../port/by/types.js',
   ]],
   ['packages/hub/src/kernel/vault.ts', [
@@ -1371,8 +1368,6 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/classified/resolve.js',
     // classified-fields stage 1 — ② capability gate, mirrors attestationStrategy/tiersStrategy threading
     '../with-shape/classified/strategy.js',
-    '../shape/via-i18n/core.js',
-    '../shape/via-i18n/dictionary.js',
     '../with-shape/introspection/field-meta.js',
     '../with-shape/introspection/meta.js',
     '../with-shape/introspection/types.js',

@@ -41,8 +41,7 @@ import type { ObjectProjection } from '../with-shape/blobs/object-projection.js'
 import type { BlobFieldsConfig } from '../with-shape/blobs/blob-compaction.js'
 import type { IndexStrategy } from '../with-lookup/indexing/strategy.js'
 import type { IndexDef } from '../with-lookup/indexing/eager-indexes.js'
-import type { I18nTextDescriptor } from '../shape/via-i18n/core.js'
-import type { DictKeyDescriptor, StaticDictDescriptor, DictionaryHandle } from '../shape/via-i18n/dictionary.js'
+import type { I18nTextDescriptor, DictKeyDescriptor, StaticDictDescriptor, DictionaryHandle } from '../port/with/i18n-strategy.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
 import { resolveClassifiedFields, ClassifiedConfigError, type ClassifiedEntry, type ResolvedClassified } from '../with-shape/classified/resolve.js'
 import { guardClassifiedCompat, type ClassifiedGuardCtx } from '../with-shape/classified/guards.js'
@@ -469,12 +468,39 @@ export interface CollectionOpts<T> {
 
 /**
  * Compile a collection's declared config into the ordered list of `ViaBinding`s
- * for its `ViaPipeline`. Compile seam only — no production consumers yet.
+ * for its `ViaPipeline`.
+ *
+ * money then i18n — order pinned for pipeline parity with the hand-wired
+ * baseline this replaces: money encode ran before the i18n write stages,
+ * and money decode ran before i18n locale/dict-label resolution on read.
+ * {@link Collection._applyMoneyFields} PREPENDS money for the same reason
+ * on its own (MV-precreation reconcile) path — see its docstring.
  */
 export function compileViaBindings<T>(opts: CollectionOpts<T>): ViaBinding[] {
-  // money (Task 5) then i18n (Task 8) — order pinned for pipeline parity
   const bindings: ViaBinding[] = []
   if (opts.moneyFields) bindings.push(viaBinder('money')(opts.moneyFields))
+  if (opts.i18nFields || opts.dictKeyFields) {
+    // Densify-enabled subset (fields opting into `densifyOnWrite: true`) —
+    // undefined when none opt in, so the write path skips densify work
+    // entirely for ordinary collections.
+    const densify = opts.i18nFields
+      ? Object.fromEntries(
+          Object.entries(opts.i18nFields).filter(([, d]) => d.options.densifyOnWrite === true),
+        )
+      : {}
+    const i18nDensifyFields = Object.keys(densify).length > 0 ? densify : undefined
+    bindings.push(viaBinder('i18n')({
+      ...(opts.i18nFields !== undefined ? { i18nFields: opts.i18nFields } : {}),
+      ...(opts.dictKeyFields !== undefined ? { dictKeyFields: opts.dictKeyFields } : {}),
+      ...(i18nDensifyFields !== undefined ? { i18nDensifyFields } : {}),
+      strategy: opts.i18nStrategy ?? NO_I18N,
+      ...(opts.defaultLocale !== undefined ? { defaultLocale: opts.defaultLocale } : {}),
+      ...(opts.autoTranslateHook !== undefined ? { autoTranslateHook: opts.autoTranslateHook } : {}),
+      ...(opts.dictLabelResolver !== undefined ? { dictLabelResolver: opts.dictLabelResolver } : {}),
+      ...(opts.i18nPutValidator !== undefined ? { i18nPutValidator: opts.i18nPutValidator } : {}),
+      collectionName: opts.name,
+    }))
+  }
   return bindings
 }
 
@@ -527,16 +553,6 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
   } else {
     deterministicFields = null
   }
-
-  // Precompute the densify-enabled subset (undefined when none opt in)
-  // so the write path skips work for non-densify collections.
-  const densifyFields = opts.i18nFields
-    ? Object.fromEntries(
-        Object.entries(opts.i18nFields).filter(([, d]) => d.options.densifyOnWrite === true),
-      )
-    : {}
-  const i18nDensifyFields =
-    Object.keys(densifyFields).length > 0 ? densifyFields : undefined
 
   // Refusal matrix (R1-R5) — door 1. The SAME guard + ctx runs again at door 2
   // (`_applyClassifiedFields`, the reconcile seam), because crdt/conflictPolicy/
@@ -634,7 +650,6 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     joinResolver: opts.joinResolver,
     i18nFields: opts.i18nFields,
     textIndexes: opts.textIndexes,
-    i18nDensifyFields,
     embeddings: opts.embeddings,
     vectorSet: opts.embeddings ? new VectorSet() : undefined,
     dictKeyFields: opts.dictKeyFields,

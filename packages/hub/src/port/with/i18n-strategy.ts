@@ -185,3 +185,15 @@ export function isStaticDictDescriptor(x: unknown): x is StaticDictDescriptor {
     (x as { _noydbStaticDict?: unknown })._noydbStaticDict === true
   )
 }
+
+/**
+ * Type-only re-exports (#623 Task 8) — the kernel spine (collection.ts,
+ * collection-config.ts, vault.ts, types.ts) imports these descriptor/handle
+ * types through the port instead of reaching into `shape/via-i18n/*`
+ * directly, so `src/kernel/**` carries no via-i18n specifier at all.
+ * `isolatedModules: true` erases these at build time — no runtime coupling.
+ */
+export type { I18nTextDescriptor } from '../../shape/via-i18n/core.js'
+export type { DictKeyDescriptor, DictionaryHandle, DictionaryOptions, StaticDictDescriptor } from '../../shape/via-i18n/dictionary.js'
+export type { Layer } from '../../shape/via-i18n/policy.js'
+export type { ScriptWarning } from '../../shape/via-i18n/script.js'

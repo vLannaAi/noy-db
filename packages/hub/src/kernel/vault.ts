@@ -89,15 +89,15 @@ import {
   type RefDescriptor,
   type RefViolation,
 } from './refs.js'
-import type { DictionaryHandle, DictionaryOptions, DictKeyDescriptor, StaticDictDescriptor } from '../shape/via-i18n/dictionary.js'
+import type { DictionaryHandle, DictionaryOptions, DictKeyDescriptor, StaticDictDescriptor } from '../port/with/i18n-strategy.js'
 import { isDictCollectionName, isStaticDictDescriptor } from '../port/with/i18n-strategy.js'
 import { isLinkCollectionName, type LinkSpec, type LinkSetHandle } from '../with-shape/links/names.js'
 import { makeLazyLinkSetHandle, type LazyLinkSetHandle } from '../with-shape/links/lazy-handle.js'
 import type { EmbeddingDescriptor } from '../with-lookup/embeddings/index.js'
-import type { I18nTextDescriptor } from '../shape/via-i18n/core.js'
 import { getAtPath } from './paths.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
-import { NO_I18N, type I18nStrategy } from '../port/with/i18n-strategy.js'
+import { NO_I18N, type I18nStrategy, type I18nTextDescriptor } from '../port/with/i18n-strategy.js'
+import { isViaInstalled } from './via.js'
 import { NO_SYNC, type SyncStrategy } from '../with-party/team/sync-strategy.js'
 // Type-only imports for the guard + derivation services. The
 // runtime classes are loaded on demand via `await import(...)` inside
@@ -1487,8 +1487,16 @@ export class Vault {
    * Validate i18nText fields on a `put()`. Called by Collection just
    * before the adapter write, after schema validation. Throws
    * `MissingTranslationError` when a required translation is absent.
+   *
+   * Delegates through the Via registry (#623): a collection only reaches
+   * this validator via the compiled i18n binding's `i18nPutValidator`
+   * closure, and that binding only exists when a declaration factory
+   * (`i18nText`/`dictKey`/`staticDict`) linked it — so the guard is a no-op
+   * only in the same "never declared" case the registry check below already
+   * covers.
    */
   enforceI18nOnPut(collectionName: string, record: unknown): void {
+    if (!isViaInstalled('i18n')) return
     const i18nFields = this.i18nFieldRegistry.get(collectionName)
     if (!i18nFields || Object.keys(i18nFields).length === 0) return
     if (!record || typeof record !== 'object') return
@@ -1509,8 +1517,11 @@ export class Vault {
    * table, else `UnknownDictCodeError`. Opt out per descriptor with
    * `{ validateCodes: false }`. Supports scalar, dotted, and `[].`-wildcard
    * field paths via `getAtPath` (same path support as i18n validation).
+   *
+   * Delegates through the Via registry — see {@link enforceI18nOnPut}.
    */
   enforceStaticDictOnPut(collectionName: string, record: unknown): void {
+    if (!isViaInstalled('i18n')) return
     const staticFields = this.staticDescriptorByField.get(collectionName)
     if (!staticFields || Object.keys(staticFields).length === 0) return
     if (!record || typeof record !== 'object') return

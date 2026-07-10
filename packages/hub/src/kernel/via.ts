@@ -18,6 +18,8 @@ export interface ViaDescriptor { readonly _viaBrand: string }
 /** Per-call write context (A: minimal; B/C extend). */
 export interface ViaWriteCtx {
   readonly id: string
+  /** Owning vault name (event payload identity — e.g. i18n:script-violation). */
+  readonly vault: string
   /** Prior stored record (decoded), lazily resolved. Null when creating. */
   readonly prior: () => Promise<Record<string, unknown> | null>
   /** Typed event emission (e.g. i18n:script-violation). */

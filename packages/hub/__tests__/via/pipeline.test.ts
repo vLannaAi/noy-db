@@ -114,6 +114,7 @@ describe('ViaPipeline', () => {
     const p = ViaPipeline.build([fixtureBindingA(), fixtureBindingB()])!
     const ctx: ViaWriteCtx = {
       id: 'test-id',
+      vault: 'test-vault',
       prior: async () => null,
       emit: () => {},
     }

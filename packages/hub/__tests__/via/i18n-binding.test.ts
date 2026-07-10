@@ -23,7 +23,7 @@ function stubStrategy(): I18nStrategy {
   }
 }
 
-describe('i18nBinding (#623 Task 7, dormant — no compile entry yet)', () => {
+describe('i18nBinding (#623 Task 7)', () => {
   it('declares the i18n brand + posture', () => {
     const b = i18nBinding({ strategy: stubStrategy(), collectionName: 'items' })
     expect(b.brand).toBe('i18n')
@@ -72,7 +72,7 @@ describe('i18nBinding (#623 Task 7, dormant — no compile entry yet)', () => {
     })
 
     const record = { title: { en: 'Hello', th: 'สวัสดี' } }
-    const out = await b.encodeWrite!(record, { id: 'x', prior: async () => null, emit: () => {} })
+    const out = await b.encodeWrite!(record, { id: 'x', vault: 'test-vault', prior: async () => null, emit: () => {} })
 
     expect(i18nPutValidator).toHaveBeenCalledWith(out)
   })
