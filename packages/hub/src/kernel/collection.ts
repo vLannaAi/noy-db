@@ -11,6 +11,7 @@ import type { I18nTextDescriptor, DictKeyDescriptor, StaticDictDescriptor, Dicti
 import { isStaticDictDescriptor } from '../port/with/i18n-strategy.js'
 import { ViaPipeline } from './via-pipeline.js'
 import { viaBinder, type ViaDescriptor } from './via.js'
+import type { MutationOrigin } from './mutation.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
 import { enforceClassifiedWrite } from '../with-shape/classified/write.js'
 import {
@@ -1892,12 +1893,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         this.indexes?.upsert(id, resolvedRecord, existingResolved ? existingResolved.record : null)
       }
 
-      await this.onDirty?.(this.name, id, 'put', version)
-      this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action: 'put' } satisfies ChangeEvent)
-      this.searchIndexStore?.markDirty() // zero-cost for non-search collections
-      await this.onAccess?.('put', id)
-      await this.dispatchDerivations(id, record, version)
-      await this.dispatchMaterializedViews(id, record)
+      await this._onRecordMutated(id, 'put', 'local-write', { record, version })
       return
     }
     // ─── End CRDT mode ──────────────────────────────────────────────────
@@ -2058,25 +2054,13 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       this.uniqueConstraints?.upsert(id, record, existing?.record)
     }
 
-    await this.onDirty?.(this.name, id, 'put', version)
-
-    this.emitter.emit('change', {
-      vault: this.vault,
-      collection: this.name,
-      id,
-      action: 'put',
-    } satisfies ChangeEvent)
-    this.searchIndexStore?.markDirty() // zero-cost for non-search collections
-
-    await this.onAccess?.('put', id)
-
-    // Derivation dispatch — AFTER store + ledger + emitter commit so a
-    // failed source-write never produces orphan derived outputs. The
-    // recursive `put` into output collections re-enters this pipeline
-    // (encrypt + ledger + emit) intentionally; cycle detection at vault
-    // open is the primary defense against infinite recursion.
-    await this.dispatchDerivations(id, record, version)
-    await this.dispatchMaterializedViews(id, record)
+    // Derivation dispatch (inside `_onRecordMutated`) runs AFTER store +
+    // ledger + emitter commit so a failed source-write never produces
+    // orphan derived outputs. The recursive `put` into output collections
+    // re-enters this pipeline (encrypt + ledger + emit) intentionally;
+    // cycle detection at vault open is the primary defense against
+    // infinite recursion.
+    await this._onRecordMutated(id, 'put', 'local-write', { record, version })
   }
 
   /**
@@ -2561,7 +2545,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
       const newEnv = await this.codec.encryptRecord(next as unknown as T, nextVersion, cek, undefined, undefined, this.vdigFields !== null ? { id, prev: env } : undefined)
       await this.adapter.put(this.vault, this.name, id, newEnv)
-      await this._invalidateCacheEntry(id) // refresh in-memory cache after the raw write
+      await this._onRecordMutated(id, 'put', 'cutover') // refresh in-memory cache after the raw write (parity: cache only)
       if (this.ledger) {
         await this.ledger.append({
           op: 'migration', collection: this.name, id, version: nextVersion,
@@ -2770,17 +2754,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // at above), not `existing?.version` — the fallback below is unreachable in
     // practice (onDirty undefined ⇒ markerVersion undefined ⇒ the `?.` short-circuits
     // before this argument matters) but keeps the expression well-typed.
-    await this.onDirty?.(this.name, id, 'put', markerVersion ?? (existing?.version ?? 0) + 1)
-
-    this.emitter.emit('change', {
-      vault: this.vault,
-      collection: this.name,
-      id,
-      action: 'delete',
-    } satisfies ChangeEvent)
-    this.searchIndexStore?.markDirty() // zero-cost for non-search collections
-
-    await this.onAccess?.('delete', id)
+    await this._onRecordMutated(id, 'delete', 'local-delete', { version: markerVersion ?? (existing?.version ?? 0) + 1 })
 
     // Symmetric to put: user-initiated deletes must fire MV
     // refresh so `onEmpty: 'delete'` MVs tombstone their now-orphan
@@ -3808,9 +3782,71 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * Never writes to the store and never fires write hooks, so it cannot loop.
    */
   async _applyRemoteChange(id: string, action: 'put' | 'delete'): Promise<void> {
-    await this._invalidateCacheEntry(id)
-    this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action })
-    this.searchIndexStore?.markDirty() // peer write changed the cache; rebuild on next retrieve
+    await this._onRecordMutated(id, action, 'tab-mirror')
+  }
+
+  /**
+   * Origin-tagged mutation choke point (#623 task 10) — the single dispatch
+   * point every put/delete path funnels through, AFTER its own store write,
+   * to fire the side-effects that path performs today. Each case below
+   * performs EXACTLY the side-effect set the seam-map Part-3 table
+   * (`.superpowers/sdd/seam-map-i18n-pipeline.md`) records for `origin` —
+   * this is a pure parity extraction of existing tails, not a behavior
+   * change. Phase C (#621, #622) plugs the dependency-graph dispatch into
+   * this socket, keyed off `origin`, without every call site having to
+   * learn the graph.
+   *
+   * `restore` is never reached: `Vault.load` / `backup.ts#loadVault` drops
+   * the whole `collectionCache` instead of dispatching per record — the
+   * origin is reserved for phase C.
+   *
+   * @internal
+   */
+  async _onRecordMutated(
+    id: string,
+    action: 'put' | 'delete',
+    origin: MutationOrigin,
+    ctx?: { readonly record?: T; readonly version?: number },
+  ): Promise<void> {
+    switch (origin) {
+      case 'local-write': {
+        const record = ctx!.record!
+        const version = ctx!.version!
+        await this.onDirty?.(this.name, id, 'put', version)
+        this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action: 'put' } satisfies ChangeEvent)
+        this.searchIndexStore?.markDirty() // zero-cost for non-search collections
+        await this.onAccess?.('put', id)
+        await this.dispatchDerivations(id, record, version)
+        await this.dispatchMaterializedViews(id, record)
+        return
+      }
+      case 'local-delete': {
+        await this.onDirty?.(this.name, id, 'put', ctx!.version!)
+        this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action: 'delete' } satisfies ChangeEvent)
+        this.searchIndexStore?.markDirty() // zero-cost for non-search collections
+        await this.onAccess?.('delete', id)
+        return
+      }
+      case 'tab-mirror':
+        await this._invalidateCacheEntry(id)
+        this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action })
+        this.searchIndexStore?.markDirty() // peer write changed the cache; rebuild on next retrieve
+        return
+      case 'sync-apply':
+        // #621: phase C plugs graph dispatch here
+        this._invalidateCekCacheEntry(id)
+        await this._invalidateCacheEntry(id)
+        return
+      case 'cutover':
+        // Parity: cache invalidation only — the migration ledger entry
+        // stays at the `_applyCutoverTransform` call site.
+        // #621: phase C plugs graph dispatch here
+        await this._invalidateCacheEntry(id)
+        return
+      case 'restore':
+        // Unreachable today — see doc comment above. Reserved for phase C.
+        return
+    }
   }
 
   /** @internal — the current in-memory record without a store read (for conflict capture). */

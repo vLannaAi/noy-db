@@ -1328,8 +1328,7 @@ export class Vault {
   async _invalidateSyncApplied(collection: string, id: string): Promise<void> {
     const coll = this.collectionCache.get(collection)
     if (!coll) return
-    coll._invalidateCekCacheEntry(id)
-    await coll._invalidateCacheEntry(id)
+    await coll._onRecordMutated(id, 'put', 'sync-apply')
   }
 
   /**
