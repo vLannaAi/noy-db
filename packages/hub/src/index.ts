@@ -866,6 +866,11 @@ export type {
   MoneyString,
 } from './shape/via-money/index.js'
 
+// via — public field composer (declares a field's Via feature(s) without a sugar key)
+export { via, isViaFieldSpec } from './kernel/via-compose.js'
+export type { ViaFieldSpec } from './kernel/via-compose.js'
+export type { ViaPosture, ViaDescriptor } from './kernel/via.js'
+
 // classified — preset catalog (creditCard/birthDate/email/phone) + validators
 export { classified, luhnCheck, isClassifiedFieldSpec, isClassifiedGroup, resolveClassifiedFields, ClassifiedConfigError, ClassifiedNeverStoredError, ClassifiedValidationError, ClassifiedRevealError, ClassifiedVerifyError, ClassifiedRotationError } from './with-shape/classified/index.js'
 export type { ClassifiedFieldSpec, ClassifiedGroup, ClassifiedEntry, ClassifiedList, ClassifiedStorage, ClassifiedVerdict } from './with-shape/classified/index.js'

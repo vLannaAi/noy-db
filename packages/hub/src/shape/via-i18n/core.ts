@@ -187,6 +187,8 @@ export interface I18nTextOptions {
  */
 export interface I18nTextDescriptor {
   readonly _noydbI18nText: true
+  /** Via port brand marker — lets an `I18nTextDescriptor` satisfy the kernel's opaque `ViaDescriptor` (#623 Task 9). */
+  readonly _viaBrand: 'i18n'
   readonly options: I18nTextOptions
 }
 
@@ -213,7 +215,7 @@ export function i18nText(options: I18nTextOptions): I18nTextDescriptor {
         `Remove the 'throw' policy or disable densifyOnWrite.`,
     )
   }
-  return { _noydbI18nText: true, options }
+  return { _noydbI18nText: true, _viaBrand: 'i18n', options }
 }
 
 /** True when `onMissing` declares `'throw'` for any layer (scalar or per-layer). */

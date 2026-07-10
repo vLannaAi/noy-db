@@ -61,6 +61,7 @@ import type { Collection, OnDirtyCallback, CacheOptions } from './collection.js'
 import type { LazyStrategy } from '../port/with/lazy-strategy.js'
 import { ViaPipeline } from './via-pipeline.js'
 import { viaBinder, type ViaBinding, type ViaDescriptor } from './via.js'
+import { mergeViaFields, type ViaFieldSpec } from './via-compose.js'
 
 /**
  * Raw options handed to the {@link Collection} constructor by the Vault.
@@ -238,6 +239,8 @@ export interface CollectionOpts<T> {
   /** — collection-level descriptive metadata. Read via getMeta(). */
   meta?: CollectionMeta | undefined
   moneyFields?: Record<string, ViaDescriptor> | undefined
+  /** — declare via() composed fields; grouped by `_viaBrand` and merged with the money/i18n sugar keys above (a field in both throws). */
+  viaFields?: Record<string, ViaFieldSpec> | undefined
   /** — outbound ref declarations (snapshot from vault refRegistry). Used by describe(). */
   declaredRefs?: Record<string, RefDescriptor> | undefined
   computed?: ComputedFields | undefined
@@ -477,21 +480,22 @@ export interface CollectionOpts<T> {
  * on its own (MV-precreation reconcile) path — see its docstring.
  */
 export function compileViaBindings<T>(opts: CollectionOpts<T>): ViaBinding[] {
+  const { moneyFields, i18nFields, dictKeyFields } = mergeViaFields(opts)
   const bindings: ViaBinding[] = []
-  if (opts.moneyFields) bindings.push(viaBinder('money')(opts.moneyFields))
-  if (opts.i18nFields || opts.dictKeyFields) {
+  if (moneyFields) bindings.push(viaBinder('money')(moneyFields))
+  if (i18nFields || dictKeyFields) {
     // Densify-enabled subset (fields opting into `densifyOnWrite: true`) —
     // undefined when none opt in, so the write path skips densify work
     // entirely for ordinary collections.
-    const densify = opts.i18nFields
+    const densify = i18nFields
       ? Object.fromEntries(
-          Object.entries(opts.i18nFields).filter(([, d]) => d.options.densifyOnWrite === true),
+          Object.entries(i18nFields).filter(([, d]) => d.options.densifyOnWrite === true),
         )
       : {}
     const i18nDensifyFields = Object.keys(densify).length > 0 ? densify : undefined
     bindings.push(viaBinder('i18n')({
-      ...(opts.i18nFields !== undefined ? { i18nFields: opts.i18nFields } : {}),
-      ...(opts.dictKeyFields !== undefined ? { dictKeyFields: opts.dictKeyFields } : {}),
+      ...(i18nFields !== undefined ? { i18nFields } : {}),
+      ...(dictKeyFields !== undefined ? { dictKeyFields } : {}),
       ...(i18nDensifyFields !== undefined ? { i18nDensifyFields } : {}),
       strategy: opts.i18nStrategy ?? NO_I18N,
       ...(opts.defaultLocale !== undefined ? { defaultLocale: opts.defaultLocale } : {}),
@@ -520,6 +524,9 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
       `Collection "${opts.name}": embeddings are not supported on CRDT collections (L2). Use a non-CRDT collection for semantic search.`,
     )
   }
+
+  // via() / sugar-key merge (#623 Task 9) — throws on a field declared in both.
+  const effectiveViaFields = mergeViaFields(opts)
 
   const resolvedClassified: ResolvedClassified | undefined =
     opts.classifiedFields !== undefined
@@ -648,16 +655,16 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     ledger: opts.ledger,
     refEnforcer: opts.refEnforcer,
     joinResolver: opts.joinResolver,
-    i18nFields: opts.i18nFields,
+    i18nFields: effectiveViaFields.i18nFields,
     textIndexes: opts.textIndexes,
     embeddings: opts.embeddings,
     vectorSet: opts.embeddings ? new VectorSet() : undefined,
-    dictKeyFields: opts.dictKeyFields,
+    dictKeyFields: effectiveViaFields.dictKeyFields,
     fieldMeta: opts.fieldMeta,
     meta: opts.meta,
     _refs: opts.declaredRefs ?? {},
     via: ViaPipeline.build(compileViaBindings(opts)),
-    moneyFields: opts.moneyFields,
+    moneyFields: effectiveViaFields.moneyFields,
     classified: resolvedClassified,
     classifiedGuardCtx,
     classifiedStrategy: opts.classifiedStrategy ?? NO_CLASSIFIED,

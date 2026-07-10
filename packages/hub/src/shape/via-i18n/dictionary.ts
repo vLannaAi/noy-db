@@ -80,6 +80,8 @@ export function dictCollectionName(dictionaryName: string): string {
  */
 export interface DictKeyDescriptor<Keys extends string = string> {
   readonly _noydbDictKey: true
+  /** Via port brand marker (#623 Task 9) — dictKey shares the i18n binding brand. */
+  readonly _viaBrand: 'i18n'
   /** Which dictionary this field references. */
   readonly name: string
   /** Declared valid keys. When set, `put()` rejects keys not in this set. */
@@ -151,6 +153,7 @@ export function dictKey<Keys extends string>(
   }
   return {
     _noydbDictKey: true,
+    _viaBrand: 'i18n',
     name,
     keys,
     ...(opts?.onMissing !== undefined ? { onMissing: opts.onMissing } : {}),
@@ -199,6 +202,8 @@ export function isDictKeyDescriptor(x: unknown): x is DictKeyDescriptor {
  */
 export interface StaticDictDescriptor<Keys extends string = string> {
   readonly _noydbStaticDict: true
+  /** Via port brand marker (#623 Task 9) — staticDict shares the i18n binding brand. */
+  readonly _viaBrand: 'i18n'
   /** Which dictionary this field references (the registry name). */
   readonly name: string
   /** The in-code label table: key → { locale → label }. */
@@ -260,6 +265,7 @@ export function staticDict<const T extends Record<string, Record<string, string>
   linkI18nVia()
   return {
     _noydbStaticDict: true,
+    _viaBrand: 'i18n',
     name,
     table: table as Readonly<Record<Extract<keyof T, string>, Readonly<Record<string, string>>>>,
     keys: Object.keys(table) as Extract<keyof T, string>[],
