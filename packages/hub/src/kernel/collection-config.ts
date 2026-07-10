@@ -62,6 +62,8 @@ import type { MaterializedViewRegistry } from '../with-formula/materialized-view
 import type { MVQueryContext } from '../with-formula/materialized-views/types.js'
 import type { Collection, OnDirtyCallback, CacheOptions } from './collection.js'
 import type { LazyStrategy } from '../port/with/lazy-strategy.js'
+import { ViaPipeline } from './via-pipeline.js'
+import type { ViaBinding } from './via.js'
 
 /**
  * Raw options handed to the {@link Collection} constructor by the Vault.
@@ -468,6 +470,15 @@ export interface CollectionOpts<T> {
 }
 
 /**
+ * Compile a collection's declared config into the ordered list of `ViaBinding`s
+ * for its `ViaPipeline`. Compile seam only — no production consumers yet.
+ */
+export function compileViaBindings<T>(_opts: CollectionOpts<T>): ViaBinding[] {
+  // money (Task 5) then i18n (Task 8) — order pinned for pipeline parity
+  return []
+}
+
+/**
  * Resolve the raw {@link CollectionOpts} into the concrete field values the
  * {@link Collection} constructor assigns — every `?? default`, every derived
  * `Set`/subset, plus the three pure construction-time validations. Pure: no
@@ -632,6 +643,7 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     fieldMeta: opts.fieldMeta,
     meta: opts.meta,
     _refs: opts.declaredRefs ?? {},
+    via: ViaPipeline.build(compileViaBindings(opts)),
     moneyFields: opts.moneyFields,
     classified: resolvedClassified,
     classifiedGuardCtx,
