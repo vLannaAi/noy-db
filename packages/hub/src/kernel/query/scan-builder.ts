@@ -69,8 +69,7 @@ import type {
 } from '../../with-lookup/aggregate/aggregation.js'
 import type { JoinContext, JoinLeg, JoinableSource } from './join.js'
 import { DanglingReferenceError } from '../errors.js'
-import type { MoneyDescriptor } from '../../shape/via-money/descriptor.js'
-import { moneyRuntime } from '../money-runtime.js'
+import type { ViaPipeline } from '../via-pipeline.js'
 
 /**
  * Page provider — the Collection-shaped hook the builder calls to
@@ -123,13 +122,14 @@ export class ScanBuilder<T, S extends keyof T = never, M extends keyof T & strin
    */
   private readonly joinContext: JoinContext | undefined
   /**
-   * Money field descriptors for the backing collection. When present, yielded
-   * records are decoded (stored scaled-int → canonical decimal) so `scan()`
-   * agrees with `get()`/`list()`/`query().toArray()`. Decoded with
-   * `'raw'` (canonical decimal, no locale-formatted virtuals) since the scan
-   * stream carries no locale context, mirroring `Query.toArray()`.
+   * The backing collection's compiled Via pipeline (money now; more Via
+   * features later). When it declares a result decode, yielded records
+   * are decoded (e.g. money: stored scaled-int → canonical decimal) so
+   * `scan()` agrees with `get()`/`list()`/`query().toArray()`. Decoded
+   * with `'raw'` (canonical decimal, no locale-formatted virtuals) since
+   * the scan stream carries no locale context, mirroring `Query.toArray()`.
    */
-  private readonly moneyFields: Record<string, MoneyDescriptor> | undefined
+  private readonly via: ViaPipeline | undefined
 
   constructor(
     pageProvider: ScanPageProvider<T>,
@@ -137,23 +137,24 @@ export class ScanBuilder<T, S extends keyof T = never, M extends keyof T & strin
     clauses: readonly Clause[] = [],
     joins: readonly JoinLeg[] = [],
     joinContext?: JoinContext,
-    moneyFields?: Record<string, MoneyDescriptor>,
+    via?: ViaPipeline,
   ) {
     this.pageProvider = pageProvider
     this.pageSize = pageSize
     this.clauses = clauses
     this.joins = joins
     this.joinContext = joinContext
-    this.moneyFields = moneyFields
+    this.via = via
   }
 
   /**
-   * Decode this scan's money fields on a record (stored scaled-int → canonical
-   * decimal). No-op when no money fields are declared. See {@link moneyFields}.
+   * Decode this scan's Via-covered fields on a record (e.g. money: stored
+   * scaled-int → canonical decimal). No-op when the Via pipeline declares
+   * no result decode. See {@link via}.
    */
-  private decodeMoney(record: T): T {
-    if (!this.moneyFields || Object.keys(this.moneyFields).length === 0) return record
-    return moneyRuntime().decodeMoneyFields(record as Record<string, unknown>, this.moneyFields, 'raw') as T
+  private decodeVia(record: T): T {
+    if (!this.via || !this.via.hasResultDecode) return record
+    return this.via.decodeResults(record) as T
   }
 
   /**
@@ -170,11 +171,22 @@ export class ScanBuilder<T, S extends keyof T = never, M extends keyof T & strin
    * evaluates clauses per record in O(1) per clause.
    */
   where(field: QueryField<T, S>, op: Operator, value: unknown): ScanBuilder<T, S, M> {
-    // Money fields compare in major units, BigInt-exact in scaled space —
-    // same build-time operand rewrite as Query.where().
-    const desc = this.moneyFields?.[field as string]
-    const clause: FieldClause = desc
-      ? moneyRuntime().moneyFieldClause(field as string, op, value, desc)
+    // A Via-covered field (e.g. money) compares in major units, BigInt-exact
+    // in scaled space — same build-time operand rewrite as Query.where().
+    const via = this.via
+    const viaClause = via?.buildClause(field as string, op, value)
+    const clause: FieldClause = viaClause
+      ? {
+          type: 'field',
+          field: field as string,
+          op,
+          value,
+          via: {
+            brand: viaClause.brand,
+            payload: viaClause.payload,
+            evaluate: (actual: unknown, evalOp: string) => via!.evaluateClause(viaClause, actual, evalOp),
+          },
+        }
       : { type: 'field', field: field as string, op, value }
     return new ScanBuilder<T, S, M>(
       this.pageProvider,
@@ -182,7 +194,7 @@ export class ScanBuilder<T, S extends keyof T = never, M extends keyof T & strin
       [...this.clauses, clause],
       this.joins,
       this.joinContext,
-      this.moneyFields,
+      this.via,
     )
   }
 
@@ -203,7 +215,7 @@ export class ScanBuilder<T, S extends keyof T = never, M extends keyof T & strin
       [...this.clauses, clause],
       this.joins,
       this.joinContext,
-      this.moneyFields,
+      this.via,
     )
   }
 
@@ -326,7 +338,7 @@ export class ScanBuilder<T, S extends keyof T = never, M extends keyof T & strin
       this.clauses,
       [...this.joins, leg],
       this.joinContext,
-      this.moneyFields,
+      this.via,
     )
   }
 
@@ -355,10 +367,11 @@ export class ScanBuilder<T, S extends keyof T = never, M extends keyof T & strin
     while (true) {
       for (const record of page.items) {
         // Filter on the raw stored record (same order as Query.toArray:
-        // clauses first), then decode money to the canonical decimal before
-        // yielding so scan() never leaks the internal scaled-int.
+        // clauses first), then decode Via-covered fields (e.g. money, to
+        // the canonical decimal) before yielding so scan() never leaks the
+        // internal stored representation.
         if (!this.recordMatches(record)) continue
-        const decoded = this.decodeMoney(record)
+        const decoded = this.decodeVia(record)
         if (joinResolvers === null) {
           yield decoded
         } else {
@@ -626,13 +639,13 @@ export class ScanBuilder<T, S extends keyof T = never, M extends keyof T & strin
    */
   private recordMatches(record: T): boolean {
     if (this.clauses.length === 0) return true
-    // User-callback clauses (filter) see the DECODED money view;
-    // field clauses keep the raw record — their operands are pre-quantized
-    // into stored space. Decoded at most once per record, only
-    // when a callback clause exists.
+    // User-callback clauses (filter) see the DECODED view (e.g. money's
+    // canonical decimal); field clauses keep the raw record — their
+    // operands are pre-built into stored space. Decoded at most once per
+    // record, only when a callback clause exists.
     const fnView =
-      this.moneyFields && Object.keys(this.moneyFields).length > 0 && hasFnClause(this.clauses)
-        ? this.decodeMoney(record)
+      this.via?.hasResultDecode && hasFnClause(this.clauses)
+        ? this.decodeVia(record)
         : undefined
     for (const clause of this.clauses) {
       if (!evaluateClause(record, clause, fnView)) return false

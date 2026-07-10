@@ -2,12 +2,10 @@
  * Operator implementations for the query DSL.
  *
  * All predicates run client-side, AFTER decryption — they never see ciphertext.
- * The only dependency is the money clause evaluator — still
- * tree-shakeable through it.
+ * Field clauses over a Via-covered field (e.g. money) carry their own
+ * evaluator closure (see {@link FieldClause.via}), so this module has no
+ * dependency on any Via feature's implementation — still tree-shakeable.
  */
-
-import type { MoneyWhereOperand } from '../../shape/via-money/where.js'
-import { moneyRuntime } from '../money-runtime.js'
 
 /** Comparison operators supported by the where() builder. */
 export type Operator =
@@ -32,13 +30,20 @@ export interface FieldClause {
   readonly op: Operator
   readonly value: unknown
   /**
-   * Present when `field` is a declared money field: the operand
-   * quantized into stored scaled-int space at query BUILD time, so the
-   * per-record comparison is BigInt-exact against the raw stored value.
-   * Built by `moneyFieldClause` — `Query.where()` attaches it when the
-   * source declares the field in `moneyFields`.
+   * Present when `field` is covered by a Via feature binding (e.g. a
+   * declared money field): the opaque payload built by the binding's
+   * `buildClause` at query BUILD time, plus a closure that evaluates it
+   * per record via the binding's `evaluateClause`. Attached by
+   * `Query.where()` / `ScanBuilder.where()` when `source.via` covers the
+   * field. The closure keeps this module free of any dependency on a
+   * Via feature's implementation — clauses are in-memory only, never
+   * serialized, so carrying a function here is safe.
    */
-  readonly money?: MoneyWhereOperand
+  readonly via?: {
+    readonly brand: string
+    readonly payload: unknown
+    readonly evaluate: (actual: unknown, op: string) => boolean
+  }
 }
 
 /**
@@ -139,11 +144,12 @@ export function evaluateFieldClause(record: unknown, clause: FieldClause): boole
   const actual = readPath(record, clause.field)
   const { op, value } = clause
 
-  // Money fields compare BigInt-exact in scaled-integer space —
-  // the stored form is a digit string, so the generic paths below would
-  // either reject (string vs number is not comparable) or compare
-  // lexicographically. The operand was quantized at build time.
-  if (clause.money) return moneyRuntime().evaluateMoneyClause(actual, op, clause.money)
+  // A Via-covered field (e.g. money) may store a transformed
+  // representation (money: BigInt-exact in scaled-integer space) that the
+  // generic paths below can't compare correctly — the operand was
+  // pre-built at query BUILD time and the binding's own evaluator knows
+  // how to compare it against the raw stored value.
+  if (clause.via) return clause.via.evaluate(actual, op)
 
   switch (op) {
     case '==':
