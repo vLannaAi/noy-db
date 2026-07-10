@@ -1,33 +1,33 @@
 {
   "scenarios": {
     "floor": {
-      "minifiedBytes": 1438,
-      "gzippedBytes": 458
+      "minifiedBytes": 1494,
+      "gzippedBytes": 470
     },
     "lazy": {
-      "minifiedBytes": 1526,
-      "gzippedBytes": 531
+      "minifiedBytes": 1582,
+      "gzippedBytes": 543
     },
     "team": {
-      "minifiedBytes": 1660,
-      "gzippedBytes": 583
+      "minifiedBytes": 1716,
+      "gzippedBytes": 599
     },
     "history": {
-      "minifiedBytes": 6039,
-      "gzippedBytes": 2300
+      "minifiedBytes": 6095,
+      "gzippedBytes": 2316
     },
     "classified": {
-      "minifiedBytes": 2788,
-      "gzippedBytes": 1015
+      "minifiedBytes": 2844,
+      "gzippedBytes": 1029
     },
     "analytics": {
-      "minifiedBytes": 2311,
-      "gzippedBytes": 883
+      "minifiedBytes": 2367,
+      "gzippedBytes": 898
     },
     "all-on": {
-      "minifiedBytes": 26377,
-      "gzippedBytes": 8245
+      "minifiedBytes": 29101,
+      "gzippedBytes": 9057
     }
   },
-  "updatedAt": "2026-07-04T19:27:18.360Z"
+  "updatedAt": "2026-07-10T17:06:44.092Z"
 }
