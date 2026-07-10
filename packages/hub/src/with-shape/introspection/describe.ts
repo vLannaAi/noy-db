@@ -15,6 +15,7 @@ import type { FieldMeta } from './field-meta.js'
 import { resolveFieldMeta, validateFieldMetaKeys, FieldMetaUnknownFieldError, humanizeFieldKey } from './field-meta.js'
 import type { CollectionMeta } from './meta.js'
 import type { MoneyDescriptor } from '../../shape/via-money/descriptor.js'
+import type { ViaDescriptor } from '../../kernel/via.js'
 import type { DictKeyDescriptor, StaticDictDescriptor } from '../i18n/dictionary.js'
 import { isStaticDictDescriptor } from '../i18n/dictionary.js'
 import type { I18nTextDescriptor } from '../i18n/core.js'
@@ -172,7 +173,14 @@ export async function deriveZodFields(
 export interface BuildDescriptionInput {
   readonly collection: string
   readonly fieldMeta: Record<string, FieldMeta> | undefined
-  readonly moneyFields: Record<string, MoneyDescriptor> | undefined
+  /**
+   * Kernel-visible collections only carry the opaque {@link ViaDescriptor}
+   * marker (the kernel never inspects a Via feature's concrete descriptor
+   * shape). Every entry here is actually a {@link MoneyDescriptor} — only
+   * `money()` constructs them — narrowed locally below where its
+   * mode/currency/scale are read for the describe() output.
+   */
+  readonly moneyFields: Record<string, ViaDescriptor> | undefined
   readonly dictKeyFields: Record<string, DictKeyDescriptor | StaticDictDescriptor> | undefined
   readonly computed: ComputedFields | undefined
   readonly refs: Record<string, RefDescriptor>
@@ -279,7 +287,9 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
 
   for (const key of [...allKeys].sort()) {
     const zod = zodFields?.[key]
-    const money = moneyFields?.[key]
+    // Narrow the opaque marker back to the concrete descriptor — see the
+    // {@link BuildDescriptionInput.moneyFields} doc comment.
+    const money = moneyFields?.[key] as MoneyDescriptor | undefined
     const dict = dictKeyFields?.[key]
     const refDesc = refs[key]
     const isComputed = computed !== undefined && key in computed

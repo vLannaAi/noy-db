@@ -11,9 +11,8 @@ import type { I18nTextDescriptor } from '../with-shape/i18n/core.js'
 import { getAtPath, setAtPathInPlace, stripI18nFilled } from '../with-shape/i18n/core.js'
 import type { DictKeyDescriptor, StaticDictDescriptor, DictionaryHandle } from '../with-shape/i18n/dictionary.js'
 import { isStaticDictDescriptor } from '../with-shape/i18n/dictionary.js'
-import type { MoneyDescriptor } from '../shape/via-money/descriptor.js'
 import { ViaPipeline } from './via-pipeline.js'
-import { viaBinder } from './via.js'
+import { viaBinder, type ViaDescriptor } from './via.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
 import { enforceClassifiedWrite } from '../with-shape/classified/write.js'
 import type { I18nStrategy } from '../with-shape/i18n/strategy.js'
@@ -419,12 +418,12 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   private readonly _refs: Record<string, RefDescriptor>
 
   /**
-   * Money field descriptors keyed by field path. Declared via the
-   * `moneyFields` collection option: `put()` quantizes to a scaled-int
-   * string, `get()`/`list()` decode back. Mutable so {@link _applyMoneyFields}
-   * can attach descriptors to a collection MV-analysis pre-created.
+   * Money field descriptors keyed by field path, typed as the opaque
+   * {@link ViaDescriptor} marker (the kernel never inspects the concrete
+   * shape). `put()` quantizes to a scaled-int string, `get()`/`list()`
+   * decode back. Mutable so {@link _applyMoneyFields} can attach.
    */
-  private moneyFields: Record<string, MoneyDescriptor> | undefined
+  private moneyFields: Record<string, ViaDescriptor> | undefined
   private via: ViaPipeline | undefined // compiled Via pipeline (money now; i18n later); rebuilt by {@link _applyMoneyFields}
 
   /**
@@ -1344,7 +1343,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * `openVault`, before the user's `collection(name, { moneyFields })`
    * declaration; this reconciles that ordering. First-wins. Not public.
    */
-  _applyMoneyFields(moneyFields: Record<string, MoneyDescriptor>): void {
+  _applyMoneyFields(moneyFields: Record<string, ViaDescriptor>): void {
     if (this.moneyFields !== undefined) return
     this.via = ViaPipeline.build([...(this.via?.bindings ?? []), viaBinder('money')(moneyFields)])
     this.moneyFields = moneyFields
@@ -3448,7 +3447,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       getIndexes: () => this.getIndexes(),
       lookupById: (id: string) => this.cache.get(id)?.record,
       snapshotEntries: () => [...this.cache.entries()].map(([id, e]) => ({ id, record: e.record })),
-      ...(this.moneyFields ? { moneyFields: this.moneyFields } : {}),
+      ...(this.via ? { via: this.via } : {}),
     }
     // Build a JoinContext if the vault passed a join resolver.
     // Without one, .join() on the resulting Query will throw with an
@@ -3862,7 +3861,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       [],
       [],
       joinContext,
-      this.moneyFields,
+      this.via,
     )
   }
 
