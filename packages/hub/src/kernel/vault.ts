@@ -723,11 +723,10 @@ export class Vault {
     /** — declare money() fields for currency-safe decimal storage/formatting. */
     moneyFields?: MoneyFieldsOpt<T, M>
     viaFields?: Record<string, ViaFieldSpec> // via() composed fields; merged with the money/i18n sugar keys (field in both throws)
-    /** — declare computed scalar fields, evaluated on write (schema-owned). */
+    /** — declare computed scalar fields, evaluated on write (schema-owned). Each entry may be
+     *  a plain `(record) => value` function, OR `{ fn, deps }` to declare source fields for
+     *  taint propagation (#638 Task 7 — supersedes the retired `computedDeps` option). */
     computed?: ComputedFields<T>
-    /** @internal Experimental staging seam for #638 (phase C). Will be superseded by the composed
-     *  form `computed(fn, { deps, mode })` in a later task — do not depend on this shape. */
-    computedDeps?: Record<string, readonly string[]>
     /** — declare classified() sensitive-field descriptors. See the classified-fields spec. */
     classifiedFields?: Record<string, ClassifiedEntry>
     /** — per-collection conflict resolution policy. */
@@ -1135,7 +1134,6 @@ export class Vault {
       if (options?.moneyFields !== undefined) collOpts.moneyFields = options.moneyFields
       if (options?.viaFields !== undefined) collOpts.viaFields = options.viaFields
       if (options?.computed !== undefined) collOpts.computed = options.computed as ComputedFields
-      if (options?.computedDeps !== undefined) collOpts.computedDeps = options.computedDeps
       if (options?.classifiedFields !== undefined) collOpts.classifiedFields = options.classifiedFields
       if (effectiveViaFields.dictKeyFields !== undefined) {
         // Build the label resolver callback for this collection. A static

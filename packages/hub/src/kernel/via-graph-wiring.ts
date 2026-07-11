@@ -8,7 +8,7 @@
 // a derivation/MV/overlay strategy.
 import type { ViaGraph } from './via-graph.js'
 import type { ViaPosture } from './via.js'
-import { resolveCollectionConfig, resolveComputedEdges, collectKnownFieldNames, type CollectionOpts, type GraphEdge } from './collection-config.js'
+import { resolveCollectionConfig, resolveComputedEdges, computedEntryParts, type CollectionOpts, type GraphEdge } from './collection-config.js'
 import { resolveClassifiedFields, type ClassifiedEntry } from '../port/with/classified-strategy.js'
 import { ValidationError } from './errors.js'
 import { ViaPipeline, type ViaTaintOverlay } from './via-pipeline.js'
@@ -58,18 +58,24 @@ export function registerCollectionGraphSources<T>(graph: ViaGraph, name: string,
       }
     }
   }
-  for (const edge of cfg.computedEdges) graph.registerDerived(edge.target, edge.sources, 'computed', 'record')
-  for (const edge of cfg.viaDepsEdges) graph.registerDerived(edge.target, edge.sources, 'computed', 'record')
+  // #638 Task 7 — `edge.grain` defaults to 'record' (with-formula edges and
+  // materialized computed edges never set it); a virtual computed field's
+  // edge carries `grain: 'virtual'` (`resolveComputedEdges`).
+  for (const edge of cfg.computedEdges) graph.registerDerived(edge.target, edge.sources, 'computed', edge.grain ?? 'record')
+  for (const edge of cfg.viaDepsEdges) graph.registerDerived(edge.target, edge.sources, 'computed', edge.grain ?? 'record')
 
   // #638 Task 2 fix wave 2 — record the combined-state leak-guard memory
   // (Finding I1) a LATER, separate reconcile call needs: which raw
-  // user-declared computed fields have no `computedDeps` entry (depless —
-  // legal here since no classified field is present yet, so nothing to
-  // register an edge against), and whether this collection has any
-  // classified field at all.
+  // user-declared computed fields have no declared `deps` (depless — legal
+  // here since no classified field is present yet, so nothing to register
+  // an edge against), and whether this collection has any classified field
+  // at all. `cfg.computedFieldNames` (#638 Task 7) is EVERY declared
+  // computed field name across both modes/surfaces — not just
+  // `opts.computed`'s sugar keys — so a `via(computed(...))`-declared field
+  // participates in this guard identically to a sugar-declared one.
   if (cfg.classified !== undefined) graph.markClassified(name)
   const depFields = new Set(cfg.computedEdges.map((edge) => edge.target.field))
-  for (const field of Object.keys(opts.computed ?? {})) {
+  for (const field of cfg.computedFieldNames) {
     if (!depFields.has(field)) graph.markDepslessComputed(name, field)
   }
 }
@@ -82,7 +88,6 @@ export interface ReconcileGraphOptions {
   readonly moneyFields?: Record<string, unknown>
   readonly classifiedFields?: Record<string, ClassifiedEntry>
   readonly computed?: ComputedFieldsParam
-  readonly computedDeps?: Record<string, readonly string[]>
 }
 
 /** Phase 1's output — what phase 2 (`commitReconcileGraphEdges`) applies once
@@ -117,11 +122,14 @@ export interface ReconcilePlan {
  * refused it) — so this check only needs THIS call's own incoming
  * `classifiedFields`, never `graph`'s classified memory.
  *
- * `computedDeps` sources are validated against a knownFields universe built
- * the SAME way the fresh path builds one (`collectKnownFieldNames`, shared —
- * Finding I2ii), unioned with `graph.fieldNamesOf(name)` to cover
- * i18n/dictKey fields the fresh path saw but this reconcile call's own
- * options never carry.
+ * Each `computed` entry's own `deps` (#638 Task 7 — the reconcile path only ever sees the
+ * `computed:` sugar option, per `ReconcileGraphOptions`'s doc comment; `via(computed(...))`
+ * is construction-only like i18nFields/dictKeyFields) are resolved via `resolveComputedEdges`
+ * exactly like the fresh-construction path — Finding I2ii's original knownFields-sharing
+ * concern no longer applies: `resolveComputedEdges` (#638 Task 7) no longer validates a
+ * `deps` entry against a known-field universe at all (see its own doc comment — a plain,
+ * non-via field is a legal dep, and there is no schema-introspection API to check against
+ * the record's full field set either way).
  *
  * Callers MUST call this BEFORE any `_apply*` mutation runs, and must only
  * call `commitReconcileGraphEdges` with the result AFTER every `_apply*` for
@@ -157,8 +165,8 @@ export function validateReconcileGraphEdges(graph: ViaGraph, name: string, optio
       throw new ValidationError(
         `Collection "${name}": computed field "${field}" has no declared \`deps\` and the ` +
         `collection declares classified fields — an opaque computed function could silently copy a ` +
-        `classified field's plaintext into an ordinary, unredacted field. Declare ` +
-        `\`computedDeps: { ${field}: [...] }\` naming the source fields it reads.`,
+        `classified field's plaintext into an ordinary, unredacted field. Declare \`deps\` naming the ` +
+        `source fields it reads, e.g. computed: { ${field}: { fn, deps: [...] } }.`,
       )
     }
   }
@@ -168,11 +176,23 @@ export function validateReconcileGraphEdges(graph: ViaGraph, name: string, optio
   let edges: readonly GraphEdge[] = []
   let depslessComputedFields: readonly string[] = []
   if (options.computed !== undefined) {
-    const knownFields = new Set<string>([
-      ...collectKnownFieldNames({ moneyFields: options.moneyFields, classifiedFields: resolvedClassified?.byField, computed: options.computed }),
-      ...graph.fieldNamesOf(name),
-    ])
-    edges = resolveComputedEdges(name, options.computed, options.computedDeps, knownFields, combinedHasClassified)
+    // #638 Task 7 — `mode: 'virtual'` has no late-attach reconcile door: unlike a
+    // materialized entry (folded into `this.computed` by `_applyComputed`, no pipeline
+    // rebuild needed), a virtual field needs the computed via-binding to exist in
+    // `coll.via.bindings` — which only `compileViaBindings` (construction time) builds.
+    // Declaring it here would silently fall through `_applyComputed` and get MATERIALIZED
+    // (stored) instead, defeating "never stored". Same construction-only rule as i18nFields/
+    // dictKeyFields/viaFields (`ReconcileGraphOptions`'s doc comment).
+    for (const [field, entry] of Object.entries(options.computed)) {
+      if (computedEntryParts(entry).mode === 'virtual') {
+        throw new ValidationError(
+          `Collection "${name}": computed field "${field}" declares mode: 'virtual' on a reconcile call — ` +
+          `virtual computed fields are construction-only (no late-attach reconcile door); declare them in ` +
+          `the collection's first vault.collection("${name}", { ... }) call.`,
+        )
+      }
+    }
+    edges = resolveComputedEdges(name, options.computed, combinedHasClassified)
     const depFields = new Set(edges.map((edge) => edge.target.field))
     depslessComputedFields = Object.keys(options.computed).filter((field) => !depFields.has(field))
   }
@@ -198,7 +218,10 @@ export function validateReconcileGraphEdges(graph: ViaGraph, name: string, optio
  */
 export function commitReconcileGraphEdges(graph: ViaGraph, name: string, plan: ReconcilePlan): void {
   for (const edge of plan.edges) {
-    if (!graph.hasDerived(edge.target)) graph.registerDerived(edge.target, edge.sources, 'computed', 'record')
+    // `edge.grain` is always 'record' here — `validateReconcileGraphEdges` refuses any
+    // 'virtual' entry before this phase runs (#638 Task 7) — `?? 'record'` mirrors the
+    // fresh-construction path's own defaulting for consistency, not because it fires.
+    if (!graph.hasDerived(edge.target)) graph.registerDerived(edge.target, edge.sources, 'computed', edge.grain ?? 'record')
   }
   for (const field of plan.depslessComputedFields) graph.markDepslessComputed(name, field)
   for (const field of plan.classifiedFieldNames) graph.registerField(name, field, CLASSIFIED_POSTURE)
@@ -236,8 +259,22 @@ export function applyTaintOverlay(coll: unknown, graph: ViaGraph, name: string):
   if (!postures) return
   const sealFields = graph.taintSealedFields(name)
   const provenance = graph.taintProvenance(name)
+  // #638 Task 7 — a virtual computed field is never sealed (`taintSealedFields` already
+  // excludes `grain: 'virtual'` — nothing is stored, so nothing to seal), but a TAINTED
+  // one (exportable:false, i.e. its deps include a classified/sealed source) still needs
+  // its value replaced on every READ: `present()` is the only place a virtual field's
+  // value ever exists (never stored, so `redactForExport`'s export-only pass is not
+  // enough — the plain `get()`/`list()` path must be closed too).
+  const virtualFields = graph.virtualFields(name)
+  const virtualExportRedact = new Set<string>()
+  for (const [field, posture] of postures) {
+    if (posture.exportable === false && virtualFields.has(field)) virtualExportRedact.add(field)
+  }
   const c = coll as { via: ViaPipeline | undefined; codec: { setVia(via: ViaPipeline | undefined): void } }
-  const bindings = sealFields.size > 0 ? [...(c.via?.bindings ?? []), taintBinding(sealFields)] : (c.via?.bindings ?? [])
+  const needsTaintBinding = sealFields.size > 0 || virtualExportRedact.size > 0
+  const bindings = needsTaintBinding
+    ? [...(c.via?.bindings ?? []), taintBinding(sealFields, virtualExportRedact)]
+    : (c.via?.bindings ?? [])
   const taint: ViaTaintOverlay = { postures, sealFields, provenance }
   c.via = ViaPipeline.build(bindings, taint)
   c.codec.setVia(c.via)

@@ -877,7 +877,11 @@ export type { ClassifiedFieldSpec, ClassifiedGroup, ClassifiedEntry, ClassifiedL
 
 // computed — schema-owned computed scalar fields
 export { evalComputedFields, ComputedFieldError } from './with-formula/computed/index.js'
-export type { ComputedFields, ComputedFn } from './with-formula/computed/index.js'
+export type { ComputedFields, ComputedFn, ComputedFieldEntry } from './with-formula/computed/index.js'
+
+// computed — via-feature declaration factory (materialized default / virtual read-time mode)
+export { computed, isComputedDescriptor } from './shape/via-computed/descriptor.js'
+export type { ComputedDescriptor } from './shape/via-computed/descriptor.js'
 
 // i18n — resolution policy + script enforcement
 export { resolvePolicy } from './shape/via-i18n/policy.js'

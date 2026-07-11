@@ -5,6 +5,9 @@ import { ViaPipeline } from '../../src/kernel/via-pipeline.js'
 import { NoydbEventEmitter } from '../../src/kernel/events.js'
 import { classified } from '../../src/shape/via-classified/presets.js'
 import type { ClassifiedGuardCtx } from '../../src/port/with/classified-strategy.js'
+import { via } from '../../src/kernel/via-compose.js'
+import { computed } from '../../src/shape/via-computed/descriptor.js'
+import { money } from '../../src/shape/via-money/descriptor.js'
 
 // Synthetic opts — resolveCollectionConfig/compileViaBindings never call methods
 // on adapter/keyring/getDEK, only forward them, so undefined stand-ins are safe.
@@ -135,5 +138,63 @@ describe('via config-compile seam — blob (#629 Task 7)', () => {
     expect(cfg.via).toBeDefined()
     expect(cfg.via!.hasAtRestHooks).toBe(false)
     expect(cfg.via!.bindings.map((b) => b.brand)).toEqual(['blob'])
+  })
+})
+
+describe('via config-compile seam — computed (#638 Task 7)', () => {
+  it('compileViaBindings compiles a computed binding LAST when a virtual computed field is declared — WITHOUT at-rest hooks', () => {
+    const opts = {
+      ...syntheticOpts(),
+      moneyFields: { amount: money({ currency: 'EUR' }) },
+      viaFields: { doubled: via(computed((r) => (r.amount as number) * 2, { deps: ['amount'], mode: 'virtual' })) },
+    } as CollectionOpts<unknown>
+
+    const bindings = compileViaBindings(opts, emptyGuardCtx())
+
+    expect(bindings.map((b) => b.brand)).toEqual(['money', 'computed'])
+    // Never sealed/stored — the codec must NOT route this collection through
+    // the async at-rest-hook path (#553 sync-stack contract).
+    expect(ViaPipeline.build(bindings)!.hasAtRestHooks).toBe(false)
+  })
+
+  it('compileViaBindings pushes nothing computed-branded for a MATERIALIZED-only via(computed(...)) entry', () => {
+    const opts = {
+      ...syntheticOpts(),
+      viaFields: { total: via(computed((r) => (r.qty as number) * 2, { mode: 'materialized' })) },
+    } as CollectionOpts<unknown>
+
+    const bindings = compileViaBindings(opts, emptyGuardCtx())
+    expect(bindings.some((b) => b.brand === 'computed')).toBe(false)
+  })
+
+  it('compileViaBindings pushes nothing computed-branded when no computed field is declared', () => {
+    const bindings = compileViaBindings(syntheticOpts(), emptyGuardCtx())
+    expect(bindings.some((b) => b.brand === 'computed')).toBe(false)
+  })
+
+  it('resolveCollectionConfig wires a virtual-computed-only collection\'s cfg.via — pipeline present, no at-rest hooks, queryable none', () => {
+    const opts = {
+      ...syntheticOpts(),
+      viaFields: { doubled: via(computed((r) => (r.n as number) * 2, { mode: 'virtual' })) },
+    } as CollectionOpts<unknown>
+
+    const cfg = resolveCollectionConfig(opts)
+
+    expect(cfg.via).toBeDefined()
+    expect(cfg.via!.hasAtRestHooks).toBe(false)
+    expect(cfg.via!.bindings.map((b) => b.brand)).toEqual(['computed'])
+    expect(cfg.via!.postureFor('doubled')?.queryable).toBe('none')
+    expect(cfg.computed).toBeUndefined() // never merged into the write-time materialized map
+  })
+
+  it('a materialized via(computed(...)) entry merges into cfg.computed like the plain sugar form', () => {
+    const opts = {
+      ...syntheticOpts(),
+      viaFields: { total: via(computed((r) => (r.qty as number) * 2, { mode: 'materialized' })) },
+    } as CollectionOpts<unknown>
+
+    const cfg = resolveCollectionConfig(opts)
+    expect(cfg.computed).toBeDefined()
+    expect(Object.keys(cfg.computed!)).toEqual(['total'])
   })
 })

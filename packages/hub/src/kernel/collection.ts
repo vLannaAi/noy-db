@@ -344,8 +344,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   private readonly defaultLocale: string | undefined
 
   /** Field name → `I18nTextDescriptor` for `i18nText()` fields (`i18nFields` option); write/read
-   *  runs through the compiled `via` i18n binding — this remains for `describe()`,
-   *  `hasReadTransforms()`, and the search-index build path. */
+   *  runs through the compiled `via` i18n binding — this remains for `describe()`
+   *  and the search-index build path. */
   private readonly i18nFields: Record<string, I18nTextDescriptor> | undefined
 
   /** The configured string fields exposed to `retrieve()`; `undefined` for ordinary collections (zero-cost). */
@@ -2940,25 +2940,13 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     }
     await this.ensureHydrated()
     const records = [...this.cache.values()].map(e => e.record)
-    // Money decode (stored scaled-int → canonical decimal) must run
-    // even with no locale, so list() matches get(). applyLocaleToRecord
-    // decodes money regardless of locale and only resolves i18n/dict virtuals
-    // when a locale is active. Keep the no-transform fast path.
-    if (!this.hasReadTransforms()) return records
+    // Money/computed(virtual) decode must run even with no locale, so list()
+    // matches get(). applyLocaleToRecord runs the full Via pipeline present()
+    // regardless of locale (#638 Task 7: was money/i18n/dictKey-flag-gated —
+    // missed any OTHER binding's `present` hook; `this.via` truthiness is the
+    // general no-transform fast-path condition every binding's presence implies).
+    if (!this.via) return records
     return Promise.all(records.map(r => this.applyLocaleToRecord(r, locale)))
-  }
-
-  /**
-   * @internal — whether any read-side record transform is registered
-   * (money decode, i18nText resolution, dictKey labels). Gates the
-   * no-transform fast path in {@link list}.
-   */
-  private hasReadTransforms(): boolean {
-    return (
-      (this.moneyFields !== undefined && Object.keys(this.moneyFields).length > 0) ||
-      (this.i18nFields !== undefined && Object.keys(this.i18nFields).length > 0) ||
-      (this.dictKeyFields !== undefined && Object.keys(this.dictKeyFields).length > 0)
-    )
   }
 
   /**
@@ -4041,30 +4029,30 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    *   map when `locale === 'raw'`).
    * - dictKey fields: `<field>Label` virtual fields added.
    *
-   * Returns the record unchanged when no locale is active and no i18n/dict
-   * fields are registered.
+   * Returns the record unchanged when no Via pipeline is compiled (#638 Task 7:
+   * was money/i18n/dictKey-flag-gated — missed any OTHER binding's `present`
+   * hook, e.g. the `computed` via-binding's virtual-mode read-time compute;
+   * `this.via` truthiness is the general condition every binding's presence
+   * already implies).
    */
   private async applyLocaleToRecord(
     record: T,
     localeOpts?: LocaleReadOptions,
   ): Promise<T> {
-    const hasI18n = this.i18nFields && Object.keys(this.i18nFields).length > 0
-    const hasDict = this.dictKeyFields && Object.keys(this.dictKeyFields).length > 0
-    const hasMoney = this.moneyFields && Object.keys(this.moneyFields).length > 0
-    if (!hasI18n && !hasDict && !hasMoney) return record
+    if (!this.via) return record
 
     const locale = localeOpts?.locale ?? this.defaultLocale
     const layer = localeOpts?._layer ?? 'read'
 
     let result = record as unknown as Record<string, unknown>
 
-    // Money decode + i18nText/dictKey resolution all run through the
-    // compiled Via pipeline: money decode is unconditional (virtuals gated
-    // on `locale !== 'raw'` inside the money binding); the i18n binding's
-    // `present` hook (the i18n via-shape's `runI18nPresent`) applies the
-    // SAME locale-active / static-display-hinge / dict-label / densify-
-    // marker-strip logic this method used to run inline.
-    if (this.via) result = await this.via.present(result, { locale, ...(localeOpts?.fallback !== undefined ? { fallback: localeOpts.fallback } : {}), layer })
+    // Money decode + i18nText/dictKey/computed(virtual) resolution all run through
+    // the compiled Via pipeline: money decode is unconditional (virtuals gated on
+    // `locale !== 'raw'` inside the money binding); the i18n binding's `present`
+    // hook (the i18n via-shape's `runI18nPresent`) applies the SAME locale-active /
+    // static-display-hinge / dict-label / densify-marker-strip logic this method
+    // used to run inline; `this.via` is already known truthy (the guard above).
+    result = await this.via.present(result, { locale, ...(localeOpts?.fallback !== undefined ? { fallback: localeOpts.fallback } : {}), layer })
 
     return result as T
   }

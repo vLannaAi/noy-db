@@ -20,7 +20,22 @@ import { NoydbError } from '../../kernel/errors.js'
 
 export type ComputedFn<T = Record<string, unknown>> = (record: T) => unknown
 
-export type ComputedFields<T = Record<string, unknown>> = Record<string, ComputedFn<T>>
+/**
+ * #638 Task 7 — the extended per-field entry: `deps` (source field names, feeds
+ * `ViaGraph` for taint propagation) and `mode` (`'materialized' | 'virtual'`,
+ * default `'materialized'`) alongside `fn`. Lets `computed: { field: {...} }`
+ * declare the same `{deps, mode}` shape `via(computed(fn, {...}))` composes —
+ * absorbs the old `computedDeps` sibling option (#638 Task 2, retired here).
+ */
+export interface ComputedFieldEntry<T = Record<string, unknown>> {
+  readonly fn: ComputedFn<T>
+  readonly deps?: readonly string[]
+  readonly mode?: 'materialized' | 'virtual'
+}
+
+/** The plain `Record<string, ComputedFn>` sugar keeps working unchanged (materialized,
+ *  no deps); a field may alternatively carry the extended `ComputedFieldEntry` shape. */
+export type ComputedFields<T = Record<string, unknown>> = Record<string, ComputedFn<T> | ComputedFieldEntry<T>>
 
 /** Raised when a computed function throws during a write. */
 export class ComputedFieldError extends NoydbError {
@@ -50,7 +65,8 @@ export function evalComputedFields<T extends Record<string, unknown>>(
   id: string,
 ): T {
   const out: Record<string, unknown> = { ...record }
-  for (const [field, fn] of Object.entries(computed)) {
+  for (const [field, entry] of Object.entries(computed)) {
+    const fn = typeof entry === 'function' ? entry : entry.fn
     try {
       out[field] = fn(out)
     } catch (cause) {

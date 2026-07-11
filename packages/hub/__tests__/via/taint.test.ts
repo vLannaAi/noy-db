@@ -8,20 +8,21 @@
  * (via the new `taint` binding, the exact `ctx.sealedSlots` capability
  * classified uses), redacts it on export, and refuses it in the query DSL.
  *
- * PARITY NOTE (deviation from the task brief, recorded — see task-3-report.md):
- * the brief's Step 1 sketch names `via(computed(fn, { deps, mode: 'virtual' |
- * 'materialized' }))` sugar. That composed `via(computed(...))` grammar (and
- * the mode option) does not exist anywhere in this codebase yet — it is
- * `SERVICES.md`/spec §6's "computed becomes a via-feature" item, a LATER task
- * in this same plan (its own doc comment: "Task 7"). This suite instead uses
- * the API `computedDeps` already wires into the graph today (#638 Task 2):
- * `computed: {...}, computedDeps: {...}`. Every computed field declared this
- * way is unconditionally eager/materialized (seam map PART 4) — there is no
- * virtual grain yet (`ViaGraph.taintSealedFields`'s own doc comment: "the
- * 'materialized' filter is a no-op until Task 7 adds the 'virtual' grain") —
- * so BOTH `ssnLeak` (full copy) and `ssnLast4` (truncated copy) are sealed at
- * rest here; Task 7 is where a `mode: 'virtual'` field's redaction would
- * instead ride the `present` phase without ever touching `_sealed`.
+ * PARITY NOTE (historical — recorded when this suite was written, see
+ * task-3-report.md): at the time, `via(computed(fn, { deps, mode }))` (the
+ * brief's Step 1 sketch) did not exist yet — it was `SERVICES.md`/spec §6's
+ * "computed becomes a via-feature" item, Task 7 in this same plan. This
+ * suite therefore used `computed`'s deps-bearing object-form entry
+ * (`computed: { field: { fn, deps } }` — #638 Task 2's raw wiring, retained
+ * by #638 Task 7 as the sugar-key equivalent of `via(computed(fn, {
+ * deps }))`, replacing the separate `computedDeps` sibling option this
+ * suite originally used). Every field declared this way is MATERIALIZED
+ * (mode defaults to `'materialized'`) — so BOTH `ssnLeak` (full copy) and
+ * `ssnLast4` (truncated copy) are sealed at rest here, exactly as before.
+ * `__tests__/computed/virtual.test.ts` (#638 Task 7) is the dedicated
+ * `mode: 'virtual'` suite — a virtual field's taint redaction rides
+ * `present()` without ever touching `_sealed`, per `via-taint-binding.ts`'s
+ * `presentRedactFields`.
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb, count, sum, FieldNotQueryableError } from '../../src/index.js'
@@ -57,10 +58,9 @@ async function leakVault(secret: string) {
   const c = v.collection<Person>('people', {
     classifiedFields: { ssn: ssnSpec() },
     computed: {
-      ssnLeak: (r) => r.ssn,
-      ssnLast4: (r) => (typeof r.ssn === 'string' ? r.ssn.slice(-4) : undefined),
+      ssnLeak: { fn: (r) => r.ssn, deps: ['ssn'] },
+      ssnLast4: { fn: (r) => (typeof r.ssn === 'string' ? r.ssn.slice(-4) : undefined), deps: ['ssn'] },
     },
-    computedDeps: { ssnLeak: ['ssn'], ssnLast4: ['ssn'] },
   })
   await c.put('r1', { id: 'r1', name: 'Alice', ssn: '123-45-6789' })
   return { db, v, c, store }
@@ -186,7 +186,7 @@ describe('#638 Task 3 review fix — reconcile-path codec flip is sound (behavio
 
     // Reconcile-attach: `ssn` becomes classified (`storage: 'recoverable'` —
     // legal here only because `sensitive: ['ssn']` above already froze it into
-    // `sensitiveFields`), plus a NEW computed field WITH declared `computedDeps`
+    // `sensitiveFields`), plus a NEW computed field WITH declared `deps`
     // — the exact combination `_applyClassifiedFields`/`validateReconcileGraphEdges`
     // accept (an undeclared-deps computed field colliding with a newly classified
     // source is the #636 leak the leak-guard refuses instead, per
@@ -195,8 +195,7 @@ describe('#638 Task 3 review fix — reconcile-path codec flip is sound (behavio
     // flagged as structural-only coverage.
     v.collection<Person>('people', {
       classifiedFields: { ssn: ssnSpec() },
-      computed: { ssnLeak: (r) => r.ssn },
-      computedDeps: { ssnLeak: ['ssn'] },
+      computed: { ssnLeak: { fn: (r) => r.ssn, deps: ['ssn'] } },
     })
 
     // (i) POST-reconcile put() seals the newly-tainted derived field at rest.

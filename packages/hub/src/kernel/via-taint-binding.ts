@@ -23,6 +23,9 @@
 import type { ViaBinding, ViaCryptoCtx, SealedSlotRef, ViaPosture } from './via.js'
 import { SealedHandle } from './types.js'
 import { DEFAULT_POSTURE } from './via-graph.js'
+import { EXPORT_REDACTION_MARKER } from './via-pipeline.js'
+
+const EMPTY_STRING_SET: ReadonlySet<string> = new Set()
 
 /** Whether `p` is exactly the plain, non-taint baseline. */
 function isDefaultPosture(p: ViaPosture): boolean {
@@ -127,23 +130,56 @@ async function decodeTaintAtRest(
  * The `taint` binding: seals `sealFields` at rest via `ctx.sealedSlots`,
  * presenting them as sealed handles on read — exactly as classified does,
  * reusing the same phase-B capability. `covers` = membership in `sealFields`
- * (the brief's contract) — used by `hasAtRestHooks`/`eraseSealed`'s
- * posture-driven bookkeeping, NEVER by `postureFor` (the taint OVERLAY
- * short-circuits `postureFor` before any binding's `covers`/`.posture` is
- * consulted — see `ViaPipeline.postureFor`). `erase` is intentionally
- * unimplemented: today's crypto-shred (`Collection._writeTombstone`)
- * overwrites the whole envelope — `_sealed` included — regardless of via
- * bindings, so a taint-sealed field is already erased on `forget()` with no
- * extra participation; per-field erasure bookkeeping (residue/shredded
- * counts) is Task 6's (#622 forget fanout) concern if ever needed.
+ * OR `presentRedactFields` (the brief's contract) — used by
+ * `hasAtRestHooks`/`eraseSealed`'s posture-driven bookkeeping, NEVER by
+ * `postureFor` (the taint OVERLAY short-circuits `postureFor` before any
+ * binding's `covers`/`.posture` is consulted — see `ViaPipeline.postureFor`).
+ * `erase` is intentionally unimplemented: today's crypto-shred
+ * (`Collection._writeTombstone`) overwrites the whole envelope — `_sealed`
+ * included — regardless of via bindings, so a taint-sealed field is already
+ * erased on `forget()` with no extra participation; per-field erasure
+ * bookkeeping (residue/shredded counts) is Task 6's (#622 forget fanout)
+ * concern if ever needed.
+ *
+ * `presentRedactFields` (#638 Task 7, default empty) — tainted VIRTUAL
+ * computed fields (never sealed — nothing to encodeAtRest/decodeAtRest;
+ * `via-graph-wiring.ts#applyTaintOverlay` computes this set as
+ * `graph.virtualFields(name) ∩ { field : postures.get(field).exportable ===
+ * false }`). This binding is appended AFTER whatever `compileViaBindings`
+ * built (including the `computed` binding), so its `present` hook — when
+ * `presentRedactFields` is non-empty — runs LAST and overwrites a virtual
+ * field's freshly-computed value with `EXPORT_REDACTION_MARKER`,
+ * unconditionally, closing the read-time leak the same way `SealedHandle`
+ * closes it for a materialized-sealed field. `encodeAtRest`/`decodeAtRest`/
+ * `present` are all conditionally OMITTED (not just no-op) when their
+ * respective field set is empty — a collection with ONLY a tainted virtual
+ * field (no materialized-sealed field) must NOT flip
+ * `ViaPipeline.hasAtRestHooks`, which would wrongly route it onto the async
+ * at-rest-hook codec path for nothing to seal.
  */
-export function taintBinding(sealFields: ReadonlySet<string>): ViaBinding {
+export function taintBinding(sealFields: ReadonlySet<string>, presentRedactFields: ReadonlySet<string> = EMPTY_STRING_SET): ViaBinding {
   const fields = [...sealFields]
+  const redactFields = [...presentRedactFields]
   return {
     brand: 'taint',
     posture: { encryptedAtRest: 'sealed', queryable: 'none', exportable: false, forgettable: true },
-    covers: (field) => sealFields.has(field),
-    encodeAtRest: (record, crypto) => encodeTaintAtRest(record, crypto, fields),
-    decodeAtRest: (record, sealed, crypto, opts) => decodeTaintAtRest(record, sealed, crypto, opts, fields),
+    covers: (field) => sealFields.has(field) || presentRedactFields.has(field),
+    ...(fields.length > 0 ? {
+      encodeAtRest: (record: Record<string, unknown>, crypto: ViaCryptoCtx) => encodeTaintAtRest(record, crypto, fields),
+      decodeAtRest: (record: Record<string, unknown>, sealed: Record<string, SealedSlotRef>, crypto: ViaCryptoCtx, opts: { asHandles: boolean }) =>
+        decodeTaintAtRest(record, sealed, crypto, opts, fields),
+    } : {}),
+    ...(redactFields.length > 0 ? {
+      present: (record: Record<string, unknown>) => {
+        let out = record
+        for (const field of redactFields) {
+          if (field in out) {
+            if (out === record) out = { ...record }
+            out[field] = EXPORT_REDACTION_MARKER
+          }
+        }
+        return out
+      },
+    } : {}),
   }
 }

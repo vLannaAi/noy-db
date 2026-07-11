@@ -20,6 +20,10 @@ import type { ViaDescriptor } from './via.js'
 // the descriptor types were already port-owned re-exports (#623 Task 8).
 import type { DictKeyDescriptor, I18nTextDescriptor, StaticDictDescriptor } from '../port/with/i18n-strategy.js'
 import { isDictKeyDescriptor, isI18nTextDescriptor, isStaticDictDescriptor } from '../port/with/i18n-strategy.js'
+// `ComputedDescriptor` is a type-only need — the eager link that makes
+// `viaBinder('computed')` resolvable lives in `collection-config.ts`'s value
+// import of this same port module (#638 Task 7).
+import type { ComputedDescriptor } from '../port/with/computed-strategy.js'
 
 /** Tagged container returned by {@link via}. Readonly — never mutated after construction. */
 export interface ViaFieldSpec {
@@ -62,6 +66,10 @@ export interface MergedViaFields {
   readonly moneyFields: Record<string, ViaDescriptor> | undefined
   readonly i18nFields: Record<string, I18nTextDescriptor> | undefined
   readonly dictKeyFields: Record<string, DictKeyDescriptor | StaticDictDescriptor> | undefined
+  /** `via(computed(fn, { deps, mode }))` entries (#638 Task 7) — there is no `computed`
+   *  sugar KEY to merge against here (unlike money/i18n/dictKey); `collection-config.ts`
+   *  unions this with the `computed:` option's own entries before splitting by mode. */
+  readonly computedFields: Record<string, ComputedDescriptor> | undefined
 }
 
 /**
@@ -80,7 +88,10 @@ export interface MergedViaFields {
  */
 export function mergeViaFields(sources: ViaFieldSources): MergedViaFields {
   if (!sources.viaFields || Object.keys(sources.viaFields).length === 0) {
-    return { moneyFields: sources.moneyFields, i18nFields: sources.i18nFields, dictKeyFields: sources.dictKeyFields }
+    return {
+      moneyFields: sources.moneyFields, i18nFields: sources.i18nFields, dictKeyFields: sources.dictKeyFields,
+      computedFields: undefined,
+    }
   }
   const sugarFieldNames = new Set([
     ...Object.keys(sources.moneyFields ?? {}),
@@ -90,6 +101,7 @@ export function mergeViaFields(sources: ViaFieldSources): MergedViaFields {
   const viaMoney: Record<string, ViaDescriptor> = {}
   const viaI18nText: Record<string, I18nTextDescriptor> = {}
   const viaDictKey: Record<string, DictKeyDescriptor | StaticDictDescriptor> = {}
+  const viaComputed: Record<string, ComputedDescriptor> = {}
   for (const [field, spec] of Object.entries(sources.viaFields)) {
     if (sugarFieldNames.has(field)) {
       throw new ValidationError(
@@ -102,8 +114,10 @@ export function mergeViaFields(sources: ViaFieldSources): MergedViaFields {
       } else if (descriptor._viaBrand === 'i18n') {
         if (isI18nTextDescriptor(descriptor)) viaI18nText[field] = descriptor
         else if (isDictKeyDescriptor(descriptor) || isStaticDictDescriptor(descriptor)) viaDictKey[field] = descriptor
+      } else if (descriptor._viaBrand === 'computed') {
+        viaComputed[field] = descriptor as ComputedDescriptor
       } else {
-        throw new ValidationError(`via(): field "${field}" has a descriptor with unrecognized _viaBrand "${descriptor._viaBrand}" — via() only supports money/i18n descriptors today.`)
+        throw new ValidationError(`via(): field "${field}" has a descriptor with unrecognized _viaBrand "${descriptor._viaBrand}" — via() only supports money/i18n/computed descriptors today.`)
       }
     }
   }
@@ -111,5 +125,6 @@ export function mergeViaFields(sources: ViaFieldSources): MergedViaFields {
     moneyFields: Object.keys(viaMoney).length > 0 ? { ...(sources.moneyFields ?? {}), ...viaMoney } : sources.moneyFields,
     i18nFields: Object.keys(viaI18nText).length > 0 ? { ...(sources.i18nFields ?? {}), ...viaI18nText } : sources.i18nFields,
     dictKeyFields: Object.keys(viaDictKey).length > 0 ? { ...(sources.dictKeyFields ?? {}), ...viaDictKey } : sources.dictKeyFields,
+    computedFields: Object.keys(viaComputed).length > 0 ? viaComputed : undefined,
   }
 }

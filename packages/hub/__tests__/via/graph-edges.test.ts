@@ -111,8 +111,7 @@ describe('vault.graph — edge sources go live (#638 Task 2)', () => {
     // classified source's sealed/non-export/non-query posture propagates.
     vault.collection('customers', {
       classifiedFields: { ssn: classified.email() },
-      computed: { total: (r: Record<string, unknown>) => String(r.ssn).length },
-      computedDeps: { total: ['ssn'] },
+      computed: { total: { fn: (r: Record<string, unknown>) => String(r.ssn).length, deps: ['ssn'] } },
     })
     const posture = vault.graph.effectivePosture({ collection: 'customers', field: 'total' })
     expect(posture?.encryptedAtRest).toBe('sealed')
@@ -152,15 +151,19 @@ describe('vault.graph — edge sources go live (#638 Task 2)', () => {
     await expect(db.openVault('demo')).rejects.toBeInstanceOf(MaterializedViewCycleError)
   })
 
-  it('computedDeps referencing an undeclared field throws declare-time ValidationError', async () => {
+  it('a computed field\'s deps may reference a PLAIN field with no via feature at all (#638 Task 7 — no schema-introspection API to validate against; harmless, contributes no taint)', async () => {
     const db = await createNoydb({ store: memory(), user: 'alice', secret: 'graph-edges-baddeps-2026' })
     const vault = await db.openVault('demo')
     expect(() =>
       vault.collection('bad-deps', {
-        computed: { total: (r: Record<string, unknown>) => r.amount },
-        computedDeps: { total: ['nope'] },
+        computed: { total: { fn: (r: Record<string, unknown>) => r.amount, deps: ['nope'] } },
       }),
-    ).toThrow(ValidationError)
+    ).not.toThrow()
+    // 'nope' was never registered via ANY via feature — the fold falls back to
+    // DEFAULT_POSTURE, contributing no taint (verified by DEFAULT_POSTURE-shaped
+    // effectivePosture below, mirroring `graph.test.ts`'s own default-posture pin).
+    const posture = vault.graph.effectivePosture({ collection: 'bad-deps', field: 'total' })
+    expect(posture).toEqual({ encryptedAtRest: 'envelope', queryable: 'full', exportable: true, forgettable: false })
   })
 
   it('a depsless computed entry on a collection that also declares classified fields throws (closes the #636 opaque-function hole)', async () => {
@@ -216,7 +219,7 @@ describe('vault.graph — edge sources go live (#638 Task 2)', () => {
     ).toThrow(ValidationError)
   })
 
-  it('the MV-pre-creation reconcile path registers computedDeps edges into vault.graph', async () => {
+  it('the MV-pre-creation reconcile path registers a computed field\'s deps edges into vault.graph', async () => {
     interface Row extends Record<string, unknown> { id: string }
     const mv = withMaterializedView<Row>({
       name: 'customer-rollup-2',
@@ -231,8 +234,7 @@ describe('vault.graph — edge sources go live (#638 Task 2)', () => {
     const vault = await db.openVault('demo')
     vault.collection('customers2', {
       classifiedFields: { ssn: neverSpec() },
-      computed: { total: (r: Record<string, unknown>) => String(r.ssn).length },
-      computedDeps: { total: ['ssn'] },
+      computed: { total: { fn: (r: Record<string, unknown>) => String(r.ssn).length, deps: ['ssn'] } },
     })
     const deps = vault.graph.dependentsOf('customers2')
     expect(deps.some((d) =>
@@ -262,8 +264,7 @@ describe('vault.graph — edge sources go live (#638 Task 2)', () => {
     const vault = await db.openVault('demo')
     const options = {
       i18nFields: { note: i18nText({ languages: ['en'], required: 'any' }) },
-      computed: { total: (r: Record<string, unknown>) => String(r.note).length },
-      computedDeps: { total: ['note'] },
+      computed: { total: { fn: (r: Record<string, unknown>) => String(r.note).length, deps: ['note'] } },
     }
     vault.collection('repeat-me', options) // fresh construction
     expect(() => vault.collection('repeat-me', options)).not.toThrow() // identical repeat — reconcile branch
@@ -280,8 +281,7 @@ describe('vault.graph — edge sources go live (#638 Task 2)', () => {
         // storage: 'recoverable' — a form transition R6 refuses, AFTER the
         // computed edge would otherwise have been validated successfully.
         classifiedFields: { ssn: classified.email() },
-        computed: { total: (r: Record<string, unknown>) => String(r.ssn).length },
-        computedDeps: { total: ['ssn'] },
+        computed: { total: { fn: (r: Record<string, unknown>) => String(r.ssn).length, deps: ['ssn'] } },
       }),
     ).toThrow()
     const deps = vault.graph.dependentsOf('partial').filter((d) => d.target.field === 'total')
@@ -305,8 +305,7 @@ describe('vault.graph — edge sources go live (#638 Task 2)', () => {
     // classifiedFields and a computed field depending on the classified source.
     vault.collection('customers4', {
       classifiedFields: { ssn: neverSpec() },
-      computed: { total: (r: Record<string, unknown>) => String(r.ssn).length },
-      computedDeps: { total: ['ssn'] },
+      computed: { total: { fn: (r: Record<string, unknown>) => String(r.ssn).length, deps: ['ssn'] } },
     })
     const posture = vault.graph.effectivePosture({ collection: 'customers4', field: 'total' })
     expect(posture?.encryptedAtRest).toBe('sealed')
@@ -369,21 +368,26 @@ describe('resolveViaBindingDepsEdges — the general via-bindings deps path (#63
   })
 })
 
-describe('resolveComputedEdges — well-formedness (#638 Task 2)', () => {
+describe('resolveComputedEdges — well-formedness (#638 Task 2; #638 Task 7 folded computedDeps into each entry)', () => {
   it('rejects a non-string / empty deps entry', () => {
     expect(() =>
-      resolveComputedEdges('c', { total: () => 1 }, { total: [''] }, new Set(['total']), false),
+      resolveComputedEdges('c', { total: { fn: () => 1, deps: [''] } }, false),
     ).toThrow(ValidationError)
   })
 
   it('rejects an empty deps array', () => {
     expect(() =>
-      resolveComputedEdges('c', { total: () => 1 }, { total: [] }, new Set(['total']), false),
+      resolveComputedEdges('c', { total: { fn: () => 1, deps: [] } }, false),
     ).toThrow(ValidationError)
   })
 
-  it('a well-formed deps entry resolves to one edge', () => {
-    const edges = resolveComputedEdges('c', { total: () => 1 }, { total: ['amount'] }, new Set(['total', 'amount']), false)
-    expect(edges).toEqual([{ target: { collection: 'c', field: 'total' }, sources: [{ collection: 'c', field: 'amount' }] }])
+  it('a well-formed deps entry resolves to one edge, grain "record" (materialized default) — a plain, non-via dep field is legal (#638 Task 7)', () => {
+    const edges = resolveComputedEdges('c', { total: { fn: () => 1, deps: ['amount'] } }, false)
+    expect(edges).toEqual([{ target: { collection: 'c', field: 'total' }, sources: [{ collection: 'c', field: 'amount' }], grain: 'record' }])
+  })
+
+  it('a mode: "virtual" entry resolves to grain "virtual"', () => {
+    const edges = resolveComputedEdges('c', { total: { fn: () => 1, deps: ['amount'], mode: 'virtual' } }, false)
+    expect(edges).toEqual([{ target: { collection: 'c', field: 'total' }, sources: [{ collection: 'c', field: 'amount' }], grain: 'virtual' }])
   })
 })

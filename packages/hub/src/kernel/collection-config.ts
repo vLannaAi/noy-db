@@ -42,13 +42,18 @@ import type { BlobFieldsConfig } from '../with-shape/blobs/blob-compaction.js'
 import type { IndexStrategy } from '../with-lookup/indexing/strategy.js'
 import type { IndexDef } from '../with-lookup/indexing/eager-indexes.js'
 import type { I18nTextDescriptor, DictKeyDescriptor, StaticDictDescriptor, DictionaryHandle } from '../port/with/i18n-strategy.js'
-import type { ComputedFields } from '../with-formula/computed/index.js'
+import type { ComputedFields, ComputedFn, ComputedFieldEntry } from '../with-formula/computed/index.js'
+// #638 Task 7 — the value import (not just `import type`) forces the port module's eager
+// `linkComputedVia()` to run whenever this file loads (collection-config.ts is always in the
+// dependency graph), so `viaBinder('computed')` is resolvable before `compileViaBindings` needs it.
+import '../port/with/computed-strategy.js'
+import type { ComputedDescriptor } from '../port/with/computed-strategy.js'
 import {
   resolveClassifiedFields, guardClassifiedCompat, NO_CLASSIFIED,
   type ClassifiedEntry, type ResolvedClassified, type ClassifiedGuardCtx, type ClassifiedStrategy, type ClassifiedViaConfig,
 } from '../port/with/classified-strategy.js'
 import { ClassifiedConfigError, ValidationError } from './errors.js'
-import type { FieldRef } from './via-graph.js'
+import type { FieldRef, Grain } from './via-graph.js'
 import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
 import type { CollectionMeta } from '../with-shape/introspection/meta.js'
 import type { RefDescriptor } from './refs.js'
@@ -247,19 +252,6 @@ export interface CollectionOpts<T> {
   /** — outbound ref declarations (snapshot from vault refRegistry). Used by describe(). */
   declaredRefs?: Record<string, RefDescriptor> | undefined
   computed?: ComputedFields | undefined
-  /**
-   * Declared source-field dependencies for `computed` entries (#638 Task 2 — the
-   * raw wiring `via(computed(fn, { deps, mode }))`, phase C Task 7, composes onto).
-   * Keys must name a `computed` field; values are OTHER field names declared on
-   * this collection (money/i18n/classified/other `computed` fields) that the
-   * function reads — feeding the `ViaGraph` for taint propagation. A depsless
-   * `computed` entry is fine UNLESS the collection also declares
-   * `classifiedFields`, in which case it throws `ValidationError` at declare
-   * time (an opaque computed function could otherwise copy a classified
-   * field's plaintext into an ordinary, unredacted field — see
-   * `resolveComputedEdges`).
-   */
-  computedDeps?: Record<string, readonly string[]> | undefined
   /** — declare classified() sensitive-field descriptors (sealed + riders + projections). */
   classifiedFields?: Record<string, ClassifiedEntry> | undefined
   /**
@@ -491,13 +483,37 @@ export interface CollectionOpts<T> {
   graphDispatch?: { collect(collection: string, id: string): void } | undefined
 }
 
+/** One normalized `ComputedFields` entry — a plain `ComputedFn` or a `ComputedFieldEntry`
+ *  reduced to its parts, `mode` always defaulted (#638 Task 7). Exported so
+ *  `via-graph-wiring.ts`'s reconcile-path guard can check `mode` without duplicating
+ *  the plain-fn-vs-object-form normalization. */
+export interface ComputedEntryParts { readonly fn: ComputedFn; readonly deps?: readonly string[]; readonly mode: 'materialized' | 'virtual' }
+
+export function computedEntryParts(entry: ComputedFn | ComputedFieldEntry): ComputedEntryParts {
+  if (typeof entry === 'function') return { fn: entry, mode: 'materialized' }
+  return { fn: entry.fn, ...(entry.deps !== undefined ? { deps: entry.deps } : {}), mode: entry.mode ?? 'materialized' }
+}
+
+/**
+ * #638 Task 7 — union the `computed:` sugar option with `via(computed(...))`-declared
+ * entries (`kernel/via-compose.ts#mergeViaFields`'s `computedFields` output) into ONE
+ * per-field map. NEVER includes `resolvedClassified.riderComputed` — that sanctioned
+ * classified→computed channel (seam map Part 4) stays outside every guard this map feeds
+ * (`resolveComputedEdges`'s depsless-on-classified refusal, the rider-name collision check).
+ * Both `compileViaBindings` (to find `mode: 'virtual'` fields) and `resolveCollectionConfig`
+ * (to split materialized entries into `mergedComputed` + extract graph edges) read this.
+ */
+function unifyComputedFields<T>(opts: CollectionOpts<T>, viaComputedFields: Record<string, ComputedDescriptor> | undefined): ComputedFields {
+  return { ...(opts.computed ?? {}), ...(viaComputedFields ?? {}) }
+}
+
 /**
  * Compile a collection's declared config into the ordered list of `ViaBinding`s
  * for its `ViaPipeline`.
  *
- * money then i18n then classified then blob — order pinned for pipeline
- * parity with the hand-wired baseline this replaces: money encode ran before
- * the i18n write stages, and money decode ran before i18n locale/dict-label
+ * money then i18n then classified then blob then computed — order pinned for
+ * pipeline parity with the hand-wired baseline this replaces: money encode ran
+ * before the i18n write stages, and money decode ran before i18n locale/dict-label
  * resolution on read. Classified compiles after those (#629 Task 6): its
  * `encodeAtRest`/`decodeAtRest` hooks make the pipeline's `hasAtRestHooks`
  * true, retiring the codec's inline `sensitiveFields` seal path
@@ -505,14 +521,21 @@ export interface CollectionOpts<T> {
  * `classifiedGuardCtx` is the SAME `ClassifiedGuardCtx`
  * `resolveCollectionConfig` already built for door 1's
  * `guardClassifiedCompat` call, threaded in by its one caller below. Blob
- * compiles last (#629 Task 7) but its position is inert: the blob binding
+ * compiles next (#629 Task 7) but its position is inert: the blob binding
  * declares NO write/read pipeline hooks (blob content is out-of-band
  * `BlobSet` side-collections — it must never flip `hasAtRestHooks`), only
- * `erase`/`describeFragment`.
+ * `erase`/`describeFragment`. Computed compiles LAST (#638 Task 7) — its
+ * `present` hook is the only one it declares, and it must run AFTER money/
+ * i18n's own `present` so a virtual field's `deps` can read their decoded
+ * output (money-quantized amount, i18n-resolved label), not their raw
+ * stored form. `via-graph-wiring.ts#applyTaintOverlay` appends the `taint`
+ * binding after WHATEVER this function returns, so taint's present-time
+ * redaction always runs after computed's regardless of this ordering.
  * {@link Collection._applyMoneyFields} PREPENDS money for the same reason
  * on its own (MV-precreation reconcile) path — see its docstring;
  * {@link Collection._applyClassifiedFields} APPENDS classified on that same
- * reconcile path (blobFields has no late-attach reconcile door).
+ * reconcile path (blobFields/computed have no late-attach reconcile door —
+ * `viaFields`, like i18nFields/dictKeyFields, is construction-only).
  *
  * `eraseCfgOut` (#629 Task 10, optional out-param) — this function runs
  * before the owning `Collection` exists (`this.codec` isn't built yet), so
@@ -529,7 +552,7 @@ export function compileViaBindings<T>(
   classifiedGuardCtx: ClassifiedGuardCtx,
   eraseCfgOut?: { classified?: ClassifiedViaConfig },
 ): ViaBinding[] {
-  const { moneyFields, i18nFields, dictKeyFields } = mergeViaFields(opts)
+  const { moneyFields, i18nFields, dictKeyFields, computedFields } = mergeViaFields(opts)
   const bindings: ViaBinding[] = []
   if (moneyFields) bindings.push(viaBinder('money')(moneyFields))
   if (i18nFields || dictKeyFields) {
@@ -569,24 +592,35 @@ export function compileViaBindings<T>(
       collectionName: opts.name,
     }))
   }
+  const virtualFields = new Map<string, ComputedDescriptor>()
+  for (const [field, entry] of Object.entries(unifyComputedFields(opts, computedFields))) {
+    const parts = computedEntryParts(entry)
+    if (parts.mode === 'virtual') {
+      virtualFields.set(field, { _viaBrand: 'computed', fn: parts.fn, mode: 'virtual', ...(parts.deps !== undefined ? { deps: parts.deps } : {}) })
+    }
+  }
+  if (virtualFields.size > 0) {
+    bindings.push(viaBinder('computed')({ virtualFields }))
+  }
   return bindings
 }
 
 /** One `ViaGraph.registerDerived` call's worth of edge data — target + sources,
- *  `kind`/`grain` chosen by the caller (#638 Task 2 edge extraction). */
-export interface GraphEdge { readonly target: FieldRef; readonly sources: readonly FieldRef[] }
+ *  `kind` chosen by the caller (#638 Task 2 edge extraction). `grain` defaults to
+ *  `'record'` when absent; `resolveComputedEdges` (#638 Task 7) sets it to `'virtual'`
+ *  for a `mode: 'virtual'` computed field's edge. */
+export interface GraphEdge { readonly target: FieldRef; readonly sources: readonly FieldRef[]; readonly grain?: Grain }
 
 /**
- * The shared `computedDeps`/via-binding-deps field-name universe builder
- * (#638 Task 2 fix wave 2) — used by both {@link resolveCollectionConfig}
- * (fresh construction) and `via-graph-wiring.ts`'s reconcile-path validate so
- * the two paths cannot silently drift apart on which field categories count
- * as "known" (review Finding I2ii). The reconcile path has no i18n/dictKey
- * descriptors of its own (those are construction-only — see
- * `ReconcileGraphOptions`'s doc comment) and unions in `ViaGraph.fieldNamesOf`
- * separately to cover that gap.
+ * The known-field-name universe builder (#638 Task 2 fix wave 2) — used by
+ * {@link resolveCollectionConfig} to validate `resolveViaBindingDepsEdges`'s `deps`
+ * entries. Originally also fed `resolveComputedEdges`'s own "references undeclared
+ * field" check (Finding I2ii's "shared, so the two paths cannot silently drift apart"
+ * rationale); #638 Task 7 dropped that check entirely (see `resolveComputedEdges`'s
+ * doc comment) and, with it, `via-graph-wiring.ts`'s reconcile-path caller — this is
+ * now single-caller but stays a named helper for clarity at its one call site.
  */
-export function collectKnownFieldNames(parts: {
+function collectKnownFieldNames(parts: {
   readonly moneyFields?: Record<string, unknown> | undefined
   readonly i18nFields?: Record<string, unknown> | undefined
   readonly dictKeyFields?: Record<string, unknown> | undefined
@@ -603,49 +637,69 @@ export function collectKnownFieldNames(parts: {
 }
 
 /**
- * Validate `computedDeps` well-formedness and resolve `computed` entries into
- * graph edges (#638 Task 2). `computed` is the RAW user-declared map (never
- * `mergedComputed` — a classified preset's `riderComputed` companions are a
- * sanctioned, already-vetted classified→computed channel and are deliberately
- * NOT subject to this guard). A depsless entry is fine UNLESS the collection
- * also declares classified fields (`hasClassifiedFields`), in which case an
- * opaque computed function could silently copy a classified field's plaintext
- * into an ordinary, unredacted field (the #636 leak) — refused at declare time.
+ * Validate each `computed` entry's `deps` well-formedness and resolve them into graph
+ * edges (#638 Task 2; #638 Task 7 folded the formerly-separate `computedDeps` sibling
+ * option into each entry's own `{ fn, deps?, mode? }` shape — see
+ * `with-formula/computed/index.ts#ComputedFieldEntry`). `computed` is the RAW
+ * user-declared map — `unifyComputedFields`'s union of the `computed:` sugar option and
+ * `via(computed(...))` entries, NEVER `mergedComputed`: a classified preset's
+ * `riderComputed` companions are a sanctioned, already-vetted classified→computed channel
+ * and are deliberately NOT subject to this guard. A depsless entry is fine UNLESS the
+ * collection also declares classified fields (`hasClassifiedFields`), in which case an
+ * opaque computed function could silently copy a classified field's plaintext into an
+ * ordinary, unredacted field (the #636 leak) — refused at declare time, regardless of
+ * `mode` (a virtual field's read-time redaction, `via-taint-binding.ts`, only fires for a
+ * field the graph actually taints — a depsless one never is).
+ *
+ * A `deps` entry may name ANY field — including a PLAIN field with no via feature
+ * declared on it at all (#638 Task 7; Task 2's original design only ever validated a
+ * `deps` entry against `moneyFields`/`i18nFields`/`dictKeyFields`/`classifiedFields`/
+ * `computed`'s own declared names — `collection-config.ts` has no schema-introspection
+ * API to check a `deps` entry against the record's FULL field set, since
+ * `StandardSchemaV1` — Zod/Valibot/ArkType/Effect, deliberately schema-library-agnostic —
+ * exposes no "list of field names" capability). This is safe: a dep with no registered
+ * `ViaGraph` node contributes `DEFAULT_POSTURE` when folded (`ViaGraph._contribution`'s
+ * `?? DEFAULT_POSTURE` fallback) — i.e. nothing, exactly like any other untainted
+ * source. Resolved WITHIN this task per "Before You Begin" — the brief's own canonical
+ * example (`deps: ['amount']` on a plain numeric field) is unreachable under Task 2's
+ * original strict check; a real per-record schema-membership check would need a
+ * schema-introspection capability that doesn't exist for `StandardSchemaV1`.
  */
 export function resolveComputedEdges(
   collectionName: string,
   computed: ComputedFields | undefined,
-  computedDeps: Record<string, readonly string[]> | undefined,
-  knownFields: ReadonlySet<string>,
   hasClassifiedFields: boolean,
 ): readonly GraphEdge[] {
   if (!computed) return []
   const edges: GraphEdge[] = []
-  for (const field of Object.keys(computed)) {
-    const deps = computedDeps?.[field]
+  for (const [field, entry] of Object.entries(computed)) {
+    const parts = computedEntryParts(entry)
+    const deps = parts.deps
     if (deps === undefined) {
       if (hasClassifiedFields) {
         throw new ValidationError(
           `Collection "${collectionName}": computed field "${field}" has no declared \`deps\` and the ` +
           `collection declares classified fields — an opaque computed function could silently copy a ` +
-          `classified field's plaintext into an ordinary, unredacted field. Declare ` +
-          `\`computedDeps: { ${field}: [...] }\` naming the source fields it reads.`,
+          `classified field's plaintext into an ordinary, unredacted field. Declare \`deps\` naming the ` +
+          `source fields it reads, e.g. computed: { ${field}: { fn, deps: [...] } } or ` +
+          `via(computed(fn, { deps: [...] })).`,
         )
       }
       continue
     }
     if (deps.length === 0) {
-      throw new ValidationError(`Collection "${collectionName}": computedDeps["${field}"] must be non-empty.`)
+      throw new ValidationError(`Collection "${collectionName}": computed field "${field}"'s \`deps\` must be non-empty.`)
     }
     for (const dep of deps) {
       if (typeof dep !== 'string' || dep.length === 0) {
-        throw new ValidationError(`Collection "${collectionName}": computedDeps["${field}"] entries must be non-empty strings.`)
-      }
-      if (!knownFields.has(dep)) {
-        throw new ValidationError(`Collection "${collectionName}": computedDeps["${field}"] references undeclared field "${dep}".`)
+        throw new ValidationError(`Collection "${collectionName}": computed field "${field}"'s \`deps\` entries must be non-empty strings.`)
       }
     }
-    edges.push({ target: { collection: collectionName, field }, sources: deps.map((d) => ({ collection: collectionName, field: d })) })
+    edges.push({
+      target: { collection: collectionName, field },
+      sources: deps.map((d) => ({ collection: collectionName, field: d })),
+      grain: parts.mode === 'virtual' ? 'virtual' : 'record',
+    })
   }
   return edges
 }
@@ -707,16 +761,30 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
       ? resolveClassifiedFields(opts.name, opts.classifiedFields)
       : undefined
 
+  // #638 Task 7 — union the `computed:` sugar option with `via(computed(...))` entries,
+  // then split by mode: materialized (default) folds into `mergedComputed` exactly like
+  // today's sugar map; virtual NEVER does (it's never stored — `evalComputedFields` must
+  // not see it) and instead feeds the computed via-binding's config (`compileViaBindings`,
+  // above, does the identical split independently — both are pure/cheap, mirrors
+  // `resolveCollectionConfig` already re-deriving `effectiveViaFields`).
+  const allComputed = unifyComputedFields(opts, effectiveViaFields.computedFields)
+  const materializedComputed: ComputedFields = {}
+  for (const [field, entry] of Object.entries(allComputed)) {
+    if (computedEntryParts(entry).mode !== 'virtual') materializedComputed[field] = entry
+  }
+
   // rider companions run first; user `computed` fns may read them.
-  // A user `computed` key colliding with a rider companion is a config error.
-  let mergedComputed: ComputedFields | undefined = opts.computed
+  // A user `computed` key colliding with a rider companion is a config error
+  // (checked against BOTH modes' field names — a virtual field can collide too).
+  let mergedComputed: ComputedFields | undefined =
+    Object.keys(materializedComputed).length > 0 ? materializedComputed : undefined
   if (resolvedClassified !== undefined) {
-    for (const key of Object.keys(opts.computed ?? {})) {
+    for (const key of Object.keys(allComputed)) {
       if (resolvedClassified.riderComputed[key] !== undefined) {
         throw new ClassifiedConfigError(opts.name, `computed field "${key}" collides with a rider companion`)
       }
     }
-    mergedComputed = { ...resolvedClassified.riderComputed, ...(opts.computed ?? {}) }
+    mergedComputed = { ...resolvedClassified.riderComputed, ...materializedComputed }
   }
 
   // deterministic-encryption wiring
@@ -802,16 +870,19 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
   const viaEraseCfgOut: { classified?: ClassifiedViaConfig } = {}
   const via = ViaPipeline.build(compileViaBindings(opts, classifiedGuardCtx, viaEraseCfgOut))
 
-  // #638 Task 2 — the field-name universe `resolveComputedEdges`/`resolveViaBindingDepsEdges`
-  // validate `deps` entries against ("references undeclared field" otherwise).
+  // #638 Task 2 — the field-name universe `resolveViaBindingDepsEdges` validates `deps`
+  // entries against ("references undeclared field" otherwise) — still true for the general
+  // `ViaBinding.deps` path. `resolveComputedEdges` (#638 Task 7) no longer consults this: a
+  // computed `deps` entry may name a plain field with no via feature at all (its own doc
+  // comment explains why that check was dropped for computed specifically).
   const knownFields = collectKnownFieldNames({
     moneyFields: effectiveViaFields.moneyFields,
     i18nFields: effectiveViaFields.i18nFields,
     dictKeyFields: effectiveViaFields.dictKeyFields,
     classifiedFields: resolvedClassified?.byField,
-    computed: opts.computed,
+    computed: allComputed,
   })
-  const computedEdges = resolveComputedEdges(opts.name, opts.computed, opts.computedDeps, knownFields, resolvedClassified !== undefined)
+  const computedEdges = resolveComputedEdges(opts.name, allComputed, resolvedClassified !== undefined)
   const viaDepsEdges = resolveViaBindingDepsEdges(opts.name, via?.bindings ?? [], knownFields)
 
   return {
@@ -862,6 +933,12 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     computed: mergedComputed,
     computedEdges,
     viaDepsEdges,
+    // #638 Task 7 — every declared computed field name (both modes, both surfaces); the
+    // reconcile path's cross-call depsless-computed leak-guard memory
+    // (`via-graph-wiring.ts#registerCollectionGraphSources`) reads this instead of
+    // `Object.keys(opts.computed ?? {})` alone, so a via(computed(...))-declared field
+    // participates in that guard identically to a sugar-declared one.
+    computedFieldNames: Object.keys(allComputed),
     dictLabelResolver: opts.dictLabelResolver,
     getDictionary: opts.getDictionary,
     i18nPutValidator: opts.i18nPutValidator,

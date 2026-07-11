@@ -13,7 +13,11 @@ import type { ViaPosture } from './via.js'
 export interface FieldRef { readonly collection: string; readonly field: string }
 
 export type EdgeKind = 'computed' | 'derivation' | 'rollup' | 'mv' | 'overlay'
-export type Grain = 'record' | 'aggregate'
+/** `'virtual'` (#638 Task 7) marks a `computed(fn, { mode: 'virtual' })` field's edge —
+ *  never stored (rides the `present` phase), so it can never be sealed at rest
+ *  ({@link ViaGraph.taintSealedFields} excludes it) and is always non-queryable
+ *  regardless of source posture ({@link ViaGraph.effectivePosture} clamps it). */
+export type Grain = 'record' | 'aggregate' | 'virtual'
 
 /** Plain (non-via) field baseline — max-permissive; taint only ever tightens. */
 export const DEFAULT_POSTURE: ViaPosture =
@@ -200,6 +204,17 @@ export class ViaGraph {
     for (const source of edge.sources) {
       result = foldPosture(result, this._contribution(nodeId(source)))
     }
+    // #638 Task 7 — a virtual field is computed fresh on every read and never
+    // stored, so it is structurally unqueryable regardless of what its
+    // sources' fold would otherwise permit (e.g. a money-sourced virtual
+    // field must NOT inherit money's 'ordered' queryability — there is no
+    // stored/indexed form to query against). Every OTHER axis (exportable/
+    // forgettable/encryptedAtRest) still folds normally — the taint rule is
+    // identical to a materialized field; only queryability is a fixed,
+    // grain-level property, not a source-derived one.
+    if (edge.grain === 'virtual' && result.queryable !== 'none') {
+      result = { ...result, queryable: 'none' }
+    }
     this._effectiveCache.set(id, result)
     return result
   }
@@ -223,14 +238,32 @@ export class ViaGraph {
     return out
   }
 
-  /** Materialized (grain !== virtual-only) derived fields on `collection` whose effective
-   *  encryptedAtRest resolves to 'sealed' — the taint-seal set (Task 3). */
+  /** Materialized (`grain !== 'virtual'`) derived fields on `collection` whose effective
+   *  encryptedAtRest resolves to 'sealed' — the taint-seal set (Task 3). #638 Task 7
+   *  makes the `grain !== 'virtual'` filter meaningful: a `computed(fn, { mode: 'virtual' })`
+   *  field is never stored (rides the `present` phase, seam map Part 4's money-Formatted/
+   *  i18n-Label precedent), so it is EXCLUDED here even when its effective `encryptedAtRest`
+   *  folds to `'sealed'` — there is no envelope slot to seal. It still surfaces in
+   *  {@link taintedPostures} (query refusal via `postureFor`'s `queryable` clamp above, and
+   *  export refusal via `exportable`) — only the AT-REST SEALING ACTION is skipped. */
   taintSealedFields(collection: string): ReadonlySet<string> {
     const out = new Set<string>()
     for (const edge of this._in.values()) {
-      if (edge.target.collection !== collection) continue
+      if (edge.target.collection !== collection || edge.grain === 'virtual') continue
       const posture = this._computeEffective(nodeId(edge.target), edge)
       if (posture.encryptedAtRest === 'sealed') out.add(edge.target.field)
+    }
+    return out
+  }
+
+  /** Fields on `collection` whose registered edge is `grain === 'virtual'` (#638 Task 7) —
+   *  `via-graph-wiring.ts#applyTaintOverlay` intersects this with `exportable === false`
+   *  postures to know which virtual fields need PRESENT-TIME (not just export-time)
+   *  redaction, since a virtual field's value is only ever materialized inside `present()`. */
+  virtualFields(collection: string): ReadonlySet<string> {
+    const out = new Set<string>()
+    for (const edge of this._in.values()) {
+      if (edge.target.collection === collection && edge.grain === 'virtual') out.add(edge.target.field)
     }
     return out
   }
