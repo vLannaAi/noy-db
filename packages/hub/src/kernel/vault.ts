@@ -100,6 +100,8 @@ import { NO_I18N, type I18nStrategy, type I18nTextDescriptor } from '../port/wit
 import { isViaInstalled } from './via.js'
 import { mergeViaFields, type ViaFieldSpec } from './via-compose.js'
 import { exportRedact } from './via-pipeline.js'
+import { ViaGraph } from './via-graph.js'
+import { registerCollectionGraphSources } from './via-graph-wiring.js'
 import { NO_SYNC, type SyncStrategy } from '../with-party/team/sync-strategy.js'
 // Type-only imports for the guard + derivation services. The
 // runtime classes are loaded on demand via `await import(...)` inside
@@ -258,34 +260,21 @@ export class Vault {
    * their bundle.
    */
   private guardRegistry: GuardRegistry | null = null
-  /**
-   * Per-vault derivation registry. Same lazy-load contract as
-   * `guardRegistry` — `null` until `_initDerivations()` runs with at
-   * least one strategy handle.
-   */
+  /** Per-vault derivation/MV/overlay registries — same lazy-load contract as
+   *  `guardRegistry`: each stays `null` until its `_init*()` runs with at
+   *  least one strategy/MV/overlay handle. */
   private derivationRegistry: DerivationRegistry | null = null
-  /**
-   * Per-vault materialized-view registry. Same lazy-load
-   * contract as `derivationRegistry` — `null` until
-   * `_initMaterializedViews()` runs with at least one MV handle.
-   */
   private materializedViewRegistry: MaterializedViewRegistry | null = null
-  /**
-   * Per-vault overlay registry. Same lazy-load contract as
-   * `materializedViewRegistry` — `null` until `_initOverlayedViews()`
-   * runs with at least one handle.
-   */
   private overlayedViewRegistry: OverlayedViewRegistry | null = null
-  /**
-   * Cached read-only facades handed to guard callbacks via `ctx.vault`
-   * and to derivation callbacks via `derive(source, ctx)`. Split by
-   * resolution layer: the guard facade reads at `layer:'guard'`,
-   * the derivation facade at `layer:'derivation'`, so i18nText / dictKey
-   * fields resolve under that layer's `onMissing` policy. Allocated
-   * eagerly inside `_initGuards()` / `_initDerivations()` so read
-   * accessors stay synchronous (callers in `tx/transaction.ts` rely on
-   * that). Each stays `null` for vaults without that service.
-   */
+  /** Per-vault dependency graph (#638) — field postures + derivation/MV/overlay/
+   *  computed/via-deps edges. Metadata-only (field names, postures, grains —
+   *  never values or key material); always present, unlike the registries above. */
+  readonly graph: ViaGraph
+  /** Cached read-only facades for guard/derivation callbacks — split by
+   *  resolution layer (`layer:'guard'` vs `'derivation'`, each field's
+   *  `onMissing` policy differs). Allocated eagerly inside `_initGuards()`/
+   *  `_initDerivations()` so read accessors stay synchronous; `null` for
+   *  vaults without that service. */
   private guardFacade: ReadOnlyVaultFacade | null = null
   private derivationFacade: ReadOnlyVaultFacade | null = null
   private getDEK: (collectionName: string) => Promise<EnclaveKey>
@@ -619,6 +608,7 @@ export class Vault {
     this.i18nStrategy = opts.i18nStrategy ?? NO_I18N
     this.syncStrategy = opts.syncStrategy ?? NO_SYNC
     this.classifiedStrategy = opts.classifiedStrategy ?? NO_CLASSIFIED
+    this.graph = new ViaGraph()
     // Guard + derivation registries are initialised lazily via
     // `_initGuards()` / `_initDerivations()` from `Noydb.openVault()`.
     // The classes are dynamic-imported there so vaults that never
@@ -762,6 +752,9 @@ export class Vault {
     viaFields?: Record<string, ViaFieldSpec> // via() composed fields; merged with the money/i18n sugar keys (field in both throws)
     /** — declare computed scalar fields, evaluated on write (schema-owned). */
     computed?: ComputedFields<T>
+    /** — declared source-field deps for `computed` entries (#638), feeding
+     *  `vault.graph`. Depsless throws when `classifiedFields` is also declared. */
+    computedDeps?: Record<string, readonly string[]>
     /** — declare classified() sensitive-field descriptors. See the classified-fields spec. */
     classifiedFields?: Record<string, ClassifiedEntry>
     /** — per-collection conflict resolution policy. */
@@ -1168,6 +1161,7 @@ export class Vault {
       if (options?.moneyFields !== undefined) collOpts.moneyFields = options.moneyFields
       if (options?.viaFields !== undefined) collOpts.viaFields = options.viaFields
       if (options?.computed !== undefined) collOpts.computed = options.computed as ComputedFields
+      if (options?.computedDeps !== undefined) collOpts.computedDeps = options.computedDeps
       if (options?.classifiedFields !== undefined) collOpts.classifiedFields = options.classifiedFields
       if (effectiveViaFields.dictKeyFields !== undefined) {
         // Build the label resolver callback for this collection. A static
@@ -1220,6 +1214,7 @@ export class Vault {
       }
       coll = new Collection<T>(collOpts)
       this.collectionCache.set(collectionName, coll)
+      registerCollectionGraphSources(this.graph, collectionName, collOpts)
 
       // Pre-build the lexical index on open when opted in. Fire-and-forget,
       // eager-only; warmIndex() no-ops when no textIndexes are declared and throws
@@ -2768,7 +2763,8 @@ export class Vault {
     for (const h of handles) {
       await registry.register(h.spec)
     }
-    registry.validate()
+    for (const edge of registry.edges()) this.graph.registerDerived(edge.target, edge.sources, edge.kind, edge.grain)
+    registry.validate(this.graph)
     this.derivationRegistry = registry
     // Derivation reads resolve at `layer:'derivation'` — a distinct
     // facade from the guard one, so `derive(source, ctx)` gets the
@@ -2820,10 +2816,11 @@ export class Vault {
     for (const h of handles) {
       await registry.register(h.spec, db)
     }
-    // Phase 2: unified cycle detection across MV + derivation graphs.
-    // Runs after all `register()` calls so the analyzer has every
-    // dep-set; throws `MaterializedViewCycleError` on the first cycle.
-    registry.validate(this.derivationRegistry)
+    // Phase 2: unified cycle detection — `this.graph` already carries
+    // `_initDerivations`'s edges (#638); add this registry's own, then
+    // re-validate. Throws `MaterializedViewCycleError` on the first cycle.
+    for (const edge of registry.edges()) this.graph.registerDerived(edge.target, edge.sources, edge.kind, edge.grain)
+    registry.validate(this.graph)
   }
 
   /**
@@ -2864,6 +2861,8 @@ export class Vault {
         isOverlayName: (n) => overlayNames.has(n) && n !== h.spec.name,
         isMVOutput,
       })
+      // #638 Task 2 — '*' matches the derivation/MV whole-record marker.
+      this.graph.registerDerived({ collection: h.spec.name, field: '*' }, [{ collection: h.spec.base, field: '*' }], 'overlay', 'record')
     }
     this.overlayedViewRegistry = registry
   }

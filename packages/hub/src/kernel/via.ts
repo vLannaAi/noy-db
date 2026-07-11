@@ -77,7 +77,11 @@ export interface ViaBinding {
   readonly brand: string
   readonly posture: ViaPosture
   /** Declared dependencies (field paths / cross-record specs). MANDATORY for any future
-   *  derive-bearing binding (phase C consumes; A only validates well-formedness: strings, non-empty). */
+   *  derive-bearing binding — phase C validates well-formedness (strings, non-empty,
+   *  reference declared fields) and graph-registers a derived edge for each covered
+   *  field at declare time, right after `compileViaBindings` builds the bindings
+   *  (unknown source field throws `ValidationError`). See
+   *  `kernel/collection-config.ts`'s `resolveViaBindingDepsEdges`. */
   readonly deps?: readonly string[]
   /** Collection-name prefixes this binding's `reservedEnvelopes` capability may address (e.g. `_dict_`). */
   readonly reservedPrefixes?: readonly string[]

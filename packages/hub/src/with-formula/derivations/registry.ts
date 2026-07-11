@@ -1,6 +1,30 @@
 import { DerivationCycleError } from '../../kernel/errors.js'
+import { ViaGraph, type FieldRef, type EdgeKind, type Grain } from '../../kernel/via-graph.js'
 import { computeStrategyHash } from './strategy-hash.js'
 import type { DerivationStrategy } from './types.js'
+
+/**
+ * Whole-record artifact-grain field marker (#638 Task 2). A derivation's
+ * `derive()`/a rollup's `compute()` reads the WHOLE source record — there is
+ * no single declared field to point at — so a trigger/output collection is
+ * modelled as one artifact node per collection (`kernel/via-graph.ts`'s
+ * "Artifact-grain targets... modelled as a field node whose field is the
+ * artifact key" convention). MUST match `materialized-views/registry.ts`'s
+ * and `vault.ts`'s overlay-edge marker so cross-registry edges (a derivation
+ * feeding into / out of an MV or overlay collection) resolve to the SAME
+ * graph node.
+ */
+const WHOLE_RECORD = '*'
+
+/** Strip this registry's `.${WHOLE_RECORD}` artifact suffix off a graph cycle
+ *  path entry, recovering the bare collection name — preserves the exact
+ *  pre-#638 `DerivationCycleError` message shape (behavior lock) for a pure
+ *  record-shape derivation cycle. A rollup's real-field target (not suffixed
+ *  `.${WHOLE_RECORD}`) is left untouched. */
+function stripArtifactSuffix(displayId: string): string {
+  const suffix = `.${WHOLE_RECORD}`
+  return displayId.endsWith(suffix) ? displayId.slice(0, -suffix.length) : displayId
+}
 
 interface RegisteredStrategy {
   // Type-erased to allow the registry to hold heterogeneous strategies.
@@ -98,46 +122,73 @@ export class DerivationRegistry {
   }
 
   /**
-   * Cycle detection over the source → output → … graph. Call after all
-   * `register()` calls complete (i.e. at vault open). Throws
-   * `DerivationCycleError` on the first cycle found.
+   * Graph edges for #638 Task 2: one `'derivation'`/`'record'` edge per
+   * (non-self-write) output key — target = the output collection (a
+   * `WHOLE_RECORD` artifact node), sources = every collection that can
+   * trigger this strategy (`source`, `sources[]`, `triggerBy[].collection`,
+   * and — for a rollup — `rollup.from`), mirroring EXACTLY the trigger keys
+   * `register()` indexes under `_bySource`. The self-write reverse-denorm
+   * output (`output.collection === source` with `denorm` declared) is
+   * skipped — the SAME condition the old local DFS used; it is not a cycle
+   * (see the comment `validate()` used to carry, now on this skip).
+   * Rollups ADDITIONALLY get a dedicated `'rollup'`/`'aggregate'` edge
+   * targeting the real `rollup.field` on the parent (`source`) — the
+   * self-write output above only covers the cycle-DFS skip, not
+   * dispatch/taint (Tasks 3/4/6), which need the real field.
    */
-  validate(): void {
-    const visited = new Set<string>()
-    const stack: string[] = []
-
-    const visit = (node: string): void => {
-      if (stack.includes(node)) {
-        const cycle = stack.slice(stack.indexOf(node)).concat(node)
-        throw new DerivationCycleError(cycle)
+  edges(): ReadonlyArray<{ readonly target: FieldRef; readonly sources: readonly FieldRef[]; readonly kind: EdgeKind; readonly grain: Grain }> {
+    const out: Array<{ target: FieldRef; sources: FieldRef[]; kind: EdgeKind; grain: Grain }> = []
+    for (const reg of this.all()) {
+      const spec = reg.spec
+      const triggerCollections = [
+        spec.source,
+        ...(spec.sources ?? []),
+        ...(spec.triggerBy ?? []).map((t) => t.collection),
+        ...(spec.rollup ? [spec.rollup.from] : []),
+      ]
+      const sources: FieldRef[] = triggerCollections.map((c) => ({ collection: c, field: WHOLE_RECORD }))
+      for (const key of Object.keys(spec.outputs)) {
+        const output = spec.outputs[key]
+        if (!output) continue
+        if (output.shape === 'record' && output.collection === spec.source && output.denorm !== undefined) continue
+        out.push({ target: { collection: output.collection, field: WHOLE_RECORD }, sources, kind: 'derivation', grain: 'record' })
       }
-      if (visited.has(node)) return
-      stack.push(node)
-      const strategies = this._bySource.get(node)
-      if (strategies) {
-        for (const s of strategies) {
-          for (const key of Object.keys(s.spec.outputs)) {
-            const output = s.spec.outputs[key]
-            if (!output) continue
-            // Self-write reverse-denorm: an output back to its own
-            // source is intentional, not an infinite cycle — the value-equality
-            // guard in dispatch terminates it. Skip this edge so it isn't
-            // flagged. (Self-write outputs are required to declare `denorm`.)
-            if (
-              output.shape === 'record' &&
-              output.collection === s.spec.source &&
-              output.denorm !== undefined
-            ) {
-              continue
-            }
-            visit(output.collection)
-          }
-        }
+      if (spec.rollup) {
+        out.push({
+          target: { collection: spec.source, field: spec.rollup.field },
+          sources: [{ collection: spec.rollup.from, field: WHOLE_RECORD }],
+          kind: 'rollup',
+          grain: 'aggregate',
+        })
       }
-      stack.pop()
-      visited.add(node)
     }
+    return out
+  }
 
-    for (const src of this._bySource.keys()) visit(src)
+  /**
+   * Cycle detection, delegated to `ViaGraph.assertAcyclic()` (#638 Task 2 —
+   * retires the local DFS). Call after all `register()` calls complete (i.e.
+   * at vault open). Throws `DerivationCycleError` on the first cycle found —
+   * SAME class/timing as before; the message/path is byte-identical to the
+   * pre-#638 shape for a pure record-shape derivation cycle (the
+   * `WHOLE_RECORD` artifact suffix is stripped back to a bare collection
+   * name before re-throwing).
+   *
+   * `graph` is the caller's shared per-vault graph, ALREADY carrying this
+   * registry's `edges()` (the caller registers them — see `Vault._initDerivations`)
+   * — omit it (e.g. this registry's own unit tests) to validate this
+   * registry's edges in isolation against a throwaway graph.
+   */
+  validate(graph?: ViaGraph): void {
+    const g = graph ?? new ViaGraph()
+    if (!graph) {
+      for (const edge of this.edges()) g.registerDerived(edge.target, edge.sources, edge.kind, edge.grain)
+    }
+    try {
+      g.assertAcyclic()
+    } catch (e) {
+      if (e instanceof DerivationCycleError) throw new DerivationCycleError(e.path.map(stripArtifactSuffix))
+      throw e
+    }
   }
 }

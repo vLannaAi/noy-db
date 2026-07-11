@@ -47,7 +47,8 @@ import {
   resolveClassifiedFields, guardClassifiedCompat, NO_CLASSIFIED,
   type ClassifiedEntry, type ResolvedClassified, type ClassifiedGuardCtx, type ClassifiedStrategy, type ClassifiedViaConfig,
 } from '../port/with/classified-strategy.js'
-import { ClassifiedConfigError } from './errors.js'
+import { ClassifiedConfigError, ValidationError } from './errors.js'
+import type { FieldRef } from './via-graph.js'
 import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
 import type { CollectionMeta } from '../with-shape/introspection/meta.js'
 import type { RefDescriptor } from './refs.js'
@@ -246,6 +247,19 @@ export interface CollectionOpts<T> {
   /** — outbound ref declarations (snapshot from vault refRegistry). Used by describe(). */
   declaredRefs?: Record<string, RefDescriptor> | undefined
   computed?: ComputedFields | undefined
+  /**
+   * Declared source-field dependencies for `computed` entries (#638 Task 2 — the
+   * raw wiring `via(computed(fn, { deps, mode }))`, phase C Task 7, composes onto).
+   * Keys must name a `computed` field; values are OTHER field names declared on
+   * this collection (money/i18n/classified/other `computed` fields) that the
+   * function reads — feeding the `ViaGraph` for taint propagation. A depsless
+   * `computed` entry is fine UNLESS the collection also declares
+   * `classifiedFields`, in which case it throws `ValidationError` at declare
+   * time (an opaque computed function could otherwise copy a classified
+   * field's plaintext into an ordinary, unredacted field — see
+   * `resolveComputedEdges`).
+   */
+  computedDeps?: Record<string, readonly string[]> | undefined
   /** — declare classified() sensitive-field descriptors (sealed + riders + projections). */
   classifiedFields?: Record<string, ClassifiedEntry> | undefined
   /**
@@ -552,6 +566,90 @@ export function compileViaBindings<T>(
   return bindings
 }
 
+/** One `ViaGraph.registerDerived` call's worth of edge data — target + sources,
+ *  `kind`/`grain` chosen by the caller (#638 Task 2 edge extraction). */
+export interface GraphEdge { readonly target: FieldRef; readonly sources: readonly FieldRef[] }
+
+/**
+ * Validate `computedDeps` well-formedness and resolve `computed` entries into
+ * graph edges (#638 Task 2). `computed` is the RAW user-declared map (never
+ * `mergedComputed` — a classified preset's `riderComputed` companions are a
+ * sanctioned, already-vetted classified→computed channel and are deliberately
+ * NOT subject to this guard). A depsless entry is fine UNLESS the collection
+ * also declares classified fields (`hasClassifiedFields`), in which case an
+ * opaque computed function could silently copy a classified field's plaintext
+ * into an ordinary, unredacted field (the #636 leak) — refused at declare time.
+ */
+export function resolveComputedEdges(
+  collectionName: string,
+  computed: ComputedFields | undefined,
+  computedDeps: Record<string, readonly string[]> | undefined,
+  knownFields: ReadonlySet<string>,
+  hasClassifiedFields: boolean,
+): readonly GraphEdge[] {
+  if (!computed) return []
+  const edges: GraphEdge[] = []
+  for (const field of Object.keys(computed)) {
+    const deps = computedDeps?.[field]
+    if (deps === undefined) {
+      if (hasClassifiedFields) {
+        throw new ValidationError(
+          `Collection "${collectionName}": computed field "${field}" has no declared \`deps\` and the ` +
+          `collection declares classified fields — an opaque computed function could silently copy a ` +
+          `classified field's plaintext into an ordinary, unredacted field. Declare ` +
+          `\`computedDeps: { ${field}: [...] }\` naming the source fields it reads.`,
+        )
+      }
+      continue
+    }
+    if (deps.length === 0) {
+      throw new ValidationError(`Collection "${collectionName}": computedDeps["${field}"] must be non-empty.`)
+    }
+    for (const dep of deps) {
+      if (typeof dep !== 'string' || dep.length === 0) {
+        throw new ValidationError(`Collection "${collectionName}": computedDeps["${field}"] entries must be non-empty strings.`)
+      }
+      if (!knownFields.has(dep)) {
+        throw new ValidationError(`Collection "${collectionName}": computedDeps["${field}"] references undeclared field "${dep}".`)
+      }
+    }
+    edges.push({ target: { collection: collectionName, field }, sources: deps.map((d) => ({ collection: collectionName, field: d })) })
+  }
+  return edges
+}
+
+/**
+ * Extract graph edges from `ViaBinding.deps` (#638 Task 2 — `deps` goes from
+ * inert to validated). For any compiled binding declaring `deps`, every field
+ * it `covers()` (tested against `knownFields`) becomes a derived target whose
+ * sources are `deps`; an unknown source field throws declare-time
+ * `ValidationError`. No shipped binding declares `deps` today (money/i18n/
+ * classified/blob don't) — this is the general path a future derive-bearing
+ * binding (phase C Task 7's `computed` via-binding) plugs into.
+ */
+export function resolveViaBindingDepsEdges(
+  collectionName: string,
+  bindings: readonly ViaBinding[],
+  knownFields: ReadonlySet<string>,
+): readonly GraphEdge[] {
+  const edges: GraphEdge[] = []
+  for (const binding of bindings) {
+    if (!binding.deps || binding.deps.length === 0) continue
+    for (const dep of binding.deps) {
+      if (!knownFields.has(dep)) {
+        throw new ValidationError(
+          `Collection "${collectionName}": via binding "${binding.brand}" deps references undeclared field "${dep}".`,
+        )
+      }
+    }
+    const sources = binding.deps.map((d) => ({ collection: collectionName, field: d }))
+    for (const field of knownFields) {
+      if (binding.covers?.(field)) edges.push({ target: { collection: collectionName, field }, sources })
+    }
+  }
+  return edges
+}
+
 /**
  * Resolve the raw {@link CollectionOpts} into the concrete field values the
  * {@link Collection} constructor assigns — every `?? default`, every derived
@@ -672,6 +770,18 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
   const viaEraseCfgOut: { classified?: ClassifiedViaConfig } = {}
   const via = ViaPipeline.build(compileViaBindings(opts, classifiedGuardCtx, viaEraseCfgOut))
 
+  // #638 Task 2 — the field-name universe `resolveComputedEdges`/`resolveViaBindingDepsEdges`
+  // validate `deps` entries against ("references undeclared field" otherwise).
+  const knownFields = new Set<string>([
+    ...Object.keys(effectiveViaFields.moneyFields ?? {}),
+    ...Object.keys(effectiveViaFields.i18nFields ?? {}),
+    ...Object.keys(effectiveViaFields.dictKeyFields ?? {}),
+    ...(resolvedClassified !== undefined ? Object.keys(resolvedClassified.byField) : []),
+    ...Object.keys(opts.computed ?? {}),
+  ])
+  const computedEdges = resolveComputedEdges(opts.name, opts.computed, opts.computedDeps, knownFields, resolvedClassified !== undefined)
+  const viaDepsEdges = resolveViaBindingDepsEdges(opts.name, via?.bindings ?? [], knownFields)
+
   return {
     adapter: opts.adapter,
     vault: opts.vault,
@@ -718,6 +828,8 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     classifiedGuardCtx,
     classifiedStrategy: opts.classifiedStrategy ?? NO_CLASSIFIED,
     computed: mergedComputed,
+    computedEdges,
+    viaDepsEdges,
     dictLabelResolver: opts.dictLabelResolver,
     getDictionary: opts.getDictionary,
     i18nPutValidator: opts.i18nPutValidator,

@@ -77,7 +77,9 @@ export class ViaGraph {
   }
 
   /** A derived target depends on `sources` (may be cross-collection). `kind`/`grain`
-   *  drive dispatch + erasure semantics; sources drive taint. */
+   *  drive dispatch + erasure semantics; sources drive taint. Re-registering the same
+   *  target replaces `_in` but does not prune stale `_out` edges — callers must
+   *  register each target at most once per graph lifetime. */
   registerDerived(target: FieldRef, sources: readonly FieldRef[], kind: EdgeKind, grain: Grain): void {
     const id = nodeId(target)
     this._in.set(id, { target, sources, kind, grain })
