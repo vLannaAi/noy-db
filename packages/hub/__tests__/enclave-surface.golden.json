@@ -39,6 +39,7 @@
     "isDeleteMarker",
     "isTombstone",
     "isTombstoneShape",
+    "makeReservedEnvelopes",
     "mintBidxTag",
     "openEnvelopeJson",
     "pbkdf2VerifyDigest",

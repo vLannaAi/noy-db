@@ -125,7 +125,7 @@ import {
   type ClosePeriodOptions,
   type OpenPeriodOptions,
 } from '../with-audit/periods/index.js'
-import { encrypt, openEnvelopeJson, hasPerRecordKey, SEALED_CEK_NS, type SealingContext, type EnclaveKey, type SealedShredSlot, isDeleteMarker } from './enclave/index.js'
+import { encrypt, openEnvelopeJson, hasPerRecordKey, SEALED_CEK_NS, type SealingContext, type EnclaveKey, type SealedShredSlot, isDeleteMarker, makeReservedEnvelopes } from './enclave/index.js'
 import type { RecipientSealer } from '../with-party/team/managed-passphrase.js'
 import {
   createExportBlobsHandle,
@@ -1652,7 +1652,7 @@ export class Vault {
         compartmentName: this.name,
         dictionaryName: name,
         keyring: this.keyring,
-        getDEK: this.getDEK,
+        reservedEnvelopes: makeReservedEnvelopes((collection) => this.getDEK(collection), ['_dict_'])('_dict_'),
         encrypted: this.encrypted,
         ledger: this.getLedgerOrNull() ?? undefined,
         options,

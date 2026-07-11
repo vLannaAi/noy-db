@@ -771,7 +771,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       crdtMode: this.crdtMode,
       crdtStrategy: this.crdtStrategy,
       schema: this.schema,
-      getDEK: () => this.getDEK(this.name),
+      getDEK: (collection) => this.getDEK(collection ?? this.name),
       cekCache: this.cekCache,
       classifiedMarkerDigestOnly: () => this._classifiedMarkerDigestOnly(),
       via: this.via,

@@ -76,8 +76,14 @@ export interface RecordCodecContext<T> {
   readonly crdtStrategy: CrdtStrategy
   /** Output-schema validator, or undefined. */
   readonly schema: StandardSchemaV1<unknown, T> | undefined
-  /** The collection DEK (codec only ever needs this.name's DEK). */
-  getDEK(): Promise<EnclaveKey>
+  /**
+   * Resolve a collection's DEK. Called with no argument for `this.name`'s
+   * own DEK (every ordinary codec use); `viaCryptoCtx`'s `reservedEnvelopes`
+   * door passes an explicit OTHER collection name (e.g. a reserved
+   * `_dict_status` collection) so a binding's at-rest hook can address a
+   * different collection's DEK without ever holding the resolver itself.
+   */
+  getDEK(collection?: string): Promise<EnclaveKey>
   /**
    * The collection's per-record CEK cache (SHARED reference, not a copy).
    * Ownership/lifetime stays on Collection; codec reads+writes it in
@@ -112,16 +118,17 @@ export class RecordCodec<T> {
    * `decodeAtRest` hook: `sealedSlots` pre-bound to `(this.ctx.name,
    * recordId)` — always threading `cek` when the caller has one, so the
    * capability's record-binding stays cryptographic rather than degrading
-   * to collection-scope. `reservedEnvelopes`'s cross-collection DEK
-   * resolution is wired for real in #629 Task 4 (DictionaryHandle
-   * cutover); no binding declares `reservedPrefixes` yet, so the declared
-   * set is always empty and that resolver is unreached.
+   * to collection-scope. `reservedEnvelopes`'s DEK resolver forwards its
+   * `collection` argument straight to `this.ctx.getDEK` (#629 Task 4) — it
+   * resolves the RESERVED collection's own DEK (e.g. `_dict_status`), never
+   * `this.ctx.name`'s, matching `Vault.getDEK`'s per-collection-name
+   * resolution (the same resolver `DictionaryHandle` used pre-cutover).
    */
   private viaCryptoCtx(recordId: string, cek: EnclaveKey | undefined): ViaCryptoCtx {
     const declaredPrefixes = this.ctx.via?.bindings.flatMap((b) => b.reservedPrefixes ?? []) ?? []
     return {
       sealedSlots: makeSealedSlotCapability(this.ctx, recordId, cek),
-      reservedEnvelopes: makeReservedEnvelopes(() => this.ctx.getDEK(), declaredPrefixes),
+      reservedEnvelopes: makeReservedEnvelopes((collection) => this.ctx.getDEK(collection), declaredPrefixes),
     }
   }
 

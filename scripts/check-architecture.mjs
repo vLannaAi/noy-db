@@ -1672,7 +1672,12 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   ['packages/hub/src/with-pod/bundle.ts', 2],
   ['packages/hub/src/with-shape/blobs/blob-compaction.ts', 4],
   ['packages/hub/src/with-shape/blobs/blob-set.ts', 33],
-  ['packages/hub/src/shape/via-i18n/dictionary.ts', 5],
+  // #629 Task 4: DictionaryHandle's encrypt/decrypt now goes through the
+  // reservedEnvelopes('_dict_') capability instead of building `_iv`/`_data`
+  // literals inline — down from 5 (the plaintext branch's `_iv: ''`/`_data:`
+  // + decryptEntry's `envelope._data` read remain; the two-occurrence
+  // encrypted-branch envelope literal moved into kernel/enclave/).
+  ['packages/hub/src/shape/via-i18n/dictionary.ts', 3],
   ['packages/hub/src/with-shape/introspection/walk.ts', 1],
   ['packages/hub/src/with-shape/links/link-set.ts', 5],
   ['packages/hub/src/with-shape/persisted-schemas/storage.ts', 2],
@@ -1893,21 +1898,18 @@ function checkViaLayering() {
 // explicitly Check-10-legal. Check 15 additionally bans via-*/** from
 // importing the barrel at all.
 //
-// VIA_ENCLAVE_ALLOWLIST holds one explicit, reviewed grandfather:
+// VIA_ENCLAVE_ALLOWLIST held one explicit, reviewed grandfather:
 // shape/via-i18n/dictionary.ts's DictionaryHandle (encrypt/openEnvelopeJson
-// for _dict_* entry envelopes) predates #623 — verified via
+// for _dict_* entry envelopes) predated #623 — verified via
 // `git show 43765b56^:packages/hub/src/with-shape/i18n/dictionary.ts`, the
 // identical import was already there before the #623 arc even started, at
-// the file's pre-move path. Grandfathered PER IMPORT SPECIFIER, same
-// semantics as VIA_SHAPE_ALLOWLIST — do not add new entries; a listed
-// file's other imports, and every other via-*/** file, must stay clean.
+// the file's pre-move path. #629 Task 4 rerouted DictionaryHandle onto the
+// `reservedEnvelopes('_dict_')` capability (ViaCryptoCtx, milestone #28),
+// retiring the grandfather — the allowlist is now EMPTY. Grandfathered PER
+// IMPORT SPECIFIER, same semantics as VIA_SHAPE_ALLOWLIST — do not add new
+// entries; every via-*/** file must stay clean.
 
-const VIA_ENCLAVE_ALLOWLIST = new Map([
-  // PRE-EXISTING (predates #623): DictionaryHandle is vault-grain _dict_*
-  // machinery squatting in the feature folder; phase B's ViaCryptoCtx
-  // (milestone #28) owns rerouting it — do not add new entries.
-  ['packages/hub/src/shape/via-i18n/dictionary.ts', ['../../kernel/enclave/index.js']],
-])
+const VIA_ENCLAVE_ALLOWLIST = new Map([])
 
 function checkViaEnclaveIsolation() {
   const hubSrc = join(PACKAGES_DIR, 'hub', 'src')

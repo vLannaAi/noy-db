@@ -37,6 +37,11 @@
  *                       `envelopeBodyForHash`) — the sanctioned door onto
  *                       `_iv`/`_data`/`_cek`/`_sealed` for everyone outside
  *                       this folder.
+ *   - reserved envelopes — `record-keys/sealed-slots.ts`: `makeReservedEnvelopes`,
+ *                       the whole-envelope encrypt/decrypt door scoped to a
+ *                       declared collection-name prefix (e.g. `_dict_`) —
+ *                       `kernel/vault.ts` binds it for `DictionaryHandle`
+ *                       (#629 Task 4).
  *
  * Additive changes only — removing or renaming an export here is breaking
  * for any fork. Frozen by `__tests__/enclave-surface-golden.test.ts`.
@@ -106,6 +111,9 @@ export { isTombstone, isTombstoneShape, buildTombstone, isDeleteMarker, buildDel
 
 // ─── envelope body (C1 protected-body access contract) ──────────────
 export { openEnvelopeJson, writeEnvelopeBody, hasPerRecordKey, envelopeBodyForHash } from './record-keys/envelope-body.js'
+
+// ─── reserved envelopes (ViaCryptoCtx.reservedEnvelopes capability) ──
+export { makeReservedEnvelopes } from './record-keys/sealed-slots.js'
 
 // ─── classify (stage-2 verify oracle primitives) ────────────────────
 // ADDITIVE per Enclave Contract v1. A fork must provide these four; the

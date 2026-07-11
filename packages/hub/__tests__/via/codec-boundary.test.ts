@@ -16,8 +16,8 @@ import { describe, it, expect } from 'vitest'
 import { RecordCodec, type RecordCodecContext } from '../../src/kernel/enclave/record-keys/record-codec.js'
 import { ViaPipeline } from '../../src/kernel/via-pipeline.js'
 import type { ViaBinding, ViaPosture } from '../../src/kernel/via.js'
-import { generateDEK, type EnclaveKey } from '../../src/kernel/enclave/index.js'
-import { SealedHandle } from '../../src/kernel/types.js'
+import { generateDEK, decrypt, type EnclaveKey } from '../../src/kernel/enclave/index.js'
+import { SealedHandle, type EncryptedEnvelope } from '../../src/kernel/types.js'
 import { NO_CRDT } from '../../src/with-commit/crdt/strategy.js'
 
 const posture = (): ViaPosture => ({ encryptedAtRest: 'sealed', queryable: 'none', exportable: false, forgettable: true })
@@ -167,5 +167,56 @@ describe('zero-via fast path stays on the inline path (#629 Task 3 parity)', () 
     expect(Object.keys(envNoVia).sort()).toEqual(Object.keys(envSyncPipeline).sort())
     expect(Object.keys(envNoVia._sealed ?? {})).toEqual(Object.keys(envSyncPipeline._sealed ?? {}))
     expect(await codecNoVia.decryptRecord(envNoVia)).toEqual(await codecSyncPipeline.decryptRecord(envSyncPipeline))
+  })
+})
+
+describe('viaCryptoCtx.reservedEnvelopes — per-collection DEK resolution (#629 Task 4)', () => {
+  /**
+   * A binding declaring `reservedPrefixes` gets a `crypto.reservedEnvelopes`
+   * door whose DEK resolver must resolve the RESERVED collection's own DEK
+   * (e.g. `_dict_other`), never `this.ctx.name`'s ("fixtures") — the bug the
+   * Task 3 review flagged: `() => this.ctx.getDEK()` ignored its `collection`
+   * argument entirely. Proven end-to-end: the fixture binding's
+   * `encodeAtRest` mints a reserved envelope for a DIFFERENT collection than
+   * the one being written, and only the reserved collection's DEK opens it.
+   */
+  it("resolves the reserved collection's DEK, not the record's own collection DEK", async () => {
+    const ownDek = await generateDEK()
+    const dictDek = await generateDEK()
+    const deks = new Map<string, EnclaveKey>([
+      ['fixtures', ownDek],
+      ['_dict_other', dictDek],
+    ])
+
+    let captured: EncryptedEnvelope | undefined
+    const reservedBinding: ViaBinding = {
+      brand: 'reserved-fixture',
+      posture: posture(),
+      reservedPrefixes: ['_dict_'],
+      async encodeAtRest(record, crypto) {
+        captured = await crypto.reservedEnvelopes('_dict_').encrypt('_dict_other', JSON.stringify({ hello: 'world' }), 1)
+        return { record }
+      },
+    }
+    const pipeline = ViaPipeline.build([reservedBinding])!
+    const ctx: RecordCodecContext<Record<string, unknown>> = {
+      ...makeCtx({ storeCiphertext: true, via: pipeline, dek: ownDek }),
+      getDEK: async (collection?: string) => {
+        const key = collection ?? 'fixtures'
+        const dek = deks.get(key)
+        if (!dek) throw new Error(`no fixture DEK registered for "${key}"`)
+        return dek
+      },
+    }
+    const codec = new RecordCodec(ctx)
+
+    await codec.encryptRecord({ open: 'visible' }, 1, undefined, undefined, undefined, undefined, 'r1')
+
+    expect(captured).toBeDefined()
+    // The record's OWN collection DEK must NOT open the reserved envelope.
+    await expect(decrypt(captured!._iv, captured!._data, ownDek)).rejects.toThrow()
+    // Only the reserved collection's DEK does.
+    const json = await decrypt(captured!._iv, captured!._data, dictDek)
+    expect(JSON.parse(json)).toEqual({ hello: 'world' })
   })
 })

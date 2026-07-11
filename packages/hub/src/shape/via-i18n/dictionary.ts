@@ -35,8 +35,7 @@ import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import type { NoydbEventEmitter } from '../../kernel/events.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
-import { encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
-import { ensureCollectionDEK } from '../../with-party/team/keyring.js'
+import type { ViaCryptoCtx } from '../../kernel/via.js'
 import type { LedgerStore } from '../../with-commit/history/ledger/store.js'
 import type { OnMissingPolicy } from './policy.js'
 import { envelopePayloadHash } from '../../with-commit/history/ledger/hash.js'
@@ -349,7 +348,12 @@ export class DictionaryHandle<Keys extends string = string> {
     private readonly compartmentName: string,
     private readonly dictionaryName: string,
     private readonly keyring: UnlockedKeyring,
-    private readonly getDEK: (collectionName: string) => Promise<EnclaveKey>,
+    /**
+     * The `reservedEnvelopes('_dict_')` capability — this handle's sanctioned
+     * crypto door onto its `_dict_<name>` collection (#629 Task 4). Bound by
+     * the Vault; never a keyring, raw DEK, or enclave import.
+     */
+    private readonly reservedEnvelopes: ReturnType<ViaCryptoCtx['reservedEnvelopes']>,
     private readonly encrypted: boolean,
     private readonly ledger: LedgerStore | undefined,
     private readonly options: DictionaryOptions,
@@ -393,15 +397,6 @@ export class DictionaryHandle<Keys extends string = string> {
 
   // ─── Internal helpers ─────────────────────────────────────────────
 
-  private async getDekForDict(): Promise<EnclaveKey> {
-    const resolve = await ensureCollectionDEK(
-      this.adapter,
-      this.compartmentName,
-      this.keyring,
-    )
-    return resolve(this.collName)
-  }
-
   private async encryptEntry(entry: DictEntry, version: number): Promise<EncryptedEnvelope> {
     if (!this.encrypted) {
       return {
@@ -413,24 +408,15 @@ export class DictionaryHandle<Keys extends string = string> {
         _by: this.keyring.userId,
       }
     }
-    const dek = await this.getDekForDict()
-    const { iv, data } = await encrypt(JSON.stringify(entry), dek)
-    return {
-      _noydb: NOYDB_FORMAT_VERSION,
-      _v: version,
-      _ts: new Date().toISOString(),
-      _iv: iv,
-      _data: data,
-      _by: this.keyring.userId,
-    }
+    const envelope = await this.reservedEnvelopes.encrypt(this.collName, JSON.stringify(entry), version)
+    return { ...envelope, _by: this.keyring.userId }
   }
 
   private async decryptEntry(envelope: EncryptedEnvelope): Promise<DictEntry> {
     if (!this.encrypted) {
       return JSON.parse(envelope._data) as DictEntry
     }
-    const dek = await this.getDekForDict()
-    const json = await openEnvelopeJson(envelope, dek)
+    const json = await this.reservedEnvelopes.decrypt(this.collName, envelope)
     return JSON.parse(json) as DictEntry
   }
 
